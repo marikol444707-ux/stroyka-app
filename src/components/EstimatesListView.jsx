@@ -11,6 +11,7 @@ export default function EstimatesListView({
   btnB,
   btnG,
   btnGr,
+  btnO,
   btnR,
   estimatesList,
   showArchivedEstimates,
@@ -32,6 +33,7 @@ export default function EstimatesListView({
   deleteEstimateRemote,
   showPreview,
   buildEstimateDiffContent,
+  onCreateReconciliation,
   isLeadership,
   canHardDeleteEstimate,
 }) {
@@ -94,6 +96,7 @@ export default function EstimatesListView({
           btnB={btnB}
           btnG={btnG}
           btnGr={btnGr}
+          btnO={btnO}
           btnR={btnR}
           projectName={projectName}
           groups={projectEstimateGroups}
@@ -114,6 +117,7 @@ export default function EstimatesListView({
           deleteEstimateRemote={deleteEstimateRemote}
           showPreview={showPreview}
           buildEstimateDiffContent={buildEstimateDiffContent}
+          onCreateReconciliation={onCreateReconciliation}
           isLeadership={isLeadership}
           canHardDeleteEstimate={canHardDeleteEstimate}
         />

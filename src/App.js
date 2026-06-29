@@ -551,6 +551,7 @@ function App() {
   const [timesheet, setTimesheet] = useState({});
   const [salaryPayments, setSalaryPayments] = useState([]);
   const [unexpectedWorksList, setUnexpectedWorksList] = useState([]);
+  const [estimateReconciliations, setEstimateReconciliations] = useState([]);
   const [brigadeContracts, setBrigadeContracts] = useState([]);
   const [hiddenActs, setHiddenActs] = useState([]);
   const [editingAct, setEditingAct] = useState(null);
@@ -1255,6 +1256,10 @@ function App() {
     mobileApiRequestsRef.current.set(path, request);
     return request;
   };
+  const apiAuthHeaders = (headers={}) => {
+    const token = localStorage.getItem('authToken');
+    return token ? {...headers, Authorization: 'Bearer ' + token} : headers;
+  };
 
   const pagedPath = (path, params = {}) => {
     const query = new URLSearchParams();
@@ -1444,7 +1449,7 @@ function App() {
       setSupplierCatalog(Array.isArray(scat)?scat:[]);
     });
     if (['projects','works','documents','cable'].includes(page)) return loadMobileScopeOnce('mobile:projects-docs', async () => {
-      const [p,wj,mt,ro,rw,rwin,rdoor,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,warD,pdocs,plet,pmeas,mdrafts] = await Promise.all([
+      const [p,wj,mt,ro,rw,rwin,rdoor,ps,pcl,pres,uw,est,er,bc,hwa,mij,cbj,sva,inspO,warD,pdocs,plet,pmeas,mdrafts] = await Promise.all([
         role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
         role === 'поставщик' ? Promise.resolve([]) : getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})),
 	        (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
@@ -1457,6 +1462,7 @@ function App() {
         canSeeProjectDocs ? getApi('/prescriptions') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/unexpected-works') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/estimates-summary') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/estimate-reconciliations') : Promise.resolve([]),
         (isInternalRole || isFinanceRole) ? getApi('/brigade-contracts') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/hidden-works-acts') : Promise.resolve([]),
         (canSeeProjectDocs || isWarehouseRole) ? getApi('/material-inspection') : Promise.resolve([]),
@@ -1477,7 +1483,7 @@ function App() {
       setRoomWindows(Array.isArray(rwin)?rwin:[]); setRoomDoors(Array.isArray(rdoor)?rdoor:[]);
       setProjectStages(Array.isArray(ps)?ps:[]); setChecklists(Array.isArray(pcl)?pcl:[]);
       setPrescriptionsList(Array.isArray(pres)?pres:[]); setUnexpectedWorksList(Array.isArray(uw)?uw:[]);
-      setEstimatesList(normalizeEstimateList(est)); setBrigadeContracts(Array.isArray(bc)?bc:[]);
+      setEstimatesList(normalizeEstimateList(est)); setEstimateReconciliations(Array.isArray(er)?er:[]); setBrigadeContracts(Array.isArray(bc)?bc:[]);
       setHiddenActs(Array.isArray(hwa)?hwa:[]); setMaterialInspections(Array.isArray(mij)?mij:[]);
       setCableJournal(Array.isArray(cbj)?cbj:[]); setSupervisorActs(Array.isArray(sva)?sva:[]);
       setInspectionOrders(Array.isArray(inspO)?inspO:[]); setWarrantyDefects(Array.isArray(warD)?warD:[]);
@@ -1485,8 +1491,9 @@ function App() {
       setProjectMeasurements(Array.isArray(pmeas)?pmeas:[]); setMeasurementRoomDrafts(Array.isArray(mdrafts)?mdrafts:[]);
     });
     if (page === 'estimates') return loadMobileScopeOnce('mobile:estimates', async () => {
-      const [est,pl,mn,ma,mno,mns,bc,abi,abp] = await Promise.all([
+      const [est,er,pl,mn,ma,mno,mns,bc,abi,abp] = await Promise.all([
         canSeeProjectDocs ? getApi('/estimates-summary') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/estimate-reconciliations') : Promise.resolve([]),
         ((isInternalRole && !['мастер','субподрядчик','бригадир'].includes(role)) || role === 'технадзор') ? getApi('/pricelists') : Promise.resolve([]),
         canSeeProjectDocs ? getApi(pagedPath('/material-norms', {limit: MATERIAL_NORMS_PAGE_LIMIT})) : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/material-aliases') : Promise.resolve([]),
@@ -1496,7 +1503,7 @@ function App() {
         (isInternalRole || isFinanceRole) ? getApi('/brigade-contract-items-all') : Promise.resolve([]),
         (isInternalRole || isFinanceRole) ? getApi('/brigade-payments') : Promise.resolve([]),
       ]);
-      setEstimatesList(normalizeEstimateList(est)); setPricelists(Array.isArray(pl)?pl:[]);
+      setEstimatesList(normalizeEstimateList(est)); setEstimateReconciliations(Array.isArray(er)?er:[]); setPricelists(Array.isArray(pl)?pl:[]);
       setMaterialNorms(Array.isArray(mn)?mn:[]); resetMaterialNormsPage(mn); setMaterialAliases(Array.isArray(ma)?ma:[]);
       setMaterialNormOverrides(Array.isArray(mno)?mno:[]); setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);
       setBrigadeContracts(Array.isArray(bc)?bc:[]); setAllBrigadeItems(Array.isArray(abi)?abi:[]);
@@ -1667,7 +1674,7 @@ function App() {
         .catch(() => fallback);
       const skip = (fallback = []) => Promise.resolve(fallback);
 
-      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD,scat,stpl,aif,ait,mn,ma,mno,mns,aud] = await Promise.all([
+      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,er,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD,scat,stpl,aif,ait,mn,ma,mno,mns,aud] = await Promise.all([
         role === 'поставщик' ? skip([]) : get('/projects'),
         (isLeadershipRole || role === 'менеджер_crm') ? get('/clients') : skip([]),
         role === 'поставщик' ? skip([]) : get(pagedPath('/materials', {limit: MATERIALS_PAGE_LIMIT})),
@@ -1708,6 +1715,7 @@ function App() {
         canSeeProjectDocs ? get('/prescriptions') : skip([]),
         canSeeProjectDocs ? get('/unexpected-works') : skip([]),
         canSeeProjectDocs ? get('/estimates-summary') : skip([]),
+        canSeeProjectDocs ? get('/estimate-reconciliations') : skip([]),
         (isInternalRole || isFinanceRole) ? get('/brigade-contracts') : skip([]),
         canSeeProjectDocs ? get('/hidden-works-acts') : skip([]),
         (canSeeProjectDocs || isWarehouseRole) ? get('/material-inspection') : skip([]),
@@ -1735,7 +1743,7 @@ function App() {
       setInventory(inv);setPdConsents(pdc);setWarehouses(Array.isArray(wh)?wh:[]);
       setCompanyRequisites(cr||{});setCompanyDocuments(Array.isArray(cd)?cd:[]);
       setProjectStages(Array.isArray(ps)?ps:[]);setChecklists(Array.isArray(pcl)?pcl:[]);
-      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(normalizeEstimateList(est));setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);setMaterialNorms(Array.isArray(mn)?mn:[]);resetMaterialNormsPage(mn);setMaterialAliases(Array.isArray(ma)?ma:[]);setMaterialNormOverrides(Array.isArray(mno)?mno:[]);setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);setAuditLog(Array.isArray(aud)?aud:[]);
+      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(normalizeEstimateList(est));setEstimateReconciliations(Array.isArray(er)?er:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);setMaterialNorms(Array.isArray(mn)?mn:[]);resetMaterialNormsPage(mn);setMaterialAliases(Array.isArray(ma)?ma:[]);setMaterialNormOverrides(Array.isArray(mno)?mno:[]);setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);setAuditLog(Array.isArray(aud)?aud:[]);
       if (canSeeProjectDocs) try {
         const [rwin,rdoor] = await Promise.all([
           get('/room-windows'),
@@ -3980,6 +3988,120 @@ function App() {
     html += '<p style="font-size:10px;color:#555;margin-top:16px">Документ сформирован автоматически по строкам старой и новой сметы. Раздел сопоставления показывает, какие утверждённые работы вне/сверх сметы уже отражены в новой редакции, а какие остаются отдельной допработой для ДС/КС. После подтверждения включённые изменения не должны повторно попадать в КС отдельным блоком.</p>';
     return html;
   };
+  const estimateReconciliationStatusView = (status) => {
+    if (status === 'Утверждена') return {label:'Утверждена', color:C.success, bg:C.successLight, border:C.successBorder};
+    if (status === 'Отклонена') return {label:'Отклонена', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
+    if (status === 'На проверке') return {label:'На проверке', color:C.warning, bg:C.warningLight, border:C.warningBorder};
+    return {label:status || 'Черновик', color:C.info, bg:C.infoLight, border:C.infoBorder};
+  };
+  const estimateReconciliationsForProject = (projectName) => (estimateReconciliations||[])
+    .filter(r=>r.projectName===projectName)
+    .sort((a,b)=>Number(b.id||0)-Number(a.id||0));
+  const buildEstimateReconciliationContent = (rec) => {
+    const items = rec?.items || [];
+    const fmtMoney = (n) => (Math.round(Number(n||0)*100)/100).toLocaleString('ru-RU')+' ₽';
+    const signMoney = (n) => (Number(n||0)>0?'+':'')+fmtMoney(n);
+    const fmtQty = (n) => {
+      const q = Number(n||0);
+      return Math.abs(q - Math.round(q)) < 0.001 ? String(Math.round(q)) : q.toLocaleString('ru-RU', {maximumFractionDigits:3});
+    };
+    const diffColor = (n) => Number(n||0)>0 ? '#b45309' : Number(n||0)<0 ? '#047857' : '#374151';
+    const rowsOf = (type) => items.filter(i=>i.itemType===type);
+    const empty = (cols) => '<tr><td colspan="'+cols+'" style="text-align:center;color:#64748b">Нет строк</td></tr>';
+    const rowChanged = (i) => '<tr>'
+      + '<td>'+docEsc(i.sectionName)+'</td><td>'+docEsc(i.itemName)+'</td><td>'+docEsc(i.unit)+'</td>'
+      + '<td class="num">'+docEsc(fmtQty(i.baseQuantity))+'</td><td class="num">'+docEsc(fmtQty(i.nextQuantity))+'</td>'
+      + '<td class="num">'+fmtMoney(i.baseUnitPrice)+'</td><td class="num">'+fmtMoney(i.nextUnitPrice)+'</td>'
+      + '<td class="num">'+fmtMoney(i.baseTotal)+'</td><td class="num">'+fmtMoney(i.nextTotal)+'</td>'
+      + '<td class="num" style="color:'+diffColor(i.impact)+';font-weight:700">'+signMoney(i.impact)+'</td>'
+      + '<td>'+docEsc(i.decision)+'</td></tr>';
+    const rowSimple = (i) => '<tr>'
+      + '<td>'+docEsc(i.sectionName)+'</td><td>'+docEsc(i.itemName)+'</td><td>'+docEsc(i.unit)+'</td>'
+      + '<td class="num">'+docEsc(fmtQty(i.itemType==='removed'?i.baseQuantity:i.nextQuantity))+'</td>'
+      + '<td class="num">'+fmtMoney(i.itemType==='removed'?i.baseUnitPrice:i.nextUnitPrice)+'</td>'
+      + '<td class="num">'+fmtMoney(i.itemType==='removed'?i.baseTotal:i.nextTotal)+'</td>'
+      + '<td class="num" style="color:'+diffColor(i.impact)+';font-weight:700">'+signMoney(i.impact)+'</td>'
+      + '<td>'+docEsc(i.decision)+'</td></tr>';
+    const rowChange = (i) => '<tr>'
+      + '<td>'+docEsc(i.itemName)+'</td><td>'+docEsc(i.unit)+'</td>'
+      + '<td class="num">'+docEsc(fmtQty(i.baseQuantity))+'</td><td class="num">'+docEsc(fmtQty(i.nextQuantity))+'</td>'
+      + '<td class="num" style="color:'+diffColor(i.impact)+';font-weight:700">'+signMoney(i.impact)+'</td>'
+      + '<td>'+docEsc(i.decision)+'</td><td class="num">'+docEsc(i.confidence?Math.round(i.confidence*100)+'%':'—')+'</td>'
+      + '<td>'+docEsc(i.notes||'')+'</td></tr>';
+    let html = '<style>'
+      + '.erec-title{text-align:center;font-size:18px;font-weight:700;margin:0 0 4px}'
+      + '.erec-sub{text-align:center;color:#555;font-size:11px;margin:0 0 14px}'
+      + '.erec-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0 14px}'
+      + '.erec-card{border:1px solid #cbd5e1;border-radius:8px;padding:8px;background:#f8fafc}'
+      + '.erec-card span{display:block;color:#64748b;font-size:10px}.erec-card b{font-size:14px}'
+      + '.erec-table{font-size:10px;table-layout:fixed}.erec-table th{font-size:9px}.erec-table td,.erec-table th{vertical-align:top;word-break:break-word}'
+      + '.erec-table .num{text-align:right;white-space:nowrap}.erec-h{font-size:13px;font-weight:700;margin:16px 0 6px}'
+      + '</style>';
+    html += '<div class="erec-title">АКТ / ВЕДОМОСТЬ СВЕРКИ СМЕТ № '+docEsc(rec?.id||'')+'</div>';
+    html += '<div class="erec-sub">Объект: '+docEsc(rec?.projectName||'')+' · Тип: '+docEsc(rec?.smetaType||'Заказчик')+' · Пакет: '+docEsc(rec?.workPackage||'Основная')+' · Статус: '+docEsc(rec?.status||'Черновик')+'</div>';
+    html += '<table><tr><th>Базовая смета</th><td>'+docEsc((rec?.baseEstimateName||'')+' v'+(rec?.baseVersion||''))+'</td></tr><tr><th>Новая смета</th><td>'+docEsc((rec?.nextEstimateName||'')+' v'+(rec?.nextVersion||''))+'</td></tr><tr><th>Дата создания</th><td>'+docEsc(String(rec?.createdAt||'').slice(0,10))+'</td></tr></table>';
+    html += '<div class="erec-grid">'
+      + '<div class="erec-card"><span>Было</span><b>'+fmtMoney(rec?.baseTotal)+'</b></div>'
+      + '<div class="erec-card"><span>Стало</span><b>'+fmtMoney(rec?.nextTotal)+'</b></div>'
+      + '<div class="erec-card"><span>Разница</span><b style="color:'+diffColor(rec?.impact)+'">'+signMoney(rec?.impact)+'</b></div>'
+      + '<div class="erec-card"><span>Спорные / проверить</span><b style="color:#b45309">'+(rec?.reviewCount ?? items.filter(i=>String(i.decision||'').startsWith('Проверить')||i.decision==='На проверке').length)+'</b></div>'
+      + '</div>';
+    html += '<div class="erec-h">Изменён объём или цена</div><table class="erec-table"><tr><th>Раздел</th><th>Позиция</th><th>Ед.</th><th>Было кол.</th><th>Стало кол.</th><th>Было цена</th><th>Стало цена</th><th>Было сумма</th><th>Стало сумма</th><th>Влияние</th><th>Решение</th></tr>'+(rowsOf('changed').map(rowChanged).join('')||empty(11))+'</table>';
+    html += '<div class="erec-h">Добавлено в новую смету</div><table class="erec-table"><tr><th>Раздел</th><th>Позиция</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th><th>Влияние</th><th>Решение</th></tr>'+(rowsOf('added').map(rowSimple).join('')||empty(8))+'</table>';
+    html += '<div class="erec-h">Исключено из новой сметы</div><table class="erec-table"><tr><th>Раздел</th><th>Позиция</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th><th>Влияние</th><th>Решение</th></tr>'+(rowsOf('removed').map(rowSimple).join('')||empty(8))+'</table>';
+    html += '<div class="erec-h">Утверждённые изменения к смете</div><table class="erec-table"><tr><th>Изменение</th><th>Ед.</th><th>Было</th><th>Найдено в новой</th><th>Сумма</th><th>Решение</th><th>Увер.</th><th>Примечание</th></tr>'+(rowsOf('estimate_change').map(rowChange).join('')||empty(8))+'</table>';
+    html += '<p style="font-size:10px;color:#555;margin-top:16px">Сверка фиксирует снимок старой и новой сметы. Строки со статусом проверки должны быть разобраны до закрытия КС, чтобы одна и та же работа не попала и в новую смету, и отдельной допработой.</p>';
+    return html;
+  };
+  const loadEstimateReconciliationDetail = async (recOrId) => {
+    const id = typeof recOrId === 'object' ? recOrId?.id : recOrId;
+    if (!id) return null;
+    const cached = typeof recOrId === 'object' && Array.isArray(recOrId.items) ? recOrId : null;
+    if (cached) return cached;
+    const res = await fetch(API+'/estimate-reconciliations/'+id,{headers:apiAuthHeaders()});
+    const data = await res.json().catch(()=>({}));
+    if (!res.ok) throw new Error(data.detail || 'Не удалось загрузить сверку');
+    setEstimateReconciliations(prev=>(prev||[]).map(r=>Number(r.id)===Number(id)?{...r,...data}:r));
+    return data;
+  };
+  const openEstimateReconciliationPreview = async (recOrId) => {
+    try {
+      const detail = await loadEstimateReconciliationDetail(recOrId);
+      if (detail) showPreview(buildEstimateReconciliationContent(detail),'Сверка смет № '+detail.id);
+    } catch(e) {
+      alert(e.message || 'Не удалось открыть сверку');
+    }
+  };
+  const createEstimateReconciliation = async (baseEst, nextEst, options={}) => {
+    if (!baseEst?.id || !nextEst?.id) {
+      if (!options.silent) alert('Не найдена базовая и новая смета для сверки');
+      return null;
+    }
+    try {
+      const res = await fetch(API+'/estimate-reconciliations',{method:'POST',headers:apiAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({baseEstimateId:baseEst.id,nextEstimateId:nextEst.id,notes:options.notes||''})});
+      const data = await res.json().catch(()=>({}));
+      if (!res.ok) throw new Error(data.detail || 'Не удалось создать сверку');
+      const detail = await loadEstimateReconciliationDetail(data.id);
+      if (detail) {
+        setEstimateReconciliations(prev=>[detail,...(prev||[]).filter(r=>Number(r.id)!==Number(detail.id))]);
+        if (!options.silent && options.preview !== false) showPreview(buildEstimateReconciliationContent(detail),'Сверка смет № '+detail.id);
+      }
+      if (!options.silent) await refreshData();
+      return detail || data;
+    } catch(e) {
+      if (!options.silent) alert(e.message || 'Не удалось создать сверку');
+      return null;
+    }
+  };
+  const approveEstimateReconciliation = async (rec) => {
+    if (!rec?.id) return;
+    if (!window.confirm('Утвердить сверку смет № '+rec.id+'? После этого она будет считаться подписанным документом в реестре.')) return;
+    const res = await fetch(API+'/estimate-reconciliations/'+rec.id,{method:'PUT',headers:apiAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({status:'Утверждена'})});
+    const data = await res.json().catch(()=>({}));
+    if (!res.ok) { alert(data.detail || 'Не удалось утвердить сверку'); return; }
+    setEstimateReconciliations(prev=>(prev||[]).map(r=>Number(r.id)===Number(rec.id)?{...r,status:'Утверждена',approvedBy:user.name,approvedAt:new Date().toISOString().slice(0,10)}:r));
+    await refreshData();
+  };
   const estimateStatusView = (est, groupItems=[]) => {
     const status = est?.status || 'Черновик';
     if(status === 'Активная') return {label:'Активная', color:C.success, bg:C.successLight, border:C.successBorder};
@@ -4002,6 +4124,84 @@ function App() {
     return Object.values(groups)
       .map(items=>activeEstimateFromList(items))
       .filter(Boolean);
+  };
+  const renderEstimateReconciliationsPanel = (p) => {
+    const recs = estimateReconciliationsForProject(p.name);
+    const projectEstimates = visibleEstimatesForCurrentUser(estimatesList)
+      .filter(e=>e.projectName===p.name && estimateKind(e)==='Заказчик' && !isArchivedEstimate(e) && !isGlobalEstimateTemplate(e));
+    const pairMap = new Map();
+    projectEstimates.forEach(est=>{
+      const base = estimateDiffBaseFor(est);
+      if (!base || base.projectName!==p.name || Number(base.id)===Number(est.id)) return;
+      const key = String(base.id)+'|'+String(est.id);
+      if (!pairMap.has(key)) pairMap.set(key,{base,next:est});
+    });
+    const pairs = Array.from(pairMap.values()).sort((a,b)=>(estimateUpdatedTs(b.next)||Number(b.next.id||0))-(estimateUpdatedTs(a.next)||Number(a.next.id||0)));
+    const fmtMoney = (n) => (Number(n||0)>0?'+':'')+Math.round(Number(n||0)).toLocaleString('ru-RU')+' ₽';
+    return (
+      <div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'15px'}}>
+          <div>
+            <b style={{color:C.text,fontSize:'15px'}}>Сверки смет</b>
+            <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'12px'}}>Сравнение редакций сметы с фиксацией спорных позиций и связью с реестром документов.</p>
+          </div>
+          <span style={badge(C.info,C.infoLight,C.infoBorder)}>{recs.length+' док.'}</span>
+        </div>
+        {pairs.length>0&&(
+          <div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:C.bg}}>
+            <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'8px'}}>Создать сверку по редакциям</b>
+            <div style={{display:'grid',gap:'8px'}}>
+              {pairs.slice(0,6).map(({base,next})=>{
+                const existing = recs.find(r=>Number(r.baseEstimateId)===Number(base.id)&&Number(r.nextEstimateId)===Number(next.id));
+                const diff = estimateTotal(next)-estimateTotal(base);
+                return (
+                  <div key={base.id+'-'+next.id} style={{padding:'10px',border:'1px solid '+C.border,borderRadius:'8px',backgroundColor:C.bgWhite,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
+                    <div style={{minWidth:'240px',flex:1}}>
+                      <b style={{color:C.text,fontSize:'12px'}}>{estimatePackage(next)+' · '+(base.name||'База')+' → '+(next.name||'Новая')}</b>
+                      <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'11px'}}>{'v'+(base.version||'')+' → v'+(next.version||'')+' · разница '+fmtMoney(diff)}</p>
+                    </div>
+                    {existing
+                      ? <button onClick={()=>openEstimateReconciliationPreview(existing)} style={{...btnB,padding:'6px 10px',fontSize:'12px'}}><Eye size={13}/>Открыть №{existing.id}</button>
+                      : <button onClick={()=>createEstimateReconciliation(base,next)} style={{...btnO,padding:'6px 10px',fontSize:'12px'}}><GitBranch size={13}/>Создать сверку</button>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {recs.length===0?(
+          <div style={{...card,padding:'26px',textAlign:'center',color:C.textMuted}}>
+            Сверок смет по объекту пока нет. Загрузите новую редакцию сметы или создайте сверку из пары выше.
+          </div>
+        ):(
+          <div style={{display:'grid',gap:'10px'}}>
+            {recs.map(rec=>{
+              const st = estimateReconciliationStatusView(rec.status);
+              return (
+                <div key={rec.id} style={{...card,padding:'14px',borderLeft:'3px solid '+st.color}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                    <div style={{minWidth:'260px',flex:1}}>
+                      <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap',marginBottom:'4px'}}>
+                        <b style={{color:C.text,fontSize:'13px'}}>Сверка смет № {rec.id}</b>
+                        <span style={badge(st.color,st.bg,st.border)}>{st.label}</span>
+                        <span style={badge(C.textSec,C.bgGray,C.border)}>{rec.workPackage||'Основная'}</span>
+                      </div>
+                      <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(rec.baseEstimateName||'База')+' v'+(rec.baseVersion||'')+' → '+(rec.nextEstimateName||'Новая')+' v'+(rec.nextVersion||'')}</p>
+                      <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'11px'}}>{'Изменено: '+(rec.changedCount||0)+' · добавлено: '+(rec.addedCount||0)+' · исключено: '+(rec.removedCount||0)+' · проверить: '+(rec.reviewCount||0)}</p>
+                    </div>
+                    <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                      <b style={{color:Number(rec.impact||0)>=0?C.warning:C.success,fontSize:'13px',whiteSpace:'nowrap'}}>{fmtMoney(rec.impact)}</b>
+                      <button onClick={()=>openEstimateReconciliationPreview(rec)} style={{...btnB,padding:'5px 9px',fontSize:'11px'}}><Printer size={12}/>Печать</button>
+                      {isLeadership()&&rec.status!=='Утверждена'&&<button onClick={()=>approveEstimateReconciliation(rec)} style={{...btnGr,padding:'5px 9px',fontSize:'11px'}}><Check size={12}/>Утвердить</button>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
   };
   const getProjectWorkPackageOptions = (projectName='') => {
     const project = (projects||[]).find(p=>p.name===projectName);
@@ -8477,6 +8677,8 @@ function App() {
 	      + (materialSummary.usedOverControlRows?.length || 0);
 	    const docs = projectRows(projectDocuments);
 	    const letters = projectRows(projectLetters);
+	    const estimateRecs = estimateReconciliationsForProject(projectName);
+	    const estimateRecChecks = estimateRecs.reduce((sum, rec) => sum + Number(rec.reviewCount || 0), 0);
 	    const aiOpen = aiFindingsForProject(projectName).length;
 	    const aiTasksOpen = aiTasksForProject(projectName).length;
 	    const payments = projectRows(projectPayments);
@@ -8541,6 +8743,18 @@ function App() {
 	        color: (inspectionPending || cablePending) ? C.warning : C.accent,
 	        bg: (inspectionPending || cablePending) ? C.warningLight : C.bg,
 	        border: (inspectionPending || cablePending) ? C.warningBorder : C.border,
+	      },
+	      {
+	        key: 'estimate-reconciliations',
+	        tab: 'Сверки смет',
+	        icon: '🧾',
+	        label: 'Сверки смет',
+	        count: estimateRecs.length,
+	        hint: estimateRecChecks ? 'проверить строк: ' + estimateRecChecks : 'акты сверки редакций',
+	        status: estimateRecChecks ? 'есть спорные позиции' : '',
+	        color: estimateRecChecks ? C.warning : C.info,
+	        bg: estimateRecChecks ? C.warningLight : C.bg,
+	        border: estimateRecChecks ? C.warningBorder : C.border,
 	      },
 	      {
 	        key: 'documents',
@@ -11852,6 +12066,7 @@ function App() {
       if(diffBase) {
         await queueEstimateDiffReviewTask(diffBase,estWithId,'Импорт сметы');
         await autoReconcileEstimateChanges(diffBase,estWithId,'Импорт сметы');
+        await createEstimateReconciliation(diffBase,estWithId,{silent:true});
       }
       await queueEstimateQualityReviewTask(estWithId, 'Импорт сметы');
       await queueEstimateNormReviewTask(estWithId, 'Импорт сметы', nextEstimates);
@@ -13365,6 +13580,13 @@ function App() {
                         </div>);})}
                         {activeEsts.length>1&&unlinked.length>0&&<p style={{color:C.warning,margin:'8px 0 0',fontSize:'11px'}}>Есть изменения без привязки к строке сметы: {unlinked.length}. При нескольких активных пакетах их нужно привязать вручную, чтобы не включить не туда.</p>}
                       </div>);})()}
+                      {(()=>{const recs=estimateReconciliationsForProject(p.name);if(recs.length===0)return null;const openChecks=recs.reduce((s,r)=>s+Number(r.reviewCount||0),0);return(<div style={{...card,padding:'12px 14px',marginBottom:'14px',backgroundColor:C.bg,border:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
+                        <div>
+                          <b style={{color:C.text,fontSize:'13px'}}>Связанные сверки смет: {recs.length}</b>
+                          <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'11px'}}>Спорных строк к проверке: {openChecks}. Сверка фиксирует, что вошло в новую смету, а что остаётся отдельной допработой.</p>
+                        </div>
+                        <button onClick={()=>{setActiveProjectTab('Сверки смет');setActiveTabGroup('work');}} style={{...btnB,padding:'6px 12px',fontSize:'12px'}}><FileText size={13}/>Открыть сверки</button>
+                      </div>);})()}
                       {showForm==='unexpected'&&(<div style={{...card,padding:'16px',marginBottom:'16px',backgroundColor:C.bg}}>
                         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
                           <select value={newUnexpected.changeType} onChange={e=>setNewUnexpected({...EMPTY_ESTIMATE_CHANGE,changeType:e.target.value,price:newUnexpected.price})} style={{...inp,marginBottom:0}}>
@@ -13422,6 +13644,8 @@ function App() {
                       {ESTIMATE_CHANGE_VISIBLE_STATUSES.map(status=>{ const items=unexpectedWorksList.filter(u=>u.projectName===p.name&&u.status===status); if(items.length===0) return null; return(<div key={status} style={{marginBottom:'16px'}}><b style={{color:isApprovedEstimateChangeStatus(status)?C.success:status==='Отклонено'?C.danger:status==='Включено в новую смету'?C.info:C.warning,fontSize:'12px',display:'block',marginBottom:'8px'}}>{status==='Ожидает согласования'?'⏳':isApprovedEstimateChangeStatus(status)?'✅':status==='Включено в новую смету'?'📐':'❌'} {status} ({items.length})</b>{items.map((u,idx)=>{const dsNum=isApprovedEstimateChangeStatus(status)?(()=>{const arr=(unexpectedWorksList||[]).filter(x=>x.projectName===p.name&&isApprovedEstimateChangeStatus(x.status));return arr.length-arr.findIndex(x=>x.id===u.id);})():null;return(<div key={u.id} style={{padding:'12px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px',flexWrap:'wrap'}}><div style={{flex:1,minWidth:'200px'}}>{dsNum&&<b style={{fontSize:'11px',color:C.info,display:'block'}}>ДС № {dsNum} к договору подряда</b>}<span style={{display:'inline-block',padding:'2px 7px',borderRadius:'9px',backgroundColor:C.bgWhite,border:'1px solid '+C.border,color:C.textSec,fontSize:'10px',marginBottom:'4px'}}>{u.changeType||'Работа вне сметы'}</span><b style={{fontSize:'13px',color:C.text,display:'block'}}>{u.description}</b>{u.estimateItemName&&<p style={{color:C.info,margin:'2px 0',fontSize:'11px'}}>{'Строка сметы: '+(u.sectionName?u.sectionName+' / ':'')+u.estimateItemName}</p>}<p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{fmtMeasure(u.deltaQuantity||u.quantity,u.unit)+(u.price>0?' · '+u.price.toLocaleString()+' ₽/'+u.unit:'')+(u.total>0?' · Итого: '+u.total.toLocaleString()+' ₽':'')}</p><p style={{color:C.textMuted,margin:'0',fontSize:'11px'}}>{'Добавил: '+u.addedBy+(u.approvedAt?' · Утв.: '+u.approvedAt:'')+(u.reason?' · Причина: '+u.reason:'')}</p></div><div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap'}}>{isApprovedEstimateChangeStatus(u.status)&&<button onClick={()=>showPreview(buildSupplementaryAgreementContent(u,p),'Доп.соглашение № '+dsNum+' к договору подряда — '+p.name)} style={{...btnB,padding:'4px 8px',fontSize:'11px'}} title='Печать доп.соглашения'><Eye size={11}/>🖨️ ДС</button>}{isLeadership()&&u.status==='Ожидает согласования'&&(<><input placeholder="Цена ₽" type="number" step="any" inputMode="decimal" defaultValue={u.price||''} style={{width:'90px',padding:'4px 8px',border:'1.5px solid '+C.border,borderRadius:'6px',fontSize:'12px'}} onChange={e=>e.target.dataset.price=e.target.value}/><button onClick={e=>{approveUnexpectedWork(u,e.target.previousSibling.dataset.price||u.price||0);}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}><Check size={11}/>Утвердить</button><button onClick={async()=>{await fetch(API+'/unexpected-works/'+u.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено',approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await refreshData();}} style={{...btnR,padding:'4px 8px',fontSize:'11px'}}><X size={11}/>Откл.</button></>)}</div></div></div>);})}</div>);})}
                       {unexpectedWorksList.filter(u=>u.projectName===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Изменений к смете нет</p>}
                   </div>)}
+
+                    {activeProjectTab==='Сверки смет'&&renderEstimateReconciliationsPanel(p)}
 
                     {activeProjectTab==='Расчёт с бригадой'&&(
                       <ProjectBrigadeCalculationTab
@@ -14651,6 +14875,7 @@ function App() {
                   if(diffBase) {
                     await queueEstimateDiffReviewTask(diffBase,newEst,'Смета создана');
                     await autoReconcileEstimateChanges(diffBase,newEst,'Смета создана');
+                    await createEstimateReconciliation(diffBase,newEst,{silent:true});
                   }
                   await queueEstimateQualityReviewTask(newEst, 'Смета создана');
                   await queueEstimateNormReviewTask(newEst, 'Смета создана', nextEstimates);
@@ -14688,6 +14913,7 @@ function App() {
                   onNormalize={handleNormalizeSelectedEstimateImport}
                   onOpenChat={handleOpenSelectedEstimateChat}
                   onOpenDistribute={handleOpenEstimateDistribute}
+                  onCreateReconciliation={()=>{const base=estimateDiffBaseFor(selectedEstimate);if(base)createEstimateReconciliation(base,selectedEstimate);}}
                   onPreview={handlePreviewSelectedEstimate}
                   onShowDiff={handleShowSelectedEstimateDiff}
                   onToggleIssuesOnly={()=>estimateQualityRows(selectedEstimate).length&&setShowEstimateIssuesOnly(v=>!v)}
@@ -14935,6 +15161,7 @@ function App() {
                   btnB={btnB}
                   btnG={btnG}
                   btnGr={btnGr}
+                  btnO={btnO}
                   btnR={btnR}
                   estimatesList={filteredEstimateList}
                   projectFilter={estimateProjectFilter}
@@ -14957,6 +15184,7 @@ function App() {
                   deleteEstimateRemote={deleteEstimateRemote}
                   showPreview={showPreview}
                   buildEstimateDiffContent={buildEstimateDiffContent}
+                  onCreateReconciliation={createEstimateReconciliation}
                   isLeadership={isLeadership}
                   canHardDeleteEstimate={isDirector}
                 />

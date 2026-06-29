@@ -3434,6 +3434,56 @@ def init_db():
             created_by VARCHAR(255),
             created_at TIMESTAMP DEFAULT NOW()
         );
+        CREATE TABLE IF NOT EXISTS estimate_reconciliations (
+            id SERIAL PRIMARY KEY,
+            project_name TEXT,
+            work_package TEXT DEFAULT 'Основная',
+            smeta_type TEXT DEFAULT 'Заказчик',
+            base_estimate_id INT NOT NULL,
+            next_estimate_id INT NOT NULL,
+            base_estimate_name TEXT,
+            next_estimate_name TEXT,
+            base_version TEXT,
+            next_version TEXT,
+            base_total NUMERIC(14,2) DEFAULT 0,
+            next_total NUMERIC(14,2) DEFAULT 0,
+            impact NUMERIC(14,2) DEFAULT 0,
+            changed_count INT DEFAULT 0,
+            added_count INT DEFAULT 0,
+            removed_count INT DEFAULT 0,
+            status TEXT DEFAULT 'Черновик',
+            notes TEXT,
+            created_by TEXT,
+            approved_by TEXT,
+            approved_at DATE,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_estimate_reconciliations_project ON estimate_reconciliations(project_name);
+        CREATE INDEX IF NOT EXISTS idx_estimate_reconciliations_estimates ON estimate_reconciliations(base_estimate_id, next_estimate_id);
+        CREATE TABLE IF NOT EXISTS estimate_reconciliation_items (
+            id SERIAL PRIMARY KEY,
+            reconciliation_id INT NOT NULL REFERENCES estimate_reconciliations(id) ON DELETE CASCADE,
+            item_type TEXT,
+            section_name TEXT,
+            item_name TEXT,
+            unit TEXT,
+            base_quantity NUMERIC(14,4) DEFAULT 0,
+            next_quantity NUMERIC(14,4) DEFAULT 0,
+            base_unit_price NUMERIC(14,4) DEFAULT 0,
+            next_unit_price NUMERIC(14,4) DEFAULT 0,
+            base_total NUMERIC(14,2) DEFAULT 0,
+            next_total NUMERIC(14,2) DEFAULT 0,
+            impact NUMERIC(14,2) DEFAULT 0,
+            decision TEXT DEFAULT 'На проверке',
+            confidence NUMERIC(6,4) DEFAULT 0,
+            notes TEXT,
+            old_row_json TEXT,
+            new_row_json TEXT,
+            unexpected_work_id INT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_estimate_reconciliation_items_reconciliation ON estimate_reconciliation_items(reconciliation_id);
         CREATE TABLE IF NOT EXISTS estimate_chat_messages (
             id SERIAL PRIMARY KEY,
             estimate_id INT NOT NULL,
@@ -15797,6 +15847,577 @@ def get_estimate_detail(id: int, current_user: dict = Depends(get_current_user))
         sections_loaded=role != "бухгалтер",
         total_override=summary_total,
     )
+
+
+def _estimate_reconciliation_text_key(value):
+    return re.sub(r"[^a-zа-я0-9]+", " ", str(value or "").lower().replace("ё", "е")).strip()
+
+
+def _estimate_reconciliation_item_sums(item, section_name=""):
+    item = item or {}
+    qty = _safe_float(item.get("quantity"))
+    try:
+        item_type = _estimate_item_type_backend(item, section_name)
+    except Exception:
+        item_type = str(item.get("itemType") or item.get("type") or "").strip().lower() or "work"
+    if item_type in ("adjustment", "note"):
+        return 0.0, 0.0, 0.0
+    if item.get("isImported"):
+        work_total = _safe_float(item.get("totalWork") or item.get("workTotal") or item.get("workSum"))
+        material_total = _safe_float(item.get("totalMaterial") or item.get("materialTotal") or item.get("materialSum"))
+        if work_total or material_total:
+            return work_total, material_total, work_total + material_total
+        line_total = _safe_float(
+            item.get("lineTotal")
+            or item.get("currentTotal")
+            or item.get("total")
+            or item.get("sum")
+            or item.get("amount")
+            or item.get("totalSum")
+            or item.get("estimatedCost")
+        )
+        if line_total:
+            if item_type in ("material", "equipment", "transport"):
+                return 0.0, line_total, line_total
+            return line_total, 0.0, line_total
+    work = qty * _safe_float(item.get("priceWork"))
+    material = qty * _safe_float(item.get("priceMaterial"))
+    return work, material, work + material
+
+
+def _estimate_reconciliation_rows(estimate_id, sections):
+    grouped = {}
+    for section_idx, section in enumerate(sections or []):
+        if not isinstance(section, dict):
+            continue
+        section_name = section.get("name") or "Без раздела"
+        for item_idx, item in enumerate(section.get("items") or []):
+            if not isinstance(item, dict):
+                continue
+            try:
+                item_type = _estimate_item_type_backend(item, section_name)
+            except Exception:
+                item_type = str(item.get("itemType") or item.get("type") or "").strip().lower() or "work"
+            if item_type in ("adjustment", "note"):
+                continue
+            qty = _safe_float(item.get("quantity"))
+            work_sum, material_sum, total = _estimate_reconciliation_item_sums(item, section_name)
+            unit = str(item.get("unit") or "").strip()
+            name = str(item.get("name") or item.get("description") or "Без названия").strip()
+            key = "|".join([
+                _estimate_reconciliation_text_key(section_name),
+                _estimate_reconciliation_text_key(name),
+                _estimate_reconciliation_text_key(unit),
+            ]) or "row:" + str(section_idx) + ":" + str(item_idx)
+            row = {
+                "key": key,
+                "section": section_name,
+                "name": name,
+                "unit": unit,
+                "qty": qty,
+                "workSum": work_sum,
+                "materialSum": material_sum,
+                "sum": total,
+                "unitPrice": (total / qty) if qty else 0,
+            }
+            if key not in grouped:
+                grouped[key] = row
+                continue
+            prev = grouped[key]
+            merged_qty = _safe_float(prev.get("qty")) + qty
+            merged_sum = _safe_float(prev.get("sum")) + total
+            grouped[key] = {
+                **prev,
+                "section": prev.get("section") if prev.get("section") == section_name else "Несколько разделов",
+                "qty": merged_qty,
+                "workSum": _safe_float(prev.get("workSum")) + work_sum,
+                "materialSum": _safe_float(prev.get("materialSum")) + material_sum,
+                "sum": merged_sum,
+                "unitPrice": (merged_sum / merged_qty) if merged_qty else 0,
+            }
+    return list(grouped.values())
+
+
+def _load_estimate_reconciliation_source(cur, estimate_id, current_user):
+    require_estimate_access(cur, estimate_id, current_user)
+    cur.execute("""SELECT id, project_id, project_name, name, version, sections_json,
+                          COALESCE(smeta_type,'Заказчик'), COALESCE(NULLIF(work_package,''),'Основная'),
+                          COALESCE(status,'Черновик'), created_at
+                   FROM estimates WHERE id=%s""", (estimate_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Смета не найдена")
+    try:
+        sections = json.loads(row[5]) if row[5] else []
+    except Exception:
+        sections = []
+    sections, _ = _normalize_estimate_adjustment_rows(sections)
+    total = _estimate_sections_total_for_summary(sections)
+    return row, sections, total
+
+
+def _build_estimate_reconciliation_diff(base_estimate_id, base_sections, base_total, next_estimate_id, next_sections, next_total):
+    base_rows = _estimate_reconciliation_rows(base_estimate_id, base_sections)
+    next_rows = _estimate_reconciliation_rows(next_estimate_id, next_sections)
+    base_map = {r["key"]: r for r in base_rows}
+    next_map = {r["key"]: r for r in next_rows}
+    added, removed, changed = [], [], []
+    for next_row in next_rows:
+        base_row = base_map.get(next_row["key"])
+        if not base_row:
+            added.append({**next_row, "impact": _safe_float(next_row.get("sum"))})
+            continue
+        qty_changed = abs(_safe_float(next_row.get("qty")) - _safe_float(base_row.get("qty"))) > 0.0001
+        price_changed = abs(_safe_float(next_row.get("unitPrice")) - _safe_float(base_row.get("unitPrice"))) > 0.01
+        sum_changed = abs(_safe_float(next_row.get("sum")) - _safe_float(base_row.get("sum"))) > 0.5
+        if qty_changed or price_changed or sum_changed:
+            changed.append({
+                "base": base_row,
+                "next": next_row,
+                "impact": _safe_float(next_row.get("sum")) - _safe_float(base_row.get("sum")),
+            })
+    for base_row in base_rows:
+        if base_row["key"] not in next_map:
+            removed.append({**base_row, "impact": -_safe_float(base_row.get("sum"))})
+    sort_key = lambda row: abs(_safe_float(row.get("impact")))
+    return {
+        "added": sorted(added, key=sort_key, reverse=True),
+        "removed": sorted(removed, key=sort_key, reverse=True),
+        "changed": sorted(changed, key=sort_key, reverse=True),
+        "baseTotal": round(_safe_float(base_total), 2),
+        "nextTotal": round(_safe_float(next_total), 2),
+        "impact": round(_safe_float(next_total) - _safe_float(base_total), 2),
+        "nextRows": next_rows,
+    }
+
+
+def _estimate_reconciliation_name_score(left, right):
+    a = _estimate_reconciliation_text_key(left)
+    b = _estimate_reconciliation_text_key(right)
+    if not a or not b:
+        return 0
+    if a == b:
+        return 1
+    if a in b or b in a:
+        return 0.92
+    aw = [w for w in a.split(" ") if len(w) > 3]
+    bw = [w for w in b.split(" ") if len(w) > 3]
+    if not aw or not bw:
+        return 0
+    return len([w for w in aw if w in bw]) / max(len(aw), len(bw))
+
+
+def _estimate_reconciliation_find_candidate(change, rows):
+    names = [str(change.get(k) or "").strip() for k in ("estimate_item_name", "description")]
+    names = [n for idx, n in enumerate(names) if n and n not in names[:idx]]
+    if not names:
+        return None
+    unit_key = _estimate_reconciliation_text_key(change.get("unit"))
+    section_key = _estimate_reconciliation_text_key(change.get("section_name"))
+    best = None
+    for row in rows or []:
+        row_unit_key = _estimate_reconciliation_text_key(row.get("unit"))
+        if unit_key and row_unit_key and unit_key != row_unit_key:
+            continue
+        section_bonus = 0.08 if section_key and section_key == _estimate_reconciliation_text_key(row.get("section")) else 0
+        score = min(0.99, max(_estimate_reconciliation_name_score(name, row.get("name")) for name in names) + section_bonus)
+        if score >= 0.72 and (not best or score > best["score"]):
+            best = {"row": row, "score": score}
+    return best
+
+
+def _estimate_reconciliation_change_required(change):
+    change_type = change.get("change_type") or "Работа вне сметы"
+    base = _safe_float(change.get("base_quantity"))
+    delta = _safe_float(change.get("delta_quantity") or change.get("quantity"))
+    raw = _safe_float(change.get("new_required_quantity"))
+    if raw <= 0 and (base > 0 or delta > 0):
+        raw = max(0, base - delta) if change_type == "Исключение объёма" else base + delta
+    return raw or delta
+
+
+def _estimate_reconciliation_change_items(cur, reconciliation_id, project_name, work_package, base_estimate_id, next_estimate_id, diff):
+    cols = """id, description, unit, quantity, price, total, change_type, estimate_id,
+              section_name, estimate_item_name, base_quantity, new_required_quantity,
+              delta_quantity, included_in_estimate_id, reason, status"""
+    cur.execute(f"""SELECT {cols} FROM unexpected_works
+                   WHERE project_name=%s
+                     AND (status = ANY(%s) OR status='Включено в новую смету')
+                     AND COALESCE(status,'') <> 'Аннулировано'
+                   ORDER BY id""", (project_name, list(ESTIMATE_CHANGE_APPROVED_STATUSES)))
+    changes = cur.fetchall() or []
+    priority_rows = [
+        *[{**r, "_kind": "Добавлена"} for r in diff.get("added", [])],
+        *[{**x.get("next", {}), "_kind": "Изменена"} for x in diff.get("changed", [])],
+        *[{**r, "_kind": "Найдена"} for r in diff.get("nextRows", [])],
+    ]
+    inserted = 0
+    for r in changes:
+        change = {
+            "id": r[0],
+            "description": r[1] or "",
+            "unit": r[2] or "",
+            "quantity": _safe_float(r[3]),
+            "price": _safe_float(r[4]),
+            "total": _safe_float(r[5]),
+            "change_type": r[6] or "Работа вне сметы",
+            "estimate_id": r[7],
+            "section_name": r[8] or "",
+            "estimate_item_name": r[9] or "",
+            "base_quantity": _safe_float(r[10]),
+            "new_required_quantity": _safe_float(r[11]),
+            "delta_quantity": _safe_float(r[12]),
+            "included_in_estimate_id": r[13],
+            "reason": r[14] or "",
+            "status": r[15] or "",
+        }
+        if change["estimate_id"] and int(change["estimate_id"]) not in (int(base_estimate_id), int(next_estimate_id)):
+            continue
+        change_scope = (change["section_name"] or "").strip()
+        if not change["estimate_id"] and change_scope and work_package and change_scope not in (work_package, "Основная"):
+            continue
+        candidate = _estimate_reconciliation_find_candidate(change, priority_rows)
+        required_qty = _estimate_reconciliation_change_required(change)
+        signed_total = -abs(change["total"]) if change["change_type"] == "Исключение объёма" else change["total"]
+        included = str(change.get("included_in_estimate_id") or "") == str(next_estimate_id)
+        decision = "Остаётся отдельной допработой"
+        confidence = 0
+        if included:
+            decision = "Включено в новую смету"
+            confidence = 1
+        elif candidate:
+            confidence = _safe_float(candidate.get("score"))
+            candidate_qty = _safe_float(candidate["row"].get("qty"))
+            if change["change_type"] == "Исключение объёма":
+                decision = "Проверить исключение объёма в новой смете"
+            elif not required_qty or candidate_qty >= required_qty * 0.95:
+                decision = "Проверить включение в новую смету"
+            else:
+                decision = "Проверить частичное включение в новую смету"
+        target_row = candidate["row"] if candidate else None
+        cur.execute("""INSERT INTO estimate_reconciliation_items
+                       (reconciliation_id, item_type, section_name, item_name, unit,
+                        base_quantity, next_quantity, base_unit_price, next_unit_price,
+                        base_total, next_total, impact, decision, confidence, notes,
+                        old_row_json, new_row_json, unexpected_work_id)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (reconciliation_id, "estimate_change", change["section_name"],
+                     change["estimate_item_name"] or change["description"], change["unit"],
+                     change["base_quantity"], _safe_float(target_row.get("qty")) if target_row else 0,
+                     change["price"], _safe_float(target_row.get("unitPrice")) if target_row else 0,
+                     change["base_quantity"] * change["price"], _safe_float(target_row.get("sum")) if target_row else 0,
+                     signed_total, decision, confidence, change["reason"],
+                     json.dumps(change, ensure_ascii=False),
+                     json.dumps(target_row or {}, ensure_ascii=False),
+                     change["id"]))
+        inserted += 1
+    return inserted
+
+
+def _estimate_reconciliation_item_payload(r):
+    return {
+        "id": r[0],
+        "reconciliationId": r[1],
+        "itemType": r[2] or "",
+        "sectionName": r[3] or "",
+        "itemName": r[4] or "",
+        "unit": r[5] or "",
+        "baseQuantity": float(r[6] or 0),
+        "nextQuantity": float(r[7] or 0),
+        "baseUnitPrice": float(r[8] or 0),
+        "nextUnitPrice": float(r[9] or 0),
+        "baseTotal": float(r[10] or 0),
+        "nextTotal": float(r[11] or 0),
+        "impact": float(r[12] or 0),
+        "decision": r[13] or "",
+        "confidence": float(r[14] or 0),
+        "notes": r[15] or "",
+        "oldRow": json.loads(r[16]) if r[16] else {},
+        "newRow": json.loads(r[17]) if r[17] else {},
+        "unexpectedWorkId": r[18],
+        "createdAt": str(r[19]) if r[19] else "",
+    }
+
+
+def _estimate_reconciliation_payload(r, items=None):
+    payload = {
+        "id": r[0],
+        "projectName": r[1] or "",
+        "workPackage": r[2] or "Основная",
+        "smetaType": r[3] or "Заказчик",
+        "baseEstimateId": r[4],
+        "nextEstimateId": r[5],
+        "baseEstimateName": r[6] or "",
+        "nextEstimateName": r[7] or "",
+        "baseVersion": r[8] or "",
+        "nextVersion": r[9] or "",
+        "baseTotal": float(r[10] or 0),
+        "nextTotal": float(r[11] or 0),
+        "impact": float(r[12] or 0),
+        "changedCount": int(r[13] or 0),
+        "addedCount": int(r[14] or 0),
+        "removedCount": int(r[15] or 0),
+        "status": r[16] or "Черновик",
+        "notes": r[17] or "",
+        "createdBy": r[18] or "",
+        "approvedBy": r[19] or "",
+        "approvedAt": str(r[20]) if r[20] else "",
+        "createdAt": str(r[21]) if r[21] else "",
+        "updatedAt": str(r[22]) if r[22] else "",
+    }
+    if len(r) > 23:
+        payload["itemCount"] = int(r[23] or 0)
+        payload["reviewCount"] = int(r[24] or 0)
+    if items is not None:
+        payload["items"] = items
+    return payload
+
+
+def _estimate_reconciliation_select_with_counts(where_sql="", params=()):
+    return f"""SELECT r.id,r.project_name,r.work_package,r.smeta_type,r.base_estimate_id,r.next_estimate_id,
+                      r.base_estimate_name,r.next_estimate_name,r.base_version,r.next_version,
+                      r.base_total,r.next_total,r.impact,r.changed_count,r.added_count,r.removed_count,
+                      r.status,r.notes,r.created_by,r.approved_by,r.approved_at,r.created_at,r.updated_at,
+                      COUNT(i.id) AS item_count,
+                      COALESCE(SUM(CASE WHEN COALESCE(i.decision,'') ILIKE 'Проверить%' OR COALESCE(i.decision,'')='На проверке' THEN 1 ELSE 0 END),0) AS review_count
+               FROM estimate_reconciliations r
+               LEFT JOIN estimate_reconciliation_items i ON i.reconciliation_id=r.id
+               {where_sql}
+               GROUP BY r.id
+               ORDER BY r.id DESC""", params
+
+
+@app.get("/estimate-reconciliations")
+def list_estimate_reconciliations(project_name: str = None, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+    conn = get_db()
+    cur = conn.cursor()
+    where, params = [], []
+    allowed_projects = visible_project_names(current_user)
+    if project_name:
+        if allowed_projects is not None and project_name not in allowed_projects:
+            cur.close(); conn.close()
+            return []
+        where.append("r.project_name=%s")
+        params.append(project_name)
+    elif allowed_projects is not None:
+        if not allowed_projects:
+            cur.close(); conn.close()
+            return []
+        where.append("r.project_name = ANY(%s)")
+        params.append(allowed_projects)
+    package_sql, package_params = package_access_filter(current_user, "r.work_package")
+    if package_sql:
+        where.append(package_sql[5:] if package_sql.startswith(" AND ") else package_sql)
+        params.extend(package_params)
+    if current_user.get("role") == "заказчик":
+        where.append("r.status='Утверждена'")
+    where_sql = "WHERE " + " AND ".join(where) if where else ""
+    sql, _ = _estimate_reconciliation_select_with_counts(where_sql, tuple(params))
+    cur.execute(sql, tuple(params))
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [_estimate_reconciliation_payload(r) for r in rows]
+
+
+@app.get("/estimate-reconciliations/{id}")
+def get_estimate_reconciliation(id: int, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+    conn = get_db()
+    cur = conn.cursor()
+    where_sql = "WHERE r.id=%s"
+    sql, _ = _estimate_reconciliation_select_with_counts(where_sql, (id,))
+    cur.execute(sql, (id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Сверка смет не найдена")
+    require_project_access(current_user, row[1] or "")
+    if current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(current_user, row[2] or "Основная"):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету сверки")
+    if current_user.get("role") == "заказчик" and (row[16] or "") != "Утверждена":
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Сверка ещё не утверждена")
+    cur.execute("""SELECT id,reconciliation_id,item_type,section_name,item_name,unit,
+                          base_quantity,next_quantity,base_unit_price,next_unit_price,
+                          base_total,next_total,impact,decision,confidence,notes,
+                          old_row_json,new_row_json,unexpected_work_id,created_at
+                   FROM estimate_reconciliation_items
+                   WHERE reconciliation_id=%s
+                   ORDER BY CASE item_type
+                              WHEN 'changed' THEN 1
+                              WHEN 'added' THEN 2
+                              WHEN 'removed' THEN 3
+                              WHEN 'estimate_change' THEN 4
+                              ELSE 5
+                            END, ABS(COALESCE(impact,0)) DESC, id""", (id,))
+    items = [_estimate_reconciliation_item_payload(r) for r in cur.fetchall() or []]
+    cur.close(); conn.close()
+    return _estimate_reconciliation_payload(row, items)
+
+
+@app.post("/estimate-reconciliations")
+def create_estimate_reconciliation(data: dict, current_user: dict = Depends(require_roles(*ESTIMATE_WRITE_ROLES))):
+    base_id = int(data.get("baseEstimateId") or data.get("base_estimate_id") or 0)
+    next_id = int(data.get("nextEstimateId") or data.get("next_estimate_id") or 0)
+    if not base_id or not next_id or base_id == next_id:
+        raise HTTPException(status_code=400, detail="Нужно выбрать две разные сметы")
+    conn = get_db()
+    cur = conn.cursor()
+    base, base_sections, base_total = _load_estimate_reconciliation_source(cur, base_id, current_user)
+    next_est, next_sections, next_total = _load_estimate_reconciliation_source(cur, next_id, current_user)
+    project_name = next_est[2] or base[2] or ""
+    if (base[2] or "") != (next_est[2] or ""):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Сметы относятся к разным объектам")
+    if (base[6] or "Заказчик") != (next_est[6] or "Заказчик") or (base[7] or "Основная") != (next_est[7] or "Основная"):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Сравнивать можно сметы одного типа и пакета работ")
+    diff = _build_estimate_reconciliation_diff(base_id, base_sections, base_total, next_id, next_sections, next_total)
+    status = data.get("status") or "Черновик"
+    if status not in ("Черновик", "На проверке", "Утверждена", "Отклонена"):
+        status = "Черновик"
+    cur.execute("""INSERT INTO estimate_reconciliations
+                   (project_name, work_package, smeta_type, base_estimate_id, next_estimate_id,
+                    base_estimate_name, next_estimate_name, base_version, next_version,
+                    base_total, next_total, impact, changed_count, added_count, removed_count,
+                    status, notes, created_by)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                   RETURNING id, created_at""",
+                (project_name, next_est[7] or "Основная", next_est[6] or "Заказчик", base_id, next_id,
+                 base[3] or "", next_est[3] or "", base[4] or "", next_est[4] or "",
+                 diff["baseTotal"], diff["nextTotal"], diff["impact"],
+                 len(diff["changed"]), len(diff["added"]), len(diff["removed"]),
+                 status, data.get("notes") or "", current_user.get("name") or ""))
+    reconciliation_id, created_at = cur.fetchone()
+
+    def insert_item(item_type, row, base_row=None, next_row=None):
+        old_row = base_row or row if item_type == "removed" else base_row
+        new_row = next_row or row if item_type == "added" else next_row
+        cur.execute("""INSERT INTO estimate_reconciliation_items
+                       (reconciliation_id, item_type, section_name, item_name, unit,
+                        base_quantity, next_quantity, base_unit_price, next_unit_price,
+                        base_total, next_total, impact, decision, confidence,
+                        old_row_json, new_row_json)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (reconciliation_id, item_type,
+                     (next_row or row or base_row or {}).get("section") or "",
+                     (next_row or row or base_row or {}).get("name") or "",
+                     (next_row or row or base_row or {}).get("unit") or "",
+                     _safe_float((base_row or {}).get("qty")),
+                     _safe_float((next_row or {}).get("qty")),
+                     _safe_float((base_row or {}).get("unitPrice")),
+                     _safe_float((next_row or {}).get("unitPrice")),
+                     _safe_float((base_row or {}).get("sum")),
+                     _safe_float((next_row or {}).get("sum")),
+                     _safe_float(row.get("impact")),
+                     {
+                         "changed": "Проверить изменение объёма/цены",
+                         "added": "Проверить новую позицию",
+                         "removed": "Проверить исключённую позицию",
+                     }.get(item_type, "На проверке"),
+                     1,
+                     json.dumps(old_row or {}, ensure_ascii=False),
+                     json.dumps(new_row or {}, ensure_ascii=False)))
+
+    for row in diff["changed"]:
+        insert_item("changed", row, row.get("base"), row.get("next"))
+    for row in diff["added"]:
+        insert_item("added", row, None, row)
+    for row in diff["removed"]:
+        insert_item("removed", row, row, None)
+    _estimate_reconciliation_change_items(cur, reconciliation_id, project_name, next_est[7] or "Основная", base_id, next_id, diff)
+    doc_number = "СС-" + str(reconciliation_id)
+    cur.execute("""INSERT INTO project_documents
+                   (project_name, side, doc_type, number, doc_date, counterparty, sign_status,
+                    scan_url, amount, notes, uploaded_by)
+                   VALUES (%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s)""",
+                (project_name, "customer", "Сверка смет", doc_number, "",
+                 "Подписан" if status == "Утверждена" else status,
+                 "", diff["impact"],
+                 "Автоматически создана по сверке смет #" + str(reconciliation_id) + ": " + (base[3] or "") + " -> " + (next_est[3] or ""),
+                 current_user.get("name") or ""))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True, "id": reconciliation_id, "createdAt": str(created_at) if created_at else ""}
+
+
+@app.put("/estimate-reconciliations/{id}")
+def update_estimate_reconciliation(id: int, data: dict, current_user: dict = Depends(require_roles(*ESTIMATE_WRITE_ROLES))):
+    status = data.get("status")
+    if status and status not in ("Черновик", "На проверке", "Утверждена", "Отклонена"):
+        raise HTTPException(status_code=400, detail="Недопустимый статус сверки")
+    if status == "Утверждена" and current_user.get("role") not in (*LEADERSHIP_ROLES, "главный_инженер", "сметчик"):
+        raise HTTPException(status_code=403, detail="Утвердить сверку может руководитель, главный инженер или сметчик")
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT project_name, work_package, status FROM estimate_reconciliations WHERE id=%s", (id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Сверка смет не найдена")
+    project_name, work_package, old_status = row[0] or "", row[1] or "Основная", row[2] or ""
+    require_project_access(current_user, project_name)
+    if current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(current_user, work_package):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету сверки")
+    updates, params = ["updated_at=NOW()"], []
+    if status:
+        updates.append("status=%s")
+        params.append(status)
+        if status == "Утверждена":
+            updates.extend(["approved_by=%s", "approved_at=CURRENT_DATE"])
+            params.append(current_user.get("name") or "")
+    if "notes" in data:
+        updates.append("notes=%s")
+        params.append(data.get("notes") or "")
+    params.append(id)
+    cur.execute("UPDATE estimate_reconciliations SET " + ",".join(updates) + " WHERE id=%s", tuple(params))
+    if status:
+        doc_status = "Подписан" if status == "Утверждена" else status
+        cur.execute("""UPDATE project_documents
+                       SET sign_status=%s
+                       WHERE project_name=%s AND doc_type='Сверка смет' AND number=%s""",
+                    (doc_status, project_name, "СС-" + str(id)))
+        if status != old_status:
+            log_audit(user_name=current_user.get("name") or "", user_role=current_user.get("role") or "",
+                      action="status_change", entity_type="estimate_reconciliation", entity_id=id,
+                      description="Статус сверки смет: " + (old_status or "—") + " -> " + status,
+                      project_name=project_name)
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+
+@app.put("/estimate-reconciliation-items/{id}")
+def update_estimate_reconciliation_item(id: int, data: dict, current_user: dict = Depends(require_roles(*ESTIMATE_WRITE_ROLES))):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT r.project_name, r.work_package
+                   FROM estimate_reconciliation_items i
+                   JOIN estimate_reconciliations r ON r.id=i.reconciliation_id
+                   WHERE i.id=%s""", (id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Строка сверки не найдена")
+    project_name, work_package = row[0] or "", row[1] or "Основная"
+    require_project_access(current_user, project_name)
+    if current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(current_user, work_package):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету сверки")
+    updates, params = [], []
+    if "decision" in data:
+        updates.append("decision=%s")
+        params.append(data.get("decision") or "На проверке")
+    if "notes" in data:
+        updates.append("notes=%s")
+        params.append(data.get("notes") or "")
+    if updates:
+        params.append(id)
+        cur.execute("UPDATE estimate_reconciliation_items SET " + ",".join(updates) + " WHERE id=%s", tuple(params))
+        conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
 
 
 @app.post("/estimates")

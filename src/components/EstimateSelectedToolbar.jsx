@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, Bot, Download, Eye, FileText, MessageSquare, Users } from 'lucide-react';
+import { ArrowLeft, Bot, Download, Eye, FileText, GitBranch, MessageSquare, Users } from 'lucide-react';
 import EstimateSelectedStatusActions from './EstimateSelectedStatusActions';
 import EstimateSelectedTitleBadges from './EstimateSelectedTitleBadges';
 
@@ -26,6 +26,7 @@ export default function EstimateSelectedToolbar({
   onOpenChat,
   onOpenDistribute,
   onPreview,
+  onCreateReconciliation,
   onShowDiff,
   onToggleIssuesOnly,
   onToggleTemplate,
@@ -70,6 +71,7 @@ export default function EstimateSelectedToolbar({
       </button>
       <button onClick={onPreview} style={btnB}><Eye size={14}/>Просмотр</button>
       {hasDiff && <button onClick={onShowDiff} style={btnB}><FileText size={14}/>Ведомость</button>}
+      {hasDiff && onCreateReconciliation && <button onClick={onCreateReconciliation} style={btnO}><GitBranch size={14}/>Сверка</button>}
       <button onClick={onExport} style={btnG}><Download size={14}/>Excel</button>
       {showLeadership && (
         <button onClick={onToggleTemplate} style={selectedEstimate.isTemplate ? {...btnO,backgroundColor:'#facc15',color:'#1f2937'} : btnG}>
