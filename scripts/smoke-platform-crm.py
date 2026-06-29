@@ -232,6 +232,25 @@ def check_platform(system_token):
     for expected_action in ("platform_account_created", "company_created", "company_soft_suspended", "company_resumed", "payment_added"):
         if expected_action not in audit_text:
             raise RuntimeError(f"system audit log missing {expected_action}")
+
+    platform_account_id = created_company.get("platform_account_id")
+    _, payment_audit = api_json(
+        "GET",
+        f"/system/audit-log?limit=80&companyId={company_id}&action=payment_added&search=SMOKE-{RUN_ID}",
+        token=system_token,
+        expected=200,
+    )
+    if not payment_audit or any(item.get("action") != "payment_added" or item.get("company_id") != company_id for item in payment_audit):
+        raise RuntimeError(f"system audit filters by company/action/search returned invalid rows: {payment_audit}")
+    if platform_account_id:
+        _, account_audit = api_json(
+            "GET",
+            f"/system/audit-log?limit=80&platformAccountId={platform_account_id}",
+            token=system_token,
+            expected=200,
+        )
+        if not account_audit or any(item.get("platform_account_id") != platform_account_id for item in account_audit):
+            raise RuntimeError(f"system audit filter by platform account returned invalid rows: {account_audit}")
     return {"companyId": company_id, "tariffs": sorted(tariff_ids)}
 
 
@@ -384,6 +403,7 @@ def main():
                 "soft suspend and resume",
                 "platform payment",
                 "platform audit log",
+                "platform audit filters",
                 "crm lead summaries and details",
                 "crm documents and tasks",
                 "supplier approval",
