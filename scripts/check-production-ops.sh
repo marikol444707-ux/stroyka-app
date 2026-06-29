@@ -71,7 +71,9 @@ if [[ -d "$uploads_path" ]]; then
 else
   note "INFO uploads current directory not found: $uploads_path"
 fi
-if [[ "$LEGACY_UPLOADS_DIR" != "$UPLOADS_DIR" && -d "$legacy_uploads_path" ]]; then
+if [[ "$LEGACY_UPLOADS_DIR" != "$UPLOADS_DIR" && -L "$legacy_uploads_path" ]]; then
+  note "OK legacy uploads path is symlink: $legacy_uploads_path -> $(readlink "$legacy_uploads_path")"
+elif [[ "$LEGACY_UPLOADS_DIR" != "$UPLOADS_DIR" && -d "$legacy_uploads_path" ]]; then
   legacy_files="$(find "$legacy_uploads_path" -type f 2>/dev/null | wc -l | tr -d ' ')"
   if [[ "${legacy_files:-0}" != "0" ]]; then
     warn "legacy uploads directory has files: $legacy_uploads_path ($(dir_stats_text "$legacy_uploads_path"))"
