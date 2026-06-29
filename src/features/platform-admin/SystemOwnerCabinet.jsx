@@ -14,16 +14,37 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const [newPayment, setNewPayment] = useState({companyId:'',amount:'',paymentDate:new Date().toISOString().split('T')[0],method:'card',invoiceNumber:'',periodStart:'',periodEnd:'',notes:''});
   const [showNewPayment, setShowNewPayment] = useState(false);
   const [lastInviteCode, setLastInviteCode] = useState(null);
+  const emptyAuditFilters = {platformAccountId:'',companyId:'',action:'',search:''};
+  const [auditFilters, setAuditFilters] = useState(emptyAuditFilters);
+  const [auditDraftFilters, setAuditDraftFilters] = useState(emptyAuditFilters);
+  const auditActionLabels = {
+    platform_account_created: 'Создан аккаунт',
+    company_created: 'Создана компания',
+    company_soft_suspended: 'Мягкая заморозка',
+    company_hard_suspended: 'Жесткая заморозка',
+    company_resumed: 'Разморозка',
+    company_marked_overdue: 'Просрочка',
+    company_trial_extended: 'Продлен триал',
+    company_tariff_changed: 'Сменен тариф',
+    company_updated: 'Компания изменена',
+    payment_added: 'Зачислена оплата',
+    demo_request_updated: 'Демо-заявка изменена',
+  };
 
   const loadAll = useCallback(async () => {
     try {
+      const auditParams = new URLSearchParams({limit:'80'});
+      if (auditFilters.platformAccountId) auditParams.set('platformAccountId', auditFilters.platformAccountId);
+      if (auditFilters.companyId) auditParams.set('companyId', auditFilters.companyId);
+      if (auditFilters.action) auditParams.set('action', auditFilters.action);
+      if (auditFilters.search.trim()) auditParams.set('search', auditFilters.search.trim());
       const [d, c, p, dr, t, a] = await Promise.all([
         fetch(API+'/system/dashboard').then(r=>r.json()),
         fetch(API+'/system/companies').then(r=>r.json()),
         fetch(API+'/system/payments').then(r=>r.json()),
         fetch(API+'/demo-requests').then(r=>r.json()),
         fetch(API+'/system/tariffs').then(r=>r.json()),
-        fetch(API+'/system/audit-log?limit=80').then(r=>r.json()),
+        fetch(API+'/system/audit-log?'+auditParams.toString()).then(r=>r.json()),
       ]);
       setDashboard(d);
       setCompanies(Array.isArray(c)?c:[]);
@@ -32,7 +53,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
       setTariffs(Array.isArray(t)?t:[]);
       setAuditLog(Array.isArray(a)?a:[]);
     } catch(_){}
-	  }, [API]);
+	  }, [API, auditFilters]);
 	  useEffect(()=>{ loadAll(); }, [loadAll]);
 
   const companyGroups = useMemo(() => {
@@ -100,6 +121,12 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   })), [companyGroups, buildLimitWarnings]);
 
   const limitWarningAccounts = useMemo(() => groupsWithLimitStatus.filter(group => group.limitWarnings.length > 0), [groupsWithLimitStatus]);
+  const auditCompanyOptions = useMemo(() => companies.filter(company => (
+    !auditDraftFilters.platformAccountId || String(company.platform_account_id || company.id) === String(auditDraftFilters.platformAccountId)
+  )), [companies, auditDraftFilters.platformAccountId]);
+  const hasAuditFilters = Boolean(
+    auditFilters.platformAccountId || auditFilters.companyId || auditFilters.action || auditFilters.search.trim()
+  );
 
   const billingColorSet = (level) => {
     if (level === 'danger') return {color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
@@ -415,21 +442,32 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
             </div>
             <button onClick={loadAll} style={{...btnG,padding:'7px 12px',fontSize:'12px'}}>Обновить</button>
           </div>
+          <div style={{...card,padding:'12px',marginBottom:'12px'}}>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:'8px'}}>
+              <select value={auditDraftFilters.platformAccountId} onChange={e=>setAuditDraftFilters({...auditDraftFilters,platformAccountId:e.target.value,companyId:''})} style={{...inp,marginBottom:0}}>
+                <option value=''>Все аккаунты</option>
+                {groupsWithLimitStatus.map(group=><option key={group.id} value={group.id}>{group.name}</option>)}
+              </select>
+              <select value={auditDraftFilters.companyId} onChange={e=>setAuditDraftFilters({...auditDraftFilters,companyId:e.target.value})} style={{...inp,marginBottom:0}}>
+                <option value=''>Все компании</option>
+                {auditCompanyOptions.map(company=><option key={company.id} value={company.id}>{company.name}</option>)}
+              </select>
+              <select value={auditDraftFilters.action} onChange={e=>setAuditDraftFilters({...auditDraftFilters,action:e.target.value})} style={{...inp,marginBottom:0}}>
+                <option value=''>Все действия</option>
+                {Object.entries(auditActionLabels).map(([value,label])=><option key={value} value={value}>{label}</option>)}
+              </select>
+              <input placeholder='Поиск по журналу' value={auditDraftFilters.search} onChange={e=>setAuditDraftFilters({...auditDraftFilters,search:e.target.value})} style={{...inp,marginBottom:0}}/>
+            </div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',marginTop:'8px',flexWrap:'wrap'}}>
+              <span style={{color:C.textMuted,fontSize:'11px'}}>{hasAuditFilters?'Показаны события по выбранным фильтрам':'Показаны последние события платформы'}</span>
+              <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
+                <button onClick={()=>setAuditFilters(auditDraftFilters)} style={{...btnO,padding:'6px 12px',fontSize:'12px'}}>Показать</button>
+                {hasAuditFilters && <button onClick={()=>{setAuditDraftFilters(emptyAuditFilters);setAuditFilters(emptyAuditFilters);}} style={{...btnG,padding:'6px 12px',fontSize:'12px'}}>Сбросить</button>}
+              </div>
+            </div>
+          </div>
           {auditLog.length===0 && <div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Событий пока нет</div>}
           {auditLog.map(item=>{
-            const labels = {
-              platform_account_created: 'Создан аккаунт',
-              company_created: 'Создана компания',
-              company_soft_suspended: 'Мягкая заморозка',
-              company_hard_suspended: 'Жесткая заморозка',
-              company_resumed: 'Разморозка',
-              company_marked_overdue: 'Просрочка',
-              company_trial_extended: 'Продлен триал',
-              company_tariff_changed: 'Сменен тариф',
-              company_updated: 'Компания изменена',
-              payment_added: 'Зачислена оплата',
-              demo_request_updated: 'Демо-заявка изменена',
-            };
             const details = item.details || {};
             const meta = [
               item.actor_name || item.actor_role || 'system',
@@ -440,7 +478,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
               <div key={item.id} style={{...card,padding:'12px',marginBottom:'8px'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
                   <div style={{minWidth:0,flex:1}}>
-                    <b style={{color:C.text,fontSize:'13px',display:'block'}}>{labels[item.action] || item.action}</b>
+                    <b style={{color:C.text,fontSize:'13px',display:'block'}}>{auditActionLabels[item.action] || item.action}</b>
                     <p style={{color:C.textSec,margin:'3px 0 0',fontSize:'11px',overflowWrap:'anywhere'}}>{meta || '—'}</p>
                     {(details.amount || details.plan || details.status || details.paymentDate || details.periodEnd) && (
                       <p style={{color:C.textMuted,margin:'4px 0 0',fontSize:'11px',overflowWrap:'anywhere'}}>

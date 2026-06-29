@@ -418,14 +418,27 @@ def register_platform_admin_routes(app, deps):
 
     @app.get("/system/audit-log")
     def system_audit_log(limit: int = 120, companyId: Optional[int] = None,
+                         platformAccountId: Optional[int] = None, action: Optional[str] = None,
+                         search: Optional[str] = None,
                          _current_user: dict = Depends(require_roles("system_owner"))):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         safe_limit = max(1, min(int(limit or 120), 300))
         where, vals = [], []
+        if platformAccountId:
+            where.append("platform_account_id=%s")
+            vals.append(platformAccountId)
         if companyId:
             where.append("company_id=%s")
             vals.append(companyId)
+        if action:
+            where.append("action=%s")
+            vals.append(action)
+        if search and search.strip():
+            pattern = "%" + search.strip() + "%"
+            where.append("""(actor_name ILIKE %s OR action ILIKE %s OR entity_type ILIKE %s
+                             OR entity_name ILIKE %s OR details_json ILIKE %s)""")
+            vals.extend([pattern, pattern, pattern, pattern, pattern])
         sql = """SELECT id, actor_user_id, actor_name, actor_role, action, entity_type, entity_id,
                         entity_name, platform_account_id, company_id, details_json, created_at
                  FROM platform_audit_log"""
