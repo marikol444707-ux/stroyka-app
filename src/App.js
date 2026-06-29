@@ -343,7 +343,7 @@ const PricelistsPage = React.lazy(() => import('./components/PricelistsPage'));
 const MyExpensesPage = React.lazy(() => import('./components/MyExpensesPage'));
 const SettingsPage = React.lazy(() => import('./components/SettingsPage'));
 const AnalyticsPage = React.lazy(() => import('./components/AnalyticsPage'));
-const CrmPage = React.lazy(() => import('./components/CrmPage'));
+const CrmPage = React.lazy(() => import('./features/crm'));
 const ActivityLogPage = React.lazy(() => import('./components/ActivityLogPage'));
 const CompanyChatPage = React.lazy(() => import('./components/CompanyChatPage'));
 const SystemOwnerCabinet = React.lazy(() => import('./components/SystemOwnerCabinet'));
@@ -1610,7 +1610,7 @@ function App() {
       setPricelists(Array.isArray(pl)?pl:[]);
     });
     if (page === 'crm') return loadMobileScopeOnce('mobile:crm', async () => {
-      const ls = (isLeadershipRole || role === 'менеджер_crm') ? await getApi('/crm-leads') : [];
+      const ls = (isLeadershipRole || role === 'менеджер_crm') ? await getApi('/crm/lead-summaries') : [];
       setLeads(Array.isArray(ls)?ls:[]);
     });
     if (page === 'analytics') return loadMobileScopeOnce('mobile:analytics', async () => {
@@ -1760,7 +1760,7 @@ function App() {
         setSalaryPayments(Array.isArray(sp)?sp:[]);
       } catch(e) {}
       try {
-        let ls = await get('/crm-leads');
+        let ls = await get('/crm/lead-summaries');
         if (!Array.isArray(ls)) ls = [];
         // Одноразовая миграция старых лидов из localStorage в БД
         const oldRaw = localStorage.getItem('leads');
@@ -1769,10 +1769,10 @@ function App() {
             const old = JSON.parse(oldRaw);
             if (Array.isArray(old) && old.length>0) {
               for (const l of old) {
-                await fetch(API+'/crm-leads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:l.name||'',phone:l.phone||'',email:l.email||'',source:l.source||'',budget:Number(l.budget)||0,notes:l.notes||'',stage:l.stage||'Новый',createdBy:l.createdBy||user.name,createdAt:l.createdAt||''})});
+                await fetch(API+'/crm/leads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:l.name||'',phone:l.phone||'',email:l.email||'',source:l.source||'',budget:Number(l.budget)||0,notes:l.notes||'',stage:l.stage||'Новый',createdBy:l.createdBy||user.name,createdAt:l.createdAt||''})});
               }
               localStorage.removeItem('leads');
-              ls = await get('/crm-leads');
+              ls = await get('/crm/lead-summaries');
             }
           } catch(_){}
         }
@@ -3264,17 +3264,50 @@ function App() {
   };
 
   const saveLead = async (lead) => {
-    const body = {name:lead.name||'',phone:lead.phone||'',email:lead.email||'',source:lead.source||'',budget:Number(lead.budget)||0,notes:lead.notes||'',stage:lead.stage||'Новый',photoUrl:lead.photoUrl||''};
+    const body = {
+      name: lead.name || '',
+      phone: lead.phone || '',
+      email: lead.email || '',
+      source: lead.source || '',
+      budget: Number(lead.budget) || 0,
+      notes: lead.notes || '',
+      stage: lead.stage || 'Новый',
+      photoUrl: lead.photoUrl || '',
+      leadType: lead.leadType || 'Клиент',
+      counterpartyType: lead.counterpartyType || '',
+      responsibleName: lead.responsibleName || '',
+      nextContactAt: lead.nextContactAt || '',
+      address: lead.address || '',
+      workType: lead.workType || '',
+      area: Number(lead.area) || 0,
+      priority: lead.priority || 'Обычный',
+      lossReason: lead.lossReason || '',
+      legalForm: lead.legalForm || '',
+      passportData: lead.passportData || '',
+      inn: lead.inn || '',
+      kpp: lead.kpp || '',
+      ogrn: lead.ogrn || '',
+      legalAddress: lead.legalAddress || '',
+      bank: lead.bank || '',
+      bik: lead.bik || '',
+      bankAccount: lead.bankAccount || '',
+      corrAccount: lead.corrAccount || '',
+      signerName: lead.signerName || '',
+      signerBasis: lead.signerBasis || '',
+      estimateId: Number(lead.estimateId) || null,
+      documentStatus: lead.documentStatus || 'Не собраны',
+      reviewStatus: lead.reviewStatus || 'Новая',
+    };
     if (lead.id) {
-      await fetch(API+'/crm-leads/'+lead.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      await fetch(API+'/crm/leads/'+lead.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     } else {
-      await fetch(API+'/crm-leads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,createdBy:user.name,createdAt:new Date().toISOString().split('T')[0]})});
+      await fetch(API+'/crm/leads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,createdBy:user.name,createdAt:new Date().toISOString().split('T')[0]})});
     }
-    const ls = await fetch(API+'/crm-leads').then(r=>r.json());
+    const ls = await fetch(API+'/crm/lead-summaries').then(r=>r.json());
     setLeads(Array.isArray(ls)?ls:[]);
   };
 
-  const deleteLead = async (id) => { await fetch(API+'/crm-leads/'+id,{method:'DELETE'}); const ls=await fetch(API+'/crm-leads').then(r=>r.json()); setLeads(Array.isArray(ls)?ls:[]); };
+  const deleteLead = async (id) => { await fetch(API+'/crm/leads/'+id,{method:'DELETE'}); const ls=await fetch(API+'/crm/lead-summaries').then(r=>r.json()); setLeads(Array.isArray(ls)?ls:[]); };
   const createProjectFromLead = async (lead) => {
     if (!lead?.id) return;
     if (lead.projectId) {
@@ -3285,7 +3318,7 @@ function App() {
     if (projectName === null) return;
     const cleanName = String(projectName || '').trim();
     if (!cleanName) return alert('Укажите название объекта');
-    const res = await fetch(API+'/crm-leads/'+lead.id+'/create-project', {
+    const res = await fetch(API+'/crm/leads/'+lead.id+'/create-project', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({projectName:cleanName,budget:Number(lead.budget)||0})
@@ -3293,7 +3326,7 @@ function App() {
     const data = await res.json().catch(()=>({}));
     if (!res.ok) return alert(data.detail || 'Не удалось создать объект из заявки');
     const [ls, ps] = await Promise.all([
-      fetch(API+'/crm-leads').then(r=>r.json()).catch(()=>[]),
+      fetch(API+'/crm/lead-summaries').then(r=>r.json()).catch(()=>[]),
       fetch(API+'/projects').then(r=>r.json()).catch(()=>[])
     ]);
     setLeads(Array.isArray(ls)?ls:[]);
@@ -15426,7 +15459,7 @@ function App() {
           )}
 
           {activePage==='crm'&&(
-            <CrmPage C={C} CRM_STAGES={CRM_STAGES} btnG={btnG} btnO={btnO} btnR={btnR} card={card} createProjectFromLead={createProjectFromLead} deleteLead={deleteLead} editingItem={editingItem} inp={inp} leads={leads} newLead={newLead} saveLead={saveLead} setEditingItem={setEditingItem} setNewLead={setNewLead} setShowForm={setShowForm} showForm={showForm} isMobile={isMobile} appendPhotos={appendPhotos} fileSrc={fileSrc} setShowPhotoModal={setShowPhotoModal}/>
+            <CrmPage API={API} C={C} CRM_STAGES={CRM_STAGES} btnG={btnG} btnO={btnO} btnR={btnR} card={card} createProjectFromLead={createProjectFromLead} deleteLead={deleteLead} editingItem={editingItem} inp={inp} leads={leads} newLead={newLead} saveLead={saveLead} setEditingItem={setEditingItem} setLeads={setLeads} setNewLead={setNewLead} setShowForm={setShowForm} showForm={showForm} isMobile={isMobile} appendPhotos={appendPhotos} uploadPhoto={uploadPhoto} fileSrc={fileSrc} setShowPhotoModal={setShowPhotoModal} users={users}/>
           )}
 
           {activePage==='activitylog'&&(

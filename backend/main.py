@@ -2218,6 +2218,20 @@ def init_db():
         ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS work_package VARCHAR(100);
         -- Multi-tenancy подготовка (см. ONBOARDING — план «единый кабинет поставщика»)
         -- Пока не используется в коде, но колонки добавлены чтобы при миграции не делать ALTER большим таблицам
+        CREATE TABLE IF NOT EXISTS platform_accounts (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            owner_name VARCHAR(255),
+            contact_email VARCHAR(255),
+            plan VARCHAR(50) DEFAULT 'demo',
+            status VARCHAR(50) DEFAULT 'active',
+            notes TEXT,
+            active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        INSERT INTO platform_accounts (id, name, owner_name, plan, status)
+        VALUES (1, 'СтройКа', 'system_owner', 'pro', 'active')
+        ON CONFLICT (id) DO NOTHING;
         CREATE TABLE IF NOT EXISTS companies (
             id SERIAL PRIMARY KEY,
             name VARCHAR(255),
@@ -2236,6 +2250,8 @@ def init_db():
         );
         INSERT INTO companies (id, name, short_name, plan) VALUES (1, 'СтройКа', 'СтройКа', 'pro')
         ON CONFLICT (id) DO NOTHING;
+        ALTER TABLE companies ADD COLUMN IF NOT EXISTS platform_account_id INT DEFAULT 1;
+        UPDATE companies SET platform_account_id=1 WHERE platform_account_id IS NULL;
         -- SaaS-биллинг: расширение companies для управления подписками
         ALTER TABLE companies ADD COLUMN IF NOT EXISTS contact_name VARCHAR(255);
         ALTER TABLE companies ADD COLUMN IF NOT EXISTS contact_phone VARCHAR(100);
@@ -4823,12 +4839,23 @@ def create_site_lead(data: dict, request: Request):
     notes = (notes + ("\n\n" if notes else "") + "\n".join(legal_notes))[:4000]
     created_at = dt.datetime.utcnow().strftime("%Y-%m-%d")
 
+    partner_type = _public_text(data.get("partnerType"), 80)
+    lead_type = {
+        "supplier": "Поставщик",
+        "master": "Мастер",
+        "brigade": "Бригадир",
+        "subcontractor": "Субподрядчик",
+    }.get(partner_type, "Клиент")
+    review_status = "На проверке" if partner_type else "Новая"
+
     conn = get_db()
     cur = conn.cursor()
     try:
         cur.execute(
-            "INSERT INTO crm_leads (name,phone,email,source,budget,notes,stage,created_by,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (name, phone, email, source, budget, notes, "Новый", "Сайт", created_at),
+            """INSERT INTO crm_leads
+               (name,phone,email,source,budget,notes,stage,created_by,created_at,lead_type,review_status)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+            (name, phone, email, source, budget, notes, "Новый", "Сайт", created_at, lead_type, review_status),
         )
         new_id = cur.fetchone()[0]
         action_payload = json.dumps({
@@ -6466,16 +6493,150 @@ def list_companies(_current_user: dict = Depends(get_current_user)):
 
 # === SaaS: Кабинет системы (только для system_owner) ===
 
+SYSTEM_TARIFFS = [
+    {
+        "id": "demo",
+        "name": "Демо",
+        "monthlyFee": 0,
+        "includedCompanies": 1,
+        "maxProjects": 1,
+        "maxUsers": 5,
+        "ocrPages": 50,
+        "storageGb": 2,
+        "trialDays": 14,
+        "audience": "Проверка системы на одном объекте.",
+        "features": ["Базовая ERP", "Сметы", "Склад объекта", "Ограниченный OCR"],
+    },
+    {
+        "id": "starter",
+        "name": "Старт",
+        "monthlyFee": 19900,
+        "includedCompanies": 1,
+        "maxProjects": 3,
+        "maxUsers": 15,
+        "ocrPages": 200,
+        "storageGb": 10,
+        "trialDays": 0,
+        "audience": "Одна небольшая строительная компания.",
+        "features": ["Объекты", "Сметы", "Склад", "Финансы", "Документы"],
+    },
+    {
+        "id": "pro",
+        "name": "Компания",
+        "monthlyFee": 49900,
+        "includedCompanies": 2,
+        "maxProjects": 10,
+        "maxUsers": 40,
+        "ocrPages": 1000,
+        "storageGb": 50,
+        "trialDays": 0,
+        "audience": "Рабочая стройкомпания с бухгалтерией и снабжением.",
+        "features": ["Бухгалтерия", "Снабжение", "OCR накладных", "Роли", "Сводки"],
+    },
+    {
+        "id": "group",
+        "name": "Группа",
+        "monthlyFee": 99000,
+        "includedCompanies": 5,
+        "maxProjects": 30,
+        "maxUsers": 100,
+        "ocrPages": 3000,
+        "storageGb": 150,
+        "trialDays": 0,
+        "audience": "Несколько юрлиц или строительных компаний в одном окне.",
+        "features": ["Общий кабинет группы", "Переключатель компаний", "Расширенный аудит", "Лимиты по аккаунту"],
+    },
+    {
+        "id": "enterprise",
+        "name": "Enterprise",
+        "monthlyFee": 150000,
+        "includedCompanies": None,
+        "maxProjects": None,
+        "maxUsers": None,
+        "ocrPages": None,
+        "storageGb": None,
+        "trialDays": 0,
+        "audience": "Крупный клиент с индивидуальными условиями.",
+        "features": ["Индивидуальные лимиты", "Домен", "API", "SLA", "Интеграции"],
+    },
+]
+
+def _system_tariff(plan: str):
+    plan_key = (plan or "demo").strip()
+    return next((t for t in SYSTEM_TARIFFS if t["id"] == plan_key), SYSTEM_TARIFFS[0])
+
+def _system_days_left(value):
+    if not value:
+        return None
+    try:
+        if isinstance(value, dt.datetime):
+            target = value.date()
+        elif isinstance(value, dt.date):
+            target = value
+        else:
+            target = dt.date.fromisoformat(str(value)[:10])
+        return (target - dt.date.today()).days
+    except Exception:
+        return None
+
+def _system_company_billing_state(company: dict):
+    if company.get("id") == 1:
+        return {
+            "status": "platform_owner",
+            "label": "Владелец платформы",
+            "level": "success",
+            "reason": "Системная компания не участвует в заморозке.",
+            "daysLeft": None,
+        }
+    if company.get("suspended_at"):
+        return {
+            "status": "soft_frozen",
+            "label": "Мягко заморожен",
+            "level": "danger",
+            "reason": company.get("suspended_reason") or "Доступ ограничен владельцем платформы.",
+            "daysLeft": None,
+        }
+    plan = company.get("plan") or "demo"
+    payment_status = company.get("payment_status") or "active"
+    if plan == "demo":
+        days_left = _system_days_left(company.get("trial_until"))
+        if days_left is None:
+            return {"status": "trial_no_date", "label": "Демо без даты", "level": "warning", "reason": "Укажите дату окончания демо.", "daysLeft": None}
+        if days_left < 0:
+            return {"status": "trial_expired", "label": "Демо истекло", "level": "danger", "reason": f"Демо закончилось {abs(days_left)} дн. назад.", "daysLeft": days_left}
+        if days_left <= 3:
+            return {"status": "trial_expiring", "label": "Демо скоро закончится", "level": "warning", "reason": f"Осталось {days_left} дн.", "daysLeft": days_left}
+        return {"status": "trial_active", "label": "Демо активно", "level": "info", "reason": f"Осталось {days_left} дн.", "daysLeft": days_left}
+    days_left = _system_days_left(company.get("plan_expires_at"))
+    if payment_status == "overdue":
+        return {"status": "payment_overdue", "label": "Просрочка", "level": "danger", "reason": "Оплата помечена как просроченная.", "daysLeft": days_left}
+    if days_left is not None:
+        if days_left < 0:
+            return {"status": "payment_expired", "label": "Оплата истекла", "level": "danger", "reason": f"Оплаченный период закончился {abs(days_left)} дн. назад.", "daysLeft": days_left}
+        if days_left <= 7:
+            return {"status": "payment_expiring", "label": "Оплата скоро закончится", "level": "warning", "reason": f"Осталось {days_left} дн.", "daysLeft": days_left}
+    return {"status": "active_paid", "label": "Активен", "level": "success", "reason": "Оплата в порядке.", "daysLeft": days_left}
+
+@app.get("/system/tariffs")
+def system_tariffs_list(_current_user: dict = Depends(require_roles("system_owner"))):
+    return SYSTEM_TARIFFS
+
 @app.get("/system/companies")
 def system_companies_list(_current_user: dict = Depends(require_roles("system_owner"))):
     """Полный список компаний с биллингом — только для владельца платформы."""
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("""SELECT id, name, short_name, inn, contact_name, contact_phone, contact_email,
-                          plan, trial_until, plan_expires_at, monthly_fee, payment_status,
-                          suspended_at, suspended_reason, max_projects, max_users,
-                          last_active_at, notes, active, created_at
-                   FROM companies ORDER BY id""")
+    cur.execute("""SELECT c.id, c.name, c.short_name, c.inn, c.contact_name, c.contact_phone, c.contact_email,
+                          c.plan, c.trial_until, c.plan_expires_at, c.monthly_fee, c.payment_status,
+                          c.suspended_at, c.suspended_reason, c.max_projects, c.max_users,
+                          c.last_active_at, c.notes, c.active, c.created_at,
+                          c.platform_account_id,
+                          pa.name AS platform_account_name,
+                          pa.status AS platform_account_status,
+                          pa.plan AS platform_account_plan
+                   FROM companies c
+                   LEFT JOIN platform_accounts pa ON pa.id=c.platform_account_id
+                   ORDER BY COALESCE(c.platform_account_id, c.id), c.id""")
     rows = [dict(r) for r in cur.fetchall()]
     # Считаем подсчёты по каждой компании
     for c in rows:
@@ -6485,6 +6646,9 @@ def system_companies_list(_current_user: dict = Depends(require_roles("system_ow
         c['projects_count'] = cur.fetchone()['count']
         cur.execute("SELECT COALESCE(SUM(amount),0) as t FROM company_payments WHERE company_id=%s AND status='paid'", (c['id'],))
         c['total_paid'] = float(cur.fetchone()['t'] or 0)
+        cur.execute("SELECT COUNT(*) FROM companies WHERE platform_account_id=%s AND active=TRUE", (c.get('platform_account_id') or c['id'],))
+        c['account_companies_count'] = cur.fetchone()['count']
+        c['billing_state'] = _system_company_billing_state(c)
     conn.close()
     return rows
 
@@ -6495,17 +6659,29 @@ def system_create_company(data: dict, _current_user: dict = Depends(require_role
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     plan = data.get('plan') or 'demo'
+    tariff = _system_tariff(plan)
     trial_days = int(data.get('trialDays') or 30)
     trial_until = (datetime.now() + timedelta(days=trial_days)).date() if plan == 'demo' else None
-    cur.execute("""INSERT INTO companies (name, short_name, inn, kpp, contact_name, contact_phone,
+    monthly_fee = float(data.get('monthlyFee') or tariff.get('monthlyFee') or 0)
+    max_projects = int(data.get('maxProjects') or tariff.get('maxProjects') or 0) or None
+    max_users = int(data.get('maxUsers') or tariff.get('maxUsers') or 0) or None
+    platform_account_id = data.get('platformAccountId')
+    if not platform_account_id:
+        account_name = (data.get('platformAccountName') or data.get('accountName') or data.get('name') or '').strip()
+        cur.execute("""INSERT INTO platform_accounts (name, owner_name, contact_email, plan, status, notes)
+                       VALUES (%s,%s,%s,%s,%s,%s) RETURNING id""",
+            (account_name, data.get('contactName'), data.get('contactEmail'),
+             plan, 'trial' if plan == 'demo' else 'active', data.get('notes')))
+        platform_account_id = cur.fetchone()['id']
+    cur.execute("""INSERT INTO companies (platform_account_id, name, short_name, inn, kpp, contact_name, contact_phone,
                                           contact_email, plan, trial_until, monthly_fee,
                                           payment_status, max_projects, max_users, active, notes)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-        (data.get('name'), data.get('shortName'), data.get('inn'), data.get('kpp'),
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+        (platform_account_id, data.get('name'), data.get('shortName'), data.get('inn'), data.get('kpp'),
          data.get('contactName'), data.get('contactPhone'), data.get('contactEmail'),
-         plan, trial_until, float(data.get('monthlyFee') or 0),
+         plan, trial_until, monthly_fee,
          'trial' if plan == 'demo' else 'active',
-         int(data.get('maxProjects') or 0) or None, int(data.get('maxUsers') or 0) or None,
+         max_projects, max_users,
          True, data.get('notes')))
     new_id = cur.fetchone()['id']
     # Создаём инвайт-код для директора этой новой компании
@@ -6520,6 +6696,9 @@ def system_create_company(data: dict, _current_user: dict = Depends(require_role
 def system_update_company(id: int, data: dict, _current_user: dict = Depends(require_roles("system_owner"))):
     """Обновление компании: смена тарифа, продление триала, заморозка."""
     from datetime import datetime
+    action = data.get('action')
+    if id == 1 and action in ('suspend', 'soft_suspend', 'hard_suspend'):
+        raise HTTPException(status_code=400, detail="system_owner company cannot be suspended")
     conn = get_db()
     cur = conn.cursor()
     sets, vals = [], []
@@ -6533,13 +6712,23 @@ def system_update_company(id: int, data: dict, _current_user: dict = Depends(req
     for js_key, db_col in fields_map:
         if js_key in data:
             sets.append(db_col + "=%s"); vals.append(data[js_key])
-    if data.get('action') == 'suspend':
+    if action in ('suspend', 'soft_suspend'):
         sets.append("suspended_at=%s"); vals.append(datetime.now())
         sets.append("suspended_reason=%s"); vals.append(data.get('reason') or '')
-        sets.append("active=%s"); vals.append(False)
-    elif data.get('action') == 'resume':
-        sets.append("suspended_at=NULL")
+        sets.append("payment_status=%s"); vals.append("soft_suspended")
         sets.append("active=%s"); vals.append(True)
+    elif action == 'hard_suspend':
+        sets.append("suspended_at=%s"); vals.append(datetime.now())
+        sets.append("suspended_reason=%s"); vals.append(data.get('reason') or '')
+        sets.append("payment_status=%s"); vals.append("suspended")
+        sets.append("active=%s"); vals.append(False)
+    elif action == 'resume':
+        sets.append("suspended_at=NULL")
+        sets.append("suspended_reason=NULL")
+        sets.append("payment_status=%s"); vals.append(data.get('paymentStatus') or "active")
+        sets.append("active=%s"); vals.append(True)
+    elif action == 'mark_overdue':
+        sets.append("payment_status=%s"); vals.append("overdue")
     if not sets:
         conn.close()
         return {"ok": False, "error": "no fields"}
@@ -6554,6 +6743,9 @@ def system_dashboard(_current_user: dict = Depends(require_roles("system_owner")
     from datetime import datetime, date
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    today = date.today()
+    cur.execute("SELECT COUNT(*) as c FROM platform_accounts WHERE active=TRUE")
+    active_accounts = cur.fetchone()['c']
     cur.execute("SELECT COUNT(*) as c FROM companies WHERE active=TRUE")
     active = cur.fetchone()['c']
     cur.execute("SELECT COUNT(*) as c FROM companies WHERE plan='demo' AND active=TRUE")
@@ -6562,7 +6754,16 @@ def system_dashboard(_current_user: dict = Depends(require_roles("system_owner")
     suspended = cur.fetchone()['c']
     cur.execute("SELECT COUNT(*) as c FROM companies WHERE payment_status='overdue'")
     overdue = cur.fetchone()['c']
-    today = date.today()
+    cur.execute("""SELECT COUNT(*) as c FROM companies
+                   WHERE plan='demo' AND trial_until IS NOT NULL AND trial_until BETWEEN %s AND %s""",
+                (today, today + dt.timedelta(days=3)))
+    trial_expiring = cur.fetchone()['c']
+    cur.execute("""SELECT COUNT(*) as c FROM companies
+                   WHERE plan='demo' AND trial_until IS NOT NULL AND trial_until < %s AND suspended_at IS NULL""", (today,))
+    trial_expired = cur.fetchone()['c']
+    cur.execute("""SELECT COUNT(*) as c FROM companies
+                   WHERE plan<>'demo' AND plan_expires_at IS NOT NULL AND plan_expires_at < %s AND suspended_at IS NULL""", (today,))
+    payment_expired = cur.fetchone()['c']
     cur.execute("SELECT COALESCE(SUM(amount),0) as t FROM company_payments WHERE status='paid' AND date_trunc('month', payment_date)=date_trunc('month', %s::date)", (today,))
     month_revenue = float(cur.fetchone()['t'] or 0)
     cur.execute("SELECT COALESCE(SUM(amount),0) as t FROM company_payments WHERE status='paid' AND date_trunc('year', payment_date)=date_trunc('year', %s::date)", (today,))
@@ -6571,9 +6772,12 @@ def system_dashboard(_current_user: dict = Depends(require_roles("system_owner")
     new_demos = cur.fetchone()['c']
     conn.close()
     return {
-        "activeCompanies": active, "inDemo": in_demo, "suspended": suspended,
+        "activeAccounts": active_accounts, "activeCompanies": active, "inDemo": in_demo, "suspended": suspended,
         "overdue": overdue, "monthRevenue": month_revenue, "yearRevenue": year_revenue,
-        "newDemoRequests": new_demos
+        "newDemoRequests": new_demos,
+        "trialExpiring": trial_expiring,
+        "trialExpired": trial_expired,
+        "paymentExpired": payment_expired,
     }
 
 @app.get("/system/payments")
@@ -6602,7 +6806,10 @@ def system_create_payment(data: dict, _current_user: dict = Depends(require_role
     new_id = cur.fetchone()['id']
     # Обновляем компанию: продлеваем plan_expires_at
     if data.get('periodEnd') and data.get('companyId'):
-        cur.execute("UPDATE companies SET plan_expires_at=%s, payment_status='active' WHERE id=%s",
+        cur.execute("""UPDATE companies
+                       SET plan_expires_at=%s, payment_status='active',
+                           suspended_at=NULL, suspended_reason=NULL, active=TRUE
+                       WHERE id=%s""",
             (data['periodEnd'], data['companyId']))
     conn.close()
     return {"id": new_id, "ok": True}
@@ -25353,3 +25560,17 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
     except Exception as e:
         print("SCAN ERROR:", str(e))
         return {"ok": False, "error": str(e)}
+
+try:
+    from backend.features.crm import register_crm_module
+except ModuleNotFoundError:
+    from features.crm import register_crm_module
+
+register_crm_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "leadership_roles": LEADERSHIP_ROLES,
+    "log_audit": log_audit,
+    "prepare_user_access_scope": _prepare_user_access_scope,
+    "app_public_url": APP_PUBLIC_URL,
+})

@@ -31,6 +31,7 @@
     "smoke:optional-chains": "python3 scripts/smoke-optional-chains.py",
     "smoke:role-matrix": "python3 scripts/smoke-role-matrix.py",
     "smoke:password-reset": "python3 scripts/smoke-password-reset.py",
+    "smoke:platform-crm": "python3 scripts/smoke-platform-crm.py",
     "smoke:staff-access": "python3 scripts/smoke-staff-access.py",
     "smoke:norms-dry-run": "python3 scripts/smoke-norms-dry-run.py",
     "smoke:estimate-norms": "python3 scripts/smoke-estimate-norms.py",
