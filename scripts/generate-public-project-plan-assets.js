@@ -199,6 +199,94 @@ const drawPatioFurniture = (room, box) => {
   `;
 };
 
+const overlap = (a1, a2, b1, b2) => {
+  const start = Math.max(a1, b1);
+  const end = Math.min(a2, b2);
+  return start < end ? [start, end] : null;
+};
+
+const subtractIntervals = (base, cuts) => {
+  let intervals = [base];
+  cuts.forEach((cut) => {
+    intervals = intervals.flatMap(([start, end]) => {
+      const ov = overlap(start, end, cut[0], cut[1]);
+      if (!ov) return [[start, end]];
+      const out = [];
+      if (start < ov[0]) out.push([start, ov[0]]);
+      if (ov[1] < end) out.push([ov[1], end]);
+      return out;
+    });
+  });
+  return intervals.filter(([start, end]) => end - start > 0.02);
+};
+
+const near = (a, b) => Math.abs(a - b) < 0.001;
+
+const exteriorSegments = (rooms) => {
+  const horizontal = [];
+  const vertical = [];
+  rooms.forEach((room) => {
+    [
+      { y: room.y, x1: room.x, x2: room.x + room.w, side: 'top' },
+      { y: room.y + room.h, x1: room.x, x2: room.x + room.w, side: 'bottom' },
+    ].forEach((edge) => {
+      const cuts = rooms
+        .filter((other) => other !== room)
+        .filter((other) => (
+          edge.side === 'top'
+            ? near(other.y + other.h, edge.y)
+            : near(other.y, edge.y)
+        ))
+        .map((other) => overlap(edge.x1, edge.x2, other.x, other.x + other.w))
+        .filter(Boolean);
+      subtractIntervals([edge.x1, edge.x2], cuts).forEach(([x1, x2]) => horizontal.push({ y: edge.y, x1, x2 }));
+    });
+
+    [
+      { x: room.x, y1: room.y, y2: room.y + room.h, side: 'left' },
+      { x: room.x + room.w, y1: room.y, y2: room.y + room.h, side: 'right' },
+    ].forEach((edge) => {
+      const cuts = rooms
+        .filter((other) => other !== room)
+        .filter((other) => (
+          edge.side === 'left'
+            ? near(other.x + other.w, edge.x)
+            : near(other.x, edge.x)
+        ))
+        .map((other) => overlap(edge.y1, edge.y2, other.y, other.y + other.h))
+        .filter(Boolean);
+      subtractIntervals([edge.y1, edge.y2], cuts).forEach(([y1, y2]) => vertical.push({ x: edge.x, y1, y2 }));
+    });
+  });
+  return { horizontal, vertical };
+};
+
+const drawExteriorWalls = (rooms, m) => {
+  const { horizontal, vertical } = exteriorSegments(rooms);
+  const sw = Math.max(7, 0.105 * m.s);
+  const stroke = '#2c2f31';
+  const horizontalSvg = horizontal.map(({ y, x1, x2 }) => (
+    `<line x1="${m.ox + x1 * m.s}" y1="${m.oy + y * m.s}" x2="${m.ox + x2 * m.s}" y2="${m.oy + y * m.s}" stroke="${stroke}" stroke-width="${sw}" stroke-linecap="square"/>`
+  )).join('');
+  const verticalSvg = vertical.map(({ x, y1, y2 }) => (
+    `<line x1="${m.ox + x * m.s}" y1="${m.oy + y1 * m.s}" x2="${m.ox + x * m.s}" y2="${m.oy + y2 * m.s}" stroke="${stroke}" stroke-width="${sw}" stroke-linecap="square"/>`
+  )).join('');
+  return `${horizontalSvg}${verticalSvg}`;
+};
+
+const drawWindowOpenings = (room, m) => {
+  if (room.outdoor || !room.windows?.length) return '';
+  const { x, y, w, h } = roomBox(room, m);
+  const sw = Math.max(7, 0.105 * m.s);
+  return room.windows.map((side) => {
+    if (side === 'top') return `<line x1="${x + w * .2}" y1="${y}" x2="${x + w * .8}" y2="${y}" stroke="#ffffff" stroke-width="${sw * 1.2}" stroke-linecap="butt"/><line x1="${x + w * .2}" y1="${y}" x2="${x + w * .8}" y2="${y}" stroke="#c3c8cb" stroke-width="1.4"/>`;
+    if (side === 'bottom') return `<line x1="${x + w * .2}" y1="${y + h}" x2="${x + w * .8}" y2="${y + h}" stroke="#ffffff" stroke-width="${sw * 1.2}" stroke-linecap="butt"/><line x1="${x + w * .2}" y1="${y + h}" x2="${x + w * .8}" y2="${y + h}" stroke="#c3c8cb" stroke-width="1.4"/>`;
+    if (side === 'left') return `<line x1="${x}" y1="${y + h * .22}" x2="${x}" y2="${y + h * .78}" stroke="#ffffff" stroke-width="${sw * 1.2}" stroke-linecap="butt"/><line x1="${x}" y1="${y + h * .22}" x2="${x}" y2="${y + h * .78}" stroke="#c3c8cb" stroke-width="1.4"/>`;
+    if (side === 'right') return `<line x1="${x + w}" y1="${y + h * .22}" x2="${x + w}" y2="${y + h * .78}" stroke="#ffffff" stroke-width="${sw * 1.2}" stroke-linecap="butt"/><line x1="${x + w}" y1="${y + h * .22}" x2="${x + w}" y2="${y + h * .78}" stroke="#c3c8cb" stroke-width="1.4"/>`;
+    return '';
+  }).join('');
+};
+
 const backdrop = (def) => `
   <rect width="${W}" height="${H}" fill="#ffffff"/>
   <text x="800" y="118" font-family="Arial, sans-serif" font-size="28" font-weight="500" fill="#3c3f42" text-anchor="middle">${esc(planHeading(def))}</text>
@@ -298,7 +386,7 @@ const drawFixture = (room, fixture, box) => {
       for (let c = 0; c < cols; c += 1) {
         const dx = fx + c * (fw / cols) + fw / cols * .12;
         const dy = fy + r * (fh / rows) + fh / rows * .18;
-        out += `<rect x="${dx}" y="${dy}" width="${deskW}" height="${deskH}" rx="5" fill="#ffffff" stroke="${stroke}" stroke-width="1.7"/><rect x="${dx + deskW * .28}" y="${dy + deskH + 5}" width="${deskW * .4}" height="${deskH * .45}" rx="5" fill="#3c4854"/>`;
+        out += `<rect x="${dx}" y="${dy}" width="${deskW}" height="${deskH}" rx="5" fill="#ffffff" stroke="${stroke}" stroke-width="1.7"/><rect x="${dx + deskW * .28}" y="${dy + deskH + 5}" width="${deskW * .4}" height="${deskH * .45}" rx="5" fill="#aeb6bb" stroke="${stroke}" stroke-width="1"/>`;
       }
     }
     return out;
@@ -351,7 +439,7 @@ const drawRoom = (room, m) => {
   const { x, y, w, h } = roomBox(room, m);
   const fill = fills[room.type] || fills.hall;
   const stroke = room.outdoor ? '#b9bec1' : '#2f3133';
-  const sw = room.outdoor ? 2.2 : Math.max(5.5, 0.082 * m.s);
+  const sw = room.outdoor ? 2.2 : Math.max(2.2, 0.034 * m.s);
   const dash = room.outdoor ? ' stroke-dasharray="8 8"' : '';
   const tile = room.outdoor ? 'url(#tileGrid)' : room.tile ? `url(#tileGrid)` : fill;
   const windows = (room.windows || []).map((side) => {
@@ -388,6 +476,8 @@ const drawPlan = (def) => {
   const m = { s, ox, oy };
   const outdoor = (def.outdoor || []).map((room) => drawRoom({ ...room, outdoor: true }, m)).join('');
   const rooms = def.rooms.map((room) => drawRoom(room, m)).join('');
+  const exteriorWalls = drawExteriorWalls(def.rooms, m);
+  const windowOpenings = def.rooms.map((room) => drawWindowOpenings(room, m)).join('');
   const doors = def.rooms.map((room) => drawDoor(room, roomBox(room, m), m)).join('');
   const dimStroke = '#c4c8cb';
   const dimText = '#656a6e';
@@ -417,6 +507,8 @@ const drawPlan = (def) => {
       ${bottomDim}
       ${outdoor}
       ${rooms}
+      ${exteriorWalls}
+      ${windowOpenings}
       ${doors}
     </g>
     <text x="1450" y="842" font-family="Arial, sans-serif" font-size="16" font-weight="600" fill="#c7ccd0" text-anchor="end">${esc(def.code)} · ${esc(def.file)}</text>
