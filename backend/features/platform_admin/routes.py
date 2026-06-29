@@ -184,6 +184,26 @@ def _support_scope_label(scope: str) -> str:
     return labels.get(scope or "", scope or "Только просмотр")
 
 
+def _billing_document_type_label(document_type: str) -> str:
+    labels = {
+        "invoice": "Счет",
+        "act": "Акт",
+        "offer": "Коммерческое предложение",
+    }
+    return labels.get(document_type or "", document_type or "Документ")
+
+
+def _billing_document_status_label(status: str) -> str:
+    labels = {
+        "draft": "Черновик",
+        "issued": "Выставлен",
+        "payment_expected": "Ожидает оплату",
+        "closed": "Закрыт",
+        "cancelled": "Аннулирован",
+    }
+    return labels.get(status or "", status or "Черновик")
+
+
 def register_platform_admin_routes(app, deps):
     get_db = deps["get_db"]
     require_roles = deps["require_roles"]
@@ -444,6 +464,125 @@ def register_platform_admin_routes(app, deps):
             })
         conn.close()
         return {"id": new_id, "ok": True}
+
+    @app.get("/system/billing-documents")
+    def system_billing_documents_list(_current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""SELECT d.*, c.name AS company_name, pa.name AS platform_account_name
+                       FROM platform_billing_documents d
+                       LEFT JOIN companies c ON c.id=d.company_id
+                       LEFT JOIN platform_accounts pa ON pa.id=d.platform_account_id
+                       ORDER BY d.created_at DESC
+                       LIMIT 200""")
+        rows = []
+        for row in cur.fetchall():
+            item = dict(row)
+            item["documentTypeLabel"] = _billing_document_type_label(item.get("document_type"))
+            item["statusLabel"] = _billing_document_status_label(item.get("status"))
+            rows.append(item)
+        conn.close()
+        return rows
+
+    @app.post("/system/billing-documents")
+    def system_create_billing_document(data: dict, current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
+        company_id = data.get("companyId") or data.get("company_id")
+        if not company_id:
+            raise HTTPException(status_code=400, detail="Укажите компанию")
+        document_type = (data.get("documentType") or data.get("document_type") or "invoice").strip()
+        if document_type not in ("invoice", "act", "offer"):
+            raise HTTPException(status_code=400, detail="Недопустимый тип документа")
+        status = (data.get("status") or "draft").strip()
+        if status not in ("draft", "issued", "payment_expected", "closed", "cancelled"):
+            raise HTTPException(status_code=400, detail="Недопустимый статус документа")
+        amount = float(data.get("amount") or 0)
+        if amount <= 0:
+            raise HTTPException(status_code=400, detail="Сумма должна быть больше 0")
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT id, name, platform_account_id FROM companies WHERE id=%s", (company_id,))
+        company = cur.fetchone()
+        if not company:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Компания не найдена")
+        cur.execute("""INSERT INTO platform_billing_documents
+                          (platform_account_id, company_id, document_type, number, status, amount,
+                           currency, issue_date, due_date, period_start, period_end,
+                           payment_provider, payment_url, file_url, notes, created_by)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       RETURNING *""",
+                    (company.get("platform_account_id"), company_id, document_type,
+                     (data.get("number") or "").strip() or None, status, amount,
+                     data.get("currency") or "RUB", data.get("issueDate") or data.get("issue_date") or None,
+                     data.get("dueDate") or data.get("due_date") or None,
+                     data.get("periodStart") or data.get("period_start") or None,
+                     data.get("periodEnd") or data.get("period_end") or None,
+                     data.get("paymentProvider") or data.get("payment_provider") or "manual",
+                     data.get("paymentUrl") or data.get("payment_url"),
+                     data.get("fileUrl") or data.get("file_url"),
+                     data.get("notes"),
+                     current_user.get("name") or current_user.get("email")))
+        document = dict(cur.fetchone())
+        if not document.get("number"):
+            prefix = {"invoice": "INV", "act": "ACT", "offer": "OFFER"}.get(document_type, "DOC")
+            number = f"{prefix}-{datetime.now().strftime('%Y%m%d')}-{int(document['id']):05d}"
+            cur.execute("UPDATE platform_billing_documents SET number=%s WHERE id=%s RETURNING *", (number, document["id"]))
+            document = dict(cur.fetchone())
+        _system_write_audit(cur, current_user, "platform_billing_document_created", "platform_billing_document", document.get("id"),
+            document.get("number"), platform_account_id=company.get("platform_account_id"), company_id=company_id,
+            details={
+                "documentType": document_type,
+                "documentTypeLabel": _billing_document_type_label(document_type),
+                "status": status,
+                "statusLabel": _billing_document_status_label(status),
+                "amount": amount,
+                "companyName": company.get("name"),
+                "paymentProvider": document.get("payment_provider"),
+            })
+        conn.close()
+        document["documentTypeLabel"] = _billing_document_type_label(document.get("document_type"))
+        document["statusLabel"] = _billing_document_status_label(document.get("status"))
+        return {"ok": True, "document": document}
+
+    @app.put("/system/billing-documents/{id}")
+    def system_update_billing_document(id: int, data: dict, current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
+        status = (data.get("status") or "").strip()
+        if status not in ("draft", "issued", "payment_expected", "closed", "cancelled"):
+            raise HTTPException(status_code=400, detail="Недопустимый статус документа")
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""SELECT d.*, c.name AS company_name
+                       FROM platform_billing_documents d
+                       LEFT JOIN companies c ON c.id=d.company_id
+                       WHERE d.id=%s""", (id,))
+        before = cur.fetchone()
+        if not before:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Документ не найден")
+        cur.execute("""UPDATE platform_billing_documents
+                       SET status=%s,
+                           payment_url=COALESCE(%s, payment_url),
+                           file_url=COALESCE(%s, file_url),
+                           notes=COALESCE(%s, notes),
+                           updated_at=NOW()
+                       WHERE id=%s
+                       RETURNING *""",
+                    (status, data.get("paymentUrl") or data.get("payment_url"),
+                     data.get("fileUrl") or data.get("file_url"), data.get("notes"), id))
+        document = dict(cur.fetchone())
+        _system_write_audit(cur, current_user, "platform_billing_document_updated", "platform_billing_document", id,
+            document.get("number"), platform_account_id=document.get("platform_account_id"), company_id=document.get("company_id"),
+            details={
+                "beforeStatus": before.get("status"),
+                "afterStatus": status,
+                "afterStatusLabel": _billing_document_status_label(status),
+                "amount": float(document.get("amount") or 0),
+                "companyName": before.get("company_name"),
+            })
+        conn.close()
+        document["documentTypeLabel"] = _billing_document_type_label(document.get("document_type"))
+        document["statusLabel"] = _billing_document_status_label(document.get("status"))
+        return {"ok": True, "document": document}
 
     @app.get("/system/platform-users")
     def system_platform_users(_current_user: dict = Depends(require_roles(*PLATFORM_TEAM_ROLES))):

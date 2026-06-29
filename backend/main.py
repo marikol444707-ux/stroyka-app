@@ -2288,6 +2288,27 @@ def init_db():
             created_by VARCHAR(255),
             created_at TIMESTAMP DEFAULT NOW()
         );
+        CREATE TABLE IF NOT EXISTS platform_billing_documents (
+            id SERIAL PRIMARY KEY,
+            platform_account_id INT,
+            company_id INT NOT NULL,
+            document_type VARCHAR(50) DEFAULT 'invoice',
+            number VARCHAR(100),
+            status VARCHAR(50) DEFAULT 'draft',
+            amount NUMERIC(10,2),
+            currency VARCHAR(10) DEFAULT 'RUB',
+            issue_date DATE,
+            due_date DATE,
+            period_start DATE,
+            period_end DATE,
+            payment_provider VARCHAR(50),
+            payment_url TEXT,
+            file_url TEXT,
+            notes TEXT,
+            created_by VARCHAR(255),
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        );
         -- Заявки на демо с лендинга
         CREATE TABLE IF NOT EXISTS demo_requests (
             id SERIAL PRIMARY KEY,

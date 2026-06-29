@@ -84,7 +84,7 @@ def auth_token_for(user: dict) -> str:
         "exp": int(time.time()) + 3600,
     }
     body = b64url(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
-    secret = env_value("AUTH_SECRET", "change-me")
+    secret = env_value("AUTH_SECRET") or (env_value("DB_PASSWORD", "password") + "|stroyka-auth")
     sig = hmac.new(secret.encode("utf-8"), body.encode("utf-8"), hashlib.sha256).digest()
     return body + "." + b64url(sig)
 
@@ -162,6 +162,14 @@ def cleanup():
         cur.execute("DELETE FROM crm_leads WHERE name LIKE %s", (like_prefix,))
         cur.execute("DELETE FROM suppliers WHERE name LIKE %s", (like_prefix,))
         cur.execute("DELETE FROM staff WHERE name LIKE %s", (like_prefix,))
+        cur.execute("""
+            DELETE FROM platform_billing_documents
+            WHERE notes LIKE %s
+               OR created_by LIKE %s
+               OR number LIKE %s
+               OR company_id IN (SELECT id FROM companies WHERE name LIKE %s)
+               OR platform_account_id IN (SELECT id FROM platform_accounts WHERE name LIKE %s)
+        """, ("%" + PREFIX + "%", like_prefix, "%" + RUN_ID + "%", like_prefix, like_prefix))
         cur.execute("DELETE FROM company_payments WHERE company_id IN (SELECT id FROM companies WHERE name LIKE %s)", (like_prefix,))
         cur.execute("DELETE FROM invite_codes WHERE preset_name IN (SELECT name FROM companies WHERE name LIKE %s)", (like_prefix,))
         cur.execute("""
@@ -265,13 +273,46 @@ def check_platform(system_token):
             "createdBy": f"{PREFIX} system_owner",
         },
     )
+    _, billing_document = api_json(
+        "POST",
+        "/system/billing-documents",
+        token=system_token,
+        expected=200,
+        data={
+            "companyId": company_id,
+            "documentType": "invoice",
+            "status": "issued",
+            "amount": 1234,
+            "issueDate": "2026-06-29",
+            "dueDate": "2026-07-05",
+            "periodStart": "2026-06-29",
+            "periodEnd": "2026-07-29",
+            "paymentProvider": "manual",
+            "notes": f"{PREFIX} billing document",
+        },
+    )
+    billing_document_id = billing_document.get("document", {}).get("id")
+    if not billing_document_id:
+        raise RuntimeError(f"system billing document create returned invalid body: {billing_document}")
+    api_json("PUT", f"/system/billing-documents/{billing_document_id}", token=system_token, expected=200, data={"status": "payment_expected"})
+    _, billing_documents = api_json("GET", "/system/billing-documents", token=system_token, expected=200)
+    if not any(item.get("id") == billing_document_id and item.get("status") == "payment_expected" for item in billing_documents):
+        raise RuntimeError(f"system billing documents did not include updated document: {billing_documents}")
     _, companies = api_json("GET", "/system/companies", token=system_token, expected=200)
     created_company = next((c for c in companies if c.get("id") == company_id), None)
     if not created_company or not created_company.get("billing_state"):
         raise RuntimeError("system companies did not return created company with billing_state")
     _, audit_log = api_json("GET", "/system/audit-log?limit=80", token=system_token, expected=200)
     audit_text = json.dumps(audit_log, ensure_ascii=False)
-    for expected_action in ("platform_account_created", "company_created", "company_soft_suspended", "company_resumed", "payment_added"):
+    for expected_action in (
+        "platform_account_created",
+        "company_created",
+        "company_soft_suspended",
+        "company_resumed",
+        "payment_added",
+        "platform_billing_document_created",
+        "platform_billing_document_updated",
+    ):
         if expected_action not in audit_text:
             raise RuntimeError(f"system audit log missing {expected_action}")
 
@@ -340,7 +381,9 @@ def check_platform_roles(system_token, platform_result):
         api_json("GET", "/system/platform-users", token=role_user["token"], expected=403)
 
     api_json("GET", "/system/payments", token=platform_support["token"], expected=403)
+    api_json("GET", "/system/billing-documents", token=platform_support["token"], expected=403)
     api_json("GET", "/system/payments", token=billing_admin["token"], expected=200)
+    api_json("GET", "/system/billing-documents", token=billing_admin["token"], expected=200)
     _, billing_payment = api_json(
         "POST",
         "/system/payments",
@@ -359,6 +402,37 @@ def check_platform_roles(system_token, platform_result):
     )
     if not billing_payment.get("ok"):
         raise RuntimeError(f"billing admin payment returned invalid body: {billing_payment}")
+    _, billing_document = api_json(
+        "POST",
+        "/system/billing-documents",
+        token=billing_admin["token"],
+        expected=200,
+        data={
+            "companyId": platform_result["companyId"],
+            "documentType": "invoice",
+            "status": "draft",
+            "amount": 888,
+            "issueDate": "2026-06-29",
+            "dueDate": "2026-07-06",
+            "periodStart": "2026-07-29",
+            "periodEnd": "2026-08-29",
+            "paymentProvider": "manual",
+            "notes": f"{PREFIX} billing document",
+        },
+    )
+    document_id = billing_document.get("document", {}).get("id")
+    if not document_id or not billing_document.get("document", {}).get("number"):
+        raise RuntimeError(f"billing admin document returned invalid body: {billing_document}")
+    api_json(
+        "PUT",
+        f"/system/billing-documents/{document_id}",
+        token=billing_admin["token"],
+        expected=200,
+        data={"status": "payment_expected", "paymentUrl": f"https://stroyka26.pro/pay/smoke-{RUN_ID}"},
+    )
+    _, billing_documents = api_json("GET", "/system/billing-documents", token=billing_admin["token"], expected=200)
+    if not any(item.get("id") == document_id and item.get("status") == "payment_expected" for item in billing_documents):
+        raise RuntimeError(f"billing documents did not include updated document: {billing_documents}")
 
     _, opened = api_json(
         "POST",
@@ -385,7 +459,7 @@ def check_platform_roles(system_token, platform_result):
 
     _, audit_log = api_json("GET", f"/system/audit-log?limit=80&search={RUN_ID}", token=platform_admin["token"], expected=200)
     audit_text = json.dumps(audit_log, ensure_ascii=False)
-    for expected_action in ("platform_user_invited", "support_session_opened", "support_session_closed", "payment_added"):
+    for expected_action in ("platform_user_invited", "support_session_opened", "support_session_closed", "payment_added", "platform_billing_document_created", "platform_billing_document_updated"):
         if expected_action not in audit_text:
             raise RuntimeError(f"platform role audit log missing {expected_action}")
 
@@ -394,6 +468,7 @@ def check_platform_roles(system_token, platform_result):
         "platformSupport": platform_support["email"],
         "billingAdmin": billing_admin["email"],
         "supportSessionId": session_id,
+        "billingDocumentId": document_id,
     }
 
 
@@ -546,6 +621,7 @@ def main():
                 "platform account company creation",
                 "soft suspend and resume",
                 "platform payment",
+                "platform billing documents",
                 "platform audit log",
                 "platform audit filters",
                 "platform team invite",
