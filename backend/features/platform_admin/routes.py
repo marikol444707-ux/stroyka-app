@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, date
 from typing import Optional
 
 import psycopg2.extras
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 
 
 PLATFORM_VIEW_ROLES = ("system_owner", "platform_admin", "platform_support", "billing_admin")
@@ -247,6 +247,22 @@ def _payment_provider_states() -> list:
     ]
 
 
+def _operator_requisites() -> dict:
+    return {
+        "name": os.getenv("PLATFORM_OPERATOR_NAME", "Оператор платформы Stroyka ERP").strip() or "Оператор платформы Stroyka ERP",
+        "inn": os.getenv("PLATFORM_OPERATOR_INN", "").strip(),
+        "kpp": os.getenv("PLATFORM_OPERATOR_KPP", "").strip(),
+        "ogrn": os.getenv("PLATFORM_OPERATOR_OGRN", "").strip(),
+        "address": os.getenv("PLATFORM_OPERATOR_ADDRESS", "").strip(),
+        "email": os.getenv("PLATFORM_OPERATOR_EMAIL", "").strip(),
+        "phone": os.getenv("PLATFORM_OPERATOR_PHONE", "").strip(),
+        "bankName": os.getenv("PLATFORM_OPERATOR_BANK_NAME", "").strip(),
+        "bankBik": os.getenv("PLATFORM_OPERATOR_BANK_BIK", "").strip(),
+        "bankAccount": os.getenv("PLATFORM_OPERATOR_BANK_ACCOUNT", "").strip(),
+        "bankCorrAccount": os.getenv("PLATFORM_OPERATOR_BANK_CORR_ACCOUNT", "").strip(),
+    }
+
+
 def _payment_provider_by_id(provider: str) -> dict:
     provider_id = (provider or "manual").strip()
     return next((item for item in _payment_provider_states() if item["id"] == provider_id), None)
@@ -328,6 +344,7 @@ def _generate_billing_document_pdf(document: dict, company: dict, current_user: 
     elif document.get("document_type") == "act":
         title = f"Акт оказанных услуг {number}"
 
+    operator = _operator_requisites()
     c = canvas.Canvas(output_path, pagesize=A4)
     page_width, page_height = A4
     x = 48
@@ -350,7 +367,33 @@ def _generate_billing_document_pdf(document: dict, company: dict, current_user: 
     c.setFont(bold_font, 11)
     c.drawString(x, y, "Получатель")
     y -= 16
-    y = _draw_wrapped_pdf_line(c, "Оператор платформы Stroyka ERP", x, y, 90, regular_font, 10)
+    y = _draw_wrapped_pdf_line(c, operator["name"], x, y, 90, regular_font, 10)
+    recipient_parts = []
+    if operator["inn"]:
+        recipient_parts.append("ИНН " + operator["inn"])
+    if operator["kpp"]:
+        recipient_parts.append("КПП " + operator["kpp"])
+    if operator["ogrn"]:
+        recipient_parts.append("ОГРН " + operator["ogrn"])
+    if recipient_parts:
+        y = _draw_wrapped_pdf_line(c, ", ".join(recipient_parts), x, y, 90, regular_font, 9, 12)
+    if operator["address"]:
+        y = _draw_wrapped_pdf_line(c, "Адрес: " + operator["address"], x, y, 90, regular_font, 9, 12)
+    if operator["bankName"] or operator["bankBik"] or operator["bankAccount"]:
+        bank_lines = [
+            operator["bankName"],
+            ("БИК " + operator["bankBik"]) if operator["bankBik"] else "",
+            ("р/с " + operator["bankAccount"]) if operator["bankAccount"] else "",
+            ("к/с " + operator["bankCorrAccount"]) if operator["bankCorrAccount"] else "",
+        ]
+        y = _draw_wrapped_pdf_line(c, "Банк: " + ", ".join([item for item in bank_lines if item]), x, y, 90, regular_font, 9, 12)
+    contacts = []
+    if operator["email"]:
+        contacts.append(operator["email"])
+    if operator["phone"]:
+        contacts.append(operator["phone"])
+    if contacts:
+        y = _draw_wrapped_pdf_line(c, "Контакты: " + ", ".join(contacts), x, y, 90, regular_font, 9, 12)
     y -= 6
     c.setFont(bold_font, 11)
     c.drawString(x, y, "Плательщик")
@@ -419,6 +462,57 @@ def _generate_billing_document_pdf(document: dict, company: dict, current_user: 
     c.showPage()
     c.save()
     return file_url
+
+
+def _extract_payment_event(provider: str, payload: dict) -> dict:
+    provider_key = (provider or "").strip().lower()
+    if provider_key == "yookassa":
+        provider_key = "yukassa"
+    obj = payload.get("object") if isinstance(payload.get("object"), dict) else {}
+    metadata = obj.get("metadata") if isinstance(obj.get("metadata"), dict) else {}
+    amount_data = obj.get("amount") if isinstance(obj.get("amount"), dict) else {}
+    raw_document_id = (
+        metadata.get("documentId") or metadata.get("document_id") or metadata.get("billingDocumentId")
+        or payload.get("documentId") or payload.get("document_id") or payload.get("billingDocumentId")
+        or payload.get("Shp_documentId") or payload.get("shp_document_id")
+    )
+    try:
+        document_id = int(raw_document_id) if raw_document_id not in (None, "") else None
+    except Exception:
+        document_id = None
+    raw_amount = (
+        amount_data.get("value") or payload.get("OutSum") or payload.get("outSum")
+        or payload.get("amount") or payload.get("Amount")
+    )
+    try:
+        amount = float(str(raw_amount).replace(",", ".")) if raw_amount not in (None, "") else None
+    except Exception:
+        amount = None
+    return {
+        "provider": provider_key,
+        "eventId": payload.get("id") or obj.get("id") or payload.get("InvId") or payload.get("invoiceId"),
+        "eventType": payload.get("event") or payload.get("type") or payload.get("action") or "payment_event",
+        "providerStatus": obj.get("status") or payload.get("Status") or payload.get("status") or payload.get("Result"),
+        "documentId": document_id,
+        "amount": amount,
+        "currency": amount_data.get("currency") or payload.get("currency") or "RUB",
+    }
+
+
+async def _payment_webhook_payload(request: Request) -> dict:
+    content_type = (request.headers.get("content-type") or "").lower()
+    if "application/json" in content_type:
+        try:
+            data = await request.json()
+            return data if isinstance(data, dict) else {"raw": data}
+        except Exception:
+            return {}
+    try:
+        form = await request.form()
+        return {key: form.get(key) for key in form.keys()}
+    except Exception:
+        raw = (await request.body()).decode("utf-8", "ignore")
+        return {"raw": raw}
 
 
 def register_platform_admin_routes(app, deps):
@@ -650,6 +744,85 @@ def register_platform_admin_routes(app, deps):
     @app.get("/system/payment-providers")
     def system_payment_providers(_current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
         return _payment_provider_states()
+
+    @app.get("/system/payment-events")
+    def system_payment_events(_current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""SELECT e.*, d.number AS billing_document_number, c.name AS company_name,
+                              pa.name AS platform_account_name
+                       FROM platform_payment_events e
+                       LEFT JOIN platform_billing_documents d ON d.id=e.billing_document_id
+                       LEFT JOIN companies c ON c.id=e.company_id
+                       LEFT JOIN platform_accounts pa ON pa.id=e.platform_account_id
+                       ORDER BY e.received_at DESC
+                       LIMIT 100""")
+        rows = [dict(row) for row in cur.fetchall()]
+        conn.close()
+        return rows
+
+    @app.post("/system/payment-webhooks/{provider}")
+    async def system_payment_webhook(provider: str, request: Request):
+        provider_key = (provider or "").strip().lower()
+        if provider_key == "yookassa":
+            provider_key = "yukassa"
+        if provider_key not in ("yukassa", "robokassa"):
+            raise HTTPException(status_code=404, detail="Провайдер не поддерживается")
+        webhook_token = os.getenv("PLATFORM_PAYMENT_WEBHOOK_TOKEN", "").strip()
+        if not webhook_token:
+            raise HTTPException(status_code=503, detail="Webhook платежей не включен: задайте PLATFORM_PAYMENT_WEBHOOK_TOKEN")
+        supplied_token = request.headers.get("x-stroyka-webhook-token") or request.query_params.get("token")
+        if supplied_token != webhook_token:
+            raise HTTPException(status_code=401, detail="Недействительный webhook token")
+        payload = await _payment_webhook_payload(request)
+        event = _extract_payment_event(provider_key, payload)
+        if event["provider"] not in ("yukassa", "robokassa"):
+            raise HTTPException(status_code=400, detail="Недопустимый провайдер")
+
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        document = None
+        if event.get("documentId"):
+            cur.execute("""SELECT d.id, d.number, d.platform_account_id, d.company_id, d.amount, d.currency,
+                                  c.name AS company_name
+                           FROM platform_billing_documents d
+                           LEFT JOIN companies c ON c.id=d.company_id
+                           WHERE d.id=%s""", (event["documentId"],))
+            document = cur.fetchone()
+        platform_account_id = document.get("platform_account_id") if document else None
+        company_id = document.get("company_id") if document else None
+        cur.execute("""INSERT INTO platform_payment_events
+                          (provider, event_id, event_type, provider_status, platform_account_id, company_id,
+                           billing_document_id, amount, currency, trusted, action_status, payload_json, notes)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       RETURNING id""",
+                    (event["provider"], event.get("eventId"), event.get("eventType"), event.get("providerStatus"),
+                     platform_account_id, company_id, event.get("documentId"), event.get("amount"), event.get("currency") or "RUB",
+                     True, "received", json.dumps(payload, ensure_ascii=False, default=str),
+                     "Событие принято. Фактическая оплата не создана автоматически."))
+        event_id = cur.fetchone()["id"]
+        _system_write_audit(cur, {"name": "payment-webhook", "role": "system"}, "platform_payment_webhook_received",
+            "platform_payment_event", event_id, event.get("eventId") or str(event_id),
+            platform_account_id=platform_account_id, company_id=company_id,
+            details={
+                "provider": event["provider"],
+                "eventType": event.get("eventType"),
+                "providerStatus": event.get("providerStatus"),
+                "billingDocumentId": event.get("documentId"),
+                "billingDocumentNumber": document.get("number") if document else None,
+                "amount": event.get("amount"),
+                "actionStatus": "received",
+                "autoPaymentCreated": False,
+            })
+        conn.close()
+        return {
+            "ok": True,
+            "eventId": event_id,
+            "documentFound": bool(document),
+            "actionStatus": "received",
+            "autoPaymentCreated": False,
+            "message": "Событие провайдера принято в журнал. Факт оплаты не зачислен автоматически.",
+        }
 
     @app.post("/system/payments")
     def system_create_payment(data: dict, current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):

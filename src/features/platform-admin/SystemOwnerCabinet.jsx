@@ -7,6 +7,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const [payments, setPayments] = useState([]);
   const [billingDocuments, setBillingDocuments] = useState([]);
   const [paymentProviders, setPaymentProviders] = useState([]);
+  const [paymentEvents, setPaymentEvents] = useState([]);
   const [demos, setDemos] = useState([]);
   const [tariffs, setTariffs] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
@@ -83,6 +84,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     platform_billing_document_updated: 'Изменен платежный документ',
     platform_billing_document_pdf_generated: 'Сформирован PDF документа',
     platform_payment_provider_prepared: 'Подготовлен платежный провайдер',
+    platform_payment_webhook_received: 'Получено событие провайдера',
     platform_user_invited: 'Приглашен сотрудник платформы',
     platform_user_updated: 'Сотрудник платформы изменен',
     support_session_opened: 'Открыт режим поддержки',
@@ -96,12 +98,13 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
       if (auditFilters.companyId) auditParams.set('companyId', auditFilters.companyId);
       if (auditFilters.action) auditParams.set('action', auditFilters.action);
       if (auditFilters.search.trim()) auditParams.set('search', auditFilters.search.trim());
-      const [d, c, p, bd, pp, dr, t, a, u, s] = await Promise.all([
+      const [d, c, p, bd, pp, pe, dr, t, a, u, s] = await Promise.all([
         fetchJson('/system/dashboard', null),
         fetchJson('/system/companies', []),
         canManageBilling ? fetchJson('/system/payments', []) : Promise.resolve([]),
         canManageBilling ? fetchJson('/system/billing-documents', []) : Promise.resolve([]),
         canManageBilling ? fetchJson('/system/payment-providers', []) : Promise.resolve([]),
+        canManageBilling ? fetchJson('/system/payment-events', []) : Promise.resolve([]),
         canManagePlatform ? fetchJson('/demo-requests', []) : Promise.resolve([]),
         fetchJson('/system/tariffs', []),
         fetchJson('/system/audit-log?'+auditParams.toString(), []),
@@ -113,6 +116,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
       setPayments(Array.isArray(p)?p:[]);
       setBillingDocuments(Array.isArray(bd)?bd:[]);
       setPaymentProviders(Array.isArray(pp)?pp:[]);
+      setPaymentEvents(Array.isArray(pe)?pe:[]);
       setDemos(Array.isArray(dr)?dr:[]);
       setTariffs(Array.isArray(t)?t:[]);
       setAuditLog(Array.isArray(a)?a:[]);
@@ -465,6 +469,21 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
                 <p style={{color:C.textSec,fontSize:'11px',margin:'4px 0 0'}}>{ready?'Готов к использованию':'Нужны ключи в .env'} · {provider.mode}</p>
               </div>);
             })}
+          </div>)}
+
+          {paymentEvents.length > 0 && (<div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
+            <b style={{color:C.warning,fontSize:'13px',display:'block',marginBottom:'8px'}}>События провайдеров ({paymentEvents.length})</b>
+            <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 8px'}}>Это входящие события ЮKassa/Robokassa. Они не являются оплатой, пока биллинг отдельно не зачислит фактический платеж.</p>
+            <div style={{display:'grid',gap:'6px'}}>
+              {paymentEvents.slice(0,5).map(event=>(<div key={event.id} style={{display:'grid',gridTemplateColumns:'minmax(90px,130px) 1fr auto',gap:'8px',alignItems:'center',padding:'8px',border:'1px solid '+C.border,borderRadius:'8px',backgroundColor:C.card}}>
+                <b style={{color:C.text,fontSize:'12px'}}>{event.provider || 'provider'}</b>
+                <div style={{minWidth:0}}>
+                  <p style={{color:C.textSec,fontSize:'11px',margin:0,overflowWrap:'anywhere'}}>{event.event_type || 'event'} · {event.provider_status || 'без статуса'} · {event.billing_document_number || 'документ не найден'}</p>
+                  <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{event.company_name || '—'} · {event.received_at ? String(event.received_at).slice(0,19).replace('T',' ') : ''}</p>
+                </div>
+                <span style={badge(C.warning,C.warningLight,C.warningBorder)}>{event.action_status || 'received'}</span>
+              </div>))}
+            </div>
           </div>)}
 
           {showNewBillingDocument && (<div style={{...card,padding:'16px',marginBottom:'14px'}}>

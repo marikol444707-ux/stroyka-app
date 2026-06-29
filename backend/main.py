@@ -2309,6 +2309,26 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW()
         );
+        CREATE TABLE IF NOT EXISTS platform_payment_events (
+            id SERIAL PRIMARY KEY,
+            provider VARCHAR(50),
+            event_id VARCHAR(255),
+            event_type VARCHAR(100),
+            provider_status VARCHAR(100),
+            platform_account_id INT,
+            company_id INT,
+            billing_document_id INT,
+            amount NUMERIC(10,2),
+            currency VARCHAR(10) DEFAULT 'RUB',
+            trusted BOOLEAN DEFAULT FALSE,
+            action_status VARCHAR(50) DEFAULT 'received',
+            payload_json TEXT,
+            notes TEXT,
+            received_at TIMESTAMP DEFAULT NOW(),
+            processed_at TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_platform_payment_events_doc ON platform_payment_events (billing_document_id);
+        CREATE INDEX IF NOT EXISTS idx_platform_payment_events_provider ON platform_payment_events (provider, event_id);
         -- Заявки на демо с лендинга
         CREATE TABLE IF NOT EXISTS demo_requests (
             id SERIAL PRIMARY KEY,

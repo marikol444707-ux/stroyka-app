@@ -171,6 +171,14 @@ def cleanup():
                OR company_id IN (SELECT id FROM companies WHERE name LIKE %s)
                OR platform_account_id IN (SELECT id FROM platform_accounts WHERE name LIKE %s)
         """, ("%" + PREFIX + "%", like_prefix, "%" + RUN_ID + "%", like_prefix, like_prefix))
+        cur.execute("""
+            DELETE FROM platform_payment_events
+            WHERE notes LIKE %s
+               OR event_id LIKE %s
+               OR COALESCE(payload_json,'') LIKE %s
+               OR company_id IN (SELECT id FROM companies WHERE name LIKE %s)
+               OR platform_account_id IN (SELECT id FROM platform_accounts WHERE name LIKE %s)
+        """, ("%" + PREFIX + "%", "%" + RUN_ID + "%", "%" + PREFIX + "%", like_prefix, like_prefix))
         cur.execute("DELETE FROM company_payments WHERE company_id IN (SELECT id FROM companies WHERE name LIKE %s)", (like_prefix,))
         cur.execute("DELETE FROM invite_codes WHERE preset_name IN (SELECT name FROM companies WHERE name LIKE %s)", (like_prefix,))
         cur.execute("""
@@ -302,6 +310,9 @@ def check_platform(system_token):
     _, payment_providers = api_json("GET", "/system/payment-providers", token=system_token, expected=200)
     if not any(item.get("id") == "manual" and item.get("configured") for item in payment_providers):
         raise RuntimeError(f"system payment providers did not include manual provider: {payment_providers}")
+    _, payment_events = api_json("GET", "/system/payment-events", token=system_token, expected=200)
+    if not isinstance(payment_events, list):
+        raise RuntimeError(f"system payment events returned invalid body: {payment_events}")
     _, prepared_payment = api_json(
         "POST",
         f"/system/billing-documents/{billing_document_id}/prepare-payment",
@@ -407,9 +418,11 @@ def check_platform_roles(system_token, platform_result):
     api_json("GET", "/system/payments", token=platform_support["token"], expected=403)
     api_json("GET", "/system/billing-documents", token=platform_support["token"], expected=403)
     api_json("GET", "/system/payment-providers", token=platform_support["token"], expected=403)
+    api_json("GET", "/system/payment-events", token=platform_support["token"], expected=403)
     api_json("GET", "/system/payments", token=billing_admin["token"], expected=200)
     api_json("GET", "/system/billing-documents", token=billing_admin["token"], expected=200)
     api_json("GET", "/system/payment-providers", token=billing_admin["token"], expected=200)
+    api_json("GET", "/system/payment-events", token=billing_admin["token"], expected=200)
     _, billing_payment = api_json(
         "POST",
         "/system/payments",
@@ -649,6 +662,7 @@ def main():
                 "platform payment",
                 "platform billing documents",
                 "platform payment providers",
+                "platform payment events",
                 "platform audit log",
                 "platform audit filters",
                 "platform team invite",
