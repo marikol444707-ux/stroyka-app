@@ -18,6 +18,7 @@ BASE_URL = os.getenv("BASE_URL", "https://stroyka26.pro").rstrip("/")
 TEST_EMAIL_PREFIX = os.getenv("PASSWORD_RESET_SMOKE_EMAIL_PREFIX", "password-reset-smoke")
 TEST_EMAIL_DOMAIN = os.getenv("PASSWORD_RESET_SMOKE_EMAIL_DOMAIN", "stroyka.local")
 TEST_NAME = os.getenv("PASSWORD_RESET_SMOKE_NAME", "CODEX QA Восстановление пароля")
+TWO_FACTOR_ROLES = {"директор", "зам_директора", "бухгалтер"}
 
 DEFAULT_ROLES = [
     ("директор", "director"),
@@ -116,6 +117,24 @@ def login_status(email, password):
     return status, body
 
 
+def login_accepts_password(status, body):
+    if status != 200 or not isinstance(body, dict):
+        return False
+    return bool(body.get("authToken") or body.get("twoFactorRequired") or body.get("twoFactorSetupRequired"))
+
+
+def login_state(body):
+    if not isinstance(body, dict):
+        return type(body).__name__
+    if body.get("authToken"):
+        return "authToken"
+    if body.get("twoFactorRequired"):
+        return "twoFactorRequired"
+    if body.get("twoFactorSetupRequired"):
+        return "twoFactorSetupRequired"
+    return ",".join(sorted(body.keys())) or "empty"
+
+
 def test_email(slug):
     return f"{TEST_EMAIL_PREFIX}-{slug}@{TEST_EMAIL_DOMAIN}".lower()
 
@@ -144,22 +163,26 @@ def prepare_user(role, slug):
                    reset_token_expires=NULL,
                    active=TRUE,
                    failed_login_count=0,
-                   locked_until=NULL
+                   locked_until=NULL,
+                   two_factor_required=%s,
+                   two_factor_enabled=FALSE,
+                   two_factor_secret=NULL,
+                   two_factor_confirmed_at=NULL
              WHERE id=%s
          RETURNING id, name, email
             """,
-            (name, email, hash_password(password), role, existing["id"]),
+            (name, email, hash_password(password), role, role in TWO_FACTOR_ROLES, existing["id"]),
         )
     else:
         cur.execute(
             """
             INSERT INTO users
-                (name,email,password,role,project_id,project_name,assigned_projects,assigned_packages,active)
+                (name,email,password,role,project_id,project_name,assigned_projects,assigned_packages,active,two_factor_required)
             VALUES
-                (%s,%s,%s,%s,NULL,'','[]'::jsonb,'[]'::jsonb,TRUE)
+                (%s,%s,%s,%s,NULL,'','[]'::jsonb,'[]'::jsonb,TRUE,%s)
             RETURNING id, name, email
             """,
-            (name, email, hash_password(password), role),
+            (name, email, hash_password(password), role, role in TWO_FACTOR_ROLES),
         )
     row = dict(cur.fetchone())
     conn.commit()
@@ -218,7 +241,10 @@ def clear_reset_state(user_id):
            SET reset_token=NULL,
                reset_token_expires=NULL,
                failed_login_count=0,
-               locked_until=NULL
+               locked_until=NULL,
+               two_factor_enabled=FALSE,
+               two_factor_secret=NULL,
+               two_factor_confirmed_at=NULL
          WHERE id=%s
         """,
         (user_id,),
@@ -233,9 +259,9 @@ def check_role(role, slug):
     new_password = secrets.token_urlsafe(14)
 
     try:
-        old_status, _ = login_status(user["email"], user["password"])
-        if old_status != 200:
-            raise RuntimeError(f"initial login: got {old_status}")
+        old_status, old_body = login_status(user["email"], user["password"])
+        if not login_accepts_password(old_status, old_body):
+            raise RuntimeError(f"initial login rejected: status={old_status}, state={login_state(old_body)}")
 
         _, reset_request = api_json(
             "POST",
@@ -259,13 +285,13 @@ def check_role(role, slug):
             expected=200,
         )
 
-        old_status, _ = login_status(user["email"], user["password"])
-        if old_status == 200:
+        old_status, old_body = login_status(user["email"], user["password"])
+        if login_accepts_password(old_status, old_body):
             raise RuntimeError("old password: старый пароль продолжает работать")
 
         new_status, body = login_status(user["email"], new_password)
-        if new_status != 200 or not body.get("authToken"):
-            raise RuntimeError(f"new password login: got {new_status}, body={body}")
+        if not login_accepts_password(new_status, body):
+            raise RuntimeError(f"new password login rejected: status={new_status}, state={login_state(body)}")
 
         task_status = check_reset_task_closed(user["id"])
         if task_status and task_status != "Закрыто":
@@ -276,6 +302,7 @@ def check_role(role, slug):
             "email": user["email"],
             "emailSent": bool(reset_request.get("emailSent")),
             "aiTaskStatus": task_status,
+            "loginState": login_state(body),
             "checked": [
                 "temporary user login",
                 "password-reset-request",
