@@ -23,6 +23,8 @@ venv/
 .env.test.local
 .env.production.local
 backend/.env
+/uploads/
+/backend/uploads/
 /outputs/
 /tmp/
 
