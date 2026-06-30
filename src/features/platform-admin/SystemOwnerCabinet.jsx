@@ -8,6 +8,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const [billingDocuments, setBillingDocuments] = useState([]);
   const [paymentProviders, setPaymentProviders] = useState([]);
   const [paymentEvents, setPaymentEvents] = useState([]);
+  const [platformFollowups, setPlatformFollowups] = useState([]);
   const [demos, setDemos] = useState([]);
   const [tariffs, setTariffs] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
@@ -22,6 +23,9 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const [showNewPayment, setShowNewPayment] = useState(false);
   const [newBillingDocument, setNewBillingDocument] = useState({companyId:'',documentType:'invoice',status:'draft',amount:'',issueDate:new Date().toISOString().split('T')[0],dueDate:'',periodStart:'',periodEnd:'',paymentProvider:'manual',paymentUrl:'',fileUrl:'',notes:''});
   const [showNewBillingDocument, setShowNewBillingDocument] = useState(false);
+  const emptyFollowupForm = {companyId:'',billingDocumentId:'',source:'payment',channel:'call',title:'',contactName:'',contactValue:'',dueDate:new Date().toISOString().split('T')[0],status:'open',responsibleName:user.name || '',notes:'',result:''};
+  const [newFollowup, setNewFollowup] = useState(emptyFollowupForm);
+  const [showNewFollowup, setShowNewFollowup] = useState(false);
   const [lastInviteCode, setLastInviteCode] = useState(null);
   const [clientUsers, setClientUsers] = useState([]);
   const [clientUserMoveDrafts, setClientUserMoveDrafts] = useState({});
@@ -63,11 +67,15 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     closed:'Закрыт',
     cancelled:'Аннулирован',
   };
+  const followupSourceLabels = {demo:'Демо',payment:'Оплата',renewal:'Продление',support:'Поддержка',manual:'Вручную'};
+  const followupChannelLabels = {call:'Звонок',email:'Email',messenger:'Мессенджер',meeting:'Встреча'};
+  const followupStatusLabels = {open:'Открыта',contacted:'Связались',waiting:'Ждем клиента',done:'Закрыта',cancelled:'Отменена'};
   const canManagePlatform = ['system_owner','platform_admin'].includes(user.role);
   const canManageBilling = ['system_owner','platform_admin','billing_admin'].includes(user.role);
   const canManageTeam = user.role === 'system_owner';
   const canUseSupport = ['system_owner','platform_admin','platform_support'].includes(user.role);
   const canViewClientUsers = canManagePlatform || canUseSupport;
+  const canUseFollowups = canManagePlatform || canManageBilling || canUseSupport;
   const authHeaders = useCallback((headers={}) => {
     const token = localStorage.getItem('authToken');
     return token ? {...headers, Authorization:'Bearer '+token} : headers;
@@ -99,6 +107,9 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     platform_payment_provider_prepared: 'Подготовлен платежный провайдер',
     platform_payment_webhook_received: 'Получено событие провайдера',
     platform_payment_event_confirmed: 'Оплата зачислена по событию',
+    platform_followup_created: 'Создана задача платформы',
+    platform_followup_updated: 'Задача платформы изменена',
+    platform_followup_closed: 'Задача платформы закрыта',
     client_card_recognized: 'Распознана карта клиента',
     client_user_disabled: 'Доступ клиента отключен',
     client_user_enabled: 'Доступ клиента включен',
@@ -123,12 +134,13 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
       if (clientUserFilters.role) clientUserParams.set('role', clientUserFilters.role);
       if (clientUserFilters.active) clientUserParams.set('active', clientUserFilters.active);
       if (clientUserFilters.search.trim()) clientUserParams.set('search', clientUserFilters.search.trim());
-      const [d, c, p, bd, pp, dr, t, a, cu, u, s] = await Promise.all([
+      const [d, c, p, bd, pp, pf, dr, t, a, cu, u, s] = await Promise.all([
         fetchJson('/system/dashboard', null),
         fetchJson('/system/companies', []),
         canManageBilling ? fetchJson('/system/payments', []) : Promise.resolve([]),
         canManageBilling ? fetchJson('/system/billing-documents', []) : Promise.resolve([]),
         canManageBilling ? fetchJson('/system/payment-providers', []) : Promise.resolve([]),
+        canUseFollowups ? fetchJson('/system/followups?status=active&limit=200', []) : Promise.resolve([]),
         canManagePlatform ? fetchJson('/demo-requests', []) : Promise.resolve([]),
         fetchJson('/system/tariffs', []),
         fetchJson('/system/audit-log?'+auditParams.toString(), []),
@@ -141,6 +153,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
       setPayments(Array.isArray(p)?p:[]);
       setBillingDocuments(Array.isArray(bd)?bd:[]);
       setPaymentProviders(Array.isArray(pp)?pp:[]);
+      setPlatformFollowups(Array.isArray(pf)?pf:[]);
       setDemos(Array.isArray(dr)?dr:[]);
       setTariffs(Array.isArray(t)?t:[]);
       setAuditLog(Array.isArray(a)?a:[]);
@@ -148,7 +161,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
       setPlatformUsers(Array.isArray(u)?u:[]);
       setSupportSessions(Array.isArray(s)?s:[]);
     } catch(_){}
-	  }, [auditFilters, canManageBilling, canManagePlatform, canManageTeam, canUseSupport, canViewClientUsers, clientUserFilters, fetchJson]);
+	  }, [auditFilters, canManageBilling, canManagePlatform, canManageTeam, canUseFollowups, canUseSupport, canViewClientUsers, clientUserFilters, fetchJson]);
 	  useEffect(()=>{ loadAll(); }, [loadAll]);
 
   const loadPaymentEvents = useCallback(async () => {
@@ -311,6 +324,19 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
       .map(company => ({...company, watchPriority: priority[company.billing_state?.status] || 9}))
       .sort((a,b)=>a.watchPriority-b.watchPriority || (a.billing_state?.daysLeft ?? 999)-(b.billing_state?.daysLeft ?? 999));
   }, [companies]);
+  const followupStats = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    return platformFollowups.reduce((acc, item) => {
+      const closed = ['done','cancelled'].includes(item.status);
+      if (!closed) acc.open += 1;
+      if (!closed && item.dueDate && item.dueDate < today) acc.overdue += 1;
+      if (!closed && item.dueDate === today) acc.today += 1;
+      return acc;
+    }, {open:0, overdue:0, today:0});
+  }, [platformFollowups]);
+  const followupDocumentOptions = useMemo(() => billingDocuments.filter(doc => (
+    !newFollowup.companyId || String(doc.company_id || doc.companyId) === String(newFollowup.companyId)
+  )), [billingDocuments, newFollowup.companyId]);
   const hasPaymentEventFilters = Boolean(
     paymentEventFilters.platformAccountId || paymentEventFilters.companyId || paymentEventFilters.provider ||
     paymentEventFilters.actionStatus || paymentEventFilters.dateFrom || paymentEventFilters.dateTo ||
@@ -336,6 +362,15 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     if (status === 'payment_recorded') return {color:C.success, bg:C.successLight, border:C.successBorder};
     if (status === 'needs_review') return {color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
     return {color:C.warning, bg:C.warningLight, border:C.warningBorder};
+  };
+  const followupStatusColor = (status, dueDate) => {
+    const today = new Date().toISOString().split('T')[0];
+    if (status === 'done') return {color:C.success, bg:C.successLight, border:C.successBorder};
+    if (status === 'cancelled') return {color:C.textMuted, bg:C.bg, border:C.border};
+    if (dueDate && dueDate < today) return {color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
+    if (status === 'waiting') return {color:C.warning, bg:C.warningLight, border:C.warningBorder};
+    if (status === 'contacted') return {color:C.info, bg:C.infoLight, border:C.infoBorder};
+    return {color:C.textSec, bg:C.bg, border:C.border};
   };
   const confirmPaymentEvent = async (event) => {
     if (!event?.id) return;
@@ -452,6 +487,53 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     setShowNewBillingDocument(true);
     setTab('payments');
   };
+  const openFollowupForm = (company={}, source='payment', document=null) => {
+    const state = company.billing_state || {};
+    const channel = company.contact_email ? 'email' : 'call';
+    setNewFollowup({
+      ...emptyFollowupForm,
+      companyId: company.id || '',
+      billingDocumentId: document?.id || '',
+      source,
+      channel,
+      title: source === 'demo'
+        ? 'Связаться по демо: ' + (company.name || '')
+        : 'Связаться по оплате: ' + (company.name || ''),
+      contactName: company.contact_name || '',
+      contactValue: channel === 'email' ? (company.contact_email || '') : (company.contact_phone || company.contact_email || ''),
+      dueDate: new Date().toISOString().split('T')[0],
+      status: 'open',
+      responsibleName: user.name || '',
+      notes: [state.label, state.reason, document?.number ? 'Документ '+document.number : ''].filter(Boolean).join(' · '),
+      result: '',
+    });
+    setShowNewFollowup(true);
+    setTab('followups');
+  };
+  const createFollowup = async () => {
+    if (!newFollowup.companyId || !newFollowup.title.trim()) {
+      alert('Укажите компанию и задачу');
+      return;
+    }
+    const response = await sendJson('/system/followups', {method:'POST', body:JSON.stringify(newFollowup)});
+    const data = await response.json().catch(()=>({}));
+    if (!response.ok) {
+      alert(data.detail || 'Не удалось создать задачу');
+      return;
+    }
+    setShowNewFollowup(false);
+    setNewFollowup(emptyFollowupForm);
+    await loadAll();
+  };
+  const updateFollowup = async (item, patch) => {
+    const response = await sendJson('/system/followups/'+item.id, {method:'PUT', body:JSON.stringify(patch)});
+    const data = await response.json().catch(()=>({}));
+    if (!response.ok) {
+      alert(data.detail || 'Не удалось обновить задачу');
+      return;
+    }
+    await loadAll();
+  };
   const companyCreateErrorText = (data) => {
     const detail = data?.detail;
     if (typeof detail === 'string') return detail;
@@ -554,6 +636,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     canViewClientUsers && {id:'clientUsers', label:'👤 Пользователи клиентов'},
     {id:'tariffs', label:'💼 Тарифы'},
     canManageBilling && {id:'payments', label:'💰 Платежи'},
+    canUseFollowups && {id:'followups', label:'📞 Задачи'},
     canManagePlatform && {id:'demos', label:'🎁 Демо-заявки'},
     canUseSupport && {id:'support', label:'🛟 Поддержка'},
     canManageTeam && {id:'team', label:'👥 Команда'},
@@ -596,6 +679,8 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
             <div style={{...card,padding:'16px'}}><p style={{color:C.textSec,fontSize:'12px',margin:'0 0 6px'}}>⚠️ Просрочка</p><b style={{color:C.danger,fontSize:'24px'}}>{dashboard.overdue}</b></div>
             <div style={{...card,padding:'16px'}}><p style={{color:C.textSec,fontSize:'12px',margin:'0 0 6px'}}>💳 Оплата 7 дней</p><b style={{color:(dashboard.paymentExpiring||0)?C.warning:C.success,fontSize:'24px'}}>{dashboard.paymentExpiring || 0}</b></div>
             <div style={{...card,padding:'16px'}}><p style={{color:C.textSec,fontSize:'12px',margin:'0 0 6px'}}>💳 Оплата истекла</p><b style={{color:(dashboard.paymentExpired||0)?C.danger:C.success,fontSize:'24px'}}>{dashboard.paymentExpired || 0}</b></div>
+            <div style={{...card,padding:'16px'}}><p style={{color:C.textSec,fontSize:'12px',margin:'0 0 6px'}}>📞 Задачи</p><b style={{color:followupStats.open?C.warning:C.success,fontSize:'24px'}}>{dashboard.openFollowups ?? followupStats.open}</b></div>
+            <div style={{...card,padding:'16px'}}><p style={{color:C.textSec,fontSize:'12px',margin:'0 0 6px'}}>🔥 Проср. задачи</p><b style={{color:(dashboard.overdueFollowups||followupStats.overdue)?C.danger:C.success,fontSize:'24px'}}>{dashboard.overdueFollowups ?? followupStats.overdue}</b></div>
             <div style={{...card,padding:'16px'}}><p style={{color:C.textSec,fontSize:'12px',margin:'0 0 6px'}}>💰 Выручка месяц</p><b style={{color:C.success,fontSize:'20px'}}>{Math.round(dashboard.monthRevenue).toLocaleString('ru-RU')+' ₽'}</b></div>
             <div style={{...card,padding:'16px'}}><p style={{color:C.textSec,fontSize:'12px',margin:'0 0 6px'}}>💰 Выручка год</p><b style={{color:C.success,fontSize:'20px'}}>{Math.round(dashboard.yearRevenue).toLocaleString('ru-RU')+' ₽'}</b></div>
             <div style={{...card,padding:'16px'}}><p style={{color:C.textSec,fontSize:'12px',margin:'0 0 6px'}}>🎁 Новых заявок</p><b style={{color:C.warning,fontSize:'24px'}}>{dashboard.newDemoRequests}</b></div>
@@ -607,6 +692,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
                 <p style={{color:C.textSec,fontSize:'12px',margin:'4px 0 0'}}>Система показывает риск заранее. Жесткого автоотключения нет: владелец платформы выбирает продление, просрочку, счет или мягкую заморозку.</p>
               </div>
               <button onClick={()=>setTab('companies')} style={{...btnG,padding:'7px 12px',fontSize:'12px'}}>Открыть компании</button>
+              {canUseFollowups && <button onClick={()=>setTab('followups')} style={{...btnO,padding:'7px 12px',fontSize:'12px'}}>Открыть задачи</button>}
             </div>
             {accessWatchlist.length===0 && <div style={{padding:'18px',textAlign:'center',color:C.textMuted,fontSize:'12px'}}>По демо и оплатам критичных действий нет</div>}
             {accessWatchlist.slice(0,8).map(company=>{
@@ -626,6 +712,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
                     {canManagePlatform && !isDemoCompany && state.status !== 'payment_overdue' && <button onClick={()=>markCompanyOverdue(company)} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>Просрочка</button>}
                     {canManageBilling && <button onClick={()=>openCompanyBillingDocument(company)} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>Счет</button>}
                     {canManageBilling && <button onClick={()=>openCompanyPayment(company)} style={{...btnO,padding:'5px 10px',fontSize:'11px'}}>Оплата</button>}
+                    {canUseFollowups && <button onClick={()=>openFollowupForm(company,isDemoCompany?'demo':'payment')} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>Задача</button>}
                     {canManagePlatform && !isSuspended && <button onClick={()=>softSuspendCompany(company)} style={{...btnR,padding:'5px 10px',fontSize:'11px'}}>Мягко заморозить</button>}
                     {canManagePlatform && isSuspended && <button onClick={()=>resumeCompany(company)} style={{...btnGr,padding:'5px 10px',fontSize:'11px'}}>Разморозить</button>}
                   </div>
@@ -1135,6 +1222,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
                       alert(data.message || 'Провайдер подготовлен');
                       await loadAll();
                     }} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>Провайдер</button>
+                    {canUseFollowups && <button onClick={()=>openFollowupForm(companies.find(c=>String(c.id)===String(doc.company_id)) || {id:doc.company_id,name:doc.company_name,platform_account_name:doc.platform_account_name}, 'payment', doc)} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>Задача</button>}
                     {doc.status === 'draft' && <button onClick={async()=>{await sendJson('/system/billing-documents/'+doc.id,{method:'PUT',body:JSON.stringify({status:'issued'})});loadAll();}} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>Выставлен</button>}
                     {doc.status !== 'cancelled' && doc.status !== 'closed' && <button onClick={async()=>{await sendJson('/system/billing-documents/'+doc.id,{method:'PUT',body:JSON.stringify({status:'payment_expected'})});loadAll();}} style={{...btnO,padding:'5px 10px',fontSize:'11px'}}>Ждет оплату</button>}
                     {doc.status !== 'cancelled' && <button onClick={async()=>{await sendJson('/system/billing-documents/'+doc.id,{method:'PUT',body:JSON.stringify({status:'closed'})});loadAll();}} style={{...btnGr,padding:'5px 10px',fontSize:'11px'}}>Закрыть</button>}
@@ -1186,6 +1274,100 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
               <b style={{color:p.status==='paid'?C.success:C.warning,fontSize:'14px'}}>{Number(p.amount).toLocaleString('ru-RU')} ₽</b>
             </div>
           </div>))}
+        </div>)}
+
+        {/* Задачи платформы */}
+        {tab==='followups' && canUseFollowups && (<div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px',flexWrap:'wrap',marginBottom:'14px'}}>
+            <div>
+              <b style={{color:C.text,fontSize:'15px',display:'block'}}>Задачи по демо и оплате ({platformFollowups.length})</b>
+              <p style={{color:C.textSec,fontSize:'12px',margin:'4px 0 0'}}>Фиксируем, кому позвонить или написать, когда следующий контакт, чем закончился разговор и к какому счету это относится.</p>
+            </div>
+            <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
+              <span style={badge(C.warning,C.warningLight,C.warningBorder)}>открытых {followupStats.open}</span>
+              <span style={badge(followupStats.overdue?C.danger:C.success,followupStats.overdue?C.dangerLight:C.successLight,followupStats.overdue?C.dangerBorder:C.successBorder)}>просрочено {followupStats.overdue}</span>
+              <span style={badge(C.info,C.infoLight,C.infoBorder)}>сегодня {followupStats.today}</span>
+              <button onClick={()=>setShowNewFollowup(!showNewFollowup)} style={btnO}>+ Задача</button>
+            </div>
+          </div>
+          {showNewFollowup && (<div style={{...card,padding:'14px',marginBottom:'14px'}}>
+            <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>Новая задача контакта</b>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'8px'}}>
+              <select value={newFollowup.companyId} onChange={e=>{
+                const company = companies.find(item=>String(item.id)===String(e.target.value)) || {};
+                const channel = company.contact_email ? 'email' : 'call';
+                setNewFollowup({
+                  ...newFollowup,
+                  companyId:e.target.value,
+                  billingDocumentId:'',
+                  channel,
+                  contactName:company.contact_name || '',
+                  contactValue:channel==='email' ? (company.contact_email || '') : (company.contact_phone || company.contact_email || ''),
+                  title:newFollowup.title || 'Связаться с '+(company.name || ''),
+                });
+              }} style={{...inp,marginBottom:0}}>
+                <option value=''>Компания *</option>
+                {companies.filter(c=>c.id!==1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <select value={newFollowup.billingDocumentId} onChange={e=>setNewFollowup({...newFollowup,billingDocumentId:e.target.value})} style={{...inp,marginBottom:0}}>
+                <option value=''>Без платежного документа</option>
+                {followupDocumentOptions.map(doc=><option key={doc.id} value={doc.id}>{doc.number || ('Документ #'+doc.id)} · {Number(doc.amount || 0).toLocaleString('ru-RU')} ₽</option>)}
+              </select>
+              <select value={newFollowup.source} onChange={e=>setNewFollowup({...newFollowup,source:e.target.value})} style={{...inp,marginBottom:0}}>
+                {Object.entries(followupSourceLabels).map(([key,label])=><option key={key} value={key}>{label}</option>)}
+              </select>
+              <select value={newFollowup.channel} onChange={e=>setNewFollowup({...newFollowup,channel:e.target.value})} style={{...inp,marginBottom:0}}>
+                {Object.entries(followupChannelLabels).map(([key,label])=><option key={key} value={key}>{label}</option>)}
+              </select>
+              <input placeholder='Задача *' value={newFollowup.title} onChange={e=>setNewFollowup({...newFollowup,title:e.target.value})} style={{...inp,marginBottom:0}}/>
+              <input placeholder='Кому' value={newFollowup.contactName} onChange={e=>setNewFollowup({...newFollowup,contactName:e.target.value})} style={{...inp,marginBottom:0}}/>
+              <input placeholder='Телефон / email / мессенджер' value={newFollowup.contactValue} onChange={e=>setNewFollowup({...newFollowup,contactValue:e.target.value})} style={{...inp,marginBottom:0}}/>
+              <input type='date' value={newFollowup.dueDate} onChange={e=>setNewFollowup({...newFollowup,dueDate:e.target.value})} style={{...inp,marginBottom:0}}/>
+              <select value={newFollowup.status} onChange={e=>setNewFollowup({...newFollowup,status:e.target.value})} style={{...inp,marginBottom:0}}>
+                {Object.entries(followupStatusLabels).map(([key,label])=><option key={key} value={key}>{label}</option>)}
+              </select>
+              <input placeholder='Ответственный' value={newFollowup.responsibleName} onChange={e=>setNewFollowup({...newFollowup,responsibleName:e.target.value})} style={{...inp,marginBottom:0}}/>
+            </div>
+            <textarea placeholder='Контекст / что обсудить' value={newFollowup.notes} onChange={e=>setNewFollowup({...newFollowup,notes:e.target.value})} style={{...inp,height:'58px',marginTop:'8px'}}/>
+            <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginTop:'8px'}}>
+              <button onClick={createFollowup} style={btnO}>✓ Создать задачу</button>
+              <button onClick={()=>setShowNewFollowup(false)} style={btnG}>Отмена</button>
+            </div>
+          </div>)}
+          {platformFollowups.length===0 && <div style={{...card,padding:'28px',textAlign:'center',color:C.textMuted}}>Открытых задач по демо и оплате нет</div>}
+          {platformFollowups.map(item=>{
+            const colors = followupStatusColor(item.status,item.dueDate);
+            const closed = ['done','cancelled'].includes(item.status);
+            return (<div key={item.id} style={{...card,padding:'12px',marginBottom:'8px'}}>
+              <div style={{display:'grid',gridTemplateColumns:'minmax(220px,1fr) minmax(180px,260px) auto',gap:'10px',alignItems:'center'}}>
+                <div style={{minWidth:0}}>
+                  <b style={{color:C.text,fontSize:'13px',display:'block',overflowWrap:'anywhere'}}>{item.title || 'Задача без названия'}</b>
+                  <p style={{color:C.textSec,fontSize:'11px',margin:'3px 0 0',overflowWrap:'anywhere'}}>{item.companyName || 'компания не выбрана'} · {item.sourceLabel} · {item.channelLabel}</p>
+                  <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{item.contactName || 'контакт не указан'}{item.contactValue?' · '+item.contactValue:''}{item.billingDocumentNumber?' · счет '+item.billingDocumentNumber:''}</p>
+                  {item.notes && <p style={{color:C.textMuted,fontSize:'10px',margin:'4px 0 0',overflowWrap:'anywhere'}}>{item.notes}</p>}
+                </div>
+                <div>
+                  <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Следующий контакт: <b>{item.dueDate || 'не указан'}</b></p>
+                  <p style={{color:C.textMuted,fontSize:'10px',margin:0}}>Ответственный: {item.responsibleName || '—'}{item.result?' · итог: '+item.result:''}</p>
+                </div>
+                <div style={{display:'flex',gap:'6px',justifyContent:'flex-end',alignItems:'center',flexWrap:'wrap'}}>
+                  <span style={badge(colors.color,colors.bg,colors.border)}>{item.statusLabel}</span>
+                  {!closed && <button onClick={()=>updateFollowup(item,{status:'contacted'})} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>Связались</button>}
+                  {!closed && <button onClick={()=>updateFollowup(item,{status:'waiting'})} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>Ждем</button>}
+                  {!closed && <button onClick={()=>{
+                    const result = window.prompt('Итог контакта:', item.result || '');
+                    if (result === null) return;
+                    updateFollowup(item,{status:'done',result});
+                  }} style={{...btnGr,padding:'5px 10px',fontSize:'11px'}}>Закрыть</button>}
+                  {!closed && <button onClick={()=>{
+                    const dueDate = window.prompt('Новая дата контакта (ГГГГ-ММ-ДД):', item.dueDate || new Date().toISOString().split('T')[0]);
+                    if (!dueDate) return;
+                    updateFollowup(item,{dueDate,status:'open'});
+                  }} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>Дата</button>}
+                </div>
+              </div>
+            </div>);
+          })}
         </div>)}
 
         {/* Демо-заявки */}

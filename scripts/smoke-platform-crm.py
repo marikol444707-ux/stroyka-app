@@ -164,6 +164,16 @@ def cleanup():
         cur.execute("DELETE FROM suppliers WHERE name LIKE %s", (like_prefix,))
         cur.execute("DELETE FROM staff WHERE name LIKE %s", (like_prefix,))
         cur.execute("""
+            DELETE FROM platform_followups
+            WHERE title LIKE %s
+               OR contact_name LIKE %s
+               OR responsible_name LIKE %s
+               OR notes LIKE %s
+               OR result LIKE %s
+               OR company_id IN (SELECT id FROM companies WHERE name LIKE %s)
+               OR platform_account_id IN (SELECT id FROM platform_accounts WHERE name LIKE %s)
+        """, (like_prefix, like_prefix, like_prefix, "%" + PREFIX + "%", "%" + PREFIX + "%", like_prefix, like_prefix))
+        cur.execute("""
             DELETE FROM platform_billing_documents
             WHERE notes LIKE %s
                OR created_by LIKE %s
@@ -353,6 +363,40 @@ def check_platform(system_token):
     _, billing_documents = api_json("GET", "/system/billing-documents", token=system_token, expected=200)
     if not any(item.get("id") == billing_document_id and item.get("status") == "payment_expected" for item in billing_documents):
         raise RuntimeError(f"system billing documents did not include updated document: {billing_documents}")
+    _, followup_created = api_json(
+        "POST",
+        "/system/followups",
+        token=system_token,
+        expected=200,
+        data={
+            "companyId": company_id,
+            "billingDocumentId": billing_document_id,
+            "source": "payment",
+            "channel": "call",
+            "title": f"{PREFIX} follow up payment",
+            "contactName": f"{PREFIX} Contact",
+            "contactValue": "+70000000000",
+            "dueDate": "2026-07-01",
+            "status": "open",
+            "responsibleName": f"{PREFIX} system_owner",
+            "notes": f"{PREFIX} followup notes",
+        },
+    )
+    followup_id = followup_created.get("followup", {}).get("id")
+    if not followup_id:
+        raise RuntimeError(f"system followup create returned invalid body: {followup_created}")
+    _, followups = api_json("GET", f"/system/followups?companyId={company_id}&status=active", token=system_token, expected=200)
+    if not any(item.get("id") == followup_id and item.get("billingDocumentId") == billing_document_id for item in followups):
+        raise RuntimeError(f"system followups did not include linked task: {followups}")
+    _, followup_closed = api_json(
+        "PUT",
+        f"/system/followups/{followup_id}",
+        token=system_token,
+        expected=200,
+        data={"status": "done", "result": f"{PREFIX} contacted and closed"},
+    )
+    if followup_closed.get("followup", {}).get("status") != "done" or not followup_closed.get("followup", {}).get("completedAt"):
+        raise RuntimeError(f"system followup close returned invalid body: {followup_closed}")
     _, payment_providers = api_json("GET", "/system/payment-providers", token=system_token, expected=200)
     if not any(item.get("id") == "manual" and item.get("configured") for item in payment_providers):
         raise RuntimeError(f"system payment providers did not include manual provider: {payment_providers}")
@@ -407,6 +451,8 @@ def check_platform(system_token):
         "platform_billing_document_updated",
         "platform_payment_provider_prepared",
         "platform_payment_event_confirmed",
+        "platform_followup_created",
+        "platform_followup_closed",
         *(("platform_billing_document_pdf_generated",) if SMOKE_GENERATE_PLATFORM_PDF else ()),
     ):
         if expected_action not in audit_text:
@@ -436,6 +482,7 @@ def check_platform(system_token):
         "platformAccountId": platform_account_id,
         "tariffs": sorted(tariff_ids),
         "billingDocumentId": billing_document_id,
+        "followupId": followup_id,
         "providerEventId": provider_event_id,
         "providerEventPaymentId": confirmed_event.get("paymentId"),
     }
@@ -732,6 +779,7 @@ def main():
                 "platform payment providers",
                 "platform payment events",
                 "platform payment event confirmation",
+                "platform followup tasks",
                 "platform audit log",
                 "platform audit filters",
                 "platform team invite",

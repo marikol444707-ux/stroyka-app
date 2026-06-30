@@ -224,6 +224,76 @@ def _payment_provider_label(provider: str) -> str:
     return labels.get(provider or "", provider or "Безнал / вручную")
 
 
+def _platform_followup_status_label(status: str) -> str:
+    labels = {
+        "open": "Открыта",
+        "contacted": "Связались",
+        "waiting": "Ждем клиента",
+        "done": "Закрыта",
+        "cancelled": "Отменена",
+    }
+    return labels.get(status or "", status or "Открыта")
+
+
+def _platform_followup_channel_label(channel: str) -> str:
+    labels = {
+        "call": "Звонок",
+        "email": "Email",
+        "messenger": "Мессенджер",
+        "meeting": "Встреча",
+    }
+    return labels.get(channel or "", channel or "Звонок")
+
+
+def _platform_followup_source_label(source: str) -> str:
+    labels = {
+        "demo": "Демо",
+        "payment": "Оплата",
+        "renewal": "Продление",
+        "support": "Поддержка",
+        "manual": "Вручную",
+    }
+    return labels.get(source or "", source or "Вручную")
+
+
+def _platform_followup_row(row: dict) -> dict:
+    item = dict(row or {})
+    status = item.get("status") or "open"
+    channel = item.get("channel") or "call"
+    source = item.get("source") or "manual"
+    due_date = item.get("due_date")
+    if isinstance(due_date, (dt.datetime, dt.date)):
+        due_date = due_date.isoformat()[:10]
+    return {
+        "id": item.get("id"),
+        "platformAccountId": item.get("platform_account_id"),
+        "companyId": item.get("company_id"),
+        "billingDocumentId": item.get("billing_document_id"),
+        "source": source,
+        "sourceLabel": _platform_followup_source_label(source),
+        "channel": channel,
+        "channelLabel": _platform_followup_channel_label(channel),
+        "title": item.get("title") or "",
+        "contactName": item.get("contact_name") or "",
+        "contactValue": item.get("contact_value") or "",
+        "dueDate": due_date or "",
+        "status": status,
+        "statusLabel": _platform_followup_status_label(status),
+        "responsibleName": item.get("responsible_name") or "",
+        "notes": item.get("notes") or "",
+        "result": item.get("result") or "",
+        "createdBy": item.get("created_by") or "",
+        "createdAt": str(item.get("created_at") or "")[:19],
+        "updatedAt": str(item.get("updated_at") or "")[:19],
+        "completedAt": str(item.get("completed_at") or "")[:19],
+        "companyName": item.get("company_name") or "",
+        "platformAccountName": item.get("platform_account_name") or "",
+        "billingDocumentNumber": item.get("billing_document_number") or "",
+        "billingDocumentStatus": item.get("billing_document_status") or "",
+        "billingDocumentAmount": float(item.get("billing_document_amount") or 0),
+    }
+
+
 def _payment_provider_states() -> list:
     yukassa_shop = (os.getenv("YUKASSA_SHOP_ID") or os.getenv("YOOKASSA_SHOP_ID") or "").strip()
     yukassa_secret = (os.getenv("YUKASSA_SECRET_KEY") or os.getenv("YOOKASSA_SECRET_KEY") or "").strip()
@@ -1630,6 +1700,13 @@ def register_platform_admin_routes(app, deps):
                          AND COALESCE(payment_status,'active') <> 'overdue'""",
                     (today, today + dt.timedelta(days=7)))
         payment_expiring = cur.fetchone()["c"]
+        cur.execute("""SELECT COUNT(*) as c FROM platform_followups
+                       WHERE COALESCE(status,'open') NOT IN ('done','cancelled')""")
+        open_followups = cur.fetchone()["c"]
+        cur.execute("""SELECT COUNT(*) as c FROM platform_followups
+                       WHERE COALESCE(status,'open') NOT IN ('done','cancelled')
+                         AND due_date IS NOT NULL AND due_date < %s""", (today,))
+        overdue_followups = cur.fetchone()["c"]
         cur.execute("SELECT COALESCE(SUM(amount),0) as t FROM company_payments WHERE status='paid' AND date_trunc('month', payment_date)=date_trunc('month', %s::date)", (today,))
         month_revenue = float(cur.fetchone()["t"] or 0)
         cur.execute("SELECT COALESCE(SUM(amount),0) as t FROM company_payments WHERE status='paid' AND date_trunc('year', payment_date)=date_trunc('year', %s::date)", (today,))
@@ -1645,6 +1722,8 @@ def register_platform_admin_routes(app, deps):
             "trialExpired": trial_expired,
             "paymentExpiring": payment_expiring,
             "paymentExpired": payment_expired,
+            "openFollowups": open_followups,
+            "overdueFollowups": overdue_followups,
         }
 
     @app.get("/system/payments")
@@ -2177,6 +2256,231 @@ def register_platform_admin_routes(app, deps):
             "paymentLinkCreated": False,
             "message": "Провайдер подготовлен. Внешний платеж не создавался, факт оплаты нужно зачислять отдельно.",
         }
+
+    @app.get("/system/followups")
+    def system_followups(request: Request, _current_user: dict = Depends(require_roles(*PLATFORM_VIEW_ROLES))):
+        """Журналируемые задачи платформы по демо, оплате и контактам клиента."""
+        params = request.query_params
+        platform_account_id = _system_user_filter_int(params.get("platformAccountId") or params.get("platform_account_id"))
+        company_id = _system_user_filter_int(params.get("companyId") or params.get("company_id"))
+        document_id = _system_user_filter_int(params.get("billingDocumentId") or params.get("billing_document_id"))
+        status = (params.get("status") or "").strip()
+        source = (params.get("source") or "").strip()
+        search = (params.get("search") or "").strip()
+        limit = _system_user_filter_int(params.get("limit")) or 200
+        limit = min(max(limit, 1), 500)
+        where = []
+        values = []
+        if platform_account_id:
+            where.append("f.platform_account_id=%s")
+            values.append(platform_account_id)
+        if company_id:
+            where.append("f.company_id=%s")
+            values.append(company_id)
+        if document_id:
+            where.append("f.billing_document_id=%s")
+            values.append(document_id)
+        if status == "active":
+            where.append("COALESCE(f.status,'open') NOT IN ('done','cancelled')")
+        elif status:
+            where.append("f.status=%s")
+            values.append(status)
+        if source:
+            where.append("f.source=%s")
+            values.append(source)
+        if search:
+            like = "%" + search + "%"
+            where.append("(f.title ILIKE %s OR f.contact_name ILIKE %s OR f.contact_value ILIKE %s OR f.notes ILIKE %s OR c.name ILIKE %s OR d.number ILIKE %s)")
+            values.extend([like] * 6)
+        sql_where = ("WHERE " + " AND ".join(where)) if where else ""
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(f"""SELECT f.*, c.name AS company_name, pa.name AS platform_account_name,
+                              d.number AS billing_document_number,
+                              d.status AS billing_document_status,
+                              d.amount AS billing_document_amount
+                       FROM platform_followups f
+                       LEFT JOIN companies c ON c.id=f.company_id
+                       LEFT JOIN platform_accounts pa ON pa.id=f.platform_account_id
+                       LEFT JOIN platform_billing_documents d ON d.id=f.billing_document_id
+                       {sql_where}
+                       ORDER BY CASE COALESCE(f.status,'open')
+                                  WHEN 'open' THEN 0
+                                  WHEN 'contacted' THEN 1
+                                  WHEN 'waiting' THEN 2
+                                  WHEN 'done' THEN 3
+                                  ELSE 4
+                                END,
+                                f.due_date NULLS LAST,
+                                f.created_at DESC
+                       LIMIT %s""", tuple(values + [limit]))
+        rows = [_platform_followup_row(row) for row in cur.fetchall()]
+        conn.close()
+        return rows
+
+    @app.post("/system/followups")
+    def system_create_followup(data: dict, current_user: dict = Depends(require_roles(*PLATFORM_VIEW_ROLES))):
+        company_id = _system_user_filter_int(data.get("companyId") or data.get("company_id"))
+        if not company_id:
+            raise HTTPException(status_code=400, detail="Укажите компанию")
+        source = (data.get("source") or "manual").strip()
+        if source not in ("demo", "payment", "renewal", "support", "manual"):
+            raise HTTPException(status_code=400, detail="Недопустимый источник задачи")
+        channel = (data.get("channel") or "call").strip()
+        if channel not in ("call", "email", "messenger", "meeting"):
+            raise HTTPException(status_code=400, detail="Недопустимый канал контакта")
+        status = (data.get("status") or "open").strip()
+        if status not in ("open", "contacted", "waiting", "done", "cancelled"):
+            raise HTTPException(status_code=400, detail="Недопустимый статус задачи")
+        document_id = _system_user_filter_int(data.get("billingDocumentId") or data.get("billing_document_id"))
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""SELECT id, name, platform_account_id, contact_name, contact_phone, contact_email
+                       FROM companies WHERE id=%s AND id<>1""", (company_id,))
+        company = cur.fetchone()
+        if not company:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Компания не найдена")
+        document = None
+        if document_id:
+            cur.execute("""SELECT id, number, amount, status, platform_account_id, company_id
+                           FROM platform_billing_documents
+                           WHERE id=%s AND company_id=%s""", (document_id, company_id))
+            document = cur.fetchone()
+            if not document:
+                conn.close()
+                raise HTTPException(status_code=404, detail="Платежный документ не найден для этой компании")
+        contact_name = (data.get("contactName") or data.get("contact_name") or company.get("contact_name") or "").strip()
+        contact_value = (data.get("contactValue") or data.get("contact_value") or "").strip()
+        if not contact_value:
+            contact_value = company.get("contact_email") if channel == "email" else (company.get("contact_phone") or company.get("contact_email") or "")
+        title = (data.get("title") or "").strip()
+        if not title:
+            title = f"{_platform_followup_source_label(source)}: связаться с {company.get('name')}"
+        completed_at = datetime.now() if status in ("done", "cancelled") else None
+        cur.execute("""INSERT INTO platform_followups
+                          (platform_account_id, company_id, billing_document_id, source, channel, title,
+                           contact_name, contact_value, due_date, status, responsible_name, notes, result,
+                           created_by, completed_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       RETURNING *""",
+                    (company.get("platform_account_id"), company_id, document_id, source, channel, title,
+                     contact_name, contact_value, data.get("dueDate") or data.get("due_date") or None,
+                     status, data.get("responsibleName") or data.get("responsible_name") or current_user.get("name"),
+                     data.get("notes"), data.get("result"), current_user.get("name") or current_user.get("email"),
+                     completed_at))
+        created = dict(cur.fetchone())
+        _system_write_audit(cur, current_user, "platform_followup_created", "platform_followup", created.get("id"),
+            created.get("title"), platform_account_id=created.get("platform_account_id"), company_id=company_id,
+            details={
+                "source": source,
+                "sourceLabel": _platform_followup_source_label(source),
+                "channel": channel,
+                "channelLabel": _platform_followup_channel_label(channel),
+                "status": status,
+                "statusLabel": _platform_followup_status_label(status),
+                "dueDate": created.get("due_date"),
+                "companyName": company.get("name"),
+                "billingDocumentId": document_id,
+                "billingDocumentNumber": document.get("number") if document else None,
+            })
+        cur.execute("""SELECT f.*, c.name AS company_name, pa.name AS platform_account_name,
+                              d.number AS billing_document_number,
+                              d.status AS billing_document_status,
+                              d.amount AS billing_document_amount
+                       FROM platform_followups f
+                       LEFT JOIN companies c ON c.id=f.company_id
+                       LEFT JOIN platform_accounts pa ON pa.id=f.platform_account_id
+                       LEFT JOIN platform_billing_documents d ON d.id=f.billing_document_id
+                       WHERE f.id=%s""", (created["id"],))
+        row = _platform_followup_row(cur.fetchone())
+        conn.commit()
+        conn.close()
+        return {"ok": True, "followup": row}
+
+    @app.put("/system/followups/{id}")
+    def system_update_followup(id: int, data: dict, current_user: dict = Depends(require_roles(*PLATFORM_VIEW_ROLES))):
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""SELECT f.*, c.name AS company_name
+                       FROM platform_followups f
+                       LEFT JOIN companies c ON c.id=f.company_id
+                       WHERE f.id=%s""", (id,))
+        before = cur.fetchone()
+        if not before:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Задача не найдена")
+        sets = []
+        values = []
+        simple_fields = [
+            ("title", "title"),
+            ("channel", "channel"),
+            ("contactName", "contact_name"),
+            ("contactValue", "contact_value"),
+            ("dueDate", "due_date"),
+            ("status", "status"),
+            ("responsibleName", "responsible_name"),
+            ("notes", "notes"),
+            ("result", "result"),
+        ]
+        for js_key, db_col in simple_fields:
+            if js_key in data:
+                value = data.get(js_key)
+                if js_key == "status" and value not in ("open", "contacted", "waiting", "done", "cancelled"):
+                    conn.close()
+                    raise HTTPException(status_code=400, detail="Недопустимый статус задачи")
+                if js_key == "channel" and value not in ("call", "email", "messenger", "meeting"):
+                    conn.close()
+                    raise HTTPException(status_code=400, detail="Недопустимый канал контакта")
+                sets.append(db_col + "=%s")
+                values.append(value or None)
+        if "billingDocumentId" in data:
+            document_id = _system_user_filter_int(data.get("billingDocumentId"))
+            if document_id:
+                cur.execute("""SELECT id FROM platform_billing_documents
+                               WHERE id=%s AND company_id=%s""", (document_id, before.get("company_id")))
+                if not cur.fetchone():
+                    conn.close()
+                    raise HTTPException(status_code=404, detail="Платежный документ не найден для этой компании")
+            sets.append("billing_document_id=%s")
+            values.append(document_id)
+        next_status = data.get("status") if "status" in data else before.get("status")
+        if "status" in data:
+            if next_status in ("done", "cancelled"):
+                sets.append("completed_at=COALESCE(completed_at,NOW())")
+            else:
+                sets.append("completed_at=NULL")
+        if not sets:
+            conn.close()
+            return {"ok": False, "error": "no fields"}
+        sets.append("updated_at=NOW()")
+        values.append(id)
+        cur.execute("UPDATE platform_followups SET " + ", ".join(sets) + " WHERE id=%s RETURNING *", tuple(values))
+        updated = dict(cur.fetchone())
+        audit_action = "platform_followup_closed" if next_status in ("done", "cancelled") and before.get("status") != next_status else "platform_followup_updated"
+        _system_write_audit(cur, current_user, audit_action, "platform_followup", id,
+            updated.get("title"), platform_account_id=updated.get("platform_account_id"), company_id=updated.get("company_id"),
+            details={
+                "beforeStatus": before.get("status"),
+                "afterStatus": updated.get("status"),
+                "afterStatusLabel": _platform_followup_status_label(updated.get("status")),
+                "dueDate": updated.get("due_date"),
+                "companyName": before.get("company_name"),
+                "result": updated.get("result"),
+            })
+        cur.execute("""SELECT f.*, c.name AS company_name, pa.name AS platform_account_name,
+                              d.number AS billing_document_number,
+                              d.status AS billing_document_status,
+                              d.amount AS billing_document_amount
+                       FROM platform_followups f
+                       LEFT JOIN companies c ON c.id=f.company_id
+                       LEFT JOIN platform_accounts pa ON pa.id=f.platform_account_id
+                       LEFT JOIN platform_billing_documents d ON d.id=f.billing_document_id
+                       WHERE f.id=%s""", (id,))
+        row = _platform_followup_row(cur.fetchone())
+        conn.commit()
+        conn.close()
+        return {"ok": True, "followup": row}
 
     @app.get("/system/platform-users")
     def system_platform_users(_current_user: dict = Depends(require_roles(*PLATFORM_TEAM_ROLES))):

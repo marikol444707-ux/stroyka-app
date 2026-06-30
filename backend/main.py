@@ -2352,6 +2352,29 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_platform_payment_events_doc ON platform_payment_events (billing_document_id);
         CREATE INDEX IF NOT EXISTS idx_platform_payment_events_provider ON platform_payment_events (provider, event_id);
         CREATE INDEX IF NOT EXISTS idx_platform_payment_events_received_at ON platform_payment_events (received_at DESC);
+        CREATE TABLE IF NOT EXISTS platform_followups (
+            id SERIAL PRIMARY KEY,
+            platform_account_id INT,
+            company_id INT,
+            billing_document_id INT,
+            source VARCHAR(50) DEFAULT 'manual',
+            channel VARCHAR(50) DEFAULT 'call',
+            title VARCHAR(255),
+            contact_name VARCHAR(255),
+            contact_value VARCHAR(255),
+            due_date DATE,
+            status VARCHAR(50) DEFAULT 'open',
+            responsible_name VARCHAR(255),
+            notes TEXT,
+            result TEXT,
+            created_by VARCHAR(255),
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW(),
+            completed_at TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_platform_followups_company ON platform_followups (company_id);
+        CREATE INDEX IF NOT EXISTS idx_platform_followups_document ON platform_followups (billing_document_id);
+        CREATE INDEX IF NOT EXISTS idx_platform_followups_status_due ON platform_followups (status, due_date);
         -- Заявки на демо с лендинга
         CREATE TABLE IF NOT EXISTS demo_requests (
             id SERIAL PRIMARY KEY,
