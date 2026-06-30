@@ -809,7 +809,7 @@ function App() {
   const [newCompanyDoc, setNewCompanyDoc] = useState({name:'',docType:'Устав',fileUrl:'',expiresAt:''});
   const [companyReqForm, setCompanyReqForm] = useState({fullName:'',shortName:'',inn:'',kpp:'',ogrn:'',legalAddress:'',actualAddress:'',phone:'',email:'',directorName:'',directorPosition:'Генеральный директор',basis:'Устава',bankName:'',bik:'',rs:'',ks:''});
   const [profileData, setProfileData] = useState({fullName:'',passport:'',inn:'',contractType:'ГПХ',bankAccount:'',bankName:'',phone:'',specialization:'',ogrnip:''});
-  const [newLead, setNewLead] = useState({name:'',phone:'',email:'',source:'',budget:'',notes:'',stage:'Новый',photoUrl:''});
+  const [newLead, setNewLead] = useState({name:'',phone:'',email:'',source:'',budget:'',notes:'',stage:'Новый',photoUrl:'',contractSubject:''});
   const [newTbEntry, setNewTbEntry] = useState({project:'',type:'Вводный инструктаж',participants:[],date:'',program:'',instructionText:'',aiLoading:false});
   const [newParticipant, setNewParticipant] = useState('');
   const sidebarRef = useRef(null);
@@ -3004,6 +3004,7 @@ function App() {
       kpp: lead.kpp || '',
       ogrn: lead.ogrn || '',
       legalAddress: lead.legalAddress || '',
+      contractSubject: lead.contractSubject || '',
       bank: lead.bank || '',
       bik: lead.bik || '',
       bankAccount: lead.bankAccount || '',
@@ -15176,7 +15177,7 @@ function App() {
           )}
 
           {activePage==='crm'&&(
-            <CrmPage API={API} C={C} CRM_STAGES={CRM_STAGES} btnG={btnG} btnO={btnO} btnR={btnR} card={card} createProjectFromLead={createProjectFromLead} deleteLead={deleteLead} editingItem={editingItem} inp={inp} leads={leads} newLead={newLead} saveLead={saveLead} setEditingItem={setEditingItem} setLeads={setLeads} setNewLead={setNewLead} setShowForm={setShowForm} showForm={showForm} isMobile={isMobile} appendPhotos={appendPhotos} uploadPhoto={uploadPhoto} fileSrc={fileSrc} setShowPhotoModal={setShowPhotoModal} users={users}/>
+            <CrmPage API={API} C={C} CRM_STAGES={CRM_STAGES} btnG={btnG} btnB={btnB} btnO={btnO} btnR={btnR} card={card} createProjectFromLead={createProjectFromLead} deleteLead={deleteLead} editingItem={editingItem} inp={inp} leads={leads} newLead={newLead} saveLead={saveLead} setEditingItem={setEditingItem} setLeads={setLeads} setNewLead={setNewLead} setShowForm={setShowForm} showForm={showForm} isMobile={isMobile} appendPhotos={appendPhotos} uploadPhoto={uploadPhoto} fileSrc={fileSrc} setShowPhotoModal={setShowPhotoModal} users={users}/>
           )}
 
           {activePage==='activitylog'&&(

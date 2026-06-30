@@ -25385,3 +25385,23 @@ register_crm_module(app, {
     "prepare_user_access_scope": _prepare_user_access_scope,
     "app_public_url": APP_PUBLIC_URL,
 })
+
+try:
+    from backend.features.document_recognition import register_document_recognition_module
+except ModuleNotFoundError:
+    from features.document_recognition import register_document_recognition_module
+
+register_document_recognition_module(app, {
+    "require_roles": require_roles,
+    "access_roles": (
+        *LEADERSHIP_ROLES,
+        *PROJECT_DOCUMENT_ROLES,
+        *WAREHOUSE_ROLES,
+        "менеджер_crm",
+        "бухгалтер",
+    ),
+    "yandex_api_key": YANDEX_API_KEY,
+    "yandex_folder_id": YANDEX_FOLDER_ID,
+    "upload_dir": UPLOAD_DIR,
+    "log_audit": log_audit,
+})

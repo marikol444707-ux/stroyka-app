@@ -56,6 +56,7 @@ def _ensure_crm_schema(get_db):
         ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS kpp VARCHAR(50);
         ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS ogrn VARCHAR(50);
         ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS legal_address TEXT;
+        ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS contract_subject TEXT;
         ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS bank VARCHAR(255);
         ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS bik VARCHAR(50);
         ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS bank_account VARCHAR(50);
@@ -119,6 +120,7 @@ LEAD_SELECT = """
     COALESCE(kpp,'') AS kpp,
     COALESCE(ogrn,'') AS ogrn,
     COALESCE(legal_address,'') AS "legalAddress",
+    COALESCE(contract_subject,'') AS "contractSubject",
     COALESCE(bank,'') AS bank,
     COALESCE(bik,'') AS bik,
     COALESCE(bank_account,'') AS "bankAccount",
@@ -255,13 +257,13 @@ def register_crm_module(app, deps):
                     name,phone,email,source,budget,notes,stage,created_by,created_at,photo_url,
                     lead_type,counterparty_type,responsible_name,next_contact_at,address,work_type,area,
                     priority,loss_reason,legal_form,passport_data,inn,kpp,ogrn,legal_address,
-                    bank,bik,bank_account,corr_account,signer_name,signer_basis,estimate_id,
+                    contract_subject,bank,bik,bank_account,corr_account,signer_name,signer_basis,estimate_id,
                     document_status,review_status
                 ) VALUES (
                     %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                     %s,%s,%s,%s,%s,%s,%s,
                     %s,%s,%s,%s,%s,%s,%s,%s,
-                    %s,%s,%s,%s,%s,%s,%s,
+                    %s,%s,%s,%s,%s,%s,%s,%s,
                     %s,%s
                 ) RETURNING id
             """, (
@@ -275,7 +277,8 @@ def register_crm_module(app, deps):
                 _text(data.get("priority") or "Обычный", 50), data.get("lossReason") or "",
                 _text(data.get("legalForm"), 80), data.get("passportData") or "",
                 _text(data.get("inn"), 50), _text(data.get("kpp"), 50), _text(data.get("ogrn"), 50),
-                data.get("legalAddress") or "", _text(data.get("bank")), _text(data.get("bik"), 50),
+                data.get("legalAddress") or "", data.get("contractSubject") or "",
+                _text(data.get("bank")), _text(data.get("bik"), 50),
                 _text(data.get("bankAccount"), 50), _text(data.get("corrAccount"), 50),
                 _text(data.get("signerName")), _text(data.get("signerBasis")),
                 int(data.get("estimateId") or 0) or None,
@@ -305,7 +308,7 @@ def register_crm_module(app, deps):
                     lead_type=%s,counterparty_type=%s,responsible_name=%s,next_contact_at=%s,
                     address=%s,work_type=%s,area=%s,priority=%s,loss_reason=%s,
                     legal_form=%s,passport_data=%s,inn=%s,kpp=%s,ogrn=%s,legal_address=%s,
-                    bank=%s,bik=%s,bank_account=%s,corr_account=%s,signer_name=%s,signer_basis=%s,
+                    contract_subject=%s,bank=%s,bik=%s,bank_account=%s,corr_account=%s,signer_name=%s,signer_basis=%s,
                     estimate_id=%s,document_status=%s,review_status=%s
                 WHERE id=%s
             """, (
@@ -318,7 +321,8 @@ def register_crm_module(app, deps):
                 _text(data.get("priority") or "Обычный", 50), data.get("lossReason") or "",
                 _text(data.get("legalForm"), 80), data.get("passportData") or "",
                 _text(data.get("inn"), 50), _text(data.get("kpp"), 50), _text(data.get("ogrn"), 50),
-                data.get("legalAddress") or "", _text(data.get("bank")), _text(data.get("bik"), 50),
+                data.get("legalAddress") or "", data.get("contractSubject") or "",
+                _text(data.get("bank")), _text(data.get("bik"), 50),
                 _text(data.get("bankAccount"), 50), _text(data.get("corrAccount"), 50),
                 _text(data.get("signerName")), _text(data.get("signerBasis")),
                 int(data.get("estimateId") or 0) or None,

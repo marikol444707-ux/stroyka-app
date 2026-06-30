@@ -1,6 +1,7 @@
 import React from 'react';
 import { Check, Eye, Plus, Trash2, Upload, X } from 'lucide-react';
 import { API } from '../api';
+import DocumentRecognitionPanel from './DocumentRecognitionPanel';
 
 const emptyProjectDoc = () => ({
   side: 'customer',
@@ -130,6 +131,22 @@ export default function ProjectDocumentsRegistryPanel({
             </label>
             {newProjectDoc.scanUrl && <a href={fileSrc(newProjectDoc.scanUrl)} target="_blank" rel="noreferrer" style={{fontSize: '12px', color: C.accent}}>посмотреть</a>}
           </div>
+          <DocumentRecognitionPanel
+            API={API}
+            C={C}
+            card={card}
+            inp={inp}
+            btnG={btnG}
+            btnO={btnO}
+            btnB={btnB}
+            uploadPhoto={uploadPhoto}
+            fileSrc={fileSrc}
+            projectName={projectName}
+            context="project-contract-documents"
+            entityType="project_document"
+            currentFields={newProjectDoc}
+            onApplyProjectDocument={patch => setNewProjectDoc(prev => ({ ...prev, ...patch }))}
+          />
           <div style={{display: 'flex', gap: '8px', marginTop: '12px'}}>
             <button onClick={saveDocument} style={btnO}><Check size={14}/>Сохранить</button>
             <button onClick={() => setShowDocForm(false)} style={btnG}><X size={14}/>Отмена</button>

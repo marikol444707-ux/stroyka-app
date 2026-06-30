@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlertTriangle, Building2, Check, ClipboardList, Edit2, FileText, Filter, Plus, Search, Trash2, Upload, UserCheck, Users, X } from 'lucide-react';
+import DocumentRecognitionPanel from '../../components/DocumentRecognitionPanel';
 import PhotoAttachmentField from '../../components/PhotoAttachmentField';
 
 const EMPTY_LEAD = {
@@ -26,6 +27,7 @@ const EMPTY_LEAD = {
   kpp: '',
   ogrn: '',
   legalAddress: '',
+  contractSubject: '',
   bank: '',
   bik: '',
   bankAccount: '',
@@ -49,6 +51,7 @@ export default function CrmPage({
   C,
   CRM_STAGES,
   btnG,
+  btnB,
   btnO,
   btnR,
   card,
@@ -168,6 +171,19 @@ export default function CrmPage({
 
   const deleteCrmDocument = async (docId) => {
     await fetch(API + '/crm/documents/' + docId, { method: 'DELETE' });
+    await loadDetails(editingItem.id);
+    await reloadLeads();
+  };
+
+  const createRecognizedCrmDocument = async (docPatch) => {
+    if (!editingItem?.id) return alert('Сначала сохраните карточку CRM');
+    const res = await fetch(API + '/crm/leads/' + editingItem.id + '/documents', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(docPatch),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return alert(data.detail || 'Не удалось добавить распознанный документ');
     await loadDetails(editingItem.id);
     await reloadLeads();
   };
@@ -470,6 +486,7 @@ export default function CrmPage({
             <input placeholder="Основание подписи" value={newLead.signerBasis || ''} onChange={e => setNewLead({ ...newLead, signerBasis: e.target.value })} style={field(inp)} />
             <textarea placeholder="Юридический адрес" value={newLead.legalAddress || ''} onChange={e => setNewLead({ ...newLead, legalAddress: e.target.value })} style={{ ...field(inp), height: '70px', resize: 'vertical' }} />
             <textarea placeholder="Паспортные данные / данные физлица" value={newLead.passportData || ''} onChange={e => setNewLead({ ...newLead, passportData: e.target.value })} style={{ ...field(inp), height: '70px', resize: 'vertical' }} />
+            <textarea placeholder="Предмет договора" value={newLead.contractSubject || ''} onChange={e => setNewLead({ ...newLead, contractSubject: e.target.value })} style={{ ...field(inp), height: '70px', resize: 'vertical' }} />
             <textarea placeholder="Причина отказа" value={newLead.lossReason || ''} onChange={e => setNewLead({ ...newLead, lossReason: e.target.value })} style={{ ...field(inp), height: '70px', resize: 'vertical' }} />
           </FormGrid>
 
@@ -488,6 +505,24 @@ export default function CrmPage({
               title="Фото объекта / документов"
             />
           </div>
+
+          <DocumentRecognitionPanel
+            API={API}
+            C={C}
+            card={card}
+            inp={inp}
+            btnG={btnG}
+            btnO={btnO}
+            btnB={btnB}
+            uploadPhoto={uploadPhoto}
+            fileSrc={fileSrc}
+            projectName={newLead.name || 'CRM'}
+            context="crm-counterparty-documents"
+            entityType={newLead.leadType || 'CRM'}
+            currentFields={newLead}
+            onApplyLead={patch => setNewLead(prev => ({ ...prev, ...patch }))}
+            onCreateCrmDocument={editingItem?.id ? createRecognizedCrmDocument : null}
+          />
 
           {editingItem?.id && (
             <div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr' : '1.1fr .9fr', gap: '12px', marginTop: '14px' }}>
