@@ -1,5 +1,7 @@
+import base64
 import datetime as dt
 import json
+import mimetypes
 import os
 import re
 import textwrap
@@ -9,7 +11,7 @@ from datetime import datetime, timedelta, date
 from typing import Optional
 
 import psycopg2.extras
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, File, Form, HTTPException, Request, UploadFile
 
 
 PLATFORM_VIEW_ROLES = ("system_owner", "platform_admin", "platform_support", "billing_admin")
@@ -531,9 +533,204 @@ async def _payment_webhook_payload(request: Request) -> dict:
         return {"raw": raw}
 
 
+CLIENT_CARD_KEYS = (
+    "platformAccountName",
+    "companyName",
+    "shortName",
+    "inn",
+    "kpp",
+    "ogrn",
+    "contactName",
+    "contactPosition",
+    "contactPhone",
+    "contactEmail",
+    "legalAddress",
+    "website",
+    "notes",
+)
+
+
+def _client_card_text(value, limit=1200) -> str:
+    return str(value or "").strip()[:limit]
+
+
+def _client_card_digits(value) -> str:
+    return re.sub(r"\D+", "", str(value or ""))
+
+
+def _client_card_first_match(pattern: str, text: str, flags=re.IGNORECASE | re.MULTILINE, group=1) -> str:
+    match = re.search(pattern, text or "", flags)
+    if not match:
+        return ""
+    return _client_card_text(match.group(group), 500)
+
+
+def _client_card_json(text: str) -> dict:
+    raw = _client_card_text(text, 20000)
+    if not raw:
+        return {}
+    raw = re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=re.IGNORECASE | re.MULTILINE).strip()
+    start = raw.find("{")
+    end = raw.rfind("}")
+    candidates = [raw]
+    if start >= 0 and end > start:
+        candidates.insert(0, raw[start:end + 1])
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            continue
+    return {}
+
+
+def _client_card_heuristic(text: str) -> dict:
+    raw = text or ""
+    compact = re.sub(r"\s+", " ", raw).strip()
+    fields = {key: "" for key in CLIENT_CARD_KEYS}
+    fields["contactEmail"] = _client_card_first_match(r"([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})", raw, re.IGNORECASE)
+    fields["inn"] = _client_card_digits(_client_card_first_match(r"\bИНН\b[^\d]{0,20}(\d{10,12})", raw))[:12]
+    fields["kpp"] = _client_card_digits(_client_card_first_match(r"\bКПП\b[^\d]{0,20}(\d{9})", raw))[:9]
+    fields["ogrn"] = _client_card_digits(_client_card_first_match(r"\bОГРН(?:ИП)?\b[^\d]{0,20}(\d{13,15})", raw))[:15]
+    phone = _client_card_first_match(r"((?:\+7|8)[\s(.-]*\d{3}[\s)./-]*\d{3}[\s.-]*\d{2}[\s.-]*\d{2})", raw)
+    if not phone:
+        phone = _client_card_first_match(r"(\+?\d[\d\s().-]{8,24}\d)", raw)
+    fields["contactPhone"] = re.sub(r"\s+", " ", phone).strip()
+    website = _client_card_first_match(r"((?:https?://)?(?:www\.)?[A-Z0-9][A-Z0-9\-]*(?:\.[A-Z0-9][A-Z0-9\-]*)+\S*)", raw, re.IGNORECASE)
+    if fields["contactEmail"] and website and website in fields["contactEmail"] and not re.search(r"(?:https?://|www\.)" + re.escape(website), raw, re.IGNORECASE):
+        website = ""
+    fields["website"] = website
+    fields["legalAddress"] = _client_card_first_match(r"(?:адрес|юр\.?\s*адрес|местонахождение)\s*[:\-]?\s*([^\n]{8,220})", raw)
+    company = _client_card_first_match(r"((?:ООО|АО|ПАО|ЗАО|ИП)\s+[\"«]?[А-ЯЁA-Z0-9][^,\n;]{2,160})", raw)
+    if company:
+        company = re.sub(r"\s+(?:ИНН|КПП|ОГРН|тел\.?|email|e-mail).*$", "", company, flags=re.IGNORECASE).strip(" ,;")
+    fields["companyName"] = company
+    if company:
+        fields["platformAccountName"] = re.sub(r"^(?:ООО|АО|ПАО|ЗАО|ИП)\s+", "", company, flags=re.IGNORECASE).strip(" \"«»")
+        fields["shortName"] = fields["platformAccountName"][:80]
+    person = _client_card_first_match(r"([А-ЯЁ][а-яё-]+(?:\s+[А-ЯЁ][а-яё.-]+){1,2})\s*(?:\n|,|$)", raw)
+    if person and (not company or person not in company):
+        fields["contactName"] = person
+    position = _client_card_first_match(r"(?:должность|позиция)\s*[:\-]?\s*([^\n]{3,120})", raw)
+    if not position:
+        position = _client_card_first_match(r"\n\s*((?:директор|руководитель|собственник|учредитель|менеджер|главный инженер)[^\n]{0,80})", raw)
+    fields["contactPosition"] = position
+    note_bits = []
+    if fields["ogrn"]:
+        note_bits.append("ОГРН: " + fields["ogrn"])
+    if fields["legalAddress"]:
+        note_bits.append("Адрес: " + fields["legalAddress"])
+    if fields["website"]:
+        note_bits.append("Сайт: " + fields["website"])
+    if fields["contactPosition"]:
+        note_bits.append("Должность: " + fields["contactPosition"])
+    if not company and compact:
+        note_bits.append("Текст карты: " + compact[:500])
+    fields["notes"] = "\n".join(note_bits)
+    return fields
+
+
+def _normalize_client_card_fields(ai_fields, fallback_fields) -> dict:
+    fields = dict(fallback_fields or {})
+    if isinstance(ai_fields, dict):
+        for key in CLIENT_CARD_KEYS:
+            value = ai_fields.get(key)
+            if value not in (None, ""):
+                fields[key] = _client_card_text(value, 3000)
+    for key in CLIENT_CARD_KEYS:
+        fields.setdefault(key, "")
+    fields["inn"] = _client_card_digits(fields.get("inn"))[:12]
+    fields["kpp"] = _client_card_digits(fields.get("kpp"))[:9]
+    fields["ogrn"] = _client_card_digits(fields.get("ogrn"))[:15]
+    fields["contactEmail"] = _client_card_text(fields.get("contactEmail"), 255).lower()
+    fields["contactPhone"] = re.sub(r"\s+", " ", _client_card_text(fields.get("contactPhone"), 100))
+    if fields.get("companyName") and not fields.get("platformAccountName"):
+        fields["platformAccountName"] = re.sub(r"^(?:ООО|АО|ПАО|ЗАО|ИП)\s+", "", fields["companyName"], flags=re.IGNORECASE).strip(" \"«»")
+    if fields.get("companyName") and not fields.get("shortName"):
+        fields["shortName"] = fields.get("platformAccountName") or fields["companyName"][:80]
+    return fields
+
+
+def _client_card_file_payload(filename: str, content_type: str, content: bytes) -> tuple[dict, str]:
+    name = filename or "client-card"
+    mime_type = (content_type or mimetypes.guess_type(name)[0] or "application/octet-stream").lower()
+    name_lower = name.lower()
+    if "heic" in mime_type or "heif" in mime_type or name_lower.endswith((".heic", ".heif")):
+        raise HTTPException(status_code=422, detail="HEIC/HEIF нужно преобразовать в JPEG/PNG перед распознаванием карты клиента.")
+    if mime_type == "application/pdf" or name_lower.endswith(".pdf"):
+        return {
+            "type": "input_file",
+            "filename": name,
+            "file_data": "data:application/pdf;base64," + base64.b64encode(content).decode("utf-8"),
+        }, "pdf"
+    if mime_type.startswith("image/"):
+        return {
+            "type": "input_image",
+            "image_url": f"data:{mime_type};base64," + base64.b64encode(content).decode("utf-8"),
+        }, "image"
+    raise HTTPException(status_code=422, detail="Для карты клиента загрузите PDF или изображение.")
+
+
+def _recognize_client_card_with_ai(file_content: bytes, file_name: str, content_type: str,
+                                   pasted_text: str, api_key: str, folder_id: str) -> tuple[dict, str]:
+    if not (api_key and folder_id):
+        return {}, "AI/OCR не настроен: задайте YANDEX_API_KEY и YANDEX_FOLDER_ID."
+    try:
+        import openai as oa
+    except Exception as exc:
+        return {}, "AI-клиент недоступен: " + str(exc)
+    content = []
+    if file_content:
+        file_part, kind = _client_card_file_payload(file_name, content_type, file_content)
+        content.append({"type": "input_text", "text": "Файл карты клиента: " + (file_name or kind)})
+        content.append(file_part)
+    if pasted_text:
+        content.append({"type": "input_text", "text": "Дополнительный текст карты клиента:\n" + pasted_text[:12000]})
+    content.append({"type": "input_text", "text": (
+        "Распознай карту клиента/визитку/реквизиты потенциального клиента строительной ERP. "
+        "Верни только JSON без markdown. Не выдумывай значения. Если поля нет — пустая строка. "
+        "Нужно заполнить форму подключения клиентского аккаунта и первой компании. "
+        "platformAccountName — группа/бренд клиента без ООО, companyName — полное юрлицо, shortName — короткое имя. "
+        "contactName — ФИО контактного лица, contactPosition — должность. "
+        "notes — только полезные дополнительные данные, которые некуда положить: адрес, сайт, ОГРН, должность, источник. "
+        "Формат: {"
+        "\"platformAccountName\":\"\","
+        "\"companyName\":\"\","
+        "\"shortName\":\"\","
+        "\"inn\":\"\","
+        "\"kpp\":\"\","
+        "\"ogrn\":\"\","
+        "\"contactName\":\"\","
+        "\"contactPosition\":\"\","
+        "\"contactPhone\":\"\","
+        "\"contactEmail\":\"\","
+        "\"legalAddress\":\"\","
+        "\"website\":\"\","
+        "\"notes\":\"\","
+        "\"confidence\":0.0,"
+        "\"warnings\":[]"
+        "}"
+    )})
+    try:
+        client = oa.OpenAI(api_key=api_key, base_url="https://ai.api.cloud.yandex.net/v1", project=folder_id)
+        response = client.responses.create(
+            model=f"gpt://{folder_id}/qwen3.6-35b-a3b/latest",
+            temperature=0.1,
+            instructions="Ты извлекаешь данные клиента из визитки, карточки организации или реквизитов. Верни только валидный JSON.",
+            input=[{"role": "user", "content": content}],
+            max_output_tokens=2500,
+        )
+        return _client_card_json(response.output_text or ""), ""
+    except Exception as exc:
+        return {}, "AI/OCR не смог распознать карту клиента: " + str(exc)
+
+
 def register_platform_admin_routes(app, deps):
     get_db = deps["get_db"]
     require_roles = deps["require_roles"]
+    save_upload_file = deps.get("save_upload_file")
+    yandex_api_key = deps.get("yandex_api_key") or ""
+    yandex_folder_id = deps.get("yandex_folder_id") or ""
 
     @app.get("/system/tariffs")
     def system_tariffs_list(_current_user: dict = Depends(require_roles(*PLATFORM_VIEW_ROLES))):
@@ -568,6 +765,81 @@ def register_platform_admin_routes(app, deps):
             company["billing_state"] = _system_company_billing_state(company)
         conn.close()
         return rows
+
+    @app.post("/system/client-card/recognize")
+    async def system_recognize_client_card(
+        file: Optional[UploadFile] = File(default=None),
+        text: str = Form(default=""),
+        current_user: dict = Depends(require_roles(*PLATFORM_MANAGE_ROLES)),
+    ):
+        """Распознавание карты клиента для чернового заполнения формы подключения компании."""
+        pasted_text = _client_card_text(text, 32000)
+        file_content = b""
+        file_url = ""
+        file_name = ""
+        content_type = ""
+        warnings = []
+        if file:
+            file_name = file.filename or "client-card"
+            content_type = file.content_type or mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+            file_content = await file.read(12 * 1024 * 1024 + 1)
+            if len(file_content) > 12 * 1024 * 1024:
+                raise HTTPException(status_code=413, detail="Карта клиента слишком большая. Загрузите файл до 12 МБ.")
+            if save_upload_file:
+                try:
+                    file.file.seek(0)
+                    saved = save_upload_file(file, project_name="_platform", context="client-cards")
+                    file_url = saved.get("url") or ""
+                except Exception as exc:
+                    warnings.append("Файл распознан, но не сохранился в архив загрузок: " + str(exc))
+        if not file_content and not pasted_text:
+            raise HTTPException(status_code=400, detail="Загрузите карту клиента или вставьте текст.")
+
+        fallback = _client_card_heuristic(pasted_text)
+        ai_fields, ai_warning = _recognize_client_card_with_ai(
+            file_content,
+            file_name,
+            content_type,
+            pasted_text,
+            yandex_api_key,
+            yandex_folder_id,
+        )
+        if ai_warning:
+            warnings.append(ai_warning)
+        fields = _normalize_client_card_fields(ai_fields, fallback)
+        if isinstance(ai_fields.get("warnings") if isinstance(ai_fields, dict) else None, list):
+            warnings.extend(_client_card_text(item, 300) for item in ai_fields.get("warnings") if _client_card_text(item, 300))
+        confidence = 0
+        if isinstance(ai_fields, dict):
+            try:
+                confidence = float(ai_fields.get("confidence") or 0)
+            except Exception:
+                confidence = 0
+        source = "ai" if ai_fields else ("heuristic" if any(fallback.values()) else "empty")
+        if source == "empty":
+            warnings.append("Не удалось уверенно выделить поля. Проверьте качество фото или заполните вручную.")
+
+        conn = get_db()
+        cur = conn.cursor()
+        _system_write_audit(cur, current_user, "client_card_recognized", "client_card", None,
+            fields.get("companyName") or fields.get("platformAccountName") or file_name,
+            details={
+                "source": source,
+                "fileUrl": file_url,
+                "confidence": confidence,
+                "recognizedKeys": [key for key in CLIENT_CARD_KEYS if fields.get(key)],
+                "autoCreatedCompany": False,
+            })
+        conn.close()
+        return {
+            "ok": True,
+            "source": source,
+            "fileUrl": file_url,
+            "confidence": confidence,
+            "fields": fields,
+            "warnings": list(dict.fromkeys([w for w in warnings if w])),
+            "message": "Поля распознаны как черновик. Компания не создана, пока вы не сохраните форму.",
+        }
 
     @app.post("/system/companies")
     def system_create_company(data: dict, current_user: dict = Depends(require_roles(*PLATFORM_MANAGE_ROLES))):

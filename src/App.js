@@ -18,7 +18,6 @@ import {
 import {
   CHECKLIST_TEMPLATES,
   PD_CONSENT_TEXT,
-  POSITION_INSTRUCTIONS,
   PRICELISTS_DATA,
   TB_INSTRUCTIONS,
   TB_TYPES_GOST,
@@ -53,6 +52,7 @@ import ProjectFinancePanel from './components/ProjectFinancePanel';
 import ProjectEconomyPanel from './components/ProjectEconomyPanel';
 import ProjectObjectLinksPanel from './components/ProjectObjectLinksPanel';
 import ProjectDocumentsRegistryPanel from './components/ProjectDocumentsRegistryPanel';
+import DocumentRecognitionPanel from './components/DocumentRecognitionPanel';
 import ProjectLettersPanel from './components/ProjectLettersPanel';
 import ProjectBrigadeCalculationTab from './components/ProjectBrigadeCalculationTab';
 import ProjectHiddenWorksActsPanel from './components/ProjectHiddenWorksActsPanel';
@@ -198,6 +198,21 @@ import {
   requestPushPermission,
   sendPushNotification,
 } from './utils/appRuntimeUtils';
+import {
+  docEsc,
+  normalizeDocDate,
+  parseWorkMaterials,
+  photoCount,
+  workDocDate,
+} from './utils/documentFormatUtils';
+import {
+  buildInventoryDocContent,
+  buildMovementDocContent,
+  buildPositionInstructionDocContent,
+  buildPrescriptionDocContent,
+  buildPricelistDocContent,
+  buildTBContentDoc,
+} from './utils/printDocumentBuilders';
 import { EMPTY_ESTIMATE_CHANGE, isApprovedEstimateChangeStatus } from './utils/estimateChangeUtils';
 import { emptyStaffForm } from './utils/staffUtils';
 import { LayoutDashboard, FolderKanban, Package, DollarSign, UserCheck, ScrollText, BarChart3, Handshake, Search, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, Download, Upload, MapPin, FileText, Archive, CloudSun, QrCode, Calculator, Settings, CreditCard, Bot, ShoppingCart, GitBranch } from 'lucide-react';
@@ -377,9 +392,10 @@ function App() {
           category: my.category || '',
           contractUrl: my.contract_url || my.contractUrl || '',
           contractNumber: my.contract_number || my.contractNumber || '',
-          contractDate: my.contract_date || my.contractDate || '',
+          contractDate: String(my.contract_date || my.contractDate || '').slice(0, 10),
           licenseUrl: my.license_url || my.licenseUrl || '',
           priceUrl: my.price_url || my.priceUrl || prev.priceUrl || '',
+          notes: my.notes || prev.notes || '',
         }));
       }
     }
@@ -1988,64 +2004,16 @@ function App() {
     setNewMovement({materialName:'',fromLocation:'Основной склад',toLocation:'',quantity:'',unit:'шт',notes:'',selectedMaterials:[]});
   };
 
-  const buildMovementDoc = (movement, items) => {
-    const req = companyRequisites||{};
-    let html = '<h2 style="text-align:center">НАКЛАДНАЯ НА ВНУТРЕННЕЕ ПЕРЕМЕЩЕНИЕ (М-11)</h2>';
-    html += '<p style="text-align:center">'+(req.fullName||req.shortName||companyName||'_____')+'</p>';
-    html += '<table><tr><th>Откуда</th><td>'+movement.fromLocation+'</td><th>Куда</th><td>'+movement.toLocation+'</td></tr>';
-    html += '<tr><th>Дата</th><td>'+new Date().toLocaleDateString('ru-RU')+'</td><th>Кто отправил</th><td>'+user.name+'</td></tr></table>';
-    html += '<table><tr><th>N</th><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Принял</th></tr>';
-    items.forEach((item,i) => { html += '<tr><td>'+(i+1)+'</td><td>'+item.name+'</td><td>'+item.unit+'</td><td>'+item.quantity+'</td><td style="min-width:120px"></td></tr>'; });
-    html += '</table><div class="signatures"><div class="sig"><div class="sig-line">Отпустил: '+user.name+'</div></div><div class="sig"><div class="sig-line">Принял: _______________</div></div><div class="sig"><div class="sig-line">Водитель: _______________</div></div></div>';
-    return html;
-  };
+  const buildMovementDoc = (movement, items) => buildMovementDocContent(movement, items, {
+    companyRequisites,
+    companyName,
+    userName: user?.name || '',
+  });
 
-  const buildInventoryDoc = (inv, items) => {
-    const req = companyRequisites||{};
-    const totalShortage = items.filter(i=>i.difference<0).reduce((s,i)=>s+Math.abs(i.difference)*i.price,0);
-    const totalSurplus = items.filter(i=>i.difference>0).reduce((s,i)=>s+i.difference*i.price,0);
-    let html = '<h2 style="text-align:center">АКТ ИНВЕНТАРИЗАЦИИ № '+inv.id+'</h2>';
-    html += '<p style="text-align:center">'+(req.fullName||req.shortName||companyName||'_____')+'</p>';
-    html += '<table><tr><th>Объект</th><td>'+inv.project+'</td></tr><tr><th>Дата</th><td>'+inv.date+'</td></tr><tr><th>Провёл</th><td>'+(inv.created_by||inv.createdBy||'')+'</td></tr></table>';
-    html += '<table><tr><th>N</th><th>Наименование</th><th>Ед.</th><th>По учёту</th><th>Факт</th><th>Разница</th><th>Цена</th><th>Сумма</th></tr>';
-    items.forEach((item,i) => {
-      const sum = Math.abs(item.difference||0)*Number(item.price||0);
-      html += '<tr><td>'+(i+1)+'</td><td>'+item.materialName+'</td><td>'+item.unit+'</td><td>'+item.expected+'</td><td>'+item.actual+'</td><td style="color:'+(item.difference<0?'red':item.difference>0?'green':'black')+'">'+(item.difference>0?'+':'')+item.difference+'</td><td>'+Number(item.price||0).toLocaleString()+'</td><td>'+(item.difference!==0?sum.toLocaleString():'0')+'</td></tr>';
-    });
-    html += '</table><p><b>Итого недостача: '+totalShortage.toLocaleString()+' руб.</b></p><p><b>Итого излишек: '+totalSurplus.toLocaleString()+' руб.</b></p>';
-    html += '<div class="signatures"><div class="sig"><div class="sig-line">Директор<br/>'+(req.directorName||'')+'</div></div><div class="sig"><div class="sig-line">Прораб</div></div><div class="sig"><div class="sig-line">Кладовщик</div></div><div class="sig"><div class="sig-line">Мастер</div></div></div>';
-    return html;
-  };
-
-  const docEsc = (v) => String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  const normalizeDocDate = (value) => {
-    const raw = String(value||'').trim();
-    if (!raw) return '';
-    let m = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-    if (m) return m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');
-    m = raw.match(/(\d{1,2})[./-](\d{1,2})[./-](\d{4})/);
-    if (m) return m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');
-    const parsed = new Date(raw);
-    if (!Number.isNaN(parsed.getTime())) {
-      const yyyy = parsed.getFullYear();
-      const mm = String(parsed.getMonth()+1).padStart(2,'0');
-      const dd = String(parsed.getDate()).padStart(2,'0');
-      return yyyy+'-'+mm+'-'+dd;
-    }
-    return raw.split('T')[0].split(' ')[0];
-  };
-  const workDocDate = (w) => normalizeDocDate(w.date) || normalizeDocDate(w.confirmedAt);
-  const parseWorkMaterials = (value) => {
-    if (!value) return [];
-    if (Array.isArray(value)) return value;
-    if (typeof value === 'string') {
-      const text=value.trim();
-      if (!text) return [];
-      try { const parsed=JSON.parse(text); return Array.isArray(parsed)?parsed:[parsed]; } catch(e) { return [{name:text}]; }
-    }
-    return [value];
-  };
-  const photoCount = (value) => String(value||'').split(/[,\s;]+/).filter(Boolean).length;
+  const buildInventoryDoc = (inv, items) => buildInventoryDocContent(inv, items, {
+    companyRequisites,
+    companyName,
+  });
   const buildDailyObjectReportContent = (date) => {
     const req = companyRequisites||{};
     const orgName = req.fullName||req.shortName||companyName||'СтройКа';
@@ -2798,73 +2766,26 @@ function App() {
     return html;
   };
 
-  const buildPrescriptionContent = (pr) => {
-    const req = companyRequisites||{};
-    const orgName = req.fullName||req.shortName||companyName||'_____';
-    const project = projects.find(p=>p.name===pr.projectName)||{};
-    const fmtDate = (d) => { if(!d) return '«___» __________ 20__ г.'; const dt=new Date(d); if(isNaN(dt)) return d; const months=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря']; return '«'+String(dt.getDate()).padStart(2,'0')+'» '+months[dt.getMonth()]+' '+dt.getFullYear()+' г.'; };
-    let html = '<style>'
-      + '.pr-meta{margin:6px 0;font-size:12px}'
-      + '.pr-title{text-align:center;font-weight:700;font-size:15px;margin:18px 0 6px}'
-      + '.pr-sub{text-align:center;font-size:13px;margin:0 0 18px;color:#444}'
-      + '.pr-row{display:flex;justify-content:space-between;font-size:12px;margin:4px 0}'
-      + '.pr-item{margin:10px 0;font-size:12px;line-height:1.5}'
-      + '.pr-block{border:1px solid #333;padding:10px;margin:8px 0;font-size:12px;line-height:1.5;min-height:50px;border-radius:4px}'
-      + '.pr-sigs{margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:30px}'
-      + '.pr-sig-label{font-weight:600;margin-bottom:30px;font-size:11px}'
-      + '.pr-sig-line{border-bottom:1px solid #333;min-height:18px;font-size:12px;font-weight:600}'
-      + '.pr-sig-sub{font-size:9px;color:#555;margin-top:2px}'
-      + '</style>';
-    html += '<div class="pr-meta"><b>'+orgName+'</b></div>';
-    html += '<div class="pr-title">ПРЕДПИСАНИЕ № '+(pr.number||pr.id||'____')+'</div>';
-    html += '<div class="pr-sub">об устранении выявленных нарушений на объекте строительства</div>';
-    html += '<div class="pr-row"><span>'+(project.city||'г. ____________')+'</span><span>'+fmtDate(new Date().toISOString().slice(0,10))+'</span></div>';
-    html += '<div class="pr-item"><b>Объект:</b> '+(pr.projectName||'____________')+'</div>';
-    html += '<div class="pr-item"><b>Заказчик:</b> '+(project.client||'____________')+'</div>';
-    html += '<div class="pr-item"><b>Кем выдано:</b> '+(pr.issuedBy||'____________')+' ('+(pr.issuedByRole||'____________')+')</div>';
-    html += '<div class="pr-item"><b>Приоритет:</b> '+(pr.priority||'—')+'</div>';
-    html += '<div class="pr-item"><b>Описание нарушения:</b><div class="pr-block">'+((pr.violation||pr.description||'').replace(/\n/g,'<br/>')||'(не указано)')+'</div></div>';
-    if (pr.deadline) html += '<div class="pr-item"><b>Срок устранения:</b> '+fmtDate(pr.deadline)+'</div>';
-    if (pr.responsible) html += '<div class="pr-item"><b>Ответственный за устранение:</b> '+pr.responsible+'</div>';
-    html += '<div class="pr-item"><b>Статус:</b> '+(pr.status||'Открыто')+'</div>';
-    if (pr.photoUrl) html += '<div class="pr-item"><b>Фотофиксация нарушения прилагается.</b></div>';
-    html += '<div class="pr-sigs">';
-    html += '<div><div class="pr-sig-label">Выдал предписание:</div><div class="pr-sig-line">'+(pr.issuedBy||'')+'</div><div class="pr-sig-sub">(должность, ФИО, подпись)</div></div>';
-    html += '<div><div class="pr-sig-label">Получил, обязуюсь устранить:</div><div class="pr-sig-line"></div><div class="pr-sig-sub">(должность, ФИО подрядчика, подпись)</div></div>';
-    html += '</div>';
-    html += '<p style="margin-top:30px;font-size:10px;color:#555;text-align:center">Форма соответствует методическим указаниям МДС 12-46.2008. Подлежит исполнению в указанный срок.</p>';
-    return html;
-  };
+  const buildPrescriptionContent = (pr) => buildPrescriptionDocContent(pr, {
+    companyRequisites,
+    companyName,
+    project: projects.find(p=>p.name===pr.projectName)||{},
+  });
 
-  const buildTBContent = (entry) => {
-    const req = companyRequisites||{};
-    const instruction = TB_INSTRUCTIONS[entry.type] || '<p>Общие требования безопасности.</p>';
-    let html = '<h2 style="text-align:center">'+entry.type.toUpperCase()+'</h2>';
-    html += '<p>Организация: '+(req.fullName||req.shortName||companyName||'_____')+'</p>';
-    html += '<p>Объект: <b>'+entry.project+'</b> | Дата: <b>'+entry.date+'</b></p>'+instruction;
-    html += '<table><tr><th>N</th><th>ФИО</th><th>Должность</th><th>Подпись</th><th>Дата</th></tr>';
-    (entry.participants||[]).forEach((p,i) => { html += '<tr><td>'+(i+1)+'</td><td>'+p+'</td><td></td><td style="min-width:120px"></td><td>'+entry.date+'</td></tr>'; });
-    html += '</table><div class="signatures"><div class="sig"><div class="sig-line">Инструктаж провёл</div></div></div>';
-    return html;
-  };
+  const buildTBContent = (entry) => buildTBContentDoc(entry, {
+    companyRequisites,
+    companyName,
+  });
 
-  const buildPricelistContent = (pl, items) => {
-    const req = companyRequisites||{};
-    const categories = [...new Set(items.map(i=>i.category))];
-    let html = '<h2 style="text-align:center">ПРАЙС-ЛИСТ</h2><p><b>'+(req.fullName||req.shortName||companyName||'')+'</b> | '+pl.name+' | '+new Date().toLocaleDateString('ru-RU')+'</p>';
-    categories.forEach(cat => {
-      html += '<h3 style="color:#f97316;border-bottom:2px solid #f97316;padding-bottom:5px">'+(cat||'Общее')+'</h3><table><tr><th>Наименование</th><th>Ед.</th><th>Цена (руб.)</th></tr>';
-      items.filter(i=>i.category===cat).forEach(item => { html += '<tr><td>'+item.name+'</td><td>'+item.unit+'</td><td>'+(item.price*pl.coefficient).toLocaleString()+'</td></tr>'; });
-      html += '</table>';
-    });
-    return html;
-  };
+  const buildPricelistContent = (pl, items) => buildPricelistDocContent(pl, items, {
+    companyRequisites,
+    companyName,
+  });
 
-  const buildPositionInstructionContent = (role, name) => {
-    const req = companyRequisites||{};
-    const instruction = POSITION_INSTRUCTIONS[role] || '<h2>ДОЛЖНОСТНАЯ ИНСТРУКЦИЯ</h2>';
-    return instruction + '<p><b>Организация:</b> '+(req.fullName||req.shortName||companyName||'_____')+'</p><div class="signatures"><div class="sig"><div class="sig-line">Директор<br/>'+(req.directorName||'')+'</div></div><div class="sig"><div class="sig-line">Ознакомлен<br/><b>'+name+'</b></div></div></div>';
-  };
+  const buildPositionInstructionContent = (role, name) => buildPositionInstructionDocContent(role, name, {
+    companyRequisites,
+    companyName,
+  });
 
   const buildPassportContent = (project) => {
     const req = companyRequisites||{};
@@ -10010,11 +9931,32 @@ function App() {
 
   const deletePlItem = async (id) => { await fetch(API+'/pricelist-items/'+id,{method:'DELETE'}); await loadPricelistItems(selectedPricelist.id); };
 
+  const emptySupplierForm = () => ({
+    name:'',phone:'',email:'',specialization:'',category:'Сыпучие и бетон',rating:5.0,status:'Активный',
+    inn:'',kpp:'',ogrn:'',legalAddress:'',actualAddress:'',bank:'',bik:'',account:'',korAccount:'',
+    directorName:'',directorPosition:'',contractUrl:'',contractNumber:'',contractDate:'',licenseUrl:'',priceUrl:'',website:'',notes:''
+  });
+  const normalizeSupplierPayload = (supplier={}) => ({
+    ...emptySupplierForm(),
+    ...supplier,
+    legalAddress: supplier.legalAddress || supplier.legal_address || '',
+    actualAddress: supplier.actualAddress || supplier.actual_address || '',
+    korAccount: supplier.korAccount || supplier.kor_account || '',
+    directorName: supplier.directorName || supplier.director_name || '',
+    directorPosition: supplier.directorPosition || supplier.director_position || '',
+    contractUrl: supplier.contractUrl || supplier.contract_url || '',
+    contractNumber: supplier.contractNumber || supplier.contract_number || '',
+    contractDate: String(supplier.contractDate || supplier.contract_date || '').slice(0, 10),
+    licenseUrl: supplier.licenseUrl || supplier.license_url || '',
+    priceUrl: supplier.priceUrl || supplier.price_url || '',
+  });
+
   const saveSupplier = async () => {
     if (!newSupplier.name) return;
-    if (editingItem&&editingItem.id) await fetch(API+'/suppliers/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(newSupplier)});
-    else await fetch(API+'/suppliers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(newSupplier)});
-    await refreshData(); setNewSupplier({name:'',phone:'',email:'',specialization:'',category:'Сыпучие и бетон',rating:5.0,status:'Активный'}); setEditingItem(null); setShowForm(false);
+    const payload = normalizeSupplierPayload(newSupplier);
+    if (editingItem&&editingItem.id) await fetch(API+'/suppliers/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    else await fetch(API+'/suppliers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    await refreshData(); setNewSupplier(emptySupplierForm()); setEditingItem(null); setShowForm(false);
   };
 
   const deleteSupplier = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/suppliers/'+id,{method:'DELETE'}); await refreshData(); } };
@@ -11090,6 +11032,64 @@ function App() {
     const myDeliveries = supplyDeliveries.filter(d => d.supplierId===mySupplier?.id || d.supplierName===mySupplier?.name || d.supplierName===user.name);
     const myClaims = supplyClaims.filter(c => c.supplierId===mySupplier?.id);
     const SUPPLIER_TABS = [{id:'requests',label:'📋 Заявки'},{id:'catalog',label:'📦 Мой каталог'},{id:'offers',label:'💰 Предложения'},{id:'deliveries',label:'🚚 Отгрузки'},{id:'documents',label:'📄 Счета'},{id:'claims',label:'⚠️ Претензии'},{id:'profile',label:'⚙️ Профиль'}];
+    const appendSupplierReqNote = (current, line) => {
+      const base = String(current || '').trim();
+      const addition = String(line || '').trim();
+      if (!addition || base.includes(addition)) return base;
+      return base ? base + '\n' + addition : addition;
+    };
+    const supplierRequisitesPatchFromRecognition = (result, current = {}) => {
+      const extracted = result?.extracted || {};
+      const doc = result?.suggestedCrmDocument || {};
+      const docType = String(extracted.docType || doc.docType || '').toLowerCase();
+      const contractLike = docType.includes('договор') || docType.includes('контракт');
+      const patch = {
+        companyName: extracted.counterpartyName || '',
+        inn: extracted.inn || '',
+        kpp: extracted.kpp || '',
+        ogrn: extracted.ogrn || '',
+        address: extracted.legalAddress || '',
+        bank: extracted.bank || '',
+        bik: extracted.bik || '',
+        account: extracted.bankAccount || '',
+        korAccount: extracted.corrAccount || '',
+        directorName: extracted.signerName || '',
+        directorPosition: extracted.signerBasis || '',
+        contractNumber: contractLike ? (extracted.number || '') : '',
+        contractDate: contractLike ? (extracted.docDate || '') : '',
+        contractUrl: contractLike ? (result?.fileUrl || '') : '',
+        specialization: extracted.workType || '',
+      };
+      if (extracted.contractSubject) {
+        patch.notes = appendSupplierReqNote(current.notes, 'Предмет договора: ' + extracted.contractSubject);
+      }
+      return Object.fromEntries(Object.entries(patch).filter(([, value]) => value));
+    };
+    const createOwnSupplierDocumentFromRecognition = async (docPatch, result) => {
+      const supplierId = mySupplier?.id || 0;
+      if (!supplierId) return alert('Сначала сохраните реквизиты поставщика');
+      const extracted = result?.extracted || {};
+      const res = await fetch(API + '/supplier-documents', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          supplierId,
+          docType: docPatch.docType || extracted.docType || 'Другое',
+          title: docPatch.title || extracted.documentTitle || 'Распознанный документ',
+          fileUrl: docPatch.fileUrl || result?.fileUrl || '',
+          status: 'На проверке',
+          signedAt: extracted.docDate || '',
+          notes: docPatch.notes || (extracted.contractSubject ? 'Предмет договора: ' + extracted.contractSubject : ''),
+          uploadedBy: user?.name || '',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.detail || data.error) {
+        alert(data.detail || data.error || 'Не удалось добавить документ');
+        return;
+      }
+      await refreshData();
+    };
     return (
       <div style={{minHeight:'100vh',backgroundColor:C.bg,padding:'20px'}}>
         <div style={{maxWidth:'900px',margin:'0 auto'}}>
@@ -11578,6 +11578,7 @@ function App() {
                 <input placeholder='Email' value={supplierRequisites.email} onChange={e=>setSupplierRequisites({...supplierRequisites,email:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <input placeholder='Сайт (опц.)' value={supplierRequisites.website||''} onChange={e=>setSupplierRequisites({...supplierRequisites,website:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
                 <input placeholder='Специализация (что поставляете)' value={supplierRequisites.specialization||''} onChange={e=>setSupplierRequisites({...supplierRequisites,specialization:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+                <textarea placeholder='Примечания / предмет договора' value={supplierRequisites.notes||''} onChange={e=>setSupplierRequisites({...supplierRequisites,notes:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2',minHeight:'64px',resize:'vertical',fontFamily:'inherit'}}/>
               </div>
               <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'8px',marginTop:'12px'}}>🏦 Банковские реквизиты</b>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
@@ -11596,6 +11597,24 @@ function App() {
                 <input type='file' accept='.pdf,image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{context:'supplier-documents'});setSupplierRequisites({...supplierRequisites,contractUrl:url});}}}/>
               </label>
               {supplierRequisites.contractUrl && (<a href={fileSrc(supplierRequisites.contractUrl)} target='_blank' rel='noopener noreferrer' style={{fontSize:'12px',color:C.accent,marginRight:'8px'}}>📥 Посмотреть</a>)}
+              <DocumentRecognitionPanel
+                C={C}
+                card={card}
+                inp={inp}
+                btnG={btnG}
+                btnO={btnO}
+                btnB={btnB}
+                uploadPhoto={uploadPhoto}
+                fileSrc={fileSrc}
+                projectName={supplierRequisites.companyName || user.name || 'Поставщик'}
+                context="supplier-documents"
+                entityType="supplier"
+                currentFields={supplierRequisites}
+                onApplyExtracted={result => setSupplierRequisites(prev => ({...prev, ...supplierRequisitesPatchFromRecognition(result, prev)}))}
+                applyExtractedLabel="Заполнить реквизиты"
+                onCreateRecognizedDocument={mySupplier?.id ? createOwnSupplierDocumentFromRecognition : null}
+                createRecognizedDocumentLabel="Добавить в документы"
+              />
               <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'8px',marginTop:'12px'}}>📦 Прайс-лист (опц.)</b>
               <input placeholder='Ссылка на прайс (Google Sheet / Excel URL)' value={supplierRequisites.priceUrl||''} onChange={e=>setSupplierRequisites({...supplierRequisites,priceUrl:e.target.value})} style={inp}/>
               <label style={{...btnG,padding:'10px 14px',fontSize:'12px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'6px',marginRight:'8px'}}>

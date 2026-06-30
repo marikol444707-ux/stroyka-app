@@ -1,6 +1,7 @@
 import React from 'react';
 import { Check, ChevronDown, ChevronUp, Edit2, Plus, Search, Trash2, X } from 'lucide-react';
 import { API } from '../api';
+import DocumentRecognitionPanel from './DocumentRecognitionPanel';
 
 const normalizeSupplierKey = value => String(value || '')
   .toLowerCase()
@@ -48,6 +49,7 @@ function SupplySuppliersPanel({
   inp,
   btnO,
   btnG,
+  btnB,
   btnGr,
   btnR,
   user,
@@ -73,10 +75,89 @@ function SupplySuppliersPanel({
   supplyDeliveries = [],
   invoices = [],
   supplierCatalog = [],
+  fileSrc,
+  uploadPhoto,
 }) {
   const [openedSupplierId, setOpenedSupplierId] = React.useState(null);
   const canEditSuppliers = ['директор','зам_директора','кладовщик','снабженец'].includes(user.role);
-  const emptySupplier = {name:'',phone:'',email:'',specialization:'',category:'Сыпучие и бетон',rating:5.0,status:'Активный'};
+  const emptySupplier = {
+    name:'',phone:'',email:'',specialization:'',category:'Сыпучие и бетон',rating:5.0,status:'Активный',
+    inn:'',kpp:'',ogrn:'',legalAddress:'',actualAddress:'',bank:'',bik:'',account:'',korAccount:'',
+    directorName:'',directorPosition:'',contractUrl:'',contractNumber:'',contractDate:'',licenseUrl:'',priceUrl:'',website:'',notes:''
+  };
+  const supplierValue = (supplier, camel, snake=camel) => supplier?.[camel] || supplier?.[snake] || '';
+  const normalizeSupplierForEdit = (supplier={}) => ({
+    ...emptySupplier,
+    ...supplier,
+    legalAddress: supplierValue(supplier, 'legalAddress', 'legal_address'),
+    actualAddress: supplierValue(supplier, 'actualAddress', 'actual_address'),
+    korAccount: supplierValue(supplier, 'korAccount', 'kor_account'),
+    directorName: supplierValue(supplier, 'directorName', 'director_name'),
+    directorPosition: supplierValue(supplier, 'directorPosition', 'director_position'),
+    contractUrl: supplierValue(supplier, 'contractUrl', 'contract_url'),
+    contractNumber: supplierValue(supplier, 'contractNumber', 'contract_number'),
+    contractDate: String(supplierValue(supplier, 'contractDate', 'contract_date') || '').slice(0, 10),
+    licenseUrl: supplierValue(supplier, 'licenseUrl', 'license_url'),
+    priceUrl: supplierValue(supplier, 'priceUrl', 'price_url'),
+  });
+  const appendSupplierNote = (current, line) => {
+    const base = String(current || '').trim();
+    const addition = String(line || '').trim();
+    if (!addition || base.includes(addition)) return base;
+    return base ? base + '\n' + addition : addition;
+  };
+  const supplierPatchFromRecognition = (result, current={}) => {
+    const extracted = result?.extracted || {};
+    const doc = result?.suggestedCrmDocument || {};
+    const contractLike = String(extracted.docType || doc.docType || '').toLowerCase().includes('договор');
+    const patch = {
+      inn: extracted.inn || '',
+      kpp: extracted.kpp || '',
+      ogrn: extracted.ogrn || '',
+      legalAddress: extracted.legalAddress || '',
+      bank: extracted.bank || '',
+      bik: extracted.bik || '',
+      account: extracted.bankAccount || '',
+      korAccount: extracted.corrAccount || '',
+      directorName: extracted.signerName || '',
+      directorPosition: extracted.signerBasis || '',
+      contractNumber: contractLike ? (extracted.number || '') : '',
+      contractDate: contractLike ? (extracted.docDate || '') : '',
+      contractUrl: contractLike ? (result?.fileUrl || '') : '',
+      specialization: extracted.workType || '',
+    };
+    if (extracted.counterpartyName && !current.name) patch.name = extracted.counterpartyName;
+    if (extracted.contractSubject) patch.notes = appendSupplierNote(current.notes, 'Предмет договора: ' + extracted.contractSubject);
+    return Object.fromEntries(Object.entries(patch).filter(([, value]) => value));
+  };
+  const applySupplierRecognition = (result) => {
+    setNewSupplier(prev => ({...prev, ...supplierPatchFromRecognition(result, prev)}));
+  };
+  const createSupplierDocumentFromRecognition = async (docPatch, result) => {
+    const supplierId = editingItem?.id || newSupplier?.id;
+    if (!supplierId) return alert('Сначала сохраните поставщика, затем добавьте документ');
+    const extracted = result?.extracted || {};
+    const payload = {
+      supplierId,
+      docType: docPatch.docType || extracted.docType || 'Другое',
+      title: docPatch.title || extracted.documentTitle || 'Распознанный документ',
+      fileUrl: docPatch.fileUrl || result?.fileUrl || '',
+      status: 'На проверке',
+      signedAt: extracted.docDate || '',
+      notes: docPatch.notes || (extracted.contractSubject ? 'Предмет договора: ' + extracted.contractSubject : ''),
+      uploadedBy: user?.name || '',
+    };
+    const res = await fetch(API + '/supplier-documents', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return alert(data.detail || 'Не удалось добавить документ поставщика');
+    }
+    await loadAll();
+  };
 
   const supplierGroups = React.useMemo(() => {
     const groups = new Map();
@@ -214,7 +295,7 @@ function SupplySuppliersPanel({
   const editSupplier = (supplier, event) => {
     event?.stopPropagation();
     setEditingItem(supplier);
-    setNewSupplier({...supplier});
+    setNewSupplier(normalizeSupplierForEdit(supplier));
     setShowForm(true);
   };
 
@@ -262,7 +343,38 @@ function SupplySuppliersPanel({
             <select value={newSupplier.status} onChange={e=>setNewSupplier({...newSupplier,status:e.target.value})} style={{...inp,marginBottom:0}}>
               {['Активный','Неактивный','Заблокирован'].map(status=><option key={status}>{status}</option>)}
             </select>
+            <input placeholder="ИНН" value={newSupplier.inn || ''} onChange={e=>setNewSupplier({...newSupplier,inn:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input placeholder="КПП" value={newSupplier.kpp || ''} onChange={e=>setNewSupplier({...newSupplier,kpp:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input placeholder="ОГРН / ОГРНИП" value={newSupplier.ogrn || ''} onChange={e=>setNewSupplier({...newSupplier,ogrn:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input placeholder="Банк" value={newSupplier.bank || ''} onChange={e=>setNewSupplier({...newSupplier,bank:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input placeholder="БИК" value={newSupplier.bik || ''} onChange={e=>setNewSupplier({...newSupplier,bik:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input placeholder="Расчетный счет" value={newSupplier.account || ''} onChange={e=>setNewSupplier({...newSupplier,account:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input placeholder="Корр. счет" value={newSupplier.korAccount || ''} onChange={e=>setNewSupplier({...newSupplier,korAccount:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input placeholder="Подписант / директор" value={newSupplier.directorName || ''} onChange={e=>setNewSupplier({...newSupplier,directorName:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input placeholder="Основание / должность" value={newSupplier.directorPosition || ''} onChange={e=>setNewSupplier({...newSupplier,directorPosition:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input placeholder="Номер договора" value={newSupplier.contractNumber || ''} onChange={e=>setNewSupplier({...newSupplier,contractNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input type="date" value={newSupplier.contractDate || ''} onChange={e=>setNewSupplier({...newSupplier,contractDate:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input placeholder="Юридический адрес" value={newSupplier.legalAddress || ''} onChange={e=>setNewSupplier({...newSupplier,legalAddress:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'1 / -1'}}/>
+            <textarea placeholder="Примечания / предмет договора" value={newSupplier.notes || ''} onChange={e=>setNewSupplier({...newSupplier,notes:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'1 / -1',minHeight:'64px',resize:'vertical'}}/>
           </div>
+          <DocumentRecognitionPanel
+            C={C}
+            card={card}
+            inp={inp}
+            btnG={btnG}
+            btnO={btnO}
+            btnB={btnB}
+            uploadPhoto={uploadPhoto}
+            fileSrc={fileSrc}
+            projectName={newSupplier.name || 'Поставщик'}
+            context="supplier-documents"
+            entityType="supplier"
+            currentFields={newSupplier}
+            onApplyExtracted={applySupplierRecognition}
+            applyExtractedLabel="Заполнить поставщика"
+            onCreateRecognizedDocument={editingItem?.id ? createSupplierDocumentFromRecognition : null}
+            createRecognizedDocumentLabel="Добавить в документы поставщика"
+          />
           <div style={{display:'flex',gap:'8px',marginTop:'12px'}}>
             <button onClick={saveSupplier} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button>
             <button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button>

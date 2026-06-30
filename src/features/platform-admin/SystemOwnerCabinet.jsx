@@ -14,6 +14,8 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const [showNewCompany, setShowNewCompany] = useState(false);
   const emptyCompanyForm = {platformAccountId:'',platformAccountName:'',name:'',shortName:'',inn:'',kpp:'',contactName:'',contactPhone:'',contactEmail:'',plan:'demo',trialDays:30,monthlyFee:'',maxProjects:'',maxUsers:'',notes:''};
   const [newCompany, setNewCompany] = useState(emptyCompanyForm);
+  const [clientCardScanning, setClientCardScanning] = useState(false);
+  const [clientCardRecognition, setClientCardRecognition] = useState(null);
   const [newPayment, setNewPayment] = useState({companyId:'',amount:'',paymentDate:new Date().toISOString().split('T')[0],method:'card',invoiceNumber:'',periodStart:'',periodEnd:'',notes:''});
   const [showNewPayment, setShowNewPayment] = useState(false);
   const [newBillingDocument, setNewBillingDocument] = useState({companyId:'',documentType:'invoice',status:'draft',amount:'',issueDate:new Date().toISOString().split('T')[0],dueDate:'',periodStart:'',periodEnd:'',paymentProvider:'manual',paymentUrl:'',fileUrl:'',notes:''});
@@ -86,6 +88,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     platform_payment_provider_prepared: 'Подготовлен платежный провайдер',
     platform_payment_webhook_received: 'Получено событие провайдера',
     platform_payment_event_confirmed: 'Оплата зачислена по событию',
+    client_card_recognized: 'Распознана карта клиента',
     platform_user_invited: 'Приглашен сотрудник платформы',
     platform_user_updated: 'Сотрудник платформы изменен',
     support_session_opened: 'Открыт режим поддержки',
@@ -266,6 +269,61 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     });
   };
 
+  const applyClientCardFields = useCallback((fields={}) => {
+    const extraNotes = [
+      fields.ogrn && 'ОГРН: ' + fields.ogrn,
+      fields.legalAddress && 'Адрес: ' + fields.legalAddress,
+      fields.website && 'Сайт: ' + fields.website,
+      fields.contactPosition && 'Должность: ' + fields.contactPosition,
+      fields.notes,
+    ].filter(Boolean).join('\n');
+    setNewCompany(prev => {
+      const nextNotes = extraNotes && !String(prev.notes || '').includes(extraNotes)
+        ? [prev.notes, extraNotes].filter(Boolean).join('\n')
+        : prev.notes;
+      return {
+        ...prev,
+        platformAccountName: prev.platformAccountId ? prev.platformAccountName : (fields.platformAccountName || prev.platformAccountName),
+        name: fields.companyName || prev.name,
+        shortName: fields.shortName || prev.shortName,
+        inn: fields.inn || prev.inn,
+        kpp: fields.kpp || prev.kpp,
+        contactName: fields.contactName || prev.contactName,
+        contactPhone: fields.contactPhone || prev.contactPhone,
+        contactEmail: fields.contactEmail || prev.contactEmail,
+        notes: nextNotes,
+      };
+    });
+  }, []);
+
+  const recognizeClientCard = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || clientCardScanning) return;
+    setClientCardScanning(true);
+    setClientCardRecognition(null);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const response = await fetch(API + '/system/client-card/recognize', {
+        method:'POST',
+        headers:authHeaders(),
+        body:form,
+      });
+      const data = await response.json().catch(()=>({}));
+      if (!response.ok || !data.ok) {
+        alert(data.detail || data.error || 'Не удалось распознать карту клиента');
+        return;
+      }
+      applyClientCardFields(data.fields || {});
+      setClientCardRecognition(data);
+    } catch (error) {
+      alert(error?.message || 'Не удалось распознать карту клиента');
+    } finally {
+      setClientCardScanning(false);
+    }
+  };
+
 	  const TABS = [
     {id:'dashboard', label:'📊 Дашборд'},
 	    {id:'companies', label:'🏢 Аккаунты/компании'},
@@ -333,7 +391,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
         {tab==='companies' && (<div>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
 	            <b style={{color:C.text,fontSize:'15px'}}>Клиентские аккаунты ({groupsWithLimitStatus.length}) / компании ({companies.length})</b>
-	            {canManagePlatform && <button onClick={()=>{setShowNewCompany(true);setLastInviteCode(null);}} style={btnO}>+ Подключить аккаунт/компанию</button>}
+	            {canManagePlatform && <button onClick={()=>{setShowNewCompany(true);setLastInviteCode(null);setClientCardRecognition(null);}} style={btnO}>+ Подключить аккаунт/компанию</button>}
 	          </div>
 	          {canManagePlatform && showNewCompany && (<div style={{...card,padding:'16px',marginBottom:'14px'}}>
 	            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>Подключить аккаунт или компанию</b>
@@ -342,9 +400,49 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
               <p style={{margin:'0 0 8px',fontSize:'12px',color:C.text}}>Отправьте директору ссылку для регистрации:</p>
               <div style={{padding:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:'6px',fontSize:'12px',color:C.text,wordBreak:'break-all',userSelect:'all',marginBottom:'8px'}}>{window.location.origin+'/?invite='+lastInviteCode}</div>
               <button onClick={()=>navigator.clipboard.writeText(window.location.origin+'/?invite='+lastInviteCode).then(()=>alert('Скопировано'))} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}>📋 Скопировать</button>
-	              <button onClick={()=>{setShowNewCompany(false);setLastInviteCode(null);setNewCompany(emptyCompanyForm);}} style={{...btnG,padding:'5px 12px',fontSize:'12px',marginLeft:'6px'}}>Закрыть</button>
+	              <button onClick={()=>{setShowNewCompany(false);setLastInviteCode(null);setNewCompany(emptyCompanyForm);setClientCardRecognition(null);}} style={{...btnG,padding:'5px 12px',fontSize:'12px',marginLeft:'6px'}}>Закрыть</button>
 	            </div>)}
 	            {!lastInviteCode && (<>
+              <div style={{padding:'12px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,borderRadius:'10px',marginBottom:'12px'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
+                  <div>
+                    <b style={{color:C.info,fontSize:'13px',display:'block'}}>⚡ Быстрая загрузка карты клиента</b>
+                    <p style={{color:C.textSec,fontSize:'11px',margin:'3px 0 0'}}>PDF или фото визитки/карточки организации. Система заполнит поля формы, но компанию создаст только после сохранения.</p>
+                  </div>
+                  <label style={{...btnO,cursor:clientCardScanning?'default':'pointer',opacity:clientCardScanning?0.65:1}}>
+                    {clientCardScanning?'⏳ Распознаю...':'📷 Загрузить карту'}
+                    <input type='file' accept='image/*,application/pdf' disabled={clientCardScanning} style={{display:'none'}} onChange={recognizeClientCard}/>
+                  </label>
+                </div>
+                {clientCardRecognition && (
+                  <div style={{marginTop:'10px',padding:'10px',backgroundColor:C.card,border:'1px solid '+C.border,borderRadius:'8px'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',gap:'8px',alignItems:'center',flexWrap:'wrap',marginBottom:'8px'}}>
+                      <b style={{color:C.text,fontSize:'12px'}}>Распознано: {clientCardRecognition.source === 'ai' ? 'AI/OCR' : 'правила'}</b>
+                      <span style={badge((clientCardRecognition.confidence || 0) >= 0.7 ? C.success : C.warning,(clientCardRecognition.confidence || 0) >= 0.7 ? C.successLight : C.warningLight,(clientCardRecognition.confidence || 0) >= 0.7 ? C.successBorder : C.warningBorder)}>
+                        уверенность {Math.round(Number(clientCardRecognition.confidence || 0) * 100)}%
+                      </span>
+                    </div>
+                    <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
+                      {Object.entries({
+                        companyName:'Компания',
+                        inn:'ИНН',
+                        kpp:'КПП',
+                        contactName:'Контакт',
+                        contactPhone:'Телефон',
+                        contactEmail:'Email',
+                        legalAddress:'Адрес',
+                        website:'Сайт',
+                      }).filter(([key])=>clientCardRecognition.fields?.[key]).map(([key,label])=>(
+                        <span key={key} style={badge(C.textSec,C.bg,C.border)}>{label}: {String(clientCardRecognition.fields[key]).slice(0,60)}</span>
+                      ))}
+                    </div>
+                    {(clientCardRecognition.warnings || []).length > 0 && (
+                      <p style={{color:C.warning,fontSize:'11px',margin:'8px 0 0'}}>⚠️ {clientCardRecognition.warnings.join(' · ')}</p>
+                    )}
+                    <button type='button' onClick={()=>applyClientCardFields(clientCardRecognition.fields || {})} style={{...btnG,padding:'5px 10px',fontSize:'11px',marginTop:'8px'}}>Применить поля еще раз</button>
+                  </div>
+                )}
+              </div>
 	              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
 	                <select value={newCompany.platformAccountId} onChange={e=>setNewCompany({...newCompany,platformAccountId:e.target.value,platformAccountName:e.target.value?'':newCompany.platformAccountName})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}>
 	                  <option value=''>Новый клиентский аккаунт</option>
@@ -377,7 +475,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
                   if (data.id) { setLastInviteCode(data.inviteCode); await loadAll(); }
                   else { alert('Ошибка создания'); }
                 }} style={btnO}>✓ Создать компанию + ссылку</button>
-	                <button onClick={()=>setShowNewCompany(false)} style={btnG}>Отмена</button>
+	                <button onClick={()=>{setShowNewCompany(false);setClientCardRecognition(null);}} style={btnG}>Отмена</button>
 	              </div>
 	            </>)}
 	          </div>)}

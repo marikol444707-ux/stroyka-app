@@ -43,6 +43,10 @@ export default function DocumentRecognitionPanel({
   onApplyLead,
   onApplyProjectDocument,
   onCreateCrmDocument,
+  onApplyExtracted,
+  applyExtractedLabel = 'Применить распознанное',
+  onCreateRecognizedDocument,
+  createRecognizedDocumentLabel = 'Добавить документ',
 }) {
   const [fileUrl, setFileUrl] = React.useState('');
   const [text, setText] = React.useState('');
@@ -51,7 +55,7 @@ export default function DocumentRecognitionPanel({
 
   const extracted = result?.extracted || {};
   const visibleFields = FIELDS.filter(([key]) => extracted[key]);
-  const hasActions = result && (onApplyLead || onApplyProjectDocument || onCreateCrmDocument);
+  const hasActions = result && (onApplyLead || onApplyProjectDocument || onCreateCrmDocument || onApplyExtracted || onCreateRecognizedDocument);
 
   const uploadDocument = async (file) => {
     if (!file || !uploadPhoto) return;
@@ -104,6 +108,15 @@ export default function DocumentRecognitionPanel({
   const createCrmDocument = () => {
     const patch = cleanPatch(result?.suggestedCrmDocument);
     if (Object.keys(patch).length && onCreateCrmDocument) onCreateCrmDocument(patch);
+  };
+
+  const applyExtracted = () => {
+    if (onApplyExtracted) onApplyExtracted(result);
+  };
+
+  const createRecognizedDocument = () => {
+    const patch = cleanPatch(result?.suggestedCrmDocument || result?.suggestedProjectDocument);
+    if (Object.keys(patch).length && onCreateRecognizedDocument) onCreateRecognizedDocument(patch, result);
   };
 
   return (
@@ -168,6 +181,8 @@ export default function DocumentRecognitionPanel({
           {onApplyLead && <button onClick={applyLead} style={btnG}><Check size={14}/>Заполнить карточку</button>}
           {onCreateCrmDocument && <button onClick={createCrmDocument} style={btnG}><FileText size={14}/>Добавить в документы CRM</button>}
           {onApplyProjectDocument && <button onClick={applyProjectDocument} style={btnG}><Check size={14}/>Заполнить документ объекта</button>}
+          {onApplyExtracted && <button onClick={applyExtracted} style={btnG}><Check size={14}/>{applyExtractedLabel}</button>}
+          {onCreateRecognizedDocument && <button onClick={createRecognizedDocument} style={btnG}><FileText size={14}/>{createRecognizedDocumentLabel}</button>}
         </div>
       )}
     </div>

@@ -211,6 +211,7 @@ export default function SupplyPage({
           inp={inp}
           btnO={btnO}
           btnG={btnG}
+          btnB={btnB}
           btnGr={btnGr}
           btnR={btnR}
           badge={badge}
@@ -263,6 +264,8 @@ export default function SupplyPage({
           supplyDeliveries={supplyDeliveries}
           invoices={invoices}
           supplierCatalog={supplierCatalog}
+          fileSrc={fileSrc}
+          uploadPhoto={uploadPhoto}
         />
       )}
 

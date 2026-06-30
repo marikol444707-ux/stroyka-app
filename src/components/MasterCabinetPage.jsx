@@ -25,6 +25,7 @@ import NotificationsDropdown from './NotificationsDropdown';
 import OwnExpenseFormModal from './OwnExpenseFormModal';
 import PhotoAttachmentField from './PhotoAttachmentField';
 import PreviewModal from './PreviewModal';
+import DocumentRecognitionPanel from './DocumentRecognitionPanel';
 
 export default function MasterCabinetPage(props) {
   const {
@@ -183,6 +184,26 @@ export default function MasterCabinetPage(props) {
     setHiddenActs,
   } = props;
 
+  const profilePatchFromRecognition = (result) => {
+    const extracted = result?.extracted || {};
+    const legalText = String(extracted.legalForm || extracted.docType || '').toLowerCase();
+    const patch = {
+      fullName: extracted.counterpartyName || '',
+      passport: extracted.passportData || '',
+      inn: extracted.inn || '',
+      bankAccount: extracted.bankAccount || '',
+      bankName: extracted.bank || '',
+      bankBik: extracted.bik || '',
+      bankCorr: extracted.corrAccount || '',
+      ogrnip: extracted.ogrn || '',
+      specialization: extracted.workType || '',
+    };
+    if (legalText.includes('ип')) patch.contractType = 'ИП';
+    if (legalText.includes('самозан')) patch.contractType = 'Самозанятый';
+    if (legalText.includes('физ')) patch.contractType = 'ГПХ';
+    return Object.fromEntries(Object.entries(patch).filter(([, value]) => value));
+  };
+
   if (showProfileForm) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', backgroundColor: C.bg, padding: '20px' }}>
@@ -210,6 +231,22 @@ export default function MasterCabinetPage(props) {
               <option key={s}>{s}</option>
             ))}
           </select>
+          <DocumentRecognitionPanel
+            C={C}
+            card={card}
+            inp={inp}
+            btnG={btnG}
+            btnO={btnO}
+            btnB={btnB}
+            uploadPhoto={uploadPhoto}
+            fileSrc={fileSrc}
+            projectName={profileData.fullName || user.name || 'Профиль исполнителя'}
+            context="worker-profile-documents"
+            entityType={user.role}
+            currentFields={profileData}
+            onApplyExtracted={result => setProfileData(prev => ({ ...prev, ...profilePatchFromRecognition(result) }))}
+            applyExtractedLabel="Заполнить профиль"
+          />
           <div style={{ backgroundColor: C.infoLight, border: '1.5px solid ' + C.infoBorder, padding: '14px', borderRadius: '10px', marginBottom: '15px' }}>
             <b style={{ color: C.info, fontSize: '13px' }}>📄 Согласие на обработку ПД</b>
             <div style={{ display: 'flex', gap: '8px', margin: '10px 0' }}>

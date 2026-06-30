@@ -4119,6 +4119,24 @@ class SupplierModel(BaseModel):
     category: str = ""
     rating: float = 5.0
     status: str = "Активный"
+    inn: Optional[str] = ""
+    kpp: Optional[str] = ""
+    ogrn: Optional[str] = ""
+    legalAddress: Optional[str] = ""
+    actualAddress: Optional[str] = ""
+    bank: Optional[str] = ""
+    bik: Optional[str] = ""
+    account: Optional[str] = ""
+    korAccount: Optional[str] = ""
+    directorName: Optional[str] = ""
+    directorPosition: Optional[str] = ""
+    contractUrl: Optional[str] = ""
+    contractNumber: Optional[str] = ""
+    contractDate: Optional[str] = ""
+    licenseUrl: Optional[str] = ""
+    priceUrl: Optional[str] = ""
+    website: Optional[str] = ""
+    notes: Optional[str] = ""
 
 class SupplyRequestModel(BaseModel):
     materialName: str = ""
@@ -6725,25 +6743,112 @@ def create_supplier(s: SupplierModel, _current_user: dict = Depends(require_role
               specialization=CASE WHEN COALESCE(specialization,'')='' THEN %s ELSE specialization END,
               category=CASE WHEN COALESCE(category,'')='' THEN %s ELSE category END,
               rating=COALESCE(rating,%s),
-              status=CASE WHEN COALESCE(status,'')='' THEN %s ELSE status END
+              status=CASE WHEN COALESCE(status,'')='' THEN %s ELSE status END,
+              inn=CASE WHEN COALESCE(inn,'')='' THEN %s ELSE inn END,
+              kpp=CASE WHEN COALESCE(kpp,'')='' THEN %s ELSE kpp END,
+              ogrn=CASE WHEN COALESCE(ogrn,'')='' THEN %s ELSE ogrn END,
+              legal_address=CASE WHEN COALESCE(legal_address,'')='' THEN %s ELSE legal_address END,
+              actual_address=CASE WHEN COALESCE(actual_address,'')='' THEN %s ELSE actual_address END,
+              bank=CASE WHEN COALESCE(bank,'')='' THEN %s ELSE bank END,
+              bik=CASE WHEN COALESCE(bik,'')='' THEN %s ELSE bik END,
+              account=CASE WHEN COALESCE(account,'')='' THEN %s ELSE account END,
+              kor_account=CASE WHEN COALESCE(kor_account,'')='' THEN %s ELSE kor_account END,
+              director_name=CASE WHEN COALESCE(director_name,'')='' THEN %s ELSE director_name END,
+              director_position=CASE WHEN COALESCE(director_position,'')='' THEN %s ELSE director_position END,
+              contract_url=CASE WHEN COALESCE(contract_url,'')='' THEN %s ELSE contract_url END,
+              contract_number=CASE WHEN COALESCE(contract_number,'')='' THEN %s ELSE contract_number END,
+              contract_date=CASE WHEN contract_date IS NULL THEN %s ELSE contract_date END,
+              license_url=CASE WHEN COALESCE(license_url,'')='' THEN %s ELSE license_url END,
+              price_url=CASE WHEN COALESCE(price_url,'')='' THEN %s ELSE price_url END,
+              website=CASE WHEN COALESCE(website,'')='' THEN %s ELSE website END,
+              notes=CASE WHEN COALESCE(notes,'')='' THEN %s ELSE notes END
             WHERE id=%s RETURNING *
-        """, (s.phone, s.email, s.specialization, s.category, s.rating, s.status, existing["id"]))
+        """, (
+            s.phone, s.email, s.specialization, s.category, s.rating, s.status,
+            s.inn, s.kpp, s.ogrn, s.legalAddress, s.actualAddress, s.bank, s.bik,
+            s.account, s.korAccount, s.directorName, s.directorPosition,
+            s.contractUrl, s.contractNumber, s.contractDate or None, s.licenseUrl,
+            s.priceUrl, s.website, s.notes, existing["id"],
+        ))
         row = cur.fetchone()
         cur.close(); conn.close()
         return dict(row)
-    cur.execute("INSERT INTO suppliers (name,phone,email,specialization,category,rating,status) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-                (name,s.phone,s.email,s.specialization,s.category,s.rating,s.status))
+    cur.execute("""
+        INSERT INTO suppliers (
+            name,phone,email,specialization,category,rating,status,
+            inn,kpp,ogrn,legal_address,actual_address,bank,bik,account,kor_account,
+            director_name,director_position,contract_url,contract_number,contract_date,
+            license_url,price_url,website,notes
+        ) VALUES (
+            %s,%s,%s,%s,%s,%s,%s,
+            %s,%s,%s,%s,%s,%s,%s,%s,%s,
+            %s,%s,%s,%s,%s,
+            %s,%s,%s,%s
+        ) RETURNING *
+    """, (
+        name, s.phone, s.email, s.specialization, s.category, s.rating, s.status,
+        s.inn, s.kpp, s.ogrn, s.legalAddress, s.actualAddress, s.bank, s.bik,
+        s.account, s.korAccount, s.directorName, s.directorPosition,
+        s.contractUrl, s.contractNumber, s.contractDate or None,
+        s.licenseUrl, s.priceUrl, s.website, s.notes,
+    ))
     row = cur.fetchone()
     cur.close()
     conn.close()
     return dict(row)
 
 @app.put("/suppliers/{id}")
-def update_supplier(id: int, s: SupplierModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "бухгалтер"))):
+def update_supplier(id: int, data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "бухгалтер"))):
+    data = data or {}
+    def field(camel, snake=None, fallback=""):
+        snake = snake or camel
+        if camel in data:
+            return data.get(camel) or ""
+        if snake in data:
+            return data.get(snake) or ""
+        return fallback or ""
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute("UPDATE suppliers SET name=%s,phone=%s,email=%s,specialization=%s,category=%s,rating=%s,status=%s WHERE id=%s",
-                (s.name,s.phone,s.email,s.specialization,s.category,s.rating,s.status,id))
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM suppliers WHERE id=%s", (id,))
+    existing = cur.fetchone()
+    if not existing:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Поставщик не найден")
+    try:
+        supplier_rating = float(data.get("rating") if "rating" in data and data.get("rating") not in (None, "") else (existing.get("rating") or 5.0))
+    except (TypeError, ValueError):
+        supplier_rating = float(existing.get("rating") or 5.0)
+    cur.execute("""
+        UPDATE suppliers SET
+            name=%s,phone=%s,email=%s,specialization=%s,category=%s,rating=%s,status=%s,
+            inn=%s,kpp=%s,ogrn=%s,legal_address=%s,actual_address=%s,bank=%s,bik=%s,
+            account=%s,kor_account=%s,director_name=%s,director_position=%s,
+            contract_url=%s,contract_number=%s,contract_date=%s,license_url=%s,
+            price_url=%s,website=%s,notes=%s
+        WHERE id=%s
+    """, (
+        field("name", fallback=existing.get("name")), field("phone", fallback=existing.get("phone")),
+        field("email", fallback=existing.get("email")), field("specialization", fallback=existing.get("specialization")),
+        field("category", fallback=existing.get("category")), supplier_rating,
+        field("status", fallback=existing.get("status")),
+        field("inn", fallback=existing.get("inn")), field("kpp", fallback=existing.get("kpp")),
+        field("ogrn", fallback=existing.get("ogrn")), field("legalAddress", "legal_address", existing.get("legal_address")),
+        field("actualAddress", "actual_address", existing.get("actual_address")),
+        field("bank", fallback=existing.get("bank")), field("bik", fallback=existing.get("bik")),
+        field("account", fallback=existing.get("account")), field("korAccount", "kor_account", existing.get("kor_account")),
+        field("directorName", "director_name", existing.get("director_name")),
+        field("directorPosition", "director_position", existing.get("director_position")),
+        field("contractUrl", "contract_url", existing.get("contract_url")),
+        field("contractNumber", "contract_number", existing.get("contract_number")),
+        field("contractDate", "contract_date", existing.get("contract_date")) or None,
+        field("licenseUrl", "license_url", existing.get("license_url")),
+        field("priceUrl", "price_url", existing.get("price_url")),
+        field("website", fallback=existing.get("website")),
+        field("notes", fallback=existing.get("notes")),
+        id,
+    ))
+    conn.commit()
+    cur.close()
     conn.close()
     return {"ok": True}
 
@@ -25370,6 +25475,9 @@ except ModuleNotFoundError:
 register_platform_admin_routes(app, {
     "get_db": get_db,
     "require_roles": require_roles,
+    "save_upload_file": save_upload_file,
+    "yandex_api_key": YANDEX_API_KEY,
+    "yandex_folder_id": YANDEX_FOLDER_ID,
 })
 
 try:

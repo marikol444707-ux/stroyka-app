@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertTriangle, CheckCircle2, CreditCard, Eye, FileText, Link2, MessageSquare, Upload, XCircle } from 'lucide-react';
 import { API } from '../api';
+import DocumentRecognitionPanel from './DocumentRecognitionPanel';
 import {
   ACCOUNTING_INVOICE_STATUSES,
   accountingStatusGroupLabels,
@@ -27,6 +28,7 @@ export default function AccountingIncomingDocumentsPanel({
   btnB,
   btnR,
   btnGr,
+  inp,
   invoices,
   supplierInvoices = [],
   warehouseInvoiceEstimateControl,
@@ -215,6 +217,31 @@ export default function AccountingIncomingDocumentsPanel({
     await updateAccounting(row, { supplierInvoiceId: supplierInvoice.id });
   };
 
+  const recognitionCommentFromResult = (result, current = '') => {
+    const extracted = result?.extracted || {};
+    const parts = [
+      extracted.docType,
+      extracted.number ? '№ ' + extracted.number : '',
+      extracted.docDate ? 'от ' + extracted.docDate : '',
+      extracted.counterpartyName,
+      extracted.amount ? 'сумма ' + money(extracted.amount) : '',
+      extracted.inn ? 'ИНН ' + extracted.inn : '',
+      result?.fileUrl ? 'файл ' + result.fileUrl : '',
+    ].filter(Boolean);
+    if (!parts.length) return current || '';
+    const line = 'Распознано: ' + parts.join('; ');
+    const base = String(current || '').trim();
+    if (base.includes(line)) return base;
+    return base ? base + '\n' + line : line;
+  };
+
+  const applyRecognitionToAccounting = async (row, result) => {
+    await updateAccounting(row, {
+      accountingStatus: row.status === 'Нет фото' ? 'На проверке' : row.status,
+      accountingComment: recognitionCommentFromResult(result, row.invoice.accountingComment),
+    });
+  };
+
   const filteredRows = activeStatus === 'Все' ? rows : rows.filter(row => row.status === activeStatus);
   const openedRow = rows.find(row => String(row.invoice.id) === String(openedId));
 
@@ -309,6 +336,23 @@ export default function AccountingIncomingDocumentsPanel({
             <input type="file" accept="image/*" multiple onChange={event => { attachPhotos(row, event.target.files); event.target.value = ''; }} style={{ display: 'none' }} />
           </label>
         </div>
+
+        <DocumentRecognitionPanel
+          C={C}
+          card={card}
+          inp={inp}
+          btnG={btnG}
+          btnO={btnO}
+          btnB={btnB}
+          uploadPhoto={uploadPhoto}
+          fileSrc={fileSrc}
+          projectName={inv.project || inv.location || 'Бухгалтерская первичка'}
+          context="accounting-incoming-documents"
+          entityType="accounting_invoice"
+          currentFields={inv}
+          onApplyExtracted={result => applyRecognitionToAccounting(row, result)}
+          applyExtractedLabel="Добавить в комментарий"
+        />
 
         <div style={{ display: 'grid', gap: '6px', marginBottom: '12px' }}>
           {(row.controls.length ? row.controls : (inv.items || [])).slice(0, 12).map((item, index) => {

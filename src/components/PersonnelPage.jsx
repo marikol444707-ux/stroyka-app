@@ -1,5 +1,6 @@
 import React from 'react';
 import { Check, CheckCircle, ChevronDown, ChevronUp, Edit2, Eye, FileText, Plus, Search, Trash2, X } from 'lucide-react';
+import DocumentRecognitionPanel from './DocumentRecognitionPanel';
 
 const STAFF_SORT_GROUPS = [
   { key: 'management', label: 'Руководство', hint: 'директор, замы' },
@@ -132,6 +133,74 @@ export default function PersonnelPage({
   const [staffOpenGroups, setStaffOpenGroups] = React.useState({});
   const workPayTotal = (work) => Number(work.executionTotal ?? work.execution_total ?? 0);
   const emptyStaffForm = () => ({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад',email:'',password:'',systemRole:'',lastName:'',firstName:'',middleName:'',birthDate:'',citizenship:'РФ',address:'',photoUrl:'',emailWork:'',emailPersonal:'',phoneExtra:'',passportSeries:'',passportNumber:'',passportIssuedBy:'',passportIssuedDate:'',inn:'',snils:'',specialization:'',category:'',employmentType:'',hiredDate:'',firedDate:'',status:'Активен',brigade:'',bankAccount:'',bankName:'',bankBik:'',bankCorr:'',ogrnip:'',cardNumber:'',signatureUrl:'',notes:'',assignedProjects:[],assignedPackages:[]});
+  const appendStaffNote = (current, line) => {
+    const base = String(current || '').trim();
+    const addition = String(line || '').trim();
+    if (!addition || base.includes(addition)) return base;
+    return base ? base + '\n' + addition : addition;
+  };
+  const splitPassportData = (value = '') => {
+    const match = String(value).match(/(\d{4})\s*(\d{6})/);
+    return { passportSeries: match?.[1] || '', passportNumber: match?.[2] || '' };
+  };
+  const splitFullName = (value = '') => {
+    const parts = String(value || '').replace(/^(?:ИП|ООО|АО|ПАО|ЗАО)\s+/i, '').trim().split(/\s+/).filter(Boolean);
+    return {
+      lastName: parts[0] || '',
+      firstName: parts[1] || '',
+      middleName: parts.slice(2).join(' '),
+      name: parts.slice(0, 3).join(' '),
+    };
+  };
+  const employmentTypeFromRecognition = (legalForm = '', docType = '') => {
+    const text = (legalForm + ' ' + docType).toLowerCase();
+    if (text.includes('самозан')) return 'Самозанятый';
+    if (text.includes('ип')) return 'ИП';
+    if (text.includes('юр') || text.includes('ооо')) return 'ООО';
+    if (text.includes('физ')) return 'ГПХ';
+    return '';
+  };
+  const staffPatchFromRecognition = (result, current = {}) => {
+    const extracted = result?.extracted || {};
+    const passport = splitPassportData(extracted.passportData);
+    const employmentType = employmentTypeFromRecognition(extracted.legalForm, extracted.docType);
+    let notes = current.notes || '';
+    if (extracted.contractSubject) notes = appendStaffNote(notes, 'Предмет договора: ' + extracted.contractSubject);
+    if (extracted.passportData && (!passport.passportSeries || !passport.passportNumber)) notes = appendStaffNote(notes, 'Паспортные данные: ' + extracted.passportData);
+    const patch = {
+      inn: extracted.inn || '',
+      bankAccount: extracted.bankAccount || '',
+      bankName: extracted.bank || '',
+      bankBik: extracted.bik || '',
+      bankCorr: extracted.corrAccount || '',
+      ogrnip: extracted.ogrn || '',
+      specialization: extracted.workType || '',
+      role: extracted.workType || '',
+      employmentType,
+      passportSeries: passport.passportSeries,
+      passportNumber: passport.passportNumber,
+      notes,
+    };
+    if (extracted.counterpartyName && !current.name) Object.assign(patch, splitFullName(extracted.counterpartyName));
+    return Object.fromEntries(Object.entries(patch).filter(([, value]) => value));
+  };
+  const applyStaffRecognition = (result) => {
+    setNewStaff(prev => ({ ...prev, ...staffPatchFromRecognition(result, prev) }));
+    setStaffExpandedSections(prev => ({ ...prev, docs: true, finance: true, extra: true }));
+  };
+  const applyStaffDocRecognition = (result) => {
+    const extracted = result?.extracted || {};
+    const titleParts = [extracted.docType, extracted.number ? '№ ' + extracted.number : '', extracted.counterpartyName].filter(Boolean);
+    const notes = [extracted.contractSubject ? 'Предмет договора: ' + extracted.contractSubject : '', extracted.amount ? 'Сумма: ' + extracted.amount : ''].filter(Boolean).join('\n');
+    setNewStaffDoc(prev => ({
+      ...prev,
+      docType: extracted.docType || prev.docType,
+      title: titleParts.join(' ') || extracted.documentTitle || prev.title,
+      fileUrl: result?.fileUrl || prev.fileUrl,
+      signedAt: extracted.docDate || prev.signedAt,
+      notes: appendStaffNote(prev.notes, notes),
+    }));
+  };
   const normalizeAccessList = (value) => Array.isArray(value) ? value.filter(Boolean) : [];
   const staffWorkScope = (s) => {
     const access = findUserForStaff(s);
@@ -481,6 +550,23 @@ export default function PersonnelPage({
                 </div>
               )}
 
+              <DocumentRecognitionPanel
+                C={C}
+                card={card}
+                inp={inp}
+                btnG={btnG}
+                btnO={btnO}
+                btnB={btnB}
+                uploadPhoto={uploadPhoto}
+                fileSrc={fileSrc}
+                projectName={newStaff.project || newStaff.name || 'Персонал'}
+                context="staff-documents"
+                entityType="worker"
+                currentFields={newStaff}
+                onApplyExtracted={applyStaffRecognition}
+                applyExtractedLabel="Заполнить сотрудника"
+              />
+
               <div style={{display:'flex',gap:'8px',marginTop:'14px'}}>
                 <button onClick={saveStaff} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button>
                 <button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button>
@@ -722,6 +808,22 @@ export default function PersonnelPage({
                                       <input type='date' value={newStaffDoc.signedAt} onChange={e=>setNewStaffDoc({...newStaffDoc,signedAt:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
                                       <input type='date' placeholder='Истекает' value={newStaffDoc.expiresAt} onChange={e=>setNewStaffDoc({...newStaffDoc,expiresAt:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
                                     </div>
+                                    <DocumentRecognitionPanel
+                                      C={C}
+                                      card={card}
+                                      inp={inp}
+                                      btnG={btnG}
+                                      btnO={btnO}
+                                      btnB={btnB}
+                                      uploadPhoto={uploadPhoto}
+                                      fileSrc={fileSrc}
+                                      projectName={s.project || s.name || 'Документы персонала'}
+                                      context="staff-documents"
+                                      entityType="staff_document"
+                                      currentFields={newStaffDoc}
+                                      onApplyExtracted={applyStaffDocRecognition}
+                                      applyExtractedLabel="Заполнить документ"
+                                    />
                                     <div style={{display:'flex',gap:'6px'}}>
                                       <button onClick={()=>addStaffDoc(s.id)} style={{...btnO,fontSize:'11px',padding:'4px 10px'}}><Check size={11}/>Сохранить</button>
                                       <button onClick={()=>setShowStaffDocForm(false)} style={{...btnG,fontSize:'11px',padding:'4px 10px'}}><X size={11}/>Отмена</button>
