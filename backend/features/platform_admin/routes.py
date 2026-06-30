@@ -268,6 +268,22 @@ def _payment_provider_by_id(provider: str) -> dict:
     return next((item for item in _payment_provider_states() if item["id"] == provider_id), None)
 
 
+def _payment_event_success_status(provider: str, status: str) -> bool:
+    normalized = str(status or "").strip().lower()
+    if provider == "yukassa":
+        return normalized in ("succeeded", "paid", "captured", "success")
+    if provider == "robokassa":
+        return normalized in ("ok", "paid", "success", "completed", "approved")
+    return normalized in ("paid", "success", "completed")
+
+
+def _money_matches(left, right) -> bool:
+    try:
+        return abs(float(left or 0) - float(right or 0)) <= 0.01
+    except Exception:
+        return False
+
+
 def _safe_pdf_segment(value: str, fallback: str = "document") -> str:
     text = re.sub(r"[^A-Za-z0-9А-Яа-яёЁ._-]+", "-", str(value or "")).strip("-._")
     return (text[:70] or fallback)
@@ -858,6 +874,119 @@ def register_platform_admin_routes(app, deps):
             })
         conn.close()
         return {"id": new_id, "ok": True}
+
+    @app.post("/system/payment-events/{id}/confirm")
+    def system_confirm_payment_event(id: int, data: dict = None, current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
+        data = data or {}
+        conn = get_db()
+        conn.autocommit = False
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            cur.execute("""SELECT e.*, d.number AS billing_document_number, d.status AS billing_document_status,
+                                  d.amount AS billing_document_amount, d.currency AS billing_document_currency,
+                                  d.payment_provider AS billing_payment_provider,
+                                  d.period_start AS billing_period_start, d.period_end AS billing_period_end,
+                                  d.platform_account_id AS document_platform_account_id,
+                                  d.company_id AS document_company_id,
+                                  c.name AS company_name
+                           FROM platform_payment_events e
+                           LEFT JOIN platform_billing_documents d ON d.id=e.billing_document_id
+                           LEFT JOIN companies c ON c.id=COALESCE(e.company_id,d.company_id)
+                           WHERE e.id=%s
+                           FOR UPDATE""", (id,))
+            event = cur.fetchone()
+            if not event:
+                raise HTTPException(status_code=404, detail="Событие платежного провайдера не найдено")
+            if event.get("payment_id") or event.get("action_status") == "payment_recorded":
+                raise HTTPException(status_code=409, detail="По этому событию платеж уже зачислен")
+            if not event.get("trusted"):
+                raise HTTPException(status_code=400, detail="Событие не доверенное")
+            if not event.get("billing_document_id"):
+                raise HTTPException(status_code=400, detail="Событие не связано с платежным документом")
+            if not event.get("billing_document_number"):
+                raise HTTPException(status_code=404, detail="Платежный документ не найден")
+            if event.get("billing_document_status") in ("closed", "cancelled"):
+                raise HTTPException(status_code=400, detail="Платежный документ уже закрыт или аннулирован")
+            provider = (event.get("provider") or "").strip().lower()
+            document_provider = (event.get("billing_payment_provider") or "").strip().lower()
+            if document_provider and document_provider != provider:
+                raise HTTPException(status_code=400, detail="Провайдер события не совпадает с платежным документом")
+            if not _payment_event_success_status(provider, event.get("provider_status")):
+                raise HTTPException(status_code=400, detail="Статус провайдера не подтверждает успешную оплату")
+            if not _money_matches(event.get("amount"), event.get("billing_document_amount")):
+                raise HTTPException(status_code=400, detail="Сумма события не совпадает с платежным документом")
+            event_currency = (event.get("currency") or "RUB").strip().upper()
+            document_currency = (event.get("billing_document_currency") or "RUB").strip().upper()
+            if event_currency != document_currency:
+                raise HTTPException(status_code=400, detail="Валюта события не совпадает с платежным документом")
+
+            company_id = event.get("company_id") or event.get("document_company_id")
+            platform_account_id = event.get("platform_account_id") or event.get("document_platform_account_id")
+            if not company_id:
+                raise HTTPException(status_code=400, detail="Не найдена компания для зачисления платежа")
+            period_start = data.get("periodStart") or data.get("period_start") or event.get("billing_period_start")
+            period_end = data.get("periodEnd") or data.get("period_end") or event.get("billing_period_end")
+            payment_date = data.get("paymentDate") or data.get("payment_date") or dt.date.today().isoformat()
+            notes = (data.get("notes") or "").strip()
+            base_note = "Зачислено вручную по событию провайдера #" + str(id)
+            if notes:
+                base_note += ". " + notes
+            cur.execute("""INSERT INTO company_payments (company_id, amount, payment_date, method,
+                                                          invoice_number, status, period_start, period_end,
+                                                          notes, created_by)
+                           VALUES (%s,%s,%s,%s,%s,'paid',%s,%s,%s,%s)
+                           RETURNING id""",
+                        (company_id, float(event.get("amount") or 0), payment_date, provider or "provider",
+                         event.get("billing_document_number"), period_start or None, period_end or None,
+                         base_note, current_user.get("name") or current_user.get("email")))
+            payment_id = cur.fetchone()["id"]
+            if period_end:
+                cur.execute("""UPDATE companies
+                               SET plan_expires_at=%s, payment_status='active',
+                                   suspended_at=NULL, suspended_reason=NULL, active=TRUE
+                               WHERE id=%s""", (period_end, company_id))
+            cur.execute("""UPDATE platform_billing_documents
+                           SET status='closed', updated_at=NOW()
+                           WHERE id=%s
+                           RETURNING *""", (event.get("billing_document_id"),))
+            document = dict(cur.fetchone())
+            processed_by = current_user.get("name") or current_user.get("email") or ""
+            cur.execute("""UPDATE platform_payment_events
+                           SET action_status='payment_recorded',
+                               payment_id=%s,
+                               processed_by=%s,
+                               processed_at=NOW(),
+                               notes=LEFT(COALESCE(notes,'') || %s, 4000)
+                           WHERE id=%s
+                           RETURNING *""",
+                        (payment_id, processed_by, "\nОплата зачислена вручную: платеж #" + str(payment_id), id))
+            updated_event = dict(cur.fetchone())
+            _system_write_audit(cur, current_user, "platform_payment_event_confirmed", "platform_payment_event", id,
+                event.get("event_id") or str(id), platform_account_id=platform_account_id, company_id=company_id,
+                details={
+                    "provider": provider,
+                    "eventStatus": event.get("provider_status"),
+                    "billingDocumentId": event.get("billing_document_id"),
+                    "billingDocumentNumber": event.get("billing_document_number"),
+                    "paymentId": payment_id,
+                    "amount": float(event.get("amount") or 0),
+                    "currency": event_currency,
+                    "companyName": event.get("company_name"),
+                    "documentClosed": True,
+                })
+            conn.commit()
+            document["documentTypeLabel"] = _billing_document_type_label(document.get("document_type"))
+            document["statusLabel"] = _billing_document_status_label(document.get("status"))
+            return {"ok": True, "paymentId": payment_id, "event": updated_event, "document": document}
+        except HTTPException:
+            conn.rollback()
+            raise
+        except Exception as exc:
+            conn.rollback()
+            raise HTTPException(status_code=400, detail=str(exc))
+        finally:
+            cur.close()
+            conn.close()
 
     @app.get("/system/billing-documents")
     def system_billing_documents_list(_current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):

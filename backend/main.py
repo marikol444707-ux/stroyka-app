@@ -2327,6 +2327,8 @@ def init_db():
             received_at TIMESTAMP DEFAULT NOW(),
             processed_at TIMESTAMP
         );
+        ALTER TABLE platform_payment_events ADD COLUMN IF NOT EXISTS payment_id INT;
+        ALTER TABLE platform_payment_events ADD COLUMN IF NOT EXISTS processed_by VARCHAR(255);
         CREATE INDEX IF NOT EXISTS idx_platform_payment_events_doc ON platform_payment_events (billing_document_id);
         CREATE INDEX IF NOT EXISTS idx_platform_payment_events_provider ON platform_payment_events (provider, event_id);
         -- Заявки на демо с лендинга

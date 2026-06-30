@@ -228,6 +228,52 @@ def create_smoke_project():
         conn.close()
 
 
+def create_payment_event(company_id, billing_document_id, amount):
+    conn = db_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT platform_account_id FROM companies WHERE id=%s", (company_id,))
+        company = cur.fetchone()
+        platform_account_id = company[0] if company else None
+        payload = {
+            "id": f"smoke-yukassa-{RUN_ID}",
+            "event": "payment.succeeded",
+            "object": {
+                "id": f"pay_{RUN_ID}",
+                "status": "succeeded",
+                "amount": {"value": str(amount), "currency": "RUB"},
+                "metadata": {"documentId": billing_document_id},
+            },
+        }
+        cur.execute(
+            """
+            INSERT INTO platform_payment_events (
+                provider,event_id,event_type,provider_status,platform_account_id,company_id,
+                billing_document_id,amount,currency,trusted,action_status,payload_json,notes
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'RUB',TRUE,'received',%s,%s)
+            RETURNING id
+            """,
+            (
+                "yukassa",
+                f"smoke-yukassa-{RUN_ID}",
+                "payment.succeeded",
+                "succeeded",
+                platform_account_id,
+                company_id,
+                billing_document_id,
+                amount,
+                json.dumps(payload, ensure_ascii=False),
+                f"{PREFIX} provider event",
+            ),
+        )
+        event_id = cur.fetchone()[0]
+        conn.commit()
+        return event_id
+    finally:
+        cur.close()
+        conn.close()
+
+
 def check_platform(system_token):
     _, dashboard = api_json("GET", "/system/dashboard", token=system_token, expected=200)
     for key in ("activeAccounts", "activeCompanies", "inDemo", "overdue"):
@@ -296,7 +342,7 @@ def check_platform(system_token):
             "dueDate": "2026-07-05",
             "periodStart": "2026-06-29",
             "periodEnd": "2026-07-29",
-            "paymentProvider": "manual",
+            "paymentProvider": "yukassa",
             "notes": f"{PREFIX} billing document",
         },
     )
@@ -318,10 +364,24 @@ def check_platform(system_token):
         f"/system/billing-documents/{billing_document_id}/prepare-payment",
         token=system_token,
         expected=200,
-        data={"provider": "manual", "paymentUrl": f"https://stroyka26.pro/pay/smoke-{RUN_ID}"},
+        data={"provider": "yukassa", "paymentUrl": f"https://stroyka26.pro/pay/smoke-{RUN_ID}"},
     )
     if prepared_payment.get("paymentLinkCreated") is not False or prepared_payment.get("document", {}).get("status") != "payment_expected":
         raise RuntimeError(f"system prepare-payment returned invalid body: {prepared_payment}")
+    provider_event_id = create_payment_event(company_id, billing_document_id, 1234)
+    _, confirmed_event = api_json(
+        "POST",
+        f"/system/payment-events/{provider_event_id}/confirm",
+        token=system_token,
+        expected=200,
+        data={"notes": f"{PREFIX} confirmed provider event"},
+    )
+    if not confirmed_event.get("paymentId") or confirmed_event.get("document", {}).get("status") != "closed":
+        raise RuntimeError(f"system payment event confirm returned invalid body: {confirmed_event}")
+    _, payment_events_after = api_json("GET", "/system/payment-events", token=system_token, expected=200)
+    confirmed_row = next((item for item in payment_events_after if item.get("id") == provider_event_id), None)
+    if not confirmed_row or confirmed_row.get("action_status") != "payment_recorded" or not confirmed_row.get("payment_id"):
+        raise RuntimeError(f"confirmed payment event not visible as recorded: {payment_events_after}")
     if SMOKE_GENERATE_PLATFORM_PDF:
         _, generated_pdf = api_json(
             "POST",
@@ -346,6 +406,7 @@ def check_platform(system_token):
         "platform_billing_document_created",
         "platform_billing_document_updated",
         "platform_payment_provider_prepared",
+        "platform_payment_event_confirmed",
         *(("platform_billing_document_pdf_generated",) if SMOKE_GENERATE_PLATFORM_PDF else ()),
     ):
         if expected_action not in audit_text:
@@ -370,7 +431,14 @@ def check_platform(system_token):
         if not account_audit or any(item.get("platform_account_id") != platform_account_id for item in account_audit):
             raise RuntimeError(f"system audit filter by platform account returned invalid rows: {account_audit}")
 
-    return {"companyId": company_id, "platformAccountId": platform_account_id, "tariffs": sorted(tariff_ids)}
+    return {
+        "companyId": company_id,
+        "platformAccountId": platform_account_id,
+        "tariffs": sorted(tariff_ids),
+        "billingDocumentId": billing_document_id,
+        "providerEventId": provider_event_id,
+        "providerEventPaymentId": confirmed_event.get("paymentId"),
+    }
 
 
 def check_platform_roles(system_token, platform_result):
@@ -663,6 +731,7 @@ def main():
                 "platform billing documents",
                 "platform payment providers",
                 "platform payment events",
+                "platform payment event confirmation",
                 "platform audit log",
                 "platform audit filters",
                 "platform team invite",

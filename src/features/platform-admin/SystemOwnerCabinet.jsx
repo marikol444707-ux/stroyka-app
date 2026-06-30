@@ -85,6 +85,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     platform_billing_document_pdf_generated: 'Сформирован PDF документа',
     platform_payment_provider_prepared: 'Подготовлен платежный провайдер',
     platform_payment_webhook_received: 'Получено событие провайдера',
+    platform_payment_event_confirmed: 'Оплата зачислена по событию',
     platform_user_invited: 'Приглашен сотрудник платформы',
     platform_user_updated: 'Сотрудник платформы изменен',
     support_session_opened: 'Открыт режим поддержки',
@@ -212,6 +213,29 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     if (status === 'cancelled') return {color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
     if (status === 'issued') return {color:C.info, bg:C.infoLight, border:C.infoBorder};
     return {color:C.textSec, bg:C.bg, border:C.border};
+  };
+  const paymentEventStatusColor = (status) => {
+    if (status === 'payment_recorded') return {color:C.success, bg:C.successLight, border:C.successBorder};
+    if (status === 'needs_review') return {color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
+    return {color:C.warning, bg:C.warningLight, border:C.warningBorder};
+  };
+  const confirmPaymentEvent = async (event) => {
+    if (!event?.id) return;
+    const amount = Number(event.amount || 0).toLocaleString('ru-RU') + ' ₽';
+    const documentNumber = event.billing_document_number || 'документ не найден';
+    if (!window.confirm('Зачислить оплату по событию провайдера?\n\nДокумент: '+documentNumber+'\nСумма: '+amount+'\nКомпания: '+(event.company_name || '—'))) return;
+    const note = window.prompt('Комментарий к ручной сверке:', 'Сумма и документ сверены биллингом') || '';
+    const response = await sendJson('/system/payment-events/'+event.id+'/confirm', {
+      method:'POST',
+      body:JSON.stringify({notes:note}),
+    });
+    const data = await response.json().catch(()=>({}));
+    if (!response.ok) {
+      alert(data.detail || 'Не удалось зачислить оплату по событию');
+      return;
+    }
+    alert('Оплата зачислена. Платеж #'+data.paymentId);
+    await loadAll();
   };
   const fileSrc = (url) => {
     if (!url) return '';
@@ -475,14 +499,21 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
             <b style={{color:C.warning,fontSize:'13px',display:'block',marginBottom:'8px'}}>События провайдеров ({paymentEvents.length})</b>
             <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 8px'}}>Это входящие события ЮKassa/Robokassa. Они не являются оплатой, пока биллинг отдельно не зачислит фактический платеж.</p>
             <div style={{display:'grid',gap:'6px'}}>
-              {paymentEvents.slice(0,5).map(event=>(<div key={event.id} style={{display:'grid',gridTemplateColumns:'minmax(90px,130px) 1fr auto',gap:'8px',alignItems:'center',padding:'8px',border:'1px solid '+C.border,borderRadius:'8px',backgroundColor:C.card}}>
+              {paymentEvents.slice(0,8).map(event=>{
+                const eventColors = paymentEventStatusColor(event.action_status);
+                const canConfirmEvent = event.action_status !== 'payment_recorded' && event.billing_document_id && event.billing_document_number;
+                return (<div key={event.id} style={{display:'grid',gridTemplateColumns:'minmax(90px,130px) 1fr auto',gap:'8px',alignItems:'center',padding:'8px',border:'1px solid '+C.border,borderRadius:'8px',backgroundColor:C.card}}>
                 <b style={{color:C.text,fontSize:'12px'}}>{event.provider || 'provider'}</b>
                 <div style={{minWidth:0}}>
-                  <p style={{color:C.textSec,fontSize:'11px',margin:0,overflowWrap:'anywhere'}}>{event.event_type || 'event'} · {event.provider_status || 'без статуса'} · {event.billing_document_number || 'документ не найден'}</p>
-                  <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{event.company_name || '—'} · {event.received_at ? String(event.received_at).slice(0,19).replace('T',' ') : ''}</p>
+                  <p style={{color:C.textSec,fontSize:'11px',margin:0,overflowWrap:'anywhere'}}>{event.event_type || 'event'} · {event.provider_status || 'без статуса'} · {event.billing_document_number || 'документ не найден'} · {Number(event.amount || 0).toLocaleString('ru-RU')} ₽</p>
+                  <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{event.company_name || '—'} · {event.received_at ? String(event.received_at).slice(0,19).replace('T',' ') : ''}{event.payment_id ? ' · платеж #'+event.payment_id : ''}</p>
                 </div>
-                <span style={badge(C.warning,C.warningLight,C.warningBorder)}>{event.action_status || 'received'}</span>
-              </div>))}
+                <div style={{display:'flex',gap:'6px',alignItems:'center',justifyContent:'flex-end',flexWrap:'wrap'}}>
+                  <span style={badge(eventColors.color,eventColors.bg,eventColors.border)}>{event.action_status || 'received'}</span>
+                  {canConfirmEvent && <button onClick={()=>confirmPaymentEvent(event)} style={{...btnO,padding:'5px 10px',fontSize:'11px'}}>Зачислить</button>}
+                </div>
+              </div>);
+              })}
             </div>
           </div>)}
 
