@@ -1,4 +1,5 @@
 import { POSITION_INSTRUCTIONS, TB_INSTRUCTIONS } from '../constants/documentTemplates';
+import { EXPENSE_CATEGORIES } from '../constants/catalogs';
 
 const companyTitle = (companyRequisites = {}, companyName = '', fallback = '_____') => (
   companyRequisites.fullName || companyRequisites.shortName || companyName || fallback
@@ -124,4 +125,60 @@ export const buildPositionInstructionDocContent = (role, name, context = {}) => 
   const { companyRequisites = {}, companyName = '' } = context;
   const instruction = POSITION_INSTRUCTIONS[role] || '<h2>ДОЛЖНОСТНАЯ ИНСТРУКЦИЯ</h2>';
   return `${instruction}<p><b>Организация:</b> ${companyTitle(companyRequisites, companyName)}</p><div class="signatures"><div class="sig"><div class="sig-line">Директор<br/>${companyRequisites.directorName || ''}</div></div><div class="sig"><div class="sig-line">Ознакомлен<br/><b>${name}</b></div></div></div>`;
+};
+
+export const buildPassportDocContent = (project = {}, context = {}) => {
+  const {
+    companyRequisites = {},
+    companyName = '',
+    rooms = [],
+    roomWindows = [],
+    roomDoors = [],
+    expByCategory = () => ({}),
+    isFinanceRole = () => false,
+    getRoomNetWall = () => 0,
+    calcWindowArea = () => 0,
+    calcDoorArea = () => 0,
+    calcWindowReveals = () => 0,
+    calcDoorReveals = () => 0,
+  } = context;
+
+  const projectRooms = rooms.filter((room) => room.project === project.name);
+  const categoryTotals = expByCategory(project.name);
+  const totalExpenses = Object.values(categoryTotals).reduce((sum, value) => sum + value, 0);
+  let html = `<h2 style="text-align:center">ПАСПОРТ ОБЪЕКТА</h2><h3 style="text-align:center">${project.name}</h3>`;
+  html += `<p>Организация: ${companyTitle(companyRequisites, companyName)}</p>`;
+  html += `<table><tr><th>Заказчик</th><td>${project.client}</td></tr>${isFinanceRole() ? `<tr><th>Бюджет</th><td>${project.budget.toLocaleString()} руб.</td></tr>` : ''}<tr><th>Статус</th><td>${project.status}</td></tr></table>`;
+  html += '<h3>ПОМЕЩЕНИЯ:</h3><table><tr><th>Помещение</th><th>Пол м2</th><th>Стены м2</th><th>Чистые стены</th><th>Потолок м2</th><th>Тип потолка</th><th>Окна</th><th>Двери</th></tr>';
+  projectRooms.forEach((room) => {
+    const wins = roomWindows.filter((windowItem) => windowItem.room_id === room.id);
+    const doors = roomDoors.filter((door) => door.room_id === room.id);
+    const netWall = getRoomNetWall(room);
+    const winInfo = wins.length > 0 ? `${wins.length}шт/${wins.reduce((sum, windowItem) => sum + calcWindowArea(windowItem), 0).toFixed(1)}м2` : '—';
+    const doorInfo = doors.length > 0 ? `${doors.length}шт/${doors.reduce((sum, door) => sum + calcDoorArea(door), 0).toFixed(1)}м2` : '—';
+    html += `<tr><td>${room.name}</td><td>${room.floorArea}</td><td>${room.wallArea}</td><td>${netWall}</td><td>${room.ceilingArea}</td><td>${room.ceiling_type || room.ceilingType || '—'}</td><td>${winInfo}</td><td>${doorInfo}</td></tr>`;
+  });
+  html += '</table>';
+  if (projectRooms.length > 0) {
+    html += '<h3>ОТКОСЫ:</h3><table><tr><th>Помещение</th><th>Откосы окон м2</th><th>Откосы дверей м2</th></tr>';
+    projectRooms.forEach((room) => {
+      const wins = roomWindows.filter((windowItem) => windowItem.room_id === room.id);
+      const doors = roomDoors.filter((door) => door.room_id === room.id);
+      const winReveals = wins.reduce((sum, windowItem) => sum + calcWindowReveals(windowItem), 0).toFixed(2);
+      const doorReveals = doors.reduce((sum, door) => sum + calcDoorReveals(door), 0).toFixed(2);
+      html += `<tr><td>${room.name}</td><td>${winReveals}</td><td>${doorReveals}</td></tr>`;
+    });
+    html += '</table>';
+  }
+  if (isFinanceRole()) {
+    html += '<h3>ФИНАНСЫ:</h3><table>';
+    EXPENSE_CATEGORIES.forEach((category) => {
+      html += `<tr><td>${category.label}</td><td>${Number(categoryTotals[category.id] || 0).toLocaleString()} руб.</td></tr>`;
+    });
+    const budget = Number(project.budget || 0);
+    html += `<tr><td><b>Итого:</b></td><td><b>${totalExpenses.toLocaleString()} руб.</b></td></tr>`;
+    html += `<tr><td>Бюджет:</td><td>${budget.toLocaleString()} руб.</td></tr>`;
+    html += `<tr><td><b>Остаток:</b></td><td><b>${(budget - totalExpenses).toLocaleString()} руб.</b></td></tr></table>`;
+  }
+  return html;
 };

@@ -407,11 +407,11 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
                   <div>
                     <b style={{color:C.info,fontSize:'13px',display:'block'}}>⚡ Быстрая загрузка карты клиента</b>
-                    <p style={{color:C.textSec,fontSize:'11px',margin:'3px 0 0'}}>PDF или фото визитки/карточки организации. Система заполнит поля формы, но компанию создаст только после сохранения.</p>
+                    <p style={{color:C.textSec,fontSize:'11px',margin:'3px 0 0'}}>Фото, PDF, Word, Excel, TXT/CSV/RTF или другой файл с реквизитами. Система заполнит поля формы, но компанию создаст только после сохранения.</p>
                   </div>
                   <label style={{...btnO,cursor:clientCardScanning?'default':'pointer',opacity:clientCardScanning?0.65:1}}>
                     {clientCardScanning?'⏳ Распознаю...':'📷 Загрузить карту'}
-                    <input type='file' accept='image/*,application/pdf' disabled={clientCardScanning} style={{display:'none'}} onChange={recognizeClientCard}/>
+                    <input type='file' accept='*/*' disabled={clientCardScanning} style={{display:'none'}} onChange={recognizeClientCard}/>
                   </label>
                 </div>
                 {clientCardRecognition && (

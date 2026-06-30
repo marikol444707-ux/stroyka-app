@@ -208,6 +208,7 @@ import {
 import {
   buildInventoryDocContent,
   buildMovementDocContent,
+  buildPassportDocContent,
   buildPositionInstructionDocContent,
   buildPrescriptionDocContent,
   buildPricelistDocContent,
@@ -2787,42 +2788,20 @@ function App() {
     companyName,
   });
 
-  const buildPassportContent = (project) => {
-    const req = companyRequisites||{};
-    const projectRooms = rooms.filter(r=>r.project===project.name);
-    const cat = expByCategory(project.name);
-    const totalExp = Object.values(cat).reduce((s,v)=>s+v,0);
-    let html = '<h2 style="text-align:center">ПАСПОРТ ОБЪЕКТА</h2><h3 style="text-align:center">'+project.name+'</h3>';
-    html += '<p>Организация: '+(req.fullName||req.shortName||companyName||'_____')+'</p>';
-    html += '<table><tr><th>Заказчик</th><td>'+project.client+'</td></tr>'+(isFinanceRole()?'<tr><th>Бюджет</th><td>'+project.budget.toLocaleString()+' руб.</td></tr>':'')+'<tr><th>Статус</th><td>'+project.status+'</td></tr></table>';
-    html += '<h3>ПОМЕЩЕНИЯ:</h3><table><tr><th>Помещение</th><th>Пол м2</th><th>Стены м2</th><th>Чистые стены</th><th>Потолок м2</th><th>Тип потолка</th><th>Окна</th><th>Двери</th></tr>';
-    projectRooms.forEach(r => {
-      const wins = roomWindows.filter(w=>w.room_id===r.id);
-      const doors = roomDoors.filter(d=>d.room_id===r.id);
-      const netWall = getRoomNetWall(r);
-      const winInfo = wins.length>0 ? wins.length+'шт/'+wins.reduce((s,w)=>s+calcWindowArea(w),0).toFixed(1)+'м2' : '—';
-      const doorInfo = doors.length>0 ? doors.length+'шт/'+doors.reduce((s,d)=>s+calcDoorArea(d),0).toFixed(1)+'м2' : '—';
-      html += '<tr><td>'+r.name+'</td><td>'+r.floorArea+'</td><td>'+r.wallArea+'</td><td>'+netWall+'</td><td>'+r.ceilingArea+'</td><td>'+(r.ceiling_type||r.ceilingType||'—')+'</td><td>'+winInfo+'</td><td>'+doorInfo+'</td></tr>';
-    });
-    html += '</table>';
-    if (projectRooms.length>0) {
-      html += '<h3>ОТКОСЫ:</h3><table><tr><th>Помещение</th><th>Откосы окон м2</th><th>Откосы дверей м2</th></tr>';
-      projectRooms.forEach(r => {
-        const wins = roomWindows.filter(w=>w.room_id===r.id);
-        const doors = roomDoors.filter(d=>d.room_id===r.id);
-        const winRev = wins.reduce((s,w)=>s+calcWindowReveals(w),0).toFixed(2);
-        const doorRev = doors.reduce((s,d)=>s+calcDoorReveals(d),0).toFixed(2);
-        html += '<tr><td>'+r.name+'</td><td>'+winRev+'</td><td>'+doorRev+'</td></tr>';
-      });
-      html += '</table>';
-    }
-    if(isFinanceRole()) { html += '<h3>ФИНАНСЫ:</h3><table>';
-    EXPENSE_CATEGORIES.forEach(c => { html += '<tr><td>'+c.label+'</td><td>'+cat[c.id].toLocaleString()+' руб.</td></tr>'; });
-    html += '<tr><td><b>Итого:</b></td><td><b>'+totalExp.toLocaleString()+' руб.</b></td></tr>';
-    html += '<tr><td>Бюджет:</td><td>'+project.budget.toLocaleString()+' руб.</td></tr>';
-    html += '<tr><td><b>Остаток:</b></td><td><b>'+(project.budget-totalExp).toLocaleString()+' руб.</b></td></tr></table>'; }
-    return html;
-  };
+  const buildPassportContent = (project) => buildPassportDocContent(project, {
+    companyRequisites,
+    companyName,
+    rooms,
+    roomWindows,
+    roomDoors,
+    expByCategory,
+    isFinanceRole,
+    getRoomNetWall,
+    calcWindowArea,
+    calcDoorArea,
+    calcWindowReveals,
+    calcDoorReveals,
+  });
 
   const buildInvoiceContent = (inv) => {
     const req = companyRequisites||{};

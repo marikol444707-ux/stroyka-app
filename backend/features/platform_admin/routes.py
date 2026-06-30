@@ -761,6 +761,8 @@ def _extract_client_card_file_text(filename: str, content_type: str, content: by
     name = (filename or "").lower()
     mime_type = (content_type or mimetypes.guess_type(filename or "")[0] or "").lower()
     try:
+        if mime_type.startswith("image/") or name.endswith((".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tif", ".tiff", ".heic", ".heif")):
+            return "", ""
         if name.endswith(".pdf") or mime_type == "application/pdf":
             return _pdf_client_card_text(content)
         if name.endswith(".docx"):
@@ -854,7 +856,7 @@ def _recognize_client_card_with_ai(file_content: bytes, file_name: str, content_
             input=[{"role": "user", "content": content}],
             max_output_tokens=2500,
         )
-        return _client_card_json(response.output_text or ""), ""
+        return _client_card_json(response.output_text or ""), warnings
     except Exception as exc:
         return {}, warnings + ["AI/OCR не смог распознать карту клиента: " + str(exc)]
 
@@ -941,7 +943,7 @@ def register_platform_admin_routes(app, deps):
             content_type_lower = (content_type or "").lower()
             if file_name_lower.endswith(".pdf") or content_type_lower == "application/pdf" or content_type_lower.startswith("image/"):
                 ai_file_content = file_content
-        ai_fields, ai_warning = _recognize_client_card_with_ai(
+        ai_fields, ai_warnings = _recognize_client_card_with_ai(
             ai_file_content,
             file_name,
             content_type,
@@ -949,8 +951,7 @@ def register_platform_admin_routes(app, deps):
             yandex_api_key,
             yandex_folder_id,
         )
-        if ai_warning:
-            warnings.append(ai_warning)
+        warnings.extend(ai_warnings or [])
         fields = _normalize_client_card_fields(ai_fields, fallback)
         if isinstance(ai_fields.get("warnings") if isinstance(ai_fields, dict) else None, list):
             warnings.extend(_client_card_text(item, 300) for item in ai_fields.get("warnings") if _client_card_text(item, 300))
