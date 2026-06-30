@@ -42,7 +42,7 @@ import {
   tblH,
 } from './constants/uiTheme';
 import { ROLES, ROLE_GROUPS, ROLE_LABELS } from './constants/roles';
-import SystemStatusModal from './components/SystemStatusModal';
+import AppOverlayLayer from './components/AppOverlayLayer';
 import ProjectCardHeader from './components/ProjectCardHeader';
 import ProjectTabsNav from './components/ProjectTabsNav';
 import ProjectMaterialsControlPanel from './components/ProjectMaterialsControlPanel';
@@ -84,6 +84,9 @@ import EstimateMeasurementComparisonPanel from './components/EstimateMeasurement
 import WorkJournalEstimateReconciliationPanel from './components/WorkJournalEstimateReconciliationPanel';
 import EstimateDuplicateWorkSummaryPanel from './components/EstimateDuplicateWorkSummaryPanel';
 import EstimateSectionsEditor from './components/EstimateSectionsEditor';
+import MaterialNormFormPanel from './components/MaterialNormFormPanel';
+import MaterialNormsListPanel from './components/MaterialNormsListPanel';
+import EstimateExecutionPricingPanel from './components/EstimateExecutionPricingPanel';
 import PhotoAttachmentField from './components/PhotoAttachmentField';
 import MobileBottomNav from './components/MobileBottomNav';
 import {
@@ -109,7 +112,6 @@ import {
   EstimateChatModal,
   EstimateDistributeModal,
   EstimateVersionHistoryModal,
-  FloatingCompanyChatPanel,
   GenerateEstimateModal,
   GeneratePricelistModal,
   ManualExpenseModal,
@@ -148,7 +150,6 @@ import {
   WeatherPage,
 } from './app/lazyComponents';
 import { buildPerformerContractHtml } from './utils/contractTemplates';
-import MobileMenuSheet from './components/MobileMenuSheet';
 import AppSidebar from './components/AppSidebar';
 import AppHeaderBar from './components/AppHeaderBar';
 import DashboardTopBar from './components/DashboardTopBar';
@@ -13334,26 +13335,15 @@ function App() {
                   showLeadership={['директор','зам_директора'].includes(user?.role)}
 	                  showEstimateIssuesOnly={showEstimateIssuesOnly}
 	                />
-	                {['директор','зам_директора'].includes(user?.role) && (()=>{const priceStats=selectedEstimateExecutionPriceStats();return(
-	                  <div style={{...card,padding:'12px 14px',marginBottom:'12px',display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(260px,1fr) 120px auto auto',gap:'10px',alignItems:'center',backgroundColor:C.bg}}>
-	                    <div>
-	                      <b style={{color:C.text,fontSize:'14px'}}>💵 Внутренние цены исполнителям</b>
-	                      <p style={{color:C.textSec,margin:'3px 0 0',fontSize:'12px'}}>
-	                        Работ: {priceStats.workRows} · заполнено: {priceStats.pricedRows} · пустых: {priceStats.emptyRows}. Цена сохраняется в каждой строке и идет в ЖПР/акты исполнителя.
-	                      </p>
-	                    </div>
-	                    <label style={{display:'flex',alignItems:'center',gap:'6px',color:C.textSec,fontSize:'12px'}}>
-	                      <input type="number" min="1" max="100" step="1" value={executionPriceFillPercent} onChange={e=>setExecutionPriceFillPercent(e.target.value)} style={{...inp,marginBottom:0,width:'78px'}}/>
-	                      %
-	                    </label>
-	                    <button type="button" onClick={()=>fillSelectedEstimateExecutionPrices(false)} disabled={!priceStats.emptyRows} style={{...btnO,justifyContent:'center',opacity:priceStats.emptyRows?1:0.55}}>
-	                      Заполнить пустые
-	                    </button>
-	                    <button type="button" onClick={()=>window.confirm('Перезаписать внутренние цены по всем строкам работ этой сметы?')&&fillSelectedEstimateExecutionPrices(true)} disabled={!priceStats.workRows} style={{...btnG,justifyContent:'center',opacity:priceStats.workRows?1:0.55}}>
-	                      Пересчитать все
-	                    </button>
-	                  </div>
-	                );})()}
+		                {['директор','зам_директора'].includes(user?.role) && (
+		                  <EstimateExecutionPricingPanel
+		                    priceStats={selectedEstimateExecutionPriceStats()}
+		                    executionPriceFillPercent={executionPriceFillPercent}
+		                    setExecutionPriceFillPercent={setExecutionPriceFillPercent}
+		                    fillSelectedEstimateExecutionPrices={fillSelectedEstimateExecutionPrices}
+		                    isMobile={isMobile}
+		                  />
+		                )}
                 <EstimateDuplicateWorkSummaryPanel
                   selectedEstimate={selectedEstimate}
                   userRole={user?.role}
@@ -13532,75 +13522,29 @@ function App() {
                 materialNormOverrides={materialNormOverrides}
                 isMobile={isMobile}
               />
-              {canEditMaterialNorms()&&(<div style={{...card,padding:'16px',marginBottom:'16px'}}>
-                <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>{editingMaterialNormId?'Редактировать норму':'Новая норма'}</b>
-                <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr 1fr',gap:'10px'}}>
-                  <input placeholder='Код нормы (например plaster_mix)' value={newMaterialNorm.ruleKey} onChange={e=>setNewMaterialNorm({...newMaterialNorm,ruleKey:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder='Название материала' value={newMaterialNorm.name} onChange={e=>setNewMaterialNorm({...newMaterialNorm,name:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder='Расход на единицу' type='number' step='any' inputMode='decimal' value={newMaterialNorm.qtyPerUnit} onChange={e=>setNewMaterialNorm({...newMaterialNorm,qtyPerUnit:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <select value={newMaterialNorm.workUnit} onChange={e=>setNewMaterialNorm({...newMaterialNorm,workUnit:e.target.value})} style={{...inp,marginBottom:0}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
-                  <select value={newMaterialNorm.materialUnit} onChange={e=>setNewMaterialNorm({...newMaterialNorm,materialUnit:e.target.value})} style={{...inp,marginBottom:0}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
-                  <input placeholder='База слоя, мм' type='number' step='any' inputMode='decimal' value={newMaterialNorm.thicknessBaseMm} onChange={e=>setNewMaterialNorm({...newMaterialNorm,thicknessBaseMm:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <textarea placeholder='Ключевые слова работы: штукатур, стяжк...' value={newMaterialNorm.workText} onChange={e=>setNewMaterialNorm({...newMaterialNorm,workText:e.target.value})} style={{...inp,marginBottom:0,minHeight:'72px',resize:'vertical'}}/>
-                  <textarea placeholder='Ключевые слова материала: ротбанд, гипсов...' value={newMaterialNorm.materialText} onChange={e=>setNewMaterialNorm({...newMaterialNorm,materialText:e.target.value})} style={{...inp,marginBottom:0,minHeight:'72px',resize:'vertical'}}/>
-                  <textarea placeholder='Исключить работы: демонтаж, разбор...' value={newMaterialNorm.blockWorkText} onChange={e=>setNewMaterialNorm({...newMaterialNorm,blockWorkText:e.target.value})} style={{...inp,marginBottom:0,minHeight:'72px',resize:'vertical'}}/>
-                  <input placeholder='Типовой слой, мм' type='number' step='any' inputMode='decimal' value={newMaterialNorm.defaultThicknessMm} onChange={e=>setNewMaterialNorm({...newMaterialNorm,defaultThicknessMm:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder='Подпись нормы' value={newMaterialNorm.label} onChange={e=>setNewMaterialNorm({...newMaterialNorm,label:e.target.value})} style={{...inp,marginBottom:0,gridColumn:isMobile?'auto':'span 2'}}/>
-                </div>
-                <div style={{display:'flex',gap:'8px',marginTop:'12px',flexWrap:'wrap'}}>
-                  <button onClick={saveMaterialNorm} style={btnO}><Check size={14}/>{editingMaterialNormId?'Сохранить':'Добавить'}</button>
-                  {editingMaterialNormId&&<button onClick={resetMaterialNormForm} style={btnG}><X size={14}/>Отмена</button>}
-                </div>
-              </div>)}
-              {(()=>{const term=materialNormSearch.trim().toLowerCase();const loadedNorms=(materialNorms||[]);const filteredNorms=term?loadedNorms.filter(n=>[
-                n.ruleKey,n.id,n.name,n.label,
-                ...(Array.isArray(n.work)?n.work:[]),
-                ...(Array.isArray(n.material)?n.material:[]),
-                ...(Array.isArray(n.blockWork)?n.blockWork:[])
-              ].some(v=>String(v||'').toLowerCase().includes(term))):loadedNorms;const normsToShow=filteredNorms.length||term?filteredNorms:WORK_MATERIAL_NORM_RULES.map(r=>({...r,ruleKey:r.id,name:materialTitleForNormRule(r),active:true}));const normQueryMatches=(materialNormsPage.search||'')===materialNormSearch.trim();const canLoadMoreNorms=normQueryMatches&&materialNormsPage.hasMore;return(<div style={{display:'grid',gap:'10px'}}>
-                <div style={{...card,padding:'12px',display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(260px,1fr) auto',gap:'10px',alignItems:'center'}}>
-                  <div style={{position:'relative'}}>
-                    <Search size={14} style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
-                    <input
-                      placeholder='Поиск нормы на сервере: работа, материал, код'
-                      value={materialNormSearch}
-                      onChange={e=>setMaterialNormSearch(e.target.value)}
-                      style={{...inp,marginBottom:0,paddingLeft:34,width:'100%',boxSizing:'border-box'}}
-                    />
-                    {(materialNormsPage.loading||materialNormsPage.error)&&normQueryMatches&&<div style={{color:materialNormsPage.error?C.danger:C.textMuted,fontSize:'11px',marginTop:'5px'}}>{materialNormsPage.error||'Ищу нормы...'}</div>}
-                  </div>
-                  <button
-                    type='button'
-                    onClick={()=>loadMaterialNormsPage({search:materialNormSearch.trim(),offset:filteredNorms.length})}
-                    disabled={!canLoadMoreNorms||materialNormsPage.loading}
-                    style={btnState(btnB,!canLoadMoreNorms||materialNormsPage.loading,{justifyContent:'center'})}
-                  >
-                    {materialNormsPage.loading?'Загружаю...':canLoadMoreNorms?'Загрузить ещё нормы':'Нормы загружены'}
-                  </button>
-                  <p style={{gridColumn:isMobile?'auto':'1 / -1',color:C.textMuted,fontSize:'11px',margin:0}}>
-                    Показано {normsToShow.length} норм. Поиск обращается к backend и добавляет найденные правила в локальный набор расчёта.
-                  </p>
-                </div>
-                {normsToShow.map(n=>{const rule=materialNormRuleForCalc(n);return(<div key={rule.id || rule.ruleKey} style={{...card,padding:'12px 14px',display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(220px,1.3fr) minmax(260px,2fr) auto',gap:'12px',alignItems:'center'}}>
-                  <div style={{minWidth:0}}>
-                    <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap'}}>
-                      <b style={{color:C.text,fontSize:'13px',display:'block'}}>{rule.name || materialTitleForNormRule(rule)}</b>
-                      <span style={badge(C.success,C.successLight,C.successBorder)}>Глобальная</span>
-                    </div>
-                    <p style={{color:C.textMuted,margin:'3px 0 0',fontSize:'11px'}}>{rule.ruleKey || rule.id}</p>
-                  </div>
-                  <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:'8px',minWidth:0}}>
-                    <div><span style={{color:C.textMuted,fontSize:'10px',textTransform:'uppercase'}}>Работа</span><p style={{color:C.textSec,margin:'2px 0 0',fontSize:'12px'}}>{(rule.work||[]).join(', ') || '—'}</p></div>
-                    <div><span style={{color:C.textMuted,fontSize:'10px',textTransform:'uppercase'}}>Материал</span><p style={{color:C.textSec,margin:'2px 0 0',fontSize:'12px'}}>{(rule.material||[]).join(', ') || '—'}</p></div>
-                    <div><span style={{color:C.textMuted,fontSize:'10px',textTransform:'uppercase'}}>Норма</span><p style={{color:C.success,margin:'2px 0 0',fontSize:'12px',fontWeight:'700'}}>{Number(rule.qtyPerUnit||0).toLocaleString('ru-RU')+' '+(rule.materialUnit||'')+' / '+(rule.workUnit||'')}</p></div>
-                    <div><span style={{color:C.textMuted,fontSize:'10px',textTransform:'uppercase'}}>Слой</span><p style={{color:C.textSec,margin:'2px 0 0',fontSize:'12px'}}>{rule.thicknessBaseMm?('база '+rule.thicknessBaseMm+' мм'+(rule.defaultThicknessMm?' · типовой '+rule.defaultThicknessMm+' мм':'')):'не учитывается'}</p></div>
-                  </div>
-                  <div style={{display:'flex',gap:'6px',justifyContent:isMobile?'flex-start':'flex-end'}}>
-                    <button disabled={!n.id || !canEditMaterialNorms()} onClick={()=>editMaterialNorm(n)} style={btnState(btnG,!n.id || !canEditMaterialNorms(),{padding:'5px 9px'})} title={n.id?'Редактировать':'После деплоя справочника можно будет редактировать'}><Edit2 size={12}/></button>
-                    {canEditMaterialNorms()&&n.id&&<button onClick={()=>disableMaterialNorm(n.id)} style={{...btnR,padding:'5px 9px'}} title='Отключить норму'><Trash2 size={12}/></button>}
-                  </div>
-                </div>);})}
-              </div>);})()}
+              {canEditMaterialNorms()&&(
+                <MaterialNormFormPanel
+                  editingMaterialNormId={editingMaterialNormId}
+                  newMaterialNorm={newMaterialNorm}
+                  setNewMaterialNorm={setNewMaterialNorm}
+                  saveMaterialNorm={saveMaterialNorm}
+                  resetMaterialNormForm={resetMaterialNormForm}
+                  isMobile={isMobile}
+                />
+              )}
+              <MaterialNormsListPanel
+                materialNormSearch={materialNormSearch}
+                setMaterialNormSearch={setMaterialNormSearch}
+                materialNorms={materialNorms}
+                materialNormsPage={materialNormsPage}
+                loadMaterialNormsPage={loadMaterialNormsPage}
+                materialNormRuleForCalc={materialNormRuleForCalc}
+                materialTitleForNormRule={materialTitleForNormRule}
+                canEditMaterialNorms={canEditMaterialNorms}
+                editMaterialNorm={editMaterialNorm}
+                disableMaterialNorm={disableMaterialNorm}
+                isMobile={isMobile}
+              />
             </div>)}
           </div>)}
 
@@ -13678,22 +13622,29 @@ function App() {
     {showOwnExpenseForm&&<OwnExpenseFormModal showOwnExpenseForm={showOwnExpenseForm} setShowOwnExpenseForm={setShowOwnExpenseForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} projectOptions={projects} expenseCategories={EXPENSE_CATEGORIES} newOwnExpense={newOwnExpense} setNewOwnExpense={setNewOwnExpense} appendPhotos={appendPhotos} fileSrc={fileSrc} API={API} user={user} loadAll={loadAll}/>}
     {showQuickActions&&<QuickActionsModal showQuickActions={showQuickActions} setShowQuickActions={setShowQuickActions} C={C} btnG={btnG} user={user} projects={projects} visibleActiveProjects={visibleActiveProjects} openReceiveInvoice={openReceiveInvoice} setActivePage={setActivePage} setWarehouseTab={setWarehouseTab} navigateTo={navigateTo} API={API} setMaterialTransfers={setMaterialTransfers} setShowTransferForm={setShowTransferForm} setSelectedWarehouseProject={setSelectedWarehouseProject} setAddExpenseProject={setAddExpenseProject} setNewManualExpense={setNewManualExpense} setShowOwnExpenseForm={setShowOwnExpenseForm} setShowChatPanel={setShowChatPanel} setShowAiAssistant={setShowAiAssistant}/>}
     </React.Suspense>
-    <SystemStatusModal
-      show={showSystemStatus}
-      systemStatus={systemStatus}
-      systemStatusLoading={systemStatusLoading}
-      onRefresh={openSystemStatus}
-      onClose={()=>setShowSystemStatus(false)}
-      C={C}
-      badge={badge}
-      btnG={btnG}
-    />
-    <MobileMenuSheet showMobileMenu={showMobileMenu} setShowMobileMenu={setShowMobileMenu} menuItems={menuItems} activePage={activePage} setActivePage={setActivePage} C={C}/>
-    {showChatPanel&&(
-      <React.Suspense fallback={null}>
-        <FloatingCompanyChatPanel showChatPanel={showChatPanel} setShowChatPanel={setShowChatPanel} companyMessages={companyMessages} user={user} companyChatInput={companyChatInput} setCompanyChatInput={setCompanyChatInput} sendCompanyChatMessage={sendCompanyChatMessage} uploadPhoto={uploadPhoto}/>
-      </React.Suspense>
-    )}
+	    <AppOverlayLayer
+	      showSystemStatus={showSystemStatus}
+	      systemStatus={systemStatus}
+	      systemStatusLoading={systemStatusLoading}
+	      openSystemStatus={openSystemStatus}
+	      setShowSystemStatus={setShowSystemStatus}
+	      C={C}
+	      badge={badge}
+	      btnG={btnG}
+	      showMobileMenu={showMobileMenu}
+	      setShowMobileMenu={setShowMobileMenu}
+	      menuItems={menuItems}
+	      activePage={activePage}
+	      setActivePage={setActivePage}
+	      showChatPanel={showChatPanel}
+	      setShowChatPanel={setShowChatPanel}
+	      companyMessages={companyMessages}
+	      user={user}
+	      companyChatInput={companyChatInput}
+	      setCompanyChatInput={setCompanyChatInput}
+	      sendCompanyChatMessage={sendCompanyChatMessage}
+	      uploadPhoto={uploadPhoto}
+	    />
 
     </div>
   );
