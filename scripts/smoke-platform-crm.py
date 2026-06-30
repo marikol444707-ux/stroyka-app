@@ -153,6 +153,63 @@ def login(email, password):
     return token
 
 
+def check_client_account_owner_access(account_owner_user, password):
+    _, login_body = api_json(
+        "POST",
+        "/login",
+        expected=200,
+        data={"email": account_owner_user.get("email"), "password": password},
+    )
+    if login_body.get("authToken"):
+        raise RuntimeError(f"account owner login returned authToken without 2FA challenge: {login_body}")
+    if not (login_body.get("twoFactorSetupRequired") or login_body.get("twoFactorRequired")):
+        raise RuntimeError(f"account owner login did not require 2FA setup/challenge: {login_body}")
+
+    account_owner_token = auth_token_for(account_owner_user)
+    _, scoped_projects = api_json("GET", "/projects", token=account_owner_token, expected=200)
+    if not isinstance(scoped_projects, list):
+        raise RuntimeError(f"account owner projects endpoint returned invalid body: {scoped_projects}")
+    _, scoped_users = api_json("GET", "/users", token=account_owner_token, expected=200)
+    if not (
+        isinstance(scoped_users, list)
+        and len(scoped_users) == 1
+        and scoped_users[0].get("email") == account_owner_user.get("email")
+    ):
+        raise RuntimeError(f"account owner users endpoint did not return only current user: {scoped_users}")
+
+    forbidden_endpoints = [
+        ("GET", "/system/dashboard", None),
+        ("GET", "/system/companies", None),
+        ("GET", "/system/client-users", None),
+        ("GET", "/system/payments", None),
+        ("GET", "/system/billing-documents", None),
+        ("GET", "/system/followups", None),
+        ("GET", "/system/platform-users", None),
+        ("GET", "/system/support-sessions", None),
+        ("GET", "/crm/lead-summaries", None),
+        ("GET", "/project-documents", None),
+        (
+            "POST",
+            "/document-recognition/analyze",
+            {
+                "context": "smoke-account-owner-access",
+                "text": f"{PREFIX} account owner must not analyze documents from the platform role token",
+            },
+        ),
+    ]
+    checked = []
+    for method, path, data in forbidden_endpoints:
+        api_json(method, path, token=account_owner_token, data=data, expected=403)
+        checked.append(f"{method} {path}")
+
+    return {
+        "email": account_owner_user.get("email"),
+        "loginChallenge": "setup" if login_body.get("twoFactorSetupRequired") else "verify",
+        "allowedScopedEndpoints": ["GET /projects", "GET /users"],
+        "forbiddenEndpoints": checked,
+    }
+
+
 def cleanup():
     conn = db_conn()
     cur = conn.cursor()
@@ -650,6 +707,7 @@ def check_platform_roles(system_token, platform_result):
         raise RuntimeError(f"account owner register returned wrong platform account: {registered_owner}")
     if not registered_owner.get("twoFactorRequired"):
         raise RuntimeError(f"account owner register did not require 2FA: {registered_owner}")
+    client_account_access = check_client_account_owner_access(registered_owner, account_owner_password)
 
     _, client_users = api_json(
         "GET",
@@ -674,6 +732,7 @@ def check_platform_roles(system_token, platform_result):
         "supportSessionId": session_id,
         "billingDocumentId": document_id,
         "clientAccountOwner": CLIENT_ACCOUNT_EMAILS["account_owner"],
+        "clientAccountOwnerAccess": client_account_access,
     }
 
 
@@ -838,6 +897,7 @@ def main():
                 "platform support sessions",
                 "platform billing role",
                 "client account role invite and registration",
+                "client account owner login and endpoint matrix",
                 "crm lead summaries and details",
                 "crm documents and tasks",
                 "supplier approval",
