@@ -23,6 +23,8 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const [newBillingDocument, setNewBillingDocument] = useState({companyId:'',documentType:'invoice',status:'draft',amount:'',issueDate:new Date().toISOString().split('T')[0],dueDate:'',periodStart:'',periodEnd:'',paymentProvider:'manual',paymentUrl:'',fileUrl:'',notes:''});
   const [showNewBillingDocument, setShowNewBillingDocument] = useState(false);
   const [lastInviteCode, setLastInviteCode] = useState(null);
+  const [clientUsers, setClientUsers] = useState([]);
+  const [clientUserMoveDrafts, setClientUserMoveDrafts] = useState({});
   const [platformUsers, setPlatformUsers] = useState([]);
   const [supportSessions, setSupportSessions] = useState([]);
   const [platformInvite, setPlatformInvite] = useState({role:'platform_support',name:'',email:'',expiresInDays:7});
@@ -31,6 +33,9 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const emptyAuditFilters = {platformAccountId:'',companyId:'',action:'',search:''};
   const [auditFilters, setAuditFilters] = useState(emptyAuditFilters);
   const [auditDraftFilters, setAuditDraftFilters] = useState(emptyAuditFilters);
+  const emptyClientUserFilters = {platformAccountId:'',companyId:'',role:'',active:'',search:''};
+  const [clientUserFilters, setClientUserFilters] = useState(emptyClientUserFilters);
+  const [clientUserDraftFilters, setClientUserDraftFilters] = useState(emptyClientUserFilters);
   const emptyPaymentEventFilters = {platformAccountId:'',companyId:'',provider:'',actionStatus:'',dateFrom:'',dateTo:'',search:''};
   const [paymentEventFilters, setPaymentEventFilters] = useState(emptyPaymentEventFilters);
   const [paymentEventDraftFilters, setPaymentEventDraftFilters] = useState(emptyPaymentEventFilters);
@@ -62,6 +67,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const canManageBilling = ['system_owner','platform_admin','billing_admin'].includes(user.role);
   const canManageTeam = user.role === 'system_owner';
   const canUseSupport = ['system_owner','platform_admin','platform_support'].includes(user.role);
+  const canViewClientUsers = canManagePlatform || canUseSupport;
   const authHeaders = useCallback((headers={}) => {
     const token = localStorage.getItem('authToken');
     return token ? {...headers, Authorization:'Bearer '+token} : headers;
@@ -94,6 +100,10 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     platform_payment_webhook_received: 'Получено событие провайдера',
     platform_payment_event_confirmed: 'Оплата зачислена по событию',
     client_card_recognized: 'Распознана карта клиента',
+    client_user_disabled: 'Доступ клиента отключен',
+    client_user_enabled: 'Доступ клиента включен',
+    client_user_transferred: 'Пользователь перенесен',
+    client_user_updated: 'Пользователь клиента изменен',
     platform_user_invited: 'Приглашен сотрудник платформы',
     platform_user_updated: 'Сотрудник платформы изменен',
     support_session_opened: 'Открыт режим поддержки',
@@ -107,7 +117,13 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
       if (auditFilters.companyId) auditParams.set('companyId', auditFilters.companyId);
       if (auditFilters.action) auditParams.set('action', auditFilters.action);
       if (auditFilters.search.trim()) auditParams.set('search', auditFilters.search.trim());
-      const [d, c, p, bd, pp, dr, t, a, u, s] = await Promise.all([
+      const clientUserParams = new URLSearchParams({limit:'500'});
+      if (clientUserFilters.platformAccountId) clientUserParams.set('platformAccountId', clientUserFilters.platformAccountId);
+      if (clientUserFilters.companyId) clientUserParams.set('companyId', clientUserFilters.companyId);
+      if (clientUserFilters.role) clientUserParams.set('role', clientUserFilters.role);
+      if (clientUserFilters.active) clientUserParams.set('active', clientUserFilters.active);
+      if (clientUserFilters.search.trim()) clientUserParams.set('search', clientUserFilters.search.trim());
+      const [d, c, p, bd, pp, dr, t, a, cu, u, s] = await Promise.all([
         fetchJson('/system/dashboard', null),
         fetchJson('/system/companies', []),
         canManageBilling ? fetchJson('/system/payments', []) : Promise.resolve([]),
@@ -116,6 +132,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
         canManagePlatform ? fetchJson('/demo-requests', []) : Promise.resolve([]),
         fetchJson('/system/tariffs', []),
         fetchJson('/system/audit-log?'+auditParams.toString(), []),
+        canViewClientUsers ? fetchJson('/system/client-users?'+clientUserParams.toString(), []) : Promise.resolve([]),
         canManageTeam ? fetchJson('/system/platform-users', []) : Promise.resolve([]),
         canUseSupport ? fetchJson('/system/support-sessions', []) : Promise.resolve([]),
       ]);
@@ -127,10 +144,11 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
       setDemos(Array.isArray(dr)?dr:[]);
       setTariffs(Array.isArray(t)?t:[]);
       setAuditLog(Array.isArray(a)?a:[]);
+      setClientUsers(Array.isArray(cu)?cu:[]);
       setPlatformUsers(Array.isArray(u)?u:[]);
       setSupportSessions(Array.isArray(s)?s:[]);
     } catch(_){}
-	  }, [auditFilters, canManageBilling, canManagePlatform, canManageTeam, canUseSupport, fetchJson]);
+	  }, [auditFilters, canManageBilling, canManagePlatform, canManageTeam, canUseSupport, canViewClientUsers, clientUserFilters, fetchJson]);
 	  useEffect(()=>{ loadAll(); }, [loadAll]);
 
   const loadPaymentEvents = useCallback(async () => {
@@ -222,12 +240,36 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const auditCompanyOptions = useMemo(() => companies.filter(company => (
     !auditDraftFilters.platformAccountId || String(company.platform_account_id || company.id) === String(auditDraftFilters.platformAccountId)
   )), [companies, auditDraftFilters.platformAccountId]);
+  const clientUserCompanyOptions = useMemo(() => companies.filter(company => (
+    !clientUserDraftFilters.platformAccountId || String(company.platform_account_id || company.id) === String(clientUserDraftFilters.platformAccountId)
+  )), [companies, clientUserDraftFilters.platformAccountId]);
+  const clientUserMoveCompanyOptions = useCallback((item) => companies.filter(company => (
+    company.id !== 1 &&
+    company.active !== false &&
+    company.platform_account_id &&
+    (!item.platformAccountId || String(company.platform_account_id) === String(item.platformAccountId))
+  )), [companies]);
+  const clientUserRoleOptions = useMemo(() => {
+    const roles = new Set(['директор','зам_директора','бухгалтер','прораб','главный_инженер','сметчик','кладовщик','снабженец','мастер','бригадир','субподрядчик','поставщик','менеджер_crm','стройконтроль']);
+    clientUsers.forEach(item => {
+      if (item.role) roles.add(item.role);
+    });
+    return Array.from(roles).sort((a,b)=>a.localeCompare(b,'ru'));
+  }, [clientUsers]);
   const paymentEventCompanyOptions = useMemo(() => companies.filter(company => (
     !paymentEventDraftFilters.platformAccountId || String(company.platform_account_id || company.id) === String(paymentEventDraftFilters.platformAccountId)
   )), [companies, paymentEventDraftFilters.platformAccountId]);
   const hasAuditFilters = Boolean(
     auditFilters.platformAccountId || auditFilters.companyId || auditFilters.action || auditFilters.search.trim()
   );
+  const hasClientUserFilters = Boolean(
+    clientUserFilters.platformAccountId || clientUserFilters.companyId || clientUserFilters.role ||
+    clientUserFilters.active || clientUserFilters.search.trim()
+  );
+  const clientUserStats = useMemo(() => ({
+    active: clientUsers.filter(item => item.active).length,
+    inactive: clientUsers.filter(item => !item.active).length,
+  }), [clientUsers]);
   const hasPaymentEventFilters = Boolean(
     paymentEventFilters.platformAccountId || paymentEventFilters.companyId || paymentEventFilters.provider ||
     paymentEventFilters.actionStatus || paymentEventFilters.dateFrom || paymentEventFilters.dateTo ||
@@ -296,6 +338,38 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     link.click();
     link.remove();
     window.URL.revokeObjectURL(url);
+  };
+  const updateClientUser = async (clientUser, payload) => {
+    if (!clientUser?.id) return;
+    const response = await sendJson('/system/client-users/'+clientUser.id, {
+      method:'PUT',
+      body:JSON.stringify(payload),
+    });
+    const data = await response.json().catch(()=>({}));
+    if (!response.ok) {
+      alert(data.detail || 'Не удалось изменить доступ пользователя');
+      return;
+    }
+    await loadAll();
+  };
+  const toggleClientUserAccess = async (clientUser) => {
+    const nextActive = !clientUser.active;
+    const reason = window.prompt(
+      nextActive ? 'Причина включения доступа:' : 'Причина отключения доступа:',
+      nextActive ? 'Доступ восстановлен после проверки' : 'Отключение доступа по решению платформы',
+    );
+    if (!reason) return;
+    await updateClientUser(clientUser, {active:nextActive, reason});
+  };
+  const transferClientUser = async (clientUser) => {
+    const companyId = clientUserMoveDrafts[clientUser.id];
+    if (!companyId || String(companyId) === String(clientUser.companyId || '')) return;
+    const targetCompany = companies.find(company => String(company.id) === String(companyId));
+    const reason = window.prompt('Причина переноса пользователя в другую компанию:', 'Перенос доступа между юрлицами клиента');
+    if (!reason) return;
+    if (!window.confirm('Перенести пользователя '+(clientUser.email || clientUser.name)+' в компанию '+(targetCompany?.name || companyId)+'?\n\nДоступ к объектам будет очищен, чтобы не оставить права от старой компании.')) return;
+    await updateClientUser(clientUser, {companyId, reason});
+    setClientUserMoveDrafts(current => ({...current, [clientUser.id]: ''}));
   };
   const companyCreateErrorText = (data) => {
     const detail = data?.detail;
@@ -396,6 +470,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
 	  const TABS = [
     {id:'dashboard', label:'📊 Дашборд'},
 	    {id:'companies', label:'🏢 Аккаунты/компании'},
+    canViewClientUsers && {id:'clientUsers', label:'👤 Пользователи клиентов'},
     {id:'tariffs', label:'💼 Тарифы'},
     canManageBilling && {id:'payments', label:'💰 Платежи'},
     canManagePlatform && {id:'demos', label:'🎁 Демо-заявки'},
@@ -648,6 +723,80 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
 	            </div>
 	          ))}
 	        </div>)}
+
+        {/* Пользователи клиентов */}
+        {tab==='clientUsers' && canViewClientUsers && (<div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px',flexWrap:'wrap',marginBottom:'14px'}}>
+            <div>
+              <b style={{color:C.text,fontSize:'15px',display:'block'}}>Пользователи клиентских групп ({clientUsers.length})</b>
+              <p style={{color:C.textSec,fontSize:'12px',margin:'4px 0 0'}}>Доступы клиентов не удаляем: отключаем или переносим между компаниями с записью в журнал платформы.</p>
+            </div>
+            <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
+              <span style={badge(C.success,C.successLight,C.successBorder)}>активных {clientUserStats.active}</span>
+              <span style={badge(C.textSec,C.bg,C.border)}>отключено {clientUserStats.inactive}</span>
+            </div>
+          </div>
+          <div style={{...card,padding:'12px',marginBottom:'12px'}}>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'8px'}}>
+              <select value={clientUserDraftFilters.platformAccountId} onChange={e=>setClientUserDraftFilters({...clientUserDraftFilters,platformAccountId:e.target.value,companyId:''})} style={{...inp,marginBottom:0}}>
+                <option value=''>Все аккаунты</option>
+                {groupsWithLimitStatus.map(group=><option key={group.id} value={group.id}>{group.name}</option>)}
+              </select>
+              <select value={clientUserDraftFilters.companyId} onChange={e=>setClientUserDraftFilters({...clientUserDraftFilters,companyId:e.target.value})} style={{...inp,marginBottom:0}}>
+                <option value=''>Все компании</option>
+                {clientUserCompanyOptions.map(company=><option key={company.id} value={company.id}>{company.name}</option>)}
+              </select>
+              <select value={clientUserDraftFilters.role} onChange={e=>setClientUserDraftFilters({...clientUserDraftFilters,role:e.target.value})} style={{...inp,marginBottom:0}}>
+                <option value=''>Все роли</option>
+                {clientUserRoleOptions.map(role=><option key={role} value={role}>{role}</option>)}
+              </select>
+              <select value={clientUserDraftFilters.active} onChange={e=>setClientUserDraftFilters({...clientUserDraftFilters,active:e.target.value})} style={{...inp,marginBottom:0}}>
+                <option value=''>Все статусы</option>
+                <option value='true'>Активные</option>
+                <option value='false'>Отключенные</option>
+              </select>
+              <input placeholder='Поиск: имя, email, роль, компания' value={clientUserDraftFilters.search} onChange={e=>setClientUserDraftFilters({...clientUserDraftFilters,search:e.target.value})} style={{...inp,marginBottom:0}}/>
+            </div>
+            <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginTop:'10px',alignItems:'center'}}>
+              <button onClick={()=>setClientUserFilters(clientUserDraftFilters)} style={{...btnO,padding:'7px 12px',fontSize:'12px'}}>Показать</button>
+              <button onClick={()=>{setClientUserDraftFilters(emptyClientUserFilters);setClientUserFilters(emptyClientUserFilters);}} style={{...btnG,padding:'7px 12px',fontSize:'12px'}}>Сбросить</button>
+              <span style={{color:C.textMuted,fontSize:'11px'}}>{hasClientUserFilters?'Показаны пользователи по фильтрам':'Показаны пользователи всех клиентских компаний'}</span>
+            </div>
+          </div>
+          {clientUsers.length===0 && <div style={{...card,padding:'26px',textAlign:'center',color:C.textMuted}}>Пользователей по выбранным фильтрам нет</div>}
+          {clientUsers.map(item=>{
+            const selectedCompany = clientUserMoveDrafts[item.id] || item.companyId || '';
+            const canTransfer = canManagePlatform && selectedCompany && String(selectedCompany) !== String(item.companyId || '');
+            const moveOptions = clientUserMoveCompanyOptions(item);
+            return (
+              <div key={item.id} style={{...card,padding:'12px',marginBottom:'8px'}}>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:'10px',alignItems:'center'}}>
+                  <div style={{minWidth:0}}>
+                    <b style={{color:C.text,fontSize:'13px',display:'block',overflowWrap:'anywhere'}}>{item.name || item.email}</b>
+                    <p style={{color:C.textSec,fontSize:'11px',margin:'3px 0 0',overflowWrap:'anywhere'}}>{item.email || 'без email'} · {item.role || 'роль не указана'}{item.projectName?' · объект '+item.projectName:''}</p>
+                    <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{item.twoFactorEnabled?'2FA включена':(item.twoFactorRequired?'2FA требуется':'2FA не требуется')} · создан {item.createdAt || '—'}</p>
+                  </div>
+                  <div style={{minWidth:0}}>
+                    <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 6px'}}>{item.platformAccountName || 'аккаунт не связан'} · {item.companyName || 'компания не связана'}</p>
+                    {canManagePlatform && (
+                      <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap'}}>
+                        <select value={selectedCompany} onChange={e=>setClientUserMoveDrafts(current=>({...current,[item.id]:e.target.value}))} style={{...inp,marginBottom:0,minWidth:'190px',fontSize:'11px',padding:'6px 8px'}}>
+                          <option value=''>Выбрать компанию</option>
+                          {moveOptions.map(company=><option key={company.id} value={company.id}>{company.name}</option>)}
+                        </select>
+                        <button disabled={!canTransfer} onClick={()=>transferClientUser(item)} style={{...btnG,padding:'6px 10px',fontSize:'11px',opacity:canTransfer?1:0.55}}>Перенести</button>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{display:'flex',gap:'6px',alignItems:'center',justifyContent:'flex-end',flexWrap:'wrap'}}>
+                    <span style={badge(item.active?C.success:C.textMuted,item.active?C.successLight:C.bg,item.active?C.successBorder:C.border)}>{item.active?'Активен':'Отключен'}</span>
+                    {canManagePlatform && <button onClick={()=>toggleClientUserAccess(item)} style={{...btnG,padding:'6px 10px',fontSize:'11px'}}>{item.active?'Отключить':'Включить'}</button>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>)}
 
 	        {/* Тарифы */}
 	        {tab==='tariffs' && (<div>
