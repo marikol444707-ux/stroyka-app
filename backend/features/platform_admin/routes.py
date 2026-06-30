@@ -1623,6 +1623,13 @@ def register_platform_admin_routes(app, deps):
         cur.execute("""SELECT COUNT(*) as c FROM companies
                        WHERE plan<>'demo' AND plan_expires_at IS NOT NULL AND plan_expires_at < %s AND suspended_at IS NULL""", (today,))
         payment_expired = cur.fetchone()["c"]
+        cur.execute("""SELECT COUNT(*) as c FROM companies
+                       WHERE plan<>'demo' AND plan_expires_at IS NOT NULL
+                         AND plan_expires_at BETWEEN %s AND %s
+                         AND suspended_at IS NULL
+                         AND COALESCE(payment_status,'active') <> 'overdue'""",
+                    (today, today + dt.timedelta(days=7)))
+        payment_expiring = cur.fetchone()["c"]
         cur.execute("SELECT COALESCE(SUM(amount),0) as t FROM company_payments WHERE status='paid' AND date_trunc('month', payment_date)=date_trunc('month', %s::date)", (today,))
         month_revenue = float(cur.fetchone()["t"] or 0)
         cur.execute("SELECT COALESCE(SUM(amount),0) as t FROM company_payments WHERE status='paid' AND date_trunc('year', payment_date)=date_trunc('year', %s::date)", (today,))
@@ -1636,6 +1643,7 @@ def register_platform_admin_routes(app, deps):
             "newDemoRequests": new_demos,
             "trialExpiring": trial_expiring,
             "trialExpired": trial_expired,
+            "paymentExpiring": payment_expiring,
             "paymentExpired": payment_expired,
         }
 

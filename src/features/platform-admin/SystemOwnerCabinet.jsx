@@ -296,6 +296,21 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     });
     return Array.from(result.values()).sort((a,b)=>b.active-a.active || a.role.localeCompare(b.role,'ru'));
   }, [clientUsers]);
+  const accessWatchlist = useMemo(() => {
+    const priority = {
+      trial_expired: 1,
+      payment_expired: 1,
+      payment_overdue: 1,
+      soft_frozen: 2,
+      trial_no_date: 2,
+      trial_expiring: 3,
+      payment_expiring: 3,
+    };
+    return companies
+      .filter(company => company.id !== 1 && priority[company.billing_state?.status])
+      .map(company => ({...company, watchPriority: priority[company.billing_state?.status] || 9}))
+      .sort((a,b)=>a.watchPriority-b.watchPriority || (a.billing_state?.daysLeft ?? 999)-(b.billing_state?.daysLeft ?? 999));
+  }, [companies]);
   const hasPaymentEventFilters = Boolean(
     paymentEventFilters.platformAccountId || paymentEventFilters.companyId || paymentEventFilters.provider ||
     paymentEventFilters.actionStatus || paymentEventFilters.dateFrom || paymentEventFilters.dateTo ||
@@ -396,6 +411,46 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     if (!window.confirm('Перенести пользователя '+(clientUser.email || clientUser.name)+' в компанию '+(targetCompany?.name || companyId)+'?\n\nДоступ к объектам будет очищен, чтобы не оставить права от старой компании.')) return;
     await updateClientUser(clientUser, {companyId, reason});
     setClientUserMoveDrafts(current => ({...current, [clientUser.id]: ''}));
+  };
+  const extendCompanyTrial = async (company) => {
+    const days = window.prompt('Продлить триал на сколько дней?', '30');
+    if (!days) return;
+    const daysNumber = Number(days);
+    if (!Number.isFinite(daysNumber) || daysNumber <= 0) {
+      alert('Укажите положительное количество дней.');
+      return;
+    }
+    const base = new Date(company.trial_until || new Date());
+    const today = new Date();
+    const newDate = base > today ? base : today;
+    newDate.setDate(newDate.getDate() + daysNumber);
+    await sendJson('/system/companies/'+company.id, {method:'PUT', body:JSON.stringify({trialUntil:newDate.toISOString().split('T')[0], paymentStatus:'trial'})});
+    await loadAll();
+  };
+  const markCompanyOverdue = async (company) => {
+    if (!window.confirm('Пометить компанию "'+(company.name || '—')+'" как просрочку? Доступ не отключится автоматически.')) return;
+    await sendJson('/system/companies/'+company.id, {method:'PUT', body:JSON.stringify({action:'mark_overdue'})});
+    await loadAll();
+  };
+  const softSuspendCompany = async (company) => {
+    const reason = window.prompt('Причина мягкой заморозки:', company.billing_state?.reason || 'Не оплачен доступ');
+    if (reason === null) return;
+    await sendJson('/system/companies/'+company.id, {method:'PUT', body:JSON.stringify({action:'soft_suspend', reason})});
+    await loadAll();
+  };
+  const resumeCompany = async (company) => {
+    await sendJson('/system/companies/'+company.id, {method:'PUT', body:JSON.stringify({action:'resume'})});
+    await loadAll();
+  };
+  const openCompanyPayment = (company) => {
+    setNewPayment({...newPayment, companyId:company.id, amount:company.monthly_fee || ''});
+    setShowNewPayment(true);
+    setTab('payments');
+  };
+  const openCompanyBillingDocument = (company) => {
+    setNewBillingDocument({...newBillingDocument, companyId:company.id, amount:company.monthly_fee || '', documentType:'invoice'});
+    setShowNewBillingDocument(true);
+    setTab('payments');
   };
   const companyCreateErrorText = (data) => {
     const detail = data?.detail;
@@ -539,10 +594,44 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
             <div style={{...card,padding:'16px'}}><p style={{color:C.textSec,fontSize:'12px',margin:'0 0 6px'}}>🚨 Демо истекло</p><b style={{color:(dashboard.trialExpired||0)?C.danger:C.success,fontSize:'24px'}}>{dashboard.trialExpired || 0}</b></div>
             <div style={{...card,padding:'16px'}}><p style={{color:C.textSec,fontSize:'12px',margin:'0 0 6px'}}>⏸ Заморожены</p><b style={{color:C.textMuted,fontSize:'24px'}}>{dashboard.suspended}</b></div>
             <div style={{...card,padding:'16px'}}><p style={{color:C.textSec,fontSize:'12px',margin:'0 0 6px'}}>⚠️ Просрочка</p><b style={{color:C.danger,fontSize:'24px'}}>{dashboard.overdue}</b></div>
+            <div style={{...card,padding:'16px'}}><p style={{color:C.textSec,fontSize:'12px',margin:'0 0 6px'}}>💳 Оплата 7 дней</p><b style={{color:(dashboard.paymentExpiring||0)?C.warning:C.success,fontSize:'24px'}}>{dashboard.paymentExpiring || 0}</b></div>
             <div style={{...card,padding:'16px'}}><p style={{color:C.textSec,fontSize:'12px',margin:'0 0 6px'}}>💳 Оплата истекла</p><b style={{color:(dashboard.paymentExpired||0)?C.danger:C.success,fontSize:'24px'}}>{dashboard.paymentExpired || 0}</b></div>
             <div style={{...card,padding:'16px'}}><p style={{color:C.textSec,fontSize:'12px',margin:'0 0 6px'}}>💰 Выручка месяц</p><b style={{color:C.success,fontSize:'20px'}}>{Math.round(dashboard.monthRevenue).toLocaleString('ru-RU')+' ₽'}</b></div>
             <div style={{...card,padding:'16px'}}><p style={{color:C.textSec,fontSize:'12px',margin:'0 0 6px'}}>💰 Выручка год</p><b style={{color:C.success,fontSize:'20px'}}>{Math.round(dashboard.yearRevenue).toLocaleString('ru-RU')+' ₽'}</b></div>
             <div style={{...card,padding:'16px'}}><p style={{color:C.textSec,fontSize:'12px',margin:'0 0 6px'}}>🎁 Новых заявок</p><b style={{color:C.warning,fontSize:'24px'}}>{dashboard.newDemoRequests}</b></div>
+          </div>
+          <div style={{...card,padding:'16px',marginBottom:'18px'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap',marginBottom:'10px'}}>
+              <div>
+                <b style={{color:C.text,fontSize:'14px',display:'block'}}>🚦 Демо и оплата требуют внимания ({accessWatchlist.length})</b>
+                <p style={{color:C.textSec,fontSize:'12px',margin:'4px 0 0'}}>Система показывает риск заранее. Жесткого автоотключения нет: владелец платформы выбирает продление, просрочку, счет или мягкую заморозку.</p>
+              </div>
+              <button onClick={()=>setTab('companies')} style={{...btnG,padding:'7px 12px',fontSize:'12px'}}>Открыть компании</button>
+            </div>
+            {accessWatchlist.length===0 && <div style={{padding:'18px',textAlign:'center',color:C.textMuted,fontSize:'12px'}}>По демо и оплатам критичных действий нет</div>}
+            {accessWatchlist.slice(0,8).map(company=>{
+              const state = company.billing_state || {};
+              const colors = billingColorSet(state.level);
+              const isDemoCompany = company.plan === 'demo';
+              const isSuspended = Boolean(company.suspended_at || state.status === 'soft_frozen');
+              return (
+                <div key={company.id} style={{padding:'10px 0',borderTop:'1px solid '+C.border,display:'grid',gridTemplateColumns:'minmax(220px,1fr) auto',gap:'10px',alignItems:'center'}}>
+                  <div style={{minWidth:0}}>
+                    <b style={{color:C.text,fontSize:'13px',display:'block',overflowWrap:'anywhere'}}>{company.name}</b>
+                    <p style={{color:C.textSec,fontSize:'11px',margin:'3px 0 0',overflowWrap:'anywhere'}}>{company.platform_account_name || 'аккаунт не связан'} · {state.reason || 'проверьте доступ'}</p>
+                  </div>
+                  <div style={{display:'flex',gap:'6px',alignItems:'center',justifyContent:'flex-end',flexWrap:'wrap'}}>
+                    <span style={badge(colors.color,colors.bg,colors.border)}>{state.label || 'проверить'}</span>
+                    {canManagePlatform && isDemoCompany && <button onClick={()=>extendCompanyTrial(company)} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>Продлить</button>}
+                    {canManagePlatform && !isDemoCompany && state.status !== 'payment_overdue' && <button onClick={()=>markCompanyOverdue(company)} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>Просрочка</button>}
+                    {canManageBilling && <button onClick={()=>openCompanyBillingDocument(company)} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>Счет</button>}
+                    {canManageBilling && <button onClick={()=>openCompanyPayment(company)} style={{...btnO,padding:'5px 10px',fontSize:'11px'}}>Оплата</button>}
+                    {canManagePlatform && !isSuspended && <button onClick={()=>softSuspendCompany(company)} style={{...btnR,padding:'5px 10px',fontSize:'11px'}}>Мягко заморозить</button>}
+                    {canManagePlatform && isSuspended && <button onClick={()=>resumeCompany(company)} style={{...btnGr,padding:'5px 10px',fontSize:'11px'}}>Разморозить</button>}
+                  </div>
+                </div>
+              );
+            })}
           </div>
           <div style={{...card,padding:'16px'}}>
             <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>📌 Следующие шаги</b>
@@ -754,12 +843,12 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
 	                  {billingState.reason && <p style={{color:billingColors.color,fontSize:'11px',margin:'6px 0 0',fontWeight:billingNeedsAction(billingState)?700:400}}>🚦 {billingState.reason}</p>}
 	                  {canManagePlatform && c.id!==1 && (
 	                    <div style={{display:'flex',gap:'6px',marginTop:'8px',flexWrap:'wrap'}}>
-	                      {isDemo && <button onClick={async()=>{const days=prompt('Продлить триал на сколько дней?','30');if(days){const base=new Date(c.trial_until||new Date());const today=new Date();const newDate=base>today?base:today;newDate.setDate(newDate.getDate()+Number(days));await sendJson('/system/companies/'+c.id,{method:'PUT',body:JSON.stringify({trialUntil:newDate.toISOString().split('T')[0],paymentStatus:'trial'})});loadAll();}}} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>📅 Продлить триал</button>}
-	                      {!isDemo && !isSuspended && <button onClick={async()=>{await sendJson('/system/companies/'+c.id,{method:'PUT',body:JSON.stringify({action:'mark_overdue'})});loadAll();}} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>⚠️ Просрочка</button>}
-	                      {!isSuspended && <button onClick={async()=>{const reason=prompt('Причина мягкой заморозки:',billingState.reason || 'Не оплачен доступ');if(reason!==null){await sendJson('/system/companies/'+c.id,{method:'PUT',body:JSON.stringify({action:'soft_suspend',reason})});loadAll();}}} style={{...btnR,padding:'4px 10px',fontSize:'11px'}}>⏸ Мягко заморозить</button>}
-	                      {isSuspended && <button onClick={async()=>{await sendJson('/system/companies/'+c.id,{method:'PUT',body:JSON.stringify({action:'resume'})});loadAll();}} style={{...btnGr,padding:'4px 10px',fontSize:'11px'}}>▶ Разморозить</button>}
-                      {canManageBilling && <button onClick={()=>{setNewPayment({...newPayment,companyId:c.id,amount:c.monthly_fee||''});setShowNewPayment(true);setTab('payments');}} style={{...btnO,padding:'4px 10px',fontSize:'11px'}}>💰 Зачислить оплату</button>}
-                      {canManageBilling && <button onClick={()=>{setNewBillingDocument({...newBillingDocument,companyId:c.id,amount:c.monthly_fee||'',documentType:'invoice'});setShowNewBillingDocument(true);setTab('payments');}} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>📄 Счет/акт</button>}
+	                      {isDemo && <button onClick={()=>extendCompanyTrial(c)} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>📅 Продлить триал</button>}
+	                      {!isDemo && !isSuspended && <button onClick={()=>markCompanyOverdue(c)} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>⚠️ Просрочка</button>}
+	                      {!isSuspended && <button onClick={()=>softSuspendCompany(c)} style={{...btnR,padding:'4px 10px',fontSize:'11px'}}>⏸ Мягко заморозить</button>}
+	                      {isSuspended && <button onClick={()=>resumeCompany(c)} style={{...btnGr,padding:'4px 10px',fontSize:'11px'}}>▶ Разморозить</button>}
+                      {canManageBilling && <button onClick={()=>openCompanyPayment(c)} style={{...btnO,padding:'4px 10px',fontSize:'11px'}}>💰 Зачислить оплату</button>}
+                      {canManageBilling && <button onClick={()=>openCompanyBillingDocument(c)} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>📄 Счет/акт</button>}
 	                    </div>
 	                  )}
 	                  {c.suspended_reason && <p style={{color:C.danger,fontSize:'11px',margin:'6px 0 0',fontStyle:'italic'}}>⚠️ {c.suspended_reason}</p>}
