@@ -47,6 +47,29 @@ dir_stats_text() {
   printf '%s\n' "${files} files, ${bytes:-0}"
 }
 
+mtime_epoch() {
+  local path="$1"
+  if stat -c %Y "$path" >/dev/null 2>&1; then
+    stat -c %Y "$path"
+  else
+    stat -f %m "$path"
+  fi
+}
+
+newest_file_in_dir() {
+  local path="$1"
+  local latest="" file
+  if [[ ! -d "$path" ]]; then
+    return
+  fi
+  while IFS= read -r -d '' file; do
+    if [[ -z "$latest" || "$file" -nt "$latest" ]]; then
+      latest="$file"
+    fi
+  done < <(find "$path" -maxdepth 1 -type f -print0 2>/dev/null)
+  printf '%s\n' "$latest"
+}
+
 note "Production ops check"
 note "APP_DIR=$APP_DIR"
 note "BACKUP_DIR=$BACKUP_DIR"
@@ -54,9 +77,13 @@ note "UPLOADS_DIR=$UPLOADS_DIR"
 note "LEGACY_UPLOADS_DIR=$LEGACY_UPLOADS_DIR"
 
 if [[ -d "$BACKUP_DIR" ]]; then
-  latest_backup="$(find "$BACKUP_DIR" -maxdepth 1 -type f 2>/dev/null | sort | tail -1 || true)"
+  latest_backup="$(newest_file_in_dir "$BACKUP_DIR")"
   if [[ -n "$latest_backup" ]]; then
-    note "OK backup latest: $(basename "$latest_backup") ($(du -h "$latest_backup" | awk '{print $1}'))"
+    latest_age_hours=$(( ($(date +%s) - $(mtime_epoch "$latest_backup")) / 3600 ))
+    note "OK backup latest: $(basename "$latest_backup") ($(du -h "$latest_backup" | awk '{print $1}'), ${latest_age_hours}h old)"
+    if [[ "$latest_age_hours" -gt "${BACKUP_MAX_AGE_HOURS:-36}" ]]; then
+      warn "latest backup is older than ${BACKUP_MAX_AGE_HOURS:-36}h"
+    fi
   else
     warn "backup directory exists, but no backup files found"
   fi
