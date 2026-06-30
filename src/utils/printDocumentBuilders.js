@@ -801,6 +801,63 @@ export const buildCableJournalDocContent = (records = [], projectName, dateFrom,
   return html;
 };
 
+export const buildInvoiceDocContent = (data = {}, context = {}) => {
+  const { companyRequisites = {}, companyName = '' } = context;
+  const {
+    inv = {},
+    invoiceRows = { items: [] },
+    estimateControlRows = [],
+    estimateControlIssues = [],
+    vatCalc = { base: 0, vat: 0, total: 0 },
+    qrUrl = '',
+    isSupplyDelivery = false,
+    compositeCount = 0,
+  } = data;
+  let html = '<h2 style="text-align:center">ПРИХОДНАЯ НАКЛАДНАЯ № ' + (inv.number || '') + '</h2>';
+  html += '<p style="text-align:center">' + companyTitle(companyRequisites, companyName) + '</p>';
+  if (qrUrl) html += '<div style="float:right;margin-bottom:10px"><img src="' + qrUrl + '" width="100" height="100"/><p style="font-size:10px;text-align:center">QR накладной</p></div>';
+  html += '<table><tr><th>Дата</th><td>' + (inv.date || '') + '</td><th>Поставщик</th><td>' + (inv.supplierName || '') + '</td></tr>';
+  html += '<tr><th>Принял</th><td>' + (inv.acceptedBy || '') + '</td><th>Место</th><td>' + (inv.location === 'Основной склад' ? 'Основной склад' : inv.project || '') + '</td></tr>';
+  html += '<tr><th>НДС</th><td colspan="3">' + (inv.vat || '') + '</td></tr></table>';
+  if (isSupplyDelivery) {
+    html += '<p style="font-size:11px;color:#0f766e;margin:6px 0">Источник: поставка снабжения #' + (inv.supplyDeliveryId || inv.sourceId || '') + (inv.supplyRequestId ? ' по заявке #' + inv.supplyRequestId : '') + '. В материальном контроле это поступление учитывается в колонке «Поставки».</p>';
+  }
+  if (invoiceRows.reconstructed) {
+    html += '<p style="font-size:11px;color:#666;margin:6px 0">Строки восстановлены из ' + invoiceRows.source + ', потому что в старой накладной был сохранён только итог.</p>';
+  }
+  if ((inv.location || '') !== 'Основной склад' && estimateControlRows.length > 0) {
+    const color = estimateControlIssues.length ? '#b91c1c' : '#047857';
+    html += '<p style="font-size:11px;color:' + color + ';margin:6px 0"><b>Сметный контроль:</b> ' + (estimateControlIssues.length ? 'есть замечания: ' + estimateControlIssues.length : 'все строки сопоставлены со сметой') + (compositeCount ? '; комплектация укрупненных работ: ' + compositeCount : '') + '</p>';
+  }
+  html += '<table><tr><th>N</th><th>Наименование товара</th><th>Категория</th><th>Кол-во</th><th>Ед.</th><th>Сумма</th><th>План</th><th>До</th><th>После</th><th>Сметный контроль</th></tr>';
+  (invoiceRows.items || []).forEach((item, index) => {
+    const rowSum = Number(item.total || 0) || Number(item.quantity || 0) * Number(item.price || 0);
+    const ctrl = estimateControlRows[index] || {};
+    const sourceText = ctrl.planSourceCount ? '; сметных строк: ' + ctrl.planSourceCount : '';
+    const sectionsText = (ctrl.sectionsList || []).length ? '; разделы: ' + (ctrl.sectionsList || []).slice(0, 3).join(', ') : '';
+    const ctrlText = ctrl.status
+      ? ctrl.status + (ctrl.detail ? '; ' + ctrl.detail : '') + sourceText + sectionsText + (ctrl.incomingText ? '; накладная: ' + ctrl.incomingText : '') + (ctrl.shortageText && ctrl.shortageText !== '—' ? '; докупить: ' + ctrl.shortageText : '') + (ctrl.overText && ctrl.overText !== '—' ? '; сверх: ' + ctrl.overText : '') + (ctrl.priceOverText && ctrl.priceOverText !== '—' ? '; дороже плана: ' + ctrl.priceOverText : '')
+      : '—';
+    html += '<tr><td>' + (index + 1) + '</td><td>' + (item.name || '') + '</td><td>' + (item.category || '—') + '</td><td>' + (item.quantity || '') + '</td><td>' + (item.unit || '') + '</td><td>' + rowSum.toLocaleString() + '</td><td>' + (ctrl.planText || '—') + '</td><td>' + (ctrl.beforeText || '—') + '</td><td>' + (ctrl.afterText || '—') + '</td><td>' + ctrlText + '</td></tr>';
+  });
+  html += '<tr><td colspan="9">Итого без НДС:</td><td>' + vatCalc.base.toLocaleString() + ' руб.</td></tr>';
+  const invoiceVatRate = String(inv.vat || '').match(/НДС\s*(\d+(?:[,.]\d+)?)%/i);
+  if (invoiceVatRate) {
+    html += '<tr><td colspan="9">НДС ' + invoiceVatRate[1].replace(',', '.') + '%:</td><td>' + vatCalc.vat.toLocaleString() + ' руб.</td></tr><tr><td colspan="9"><b>Итого с НДС:</b></td><td><b>' + vatCalc.total.toLocaleString() + ' руб.</b></td></tr>';
+  }
+  html += '</table><div class="signatures"><div class="sig"><div class="sig-line">Поставщик</div></div><div class="sig"><div class="sig-line">Принял: ' + (inv.acceptedBy || '') + '</div></div></div>';
+  const grouped = estimateControlRows.filter((row) => (row.planDetails || []).length > 1);
+  if (grouped.length > 0) {
+    html += '<h3 style="font-size:13px;margin:18px 0 6px">Расшифровка сметных групп накладной</h3>';
+    html += '<table><tr><th>Материал накладной</th><th>Материал сметы</th><th>Пакет/раздел</th><th>Работа</th><th>Кол-во по строке</th><th>Сумма</th></tr>';
+    grouped.forEach((ctrl) => (ctrl.planDetails || []).forEach((detail, index) => {
+      html += '<tr><td>' + (index === 0 ? ctrl.name || '' : '') + '</td><td>' + (index === 0 ? ctrl.canonicalName || '' : '') + '</td><td>' + ((detail.packageName || 'Основная') + ' / ' + (detail.sectionName || '')) + '</td><td>' + (detail.workName || '—') + '</td><td>' + Number(detail.qty || 0).toLocaleString('ru-RU') + ' ' + (detail.unit || ctrl.rowUnit || '') + '</td><td>' + Math.round(Number(detail.sum || 0)).toLocaleString('ru-RU') + ' ₽</td></tr>';
+    }));
+    html += '</table>';
+  }
+  return html;
+};
+
 export const buildMovementDocContent = (movement = {}, items = [], context = {}) => {
   const { companyRequisites = {}, companyName = '', userName = '' } = context;
   let html = '<h2 style="text-align:center">НАКЛАДНАЯ НА ВНУТРЕННЕЕ ПЕРЕМЕЩЕНИЕ (М-11)</h2>';
