@@ -1,4 +1,5 @@
 import base64
+import csv
 import datetime as dt
 import io
 import json
@@ -14,7 +15,7 @@ from typing import Optional
 import xml.etree.ElementTree as ET
 
 import psycopg2.extras
-from fastapi import Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import Depends, File, Form, HTTPException, Request, Response, UploadFile
 
 
 PLATFORM_VIEW_ROLES = ("system_owner", "platform_admin", "platform_support", "billing_admin")
@@ -280,6 +281,15 @@ def _payment_event_success_status(provider: str, status: str) -> bool:
     if provider == "robokassa":
         return normalized in ("ok", "paid", "success", "completed", "approved")
     return normalized in ("paid", "success", "completed")
+
+
+def _payment_event_action_label(status: str) -> str:
+    labels = {
+        "received": "Получено",
+        "needs_review": "Нужна проверка",
+        "payment_recorded": "Платеж зачислен",
+    }
+    return labels.get(status or "", status or "Получено")
 
 
 def _money_matches(left, right) -> bool:
@@ -549,6 +559,255 @@ async def _payment_webhook_payload(request: Request) -> dict:
     except Exception:
         raw = (await request.body()).decode("utf-8", "ignore")
         return {"raw": raw}
+
+
+def _system_payment_event_filter_int(value):
+    try:
+        return int(value) if value not in (None, "") else None
+    except Exception:
+        return None
+
+
+def _system_payment_event_enrich(row: dict) -> dict:
+    item = dict(row or {})
+    provider = (item.get("provider") or "").strip().lower()
+    provider_status = item.get("provider_status")
+    document_id = item.get("billing_document_id")
+    document_status = item.get("billing_document_status")
+    document_provider = (item.get("billing_payment_provider") or "").strip().lower()
+    event_currency = (item.get("currency") or "RUB").strip().upper()
+    document_currency = (item.get("billing_document_currency") or "RUB").strip().upper()
+    success_status = _payment_event_success_status(provider, provider_status)
+    amount_matches = _money_matches(item.get("amount"), item.get("billing_document_amount"))
+    provider_matches = not document_provider or document_provider == provider
+    currency_matches = event_currency == document_currency
+    can_confirm = bool(
+        item.get("trusted")
+        and document_id
+        and item.get("billing_document_number")
+        and document_status not in ("closed", "cancelled")
+        and provider_matches
+        and success_status
+        and amount_matches
+        and currency_matches
+        and item.get("action_status") != "payment_recorded"
+        and not item.get("payment_id")
+    )
+    reasons = []
+    if not item.get("trusted"):
+        reasons.append("событие не доверенное")
+    if not document_id:
+        reasons.append("нет связи с платежным документом")
+    elif not item.get("billing_document_number"):
+        reasons.append("платежный документ не найден")
+    if document_status in ("closed", "cancelled"):
+        reasons.append("документ уже закрыт или аннулирован")
+    if document_provider and not provider_matches:
+        reasons.append("провайдер не совпадает с документом")
+    if provider_status and not success_status:
+        reasons.append("статус провайдера не подтверждает оплату")
+    if document_id and item.get("billing_document_amount") is not None and not amount_matches:
+        reasons.append("сумма не совпадает с документом")
+    if document_id and not currency_matches:
+        reasons.append("валюта не совпадает с документом")
+    if item.get("action_status") == "payment_recorded" or item.get("payment_id"):
+        reasons.append("платеж уже зачислен")
+    item["providerLabel"] = _payment_provider_label(provider)
+    item["actionStatusLabel"] = _payment_event_action_label(item.get("action_status"))
+    item["successStatus"] = success_status
+    item["amountMatches"] = amount_matches
+    item["providerMatches"] = provider_matches
+    item["currencyMatches"] = currency_matches
+    item["canConfirm"] = can_confirm
+    item["reviewReason"] = "; ".join(reasons) if reasons else ("готово к ручному зачислению" if can_confirm else "принято в журнал")
+    return item
+
+
+def _system_payment_events_csv(rows: list[dict]) -> str:
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=";")
+    writer.writerow([
+        "Дата события",
+        "Провайдер",
+        "ID события",
+        "Тип",
+        "Статус провайдера",
+        "Статус обработки",
+        "Причина проверки",
+        "Аккаунт",
+        "Компания",
+        "Документ",
+        "Сумма события",
+        "Сумма документа",
+        "Валюта",
+        "Платеж",
+        "Обработал",
+    ])
+    for row in rows:
+        writer.writerow([
+            str(row.get("received_at") or "")[:19],
+            row.get("providerLabel") or row.get("provider") or "",
+            row.get("event_id") or "",
+            row.get("event_type") or "",
+            row.get("provider_status") or "",
+            row.get("actionStatusLabel") or row.get("action_status") or "",
+            row.get("reviewReason") or "",
+            row.get("platform_account_name") or "",
+            row.get("company_name") or "",
+            row.get("billing_document_number") or "",
+            row.get("amount") or "",
+            row.get("billing_document_amount") or "",
+            row.get("currency") or "",
+            row.get("payment_id") or "",
+            row.get("processed_by") or "",
+        ])
+    return output.getvalue()
+
+
+def _system_digits(value, limit: int = None) -> str:
+    result = re.sub(r"\D+", "", str(value or ""))
+    return result[:limit] if limit else result
+
+
+def _system_company_duplicate_rows(cur, inn: str, kpp: str = "", exclude_company_id: int = None) -> list[dict]:
+    clean_inn = _system_digits(inn, 12)
+    clean_kpp = _system_digits(kpp, 9)
+    if not clean_inn:
+        return []
+    values = [clean_inn]
+    exclude_sql = ""
+    if exclude_company_id:
+        exclude_sql = "AND c.id<>%s"
+        values.append(exclude_company_id)
+    cur.execute(f"""SELECT c.id, c.name, c.short_name, c.inn, c.kpp, c.active,
+                          c.platform_account_id, pa.name AS platform_account_name,
+                          c.contact_name, c.contact_phone, c.contact_email
+                   FROM companies c
+                   LEFT JOIN platform_accounts pa ON pa.id=c.platform_account_id
+                   WHERE regexp_replace(COALESCE(c.inn,''), '\\D', '', 'g')=%s
+                     {exclude_sql}
+                   ORDER BY c.active DESC, c.id ASC
+                   LIMIT 12""", tuple(values))
+    rows = []
+    for row in cur.fetchall():
+        item = dict(row)
+        item_kpp = _system_digits(item.get("kpp"), 9)
+        item["matchType"] = "exact_inn_kpp" if clean_kpp and item_kpp == clean_kpp else "same_inn"
+        item["blocking"] = item["matchType"] == "exact_inn_kpp" or not clean_kpp
+        rows.append(item)
+    return rows
+
+
+def _system_account_usage(cur, platform_account_id: int = None, fallback_plan: str = "demo") -> dict:
+    account = None
+    if platform_account_id:
+        cur.execute("""SELECT id, name, plan, status, active
+                       FROM platform_accounts
+                       WHERE id=%s""", (platform_account_id,))
+        account = cur.fetchone()
+    plan = (account or {}).get("plan") or fallback_plan or "demo"
+    tariff = _system_tariff(plan)
+    if platform_account_id:
+        cur.execute("""SELECT COUNT(*) AS companies_count
+                       FROM companies
+                       WHERE platform_account_id=%s AND active=TRUE""", (platform_account_id,))
+        companies_count = int((cur.fetchone() or {}).get("companies_count") or 0)
+        cur.execute("""SELECT COUNT(*) AS users_count
+                       FROM users u
+                       JOIN companies c ON c.id=u.company_id
+                       WHERE c.platform_account_id=%s AND u.active=TRUE""", (platform_account_id,))
+        users_count = int((cur.fetchone() or {}).get("users_count") or 0)
+        cur.execute("""SELECT COUNT(*) AS projects_count
+                       FROM projects p
+                       JOIN companies c ON c.id=p.company_id
+                       WHERE c.platform_account_id=%s AND c.active=TRUE""", (platform_account_id,))
+        projects_count = int((cur.fetchone() or {}).get("projects_count") or 0)
+    else:
+        companies_count = 0
+        users_count = 0
+        projects_count = 0
+    return {
+        "account": dict(account) if account else None,
+        "plan": plan,
+        "tariff": tariff,
+        "companiesCount": companies_count,
+        "usersCount": users_count,
+        "projectsCount": projects_count,
+    }
+
+
+def _system_limit_item(label: str, used: int, projected: int, limit, key: str) -> Optional[dict]:
+    if limit in (None, "", 0):
+        return None
+    try:
+        numeric_limit = int(limit)
+    except Exception:
+        return None
+    level = "ok"
+    if projected > numeric_limit:
+        level = "danger"
+    elif projected >= numeric_limit:
+        level = "warning"
+    elif numeric_limit and projected / numeric_limit >= 0.8:
+        level = "warning"
+    return {
+        "key": key,
+        "label": label,
+        "used": used,
+        "projected": projected,
+        "limit": numeric_limit,
+        "level": level,
+        "text": f"{label}: {projected}/{numeric_limit}",
+    }
+
+
+def _system_company_create_preview(cur, data: dict) -> dict:
+    plan = data.get("plan") or "demo"
+    platform_account_id = _system_payment_event_filter_int(data.get("platformAccountId") or data.get("platform_account_id"))
+    inn = _system_digits(data.get("inn"), 12)
+    kpp = _system_digits(data.get("kpp"), 9)
+    duplicates = _system_company_duplicate_rows(cur, inn, kpp)
+    usage = _system_account_usage(cur, platform_account_id, fallback_plan=plan)
+    tariff = usage["tariff"] or {}
+    projected_companies = usage["companiesCount"] + 1
+    checks = [
+        _system_limit_item("Компании", usage["companiesCount"], projected_companies, tariff.get("includedCompanies"), "companies"),
+        _system_limit_item("Пользователи", usage["usersCount"], usage["usersCount"], tariff.get("maxUsers"), "users"),
+        _system_limit_item("Объекты", usage["projectsCount"], usage["projectsCount"], tariff.get("maxProjects"), "projects"),
+    ]
+    limit_warnings = [item for item in checks if item and item["level"] != "ok"]
+    blocking_reasons = []
+    if platform_account_id and not usage.get("account"):
+        blocking_reasons.append("Выбранный клиентский аккаунт не найден.")
+    if any(item.get("blocking") for item in duplicates):
+        blocking_reasons.append("Компания с таким ИНН" + (" и КПП" if kpp else "") + " уже есть в платформе.")
+    if any(item.get("level") == "danger" for item in limit_warnings):
+        blocking_reasons.append("Добавление компании превышает лимит текущего тарифа аккаунта.")
+    return {
+        "ok": True,
+        "inn": inn,
+        "kpp": kpp,
+        "platformAccountId": platform_account_id,
+        "account": usage["account"],
+        "plan": usage["plan"],
+        "tariff": {
+            "id": tariff.get("id"),
+            "name": tariff.get("name"),
+            "includedCompanies": tariff.get("includedCompanies"),
+            "maxProjects": tariff.get("maxProjects"),
+            "maxUsers": tariff.get("maxUsers"),
+        },
+        "accountUsage": {
+            "companies": usage["companiesCount"],
+            "projectedCompanies": projected_companies,
+            "users": usage["usersCount"],
+            "projects": usage["projectsCount"],
+        },
+        "duplicates": duplicates,
+        "limitWarnings": limit_warnings,
+        "blockingReasons": blocking_reasons,
+        "canCreate": not blocking_reasons,
+    }
 
 
 CLIENT_CARD_KEYS = (
@@ -1003,19 +1262,40 @@ def register_platform_admin_routes(app, deps):
             "message": "Поля распознаны как черновик. Компания не создана, пока вы не сохраните форму.",
         }
 
+    @app.post("/system/companies/preview")
+    def system_company_create_preview(data: dict, _current_user: dict = Depends(require_roles(*PLATFORM_MANAGE_ROLES))):
+        """Предварительная проверка ИНН, аккаунта и лимитов перед созданием компании."""
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        preview = _system_company_create_preview(cur, data or {})
+        conn.close()
+        return preview
+
     @app.post("/system/companies")
     def system_create_company(data: dict, current_user: dict = Depends(require_roles(*PLATFORM_MANAGE_ROLES))):
         """Создание новой компании-клиента + инвайт-код ее директору."""
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        plan = data.get("plan") or "demo"
+        preview = _system_company_create_preview(cur, data or {})
+        if not preview.get("canCreate"):
+            conn.close()
+            raise HTTPException(status_code=409, detail={
+                "message": "Компания не создана: сначала разберите дубли или смените тариф/аккаунт.",
+                "blockingReasons": preview.get("blockingReasons") or [],
+                "duplicates": preview.get("duplicates") or [],
+                "limitWarnings": preview.get("limitWarnings") or [],
+                "preview": preview,
+            })
+        platform_account_id = data.get("platformAccountId")
+        plan = preview.get("plan") if platform_account_id and preview.get("account") else (data.get("plan") or "demo")
         tariff = _system_tariff(plan)
         trial_days = int(data.get("trialDays") or 30)
         trial_until = (datetime.now() + timedelta(days=trial_days)).date() if plan == "demo" else None
         monthly_fee = float(data.get("monthlyFee") or tariff.get("monthlyFee") or 0)
         max_projects = int(data.get("maxProjects") or tariff.get("maxProjects") or 0) or None
         max_users = int(data.get("maxUsers") or tariff.get("maxUsers") or 0) or None
-        platform_account_id = data.get("platformAccountId")
+        inn = _system_digits(data.get("inn"), 12)
+        kpp = _system_digits(data.get("kpp"), 9)
         created_platform_account = False
         if not platform_account_id:
             account_name = (data.get("platformAccountName") or data.get("accountName") or data.get("name") or "").strip()
@@ -1032,7 +1312,7 @@ def register_platform_admin_routes(app, deps):
                                               contact_email, plan, trial_until, monthly_fee,
                                               payment_status, max_projects, max_users, active, notes)
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-            (platform_account_id, data.get("name"), data.get("shortName"), data.get("inn"), data.get("kpp"),
+            (platform_account_id, data.get("name"), data.get("shortName"), inn, kpp,
              data.get("contactName"), data.get("contactPhone"), data.get("contactEmail"),
              plan, trial_until, monthly_fee,
              "trial" if plan == "demo" else "active",
@@ -1053,6 +1333,8 @@ def register_platform_admin_routes(app, deps):
                 "maxProjects": max_projects,
                 "maxUsers": max_users,
                 "inviteCode": invite_code,
+                "duplicateCheck": {"inn": inn, "kpp": kpp, "duplicates": len(preview.get("duplicates") or [])},
+                "limitPreview": preview.get("accountUsage"),
             })
         conn.close()
         return {"id": new_id, "inviteCode": invite_code, "trialUntil": str(trial_until) if trial_until else None}
@@ -1196,19 +1478,78 @@ def register_platform_admin_routes(app, deps):
         return _payment_provider_states()
 
     @app.get("/system/payment-events")
-    def system_payment_events(_current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
+    def system_payment_events(request: Request, _current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
+        params = request.query_params
+        where = []
+        values = []
+        platform_account_id = _system_payment_event_filter_int(params.get("platformAccountId") or params.get("platform_account_id"))
+        company_id = _system_payment_event_filter_int(params.get("companyId") or params.get("company_id"))
+        document_id = _system_payment_event_filter_int(params.get("documentId") or params.get("billingDocumentId"))
+        provider = (params.get("provider") or "").strip().lower()
+        action_status = (params.get("actionStatus") or params.get("action_status") or "").strip()
+        date_from = (params.get("dateFrom") or "").strip()
+        date_to = (params.get("dateTo") or "").strip()
+        search = (params.get("search") or "").strip()
+        export_format = (params.get("export") or "").strip().lower()
+        try:
+            limit = max(1, min(5000 if export_format == "csv" else 500, int(params.get("limit") or 100)))
+        except Exception:
+            limit = 200 if export_format == "csv" else 100
+        if platform_account_id:
+            where.append("COALESCE(e.platform_account_id,d.platform_account_id)=%s")
+            values.append(platform_account_id)
+        if company_id:
+            where.append("COALESCE(e.company_id,d.company_id)=%s")
+            values.append(company_id)
+        if document_id:
+            where.append("e.billing_document_id=%s")
+            values.append(document_id)
+        if provider:
+            where.append("LOWER(e.provider)=%s")
+            values.append(provider)
+        if action_status:
+            where.append("e.action_status=%s")
+            values.append(action_status)
+        if date_from:
+            where.append("e.received_at::date >= %s")
+            values.append(date_from)
+        if date_to:
+            where.append("e.received_at::date <= %s")
+            values.append(date_to)
+        if search:
+            like = "%" + search + "%"
+            where.append("""(
+                e.event_id ILIKE %s OR e.event_type ILIKE %s OR e.provider_status ILIKE %s
+                OR d.number ILIKE %s OR c.name ILIKE %s OR pa.name ILIKE %s OR e.notes ILIKE %s
+            )""")
+            values.extend([like] * 7)
+        where_sql = "WHERE " + " AND ".join(where) if where else ""
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""SELECT e.*, d.number AS billing_document_number, c.name AS company_name,
+        cur.execute(f"""SELECT e.*, d.number AS billing_document_number,
+                              d.status AS billing_document_status,
+                              d.amount AS billing_document_amount,
+                              d.currency AS billing_document_currency,
+                              d.payment_provider AS billing_payment_provider,
+                              c.name AS company_name,
                               pa.name AS platform_account_name
                        FROM platform_payment_events e
                        LEFT JOIN platform_billing_documents d ON d.id=e.billing_document_id
-                       LEFT JOIN companies c ON c.id=e.company_id
-                       LEFT JOIN platform_accounts pa ON pa.id=e.platform_account_id
+                       LEFT JOIN companies c ON c.id=COALESCE(e.company_id,d.company_id)
+                       LEFT JOIN platform_accounts pa ON pa.id=COALESCE(e.platform_account_id,d.platform_account_id)
+                       {where_sql}
                        ORDER BY e.received_at DESC
-                       LIMIT 100""")
-        rows = [dict(row) for row in cur.fetchall()]
+                       LIMIT %s""", (*values, limit))
+        rows = [_system_payment_event_enrich(dict(row)) for row in cur.fetchall()]
         conn.close()
+        if export_format == "csv":
+            csv_text = _system_payment_events_csv(rows)
+            filename = "platform-payment-events-" + dt.datetime.utcnow().strftime("%Y%m%d-%H%M%S") + ".csv"
+            return Response(
+                content="\ufeff" + csv_text,
+                media_type="text/csv; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
         return rows
 
     @app.post("/system/payment-webhooks/{provider}")
@@ -1241,6 +1582,20 @@ def register_platform_admin_routes(app, deps):
             document = cur.fetchone()
         platform_account_id = document.get("platform_account_id") if document else None
         company_id = document.get("company_id") if document else None
+        action_status = "received"
+        review_notes = ["Событие принято. Фактическая оплата не создана автоматически."]
+        if not document:
+            action_status = "needs_review"
+            review_notes.append("Платежный документ не найден.")
+        elif not _payment_event_success_status(event["provider"], event.get("providerStatus")):
+            action_status = "needs_review"
+            review_notes.append("Статус провайдера не подтверждает успешную оплату.")
+        elif not _money_matches(event.get("amount"), document.get("amount")):
+            action_status = "needs_review"
+            review_notes.append("Сумма события не совпадает с платежным документом.")
+        elif (event.get("currency") or "RUB").strip().upper() != (document.get("currency") or "RUB").strip().upper():
+            action_status = "needs_review"
+            review_notes.append("Валюта события не совпадает с платежным документом.")
         cur.execute("""INSERT INTO platform_payment_events
                           (provider, event_id, event_type, provider_status, platform_account_id, company_id,
                            billing_document_id, amount, currency, trusted, action_status, payload_json, notes)
@@ -1248,8 +1603,8 @@ def register_platform_admin_routes(app, deps):
                        RETURNING id""",
                     (event["provider"], event.get("eventId"), event.get("eventType"), event.get("providerStatus"),
                      platform_account_id, company_id, event.get("documentId"), event.get("amount"), event.get("currency") or "RUB",
-                     True, "received", json.dumps(payload, ensure_ascii=False, default=str),
-                     "Событие принято. Фактическая оплата не создана автоматически."))
+                     True, action_status, json.dumps(payload, ensure_ascii=False, default=str),
+                     " ".join(review_notes)))
         event_id = cur.fetchone()["id"]
         _system_write_audit(cur, {"name": "payment-webhook", "role": "system"}, "platform_payment_webhook_received",
             "platform_payment_event", event_id, event.get("eventId") or str(event_id),
@@ -1261,7 +1616,7 @@ def register_platform_admin_routes(app, deps):
                 "billingDocumentId": event.get("documentId"),
                 "billingDocumentNumber": document.get("number") if document else None,
                 "amount": event.get("amount"),
-                "actionStatus": "received",
+                "actionStatus": action_status,
                 "autoPaymentCreated": False,
             })
         conn.close()
@@ -1269,7 +1624,7 @@ def register_platform_admin_routes(app, deps):
             "ok": True,
             "eventId": event_id,
             "documentFound": bool(document),
-            "actionStatus": "received",
+            "actionStatus": action_status,
             "autoPaymentCreated": False,
             "message": "Событие провайдера принято в журнал. Факт оплаты не зачислен автоматически.",
         }

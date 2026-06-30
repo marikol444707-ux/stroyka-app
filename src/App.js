@@ -206,13 +206,27 @@ import {
   workDocDate,
 } from './utils/documentFormatUtils';
 import {
+  buildAOSKDocContent,
+  buildDirectorBriefReportDocContent,
+  buildExecPackageDocContent,
+  buildIGDDocContent,
   buildInventoryDocContent,
+  buildKS11DocContent,
+  buildKS14DocContent,
+  buildM2DocContent,
+  buildM15DocContent,
   buildMovementDocContent,
   buildPassportDocContent,
   buildPositionInstructionDocContent,
   buildPrescriptionDocContent,
   buildPricelistDocContent,
+  buildSpecJournalDocContent,
+  buildSupervisorMonthlyReportDocContent,
+  buildSupplementaryAgreementDocContent,
   buildTBContentDoc,
+  buildVATBookDocContent,
+  directorDocStyles,
+  fmtDocMoney,
 } from './utils/printDocumentBuilders';
 import { EMPTY_ESTIMATE_CHANGE, isApprovedEstimateChangeStatus } from './utils/estimateChangeUtils';
 import { emptyStaffForm } from './utils/staffUtils';
@@ -8549,197 +8563,38 @@ function App() {
   };
 
   // Формы М-15 (накладная на отпуск материалов) и месячного отчёта технадзора
-  const buildM15Content = (transfer) => {
-    const req = companyRequisites||{};
-    const orgName = req.fullName||req.shortName||companyName||'_____';
-    const fmtDate = (d) => { if(!d) return ''; const dt=new Date(d); if(isNaN(dt)) return d; return ('0'+dt.getDate()).slice(-2)+'.'+('0'+(dt.getMonth()+1)).slice(-2)+'.'+dt.getFullYear(); };
-    let html = '<style>.m15-tbl{border-collapse:collapse;width:100%;font-size:11px}.m15-tbl th,.m15-tbl td{border:1px solid #333;padding:5px 6px}.m15-tbl th{background:#f3f4f6}</style>';
-    html += '<h3 style="text-align:center;margin:8px 0">Унифицированная форма № М-15</h3>';
-    html += '<h2 style="text-align:center;margin:0 0 4px">НАКЛАДНАЯ № '+transfer.id+' на отпуск материалов на сторону</h2>';
-    html += '<p style="text-align:center;font-size:11px;color:#444">Утверждена Постановлением Госкомстата России от 30.10.1997 № 71а</p>';
-    html += '<table class="m15-tbl"><tr><th>Организация</th><td>'+orgName+'</td><th>Дата</th><td>'+fmtDate(transfer.transferDate||transfer.date)+'</td></tr>';
-    html += '<tr><th>Отправитель</th><td>'+(transfer.fromLocation||'Основной склад')+'</td><th>Получатель</th><td>'+(transfer.toPerson||'')+' ('+(transfer.toPersonRole||'')+')</td></tr>';
-    html += '<tr><th>Объект</th><td>'+(transfer.projectName||'')+'</td><th>Пакет работ</th><td>'+(transfer.workPackage||'общий')+'</td></tr></table>';
-    html += '<table class="m15-tbl" style="margin-top:12px"><tr><th>№</th><th>Наименование материала</th><th>Ед.изм.</th><th>Количество</th><th>Примечание</th></tr>';
-    html += '<tr><td>1</td><td>'+(transfer.materialName||'')+'</td><td>'+(transfer.unit||'')+'</td><td>'+(transfer.quantity||0)+'</td><td>'+(transfer.notes||'')+'</td></tr>';
-    html += '</table>';
-    html += '<div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:30px">';
-    html += '<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Отпустил:</div><div style="border-bottom:1px solid #333;min-height:18px"></div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
-    html += '<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Получил:</div><div style="border-bottom:1px solid #333;min-height:18px">'+(transfer.toPerson||'')+'</div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
-    html += '</div>';
-    return html;
-  };
+  const printDocContext = () => ({
+    companyRequisites,
+    companyName,
+    projects,
+    hiddenActs,
+    workJournal,
+    projectPlanDone,
+    materialInspections,
+    cableJournal,
+    tbJournal,
+    prescriptionsList,
+    supplierInvoices,
+    interimActs,
+    supervisorActs,
+    user,
+  });
 
-  const buildAOSKContent = (projectName) => {
-    const req = companyRequisites||{};
-    const orgName = req.fullName||req.shortName||companyName||'_____';
-    const project = projects.find(p=>p.name===projectName)||{};
-    const acts = hiddenActs.filter(a=>a.projectName===projectName);
-    const responsibleActs = acts.filter(a=>{const wn=(a.workName||'').toLowerCase();return wn.includes('фундамент')||wn.includes('арматур')||wn.includes('бетон')||wn.includes('каркас')||wn.includes('несущ')||wn.includes('перекрыт')||wn.includes('колонн')||wn.includes('балк');});
-    const fmtDate=(d)=>{if(!d)return '«___» __________ 20__ г.';const dt=new Date(d);if(isNaN(dt))return d;const m=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];return '«'+String(dt.getDate()).padStart(2,'0')+'» '+m[dt.getMonth()]+' '+dt.getFullYear()+' г.';};
-    let html='<style>.aosk-title{text-align:center;font-weight:700;font-size:14px;margin:18px 0 4px}.aosk-sub{text-align:center;font-size:13px;margin:0 0 14px}.aosk-item{margin:8px 0;font-size:12px;line-height:1.5}.aosk-tbl{border-collapse:collapse;width:100%;font-size:11px;margin:8px 0}.aosk-tbl th,.aosk-tbl td{border:1px solid #333;padding:4px 6px}.aosk-tbl th{background:#f3f4f6}</style>';
-    html+='<div style="margin:6px 0;font-size:12px"><b>'+orgName+'</b></div>';
-    html+='<div class="aosk-title">АКТ</div><div class="aosk-sub">освидетельствования ответственных конструкций</div>';
-    html+='<div class="aosk-item"><b>Объект:</b> '+(projectName||'')+'</div>';
-    html+='<div class="aosk-item"><b>Заказчик:</b> '+(project.client||'____________')+'</div>';
-    html+='<div class="aosk-item"><b>Подрядчик:</b> '+orgName+'</div>';
-    html+='<div class="aosk-item"><b>Дата:</b> '+fmtDate(new Date().toISOString().slice(0,10))+'</div>';
-    html+='<p style="font-size:12px;margin:14px 0 8px">Комиссия в составе представителей застройщика, технадзора, генподрядчика и субподрядчика провела освидетельствование следующих ответственных конструкций:</p>';
-    if (responsibleActs.length===0){
-      html+='<p style="text-align:center;color:#888;font-size:11px;padding:14px">Записей по ответственным конструкциям нет — ведутся через АОСР (СНиП 12-01-2004)</p>';
-    } else {
-      html+='<table class="aosk-tbl"><tr><th>№</th><th>Конструкция</th><th>Объём</th><th>Раздел сметы</th><th>Подписан</th><th>Связан с АОСР</th></tr>';
-      responsibleActs.forEach((a,i)=>{html+='<tr><td>'+(i+1)+'</td><td>'+(a.workName||'')+'</td><td>'+(a.quantity||0)+' '+(a.unit||'')+'</td><td>'+(a.sectionName||'—')+'</td><td>'+(a.status==='Подписан'?'✅':'⏳ '+(a.status||''))+'</td><td>'+a.actNumber+'</td></tr>';});
-      html+='</table>';
-    }
-    html+='<p style="font-size:12px;margin:14px 0">При выполнении конструкций соблюдены требования: СНиП 3.03.01 (бетонные и железобетонные конструкции), ГОСТ 26633 (бетоны тяжёлые), ГОСТ 5781 (арматура).</p>';
-    html+='<p style="font-size:12px"><b>Заключение комиссии:</b> ответственные конструкции выполнены в соответствии с проектной документацией и техническими регламентами. Разрешается производство последующих работ.</p>';
-    html+='<div style="margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:20px">';
-    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Представитель застройщика (заказчика):</div><div style="border-bottom:1px solid #333;min-height:18px"></div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
-    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Представитель технического надзора:</div><div style="border-bottom:1px solid #333;min-height:18px"></div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
-    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Представитель генподрядчика:</div><div style="border-bottom:1px solid #333;min-height:18px">'+(req.directorName||'')+'</div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
-    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Представитель проектной организации:</div><div style="border-bottom:1px solid #333;min-height:18px"></div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
-    html+='</div>';
-    html+='<p style="margin-top:20px;font-size:10px;color:#555;text-align:center">Форма соответствует СНиП 12-01-2004 (Приложение 4). Документ обязателен для приёмки несущих/ответственных конструкций.</p>';
-    return html;
-  };
+  const buildM15Content = (transfer) => buildM15DocContent(transfer, printDocContext());
 
-  const buildKS11Content = (project) => {
-    const req = companyRequisites||{};
-    const orgName = req.fullName||req.shortName||companyName||'_____';
-    const fmtDate=(d)=>{if(!d)return '«___» __________ 20__ г.';const dt=new Date(d);if(isNaN(dt))return d;const m=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];return '«'+String(dt.getDate()).padStart(2,'0')+'» '+m[dt.getMonth()]+' '+dt.getFullYear()+' г.';};
-    const pd=projectPlanDone(project);
-    const aosrTotal=hiddenActs.filter(a=>a.projectName===project.name&&a.status==='Подписан').length;
-    const aosrAll=hiddenActs.filter(a=>a.projectName===project.name).length;
-    let html='<style>.ks-tbl{border-collapse:collapse;width:100%;font-size:11px}.ks-tbl th,.ks-tbl td{border:1px solid #333;padding:5px 6px}.ks-tbl th{background:#f3f4f6}</style>';
-    html+='<h3 style="text-align:center;margin:6px 0">Унифицированная форма № КС-11</h3>';
-    html+='<h2 style="text-align:center;margin:0 0 4px">АКТ ПРИЁМКИ ЗАКОНЧЕННОГО СТРОИТЕЛЬСТВОМ ОБЪЕКТА</h2>';
-    html+='<p style="text-align:center;font-size:11px;color:#444">Утверждена Постановлением Госкомстата России от 30.10.1997 № 71а</p>';
-    html+='<p style="font-size:12px"><b>Объект:</b> '+project.name+'</p>';
-    html+='<p style="font-size:12px"><b>Адрес:</b> '+(project.address||project.city||'____________')+'</p>';
-    html+='<p style="font-size:12px"><b>Заказчик:</b> '+(project.client||'____________')+'</p>';
-    html+='<p style="font-size:12px"><b>Подрядчик:</b> '+orgName+'</p>';
-    html+='<p style="font-size:12px"><b>Дата подписания:</b> '+fmtDate(new Date().toISOString().slice(0,10))+'</p>';
-    html+='<h3 style="margin-top:14px;font-size:13px">1. Характеристики выполненных работ:</h3>';
-    html+='<table class="ks-tbl"><tr><td>Бюджет по договору</td><td>'+Math.round(Number(project.budget||0)).toLocaleString("ru-RU")+' ₽</td></tr>';
-    html+='<tr><td>Выполнено по смете</td><td>'+Math.round(pd.done).toLocaleString("ru-RU")+' ₽</td></tr>';
-    html+='<tr><td>Срок строительства</td><td>'+(project.startDate||'____')+' — '+(project.deadline||'____')+'</td></tr>';
-    html+='<tr><td>АОСР подписанных / всего</td><td>'+aosrTotal+' / '+aosrAll+'</td></tr></table>';
-    html+='<h3 style="margin-top:14px;font-size:13px">2. Заключение приёмочной комиссии:</h3>';
-    html+='<p style="font-size:12px">Объект <b>'+project.name+'</b> выполнен в соответствии с проектной документацией, техническими регламентами и условиями договора подряда. Все скрытые работы освидетельствованы и приняты согласно АОСР. Объект пригоден к эксплуатации.</p>';
-    html+='<div style="margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:20px">';
-    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Заказчик:</div><div style="border-bottom:1px solid #333;min-height:18px">'+(project.client||'')+'</div></div>';
-    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Подрядчик:</div><div style="border-bottom:1px solid #333;min-height:18px">'+(req.directorName||orgName)+'</div></div>';
-    html+='</div>';
-    return html;
-  };
+  const buildAOSKContent = (projectName) => buildAOSKDocContent(projectName, printDocContext());
 
-  const buildKS14Content = (project) => {
-    const req = companyRequisites||{};
-    const orgName = req.fullName||req.shortName||companyName||'_____';
-    let html='<h3 style="text-align:center;margin:6px 0">Унифицированная форма № КС-14</h3>';
-    html+='<h2 style="text-align:center;margin:0 0 4px">АКТ ПРИЁМКИ ОБЪЕКТА ГОСУДАРСТВЕННОЙ ПРИЁМОЧНОЙ КОМИССИЕЙ</h2>';
-    html+='<p style="text-align:center;font-size:11px;color:#444">Утверждена Постановлением Госкомстата России от 30.10.1997 № 71а</p>';
-    html+='<p style="font-size:12px;margin:14px 0"><b>Объект:</b> '+project.name+' · <b>Адрес:</b> '+(project.address||project.city||'____________')+'</p>';
-    html+='<p style="font-size:12px"><b>Заказчик:</b> '+(project.client||'____________')+' · <b>Подрядчик:</b> '+orgName+'</p>';
-    html+='<p style="font-size:12px;margin:14px 0">Государственная приёмочная комиссия в составе:</p>';
-    html+='<ul style="font-size:12px"><li>Председатель комиссии (представитель заказчика)</li><li>Представитель государственного строительного надзора</li><li>Представитель пожарного надзора</li><li>Представитель санитарно-эпидемиологической службы</li><li>Представитель проектной организации</li><li>Представитель генподрядчика — '+orgName+'</li></ul>';
-    html+='<p style="font-size:12px;margin:14px 0">Произвела осмотр законченного строительством объекта и установила, что объект соответствует утверждённому проекту, требованиям технических регламентов и нормативной документации. Объект <b>принят</b> в эксплуатацию.</p>';
-    html+='<div style="margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:20px">';
-    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Председатель комиссии:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div>';
-    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Представитель ГСН:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div>';
-    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Представитель пожнадзора:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div>';
-    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Представитель СЭС:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div>';
-    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Проектная организация:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div>';
-    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Генподрядчик:</div><div style="border-bottom:1px solid #333;min-height:18px">'+(req.directorName||orgName)+'</div></div>';
-    html+='</div>';
-    return html;
-  };
+  const buildKS11Content = (project) => buildKS11DocContent(project, printDocContext());
 
-  const buildIGDContent = (projectName) => {
-    const req = companyRequisites||{};
-    const orgName = req.fullName||req.shortName||companyName||'_____';
-    let html='<h2 style="text-align:center;margin:8px 0">ИСПОЛНИТЕЛЬНАЯ ГЕОДЕЗИЧЕСКАЯ ДОКУМЕНТАЦИЯ</h2>';
-    html+='<p style="text-align:center;font-size:11px;color:#444">по СП 126.13330 «Геодезические работы в строительстве»</p>';
-    html+='<p style="font-size:12px"><b>Объект:</b> '+projectName+'</p>';
-    html+='<p style="font-size:12px"><b>Подрядчик:</b> '+orgName+'</p>';
-    html+='<h3 style="margin-top:14px;font-size:13px">Перечень исполнительных схем (составляется геодезистом):</h3>';
-    html+='<ul style="font-size:12px;line-height:1.7">';
-    html+='<li>Схема расположения главных осей здания</li>';
-    html+='<li>Схема расположения свай / фундамента (с отклонениями от проекта)</li>';
-    html+='<li>Высотная схема цоколя и фундаментной плиты</li>';
-    html+='<li>Схема расположения колонн каждого этажа</li>';
-    html+='<li>Схема геодезической разбивки внутренних осей</li>';
-    html+='<li>Поэтажные планы с фактическими размерами</li>';
-    html+='<li>Профиль наружных сетей</li>';
-    html+='<li>Сводный план фактического положения объекта на участке</li>';
-    html+='</ul>';
-    html+='<p style="font-size:11px;color:#666;margin-top:14px">⚠️ Схемы выполняются на бумаге/AutoCAD по СП 126.13330.2017. Должны содержать: фактические координаты, отметки, отклонения от проекта, подписи геодезиста и прораба.</p>';
-    html+='<div style="margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:20px">';
-    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Геодезист:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div>';
-    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Производитель работ:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div>';
-    html+='</div>';
-    return html;
-  };
+  const buildKS14Content = (project) => buildKS14DocContent(project, printDocContext());
 
-  const buildSpecJournalContent = (projectName, kind) => {
-    const req = companyRequisites||{};
-    const orgName = req.fullName||req.shortName||companyName||'_____';
-    const works=workJournal.filter(j=>j.project===projectName);
-    const KW={welding:['свар','наплавка','шов','электрод'],concrete:['бетон','стяжк','залив','раствор','цемент'],assembly:['монтаж','сборн','установк','панел','плит','блок'],anticorrosion:['антикорр','покрас','грунт','окрашивание','лак'],insulation:['изоляц','утепл','гидро','пароизол','шумоизол'],piling:['свай','забивк','буронабивн','шпунт']};
-    const map={welding:'СВАРОЧНЫХ',concrete:'БЕТОННЫХ',assembly:'МОНТАЖА СБОРНЫХ ж/б КОНСТРУКЦИЙ',anticorrosion:'АНТИКОРРОЗИОННОЙ ЗАЩИТЫ',insulation:'ИЗОЛЯЦИОННЫХ',piling:'СВАЙНЫХ'};
-    const norm={welding:'РД-03-606-03',concrete:'ГОСТ 31108-2020 / СП 70.13330',assembly:'СП 70.13330',anticorrosion:'СНиП 3.04.03-85',insulation:'СП 71.13330',piling:'СП 24.13330'};
-    const kws=KW[kind]||[];
-    const filtered=works.filter(w=>{const d=(w.description||'').toLowerCase();return kws.some(k=>d.includes(k));});
-    let html='<style>.sp-tbl{border-collapse:collapse;width:100%;font-size:11px;margin:8px 0}.sp-tbl th,.sp-tbl td{border:1px solid #333;padding:5px 6px}.sp-tbl th{background:#f3f4f6}</style>';
-    html+='<h2 style="text-align:center;margin:6px 0">ЖУРНАЛ '+map[kind]+' РАБОТ</h2>';
-    html+='<p style="text-align:center;font-size:11px;color:#444">по '+norm[kind]+'</p>';
-    html+='<p style="font-size:12px"><b>Объект:</b> '+projectName+' · <b>Подрядчик:</b> '+orgName+'</p>';
-    if (filtered.length===0) html+='<p style="text-align:center;color:#888;font-size:11px;padding:20px">Записей по '+map[kind].toLowerCase()+' работам в журнале не найдено. Используются ключевые слова: '+kws.join(', ')+'</p>';
-    else {
-      html+='<table class="sp-tbl"><tr><th>№</th><th>Дата</th><th>Описание работы</th><th>Ед.</th><th>Кол-во</th><th>Исполнитель</th><th>ИТР</th><th>Нормативы</th><th>Качество</th></tr>';
-      filtered.forEach((w,i)=>{html+='<tr><td>'+(i+1)+'</td><td>'+(w.date||'')+'</td><td>'+(w.description||'')+(w.hiddenWork?' 🔒':'')+'</td><td>'+(w.unit||'')+'</td><td>'+(w.quantity||0)+'</td><td>'+(w.masterName||'')+'</td><td>'+(w.responsibleItr||'—')+'</td><td>'+(w.normatives||'—')+'</td><td>'+(w.qualityStatus||w.status||'')+'</td></tr>';});
-      html+='</table>';
-    }
-    html+='<div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:20px">';
-    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Производитель работ:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div>';
-    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Технадзор:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div>';
-    html+='</div>';
-    html+='<p style="margin-top:16px;font-size:10px;color:#666;text-align:center">Журнал формируется автоматически из общего журнала работ по ключевым словам. По '+norm[kind]+' допустимо ведение отдельного спецжурнала.</p>';
-    return html;
-  };
+  const buildIGDContent = (projectName) => buildIGDDocContent(projectName, printDocContext());
 
-  const buildM2Content = (supplier, items, projectName, recipientName, recipientPassport) => {
-    const req = companyRequisites||{};
-    const orgName = req.fullName||req.shortName||companyName||'_____';
-    const fmtDate=(d)=>{if(!d)return '«___» __________ 20__ г.';const dt=new Date(d);if(isNaN(dt))return d;const m=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];return '«'+String(dt.getDate()).padStart(2,'0')+'» '+m[dt.getMonth()]+' '+dt.getFullYear()+' г.';};
-    const num=String(Date.now()).slice(-6);
-    const today=new Date().toISOString().split('T')[0];
-    const validUntil=new Date(Date.now()+15*24*3600*1000).toISOString().split('T')[0];
-    let html='<style>.m2-tbl{border-collapse:collapse;width:100%;font-size:11px;margin:8px 0}.m2-tbl th,.m2-tbl td{border:1px solid #333;padding:5px 6px}.m2-tbl th{background:#f3f4f6}</style>';
-    html+='<h3 style="text-align:center;margin:6px 0">Унифицированная форма № М-2</h3>';
-    html+='<h2 style="text-align:center;margin:0 0 6px">ДОВЕРЕННОСТЬ № '+num+'</h2>';
-    html+='<p style="text-align:center;font-size:11px;color:#444">Утверждена Постановлением Госкомстата России от 30.10.1997 № 71а</p>';
-    html+='<p style="font-size:12px"><b>Дата выдачи:</b> '+fmtDate(today)+'</p>';
-    html+='<p style="font-size:12px"><b>Действительна по:</b> '+fmtDate(validUntil)+' (срок 15 дней)</p>';
-    html+='<p style="font-size:12px"><b>Доверитель (организация):</b> '+orgName+'</p>';
-    if (req.inn) html+='<p style="font-size:12px"><b>ИНН:</b> '+req.inn+(req.kpp?' · КПП: '+req.kpp:'')+'</p>';
-    html+='<p style="font-size:12px"><b>Поставщик:</b> '+(supplier?supplier.name||supplier:'____________')+(supplier&&supplier.inn?' · ИНН: '+supplier.inn:'')+'</p>';
-    if (projectName) html+='<p style="font-size:12px"><b>Объект назначения:</b> '+projectName+'</p>';
-    html+='<p style="font-size:12px;margin:10px 0">Уполномачивает гражданина <b>'+(recipientName||'____________')+'</b>'+(recipientPassport?', паспорт: '+recipientPassport:'')+' получить от поставщика следующие материальные ценности:</p>';
-    html+='<table class="m2-tbl"><tr><th>№</th><th>Наименование</th><th>Ед.изм.</th><th>Кол-во (цифрами)</th><th>Кол-во (прописью)</th></tr>';
-    (items||[]).forEach((it,i)=>{html+='<tr><td>'+(i+1)+'</td><td>'+(it.name||'')+'</td><td>'+(it.unit||'')+'</td><td>'+(it.quantity||0)+'</td><td>'+(it.qtyText||'')+'</td></tr>';});
-    if ((items||[]).length===0) html+='<tr><td>1</td><td colspan="4" style="color:#888">(укажите материалы)</td></tr>';
-    html+='</table>';
-    html+='<p style="font-size:12px;margin:16px 0">Доверенность недействительна без предъявления документа, удостоверяющего личность.</p>';
-    html+='<div style="margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:20px">';
-    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Руководитель:</div><div style="border-bottom:1px solid #333;min-height:18px">'+(req.directorName||'')+'</div><div style="font-size:9px;color:#555;margin-top:2px">(подпись, ФИО)</div></div>';
-    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Главный бухгалтер:</div><div style="border-bottom:1px solid #333;min-height:18px">'+(req.accountantName||'')+'</div><div style="font-size:9px;color:#555;margin-top:2px">(подпись, ФИО)</div></div>';
-    html+='</div>';
-    html+='<p style="margin-top:20px;font-size:10px;text-align:center">М.П.</p>';
-    html+='<p style="margin-top:16px;font-size:11px;text-align:center;color:#555"><b>Подпись получателя</b>, удостоверяющая образец подписи: ___________________________</p>';
-    return html;
-  };
+  const buildSpecJournalContent = (projectName, kind) => buildSpecJournalDocContent(projectName, kind, printDocContext());
+
+  const buildM2Content = (supplier, items, projectName, recipientName, recipientPassport) => (
+    buildM2DocContent(supplier, items, projectName, recipientName, recipientPassport, printDocContext())
+  );
 
   const buildM8Content = (projectName, masterName, periodFrom, periodTo) => {
     const req = companyRequisites||{};
@@ -8849,105 +8704,15 @@ function App() {
     return html;
   };
 
-  const buildVATBookContent = (periodFrom, periodTo) => {
-    const req = companyRequisites||{};
-    const orgName = req.fullName||req.shortName||companyName||'_____';
-    const inRange = (d) => !d ? false : (!periodFrom||d>=periodFrom) && (!periodTo||d<=periodTo);
-    const purchases = (supplierInvoices||[]).filter(i=>(i.status==='Оплачен'||i.status==='Утверждён')&&inRange(i.invoiceDate));
-    const sales = (interimActs||[]).filter(a=>inRange(a.periodEnd||a.periodStart));
-    const totalPurchase = purchases.reduce((s,i)=>s+Number(i.amount||0),0);
-    const totalPurchaseVAT = purchases.reduce((s,i)=>s+Number(i.vatAmount||0),0);
-    const totalSales = sales.reduce((s,a)=>s+Number(a.totalAmount||0),0);
-    const estVATSales = Math.round(totalSales/120*20);
-    let html = '<style>.vat-tbl{border-collapse:collapse;width:100%;font-size:11px;margin:8px 0}.vat-tbl th,.vat-tbl td{border:1px solid #333;padding:5px 6px}.vat-tbl th{background:#f3f4f6}</style>';
-    html += '<h2 style="text-align:center;margin:6px 0">КНИГА ПОКУПОК И ПРОДАЖ (НДС)</h2>';
-    html += '<p style="text-align:center;font-size:11px;color:#444">Налогоплательщик: <b>'+orgName+'</b> · ИНН: '+(req.inn||'____________')+'</p>';
-    html += '<p style="text-align:center;font-size:11px;color:#444">Период: '+(periodFrom||'__.__.____')+' — '+(periodTo||'__.__.____')+'</p>';
-    html += '<h3 style="margin-top:14px;font-size:13px">Книга покупок (входящие счета от поставщиков)</h3>';
-    if(purchases.length===0) html += '<p style="font-size:11px;color:#888">За период покупок нет</p>';
-    else {
-      html += '<table class="vat-tbl"><tr><th>№</th><th>Дата</th><th>Поставщик</th><th>№ счёта</th><th>Сумма с НДС</th><th>В т.ч. НДС</th><th>Статус</th></tr>';
-      purchases.forEach((p,i)=>{html+='<tr><td>'+(i+1)+'</td><td>'+(p.invoiceDate||'')+'</td><td>'+(p.supplierName||'')+'</td><td>'+(p.invoiceNumber||'')+'</td><td style="text-align:right">'+Math.round(Number(p.amount||0)).toLocaleString('ru-RU')+'</td><td style="text-align:right">'+Math.round(Number(p.vatAmount||0)).toLocaleString('ru-RU')+'</td><td>'+p.status+'</td></tr>';});
-      html += '<tr style="background:#fef3c7"><td colspan="4"><b>ИТОГО покупки:</b></td><td style="text-align:right"><b>'+Math.round(totalPurchase).toLocaleString('ru-RU')+' ₽</b></td><td style="text-align:right"><b>'+Math.round(totalPurchaseVAT).toLocaleString('ru-RU')+' ₽</b></td><td></td></tr>';
-      html += '</table>';
-    }
-    html += '<h3 style="margin-top:14px;font-size:13px">Книга продаж (выставленные акты выполненных работ)</h3>';
-    if(sales.length===0) html += '<p style="font-size:11px;color:#888">За период продаж нет</p>';
-    else {
-      html += '<table class="vat-tbl"><tr><th>№</th><th>Период</th><th>Объект</th><th>Контрагент</th><th>Сумма</th><th>НДС (20%)</th></tr>';
-      sales.forEach((s,i)=>{const v=Math.round(Number(s.totalAmount||0)/120*20);html+='<tr><td>'+(i+1)+'</td><td>'+((s.periodStart||'')+' — '+(s.periodEnd||''))+'</td><td>'+(s.project||'')+'</td><td>'+(s.masterName||'')+'</td><td style="text-align:right">'+Math.round(Number(s.totalAmount||0)).toLocaleString('ru-RU')+'</td><td style="text-align:right">'+v.toLocaleString('ru-RU')+'</td></tr>';});
-      html += '<tr style="background:#d1fae5"><td colspan="4"><b>ИТОГО продажи:</b></td><td style="text-align:right"><b>'+Math.round(totalSales).toLocaleString('ru-RU')+' ₽</b></td><td style="text-align:right"><b>'+estVATSales.toLocaleString('ru-RU')+' ₽</b></td></tr>';
-      html += '</table>';
-    }
-    html += '<div style="margin-top:20px;padding:14px;background:#f3f4f6;border-radius:8px;font-size:12px">';
-    html += '<b>Итог по НДС за период:</b><br/>';
-    html += 'НДС к вычету (покупки): <b>'+Math.round(totalPurchaseVAT).toLocaleString('ru-RU')+' ₽</b><br/>';
-    html += 'НДС к начислению (продажи): <b>'+estVATSales.toLocaleString('ru-RU')+' ₽</b><br/>';
-    html += '<b style="color:'+(estVATSales-totalPurchaseVAT>0?'#dc2626':'#059669')+'">НДС к уплате в бюджет: '+(estVATSales-totalPurchaseVAT).toLocaleString('ru-RU')+' ₽</b>';
-    html += '</div>';
-    html += '<p style="margin-top:14px;font-size:10px;color:#666;text-align:center">Расчёт ориентировочный. Финальные суммы определяются по налоговой декларации (ст.169-172 НК РФ). Для ОСН.</p>';
-    return html;
-  };
+  const buildVATBookContent = (periodFrom, periodTo) => (
+    buildVATBookDocContent(periodFrom, periodTo, printDocContext())
+  );
 
-  const buildSupplementaryAgreementContent = (unx, project) => {
-    const req = companyRequisites||{};
-    const orgName = req.fullName||req.shortName||companyName||'_____';
-    const fmtDate=(d)=>{if(!d)return '«___» __________ 20__ г.';const dt=new Date(d);if(isNaN(dt))return d;const m=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];return '«'+String(dt.getDate()).padStart(2,'0')+'» '+m[dt.getMonth()]+' '+dt.getFullYear()+' г.';};
-    const num=unx.id||'____';
-    const isReduction = unx.changeType==='Исключение объёма';
-    const total=Math.round(Math.abs(Number(unx.total||0))).toLocaleString('ru-RU');
-    let html='<h2 style="text-align:center;margin:6px 0">ДОПОЛНИТЕЛЬНОЕ СОГЛАШЕНИЕ № '+num+'</h2>';
-    html+='<p style="text-align:center;font-size:11px;color:#444">к договору подряда на объект «'+project.name+'»</p>';
-    html+='<div style="display:flex;justify-content:space-between;font-size:11px;margin:14px 0"><span>г. '+(project.city||'____________')+'</span><span>'+fmtDate(unx.approvedAt||new Date().toISOString().slice(0,10))+'</span></div>';
-    html+='<p style="font-size:12px;line-height:1.6">'+(project.client||'____________')+', именуемый в дальнейшем <b>«Заказчик»</b>, в лице руководителя, с одной стороны, и '+orgName+', именуемый <b>«Подрядчик»</b>, в лице '+(req.directorName||'руководителя')+', с другой стороны, заключили настоящее дополнительное соглашение о нижеследующем:</p>';
-    html+='<h3 style="font-size:13px;margin-top:14px">1. Предмет соглашения</h3>';
-    html+='<p style="font-size:12px">Стороны согласовали изменение к смете: <b>'+(unx.changeType||'Работа вне сметы')+'</b>'+(unx.reason?' Причина: '+unx.reason+'.':'')+'</p>';
-    html+='<table style="border-collapse:collapse;width:100%;font-size:11px;margin:8px 0"><tr style="background:#f3f4f6"><th style="border:1px solid #333;padding:5px 6px">Наименование работ</th><th style="border:1px solid #333;padding:5px 6px">Ед.</th><th style="border:1px solid #333;padding:5px 6px">Кол-во</th><th style="border:1px solid #333;padding:5px 6px">Цена</th><th style="border:1px solid #333;padding:5px 6px">Сумма</th></tr>';
-    html+='<tr><td style="border:1px solid #333;padding:5px 6px">'+(unx.description||'')+'</td><td style="border:1px solid #333;padding:5px 6px">'+(unx.unit||'')+'</td><td style="border:1px solid #333;padding:5px 6px">'+(unx.deltaQuantity||unx.quantity||0)+'</td><td style="border:1px solid #333;padding:5px 6px">'+Math.round(Number(unx.price||0)).toLocaleString('ru-RU')+'</td><td style="border:1px solid #333;padding:5px 6px">'+(isReduction?'- ':'')+total+'</td></tr></table>';
-    html+='<h3 style="font-size:13px;margin-top:14px">2. Стоимость и порядок оплаты</h3>';
-    html+=isReduction
-      ? '<p style="font-size:12px">Стоимость работ по договорной смете уменьшается на <b>'+total+' ₽</b>. Уменьшенный объём не подлежит включению в акты КС как выполненная работа.</p>'
-      : '<p style="font-size:12px">Общая стоимость дополнительных работ по настоящему соглашению составляет <b>'+total+' ₽</b>. Оплата производится Заказчиком после фактического выполнения работ и подписания акта приёмки.</p>';
-    html+='<h3 style="font-size:13px;margin-top:14px">3. Сроки выполнения</h3>';
-    html+='<p style="font-size:12px">Подрядчик обязуется выполнить работы в течение 30 (тридцати) дней с даты подписания настоящего соглашения.</p>';
-    html+='<h3 style="font-size:13px;margin-top:14px">4. Прочие условия</h3>';
-    html+='<p style="font-size:12px">В остальном применяются условия основного договора подряда. Соглашение составлено в 2 экземплярах — по одному для каждой стороны.</p>';
-    html+='<div style="margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:30px">';
-    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">ЗАКАЗЧИК:</div><div style="border-bottom:1px solid #333;min-height:18px">'+(project.client||'')+'</div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
-    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">ПОДРЯДЧИК:</div><div style="border-bottom:1px solid #333;min-height:18px">'+(req.directorName||orgName)+'</div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
-    html+='</div>';
-    return html;
-  };
+  const buildSupplementaryAgreementContent = (unx, project) => (
+    buildSupplementaryAgreementDocContent(unx, project, printDocContext())
+  );
 
-  const buildExecPackageContent = (project) => {
-    const acts=hiddenActs.filter(a=>a.projectName===project.name);
-    const inspections=(materialInspections||[]).filter(mi=>mi.projectName===project.name);
-    const cables=(cableJournal||[]).filter(c=>c.projectName===project.name);
-    const tb=(tbJournal||[]).filter(t=>t.project===project.name);
-    const presc=(prescriptionsList||[]).filter(pr=>pr.projectName===project.name);
-    let html='<h2 style="text-align:center;margin:8px 0">ПАКЕТ ИСПОЛНИТЕЛЬНОЙ ДОКУМЕНТАЦИИ</h2>';
-    html+='<p style="text-align:center;font-size:11px;color:#444">для сдачи объекта в Госстройнадзор</p>';
-    html+='<p style="font-size:12px;text-align:center;margin:14px 0"><b>'+project.name+'</b></p>';
-    html+='<h3 style="margin-top:14px;font-size:13px">Состав пакета:</h3>';
-    html+='<table style="border-collapse:collapse;width:100%;font-size:11px"><tr style="background:#f3f4f6"><th style="border:1px solid #333;padding:5px 6px">№</th><th style="border:1px solid #333;padding:5px 6px">Документ</th><th style="border:1px solid #333;padding:5px 6px">Кол-во</th><th style="border:1px solid #333;padding:5px 6px">Норматив</th></tr>';
-    const items=[
-      ['Общий журнал работ (РД-11-05-2007, форма ЖПР)','1','РД-11-05-2007'],
-      ['Акты освидетельствования скрытых работ (АОСР)',acts.length+' ('+acts.filter(a=>a.status==='Подписан').length+' подп.)','СНиП 12-01-2004'],
-      ['Акты освидетельствования ответственных конструкций (АОСК)','см. АОСР','СНиП 12-01-2004'],
-      ['Журнал входного контроля материалов',inspections.length,'СП 48.13330.2019'],
-      ['Журнал кабельной продукции',cables.length,'СП 76.13330'],
-      ['Журнал инструктажей ТБ',tb.length,'ГОСТ 12.0.004-2015'],
-      ['Исполнительная геодезическая документация (ИГД)','см. ИГД','СП 126.13330'],
-      ['Сертификаты и паспорта на материалы','см. журнал входного контроля','—'],
-      ['Акт КС-11 (приёмка законченного объекта)','1','Госкомстат № 71а'],
-      ['Акт КС-14 (госприёмка)','1 (если ФЗ-44)','Госкомстат № 71а'],
-      ['Предписания и ответы на них',presc.length,'МДС 12-46.2008'],
-    ];
-    items.forEach((it,i)=>{html+='<tr><td style="border:1px solid #333;padding:5px 6px">'+(i+1)+'</td><td style="border:1px solid #333;padding:5px 6px">'+it[0]+'</td><td style="border:1px solid #333;padding:5px 6px">'+it[1]+'</td><td style="border:1px solid #333;padding:5px 6px">'+it[2]+'</td></tr>';});
-    html+='</table>';
-    html+='<p style="font-size:11px;color:#666;margin-top:18px">⚠️ Перед сдачей в Госстройнадзор все журналы распечатать, прошить, пронумеровать страницы. АОСР должны быть подписаны 4 сторонами. Сертификаты на материалы — оригиналы или заверенные копии.</p>';
-    return html;
-  };
+  const buildExecPackageContent = (project) => buildExecPackageDocContent(project, printDocContext());
 
   const buildM29Content = (projectName, periodFrom, periodTo) => {
     const req = companyRequisites||{};
@@ -9005,29 +8770,9 @@ function App() {
     return html;
   };
 
-  const buildSupervisorMonthlyReport = (projectName, periodFrom, periodTo) => {
-    const req = companyRequisites||{};
-    const orgName = req.fullName||req.shortName||companyName||'_____';
-    const project = projects.find(p=>p.name===projectName)||{};
-    const inRange = (d) => !d ? false : (!periodFrom||d>=periodFrom) && (!periodTo||d<=periodTo);
-    const acts = hiddenActs.filter(a=>a.projectName===projectName&&inRange(a.workDate));
-    const supActs = (supervisorActs||[]).filter(a=>a.projectName===projectName&&inRange(a.date));
-    const prescs = (prescriptionsList||[]).filter(pr=>pr.projectName===projectName&&pr.issuedByRole==='Технадзор'&&inRange(pr.deadline));
-    let html = '<h2 style="text-align:center;margin:8px 0">МЕСЯЧНЫЙ ОТЧЁТ ТЕХНАДЗОРА</h2>';
-    html += '<p style="text-align:center;font-size:12px;color:#444">Объект: <b>'+projectName+'</b> · Период: '+(periodFrom||'__.__.____')+' — '+(periodTo||'__.__.____')+'</p>';
-    html += '<p style="font-size:11px"><b>Заказчик:</b> '+(project.client||'____________')+' · <b>Подрядчик:</b> '+orgName+'</p>';
-    html += '<h3 style="margin-top:18px">1. Освидетельствование скрытых работ ('+acts.length+')</h3>';
-    if(acts.length===0) html += '<p style="font-size:11px;color:#888">За период скрытых работ не предъявлялось</p>';
-    else { html += '<table style="border-collapse:collapse;width:100%;font-size:11px"><tr style="background:#f3f4f6"><th style="border:1px solid #333;padding:4px">№ акта</th><th style="border:1px solid #333;padding:4px">Работа</th><th style="border:1px solid #333;padding:4px">Дата</th><th style="border:1px solid #333;padding:4px">Подпись технадзора</th></tr>'; acts.forEach(a=>{html+='<tr><td style="border:1px solid #333;padding:4px">'+a.actNumber+'</td><td style="border:1px solid #333;padding:4px">'+a.workName+'</td><td style="border:1px solid #333;padding:4px">'+(a.workDate||'')+'</td><td style="border:1px solid #333;padding:4px">'+(a.signedSupervisor?'✅ '+a.signedSupervisor:'⏳')+'</td></tr>';}); html += '</table>'; }
-    html += '<h3 style="margin-top:18px">2. Акты осмотра ('+supActs.length+')</h3>';
-    if(supActs.length===0) html += '<p style="font-size:11px;color:#888">За период не составлялись</p>';
-    else supActs.forEach(a=>{html+='<div style="border:1px solid #ddd;padding:10px;margin:6px 0;font-size:11px;border-radius:4px"><b>'+a.actNumber+' · '+a.actType+'</b> ('+a.date+')<br/>'+(a.description||'')+(a.findings?'<br/><b>Обнаружено:</b> '+a.findings:'')+(a.recommendations?'<br/><b>Рекомендации:</b> '+a.recommendations:'')+'</div>';});
-    html += '<h3 style="margin-top:18px">3. Предписания технадзора ('+prescs.length+')</h3>';
-    if(prescs.length===0) html += '<p style="font-size:11px;color:#888">Предписаний не выдавалось</p>';
-    else prescs.forEach(p=>{html+='<div style="border-left:3px solid '+(p.status==='Закрыто'?'#10b981':'#f59e0b')+';padding:8px 10px;margin:6px 0;font-size:11px"><b>'+(p.violation||p.description||'(пусто)')+'</b><br/>Статус: '+(p.status||'')+(p.deadline?' · до '+p.deadline:'')+'</div>';});
-    html += '<div style="margin-top:30px;display:grid;grid-template-columns:1fr;gap:30px"><div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Технадзор:</div><div style="border-bottom:1px solid #333;min-height:18px">'+(user?user.name:'')+'</div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div></div>';
-    return html;
-  };
+  const buildSupervisorMonthlyReport = (projectName, periodFrom, periodTo) => (
+    buildSupervisorMonthlyReportDocContent(projectName, periodFrom, periodTo, printDocContext())
+  );
   const isLeadership = () => ['директор','зам_директора'].includes(user?user.role:'');
   const isDirector = () => (user ? user.role : '') === 'директор';
   const canUseDirectorAgent = () => ['директор','system_owner'].includes(user?user.role:'');
@@ -9075,81 +8820,19 @@ function App() {
   };
   const lowStock = materials.filter(m=>m.minQuantity&&m.quantity<m.minQuantity);
   const lowMainStock = warehouseMain.filter(m=>m.minQuantity&&m.quantity<m.minQuantity);
-  const fmtDocMoney = (n) => Math.round(Number(n||0)).toLocaleString('ru-RU')+' ₽';
-  const directorDocStyles = () => '<style>'
-    + '.dir-title{text-align:center;font-weight:800;font-size:17px;margin:0 0 4px;color:#111827}'
-    + '.dir-sub{text-align:center;font-size:11px;color:#6b7280;margin:0 0 16px}'
-    + '.dir-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0 16px}'
-    + '.dir-card{border:1px solid #cbd5e1;border-radius:8px;padding:8px;background:#f8fafc}'
-    + '.dir-card span{display:block;color:#64748b;font-size:10px}'
-    + '.dir-card b{display:block;font-size:15px;margin-top:2px;color:#111827}'
-    + '.dir-section{margin-top:18px;border-top:1.5px solid #334155;padding-top:9px;break-inside:avoid}'
-    + '.dir-section h3{font-size:13px;margin:0 0 8px;color:#111827}'
-    + '.dir-table{width:100%;border-collapse:collapse;font-size:10.5px;margin:6px 0}'
-    + '.dir-table th,.dir-table td{border:1px solid #64748b;padding:4px 5px;vertical-align:top}'
-    + '.dir-table th{background:#f1f5f9;font-weight:700;color:#111827}'
-    + '.dir-risk{border:1px solid #f59e0b;background:#fffbeb;border-radius:6px;padding:6px 8px;margin:5px 0;font-size:11px}'
-    + '.dir-danger{border-color:#ef4444;background:#fef2f2}'
-    + '.dir-ok{border:1px solid #22c55e;background:#f0fdf4;border-radius:6px;padding:6px 8px;margin:5px 0;font-size:11px}'
-    + '.dir-muted{color:#64748b}'
-    + '</style>';
   const activeDirectorProjects = () => (projects||[]).filter(p=>!p.archived&&p.status!=='Завершён');
-  const buildDirectorBriefReportContent = (date) => {
-    const targetDate = normalizeDocDate(date)||new Date().toISOString().split('T')[0];
-    const fmtDate = (s) => new Date((normalizeDocDate(s)||targetDate)+'T00:00:00').toLocaleDateString('ru-RU');
-    const activeProjects = activeDirectorProjects();
-    const todayWorks = (workJournal||[]).filter(w=>workDocDate(w)===targetDate);
-    const pendingWorks = (workJournal||[]).filter(w=>!w.status||w.status==='На проверке'||w.status==='Автоматически из сметы');
-    const worksWithoutPhoto = todayWorks.filter(w=>Number(w.quantity||0)>0&&!w.photoUrl);
-    const overdueProjects = activeProjects.filter(p=>p.deadline&&p.deadline<targetDate);
-    const openInspectionOrders = (inspectionOrders||[]).filter(o=>o.status!=='Закрыто');
-    const pendingExpenses = (ownExpenses||[]).filter(e=>e.status==='Ожидает');
-    const supplierInvoiceRows = (supplierInvoices||[]).filter(i=>i.status==='На утверждении'||i.status==='Утверждён'||i.status==='Частично оплачен'||!i.status);
-    const supplierDebt = supplierInvoiceRows.reduce((s,i)=>s+Math.max(0,Number(i.amount||i.totalAmount||0)-Number(i.paidAmount||0)),0);
-    const totalBudget = activeProjects.reduce((s,p)=>s+Number(p.budget||0),0);
-    const totalSpent = activeProjects.reduce((s,p)=>s+projectBudgetSpent(p).total,0);
-    const todaySum = todayWorks.reduce((s,w)=>s+Number(w.total||0),0);
-    const actions = [];
-    overdueProjects.slice(0,8).forEach(p=>actions.push({type:'Сроки',priority:'Критично',target:p.name,action:'Проверить план работ и ответственного',sum:''}));
-    pendingWorks.slice(0,8).forEach(w=>actions.push({type:'Работы',priority:'Проверка',target:w.project||'Без объекта',action:'Подтвердить или вернуть: '+(w.description||'работа без описания'),sum:fmtDocMoney(w.total)}));
-    worksWithoutPhoto.slice(0,6).forEach(w=>actions.push({type:'Фото',priority:'Внимание',target:w.project||'Без объекта',action:'Запросить фото: '+(w.description||'работа'),sum:''}));
-    lowStock.slice(0,6).forEach(m=>actions.push({type:'Материалы',priority:'Внимание',target:m.project||'Объект',action:'Пополнить '+m.name+' до минимума',sum:''}));
-    supplierInvoiceRows.slice(0,6).forEach(i=>actions.push({type:'Счёт',priority:i.status==='На утверждении'||!i.status?'Согласовать':'Оплатить',target:i.projectName||i.project||'Без объекта',action:(i.supplierName||'Поставщик')+' №'+(i.invoiceNumber||i.id||''),sum:fmtDocMoney(i.amount||i.totalAmount)}));
-    let html = directorDocStyles();
-    html += '<div class="dir-title">СВОДКА ДИРЕКТОРА</div>';
-    html += '<div class="dir-sub">'+docEsc(companyName||'СтройКа')+' · '+docEsc(fmtDate(targetDate))+' · сформировал: '+docEsc(user?.name||'')+'</div>';
-    html += '<div class="dir-grid">';
-    html += '<div class="dir-card"><span>Активных объектов</span><b>'+activeProjects.length+'</b></div>';
-    html += '<div class="dir-card"><span>Работ за день</span><b>'+todayWorks.length+'</b></div>';
-    html += '<div class="dir-card"><span>Сумма работ</span><b>'+fmtDocMoney(todaySum)+'</b></div>';
-    html += '<div class="dir-card"><span>Счета к оплате</span><b>'+fmtDocMoney(supplierDebt)+'</b></div>';
-    html += '</div>';
-    html += '<div class="dir-section"><h3>Финансовый контур</h3><table class="dir-table"><tr><th>Показатель</th><th>Сумма</th><th>Комментарий</th></tr>';
-    html += '<tr><td>Бюджет активных объектов</td><td>'+fmtDocMoney(totalBudget)+'</td><td>Сумма бюджетов по активным объектам</td></tr>';
-    html += '<tr><td>Себестоимость/факт</td><td>'+fmtDocMoney(totalSpent)+'</td><td>'+docEsc(totalBudget>0?Math.round(totalSpent/totalBudget*100)+'% от бюджета':'бюджет не заполнен')+'</td></tr>';
-    html += '<tr><td>Возмещения сотрудникам</td><td>'+fmtDocMoney(pendingExpenses.reduce((s,e)=>s+Number(e.amount||0),0))+'</td><td>'+pendingExpenses.length+' заявок ожидают решения</td></tr>';
-    html += '</table></div>';
-    html += '<div class="dir-section"><h3>Что сделать сегодня</h3>';
-    if (actions.length) {
-      html += '<table class="dir-table"><tr><th>N</th><th>Блок</th><th>Приоритет</th><th>Объект</th><th>Действие</th><th>Сумма</th></tr>';
-      actions.slice(0,18).forEach((a,i)=>{html+='<tr><td>'+(i+1)+'</td><td>'+docEsc(a.type)+'</td><td>'+docEsc(a.priority)+'</td><td>'+docEsc(a.target)+'</td><td>'+docEsc(a.action)+'</td><td>'+docEsc(a.sum)+'</td></tr>';});
-      html += '</table>';
-    } else {
-      html += '<div class="dir-ok">Критичных действий по загруженным данным не найдено.</div>';
-    }
-    html += '</div>';
-    html += '<div class="dir-section"><h3>Риски</h3>';
-    [
-      {label:'Просроченные объекты',value:overdueProjects.length,danger:true},
-      {label:'Работы на проверке',value:pendingWorks.length,danger:pendingWorks.length>0},
-      {label:'Работы за день без фото',value:worksWithoutPhoto.length,danger:worksWithoutPhoto.length>0},
-      {label:'Открытые замечания ГСН',value:openInspectionOrders.length,danger:openInspectionOrders.length>0},
-      {label:'Низкие остатки на объектах',value:lowStock.length,danger:lowStock.length>0},
-      {label:'Низкие остатки на основном складе',value:lowMainStock.length,danger:lowMainStock.length>0},
-    ].forEach(r=>{html+='<div class="'+(r.danger?'dir-risk dir-danger':'dir-ok')+'"><b>'+docEsc(r.label)+': '+r.value+'</b></div>';});
-    html += '</div>';
-    return html;
-  };
+  const buildDirectorBriefReportContent = (date) => buildDirectorBriefReportDocContent(date, {
+    companyName,
+    user,
+    projects,
+    workJournal,
+    inspectionOrders,
+    ownExpenses,
+    supplierInvoices,
+    lowStock,
+    lowMainStock,
+    projectBudgetSpent,
+  });
   const estimateControlIssues = (sourceEstimates = estimatesList) => {
     const issues = [];
     activeDirectorProjects().forEach(p=>{

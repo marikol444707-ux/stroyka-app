@@ -1,9 +1,8 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import App from './App';
 
-test('renders login screen', () => {
+test('opens login screen from public site', async () => {
   render(<App />);
-  expect(screen.getByText(/СТРОЙ/i)).toBeInTheDocument();
-  expect(screen.getByText(/КА/i)).toBeInTheDocument();
-  expect(screen.getByText(/Войти в систему/i)).toBeInTheDocument();
+  fireEvent.click(await screen.findByRole('button', { name: /Вход в ERP/i }));
+  expect(await screen.findByText(/Войти в систему/i)).toBeInTheDocument();
 });

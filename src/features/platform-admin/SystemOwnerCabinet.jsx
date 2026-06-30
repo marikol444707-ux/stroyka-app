@@ -16,6 +16,8 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const [newCompany, setNewCompany] = useState(emptyCompanyForm);
   const [clientCardScanning, setClientCardScanning] = useState(false);
   const [clientCardRecognition, setClientCardRecognition] = useState(null);
+  const [companyPreview, setCompanyPreview] = useState(null);
+  const [companyPreviewLoading, setCompanyPreviewLoading] = useState(false);
   const [newPayment, setNewPayment] = useState({companyId:'',amount:'',paymentDate:new Date().toISOString().split('T')[0],method:'card',invoiceNumber:'',periodStart:'',periodEnd:'',notes:''});
   const [showNewPayment, setShowNewPayment] = useState(false);
   const [newBillingDocument, setNewBillingDocument] = useState({companyId:'',documentType:'invoice',status:'draft',amount:'',issueDate:new Date().toISOString().split('T')[0],dueDate:'',periodStart:'',periodEnd:'',paymentProvider:'manual',paymentUrl:'',fileUrl:'',notes:''});
@@ -29,6 +31,9 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const emptyAuditFilters = {platformAccountId:'',companyId:'',action:'',search:''};
   const [auditFilters, setAuditFilters] = useState(emptyAuditFilters);
   const [auditDraftFilters, setAuditDraftFilters] = useState(emptyAuditFilters);
+  const emptyPaymentEventFilters = {platformAccountId:'',companyId:'',provider:'',actionStatus:'',dateFrom:'',dateTo:'',search:''};
+  const [paymentEventFilters, setPaymentEventFilters] = useState(emptyPaymentEventFilters);
+  const [paymentEventDraftFilters, setPaymentEventDraftFilters] = useState(emptyPaymentEventFilters);
   const platformRoleLabels = {
     system_owner:'Владелец платформы',
     platform_admin:'Администратор платформы',
@@ -133,9 +138,17 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
       setPaymentEvents([]);
       return;
     }
-    const rows = await fetchJson('/system/payment-events', []);
+    const params = new URLSearchParams({limit:'200'});
+    if (paymentEventFilters.platformAccountId) params.set('platformAccountId', paymentEventFilters.platformAccountId);
+    if (paymentEventFilters.companyId) params.set('companyId', paymentEventFilters.companyId);
+    if (paymentEventFilters.provider) params.set('provider', paymentEventFilters.provider);
+    if (paymentEventFilters.actionStatus) params.set('actionStatus', paymentEventFilters.actionStatus);
+    if (paymentEventFilters.dateFrom) params.set('dateFrom', paymentEventFilters.dateFrom);
+    if (paymentEventFilters.dateTo) params.set('dateTo', paymentEventFilters.dateTo);
+    if (paymentEventFilters.search.trim()) params.set('search', paymentEventFilters.search.trim());
+    const rows = await fetchJson('/system/payment-events?' + params.toString(), []);
     setPaymentEvents(Array.isArray(rows) ? rows : []);
-  }, [canManageBilling, fetchJson]);
+  }, [canManageBilling, fetchJson, paymentEventFilters]);
 
   useEffect(()=>{
     if (tab === 'payments') loadPaymentEvents();
@@ -209,8 +222,16 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const auditCompanyOptions = useMemo(() => companies.filter(company => (
     !auditDraftFilters.platformAccountId || String(company.platform_account_id || company.id) === String(auditDraftFilters.platformAccountId)
   )), [companies, auditDraftFilters.platformAccountId]);
+  const paymentEventCompanyOptions = useMemo(() => companies.filter(company => (
+    !paymentEventDraftFilters.platformAccountId || String(company.platform_account_id || company.id) === String(paymentEventDraftFilters.platformAccountId)
+  )), [companies, paymentEventDraftFilters.platformAccountId]);
   const hasAuditFilters = Boolean(
     auditFilters.platformAccountId || auditFilters.companyId || auditFilters.action || auditFilters.search.trim()
+  );
+  const hasPaymentEventFilters = Boolean(
+    paymentEventFilters.platformAccountId || paymentEventFilters.companyId || paymentEventFilters.provider ||
+    paymentEventFilters.actionStatus || paymentEventFilters.dateFrom || paymentEventFilters.dateTo ||
+    paymentEventFilters.search.trim()
   );
 
   const billingColorSet = (level) => {
@@ -251,6 +272,54 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     alert('Оплата зачислена. Платеж #'+data.paymentId);
     await loadAll();
     await loadPaymentEvents();
+  };
+  const exportPaymentEvents = async () => {
+    const params = new URLSearchParams({limit:'2000', export:'csv'});
+    if (paymentEventFilters.platformAccountId) params.set('platformAccountId', paymentEventFilters.platformAccountId);
+    if (paymentEventFilters.companyId) params.set('companyId', paymentEventFilters.companyId);
+    if (paymentEventFilters.provider) params.set('provider', paymentEventFilters.provider);
+    if (paymentEventFilters.actionStatus) params.set('actionStatus', paymentEventFilters.actionStatus);
+    if (paymentEventFilters.dateFrom) params.set('dateFrom', paymentEventFilters.dateFrom);
+    if (paymentEventFilters.dateTo) params.set('dateTo', paymentEventFilters.dateTo);
+    if (paymentEventFilters.search.trim()) params.set('search', paymentEventFilters.search.trim());
+    const response = await fetch(API + '/system/payment-events?' + params.toString(), {headers:authHeaders()});
+    if (!response.ok) {
+      alert('Не удалось выгрузить реестр событий');
+      return;
+    }
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'platform-payment-events.csv';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+  const companyCreateErrorText = (data) => {
+    const detail = data?.detail;
+    if (typeof detail === 'string') return detail;
+    if (detail?.message) {
+      const reasons = Array.isArray(detail.blockingReasons) ? detail.blockingReasons.join('\n') : '';
+      return [detail.message, reasons].filter(Boolean).join('\n');
+    }
+    return data?.error || 'Не удалось создать компанию';
+  };
+  const runCompanyPreview = async (form=newCompany, quiet=false) => {
+    setCompanyPreviewLoading(true);
+    try {
+      const response = await sendJson('/system/companies/preview', {method:'POST', body:JSON.stringify(form)});
+      const data = await response.json().catch(()=>({}));
+      if (!response.ok) {
+        if (!quiet) alert(companyCreateErrorText(data));
+        return null;
+      }
+      setCompanyPreview(data);
+      return data;
+    } finally {
+      setCompanyPreviewLoading(false);
+    }
   };
   const fileSrc = (url) => {
     if (!url) return '';
@@ -391,7 +460,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
         {tab==='companies' && (<div>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
 	            <b style={{color:C.text,fontSize:'15px'}}>Клиентские аккаунты ({groupsWithLimitStatus.length}) / компании ({companies.length})</b>
-	            {canManagePlatform && <button onClick={()=>{setShowNewCompany(true);setLastInviteCode(null);setClientCardRecognition(null);}} style={btnO}>+ Подключить аккаунт/компанию</button>}
+	            {canManagePlatform && <button onClick={()=>{setShowNewCompany(true);setLastInviteCode(null);setClientCardRecognition(null);setCompanyPreview(null);}} style={btnO}>+ Подключить аккаунт/компанию</button>}
 	          </div>
 	          {canManagePlatform && showNewCompany && (<div style={{...card,padding:'16px',marginBottom:'14px'}}>
 	            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>Подключить аккаунт или компанию</b>
@@ -400,7 +469,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
               <p style={{margin:'0 0 8px',fontSize:'12px',color:C.text}}>Отправьте директору ссылку для регистрации:</p>
               <div style={{padding:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:'6px',fontSize:'12px',color:C.text,wordBreak:'break-all',userSelect:'all',marginBottom:'8px'}}>{window.location.origin+'/?invite='+lastInviteCode}</div>
               <button onClick={()=>navigator.clipboard.writeText(window.location.origin+'/?invite='+lastInviteCode).then(()=>alert('Скопировано'))} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}>📋 Скопировать</button>
-	              <button onClick={()=>{setShowNewCompany(false);setLastInviteCode(null);setNewCompany(emptyCompanyForm);setClientCardRecognition(null);}} style={{...btnG,padding:'5px 12px',fontSize:'12px',marginLeft:'6px'}}>Закрыть</button>
+	              <button onClick={()=>{setShowNewCompany(false);setLastInviteCode(null);setNewCompany(emptyCompanyForm);setClientCardRecognition(null);setCompanyPreview(null);}} style={{...btnG,padding:'5px 12px',fontSize:'12px',marginLeft:'6px'}}>Закрыть</button>
 	            </div>)}
 	            {!lastInviteCode && (<>
               <div style={{padding:'12px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,borderRadius:'10px',marginBottom:'12px'}}>
@@ -467,15 +536,51 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
 	                <input type='number' placeholder='Лимит пользователей' value={newCompany.maxUsers} onChange={e=>setNewCompany({...newCompany,maxUsers:e.target.value})} style={{...inp,marginBottom:0}}/>
 	              </div>
               <textarea placeholder='Заметки (опц.)' value={newCompany.notes} onChange={e=>setNewCompany({...newCompany,notes:e.target.value})} style={{...inp,height:'50px',marginTop:'8px'}}/>
+              <div style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap',margin:'8px 0'}}>
+                <button type='button' onClick={()=>runCompanyPreview(newCompany)} disabled={companyPreviewLoading} style={{...btnG,padding:'7px 12px',fontSize:'12px',opacity:companyPreviewLoading?0.65:1}}>
+                  {companyPreviewLoading?'⏳ Проверяю...':'🔎 Проверить ИНН и лимиты'}
+                </button>
+                <span style={{color:C.textMuted,fontSize:'11px'}}>Проверка не создает компанию и не выдает доступ.</span>
+              </div>
+              {companyPreview && (
+                <div style={{padding:'10px',border:'1.5px solid '+(companyPreview.canCreate?C.successBorder:C.dangerBorder),backgroundColor:companyPreview.canCreate?C.successLight:C.dangerLight,borderRadius:'8px',marginBottom:'8px'}}>
+                  <b style={{color:companyPreview.canCreate?C.success:C.danger,fontSize:'12px',display:'block',marginBottom:'6px'}}>
+                    {companyPreview.canCreate?'Проверка пройдена':'Нужно разобрать перед созданием'}
+                  </b>
+                  {companyPreview.account && <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 5px'}}>Аккаунт: {companyPreview.account.name} · тариф {companyPreview.tariff?.name || companyPreview.plan}</p>}
+                  {!companyPreview.account && <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 5px'}}>Будет создан новый клиентский аккаунт · тариф {companyPreview.tariff?.name || companyPreview.plan}</p>}
+                  {(companyPreview.blockingReasons || []).map(reason=><p key={reason} style={{color:C.danger,fontSize:'11px',fontWeight:800,margin:'3px 0'}}>⛔ {reason}</p>)}
+                  {(companyPreview.limitWarnings || []).map(w=>(
+                    <p key={w.key} style={{color:w.level==='danger'?C.danger:C.warning,fontSize:'11px',fontWeight:700,margin:'3px 0'}}>⚠️ {w.text}</p>
+                  ))}
+                  {(companyPreview.duplicates || []).length > 0 && (
+                    <div style={{display:'grid',gap:'5px',marginTop:'7px'}}>
+                      {companyPreview.duplicates.map(duplicate=>(
+                        <div key={duplicate.id} style={{padding:'7px',border:'1px solid '+C.border,borderRadius:'7px',backgroundColor:C.card}}>
+                          <b style={{color:C.text,fontSize:'11px',display:'block'}}>{duplicate.name}</b>
+                          <span style={{color:C.textMuted,fontSize:'10px'}}>ИНН {duplicate.inn || '—'}{duplicate.kpp?' · КПП '+duplicate.kpp:''} · {duplicate.platform_account_name || 'без аккаунта'} · {duplicate.active?'активна':'неактивна'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               <div style={{display:'flex',gap:'8px',marginTop:'10px'}}>
                 <button onClick={async()=>{
                   if (!newCompany.name) { alert('Укажите название'); return; }
+                  const preview = await runCompanyPreview(newCompany, true);
+                  if (!preview) return;
+                  if (!preview.canCreate) {
+                    const reasons = (preview.blockingReasons || []).join('\n');
+                    alert('Компания не создана. Сначала разберите предупреждения:\n' + reasons);
+                    return;
+                  }
                   const r = await sendJson('/system/companies',{method:'POST',body:JSON.stringify({...newCompany,createdBy:user.name})});
-                  const data = await r.json();
+                  const data = await r.json().catch(()=>({}));
                   if (data.id) { setLastInviteCode(data.inviteCode); await loadAll(); }
-                  else { alert('Ошибка создания'); }
+                  else { alert(companyCreateErrorText(data)); }
                 }} style={btnO}>✓ Создать компанию + ссылку</button>
-	                <button onClick={()=>{setShowNewCompany(false);setClientCardRecognition(null);}} style={btnG}>Отмена</button>
+	                <button onClick={()=>{setShowNewCompany(false);setClientCardRecognition(null);setCompanyPreview(null);}} style={btnG}>Отмена</button>
 	              </div>
 	            </>)}
 	          </div>)}
@@ -605,27 +710,69 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
             })}
           </div>)}
 
-          {paymentEvents.length > 0 && (<div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
-            <b style={{color:C.warning,fontSize:'13px',display:'block',marginBottom:'8px'}}>События провайдеров ({paymentEvents.length})</b>
-            <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 8px'}}>Это входящие события ЮKassa/Robokassa. Они не являются оплатой, пока биллинг отдельно не зачислит фактический платеж.</p>
+          <div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap',marginBottom:'8px'}}>
+              <div>
+                <b style={{color:C.warning,fontSize:'13px',display:'block'}}>События провайдеров ({paymentEvents.length})</b>
+                <p style={{color:C.textSec,fontSize:'11px',margin:'3px 0 0'}}>Входящие события ЮKassa/Robokassa не являются оплатой, пока биллинг не зачислит фактический платеж.</p>
+              </div>
+              <button onClick={exportPaymentEvents} style={{...btnG,padding:'7px 12px',fontSize:'12px'}}>⬇ Реестр CSV</button>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:'8px',marginBottom:'10px'}}>
+              <select value={paymentEventDraftFilters.platformAccountId} onChange={e=>setPaymentEventDraftFilters({...paymentEventDraftFilters,platformAccountId:e.target.value,companyId:''})} style={{...inp,marginBottom:0}}>
+                <option value=''>Все аккаунты</option>
+                {companyGroups.map(group=><option key={group.id} value={group.id}>{group.name}</option>)}
+              </select>
+              <select value={paymentEventDraftFilters.companyId} onChange={e=>setPaymentEventDraftFilters({...paymentEventDraftFilters,companyId:e.target.value})} style={{...inp,marginBottom:0}}>
+                <option value=''>Все компании</option>
+                {paymentEventCompanyOptions.filter(c=>c.id!==1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <select value={paymentEventDraftFilters.provider} onChange={e=>setPaymentEventDraftFilters({...paymentEventDraftFilters,provider:e.target.value})} style={{...inp,marginBottom:0}}>
+                <option value=''>Все провайдеры</option>
+                <option value='yukassa'>ЮKassa</option>
+                <option value='robokassa'>Robokassa</option>
+              </select>
+              <select value={paymentEventDraftFilters.actionStatus} onChange={e=>setPaymentEventDraftFilters({...paymentEventDraftFilters,actionStatus:e.target.value})} style={{...inp,marginBottom:0}}>
+                <option value=''>Все статусы</option>
+                <option value='received'>Получено</option>
+                <option value='needs_review'>Нужна проверка</option>
+                <option value='payment_recorded'>Платеж зачислен</option>
+              </select>
+              <input type='date' value={paymentEventDraftFilters.dateFrom} onChange={e=>setPaymentEventDraftFilters({...paymentEventDraftFilters,dateFrom:e.target.value})} style={{...inp,marginBottom:0}}/>
+              <input type='date' value={paymentEventDraftFilters.dateTo} onChange={e=>setPaymentEventDraftFilters({...paymentEventDraftFilters,dateTo:e.target.value})} style={{...inp,marginBottom:0}}/>
+              <input placeholder='Поиск: событие, счет, компания' value={paymentEventDraftFilters.search} onChange={e=>setPaymentEventDraftFilters({...paymentEventDraftFilters,search:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+            </div>
+            <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'10px',alignItems:'center'}}>
+              <button onClick={()=>setPaymentEventFilters(paymentEventDraftFilters)} style={{...btnO,padding:'7px 12px',fontSize:'12px'}}>Показать</button>
+              <button onClick={()=>{setPaymentEventDraftFilters(emptyPaymentEventFilters);setPaymentEventFilters(emptyPaymentEventFilters);}} style={{...btnG,padding:'7px 12px',fontSize:'12px'}}>Сбросить</button>
+              <span style={{color:C.textMuted,fontSize:'11px'}}>{hasPaymentEventFilters?'Показаны события по фильтрам':'Показаны последние события провайдеров'}</span>
+            </div>
             <div style={{display:'grid',gap:'6px'}}>
-              {paymentEvents.slice(0,8).map(event=>{
+              {paymentEvents.length===0 && <div style={{padding:'18px',textAlign:'center',color:C.textMuted,fontSize:'12px',backgroundColor:C.card,border:'1px solid '+C.border,borderRadius:'8px'}}>Событий по выбранным фильтрам нет</div>}
+              {paymentEvents.map(event=>{
                 const eventColors = paymentEventStatusColor(event.action_status);
-                const canConfirmEvent = event.action_status !== 'payment_recorded' && event.billing_document_id && event.billing_document_number;
-                return (<div key={event.id} style={{display:'grid',gridTemplateColumns:'minmax(90px,130px) 1fr auto',gap:'8px',alignItems:'center',padding:'8px',border:'1px solid '+C.border,borderRadius:'8px',backgroundColor:C.card}}>
-                <b style={{color:C.text,fontSize:'12px'}}>{event.provider || 'provider'}</b>
-                <div style={{minWidth:0}}>
-                  <p style={{color:C.textSec,fontSize:'11px',margin:0,overflowWrap:'anywhere'}}>{event.event_type || 'event'} · {event.provider_status || 'без статуса'} · {event.billing_document_number || 'документ не найден'} · {Number(event.amount || 0).toLocaleString('ru-RU')} ₽</p>
-                  <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{event.company_name || '—'} · {event.received_at ? String(event.received_at).slice(0,19).replace('T',' ') : ''}{event.payment_id ? ' · платеж #'+event.payment_id : ''}</p>
-                </div>
-                <div style={{display:'flex',gap:'6px',alignItems:'center',justifyContent:'flex-end',flexWrap:'wrap'}}>
-                  <span style={badge(eventColors.color,eventColors.bg,eventColors.border)}>{event.action_status || 'received'}</span>
-                  {canConfirmEvent && <button onClick={()=>confirmPaymentEvent(event)} style={{...btnO,padding:'5px 10px',fontSize:'11px'}}>Зачислить</button>}
-                </div>
-              </div>);
+                const canConfirmEvent = Boolean(event.canConfirm);
+                return (<div key={event.id} style={{display:'grid',gridTemplateColumns:'minmax(90px,130px) minmax(0,1fr) auto',gap:'8px',alignItems:'center',padding:'8px',border:'1px solid '+C.border,borderRadius:'8px',backgroundColor:C.card}}>
+                  <div>
+                    <b style={{color:C.text,fontSize:'12px',display:'block'}}>{event.providerLabel || event.provider || 'provider'}</b>
+                    <span style={{color:C.textMuted,fontSize:'10px'}}>{event.received_at ? String(event.received_at).slice(0,16).replace('T',' ') : ''}</span>
+                  </div>
+                  <div style={{minWidth:0}}>
+                    <p style={{color:C.textSec,fontSize:'11px',margin:0,overflowWrap:'anywhere'}}>{event.event_type || 'event'} · {event.provider_status || 'без статуса'} · {event.billing_document_number || 'документ не найден'} · {Number(event.amount || 0).toLocaleString('ru-RU')} ₽</p>
+                    <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{event.platform_account_name || '—'} · {event.company_name || '—'}{event.payment_id ? ' · платеж #'+event.payment_id : ''}</p>
+                    <p style={{color:canConfirmEvent?C.success:C.warning,fontSize:'10px',margin:'2px 0 0'}}>{event.reviewReason || 'принято в журнал'}</p>
+                  </div>
+                  <div style={{display:'flex',gap:'6px',alignItems:'center',justifyContent:'flex-end',flexWrap:'wrap'}}>
+                    <span style={badge(eventColors.color,eventColors.bg,eventColors.border)}>{event.actionStatusLabel || event.action_status || 'Получено'}</span>
+                    {event.amountMatches === false && <span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>сумма</span>}
+                    {event.providerMatches === false && <span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>провайдер</span>}
+                    {event.currencyMatches === false && <span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>валюта</span>}
+                    {canConfirmEvent && <button onClick={()=>confirmPaymentEvent(event)} style={{...btnO,padding:'5px 10px',fontSize:'11px'}}>Зачислить</button>}
+                  </div>
+                </div>);
               })}
             </div>
-          </div>)}
+          </div>
 
           {showNewBillingDocument && (<div style={{...card,padding:'16px',marginBottom:'14px'}}>
             <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>Создать платежный документ платформы</b>
