@@ -209,6 +209,9 @@ import {
   buildCableJournalDocContent,
   buildDailyObjectReportDocContent,
   buildDirectorBriefReportDocContent,
+  buildEstimateControlReportDocContent,
+  buildEstimateMeasurementComparisonDocContent,
+  buildEstimateReconciliationDocContent,
   buildExecPackageDocContent,
   buildHiddenActDocContent,
   buildIGDDocContent,
@@ -224,6 +227,7 @@ import {
   buildM15DocContent,
   buildM29DocContent,
   buildMaterialInspectionDocContent,
+  buildMaterialNormCoverageDocContent,
   buildMaterialRequirementDocContent,
   buildMasterActDocContent,
   buildMovementDocContent,
@@ -234,10 +238,11 @@ import {
   buildSpecJournalDocContent,
   buildSupervisorMonthlyReportDocContent,
   buildSupplementaryAgreementDocContent,
+  buildSupplyControlReportDocContent,
   buildTBContentDoc,
   buildVATBookDocContent,
   buildWorkJournalDocContent,
-  directorDocStyles,
+  buildWorkJournalEstimateReconciliationDocContent,
   fmtDocMoney,
 } from './utils/printDocumentBuilders';
 import { EMPTY_ESTIMATE_CHANGE, isApprovedEstimateChangeStatus } from './utils/estimateChangeUtils';
@@ -3117,62 +3122,7 @@ function App() {
   const estimateReconciliationsForProject = (projectName) => (estimateReconciliations||[])
     .filter(r=>r.projectName===projectName)
     .sort((a,b)=>Number(b.id||0)-Number(a.id||0));
-  const buildEstimateReconciliationContent = (rec) => {
-    const items = rec?.items || [];
-    const fmtMoney = (n) => (Math.round(Number(n||0)*100)/100).toLocaleString('ru-RU')+' ₽';
-    const signMoney = (n) => (Number(n||0)>0?'+':'')+fmtMoney(n);
-    const fmtQty = (n) => {
-      const q = Number(n||0);
-      return Math.abs(q - Math.round(q)) < 0.001 ? String(Math.round(q)) : q.toLocaleString('ru-RU', {maximumFractionDigits:3});
-    };
-    const diffColor = (n) => Number(n||0)>0 ? '#b45309' : Number(n||0)<0 ? '#047857' : '#374151';
-    const rowsOf = (type) => items.filter(i=>i.itemType===type);
-    const empty = (cols) => '<tr><td colspan="'+cols+'" style="text-align:center;color:#64748b">Нет строк</td></tr>';
-    const rowChanged = (i) => '<tr>'
-      + '<td>'+docEsc(i.sectionName)+'</td><td>'+docEsc(i.itemName)+'</td><td>'+docEsc(i.unit)+'</td>'
-      + '<td class="num">'+docEsc(fmtQty(i.baseQuantity))+'</td><td class="num">'+docEsc(fmtQty(i.nextQuantity))+'</td>'
-      + '<td class="num">'+fmtMoney(i.baseUnitPrice)+'</td><td class="num">'+fmtMoney(i.nextUnitPrice)+'</td>'
-      + '<td class="num">'+fmtMoney(i.baseTotal)+'</td><td class="num">'+fmtMoney(i.nextTotal)+'</td>'
-      + '<td class="num" style="color:'+diffColor(i.impact)+';font-weight:700">'+signMoney(i.impact)+'</td>'
-      + '<td>'+docEsc(i.decision)+'</td></tr>';
-    const rowSimple = (i) => '<tr>'
-      + '<td>'+docEsc(i.sectionName)+'</td><td>'+docEsc(i.itemName)+'</td><td>'+docEsc(i.unit)+'</td>'
-      + '<td class="num">'+docEsc(fmtQty(i.itemType==='removed'?i.baseQuantity:i.nextQuantity))+'</td>'
-      + '<td class="num">'+fmtMoney(i.itemType==='removed'?i.baseUnitPrice:i.nextUnitPrice)+'</td>'
-      + '<td class="num">'+fmtMoney(i.itemType==='removed'?i.baseTotal:i.nextTotal)+'</td>'
-      + '<td class="num" style="color:'+diffColor(i.impact)+';font-weight:700">'+signMoney(i.impact)+'</td>'
-      + '<td>'+docEsc(i.decision)+'</td></tr>';
-    const rowChange = (i) => '<tr>'
-      + '<td>'+docEsc(i.itemName)+'</td><td>'+docEsc(i.unit)+'</td>'
-      + '<td class="num">'+docEsc(fmtQty(i.baseQuantity))+'</td><td class="num">'+docEsc(fmtQty(i.nextQuantity))+'</td>'
-      + '<td class="num" style="color:'+diffColor(i.impact)+';font-weight:700">'+signMoney(i.impact)+'</td>'
-      + '<td>'+docEsc(i.decision)+'</td><td class="num">'+docEsc(i.confidence?Math.round(i.confidence*100)+'%':'—')+'</td>'
-      + '<td>'+docEsc(i.notes||'')+'</td></tr>';
-    let html = '<style>'
-      + '.erec-title{text-align:center;font-size:18px;font-weight:700;margin:0 0 4px}'
-      + '.erec-sub{text-align:center;color:#555;font-size:11px;margin:0 0 14px}'
-      + '.erec-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0 14px}'
-      + '.erec-card{border:1px solid #cbd5e1;border-radius:8px;padding:8px;background:#f8fafc}'
-      + '.erec-card span{display:block;color:#64748b;font-size:10px}.erec-card b{font-size:14px}'
-      + '.erec-table{font-size:10px;table-layout:fixed}.erec-table th{font-size:9px}.erec-table td,.erec-table th{vertical-align:top;word-break:break-word}'
-      + '.erec-table .num{text-align:right;white-space:nowrap}.erec-h{font-size:13px;font-weight:700;margin:16px 0 6px}'
-      + '</style>';
-    html += '<div class="erec-title">АКТ / ВЕДОМОСТЬ СВЕРКИ СМЕТ № '+docEsc(rec?.id||'')+'</div>';
-    html += '<div class="erec-sub">Объект: '+docEsc(rec?.projectName||'')+' · Тип: '+docEsc(rec?.smetaType||'Заказчик')+' · Пакет: '+docEsc(rec?.workPackage||'Основная')+' · Статус: '+docEsc(rec?.status||'Черновик')+'</div>';
-    html += '<table><tr><th>Базовая смета</th><td>'+docEsc((rec?.baseEstimateName||'')+' v'+(rec?.baseVersion||''))+'</td></tr><tr><th>Новая смета</th><td>'+docEsc((rec?.nextEstimateName||'')+' v'+(rec?.nextVersion||''))+'</td></tr><tr><th>Дата создания</th><td>'+docEsc(String(rec?.createdAt||'').slice(0,10))+'</td></tr></table>';
-    html += '<div class="erec-grid">'
-      + '<div class="erec-card"><span>Было</span><b>'+fmtMoney(rec?.baseTotal)+'</b></div>'
-      + '<div class="erec-card"><span>Стало</span><b>'+fmtMoney(rec?.nextTotal)+'</b></div>'
-      + '<div class="erec-card"><span>Разница</span><b style="color:'+diffColor(rec?.impact)+'">'+signMoney(rec?.impact)+'</b></div>'
-      + '<div class="erec-card"><span>Спорные / проверить</span><b style="color:#b45309">'+(rec?.reviewCount ?? items.filter(i=>String(i.decision||'').startsWith('Проверить')||i.decision==='На проверке').length)+'</b></div>'
-      + '</div>';
-    html += '<div class="erec-h">Изменён объём или цена</div><table class="erec-table"><tr><th>Раздел</th><th>Позиция</th><th>Ед.</th><th>Было кол.</th><th>Стало кол.</th><th>Было цена</th><th>Стало цена</th><th>Было сумма</th><th>Стало сумма</th><th>Влияние</th><th>Решение</th></tr>'+(rowsOf('changed').map(rowChanged).join('')||empty(11))+'</table>';
-    html += '<div class="erec-h">Добавлено в новую смету</div><table class="erec-table"><tr><th>Раздел</th><th>Позиция</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th><th>Влияние</th><th>Решение</th></tr>'+(rowsOf('added').map(rowSimple).join('')||empty(8))+'</table>';
-    html += '<div class="erec-h">Исключено из новой сметы</div><table class="erec-table"><tr><th>Раздел</th><th>Позиция</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th><th>Влияние</th><th>Решение</th></tr>'+(rowsOf('removed').map(rowSimple).join('')||empty(8))+'</table>';
-    html += '<div class="erec-h">Утверждённые изменения к смете</div><table class="erec-table"><tr><th>Изменение</th><th>Ед.</th><th>Было</th><th>Найдено в новой</th><th>Сумма</th><th>Решение</th><th>Увер.</th><th>Примечание</th></tr>'+(rowsOf('estimate_change').map(rowChange).join('')||empty(8))+'</table>';
-    html += '<p style="font-size:10px;color:#555;margin-top:16px">Сверка фиксирует снимок старой и новой сметы. Строки со статусом проверки должны быть разобраны до закрытия КС, чтобы одна и та же работа не попала и в новую смету, и отдельной допработой.</p>';
-    return html;
-  };
+  const buildEstimateReconciliationContent = (rec) => buildEstimateReconciliationDocContent(rec);
   const loadEstimateReconciliationDetail = async (recOrId) => {
     const id = typeof recOrId === 'object' ? recOrId?.id : recOrId;
     if (!id) return null;
@@ -3540,52 +3490,12 @@ function App() {
     setActiveTabGroup('work');
     setShowForm(false);
   };
-  const buildEstimateMeasurementComparisonContent = (project) => {
-    const s = estimateMeasurementComparisonSummary(project);
-    const totals = projectMeasurementBasisTotals(project?.name||'');
-    const money = (n) => Math.round(toNum(n)).toLocaleString('ru-RU')+' ₽';
-    const qty = (n,u) => fmtMeasure(n,u||'');
-    let html = '<style>'
-      + '.emc-title{text-align:center;font-size:18px;font-weight:800;margin:0 0 4px}'
-      + '.emc-sub{text-align:center;color:#64748b;font-size:11px;margin:0 0 14px}'
-      + '.emc-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}'
-      + '.emc-card{border:1px solid #cbd5e1;border-radius:8px;padding:8px;background:#f8fafc}'
-      + '.emc-card span{display:block;color:#64748b;font-size:10px}.emc-card b{font-size:14px}'
-      + '.emc-table{font-size:10px;table-layout:fixed}.emc-table th{font-size:9px}.emc-table td,.emc-table th{vertical-align:top;word-break:break-word}'
-      + '.emc-num{text-align:right;white-space:nowrap}'
-      + '@media print{.emc-grid{grid-template-columns:repeat(4,1fr)}.emc-table{font-size:9px}}'
-      + '</style>';
-    html += '<div class="emc-title">СМЕТА ↔ ОБМЕРЫ ПОМЕЩЕНИЙ</div>';
-    html += '<div class="emc-sub">Объект: '+docEsc(project?.name||'')+' · '+new Date().toLocaleDateString('ru-RU')+' · сформировал: '+docEsc(user?.name||'')+'</div>';
-    html += '<div class="emc-grid">'
-      + '<div class="emc-card"><span>Строк проверено</span><b>'+s.rows.length+'</b></div>'
-      + '<div class="emc-card"><span>Сверх сметы</span><b style="color:#dc2626">'+s.overRows.length+'</b></div>'
-      + '<div class="emc-card"><span>Нет обмера/ед. изм.</span><b style="color:#b45309">'+(s.missingRows.length+s.manualRows.length)+'</b></div>'
-      + '<div class="emc-card"><span>Оценка доп. объёма</span><b>'+money(s.overSum)+'</b></div>'
-      + '</div>';
-    html += '<table><tr><th>Помещений</th><td>'+totals.roomCount+'</td><th>Стены общие</th><td>'+qty(totals.wall_gross_area,'м2')+'</td><th>Минус окна</th><td>'+qty(totals.window_area,'м2')+'</td></tr>'
-      + '<tr><th>Минус двери</th><td>'+qty(totals.door_area,'м2')+'</td><th>Стены чистые</th><td>'+qty(totals.wall_net_area,'м2')+'</td><th>Пол</th><td>'+qty(totals.floor_area,'м2')+'</td></tr>'
-      + '<tr><th>Потолок</th><td>'+qty(totals.ceiling_area,'м2')+'</td><th>Откосы</th><td>'+qty(totals.window_reveals+totals.door_reveals,'м2')+'</td><th>Формула стен</th><td>'+qty(totals.wall_gross_area,'м2')+' - '+qty(totals.openings_area,'м2')+' = '+qty(totals.wall_net_area,'м2')+'</td></tr></table>';
-    html += '<table class="emc-table"><tr><th>Статус</th><th>Пакет</th><th>Раздел</th><th>Позиция</th><th>Основание</th><th>Смета</th><th>Обмер</th><th>Разница</th><th>Оценка</th></tr>';
-    html += s.rows.map(r=>{
-      const color = r.status==='Сверх сметы' ? '#dc2626' : r.status==='Сходится' ? '#059669' : '#b45309';
-      const unit = r.expectedUnit || r.planUnit;
-      return '<tr>'
-        + '<td style="color:'+color+';font-weight:700">'+docEsc(r.status)+'</td>'
-        + '<td>'+docEsc(r.packageName)+'</td>'
-        + '<td>'+docEsc(r.sectionName)+'</td>'
-        + '<td>'+docEsc(r.itemName)+'</td>'
-        + '<td>'+docEsc(r.basisLabel)+'</td>'
-        + '<td class="emc-num">'+docEsc(qty(r.planQty,r.planUnit))+'</td>'
-        + '<td class="emc-num">'+(r.supported&&r.unitOk?docEsc(qty(r.measuredQty,unit)):'—')+'</td>'
-        + '<td class="emc-num">'+(r.supported&&r.unitOk?docEsc((r.diff>0?'+':'')+qty(r.diff,unit)):'—')+'</td>'
-        + '<td class="emc-num">'+(r.overSum>0?money(r.overSum):'—')+'</td>'
-        + '</tr>';
-    }).join('');
-    if(!s.rows.length) html += '<tr><td colspan="9" style="text-align:center;color:#64748b">Нет активной сметы заказчика или рабочих строк для сравнения</td></tr>';
-    html += '</table><p style="font-size:10px;color:#64748b;margin-top:12px">Отчёт не создаёт допработы автоматически. Он показывает, где фактическое основание объёма из помещений отличается от активной сметы заказчика.</p>';
-    return html;
-  };
+  const buildEstimateMeasurementComparisonContent = (project) => buildEstimateMeasurementComparisonDocContent(
+    project,
+    estimateMeasurementComparisonSummary(project),
+    projectMeasurementBasisTotals(project?.name||''),
+    {generatedBy:user?.name||''}
+  );
   const renderEstimateMeasurementComparisonPanel = (project) => {
     const s = estimateMeasurementComparisonSummary(project);
     const totals = projectMeasurementBasisTotals(project?.name||'');
@@ -3758,55 +3668,11 @@ function App() {
       overTotal:rows.filter(r=>r.status==='Превышение объёма').reduce((s,r)=>s+toNum(r.work.total),0),
     };
   };
-  const buildWorkJournalEstimateReconciliationContent = (project) => {
-    const s = workJournalEstimateSummary(project);
-    const money = (n) => Math.round(toNum(n)).toLocaleString('ru-RU')+' ₽';
-    const pct = s.estimatePlan>0 ? Math.round(s.estimateDone/s.estimatePlan*1000)/10 : 0;
-    let html = '<style>'
-      + '.wjr-title{text-align:center;font-size:18px;font-weight:800;margin:0 0 4px}'
-      + '.wjr-sub{text-align:center;color:#64748b;font-size:11px;margin:0 0 14px}'
-      + '.wjr-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}'
-      + '.wjr-card{border:1px solid #cbd5e1;border-radius:8px;padding:8px;background:#f8fafc}'
-      + '.wjr-card span{display:block;color:#64748b;font-size:10px}.wjr-card b{font-size:14px}'
-      + '.wjr-table{font-size:10px;table-layout:fixed}.wjr-table th{font-size:9px}.wjr-table td,.wjr-table th{vertical-align:top;word-break:break-word}'
-      + '.wjr-num{text-align:right;white-space:nowrap}'
-      + '@media print{.wjr-grid{grid-template-columns:repeat(4,1fr)}.wjr-table{font-size:9px}}'
-      + '</style>';
-    html += '<div class="wjr-title">СВЕРКА ЖПР ↔ АКТИВНАЯ СМЕТА</div>';
-    html += '<div class="wjr-sub">Объект: '+docEsc(project?.name||'')+' · '+new Date().toLocaleDateString('ru-RU')+' · сформировал: '+docEsc(user?.name||'')+'</div>';
-    html += '<div class="wjr-grid">'
-      + '<div class="wjr-card"><span>Строк ЖПР</span><b>'+s.rows.length+'</b></div>'
-      + '<div class="wjr-card"><span>Найдено в смете</span><b style="color:#047857">'+s.linkedRows.length+'</b></div>'
-      + '<div class="wjr-card"><span>Вне сметы / проверка</span><b style="color:#b45309">'+(s.outsideRows.length+s.reviewRows.length)+'</b></div>'
-      + '<div class="wjr-card"><span>Превышение объёма</span><b style="color:#dc2626">'+s.overRows.length+'</b></div>'
-      + '</div>';
-    html += '<div class="wjr-grid">'
-      + '<div class="wjr-card"><span>Активная смета</span><b>'+money(s.estimatePlan)+'</b></div>'
-      + '<div class="wjr-card"><span>Закрыто в смете</span><b>'+money(s.estimateDone)+' · '+pct+'%</b></div>'
-      + '<div class="wjr-card"><span>Сумма ЖПР</span><b>'+money(s.journalTotal)+'</b></div>'
-      + '<div class="wjr-card"><span>ЖПР вне сметы</span><b style="color:#dc2626">'+money(s.outsideTotal)+'</b></div>'
-      + '</div>';
-    html += '<table class="wjr-table"><tr><th>Статус</th><th>Дата</th><th>ЖПР / исполнитель</th><th>Объём ЖПР</th><th>Сумма ЖПР</th><th>Строка сметы</th><th>План сметы</th><th>Сделано в смете</th><th>Оценка по смете</th><th>Увер.</th></tr>';
-    html += s.rows.map(r=>{
-      const meta = workJournalEstimateStatusMeta(r.status);
-      const m = r.match;
-      return '<tr>'
-        + '<td style="color:'+meta.color+';font-weight:700">'+docEsc(r.status)+'</td>'
-        + '<td>'+docEsc(r.work.date||'')+'</td>'
-        + '<td><b>'+docEsc(r.work.description||'')+'</b><div style="color:#64748b">'+docEsc(r.work.masterName||'')+'</div></td>'
-        + '<td class="wjr-num">'+docEsc(fmtMeasure(r.workQty,r.workUnit))+'</td>'
-        + '<td class="wjr-num">'+money(r.work.total)+'</td>'
-        + '<td>'+docEsc(m ? ((m.packageName&&m.packageName!=='Основная'?m.packageName+' / ':'')+m.sectionName+' / '+m.itemName) : '—')+'</td>'
-        + '<td class="wjr-num">'+docEsc(m ? fmtMeasure(m.planQty,m.unit) : '—')+'</td>'
-        + '<td class="wjr-num">'+docEsc(m ? fmtMeasure(m.doneQty,m.unit) : '—')+'</td>'
-        + '<td class="wjr-num">'+(r.estimateValue?money(r.estimateValue):'—')+'</td>'
-        + '<td class="wjr-num">'+(r.score?Math.round(r.score*100)+'%':'—')+'</td>'
-        + '</tr>';
-    }).join('');
-    if(!s.rows.length) html += '<tr><td colspan="10" style="text-align:center;color:#64748b">Записей ЖПР для сверки нет</td></tr>';
-    html += '</table><p style="font-size:10px;color:#64748b;margin-top:12px">Сумма ЖПР — внутренняя сумма по исполнителю. Оценка по смете считается по активной смете заказчика и нужна только для контроля соответствия факта строкам сметы.</p>';
-    return html;
-  };
+  const buildWorkJournalEstimateReconciliationContent = (project) => buildWorkJournalEstimateReconciliationDocContent(
+    project,
+    workJournalEstimateSummary(project),
+    {generatedBy:user?.name||'', statusMeta:workJournalEstimateStatusMeta}
+  );
   const renderWorkJournalEstimateReconciliationPanel = (project) => {
     const s = workJournalEstimateSummary(project);
     const rows = s.rows.slice(0,80);
@@ -5866,37 +5732,11 @@ function App() {
     'Код нормы': r.rule?.ruleKey || r.rule?.id || '',
     Комментарий: materialNormCoverageComment(r),
   }));
-  const buildMaterialNormCoverageContent = (projectName) => {
-    const rows = projectName ? estimateNormCoverageRows(projectName) : [];
-    const okCount = rows.filter(r=>['Норма применена','Поправка объекта','Поправка сметы'].includes(r.status)).length;
-    const skippedCount = rows.filter(r=>r.status==='Норма не нужна').length;
-    const missingCount = rows.filter(r=>r.status==='Нет нормы').length;
-    const unlinkedCount = rows.filter(r=>r.status==='Материал без работы').length;
-    const shortageCount = rows.filter(r=>r.status==='Нехватка материала по норме').length;
-    const infoCount = rows.filter(r=>r.status==='Нет материала в смете').length;
-    const zeroQtyCount = rows.filter(r=>r.status==='Материал без количества').length;
-    const invalidQtyCount = rows.filter(r=>r.status==='Некорректное количество').length;
-    const req = companyRequisites||{};
-    const orgName = req.fullName||req.shortName||companyName||'_____';
-    let html = '<style>.mn-tbl{border-collapse:collapse;width:100%;font-size:10.5px;margin:8px 0}.mn-tbl th,.mn-tbl td{border:1px solid #333;padding:5px 6px;vertical-align:top}.mn-tbl th{background:#f3f4f6}.mn-ok{background:#dcfce7}.mn-info{background:#dbeafe}.mn-skip{background:#f3f4f6}.mn-warn{background:#fef3c7}.mn-danger{background:#fee2e2}.mn-note{font-size:10px;color:#555}.mn-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px;margin:10px 0}.mn-summary div{border:1px solid #333;padding:6px;text-align:center}.mn-summary b{display:block;font-size:14px}</style>';
-    html += '<h2 style="text-align:center;margin:6px 0">ВЕДОМОСТЬ ПОКРЫТИЯ СМЕТЫ НОРМАМИ МАТЕРИАЛОВ</h2>';
-    html += '<p style="text-align:center;font-size:11px;color:#444">контроль связки: работа сметы → норма расхода → материал сметы</p>';
-    html += '<p style="font-size:12px"><b>Объект:</b> '+docEsc(projectName||'')+' · <b>Организация:</b> '+docEsc(orgName)+' · <b>Дата:</b> '+new Date().toLocaleDateString('ru-RU')+'</p>';
-    html += '<div class="mn-summary"><div><span>Покрыто</span><b>'+okCount+'</b></div><div><span>Без материалов</span><b>'+skippedCount+'</b></div><div><span>Нет нормы</span><b>'+missingCount+'</b></div><div><span>Нехватка</span><b>'+shortageCount+'</b></div><div><span>Материал без работы</span><b>'+unlinkedCount+'</b></div><div><span>Некорректно</span><b>'+invalidQtyCount+'</b></div><div><span>Без количества</span><b>'+zeroQtyCount+'</b></div><div><span>Нет материала</span><b>'+infoCount+'</b></div><div><span>Всего</span><b>'+rows.length+'</b></div></div>';
-    if (!rows.length) {
-      html += '<p style="text-align:center;color:#888;font-size:12px;padding:16px">Нет активной сметы заказчика или нет строк для проверки.</p>';
-      return html;
-    }
-    html += '<table class="mn-tbl"><tr><th>№</th><th>Статус</th><th>Смета / раздел</th><th>Работа</th><th>Объём</th><th>Материал / норма</th><th>Потребность</th><th>В смете</th><th>Комментарий</th></tr>';
-    rows.forEach((r,i)=>{
-      const cls = ['Норма применена','Поправка объекта','Поправка сметы'].includes(r.status) ? 'mn-ok' : r.status==='Норма не нужна' ? 'mn-skip' : r.status==='Некорректное количество' ? 'mn-danger' : r.status==='Нет материала в смете' ? 'mn-info' : 'mn-warn';
-      html += '<tr class="'+cls+'"><td>'+(i+1)+'</td><td><b>'+docEsc(r.status||'')+'</b></td><td>'+docEsc((r.estimateName||'')+' / '+(r.packageName||''))+'<div class="mn-note">'+docEsc(r.sectionName||'')+'</div></td><td>'+docEsc(r.workName||'')+'</td><td>'+docEsc(r.workQty?fmtMeasure(r.workQty,r.workUnit):'')+'</td><td>'+docEsc(r.materialName||materialTitleForNormRule(r.rule)||'')+'<div class="mn-note">'+docEsc(r.rule?.label||r.rule?.ruleKey||'')+'</div></td><td>'+docEsc(r.requiredQty?fmtMeasure(r.requiredQty,r.requiredUnit):'')+'</td><td>'+docEsc(r.hasEstimateMaterial?fmtMeasure(r.materialQty,r.materialUnit):'')+'</td><td>'+docEsc(materialNormCoverageComment(r))+'</td></tr>';
-    });
-    html += '</table>';
-    html += '<div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:20px"><div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Сметчик:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div><div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Прораб / главный инженер:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div></div>';
-    html += '<p style="margin-top:16px;font-size:10px;color:#666;text-align:center">Строки `Некорректное количество` и `Материал без количества` сначала исправляются в смете. Строки `Нет материала в смете` сначала добавляются в смету/доп. смету. После этого снабжение создаёт заявку по утверждённой потребности.</p>';
-    return html;
-  };
+  const buildMaterialNormCoverageContent = (projectName) => buildMaterialNormCoverageDocContent(
+    projectName,
+    projectName ? estimateNormCoverageRows(projectName) : [],
+    {companyRequisites, companyName, materialTitleForNormRule, materialNormCoverageComment}
+  );
   const saveMaterialNormOverrideFromCoverage = async (row) => {
     if (!canEditMaterialNorms() || !row?.projectName || !row?.rule) return;
     const nextQty = window.prompt('Расход для этого объекта/сметы ('+(row.rule.materialUnit||row.materialUnit||'')+' / '+(row.rule.workUnit||row.workUnit||'')+'):', String(row.qtyPerUnit || row.rule.qtyPerUnit || ''));
@@ -8248,34 +8088,16 @@ function App() {
       unit: it.unit,
       sum: estimateItemTotal(it)
     })))).filter(i=>i.sum>0).sort((a,b)=>b.sum-a.sum).slice(0,12);
-    let html = directorDocStyles();
-    html += '<div class="dir-title">ПРОВЕРКА СМЕТ ДИРЕКТОРА</div>';
-    html += '<div class="dir-sub">'+docEsc(companyName||'СтройКа')+' · '+new Date().toLocaleDateString('ru-RU')+' · сформировал: '+docEsc(user?.name||'')+'</div>';
-    html += '<div class="dir-grid">';
-    html += '<div class="dir-card"><span>Всего смет</span><b>'+estimates.length+'</b></div>';
-    html += '<div class="dir-card"><span>Активных</span><b>'+activeEstimates.length+'</b></div>';
-    html += '<div class="dir-card"><span>Замечаний</span><b>'+issues.length+'</b></div>';
-    html += '<div class="dir-card"><span>Активная сумма</span><b>'+fmtDocMoney(activeEstimates.reduce((s,e)=>s+estimateTotal(e),0))+'</b></div>';
-    html += '</div>';
-    html += '<div class="dir-section"><h3>Замечания</h3>';
-    if(issues.length){
-      html += '<table class="dir-table"><tr><th>N</th><th>Приоритет</th><th>Объект</th><th>Смета</th><th>Где</th><th>Проблема</th><th>Действие</th></tr>';
-      issues.slice(0,40).forEach((r,i)=>{html+='<tr><td>'+(i+1)+'</td><td>'+docEsc(r.severity)+'</td><td>'+docEsc(r.project)+'</td><td>'+docEsc(r.estimate)+'</td><td>'+docEsc(r.where)+'</td><td>'+docEsc(r.problem)+'</td><td>'+docEsc(r.action)+'</td></tr>';});
-      html += '</table>';
-    } else {
-      html += '<div class="dir-ok">По активным и рабочим сметам критичных замечаний не найдено.</div>';
-    }
-    html += '</div>';
-    html += '<div class="dir-section"><h3>Самые дорогие позиции активных смет</h3>';
-    if(topItems.length){
-      html += '<table class="dir-table"><tr><th>N</th><th>Объект</th><th>Смета</th><th>Раздел</th><th>Позиция</th><th>Кол-во</th><th>Сумма</th></tr>';
-      topItems.forEach((i,n)=>{html+='<tr><td>'+(n+1)+'</td><td>'+docEsc(i.project)+'</td><td>'+docEsc(i.estimate)+'</td><td>'+docEsc(i.section)+'</td><td>'+docEsc(i.name)+'</td><td>'+docEsc(fmtMeasure(i.qty,i.unit))+'</td><td>'+fmtDocMoney(i.sum)+'</td></tr>';});
-      html += '</table>';
-    } else {
-      html += '<div class="dir-risk">Активных позиций со стоимостью пока нет.</div>';
-    }
-    html += '</div>';
-    return html;
+    return buildEstimateControlReportDocContent({
+      estimates,
+      activeEstimates,
+      issues,
+      topItems,
+      activeTotal: activeEstimates.reduce((s,e)=>s+estimateTotal(e),0),
+    }, {
+      companyName,
+      generatedBy: user?.name || '',
+    });
   };
   const loadEstimatesForDirectorReport = async () => {
     if ((estimatesList||[]).length) return estimatesList;
@@ -8329,25 +8151,13 @@ function App() {
     const offersToReview = (supplierOffers||[]).filter(o=>o.status==='Получено');
     const invoicesToPay = (supplierInvoices||[]).filter(i=>i.status==='На утверждении'||i.status==='Утверждён'||i.status==='Частично оплачен'||!i.status);
     const debt = invoicesToPay.reduce((s,i)=>s+Math.max(0,Number(i.amount||i.totalAmount||0)-Number(i.paidAmount||0)),0);
-    let html = directorDocStyles();
-    html += '<div class="dir-title">КОНТРОЛЬ СНАБЖЕНИЯ И СКЛАДА</div>';
-    html += '<div class="dir-sub">'+docEsc(companyName||'СтройКа')+' · '+new Date().toLocaleDateString('ru-RU')+' · сформировал: '+docEsc(user?.name||'')+'</div>';
-    html += '<div class="dir-grid">';
-    html += '<div class="dir-card"><span>Заявки в работе</span><b>'+inWorkRequests.length+'</b></div>';
-    html += '<div class="dir-card"><span>КП на выбор</span><b>'+offersToReview.length+'</b></div>';
-    html += '<div class="dir-card"><span>Счета к оплате</span><b>'+invoicesToPay.length+'</b></div>';
-    html += '<div class="dir-card"><span>Долг по счетам</span><b>'+fmtDocMoney(debt)+'</b></div>';
-    html += '</div>';
-    html += '<div class="dir-section"><h3>Замечания</h3>';
-    if(issues.length){
-      html += '<table class="dir-table"><tr><th>N</th><th>Приоритет</th><th>Объект/склад</th><th>Позиция</th><th>Проблема</th><th>Действие</th></tr>';
-      issues.slice(0,45).forEach((r,i)=>{html+='<tr><td>'+(i+1)+'</td><td>'+docEsc(r.severity)+'</td><td>'+docEsc(r.project)+'</td><td>'+docEsc(r.where)+'</td><td>'+docEsc(r.problem)+'</td><td>'+docEsc(r.action)+'</td></tr>';});
-      html += '</table>';
-    } else {
-      html += '<div class="dir-ok">По снабжению и складу критичных замечаний не найдено.</div>';
-    }
-    html += '</div>';
-    return html;
+    return buildSupplyControlReportDocContent({
+      issues,
+      inWorkRequests,
+      offersToReview,
+      invoicesToPay,
+      debt,
+    }, {companyName, generatedBy:user?.name||''});
   };
   const unreadNotifications = myNotifications(notifications).filter(n=>!n.read).length;
 
