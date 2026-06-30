@@ -199,7 +199,6 @@ import {
   sendPushNotification,
 } from './utils/appRuntimeUtils';
 import {
-  docEsc,
   normalizeDocDate,
   workDocDate,
 } from './utils/documentFormatUtils';
@@ -210,6 +209,7 @@ import {
   buildDailyObjectReportDocContent,
   buildDirectorBriefReportDocContent,
   buildEstimateControlReportDocContent,
+  buildEstimateDiffDocContent,
   buildEstimateMeasurementComparisonDocContent,
   buildEstimateReconciliationDocContent,
   buildExecPackageDocContent,
@@ -2955,28 +2955,12 @@ function App() {
   };
   const buildEstimateDiffContent = (baseEst, nextEst) => {
     const diff = buildEstimateDiff(baseEst,nextEst);
-    const fmtMoney = (n) => (Math.round(Number(n||0)*100)/100).toLocaleString('ru-RU')+' ₽';
-    const fmtQty = (n) => {
-      const q = Number(n||0);
-      return Math.abs(q - Math.round(q)) < 0.001 ? String(Math.round(q)) : q.toLocaleString('ru-RU', {maximumFractionDigits: 3});
-    };
-    const signMoney = (n) => (n>0?'+':'')+fmtMoney(n);
-    const diffColor = (n) => n>0 ? '#b45309' : n<0 ? '#047857' : '#374151';
     const meta = (est) => [
       est?.name || 'Смета',
       (est?.version || est?.versionLabel) ? 'v'+(est.version||est.versionLabel) : '',
       est?.status || '',
       est?.createdAt ? String(est.createdAt).slice(0,10) : ''
     ].filter(Boolean).join(' · ');
-    const rowBase = (row,impact=null) => '<tr>'
-      + '<td>'+docEsc(row.section)+'</td>'
-      + '<td>'+docEsc(row.name)+'</td>'
-      + '<td>'+docEsc(row.unit)+'</td>'
-      + '<td class="num">'+docEsc(fmtQty(row.qty))+'</td>'
-      + '<td class="num">'+fmtMoney(row.unitPrice)+'</td>'
-      + '<td class="num">'+fmtMoney(row.sum)+'</td>'
-      + (impact!==null?'<td class="num" style="color:'+diffColor(impact)+';font-weight:700">'+signMoney(impact)+'</td>':'')
-      + '</tr>';
     const docUnitKey = (unit) => estimateDiffTextKey(normalizeMeasure(1, unit).unit || unit || '');
     const docNameScore = (left, right) => {
       const a = estimateDiffTextKey(left);
@@ -3048,70 +3032,16 @@ function App() {
       outside:changeRows.filter(r=>!r.covered).length,
       outsideSum:changeRows.filter(r=>!r.covered).reduce((s,r)=>s+r.amount,0)
     };
-    const changeRowsHtml = changeRows.map(({change:u,candidate:c,score,required,status,amount})=>'<tr>'
-      + '<td>'+docEsc(u.changeType||'Изменение')+'</td>'
-      + '<td>'+docEsc((u.sectionName?u.sectionName+' / ':'')+(u.estimateItemName||u.description||''))+'</td>'
-      + '<td class="num">'+docEsc(fmtQty(required.qty))+'</td>'
-      + '<td>'+docEsc(required.unit||u.unit||'')+'</td>'
-      + '<td class="num" style="color:'+diffColor(amount)+';font-weight:700">'+signMoney(amount)+'</td>'
-      + '<td>'+docEsc(c ? (c.section+' / '+c.name) : 'Не найдено')+'</td>'
-      + '<td class="num">'+docEsc(c ? fmtQty(c.qty) : '—')+'</td>'
-      + '<td>'+docEsc(status)+'</td>'
-      + '<td class="num">'+docEsc(score ? Math.round(score*100)+'%' : '—')+'</td>'
-      + '</tr>').join('');
-    const changedRows = diff.changed.map(({base,next,impact})=>'<tr>'
-      + '<td>'+docEsc(next.section)+'</td>'
-      + '<td>'+docEsc(next.name)+'</td>'
-      + '<td>'+docEsc(next.unit)+'</td>'
-      + '<td class="num">'+docEsc(fmtQty(base.qty))+'</td>'
-      + '<td class="num">'+docEsc(fmtQty(next.qty))+'</td>'
-      + '<td class="num">'+fmtMoney(base.unitPrice)+'</td>'
-      + '<td class="num">'+fmtMoney(next.unitPrice)+'</td>'
-      + '<td class="num">'+fmtMoney(base.sum)+'</td>'
-      + '<td class="num">'+fmtMoney(next.sum)+'</td>'
-      + '<td class="num" style="color:'+diffColor(impact)+';font-weight:700">'+signMoney(impact)+'</td>'
-      + '</tr>').join('');
-    const empty = (cols) => '<tr><td colspan="'+cols+'" style="text-align:center;color:#6b7280">Нет изменений</td></tr>';
-    let html = '<style>'
-      + '.ediff-title{text-align:center;font-size:18px;font-weight:700;margin:0 0 4px}'
-      + '.ediff-sub{text-align:center;color:#555;font-size:11px;margin:0 0 14px}'
-      + '.ediff-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0 14px}'
-      + '.ediff-card{border:1px solid #cbd5e1;border-radius:8px;padding:8px;background:#f8fafc}'
-      + '.ediff-card span{display:block;color:#64748b;font-size:10px}.ediff-card b{font-size:14px}'
-      + '.ediff-table{font-size:10px;table-layout:fixed}.ediff-table th{font-size:9px}.ediff-table td,.ediff-table th{vertical-align:top;word-break:break-word}'
-      + '.ediff-table .num{text-align:right;white-space:nowrap}'
-      + '.ediff-h{font-size:13px;font-weight:700;margin:16px 0 6px}'
-      + '@media print{.ediff-grid{grid-template-columns:repeat(3,1fr)}.ediff-table{font-size:9px}}'
-      + '</style>';
-    html += '<div class="ediff-title">СОПОСТАВИТЕЛЬНАЯ ВЕДОМОСТЬ СМЕТ</div>';
-    html += '<div class="ediff-sub">Объект: '+docEsc(nextEst?.projectName||baseEst?.projectName||'')+' · Тип: '+docEsc(estimateKind(nextEst||baseEst))+' · Пакет: '+docEsc(estimatePackage(nextEst||baseEst))+'</div>';
-    html += '<table><tr><th>База сравнения</th><td>'+docEsc(meta(baseEst))+'</td></tr><tr><th>Новая / выбранная смета</th><td>'+docEsc(meta(nextEst))+'</td></tr></table>';
-    html += '<div class="ediff-grid">'
-      + '<div class="ediff-card"><span>Было</span><b>'+fmtMoney(diff.baseTotal)+'</b></div>'
-      + '<div class="ediff-card"><span>Стало</span><b>'+fmtMoney(diff.nextTotal)+'</b></div>'
-      + '<div class="ediff-card"><span>Разница</span><b style="color:'+diffColor(diff.impact)+'">'+signMoney(diff.impact)+'</b></div>'
-      + '</div>';
-    html += '<div class="ediff-grid">'
-      + '<div class="ediff-card"><span>Изменено позиций</span><b>'+diff.changed.length+'</b></div>'
-      + '<div class="ediff-card"><span>Добавлено позиций</span><b>'+diff.added.length+'</b></div>'
-      + '<div class="ediff-card"><span>Исключено позиций</span><b>'+diff.removed.length+'</b></div>'
-      + '</div>';
-    if (changeSummary.total) {
-      html += '<div class="ediff-grid">'
-        + '<div class="ediff-card"><span>Изменений к смете</span><b>'+changeSummary.total+'</b></div>'
-        + '<div class="ediff-card"><span>Закрыто новой сметой</span><b style="color:#047857">'+changeSummary.covered+'</b></div>'
-        + '<div class="ediff-card"><span>Остаётся/проверить</span><b style="color:'+diffColor(changeSummary.outsideSum)+'">'+changeSummary.outside+' · '+signMoney(changeSummary.outsideSum)+'</b></div>'
-        + '</div>';
-      if (changeSummary.review) {
-        html += '<p style="font-size:10px;color:#92400e;margin:0 0 8px">Есть спорные совпадения: '+changeSummary.review+'. Их нужно проверить сметчику/директору, чтобы не задвоить объём в КС.</p>';
-      }
-    }
-    html += '<div class="ediff-h">Изменён объём или цена</div><table class="ediff-table"><tr><th>Раздел</th><th>Позиция</th><th>Ед.</th><th>Было кол.</th><th>Стало кол.</th><th>Было цена/ед.</th><th>Стало цена/ед.</th><th>Было сумма</th><th>Стало сумма</th><th>Влияние</th></tr>'+(changedRows||empty(10))+'</table>';
-    html += '<div class="ediff-h">Добавлено в новую смету</div><table class="ediff-table"><tr><th>Раздел</th><th>Позиция</th><th>Ед.</th><th>Кол-во</th><th>Цена/ед.</th><th>Сумма</th><th>Влияние</th></tr>'+(diff.added.map(r=>rowBase(r,r.impact)).join('')||empty(7))+'</table>';
-    html += '<div class="ediff-h">Исключено из новой сметы</div><table class="ediff-table"><tr><th>Раздел</th><th>Позиция</th><th>Ед.</th><th>Кол-во</th><th>Цена/ед.</th><th>Сумма</th><th>Влияние</th></tr>'+(diff.removed.map(r=>rowBase(r,r.impact)).join('')||empty(7))+'</table>';
-    html += '<div class="ediff-h">Сопоставление утверждённых изменений к смете</div><table class="ediff-table"><tr><th>Тип</th><th>Изменение / исходная строка</th><th>Кол-во</th><th>Ед.</th><th>Сумма</th><th>Кандидат в новой смете</th><th>Кол-во новой</th><th>Решение</th><th>Увер.</th></tr>'+(changeRowsHtml||empty(9))+'</table>';
-    html += '<p style="font-size:10px;color:#555;margin-top:16px">Документ сформирован автоматически по строкам старой и новой сметы. Раздел сопоставления показывает, какие утверждённые работы вне/сверх сметы уже отражены в новой редакции, а какие остаются отдельной допработой для ДС/КС. После подтверждения включённые изменения не должны повторно попадать в КС отдельным блоком.</p>';
-    return html;
+    return buildEstimateDiffDocContent({
+      baseMeta: meta(baseEst),
+      nextMeta: meta(nextEst),
+      projectName: nextEst?.projectName || baseEst?.projectName || '',
+      estimateType: estimateKind(nextEst||baseEst),
+      workPackage: estimatePackage(nextEst||baseEst),
+      diff,
+      changeRows,
+      changeSummary,
+    });
   };
   const estimateReconciliationStatusView = (status) => {
     if (status === 'Утверждена') return {label:'Утверждена', color:C.success, bg:C.successLight, border:C.successBorder};
