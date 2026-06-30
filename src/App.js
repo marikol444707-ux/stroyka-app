@@ -71,7 +71,7 @@ import MaterialNormNotice from './components/MaterialNormNotice';
 import MaterialNormsHeader from './components/MaterialNormsHeader';
 import MaterialNormOverridesPanel from './components/MaterialNormOverridesPanel';
 import EstimateImportView from './components/EstimateImportView';
-import MaterialNormCoveragePanel from './components/MaterialNormCoveragePanel';
+import MaterialNormCoverageSection from './components/MaterialNormCoverageSection';
 import EstimateCreateFormFields from './components/EstimateCreateFormFields';
 import EstimatesListView from './components/EstimatesListView';
 import EstimateCreateActions from './components/EstimateCreateActions';
@@ -13457,27 +13457,26 @@ function App() {
                 materialNormNotice={materialNormNotice}
                 setMaterialNormNotice={setMaterialNormNotice}
               />
-	              {(()=>{const projectOptions=visibleActiveProjects(projects||[]);const selectedProject=materialNormCoverageProject||projectOptions[0]?.name||'';const rows=selectedProject?estimateNormCoverageRows(selectedProject):[];const displayRows=materialNormCoverageDisplayRows(rows);const coverageKey=['material-norm-coverage',selectedProject].join(':');const coverageLimit=isMobile?80:160;const visibleCoverageRows=mobileExpandedRenderLists[coverageKey]?displayRows:displayRows.slice(0,coverageLimit);const hiddenCoverageRows=displayRows.length-visibleCoverageRows.length;return(<MaterialNormCoveragePanel
-                C={C}
-                badge={badge}
-                btnB={btnB}
+              <MaterialNormCoverageSection
+	                C={C}
+	                badge={badge}
+	                btnB={btnB}
                 btnG={btnG}
                 btnGr={btnGr}
                 btnO={btnO}
                 btnState={btnState}
-                card={card}
-                inp={inp}
-                isMobile={isMobile}
-                projectOptions={projectOptions}
-                selectedProject={selectedProject}
-                setMaterialNormCoverageProject={setMaterialNormCoverageProject}
-                rows={rows}
-                displayRows={displayRows}
-                visibleCoverageRows={visibleCoverageRows}
-                hiddenCoverageRows={hiddenCoverageRows}
-                coverageKey={coverageKey}
-                setMobileExpandedRenderLists={setMobileExpandedRenderLists}
-                canEditMaterialNorms={canEditMaterialNorms}
+	                card={card}
+	                inp={inp}
+	                isMobile={isMobile}
+                  projects={projects}
+                  materialNormCoverageProject={materialNormCoverageProject}
+	                setMaterialNormCoverageProject={setMaterialNormCoverageProject}
+                  visibleActiveProjects={visibleActiveProjects}
+                  estimateNormCoverageRows={estimateNormCoverageRows}
+                  materialNormCoverageDisplayRows={materialNormCoverageDisplayRows}
+                  mobileExpandedRenderLists={mobileExpandedRenderLists}
+	                setMobileExpandedRenderLists={setMobileExpandedRenderLists}
+	                canEditMaterialNorms={canEditMaterialNorms}
                 canCreateSupplyRequestFromNorm={canCreateSupplyRequestFromNorm}
                 materialNormCanCreateSupply={materialNormCanCreateSupply}
                 materialNormSupplyRequestExists={materialNormSupplyRequestExists}
@@ -13490,11 +13489,11 @@ function App() {
                 materialNormCoverageExportRows={materialNormCoverageExportRows}
                 createBatchSupplyRequestFromNormCoverage={createBatchSupplyRequestFromNormCoverage}
                 createSupplyRequestFromNormCoverage={createSupplyRequestFromNormCoverage}
-                addEstimateMaterialFromCoverage={addEstimateMaterialFromCoverage}
-                markEstimateWorkNoMaterialFromCoverage={markEstimateWorkNoMaterialFromCoverage}
-                createMaterialNormCoverageTask={createMaterialNormCoverageTask}
-                saveMaterialNormOverrideFromCoverage={saveMaterialNormOverrideFromCoverage}
-              />);})()}
+	                addEstimateMaterialFromCoverage={addEstimateMaterialFromCoverage}
+	                markEstimateWorkNoMaterialFromCoverage={markEstimateWorkNoMaterialFromCoverage}
+	                createMaterialNormCoverageTask={createMaterialNormCoverageTask}
+	                saveMaterialNormOverrideFromCoverage={saveMaterialNormOverrideFromCoverage}
+	              />
               <MaterialNormSuggestionsPanel
                 C={C}
                 badge={badge}
