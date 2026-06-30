@@ -214,6 +214,7 @@ import {
   buildJPRDocContent,
   buildKS11DocContent,
   buildKS14DocContent,
+  buildKS3DocContent,
   buildM2DocContent,
   buildM15DocContent,
   buildMasterActDocContent,
@@ -2099,33 +2100,12 @@ function App() {
     showPreview(html,'КС-2 — '+project.name);
   };
 
-  const buildKS3Content = (project) => {
-    // КС-3 — стоимость ВЫПОЛНЕННЫХ работ заказчику (из сметы), а не себестоимость.
-    const rows = ks2ItemsFromEstimate(project);
-    const bySection = {};
-    rows.forEach(r=>{ const k=r.section||'Работы по смете'; bySection[k]=(bySection[k]||0)+Number(r.total||0); });
-    const worksTotal = rows.reduce((s,r)=>s+Number(r.total||0),0);
-    const additionalVolumeItems = estimateChangeRowsForDocs(project.name, 'additional');
-    const outsideEstimateItems = estimateChangeRowsForDocs(project.name, 'outside');
-    const addTotal = additionalVolumeItems.reduce((s,j)=>s+Number(j.total||0),0);
-    const outTotal = outsideEstimateItems.reduce((s,j)=>s+Number(j.total||0),0);
-    const grand = worksTotal+addTotal+outTotal;
-    const req = companyRequisites||{};
-    let html = '<h2 style="text-align:center">УНИФИЦИРОВАННАЯ ФОРМА № КС-3</h2><h3 style="text-align:center">СПРАВКА О СТОИМОСТИ ВЫПОЛНЕННЫХ РАБОТ И ЗАТРАТ</h3>';
-    html += '<table><tr><th>Организация (подрядчик)</th><td>'+(req.fullName||req.shortName||companyName||'_____')+'</td><th>Объект</th><td>'+project.name+'</td></tr></table>';
-    html += '<table><tr><th>N</th><th>Наименование работ и затрат</th><th>Стоимость выполненных работ (руб.)</th></tr>';
-    let i=0;
-    Object.keys(bySection).forEach(sec=>{ i++; html += '<tr><td>'+i+'</td><td>'+sec+'</td><td style="text-align:right">'+Math.round(bySection[sec]).toLocaleString('ru-RU')+'</td></tr>'; });
-    if(addTotal>0){ i++; html += '<tr><td>'+i+'</td><td>Дополнительные объёмы к строкам сметы</td><td style="text-align:right">'+addTotal.toLocaleString('ru-RU')+'</td></tr>'; }
-    if(outTotal>0){ i++; html += '<tr><td>'+i+'</td><td>Работы вне сметы</td><td style="text-align:right">'+outTotal.toLocaleString('ru-RU')+'</td></tr>'; }
-    if(i===0) html += '<tr><td colspan="3" style="text-align:center;color:#777">Выполненных работ по смете пока нет</td></tr>';
-    html += '<tr><td colspan="2"><b>ИТОГО выполнено работ:</b></td><td style="text-align:right"><b>'+Math.round(grand).toLocaleString('ru-RU')+' руб.</b></td></tr>';
-    html += '<tr><td colspan="2">в т.ч. НДС 20%:</td><td style="text-align:right">'+Math.round(grand/120*20).toLocaleString('ru-RU')+' руб.</td></tr>';
-    html += '</table>';
-    html += '<p style="font-size:11px;color:#555">Стоимость рассчитана по выполненным позициям сметы (цена заказчику) и соответствует Разделу 1 формы КС-2 за отчётный период.</p>';
-    html += '<div class="signatures"><div class="sig"><div class="sig-line">Подрядчик<br/>'+(req.directorName||'')+'</div></div><div class="sig"><div class="sig-line">Заказчик</div></div></div>';
-    return html;
-  };
+  const buildKS3Content = (project) => buildKS3DocContent(project, {
+    companyRequisites,
+    companyName,
+    ks2ItemsFromEstimate,
+    estimateChangeRowsForDocs,
+  });
 
   const buildBrigadeActContent = (bc) => buildBrigadeActDocContent(bc, {
     companyRequisites,
