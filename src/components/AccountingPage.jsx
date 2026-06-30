@@ -27,6 +27,7 @@ export default function AccountingPage(props) {
     projectPayments,
     projectPaymentInAmount,
     ownExpenses,
+    manualExpenses,
     accountablePayments,
     supplierInvoices,
     brigadeContracts,
@@ -144,6 +145,7 @@ export default function AccountingPage(props) {
           projectPayments={projectPayments}
           projectPaymentInAmount={projectPaymentInAmount}
           ownExpenses={ownExpenses}
+          manualExpenses={manualExpenses}
           accountablePayments={accountablePayments}
           supplierInvoices={supplierInvoices}
           brigadeContracts={brigadeContracts}
@@ -194,6 +196,7 @@ export default function AccountingPage(props) {
           refreshData={refreshData}
           setShowReimburseModal={setShowReimburseModal}
           ownExpenses={ownExpenses}
+          manualExpenses={manualExpenses}
           projectPayments={projectPayments}
           projectPaymentInAmount={projectPaymentInAmount}
           accountablePayments={accountablePayments}
@@ -324,6 +327,7 @@ export default function AccountingPage(props) {
           setAccountingDocProject={setAccountingDocProject}
           projects={projects}
           projectPayments={projectPayments}
+          manualExpenses={manualExpenses}
           projectPlanDone={projectPlanDone}
           ownExpenses={ownExpenses}
           accountablePayments={accountablePayments}

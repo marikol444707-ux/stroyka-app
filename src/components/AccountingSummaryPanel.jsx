@@ -12,6 +12,7 @@ export default function AccountingSummaryPanel({
   projectPayments,
   projectPaymentInAmount,
   ownExpenses,
+  manualExpenses,
   accountablePayments,
   supplierInvoices,
   brigadeContracts,
@@ -45,11 +46,14 @@ export default function AccountingSummaryPanel({
   const reimbursedOwnExpenses = (ownExpenses || [])
     .filter(expense => expense.status === 'Возмещено')
     .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+  const directObjectExpenses = (manualExpenses || [])
+    .filter(expense => !expense.ownExpenseId && expense.source !== 'own_expense')
+    .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
   const totalAccountable = (accountablePayments || []).reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
   const totalSuppliers = (supplierInvoices || []).reduce((sum, invoice) => sum + Number(invoice.paidAmount || 0), 0);
   const totalBrigades = (brigadeContracts || []).reduce((sum, contract) => sum + Number(contract.paidAmount || 0), 0);
   const totalPiecework = (piecework || []).reduce((sum, row) => sum + Number(row.total || 0), 0);
-  const totalExpenses = totalAccountable + totalProjectPaymentsOut;
+  const totalExpenses = totalAccountable + totalProjectPaymentsOut + directObjectExpenses;
   const netProfit = totalPayIn - totalExpenses;
   const accountingInvoiceRows = React.useMemo(
     () => buildAccountingInvoiceRows(invoices, warehouseInvoiceEstimateControl),
@@ -70,6 +74,7 @@ export default function AccountingSummaryPanel({
     { label: 'Оплачено поставщикам', value: Math.round(totalSuppliers).toLocaleString('ru-RU') + ' ₽', color: C.warning },
     { label: 'Оплачено бригадам', value: Math.round(totalBrigades).toLocaleString('ru-RU') + ' ₽', color: C.warning },
     { label: 'Платежи по журналу', value: Math.round(totalProjectPaymentsOut).toLocaleString('ru-RU') + ' ₽', color: C.danger },
+    { label: 'Прямые расходы объектов', value: Math.round(directObjectExpenses).toLocaleString('ru-RU') + ' ₽', color: C.danger },
     { label: 'К возмещению сотрудникам', value: Math.round(pendingOwnExpenses).toLocaleString('ru-RU') + ' ₽', color: C.warning },
     { label: 'Возмещено сотрудникам', value: Math.round(reimbursedOwnExpenses).toLocaleString('ru-RU') + ' ₽', color: C.textSec },
     { label: 'Подотчётные на руках', value: Math.round(totalAccountable).toLocaleString('ru-RU') + ' ₽', color: C.warning },

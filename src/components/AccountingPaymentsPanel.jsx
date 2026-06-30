@@ -17,6 +17,7 @@ export default function AccountingPaymentsPanel({
   refreshData,
   setShowReimburseModal,
   ownExpenses,
+  manualExpenses,
   projectPayments,
   projectPaymentInAmount,
   accountablePayments,
@@ -57,6 +58,24 @@ export default function AccountingPaymentsPanel({
   };
 
   const allMovesByProject = {};
+  const emptyMoveGroup = () => ({
+    incoming: [],
+    projectOut: [],
+    ownExp: [],
+    manualExp: [],
+    accountable: [],
+    supplierInv: [],
+    actsPaid: [],
+    totalIn: 0,
+    totalOut: 0,
+    supplyDebt: 0,
+    actsDebt: 0,
+  });
+  const ensureMoveGroup = (projectName) => {
+    if (!allMovesByProject[projectName]) allMovesByProject[projectName] = emptyMoveGroup();
+    if (!allMovesByProject[projectName].manualExp) allMovesByProject[projectName].manualExp = [];
+    return allMovesByProject[projectName];
+  };
   (projectPayments || []).forEach(payment => {
     const amountIn = projectPaymentInAmount(payment);
     const rawAmount = Number(payment.amount || 0);
@@ -112,6 +131,14 @@ export default function AccountingPaymentsPanel({
     }
     allMovesByProject[projectName].ownExp.push(expense);
   });
+  (manualExpenses || [])
+    .filter(expense => !expense.ownExpenseId && expense.source !== 'own_expense')
+    .forEach(expense => {
+      const projectName = expense.project || 'Без объекта';
+      const group = ensureMoveGroup(projectName);
+      group.manualExp.push(expense);
+      group.totalOut += Number(expense.amount || 0);
+    });
   (accountablePayments || []).forEach(payment => {
     const projectName = payment.projectName || 'Без объекта';
     if (!allMovesByProject[projectName]) {
@@ -332,6 +359,20 @@ export default function AccountingPaymentsPanel({
                             </div>
                           );
                         })}
+                      </details>
+                    )}
+
+                    {(group.manualExp || []).length > 0 && (
+                      <details style={{ marginBottom: '6px' }}>
+                        <summary style={{ cursor: 'pointer', padding: '4px 0', color: C.danger, fontWeight: '600' }}>
+                          🧾 Прямые расходы объекта ({group.manualExp.length}) — {Math.round(group.manualExp.reduce((sum, expense) => sum + Number(expense.amount || 0), 0)).toLocaleString('ru-RU')} ₽
+                        </summary>
+                        {group.manualExp.map(expense => (
+                          <div key={expense.id} style={{ padding: '4px 10px', color: C.textSec, display: 'flex', justifyContent: 'space-between', gap: '8px', borderBottom: '1px dashed ' + C.border }}>
+                            <span>{(expense.date || '—') + ' · ' + (expense.category || 'Расход') + (expense.note ? ' · ' + expense.note : '') + (expense.addedBy ? ' · ' + expense.addedBy : '')}</span>
+                            <b style={{ color: C.danger }}>{Math.round(Number(expense.amount || 0)).toLocaleString('ru-RU') + ' ₽'}</b>
+                          </div>
+                        ))}
                       </details>
                     )}
 

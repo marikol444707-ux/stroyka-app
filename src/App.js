@@ -14327,6 +14327,7 @@ function App() {
               projectPayments={projectPayments}
               projectPaymentInAmount={projectPaymentInAmount}
               ownExpenses={ownExpenses}
+              manualExpenses={manualExpenses}
               accountablePayments={accountablePayments}
               supplierInvoices={supplierInvoices}
               brigadeContracts={brigadeContracts}
