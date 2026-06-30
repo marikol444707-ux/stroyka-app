@@ -19,6 +19,7 @@
     "build": "react-scripts build",
     "smoke:prod": "bash scripts/prod-smoke-check.sh",
     "smoke:ops-prod": "bash scripts/check-production-ops.sh",
+    "smoke:s3-readiness": "bash scripts/check-s3-uploads-readiness.sh",
     "smoke:public-api": "bash scripts/check-public-api-proxy.sh",
     "smoke:public-site": "python3 scripts/check-public-site-static.py",
     "generate:public-plans": "node scripts/generate-public-project-plan-assets.js",

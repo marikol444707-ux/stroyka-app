@@ -1184,6 +1184,11 @@ def system_status(
         "storage": {
             "backend": STORAGE_BACKEND,
             "s3Configured": _s3_enabled(),
+            "s3Missing": _s3_missing_config_keys(),
+            "s3Required": STORAGE_BACKEND == "s3",
+            "s3EndpointConfigured": bool(S3_ENDPOINT_URL),
+            "s3BucketConfigured": bool(S3_BUCKET),
+            "s3PublicUrlConfigured": bool(S3_PUBLIC_URL),
             "prefix": S3_PREFIX,
             "maxUploadMb": round(MAX_UPLOAD_BYTES / 1024 / 1024, 1),
             "uploads": _limited_dir_stats(UPLOAD_DIR),
@@ -1688,13 +1693,18 @@ def director_agent_ask(data: dict, current_user: dict = Depends(require_roles(*D
     return {"answer": reply or "Не удалось получить ответ", "steps": steps, "model": "yandexgpt-lite"}
 
 def _s3_enabled() -> bool:
-    return (
-        STORAGE_BACKEND == "s3"
-        and bool(S3_ENDPOINT_URL)
-        and bool(S3_BUCKET)
-        and bool(S3_ACCESS_KEY_ID)
-        and bool(S3_SECRET_ACCESS_KEY)
-    )
+    return STORAGE_BACKEND == "s3" and not _s3_missing_config_keys()
+
+def _s3_missing_config_keys() -> list[str]:
+    if STORAGE_BACKEND != "s3":
+        return []
+    required = [
+        ("S3_ENDPOINT_URL", S3_ENDPOINT_URL),
+        ("S3_BUCKET", S3_BUCKET),
+        ("S3_ACCESS_KEY_ID", S3_ACCESS_KEY_ID),
+        ("S3_SECRET_ACCESS_KEY", S3_SECRET_ACCESS_KEY),
+    ]
+    return [name for name, value in required if not value]
 
 def _s3_signing_key(secret: str, date_stamp: str, region: str) -> bytes:
     k_date = hmac.new(("AWS4" + secret).encode("utf-8"), date_stamp.encode("utf-8"), hashlib.sha256).digest()
@@ -1782,14 +1792,19 @@ def _safe_storage_segment(value: str, fallback: str) -> str:
     segment = "".join(out).strip("-.")[:80]
     return segment or fallback
 
-def save_upload_file(file: UploadFile, project_name: str = "", context: str = "") -> dict:
-    original_name = file.filename or "file"
-    content = file.file.read(MAX_UPLOAD_BYTES + 1)
+def save_upload_bytes(
+    content: bytes,
+    original_name: str,
+    project_name: str = "",
+    context: str = "",
+    content_type: str = "",
+) -> dict:
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="Файл слишком большой")
+    original_name = original_name or "file"
     ext = _safe_upload_ext(original_name)
     filename = str(uuid.uuid4()) + ext
-    content_type = _upload_content_type(original_name, file.content_type or "")
+    content_type = _upload_content_type(original_name, content_type or "")
     project_segment = _safe_storage_segment(project_name, "_common")
     context_segment = _safe_storage_segment(context, "general")
     today = dt.datetime.utcnow().strftime("%Y/%m/%d")
@@ -1813,6 +1828,11 @@ def save_upload_file(file: UploadFile, project_name: str = "", context: str = ""
         "context": context_segment,
         "filename": original_name,
     }
+
+def save_upload_file(file: UploadFile, project_name: str = "", context: str = "") -> dict:
+    original_name = file.filename or "file"
+    content = file.file.read(MAX_UPLOAD_BYTES + 1)
+    return save_upload_bytes(content, original_name, project_name, context, file.content_type or "")
 
 def init_db():
     conn = get_db()
@@ -25476,6 +25496,7 @@ register_platform_admin_routes(app, {
     "get_db": get_db,
     "require_roles": require_roles,
     "save_upload_file": save_upload_file,
+    "save_upload_bytes": save_upload_bytes,
     "yandex_api_key": YANDEX_API_KEY,
     "yandex_folder_id": YANDEX_FOLDER_ID,
 })

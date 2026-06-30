@@ -339,7 +339,7 @@ def _draw_wrapped_pdf_line(canvas_obj, text: str, x: float, y: float, width_char
     return y
 
 
-def _generate_billing_document_pdf(document: dict, company: dict, current_user: dict) -> str:
+def _generate_billing_document_pdf(document: dict, company: dict, current_user: dict, save_upload_bytes=None) -> str:
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.pdfgen import canvas
@@ -347,16 +347,11 @@ def _generate_billing_document_pdf(document: dict, company: dict, current_user: 
         raise HTTPException(status_code=500, detail="Для генерации PDF установите reportlab: pip install -r requirements.txt") from exc
 
     regular_font, bold_font = _register_pdf_font()
-    upload_root = os.getenv("UPLOAD_DIR", "uploads").strip() or "uploads"
     today_parts = dt.datetime.utcnow().strftime("%Y/%m/%d").split("/")
     rel_dir_parts = ["platform-billing", *today_parts]
-    output_dir = os.path.join(upload_root, *rel_dir_parts)
-    os.makedirs(output_dir, exist_ok=True)
 
     number = document.get("number") or f"DOC-{document.get('id')}"
     filename = _safe_pdf_segment(number, "billing-document") + "-" + str(uuid.uuid4())[:8] + ".pdf"
-    output_path = os.path.join(output_dir, filename)
-    file_url = "/uploads/" + urllib.parse.quote("/".join([*rel_dir_parts, filename]), safe="/")
 
     label = _billing_document_type_label(document.get("document_type"))
     title = f"{label} {number}"
@@ -366,7 +361,8 @@ def _generate_billing_document_pdf(document: dict, company: dict, current_user: 
         title = f"Акт оказанных услуг {number}"
 
     operator = _operator_requisites()
-    c = canvas.Canvas(output_path, pagesize=A4)
+    output_buffer = io.BytesIO()
+    c = canvas.Canvas(output_buffer, pagesize=A4)
     page_width, page_height = A4
     x = 48
     y = page_height - 54
@@ -482,6 +478,25 @@ def _generate_billing_document_pdf(document: dict, company: dict, current_user: 
     c.drawRightString(page_width - x, y, "Статус: " + _billing_document_status_label(document.get("status")))
     c.showPage()
     c.save()
+
+    pdf_content = output_buffer.getvalue()
+    if save_upload_bytes:
+        saved = save_upload_bytes(
+            pdf_content,
+            filename,
+            project_name="_platform",
+            context="billing-documents",
+            content_type="application/pdf",
+        )
+        return saved.get("url") or ""
+
+    upload_root = os.getenv("UPLOAD_DIR", "uploads").strip() or "uploads"
+    output_dir = os.path.join(upload_root, *rel_dir_parts)
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, filename)
+    with open(output_path, "wb") as output_file:
+        output_file.write(pdf_content)
+    file_url = "/uploads/" + urllib.parse.quote("/".join([*rel_dir_parts, filename]), safe="/")
     return file_url
 
 
@@ -865,6 +880,7 @@ def register_platform_admin_routes(app, deps):
     get_db = deps["get_db"]
     require_roles = deps["require_roles"]
     save_upload_file = deps.get("save_upload_file")
+    save_upload_bytes = deps.get("save_upload_bytes")
     yandex_api_key = deps.get("yandex_api_key") or ""
     yandex_folder_id = deps.get("yandex_folder_id") or ""
 
@@ -1547,7 +1563,7 @@ def register_platform_admin_routes(app, deps):
             "kpp": document.get("kpp"),
             "contact_email": document.get("contact_email"),
         }
-        file_url = _generate_billing_document_pdf(document, company, current_user)
+        file_url = _generate_billing_document_pdf(document, company, current_user, save_upload_bytes=save_upload_bytes)
         cur.execute("""UPDATE platform_billing_documents
                        SET file_url=%s, updated_at=NOW()
                        WHERE id=%s

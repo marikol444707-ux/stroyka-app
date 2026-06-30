@@ -15,8 +15,11 @@ function SystemStatusModal({
 
   const apiErrors = systemStatus?.apiErrors || [];
   const recentAudit = systemStatus?.recentAudit || [];
+  const storage = systemStatus?.storage || {};
   const uploads = systemStatus?.storage?.uploads || {};
   const backup = systemStatus?.backup || {};
+  const s3Missing = Array.isArray(storage.s3Missing) ? storage.s3Missing : [];
+  const s3Label = storage.s3Configured ? 'подключён' : (storage.s3Required ? 'ожидает настройки' : 'локально');
   const formatBytes = (value) => {
     const bytes = Number(value || 0);
     if (bytes >= 1024 * 1024 * 1024) return (bytes / 1024 / 1024 / 1024).toLocaleString('ru-RU', { maximumFractionDigits: 1 }) + ' ГБ';
@@ -48,14 +51,19 @@ function SystemStatusModal({
           {systemStatusLoading&&!systemStatus&&<p style={{color:C.textSec,margin:0}}>Загружаю статус...</p>}
           {systemStatus&&(<>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:'10px',marginBottom:'14px'}}>
-              {[['Backend',systemStatus.ok?'работает':'ошибка'],['БД',systemStatus.db?.ok?'OK':'ошибка'],['S3',systemStatus.storage?.s3Configured?'подключён':'не настроен'],['Версия',systemStatus.version||'—']].map(([k,v])=><div key={k} style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bg,border:'1.5px solid '+C.border}}><p style={{margin:0,color:C.textSec,fontSize:'11px',fontWeight:'700',textTransform:'uppercase'}}>{k}</p><b style={{display:'block',marginTop:'5px',color:C.text,fontSize:'14px'}}>{v}</b></div>)}
+              {[['Backend',systemStatus.ok?'работает':'ошибка'],['БД',systemStatus.db?.ok?'OK':'ошибка'],['S3',s3Label],['Версия',systemStatus.version||'—']].map(([k,v])=><div key={k} style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bg,border:'1.5px solid '+C.border}}><p style={{margin:0,color:C.textSec,fontSize:'11px',fontWeight:'700',textTransform:'uppercase'}}>{k}</p><b style={{display:'block',marginTop:'5px',color:C.text,fontSize:'14px'}}>{v}</b></div>)}
             </div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:'8px',marginBottom:'14px'}}>
               {Object.entries(systemStatus.counts||{}).map(([k,v])=><div key={k} style={{padding:'10px 12px',borderRadius:'10px',backgroundColor:C.bg,border:'1px solid '+C.border}}><p style={{margin:0,color:C.textSec,fontSize:'11px'}}>{k}</p><b style={{color:C.text,fontSize:'16px'}}>{v}</b></div>)}
             </div>
             <div style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bg,border:'1.5px solid '+C.border,marginBottom:'14px'}}>
               <b style={{color:C.text,fontSize:'13px'}}>Хранилище</b>
-              <p style={{margin:'6px 0 0',color:C.textSec,fontSize:'12px'}}>{'backend: '+(systemStatus.storage?.backend||'—')+' · prefix: '+(systemStatus.storage?.prefix||'—')+' · лимит: '+(systemStatus.storage?.maxUploadMb||0)+' МБ'}</p>
+              <p style={{margin:'6px 0 0',color:C.textSec,fontSize:'12px'}}>{'backend: '+(storage.backend||'—')+' · prefix: '+(storage.prefix||'—')+' · лимит: '+(storage.maxUploadMb||0)+' МБ'}</p>
+              {storage.s3Required&&s3Missing.length>0&&(
+                <p style={{margin:'6px 0 0',color:C.warning,fontSize:'12px'}}>
+                  {'S3 включен режимом, но не хватает: '+s3Missing.join(', ')}
+                </p>
+              )}
               <p style={{margin:'6px 0 0',color:C.textSec,fontSize:'12px'}}>
                 {'uploads: '+(uploads.exists ? (formatBytes(uploads.bytes)+' · файлов '+(uploads.files||0)+(uploads.truncated?' · подсчет ограничен':'') ) : 'папка не найдена')}
               </p>
