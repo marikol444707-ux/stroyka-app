@@ -16384,7 +16384,7 @@ def _estimate_reconciliation_select_with_counts(where_sql="", params=()):
                       r.base_total,r.next_total,r.impact,r.changed_count,r.added_count,r.removed_count,
                       r.status,r.notes,r.created_by,r.approved_by,r.approved_at,r.created_at,r.updated_at,
                       COUNT(i.id) AS item_count,
-                      COALESCE(SUM(CASE WHEN COALESCE(i.decision,'') ILIKE 'Проверить%' OR COALESCE(i.decision,'')='На проверке' THEN 1 ELSE 0 END),0) AS review_count
+                      COALESCE(SUM(CASE WHEN COALESCE(i.decision,'') ILIKE 'Проверить%%' OR COALESCE(i.decision,'')='На проверке' THEN 1 ELSE 0 END),0) AS review_count
                FROM estimate_reconciliations r
                LEFT JOIN estimate_reconciliation_items i ON i.reconciliation_id=r.id
                {where_sql}
