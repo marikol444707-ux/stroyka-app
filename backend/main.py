@@ -233,6 +233,7 @@ PASSWORD_HASH_ITERATIONS = 260000
 TWO_FACTOR_REQUIRED_ROLES = (
     "директор", "зам_директора", "бухгалтер",
     "system_owner", "platform_admin", "platform_support", "billing_admin",
+    "account_owner", "account_admin",
 )
 TWO_FACTOR_TOKEN_TTL_SECONDS = 10 * 60
 
@@ -357,6 +358,10 @@ def public_user(row: dict, include_token: bool = False) -> dict:
         "project_id": row.get("project_id", row.get("projectId")),
         "projectName": row.get("projectName", row.get("project_name")) or "",
         "project_name": row.get("project_name", row.get("projectName")) or "",
+        "companyId": row.get("companyId", row.get("company_id")),
+        "company_id": row.get("company_id", row.get("companyId")),
+        "platformAccountId": row.get("platformAccountId", row.get("platform_account_id")),
+        "platform_account_id": row.get("platform_account_id", row.get("platformAccountId")),
         "assignedProjects": assigned_projects,
         "assigned_projects": assigned_projects,
         "assignedPackages": assigned_packages,
@@ -1930,7 +1935,8 @@ def init_db():
         ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_secret VARCHAR(80);
         ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_confirmed_at TIMESTAMP;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
-        UPDATE users SET two_factor_required=TRUE WHERE role IN ('директор','зам_директора','бухгалтер','system_owner','platform_admin','platform_support','billing_admin');
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS platform_account_id INT;
+        UPDATE users SET two_factor_required=TRUE WHERE role IN ('директор','зам_директора','бухгалтер','system_owner','platform_admin','platform_support','billing_admin','account_owner','account_admin');
         UPDATE users SET active=TRUE WHERE active IS NULL;
         CREATE TABLE IF NOT EXISTS messages (
             id SERIAL PRIMARY KEY,
@@ -2180,6 +2186,8 @@ def init_db():
         ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS created_by VARCHAR(255);
         ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
         ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP;
+        ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS platform_account_id INT;
         ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS project_name VARCHAR(255);
         ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS assigned_projects JSONB DEFAULT '[]'::jsonb;
         ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS assigned_packages JSONB DEFAULT '[]'::jsonb;
@@ -4821,10 +4829,34 @@ def register(data: dict):
         cur.execute("SELECT id FROM projects WHERE name=%s LIMIT 1", (project_name,))
         project_row = cur.fetchone()
         project_id = project_row.get("id") if isinstance(project_row, dict) and project_row else (project_row[0] if project_row else None)
-        cur.execute("""INSERT INTO users (name,email,password,role,project_id,project_name,assigned_projects,assigned_packages)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb) RETURNING *""",
+        company_id = invite.get("company_id")
+        platform_account_id = invite.get("platform_account_id")
+        if not company_id and invite.get("preset_name"):
+            cur.execute("""SELECT id, platform_account_id
+                           FROM companies
+                           WHERE name=%s
+                           ORDER BY id DESC
+                           LIMIT 1""", (invite.get("preset_name"),))
+            company_row = cur.fetchone()
+            if company_row:
+                company_id = company_row.get("id")
+                platform_account_id = platform_account_id or company_row.get("platform_account_id")
+        if not platform_account_id and company_id:
+            cur.execute("SELECT platform_account_id FROM companies WHERE id=%s", (company_id,))
+            company_row = cur.fetchone()
+            platform_account_id = company_row.get("platform_account_id") if company_row else None
+        if role in ("account_owner", "account_admin"):
+            project_id = None
+            project_name = ""
+            assigned_projects = []
+            assigned_packages = []
+            if not platform_account_id:
+                raise HTTPException(status_code=400, detail="В приглашении не указан клиентский аккаунт")
+        cur.execute("""INSERT INTO users
+                          (name,email,password,role,project_id,project_name,assigned_projects,assigned_packages,company_id,platform_account_id)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s) RETURNING *""",
                     (name, email, hash_password(password), role, project_id, project_name,
-                     json.dumps(assigned_projects), json.dumps(assigned_packages)))
+                     json.dumps(assigned_projects), json.dumps(assigned_packages), company_id, platform_account_id))
         user = cur.fetchone()
         # Если регистрируется поставщик — создаём/связываем suppliers row
         if role == 'поставщик':
@@ -6634,12 +6666,27 @@ def create_invite_code(data: dict, _current_user: dict = Depends(require_roles(*
         data.get("assignedProjects") or [],
         data.get("assignedPackages") or [],
     )
+    company_id = data.get("companyId") or data.get("company_id")
+    platform_account_id = data.get("platformAccountId") or data.get("platform_account_id")
+    try:
+        company_id = int(company_id) if company_id not in (None, "") else None
+    except Exception:
+        company_id = None
+    try:
+        platform_account_id = int(platform_account_id) if platform_account_id not in (None, "") else None
+    except Exception:
+        platform_account_id = None
+    if company_id and not platform_account_id:
+        cur.execute("SELECT platform_account_id FROM companies WHERE id=%s", (company_id,))
+        company_row = cur.fetchone()
+        if company_row:
+            platform_account_id = company_row.get("platform_account_id")
     cur.execute(
-        "INSERT INTO invite_codes (code, role, supplier_id, preset_name, preset_category, created_by, expires_at, project_name, assigned_projects, assigned_packages) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb) RETURNING *",
+        "INSERT INTO invite_codes (code, role, supplier_id, preset_name, preset_category, created_by, expires_at, project_name, assigned_projects, assigned_packages, company_id, platform_account_id) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s) RETURNING *",
         (code, role, data.get('supplierId'), data.get('presetName'),
          data.get('presetCategory'), data.get('createdBy'), expires_at, project_name,
-         json.dumps(assigned_projects), json.dumps(assigned_packages)))
+         json.dumps(assigned_projects), json.dumps(assigned_packages), company_id, platform_account_id))
     row = cur.fetchone()
     conn.close()
     return dict(row)
@@ -6741,6 +6788,8 @@ def invite_code_info(code: str):
         "presetName": row.get('preset_name') or '',
         "presetCategory": row.get('preset_category') or '',
         "supplierId": row.get('supplier_id'),
+        "companyId": row.get('company_id'),
+        "platformAccountId": row.get('platform_account_id'),
     }
 
 @app.get("/suppliers")

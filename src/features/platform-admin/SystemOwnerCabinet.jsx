@@ -29,6 +29,10 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const [lastInviteCode, setLastInviteCode] = useState(null);
   const [clientUsers, setClientUsers] = useState([]);
   const [clientUserMoveDrafts, setClientUserMoveDrafts] = useState({});
+  const emptyClientInvite = {platformAccountId:'',companyId:'',role:'account_owner',name:'',email:'',expiresInDays:14};
+  const [clientInvite, setClientInvite] = useState(emptyClientInvite);
+  const [lastClientInvite, setLastClientInvite] = useState(null);
+  const [showClientInvite, setShowClientInvite] = useState(false);
   const [platformUsers, setPlatformUsers] = useState([]);
   const [supportSessions, setSupportSessions] = useState([]);
   const [platformInvite, setPlatformInvite] = useState({role:'platform_support',name:'',email:'',expiresInDays:7});
@@ -48,6 +52,28 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     platform_admin:'Администратор платформы',
     platform_support:'Поддержка платформы',
     billing_admin:'Биллинг платформы',
+  };
+  const clientAccountRoleLabels = {
+    account_owner:'Владелец аккаунта',
+    account_admin:'Админ аккаунта',
+  };
+  const clientUserInviteRoleLabels = {
+    ...clientAccountRoleLabels,
+    директор:'Директор компании',
+    зам_директора:'Зам. директора',
+    бухгалтер:'Бухгалтер',
+    главный_инженер:'Главный инженер',
+    прораб:'Прораб',
+    сметчик:'Сметчик',
+    кладовщик:'Кладовщик',
+    снабженец:'Снабженец',
+    мастер:'Мастер',
+    бригадир:'Бригадир',
+    субподрядчик:'Субподрядчик',
+    поставщик:'Поставщик',
+    менеджер_crm:'Менеджер CRM',
+    стройконтроль:'Стройконтроль',
+    технадзор:'Технадзор',
   };
   const supportScopeLabels = {
     read_only:'Только просмотр',
@@ -113,6 +139,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     client_card_recognized: 'Распознана карта клиента',
     client_user_disabled: 'Доступ клиента отключен',
     client_user_enabled: 'Доступ клиента включен',
+    client_user_invited: 'Приглашен пользователь клиента',
     client_user_transferred: 'Пользователь перенесен',
     client_user_updated: 'Пользователь клиента изменен',
     platform_user_invited: 'Приглашен сотрудник платформы',
@@ -271,6 +298,10 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const clientUserCompanyOptions = useMemo(() => companies.filter(company => (
     !clientUserDraftFilters.platformAccountId || String(company.platform_account_id || company.id) === String(clientUserDraftFilters.platformAccountId)
   )), [companies, clientUserDraftFilters.platformAccountId]);
+  const clientInviteCompanyOptions = useMemo(() => companies.filter(company => (
+    company.id !== 1 &&
+    (!clientInvite.platformAccountId || String(company.platform_account_id || company.id) === String(clientInvite.platformAccountId))
+  )), [companies, clientInvite.platformAccountId]);
   const clientUserMoveCompanyOptions = useCallback((item) => companies.filter(company => (
     company.id !== 1 &&
     company.active !== false &&
@@ -278,7 +309,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     (!item.platformAccountId || String(company.platform_account_id) === String(item.platformAccountId))
   )), [companies]);
   const clientUserRoleOptions = useMemo(() => {
-    const roles = new Set(['директор','зам_директора','бухгалтер','прораб','главный_инженер','сметчик','кладовщик','снабженец','мастер','бригадир','субподрядчик','поставщик','менеджер_crm','стройконтроль']);
+    const roles = new Set(['account_owner','account_admin','директор','зам_директора','бухгалтер','прораб','главный_инженер','сметчик','кладовщик','снабженец','мастер','бригадир','субподрядчик','поставщик','менеджер_crm','стройконтроль','технадзор']);
     clientUsers.forEach(item => {
       if (item.role) roles.add(item.role);
     });
@@ -446,6 +477,29 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     if (!window.confirm('Перенести пользователя '+(clientUser.email || clientUser.name)+' в компанию '+(targetCompany?.name || companyId)+'?\n\nДоступ к объектам будет очищен, чтобы не оставить права от старой компании.')) return;
     await updateClientUser(clientUser, {companyId, reason});
     setClientUserMoveDrafts(current => ({...current, [clientUser.id]: ''}));
+  };
+  const createClientInvite = async () => {
+    if (!clientInvite.platformAccountId && !clientInvite.companyId) {
+      alert('Выберите клиентский аккаунт или компанию.');
+      return;
+    }
+    if (!['account_owner','account_admin'].includes(clientInvite.role) && !clientInvite.companyId) {
+      alert('Для рабочей роли выберите конкретную компанию.');
+      return;
+    }
+    const response = await sendJson('/system/client-users/invite', {
+      method:'POST',
+      body:JSON.stringify(clientInvite),
+    });
+    const data = await response.json().catch(()=>({}));
+    if (!response.ok) {
+      alert(data.detail || 'Не удалось создать приглашение');
+      return;
+    }
+    const link = window.location.origin + '/?invite=' + data.code;
+    setLastClientInvite({...data, link});
+    setClientInvite(emptyClientInvite);
+    await loadAll();
   };
   const extendCompanyTrial = async (company) => {
     const days = window.prompt('Продлить триал на сколько дней?', '30');
@@ -952,16 +1006,50 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
               <b style={{color:C.text,fontSize:'15px',display:'block'}}>Пользователи клиентских групп ({clientUsers.length})</b>
               <p style={{color:C.textSec,fontSize:'12px',margin:'4px 0 0'}}>Доступы клиентов не удаляем: отключаем или переносим между компаниями с записью в журнал платформы.</p>
             </div>
-            <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
+            <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
               <span style={badge(C.success,C.successLight,C.successBorder)}>активных {clientUserStats.active}</span>
               <span style={badge(C.textSec,C.bg,C.border)}>отключено {clientUserStats.inactive}</span>
               {clientUserRoleStats.slice(0,5).map(roleInfo=>(
                 <span key={roleInfo.role} style={badge(C.textSec,C.bg,C.border)}>
-                  {roleInfo.role}: {roleInfo.active}{roleInfo.total!==roleInfo.active?' / '+roleInfo.total:''}
+                  {clientUserInviteRoleLabels[roleInfo.role] || roleInfo.role}: {roleInfo.active}{roleInfo.total!==roleInfo.active?' / '+roleInfo.total:''}
                 </span>
               ))}
+              {canManagePlatform && <button onClick={()=>setShowClientInvite(!showClientInvite)} style={{...btnO,padding:'7px 12px',fontSize:'12px'}}>+ Пригласить</button>}
             </div>
           </div>
+          {showClientInvite && canManagePlatform && (<div style={{...card,padding:'14px',marginBottom:'12px'}}>
+            <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>Пригласить пользователя клиента</b>
+            {lastClientInvite && (<div style={{padding:'10px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,borderRadius:'8px',marginBottom:'10px'}}>
+              <b style={{color:C.success,fontSize:'12px',display:'block',marginBottom:'6px'}}>Ссылка приглашения</b>
+              <div style={{padding:'9px',backgroundColor:C.bgWhite,border:'1px solid '+C.border,borderRadius:'6px',fontSize:'12px',color:C.text,wordBreak:'break-all',userSelect:'all'}}>{lastClientInvite.link}</div>
+              <p style={{color:C.textSec,fontSize:'11px',margin:'6px 0 0'}}>{lastClientInvite.platformAccountName || 'аккаунт'}{lastClientInvite.companyName?' · '+lastClientInvite.companyName:''} · {lastClientInvite.roleLabel || clientUserInviteRoleLabels[lastClientInvite.role] || lastClientInvite.role}</p>
+              <button onClick={()=>navigator.clipboard.writeText(lastClientInvite.link).then(()=>alert('Скопировано'))} style={{...btnO,padding:'5px 10px',fontSize:'11px',marginTop:'8px'}}>Скопировать</button>
+            </div>)}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'8px'}}>
+              <select value={clientInvite.platformAccountId} onChange={e=>setClientInvite({...clientInvite,platformAccountId:e.target.value,companyId:''})} style={{...inp,marginBottom:0}}>
+                <option value=''>Клиентский аккаунт *</option>
+                {groupsWithLimitStatus.map(group=><option key={group.id} value={group.id}>{group.name}</option>)}
+              </select>
+              <select value={clientInvite.companyId} onChange={e=>{
+                const company = companies.find(item=>String(item.id)===String(e.target.value));
+                setClientInvite({...clientInvite,companyId:e.target.value,platformAccountId:company?.platform_account_id || clientInvite.platformAccountId});
+              }} style={{...inp,marginBottom:0}}>
+                <option value=''>Компания / весь аккаунт</option>
+                {clientInviteCompanyOptions.map(company=><option key={company.id} value={company.id}>{company.name}</option>)}
+              </select>
+              <select value={clientInvite.role} onChange={e=>setClientInvite({...clientInvite,role:e.target.value})} style={{...inp,marginBottom:0}}>
+                {Object.entries(clientUserInviteRoleLabels).map(([value,label])=><option key={value} value={value}>{label}</option>)}
+              </select>
+              <input placeholder='Имя / должность' value={clientInvite.name} onChange={e=>setClientInvite({...clientInvite,name:e.target.value})} style={{...inp,marginBottom:0}}/>
+              <input type='email' placeholder='Email для подписи' value={clientInvite.email} onChange={e=>setClientInvite({...clientInvite,email:e.target.value})} style={{...inp,marginBottom:0}}/>
+              <input type='number' min='1' max='60' placeholder='Дней действия' value={clientInvite.expiresInDays} onChange={e=>setClientInvite({...clientInvite,expiresInDays:e.target.value})} style={{...inp,marginBottom:0}}/>
+            </div>
+            <div style={{display:'flex',gap:'8px',marginTop:'10px',flexWrap:'wrap',alignItems:'center'}}>
+              <button onClick={createClientInvite} style={btnO}>+ Создать приглашение</button>
+              <button onClick={()=>setShowClientInvite(false)} style={btnG}>Скрыть</button>
+              <span style={{color:C.textMuted,fontSize:'11px'}}>Владелец/админ аккаунта не получает ERP-права автоматически.</span>
+            </div>
+          </div>)}
           <div style={{...card,padding:'12px',marginBottom:'12px'}}>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'8px'}}>
               <select value={clientUserDraftFilters.platformAccountId} onChange={e=>setClientUserDraftFilters({...clientUserDraftFilters,platformAccountId:e.target.value,companyId:''})} style={{...inp,marginBottom:0}}>
@@ -974,7 +1062,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
               </select>
               <select value={clientUserDraftFilters.role} onChange={e=>setClientUserDraftFilters({...clientUserDraftFilters,role:e.target.value})} style={{...inp,marginBottom:0}}>
                 <option value=''>Все роли</option>
-                {clientUserRoleOptions.map(role=><option key={role} value={role}>{role}</option>)}
+                {clientUserRoleOptions.map(role=><option key={role} value={role}>{clientUserInviteRoleLabels[role] || role}</option>)}
               </select>
               <select value={clientUserDraftFilters.active} onChange={e=>setClientUserDraftFilters({...clientUserDraftFilters,active:e.target.value})} style={{...inp,marginBottom:0}}>
                 <option value=''>Все статусы</option>
@@ -992,21 +1080,21 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
           {clientUsers.length===0 && <div style={{...card,padding:'26px',textAlign:'center',color:C.textMuted}}>Пользователей по выбранным фильтрам нет</div>}
           {clientUsers.map(item=>{
             const selectedCompany = clientUserMoveDrafts[item.id] || item.companyId || '';
-            const canTransfer = canManagePlatform && selectedCompany && String(selectedCompany) !== String(item.companyId || '');
+            const canTransfer = canManagePlatform && !item.accountLevel && selectedCompany && String(selectedCompany) !== String(item.companyId || '');
             const moveOptions = clientUserMoveCompanyOptions(item);
             return (
               <div key={item.id} style={{...card,padding:'12px',marginBottom:'8px'}}>
                 <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:'10px',alignItems:'center'}}>
                   <div style={{minWidth:0}}>
                     <b style={{color:C.text,fontSize:'13px',display:'block',overflowWrap:'anywhere'}}>{item.name || item.email}</b>
-                    <p style={{color:C.textSec,fontSize:'11px',margin:'3px 0 0',overflowWrap:'anywhere'}}>{item.email || 'без email'} · {item.role || 'роль не указана'}{item.projectName?' · объект '+item.projectName:''}</p>
+                    <p style={{color:C.textSec,fontSize:'11px',margin:'3px 0 0',overflowWrap:'anywhere'}}>{item.email || 'без email'} · {item.roleLabel || clientUserInviteRoleLabels[item.role] || item.role || 'роль не указана'}{item.projectName?' · объект '+item.projectName:''}</p>
                     <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{item.twoFactorEnabled?'2FA включена':(item.twoFactorRequired?'2FA требуется':'2FA не требуется')} · создан {item.createdAt || '—'}</p>
                   </div>
                   <div style={{minWidth:0}}>
-                    <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 6px'}}>{item.platformAccountName || 'аккаунт не связан'} · {item.companyName || 'компания не связана'}</p>
+                    <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 6px'}}>{item.platformAccountName || 'аккаунт не связан'} · {item.companyName || (item.accountLevel?'весь аккаунт':'компания не связана')}</p>
                     {canManagePlatform && (
                       <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap'}}>
-                        <select value={selectedCompany} onChange={e=>setClientUserMoveDrafts(current=>({...current,[item.id]:e.target.value}))} style={{...inp,marginBottom:0,minWidth:'190px',fontSize:'11px',padding:'6px 8px'}}>
+                        <select disabled={item.accountLevel} value={selectedCompany} onChange={e=>setClientUserMoveDrafts(current=>({...current,[item.id]:e.target.value}))} style={{...inp,marginBottom:0,minWidth:'190px',fontSize:'11px',padding:'6px 8px',opacity:item.accountLevel?0.6:1}}>
                           <option value=''>Выбрать компанию</option>
                           {moveOptions.map(company=><option key={company.id} value={company.id}>{company.name}</option>)}
                         </select>
@@ -1015,6 +1103,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
                     )}
                   </div>
                   <div style={{display:'flex',gap:'6px',alignItems:'center',justifyContent:'flex-end',flexWrap:'wrap'}}>
+                    {item.accountLevel && <span style={badge(C.info,C.infoLight,C.infoBorder)}>уровень аккаунта</span>}
                     <span style={badge(item.active?C.success:C.textMuted,item.active?C.successLight:C.bg,item.active?C.successBorder:C.border)}>{item.active?'Активен':'Отключен'}</span>
                     {canManagePlatform && <button onClick={()=>toggleClientUserAccess(item)} style={{...btnG,padding:'6px 10px',fontSize:'11px'}}>{item.active?'Отключить':'Включить'}</button>}
                   </div>

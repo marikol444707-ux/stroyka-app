@@ -19,6 +19,8 @@ export const ROLES = {
   platform_admin: ['system_view'],
   platform_support: ['system_view'],
   billing_admin: ['system_view'],
+  account_owner: ['account_view'],
+  account_admin: ['account_view'],
 };
 
 export const ROLE_LABELS = {
@@ -33,6 +35,8 @@ export const ROLE_LABELS = {
   platform_admin:'🧭 Администратор платформы',
   platform_support:'🛟 Поддержка платформы',
   billing_admin:'💳 Биллинг платформы',
+  account_owner:'🏢 Владелец аккаунта',
+  account_admin:'🧭 Админ аккаунта',
 };
 
 export const ROLE_GROUPS = [

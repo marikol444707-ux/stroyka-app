@@ -2128,7 +2128,7 @@ function App() {
     const name = normalizePersonKey(st.name);
     return (users||[]).find(u=>normalizePersonKey(u.name)===name) || null;
   };
-  const staffAccessRoles = Object.keys(ROLE_LABELS).filter(r=>!['заказчик','поставщик','system_owner'].includes(r));
+  const staffAccessRoles = Object.keys(ROLE_LABELS).filter(r=>!['заказчик','поставщик','system_owner','platform_admin','platform_support','billing_admin','account_owner','account_admin'].includes(r));
   const staffProjectRequiredRoles = ['прораб','технадзор','стройконтроль','мастер','субподрядчик','бригадир'];
   const staffPackageRequiredRoles = ['мастер','субподрядчик','бригадир'];
   const upsertStaffAccess = async ({staffRow={}, fullName, email, password, role, projectName, assignedProjects=[], assignedPackages=[]}) => {
@@ -10052,6 +10052,41 @@ function App() {
   // Кабинет платформы — SaaS admin/support/billing, отдельно от рабочей ERP
   if (user && ['system_owner','platform_admin','platform_support','billing_admin'].includes(user.role)) {
     return <React.Suspense fallback={pageFallback}><SystemOwnerCabinet user={user} setUser={setUser} C={C} card={card} btnO={btnO} btnG={btnG} btnGr={btnGr} btnR={btnR} inp={inp} badge={badge} API={API}/></React.Suspense>;
+  }
+
+  // Кабинет уровня клиентского аккаунта — владелец группы компаний, не рабочая ERP-роль
+  if (user && ['account_owner','account_admin'].includes(user.role)) {
+    return (
+      <div style={{minHeight:'100vh',background:C.bg,padding:'24px'}}>
+        <div style={{maxWidth:'980px',margin:'0 auto'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'14px',flexWrap:'wrap',marginBottom:'18px'}}>
+            <div>
+              <h1 style={{color:C.text,fontSize:'24px',margin:'0 0 6px'}}>Кабинет клиентского аккаунта</h1>
+              <p style={{color:C.textSec,margin:0,fontSize:'13px'}}>{user.name || user.email} · {ROLE_LABELS[user.role] || user.role}</p>
+            </div>
+            <button onClick={handleLogout} style={btnG}>Выйти</button>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:'12px',marginBottom:'16px'}}>
+            <div style={{...card,padding:'16px'}}>
+              <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'6px'}}>Уровень доступа</b>
+              <p style={{color:C.textSec,fontSize:'12px',margin:0}}>Роль привязана ко всему клиентскому аккаунту, а не к одному объекту или одной компании.</p>
+            </div>
+            <div style={{...card,padding:'16px'}}>
+              <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'6px'}}>ERP-права</b>
+              <p style={{color:C.textSec,fontSize:'12px',margin:0}}>Рабочие роли директора, бухгалтера, прораба и склада выдаются отдельно по конкретной компании.</p>
+            </div>
+            <div style={{...card,padding:'16px'}}>
+              <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'6px'}}>Связь</b>
+              <p style={{color:C.textSec,fontSize:'12px',margin:0}}>ID аккаунта: {user.platformAccountId || user.platform_account_id || 'будет назначен платформой'}{user.companyId || user.company_id ? ' · компания '+(user.companyId || user.company_id) : ''}</p>
+            </div>
+          </div>
+          <div style={{...card,padding:'18px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder}}>
+            <b style={{color:C.info,fontSize:'14px',display:'block',marginBottom:'8px'}}>Следующий слой кабинета</b>
+            <p style={{color:C.textSec,fontSize:'13px',margin:0}}>Здесь будет сводка по компаниям аккаунта, пользователям и счетам. Пока эта роль нужна, чтобы правильно отделить владельца группы компаний от директора одной компании и не смешивать права.</p>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // Кабинет поставщика

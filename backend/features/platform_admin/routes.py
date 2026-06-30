@@ -25,12 +25,42 @@ PLATFORM_TEAM_ROLES = ("system_owner",)
 PLATFORM_SUPPORT_ROLES = ("system_owner", "platform_admin", "platform_support")
 PLATFORM_STAFF_ROLES = ("platform_admin", "platform_support", "billing_admin")
 CLIENT_USER_EXCLUDED_ROLES = ("system_owner", "platform_admin", "platform_support", "billing_admin")
+CLIENT_ACCOUNT_ROLES = ("account_owner", "account_admin")
+CLIENT_INVITE_ROLES = (
+    "account_owner", "account_admin", "директор", "зам_директора", "бухгалтер",
+    "прораб", "главный_инженер", "сметчик", "кладовщик", "снабженец",
+    "мастер", "бригадир", "субподрядчик", "поставщик", "менеджер_crm", "стройконтроль", "технадзор",
+)
 
 PLATFORM_ROLE_LABELS = {
     "system_owner": "Владелец платформы",
     "platform_admin": "Администратор платформы",
     "platform_support": "Поддержка платформы",
     "billing_admin": "Биллинг платформы",
+}
+
+CLIENT_ACCOUNT_ROLE_LABELS = {
+    "account_owner": "Владелец клиентского аккаунта",
+    "account_admin": "Администратор клиентского аккаунта",
+}
+
+CLIENT_USER_ROLE_LABELS = {
+    **CLIENT_ACCOUNT_ROLE_LABELS,
+    "директор": "Директор компании",
+    "зам_директора": "Заместитель директора",
+    "бухгалтер": "Бухгалтер",
+    "прораб": "Прораб",
+    "главный_инженер": "Главный инженер",
+    "сметчик": "Сметчик",
+    "кладовщик": "Кладовщик",
+    "снабженец": "Снабженец",
+    "мастер": "Мастер",
+    "бригадир": "Бригадир",
+    "субподрядчик": "Субподрядчик",
+    "поставщик": "Поставщик",
+    "менеджер_crm": "Менеджер CRM",
+    "стройконтроль": "Стройконтроль",
+    "технадзор": "Технадзор",
 }
 
 
@@ -183,6 +213,10 @@ write_platform_audit = _system_write_audit
 
 def _platform_role_label(role: str) -> str:
     return PLATFORM_ROLE_LABELS.get(role or "", role or "")
+
+
+def _client_user_role_label(role: str) -> str:
+    return CLIENT_USER_ROLE_LABELS.get(role or "", role or "")
 
 
 def _support_scope_label(scope: str) -> str:
@@ -785,8 +819,10 @@ def _system_account_usage(cur, platform_account_id: int = None, fallback_plan: s
         companies_count = int((cur.fetchone() or {}).get("companies_count") or 0)
         cur.execute("""SELECT COUNT(*) AS users_count
                        FROM users u
-                       JOIN companies c ON c.id=u.company_id
-                       WHERE c.platform_account_id=%s AND u.active=TRUE""", (platform_account_id,))
+                       LEFT JOIN companies c ON c.id=u.company_id
+                       WHERE COALESCE(u.platform_account_id,c.platform_account_id)=%s
+                         AND u.active=TRUE
+                         AND NOT (COALESCE(u.role,'') = ANY(%s))""", (platform_account_id, list(CLIENT_USER_EXCLUDED_ROLES)))
         users_count = int((cur.fetchone() or {}).get("users_count") or 0)
         cur.execute("""SELECT COUNT(*) AS projects_count
                        FROM projects p
@@ -890,16 +926,20 @@ def _system_user_filter_int(value):
 
 def _system_client_user_row(row: dict) -> dict:
     item = dict(row or {})
+    role = item.get("role") or ""
+    platform_account_id = item.get("user_platform_account_id") or item.get("platform_account_id")
     return {
         "id": item.get("id"),
         "name": item.get("name") or "",
         "email": item.get("email") or "",
-        "role": item.get("role") or "",
+        "role": role,
+        "roleLabel": _client_user_role_label(role),
+        "accountLevel": role in CLIENT_ACCOUNT_ROLES,
         "active": item.get("active") is not False,
         "companyId": item.get("company_id"),
         "companyName": item.get("company_name") or "",
         "companyActive": item.get("company_active") is not False,
-        "platformAccountId": item.get("platform_account_id"),
+        "platformAccountId": platform_account_id,
         "platformAccountName": item.get("platform_account_name") or "",
         "projectName": item.get("project_name") or "",
         "twoFactorRequired": bool(item.get("two_factor_required")),
@@ -1432,8 +1472,10 @@ def register_platform_admin_routes(app, deps):
         new_id = cur.fetchone()["id"]
         invite_code = str(uuid.uuid4())[:8].upper()
         expires = datetime.now() + timedelta(days=30)
-        cur.execute("INSERT INTO invite_codes (code, role, preset_name, expires_at, created_by) VALUES (%s,%s,%s,%s,%s)",
-            (invite_code, "директор", data.get("name"), expires, data.get("createdBy") or "system_owner"))
+        cur.execute("""INSERT INTO invite_codes
+                          (code, role, preset_name, expires_at, created_by, company_id, platform_account_id)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+            (invite_code, "директор", data.get("name"), expires, data.get("createdBy") or "system_owner", new_id, platform_account_id))
         _system_write_audit(cur, current_user, "company_created", "company", new_id, data.get("name"),
             platform_account_id=platform_account_id, company_id=new_id,
             details={
@@ -1531,6 +1573,86 @@ def register_platform_admin_routes(app, deps):
         conn.close()
         return {"ok": True}
 
+    @app.post("/system/client-users/invite")
+    def system_invite_client_user(data: dict, current_user: dict = Depends(require_roles(*PLATFORM_MANAGE_ROLES))):
+        """Одноразовое приглашение пользователя клиента без выдачи открытого пароля."""
+        role = (data.get("role") or "").strip()
+        if role not in CLIENT_INVITE_ROLES:
+            raise HTTPException(status_code=400, detail="Недопустимая роль для клиентского приглашения")
+        platform_account_id = _system_user_filter_int(data.get("platformAccountId") or data.get("platform_account_id"))
+        company_id = _system_user_filter_int(data.get("companyId") or data.get("company_id"))
+        expires_in_days = _system_user_filter_int(data.get("expiresInDays") or data.get("expires_in_days")) or 14
+        expires_in_days = max(1, min(60, expires_in_days))
+        email = (data.get("email") or "").strip()
+        display_name = (data.get("name") or data.get("presetName") or "").strip()
+
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        company = None
+        if company_id:
+            cur.execute("""SELECT c.id, c.name, c.platform_account_id, pa.name AS platform_account_name
+                           FROM companies c
+                           LEFT JOIN platform_accounts pa ON pa.id=c.platform_account_id
+                           WHERE c.id=%s AND c.id<>1 AND COALESCE(c.active,TRUE)=TRUE AND c.platform_account_id IS NOT NULL""", (company_id,))
+            company = cur.fetchone()
+            if not company:
+                conn.close()
+                raise HTTPException(status_code=404, detail="Клиентская компания не найдена или отключена")
+            if platform_account_id and int(platform_account_id) != int(company.get("platform_account_id")):
+                conn.close()
+                raise HTTPException(status_code=400, detail="Компания относится к другому клиентскому аккаунту")
+            platform_account_id = company.get("platform_account_id")
+
+        if role in CLIENT_ACCOUNT_ROLES:
+            if not platform_account_id:
+                conn.close()
+                raise HTTPException(status_code=400, detail="Для роли уровня аккаунта выберите клиентский аккаунт")
+        elif not company_id:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Для рабочей роли выберите компанию клиента")
+
+        cur.execute("""SELECT id, name, plan, status, active
+                       FROM platform_accounts
+                       WHERE id=%s AND COALESCE(active,TRUE)=TRUE""", (platform_account_id,))
+        account = cur.fetchone()
+        if not account:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Клиентский аккаунт не найден или отключен")
+
+        code = str(uuid.uuid4())[:8].upper()
+        expires_at = datetime.now() + timedelta(days=expires_in_days)
+        preset_name = display_name or email or _client_user_role_label(role)
+        created_by = current_user.get("name") or current_user.get("email") or current_user.get("role") or "platform"
+        cur.execute("""INSERT INTO invite_codes
+                          (code, role, preset_name, preset_category, created_by, expires_at, company_id, platform_account_id)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                       RETURNING *""",
+                    (code, role, preset_name, "client_user", created_by, expires_at, company_id, platform_account_id))
+        invite = cur.fetchone()
+        _system_write_audit(cur, current_user, "client_user_invited", "invite_code", invite.get("id"), preset_name,
+            platform_account_id=platform_account_id, company_id=company_id,
+            details={
+                "role": role,
+                "roleLabel": _client_user_role_label(role),
+                "email": email,
+                "expiresInDays": expires_in_days,
+                "companyName": company.get("name") if company else None,
+                "platformAccountName": account.get("name"),
+            })
+        conn.close()
+        return {
+            "ok": True,
+            "code": code,
+            "role": role,
+            "roleLabel": _client_user_role_label(role),
+            "presetName": preset_name,
+            "expiresAt": str(invite.get("expires_at") or "")[:19],
+            "platformAccountId": platform_account_id,
+            "platformAccountName": account.get("name") or "",
+            "companyId": company_id,
+            "companyName": company.get("name") if company else "",
+        }
+
     @app.get("/system/client-users")
     def system_client_users(request: Request, _current_user: dict = Depends(require_roles(*PLATFORM_VIEW_ROLES))):
         """Пользователи клиентских компаний с фильтрами по аккаунту и юрлицу."""
@@ -1545,7 +1667,7 @@ def register_platform_admin_routes(app, deps):
         where = ["NOT (COALESCE(u.role,'') = ANY(%s))"]
         values = [list(CLIENT_USER_EXCLUDED_ROLES)]
         if platform_account_id:
-            where.append("c.platform_account_id=%s")
+            where.append("COALESCE(u.platform_account_id,c.platform_account_id)=%s")
             values.append(platform_account_id)
         if company_id:
             where.append("u.company_id=%s")
@@ -1567,11 +1689,12 @@ def register_platform_admin_routes(app, deps):
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute(f"""SELECT u.id, u.name, u.email, u.role, COALESCE(u.active,TRUE) AS active,
                               u.company_id, u.project_name, u.two_factor_required, u.two_factor_enabled, u.created_at,
+                              u.platform_account_id AS user_platform_account_id,
                               c.name AS company_name, c.active AS company_active,
                               c.platform_account_id, pa.name AS platform_account_name
                        FROM users u
                        LEFT JOIN companies c ON c.id=u.company_id
-                       LEFT JOIN platform_accounts pa ON pa.id=c.platform_account_id
+                       LEFT JOIN platform_accounts pa ON pa.id=COALESCE(u.platform_account_id,c.platform_account_id)
                        WHERE {' AND '.join(where)}
                        ORDER BY pa.name NULLS LAST, c.name NULLS LAST, u.active DESC, u.name NULLS LAST, u.email
                        LIMIT %s""", tuple(values + [limit]))
@@ -1589,11 +1712,12 @@ def register_platform_admin_routes(app, deps):
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""SELECT u.id, u.name, u.email, u.role, COALESCE(u.active,TRUE) AS active,
                               u.company_id, u.project_name, u.two_factor_required, u.two_factor_enabled, u.created_at,
+                              u.platform_account_id AS user_platform_account_id,
                               c.name AS company_name, c.active AS company_active,
                               c.platform_account_id, pa.name AS platform_account_name
                        FROM users u
                        LEFT JOIN companies c ON c.id=u.company_id
-                       LEFT JOIN platform_accounts pa ON pa.id=c.platform_account_id
+                       LEFT JOIN platform_accounts pa ON pa.id=COALESCE(u.platform_account_id,c.platform_account_id)
                        WHERE u.id=%s
                        FOR UPDATE""", (id,))
         before = cur.fetchone()
@@ -1613,6 +1737,9 @@ def register_platform_admin_routes(app, deps):
             sets.append("locked_until=NULL")
             action_parts.append("enabled" if data.get("active") is not False else "disabled")
         if data.get("companyId") not in (None, ""):
+            if before.get("role") in CLIENT_ACCOUNT_ROLES:
+                conn.close()
+                raise HTTPException(status_code=400, detail="Роль уровня аккаунта не переносится между компаниями")
             target_company_id = _system_user_filter_int(data.get("companyId"))
             if not target_company_id:
                 conn.close()
@@ -1625,14 +1752,14 @@ def register_platform_admin_routes(app, deps):
             if not target_company:
                 conn.close()
                 raise HTTPException(status_code=404, detail="Клиентская компания не найдена или отключена")
-            before_account_id = before.get("platform_account_id")
+            before_account_id = before.get("user_platform_account_id") or before.get("platform_account_id")
             target_account_id = target_company.get("platform_account_id")
             if before_account_id and target_account_id and int(before_account_id) != int(target_account_id):
                 conn.close()
                 raise HTTPException(status_code=400, detail="Перенос между разными клиентскими аккаунтами запрещен. Сначала оформите отдельное решение в поддержке.")
             if int(target_company_id) != int(before.get("company_id") or 0):
-                sets.extend(["company_id=%s", "project_id=NULL", "project_name=''", "assigned_projects='[]'::jsonb", "assigned_packages='[]'::jsonb"])
-                values.append(target_company_id)
+                sets.extend(["company_id=%s", "platform_account_id=%s", "project_id=NULL", "project_name=''", "assigned_projects='[]'::jsonb", "assigned_packages='[]'::jsonb"])
+                values.extend([target_company_id, target_account_id])
                 action_parts.append("transferred")
         if not sets:
             conn.close()
@@ -1641,11 +1768,12 @@ def register_platform_admin_routes(app, deps):
         cur.execute("UPDATE users SET " + ", ".join(sets) + " WHERE id=%s", tuple(values))
         cur.execute("""SELECT u.id, u.name, u.email, u.role, COALESCE(u.active,TRUE) AS active,
                               u.company_id, u.project_name, u.two_factor_required, u.two_factor_enabled, u.created_at,
+                              u.platform_account_id AS user_platform_account_id,
                               c.name AS company_name, c.active AS company_active,
                               c.platform_account_id, pa.name AS platform_account_name
                        FROM users u
                        LEFT JOIN companies c ON c.id=u.company_id
-                       LEFT JOIN platform_accounts pa ON pa.id=c.platform_account_id
+                       LEFT JOIN platform_accounts pa ON pa.id=COALESCE(u.platform_account_id,c.platform_account_id)
                        WHERE u.id=%s""", (id,))
         after = cur.fetchone()
         if "transferred" in action_parts:
@@ -1657,7 +1785,7 @@ def register_platform_admin_routes(app, deps):
         else:
             audit_action = "client_user_updated"
         _system_write_audit(cur, current_user, audit_action, "user", id, before.get("name") or before.get("email"),
-            platform_account_id=after.get("platform_account_id"), company_id=after.get("company_id"),
+            platform_account_id=after.get("user_platform_account_id") or after.get("platform_account_id"), company_id=after.get("company_id"),
             details={
                 "reason": reason,
                 "before": _system_client_user_row(before),

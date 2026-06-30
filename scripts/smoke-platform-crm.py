@@ -29,6 +29,10 @@ PLATFORM_ROLE_EMAILS = {
     "platform_support": f"platform-crm-support-{RUN_ID}@stroyka.local",
     "billing_admin": f"platform-crm-billing-{RUN_ID}@stroyka.local",
 }
+CLIENT_ACCOUNT_EMAILS = {
+    "account_owner": f"platform-crm-account-owner-{RUN_ID}@stroyka.local",
+    "account_admin": f"platform-crm-account-admin-{RUN_ID}@stroyka.local",
+}
 PROJECT_NAME = f"{PREFIX} Project"
 PROJECT_CREATE_NAME = f"{PREFIX} Created Project"
 
@@ -153,7 +157,7 @@ def cleanup():
     conn = db_conn()
     cur = conn.cursor()
     like_prefix = PREFIX + "%"
-    emails = [SYSTEM_EMAIL, CRM_EMAIL, *PLATFORM_ROLE_EMAILS.values()]
+    emails = [SYSTEM_EMAIL, CRM_EMAIL, *PLATFORM_ROLE_EMAILS.values(), *CLIENT_ACCOUNT_EMAILS.values()]
     try:
         cur.execute("DELETE FROM project_documents WHERE project_name LIKE %s OR notes LIKE %s", (like_prefix, "%" + PREFIX + "%"))
         cur.execute("DELETE FROM projects WHERE name LIKE %s", (like_prefix,))
@@ -611,9 +615,55 @@ def check_platform_roles(system_token, platform_result):
     api_json("PUT", f"/system/support-sessions/{session_id}", token=platform_support["token"], expected=403)
     api_json("PUT", f"/system/support-sessions/{session_id}", token=platform_admin["token"], expected=200, data={"action": "close"})
 
+    _, client_invite = api_json(
+        "POST",
+        "/system/client-users/invite",
+        token=platform_admin["token"],
+        expected=200,
+        data={
+            "platformAccountId": platform_result.get("platformAccountId"),
+            "companyId": platform_result["companyId"],
+            "role": "account_owner",
+            "name": f"{PREFIX} Account Owner",
+            "email": CLIENT_ACCOUNT_EMAILS["account_owner"],
+            "expiresInDays": 5,
+        },
+    )
+    if client_invite.get("role") != "account_owner" or not client_invite.get("code"):
+        raise RuntimeError(f"client account invite returned invalid body: {client_invite}")
+
+    account_owner_password = secrets.token_urlsafe(12)
+    _, registered_owner = api_json(
+        "POST",
+        "/register",
+        expected=200,
+        data={
+            "code": client_invite["code"],
+            "name": f"{PREFIX} Account Owner",
+            "email": CLIENT_ACCOUNT_EMAILS["account_owner"],
+            "password": account_owner_password,
+        },
+    )
+    if registered_owner.get("role") != "account_owner":
+        raise RuntimeError(f"account owner register returned invalid role: {registered_owner}")
+    if registered_owner.get("platformAccountId") != platform_result.get("platformAccountId"):
+        raise RuntimeError(f"account owner register returned wrong platform account: {registered_owner}")
+    if not registered_owner.get("twoFactorRequired"):
+        raise RuntimeError(f"account owner register did not require 2FA: {registered_owner}")
+
+    _, client_users = api_json(
+        "GET",
+        f"/system/client-users?platformAccountId={platform_result.get('platformAccountId')}&role=account_owner&search={RUN_ID}",
+        token=platform_admin["token"],
+        expected=200,
+    )
+    if not any(item.get("email") == CLIENT_ACCOUNT_EMAILS["account_owner"] and item.get("accountLevel") for item in client_users):
+        raise RuntimeError(f"system client-users did not include account owner: {client_users}")
+    api_json("GET", "/system/client-users", token=platform_support["token"], expected=200)
+
     _, audit_log = api_json("GET", f"/system/audit-log?limit=80&search={RUN_ID}", token=platform_admin["token"], expected=200)
     audit_text = json.dumps(audit_log, ensure_ascii=False)
-    for expected_action in ("platform_user_invited", "support_session_opened", "support_session_closed", "payment_added", "platform_billing_document_created", "platform_billing_document_updated"):
+    for expected_action in ("platform_user_invited", "support_session_opened", "support_session_closed", "payment_added", "platform_billing_document_created", "platform_billing_document_updated", "client_user_invited"):
         if expected_action not in audit_text:
             raise RuntimeError(f"platform role audit log missing {expected_action}")
 
@@ -623,6 +673,7 @@ def check_platform_roles(system_token, platform_result):
         "billingAdmin": billing_admin["email"],
         "supportSessionId": session_id,
         "billingDocumentId": document_id,
+        "clientAccountOwner": CLIENT_ACCOUNT_EMAILS["account_owner"],
     }
 
 
@@ -786,6 +837,7 @@ def main():
                 "platform staff role access",
                 "platform support sessions",
                 "platform billing role",
+                "client account role invite and registration",
                 "crm lead summaries and details",
                 "crm documents and tasks",
                 "supplier approval",
