@@ -217,6 +217,7 @@ import {
   buildJPRDocContent,
   buildKS11DocContent,
   buildKS14DocContent,
+  buildKS2DocContent,
   buildKS3DocContent,
   buildM2DocContent,
   buildM8DocContent,
@@ -2080,31 +2081,14 @@ function App() {
     if(sourceItems.length===0) sourceItems = pw.filter(j=>!j.unexpectedWorkId); // запасной вариант, если сметы нет
     const additionalVolumeItems = estimateChangeRowsForDocs(project.name, 'additional');
     const outsideEstimateItems = estimateChangeRowsForDocs(project.name, 'outside');
-    const req = companyRequisites||{};
-    let html = '<h2 style="text-align:center">УНИФИЦИРОВАННАЯ ФОРМА КС-2</h2><h3 style="text-align:center">АКТ О ПРИЁМКЕ ВЫПОЛНЕННЫХ РАБОТ</h3>';
-    html += '<table><tr><th>Организация</th><td>'+(req.fullName||companyName||'')+'</td><th>Объект</th><td>'+project.name+'</td></tr></table>';
-    html += '<h3>Раздел 1. Основные работы (по смете)</h3>';
-    html += '<table><tr><th>N</th><th>Наименование работ</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>';
-    sourceItems.forEach((wk,i)=>{html+='<tr><td>'+(i+1)+'</td><td>'+wk.description+'</td><td>'+wk.unit+'</td><td>'+wk.quantity+'</td><td>'+Number(wk.pricePerUnit).toLocaleString()+'</td><td>'+Number(wk.total).toLocaleString()+'</td></tr>';});
-    const mainTotal=sourceItems.reduce((s,wk)=>s+Number(wk.total||0),0);
-    html += '<tr><td colspan="5"><b>Итого по разделу 1:</b></td><td><b>'+mainTotal.toLocaleString()+' руб.</b></td></tr></table>';
-    if(additionalVolumeItems.length>0){
-      html += '<h3>Раздел 2. Дополнительные объёмы к строкам сметы</h3>';
-      html += '<table><tr><th>N</th><th>Наименование работ</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>';
-      additionalVolumeItems.forEach((wk,i)=>{html+='<tr><td>'+(i+1)+'</td><td>'+wk.description+'</td><td>'+wk.unit+'</td><td>'+wk.quantity+'</td><td>'+Number(wk.pricePerUnit).toLocaleString()+'</td><td>'+Number(wk.total).toLocaleString()+'</td></tr>';});
-      const addTotal=additionalVolumeItems.reduce((s,wk)=>s+Number(wk.total||0),0);
-      html += '<tr><td colspan="5"><b>Итого по разделу 2:</b></td><td><b>'+addTotal.toLocaleString()+' руб.</b></td></tr></table>';
-    }
-    if(outsideEstimateItems.length>0){
-      html += '<h3>Раздел 3. Работы вне сметы</h3>';
-      html += '<table><tr><th>N</th><th>Наименование работ</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>';
-      outsideEstimateItems.forEach((wk,i)=>{html+='<tr><td>'+(i+1)+'</td><td>'+wk.description+'</td><td>'+wk.unit+'</td><td>'+wk.quantity+'</td><td>'+Number(wk.pricePerUnit).toLocaleString()+'</td><td>'+Number(wk.total).toLocaleString()+'</td></tr>';});
-      const outTotal=outsideEstimateItems.reduce((s,wk)=>s+Number(wk.total||0),0);
-      html += '<tr><td colspan="5"><b>Итого по разделу 3:</b></td><td><b>'+outTotal.toLocaleString()+' руб.</b></td></tr></table>';
-    }
-    const changesTotal=[...additionalVolumeItems,...outsideEstimateItems].reduce((s,wk)=>s+Number(wk.total||0),0);
-    html += '<p style="text-align:right;font-size:14px"><b>ВСЕГО к оплате: '+(mainTotal+changesTotal).toLocaleString()+' руб.</b></p>';
-    html += '<div class="signatures"><div class="sig"><div class="sig-line">Сдал: '+(req.directorName||'')+'</div></div><div class="sig"><div class="sig-line">Принял:</div></div></div>';
+    const html = buildKS2DocContent(project, {
+      sourceItems,
+      additionalVolumeItems,
+      outsideEstimateItems,
+    }, {
+      companyRequisites,
+      companyName,
+    });
     showPreview(html,'КС-2 — '+project.name);
   };
 

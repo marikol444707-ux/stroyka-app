@@ -402,6 +402,36 @@ export const buildJPRDocContent = (projectName, context = {}) => {
   return html;
 };
 
+export const buildKS2DocContent = (project = {}, data = {}, context = {}) => {
+  const { companyRequisites = {}, companyName = '' } = context;
+  const {
+    sourceItems = [],
+    additionalVolumeItems = [],
+    outsideEstimateItems = [],
+  } = data;
+  const req = companyRequisites || {};
+  const tableRows = (rows) => rows.map((item, index) => (
+    '<tr><td>' + (index + 1) + '</td><td>' + (item.description || '') + '</td><td>' + (item.unit || '') + '</td><td>' + (item.quantity || '') + '</td><td>' + Number(item.pricePerUnit || 0).toLocaleString() + '</td><td>' + Number(item.total || 0).toLocaleString() + '</td></tr>'
+  )).join('');
+  const sectionTable = (title, rows) => {
+    const total = rows.reduce((sum, item) => sum + Number(item.total || 0), 0);
+    return '<h3>' + title + '</h3>'
+      + '<table><tr><th>N</th><th>Наименование работ</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>'
+      + tableRows(rows)
+      + '<tr><td colspan="5"><b>Итого по разделу:</b></td><td><b>' + total.toLocaleString() + ' руб.</b></td></tr></table>';
+  };
+  const mainTotal = sourceItems.reduce((sum, item) => sum + Number(item.total || 0), 0);
+  const changesTotal = [...additionalVolumeItems, ...outsideEstimateItems].reduce((sum, item) => sum + Number(item.total || 0), 0);
+  let html = '<h2 style="text-align:center">УНИФИЦИРОВАННАЯ ФОРМА КС-2</h2><h3 style="text-align:center">АКТ О ПРИЁМКЕ ВЫПОЛНЕННЫХ РАБОТ</h3>';
+  html += '<table><tr><th>Организация</th><td>' + (req.fullName || companyName || '') + '</td><th>Объект</th><td>' + (project.name || '') + '</td></tr></table>';
+  html += sectionTable('Раздел 1. Основные работы (по смете)', sourceItems).replace('Итого по разделу:', 'Итого по разделу 1:');
+  if (additionalVolumeItems.length > 0) html += sectionTable('Раздел 2. Дополнительные объёмы к строкам сметы', additionalVolumeItems).replace('Итого по разделу:', 'Итого по разделу 2:');
+  if (outsideEstimateItems.length > 0) html += sectionTable('Раздел 3. Работы вне сметы', outsideEstimateItems).replace('Итого по разделу:', 'Итого по разделу 3:');
+  html += '<p style="text-align:right;font-size:14px"><b>ВСЕГО к оплате: ' + (mainTotal + changesTotal).toLocaleString() + ' руб.</b></p>';
+  html += '<div class="signatures"><div class="sig"><div class="sig-line">Сдал: ' + (req.directorName || '') + '</div></div><div class="sig"><div class="sig-line">Принял:</div></div></div>';
+  return html;
+};
+
 export const buildKS3DocContent = (project = {}, context = {}) => {
   const {
     companyRequisites = null,
