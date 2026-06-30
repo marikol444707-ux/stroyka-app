@@ -25574,6 +25574,16 @@ register_platform_admin_routes(app, {
 })
 
 try:
+    from backend.features.client_account import register_client_account_routes
+except ModuleNotFoundError:
+    from features.client_account import register_client_account_routes
+
+register_client_account_routes(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+})
+
+try:
     from backend.features.crm import register_crm_module
 except ModuleNotFoundError:
     from features.crm import register_crm_module

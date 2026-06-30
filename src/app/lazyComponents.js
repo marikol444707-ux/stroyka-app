@@ -21,6 +21,7 @@ export const CrmPage = React.lazy(() => import('../features/crm'));
 export const ActivityLogPage = React.lazy(() => import('../components/ActivityLogPage'));
 export const CompanyChatPage = React.lazy(() => import('../components/CompanyChatPage'));
 export const SystemOwnerCabinet = React.lazy(() => import('../features/platform-admin'));
+export const ClientAccountCabinet = React.lazy(() => import('../features/client-account'));
 export const ProjectWorkJournalEditModal = React.lazy(() => import('../components/ProjectWorkJournalEditModal'));
 export const ProjectWorkJournalTableModal = React.lazy(() => import('../components/ProjectWorkJournalTableModal'));
 export const ProjectMaterialInspectionEditModal = React.lazy(() => import('../components/ProjectMaterialInspectionEditModal'));

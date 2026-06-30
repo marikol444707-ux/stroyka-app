@@ -81,6 +81,10 @@ import EstimateSectionHeader from './components/EstimateSectionHeader';
 import EstimateItemGroupHeader from './components/EstimateItemGroupHeader';
 import EstimateItemGroupEmpty from './components/EstimateItemGroupEmpty';
 import MaterialNormSuggestionsPanel from './components/MaterialNormSuggestionsPanel';
+import EstimateReconciliationsPanel from './components/EstimateReconciliationsPanel';
+import EstimateMeasurementComparisonPanel from './components/EstimateMeasurementComparisonPanel';
+import WorkJournalEstimateReconciliationPanel from './components/WorkJournalEstimateReconciliationPanel';
+import EstimateDuplicateWorkSummaryPanel from './components/EstimateDuplicateWorkSummaryPanel';
 import PhotoAttachmentField from './components/PhotoAttachmentField';
 import MobileBottomNav from './components/MobileBottomNav';
 import {
@@ -94,6 +98,7 @@ import {
   AnalyticsPage,
   BrigadePaymentModal,
   ClientsPage,
+  ClientAccountCabinet,
   CompanyChatPage,
   ConfirmWorkAcceptanceModal,
   CrmPage,
@@ -247,6 +252,7 @@ import {
 } from './utils/printDocumentBuilders';
 import { EMPTY_ESTIMATE_CHANGE, isApprovedEstimateChangeStatus } from './utils/estimateChangeUtils';
 import { emptyStaffForm } from './utils/staffUtils';
+import { workJournalEstimateStatusMeta } from './utils/statusMetaUtils';
 import { LayoutDashboard, FolderKanban, Package, DollarSign, UserCheck, ScrollText, BarChart3, Handshake, Search, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, Download, Upload, MapPin, FileText, Archive, CloudSun, QrCode, Calculator, Settings, CreditCard, Bot, ShoppingCart, GitBranch } from 'lucide-react';
 
 installAuthFetch();
@@ -3043,12 +3049,6 @@ function App() {
       changeSummary,
     });
   };
-  const estimateReconciliationStatusView = (status) => {
-    if (status === 'Утверждена') return {label:'Утверждена', color:C.success, bg:C.successLight, border:C.successBorder};
-    if (status === 'Отклонена') return {label:'Отклонена', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
-    if (status === 'На проверке') return {label:'На проверке', color:C.warning, bg:C.warningLight, border:C.warningBorder};
-    return {label:status || 'Черновик', color:C.info, bg:C.infoLight, border:C.infoBorder};
-  };
   const estimateReconciliationsForProject = (projectName) => (estimateReconciliations||[])
     .filter(r=>r.projectName===projectName)
     .sort((a,b)=>Number(b.id||0)-Number(a.id||0));
@@ -3129,78 +3129,20 @@ function App() {
     const recs = estimateReconciliationsForProject(p.name);
     const projectEstimates = visibleEstimatesForCurrentUser(estimatesList)
       .filter(e=>e.projectName===p.name && estimateKind(e)==='Заказчик' && !isArchivedEstimate(e) && !isGlobalEstimateTemplate(e));
-    const pairMap = new Map();
-    projectEstimates.forEach(est=>{
-      const base = estimateDiffBaseFor(est);
-      if (!base || base.projectName!==p.name || Number(base.id)===Number(est.id)) return;
-      const key = String(base.id)+'|'+String(est.id);
-      if (!pairMap.has(key)) pairMap.set(key,{base,next:est});
-    });
-    const pairs = Array.from(pairMap.values()).sort((a,b)=>(estimateUpdatedTs(b.next)||Number(b.next.id||0))-(estimateUpdatedTs(a.next)||Number(a.next.id||0)));
-    const fmtMoney = (n) => (Number(n||0)>0?'+':'')+Math.round(Number(n||0)).toLocaleString('ru-RU')+' ₽';
     return (
-      <div>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'15px'}}>
-          <div>
-            <b style={{color:C.text,fontSize:'15px'}}>Сверки смет</b>
-            <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'12px'}}>Сравнение редакций сметы с фиксацией спорных позиций и связью с реестром документов.</p>
-          </div>
-          <span style={badge(C.info,C.infoLight,C.infoBorder)}>{recs.length+' док.'}</span>
-        </div>
-        {pairs.length>0&&(
-          <div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:C.bg}}>
-            <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'8px'}}>Создать сверку по редакциям</b>
-            <div style={{display:'grid',gap:'8px'}}>
-              {pairs.slice(0,6).map(({base,next})=>{
-                const existing = recs.find(r=>Number(r.baseEstimateId)===Number(base.id)&&Number(r.nextEstimateId)===Number(next.id));
-                const diff = estimateTotal(next)-estimateTotal(base);
-                return (
-                  <div key={base.id+'-'+next.id} style={{padding:'10px',border:'1px solid '+C.border,borderRadius:'8px',backgroundColor:C.bgWhite,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
-                    <div style={{minWidth:'240px',flex:1}}>
-                      <b style={{color:C.text,fontSize:'12px'}}>{estimatePackage(next)+' · '+(base.name||'База')+' → '+(next.name||'Новая')}</b>
-                      <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'11px'}}>{'v'+(base.version||'')+' → v'+(next.version||'')+' · разница '+fmtMoney(diff)}</p>
-                    </div>
-                    {existing
-                      ? <button onClick={()=>openEstimateReconciliationPreview(existing)} style={{...btnB,padding:'6px 10px',fontSize:'12px'}}><Eye size={13}/>Открыть №{existing.id}</button>
-                      : <button onClick={()=>createEstimateReconciliation(base,next)} style={{...btnO,padding:'6px 10px',fontSize:'12px'}}><GitBranch size={13}/>Создать сверку</button>}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-        {recs.length===0?(
-          <div style={{...card,padding:'26px',textAlign:'center',color:C.textMuted}}>
-            Сверок смет по объекту пока нет. Загрузите новую редакцию сметы или создайте сверку из пары выше.
-          </div>
-        ):(
-          <div style={{display:'grid',gap:'10px'}}>
-            {recs.map(rec=>{
-              const st = estimateReconciliationStatusView(rec.status);
-              return (
-                <div key={rec.id} style={{...card,padding:'14px',borderLeft:'3px solid '+st.color}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
-                    <div style={{minWidth:'260px',flex:1}}>
-                      <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap',marginBottom:'4px'}}>
-                        <b style={{color:C.text,fontSize:'13px'}}>Сверка смет № {rec.id}</b>
-                        <span style={badge(st.color,st.bg,st.border)}>{st.label}</span>
-                        <span style={badge(C.textSec,C.bgGray,C.border)}>{rec.workPackage||'Основная'}</span>
-                      </div>
-                      <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(rec.baseEstimateName||'База')+' v'+(rec.baseVersion||'')+' → '+(rec.nextEstimateName||'Новая')+' v'+(rec.nextVersion||'')}</p>
-                      <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'11px'}}>{'Изменено: '+(rec.changedCount||0)+' · добавлено: '+(rec.addedCount||0)+' · исключено: '+(rec.removedCount||0)+' · проверить: '+(rec.reviewCount||0)}</p>
-                    </div>
-                    <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}>
-                      <b style={{color:Number(rec.impact||0)>=0?C.warning:C.success,fontSize:'13px',whiteSpace:'nowrap'}}>{fmtMoney(rec.impact)}</b>
-                      <button onClick={()=>openEstimateReconciliationPreview(rec)} style={{...btnB,padding:'5px 9px',fontSize:'11px'}}><Printer size={12}/>Печать</button>
-                      {isLeadership()&&rec.status!=='Утверждена'&&<button onClick={()=>approveEstimateReconciliation(rec)} style={{...btnGr,padding:'5px 9px',fontSize:'11px'}}><Check size={12}/>Утвердить</button>}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      <EstimateReconciliationsPanel
+        project={p}
+        reconciliations={recs}
+        projectEstimates={projectEstimates}
+        estimateDiffBaseFor={estimateDiffBaseFor}
+        estimatePackage={estimatePackage}
+        estimateTotal={estimateTotal}
+        estimateUpdatedTs={estimateUpdatedTs}
+        canApprove={isLeadership()}
+        onApprove={approveEstimateReconciliation}
+        onCreate={createEstimateReconciliation}
+        onOpenPreview={openEstimateReconciliationPreview}
+      />
     );
   };
   const getProjectWorkPackageOptions = (projectName='') => {
@@ -3275,13 +3217,6 @@ function App() {
     if (['wall_net_area','wall_gross_area','wall_ceiling_area','floor_area','ceiling_area','window_reveals','door_reveals','opening_reveals','window_area','door_area','openings_area'].includes(basis)) return 'м2';
     if (['window_count','door_count'].includes(basis)) return 'шт';
     return '';
-  };
-  const measurementEstimateStatusMeta = (status) => {
-    if (status==='Сходится') return {color:C.success,bg:C.successLight,border:C.successBorder};
-    if (status==='Сверх сметы') return {color:C.danger,bg:C.dangerLight,border:C.dangerBorder};
-    if (status==='В смете больше') return {color:C.warning,bg:C.warningLight,border:C.warningBorder};
-    if (status==='Нет обмера') return {color:C.warning,bg:C.warningLight,border:C.warningBorder};
-    return {color:C.info,bg:C.infoLight,border:C.infoBorder};
   };
   const estimateMeasurementComparisonRows = (project) => {
     if (!project) return [];
@@ -3427,46 +3362,17 @@ function App() {
     {generatedBy:user?.name||''}
   );
   const renderEstimateMeasurementComparisonPanel = (project) => {
-    const s = estimateMeasurementComparisonSummary(project);
-    const totals = projectMeasurementBasisTotals(project?.name||'');
-    const rows = s.rows.slice(0,12);
-    return (<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.bgWhite,border:'1.5px solid '+(s.overRows.length?C.dangerBorder:s.missingRows.length||s.manualRows.length?C.warningBorder:C.successBorder)}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap',marginBottom:'12px'}}>
-        <div>
-          <b style={{color:C.text,fontSize:'14px'}}>📏 Смета ↔ обмеры помещений</b>
-          <p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>Сравнение активной сметы заказчика с площадями помещений: стены, пол, потолок, откосы, окна и двери.</p>
-        </div>
-        <button onClick={()=>showPreview(buildEstimateMeasurementComparisonContent(project),'Смета ↔ обмеры — '+project.name)} style={{...btnB,fontSize:'12px',padding:'6px 12px'}}><Printer size={13}/>Печать</button>
-      </div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:'8px',marginBottom:'12px'}}>
-        <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Строк</p><b style={{color:C.text,fontSize:'15px'}}>{s.rows.length}</b></div>
-        <div style={{padding:'10px',backgroundColor:s.overRows.length?C.dangerLight:C.successLight,borderRadius:'8px',border:'1px solid '+(s.overRows.length?C.dangerBorder:C.successBorder)}}><p style={{color:s.overRows.length?C.danger:C.success,fontSize:'10px',margin:'0 0 3px'}}>Сверх сметы</p><b style={{color:s.overRows.length?C.danger:C.success,fontSize:'15px'}}>{s.overRows.length}</b></div>
-        <div style={{padding:'10px',backgroundColor:s.missingRows.length?C.warningLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.missingRows.length?C.warningBorder:C.border)}}><p style={{color:s.missingRows.length?C.warning:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Нет обмера</p><b style={{color:s.missingRows.length?C.warning:C.text,fontSize:'15px'}}>{s.missingRows.length}</b></div>
-        <div style={{padding:'10px',backgroundColor:s.manualRows.length?C.infoLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.manualRows.length?C.infoBorder:C.border)}}><p style={{color:s.manualRows.length?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Ед. изм.</p><b style={{color:s.manualRows.length?C.info:C.text,fontSize:'15px'}}>{s.manualRows.length}</b></div>
-        <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Оценка доп.</p><b style={{color:s.overSum>0?C.danger:C.text,fontSize:'15px'}}>{Math.round(s.overSum).toLocaleString('ru-RU')+' ₽'}</b></div>
-      </div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:'8px',marginBottom:'12px'}}>
-        <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Стены общие</p><b style={{color:C.text,fontSize:'14px'}}>{fmtMeasure(totals.wall_gross_area,'м2')}</b></div>
-        <div style={{padding:'10px',backgroundColor:C.dangerLight,borderRadius:'8px',border:'1px solid '+C.dangerBorder}}><p style={{color:C.danger,fontSize:'10px',margin:'0 0 3px'}}>Вычет окон</p><b style={{color:C.danger,fontSize:'14px'}}>{'- '+fmtMeasure(totals.window_area,'м2')}</b></div>
-        <div style={{padding:'10px',backgroundColor:C.dangerLight,borderRadius:'8px',border:'1px solid '+C.dangerBorder}}><p style={{color:C.danger,fontSize:'10px',margin:'0 0 3px'}}>Вычет дверей</p><b style={{color:C.danger,fontSize:'14px'}}>{'- '+fmtMeasure(totals.door_area,'м2')}</b></div>
-        <div style={{padding:'10px',backgroundColor:C.successLight,borderRadius:'8px',border:'1px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'10px',margin:'0 0 3px'}}>Стены чистые</p><b style={{color:C.success,fontSize:'14px'}}>{fmtMeasure(totals.wall_net_area,'м2')}</b></div>
-      </div>
-      {s.rows.length===0?<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'14px'}}>Нет активной сметы заказчика или рабочих строк для сравнения.</p>:<div style={{overflowX:'auto'}}>
-        <table style={{...tbl,fontSize:'11px',minWidth:'1080px'}}><thead><tr><th style={tblH}>Статус</th><th style={tblH}>Раздел / позиция</th><th style={tblH}>Основание</th><th style={tblH}>Смета</th><th style={tblH}>Обмер</th><th style={tblH}>Разница</th><th style={tblH}>Оценка</th><th style={tblH}>Действие</th></tr></thead><tbody>
-          {rows.map(r=>{const st=measurementEstimateStatusMeta(r.status);const unit=r.expectedUnit||r.planUnit;const existing=estimateChangeForComparisonRow(project.name,r);const canCreate=['Сверх сметы','В смете больше'].includes(r.status)&&r.supported&&r.unitOk;return(<tr key={r.key}>
-            <td style={tblC}><span style={badge(st.color,st.bg,st.border)}>{r.status}</span></td>
-            <td style={tblC}><b style={{fontSize:'12px'}}>{r.itemName}</b><p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{(r.packageName&&r.packageName!=='Основная'?r.packageName+' / ':'')+r.sectionName}</p></td>
-            <td style={tblC}>{r.basisIcon+' '+r.basisLabel}{r.supported&&!r.unitOk&&<p style={{color:C.warning,fontSize:'10px',margin:'2px 0 0'}}>ожидается {r.expectedUnit}, в смете {r.planUnit||'—'}</p>}</td>
-            <td style={tblC}>{fmtMeasure(r.planQty,r.planUnit)}</td>
-            <td style={tblC}>{r.supported&&r.unitOk?fmtMeasure(r.measuredQty,unit):'—'}</td>
-            <td style={{...tblC,fontWeight:'700',color:r.diff>0?C.danger:r.diff<0?C.warning:C.success}}>{r.supported&&r.unitOk?((r.diff>0?'+':'')+fmtMeasure(r.diff,unit)):'—'}</td>
-            <td style={{...tblC,fontWeight:'700',color:r.overSum>0?C.danger:C.textMuted}}>{r.overSum>0?Math.round(r.overSum).toLocaleString('ru-RU')+' ₽':'—'}</td>
-            <td style={tblC}>{existing?<button onClick={()=>{setActiveProjectTab('Изменения к смете');setActiveTabGroup('work');}} style={{...btnG,padding:'4px 8px',fontSize:'11px'}}>Уже оформлено</button>:canCreate?<button onClick={()=>createEstimateChangeFromComparisonRow(project,r)} style={{...(r.status==='Сверх сметы'?btnO:btnB),padding:'4px 8px',fontSize:'11px'}}>Оформить</button>:<span style={{color:C.textMuted}}>—</span>}</td>
-          </tr>);})}
-        </tbody></table>
-        {s.rows.length>rows.length&&<p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0'}}>Показаны первые {rows.length} строк. Полный список — в печатном отчёте.</p>}
-      </div>}
-    </div>);
+    return (
+      <EstimateMeasurementComparisonPanel
+        project={project}
+        summary={estimateMeasurementComparisonSummary(project)}
+        totals={projectMeasurementBasisTotals(project?.name||'')}
+        estimateChangeForComparisonRow={estimateChangeForComparisonRow}
+        onCreateEstimateChange={createEstimateChangeFromComparisonRow}
+        onOpenChangesTab={() => {setActiveProjectTab('Изменения к смете');setActiveTabGroup('work');}}
+        onPrint={() => showPreview(buildEstimateMeasurementComparisonContent(project),'Смета ↔ обмеры — '+project.name)}
+      />
+    );
   };
   const workJournalReconcileTokens = (value) => {
     const stop = new Set(['работа','работы','работ','устройство','установка','монтаж','демонтаж','разборка','снятие','для','при','под','над','без','или','его','ее','это','прочие','прочая']);
@@ -3486,12 +3392,6 @@ function App() {
     const common = at.filter(t=>bset.has(t)).length;
     const reverse = bt.filter(t=>aset.has(t)).length;
     return Math.max(common / Math.max(at.length,1), reverse / Math.max(bt.length,1)) * Math.min(1, common / Math.max(Math.min(at.length, bt.length), 1) + 0.15);
-  };
-  const workJournalEstimateStatusMeta = (status) => {
-    if (status==='Из сметы' || status==='Найдено') return {color:C.success,bg:C.successLight,border:C.successBorder};
-    if (status==='Превышение объёма' || status==='Вне сметы') return {color:C.danger,bg:C.dangerLight,border:C.dangerBorder};
-    if (status==='На проверку' || status==='Нет активной сметы') return {color:C.warning,bg:C.warningLight,border:C.warningBorder};
-    return {color:C.info,bg:C.infoLight,border:C.infoBorder};
   };
   const workJournalEstimateRows = (project) => {
     if (!project) return [];
@@ -3604,52 +3504,13 @@ function App() {
     {generatedBy:user?.name||'', statusMeta:workJournalEstimateStatusMeta}
   );
   const renderWorkJournalEstimateReconciliationPanel = (project) => {
-    const s = workJournalEstimateSummary(project);
-    const rows = s.rows.slice(0,80);
-    const pct = s.estimatePlan>0 ? Math.round(s.estimateDone/s.estimatePlan*1000)/10 : 0;
-    const cardMini = (label,value,color=C.text,bg=C.bg,border=C.border) => (<div style={{padding:'10px',backgroundColor:bg,borderRadius:'8px',border:'1px solid '+border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>{label}</p><b style={{color,fontSize:'15px'}}>{value}</b></div>);
-    return (<div>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap',marginBottom:'14px'}}>
-        <div>
-          <b style={{color:C.text,fontSize:'15px'}}>🔎 Сверка ЖПР ↔ смета</b>
-          <p style={{color:C.textSec,fontSize:'12px',margin:'3px 0 0'}}>Показывает, какие фактические работы найдены в активной смете заказчика, а какие надо проверить или оформить как изменение.</p>
-        </div>
-        <button onClick={()=>showPreview(buildWorkJournalEstimateReconciliationContent(project),'Сверка ЖПР ↔ смета — '+project.name)} style={btnB}><Printer size={14}/>Печать</button>
-      </div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(145px,1fr))',gap:'8px',marginBottom:'12px'}}>
-        {cardMini('Строк ЖПР',s.rows.length)}
-        {cardMini('Найдено в смете',s.linkedRows.length,C.success,C.successLight,C.successBorder)}
-        {cardMini('На проверку',s.reviewRows.length,C.warning,C.warningLight,C.warningBorder)}
-        {cardMini('Вне сметы',s.outsideRows.length,C.danger,C.dangerLight,C.dangerBorder)}
-        {cardMini('Превышение',s.overRows.length,C.danger,C.dangerLight,C.dangerBorder)}
-      </div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(170px,1fr))',gap:'8px',marginBottom:'14px'}}>
-        {cardMini('Активная смета',Math.round(s.estimatePlan).toLocaleString('ru-RU')+' ₽',C.text,C.bgWhite,C.border)}
-        {cardMini('Закрыто в смете',Math.round(s.estimateDone).toLocaleString('ru-RU')+' ₽ · '+pct+'%',C.success,C.successLight,C.successBorder)}
-        {cardMini('Сумма ЖПР',Math.round(s.journalTotal).toLocaleString('ru-RU')+' ₽',C.accent,C.accentLight,C.accentBorder)}
-        {cardMini('ЖПР вне сметы',Math.round(s.outsideTotal).toLocaleString('ru-RU')+' ₽',C.danger,C.dangerLight,C.dangerBorder)}
-      </div>
-      <div style={{padding:'10px 12px',backgroundColor:C.infoLight,border:'1px solid '+C.infoBorder,borderRadius:'10px',color:C.info,fontSize:'12px',marginBottom:'12px'}}>
-        Сверка не переносит работы автоматически. Она даёт сметчику список: что уже похоже сидит в смете, что спорно, и что нужно внести в следующую редакцию или оформить изменением.
-      </div>
-      {s.rows.length===0?<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Записей ЖПР для сверки нет</div>:<div style={{overflowX:'auto'}}>
-        <table style={{...tbl,fontSize:'11px',minWidth:'1220px'}}><thead><tr><th style={tblH}>Статус</th><th style={tblH}>Дата</th><th style={tblH}>ЖПР</th><th style={tblH}>Объём</th><th style={tblH}>Сумма ЖПР</th><th style={tblH}>Совпадение в смете</th><th style={tblH}>План</th><th style={tblH}>Сделано</th><th style={tblH}>Оценка по смете</th><th style={tblH}>Увер.</th></tr></thead><tbody>
-          {rows.map(r=>{const st=workJournalEstimateStatusMeta(r.status);const m=r.match;return(<tr key={r.key}>
-            <td style={tblC}><span style={badge(st.color,st.bg,st.border)}>{r.status}</span>{r.overQty>0&&<p style={{margin:'4px 0 0',fontSize:'10px',color:C.danger}}>сверх: {fmtMeasure(r.overQty,m?.unit||r.workUnit)}</p>}</td>
-            <td style={tblC}>{r.work.date||'—'}</td>
-            <td style={tblC}><b style={{fontSize:'12px'}}>{r.work.description}</b><p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{r.work.masterName||'—'}{r.work.status?' · '+r.work.status:''}</p></td>
-            <td style={tblC}>{fmtMeasure(r.workQty,r.workUnit)}</td>
-            <td style={{...tblC,fontWeight:'700',color:C.accent}}>{Math.round(toNum(r.work.total)).toLocaleString('ru-RU')+' ₽'}</td>
-            <td style={tblC}>{m?<><b style={{fontSize:'12px'}}>{m.itemName}</b><p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{(m.packageName&&m.packageName!=='Основная'?m.packageName+' / ':'')+m.sectionName}</p></>:<span style={{color:C.textMuted}}>—</span>}</td>
-            <td style={tblC}>{m?fmtMeasure(m.planQty,m.unit):'—'}</td>
-            <td style={tblC}>{m?fmtMeasure(m.doneQty,m.unit):'—'}</td>
-            <td style={{...tblC,fontWeight:'700',color:r.estimateValue?C.success:C.textMuted}}>{r.estimateValue?Math.round(r.estimateValue).toLocaleString('ru-RU')+' ₽':'—'}</td>
-            <td style={tblC}>{r.score?Math.round(r.score*100)+'%':'—'}{!r.unitOk&&m&&<p style={{fontSize:'10px',color:C.warning,margin:'2px 0 0'}}>ед. изм. не совпала</p>}</td>
-          </tr>);})}
-        </tbody></table>
-        {s.rows.length>rows.length&&<p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0'}}>Показаны первые {rows.length} строк. Полный список — в печатном отчёте.</p>}
-      </div>}
-    </div>);
+    return (
+      <WorkJournalEstimateReconciliationPanel
+        project={project}
+        summary={workJournalEstimateSummary(project)}
+        onPrint={() => showPreview(buildWorkJournalEstimateReconciliationContent(project),'Сверка ЖПР ↔ смета — '+project.name)}
+      />
+    );
   };
   const setEstimateStatusRemote = async (est, status) => {
     if(!est?.id) return;
@@ -9796,37 +9657,7 @@ function App() {
 
   // Кабинет уровня клиентского аккаунта — владелец группы компаний, не рабочая ERP-роль
   if (user && ['account_owner','account_admin'].includes(user.role)) {
-    return (
-      <div style={{minHeight:'100vh',background:C.bg,padding:'24px'}}>
-        <div style={{maxWidth:'980px',margin:'0 auto'}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'14px',flexWrap:'wrap',marginBottom:'18px'}}>
-            <div>
-              <h1 style={{color:C.text,fontSize:'24px',margin:'0 0 6px'}}>Кабинет клиентского аккаунта</h1>
-              <p style={{color:C.textSec,margin:0,fontSize:'13px'}}>{user.name || user.email} · {ROLE_LABELS[user.role] || user.role}</p>
-            </div>
-            <button onClick={handleLogout} style={btnG}>Выйти</button>
-          </div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:'12px',marginBottom:'16px'}}>
-            <div style={{...card,padding:'16px'}}>
-              <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'6px'}}>Уровень доступа</b>
-              <p style={{color:C.textSec,fontSize:'12px',margin:0}}>Роль привязана ко всему клиентскому аккаунту, а не к одному объекту или одной компании.</p>
-            </div>
-            <div style={{...card,padding:'16px'}}>
-              <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'6px'}}>ERP-права</b>
-              <p style={{color:C.textSec,fontSize:'12px',margin:0}}>Рабочие роли директора, бухгалтера, прораба и склада выдаются отдельно по конкретной компании.</p>
-            </div>
-            <div style={{...card,padding:'16px'}}>
-              <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'6px'}}>Связь</b>
-              <p style={{color:C.textSec,fontSize:'12px',margin:0}}>ID аккаунта: {user.platformAccountId || user.platform_account_id || 'будет назначен платформой'}{user.companyId || user.company_id ? ' · компания '+(user.companyId || user.company_id) : ''}</p>
-            </div>
-          </div>
-          <div style={{...card,padding:'18px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder}}>
-            <b style={{color:C.info,fontSize:'14px',display:'block',marginBottom:'8px'}}>Следующий слой кабинета</b>
-            <p style={{color:C.textSec,fontSize:'13px',margin:0}}>Здесь будет сводка по компаниям аккаунта, пользователям и счетам. Пока эта роль нужна, чтобы правильно отделить владельца группы компаний от директора одной компании и не смешивать права.</p>
-          </div>
-        </div>
-      </div>
-    );
+    return <React.Suspense fallback={pageFallback}><ClientAccountCabinet user={user} setUser={setUser} C={C} card={card} btnG={btnG} badge={badge} API={API} handleLogout={handleLogout}/></React.Suspense>;
   }
 
   // Кабинет поставщика
@@ -11075,6 +10906,12 @@ function App() {
             const dashboardBudgetSpentById = new Map(dashboardBudgetSpent.map(x=>[String(x.projectId),x.spent]));
             const dashboardBudgetSpentByName = new Map(dashboardBudgetSpent.map(x=>[x.projectName,x.spent]));
             const totalDone=dashboardBudgetSpent.reduce((s,x)=>s+Number(x.spent?.total||0),0);
+            const dashboardJournalExpenses = (projectPayments||[]).reduce((sum,pay)=>{const signed=projectPaymentSignedAmount(pay);return signed<0?sum+Math.abs(signed):sum;},0);
+            const dashboardDirectExpenses = (manualExpenses||[])
+              .filter(expense=>!expense.ownExpenseId&&expense.source!=='own_expense')
+              .reduce((sum,expense)=>sum+Number(expense.amount||0),0);
+            const dashboardAccountableExpenses = (accountablePayments||[]).reduce((sum,payment)=>sum+Number(payment.amount||0),0);
+            const dashboardAccountingExpenses = dashboardJournalExpenses + dashboardDirectExpenses + dashboardAccountableExpenses;
             const dashboardProjectPreviewLimit=isMobile?3:5;
             const openSupplyDashboard = (tab) => { setActivePage('supply'); setSupplyTab(tab); setShowSupplyForm(false); setShowForm(false); };
             const dashboardExtraKey = 'dashboard-extra-panels';
@@ -11104,7 +10941,7 @@ function App() {
             return(
             <div style={{minHeight:'100%',padding:'28px',background:'radial-gradient(circle at 15% 0%,rgba(249,115,22,.15),transparent 32%),linear-gradient(135deg,#0b1120 0%,#111827 100%)',color:'#f8fafc'}}>
               <DashboardTopBar C={C} setSidebarVisible={setSidebarVisible} darkMode={darkMode} setDarkMode={setDarkMode} setShowChatPanel={setShowChatPanel} unreadMessagesCount={unreadMessagesCount} setShowAiAssistant={setShowAiAssistant} showAiAssistant={showAiAssistant} showNotifications={showNotifications} toggleNotifications={toggleNotifications} unreadNotifications={unreadNotifications} btnG={btnG} btnO={btnO} myNotifications={myNotifications} notifications={notifications} markMyNotificationsRead={markMyNotificationsRead} closeNotifications={closeNotifications} navigateTo={navigateTo} getNotifPage={getNotifPage} setShowNotifications={setShowNotifications} setNotifications={setNotifications} user={user} setUser={setUser} API={API} setShowQuickActions={setShowQuickActions} isMobile={isMobile}/>
-              <DashboardStatsGrid dashboardProjects={dashboardProjects} avgProg={avgProg} totalDone={totalDone} setActivePage={setActivePage} navigateTo={navigateTo} setAccountingTab={setAccountingTab}/>
+              <DashboardStatsGrid dashboardProjects={dashboardProjects} avgProg={avgProg} totalDone={totalDone} totalExpenses={dashboardAccountingExpenses} setActivePage={setActivePage} navigateTo={navigateTo} setAccountingTab={setAccountingTab}/>
               {showDashboardExtra&&<DashboardDirectorAiPanel isLeadership={isLeadership} directorSkillCards={directorSkillCards} dailyReportDate={dailyReportDate} setDailyReportDate={setDailyReportDate} canUseDirectorAgent={canUseDirectorAgent} directorAgentLoading={directorAgentLoading} askDirectorAgent={askDirectorAgent} directorAgentQuestion={directorAgentQuestion} setDirectorAgentQuestion={setDirectorAgentQuestion} isMobile={isMobile} directorAgentAnswer={directorAgentAnswer} directorAgentError={directorAgentError} directorAgentSteps={directorAgentSteps}/>}
               {showDashboardExtra&&<DashboardSupplyPanel showSupplyDashboard={showSupplyDashboard} user={user} openSupplyDashboard={openSupplyDashboard} supplyPendingRequests={supplyPendingRequests} supplyOffersToReview={supplyOffersToReview} supplyInvoicesToPay={supplyInvoicesToPay} supplyInvoiceDebt={supplyInvoiceDebt}/>}
               <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1.3fr 0.7fr',gap:'16px'}}>
@@ -13520,79 +13357,17 @@ function App() {
 	                    </button>
 	                  </div>
 	                );})()}
-                {['директор','зам_директора'].includes(user?.role) && (()=>{const workSummary=buildEstimateWorkSummary(selectedEstimate);const duplicateGroups=(workSummary.groups||[]).filter(group=>group.sourceCount>1);if(!duplicateGroups.length) return null;const compactLimit=isMobile?8:14;const visibleGroups=showEstimateWorkSummary?duplicateGroups:duplicateGroups.slice(0,compactLimit);const hiddenGroups=duplicateGroups.length-visibleGroups.length;const fmtNum=(value,max=3)=>Number(value||0).toLocaleString('ru-RU',{maximumFractionDigits:max});const fmtMoney=(value)=>Math.round(Number(value||0)).toLocaleString('ru-RU')+' ₽';const jumpToSource=(source)=>{const rowId=estimateIssueDomId(selectedEstimate.id,source.sectionIndex,source.itemIndex);const sectionListKey=['estimate-sections',selectedEstimate.id,'all'].join(':');const groupKey=['estimate',selectedEstimate.id,source.sectionIndex,'Работы'].join(':');setShowEstimateIssuesOnly(false);setMobileExpandedRenderLists(prev=>({...prev,[sectionListKey]:true,[groupKey]:true}));setTimeout(()=>document.getElementById(rowId)?.scrollIntoView({behavior:'smooth',block:'center'}),120);};const summaryTbl={...tbl,width:'100%',minWidth:isMobile?'0':'760px',tableLayout:'fixed'};const summaryH={...tblH,padding:'5px 6px',fontSize:'10px',whiteSpace:'nowrap'};const summaryC={...tblC,padding:'5px 6px',fontSize:'11px',verticalAlign:'top'};const renderSources=(group)=>group.sources.slice(0,8).map(source=>(
-	                      <div key={`${source.sectionIndex}-${source.itemIndex}`} style={{display:'grid',gridTemplateColumns:isMobile?'1fr auto':'minmax(0,1fr) 80px 70px',gap:'6px',alignItems:'center',padding:'5px 0',borderTop:'1px solid '+C.border}}>
-	                        <span style={{color:C.textSec,fontSize:'11px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:isMobile?'normal':'nowrap'}}>{source.sectionName} · строка {source.rowNumber}</span>
-	                        <b style={{color:C.text,fontSize:'11px',whiteSpace:'nowrap'}}>{fmtNum(source.quantity)} {source.unit}</b>
-	                        <button type="button" onClick={()=>jumpToSource(source)} style={{...btnB,padding:'4px 6px',fontSize:'10px',justifyContent:'center'}}>К строке</button>
-	                      </div>
-	                    ));return(
-	                  <div style={{...card,padding:isMobile?'10px':'12px',marginBottom:'12px',backgroundColor:C.bg}}>
-	                    <div style={{display:'flex',justifyContent:'space-between',gap:'10px',alignItems:isMobile?'flex-start':'center',flexDirection:isMobile?'column':'row'}}>
-	                      <div>
-	                        <b style={{color:C.text,fontSize:isMobile?'15px':'14px'}}>🧾 Свод одинаковых работ</b>
-	                        <p style={{color:C.textSec,margin:'3px 0 0',fontSize:'11px'}}>
-	                          Повторов: {workSummary.duplicateGroups} · строк: {workSummary.totalSourceRows}. Одинаковые работы суммируются здесь, сама смета не меняется.
-	                        </p>
-	                      </div>
-	                      <button type="button" onClick={()=>setShowEstimateWorkSummary(v=>!v)} style={{...btnB,justifyContent:'center',width:isMobile?'100%':'auto',padding:'6px 10px',fontSize:'12px'}}>
-	                        {showEstimateWorkSummary?'Свернуть':'Показать все'}
-	                      </button>
-	                    </div>
-	                    {isMobile?(
-	                      <div style={{display:'grid',gap:'6px',marginTop:'10px'}}>
-	                        {visibleGroups.map(group=>(
-	                          <details key={group.key} style={{border:'1px solid '+C.border,borderRadius:'8px',padding:'8px',backgroundColor:C.bgWhite}}>
-	                            <summary style={{cursor:'pointer',listStyle:'none'}}>
-	                              <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) auto',gap:'8px',alignItems:'start'}}>
-	                                <b style={{color:C.text,fontSize:'12px',lineHeight:1.25,overflow:'hidden',textOverflow:'ellipsis'}}>{group.name}</b>
-	                                <b style={{color:C.warning,fontSize:'12px',whiteSpace:'nowrap'}}>{fmtNum(group.quantity)} {group.unit}</b>
-	                              </div>
-	                              <span style={{color:C.textMuted,fontSize:'10px'}}>строк: {group.sourceCount} · {group.basisLabel} · {fmtMoney(group.workSum)}</span>
-	                            </summary>
-	                            <div style={{marginTop:'6px'}}>{renderSources(group)}{group.sources.length>8&&<span style={{color:C.textMuted,fontSize:'10px'}}>Еще источников: {group.sources.length-8}</span>}</div>
-	                          </details>
-	                        ))}
-	                      </div>
-	                    ):(
-	                      <div style={{overflowX:'auto',marginTop:'10px'}}>
-	                        <table style={summaryTbl}>
-	                          <thead>
-	                            <tr>
-		                              <th style={{...summaryH,width:'36%'}}>Работа</th>
-		                              <th style={{...summaryH,width:'48px'}}>Строк</th>
-		                              <th style={{...summaryH,width:'82px'}}>Объем</th>
-		                              <th style={{...summaryH,width:'92px'}}>Сумма</th>
-		                              <th style={{...summaryH,width:'88px'}}>Средняя</th>
-		                              <th style={{...summaryH,width:'154px'}}>Где</th>
-	                            </tr>
-	                          </thead>
-	                          <tbody>
-	                            {visibleGroups.map(group=>(
-	                              <tr key={group.key}>
-	                                <td style={summaryC}>
-	                                  <b style={{color:C.text,lineHeight:1.25}}>{group.name}</b>
-	                                  <div style={{color:C.textMuted,fontSize:'10px',marginTop:'2px'}}>{group.basisLabel} · {group.sectionNames.slice(0,3).join(', ')}{group.sectionNames.length>3?'...':''}</div>
-	                                </td>
-	                                <td style={{...summaryC,fontWeight:'700',color:C.warning}}>{group.sourceCount}</td>
-	                                <td style={{...summaryC,fontWeight:'700',color:C.text}}>{fmtNum(group.quantity)} {group.unit}</td>
-	                                <td style={{...summaryC,fontWeight:'700',color:C.success,whiteSpace:'nowrap'}}>{fmtMoney(group.workSum)}</td>
-	                                <td style={{...summaryC,color:C.textSec,whiteSpace:'nowrap'}}>{fmtMoney(group.unitPriceAvg)} / {group.unit}</td>
-	                                <td style={summaryC}>
-	                                  <details>
-	                                    <summary style={{cursor:'pointer',color:C.info,fontSize:'11px'}}>источники</summary>
-	                                    <div style={{marginTop:'4px'}}>{renderSources(group)}{group.sources.length>8&&<span style={{color:C.textMuted,fontSize:'10px'}}>Еще источников: {group.sources.length-8}</span>}</div>
-	                                  </details>
-	                                </td>
-	                              </tr>
-	                            ))}
-	                          </tbody>
-	                        </table>
-	                      </div>
-	                    )}
-	                    {hiddenGroups>0&&<button type="button" onClick={()=>setShowEstimateWorkSummary(true)} style={{...btnO,justifyContent:'center',marginTop:'8px',width:'100%',padding:'6px 10px',fontSize:'12px'}}>Показать еще {hiddenGroups}</button>}
-	                  </div>
-	                );})()}
+                <EstimateDuplicateWorkSummaryPanel
+                  selectedEstimate={selectedEstimate}
+                  userRole={user?.role}
+                  isMobile={isMobile}
+                  showEstimateWorkSummary={showEstimateWorkSummary}
+                  setShowEstimateWorkSummary={setShowEstimateWorkSummary}
+                  setShowEstimateIssuesOnly={setShowEstimateIssuesOnly}
+                  setMobileExpandedRenderLists={setMobileExpandedRenderLists}
+                  buildEstimateWorkSummary={buildEstimateWorkSummary}
+                  estimateIssueDomId={estimateIssueDomId}
+                />
 	                <EstimateAddSectionForm
 	                  card={card}
 	                  inp={inp}

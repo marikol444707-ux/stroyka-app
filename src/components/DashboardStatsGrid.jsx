@@ -4,14 +4,16 @@ export default function DashboardStatsGrid({
   dashboardProjects,
   avgProg,
   totalDone,
+  totalExpenses,
   setActivePage,
   navigateTo,
   setAccountingTab,
 }) {
+  const dashboardExpenses = Number.isFinite(Number(totalExpenses)) ? Number(totalExpenses) : Number(totalDone || 0);
   const cards = [
     {label:'Объекты',value:dashboardProjects.length,sub:'активных проектов',color:'#fdba74',bg:'rgba(234,88,12,.14)',border:'rgba(234,88,12,.32)',page:'projects'},
     {label:'Прогресс',value:avgProg+'%',sub:'среднее по объектам',color:'#86efac',bg:'rgba(34,197,94,.12)',border:'rgba(34,197,94,.28)',page:'projects'},
-    {label:'Себестоимость',value:totalDone>=1000000?(totalDone/1000000).toFixed(1)+' млн':Math.round(totalDone/1000)+' тыс',sub:'затраты по всем объектам',color:'#bef264',bg:'rgba(132,204,22,.12)',border:'rgba(132,204,22,.28)',page:'accounting',tab:'payments'},
+    {label:'Расходы',value:dashboardExpenses>=1000000?(dashboardExpenses/1000000).toFixed(1)+' млн':Math.round(dashboardExpenses/1000)+' тыс',sub:'по журналу бухгалтерии',color:'#bef264',bg:'rgba(132,204,22,.12)',border:'rgba(132,204,22,.28)',page:'accounting',tab:'payments'},
     {label:'Бюджет',value:(()=>{const t=dashboardProjects.reduce((s,p)=>s+Number(p.budget||0),0);return t>=1000000?Math.round(t/1000000)+' млн':Math.round(t/1000)+' тыс';})(),sub:'общий бюджет ₽',color:'#fca5a5',bg:'rgba(239,68,68,.12)',border:'rgba(239,68,68,.28)',page:'accounting',tab:'summary'},
   ];
 

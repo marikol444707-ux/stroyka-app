@@ -36,10 +36,20 @@ export default function AccountingSummaryPanel({
   const activeProjectsCount = (projects || []).filter(project => project.status === 'В работе').length;
   const totalBudget = (projects || []).reduce((sum, project) => sum + Number(project.budget || 0), 0);
   const totalPayIn = (projectPayments || []).reduce((sum, payment) => sum + projectPaymentInAmount(payment), 0);
+  const outgoingProjectPayments = (projectPayments || []).filter(payment => projectPaymentSignedAmount(payment) < 0);
   const totalProjectPaymentsOut = (projectPayments || []).reduce((sum, payment) => {
     const signed = projectPaymentSignedAmount(payment);
     return signed < 0 ? sum + Math.abs(signed) : sum;
   }, 0);
+  const projectPaymentsOutByPurpose = outgoingProjectPayments.reduce((acc, payment) => {
+    const note = String(payment?.note || '').trim().toLowerCase();
+    const amount = Math.abs(projectPaymentSignedAmount(payment));
+    if (note.startsWith('оплата счёта')) acc.suppliers += amount;
+    else if (note.startsWith('оплата бригаде') || note.startsWith('выплата исполнителю')) acc.brigades += amount;
+    else if (note.startsWith('возмещение')) acc.reimbursements += amount;
+    else acc.other += amount;
+    return acc;
+  }, { suppliers: 0, brigades: 0, reimbursements: 0, other: 0 });
   const pendingOwnExpenses = (ownExpenses || [])
     .filter(expense => expense.status === 'Ожидает')
     .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
@@ -53,12 +63,25 @@ export default function AccountingSummaryPanel({
   const totalSuppliers = (supplierInvoices || []).reduce((sum, invoice) => sum + Number(invoice.paidAmount || 0), 0);
   const totalBrigades = (brigadeContracts || []).reduce((sum, contract) => sum + Number(contract.paidAmount || 0), 0);
   const totalPiecework = (piecework || []).reduce((sum, row) => sum + Number(row.total || 0), 0);
+  const visibleSupplierPaid = Math.max(totalSuppliers, projectPaymentsOutByPurpose.suppliers);
+  const visibleBrigadePaid = Math.max(totalBrigades, projectPaymentsOutByPurpose.brigades);
+  const visibleReimbursedOwnExpenses = Math.max(reimbursedOwnExpenses, projectPaymentsOutByPurpose.reimbursements);
   const totalExpenses = totalAccountable + totalProjectPaymentsOut + directObjectExpenses;
   const netProfit = totalPayIn - totalExpenses;
   const accountingInvoiceRows = React.useMemo(
     () => buildAccountingInvoiceRows(invoices, warehouseInvoiceEstimateControl),
     [invoices, warehouseInvoiceEstimateControl]
   );
+  const checkedPrimaryRows = accountingInvoiceRows.filter(row => row.status !== 'Нет фото');
+  const primaryDocumentGap = totalProjectPaymentsOut > 0 && checkedPrimaryRows.length === 0
+    ? {
+        status: 'Нет первички',
+        label: 'Оплаты без первички',
+        count: outgoingProjectPayments.length,
+        amount: totalProjectPaymentsOut,
+        tab: 'payments',
+      }
+    : null;
   const invoiceQueueCards = ACCOUNTING_INVOICE_STATUSES
     .map(status => {
       const rows = accountingInvoiceRows.filter(row => row.status === status);
@@ -66,17 +89,19 @@ export default function AccountingSummaryPanel({
       return { status, count: rows.length, amount };
     })
     .filter(item => item.count > 0 || ['Нет фото', 'На проверке', 'К оплате'].includes(item.status));
+  if (primaryDocumentGap) invoiceQueueCards.unshift(primaryDocumentGap);
 
   const cards = [
     { label: 'Активных проектов', value: activeProjectsCount + ' из ' + (projects || []).length, color: C.accent },
     { label: 'Общий бюджет', value: Math.round(totalBudget).toLocaleString('ru-RU') + ' ₽', color: C.text },
     { label: 'Поступило от заказчиков', value: Math.round(totalPayIn).toLocaleString('ru-RU') + ' ₽', color: C.success },
-    { label: 'Оплачено поставщикам', value: Math.round(totalSuppliers).toLocaleString('ru-RU') + ' ₽', color: C.warning },
-    { label: 'Оплачено бригадам', value: Math.round(totalBrigades).toLocaleString('ru-RU') + ' ₽', color: C.warning },
+    { label: 'Оплачено поставщикам', value: Math.round(visibleSupplierPaid).toLocaleString('ru-RU') + ' ₽', color: C.warning },
+    { label: 'Оплачено бригадам', value: Math.round(visibleBrigadePaid).toLocaleString('ru-RU') + ' ₽', color: C.warning },
     { label: 'Платежи по журналу', value: Math.round(totalProjectPaymentsOut).toLocaleString('ru-RU') + ' ₽', color: C.danger },
     { label: 'Прямые расходы объектов', value: Math.round(directObjectExpenses).toLocaleString('ru-RU') + ' ₽', color: C.danger },
     { label: 'К возмещению сотрудникам', value: Math.round(pendingOwnExpenses).toLocaleString('ru-RU') + ' ₽', color: C.warning },
-    { label: 'Возмещено сотрудникам', value: Math.round(reimbursedOwnExpenses).toLocaleString('ru-RU') + ' ₽', color: C.textSec },
+    { label: 'Возмещено сотрудникам', value: Math.round(visibleReimbursedOwnExpenses).toLocaleString('ru-RU') + ' ₽', color: C.textSec },
+    ...(projectPaymentsOutByPurpose.other > 0 ? [{ label: 'Прочие выплаты', value: Math.round(projectPaymentsOutByPurpose.other).toLocaleString('ru-RU') + ' ₽', color: C.danger }] : []),
     { label: 'Подотчётные на руках', value: Math.round(totalAccountable).toLocaleString('ru-RU') + ' ₽', color: C.warning },
     ...(isLeadership ? [{ label: 'Всего расходов', value: Math.round(totalExpenses).toLocaleString('ru-RU') + ' ₽', color: C.danger }] : []),
     ...(isLeadership ? [{ label: 'Чистая прибыль', value: Math.round(netProfit).toLocaleString('ru-RU') + ' ₽', color: netProfit >= 0 ? C.success : C.danger }] : []),
@@ -90,16 +115,17 @@ export default function AccountingSummaryPanel({
       </b>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: '10px', marginBottom: '20px' }}>
         {invoiceQueueCards.map(item => {
-          const color = item.status === 'Нет фото' ? C.danger : item.status === 'К оплате' ? C.accent : item.status === 'Оплачена' ? C.success : C.warning;
-          const bg = item.status === 'Нет фото' ? C.dangerLight : item.status === 'К оплате' ? C.accentLight : item.status === 'Оплачена' ? C.successLight : C.warningLight;
-          const border = item.status === 'Нет фото' ? C.dangerBorder : item.status === 'К оплате' ? C.accentBorder : item.status === 'Оплачена' ? C.successBorder : C.warningBorder;
+          const isPrimaryGap = item.status === 'Нет первички';
+          const color = isPrimaryGap ? C.danger : item.status === 'Нет фото' ? C.danger : item.status === 'К оплате' ? C.accent : item.status === 'Оплачена' ? C.success : C.warning;
+          const bg = isPrimaryGap ? C.dangerLight : item.status === 'Нет фото' ? C.dangerLight : item.status === 'К оплате' ? C.accentLight : item.status === 'Оплачена' ? C.successLight : C.warningLight;
+          const border = isPrimaryGap ? C.dangerBorder : item.status === 'Нет фото' ? C.dangerBorder : item.status === 'К оплате' ? C.accentBorder : item.status === 'Оплачена' ? C.successBorder : C.warningBorder;
           return (
             <button
               key={item.status}
-              onClick={() => setAccountingTab && setAccountingTab('incoming')}
+              onClick={() => setAccountingTab && setAccountingTab(item.tab || 'incoming')}
               style={{ ...card, padding: '14px', textAlign: 'left', cursor: 'pointer', backgroundColor: bg, border: '1.5px solid ' + border }}
             >
-              <p style={{ color, fontSize: '11px', margin: '0 0 5px', fontWeight: 800 }}>{accountingStatusGroupLabels[item.status]}</p>
+              <p style={{ color, fontSize: '11px', margin: '0 0 5px', fontWeight: 800 }}>{item.label || accountingStatusGroupLabels[item.status]}</p>
               <b style={{ color, fontSize: '18px' }}>{item.count}</b>
               <span style={{ display: 'block', color, fontSize: '11px', marginTop: '3px' }}>{Math.round(item.amount).toLocaleString('ru-RU') + ' ₽'}</span>
             </button>

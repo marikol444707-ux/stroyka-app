@@ -166,16 +166,16 @@ def check_client_account_owner_access(account_owner_user, password):
         raise RuntimeError(f"account owner login did not require 2FA setup/challenge: {login_body}")
 
     account_owner_token = auth_token_for(account_owner_user)
-    _, scoped_projects = api_json("GET", "/projects", token=account_owner_token, expected=200)
-    if not isinstance(scoped_projects, list):
-        raise RuntimeError(f"account owner projects endpoint returned invalid body: {scoped_projects}")
-    _, scoped_users = api_json("GET", "/users", token=account_owner_token, expected=200)
-    if not (
-        isinstance(scoped_users, list)
-        and len(scoped_users) == 1
-        and scoped_users[0].get("email") == account_owner_user.get("email")
-    ):
-        raise RuntimeError(f"account owner users endpoint did not return only current user: {scoped_users}")
+    _, dashboard = api_json("GET", "/account/dashboard", token=account_owner_token, expected=200)
+    account_id = dashboard.get("account", {}).get("id")
+    if account_id != account_owner_user.get("platformAccountId"):
+        raise RuntimeError(f"account dashboard returned wrong account: {dashboard}")
+    if not dashboard.get("companies"):
+        raise RuntimeError(f"account dashboard did not return companies: {dashboard}")
+    if not any(item.get("email") == account_owner_user.get("email") for item in dashboard.get("users") or []):
+        raise RuntimeError(f"account dashboard did not include account owner user: {dashboard}")
+    if dashboard.get("projects") or any("projects" in item for item in dashboard.get("companies") or []):
+        raise RuntimeError(f"account dashboard leaked project detail rows: {dashboard}")
 
     forbidden_endpoints = [
         ("GET", "/system/dashboard", None),
@@ -205,7 +205,7 @@ def check_client_account_owner_access(account_owner_user, password):
     return {
         "email": account_owner_user.get("email"),
         "loginChallenge": "setup" if login_body.get("twoFactorSetupRequired") else "verify",
-        "allowedScopedEndpoints": ["GET /projects", "GET /users"],
+        "dashboardUsage": dashboard.get("usage"),
         "forbiddenEndpoints": checked,
     }
 
@@ -897,6 +897,7 @@ def main():
                 "platform support sessions",
                 "platform billing role",
                 "client account role invite and registration",
+                "client account dashboard read-only",
                 "client account owner login and endpoint matrix",
                 "crm lead summaries and details",
                 "crm documents and tasks",
