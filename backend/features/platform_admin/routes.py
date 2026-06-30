@@ -1,5 +1,6 @@
 import base64
 import datetime as dt
+import io
 import json
 import mimetypes
 import os
@@ -7,8 +8,10 @@ import re
 import textwrap
 import urllib.parse
 import uuid
+import zipfile
 from datetime import datetime, timedelta, date
 from typing import Optional
+import xml.etree.ElementTree as ET
 
 import psycopg2.extras
 from fastapi import Depends, File, Form, HTTPException, Request, UploadFile
@@ -651,6 +654,131 @@ def _normalize_client_card_fields(ai_fields, fallback_fields) -> dict:
     return fields
 
 
+def _decode_client_card_bytes(content: bytes, limit=32000) -> str:
+    raw = (content or b"")[:limit]
+    for encoding in ("utf-8", "cp1251", "latin-1"):
+        try:
+            return raw.decode(encoding, errors="ignore")
+        except Exception:
+            continue
+    return ""
+
+
+def _strip_rtf_text(text: str) -> str:
+    text = re.sub(r"\\'[0-9a-fA-F]{2}", " ", text or "")
+    text = re.sub(r"\\[a-zA-Z]+\d* ?", " ", text)
+    text = text.replace("{", " ").replace("}", " ")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _docx_client_card_text(content: bytes) -> str:
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        xml = archive.read("word/document.xml")
+    root = ET.fromstring(xml)
+    parts = []
+    for node in root.iter():
+        if node.tag.endswith("}t") and node.text:
+            parts.append(node.text)
+    return "\n".join(parts)
+
+
+def _xlsx_client_card_text(content: bytes) -> str:
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        shared_strings = []
+        if "xl/sharedStrings.xml" in archive.namelist():
+            root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+            for item in root.iter():
+                if item.tag.endswith("}si"):
+                    text_parts = [node.text for node in item.iter() if node.tag.endswith("}t") and node.text]
+                    shared_strings.append(" ".join(text_parts))
+        rows = []
+        sheet_names = [name for name in archive.namelist() if name.startswith("xl/worksheets/") and name.endswith(".xml")]
+        for sheet_name in sheet_names[:8]:
+            root = ET.fromstring(archive.read(sheet_name))
+            for row in root.iter():
+                if not row.tag.endswith("}row"):
+                    continue
+                cells = []
+                for cell in row:
+                    if not cell.tag.endswith("}c"):
+                        continue
+                    cell_type = cell.attrib.get("t")
+                    value = ""
+                    for node in cell:
+                        if node.tag.endswith("}v") and node.text is not None:
+                            value = node.text
+                            break
+                    if cell_type == "s":
+                        try:
+                            value = shared_strings[int(value)]
+                        except Exception:
+                            pass
+                    if value:
+                        cells.append(str(value))
+                if cells:
+                    rows.append(" | ".join(cells))
+                if len(rows) >= 400:
+                    break
+            if len(rows) >= 400:
+                break
+    return "\n".join(rows)
+
+
+def _pdf_client_card_text(content: bytes) -> tuple[str, str]:
+    reader_cls = None
+    try:
+        from pypdf import PdfReader
+        reader_cls = PdfReader
+    except Exception:
+        try:
+            from PyPDF2 import PdfReader
+            reader_cls = PdfReader
+        except Exception:
+            reader_cls = None
+    if not reader_cls:
+        return "", "PDF принят. Если он сканированный, распознавание пойдет через AI/OCR; текстовый слой PDF на сервере недоступен."
+    try:
+        reader = reader_cls(io.BytesIO(content))
+        pages = []
+        for page in reader.pages[:20]:
+            try:
+                pages.append(page.extract_text() or "")
+            except Exception:
+                continue
+        return "\n".join(pages).strip(), ""
+    except Exception as exc:
+        return "", "Не удалось извлечь текстовый слой PDF: " + str(exc)
+
+
+def _binary_client_card_text(content: bytes) -> str:
+    raw = _decode_client_card_bytes(content, 64000)
+    chunks = re.findall(r"[A-Za-zА-Яа-яЁё0-9@+().,;:_/\-\s]{4,}", raw)
+    clean = "\n".join(re.sub(r"\s+", " ", chunk).strip() for chunk in chunks)
+    return clean[:12000]
+
+
+def _extract_client_card_file_text(filename: str, content_type: str, content: bytes) -> tuple[str, str]:
+    name = (filename or "").lower()
+    mime_type = (content_type or mimetypes.guess_type(filename or "")[0] or "").lower()
+    try:
+        if name.endswith(".pdf") or mime_type == "application/pdf":
+            return _pdf_client_card_text(content)
+        if name.endswith(".docx"):
+            return _docx_client_card_text(content), ""
+        if name.endswith(".xlsx"):
+            return _xlsx_client_card_text(content), ""
+        if name.endswith((".txt", ".csv", ".md", ".json", ".xml", ".html", ".htm")) or mime_type.startswith("text/"):
+            return _decode_client_card_bytes(content), ""
+        if name.endswith(".rtf"):
+            return _strip_rtf_text(_decode_client_card_bytes(content)), ""
+        if name.endswith((".doc", ".xls")):
+            text = _binary_client_card_text(content)
+            return text, "" if text else "Старый Office-формат сохранен, но текст автоматически не извлекся. Лучше загрузить .docx/.xlsx/PDF или фото."
+    except Exception as exc:
+        return "", "Не удалось извлечь текст из файла: " + str(exc)
+    return "", "Файл сохранен. Для этого формата автоматическое извлечение текста пока недоступно."
+
+
 def _client_card_file_payload(filename: str, content_type: str, content: bytes) -> tuple[dict, str]:
     name = filename or "client-card"
     mime_type = (content_type or mimetypes.guess_type(name)[0] or "application/octet-stream").lower()
@@ -672,20 +800,26 @@ def _client_card_file_payload(filename: str, content_type: str, content: bytes) 
 
 
 def _recognize_client_card_with_ai(file_content: bytes, file_name: str, content_type: str,
-                                   pasted_text: str, api_key: str, folder_id: str) -> tuple[dict, str]:
+                                   source_text: str, api_key: str, folder_id: str) -> tuple[dict, list]:
+    warnings = []
     if not (api_key and folder_id):
-        return {}, "AI/OCR не настроен: задайте YANDEX_API_KEY и YANDEX_FOLDER_ID."
+        return {}, ["AI/OCR не настроен: задайте YANDEX_API_KEY и YANDEX_FOLDER_ID."]
     try:
         import openai as oa
     except Exception as exc:
-        return {}, "AI-клиент недоступен: " + str(exc)
+        return {}, ["AI-клиент недоступен: " + str(exc)]
     content = []
     if file_content:
-        file_part, kind = _client_card_file_payload(file_name, content_type, file_content)
-        content.append({"type": "input_text", "text": "Файл карты клиента: " + (file_name or kind)})
-        content.append(file_part)
-    if pasted_text:
-        content.append({"type": "input_text", "text": "Дополнительный текст карты клиента:\n" + pasted_text[:12000]})
+        try:
+            file_part, kind = _client_card_file_payload(file_name, content_type, file_content)
+            content.append({"type": "input_text", "text": "Файл карты клиента: " + (file_name or kind)})
+            content.append(file_part)
+        except HTTPException as exc:
+            warnings.append(str(exc.detail))
+    if source_text:
+        content.append({"type": "input_text", "text": "Извлеченный текст карты клиента:\n" + source_text[:16000]})
+    if not content:
+        return {}, warnings + ["Файл сохранен, но этот формат нельзя автоматически распознать. Заполните поля вручную или загрузите фото/PDF/Word/Excel."]
     content.append({"type": "input_text", "text": (
         "Распознай карту клиента/визитку/реквизиты потенциального клиента строительной ERP. "
         "Верни только JSON без markdown. Не выдумывай значения. Если поля нет — пустая строка. "
@@ -722,7 +856,7 @@ def _recognize_client_card_with_ai(file_content: bytes, file_name: str, content_
         )
         return _client_card_json(response.output_text or ""), ""
     except Exception as exc:
-        return {}, "AI/OCR не смог распознать карту клиента: " + str(exc)
+        return {}, warnings + ["AI/OCR не смог распознать карту клиента: " + str(exc)]
 
 
 def register_platform_admin_routes(app, deps):
@@ -785,6 +919,11 @@ def register_platform_admin_routes(app, deps):
             file_content = await file.read(12 * 1024 * 1024 + 1)
             if len(file_content) > 12 * 1024 * 1024:
                 raise HTTPException(status_code=413, detail="Карта клиента слишком большая. Загрузите файл до 12 МБ.")
+            file_text, file_warning = _extract_client_card_file_text(file_name, content_type, file_content)
+            if file_warning:
+                warnings.append(file_warning)
+            if file_text:
+                pasted_text = "\n\n".join(part for part in (pasted_text, file_text) if part)
             if save_upload_file:
                 try:
                     file.file.seek(0)
@@ -796,8 +935,14 @@ def register_platform_admin_routes(app, deps):
             raise HTTPException(status_code=400, detail="Загрузите карту клиента или вставьте текст.")
 
         fallback = _client_card_heuristic(pasted_text)
+        ai_file_content = b""
+        if file_content:
+            file_name_lower = file_name.lower()
+            content_type_lower = (content_type or "").lower()
+            if file_name_lower.endswith(".pdf") or content_type_lower == "application/pdf" or content_type_lower.startswith("image/"):
+                ai_file_content = file_content
         ai_fields, ai_warning = _recognize_client_card_with_ai(
-            file_content,
+            ai_file_content,
             file_name,
             content_type,
             pasted_text,
