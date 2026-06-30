@@ -201,12 +201,11 @@ import {
 import {
   docEsc,
   normalizeDocDate,
-  parseWorkMaterials,
-  photoCount,
   workDocDate,
 } from './utils/documentFormatUtils';
 import {
   buildAOSKDocContent,
+  buildDailyObjectReportDocContent,
   buildDirectorBriefReportDocContent,
   buildExecPackageDocContent,
   buildIGDDocContent,
@@ -2029,103 +2028,13 @@ function App() {
     companyRequisites,
     companyName,
   });
-  const buildDailyObjectReportContent = (date) => {
-    const req = companyRequisites||{};
-    const orgName = req.fullName||req.shortName||companyName||'СтройКа';
-    const targetDate = normalizeDocDate(date);
-    const works = (workJournal||[]).filter(w=>workDocDate(w)===targetDate);
-    const activeProjectNames = new Set((projects||[]).filter(p=>!p.archived&&p.status!=='Завершён').map(p=>p.name).filter(Boolean));
-    const projectsWithWorks = Array.from(new Set(works.map(w=>w.project||'Без объекта'))).sort((a,b)=>a.localeCompare(b,'ru'));
-    const missingProjects = Array.from(activeProjectNames).filter(name=>!projectsWithWorks.includes(name)).sort((a,b)=>a.localeCompare(b,'ru'));
-    const totalAmount = works.reduce((s,w)=>s+Number(w.total||0),0);
-    const confirmedCount = works.filter(w=>w.status==='Подтверждено').length;
-    const pendingCount = works.filter(w=>!w.status||w.status==='На проверке'||w.status==='Автоматически из сметы').length;
-    const hiddenCount = works.filter(w=>w.hiddenWork).length;
-    const fmtMoney = (n) => Math.round(Number(n||0)).toLocaleString('ru-RU')+' ₽';
-    const fmtDate = (s) => { const d=normalizeDocDate(s); return d ? new Date(d+'T00:00:00').toLocaleDateString('ru-RU') : ''; };
-    let html = '<style>'
-      + '.dor-title{text-align:center;font-weight:700;font-size:17px;margin:0 0 4px}'
-      + '.dor-sub{text-align:center;font-size:11px;color:#555;margin:0 0 16px}'
-      + '.dor-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0 16px}'
-      + '.dor-card{border:1px solid #bbb;border-radius:8px;padding:8px;background:#fafafa}'
-      + '.dor-card b{display:block;font-size:15px;margin-top:2px}'
-      + '.dor-muted{color:#666;font-size:10px}'
-      + '.dor-section{margin-top:18px;border-top:1.5px solid #333;padding-top:8px;break-inside:avoid}'
-      + '.dor-section h3{font-size:13px;margin:0 0 8px}'
-      + '.dor-table{width:100%;border-collapse:collapse;font-size:10.5px;margin:6px 0}'
-      + '.dor-table th,.dor-table td{border:1px solid #555;padding:4px 5px;vertical-align:top}'
-      + '.dor-table th{background:#f1f5f9;font-weight:700}'
-      + '.dor-risk{margin:4px 0;padding:5px 7px;border:1px solid #f59e0b;background:#fffbeb;border-radius:6px;font-size:11px}'
-      + '.dor-ok{margin:4px 0;padding:5px 7px;border:1px solid #22c55e;background:#f0fdf4;border-radius:6px;font-size:11px}'
-      + '.dor-empty{padding:14px;border:1px dashed #aaa;border-radius:8px;color:#666;text-align:center}'
-      + '</style>';
-    html += '<div class="dor-title">ЕЖЕДНЕВНЫЙ ОТЧЕТ ПО ОБЪЕКТАМ</div>';
-    html += '<div class="dor-sub">'+docEsc(orgName)+' · '+docEsc(fmtDate(date))+' · сформировал: '+docEsc(user?.name||'')+'</div>';
-    html += '<div class="dor-grid">';
-    html += '<div class="dor-card"><span class="dor-muted">Записей</span><b>'+works.length+'</b></div>';
-    html += '<div class="dor-card"><span class="dor-muted">Подтверждено</span><b>'+confirmedCount+'</b></div>';
-    html += '<div class="dor-card"><span class="dor-muted">На проверке</span><b>'+pendingCount+'</b></div>';
-    html += '<div class="dor-card"><span class="dor-muted">Сумма</span><b>'+fmtMoney(totalAmount)+'</b></div>';
-    html += '</div>';
-    if (!works.length) {
-      html += '<div class="dor-empty">За выбранную дату работы в журнале не зафиксированы.</div>';
-    }
-    projectsWithWorks.forEach(projectName=>{
-      const list = works.filter(w=>(w.project||'Без объекта')===projectName);
-      const project = projects.find(p=>p.name===projectName)||{};
-      const byStatus = list.reduce((acc,w)=>{const k=w.status||'Без статуса';acc[k]=(acc[k]||0)+1;return acc;},{});
-      const byUnit = list.reduce((acc,w)=>{if(w.unit&&Number(w.quantity||0)>0) acc[w.unit]=(acc[w.unit]||0)+Number(w.quantity||0);return acc;},{});
-      const projectSum = list.reduce((s,w)=>s+Number(w.total||0),0);
-      const materialsList = [];
-      list.forEach(w=>parseWorkMaterials(w.materialsUsed).forEach(m=>materialsList.push({
-        work:w.description||'',
-        name:m.name||m.materialName||m.material||String(m),
-        qty:m.quantity||m.qty||'',
-        unit:m.unit||''
-      })));
-      const risks = [];
-      list.forEach(w=>{
-        const label=w.description||'Запись без описания';
-        if(!w.status||w.status==='На проверке'||w.status==='Автоматически из сметы') risks.push(label+': требуется подтверждение.');
-        if(w.status==='Отклонено') risks.push(label+': работа отклонена.');
-        if(!w.photoUrl&&Number(w.quantity||0)>0) risks.push(label+': нет фотофиксации.');
-        if(w.hiddenWork) risks.push(label+': скрытая работа, проверить АОСР.');
-        if(w.qualityStatus&&!(String(w.qualityStatus).toLowerCase().includes('прин')||String(w.qualityStatus).toLowerCase().includes('норм'))) risks.push(label+': статус качества - '+w.qualityStatus+'.');
-        if((w.comment||'').toLowerCase().includes('материал')&&!w.materialsUsed) risks.push(label+': в комментарии есть материалы, но списание не указано.');
-      });
-      html += '<div class="dor-section">';
-      html += '<h3>'+docEsc(projectName)+'</h3>';
-      html += '<p><b>Заказчик:</b> '+docEsc(project.client||'не указан')+' &nbsp; <b>Статус объекта:</b> '+docEsc(project.status||'')+'</p>';
-      html += '<p><b>Записей:</b> '+list.length+' &nbsp; <b>Статусы:</b> '+Object.entries(byStatus).map(([k,v])=>docEsc(k)+': '+v).join(', ')+' &nbsp; <b>Сумма:</b> '+fmtMoney(projectSum)+'</p>';
-      html += '<p><b>Объемы:</b> '+(Object.keys(byUnit).length?Object.entries(byUnit).map(([unit,qty])=>fmtMeasure(qty,unit)).join(', '):'нет данных')+'</p>';
-      html += '<table class="dor-table"><tr><th>N</th><th>Работа</th><th>Раздел</th><th>Исполнитель</th><th>Кол-во</th><th>Статус</th><th>Комментарий</th><th>Фото</th></tr>';
-      list.forEach((w,i)=>{
-        html += '<tr><td>'+(i+1)+'</td><td>'+docEsc(w.description||'')+'</td><td>'+docEsc(w.sectionName||'')+'</td><td>'+docEsc(w.masterName||w.master_name||'')+'</td><td>'+docEsc(fmtMeasure(w.quantity,w.unit))+'</td><td>'+docEsc(w.status||'')+'</td><td>'+docEsc(w.comment||'')+'</td><td>'+photoCount(w.photoUrl)+'</td></tr>';
-      });
-      html += '</table>';
-      if (materialsList.length) {
-        html += '<p><b>Материалы:</b></p><table class="dor-table"><tr><th>Работа</th><th>Материал</th><th>Кол-во</th></tr>';
-        materialsList.slice(0,25).forEach(m=>{html+='<tr><td>'+docEsc(m.work)+'</td><td>'+docEsc(m.name)+'</td><td>'+docEsc(String(m.qty||'')+' '+String(m.unit||''))+'</td></tr>';});
-        html += '</table>';
-      } else {
-        html += '<p><b>Материалы:</b> списания в журнале не указаны.</p>';
-      }
-      const dedupRisks = Array.from(new Set(risks));
-      if (dedupRisks.length) dedupRisks.slice(0,12).forEach(r=>{html+='<div class="dor-risk">'+docEsc(r)+'</div>';});
-      else html += '<div class="dor-ok">Критичных отклонений по данным журнала не найдено.</div>';
-      html += '</div>';
-    });
-    if (missingProjects.length) {
-      html += '<div class="dor-section"><h3>Объекты без записей за день</h3><p>'+missingProjects.map(docEsc).join(', ')+'</p></div>';
-    }
-    html += '<div class="dor-section"><h3>Итоговые действия</h3><ul>';
-    html += pendingCount?'<li>Проверить и подтвердить работы со статусом "На проверке".</li>':'<li>Все зафиксированные работы подтверждены или не требуют проверки по статусу.</li>';
-    html += hiddenCount?'<li>Проверить АОСР/исполнительную документацию по скрытым работам: '+hiddenCount+'.</li>':'';
-    html += '<li>Уточнить материалы по объектам, где списания не заполнены.</li>';
-    html += '<li>Запросить фотофиксацию по строкам без фото.</li>';
-    html += '</ul></div>';
-    return html;
-  };
+  const buildDailyObjectReportContent = (date) => buildDailyObjectReportDocContent(date, {
+    companyRequisites,
+    companyName,
+    user,
+    projects,
+    workJournal,
+  });
 
   const buildJPRContent = (projectName) => {
     const works = workJournal.filter(j=>j.project===projectName&&j.status==='Подтверждено');
