@@ -35,6 +35,34 @@ const formatShortDate = (value) => {
   return `${String(date.getDate()).padStart(2, '0')}.${String(date.getMonth() + 1).padStart(2, '0')}.${date.getFullYear()}`;
 };
 
+const formatHiddenActDate = (value) => {
+  if (!value) return '«___» __________ 20__ г.';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const months = [
+    'января',
+    'февраля',
+    'марта',
+    'апреля',
+    'мая',
+    'июня',
+    'июля',
+    'августа',
+    'сентября',
+    'октября',
+    'ноября',
+    'декабря',
+  ];
+  return `«${String(date.getDate()).padStart(2, '0')}» ${months[date.getMonth()]} ${date.getFullYear()} г.`;
+};
+
+const formatJournalDate = (value) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${String(date.getDate()).padStart(2, '0')}.${String(date.getMonth() + 1).padStart(2, '0')}.${date.getFullYear()}`;
+};
+
 export const fmtDocMoney = (value) => `${Math.round(Number(value || 0)).toLocaleString('ru-RU')} ₽`;
 
 export const directorDocStyles = () => '<style>'
@@ -528,6 +556,251 @@ export const buildBrigadeActDocContent = (contract = {}, context = {}) => {
   return html;
 };
 
+export const buildHiddenActDocContent = (act = {}, context = {}) => {
+  const { companyRequisites = null, companyName = '' } = context;
+  const req = companyRequisites || {};
+  const orgName = req.fullName || req.shortName || companyName || '_____';
+  const photoCnt = (act.photos || '').split(',').filter(Boolean).length;
+  const certCnt = (act.certificates || '').split(',').filter(Boolean).length;
+  const sig = (label, name, date) => (
+    '<div class="hwa-sig">'
+      + '<div class="hwa-sig-label">' + label + '</div>'
+      + '<div class="hwa-sig-line">' + (name || '') + '</div>'
+      + '<div class="hwa-sig-sub">(должность, ФИО, подпись)</div>'
+      + '<div class="hwa-sig-date">' + (date ? formatHiddenActDate(date) : '«___» __________ 20__ г.') + '</div>'
+      + '</div>'
+  );
+  const concl = act.conclusion || 'Работы выполнены в соответствии с проектной документацией, требованиями технических регламентов, СНиП и ТУ. Разрешается производство последующих работ.';
+  let html = '';
+  html += '<style>'
+    + '.hwa-meta{margin:6px 0;font-size:12px}'
+    + '.hwa-title{text-align:center;font-weight:700;font-size:14px;margin:18px 0 4px}'
+    + '.hwa-sub{text-align:center;font-size:13px;margin:0 0 18px}'
+    + '.hwa-row{display:flex;justify-content:space-between;font-size:12px;margin:4px 0}'
+    + '.hwa-item{margin:8px 0;font-size:12px;line-height:1.5}'
+    + '.hwa-item b{display:inline-block;min-width:18px}'
+    + '.hwa-val{display:inline-block;border-bottom:1px solid #333;min-width:60%;padding:1px 4px}'
+    + '.hwa-block{border-top:1px solid #333;margin-top:6px;padding-top:8px;font-size:12px;line-height:1.5}'
+    + '.hwa-sigs{margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:20px}'
+    + '.hwa-sig{font-size:11px}'
+    + '.hwa-sig-label{font-weight:600;margin-bottom:30px}'
+    + '.hwa-sig-line{border-bottom:1px solid #333;min-height:18px;font-size:12px;font-weight:600}'
+    + '.hwa-sig-sub{font-size:10px;color:#555;margin-top:2px}'
+    + '.hwa-sig-date{margin-top:8px;font-size:11px}'
+    + '@media print{.hwa-title{font-size:13px}}'
+    + '</style>';
+  html += '<div class="hwa-meta"><b>' + orgName + '</b></div>';
+  html += '<div class="hwa-title">АКТ</div>';
+  html += '<div class="hwa-sub">освидетельствования скрытых работ № <b>' + act.actNumber + '</b></div>';
+  html += '<div class="hwa-row"><span>' + (act.city ? act.city : 'г. ____________') + '</span><span>' + formatHiddenActDate(act.workDate || new Date().toISOString().slice(0, 10)) + '</span></div>';
+  html += '<div class="hwa-item"><b>Объект капитального строительства:</b> <span class="hwa-val">' + (act.projectName || '') + '</span></div>';
+  html += '<div class="hwa-item"><b>Представители:</b><br/>';
+  html += '— застройщика (технического заказчика): <span class="hwa-val">' + (act.signedCustomer || '') + '</span><br/>';
+  html += '— лица, осуществляющего строительный контроль: <span class="hwa-val">' + (act.signedSupervisor || '') + '</span><br/>';
+  html += '— лица, осуществляющего строительство (генподрядчик): <span class="hwa-val">' + (act.signedContractor || '') + '</span><br/>';
+  html += '— лица, выполнившего работы, подлежащие освидетельствованию: <span class="hwa-val">' + (act.signedSubcontractor || act.brigade || '') + '</span>';
+  html += '</div>';
+  html += '<div class="hwa-item">произвели осмотр работ, выполненных <span class="hwa-val">' + (act.brigade || '') + '</span>, и составили настоящий акт о нижеследующем:</div>';
+  html += '<div class="hwa-item"><b>1.</b> К освидетельствованию предъявлены следующие работы: <span class="hwa-val">' + (act.workName || '') + '</span> в объёме <b>' + act.quantity + ' ' + (act.unit || '') + '</b>' + (act.sectionName ? ' (раздел сметы «' + act.sectionName + '»)' : '') + '.</div>';
+  html += '<div class="hwa-item"><b>2.</b> Работы выполнены по проектной документации: <span class="hwa-val">' + (act.projectDocs || '_______________________________________') + '</span></div>';
+  html += '<div class="hwa-item"><b>3.</b> При выполнении работ применены: <br/><div class="hwa-block">' + (act.materialsUsed || '_______________________________________').replace(/\n/g, '<br/>') + '</div></div>';
+  html += '<div class="hwa-item"><b>4.</b> Предъявлены документы, подтверждающие соответствие работ предъявляемым к ним требованиям: фотофиксация скрытых работ — <b>' + photoCnt + '</b> шт.; сертификаты, паспорта, протоколы испытаний — <b>' + certCnt + '</b> шт. (прилагаются к настоящему акту).</div>';
+  html += '<div class="hwa-item"><b>5.</b> Освидетельствованы скрытые работы: <span class="hwa-val">' + (act.workName || '') + '</span></div>';
+  html += '<div class="hwa-item"><b>6.</b> Дата окончания работ: <b>' + formatHiddenActDate(act.workDate) + '</b></div>';
+  html += '<div class="hwa-item"><b>7.</b> Заключение:<br/><div class="hwa-block">' + concl.replace(/\n/g, '<br/>') + '</div></div>';
+  html += '<div class="hwa-sigs">';
+  html += sig('Представитель застройщика (технического заказчика):', act.signedCustomer, act.signedCustomerAt);
+  html += sig('Представитель лица, осуществляющего строительный контроль:', act.signedSupervisor, act.signedSupervisorAt);
+  html += sig('Представитель лица, осуществляющего строительство (генподрядчик):', act.signedContractor, act.signedContractorAt);
+  html += sig('Представитель лица, выполнившего работы (субподрядчик):', act.signedSubcontractor || act.brigade, act.signedSubcontractorAt);
+  html += '</div>';
+  html += '<p style="margin-top:30px;font-size:10px;color:#555;text-align:center">Форма составлена согласно СНиП 12-01-2004 (Приложение 3). Документ сопровождает приёмку скрытых работ перед их закрытием последующими конструкциями.</p>';
+  return html;
+};
+
+export const buildWorkJournalDocContent = (records = [], projectName, dateFrom, dateTo, context = {}) => {
+  const { companyRequisites = null, companyName = '', projects = [] } = context;
+  const req = companyRequisites || {};
+  const orgName = req.fullName || req.shortName || companyName || '_____';
+  const project = projects.find((item) => item.name === projectName) || {};
+  const sum = records.reduce((total, record) => total + Number(record.total || 0), 0);
+  let html = '<style>'
+    + '.wj-meta{margin:6px 0;font-size:11px}'
+    + '.wj-title{text-align:center;font-weight:700;font-size:14px;margin:14px 0 4px}'
+    + '.wj-sub{text-align:center;font-size:12px;margin:0 0 14px;color:#444}'
+    + '.wj-info{display:grid;grid-template-columns:160px 1fr;gap:4px 10px;font-size:11px;margin:10px 0}'
+    + '.wj-tbl{border-collapse:collapse;width:100%;font-size:10px;margin-top:10px}'
+    + '.wj-tbl th,.wj-tbl td{border:1px solid #333;padding:4px 5px;vertical-align:top}'
+    + '.wj-tbl th{background:#f3f4f6;font-weight:600;text-align:center}'
+    + '.wj-tbl td.num{text-align:right;white-space:nowrap}'
+    + '.wj-foot{margin-top:18px;font-size:11px;color:#444}'
+    + '.wj-sigs{margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:30px}'
+    + '.wj-sig-label{font-weight:600;margin-bottom:30px;font-size:11px}'
+    + '.wj-sig-line{border-bottom:1px solid #333;min-height:18px;font-size:12px;font-weight:600}'
+    + '.wj-sig-sub{font-size:9px;color:#555;margin-top:2px}'
+    + '</style>';
+  html += '<div class="wj-meta"><b>' + orgName + '</b></div>';
+  html += '<div class="wj-title">ЖУРНАЛ УЧЁТА ВЫПОЛНЕННЫХ РАБОТ</div>';
+  html += '<div class="wj-sub">(унифицированная форма № КС-6а, ОКУД 0322005)</div>';
+  html += '<div class="wj-info">';
+  html += '<span>Заказчик:</span><b>' + (project.client || '____________') + '</b>';
+  html += '<span>Подрядчик:</span><b>' + orgName + '</b>';
+  html += '<span>Объект:</span><b>' + (projectName || '____________') + '</b>';
+  html += '<span>Период:</span><b>' + (dateFrom ? formatJournalDate(dateFrom) : '__.__.____') + ' — ' + (dateTo ? formatJournalDate(dateTo) : '__.__.____') + '</b>';
+  html += '</div>';
+  html += '<table class="wj-tbl"><thead><tr>';
+  html += '<th style="width:24px">№</th><th style="width:60px">Дата</th><th style="width:90px">Раздел сметы</th><th>Наименование работ</th><th style="width:36px">Ед.</th><th style="width:46px">Объём</th><th style="width:100px">Исполнитель</th><th style="width:100px">Ответств. ИТР</th><th style="width:80px">Погода</th><th style="width:90px">Качество</th><th style="width:80px">Стоимость, ₽</th>';
+  html += '</tr></thead><tbody>';
+  records.forEach((record, index) => {
+    html += '<tr>';
+    html += '<td class="num">' + (index + 1) + '</td>';
+    html += '<td>' + formatJournalDate(record.date) + '</td>';
+    html += '<td>' + (record.sectionName || '—') + '</td>';
+    html += '<td>' + (record.description || '') + (record.hiddenWork ? ' <b>🔒</b>' : '') + '</td>';
+    html += '<td>' + (record.unit || '') + '</td>';
+    html += '<td class="num">' + (record.quantity || 0) + '</td>';
+    html += '<td>' + (record.masterName || '—') + '</td>';
+    html += '<td>' + (record.responsibleItr || '—') + '</td>';
+    html += '<td>' + (record.weather || '—') + '</td>';
+    html += '<td>' + (record.qualityStatus || record.status || '—') + '</td>';
+    html += '<td class="num">' + Number(record.total || 0).toLocaleString('ru-RU') + '</td>';
+    html += '</tr>';
+  });
+  html += '<tr><td colspan="10" style="text-align:right;font-weight:700">ИТОГО, ₽:</td><td class="num" style="font-weight:700">' + sum.toLocaleString('ru-RU') + '</td></tr>';
+  html += '</tbody></table>';
+  html += '<div class="wj-foot">Журнал ведётся в соответствии с РД-11-05-2007 «Порядок ведения общего и (или) специального журналов учёта выполнения работ при строительстве» и СП 48.13330.2019 «Организация строительства».</div>';
+  html += '<div class="wj-sigs">';
+  html += '<div><div class="wj-sig-label">Должностное лицо, ответственное за совершение операций и правильность их оформления:</div><div class="wj-sig-line"></div><div class="wj-sig-sub">(должность, подпись, ФИО)</div></div>';
+  html += '<div><div class="wj-sig-label">Представитель технического надзора заказчика:</div><div class="wj-sig-line"></div><div class="wj-sig-sub">(должность, подпись, ФИО)</div></div>';
+  html += '</div>';
+  return html;
+};
+
+export const buildMaterialInspectionDocContent = (records = [], projectName, dateFrom, dateTo, context = {}) => {
+  const { companyRequisites = null, companyName = '', projects = [] } = context;
+  const req = companyRequisites || {};
+  const orgName = req.fullName || req.shortName || companyName || '_____';
+  const project = projects.find((item) => item.name === projectName) || {};
+  let html = '<style>'
+    + '.mic-meta{margin:6px 0;font-size:11px}'
+    + '.mic-title{text-align:center;font-weight:700;font-size:14px;margin:14px 0 4px}'
+    + '.mic-sub{text-align:center;font-size:12px;margin:0 0 14px;color:#444}'
+    + '.mic-info{display:grid;grid-template-columns:160px 1fr;gap:4px 10px;font-size:11px;margin:10px 0}'
+    + '.mic-tbl{border-collapse:collapse;width:100%;font-size:10px;margin-top:10px}'
+    + '.mic-tbl th,.mic-tbl td{border:1px solid #333;padding:4px 5px;vertical-align:top}'
+    + '.mic-tbl th{background:#f3f4f6;font-weight:600;text-align:center}'
+    + '.mic-tbl td.num{text-align:right;white-space:nowrap}'
+    + '.mic-foot{margin-top:18px;font-size:11px;color:#444}'
+    + '.mic-sigs{margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:30px}'
+    + '.mic-sig-label{font-weight:600;margin-bottom:30px;font-size:11px}'
+    + '.mic-sig-line{border-bottom:1px solid #333;min-height:18px;font-size:12px;font-weight:600}'
+    + '.mic-sig-sub{font-size:9px;color:#555;margin-top:2px}'
+    + '</style>';
+  html += '<div class="mic-meta"><b>' + orgName + '</b></div>';
+  html += '<div class="mic-title">ЖУРНАЛ ВХОДНОГО КОНТРОЛЯ МАТЕРИАЛОВ, КОНСТРУКЦИЙ И ИЗДЕЛИЙ</div>';
+  html += '<div class="mic-sub">по СП 48.13330.2019 «Организация строительства», §7.1</div>';
+  html += '<div class="mic-info">';
+  html += '<span>Заказчик:</span><b>' + (project.client || '____________') + '</b>';
+  html += '<span>Подрядчик:</span><b>' + orgName + '</b>';
+  html += '<span>Объект:</span><b>' + (projectName || '____________') + '</b>';
+  html += '<span>Период:</span><b>' + (dateFrom ? formatJournalDate(dateFrom) : '__.__.____') + ' — ' + (dateTo ? formatJournalDate(dateTo) : '__.__.____') + '</b>';
+  html += '</div>';
+  html += '<table class="mic-tbl"><thead><tr>';
+  html += '<th style="width:24px">№</th><th style="width:60px">Дата приёмки</th><th>Наименование материала</th><th style="width:36px">Ед.</th><th style="width:50px">Кол-во</th><th style="width:110px">Поставщик</th><th style="width:70px">Партия №</th><th style="width:80px">Паспорт №</th><th style="width:80px">Сертификат №</th><th style="width:80px">Протокол №</th><th style="width:90px">Результат осмотра</th><th style="width:90px">Проверил (ФИО)</th><th style="width:60px">Дата осмотра</th><th>Замечания</th>';
+  html += '</tr></thead><tbody>';
+  records.forEach((record, index) => {
+    html += '<tr>';
+    html += '<td class="num">' + (index + 1) + '</td>';
+    html += '<td>' + formatJournalDate(record.receivedAt) + '</td>';
+    html += '<td>' + (record.materialName || '') + '</td>';
+    html += '<td>' + (record.unit || '') + '</td>';
+    html += '<td class="num">' + (record.quantity || 0) + '</td>';
+    html += '<td>' + (record.supplier || '—') + '</td>';
+    html += '<td>' + (record.batchNumber || '—') + '</td>';
+    html += '<td>' + (record.passportNumber || '—') + '</td>';
+    html += '<td>' + (record.certificateNumber || '—') + '</td>';
+    html += '<td>' + (record.testProtocolNumber || '—') + '</td>';
+    html += '<td>' + (record.visualInspectionResult || '—') + '</td>';
+    html += '<td>' + (record.inspectorName || '—') + '</td>';
+    html += '<td>' + formatJournalDate(record.inspectedAt) + '</td>';
+    html += '<td>' + (record.remarks || '') + '</td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  html += '<div class="mic-foot">Журнал ведётся в соответствии с СП 48.13330.2019 «Организация строительства» и ГОСТ 24297-2013 «Верификация закупленной продукции. Организация и методы контроля».</div>';
+  html += '<div class="mic-sigs">';
+  html += '<div><div class="mic-sig-label">Ответственное за входной контроль лицо:</div><div class="mic-sig-line"></div><div class="mic-sig-sub">(должность, подпись, ФИО)</div></div>';
+  html += '<div><div class="mic-sig-label">Представитель технического надзора заказчика:</div><div class="mic-sig-line"></div><div class="mic-sig-sub">(должность, подпись, ФИО)</div></div>';
+  html += '</div>';
+  return html;
+};
+
+export const buildCableJournalDocContent = (records = [], projectName, dateFrom, dateTo, context = {}) => {
+  const {
+    companyRequisites = null,
+    companyName = '',
+    projects = [],
+    cableTypeOf = (cable) => cable?.cableType || 'Кабель',
+  } = context;
+  const req = companyRequisites || {};
+  const orgName = req.fullName || req.shortName || companyName || '_____';
+  const project = projects.find((item) => item.name === projectName) || {};
+  let html = '<style>'
+    + '.cab-meta{margin:6px 0;font-size:11px}'
+    + '.cab-title{text-align:center;font-weight:700;font-size:14px;margin:14px 0 4px}'
+    + '.cab-sub{text-align:center;font-size:12px;margin:0 0 14px;color:#444}'
+    + '.cab-info{display:grid;grid-template-columns:160px 1fr;gap:4px 10px;font-size:11px;margin:10px 0}'
+    + '.cab-tbl{border-collapse:collapse;width:100%;font-size:10px;margin-top:10px}'
+    + '.cab-tbl th,.cab-tbl td{border:1px solid #333;padding:4px 5px;vertical-align:top}'
+    + '.cab-tbl th{background:#f3f4f6;font-weight:600;text-align:center}'
+    + '.cab-tbl td.num{text-align:right;white-space:nowrap}'
+    + '.cab-foot{margin-top:18px;font-size:11px;color:#444}'
+    + '.cab-sigs{margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:30px}'
+    + '.cab-sig-label{font-weight:600;margin-bottom:30px;font-size:11px}'
+    + '.cab-sig-line{border-bottom:1px solid #333;min-height:18px;font-size:12px;font-weight:600}'
+    + '.cab-sig-sub{font-size:9px;color:#555;margin-top:2px}'
+    + '</style>';
+  html += '<div class="cab-meta"><b>' + orgName + '</b></div>';
+  html += '<div class="cab-title">ЖУРНАЛ КАБЕЛЬНОЙ ПРОДУКЦИИ</div>';
+  html += '<div class="cab-sub">по СП 76.13330 «Электротехнические устройства» и ПУЭ</div>';
+  html += '<div class="cab-info">';
+  html += '<span>Заказчик:</span><b>' + (project.client || '____________') + '</b>';
+  html += '<span>Подрядчик:</span><b>' + orgName + '</b>';
+  html += '<span>Объект:</span><b>' + (projectName || '____________') + '</b>';
+  html += '<span>Период:</span><b>' + (dateFrom ? formatJournalDate(dateFrom) : '__.__.____') + ' — ' + (dateTo ? formatJournalDate(dateTo) : '__.__.____') + '</b>';
+  html += '</div>';
+  html += '<table class="cab-tbl"><thead><tr>';
+  html += '<th style="width:22px">№</th><th style="width:54px">Дата приёмки</th><th style="width:76px">Тип системы</th><th>Марка кабеля</th><th style="width:42px">Сечение, мм²</th><th style="width:32px">Жил</th><th style="width:50px">Длина, м (с барабана)</th><th style="width:50px">№ барабана/бухты</th><th style="width:80px">Изготовитель</th><th style="width:80px">Сертификат №</th><th style="width:42px">R изоляции ДО, МΩ</th><th style="width:42px">R изоляции ПОСЛЕ, МΩ</th><th>Место прокладки</th><th style="width:80px">Способ прокладки</th><th style="width:54px">Дата монтажа</th><th style="width:90px">Ответств. ИТР</th>';
+  html += '</tr></thead><tbody>';
+  records.forEach((record, index) => {
+    html += '<tr>';
+    html += '<td class="num">' + (index + 1) + '</td>';
+    html += '<td>' + formatJournalDate(record.receivedAt) + '</td>';
+    html += '<td>' + (cableTypeOf(record) || '—') + '</td>';
+    html += '<td>' + (record.cableBrand || '') + '</td>';
+    html += '<td class="num">' + (record.crossSection || '—') + '</td>';
+    html += '<td class="num">' + (record.coresCount || '—') + '</td>';
+    html += '<td class="num">' + (record.lengthReceived || 0) + '</td>';
+    html += '<td>' + (record.drumNumber || '—') + '</td>';
+    html += '<td>' + (record.manufacturer || '—') + '</td>';
+    html += '<td>' + (record.certificateNumber || '—') + '</td>';
+    html += '<td class="num">' + (record.insulationBefore || '—') + '</td>';
+    html += '<td class="num">' + (record.insulationAfter || '—') + '</td>';
+    html += '<td>' + (record.installationLocation || '—') + '</td>';
+    html += '<td>' + (record.installationMethod || '—') + '</td>';
+    html += '<td>' + formatJournalDate(record.installedAt) + '</td>';
+    html += '<td>' + (record.responsibleItr || '—') + '</td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  html += '<div class="cab-foot">Журнал ведётся для силовой электрики, СКС/интернет, слаботочных систем и пожарной сигнализации. Нормативную базу уточняют по типу системы: СП 76.13330, ПУЭ, ГОСТ Р 50571, СП 6.13130, СП 484.1311500, ГОСТ Р 53315 и проектная документация. Перед сдачей — обязательны проверки и измерения по применимому типу кабеля.</div>';
+  html += '<div class="cab-sigs">';
+  html += '<div><div class="cab-sig-label">Ответственный за кабельные/слаботочные работы (ИТР):</div><div class="cab-sig-line"></div><div class="cab-sig-sub">(должность, подпись, ФИО)</div></div>';
+  html += '<div><div class="cab-sig-label">Представитель технического надзора заказчика:</div><div class="cab-sig-line"></div><div class="cab-sig-sub">(должность, подпись, ФИО)</div></div>';
+  html += '</div>';
+  return html;
+};
+
 export const buildMovementDocContent = (movement = {}, items = [], context = {}) => {
   const { companyRequisites = {}, companyName = '', userName = '' } = context;
   let html = '<h2 style="text-align:center">НАКЛАДНАЯ НА ВНУТРЕННЕЕ ПЕРЕМЕЩЕНИЕ (М-11)</h2>';
@@ -559,6 +832,158 @@ export const buildM15DocContent = (transfer = {}, context = {}) => {
   html += '<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Отпустил:</div><div style="border-bottom:1px solid #333;min-height:18px"></div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
   html += `<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Получил:</div><div style="border-bottom:1px solid #333;min-height:18px">${transfer.toPerson || ''}</div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>`;
   html += '</div>';
+  return html;
+};
+
+export const buildM8DocContent = (data = {}, context = {}) => {
+  const { companyRequisites = {}, companyName = '' } = context;
+  const {
+    projectName = '',
+    masterName = '',
+    periodFrom = '',
+    periodTo = '',
+    rows = [],
+  } = data;
+  const orgName = companyTitle(companyRequisites, companyName);
+  let html = '<style>.m8-tbl{border-collapse:collapse;width:100%;font-size:11px;margin:8px 0}.m8-tbl th,.m8-tbl td{border:1px solid #333;padding:5px 6px}.m8-tbl th{background:#f3f4f6}.m8-over{background:#fee2e2}.m8-ok{background:#dcfce7}</style>';
+  html += '<h3 style="text-align:center;margin:6px 0">Унифицированная форма № М-8</h3>';
+  html += '<h2 style="text-align:center;margin:0 0 6px">ЛИМИТНО-ЗАБОРНАЯ КАРТА</h2>';
+  html += '<p style="text-align:center;font-size:11px;color:#444">Утверждена Постановлением Госкомстата России от 30.10.1997 № 71а</p>';
+  html += '<p style="font-size:12px"><b>Организация:</b> ' + orgName + '</p>';
+  html += '<p style="font-size:12px"><b>Объект:</b> ' + projectName + (masterName ? ' · <b>Получатель:</b> ' + masterName : '') + '</p>';
+  html += '<p style="font-size:12px"><b>Период:</b> ' + (periodFrom || '__.__.____') + ' — ' + (periodTo || '__.__.____') + '</p>';
+  if (rows.length === 0) {
+    html += '<p style="text-align:center;color:#888;font-size:11px;padding:14px">Нет данных за период</p>';
+  } else {
+    html += '<table class="m8-tbl"><tr><th>№</th><th>Наименование материала</th><th>Ед.</th><th>Лимит (по смете)</th><th>Отпущено за период</th><th>Остаток лимита</th></tr>';
+    rows.forEach((row, index) => {
+      const rem = row.limit - row.issued;
+      const cls = row.limit > 0 && row.issued > row.limit ? 'm8-over' : rem >= 0 ? 'm8-ok' : '';
+      html += '<tr class="' + cls + '"><td>' + (index + 1) + '</td><td>' + row.name + '</td><td>' + row.unit + '</td><td>' + row.limit.toLocaleString('ru-RU') + '</td><td>' + row.issued.toLocaleString('ru-RU') + '</td><td>' + rem.toLocaleString('ru-RU') + '</td></tr>';
+    });
+    html += '</table>';
+  }
+  html += '<div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:20px">';
+  html += '<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Установил лимит (главный инженер):</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div>';
+  html += '<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Получатель:</div><div style="border-bottom:1px solid #333;min-height:18px">' + (masterName || '') + '</div></div>';
+  html += '</div>';
+  html += '<p style="margin-top:18px;font-size:10px;color:#666;text-align:center">Превышение лимита (красные строки) требует утверждения у главного инженера и письменного обоснования.</p>';
+  return html;
+};
+
+export const buildMaterialRequirementDocContent = (data = {}, context = {}) => {
+  const { companyRequisites = {}, companyName = '' } = context;
+  const {
+    projectName = '',
+    activeEstimates = [],
+    rows = [],
+    normRows = [],
+    normCtrl = { overRows: [], withoutNormRows: [] },
+  } = data;
+  const orgName = companyTitle(companyRequisites, companyName);
+  let html = '<style>.mr-tbl{border-collapse:collapse;width:100%;font-size:10.5px;margin:8px 0}.mr-tbl th,.mr-tbl td{border:1px solid #333;padding:5px 6px}.mr-tbl th{background:#f3f4f6}.mr-need{background:#fef3c7;font-weight:700}.mr-over{background:#dbeafe}.mr-out{background:#fee2e2}.mr-ok{background:#dcfce7}.mr-muted{font-size:9px;color:#666;font-weight:400}</style>';
+  html += '<h2 style="text-align:center;margin:6px 0">ВЕДОМОСТЬ ПОТРЕБНОСТИ МАТЕРИАЛОВ</h2>';
+  html += '<p style="text-align:center;font-size:11px;color:#444">по смете объекта и нормам расхода (смета / норма / контроль / заявки / в пути / накладные / поставки / перемещения / выдано / списано / остаток)</p>';
+  html += '<p style="font-size:12px"><b>Объект:</b> ' + projectName + ' · <b>Подрядчик:</b> ' + orgName + '</p>';
+  if (activeEstimates.length === 0) html += '<p style="color:#dc2626;font-size:12px;text-align:center;padding:14px">⚠️ Смета не загружена — план посчитать невозможно</p>';
+  if (rows.length === 0) {
+    html += '<p style="text-align:center;color:#888;font-size:11px;padding:14px">Материалов в смете нет</p>';
+  } else {
+    html += '<table class="mr-tbl"><tr><th>№</th><th>Материал</th><th>Работа-основание</th><th>Раздел</th><th>Ед.</th><th>Смета</th><th>Норма</th><th>Контроль</th><th>В заявках</th><th>В пути</th><th>Накладные</th><th>Поставки</th><th>Перемещено</th><th>Всего получено</th><th>Выдано</th><th>Списано</th><th>У мастеров</th><th>Остаток склада</th><th>Расчётный остаток</th><th>Расхождение</th><th>Докупить</th><th>Статус</th></tr>';
+    rows.forEach((row, index) => {
+      const invalid = (row.invalidPlanCount || 0) > 0;
+      const cls = invalid ? 'mr-need' : row.stockMismatch ? 'mr-out' : row.issued > 0 && row.usedWithoutIssue > 0 ? 'mr-out' : row.usedOverControlQty > 0 ? 'mr-out' : row.isOutsideEstimate ? 'mr-out' : row.normOverEstimateQty > 0 ? 'mr-need' : row.toBuy > 0 ? 'mr-need' : row.over > 0 ? 'mr-over' : 'mr-ok';
+      const status = invalid ? 'проверить смету: ' + row.invalidPlanCount + ' строк' : row.stockMismatch ? 'расхождение склада ' + row.stockDiff.toLocaleString('ru-RU') : row.issued > 0 && row.usedWithoutIssue > 0 ? 'списано сверх выдачи ' + row.usedWithoutIssue.toLocaleString('ru-RU') : row.usedOverControlQty > 0 ? 'расход сверх контроля ' + row.usedOverControlQty.toLocaleString('ru-RU') : row.isOutsideEstimate ? 'вне сметы ' + row.coveredWithPipeline.toLocaleString('ru-RU') : row.normOverEstimateQty > 0 ? 'норма выше сметы +' + row.normOverEstimateQty.toLocaleString('ru-RU') : row.toBuy > 0 ? 'докупить ' + row.toBuy.toLocaleString('ru-RU') : row.shortage > 0 ? 'закрывается заявками/поставками' : row.masterBalance > 0 ? 'у мастеров ' + row.masterBalance.toLocaleString('ru-RU') : row.over > 0 ? 'сверх ' + row.over.toLocaleString('ru-RU') : 'закрыто';
+      const workCell = (row.workRefs || []).slice(0, 3).join('; ');
+      const sourceCount = (row.planDetails || []).length;
+      html += '<tr class="' + cls + '"><td>' + (index + 1) + '</td><td>' + row.name + (row.unitMismatch ? ' ⚠ ед.изм.' : '') + (sourceCount ? '<br><span class="mr-muted">строк сметы: ' + sourceCount + '</span>' : '') + (row.normSourceCount ? '<br><span class="mr-muted">норм: ' + row.normSourceCount + '</span>' : '') + (invalid ? '<br><span class="mr-muted">невалидных строк: ' + row.invalidPlanCount + '</span>' : '') + '</td><td>' + workCell + '</td><td>' + (row.sections || []).join(', ') + '</td><td>' + row.unit + '</td><td>' + row.planQty.toLocaleString('ru-RU') + '</td><td>' + Number(row.normPlanQty || 0).toLocaleString('ru-RU') + '</td><td>' + Number(row.controlPlanQty || 0).toLocaleString('ru-RU') + '</td><td>' + row.requested.toLocaleString('ru-RU') + '</td><td>' + row.inTransit.toLocaleString('ru-RU') + '</td><td>' + row.invoiceReceived.toLocaleString('ru-RU') + '</td><td>' + row.supplyReceived.toLocaleString('ru-RU') + '</td><td>' + row.movedNet.toLocaleString('ru-RU') + '</td><td>' + row.supplied.toLocaleString('ru-RU') + '</td><td>' + row.issued.toLocaleString('ru-RU') + '</td><td>' + row.used.toLocaleString('ru-RU') + '</td><td>' + row.masterBalance.toLocaleString('ru-RU') + '</td><td>' + row.stock.toLocaleString('ru-RU') + '</td><td>' + row.expectedStock.toLocaleString('ru-RU') + '</td><td>' + row.stockDiff.toLocaleString('ru-RU') + '</td><td>' + row.toBuy.toLocaleString('ru-RU') + '</td><td>' + status + '</td></tr>';
+    });
+    const totalSum = rows.reduce((sum, row) => sum + (row.planSum || 0), 0);
+    html += '<tr style="background:#f3f4f6"><td colspan="5"><b>ИТОГО плановая стоимость материалов:</b></td><td colspan="17"><b>' + Math.round(totalSum).toLocaleString('ru-RU') + ' ₽</b></td></tr>';
+    html += '</table>';
+
+    const groupedRows = rows.filter((row) => (row.planDetails || []).length > 1);
+    if (groupedRows.length > 0) {
+      html += '<h3 style="font-size:13px;margin:18px 0 6px">Расшифровка сгруппированных материалов</h3>';
+      html += '<p style="font-size:10px;color:#666;margin:0 0 6px">Одинаковые материалы объединены для снабжения и склада, но ниже видно, из каких строк сметы сложилось общее количество.</p>';
+      html += '<table class="mr-tbl"><tr><th>Материал</th><th>Пакет</th><th>Раздел</th><th>Работа-основание</th><th>Строка материала</th><th>Количество</th><th>Сумма</th></tr>';
+      groupedRows.forEach((row) => (row.planDetails || []).forEach((detail, index) => {
+        html += '<tr><td>' + (index === 0 ? '<b>' + row.name + '</b><br><span class="mr-muted">итого ' + row.planQty.toLocaleString('ru-RU') + ' ' + row.unit + '</span>' : '') + '</td><td>' + (detail.packageName || 'Основная') + '</td><td>' + (detail.sectionName || '') + '</td><td>' + (detail.workName || '') + '</td><td>' + (detail.materialName || row.name) + '</td><td>' + Number(detail.qty || 0).toLocaleString('ru-RU') + ' ' + (detail.unit || row.unit || '') + '</td><td>' + Math.round(Number(detail.sum || 0)).toLocaleString('ru-RU') + ' ₽</td></tr>';
+      }));
+      html += '</table>';
+    }
+
+    const invalidRows = rows.filter((row) => (row.invalidPlanDetails || []).length > 0);
+    if (invalidRows.length > 0) {
+      html += '<h3 style="font-size:13px;margin:18px 0 6px">Строки сметы, исключённые из автоматической закупки</h3>';
+      html += '<p style="font-size:10px;color:#666;margin:0 0 6px">Эти строки требуют проверки сметчиком: система не создаёт по ним заявки, чтобы не закупить ошибочное количество.</p>';
+      html += '<table class="mr-tbl"><tr><th>Материал</th><th>Пакет</th><th>Раздел</th><th>Работа-основание</th><th>Количество</th><th>Сумма</th><th>Причина</th></tr>';
+      invalidRows.forEach((row) => (row.invalidPlanDetails || []).forEach((detail) => {
+        html += '<tr class="mr-need"><td>' + row.name + '</td><td>' + (detail.packageName || 'Основная') + '</td><td>' + (detail.sectionName || '') + '</td><td>' + (detail.workName || '') + '</td><td>' + Number(detail.qty || 0).toLocaleString('ru-RU') + ' ' + (detail.unit || row.unit || '') + '</td><td>' + Math.round(Number(detail.sum || 0)).toLocaleString('ru-RU') + ' ₽</td><td>' + (detail.reason || 'Проверить строку') + '</td></tr>';
+      }));
+      html += '</table>';
+    }
+  }
+
+  if (normRows.length > 0) {
+    html += '<h3 style="font-size:13px;margin:18px 0 6px">Нормативная потребность по работам</h3>';
+    html += '<p style="font-size:10px;color:#666;margin:0 0 6px">Материалы рассчитаны из строк типа «Работа» по типовым нормам. Они участвуют в контрольной потребности и подсвечивают нехватку/перерасход, но не меняют активную смету заказчика.</p>';
+    html += '<table class="mr-tbl"><tr><th>№</th><th>Материал по норме</th><th>Ед.</th><th>Потребность</th><th>Работы-источники</th><th>Норма</th></tr>';
+    normRows.forEach((row, index) => {
+      html += '<tr><td>' + (index + 1) + '</td><td>' + row.name + '</td><td>' + row.unit + '</td><td>' + row.planQty.toLocaleString('ru-RU') + '</td><td>' + row.works.slice(0, 4).map((work) => work.name).join('; ') + (row.works.length > 4 ? ' …' : '') + '</td><td>' + row.normSources.join('; ') + '</td></tr>';
+    });
+    html += '</table>';
+  }
+  if (normCtrl.overRows.length > 0 || normCtrl.withoutNormRows.length > 0) {
+    html += '<h3 style="font-size:13px;margin:18px 0 6px">Контроль списания по нормам</h3>';
+    html += '<p style="font-size:10px;color:#666;margin:0 0 6px">Перерасход требует проверки прорабом/сметчиком. Строки без нормы означают, что материал списали, но система не нашла правило расхода.</p>';
+    html += '<table class="mr-tbl"><tr><th>№</th><th>Материал</th><th>Ед.</th><th>Факт списания</th><th>Норма</th><th>Отклонение</th><th>Работы</th><th>Статус</th></tr>';
+    [...normCtrl.overRows, ...normCtrl.withoutNormRows.filter((row) => !normCtrl.overRows.some((over) => over.key === row.key))].forEach((row, index) => {
+      const over = row.overQty > 0;
+      const cls = over ? 'mr-out' : 'mr-need';
+      const deviation = over ? ('+' + row.overQty.toLocaleString('ru-RU')) : ('без нормы ' + row.withoutNormQty.toLocaleString('ru-RU'));
+      html += '<tr class="' + cls + '"><td>' + (index + 1) + '</td><td>' + row.name + '</td><td>' + row.unit + '</td><td>' + row.qty.toLocaleString('ru-RU') + '</td><td>' + (row.normQty > 0 ? row.normQty.toLocaleString('ru-RU') : '—') + '</td><td>' + deviation + '</td><td>' + row.works.slice(0, 4).map((work) => work.workName).join('; ') + (row.works.length > 4 ? ' …' : '') + '</td><td>' + (over ? 'проверить перерасход' : 'завести/уточнить норму') + '</td></tr>';
+    });
+    html += '</table>';
+  }
+  html += '<div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:20px">';
+  html += '<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Сметчик / производитель работ:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div>';
+  html += '<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Снабженец:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div>';
+  html += '</div>';
+  html += '<p style="margin-top:16px;font-size:10px;color:#666;text-align:center">Жёлтые строки — нужно докупить с учётом заявок и поставок в пути, синие — поставлено сверх сметы, красные — материал вне сметы. При разных единицах измерения строка помечается ⚠.</p>';
+  return html;
+};
+
+export const buildM29DocContent = (data = {}, context = {}) => {
+  const { companyRequisites = {}, companyName = '' } = context;
+  const {
+    projectName = '',
+    periodFrom = '',
+    periodTo = '',
+    rows = [],
+  } = data;
+  const orgName = companyTitle(companyRequisites, companyName);
+  let html = '<style>.m29-tbl{border-collapse:collapse;width:100%;font-size:11px;margin-top:10px}.m29-tbl th,.m29-tbl td{border:1px solid #333;padding:4px 6px}.m29-tbl th{background:#f3f4f6}.m29-over{color:#dc2626;font-weight:700}.m29-ok{color:#059669}</style>';
+  html += '<h3 style="text-align:center;margin:6px 0">Унифицированная форма № М-29</h3>';
+  html += '<h2 style="text-align:center;margin:0 0 4px">ОТЧЁТ О РАСХОДЕ ОСНОВНЫХ МАТЕРИАЛОВ</h2>';
+  html += '<p style="text-align:center;font-size:11px;color:#444">в сопоставлении с производственными нормами (план/факт)</p>';
+  html += '<p style="font-size:11px"><b>Объект:</b> ' + projectName + ' · <b>Подрядчик:</b> ' + orgName + ' · <b>Период:</b> ' + (periodFrom || '__.__.____') + ' — ' + (periodTo || '__.__.____') + '</p>';
+  if (rows.length === 0) {
+    html += '<p style="text-align:center;color:#888;padding:20px">Нет данных — не загружена смета или нет движений по материалам</p>';
+  } else {
+    html += '<table class="m29-tbl"><tr><th>№</th><th>Наименование материала</th><th>Ед.</th><th>План (смета)</th><th>Выдано мастерам</th><th>Факт (списано по ЖПР)</th><th>Отклонение</th><th>Статус</th></tr>';
+    rows.forEach((row, index) => {
+      const delta = row.fact - row.plan;
+      const over = row.plan > 0 && delta > row.plan * 0.05;
+      html += '<tr><td>' + (index + 1) + '</td><td>' + row.name + '</td><td>' + row.unit + '</td><td>' + row.plan.toLocaleString('ru-RU') + '</td><td>' + row.issued.toLocaleString('ru-RU') + '</td><td>' + row.fact.toLocaleString('ru-RU') + '</td><td class="' + (over ? 'm29-over' : 'm29-ok') + '">' + (delta > 0 ? '+' : '') + delta.toLocaleString('ru-RU') + '</td><td>' + (over ? '⚠️ перерасход >5%' : delta < 0 ? '✅ экономия' : '≈ в норме') + '</td></tr>';
+    });
+    html += '</table>';
+  }
+  html += '<div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:30px">';
+  html += '<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Производитель работ:</div><div style="border-bottom:1px solid #333;min-height:18px"></div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
+  html += '<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Главный инженер / технадзор:</div><div style="border-bottom:1px solid #333;min-height:18px"></div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
+  html += '</div>';
+  html += '<p style="margin-top:18px;font-size:10px;color:#666;text-align:center">Форма утверждена приказом ЦСУ СССР № 613, действует. Перерасход выше 5% от нормы требует объяснений и согласования с заказчиком.</p>';
   return html;
 };
 
