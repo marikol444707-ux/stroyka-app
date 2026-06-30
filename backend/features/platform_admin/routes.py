@@ -893,7 +893,7 @@ def register_platform_admin_routes(app, deps):
                            LEFT JOIN platform_billing_documents d ON d.id=e.billing_document_id
                            LEFT JOIN companies c ON c.id=COALESCE(e.company_id,d.company_id)
                            WHERE e.id=%s
-                           FOR UPDATE""", (id,))
+                           FOR UPDATE OF e""", (id,))
             event = cur.fetchone()
             if not event:
                 raise HTTPException(status_code=404, detail="Событие платежного провайдера не найдено")

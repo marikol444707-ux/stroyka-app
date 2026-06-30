@@ -99,13 +99,12 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
       if (auditFilters.companyId) auditParams.set('companyId', auditFilters.companyId);
       if (auditFilters.action) auditParams.set('action', auditFilters.action);
       if (auditFilters.search.trim()) auditParams.set('search', auditFilters.search.trim());
-      const [d, c, p, bd, pp, pe, dr, t, a, u, s] = await Promise.all([
+      const [d, c, p, bd, pp, dr, t, a, u, s] = await Promise.all([
         fetchJson('/system/dashboard', null),
         fetchJson('/system/companies', []),
         canManageBilling ? fetchJson('/system/payments', []) : Promise.resolve([]),
         canManageBilling ? fetchJson('/system/billing-documents', []) : Promise.resolve([]),
         canManageBilling ? fetchJson('/system/payment-providers', []) : Promise.resolve([]),
-        canManageBilling ? fetchJson('/system/payment-events', []) : Promise.resolve([]),
         canManagePlatform ? fetchJson('/demo-requests', []) : Promise.resolve([]),
         fetchJson('/system/tariffs', []),
         fetchJson('/system/audit-log?'+auditParams.toString(), []),
@@ -117,7 +116,6 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
       setPayments(Array.isArray(p)?p:[]);
       setBillingDocuments(Array.isArray(bd)?bd:[]);
       setPaymentProviders(Array.isArray(pp)?pp:[]);
-      setPaymentEvents(Array.isArray(pe)?pe:[]);
       setDemos(Array.isArray(dr)?dr:[]);
       setTariffs(Array.isArray(t)?t:[]);
       setAuditLog(Array.isArray(a)?a:[]);
@@ -126,6 +124,19 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     } catch(_){}
 	  }, [auditFilters, canManageBilling, canManagePlatform, canManageTeam, canUseSupport, fetchJson]);
 	  useEffect(()=>{ loadAll(); }, [loadAll]);
+
+  const loadPaymentEvents = useCallback(async () => {
+    if (!canManageBilling) {
+      setPaymentEvents([]);
+      return;
+    }
+    const rows = await fetchJson('/system/payment-events', []);
+    setPaymentEvents(Array.isArray(rows) ? rows : []);
+  }, [canManageBilling, fetchJson]);
+
+  useEffect(()=>{
+    if (tab === 'payments') loadPaymentEvents();
+  }, [tab, loadPaymentEvents]);
 
   const companyGroups = useMemo(() => {
     const byAccount = new Map();
@@ -236,6 +247,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     }
     alert('Оплата зачислена. Платеж #'+data.paymentId);
     await loadAll();
+    await loadPaymentEvents();
   };
   const fileSrc = (url) => {
     if (!url) return '';

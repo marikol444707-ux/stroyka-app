@@ -2331,6 +2331,7 @@ def init_db():
         ALTER TABLE platform_payment_events ADD COLUMN IF NOT EXISTS processed_by VARCHAR(255);
         CREATE INDEX IF NOT EXISTS idx_platform_payment_events_doc ON platform_payment_events (billing_document_id);
         CREATE INDEX IF NOT EXISTS idx_platform_payment_events_provider ON platform_payment_events (provider, event_id);
+        CREATE INDEX IF NOT EXISTS idx_platform_payment_events_received_at ON platform_payment_events (received_at DESC);
         -- Заявки на демо с лендинга
         CREATE TABLE IF NOT EXISTS demo_requests (
             id SERIAL PRIMARY KEY,
