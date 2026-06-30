@@ -1193,8 +1193,21 @@ def register_platform_admin_routes(app, deps):
                        ORDER BY COALESCE(c.platform_account_id, c.id), c.id""")
         rows = [dict(r) for r in cur.fetchall()]
         for company in rows:
-            cur.execute("SELECT COUNT(*) FROM users WHERE company_id=%s", (company["id"],))
-            company["users_count"] = cur.fetchone()["count"]
+            cur.execute("""SELECT COALESCE(NULLIF(role,''),'без роли') AS role,
+                                  COUNT(*) FILTER (WHERE COALESCE(active,TRUE)=TRUE) AS active_count,
+                                  COUNT(*) AS total_count
+                           FROM users
+                           WHERE company_id=%s AND NOT (COALESCE(role,'') = ANY(%s))
+                           GROUP BY 1
+                           ORDER BY active_count DESC, total_count DESC, role""",
+                (company["id"], list(CLIENT_USER_EXCLUDED_ROLES)))
+            role_rows = [dict(row) for row in cur.fetchall()]
+            company["users_by_role"] = [
+                {"role": row["role"], "active": int(row["active_count"] or 0), "total": int(row["total_count"] or 0)}
+                for row in role_rows
+            ]
+            company["users_active_count"] = sum(item["active"] for item in company["users_by_role"])
+            company["users_count"] = sum(item["total"] for item in company["users_by_role"])
             cur.execute("SELECT COUNT(*) FROM projects WHERE company_id=%s", (company["id"],))
             company["projects_count"] = cur.fetchone()["count"]
             cur.execute("SELECT COALESCE(SUM(amount),0) as t FROM company_payments WHERE company_id=%s AND status='paid'", (company["id"],))

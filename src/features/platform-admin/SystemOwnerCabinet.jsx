@@ -185,17 +185,32 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
           status: c.platform_account_status || c.payment_status || 'active',
           companies: [],
           users: 0,
+          usersTotal: 0,
+          usersByRole: new Map(),
           projects: 0,
           paid: 0,
         });
       }
       const group = byAccount.get(accountId);
+      const activeUsers = Number(c.users_active_count ?? c.users_count ?? 0);
+      const totalUsers = Number(c.users_count ?? activeUsers);
       group.companies.push(c);
-      group.users += Number(c.users_count || 0);
+      group.users += activeUsers;
+      group.usersTotal += totalUsers;
+      (c.users_by_role || []).forEach(roleInfo => {
+        const role = roleInfo.role || 'без роли';
+        const current = group.usersByRole.get(role) || {role, active:0, total:0};
+        current.active += Number(roleInfo.active || 0);
+        current.total += Number(roleInfo.total || 0);
+        group.usersByRole.set(role, current);
+      });
       group.projects += Number(c.projects_count || 0);
       group.paid += Number(c.total_paid || 0);
     });
-    return Array.from(byAccount.values());
+    return Array.from(byAccount.values()).map(group => ({
+      ...group,
+      usersByRole: Array.from(group.usersByRole.values()).sort((a,b)=>b.active-a.active || a.role.localeCompare(b.role,'ru')),
+    }));
   }, [companies]);
 
   const tariffOptions = useMemo(() => tariffs.length ? tariffs : [
@@ -270,6 +285,17 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     active: clientUsers.filter(item => item.active).length,
     inactive: clientUsers.filter(item => !item.active).length,
   }), [clientUsers]);
+  const clientUserRoleStats = useMemo(() => {
+    const result = new Map();
+    clientUsers.forEach(item => {
+      const role = item.role || 'без роли';
+      const current = result.get(role) || {role, active:0, total:0};
+      current.total += 1;
+      if (item.active) current.active += 1;
+      result.set(role, current);
+    });
+    return Array.from(result.values()).sort((a,b)=>b.active-a.active || a.role.localeCompare(b.role,'ru'));
+  }, [clientUsers]);
   const hasPaymentEventFilters = Boolean(
     paymentEventFilters.platformAccountId || paymentEventFilters.companyId || paymentEventFilters.provider ||
     paymentEventFilters.actionStatus || paymentEventFilters.dateFrom || paymentEventFilters.dateTo ||
@@ -665,10 +691,21 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
 	              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap',marginBottom:'10px'}}>
 	                <div>
 	                  <b style={{color:C.text,fontSize:'14px'}}>🧭 {group.name}</b>
-	                  <p style={{color:C.textMuted,margin:'4px 0 0',fontSize:'11px'}}>Компаний: {group.companies.length} · пользователей: {group.users} · объектов: {group.projects} · оплачено {Math.round(group.paid).toLocaleString('ru-RU')} ₽</p>
+	                  <p style={{color:C.textMuted,margin:'4px 0 0',fontSize:'11px'}}>Компаний: {group.companies.length} · активных пользователей: {group.users}{group.usersTotal!==group.users?' / всего '+group.usersTotal:''} · объектов: {group.projects} · оплачено {Math.round(group.paid).toLocaleString('ru-RU')} ₽</p>
 	                </div>
 		                <span style={badge(C.info,C.infoLight,C.infoBorder)}>{tariffById[group.plan]?.name || group.plan || 'тариф не задан'}</span>
 	              </div>
+	              {group.usersByRole.length > 0 && (
+	                <div style={{display:'flex',gap:'6px',flexWrap:'wrap',alignItems:'center',margin:'0 0 10px'}}>
+	                  <span style={{color:C.textMuted,fontSize:'11px'}}>Роли в лимите пользователей:</span>
+	                  {group.usersByRole.slice(0,8).map(roleInfo=>(
+	                    <span key={roleInfo.role} style={badge(C.textSec,C.bg,C.border)}>
+	                      {roleInfo.role}: {roleInfo.active}{roleInfo.total!==roleInfo.active?' / '+roleInfo.total:''}
+	                    </span>
+	                  ))}
+	                  {group.usersByRole.length>8 && <span style={{color:C.textMuted,fontSize:'11px'}}>+{group.usersByRole.length-8} ролей</span>}
+	                </div>
+	              )}
 	              {group.limitWarnings.length > 0 && (
 	                <div style={{display:'grid',gap:'6px',margin:'0 0 10px'}}>
 	                  {group.limitWarnings.map(w=>{
@@ -686,6 +723,9 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
 	                const billingState = c.billing_state || {};
 	                const isSuspended = Boolean(c.suspended_at || billingState.status === 'soft_frozen');
 	                const billingColors = billingColorSet(billingState.level || (isDemo ? 'info' : 'success'));
+	                const activeUsers = Number(c.users_active_count ?? c.users_count ?? 0);
+	                const totalUsers = Number(c.users_count ?? activeUsers);
+	                const roleSummary = (c.users_by_role || []).filter(roleInfo=>Number(roleInfo.active || roleInfo.total || 0)>0);
 	                return (<div key={c.id} style={{padding:'12px 0',borderTop:'1px solid '+C.border}}>
 	                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
 	                    <div style={{flex:1,minWidth:'250px'}}>
@@ -694,11 +734,16 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
 	                        {c.inn?'ИНН '+c.inn+' · ':''}{c.contact_name||'—'}{c.contact_phone?' · '+c.contact_phone:''}{c.contact_email?' · '+c.contact_email:''}
 	                      </p>
 	                      <p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>
-	                        👥 {c.users_count} польз. · 🏗 {c.projects_count} объектов · 💰 заплачено {Math.round(c.total_paid).toLocaleString('ru-RU')} ₽
+	                        👥 {activeUsers} активн.{totalUsers!==activeUsers?' / '+totalUsers+' всего':''} · 🏗 {c.projects_count} объектов · 💰 заплачено {Math.round(c.total_paid).toLocaleString('ru-RU')} ₽
 	                        {c.trial_until && ' · 🎁 триал до '+c.trial_until}
 	                        {c.plan_expires_at && ' · 💼 оплачено до '+c.plan_expires_at}
 	                        {(c.max_projects || c.max_users) && ' · лимит '+(c.max_projects || '∞')+' объектов / '+(c.max_users || '∞')+' пользователей'}
 	                      </p>
+	                      {roleSummary.length > 0 && (
+	                        <p style={{color:C.textMuted,margin:'5px 0 0',fontSize:'10px'}}>
+	                          Роли: {roleSummary.slice(0,6).map(roleInfo=>`${roleInfo.role}: ${roleInfo.active}${roleInfo.total!==roleInfo.active?' / '+roleInfo.total:''}`).join(' · ')}{roleSummary.length>6?' · +'+(roleSummary.length-6):''}
+	                        </p>
+	                      )}
 	                    </div>
 	                    <div style={{display:'flex',gap:'4px',flexWrap:'wrap',alignItems:'flex-start'}}>
 	                      <span style={badge(billingColors.color,billingColors.bg,billingColors.border)}>{billingState.label || (isSuspended?'⏸ Заморожена':isDemo?'🎁 Демо':(tariffById[c.plan]?.name || c.plan))}</span>
@@ -734,6 +779,11 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
             <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
               <span style={badge(C.success,C.successLight,C.successBorder)}>активных {clientUserStats.active}</span>
               <span style={badge(C.textSec,C.bg,C.border)}>отключено {clientUserStats.inactive}</span>
+              {clientUserRoleStats.slice(0,5).map(roleInfo=>(
+                <span key={roleInfo.role} style={badge(C.textSec,C.bg,C.border)}>
+                  {roleInfo.role}: {roleInfo.active}{roleInfo.total!==roleInfo.active?' / '+roleInfo.total:''}
+                </span>
+              ))}
             </div>
           </div>
           <div style={{...card,padding:'12px',marginBottom:'12px'}}>
