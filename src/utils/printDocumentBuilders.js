@@ -259,6 +259,230 @@ export const buildDailyObjectReportDocContent = (date, context = {}) => {
   return html;
 };
 
+export const buildJPRDocContent = (projectName, context = {}) => {
+  const {
+    companyRequisites = null,
+    companyName = '',
+    projects = [],
+    users = [],
+    workJournal = [],
+    hiddenActs = [],
+    materialInspections = [],
+    prescriptionsList = [],
+    tbJournal = [],
+    cableJournal = [],
+    weatherLog = [],
+  } = context;
+  const works = workJournal.filter((item) => item.project === projectName && item.status === 'Подтверждено');
+  const project = projects.find((item) => item.name === projectName) || {};
+  const req = companyRequisites || {};
+  const orgName = req.fullName || req.shortName || companyName || '_____';
+  const itr = users.filter((item) => ['прораб', 'главный_инженер', 'стройконтроль'].includes(item.role));
+  const acts = hiddenActs.filter((item) => item.projectName === projectName);
+  const inspections = (materialInspections || []).filter((item) => item.projectName === projectName);
+  const prescs = (prescriptionsList || []).filter((item) => item.projectName === projectName);
+  const tb = (tbJournal || []).filter((item) => item.project === projectName);
+  const cables = (cableJournal || []).filter((item) => item.projectName === projectName);
+  const byDate = {};
+  works.forEach((work) => {
+    if (!byDate[work.date]) byDate[work.date] = {};
+    if (!byDate[work.date][work.masterName]) byDate[work.date][work.masterName] = [];
+    byDate[work.date][work.masterName].push(work);
+  });
+  let html = '<style>'
+    + '.jpr-title{text-align:center;font-weight:700;font-size:15px;margin:14px 0 4px}'
+    + '.jpr-sub{text-align:center;font-size:12px;margin:0 0 16px;color:#444}'
+    + '.jpr-section{margin-top:18px;border-top:1.5px solid #333;padding-top:8px}'
+    + '.jpr-section h3{font-size:13px;margin:4px 0 8px;font-weight:700;color:#111}'
+    + '.jpr-table{border-collapse:collapse;width:100%;font-size:11px;margin:6px 0}'
+    + '.jpr-table th,.jpr-table td{border:1px solid #555;padding:4px 6px;vertical-align:top}'
+    + '.jpr-table th{background:#f3f4f6;font-weight:600}'
+    + '.jpr-row{display:grid;grid-template-columns:200px 1fr;gap:4px 10px;font-size:11px;margin:4px 0}'
+    + '.jpr-sigs{margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:30px}'
+    + '.jpr-sig-line{border-bottom:1px solid #333;min-height:18px;font-size:12px;font-weight:600}'
+    + '.jpr-sig-sub{font-size:9px;color:#555;margin-top:2px}'
+    + '</style>';
+  html += '<div class="jpr-title">ОБЩИЙ ЖУРНАЛ РАБОТ</div>';
+  html += '<div class="jpr-sub">по форме РД-11-05-2007 «Порядок ведения общего и (или) специального журнала учёта выполнения работ при строительстве»</div>';
+  html += '<div class="jpr-row"><span><b>Объект капитального строительства:</b></span><span>' + (projectName || '____________') + '</span></div>';
+  html += '<div class="jpr-row"><span><b>Местоположение:</b></span><span>' + (project.address || project.city || '____________') + '</span></div>';
+  html += '<div class="jpr-row"><span><b>Застройщик (тех. заказчик):</b></span><span>' + (project.client || '____________') + '</span></div>';
+  html += '<div class="jpr-row"><span><b>Лицо, осуществляющее строительство:</b></span><span>' + orgName + '</span></div>';
+  html += '<div class="jpr-row"><span><b>Срок строительства:</b></span><span>' + (project.startDate || '__.__.____') + ' — ' + (project.deadline || '__.__.____') + '</span></div>';
+  html += '<div class="jpr-row"><span><b>Дата составления журнала:</b></span><span>' + new Date().toLocaleDateString('ru-RU') + '</span></div>';
+  html += '<div class="jpr-section"><h3>Раздел 1. Список инженерно-технического персонала, занятых строительством</h3>';
+  html += '<table class="jpr-table"><tr><th>№</th><th>ФИО</th><th>Должность</th><th>Период работы</th></tr>';
+  itr.forEach((item, index) => { html += '<tr><td>' + (index + 1) + '</td><td>' + (item.name || '') + '</td><td>' + (item.role || '') + '</td><td>—</td></tr>'; });
+  if (itr.length === 0) html += '<tr><td colspan="4" style="text-align:center;color:#888">(не указаны)</td></tr>';
+  html += '</table></div>';
+  html += '<div class="jpr-section"><h3>Раздел 2. Сведения о стройконтроле застройщика/заказчика</h3>';
+  html += '<p style="font-size:11px;color:#444">Технический надзор / стройконтроль осуществляется лицами с подписями в АОСР и актах осмотра. См. раздел 3 настоящего журнала и Раздел 6 (АОСР).</p></div>';
+  html += '<div class="jpr-section"><h3>Раздел 3. Сведения о выполнении работ (по датам)</h3>';
+  if (Object.keys(byDate).length === 0) {
+    html += '<p style="color:#888;font-size:11px;text-align:center">Подтверждённых записей по проекту нет</p>';
+  } else {
+    Object.keys(byDate).sort().forEach((date) => {
+      const weather = weatherLog.find((item) => item.projectName === projectName && item.date === date);
+      html += '<p style="font-weight:700;margin-top:8px">' + date + (weather ? ' · 🌤 ' + weather.condition + ', ' + weather.temperature + '°C' : '') + '</p>';
+      Object.keys(byDate[date]).forEach((masterName) => {
+        html += '<p style="font-size:11px;margin:3px 0;color:#444">Исполнитель: <b>' + masterName + '</b></p>';
+        html += '<table class="jpr-table"><tr><th>№</th><th>Вид работ</th><th>Раздел сметы</th><th>Ед.</th><th>Кол-во</th><th>Нормативы</th><th>ИТР</th><th>Принял</th></tr>';
+        byDate[date][masterName].forEach((work, index) => {
+          html += '<tr><td>' + (index + 1) + '</td><td>' + (work.description || '') + (work.unexpectedWorkId ? ' <b>🆕</b>' : '') + (work.hiddenWork ? ' <b>🔒</b>' : '') + '</td><td>' + (work.sectionName || '—') + '</td><td>' + (work.unit || '') + '</td><td>' + (work.quantity || 0) + '</td><td>' + (work.normatives || '—') + '</td><td>' + (work.responsibleItr || '—') + '</td><td>' + (work.confirmedBy || '') + '</td></tr>';
+        });
+        html += '</table>';
+      });
+    });
+  }
+  html += '</div>';
+  html += '<div class="jpr-section"><h3>Раздел 4. Сведения о стройконтроле лица, осуществляющего строительство</h3>';
+  html += '<p style="font-size:11px;color:#444">Контроль качества осуществляется ИТР генподрядчика. Зафиксированные предписания: ' + prescs.length + ' (см. Раздел 7).</p></div>';
+  html += '<div class="jpr-section"><h3>Раздел 5. Сведения о входном контроле материалов</h3>';
+  if (inspections.length === 0) {
+    html += '<p style="color:#888;font-size:11px;text-align:center">Записей входного контроля нет (ведётся в отдельном журнале СП 48.13330.2019)</p>';
+  } else {
+    html += '<table class="jpr-table"><tr><th>№</th><th>Дата</th><th>Материал</th><th>Поставщик</th><th>Партия</th><th>Сертификат</th><th>Результат</th></tr>';
+    inspections.slice(0, 30).forEach((item, index) => {
+      html += '<tr><td>' + (index + 1) + '</td><td>' + (item.receivedAt || '') + '</td><td>' + (item.materialName || '') + '</td><td>' + (item.supplier || '') + '</td><td>' + (item.batchNumber || '—') + '</td><td>' + (item.certificateNumber || item.passportNumber || '—') + '</td><td>' + (item.visualInspectionResult || (item.inspected ? 'Проверено' : '—')) + '</td></tr>';
+    });
+    html += '</table>';
+  }
+  html += '</div>';
+  html += '<div class="jpr-section"><h3>Раздел 6. Перечень специальных журналов и актов</h3>';
+  html += '<table class="jpr-table"><tr><th>Документ</th><th>Записей</th><th>Норматив</th></tr>';
+  html += '<tr><td>АОСР — акты освидетельствования скрытых работ</td><td>' + acts.length + ' (' + acts.filter((item) => item.status === 'Подписан').length + ' подписано)</td><td>СНиП 12-01-2004</td></tr>';
+  html += '<tr><td>Журнал входного контроля материалов</td><td>' + inspections.length + '</td><td>СП 48.13330.2019</td></tr>';
+  html += '<tr><td>Журнал кабельной продукции</td><td>' + cables.length + '</td><td>СП 76.13330, ПУЭ</td></tr>';
+  html += '<tr><td>Журнал инструктажей ТБ</td><td>' + tb.length + '</td><td>ГОСТ 12.0.004-2015</td></tr>';
+  html += '</table></div>';
+  html += '<div class="jpr-section"><h3>Раздел 7. Сведения о замечаниях и предписаниях контролирующих органов</h3>';
+  if (prescs.length === 0) {
+    html += '<p style="color:#888;font-size:11px;text-align:center">Предписаний нет</p>';
+  } else {
+    html += '<table class="jpr-table"><tr><th>№</th><th>Дата</th><th>Кем выдано</th><th>Описание нарушения</th><th>Срок</th><th>Статус</th></tr>';
+    prescs.forEach((item, index) => {
+      html += '<tr><td>' + (index + 1) + '</td><td>' + (item.deadline || '') + '</td><td>' + (item.issuedBy || '') + ' (' + (item.issuedByRole || '') + ')</td><td>' + (item.violation || item.description || '') + '</td><td>' + (item.deadline || '') + '</td><td>' + (item.status || '') + '</td></tr>';
+    });
+    html += '</table>';
+  }
+  html += '</div>';
+  html += '<div class="jpr-sigs">';
+  html += '<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Ответственный за ведение журнала (производитель работ):</div><div class="jpr-sig-line"></div><div class="jpr-sig-sub">(должность, ФИО, подпись)</div></div>';
+  html += '<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Представитель застройщика (технадзора):</div><div class="jpr-sig-line"></div><div class="jpr-sig-sub">(должность, ФИО, подпись)</div></div>';
+  html += '</div>';
+  html += '<p style="margin-top:18px;font-size:10px;color:#666;text-align:center">Журнал ведётся в соответствии с РД-11-05-2007 и СП 48.13330.2019 «Организация строительства». Является обязательным документом исполнительной документации.</p>';
+  return html;
+};
+
+export const buildMasterActDocContent = (act = {}, context = {}) => {
+  const {
+    companyRequisites = null,
+    companyName = '',
+    masterProfiles = [],
+    workJournal = [],
+    actPayments = [],
+    tools = [],
+    ownExpenses = [],
+    accountablePayments = [],
+  } = context;
+  const profile = masterProfiles.find((item) => item.userId === act.masterId);
+  const req = companyRequisites || {};
+  const companyNameDoc = req.fullName || req.shortName || companyName || '_____';
+  const inPeriod = (value) => {
+    if (!value) return false;
+    const day = String(value).split('T')[0];
+    return day >= (act.periodStart || '0000-01-01') && day <= (act.periodEnd || '9999-12-31');
+  };
+  const workPayUnitPrice = (work) => Number(work.executionPricePerUnit || 0) || (Number(work.executionTotal || 0) / Math.max(1, Number(work.quantity || 0)));
+  const workPayTotal = (work) => Number(work.executionTotal || 0);
+  const actPackage = String(act.workPackage || '').trim();
+  const works = workJournal.filter((item) => (
+    item.masterId === act.masterId
+    && item.project === act.project
+    && item.status === 'Подтверждено'
+    && inPeriod(item.confirmedAt || item.date)
+    && (!actPackage || String(item.workPackage || item.work_package || 'Основная').trim() === actPackage)
+  ));
+  const payments = actPayments.filter((item) => item.actId === act.id);
+  const toolDeductions = tools
+    .filter((item) => item.masterName === act.masterName && item.issueType === 'В счёт зарплаты')
+    .reduce((sum, item) => sum + item.cost, 0);
+  const ownExpsReimbursed = (ownExpenses || []).filter((item) => (
+    (item.employeeId === act.masterId || item.employeeName === act.masterName)
+    && item.projectName === act.project
+    && item.status === 'Возмещено'
+    && inPeriod(item.date)
+  ));
+  const ownExpReimbSum = ownExpsReimbursed.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const advancesGiven = (accountablePayments || []).filter((item) => (
+    (item.recipientId === act.masterId || item.recipientName === act.masterName)
+    && item.projectName === act.project
+    && inPeriod(item.date)
+  ));
+  const advanceSum = advancesGiven.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  let html = '<h2 style="text-align:center">АКТ ВЫПОЛНЕННЫХ РАБОТ № ' + act.id + '</h2>';
+  html += '<p>Заказчик: <b>' + companyNameDoc + '</b> | Исполнитель: <b>' + act.masterName + '</b></p>';
+  html += '<p>Объект: <b>' + act.project + '</b> | Раздел: <b>' + (act.workPackage || 'Все разделы') + '</b> | Период: ' + act.periodStart + ' — ' + act.periodEnd + '</p>';
+  if (profile) html += '<p>ИНН: ' + profile.inn + ' | ' + profile.bankName + ' | Р/с: ' + profile.bankAccount + '</p>';
+  html += '<table><tr><th>N</th><th>Работа</th><th>Помещение</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>';
+  works.forEach((work, index) => {
+    html += '<tr><td>' + (index + 1) + '</td><td>' + work.description + '</td><td>' + (work.roomName || '—') + '</td><td>' + work.unit + '</td><td>' + work.quantity + '</td><td>' + workPayUnitPrice(work).toLocaleString() + '</td><td>' + workPayTotal(work).toLocaleString() + '</td></tr>';
+  });
+  const totalAmt = act.totalAmount || 0;
+  const paidAmt = act.paidAmount || 0;
+  html += '<tr><td colspan="6"><b>ИТОГО начислено:</b></td><td><b>' + totalAmt.toLocaleString() + ' руб.</b></td></tr>';
+  if (toolDeductions > 0) html += '<tr><td colspan="6">Удержания (инструмент):</td><td style="color:red">-' + toolDeductions.toLocaleString() + ' руб.</td></tr>';
+  html += '<tr><td colspan="6"><b>К выплате по работам:</b></td><td><b>' + (totalAmt - toolDeductions).toLocaleString() + ' руб.</b></td></tr>';
+  if (payments.length > 0) {
+    html += '<tr><td colspan="7"><b>История оплат по акту:</b></td></tr>';
+    payments.forEach((payment) => {
+      html += '<tr><td colspan="3">' + payment.date + '</td><td colspan="2">' + payment.paymentType + '</td><td>' + payment.paidBy + '</td><td>' + payment.amount.toLocaleString() + ' руб.</td></tr>';
+    });
+  }
+  html += '<tr><td colspan="6">Оплачено по акту:</td><td>' + paidAmt.toLocaleString() + ' руб.</td></tr>';
+  html += '<tr><td colspan="6"><b>Остаток к выплате:</b></td><td><b style="color:red">' + (totalAmt - toolDeductions - paidAmt).toLocaleString() + ' руб.</b></td></tr></table>';
+  if (ownExpsReimbursed.length > 0 || advancesGiven.length > 0) {
+    html += '<h3 style="margin-top:18px">📒 Сопутствующие операции по сотруднику в периоде</h3>';
+    html += '<p style="font-size:11px;color:#666">Не входят в сумму акта — показаны для сверки с бухгалтерией</p>';
+    html += '<table><tr><th>Дата</th><th>Тип</th><th>Описание</th><th>Сумма</th></tr>';
+    ownExpsReimbursed.forEach((item) => {
+      html += '<tr><td>' + (item.date || '') + '</td><td>💸 Возмещено по «Моим тратам»</td><td>' + (item.description || '') + '</td><td>' + Number(item.amount || 0).toLocaleString() + ' руб.</td></tr>';
+    });
+    advancesGiven.forEach((item) => {
+      html += '<tr><td>' + (item.date || '') + '</td><td>📤 Выдано в подотчёт</td><td>' + (item.purpose || item.notes || '') + '</td><td>' + Number(item.amount || 0).toLocaleString() + ' руб.</td></tr>';
+    });
+    if (ownExpReimbSum > 0) html += '<tr><td colspan="3"><b>Итого возмещено трат:</b></td><td><b>' + ownExpReimbSum.toLocaleString() + ' руб.</b></td></tr>';
+    if (advanceSum > 0) html += '<tr><td colspan="3"><b>Итого выдано в подотчёт:</b></td><td><b>' + advanceSum.toLocaleString() + ' руб.</b></td></tr>';
+    html += '</table>';
+  }
+  html += '<div class="signatures"><div class="sig"><div class="sig-line">Выполнил<br/>' + act.masterName + '</div></div><div class="sig"><div class="sig-line">Принял (прораб)</div></div><div class="sig"><div class="sig-line">' + companyNameDoc + '<br/>' + (req.directorName || '') + '</div></div></div>';
+  return html;
+};
+
+export const buildBrigadeActDocContent = (contract = {}, context = {}) => {
+  const {
+    companyRequisites = null,
+    companyName = '',
+    allBrigadeItems = [],
+  } = context;
+  const items = (allBrigadeItems || []).filter((item) => Number(item.contractId) === Number(contract.id) && Number(item.doneQuantity || 0) > 0);
+  const req = companyRequisites || {};
+  const total = items.reduce((sum, item) => sum + Math.round(Number(item.doneQuantity || 0) * Number(item.priceBrigade || 0)), 0);
+  let html = '<h2 style="text-align:center">АКТ ВЫПОЛНЕННЫХ РАБОТ</h2>';
+  html += '<p>Заказчик работ: <b>' + (req.fullName || req.shortName || companyName || '') + '</b></p>';
+  html += '<p>Объект: <b>' + (contract.projectName || '') + '</b> | Исполнитель: <b>' + (contract.brigadeName || '') + '</b>' + (contract.contractorType ? ' (' + contract.contractorType + ')' : '') + '</p>';
+  html += '<table><tr><th>N</th><th>Наименование работ</th><th>Ед.</th><th>Выполнено</th><th>Цена</th><th>Сумма</th></tr>';
+  if (items.length === 0) html += '<tr><td colspan="6" style="text-align:center;color:#777">Выполненных работ нет</td></tr>';
+  items.forEach((item, index) => {
+    const sum = Math.round(Number(item.doneQuantity || 0) * Number(item.priceBrigade || 0));
+    html += '<tr><td>' + (index + 1) + '</td><td>' + (item.name || '') + '</td><td>' + (item.unit || '') + '</td><td>' + fmtMeasure(Number(item.doneQuantity || 0), item.unit) + '</td><td>' + Number(item.priceBrigade || 0).toLocaleString('ru-RU') + '</td><td>' + sum.toLocaleString('ru-RU') + '</td></tr>';
+  });
+  html += '<tr><td colspan="5"><b>ИТОГО к оплате:</b></td><td><b>' + total.toLocaleString('ru-RU') + ' руб.</b></td></tr></table>';
+  html += '<p style="font-size:11px;color:#555">Объёмы соответствуют выполнению, отмеченному мастером в смете объекта (единый источник данных).</p>';
+  html += '<div class="signatures"><div class="sig"><div class="sig-line">Сдал (исполнитель)<br/>' + (contract.brigadeName || '') + '</div></div><div class="sig"><div class="sig-line">Принял<br/>' + (req.directorName || '') + '</div></div></div>';
+  return html;
+};
+
 export const buildMovementDocContent = (movement = {}, items = [], context = {}) => {
   const { companyRequisites = {}, companyName = '', userName = '' } = context;
   let html = '<h2 style="text-align:center">НАКЛАДНАЯ НА ВНУТРЕННЕЕ ПЕРЕМЕЩЕНИЕ (М-11)</h2>';
