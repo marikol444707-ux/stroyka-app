@@ -261,11 +261,26 @@ def clear_worker_explicit_access(worker_id):
 
 def main():
     director_token = login_director()
-    _, estimate_id, worker = prepare_scope()
+    project_id, estimate_id, worker = prepare_scope()
     if not director_token:
         director_token = create_temp_director_token()
     worker_token = auth_token_for(worker)
     try:
+        api_json(
+            "PUT",
+            f"/projects/{project_id}",
+            token=director_token,
+            expected=200,
+            data={"client": f"{PREFIX} Client updated", "archived": False, "archivedAt": None},
+        )
+        api_json(
+            "PUT",
+            f"/projects/{project_id}",
+            token=director_token,
+            expected=403,
+            data={"archived": True},
+        )
+
         _, director_estimates = api_json("GET", "/estimates-summary", token=director_token, expected=200)
         director_estimate_rows = rows(director_estimates)
         if not any(row.get("id") == estimate_id for row in director_estimate_rows if isinstance(row, dict)):
@@ -375,9 +390,12 @@ def main():
         print(json.dumps({
             "ok": True,
             "baseUrl": BASE_URL,
+            "projectId": project_id,
             "estimateId": estimate_id,
             "contractId": created.get("contractId"),
             "workerItemId": target.get("id"),
+            "projectEditArchivedFalseChecked": True,
+            "projectArchiveBlockedChecked": True,
             "directorEstimateSummaryChecked": True,
             "noRoomWorkSubmitChecked": True,
             "deleteChecked": True,

@@ -4139,6 +4139,7 @@ function App() {
   const saveProject = async () => {
     if (!newProject.name) { alert('Введите название'); return; }
     const data = {...newProject,budget:Number(newProject.budget)};
+    ['archived', 'archivedAt', 'archived_at', 'id'].forEach(key => delete data[key]);
     try {
       if (editingItem) {
         await readApiResult(await fetch(API+'/projects/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}));

@@ -5471,7 +5471,10 @@ def update_project_site_publication(id: int, data: dict, current_user: dict = De
 
 @app.put("/projects/{id}")
 def update_project(id: int, data: dict, current_user: dict = Depends(require_roles(*PROJECT_CARD_WRITE_ROLES))):
-    if "archived" in data or "archivedAt" in data:
+    archived_value = data.pop("archived", None) if "archived" in data else None
+    archived_at_value = data.pop("archivedAt", None) if "archivedAt" in data else None
+    archived_at_snake = data.pop("archived_at", None) if "archived_at" in data else None
+    if archived_value not in (None, False, 0, "", "false", "False") or archived_at_value not in (None, False, "") or archived_at_snake not in (None, False, ""):
         raise HTTPException(status_code=403, detail="Архивация объекта отключена. Объект может закрыть только директор отдельной процедурой закрытия.")
     if str(data.get("status") or "").strip().lower() in ("завершён", "завершен", "архив", "закрыт", "закрытый"):
         raise HTTPException(status_code=403, detail="Закрытие или архив объекта отключены в обычном редактировании. Объект закрывается только отдельной процедурой директора.")
