@@ -215,6 +215,10 @@ import {
 } from './utils/projectEstimateItemsUtils';
 import { workJournalEstimateSummaryFor } from './utils/workJournalEstimateReconciliationUtils';
 import {
+  buildSupplyControlIssues,
+  buildSupplyControlReportData,
+} from './utils/supplyControlReportUtils';
+import {
   journalRoomLinkKey,
   invoiceControlMaterialName,
   invoiceControlNeedsReview,
@@ -6236,47 +6240,31 @@ function App() {
     const list = await loadEstimatesForDirectorReport();
     showPreview(buildEstimateControlReportContent(list),'Проверка смет директора');
   };
-  const supplyControlIssues = () => {
-    const issues = [];
-    lowMainStock.forEach(m=>issues.push({severity:'Внимание',project:'Основной склад',where:m.name,problem:'Остаток ниже минимума: '+fmtMeasure(m.quantity,m.unit),action:'Пополнить склад'}));
-    lowStock.forEach(m=>issues.push({severity:'Внимание',project:m.project||'Объект',where:m.name,problem:'Остаток ниже минимума: '+fmtMeasure(m.quantity,m.unit),action:'Создать заявку или перемещение'}));
-    (supplyRequests||[]).filter(r=>r.status==='Новая'||r.status==='Подтверждена прорабом').forEach(r=>issues.push({severity:r.status==='Новая'?'Внимание':'Критично',project:r.project||'',where:r.materialName||'Заявка #'+r.id,problem:'Заявка ждёт решения: '+(r.status||'Новая'),action:'Открыть снабжение'}));
-    (supplierInvoices||[]).filter(i=>i.status==='На утверждении'||!i.status).forEach(i=>issues.push({severity:'Критично',project:i.projectName||i.project||'',where:i.supplierName||'Поставщик',problem:'Счёт ждёт утверждения: '+fmtDocMoney(i.amount||i.totalAmount),action:'Утвердить или отклонить'}));
-    (invoices||[]).filter(inv=>(inv.location||'')!=='Основной склад').slice(0,80).forEach(inv=>{
-      warehouseInvoiceEstimateControl(inv).filter(invoiceControlNeedsReview).slice(0,4).forEach(ctrl=>{
-        const severe = ctrl.status==='Вне сметы' || toNum(ctrl.overQty)>0;
-        issues.push({
-          severity: severe ? 'Критично' : 'Внимание',
-          project: invoiceControlProjectName(inv, ctrl),
-          where: invoiceControlMaterialName(ctrl, ctrl) || ('Накладная #'+(inv.id||inv.number||'')),
-          problem: 'Накладная №'+(inv.number||inv.id||'')+': '+invoiceControlReviewReason(ctrl),
-          action: 'Создать/открыть задачу сметчику или директору'
-        });
-      });
-    });
-    activeDirectorProjects().slice(0,12).forEach(p=>{
-      const materialRows = materialReconciliationRows(p.name);
-      materialRows.filter(r=>r.toBuy>0).slice(0,3).forEach(r=>issues.push({severity:'Внимание',project:p.name,where:r.name,problem:'К закупке по плану: '+fmtMeasure(r.toBuy,r.unit),action:'Проверить заявку/поставку'}));
-      materialRows.filter(r=>r.issued>0&&r.usedWithoutIssue>0).slice(0,2).forEach(r=>issues.push({severity:'Критично',project:p.name,where:r.name,problem:'Списано больше выданного: +'+fmtMeasure(r.usedWithoutIssue,r.unit),action:'Проверить выдачу и журнал работ'}));
-      const normCtrl=materialNormControlSummaryForProject(p.name);
-      normCtrl.overRows.slice(0,2).forEach(r=>issues.push({severity:'Критично',project:p.name,where:r.name,problem:'Перерасход по норме: +'+fmtMeasure(r.overQty,r.unit),action:'Проверить списание мастера и норму'}));
-      normCtrl.withoutNormRows.slice(0,2).forEach(r=>issues.push({severity:'Внимание',project:p.name,where:r.name,problem:'Материал списан без нормы: '+fmtMeasure(r.withoutNormQty,r.unit),action:'Добавить норму или уточнить списание'}));
-    });
-    return issues.sort((a,b)=>(a.severity==='Критично'?-1:1)-(b.severity==='Критично'?-1:1));
-  };
+  const supplyControlIssues = () => buildSupplyControlIssues({
+    lowMainStock,
+    lowStock,
+    supplyRequests,
+    supplierInvoices,
+    invoices,
+    activeProjects: activeDirectorProjects(),
+    warehouseInvoiceEstimateControl,
+    invoiceControlNeedsReview,
+    invoiceControlProjectName,
+    invoiceControlMaterialName,
+    invoiceControlReviewReason,
+    materialReconciliationRows,
+    materialNormControlSummaryForProject,
+    fmtMeasure,
+    fmtMoney: fmtDocMoney,
+  });
   const buildSupplyControlReportContent = () => {
     const issues = supplyControlIssues();
-    const inWorkRequests = (supplyRequests||[]).filter(r=>['Новая','Подтверждена прорабом','Утверждена','КП запрошены'].includes(r.status||'Новая'));
-    const offersToReview = (supplierOffers||[]).filter(o=>o.status==='Получено');
-    const invoicesToPay = (supplierInvoices||[]).filter(i=>i.status==='На утверждении'||i.status==='Утверждён'||i.status==='Частично оплачен'||!i.status);
-    const debt = invoicesToPay.reduce((s,i)=>s+Math.max(0,Number(i.amount||i.totalAmount||0)-Number(i.paidAmount||0)),0);
-    return buildSupplyControlReportDocContent({
+    return buildSupplyControlReportDocContent(buildSupplyControlReportData({
       issues,
-      inWorkRequests,
-      offersToReview,
-      invoicesToPay,
-      debt,
-    }, {companyName, generatedBy:user?.name||''});
+      supplyRequests,
+      supplierOffers,
+      supplierInvoices,
+    }), {companyName, generatedBy:user?.name||''});
   };
   const unreadNotifications = myNotifications(notifications).filter(n=>!n.read).length;
 
