@@ -40,6 +40,25 @@ export default function MyExpensesPage({
   const sumA=approved.reduce((s,e)=>s+Number(e.amount||0),0);
   const sumR=rejected.reduce((s,e)=>s+Number(e.amount||0),0);
   const myAcc=(accountablePayments||[]).filter(a=>a.givenTo===user.name&&Number(a.amount||0)>Number(a.spentAmount||0));
+  const sortExpenseRows = (items) => [...items].sort((a,b)=>{
+    const dateA = String(a.date || a.createdAt || '');
+    const dateB = String(b.date || b.createdAt || '');
+    const byDate = dateB.localeCompare(dateA);
+    if (byDate) return byDate;
+    return Number(b.id || 0) - Number(a.id || 0);
+  });
+  const employeeExpenseGroups = (items) => {
+    const map = new Map();
+    sortExpenseRows(items).forEach(expense => {
+      const name = expense.employeeName || 'Без сотрудника';
+      const key = String(expense.employeeId || name);
+      if (!map.has(key)) map.set(key, { key, name, items: [], total: 0 });
+      const group = map.get(key);
+      group.items.push(expense);
+      group.total += Number(expense.amount || 0);
+    });
+    return Array.from(map.values()).sort((a,b)=>a.name.localeCompare(b.name,'ru'));
+  };
 
   return (
     <div>
@@ -82,20 +101,26 @@ export default function MyExpensesPage({
           : 'Здесь видны все ваши траты собственными деньгами. Трата с объектом сразу попадает в расходы объекта как «Прочее», без объекта — в «Личные/без объекта».'}
       </p>
       {myExp.length===0?<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Трат пока нет.<br/>Нажмите «Новая трата» чтобы зафиксировать расход.</div>:
-        ['Ожидает','Возмещено','Отклонено'].map(st=>{const items=myExp.filter(e=>e.status===st);if(items.length===0) return null;const stColor=st==='Возмещено'?C.success:st==='Отклонено'?C.danger:C.warning;const stBg=st==='Возмещено'?C.successLight:st==='Отклонено'?C.dangerLight:C.warningLight;return(<div key={st} style={{marginBottom:'18px'}}>
+        ['Ожидает','Возмещено','Отклонено'].map(st=>{const items=myExp.filter(e=>e.status===st);if(items.length===0) return null;const stColor=st==='Возмещено'?C.success:st==='Отклонено'?C.danger:C.warning;const stBg=st==='Возмещено'?C.successLight:st==='Отклонено'?C.dangerLight:C.warningLight;const groups=employeeExpenseGroups(items);return(<div key={st} style={{marginBottom:'18px'}}>
           <b style={{color:stColor,fontSize:'12px',display:'block',marginBottom:'8px'}}>{st==='Ожидает'?'⏳':st==='Возмещено'?'✅':'❌'} {st} ({items.length})</b>
-          {items.map(e=>{const cat=EXPENSE_CATEGORIES.find(c=>c.id===e.category)||{label:'Прочее',color:C.textMuted};return(<div key={e.id} style={{...card,padding:'12px',marginBottom:'6px',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
-            <div style={{flex:1,minWidth:'200px'}}>
-              <b style={{color:C.text,fontSize:'13px'}}>{e.description}</b>
-              <p style={{color:C.textSec,margin:'4px 0',fontSize:'11px'}}>📍 {e.projectName||'Личные/без объекта'} · 👤 {e.employeeName||'—'} · 📅 {e.date||e.createdAt||'—'}</p>
-              <span style={{padding:'2px 8px',borderRadius:'8px',backgroundColor:stBg,color:cat.color,fontSize:'10px',fontWeight:'600'}}>{cat.label}</span>
-              {e.photoUrl&&<img src={fileSrc(e.photoUrl)} alt='' onClick={()=>setShowPhotoModal(fileSrc(e.photoUrl))} style={{width:'40px',height:'40px',borderRadius:'6px',objectFit:'cover',cursor:'pointer',marginLeft:'8px',verticalAlign:'middle'}}/>}
+          {groups.map(group=>(<div key={group.key} style={{marginBottom:'14px'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',padding:'8px 2px',borderBottom:'1px solid '+C.border,marginBottom:'8px'}}>
+              <b style={{color:C.text,fontSize:'13px'}}>👤 {group.name}</b>
+              <span style={{color:stColor,fontSize:'12px',fontWeight:'700'}}>{group.items.length+' шт · '+Math.round(group.total).toLocaleString('ru-RU')+' ₽'}</span>
             </div>
-            <div style={{textAlign:'right'}}>
-              <b style={{color:stColor,fontSize:'15px',display:'block'}}>{Math.round(Number(e.amount||0)).toLocaleString('ru-RU')+' ₽'}</b>
-              {e.approvedBy&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{e.status==='Возмещено'?'Утв.':'Откл.'} {e.approvedBy}</p>}
-            </div>
-          </div>);})}
+            {group.items.map(e=>{const cat=EXPENSE_CATEGORIES.find(c=>c.id===e.category)||{label:'Прочее',color:C.textMuted};return(<div key={e.id} style={{...card,padding:'12px',marginBottom:'6px',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+              <div style={{flex:1,minWidth:'200px'}}>
+                <b style={{color:C.text,fontSize:'13px'}}>{e.description}</b>
+                <p style={{color:C.textSec,margin:'4px 0',fontSize:'11px'}}>📍 {e.projectName||'Личные/без объекта'} · 📅 {e.date||e.createdAt||'—'}</p>
+                <span style={{padding:'2px 8px',borderRadius:'8px',backgroundColor:stBg,color:cat.color,fontSize:'10px',fontWeight:'600'}}>{cat.label}</span>
+                {e.photoUrl&&<img src={fileSrc(e.photoUrl)} alt='' onClick={()=>setShowPhotoModal(fileSrc(e.photoUrl))} style={{width:'40px',height:'40px',borderRadius:'6px',objectFit:'cover',cursor:'pointer',marginLeft:'8px',verticalAlign:'middle'}}/>}
+              </div>
+              <div style={{textAlign:'right'}}>
+                <b style={{color:stColor,fontSize:'15px',display:'block'}}>{Math.round(Number(e.amount||0)).toLocaleString('ru-RU')+' ₽'}</b>
+                {e.approvedBy&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{e.status==='Возмещено'?'Утв.':'Откл.'} {e.approvedBy}</p>}
+              </div>
+            </div>);})}
+          </div>))}
         </div>);})
       }
     </div>
