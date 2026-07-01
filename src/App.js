@@ -310,10 +310,11 @@ import {
   notificationsForUser,
 } from './utils/notificationUtils';
 import {
+  buildM8ReportContent,
+  buildM29ReportContent,
+  buildMaterialRequirementReportContent,
   buildWarehouseInvoiceItems,
   buildWorkMaterialSelectionRow,
-  buildM8Rows,
-  buildM29Rows,
   packageMatches,
   parseJournalMaterialsValue,
 } from './utils/materialDocumentUtils';
@@ -343,12 +344,9 @@ import {
   buildKS2DocContent,
   buildKS3DocContent,
   buildM2DocContent,
-  buildM8DocContent,
   buildM15DocContent,
-  buildM29DocContent,
   buildMaterialInspectionDocContent,
   buildMaterialNormCoverageDocContent,
-  buildMaterialRequirementDocContent,
   buildMasterActDocContent,
   buildMovementDocContent,
   buildPassportDocContent,
@@ -6002,33 +6000,26 @@ function App() {
     buildM2DocContent(supplier, items, projectName, recipientName, recipientPassport, printDocContext())
   );
 
-  const buildM8Content = (projectName, masterName, periodFrom, periodTo) => {
-    const project = projects.find(p=>p.name===projectName)||{};
-    const rows = buildM8Rows({
-      projectName,
-      masterName,
-      periodFrom,
-      periodTo,
-      materialTransfers,
-      activeEstimates: activeEstimatesForProject(project, 'Заказчик'),
-    });
-    return buildM8DocContent({projectName, masterName, periodFrom, periodTo, rows}, printDocContext());
-  };
+  const buildM8Content = (projectName, masterName, periodFrom, periodTo) => buildM8ReportContent({
+    projectName,
+    masterName,
+    periodFrom,
+    periodTo,
+    projects,
+    materialTransfers,
+    activeEstimatesForProject,
+    printDocContext: printDocContext(),
+  });
 
-  const buildMaterialRequirementContent = (projectName) => {
-    const project=projects.find(p=>p.name===projectName)||{};
-    const activeEsts = activeEstimatesForProject(project, 'Заказчик');
-    const rows=materialReconciliationRows(projectName);
-    const normRows=estimateWorkNormRequirementRows(projectName);
-    const normCtrl=materialNormControlSummaryForProject(projectName);
-    return buildMaterialRequirementDocContent({
-      projectName,
-      activeEstimates: activeEsts,
-      rows,
-      normRows,
-      normCtrl,
-    }, printDocContext());
-  };
+  const buildMaterialRequirementContent = (projectName) => buildMaterialRequirementReportContent({
+    projectName,
+    projects,
+    activeEstimatesForProject,
+    materialReconciliationRows,
+    estimateWorkNormRequirementRows,
+    materialNormControlSummaryForProject,
+    printDocContext: printDocContext(),
+  });
 
   const buildVATBookContent = (periodFrom, periodTo) => (
     buildVATBookDocContent(periodFrom, periodTo, printDocContext())
@@ -6040,18 +6031,16 @@ function App() {
 
   const buildExecPackageContent = (project) => buildExecPackageDocContent(project, printDocContext());
 
-  const buildM29Content = (projectName, periodFrom, periodTo) => {
-    const project = projects.find(p=>p.name===projectName)||{};
-    const rows = buildM29Rows({
-      projectName,
-      periodFrom,
-      periodTo,
-      activeEstimates: activeEstimatesForProject(project, 'Заказчик'),
-      materialTransfers,
-      workJournal,
-    });
-    return buildM29DocContent({projectName, periodFrom, periodTo, rows}, printDocContext());
-  };
+  const buildM29Content = (projectName, periodFrom, periodTo) => buildM29ReportContent({
+    projectName,
+    periodFrom,
+    periodTo,
+    projects,
+    materialTransfers,
+    workJournal,
+    activeEstimatesForProject,
+    printDocContext: printDocContext(),
+  });
 
   const buildSupervisorMonthlyReport = (projectName, periodFrom, periodTo) => (
     buildSupervisorMonthlyReportDocContent(projectName, periodFrom, periodTo, printDocContext())

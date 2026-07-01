@@ -7,6 +7,11 @@ import {
   normalizeEstimateWorkingItem,
 } from './estimateUtils';
 import { toNum } from './measureUtils';
+import {
+  buildM8DocContent,
+  buildM29DocContent,
+  buildMaterialRequirementDocContent,
+} from './printDocumentBuilders';
 
 export const parseJournalMaterialsValue = (value) => {
   if (!value) return [];
@@ -189,4 +194,67 @@ export const buildM29Rows = ({
     ));
 
   return Object.values(planByName).sort((a, b) => (b.fact - b.plan) - (a.fact - a.plan));
+};
+
+export const buildM8ReportContent = ({
+  projectName,
+  masterName,
+  periodFrom,
+  periodTo,
+  projects = [],
+  materialTransfers = [],
+  activeEstimatesForProject = () => [],
+  printDocContext = {},
+} = {}) => {
+  const project = (projects || []).find(row => row.name === projectName) || {};
+  const rows = buildM8Rows({
+    projectName,
+    masterName,
+    periodFrom,
+    periodTo,
+    materialTransfers,
+    activeEstimates: activeEstimatesForProject(project, 'Заказчик'),
+  });
+  return buildM8DocContent({ projectName, masterName, periodFrom, periodTo, rows }, printDocContext);
+};
+
+export const buildMaterialRequirementReportContent = ({
+  projectName,
+  projects = [],
+  activeEstimatesForProject = () => [],
+  materialReconciliationRows = () => [],
+  estimateWorkNormRequirementRows = () => [],
+  materialNormControlSummaryForProject = () => ({}),
+  printDocContext = {},
+} = {}) => {
+  const project = (projects || []).find(row => row.name === projectName) || {};
+  return buildMaterialRequirementDocContent({
+    projectName,
+    activeEstimates: activeEstimatesForProject(project, 'Заказчик'),
+    rows: materialReconciliationRows(projectName),
+    normRows: estimateWorkNormRequirementRows(projectName),
+    normCtrl: materialNormControlSummaryForProject(projectName),
+  }, printDocContext);
+};
+
+export const buildM29ReportContent = ({
+  projectName,
+  periodFrom,
+  periodTo,
+  projects = [],
+  materialTransfers = [],
+  workJournal = [],
+  activeEstimatesForProject = () => [],
+  printDocContext = {},
+} = {}) => {
+  const project = (projects || []).find(row => row.name === projectName) || {};
+  const rows = buildM29Rows({
+    projectName,
+    periodFrom,
+    periodTo,
+    activeEstimates: activeEstimatesForProject(project, 'Заказчик'),
+    materialTransfers,
+    workJournal,
+  });
+  return buildM29DocContent({ projectName, periodFrom, periodTo, rows }, printDocContext);
 };
