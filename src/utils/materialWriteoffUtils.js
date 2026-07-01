@@ -85,6 +85,25 @@ export const buildMaterialWriteoffBlockMessage = ({
   }).join('\n');
 };
 
+export const requestMaterialNormOverrunReason = ({
+  rows = [],
+  workName = '',
+  fmtMeasure,
+  confirmFn,
+  promptFn,
+}) => {
+  const overRows = rows.filter(row => row.overNorm);
+  if (!overRows.length) return '';
+  const lines = overRows
+    .slice(0, 6)
+    .map(row => '• ' + row.name + ': списать ' + fmtMeasure(row.qty, row.unit) + ', норма ' + fmtMeasure(row.normQty, row.unit) + ', перерасход ' + fmtMeasure(row.overNormQty, row.unit));
+  const ok = confirmFn('По работе «' + workName + '» есть перерасход материала выше нормы.\n\n' + lines.join('\n') + '\n\nОтправить всё равно? Прораб увидит перерасход в контроле норм.');
+  if (!ok) return null;
+  const reason = promptFn('Кратко укажите причину перерасхода для прораба:', '');
+  if (reason === null) return null;
+  return reason.trim() || 'Причина не указана';
+};
+
 export const applyMaterialOverNormReasonToRows = ({
   usedMaterials = [],
   rows = [],

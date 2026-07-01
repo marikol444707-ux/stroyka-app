@@ -61,6 +61,7 @@ import ProjectSafetyJournalPanel from './components/ProjectSafetyJournalPanel';
 import ProjectWorkJournalPanel from './components/ProjectWorkJournalPanel';
 import ProjectScheduleSummaryPanel from './components/ProjectScheduleSummaryPanel';
 import MaterialReconciliationPanel from './components/MaterialReconciliationPanel';
+import MaterialWriteoffStatus from './components/MaterialWriteoffStatus';
 import { ProjectDirectorMapPanel, buildDirectorMapContract, getDirectorMapActionTarget } from './features/director-map';
 import PreviewModal from './components/PreviewModal';
 import ImagePreviewModal from './components/ImagePreviewModal';
@@ -162,6 +163,7 @@ import {
   buildMaterialWriteoffRows,
   capMaterialWriteoffQtyValue,
   getMaterialWriteoffAvailableQty,
+  requestMaterialNormOverrunReason,
 } from './utils/materialWriteoffUtils';
 import {
   calcDoorArea,
@@ -4559,15 +4561,10 @@ function App() {
     isPersonalMaterialRole,
     fmtMeasure,
   });
-  const materialNormOverrunReason = (projectName, workName, usedMaterials=[]) => {
-    const rows = materialWriteoffRows(projectName, usedMaterials).filter(r=>r.overNorm);
-    if (!rows.length) return '';
-    const lines = rows.slice(0,6).map(r=>'• '+r.name+': списать '+fmtMeasure(r.qty,r.unit)+', норма '+fmtMeasure(r.normQty,r.unit)+', перерасход '+fmtMeasure(r.overNormQty,r.unit));
-    if (!window.confirm('По работе «'+workName+'» есть перерасход материала выше нормы.\n\n'+lines.join('\n')+'\n\nОтправить всё равно? Прораб увидит перерасход в контроле норм.')) return null;
-    const reason = window.prompt('Кратко укажите причину перерасхода для прораба:', '');
-    if (reason === null) return null;
-    return reason.trim() || 'Причина не указана';
-  };
+  const materialNormOverrunReason = (projectName, workName, usedMaterials=[]) => requestMaterialNormOverrunReason({
+    rows: materialWriteoffRows(projectName, usedMaterials), workName, fmtMeasure,
+    confirmFn: window.confirm, promptFn: window.prompt,
+  });
   const applyMaterialOverNormReason = (projectName, usedMaterials=[], reason='') => {
     return applyMaterialOverNormReasonToRows({
       usedMaterials,
@@ -4576,30 +4573,9 @@ function App() {
       materialNameKey,
     });
   };
-  const renderMaterialWriteoffStatus = (projectName, usedMaterials=[]) => {
-    const rows = materialWriteoffRows(projectName, usedMaterials).filter(r=>r.qty>0 || r.normQty>0);
-    if (!rows.length) return null;
-    return (
-      <div style={{display:'grid',gap:'5px',margin:'7px 0'}}>
-        {rows.map(r=>{
-          const tone = r.overStock ? 'danger' : r.overNorm || r.noNorm ? 'warning' : 'success';
-          const color = tone==='danger' ? C.danger : tone==='warning' ? C.warning : C.success;
-          const bg = tone==='danger' ? C.dangerLight : tone==='warning' ? C.warningLight : C.successLight;
-          const borderColor = tone==='danger' ? C.dangerBorder : tone==='warning' ? C.warningBorder : C.successBorder;
-          const sourceLabel = isPersonalMaterialRole() ? 'подтверждено к списанию' : 'на объекте';
-          const label = r.overStock ? 'не хватает' : r.overNorm ? 'перерасход нормы' : r.noNorm ? 'без нормы' : 'в норме';
-          return (
-            <div key={r.key} style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(0,1.3fr) repeat(3,auto)',gap:'6px 10px',alignItems:'center',padding:'6px 8px',borderRadius:'8px',border:'1px solid '+borderColor,backgroundColor:bg,fontSize:'10px'}}>
-              <b style={{color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:isMobile?'normal':'nowrap'}}>{r.name}</b>
-              <span style={{color:C.textSec}}>{sourceLabel+': '}<b style={{color:C.text}}>{r.stock?fmtMeasure(r.available,r.stock.unit||r.unit):'нет'}</b></span>
-              <span style={{color:C.textSec}}>норма: <b style={{color:C.text}}>{r.normQty>0?fmtMeasure(r.normQty,r.unit):'—'}</b></span>
-              <span style={{color}}>списать: <b>{fmtMeasure(r.qty,r.unit)}</b> · {label}</span>
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
+  const renderMaterialWriteoffStatus = (projectName, usedMaterials=[]) => (
+    <MaterialWriteoffStatus rows={materialWriteoffRows(projectName, usedMaterials)} C={C} fmtMeasure={fmtMeasure} isMobile={isMobile} isPersonalMaterialRole={isPersonalMaterialRole}/>
+  );
   const upsertSelectedWorkMaterial = (itemId, material, quantity='') => {
     const key = materialNameKey(material.name);
     setSelectedWorks(prev=>{
