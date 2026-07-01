@@ -153,7 +153,6 @@ import {
   enrichEstimateMeasurementBasis,
   activeEstimateFromList,
   applyEstimateActivationState,
-  estimateDiffTextKey,
   estimateDisplayVersion,
   estimateExecutionFillPercentOf,
   estimateGroupKey,
@@ -170,7 +169,6 @@ import {
   estimateMeasurementBasisMeta,
   estimateMeasurementBasisOf,
   estimatePackage,
-  estimateRowsForDiff,
   estimateSectionsOf as _sectionsOfEst,
   estimateTotal,
   estimateTypeIcon,
@@ -208,6 +206,7 @@ import {
   estimateMeasurementComparisonSummaryFor,
   projectMeasurementBasisTotalsFor,
 } from './utils/estimateMeasurementComparisonUtils';
+import { buildEstimateDiffDocumentPayload } from './utils/estimateDiffDocumentUtils';
 import {
   estimateItemOptionsFromActiveEstimates,
   ks2ItemsFromActiveEstimates,
@@ -2716,94 +2715,13 @@ function App() {
     return group.find(e=>e.status==='Активная') || group[0] || null;
   };
   const buildEstimateDiffContent = (baseEst, nextEst) => {
-    const diff = buildEstimateDiff(baseEst,nextEst);
-    const meta = (est) => [
-      est?.name || 'Смета',
-      (est?.version || est?.versionLabel) ? 'v'+(est.version||est.versionLabel) : '',
-      est?.status || '',
-      est?.createdAt ? String(est.createdAt).slice(0,10) : ''
-    ].filter(Boolean).join(' · ');
-    const docUnitKey = (unit) => estimateDiffTextKey(normalizeMeasure(1, unit).unit || unit || '');
-    const docNameScore = (left, right) => {
-      const a = estimateDiffTextKey(left);
-      const b = estimateDiffTextKey(right);
-      if (!a || !b) return 0;
-      if (a === b) return 1;
-      if (a.includes(b) || b.includes(a)) return 0.92;
-      const aw = a.split(' ').filter(w=>w.length>3);
-      const bw = b.split(' ').filter(w=>w.length>3);
-      if (!aw.length || !bw.length) return 0;
-      return aw.filter(w=>bw.includes(w)).length / Math.max(aw.length, bw.length);
-    };
-    const docChangeRequiredQty = (u) => {
-      const type = u?.changeType || 'Работа вне сметы';
-      const base = Number(u?.baseQuantity||0);
-      const delta = Number(u?.deltaQuantity||u?.quantity||0);
-      let raw = Number(u?.newRequiredQuantity||0);
-      if (raw <= 0 && (base > 0 || delta > 0)) raw = type === 'Исключение объёма' ? Math.max(0, base - delta) : base + delta;
-      const n = normalizeMeasure(raw || delta, u?.unit);
-      return {qty:Number(n.qty||0), unit:n.unit || u?.unit || ''};
-    };
-    const docFindChangeCandidate = (u) => {
-      const names = [...new Set([u?.estimateItemName,u?.description].map(v=>String(v||'').trim()).filter(Boolean))];
-      const unitKey = docUnitKey(u?.unit);
-      const nextRows = estimateRowsForDiff(nextEst);
-      const priorityRows = [
-        ...diff.added.map(r=>({...r,_kind:'Добавлена'})),
-        ...diff.changed.map(x=>({...x.next,_kind:'Изменена'})),
-        ...nextRows.map(r=>({...r,_kind:'Найдена'}))
-      ];
-      let best = null;
-      priorityRows.forEach(row=>{
-        if (!names.length) return;
-        const rowUnitKey = docUnitKey(row.unit);
-        if (unitKey && rowUnitKey && unitKey !== rowUnitKey) return;
-        const sectionBonus = estimateDiffTextKey(u?.sectionName) && estimateDiffTextKey(u?.sectionName) === estimateDiffTextKey(row.section) ? 0.08 : 0;
-        const score = Math.min(0.99, Math.max(...names.map(name=>docNameScore(name,row.name))) + sectionBonus);
-        if (score >= 0.7 && (!best || score > best.score)) best = {row, score, kind:row._kind};
-      });
-      return best;
-    };
-    const projectName = nextEst?.projectName || baseEst?.projectName || '';
-    const relatedChanges = (unexpectedWorksList||[]).filter(u=>
-      u.projectName===projectName &&
-      (isApprovedEstimateChangeStatus(u.status) || u.status==='Включено в новую смету') &&
-      (!u.includedInEstimateId || Number(u.includedInEstimateId)===Number(nextEst?.id))
-    );
-    const changeAmount = (u) => Number(u?.total||0) * (u?.changeType==='Исключение объёма' ? -1 : 1);
-    const changeRows = relatedChanges.map(u=>{
-      const decision = estimateChangeAutoDecision(u,nextEst,diff);
-      const fallbackCandidate = docFindChangeCandidate(u);
-      const candidate = decision?.candidate ? {row:decision.candidate, score:decision.score||0} : fallbackCandidate;
-      const required = docChangeRequiredQty(u);
-      const included = u.status==='Включено в новую смету' && Number(u.includedInEstimateId)===Number(nextEst?.id);
-      const covered = included || Boolean(decision?.autoInclude);
-      const status = included
-        ? 'Уже включено в новую смету'
-        : decision?.autoInclude
-          ? 'Новая смета закрывает изменение: '+(decision.reason||'найдено совпадение')
-          : candidate?.row
-            ? 'Похоже найдено, нужна проверка: '+(decision?.reason||'совпадение не подтверждено автоматически')
-            : 'Остаётся отдельной допработой вне новой сметы';
-      return {change:u,candidate:candidate?.row||null,score:candidate?.score||0,required,status,covered,needsReview:!covered&&Boolean(candidate?.row),amount:changeAmount(u)};
-    });
-    const changeSummary = {
-      total:changeRows.length,
-      covered:changeRows.filter(r=>r.covered).length,
-      review:changeRows.filter(r=>r.needsReview).length,
-      outside:changeRows.filter(r=>!r.covered).length,
-      outsideSum:changeRows.filter(r=>!r.covered).reduce((s,r)=>s+r.amount,0)
-    };
-    return buildEstimateDiffDocContent({
-      baseMeta: meta(baseEst),
-      nextMeta: meta(nextEst),
-      projectName: nextEst?.projectName || baseEst?.projectName || '',
-      estimateType: estimateKind(nextEst||baseEst),
-      workPackage: estimatePackage(nextEst||baseEst),
-      diff,
-      changeRows,
-      changeSummary,
-    });
+    return buildEstimateDiffDocContent(buildEstimateDiffDocumentPayload({
+      baseEstimate: baseEst,
+      nextEstimate: nextEst,
+      unexpectedWorksList,
+      isApprovedEstimateChangeStatus,
+      estimateChangeAutoDecision,
+    }));
   };
   const estimateReconciliationsForProject = (projectName) => (estimateReconciliations||[])
     .filter(r=>r.projectName===projectName)
