@@ -1,6 +1,6 @@
 export const ROLES = {
-  директор: ['dashboard','projects','clients','warehouse','pricelists','supply','accounting','analytics','personnel','crm','activitylog','companychat','estimates','settings','myexpenses'],
-  зам_директора: ['dashboard','projects','clients','warehouse','pricelists','supply','analytics','accounting','personnel','crm','activitylog','companychat','estimates','settings','myexpenses'],
+  директор: ['dashboard','projects','site','clients','warehouse','pricelists','supply','accounting','analytics','personnel','crm','activitylog','companychat','estimates','settings','myexpenses'],
+  зам_директора: ['dashboard','projects','site','clients','warehouse','pricelists','supply','analytics','accounting','personnel','crm','activitylog','companychat','estimates','settings','myexpenses'],
   главный_инженер: ['dashboard','projects','warehouse','personnel','companychat','estimates','weather','myexpenses'],
   прораб: ['projects','supply','companychat','weather','myexpenses'],
   кладовщик: ['warehouse','supply','companychat','myexpenses'],

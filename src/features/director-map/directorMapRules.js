@@ -145,3 +145,17 @@ export function getSourceCell(sourceRef = {}, item = {}) {
 export function getDefaultActionDisabled(onAction) {
   return typeof onAction !== 'function';
 }
+
+export function getDirectorMapActionTarget({ item, action, isFinanceRole = () => false } = {}) {
+  if (action === 'create_task') return 'ИИ-контроль';
+  const signals = item?.signals || [];
+  const types = signals.map(signal => signal.type);
+  if (types.includes('material')) return 'Материалы';
+  if (types.includes('document')) {
+    return signals.some(signal => String(signal.title || '').includes('Входной')) ? 'Входной контроль' : 'АОСР';
+  }
+  if (types.includes('money')) return isFinanceRole() ? 'Финансы' : 'Смета';
+  if (types.includes('link_quality')) return 'Производство работ';
+  if (action === 'review_link') return 'Производство работ';
+  return 'Карта руководителя';
+}

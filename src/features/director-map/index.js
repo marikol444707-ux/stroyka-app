@@ -7,6 +7,7 @@ export {
   SOURCE_COLUMNS,
   filterDirectorMapItems,
   formatMoneyShort,
+  getDirectorMapActionTarget,
   getItemTone,
   getSignalCounts,
   getSourceCell,

@@ -25,6 +25,7 @@ export const estimateWorkKeyForItem = (item={}, sectionName='', index='') => {
   const base = [sectionName, code || item.name || '', index].filter(v=>String(v||'').trim()).join('|');
   return estimateTextKey(base).replace(/[^a-zа-я0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,160);
 };
+export const estimateWorkKey = (estId, sectionIdx, itemIdx) => String(estId) + ':' + String(sectionIdx) + ':' + String(itemIdx);
 export const estimateCodeLooksResource = (value) => {
   const raw = String(value||'').trim();
   return /^\d{2,}[-/]\d+/.test(raw) || /^\d{3,}$/.test(raw) || /^тц[_-]/i.test(raw) || /^фс[сб]ц/i.test(raw);
@@ -563,4 +564,243 @@ export const estimateMaterialPlanIssue = (it={}, sectionName='') => {
   if ((unit === 'шт' || unit === 'компл') && Math.abs(qty) > 1000000) return 'Подозрительно большое штучное количество. Проверь ресурсную строку сметы';
   if (!unit || unit === '1') return 'Не распознана единица измерения материала';
   return '';
+};
+
+export const estimateSectionsOf = (estimate) => {
+  try {
+    return estimate?.sections || (
+      typeof estimate?.sectionsJson === 'string'
+        ? JSON.parse(estimate.sectionsJson || '[]')
+        : estimate?.sectionsJson
+    ) || [];
+  } catch (_) {
+    return [];
+  }
+};
+
+export const estimateHasLoadedSections = (estimate) => Boolean(estimate?.sectionsLoaded) || estimateSectionsOf(estimate).length > 0;
+
+export const estimateTotal = (estimate) => {
+  const sections = estimateSectionsOf(estimate);
+  if (sections.length) {
+    return sections.reduce((sum, section) => (
+      sum + (section.items || []).reduce((itemSum, item) => itemSum + estimateItemTotal(item), 0)
+    ), 0);
+  }
+  const fallback = Number(estimate?.summaryTotal ?? estimate?.total ?? estimate?.totalAmount ?? 0);
+  return Number.isFinite(fallback) ? fallback : 0;
+};
+
+export const estimateKind = (estimate) => estimate?.smetaType || 'Заказчик';
+export const estimatePackage = (estimate) => estimate?.workPackage || estimate?.work_package || 'Основная';
+export const estimateTypeIcon = (type) => ({ Заказчик: '📋', Работы: '👷', Материалы: '📦' }[type || 'Заказчик'] || '📄');
+export const isArchivedEstimate = (estimate) => (estimate?.status || 'Черновик') === 'Архив';
+export const isGlobalEstimateTemplate = (estimate) => Boolean(estimate?.isTemplate) && !estimate?.projectName && !estimate?.projectId;
+
+export const estimateUpdatedTs = (estimate) => {
+  const raw = estimate?.latestVersionAt || estimate?.createdAt || '';
+  const timestamp = raw ? new Date(raw).getTime() : 0;
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+export const estimateProjectGroupKey = (estimate) => String(estimate?.projectName || estimate?.project || estimate?.projectId || '')
+  .toLowerCase()
+  .replace(/\s+/g, ' ')
+  .trim();
+
+export const estimateGroupKey = (estimate) => [estimateProjectGroupKey(estimate), estimateKind(estimate), estimatePackage(estimate)].join('|');
+export const sameEstimateGroup = (left, right) => estimateGroupKey(left) === estimateGroupKey(right);
+
+export const applyEstimateActivationState = (list, activated) => {
+  const rows = list || [];
+  if (!activated || activated.status !== 'Активная' || isGlobalEstimateTemplate(activated)) return rows;
+  return rows.map(estimate => {
+    if (!estimate || estimate.id === activated.id) return estimate;
+    if (estimate.status === 'Активная' && !isGlobalEstimateTemplate(estimate) && sameEstimateGroup(estimate, activated)) {
+      return { ...estimate, status: 'Черновик' };
+    }
+    return estimate;
+  });
+};
+
+export const activeEstimateFromList = (list) => {
+  const sorted = [...(list || [])].sort((a, b) => (estimateUpdatedTs(b) || Number(b.id || 0)) - (estimateUpdatedTs(a) || Number(a.id || 0)));
+  const normal = sorted.filter(estimate => !isGlobalEstimateTemplate(estimate));
+  return normal.find(estimate => estimate.status === 'Активная')
+    || sorted.find(estimate => estimate.status === 'Активная')
+    || normal.find(estimate => !isArchivedEstimate(estimate))
+    || sorted.find(estimate => !isArchivedEstimate(estimate))
+    || normal[0]
+    || sorted[0]
+    || null;
+};
+
+export const estimateVersionNumber = (estimate) => {
+  const match = String(estimate?.version || '').replace(',', '.').match(/(\d+(?:\.\d+)?)/);
+  return match ? Number(match[1]) : 0;
+};
+
+export const estimateDisplayVersion = (estimate, groupItems = []) => {
+  const raw = String(estimate?.version || '').trim();
+  const sortedAsc = [...(groupItems || [])].sort((a, b) => (estimateUpdatedTs(a) || Number(a.id || 0)) - (estimateUpdatedTs(b) || Number(b.id || 0)));
+  const index = sortedAsc.findIndex(row => String(row.id) === String(estimate?.id));
+  if (raw) {
+    const sameRaw = sortedAsc.filter(row => String(row.version || '').trim() === raw);
+    const base = raw.startsWith('v') ? raw : 'v' + raw;
+    return sameRaw.length > 1 && index >= 0 ? base + ' · ред.' + (index + 1) : base;
+  }
+  return 'v' + (index >= 0 ? index + 1 : 1);
+};
+
+export const nextEstimateVersionFor = (draft, sourceEstimates = []) => {
+  const fake = {
+    projectId: draft?.projectId || '',
+    projectName: draft?.projectName || '',
+    smetaType: draft?.smetaType || 'Заказчик',
+    workPackage: draft?.workPackage || 'Основная',
+  };
+  const group = (sourceEstimates || []).filter(estimate => !isGlobalEstimateTemplate(estimate) && sameEstimateGroup(estimate, fake));
+  if (!group.length) return '1.0';
+  const maxVersion = Math.max(...group.map(estimateVersionNumber), group.length);
+  return (Math.floor(maxVersion) + 1) + '.0';
+};
+
+export const estimateVersionChain = (items) => [...(items || [])]
+  .sort((a, b) => (estimateUpdatedTs(b) || Number(b.id || 0)) - (estimateUpdatedTs(a) || Number(a.id || 0)))
+  .slice(0, 5)
+  .map(estimate => estimateDisplayVersion(estimate, items) + ' ' + (estimate.status || 'Черновик'))
+  .join(' → ');
+
+export const estimateDiffTextKey = (value) => String(value || '')
+  .toLowerCase()
+  .replace(/ё/g, 'е')
+  .replace(/[^a-zа-я0-9]+/gi, ' ')
+  .trim();
+
+export const estimateDiffItemKey = (sectionName, item) => [
+  estimateDiffTextKey(sectionName),
+  estimateDiffTextKey(item?.name),
+  estimateDiffTextKey(normalizeMeasure(1, item?.unit).unit || item?.unit),
+].join('|');
+
+export const estimateRowsForDiff = (estimate) => {
+  const grouped = new Map();
+  estimateSectionsOf(estimate).forEach((section, sectionIdx) => (section.items || []).forEach((item, itemIdx) => {
+    const itemType = normalizeEstimateItemType(item, section.name);
+    if (['adjustment', 'note'].includes(itemType)) return;
+    const rawQty = toNum(item.quantity);
+    const normalized = normalizeMeasure(rawQty, item.unit);
+    const qty = normalized.qty;
+    const workSum = estimateItemWorkSum(item);
+    const materialSum = estimateItemMaterialSum(item);
+    const sum = workSum + materialSum;
+    const key = estimateDiffItemKey(section.name, item) || ['row', sectionIdx, itemIdx].join('|');
+    const row = {
+      key,
+      section: section.name || 'Без раздела',
+      name: item.name || 'Без названия',
+      unit: normalized.unit || item.unit || '',
+      qty,
+      workSum,
+      materialSum,
+      sum,
+      unitPrice: qty ? sum / qty : 0,
+    };
+    if (!grouped.has(key)) {
+      grouped.set(key, row);
+      return;
+    }
+    const prev = grouped.get(key);
+    const mergedQty = prev.qty + row.qty;
+    const sameSection = prev.section === row.section;
+    grouped.set(key, {
+      ...prev,
+      section: sameSection ? prev.section : 'Несколько разделов',
+      qty: mergedQty,
+      workSum: prev.workSum + row.workSum,
+      materialSum: prev.materialSum + row.materialSum,
+      sum: prev.sum + row.sum,
+      unitPrice: mergedQty ? (prev.sum + row.sum) / mergedQty : 0,
+    });
+  }));
+  return Array.from(grouped.values());
+};
+
+export const buildEstimateDiff = (baseEst, nextEst) => {
+  const baseRows = estimateRowsForDiff(baseEst);
+  const nextRows = estimateRowsForDiff(nextEst);
+  const baseMap = new Map(baseRows.map(row => [row.key, row]));
+  const nextMap = new Map(nextRows.map(row => [row.key, row]));
+  const added = [];
+  const removed = [];
+  const changed = [];
+  nextRows.forEach(next => {
+    const base = baseMap.get(next.key);
+    if (!base) {
+      added.push({ ...next, impact: next.sum });
+      return;
+    }
+    const qtyChanged = Math.abs(next.qty - base.qty) > 0.0001;
+    const priceChanged = Math.abs(next.unitPrice - base.unitPrice) > 0.01;
+    const sumChanged = Math.abs(next.sum - base.sum) > 0.5;
+    if (qtyChanged || priceChanged || sumChanged) {
+      changed.push({ base, next, impact: next.sum - base.sum });
+    }
+  });
+  baseRows.forEach(base => {
+    if (!nextMap.has(base.key)) removed.push({ ...base, impact: -base.sum });
+  });
+  const sortImpact = (a, b) => Math.abs(b.impact) - Math.abs(a.impact);
+  return {
+    added: added.sort(sortImpact),
+    removed: removed.sort(sortImpact),
+    changed: changed.sort(sortImpact),
+    baseTotal: estimateTotal(baseEst),
+    nextTotal: estimateTotal(nextEst),
+    impact: estimateTotal(nextEst) - estimateTotal(baseEst),
+  };
+};
+
+const WORK_JOURNAL_RECONCILE_STOP_WORDS = new Set([
+  'работа',
+  'работы',
+  'работ',
+  'устройство',
+  'установка',
+  'монтаж',
+  'демонтаж',
+  'разборка',
+  'снятие',
+  'для',
+  'при',
+  'под',
+  'над',
+  'без',
+  'или',
+  'его',
+  'ее',
+  'это',
+  'прочие',
+  'прочая',
+]);
+
+export const workJournalReconcileTokens = (value) => estimateDiffTextKey(value)
+  .split(' ')
+  .filter(word => word.length >= 3 && !WORK_JOURNAL_RECONCILE_STOP_WORDS.has(word));
+
+export const workJournalReconcileNameScore = (left, right) => {
+  const a = estimateDiffTextKey(left);
+  const b = estimateDiffTextKey(right);
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  if (a.includes(b) || b.includes(a)) return 0.88;
+  const at = workJournalReconcileTokens(a);
+  const bt = workJournalReconcileTokens(b);
+  if (!at.length || !bt.length) return 0;
+  const bset = new Set(bt);
+  const aset = new Set(at);
+  const common = at.filter(token => bset.has(token)).length;
+  const reverse = bt.filter(token => aset.has(token)).length;
+  return Math.max(common / Math.max(at.length, 1), reverse / Math.max(bt.length, 1))
+    * Math.min(1, common / Math.max(Math.min(at.length, bt.length), 1) + 0.15);
 };

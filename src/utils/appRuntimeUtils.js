@@ -53,3 +53,80 @@ export const generateQR = (text) => {
   const size = 150;
   return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(text)}`;
 };
+
+export const createFileSrc = (apiBase = '') => (url) => {
+  const value = String(url || '').trim();
+  if (!value) return '';
+  if (/^(https?:|data:|blob:)/i.test(value)) return value;
+  return apiBase + value;
+};
+
+export const calcVat = (total, vatType) => {
+  const amount = Number(total || 0);
+  const match = String(vatType || '').match(/НДС\s*(\d+(?:[,.]\d+)?)%/i);
+  if (match) {
+    const rate = Number(match[1].replace(',', '.')) / 100;
+    if (rate > 0) {
+      const base = Math.round((amount / (1 + rate)) * 100) / 100;
+      return { base, vat: Math.round((amount - base) * 100) / 100, total: amount };
+    }
+  }
+  return { base: amount, vat: 0, total: amount };
+};
+
+export const matchSearchFields = (query, ...fields) => {
+  if (!query || query.trim().length < 2) return true;
+  const needle = query.toLowerCase().trim();
+  return fields.some(field => String(field || '').toLowerCase().includes(needle));
+};
+
+export const buildPagedPath = (path, params = {}) => {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    query.set(key, String(value));
+  });
+  const queryString = query.toString();
+  return queryString ? `${path}?${queryString}` : path;
+};
+
+export const mergeRowsByIdValue = (current = [], incoming = []) => {
+  const rows = new Map();
+  [...(Array.isArray(current) ? current : []), ...(Array.isArray(incoming) ? incoming : [])].forEach((row, index) => {
+    if (!row) return;
+    const key = row.id !== undefined && row.id !== null ? `id:${row.id}` : `row:${index}:${JSON.stringify(row)}`;
+    rows.set(key, row);
+  });
+  return Array.from(rows.values());
+};
+
+export const createWorkJournalPageState = (
+  { projectName = '', search = '', dateFrom = '', dateTo = '', rows = [], loading = false, error = '' } = {},
+  pageLimit = 0,
+) => ({
+  projectName,
+  search,
+  dateFrom,
+  dateTo,
+  hasMore: Array.isArray(rows) && rows.length === pageLimit,
+  loading,
+  error,
+});
+
+export const createMaterialNormsPageState = ({ search = '', rows = [], loading = false, error = '' } = {}, pageLimit = 0) => ({
+  search,
+  hasMore: Array.isArray(rows) && rows.length === pageLimit,
+  loading,
+  error,
+});
+
+export const createMaterialsPageState = (
+  { projectName = '', search = '', rows = [], loading = false, error = '' } = {},
+  pageLimit = 0,
+) => ({
+  projectName,
+  search,
+  hasMore: Array.isArray(rows) && rows.length === pageLimit,
+  loading,
+  error,
+});

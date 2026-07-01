@@ -542,15 +542,246 @@ def _normalize_supplier_name_key(value: str) -> str:
     text = re.sub(r"\b(ооо|оао|ао|пао|зао|ип|индивидуальный предприниматель)\b", " ", text)
     return _norm_key_text(text)
 
+def _supplier_digits(value) -> str:
+    return re.sub(r"\D", "", str(value or ""))
+
+def _supplier_payload_text(payload: dict, *keys: str) -> str:
+    payload = payload or {}
+    for key in keys:
+        value = payload.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ""
+
+def _supplier_extract_requisites(payload: dict) -> dict:
+    payload = payload or {}
+    name = _supplier_payload_text(
+        payload,
+        "supplierName", "supplier_name", "supplier", "name", "companyName", "company_name",
+        "seller", "shipper", "consignor", "sender",
+    )
+    raw_text = " ".join(str(v or "") for v in payload.values() if isinstance(v, (str, int, float)))
+    inn = _supplier_digits(_supplier_payload_text(payload, "supplierInn", "supplier_inn", "inn"))
+    kpp = _supplier_digits(_supplier_payload_text(payload, "supplierKpp", "supplier_kpp", "kpp"))
+    ogrn = _supplier_digits(_supplier_payload_text(payload, "supplierOgrn", "supplier_ogrn", "ogrn", "ogrnip"))
+    if not inn:
+        match = re.search(r"\bинн\s*[:№#-]?\s*([0-9\s-]{10,20})", raw_text, re.IGNORECASE)
+        if match:
+            inn = _supplier_digits(match.group(1))
+    if not kpp:
+        match = re.search(r"\bкпп\s*[:№#-]?\s*([0-9\s-]{9,16})", raw_text, re.IGNORECASE)
+        if match:
+            kpp = _supplier_digits(match.group(1))
+    if not ogrn:
+        match = re.search(r"\bогрн(?:ип)?\s*[:№#-]?\s*([0-9\s-]{13,20})", raw_text, re.IGNORECASE)
+        if match:
+            ogrn = _supplier_digits(match.group(1))
+    phone = _supplier_digits(_supplier_payload_text(payload, "supplierPhone", "supplier_phone", "phone", "tel", "telephone"))
+    email = _supplier_payload_text(payload, "supplierEmail", "supplier_email", "email").lower()
+    return {
+        "name": name,
+        "nameKey": _normalize_supplier_name_key(name),
+        "inn": inn if len(inn) in (10, 12) else inn,
+        "kpp": kpp if len(kpp) == 9 else kpp,
+        "ogrn": ogrn if len(ogrn) in (13, 15) else ogrn,
+        "phone": phone,
+        "email": email if "@" in email else "",
+    }
+
+SUPPLIER_MATCH_SELECT = "id,name,phone,email,inn,kpp,ogrn,status"
+
+def _supplier_match_dict(row):
+    if not row:
+        return None
+    return {
+        "id": _row_get(row, "id", 0, 0),
+        "name": _row_get(row, "name", 1, ""),
+        "phone": _row_get(row, "phone", 2, ""),
+        "email": _row_get(row, "email", 3, ""),
+        "inn": _row_get(row, "inn", 4, ""),
+        "kpp": _row_get(row, "kpp", 5, ""),
+        "ogrn": _row_get(row, "ogrn", 6, ""),
+        "status": _row_get(row, "status", 7, ""),
+    }
+
+def _supplier_find_match(cur, payload: dict):
+    req = _supplier_extract_requisites(payload)
+    explicit_id = int(_supplier_payload_text(payload, "supplierId", "supplier_id", "id") or 0)
+    if explicit_id:
+        cur.execute(f"SELECT {SUPPLIER_MATCH_SELECT} FROM suppliers WHERE id=%s LIMIT 1", (explicit_id,))
+        row = cur.fetchone()
+        if row:
+            return _supplier_match_dict(row)
+    if req["inn"]:
+        cur.execute(f"""SELECT {SUPPLIER_MATCH_SELECT}
+                        FROM suppliers
+                        WHERE regexp_replace(COALESCE(inn,''), '\\D', '', 'g')=%s
+                        ORDER BY id LIMIT 1""", (req["inn"],))
+        row = cur.fetchone()
+        if row:
+            return _supplier_match_dict(row)
+        cur.execute(f"""SELECT s.{SUPPLIER_MATCH_SELECT.replace(',', ',s.')}
+                        FROM supplier_aliases a
+                        JOIN suppliers s ON s.id=a.supplier_id
+                        WHERE regexp_replace(COALESCE(a.inn,''), '\\D', '', 'g')=%s
+                        ORDER BY s.id LIMIT 1""", (req["inn"],))
+        row = cur.fetchone()
+        if row:
+            return _supplier_match_dict(row)
+    if req["ogrn"]:
+        cur.execute(f"""SELECT {SUPPLIER_MATCH_SELECT}
+                        FROM suppliers
+                        WHERE regexp_replace(COALESCE(ogrn,''), '\\D', '', 'g')=%s
+                        ORDER BY id LIMIT 1""", (req["ogrn"],))
+        row = cur.fetchone()
+        if row:
+            return _supplier_match_dict(row)
+        cur.execute(f"""SELECT s.{SUPPLIER_MATCH_SELECT.replace(',', ',s.')}
+                        FROM supplier_aliases a
+                        JOIN suppliers s ON s.id=a.supplier_id
+                        WHERE regexp_replace(COALESCE(a.ogrn,''), '\\D', '', 'g')=%s
+                        ORDER BY s.id LIMIT 1""", (req["ogrn"],))
+        row = cur.fetchone()
+        if row:
+            return _supplier_match_dict(row)
+    if req["email"]:
+        cur.execute(f"""SELECT {SUPPLIER_MATCH_SELECT}
+                        FROM suppliers
+                        WHERE LOWER(COALESCE(email,''))=LOWER(%s)
+                        ORDER BY id LIMIT 1""", (req["email"],))
+        row = cur.fetchone()
+        if row:
+            return _supplier_match_dict(row)
+    if req["phone"] and len(req["phone"]) >= 7:
+        cur.execute(f"""SELECT {SUPPLIER_MATCH_SELECT}
+                        FROM suppliers
+                        WHERE regexp_replace(COALESCE(phone,''), '\\D', '', 'g')=%s
+                        ORDER BY id LIMIT 1""", (req["phone"],))
+        row = cur.fetchone()
+        if row:
+            return _supplier_match_dict(row)
+    if req["nameKey"]:
+        cur.execute(f"SELECT {SUPPLIER_MATCH_SELECT} FROM suppliers ORDER BY id")
+        for row in cur.fetchall() or []:
+            if _normalize_supplier_name_key(_row_get(row, "name", 1, "")) == req["nameKey"]:
+                return _supplier_match_dict(row)
+        cur.execute(f"""SELECT s.{SUPPLIER_MATCH_SELECT.replace(',', ',s.')}
+                        FROM supplier_aliases a
+                        JOIN suppliers s ON s.id=a.supplier_id
+                        WHERE a.alias_key=%s
+                        ORDER BY s.id LIMIT 1""", (req["nameKey"],))
+        row = cur.fetchone()
+        if row:
+            return _supplier_match_dict(row)
+    return None
+
+def _remember_supplier_alias(cur, supplier_id: int, payload: dict, source: str = "", confidence: float = 1.0):
+    if not supplier_id:
+        return
+    req = _supplier_extract_requisites(payload)
+    if not req["nameKey"] and not req["inn"] and not req["ogrn"]:
+        return
+    cur.execute("""SELECT id FROM supplier_aliases
+                   WHERE supplier_id=%s
+                     AND (
+                       (%s<>'' AND alias_key=%s)
+                       OR (%s<>'' AND regexp_replace(COALESCE(inn,''), '\\D', '', 'g')=%s)
+                       OR (%s<>'' AND regexp_replace(COALESCE(ogrn,''), '\\D', '', 'g')=%s)
+                     )
+                   LIMIT 1""", (
+        supplier_id,
+        req["nameKey"], req["nameKey"],
+        req["inn"], req["inn"],
+        req["ogrn"], req["ogrn"],
+    ))
+    if cur.fetchone():
+        return
+    cur.execute("""INSERT INTO supplier_aliases
+                      (supplier_id, alias_name, alias_key, inn, kpp, ogrn, source, confidence)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""", (
+        supplier_id, req["name"], req["nameKey"], req["inn"], req["kpp"], req["ogrn"],
+        (source or "")[:100], confidence,
+    ))
+
+def _update_supplier_missing_fields(cur, supplier_id: int, payload: dict, user_id=None):
+    payload = payload or {}
+    req = _supplier_extract_requisites(payload)
+    values = {
+        "name": req["name"],
+        "phone": _supplier_payload_text(payload, "phone", "supplierPhone", "supplier_phone"),
+        "email": _supplier_payload_text(payload, "email", "supplierEmail", "supplier_email"),
+        "specialization": _supplier_payload_text(payload, "specialization", "workType", "work_type"),
+        "category": _supplier_payload_text(payload, "category", "counterpartyType", "counterparty_type"),
+        "status": _supplier_payload_text(payload, "status") or "Активный",
+        "inn": req["inn"],
+        "kpp": req["kpp"],
+        "ogrn": req["ogrn"],
+        "legal_address": _supplier_payload_text(payload, "legalAddress", "legal_address"),
+        "actual_address": _supplier_payload_text(payload, "actualAddress", "actual_address", "address"),
+        "bank": _supplier_payload_text(payload, "bank"),
+        "bik": _supplier_payload_text(payload, "bik"),
+        "account": _supplier_payload_text(payload, "account", "bankAccount", "bank_account"),
+        "kor_account": _supplier_payload_text(payload, "korAccount", "kor_account", "corrAccount", "corr_account"),
+        "director_name": _supplier_payload_text(payload, "directorName", "director_name", "signerName", "signer_name"),
+        "director_position": _supplier_payload_text(payload, "directorPosition", "director_position", "signerBasis", "signer_basis"),
+        "contract_url": _supplier_payload_text(payload, "contractUrl", "contract_url"),
+        "contract_number": _supplier_payload_text(payload, "contractNumber", "contract_number"),
+        "license_url": _supplier_payload_text(payload, "licenseUrl", "license_url"),
+        "price_url": _supplier_payload_text(payload, "priceUrl", "price_url"),
+        "website": _supplier_payload_text(payload, "website"),
+        "notes": _supplier_payload_text(payload, "notes"),
+    }
+    cur.execute("""
+        UPDATE suppliers SET
+          name=CASE WHEN COALESCE(name,'')='' THEN %s ELSE name END,
+          phone=CASE WHEN COALESCE(phone,'')='' THEN %s ELSE phone END,
+          email=CASE WHEN COALESCE(email,'')='' THEN %s ELSE email END,
+          specialization=CASE WHEN COALESCE(specialization,'')='' THEN %s ELSE specialization END,
+          category=CASE WHEN COALESCE(category,'')='' THEN %s ELSE category END,
+          status=CASE WHEN COALESCE(status,'')='' THEN %s ELSE status END,
+          inn=CASE WHEN COALESCE(inn,'')='' THEN %s ELSE inn END,
+          kpp=CASE WHEN COALESCE(kpp,'')='' THEN %s ELSE kpp END,
+          ogrn=CASE WHEN COALESCE(ogrn,'')='' THEN %s ELSE ogrn END,
+          legal_address=CASE WHEN COALESCE(legal_address,'')='' THEN %s ELSE legal_address END,
+          actual_address=CASE WHEN COALESCE(actual_address,'')='' THEN %s ELSE actual_address END,
+          bank=CASE WHEN COALESCE(bank,'')='' THEN %s ELSE bank END,
+          bik=CASE WHEN COALESCE(bik,'')='' THEN %s ELSE bik END,
+          account=CASE WHEN COALESCE(account,'')='' THEN %s ELSE account END,
+          kor_account=CASE WHEN COALESCE(kor_account,'')='' THEN %s ELSE kor_account END,
+          director_name=CASE WHEN COALESCE(director_name,'')='' THEN %s ELSE director_name END,
+          director_position=CASE WHEN COALESCE(director_position,'')='' THEN %s ELSE director_position END,
+          contract_url=CASE WHEN COALESCE(contract_url,'')='' THEN %s ELSE contract_url END,
+          contract_number=CASE WHEN COALESCE(contract_number,'')='' THEN %s ELSE contract_number END,
+          license_url=CASE WHEN COALESCE(license_url,'')='' THEN %s ELSE license_url END,
+          price_url=CASE WHEN COALESCE(price_url,'')='' THEN %s ELSE price_url END,
+          website=CASE WHEN COALESCE(website,'')='' THEN %s ELSE website END,
+          notes=CASE WHEN COALESCE(notes,'')='' THEN %s ELSE notes END
+          """ + (", user_id=COALESCE(user_id,%s), registered_at=COALESCE(registered_at,NOW())" if user_id else "") + """
+        WHERE id=%s
+        RETURNING *
+    """, (
+        values["name"], values["phone"], values["email"], values["specialization"],
+        values["category"], values["status"], values["inn"], values["kpp"], values["ogrn"],
+        values["legal_address"], values["actual_address"], values["bank"], values["bik"],
+        values["account"], values["kor_account"], values["director_name"], values["director_position"],
+        values["contract_url"], values["contract_number"], values["license_url"], values["price_url"],
+        values["website"], values["notes"],
+        *(([user_id] if user_id else [])),
+        supplier_id,
+    ))
+    return cur.fetchone()
+
 def current_supplier_id(cur, user: dict):
     cur.execute("SELECT id FROM suppliers WHERE user_id=%s OR LOWER(email)=LOWER(%s) OR name=%s LIMIT 1",
                 (user.get("id"), user.get("email") or "", user.get("name") or ""))
     row = cur.fetchone()
     if not row:
-        name_key = _normalize_supplier_name_key(user.get("name") or "")
-        if name_key:
-            cur.execute("SELECT id, name FROM suppliers ORDER BY id")
-            row = next((supplier for supplier in cur.fetchall() if _normalize_supplier_name_key(_row_value(supplier, 1, "name", "")) == name_key), None)
+        supplier = _supplier_find_match(cur, {
+            "name": user.get("name") or "",
+            "email": user.get("email") or "",
+            "phone": user.get("phone") or "",
+        })
+        row = supplier
         if not row:
             return None
     try:
@@ -2180,6 +2411,22 @@ def init_db():
         ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS notes TEXT;
         ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS user_id INT;
         ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS registered_at TIMESTAMP;
+        CREATE TABLE IF NOT EXISTS supplier_aliases (
+            id SERIAL PRIMARY KEY,
+            supplier_id INT,
+            alias_name TEXT,
+            alias_key TEXT,
+            inn VARCHAR(50),
+            kpp VARCHAR(50),
+            ogrn VARCHAR(50),
+            source VARCHAR(100),
+            confidence FLOAT DEFAULT 1.0,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_supplier_aliases_supplier_id ON supplier_aliases(supplier_id);
+        CREATE INDEX IF NOT EXISTS idx_supplier_aliases_alias_key ON supplier_aliases(alias_key);
+        CREATE INDEX IF NOT EXISTS idx_supplier_aliases_inn ON supplier_aliases(inn);
+        CREATE INDEX IF NOT EXISTS idx_supplier_aliases_ogrn ON supplier_aliases(ogrn);
         ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS supplier_id INT;
         ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS preset_name VARCHAR(255);
         ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS preset_category VARCHAR(255);
@@ -4862,33 +5109,44 @@ def register(data: dict):
         if role == 'поставщик':
             company_name = data.get("companyName") or name
             supplier_id = invite.get('supplier_id')
+            supplier_payload = {
+                **(data or {}),
+                "name": company_name,
+                "companyName": company_name,
+                "email": email,
+                "category": invite.get('preset_category') or data.get("category",""),
+                "status": "Активный",
+            }
             if supplier_id:
                 # Привязываем к существующей компании
-                cur.execute(
-                    "UPDATE suppliers SET phone=COALESCE(%s,phone), email=COALESCE(%s,email), "
-                    "inn=COALESCE(%s,inn), kpp=COALESCE(%s,kpp), ogrn=COALESCE(%s,ogrn), "
-                    "legal_address=COALESCE(%s,legal_address), bank=COALESCE(%s,bank), "
-                    "bik=COALESCE(%s,bik), account=COALESCE(%s,account), "
-                    "director_name=COALESCE(%s,director_name), "
-                    "user_id=%s, registered_at=NOW() WHERE id=%s",
-                    (data.get("phone"), email, data.get("inn"), data.get("kpp"),
-                     data.get("ogrn"), data.get("legalAddress"), data.get("bank"),
-                     data.get("bik"), data.get("account"), data.get("directorName"),
-                     user['id'], supplier_id))
+                cur.execute("SELECT id FROM suppliers WHERE id=%s LIMIT 1", (supplier_id,))
+                supplier_row = cur.fetchone()
+                if supplier_row:
+                    _update_supplier_missing_fields(cur, supplier_id, supplier_payload, user_id=user['id'])
+                    _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite")
             else:
-                # Создаём новую компанию
-                cur.execute(
-                    "INSERT INTO suppliers (name, phone, email, category, specialization, "
-                    "inn, kpp, ogrn, legal_address, bank, bik, account, director_name, "
-                    "status, rating, user_id, registered_at) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())",
-                    (company_name, data.get("phone",""), email,
-                     invite.get('preset_category') or data.get("category",""),
-                     data.get("specialization",""),
-                     data.get("inn"), data.get("kpp"), data.get("ogrn"),
-                     data.get("legalAddress"), data.get("bank"), data.get("bik"),
-                     data.get("account"), data.get("directorName"),
-                     'Активный', 5.0, user['id']))
+                existing_supplier = _supplier_find_match(cur, supplier_payload)
+                if existing_supplier:
+                    supplier_id = int(existing_supplier.get("id") or 0)
+                    _update_supplier_missing_fields(cur, supplier_id, supplier_payload, user_id=user['id'])
+                    _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite")
+                else:
+                    # Создаём новую компанию
+                    cur.execute(
+                        "INSERT INTO suppliers (name, phone, email, category, specialization, "
+                        "inn, kpp, ogrn, legal_address, bank, bik, account, director_name, "
+                        "status, rating, user_id, registered_at) "
+                        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()) RETURNING id",
+                        (company_name, data.get("phone",""), email,
+                         invite.get('preset_category') or data.get("category",""),
+                         data.get("specialization",""),
+                         data.get("inn"), data.get("kpp"), data.get("ogrn"),
+                         data.get("legalAddress"), data.get("bank"), data.get("bik"),
+                         data.get("account"), data.get("directorName"),
+                         'Активный', 5.0, user['id']))
+                    new_supplier = cur.fetchone()
+                    supplier_id = new_supplier.get("id") if isinstance(new_supplier, dict) else new_supplier[0]
+                    _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite")
         cur.execute("UPDATE invite_codes SET used=TRUE WHERE code=%s", (code,))
         conn.close()
         return public_user(user, include_token=True)
@@ -6824,9 +7082,9 @@ def create_supplier(s: SupplierModel, _current_user: dict = Depends(require_role
     if not name:
         cur.close(); conn.close()
         raise HTTPException(status_code=400, detail="Название поставщика обязательно")
-    name_key = _normalize_supplier_name_key(name)
-    cur.execute("SELECT * FROM suppliers ORDER BY id")
-    existing = next((row for row in cur.fetchall() if _normalize_supplier_name_key(row.get("name") or "") == name_key), None)
+    payload = s.dict()
+    payload["name"] = name
+    existing = _supplier_find_match(cur, payload)
     if existing:
         cur.execute("""
             UPDATE suppliers SET
@@ -6863,6 +7121,7 @@ def create_supplier(s: SupplierModel, _current_user: dict = Depends(require_role
             s.priceUrl, s.website, s.notes, existing["id"],
         ))
         row = cur.fetchone()
+        _remember_supplier_alias(cur, existing["id"], payload, source="manual_supplier")
         cur.close(); conn.close()
         return dict(row)
     cur.execute("""
@@ -6885,6 +7144,8 @@ def create_supplier(s: SupplierModel, _current_user: dict = Depends(require_role
         s.licenseUrl, s.priceUrl, s.website, s.notes,
     ))
     row = cur.fetchone()
+    supplier_id = row.get("id") if isinstance(row, dict) else row[0]
+    _remember_supplier_alias(cur, supplier_id, payload, source="manual_supplier")
     cur.close()
     conn.close()
     return dict(row)
@@ -19528,15 +19789,9 @@ def _scan_invoice_supplier_name(payload: dict) -> str:
     return ""
 
 def _find_supplier_by_name_key(cur, supplier_name: str):
-    supplier_key = _supplier_invoice_template_key(supplier_name)
-    if not supplier_key:
+    if not _supplier_invoice_template_key(supplier_name):
         return None
-    cur.execute("SELECT id, name FROM suppliers ORDER BY id")
-    for row in cur.fetchall() or []:
-        row_name = _row_get(row, "name", 1, "")
-        if _supplier_invoice_template_key(row_name) == supplier_key:
-            return {"id": _row_get(row, "id", 0, 0), "name": row_name}
-    return None
+    return _supplier_find_match(cur, {"supplierName": supplier_name, "supplier": supplier_name})
 
 def _supplier_invoice_template_match_score(row, supplier_name: str) -> float:
     supplier_key = _supplier_invoice_template_key(supplier_name)
@@ -19627,10 +19882,17 @@ def _apply_supplier_invoice_template_metadata(payload: dict, current_user: dict 
     try:
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        supplier = _find_supplier_by_name_key(cur, recognition["supplierName"])
+        supplier_lookup_payload = {
+            **payload,
+            "supplierName": recognition["supplierName"],
+            "supplier": recognition["supplierName"] or payload.get("supplier") or "",
+        }
+        supplier = _supplier_find_match(cur, supplier_lookup_payload)
         if supplier:
             recognition["supplierId"] = supplier["id"]
             recognition["supplierName"] = supplier["name"] or recognition["supplierName"]
+            _update_supplier_missing_fields(cur, supplier["id"], supplier_lookup_payload)
+            _remember_supplier_alias(cur, supplier["id"], supplier_lookup_payload, source="invoice_scan")
         match, _supplier_name = _find_supplier_invoice_template(cur, payload)
         if match:
             row = match["row"]
@@ -19645,6 +19907,8 @@ def _apply_supplier_invoice_template_metadata(payload: dict, current_user: dict 
                 "confidence": max(float(payload.get("confidence") or 0), min(1.0, float(match["score"]))),
             })
             payload["supplier"] = recognition["supplierName"] or payload.get("supplier") or ""
+            if recognition["supplierId"]:
+                _remember_supplier_alias(cur, recognition["supplierId"], supplier_lookup_payload, source="invoice_template")
             cur.execute("""UPDATE supplier_invoice_templates
                            SET usage_count=COALESCE(usage_count,0)+1, last_used_at=NOW()
                            WHERE id=%s""", (template["id"],))
@@ -19652,7 +19916,9 @@ def _apply_supplier_invoice_template_metadata(payload: dict, current_user: dict 
         else:
             if recognition["supplierId"]:
                 recognition["warnings"].append("Поставщик найден в справочнике, но шаблон еще не сохранен.")
-            conn.rollback()
+                conn.commit()
+            else:
+                conn.rollback()
         cur.close(); conn.close()
     except Exception as exc:
         print("INVOICE TEMPLATE APPLY ERROR:", str(exc))
@@ -19932,6 +20198,18 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
         invoice_number = (data.get("number") or "").strip()
         invoice_date = data.get("date") or None
         supplier_name = (data.get("supplierName") or "").strip()
+        supplier_lookup_payload = {
+            **(data or {}),
+            "supplierName": supplier_name or data.get("supplier") or "",
+            "supplier": data.get("supplier") or supplier_name,
+        }
+        matched_supplier = _supplier_find_match(cur, supplier_lookup_payload)
+        if matched_supplier:
+            data["supplierId"] = matched_supplier["id"]
+            data["supplierName"] = matched_supplier["name"] or supplier_name
+            supplier_name = data["supplierName"]
+            _update_supplier_missing_fields(cur, matched_supplier["id"], supplier_lookup_payload)
+            _remember_supplier_alias(cur, matched_supplier["id"], supplier_lookup_payload, source="warehouse_invoice")
         if invoice_number:
             cur.execute("""SELECT id FROM warehouse_invoices
                            WHERE COALESCE(status,'Принята') <> 'Аннулирована'
@@ -25333,6 +25611,9 @@ def _invoice_scan_json_format() -> str:
         "\"number\":строка,"
         "\"date\":\"YYYY-MM-DD или исходная дата\","
         "\"supplier\":строка,"
+        "\"supplierInn\":строка,"
+        "\"supplierKpp\":строка,"
+        "\"supplierOgrn\":строка,"
         "\"buyer\":строка,"
         "\"vat\":\"Без НДС|С НДС 20%|С НДС 22%\","
         "\"vatRate\":0|20|22,"
@@ -25425,6 +25706,9 @@ def _retry_invoice_scan_compact_json(client, model: str, images: list):
             "\"number\":строка,"
             "\"date\":\"YYYY-MM-DD или исходная дата\","
             "\"supplier\":строка,"
+            "\"supplierInn\":строка,"
+            "\"supplierKpp\":строка,"
+            "\"supplierOgrn\":строка,"
             "\"buyer\":строка,"
             "\"vat\":\"Без НДС|С НДС 20%|С НДС 22%\","
             "\"vatRate\":0|20|22,"
@@ -25485,7 +25769,7 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
             "объедини позиции со всех страниц в один items, номер/дату/поставщика бери из шапки, итог — с последней страницы или строки итого. "
             "Если виден только фрагмент страницы с таблицей товаров без номера, даты или полной шапки, всё равно распознай строки: "
             "documentType оставь \"supplier_invoice\", number/date/documentTitle заполни пустыми строками, supplier бери из "
-            "'Поставщик', 'Грузоотправитель' или ближайшей строки с ИНН, если она видна. "
+            "'Поставщик', 'Грузоотправитель' или ближайшей строки с ИНН, если она видна; ИНН/КПП/ОГРН поставщика положи отдельно в supplierInn/supplierKpp/supplierOgrn. "
             "Документ может быть повернут на 90 или 180 градусов: мысленно поверни страницу и читай таблицу по строкам. "
             "Верни только JSON без markdown. Не путай складскую накладную с личной тратой. Не выдумывай позиции: если строка товара читается плохо, "
             "заполни confidence меньше 0.6 и sourceText коротким исходным фрагментом до 60 символов. Не вставляй переносы строк внутрь JSON-строк. "

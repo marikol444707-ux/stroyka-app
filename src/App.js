@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
-import LoginPage from './pages/LoginPage';
 import { API, installAuthFetch } from './api';
 import { CRM_STAGES, DOOR_PURPOSES, DOOR_TYPES, ESTIMATE_CHANGE_TYPES, ESTIMATE_CHANGE_VISIBLE_STATUSES, ESTIMATE_PACKAGES, EXPENSE_CATEGORIES, MATERIAL_CATEGORIES, PAYMENT_TYPES, REVEAL_MATERIALS, STAGE_STATUSES, SUPPLIER_CATEGORIES, SURFACES, TOOL_STATUSES, UNITS, VAT_OPTIONS, WEATHER_CONDITIONS, WINDOW_TYPES } from './constants/catalogs';
 import {
@@ -51,6 +50,7 @@ import ProjectMaterialsTransferPanel from './components/ProjectMaterialsTransfer
 import ProjectFinancePanel from './components/ProjectFinancePanel';
 import ProjectEconomyPanel from './components/ProjectEconomyPanel';
 import ProjectObjectLinksPanel from './components/ProjectObjectLinksPanel';
+import ProjectSitePublicationPage from './components/ProjectSitePublicationPage';
 import ProjectDocumentsRegistryPanel from './components/ProjectDocumentsRegistryPanel';
 import DocumentRecognitionPanel from './components/DocumentRecognitionPanel';
 import ProjectLettersPanel from './components/ProjectLettersPanel';
@@ -60,7 +60,7 @@ import ProjectPrescriptionsPanel from './components/ProjectPrescriptionsPanel';
 import ProjectSafetyJournalPanel from './components/ProjectSafetyJournalPanel';
 import ProjectWorkJournalPanel from './components/ProjectWorkJournalPanel';
 import ProjectScheduleSummaryPanel from './components/ProjectScheduleSummaryPanel';
-import { ProjectDirectorMapPanel, buildDirectorMapContract } from './features/director-map';
+import { ProjectDirectorMapPanel, buildDirectorMapContract, getDirectorMapActionTarget } from './features/director-map';
 import PreviewModal from './components/PreviewModal';
 import ImagePreviewModal from './components/ImagePreviewModal';
 import EstimatesTabsNav from './components/EstimatesTabsNav';
@@ -90,64 +90,11 @@ import EstimateExecutionPricingPanel from './components/EstimateExecutionPricing
 import PhotoAttachmentField from './components/PhotoAttachmentField';
 import MobileBottomNav from './components/MobileBottomNav';
 import {
-  AccountingPage,
-  AccountableExpenseReportModal,
-  AccountablePaymentModal,
-  ActPaymentModal,
-  ActivityLogPage,
-  AiAssistantDrawer,
-  AiChatModal,
-  AnalyticsPage,
-  BrigadePaymentModal,
-  ClientsPage,
-  ClientAccountCabinet,
-  CompanyChatPage,
-  ConfirmWorkAcceptanceModal,
-  CrmPage,
-  CustomerCabinetPage,
   DashboardActivityPanel,
   DashboardDirectorAiPanel,
   DashboardProductionSummaryPanel,
   DashboardSupplyPanel,
-  EstimateChatModal,
-  EstimateDistributeModal,
-  EstimateVersionHistoryModal,
-  GenerateEstimateModal,
-  GeneratePricelistModal,
-  ManualExpenseModal,
   MasterCabinetPage,
-  MyExpensesPage,
-  OwnExpenseFormModal,
-  PersonnelPage,
-  PricelistFromEstimateModal,
-  PricelistsPage,
-  ProjectCableJournalEditModal,
-  ProjectHiddenWorksActEditModal,
-  ProjectMaterialInspectionEditModal,
-  ProjectWorkJournalEditModal,
-  ProjectWorkJournalTableModal,
-  PublicSitePage,
-  QrModal,
-  QuickActionsModal,
-  ReceiveMaterialDialog,
-  RegisterPage,
-  ReimburseModal,
-  RejectEntryModal,
-  RequestKpModal,
-  ScanInvoiceModal,
-  ScannedInvoiceFormModal,
-  SettingsPage,
-  SupplierInviteModal,
-  SuppliersPage,
-  SupplyPage,
-  SverkaModal,
-  SystemOwnerCabinet,
-  SupervisorCabinetPage,
-  ToolIssueModal,
-  ToolReturnModal,
-  UsersPage,
-  WarehousePage,
-  WeatherPage,
 } from './app/lazyComponents';
 import { buildPerformerContractHtml } from './utils/contractTemplates';
 import AppSidebar from './components/AppSidebar';
@@ -155,9 +102,40 @@ import AppHeaderBar from './components/AppHeaderBar';
 import DashboardTopBar from './components/DashboardTopBar';
 import DashboardStatsGrid from './components/DashboardStatsGrid';
 import DashboardRisksPanel from './components/DashboardRisksPanel';
+import AppWorkflowModals from './components/AppWorkflowModals';
+import AppSecondaryPages from './components/AppSecondaryPages';
+import AppDirectoryPages from './components/AppDirectoryPages';
+import AppOperationsPages from './components/AppOperationsPages';
+import AppBackofficePages from './components/AppBackofficePages';
+import AppActionModals from './components/AppActionModals';
+import AppEntryRoutes from './components/AppEntryRoutes';
+import AppProjectEditModals from './components/AppProjectEditModals';
+import { buildAppMenuItems } from './components/AppMenuItems';
+import AppRoleCabinetRoutes from './components/AppRoleCabinetRoutes';
 import { resolveEstimatePackage } from './utils/estimatePackage';
 import { _normalizeUnit, denormalizeMeasure, fmtMeasure, normalizeMeasure, toNum } from './utils/measureUtils';
-import { EMPTY_MATERIAL_NORM_FORM, WORK_MATERIAL_NORM_RULES, convertUnits } from './utils/materialNormUtils';
+import {
+  EMPTY_MATERIAL_NORM_FORM,
+  WORK_MATERIAL_NORM_RULES,
+  calculateMaterialNormForWork,
+  calculateNormRequirementsForWork,
+  convertUnits,
+  materialNormCoverageComment,
+  materialNormCoverageDisplayRows,
+  materialNormCoverageExportRows,
+  materialNoNormCoverageReason,
+  materialNormMatchesMaterial,
+  materialNormRuleForCalc,
+  materialNormCanCreateSupply,
+  materialTitleForNormRule,
+  materialNormSupplyMarker,
+  materialNormSupplyNotes,
+  normListFromText,
+  normListToText,
+  roundNormQty,
+  workNoMaterialNormReason,
+  workNormRulesForCalculation,
+} from './utils/materialNormUtils';
 import { materialAutoMatchSafe, materialLookupText, materialNameMatchScore } from './utils/materialMatchUtils';
 import {
   calcDoorArea,
@@ -169,8 +147,15 @@ import {
 } from './utils/roomMeasurementUtils';
 import {
   buildEstimateWorkSummary,
+  buildEstimateDiff,
   enrichEstimateMeasurementBasis,
+  activeEstimateFromList,
+  applyEstimateActivationState,
+  estimateDiffTextKey,
+  estimateDisplayVersion,
   estimateExecutionFillPercentOf,
+  estimateGroupKey,
+  estimateHasLoadedSections,
   estimateImportedPlanMeasure,
   estimateItemDoneTotal,
   estimateItemMaterialSum,
@@ -178,26 +163,77 @@ import {
   estimateItemTypeMeta,
   estimateItemWorkSum,
   estimateIssueDomId,
+  estimateKind,
   estimateMaterialPlanIssue,
   estimateMeasurementBasisMeta,
   estimateMeasurementBasisOf,
+  estimatePackage,
+  estimateRowsForDiff,
+  estimateSectionsOf as _sectionsOfEst,
+  estimateTotal,
+  estimateTypeIcon,
+  estimateUpdatedTs,
+  estimateVersionChain,
+  nextEstimateVersionFor as nextEstimateVersionForFromList,
+  estimateWorkKey,
   estimateWorkKeyForItem,
+  isArchivedEstimate,
+  isGlobalEstimateTemplate,
   isEstimatePricelist,
   isEstimateMaterialItem,
   isEstimateWorkItem,
-  linkEstimateResourcesToWorks,
   normalizeEstimateImportSections,
   normalizeEstimateItemType,
   normalizeEstimateList,
   normalizeEstimateWorkingItem,
   normalizeImportedEstimateItem,
+  sameEstimateGroup,
+  workJournalReconcileNameScore,
 } from './utils/estimateUtils';
 import {
+  estimateChangeAutoDecision,
+  estimateChangeReconcileMarker,
+  estimateChangeReconcileDescription,
+  estimateDiffReviewMarker,
+  estimateDiffReviewDescription,
+  estimateNormReviewMarker,
+  estimateNormReviewDescription,
+  estimateNormReviewIssueStatuses,
+  estimateQualityReviewMarker,
+  estimateQualityDescription,
+  estimateQualityRows,
+} from './utils/estimateReviewUtils';
+import {
+  journalRoomLinkKey,
+  invoiceControlMaterialName,
+  invoiceControlNeedsReview,
+  invoiceControlProjectName,
+  invoiceControlReviewReason,
+  invoiceControlReviewMarker,
+  invoiceControlSupplyMarker,
+  invoiceControlUnit,
+  materialControlDescription,
+  materialControlMarker,
+  materialControlRowPackageKey,
+  materialControlSupplyMarker,
+  parseAiTaskPayload,
+  roomControlMarker,
+  roomControlDescription,
+} from './utils/aiControlDescriptionUtils';
+import {
+  buildPagedPath,
+  calcVat,
+  createMaterialsPageState,
+  createMaterialNormsPageState,
+  createFileSrc,
+  createWorkJournalPageState,
   daysInMonth,
   doPrint,
   generateQR,
   initialGuestPage,
   loadStoredUser,
+  matchSearchFields,
+  mergeRowsByIdValue,
   requestPushPermission,
   sendPushNotification,
 } from './utils/appRuntimeUtils';
@@ -205,6 +241,64 @@ import {
   normalizeDocDate,
   workDocDate,
 } from './utils/documentFormatUtils';
+import { cableTypeOf } from './utils/cableUtils';
+import {
+  contractRequisitesWarning,
+  normalizePersonKey,
+  staffPassportText,
+} from './utils/performerUtils';
+import {
+  activeProjectsOnly,
+  canAccessRole,
+  canCreateInvoiceControlReviewTaskForUser,
+  canCreateSupplyRequestFromControlForUser,
+  canCreateSupplyRequestFromNormForUser,
+  canEditMaterialNormsForUser,
+  isFinanceUser,
+  isLeadershipUser,
+  isProrabUser,
+  roleColorForRole,
+  roleFlagsForUser,
+  selectableActiveProjectsForUser,
+  visibleEstimatesForUser,
+  visibleProjectsForUser,
+} from './utils/accessUtils';
+import {
+  calcStaffSalary,
+  workedDaysForStaff,
+} from './utils/payrollUtils';
+import {
+  formatSignedRubValue,
+  projectPaymentIncomingAmount,
+  projectPaymentSignedAmountValue,
+} from './utils/projectPaymentUtils';
+import {
+  buildProjectEconomy,
+  projectBudgetSpentSummary,
+  projectExpenseCategories,
+  projectFactSpentValue,
+  projectRealProgressValue,
+  workExecutionTotalValue,
+} from './utils/projectEconomyUtils';
+import { buildProjectObjectLinks } from './utils/projectObjectLinksUtils';
+import {
+  buildComputedNotifications,
+  notificationPageForType,
+  notificationsForUser,
+} from './utils/notificationUtils';
+import {
+  buildWarehouseInvoiceItems,
+  buildWorkMaterialSelectionRow,
+  buildM8Rows,
+  buildM29Rows,
+  packageMatches,
+  parseJournalMaterialsValue,
+} from './utils/materialDocumentUtils';
+import {
+  buildEstimateControlIssues,
+  buildEstimateControlReportData,
+} from './utils/estimateControlUtils';
+import { actStatusForJournalWork } from './utils/hiddenActUtils';
 import {
   buildAOSKDocContent,
   buildBrigadeActDocContent,
@@ -250,8 +344,18 @@ import {
 } from './utils/printDocumentBuilders';
 import { EMPTY_ESTIMATE_CHANGE, isApprovedEstimateChangeStatus } from './utils/estimateChangeUtils';
 import { emptyStaffForm } from './utils/staffUtils';
-import { workJournalEstimateStatusMeta } from './utils/statusMetaUtils';
-import { LayoutDashboard, FolderKanban, Package, DollarSign, UserCheck, ScrollText, BarChart3, Handshake, Search, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, Download, Upload, MapPin, FileText, Archive, CloudSun, QrCode, Calculator, Settings, CreditCard, Bot, ShoppingCart, GitBranch } from 'lucide-react';
+import { emptySupplierForm, normalizeSupplierPayload } from './utils/supplierUtils';
+import {
+  isActiveSupplyRequestStatus,
+  isSameSupplyMaterial,
+  materialControlRequestItems,
+  parseOfferItems,
+  parseSupplyItems,
+  supplyRequestOrigin,
+  supplyUnitKey,
+} from './utils/supplyUtils';
+import { aiSeverityMeta, estimateStatusView, isOpenAiStatus, materialControlStatus, materialNormCoverageMeta, materialNormStatus, workJournalEstimateStatusMeta } from './utils/statusMetaUtils';
+import { FolderKanban, Package, ScrollText, Search, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, Download, Upload, MapPin, FileText, Archive, QrCode, Calculator, Bot, GitBranch } from 'lucide-react';
 
 installAuthFetch();
 
@@ -685,11 +789,7 @@ function App() {
     });
   };
   // Универсальная проверка вхождения подстроки во все указанные поля
-  const matchSearch = (q, ...fields) => {
-    if(!q||q.trim().length<2) return true;
-    const Q = q.toLowerCase().trim();
-    return fields.some(f => String(f||'').toLowerCase().includes(Q));
-  };
+  const matchSearch = (q, ...fields) => matchSearchFields(q, ...fields);
   const [weatherTab, setWeatherTab] = useState('log');
   const [settingsTab, setSettingsTab] = useState('requisites');
   const [rejectComment, setRejectComment] = useState('');
@@ -774,6 +874,8 @@ function App() {
   const [newAct, setNewAct] = useState({masterId:'',masterName:'',project:'',workPackage:'',periodStart:'',periodEnd:''});
   const [newTool, setNewTool] = useState({name:'',inventoryNumber:'',cost:'',status:'На складе',location:'Основной склад',project:'',masterId:'',masterName:'',issueType:'',notes:''});
   const [newRoom, setNewRoom] = useState({project:'',name:'',floorArea:'',wallArea:'',ceilingArea:'',height:'',ceilingType:'Простой',wallMaterial:'Штукатурка',floorMaterial:'Стяжка',photoUrl:'',notes:''});
+  const [draftRoomWindows, setDraftRoomWindows] = useState([]);
+  const [draftRoomDoors, setDraftRoomDoors] = useState([]);
   const [newWindow, setNewWindow] = useState({roomId:'',name:'Окно 1',width:'',height:'',windowType:'ПВХ',revealDepth:'',revealMaterial:'Штукатурка'});
   const [newDoor, setNewDoor] = useState({roomId:'',name:'Дверь 1',width:'',height:'',doorType:'Деревянная',doorPurpose:'Межкомнатная',revealDepth:'',revealMaterial:'Штукатурка'});
   const [newInventory, setNewInventory] = useState({project:'',date:'',notes:''});
@@ -922,20 +1024,9 @@ function App() {
     }
   };
 
-  const getNotifPage = (type) => {
-    const map = {work:'projects',material:'warehouse',stock:'warehouse',supply:'supply',delivery:'supply',invoice:'accounting',act:'accounting',contract:'accounting',unexpected:'dashboard',prescription:'projects',project:'projects',crm:'crm'};
-    return map[type]||'dashboard';
-  };
+  const getNotifPage = (type) => notificationPageForType(type);
 
-  const myNotifications = (notifs) => {
-    if (!user) return notifs;
-    if (['директор','зам_директора'].includes(user.role)) return notifs;
-    if (user.role==='прораб') return notifs.filter(n=>['work','material','unexpected','prescription','supply'].includes(n.type));
-    if (['мастер','субподрядчик','бригадир'].includes(user.role)) return notifs.filter(n=>n.text&&n.text.includes(user.name));
-    if (user.role==='бухгалтер') return notifs.filter(n=>['invoice','act','contract','pay','expreport','ownexp','supplyinv'].includes(n.type));
-    if (['кладовщик','снабженец'].includes(user.role)) return notifs.filter(n=>['stock','supply','delivery','supplyinv'].includes(n.type));
-    return notifs;
-  };
+  const myNotifications = (notifs) => notificationsForUser(notifs, user);
   const toggleNotifications = (e) => { e?.stopPropagation?.(); setShowNotifications(v=>!v); };
   const closeNotifications = () => setShowNotifications(false);
   const markMyNotificationsRead = () => {
@@ -1025,18 +1116,7 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, activePage]);
 
-  const roleFlags = () => {
-    const role = user?.role || '';
-    const isLeadershipRole = ['директор','зам_директора'].includes(role);
-    const isFinanceRole = ['директор','зам_директора','бухгалтер'].includes(role);
-    const isWarehouseRole = ['директор','зам_директора','кладовщик','снабженец','прораб','главный_инженер'].includes(role);
-    const isSupplyRole = ['директор','зам_директора','снабженец','кладовщик','прораб','мастер','субподрядчик','бригадир','поставщик','бухгалтер'].includes(role);
-    const canSeeSupplierInvoices = ['директор','зам_директора','бухгалтер','снабженец','кладовщик','прораб','поставщик'].includes(role);
-    const isProjectRole = role && !['поставщик','system_owner'].includes(role);
-    const isInternalRole = ['директор','зам_директора','бухгалтер','прораб','главный_инженер','сметчик','мастер','субподрядчик','бригадир','кладовщик','снабженец','менеджер_crm','стройконтроль'].includes(role);
-    const canSeeProjectDocs = isProjectRole || ['технадзор','заказчик'].includes(role);
-    return {role,isLeadershipRole,isFinanceRole,isWarehouseRole,isSupplyRole,canSeeSupplierInvoices,isProjectRole,isInternalRole,canSeeProjectDocs};
-  };
+  const roleFlags = () => roleFlagsForUser(user);
 
   const getApi = (path, fallback = []) => {
     if (mobileApiRequestsRef.current.has(path)) return mobileApiRequestsRef.current.get(path);
@@ -1053,25 +1133,9 @@ function App() {
     return token ? {...headers, Authorization: 'Bearer ' + token} : headers;
   };
 
-  const pagedPath = (path, params = {}) => {
-    const query = new URLSearchParams();
-    Object.entries(params).forEach(([key, value]) => {
-      if (value === undefined || value === null || value === '') return;
-      query.set(key, String(value));
-    });
-    const queryString = query.toString();
-    return queryString ? `${path}?${queryString}` : path;
-  };
+  const pagedPath = (path, params = {}) => buildPagedPath(path, params);
 
-  const mergeRowsById = (current = [], incoming = []) => {
-    const rows = new Map();
-    [...(Array.isArray(current) ? current : []), ...(Array.isArray(incoming) ? incoming : [])].forEach((row, index) => {
-      if (!row) return;
-      const key = row.id !== undefined && row.id !== null ? `id:${row.id}` : `row:${index}:${JSON.stringify(row)}`;
-      rows.set(key, row);
-    });
-    return Array.from(rows.values());
-  };
+  const mergeRowsById = (current = [], incoming = []) => mergeRowsByIdValue(current, incoming);
 
   const loadMaterialsPage = useCallback(async ({projectName = '', search = '', offset = 0} = {}) => {
     setMaterialsPage(prev => ({...prev, projectName, search, loading:true, error:''}));
@@ -1123,15 +1187,7 @@ function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const workJournalPageState = ({projectName = '', search = '', dateFrom = '', dateTo = '', rows = [], loading = false, error = ''} = {}) => ({
-    projectName,
-    search,
-    dateFrom,
-    dateTo,
-    hasMore: Array.isArray(rows) && rows.length === WORK_JOURNAL_PAGE_LIMIT,
-    loading,
-    error,
-  });
+  const workJournalPageState = (params = {}) => createWorkJournalPageState(params, WORK_JOURNAL_PAGE_LIMIT);
 
   const loadWorkJournalPage = useCallback(async ({projectName = '', search = '', dateFrom = '', dateTo = '', offset = 0} = {}) => {
     setWorkJournalPage(prev => ({...prev, projectName, search, dateFrom, dateTo, loading:true, error:''}));
@@ -1172,11 +1228,11 @@ function App() {
   };
 
   const resetMaterialNormsPage = (rows = []) => {
-    setMaterialNormsPage({search:'', hasMore:Array.isArray(rows) && rows.length === MATERIAL_NORMS_PAGE_LIMIT, loading:false, error:''});
+    setMaterialNormsPage(createMaterialNormsPageState({rows, loading:false, error:''}, MATERIAL_NORMS_PAGE_LIMIT));
   };
 
   const resetMaterialsPage = (rows = []) => {
-    setMaterialsPage({projectName:'', search:'', hasMore:Array.isArray(rows) && rows.length === MATERIALS_PAGE_LIMIT, loading:false, error:''});
+    setMaterialsPage(createMaterialsPageState({rows, loading:false, error:''}, MATERIALS_PAGE_LIMIT));
   };
 
   useEffect(() => {
@@ -1240,7 +1296,7 @@ function App() {
       setSupplyDeliveries(Array.isArray(sd)?sd:[]);
       setSupplierCatalog(Array.isArray(scat)?scat:[]);
     });
-    if (['projects','works','documents','cable'].includes(page)) return loadMobileScopeOnce('mobile:projects-docs', async () => {
+    if (['projects','site','works','documents','cable'].includes(page)) return loadMobileScopeOnce('mobile:projects-docs', async () => {
       const [p,wj,mt,ro,rw,rwin,rdoor,ps,pcl,pres,uw,est,er,bc,hwa,mij,cbj,sva,inspO,warD,pdocs,plet,pmeas,mdrafts] = await Promise.all([
         role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
         role === 'поставщик' ? Promise.resolve([]) : getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})),
@@ -1451,15 +1507,16 @@ function App() {
 
   const loadAll = async () => {
     try {
-      const role = user?.role || '';
-      const isLeadershipRole = ['директор','зам_директора'].includes(role);
-      const isFinanceRole = ['директор','зам_директора','бухгалтер'].includes(role);
-      const isWarehouseRole = ['директор','зам_директора','кладовщик','снабженец','прораб','главный_инженер'].includes(role);
-      const isSupplyRole = ['директор','зам_директора','снабженец','кладовщик','прораб','мастер','субподрядчик','бригадир','поставщик','бухгалтер'].includes(role);
-      const canSeeSupplierInvoices = ['директор','зам_директора','бухгалтер','снабженец','кладовщик','прораб','поставщик'].includes(role);
-      const isProjectRole = role && !['поставщик','system_owner'].includes(role);
-      const isInternalRole = ['директор','зам_директора','бухгалтер','прораб','главный_инженер','сметчик','мастер','субподрядчик','бригадир','кладовщик','снабженец','менеджер_crm','стройконтроль'].includes(role);
-      const canSeeProjectDocs = isProjectRole || ['технадзор','заказчик'].includes(role);
+      const {
+        role,
+        isLeadershipRole,
+        isFinanceRole,
+        isWarehouseRole,
+        isSupplyRole,
+        canSeeSupplierInvoices,
+        isInternalRole,
+        canSeeProjectDocs,
+      } = roleFlagsForUser(user);
       const token = localStorage.getItem('authToken');
       const get = (path, fallback = []) => fetch(API + path, token ? {headers: {Authorization: 'Bearer ' + token}} : undefined)
         .then(r => r.ok ? r.json() : fallback)
@@ -1614,7 +1671,7 @@ function App() {
 
   const mobileScopeForPage = (page) => {
     if (page === 'dashboard') return 'mobile:dashboard';
-    if (['projects','works','documents','cable'].includes(page)) return 'mobile:projects-docs';
+    if (['projects','site','works','documents','cable'].includes(page)) return 'mobile:projects-docs';
     if (page === 'estimates') return 'mobile:estimates';
     if (['warehouse','materials'].includes(page)) return 'mobile:warehouse';
     if (['supply','suppliers'].includes(page)) return 'mobile:supply';
@@ -1720,12 +1777,7 @@ function App() {
     return existing ? existing + ',' + added : added;
   };
 
-  const fileSrc = (url) => {
-    const value = String(url || '').trim();
-    if (!value) return '';
-    if (/^(https?:|data:|blob:)/i.test(value)) return value;
-    return API + value;
-  };
+  const fileSrc = createFileSrc(API);
 
   const checkinGeo = () => {
     if (!navigator.geolocation) { alert('Геолокация не поддерживается'); return; }
@@ -1735,19 +1787,6 @@ function App() {
       setGeoCheckins(updated); localStorage.setItem('geoCheckins',JSON.stringify(updated));
       alert('Отметка зафиксирована: '+new Date().toLocaleTimeString('ru-RU'));
     }, () => alert('Не удалось получить геолокацию'));
-  };
-
-  const calcVat = (total, vatType) => {
-    const amount = Number(total || 0);
-    const match = String(vatType || '').match(/НДС\s*(\d+(?:[,.]\d+)?)%/i);
-    if (match) {
-      const rate = Number(match[1].replace(',', '.')) / 100;
-      if (rate > 0) {
-        const base = Math.round(amount / (1 + rate) * 100) / 100;
-        return {base, vat:Math.round((amount - base) * 100) / 100, total:amount};
-      }
-    }
-    return {base:amount, vat:0, total:amount};
   };
 
   const getRoomNetWall = (room) => {
@@ -2113,12 +2152,6 @@ function App() {
     companyName,
     allBrigadeItems,
   });
-  const normalizePersonKey = (value) => String(value||'').trim().toLowerCase().replace(/\s+/g,' ');
-  const staffPassportText = (s={}) => {
-    const number = [s.passportSeries, s.passportNumber].filter(Boolean).join(' ').trim();
-    const issued = [s.passportIssuedBy, s.passportIssuedDate].filter(Boolean).join(', ');
-    return [number, issued].filter(Boolean).join('; ');
-  };
   const findStaffForPerformer = (contract={}) => {
     const id = Number(contract.masterId||contract.contractorId||0);
     if (id) {
@@ -2213,21 +2246,6 @@ function App() {
       _profile: profile,
     };
   };
-  const performerMissingRequisites = (performer={}, contractType='') => {
-    const t = String(contractType||performer.contractType||'').toLowerCase();
-    const missing = [];
-    if (!performer.fullName || performer.fullName==='Исполнитель не выбран') missing.push('ФИО/название');
-    if (!performer.inn) missing.push('ИНН');
-    if ((t.includes('самозан')||t.includes('гпх')) && !performer.passport) missing.push('паспорт');
-    if (t.includes('ип') && !performer.ogrnip) missing.push('ОГРНИП');
-    if (!t.includes('труд') && !performer.bankAccount) missing.push('расчётный счёт');
-    if (!t.includes('труд') && !performer.bankName) missing.push('банк');
-    return missing;
-  };
-  const contractRequisitesWarning = (performer={}, contractType='') => {
-    const missing = performerMissingRequisites(performer, contractType);
-    return missing.length ? 'Не хватает реквизитов: '+missing.join(', ')+'. Заполните карточку исполнителя, чтобы договор печатался без пустых полей.' : '';
-  };
   const buildContractContent = (profile, contract, items=[]) => {
     const performer = resolveContractPerformer(contract, profile);
     const warning = contractRequisitesWarning(performer, contract?.contractType||contract?.contractorType||performer.contractType);
@@ -2256,17 +2274,6 @@ function App() {
     companyName,
     projects,
   });
-
-  const detectCableType = (name='') => {
-    const s = String(name||'').toUpperCase().replace(/Ё/g,'Е').replace(/[\s"'«»()\\/\-._]/g,'');
-    if (/(КПС|КПСЭ|КПСВВ|ОПС|ПОЖАР)/.test(s)) return 'Пожарная сигнализация';
-    if (/(UTP|FTP|SFTP|FUTP|UUTP|SFUTP)/.test(s)) return 'СКС / интернет';
-    if (/(КСВВ|КСПВ|КСПЭВ|КВПЭФ|ТППЭП|ТПВ|JYSTY|JEH|JHSTH)/.test(s)) return 'Слаботочка / сигнализация';
-    if (/(ВВГ|АВВГ|ВББШВ|ПВВ|ПВС|СИП|КВВГ|КГ|NYM|NYY|КАБЕЛ|ПРОВОД)/.test(s)) return 'Силовой кабель';
-    return 'Кабель';
-  };
-
-  const cableTypeOf = (cb) => cb?.cableType || detectCableType(cb?.cableBrand || '');
 
   const buildCableJournalContent = (records, projectName, dateFrom, dateTo) => buildCableJournalDocContent(records, projectName, dateFrom, dateTo, {
     companyRequisites,
@@ -2554,49 +2561,11 @@ function App() {
     await refreshData();
   };
 
-  const canAccess = (p) => user && (ROLES[user.role]||[]).includes(p);
-  const isFinanceRole = () => ['директор','зам_директора','бухгалтер'].includes(user?user.role:'');
-  // Список названий проектов которые видит текущий пользователь (для прораба — только назначенные)
-  const myAssignedProjects = () => {
-    if(!user) return [];
-    const ap = user.assignedProjects || user.assigned_projects;
-    if(Array.isArray(ap) && ap.length>0) return ap;
-    const single = user.project_name || user.projectName;
-    return single ? [single] : [];
-  };
-  const myAssignedPackages = () => {
-    if(!user) return [];
-    const ap = user.assignedPackages || user.assigned_packages;
-    return Array.isArray(ap) ? ap.filter(Boolean) : [];
-  };
-  const visibleProjects = (list) => {
-    if(!user) return list||[];
-    // Руководство и финансы видят все
-    if(['директор','зам_директора','бухгалтер','сметчик','главный_инженер'].includes(user.role)) return list||[];
-    if(['мастер','субподрядчик','бригадир'].includes(user.role)){
-      const mine = myAssignedProjects();
-      return mine.length>0 ? (list||[]).filter(p=>mine.includes(p.name)) : [];
-    }
-    // Прораб / технадзор / стройконтроль — только назначенные (если назначены)
-    if(['прораб','технадзор','стройконтроль'].includes(user.role)){
-      const mine = myAssignedProjects();
-      if(mine.length>0) return (list||[]).filter(p=>mine.includes(p.name));
-    }
-    return list||[];
-  };
-  const visibleEstimatesForCurrentUser = (list) => {
-    if(!user) return list||[];
-    if(['директор','зам_директора','бухгалтер','сметчик','главный_инженер'].includes(user.role)) return list||[];
-    const projectNames = myAssignedProjects();
-    const packageNames = myAssignedPackages();
-    const restrictPackages = ['мастер','субподрядчик','бригадир'].includes(user.role);
-    return (list||[]).filter(est=>{
-      const projectOk = projectNames.length===0 || projectNames.includes(est.projectName||est.project_name||est.project||'');
-      const packageOk = !restrictPackages || (packageNames.length > 0 && packageNames.includes(estimatePackage(est)));
-      return projectOk && packageOk;
-    });
-  };
-  const selectableActiveProjects = (list=projects) => visibleProjects(list||[]).filter(p=>!p.archived&&p.status!=='Завершён');
+  const canAccess = (p) => canAccessRole(user, p, ROLES);
+  const isFinanceRole = () => isFinanceUser(user);
+  const visibleProjects = (list) => visibleProjectsForUser(list, user);
+  const visibleEstimatesForCurrentUser = (list) => visibleEstimatesForUser(list, user);
+  const selectableActiveProjects = (list=projects) => selectableActiveProjectsForUser(list||[], user);
   const visibleActiveProjects = (list=projects) => selectableActiveProjects(list||[]);
   useEffect(() => {
     if(!user||!['мастер','субподрядчик','бригадир'].includes(user.role)) return;
@@ -2617,15 +2586,8 @@ function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.role, user?.assignedProjects, user?.assigned_projects, projects, masterProjectId]);
-  const isOpenAiStatus = (status) => !['Закрыто','Отклонено'].includes(status||'');
   const aiFindingsForProject = (projectName) => (aiFindings||[]).filter(f=>f.projectName===projectName&&isOpenAiStatus(f.status));
   const aiTasksForProject = (projectName) => (aiTasks||[]).filter(t=>t.projectName===projectName&&isOpenAiStatus(t.status));
-  const aiSeverityMeta = (severity) => {
-    const s = severity || 'Проверить';
-    if (s === 'Критично') return {color:C.danger,bg:C.dangerLight,border:C.dangerBorder};
-    if (s === 'Не хватает данных') return {color:C.warning,bg:C.warningLight,border:C.warningBorder};
-    return {color:C.info,bg:C.infoLight,border:C.infoBorder};
-  };
   const generateAiFindingsForProject = async (projectName) => {
     if (!projectName) return;
     const res = await fetch(API+'/ai-control/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName,reason:'manual'})});
@@ -2655,9 +2617,6 @@ function App() {
     if (!res.ok) return null;
     setAiFindings(prev=>(prev||[]).map(f=>Number(f.id)===Number(id)?data:f));
     return data;
-  };
-  const parseAiTaskPayload = (task) => {
-    try { return JSON.parse(task?.actionPayload || '{}'); } catch(e) { return {}; }
   };
   const openAiTaskAction = async (task) => {
     const payload = parseAiTaskPayload(task);
@@ -2777,14 +2736,6 @@ function App() {
   };
 
   // Расчёт прогресса и сумм по факту сметы (используется в дашборде, кабинетах технадзора и заказчика, карточке объекта)
-  const _sectionsOfEst = (est) => { try { return est.sections || (typeof est.sectionsJson==='string'?JSON.parse(est.sectionsJson||'[]'):est.sectionsJson) || []; } catch(e) { return []; } };
-  const estimateTotal = (est) => {
-    const sections = _sectionsOfEst(est);
-    if (sections.length) return sections.reduce((sum,s)=>sum+(s.items||[]).reduce((ss,it)=>ss+estimateItemTotal(it),0),0);
-    const fallback = Number(est?.summaryTotal ?? est?.total ?? est?.totalAmount ?? 0);
-    return Number.isFinite(fallback) ? fallback : 0;
-  };
-  const estimateHasLoadedSections = (est) => Boolean(est?.sectionsLoaded) || _sectionsOfEst(est).length > 0;
   const loadEstimateDetail = async (estimate) => {
     if (!estimate?.id || estimateHasLoadedSections(estimate)) return estimate;
     const token = localStorage.getItem('authToken');
@@ -2807,149 +2758,8 @@ function App() {
       return estimate;
     }
   };
-  const estimateKind = (est) => est?.smetaType || 'Заказчик';
-  const estimatePackage = (est) => est?.workPackage || est?.work_package || 'Основная';
-  const estimateTypeIcon = (type) => ({'Заказчик':'📋','Работы':'👷','Материалы':'📦'}[type||'Заказчик'] || '📄');
-  const isArchivedEstimate = (est) => (est?.status || 'Черновик') === 'Архив';
-  const isGlobalEstimateTemplate = (est) => Boolean(est?.isTemplate) && !est?.projectName && !est?.projectId;
-  const estimateUpdatedTs = (est) => {
-    const raw = est?.latestVersionAt || est?.createdAt || '';
-    const t = raw ? new Date(raw).getTime() : 0;
-    return Number.isFinite(t) ? t : 0;
-  };
-  const estimateProjectGroupKey = (est) => String(est?.projectName || est?.project || est?.projectId || '').toLowerCase().replace(/\s+/g,' ').trim();
-  const estimateGroupKey = (est) => [estimateProjectGroupKey(est), estimateKind(est), estimatePackage(est)].join('|');
-  const sameEstimateGroup = (a,b) => estimateGroupKey(a) === estimateGroupKey(b);
-  const applyEstimateActivationState = (list, activated) => {
-    const rows = list || [];
-    if (!activated || activated.status !== 'Активная' || isGlobalEstimateTemplate(activated)) return rows;
-    return rows.map(e => {
-      if (!e || e.id === activated.id) return e;
-      if (e.status === 'Активная' && !isGlobalEstimateTemplate(e) && sameEstimateGroup(e, activated)) {
-        return {...e, status:'Черновик'};
-      }
-      return e;
-    });
-  };
-  const activeEstimateFromList = (list) => {
-    const arr = [...(list||[])].sort((a,b)=>(estimateUpdatedTs(b)||Number(b.id||0))-(estimateUpdatedTs(a)||Number(a.id||0)));
-    const normal = arr.filter(e=>!isGlobalEstimateTemplate(e));
-    return normal.find(e=>e.status==='Активная')
-      || arr.find(e=>e.status==='Активная')
-      || normal.find(e=>!isArchivedEstimate(e))
-      || arr.find(e=>!isArchivedEstimate(e))
-      || normal[0]
-      || arr[0]
-      || null;
-  };
-  const estimateVersionNumber = (est) => {
-    const m = String(est?.version || '').replace(',', '.').match(/(\d+(?:\.\d+)?)/);
-    return m ? Number(m[1]) : 0;
-  };
-  const estimateDisplayVersion = (est, groupItems=[]) => {
-    const raw = String(est?.version || '').trim();
-    const sortedAsc = [...(groupItems||[])].sort((a,b)=>(estimateUpdatedTs(a)||Number(a.id||0))-(estimateUpdatedTs(b)||Number(b.id||0)));
-    const idx = sortedAsc.findIndex(e=>String(e.id)===String(est?.id));
-    if (raw) {
-      const sameRaw = sortedAsc.filter(e=>String(e.version||'').trim()===raw);
-      const base = raw.startsWith('v') ? raw : 'v'+raw;
-      return sameRaw.length>1 && idx>=0 ? base+' · ред.'+(idx+1) : base;
-    }
-    return 'v'+(idx>=0?idx+1:1);
-  };
   const nextEstimateVersionFor = (draft, sourceEstimates=estimatesList) => {
-    const fake = {
-      projectId:draft?.projectId || '',
-      projectName:draft?.projectName || '',
-      smetaType:draft?.smetaType || 'Заказчик',
-      workPackage:draft?.workPackage || 'Основная'
-    };
-    const group = (sourceEstimates||[]).filter(e=>!isGlobalEstimateTemplate(e) && sameEstimateGroup(e,fake));
-    if (!group.length) return '1.0';
-    const maxVersion = Math.max(...group.map(estimateVersionNumber), group.length);
-    return (Math.floor(maxVersion)+1)+'.0';
-  };
-  const estimateVersionChain = (items) => [...(items||[])]
-    .sort((a,b)=>(estimateUpdatedTs(b)||Number(b.id||0))-(estimateUpdatedTs(a)||Number(a.id||0)))
-    .slice(0,5)
-    .map(e=>estimateDisplayVersion(e,items)+' '+(e.status||'Черновик'))
-    .join(' → ');
-  const estimateDiffTextKey = (value) => String(value||'').toLowerCase().replace(/ё/g,'е').replace(/[^a-zа-я0-9]+/gi,' ').trim();
-  const estimateDiffItemKey = (sectionName, item) => [
-    estimateDiffTextKey(sectionName),
-    estimateDiffTextKey(item?.name),
-    estimateDiffTextKey(normalizeMeasure(1,item?.unit).unit||item?.unit)
-  ].join('|');
-  const estimateRowsForDiff = (est) => {
-    const grouped = new Map();
-    _sectionsOfEst(est).forEach((section,sectionIdx)=>(section.items||[]).forEach((item,itemIdx)=>{
-      const itemType = normalizeEstimateItemType(item, section.name);
-      if (['adjustment','note'].includes(itemType)) return;
-      const rawQty = toNum(item.quantity);
-      const normalized = normalizeMeasure(rawQty,item.unit);
-      const qty = normalized.qty;
-      const workSum = estimateItemWorkSum(item);
-      const materialSum = estimateItemMaterialSum(item);
-      const sum = workSum + materialSum;
-      const key = estimateDiffItemKey(section.name,item) || ['row',sectionIdx,itemIdx].join('|');
-      const row = {
-        key,
-        section: section.name || 'Без раздела',
-        name: item.name || 'Без названия',
-        unit: normalized.unit || item.unit || '',
-        qty,
-        workSum,
-        materialSum,
-        sum,
-        unitPrice: qty ? sum / qty : 0
-      };
-      if(!grouped.has(key)){
-        grouped.set(key,row);
-        return;
-      }
-      const prev = grouped.get(key);
-      const mergedQty = prev.qty + row.qty;
-      const sameSection = prev.section === row.section;
-      grouped.set(key,{
-        ...prev,
-        section: sameSection ? prev.section : 'Несколько разделов',
-        qty: mergedQty,
-        workSum: prev.workSum + row.workSum,
-        materialSum: prev.materialSum + row.materialSum,
-        sum: prev.sum + row.sum,
-        unitPrice: mergedQty ? (prev.sum + row.sum) / mergedQty : 0
-      });
-    }));
-    return Array.from(grouped.values());
-  };
-  const buildEstimateDiff = (baseEst, nextEst) => {
-    const baseRows = estimateRowsForDiff(baseEst);
-    const nextRows = estimateRowsForDiff(nextEst);
-    const baseMap = new Map(baseRows.map(r=>[r.key,r]));
-    const nextMap = new Map(nextRows.map(r=>[r.key,r]));
-    const added = [];
-    const removed = [];
-    const changed = [];
-    nextRows.forEach(next=>{
-      const base = baseMap.get(next.key);
-      if(!base){ added.push({...next,impact:next.sum}); return; }
-      const qtyChanged = Math.abs(next.qty - base.qty) > 0.0001;
-      const priceChanged = Math.abs(next.unitPrice - base.unitPrice) > 0.01;
-      const sumChanged = Math.abs(next.sum - base.sum) > 0.5;
-      if(qtyChanged || priceChanged || sumChanged){
-        changed.push({base,next,impact:next.sum-base.sum});
-      }
-    });
-    baseRows.forEach(base=>{ if(!nextMap.has(base.key)) removed.push({...base,impact:-base.sum}); });
-    const sortImpact = (a,b)=>Math.abs(b.impact)-Math.abs(a.impact);
-    return {
-      added: added.sort(sortImpact),
-      removed: removed.sort(sortImpact),
-      changed: changed.sort(sortImpact),
-      baseTotal: estimateTotal(baseEst),
-      nextTotal: estimateTotal(nextEst),
-      impact: estimateTotal(nextEst)-estimateTotal(baseEst)
-    };
+    return nextEstimateVersionForFromList(draft, sourceEstimates);
   };
   const estimateDiffBaseFor = (est) => {
     const group = (estimatesList||[])
@@ -3099,13 +2909,6 @@ function App() {
     if (!res.ok) { alert(data.detail || 'Не удалось утвердить сверку'); return; }
     setEstimateReconciliations(prev=>(prev||[]).map(r=>Number(r.id)===Number(rec.id)?{...r,status:'Утверждена',approvedBy:user.name,approvedAt:new Date().toISOString().slice(0,10)}:r));
     await refreshData();
-  };
-  const estimateStatusView = (est, groupItems=[]) => {
-    const status = est?.status || 'Черновик';
-    if(status === 'Активная') return {label:'Активная', color:C.success, bg:C.successLight, border:C.successBorder};
-    if(status === 'Архив') return {label:'Архив', color:C.textMuted, bg:C.bgGray, border:C.border};
-    if(activeEstimateFromList(groupItems)?.id === est?.id) return {label:'Используется', color:C.info, bg:C.infoLight, border:C.infoBorder};
-    return {label:'Черновик', color:C.warning, bg:C.warningLight, border:C.warningBorder};
   };
   const activeEstimatesForProject = (p, kind='Заказчик', sourceEstimates=null) => {
     const groups = {};
@@ -3371,25 +3174,6 @@ function App() {
         onPrint={() => showPreview(buildEstimateMeasurementComparisonContent(project),'Смета ↔ обмеры — '+project.name)}
       />
     );
-  };
-  const workJournalReconcileTokens = (value) => {
-    const stop = new Set(['работа','работы','работ','устройство','установка','монтаж','демонтаж','разборка','снятие','для','при','под','над','без','или','его','ее','это','прочие','прочая']);
-    return estimateDiffTextKey(value).split(' ').filter(w=>w.length>=3 && !stop.has(w));
-  };
-  const workJournalReconcileNameScore = (left, right) => {
-    const a = estimateDiffTextKey(left);
-    const b = estimateDiffTextKey(right);
-    if (!a || !b) return 0;
-    if (a === b) return 1;
-    if (a.includes(b) || b.includes(a)) return 0.88;
-    const at = workJournalReconcileTokens(a);
-    const bt = workJournalReconcileTokens(b);
-    if (!at.length || !bt.length) return 0;
-    const bset = new Set(bt);
-    const aset = new Set(at);
-    const common = at.filter(t=>bset.has(t)).length;
-    const reverse = bt.filter(t=>aset.has(t)).length;
-    return Math.max(common / Math.max(at.length,1), reverse / Math.max(bt.length,1)) * Math.min(1, common / Math.max(Math.min(at.length, bt.length), 1) + 0.15);
   };
   const workJournalEstimateRows = (project) => {
     if (!project) return [];
@@ -3672,56 +3456,18 @@ function App() {
       };
     });
   // Фактически освоено по проекту: журнал работ + наряды бригадные (по приёмке) + материалы на объекте
-  const projectFactSpent = (p) => {
-    if(!p) return {works:0,materials:0,total:0};
-    const journal=(workJournal||[]).filter(w=>w.project===p.name).reduce((s,w)=>s+Number(w.total||0),0);
-    const brigades=(allBrigadeItems||[]).filter(it=>it.projectName===p.name&&Number(it.doneQuantity||0)>0).reduce((s,it)=>s+Number(it.doneQuantity||0)*Number(it.priceSmeta||0),0);
-    // Берём максимум — журнал и brigade_items могут дублировать одни и те же работы
-    const works=Math.max(journal,brigades);
-    const mats=(materials||[]).filter(m=>m.project===p.name).reduce((s,m)=>s+Number(m.quantity||0)*Number(m.price||0),0);
-    return {works,materials:mats,total:works+mats};
-  };
-  const warehouseInvoiceItems = (inv) => {
-    const direct = Array.isArray(inv?.items) ? inv.items.filter(it=>(it?.name||'').trim()) : [];
-    if (direct.length>0) return {items:direct,reconstructed:false,source:''};
-    const norm = (v) => String(v||'').toLowerCase().replace(/[.,;:()«»"']/g,' ').replace(/\s+/g,' ').trim();
-    const place = inv?.location==='Основной склад' ? 'Основной склад' : (inv?.project || inv?.location || '');
-    const metaFor = (name, workPackage='') => {
-      const n = norm(name);
-      const pkg = String(workPackage || '').trim();
-      const projectItems = (materials||[]).filter(m=>m.project===place && (!pkg || String(m.workPackage || m.work_package || '').trim()===pkg));
-      const pools = [...projectItems, ...(materials||[]), ...(warehouseMain||[])];
-      return pools.find(m=>norm(m.name)===n) || pools.find(m=>n && (norm(m.name).includes(n) || n.includes(norm(m.name)))) || {};
-    };
-    const rowsFromInspections = (materialInspections||[])
-      .filter(mi=>String(mi.invoiceId||'')===String(inv?.id||''))
-      .map(mi=>{
-        const workPackage = mi.workPackage || mi.work_package || '';
-        const meta = metaFor(mi.materialName, workPackage);
-        const price = Number(meta.price||0);
-        const qty = Number(mi.quantity||0);
-        return {name:mi.materialName||'', category:meta.category||'', quantity:qty, unit:mi.unit||meta.unit||'шт', price, total:qty*price, workPackage};
-      })
-      .filter(it=>it.name&&it.quantity>0);
-    if (rowsFromInspections.length>0) return {items:rowsFromInspections,reconstructed:true,source:'журнала входного контроля'};
-
-    const byName = {};
-    const invDate = String(inv?.date||'').slice(0,10);
-    (history||[])
-      .filter(h=>String(h.date||'').slice(0,10)===invDate && (h.project||'')===place)
-      .filter(h=>String(h.type||'').toLowerCase().includes('приход') && !String(h.type||'').toLowerCase().includes('откат'))
-      .forEach(h=>{
-        const workPackage = h.workPackage || h.work_package || '';
-        const key = norm(h.material)+'|'+workPackage;
-        if(!key) return;
-        const meta = metaFor(h.material, workPackage);
-        if(!byName[key]) byName[key] = {name:h.material||'', category:meta.category||'', quantity:0, unit:meta.unit||'шт', price:Number(meta.price||0), total:0, workPackage};
-        byName[key].quantity += Number(h.quantity||0);
-        byName[key].total = byName[key].quantity * Number(byName[key].price||0);
-      });
-    const rowsFromHistory = Object.values(byName).filter(it=>it.name&&it.quantity>0);
-    return {items:rowsFromHistory,reconstructed:rowsFromHistory.length>0,source:'истории склада'};
-  };
+  const projectFactSpent = (p) => projectFactSpentValue({
+    project: p,
+    workJournal,
+    allBrigadeItems,
+    materials,
+  });
+  const warehouseInvoiceItems = (inv) => buildWarehouseInvoiceItems(inv, {
+    materials,
+    warehouseMain,
+    materialInspections,
+    history,
+  });
   const isSupplyDeliveryInvoice = (inv) => !!(inv?.supplyDeliveryId || inv?.sourceType==='supply_delivery');
   const materialNameLookupKey = materialLookupText;
   const materialAliasFor = (projectName, aliasName) => {
@@ -4236,21 +3982,6 @@ function App() {
     const suppliedSum = rows.reduce((s,r)=>s+Number(r.receivedSum||0),0);
     return {rows, planRows, suppliedRows, invoiceRows, deliveryRows, movedRows, toBuyRows, outsideRows, overRows, mismatchRows, stockMismatchRows, masterBalanceRows, usedWithoutIssueRows, invalidPlanRows, normRows, normOverEstimateRows, normWithoutEstimateRows, usedOverControlRows, usedOverEstimateRows, planSum, suppliedSum};
   };
-  const materialControlStatus = (r) => {
-    if (r.invalidPlanCount>0) return {label:'Проверить смету', color:C.warning, bg:C.warningLight, border:C.warningBorder};
-    if (r.stockMismatch) return {label:'Расхождение склада', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
-    if (r.issued>0 && r.usedWithoutIssue>0) return {label:'Списано сверх выдачи', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
-    if (r.usedOverControlQty>0) return {label:'Расход сверх нормы', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
-    if (r.usedOverEstimateQty>0) return {label:'Списано сверх сметы', color:C.warning, bg:C.warningLight, border:C.warningBorder};
-    if (r.isOutsideEstimate) return {label:'Вне сметы', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
-    if (r.normWithoutEstimateQty>0) return {label:'Норма без сметы', color:C.warning, bg:C.warningLight, border:C.warningBorder};
-    if (r.normOverEstimateQty>0) return {label:'Норма выше сметы', color:C.warning, bg:C.warningLight, border:C.warningBorder};
-    if (r.toBuy>0) return {label:'Докупить', color:C.warning, bg:C.warningLight, border:C.warningBorder};
-    if (r.shortage>0) return {label:'Закрывается', color:C.info, bg:C.infoLight, border:C.infoBorder};
-    if (r.masterBalance>0) return {label:'У мастеров', color:C.info, bg:C.infoLight, border:C.infoBorder};
-    if (r.over>0) return {label:'Сверх сметы', color:C.info, bg:C.infoLight, border:C.infoBorder};
-    return {label:'Закрыто', color:C.success, bg:C.successLight, border:C.successBorder};
-  };
   const warehouseInvoiceEstimateControl = (inv) => {
     const sourcePackageOf = (item = {}, parent = {}) => item.workPackage || item.work_package || parent.workPackage || parent.work_package || '';
     const linkedWorkLabel = (item = {}) => item.parentWorkName || item.parent_work_name || item.estimateWorkName || item.estimate_work_name || item.workName || item.work_name || '';
@@ -4496,51 +4227,35 @@ function App() {
     });
   };
   const materialNameKey = materialNameLookupKey;
-	  const rowPackageKey = (row = {}) => String(row.workPackage || row.work_package || row.packageName || '').trim().toLowerCase();
-	  const materialControlSupplyMarker = (projectName, row) => 'MATERIAL_CONTROL_REQUEST:'+[materialNameKey(projectName), materialNameKey(row?.name), _normalizeUnit(row?.unit||''), rowPackageKey(row)].join('|');
-	  const invoiceControlProjectName = (inv, ctrl = {}) => ctrl.projectName || inv?.project || (inv?.location && inv.location !== 'Основной склад' ? inv.location : '');
-	  const invoiceControlMaterialName = (ctrl = {}, item = {}) => ctrl.canonicalName || ctrl.name || item.name || '';
-	  const invoiceControlUnit = (ctrl = {}, item = {}) => ctrl.rowUnit || ctrl.unit || item.unit || 'шт';
-	  const invoiceControlLineKey = (projectName, inv, ctrl, item = {}) => [
-	    materialNameKey(projectName),
-	    String(inv?.id || inv?.number || inv?.date || 'draft'),
-	    String(ctrl?.index ?? ''),
-	    materialNameKey(invoiceControlMaterialName(ctrl, item)),
-	    _normalizeUnit(invoiceControlUnit(ctrl, item) || ''),
-	    rowPackageKey(ctrl || item),
-	  ].join('|');
-	  const invoiceControlSupplyMarker = (projectName, inv, ctrl, item) => 'INVOICE_CONTROL_REQUEST:'+invoiceControlLineKey(projectName, inv, ctrl, item);
-	  const invoiceControlReviewMarker = (projectName, inv, ctrl, item) => 'INVOICE_MATERIAL_REVIEW:'+invoiceControlLineKey(projectName, inv, ctrl, item);
-	  const materialControlRequestItems = (req) => parseSupplyItems(req).map(it=>({...it, materialName:it.materialName||it.name||'', quantity:toNum(it.quantity), unit:it.unit||req.unit||'шт', workPackage:it.workPackage||it.work_package||req.workPackage||req.work_package||''}));
   const materialControlSupplyRequestExists = (projectName, row) => {
     const marker = materialControlSupplyMarker(projectName, row);
     const rowKey = materialNameKey(row?.name);
     const unitKey = _normalizeUnit(row?.unit||'');
-    const packageKey = rowPackageKey(row);
+    const packageKey = materialControlRowPackageKey(row);
     return (supplyRequests||[]).some(req=>{
       if ((req.project||'')!==projectName || !isActiveSupplyRequestStatus(req.status)) return false;
       if (String(req.notes||'').includes(marker)) return true;
       return materialControlRequestItems(req).some(it=>
         materialNameKey(canonicalMaterialMeta(projectName, it.materialName, it.unit).name)===rowKey &&
         (!unitKey || _normalizeUnit(it.unit||'')===unitKey) &&
-        rowPackageKey(it)===packageKey
+        materialControlRowPackageKey(it)===packageKey
       );
     });
   };
-	  const canCreateSupplyRequestFromControl = () => ['директор','зам_директора','снабженец','кладовщик','прораб','мастер','субподрядчик','бригадир','бухгалтер'].includes(user?.role);
+	  const canCreateSupplyRequestFromControl = () => canCreateSupplyRequestFromControlForUser(user);
 	  const invoiceControlSupplyRequestExists = (inv, ctrl, item = {}) => {
 	    const projectName = invoiceControlProjectName(inv, ctrl);
 	    const marker = invoiceControlSupplyMarker(projectName, inv, ctrl, item);
 	    const rowKey = materialNameKey(invoiceControlMaterialName(ctrl, item));
 	    const unitKey = _normalizeUnit(invoiceControlUnit(ctrl, item) || '');
-	    const packageKey = rowPackageKey(ctrl || item);
+	    const packageKey = materialControlRowPackageKey(ctrl || item);
 	    return (supplyRequests||[]).some(req=>{
 	      if ((req.project||'')!==projectName || !isActiveSupplyRequestStatus(req.status)) return false;
 	      if (String(req.notes||'').includes(marker)) return true;
 	      return materialControlRequestItems(req).some(it=>
 	        materialNameKey(canonicalMaterialMeta(projectName, it.materialName, it.unit).name)===rowKey &&
 	        (!unitKey || _normalizeUnit(it.unit||'')===unitKey) &&
-	        rowPackageKey(it)===packageKey
+	        materialControlRowPackageKey(it)===packageKey
 	      );
 	    });
 	  };
@@ -4722,18 +4437,10 @@ function App() {
 	    notify('Создана заявка из накладной: '+materialName+' — '+fmtMeasure(qty, unit), 'supply');
 	    await refreshData();
 	  };
-	  const canCreateInvoiceControlReviewTask = () => ['директор','зам_директора','бухгалтер','прораб','главный_инженер','сметчик','снабженец','кладовщик'].includes(user?.role);
-	  const invoiceControlNeedsReview = (ctrl = {}) => ctrl.status==='Вне сметы' || toNum(ctrl.overQty)>0 || toNum(ctrl.priceOverSum)>1 || !!ctrl.unitMismatch;
+	  const canCreateInvoiceControlReviewTask = () => canCreateInvoiceControlReviewTaskForUser(user);
 	  const invoiceControlReviewTaskExists = (inv, ctrl, item = {}) => {
 	    const projectName = invoiceControlProjectName(inv, ctrl);
 	    return !!aiTaskByMarker(invoiceControlReviewMarker(projectName, inv, ctrl, item));
-	  };
-	  const invoiceControlReviewReason = (ctrl = {}) => {
-	    if (ctrl.status==='Вне сметы') return 'материал есть в накладной, но не найден в активной смете объекта';
-	    if (ctrl.unitMismatch) return 'единица измерения в накладной отличается от единицы в смете';
-	    if (toNum(ctrl.overQty)>0) return 'после этой накладной материал выходит сверх сметного плана';
-	    if (toNum(ctrl.priceOverSum)>1) return 'цена строки выше сметного ориентира';
-	    return 'строка требует проверки';
 	  };
 	  const createInvoiceControlReviewTask = async (inv, ctrl, item = {}) => {
 	    const projectName = invoiceControlProjectName(inv, ctrl);
@@ -4866,16 +4573,7 @@ function App() {
     );
   };
   const isPersonalMaterialRole = () => ['мастер','субподрядчик','бригадир'].includes(user?.role);
-  const parseJournalMaterials = (value) => {
-    if (!value) return [];
-    if (Array.isArray(value)) return value;
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch(_) {
-      return [];
-    }
-  };
+  const parseJournalMaterials = (value) => parseJournalMaterialsValue(value);
   const materialNormDeviationRows = (projectName, workPackage='') => {
     const rows = {};
     (workJournal||[])
@@ -4935,12 +4633,6 @@ function App() {
       totalOverRecords: rows.reduce((s,r)=>s+r.overRecords,0),
       totalWithoutNormRecords: rows.reduce((s,r)=>s+r.withoutNormRecords,0),
     };
-  };
-  const packageMatches = (candidatePackage='', workPackage='') => {
-    const candidate = String(candidatePackage || '').trim();
-    const required = String(workPackage || '').trim();
-    if (!required) return true;
-    return candidate === required;
   };
   const personalMaterialRowsForProject = (projectName, personName=user?.name, personId=user?.id, workPackage='') => {
     const byName = {};
@@ -5059,288 +4751,44 @@ function App() {
       return {...r, score};
     }).sort((a,b)=>(b.score-a.score)||(b.stock-a.stock)||(b.planQty-a.planQty)||a.name.localeCompare(b.name,'ru')).slice(0,8);
   };
-  const normTextIncludes = (text, words=[]) => {
-    const t = materialNameKey(text);
-    return words.some(w=>t.includes(materialNameKey(w)));
-  };
-  const normHasAny = (text, words=[]) => {
-    const t = materialNameKey(text);
-    return words.some(w=>t.includes(materialNameKey(w)));
-  };
-  const workNoMaterialNormReason = (workName='', sectionName='') => {
-    const t = materialNameKey(workName+' '+sectionName);
-    if (['демонтаж','разбор','разборка','снятие','отбивка'].some(w=>t.includes(w))) return 'Демонтажная/разборочная работа — материал по норме не требуется';
-    if (['очистка','обеспыливание','пробивка','погрузка','перевозка','затаривание'].some(w=>t.includes(w))) return 'Подготовительная или транспортная операция — материал по норме не требуется';
-    if (t.includes('без стоимости оборудования') || t.includes('ранее демонтирован')) return 'Установка ранее демонтированного оборудования — новый материал по норме не требуется';
-    return '';
-  };
-  const materialNoNormCoverageReason = (materialName='') => {
-    const t = materialNameKey(materialName);
-    if (['сверло','бур','диск отрез','круг отрез','коронка алмаз','оснастк','инструмент'].some(w=>t.includes(w))) return 'Расходный инструмент/оснастка — не участвует в подборе нормы строительного материала';
-    return '';
-  };
-  const normSpecText = (value='') => String(value||'').toLowerCase()
-    .replace(/ё/g,'е')
-    .replace(/,/g,'.')
-    .replace(/[×x]/g,'х')
-    .replace(/[Øø]/g,' диаметр ')
-    .replace(/[–—]/g,'-')
-    .replace(/\s+/g,' ')
-    .trim();
-  const normSpecNum = (value) => {
-    const n = Number(String(value||'').replace(',', '.'));
-    return Number.isFinite(n) ? Math.round(n*1000)/1000 : null;
-  };
-  const normUniqueNums = (items=[]) => [...new Set(items.filter(n=>n!==null&&n!==undefined).map(n=>String(n)))].map(Number).sort((a,b)=>a-b);
-  const normExtractDiameters = (value='') => {
-    const text = normSpecText(value);
-    const out = [];
-    const re = /(?:диаметр(?:ом)?|диам\.?|ф)\D{0,45}(\d{1,3}(?:\.\d+)?)(?:\s*х\s*(\d{1,3}(?:\.\d+)?))?/g;
-    let m;
-    while ((m = re.exec(text))) {
-      [m[1], m[2]].forEach(v=>{
-        const n = normSpecNum(v);
-        if (n>=6 && n<=250) out.push(n);
-      });
-    }
-    return normUniqueNums(out);
-  };
-  const normExtractRectSizes = (value='') => {
-    const text = normSpecText(value);
-    const out = [];
-    const re = /(\d{1,4})\s*х\s*(\d{1,4})(?:\s*х\s*(\d{1,4}))?\s*мм/g;
-    let m;
-    while ((m = re.exec(text))) {
-      const nums = [m[1], m[2], m[3]].filter(Boolean).map(Number);
-      if (nums.length>=2 && nums.every(n=>n>0 && n<=2000)) out.push(nums.join('х'));
-    }
-    return [...new Set(out)];
-  };
-  const normExtractCableSections = (value='') => {
-    const text = normSpecText(value);
-    const out = [];
-    const re = /(\d{1,2})\s*х\s*(\d{1,2}(?:\.\d+)?)(?:\s*х\s*(\d{1,2}(?:\.\d+)?))?(?=\s*(?:мм2|мм²|кв\.?\s*мм|ок|нг|fr|ls|hf|$))/g;
-    let m;
-    while ((m = re.exec(text))) {
-      const parts = [m[1], m[2], m[3]].filter(Boolean).map(v=>{
-        const n = normSpecNum(v);
-        return n===null ? '' : String(n).replace('.', ',');
-      }).filter(Boolean);
-      if (parts.length>=2) out.push(parts.join('х'));
-    }
-    return [...new Set(out)];
-  };
-  const normSpecsOverlap = (left=[], right=[]) => !left.length || !right.length || left.some(v=>right.includes(v));
-  const materialNormSpecCompatible = (rule, workText='', materialName='') => {
-    const ruleKey = materialNameKey(rule?.ruleKey || rule?.id || '');
-    const workDiameters = normExtractDiameters(workText);
-    const materialDiameters = normExtractDiameters(materialName);
-    const diameterRules = ['pipe_pp','pipe_fittings','pipe_clamps','pipe_insulation','cable_protection'];
-    if (diameterRules.some(k=>ruleKey.includes(k)) && !normSpecsOverlap(workDiameters, materialDiameters)) return false;
-    if (ruleKey.includes('cable_line') && !normSpecsOverlap(normExtractCableSections(workText), normExtractCableSections(materialName))) return false;
-    if ((ruleKey.includes('cable_channel_box') || ruleKey.includes('cable_protection')) && !normSpecsOverlap(normExtractRectSizes(workText), normExtractRectSizes(materialName))) return false;
-    return true;
-  };
-  const normRuleSpecificEnough = (rule, workText='') => {
-    const t = materialNameKey(workText);
-    const words = t.split(' ');
-    const hasCableWord = words.some(w=>w.startsWith('кабел')||w.startsWith('гофр')||(w.startsWith('провод')&&!w.startsWith('трубопровод')));
-    const ruleKey = materialNameKey(rule.ruleKey || rule.id || '');
-    const mat = materialNameKey([ruleKey, rule.name, ...(rule.material||[])].join(' '));
-    const matWords = mat.split(' ');
-    const isCableRule = ['cable','кабел','utp','ftp','гофр','кабель канал'].some(w=>mat.includes(w)) ||
-      matWords.some(w=>w.startsWith('провод') && !w.startsWith('трубопровод'));
-    if (isCableRule && t.includes('проклад') && !hasCableWord) return false;
-    if (ruleKey.includes('cable_line') && normHasAny(t, ['труба гофр','гофрирован','кабель-канал','кабель канал','короб','лоток','металлорукав']) && !normHasAny(t, ['затягивание','прокладка кабел','прокладка провод','провод в короб','кабель в короб'])) return false;
-    if (ruleKey.includes('pipe_insulation') && !normHasAny(t, ['изоляц','теплоизоляц','утепл','энергофлекс'])) return false;
-    return true;
-  };
-  const materialNormUnitCompatible = (rule, materialName='', materialUnit='') => {
-    const ruleUnit = _normalizeUnit(rule?.materialUnit || '');
-    const unit = _normalizeUnit(materialUnit || '');
-    if (!ruleUnit || !unit || ruleUnit === unit) return true;
-    return !!convertUnits(materialName, 1, rule.materialUnit, materialUnit);
-  };
-  const materialNormFamilyCompatible = (rule, materialName='') => {
-    const ruleKey = materialNameKey(rule?.ruleKey || rule?.id || '');
-    const ruleText = materialNameKey([ruleKey, rule?.name, ...(rule?.material||[])].join(' '));
-    const materialText = materialNameKey(materialName);
-    const has = (words) => normHasAny(materialText, words);
-    const fittingWords = ['муфта','угольник','угол','тройник','переход','кран','фитинг','отвод','вентиль','клапан'];
-    const pipeWords = ['труба','трубы','трубн','ppr','pprc','ppr c','ppr-c','полипропилен'];
-    const pipeClampWords = ['хомут','кронштейн','клипс','клипса','скоба','держатель','опора','подвес','консоль'];
-    const insulationWords = ['изоляц','теплоизоляц','утепл','утеплител','минераловат','минвата','вата','изовер','технониколь','пенополиэтилен','энергофлекс'];
-    const fastenerWords = ['дюбел','дюбель','саморез','шуруп','анкер','гвозд','болт'];
-    const cableWords = ['кабель','провод','utp','ftp','sftp','f-utp','u-utp','кпс','ксвв','кспв','квп','ввг','nym','frls','frhf'];
-    const cableProtectionWords = ['кабель-канал','кабель канал','короб','гофр','гофра','гофрирован','труба пнд','труба пвх','трубы гибкие','лоток','металлорукав'];
-    const cableFastenerWords = ['скоб','хомут','крепеж','креплен','клипс','держатель','дюбел','дюбель','саморез','анкер','болт','шуруп'];
-    if (ruleKey.includes('cable_fasteners')) return has(cableFastenerWords);
-    if (ruleKey.includes('cable_line')) return has(cableWords) && !has(cableProtectionWords) && !has(cableFastenerWords);
-    if (ruleKey.includes('cable_protection')) return has(cableProtectionWords);
-    if (ruleKey.includes('cable_channel_box')) return has(['кабель-канал','кабель канал','короб']);
-    if (ruleKey.includes('pipe_pp')) return has(pipeWords) && !has(fittingWords) && !has(pipeClampWords) && !has(fastenerWords);
-    if (ruleKey.includes('pipe_fittings')) return has(fittingWords);
-    if (ruleKey.includes('pipe_clamps')) return has(pipeClampWords);
-    if (ruleKey.includes('pipe_insulation')) return has(insulationWords) && !has(fastenerWords);
-    if (ruleKey.includes('thermal_insulation_board')) return has(insulationWords) && !has(fastenerWords);
-    if (ruleKey.includes('thermal_insulation_fasteners')) return has(fastenerWords) && has(['теплоизоляц','изоляц']);
-    if (ruleKey.includes('radiator_connection_kit')) return has(['комплект монтаж','комплект подключ','подключения радиатор','радиаторный комплект']);
-    if (ruleKey.includes('radiator_mount')) return has(['кронштейн','консоль','крепление радиатор','крепеж радиатор','комплект крепления']);
-    if (ruleText.includes('изоляция труб')) return has(insulationWords) && !has(fastenerWords);
-    if (ruleText.includes('трубопровод') && has(fastenerWords) && !has(pipeClampWords)) return false;
-    return true;
-  };
-  const materialNormMatchesMaterial = (rule, materialName='', materialUnit='', workText='') =>
-    normTextIncludes(materialName, rule?.material||[]) &&
-    materialNormUnitCompatible(rule, materialName, materialUnit) &&
-    materialNormFamilyCompatible(rule, materialName) &&
-    materialNormSpecCompatible(rule, workText, materialName);
-  const normListFromText = (value) => String(value||'').split(/[,;\n]/).map(v=>v.trim()).filter(Boolean);
-  const normListToText = (value) => Array.isArray(value) ? value.join(', ') : String(value||'');
-  const materialNormRuleForCalc = (rule) => ({
-    ...rule,
-    dbId: Number(rule.id) || null,
-    id: rule.ruleKey || rule.id,
-    ruleKey: rule.ruleKey || rule.id,
-    name: rule.name || materialTitleForNormRule(rule),
-    work: Array.isArray(rule.work) ? rule.work : normListFromText(rule.work),
-    blockWork: Array.isArray(rule.blockWork) ? rule.blockWork : normListFromText(rule.blockWork),
-    material: Array.isArray(rule.material) ? rule.material : normListFromText(rule.material),
-    qtyPerUnit: toNum(rule.qtyPerUnit),
-    thicknessBaseMm: toNum(rule.thicknessBaseMm),
-    defaultThicknessMm: toNum(rule.defaultThicknessMm),
-    projectName: rule.projectName || '',
-    estimateId: rule.estimateId || null,
-    baseNormId: rule.baseNormId || (rule.scope ? null : (Number(rule.id) || null)),
-    reason: rule.reason || '',
-    scope: rule.scope || '',
-  });
-  const materialNormRulesForCalculation = (projectName='', estimateId=null) => {
-    const dbRules = (materialNorms||[]).filter(r=>r.active!==false).map(materialNormRuleForCalc).filter(r=>r.qtyPerUnit>0 && r.work?.length && r.material?.length);
-    const baseRules = dbRules.length ? dbRules : WORK_MATERIAL_NORM_RULES.map(materialNormRuleForCalc);
-    if (!projectName) return baseRules;
-    const overrides = (materialNormOverrides||[])
-      .filter(r=>r.active!==false && r.projectName===projectName && (!r.estimateId || !estimateId || Number(r.estimateId)===Number(estimateId)))
-      .map(r=>materialNormRuleForCalc({
-        ...r,
-        ruleKey:'override_'+r.id,
-        name:r.materialName || r.name || 'Поправка нормы',
-        scope:r.estimateId?'estimate':'project',
-      }))
-      .filter(r=>r.qtyPerUnit>0 && r.work?.length && r.material?.length);
-    return [...overrides, ...baseRules];
-  };
   const workNormRulesFor = (workName, sectionName='', projectName='', estimateId=null) => {
-    const text = workName+' '+sectionName;
-    if (workNoMaterialNormReason(workName, sectionName)) return [];
-    return materialNormRulesForCalculation(projectName, estimateId).filter(rule=>
-      normTextIncludes(text, rule.work) &&
-      !normTextIncludes(text, rule.blockWork||[]) &&
-      normRuleSpecificEnough(rule, text)
-    );
+    return workNormRulesForCalculation({
+      workName,
+      sectionName,
+      projectName,
+      estimateId,
+      materialNorms,
+      materialNormOverrides,
+      baseRules: WORK_MATERIAL_NORM_RULES,
+    });
   };
   const workNeedsThicknessParam = (workName, sectionName='') =>
     workNormRulesFor(workName, sectionName).some(r=>r.thicknessBaseMm);
-  const roundNormQty = (qty) => {
-    const q = Number(qty)||0;
-    if (q <= 0) return 0;
-    if (q >= 100) return Math.ceil(q);
-    if (q >= 10) return Math.round(q*10)/10;
-    return Math.round(q*100)/100;
-  };
   const materialNormForWork = (projectName, workName, sectionName, workQty, workUnit, material, params={}) => {
-    if (!projectName || !material?.name || toNum(workQty)<=0) return null;
-    const normalizedWork = normalizeMeasure(workQty, workUnit);
-    const rules = workNormRulesFor(workName, sectionName, projectName, params.estimateId).filter(rule=>
-      _normalizeUnit(normalizedWork.unit)===_normalizeUnit(rule.workUnit) &&
-      materialNormMatchesMaterial(rule, material.name, material.unit, workName+' '+sectionName)
-    );
-    if (!rules.length) return null;
-    const rule = rules[0];
-    let qty = normalizedWork.qty * Number(rule.qtyPerUnit||0);
-    let label = rule.label;
-    if (rule.thicknessBaseMm) {
-      const thickness = toNum(params.thicknessMm) || Number(rule.defaultThicknessMm||rule.thicknessBaseMm);
-      qty *= thickness / Number(rule.thicknessBaseMm);
-      label += ' · слой '+thickness+' мм';
-    }
-    const targetUnit = material.unit || rule.materialUnit;
-    let outQty = qty;
-    let outUnit = targetUnit;
-    if (_normalizeUnit(rule.materialUnit)!==_normalizeUnit(targetUnit)) {
-      const conv = convertUnits(material.name, qty, rule.materialUnit, targetUnit);
-      if (!conv) return null;
-      outQty = conv.qty;
-      label += ' · '+conv.note;
-    }
-    const rounded = roundNormQty(outQty);
-    return {
-      ruleId: rule.ruleKey || rule.id,
-      scope: rule.scope || 'base',
-      quantity: rounded,
-      unit: outUnit,
-      normQuantity: rounded,
-      normSource: label,
-      autoNorm: true
-    };
+    return calculateMaterialNormForWork({
+      projectName,
+      workName,
+      sectionName,
+      workQty,
+      workUnit,
+      material,
+      params,
+      materialNorms,
+      materialNormOverrides,
+      baseRules: WORK_MATERIAL_NORM_RULES,
+    });
   };
-  const materialTitleForNormRule = (rule) => ({
-    plaster_mix:'Штукатурная смесь',
-    screed_mix:'Смесь для стяжки',
-    putty_mix:'Шпаклевка',
-    tile_glue:'Плиточный клей',
-    tile_grout:'Затирка',
-    paint:'Краска',
-    primer:'Грунтовка',
-    gkl_sheet:'ГКЛ лист',
-    gkl_profile:'Профиль ГКЛ',
-    gkl_screws:'Саморезы ГКЛ',
-    cable_line:'Кабель / провод',
-    cable_protection:'Гофра / кабель-канал',
-    cable_channel_box:'Короб / кабель-канал',
-    cable_fasteners:'Крепеж кабельной трассы',
-    junction_box:'Коробка ответвительная',
-    luminaire:'Светильник / табло',
-    socket_switch:'Розетка / выключатель',
-    electric_panel:'Щит / шкаф распределительный',
-    pipe_pp:'Труба полипропиленовая',
-    pipe_fittings:'Фитинги трубопроводов',
-    pipe_clamps:'Крепление трубопроводов',
-    pipe_insulation:'Изоляция труб',
-    thermal_insulation_board:'Теплоизоляция плитная/рулонная',
-    radiator_device:'Радиатор отопления',
-    radiator_mount:'Крепление радиатора',
-    radiator_connection_kit:'Комплект подключения радиатора',
-    plaster_mesh:'Штукатурная сетка',
-    plaster_beacon:'Маячный профиль',
-    linoleum_sheet:'Линолеум',
-    linoleum_glue:'Клей для линолеума',
-    pvc_plinth:'Плинтус',
-    plywood_subfloor:'Фанера / основание пола',
-    osb_subfloor:'OSB / древесная плита',
-    wood_frame:'Брус каркаса',
-    door_block:'Дверной блок',
-    windowsill:'Подоконник',
-    windowsill_end_caps:'Заглушки подоконника',
-    thermal_insulation_fasteners:'Крепеж теплоизоляции',
-    brick_masonry:'Кирпич',
-    concrete:'Бетон'
-  }[rule?.ruleKey || rule?.id] || rule?.name || rule?.material?.[0] || 'Материал по норме');
   const normRequirementsForWork = (workName, sectionName, workQty, workUnit, params={}) => {
-    const normalizedWork = normalizeMeasure(workQty, workUnit);
-    if (toNum(normalizedWork.qty)<=0) return [];
-    return workNormRulesFor(workName, sectionName, params.projectName||'', params.estimateId||null)
-      .filter(rule=>_normalizeUnit(normalizedWork.unit)===_normalizeUnit(rule.workUnit))
-      .map(rule=>{
-        let qty = normalizedWork.qty * Number(rule.qtyPerUnit||0);
-        let label = rule.label;
-        if (rule.thicknessBaseMm) {
-          const thickness = toNum(params.thicknessMm) || Number(rule.defaultThicknessMm||rule.thicknessBaseMm);
-          qty *= thickness / Number(rule.thicknessBaseMm);
-          label += ' · слой '+thickness+' мм';
-        }
-        return {ruleId:rule.ruleKey || rule.id,scope:rule.scope||'base',rule,name:materialTitleForNormRule(rule),quantity:roundNormQty(qty),unit:rule.materialUnit,normSource:label};
-      }).filter(r=>r.quantity>0);
+    return calculateNormRequirementsForWork({
+      workName,
+      sectionName,
+      workQty,
+      workUnit,
+      params,
+      materialNorms,
+      materialNormOverrides,
+      baseRules: WORK_MATERIAL_NORM_RULES,
+    });
   };
   const estimateWorkNormRequirementRows = (projectName, workPackage='') => {
     const project = projects.find(pr=>pr.name===projectName) || {name:projectName};
@@ -5448,79 +4896,6 @@ function App() {
     }));
     return rows;
   };
-  const materialNormCoverageMeta = (status) => {
-    if (['Норма применена','Поправка объекта','Поправка сметы'].includes(status)) return {color:C.success,bg:C.successLight,border:C.successBorder};
-    if (status==='Норма не нужна') return {color:C.textSec,bg:C.bgGray,border:C.border};
-    if (status==='Некорректное количество') return {color:C.danger,bg:C.dangerLight,border:C.dangerBorder};
-    if (status==='Нет нормы' || status==='Материал без работы' || status==='Материал без количества' || status==='Нехватка материала по норме') return {color:C.warning,bg:C.warningLight,border:C.warningBorder};
-    return {color:C.info,bg:C.infoLight,border:C.infoBorder};
-  };
-  const materialNormCoverageSpecText = (row) => {
-    const ruleKey = materialNameKey(row?.rule?.ruleKey || row?.rule?.id || '');
-    const workText = [row?.workName, row?.sectionName].filter(Boolean).join(' ');
-    const materialText = row?.materialName || '';
-    const spec = (label, left, right) => {
-      if (left.length && right.length) return label+': '+left.join('/')+' ↔ '+right.join('/');
-      if (left.length) return label+': в работе '+left.join('/')+', в материале не указано';
-      if (right.length) return label+': в материале '+right.join('/')+', в работе не указано';
-      return '';
-    };
-    const parts = [];
-    const diameters = ['pipe_pp','pipe_fittings','pipe_clamps','pipe_insulation','cable_protection'];
-    if (diameters.some(k=>ruleKey.includes(k))) parts.push(spec('диаметр', normExtractDiameters(workText), normExtractDiameters(materialText)));
-    if (ruleKey.includes('cable_line')) parts.push(spec('сечение кабеля', normExtractCableSections(workText), normExtractCableSections(materialText)));
-    if (ruleKey.includes('cable_channel_box') || ruleKey.includes('cable_protection')) parts.push(spec('размер короба/гофры', normExtractRectSizes(workText), normExtractRectSizes(materialText)));
-    return parts.filter(Boolean).join('; ');
-  };
-  const materialNormCoverageComment = (row) => {
-    const base = row?.message || '';
-    if (!row?.rule) return base;
-    const pieces = [];
-    const ruleName = materialTitleForNormRule(row.rule);
-    if (ruleName) pieces.push('норма "'+ruleName+'"');
-    if (row.rule.materialUnit) pieces.push('ед. материала '+row.rule.materialUnit);
-    const spec = materialNormCoverageSpecText(row);
-    if (spec) pieces.push(spec);
-    if (row.status === 'Нет материала в смете') pieces.push('подходящая строка материала в этом разделе не найдена');
-    if (row.status === 'Нехватка материала по норме') pieces.push('не хватает '+fmtMeasure(row.shortageQty||0,row.requiredUnit||row.materialUnit||row.rule.materialUnit));
-    if (row.status === 'Некорректное количество') pieces.push('количество материала в смете отрицательное или некорректное');
-    if (row.status === 'Материал без количества') pieces.push('материал найден, но количество в смете пустое или 0');
-    if (!pieces.length) return base;
-    return base + '. Проверено: ' + pieces.join('; ');
-  };
-  const materialNormCoveragePriority = (status) => ({
-    'Некорректное количество': 0,
-    'Нехватка материала по норме': 1,
-    'Нет материала в смете': 2,
-    'Материал без количества': 3,
-    'Нет нормы': 4,
-    'Материал без работы': 5,
-    'Поправка объекта': 6,
-    'Поправка сметы': 6,
-    'Норма применена': 7,
-    'Норма не нужна': 8,
-  }[status] ?? 9);
-  const materialNormCoverageDisplayRows = (rows=[]) => [...rows].sort((a,b)=>{
-    const pa = materialNormCoveragePriority(a.status);
-    const pb = materialNormCoveragePriority(b.status);
-    if (pa !== pb) return pa - pb;
-    return String(a.sectionName||'').localeCompare(String(b.sectionName||''), 'ru')
-      || String(a.workName||'').localeCompare(String(b.workName||''), 'ru');
-  });
-  const materialNormCoverageExportRows = (rows=[]) => rows.map(r=>({
-    Статус: r.status || '',
-    Смета: r.estimateName || '',
-    Пакет: r.packageName || '',
-    Раздел: r.sectionName || '',
-    Работа: r.workName || '',
-    'Объем работы': r.workQty ? fmtMeasure(r.workQty,r.workUnit) : '',
-    'Материал / норма': r.materialName || materialTitleForNormRule(r.rule) || '',
-    'Потребность': r.requiredQty ? fmtMeasure(r.requiredQty,r.requiredUnit) : '',
-    'В смете': r.materialQty ? fmtMeasure(r.materialQty,r.materialUnit) : '',
-    'Нехватка': r.shortageQty ? fmtMeasure(r.shortageQty,r.requiredUnit||r.materialUnit) : '',
-    'Код нормы': r.rule?.ruleKey || r.rule?.id || '',
-    Комментарий: materialNormCoverageComment(r),
-  }));
   const buildMaterialNormCoverageContent = (projectName) => buildMaterialNormCoverageDocContent(
     projectName,
     projectName ? estimateNormCoverageRows(projectName) : [],
@@ -5639,83 +5014,9 @@ function App() {
     setAiTasks(prev=>[data,...(prev||[])]);
     setMaterialNormNotice({tone:'success',title:'Поручение создано',text:'Сметчику поставлена задача уточнить материал или подтвердить, что он не нужен.'});
   };
-  const estimateNormReviewIssueStatuses = ['Некорректное количество','Нехватка материала по норме','Нет материала в смете','Материал без количества','Материал без работы','Нет нормы'];
-  const estimateNormReviewMarker = (estimateId) => 'ESTIMATE_NORM_REVIEW:'+String(estimateId||'');
-  const estimateQualityReviewMarker = (estimateId) => 'ESTIMATE_QUALITY_REVIEW:'+String(estimateId||'');
-  const estimateDiffReviewMarker = (baseEstimateId, nextEstimateId) => 'ESTIMATE_DIFF_REVIEW:'+String(baseEstimateId||'')+':'+String(nextEstimateId||'');
   const aiTaskByMarker = (marker) => (aiTasks||[]).find(t=>
     isOpenAiStatus(t.status) && String(t.actionPayload||'').includes(marker)
   );
-  const estimatePieceUnitKeys = new Set(['шт','компл','комплект','пара','набор','секция','труба','лист','рулон','упак','упаковка','пачка','ящик','бухта','мешок']);
-  const estimateQualityRows = (est) => {
-    if (!est?.id) return [];
-    const rows = [];
-    const push = (status, section, item, sectionIdx, itemIdx, message, severity='warning') => {
-      rows.push({
-        key:[est.id,sectionIdx,itemIdx,status].join('|'),
-        status,
-        severity,
-        projectName:est.projectName||'',
-        estimateId:est.id,
-        estimateName:est.name||'',
-        packageName:estimatePackage(est),
-        sectionIdx,
-        itemIdx,
-        sectionName:section?.name||'Без раздела',
-        itemName:item?.name||'Без названия',
-        itemType:normalizeEstimateItemType(item, section?.name||''),
-        unit:item?.unit||'',
-        quantity:item?.quantity,
-        normalizedQuantity:normalizeMeasure(toNum(item?.quantity), item?.unit).qty,
-        normalizedUnit:normalizeMeasure(toNum(item?.quantity), item?.unit).unit || item?.unit || '',
-        priceWork:item?.priceWork,
-        priceMaterial:item?.priceMaterial,
-        total:estimateItemTotal(item),
-        message
-      });
-    };
-    _sectionsOfEst(est).forEach((section, sectionIdx)=>(section.items||[]).forEach((rawItem, itemIdx)=>{
-      const item = normalizeEstimateWorkingItem(rawItem, section?.name||'');
-      const name = String(item?.name||'').trim();
-      const rawQtyText = String(item?.quantity ?? '').trim();
-      const qty = toNum(item?.quantity);
-      const unit = String(item?.unit||'').trim();
-      const normalized = normalizeMeasure(qty, unit);
-      const normUnitKey = _normalizeUnit(normalized.unit || unit);
-      const itemType = normalizeEstimateItemType(item, section?.name||'');
-      const priceWork = toNum(item?.priceWork);
-      const priceMaterial = toNum(item?.priceMaterial);
-      const isImportedResourceAdjustment = item?.isImported && item?.importKind === 'resource_adjustment';
-      if (itemType === 'adjustment') return;
-      if (isImportedResourceAdjustment) return;
-      if (!name) push('Нет наименования', section, item, sectionIdx, itemIdx, 'У позиции нет названия — её нельзя надёжно сопоставить с работой, материалом или новой сметой.', 'critical');
-      if (!unit) push('Нет единицы', section, item, sectionIdx, itemIdx, 'Не указана единица измерения. Без неё нельзя корректно закрывать объёмы, нормы и КС.', 'critical');
-      if (!rawQtyText) {
-        push('Нет количества', section, item, sectionIdx, itemIdx, 'Количество пустое. Нужно указать плановый объём по смете.', 'critical');
-      } else if (qty < 0) {
-        if (itemType === 'adjustment') {
-          push('Корректировка ресурса', section, item, sectionIdx, itemIdx, 'Минусовая ресурсная строка сохранена для аудита импорта, но не участвует в суммах, КС и закрытии работ.', 'info');
-        } else {
-          push('Отрицательное количество', section, item, sectionIdx, itemIdx, 'Количество меньше нуля. Такая строка ломает сумму сметы, остатки и сопоставление с новой редакцией.', 'critical');
-        }
-      } else if (qty === 0) {
-        push('Нулевое количество', section, item, sectionIdx, itemIdx, 'Количество равно 0. Если строка нужна, укажите объём; если не нужна — перенесите в исключение/архив.', 'warning');
-      }
-      if (qty > 0 && estimatePieceUnitKeys.has(normUnitKey) && Math.abs(normalized.qty - Math.round(normalized.qty)) > 0.001) {
-        push('Дробное количество шт', section, item, sectionIdx, itemIdx, 'Штучная единица после нормализации получилась дробной: '+fmtMeasure(qty, unit)+'. Проверьте, не должна ли единица быть «100 шт»/«компл.» или другое основание.', 'warning');
-      }
-      if (priceWork < 0 || priceMaterial < 0) {
-        push('Отрицательная цена', section, item, sectionIdx, itemIdx, 'Цена работ или материалов меньше нуля. Для уменьшения объёма лучше использовать изменение к смете/исключение, а не минусовую цену.', 'critical');
-      }
-      if (itemType === 'work' && qty > 0 && Math.abs(estimateItemTotal(item)) < 0.01) {
-        push('Нулевая сумма работы', section, item, sectionIdx, itemIdx, 'У рабочей строки есть объём, но сумма равна 0. Заполните цену или проверьте тип позиции.', 'warning');
-      }
-    }));
-    const rank = {'critical':0,'warning':1,'info':2};
-    return rows.sort((a,b)=>(rank[a.severity]??9)-(rank[b.severity]??9)
-      || String(a.sectionName).localeCompare(String(b.sectionName),'ru')
-      || String(a.itemName).localeCompare(String(b.itemName),'ru'));
-  };
   const jumpToEstimateIssue = (row) => {
     if (!row || row.sectionIdx === undefined || row.itemIdx === undefined) return;
     const key = estimateIssueDomId(row.estimateId || selectedEstimate?.id, row.sectionIdx, row.itemIdx);
@@ -5725,32 +5026,6 @@ function App() {
       if (el) el.scrollIntoView({behavior:'smooth', block:'center'});
     }, 30);
     setTimeout(() => setEstimateIssueFocusKey(prev => prev === key ? '' : prev), 4500);
-  };
-  const estimateQualityDescription = (est, rows, reason) => {
-    const counts = [...new Set(rows.map(r=>r.status))]
-      .map(status=>({status,count:rows.filter(r=>r.status===status).length}))
-      .sort((a,b)=>b.count-a.count);
-    const lines = [
-      'Автопроверка качества сметы после события: '+(reason||'сохранение сметы')+'.',
-      'Объект: '+(est.projectName||'')+'. Смета: '+(est.name||'')+'. Пакет: '+estimatePackage(est)+'.',
-      '',
-      'Найдено ошибок данных: '+rows.length+'.',
-      ...counts.map(x=>'• '+x.status+': '+x.count),
-      '',
-      'Первые строки для исправления:'
-    ];
-    rows.slice(0,12).forEach((row,idx)=>{
-      lines.push((idx+1)+'. '+row.status+' — '+row.sectionName+' / '+row.itemName+'; '+String(row.quantity ?? 'пусто')+' '+(row.unit||'без ед.')+'; сумма '+Math.round(row.total||0).toLocaleString('ru-RU')+' ₽. '+row.message);
-    });
-    if (rows.length > 12) lines.push('...и ещё '+(rows.length-12)+' строк.');
-    lines.push(
-      '',
-      'Порядок исправления:',
-      '1. Сначала исправить отрицательные/пустые количества, единицы и цены в самой смете.',
-      '2. После сохранения система заново проверит нормы материалов и сопоставление с новой сметой.',
-      '3. До исправления такие строки нельзя использовать как основание для КС, заявок снабжения и списания материалов.'
-    );
-    return lines.join('\n');
   };
   const queueEstimateQualityReviewTask = async (est, reason='Автопроверка сметы') => {
     if (!est?.id || !est.projectName) return;
@@ -5834,30 +5109,6 @@ function App() {
       || (staff||[]).some(s=>roleOf(s.systemRole||s.role)==='сметчик' && roleOf(s.status||'активен')!=='уволен');
   };
   const estimateNormReviewExistingTask = (marker) => aiTaskByMarker(marker);
-  const estimateDiffReviewDescription = (baseEst, nextEst, diff, reason) => {
-    const fmtMoney = (n) => (Math.round(Number(n||0)*100)/100).toLocaleString('ru-RU')+' ₽';
-    const lines = [
-      'Автосверка смет после события: '+(reason||'активация новой сметы')+'.',
-      'Объект: '+(nextEst.projectName||baseEst.projectName||'')+'. Пакет: '+estimatePackage(nextEst)+'.',
-      '',
-      'База: '+(baseEst.name||'')+' ('+(baseEst.version?'v'+baseEst.version+', ':'')+(baseEst.status||'')+').',
-      'Новая смета: '+(nextEst.name||'')+' ('+(nextEst.version?'v'+nextEst.version+', ':'')+(nextEst.status||'')+').',
-      '',
-      'Было: '+fmtMoney(diff.baseTotal)+'. Стало: '+fmtMoney(diff.nextTotal)+'. Разница: '+(diff.impact>0?'+':'')+fmtMoney(diff.impact)+'.',
-      'Изменено: '+diff.changed.length+'. Добавлено: '+diff.added.length+'. Исключено: '+diff.removed.length+'.',
-      '',
-      'Первые позиции по влиянию:'
-    ];
-    const rows = [
-      ...diff.changed.map(x=>({kind:'Изменено', name:x.next.name, section:x.next.section, impact:x.impact})),
-      ...diff.added.map(x=>({kind:'Добавлено', name:x.name, section:x.section, impact:x.impact})),
-      ...diff.removed.map(x=>({kind:'Исключено', name:x.name, section:x.section, impact:x.impact})),
-    ].sort((a,b)=>Math.abs(b.impact)-Math.abs(a.impact)).slice(0,12);
-    rows.forEach((row,idx)=>lines.push((idx+1)+'. '+row.kind+' — '+row.section+' / '+row.name+'; влияние '+(row.impact>0?'+':'')+fmtMoney(row.impact)+'.'));
-    if (!rows.length) lines.push('Существенных изменений по позициям не найдено.');
-    lines.push('', 'Что сделать: открыть сопоставительную ведомость, проверить добавленные/исключённые объёмы и решить, что уже закрывает утверждённые изменения к смете, а что остаётся отдельной допработой.');
-    return lines.join('\n');
-  };
   const queueEstimateDiffReviewTask = async (baseEst, nextEst, reason='Новая смета') => {
     if (!baseEst?.id || !nextEst?.id || Number(baseEst.id)===Number(nextEst.id)) return;
     if (!sameEstimateGroup(baseEst,nextEst) || isGlobalEstimateTemplate(nextEst) || (nextEst.status||'Черновик')!=='Активная') return;
@@ -5930,112 +5181,6 @@ function App() {
     } catch(e) {
       estimateDiffReviewQueuedRef.current.delete(marker);
     }
-  };
-  const estimateChangeReconcileMarker = (nextEstimateId) => 'ESTIMATE_CHANGE_RECONCILE:'+String(nextEstimateId||'');
-  const estimateChangeUnitKey = (unit) => estimateDiffTextKey(normalizeMeasure(1, unit).unit || unit || '');
-  const estimateChangeNameScore = (left, right) => {
-    const a = estimateDiffTextKey(left);
-    const b = estimateDiffTextKey(right);
-    if (!a || !b) return 0;
-    if (a === b) return 1;
-    if (a.includes(b) || b.includes(a)) return 0.92;
-    const aw = a.split(' ').filter(w=>w.length>3);
-    const bw = b.split(' ').filter(w=>w.length>3);
-    if (!aw.length || !bw.length) return 0;
-    const overlap = aw.filter(w=>bw.includes(w)).length;
-    return overlap / Math.max(aw.length, bw.length);
-  };
-  const estimateChangeTargetNames = (change) => [...new Set([change?.estimateItemName, change?.description].map(v=>String(v||'').trim()).filter(Boolean))];
-  const estimateChangeNormalizedQty = (qty, unit) => {
-    const n = normalizeMeasure(toNum(qty), unit);
-    return {qty:toNum(n.qty), unit:n.unit || unit || ''};
-  };
-  const estimateChangeRequiredQty = (change) => {
-    const type = change?.changeType || 'Работа вне сметы';
-    const base = toNum(change?.baseQuantity);
-    const delta = toNum(change?.deltaQuantity || change?.quantity);
-    let raw = toNum(change?.newRequiredQuantity);
-    if (raw <= 0 && (base > 0 || delta > 0)) {
-      raw = type === 'Исключение объёма' ? Math.max(0, base - delta) : base + delta;
-    }
-    return estimateChangeNormalizedQty(raw || delta, change?.unit);
-  };
-  const findEstimateChangeRowMatch = (change, rows=[]) => {
-    const names = estimateChangeTargetNames(change);
-    const unitKey = estimateChangeUnitKey(change?.unit);
-    if (!names.length) return null;
-    const exactKeys = names.map(name=>[
-      estimateDiffTextKey(change?.sectionName),
-      estimateDiffTextKey(name),
-      unitKey
-    ].join('|'));
-    let best = null;
-    rows.forEach(row=>{
-      if (!row) return;
-      const rowUnitKey = estimateChangeUnitKey(row.unit);
-      if (unitKey && rowUnitKey && unitKey !== rowUnitKey) return;
-      const exact = exactKeys.includes(row.key);
-      const nameScore = Math.max(...names.map(name=>estimateChangeNameScore(name,row.name)));
-      const sectionScore = estimateDiffTextKey(change?.sectionName) && estimateDiffTextKey(change?.sectionName) === estimateDiffTextKey(row.section) ? 0.08 : 0;
-      const score = exact ? 1 : Math.min(0.99, nameScore + sectionScore);
-      if (score >= 0.72 && (!best || score > best.score)) best = {row,score,exact};
-    });
-    return best;
-  };
-  const estimateChangeAutoDecision = (change, nextEst, diff) => {
-    const type = change?.changeType || 'Работа вне сметы';
-    const required = estimateChangeRequiredQty(change);
-    const tolerance = Math.max(0.001, Math.abs(required.qty || 0) * 0.01);
-    const nextRows = estimateRowsForDiff(nextEst);
-    const addedRows = diff.added || [];
-    const changedNextRows = (diff.changed || []).map(x=>x.next);
-    const removedRows = diff.removed || [];
-    if (type === 'Исключение объёма') {
-      const removed = findEstimateChangeRowMatch(change, removedRows);
-      if (removed && required.qty <= tolerance) {
-        return {change, autoInclude:true, reason:'строка исключена из новой сметы', candidate:removed.row, score:removed.score};
-      }
-      const changed = findEstimateChangeRowMatch(change, changedNextRows) || findEstimateChangeRowMatch(change, nextRows);
-      if (changed && changed.row.qty <= required.qty + tolerance) {
-        return {change, autoInclude:true, reason:'объём уменьшен до '+fmtMeasure(required.qty, required.unit), candidate:changed.row, score:changed.score};
-      }
-      return {change, autoInclude:false, reason:'не найдено уверенное уменьшение объёма', candidate:changed?.row||removed?.row||null, score:changed?.score||removed?.score||0};
-    }
-    if (type === 'Дополнительный объём к строке сметы') {
-      const changed = findEstimateChangeRowMatch(change, changedNextRows) || findEstimateChangeRowMatch(change, nextRows);
-      if (changed && required.qty > 0 && changed.row.qty + tolerance >= required.qty) {
-        return {change, autoInclude:true, reason:'новая смета содержит требуемый объём '+fmtMeasure(required.qty, required.unit), candidate:changed.row, score:changed.score};
-      }
-      return {change, autoInclude:false, reason:'новая смета не закрывает требуемый объём', candidate:changed?.row||null, score:changed?.score||0};
-    }
-    const added = findEstimateChangeRowMatch(change, addedRows);
-    const qty = estimateChangeNormalizedQty(change?.deltaQuantity || change?.quantity, change?.unit);
-    if (added && (!qty.qty || added.row.qty + tolerance >= qty.qty * 0.95)) {
-      return {change, autoInclude:true, reason:'работа появилась новой строкой сметы', candidate:added.row, score:added.score};
-    }
-    const candidate = findEstimateChangeRowMatch(change, nextRows);
-    return {change, autoInclude:false, reason:'работа не найдена как новая строка сметы', candidate:candidate?.row||null, score:candidate?.score||0};
-  };
-  const estimateChangeReconcileDescription = (baseEst, nextEst, decisions, includedCount, reason) => {
-    const unresolved = decisions || [];
-    const lines = [
-      'Фоновая сверка утверждённых изменений к смете после события: '+(reason||'новая смета')+'.',
-      'Объект: '+(nextEst.projectName||baseEst.projectName||'')+'. Пакет: '+estimatePackage(nextEst)+'.',
-      'База: '+(baseEst.name||'')+'. Новая смета: '+(nextEst.name||'')+'.',
-      '',
-      'Автоматически включено в новую смету: '+includedCount+'.',
-      'Нужно проверить вручную: '+unresolved.length+'.',
-      '',
-      'Спорные позиции:'
-    ];
-    unresolved.slice(0,12).forEach((d,idx)=>{
-      const u = d.change || {};
-      lines.push((idx+1)+'. '+(u.changeType||'Изменение')+' — '+(u.sectionName?u.sectionName+' / ':'')+(u.estimateItemName||u.description||'без названия')+'; '+fmtMeasure(u.deltaQuantity||u.quantity,u.unit)+'; причина: '+(d.reason||'не сопоставлено')+'.');
-    });
-    if (unresolved.length > 12) lines.push('...и ещё '+(unresolved.length-12)+' поз.');
-    if (!unresolved.length) lines.push('Спорных позиций нет.');
-    lines.push('', 'Что сделать: открыть сопоставительную ведомость и изменения к смете, проверить спорные позиции и решить, оставить их отдельной допработой или выпустить корректировку сметы.');
-    return lines.join('\n');
   };
   const autoReconcileEstimateChanges = async (baseEst, nextEst, reason='Новая смета') => {
     if (!baseEst?.id || !nextEst?.id || Number(baseEst.id)===Number(nextEst.id)) return;
@@ -6190,35 +5335,6 @@ function App() {
       </div>
     );
   };
-  const estimateNormReviewDescription = (est, rows, reason) => {
-    const counts = estimateNormReviewIssueStatuses
-      .map(status=>({status,count:rows.filter(r=>r.status===status).length}))
-      .filter(x=>x.count>0);
-    const lines = [
-      'Автопроверка сметы после события: '+(reason||'сохранение сметы')+'.',
-      'Объект: '+(est.projectName||'')+'. Смета: '+(est.name||'')+'. Пакет: '+estimatePackage(est)+'.',
-      '',
-      'Найдено замечаний: '+rows.length+'.',
-      ...counts.map(x=>'• '+x.status+': '+x.count),
-      '',
-      'Первые строки для проверки:'
-    ];
-    rows.slice(0, 12).forEach((row, idx)=>{
-      const need = row.requiredQty ? ', потребность '+fmtMeasure(row.requiredQty,row.requiredUnit) : '';
-      const inEstimate = row.materialQty ? ', в смете '+fmtMeasure(row.materialQty,row.materialUnit) : '';
-      lines.push((idx+1)+'. '+row.status+' — '+(row.sectionName||'Без раздела')+' / '+(row.workName||row.materialName||'позиция')+'; материал: '+(row.materialName||materialTitleForNormRule(row.rule)||'—')+need+inEstimate+'.');
-    });
-    if (rows.length > 12) lines.push('...и ещё '+(rows.length-12)+' строк.');
-    lines.push(
-      '',
-      'Порядок исправления:',
-      '1. `Некорректное количество` и `Материал без количества` — сначала исправить количество в смете.',
-      '2. `Нет материала в смете` — добавить строку материала, создать заявку снабжения или подтвердить, что материал не нужен.',
-      '3. `Нет нормы` и `Материал без работы` — уточнить правило нормы или привязку материала к работе.',
-      '4. После правки сохранить смету: задача обновится или закроется автоматически.'
-    );
-    return lines.join('\n');
-  };
   const queueEstimateNormReviewTask = async (est, reason='Автопроверка сметы', sourceEstimates=null) => {
     if (!est?.id || !est.projectName) return;
     if (estimateKind(est)!=='Заказчик' || isArchivedEstimate(est) || (est.status||'Черновик')!=='Активная') return;
@@ -6290,63 +5406,6 @@ function App() {
     } catch(e) {
       estimateNormReviewQueuedRef.current.delete(marker);
     }
-  };
-  const materialControlMarker = (type, projectName, materialName, unit='') => (
-    'MATERIAL_CONTROL:'+String(type||'')+':'+materialNameKey(projectName)+':'+materialNameKey(materialName)+'|'+_normalizeUnit(unit||'')
-  );
-  const materialControlDescription = (kind, projectName, row, reason='Фоновая проверка материалов') => {
-    const lines = [
-      'Автоконтроль материалов после события: '+reason+'.',
-      'Объект: '+projectName+'.',
-      'Материал: '+(row.name||'без названия')+' ('+(row.unit||'шт')+').',
-      ''
-    ];
-    if (kind === 'purchase') {
-      lines.push(
-        'План по смете: '+fmtMeasure(row.planQty,row.unit)+'.',
-        'Получено/перемещено на объект: '+fmtMeasure(row.supplied,row.unit)+'.',
-        'В заявках и пути: '+fmtMeasure(toNum(row.requested) + toNum(row.inTransit),row.unit)+'.',
-        'К докупке: '+fmtMeasure(row.toBuy,row.unit)+'.',
-        '',
-        'Что сделать: проверить заявки, КП и поставки. Если материала действительно не хватает — оформить или уточнить заявку снабжения.'
-      );
-    } else if (kind === 'outside') {
-      const c = row.aliasCandidate || null;
-      lines.push(
-        'Материал есть в поставках, перемещениях или списании, но в активной смете нет плановой строки.',
-        'Поступило/перемещено: '+fmtMeasure(row.supplied,row.unit)+'. Списано: '+fmtMeasure(row.used,row.unit)+'.',
-        c ? 'Похожая строка в смете: '+c.name+' ('+(c.unit||row.unit||'шт')+'), уверенность '+Math.min(99, Math.round(45 + toNum(c.score)*4))+'%.' : '',
-        '',
-        c
-          ? 'Что сделать: если это тот же материал — подтвердить сопоставление. Если нет — добавить позицию в смету или оформить изменение к смете.'
-          : 'Что сделать: проверить, это материал вне сметы, ошибка импорта сметы или неверное наименование. При необходимости добавить позицию в смету или оформить изменение к смете.'
-      );
-    } else if (kind === 'writeoff') {
-      lines.push(
-        'Мастер/бригада списали больше, чем им подписано передано.',
-        'Выдано по актам передачи: '+fmtMeasure(row.issued,row.unit)+'.',
-        'Списано в журнале работ: '+fmtMeasure(row.used,row.unit)+'.',
-        'Сверх выдачи: '+fmtMeasure(row.usedWithoutIssue,row.unit)+'.',
-        '',
-        'Что сделать: проверить передачу материала мастеру и записи ЖПР. Либо оформить недостающую передачу, либо исправить списание.'
-      );
-    } else if (kind === 'norm_over') {
-      lines.push(
-        'По журналу работ списано больше нормативной потребности.',
-        'Списано: '+fmtMeasure(row.qty,row.unit)+'. Норма: '+fmtMeasure(row.normQty,row.unit)+'.',
-        'Перерасход: '+fmtMeasure(row.overQty,row.unit)+' ('+(row.overPct||0)+'%).',
-        '',
-        'Что сделать: проверить толщину/параметры работ, норму расхода и фактическое списание мастера.'
-      );
-    } else if (kind === 'without_norm') {
-      lines.push(
-        'Материал списан в журнале работ, но система не нашла норму расхода.',
-        'Списано без нормы: '+fmtMeasure(row.withoutNormQty,row.unit)+'.',
-        '',
-        'Что сделать: добавить норму расхода для работы или подтвердить, что списание ручное и норму применять не нужно.'
-      );
-    }
-    return lines.join('\n');
   };
   const materialControlTaskDescriptorsForProject = (projectName, reason='Фоновая проверка материалов') => {
     if (!projectName) return [];
@@ -6514,14 +5573,6 @@ function App() {
       await queueMaterialControlTask(descriptor);
     }
   };
-  const roomControlMarker = (type, projectName) => 'ROOM_CONTROL:'+String(type||'')+':'+materialNameKey(projectName);
-  const journalRoomLinkKey = (row) => [
-    materialNameKey(row?.description || row?.workName || ''),
-    String(row?.date || '').slice(0,10),
-    Math.round(toNum(row?.quantity)*1000)/1000,
-    _normalizeUnit(normalizeMeasure(toNum(row?.quantity), row?.unit).unit || row?.unit || ''),
-    materialNameKey(row?.masterName || '')
-  ].join('|');
   const roomRelevantJournalRows = (projectName) => {
     const roomWords = ['стен','потол','пол','окн','двер','откос','штукатур','шпатлев','шпаклев','окрас','облицов','плит','стяж','линолеум','плинтус','кабель','розет','выключ','светильник'];
     return (workJournal||[])
@@ -6537,29 +5588,6 @@ function App() {
       .filter(w=>(w.project||'')===projectName)
       .map(journalRoomLinkKey));
     return roomRelevantJournalRows(projectName).filter(w=>!linked.has(journalRoomLinkKey(w)));
-  };
-  const roomControlDescription = (kind, projectName, rows, reason='Фоновая проверка помещений') => {
-    const lines = [
-      'Автоконтроль помещений после события: '+reason+'.',
-      'Объект: '+projectName+'.',
-      ''
-    ];
-    if (kind === 'measurements') {
-      lines.push('Найдены помещения или проёмы с неполным обмером: '+rows.length+'.');
-      rows.slice(0,8).forEach((r,idx)=>{
-        lines.push((idx+1)+'. '+(r.room?.name||'Помещение')+' — '+(r.check?.issues||[]).slice(0,4).join('; '));
-      });
-      if (rows.length>8) lines.push('...и ещё '+(rows.length-8)+' помещений.');
-      lines.push('', 'Что сделать: открыть вкладку `Помещения`, заполнить размеры пола/стен/потолка/высоты, размеры окон/дверей и глубину откосов. После исправления задача закроется автоматически.');
-    } else if (kind === 'work_links') {
-      lines.push('В журнале работ есть записи без привязки к помещению: '+rows.length+'.');
-      rows.slice(0,10).forEach((w,idx)=>{
-        lines.push((idx+1)+'. '+String(w.date||'')+' — '+(w.description||'Работа')+'; '+fmtMeasure(w.quantity,w.unit)+'; '+(w.masterName||'исполнитель не указан')+'.');
-      });
-      if (rows.length>10) lines.push('...и ещё '+(rows.length-10)+' записей.');
-      lines.push('', 'Что сделать: новые работы закрывать через выбор помещения/поверхности. По старым записям проверить, нужно ли перенести факт в `room_works` или оставить как общую работу без помещения.');
-    }
-    return lines.join('\n');
   };
   const roomControlTaskDescriptorsForProject = (projectName, reason='Фоновая проверка помещений') => {
     if (!projectName) return [];
@@ -6733,38 +5761,9 @@ function App() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, user?.role, projects, rooms, roomWindows, roomDoors, roomWorks, workJournal]);
-  const materialNormSupplyMarker = (row) => {
-    const ruleKey = row?.rule?.ruleKey || row?.rule?.id || '';
-    return 'NORM_COVERAGE_REQUEST:'+[row?.estimateId||'',row?.sectionIdx??'',row?.itemIdx??'',ruleKey].join('|');
-  };
-  const isActiveSupplyRequestStatus = (status) => ['Новая','Подтверждена прорабом','Утверждена','КП запрошены','В пути','Частично поставлено','Проблема поставки','Утверждено'].includes(status||'Новая');
   const materialNormSupplyRequestExists = (row) => {
     const marker = materialNormSupplyMarker(row);
     return (supplyRequests||[]).some(req=>req.project===row?.projectName && isActiveSupplyRequestStatus(req.status) && String(req.notes||'').includes(marker));
-  };
-  const materialNormCanCreateSupply = (row) => (
-    ['Нет материала в смете','Материал без количества','Некорректное количество','Нехватка материала по норме'].includes(row?.status)
-    && row?.rule
-    && toNum(row?.shortageQty || row?.requiredQty)>0
-  );
-  const materialNormSupplyNotes = (rows, summaryTitle='Создано из ведомости «Вся смета по нормам»: материал нужен по норме, но отсутствует в смете или указан без количества.') => {
-    const lines = [summaryTitle];
-    rows.forEach((row,idx)=>{
-      const materialName = row.materialName || materialTitleForNormRule(row.rule) || 'материал';
-      const requestQty = toNum(row.shortageQty || row.requiredQty);
-      lines.push(
-        '',
-        '#'+(idx+1)+' '+materialName+' — '+(requestQty?fmtMeasure(requestQty,row.requiredUnit):'количество не рассчитано'),
-        materialNormSupplyMarker(row),
-        'Объект: '+(row.projectName||''),
-        'Смета: '+(row.estimateName||''),
-        'Раздел: '+(row.sectionName||''),
-        'Работа: '+(row.workName||''),
-        'Объём работы: '+(row.workQty?fmtMeasure(row.workQty,row.workUnit):'не указан'),
-        'Норма: '+(row.rule?.label||row.rule?.ruleKey||materialName)
-      );
-    });
-    return lines.filter(Boolean).join('\n');
   };
   const createSupplyRequestFromNormCoverage = async (row) => {
     if (!materialNormCanCreateSupply(row)) return;
@@ -6916,8 +5915,8 @@ function App() {
       }));
     return next;
   };
-  const canEditMaterialNorms = () => ['директор','зам_директора','прораб','главный_инженер','сметчик'].includes(user?.role);
-  const canCreateSupplyRequestFromNorm = () => ['директор','зам_директора','прораб','снабженец','кладовщик','мастер','субподрядчик','бригадир'].includes(user?.role);
+  const canEditMaterialNorms = () => canEditMaterialNormsForUser(user);
+  const canCreateSupplyRequestFromNorm = () => canCreateSupplyRequestFromNormForUser(user);
   const materialNormPayload = () => ({
     ruleKey: newMaterialNorm.ruleKey.trim(),
     name: newMaterialNorm.name.trim(),
@@ -7136,16 +6135,6 @@ function App() {
     await refreshData();
     alert('Поручение создано в ИИ-контроле объекта');
   };
-  const materialNormStatus = (m) => {
-    const norm = toNum(m?.normQuantity);
-    const qty = toNum(m?.quantity);
-    if (!norm || !qty) return null;
-    const tolerance = Math.max(0.001, norm*0.1);
-    const diff = qty - norm;
-    if (Math.abs(diff)<=tolerance) return {label:m.autoNorm?'по норме':'около нормы', color:C.success, bg:C.successLight, border:C.successBorder};
-    if (diff>0) return {label:'перерасход '+fmtMeasure(diff,m.unit), color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
-    return {label:'экономия '+fmtMeasure(Math.abs(diff),m.unit), color:C.info, bg:C.infoLight, border:C.infoBorder};
-  };
   const materialWriteoffRows = (projectName, usedMaterials=[]) => {
     return (usedMaterials||[])
       .filter(m=>m?.name)
@@ -7248,7 +6237,7 @@ function App() {
       const cur = prev[itemId] || {};
       const list = Array.isArray(cur.materials) ? cur.materials : [];
       const exists = list.some(m=>materialNameKey(m.name)===key);
-      const row = {name:material.name, quantity, unit:material.unit||'шт', workPackage:material.workPackage||'', autoNorm:!!material.autoNorm, normQuantity:material.normQuantity||'', normSource:material.normSource||'', normRuleId:material.normRuleId||material.ruleId||'', normThicknessMm:material.normThicknessMm||material.thicknessMm||''};
+      const row = buildWorkMaterialSelectionRow(material, quantity);
       const next = exists
         ? list.map(m=>materialNameKey(m.name)===key ? {...m, ...row, quantity:quantity!==undefined?quantity:m.quantity} : m)
         : [...list, row];
@@ -7271,13 +6260,12 @@ function App() {
       return {...prev, [itemId]: {...cur, materials: list.map(m=>materialNameKey(m.name)===key ? {...m, quantity, autoNorm:false} : m)}};
     });
   };
-  const estimateWorkKey = (estId, sectionIdx, itemIdx) => String(estId)+':'+String(sectionIdx)+':'+String(itemIdx);
   const upsertEstimateWorkMaterial = (workKey, material, quantity='') => {
     const key = materialNameKey(material.name);
     setEstimateWorkMaterials(prev=>{
       const list = Array.isArray(prev[workKey]) ? prev[workKey] : [];
       const exists = list.some(m=>materialNameKey(m.name)===key);
-      const row = {name:material.name, quantity, unit:material.unit||'шт', workPackage:material.workPackage||'', autoNorm:!!material.autoNorm, normQuantity:material.normQuantity||'', normSource:material.normSource||'', normRuleId:material.normRuleId||material.ruleId||'', normThicknessMm:material.normThicknessMm||material.thicknessMm||''};
+      const row = buildWorkMaterialSelectionRow(material, quantity);
       const next = exists
         ? list.map(m=>materialNameKey(m.name)===key ? {...m, ...row, quantity:quantity!==undefined?quantity:m.quantity} : m)
         : [...list, row];
@@ -7351,212 +6339,45 @@ function App() {
   };
   // Себестоимость объекта = все категории из expByCategory (работы, материалы, доставка, топливо, и т.д.)
   const projectBudgetSpent = (p) => {
-    if(!p) return {works:0,materials:0,unexpected:0,other:0,total:0};
-    const cat=expByCategory(p.name);
-    const total=Object.values(cat).reduce((s,v)=>s+Number(v||0),0);
-    const other=total-(cat.works||0)-(cat.materials||0)-(cat.unexpected||0);
-    return {works:cat.works||0,materials:cat.materials||0,unexpected:cat.unexpected||0,other:other,total:total};
+    if(!p) return projectBudgetSpentSummary(null);
+    return projectBudgetSpentSummary(p, expByCategory(p.name));
   };
-  const workExecutionTotal = (work) => Number(work?.executionTotal ?? work?.execution_total ?? 0);
-  const workCustomerTotal = (work) => Number(work?.customerTotal ?? work?.customer_total ?? work?.total ?? 0);
-	  const projectEconomy = (p) => {
-	    if (!p) return null;
-	    const planDone = projectPlanDone(p);
-	    const activeEstimates = activeEstimatesForProject(p, 'Заказчик');
-    const packages = [...new Set(activeEstimates.map(est => estimatePackage(est)).filter(Boolean))];
-    const materialSummary = materialControlSummaryForProject(p.name);
-    const spent = projectBudgetSpent(p);
-    const projectWorks = (workJournal || []).filter(w => w.project === p.name);
-    const confirmedWorks = projectWorks.filter(w => w.status === 'Подтверждено');
-    const pendingWorks = projectWorks.filter(w => !w.status || w.status === 'На проверке' || w.status === 'Автоматически из сметы');
-    const executionConfirmed = confirmedWorks.reduce((sum, w) => sum + workExecutionTotal(w), 0);
-    const executionPending = pendingWorks.reduce((sum, w) => sum + workExecutionTotal(w), 0);
-    const confirmedCustomerFromJournal = confirmedWorks.reduce((sum, w) => sum + workCustomerTotal(w), 0);
-    const customerClosed = Math.max(Number(planDone.done || 0), confirmedCustomerFromJournal);
-    const legacyWorkCost = Math.max(0, Number(spent.works || 0) - executionConfirmed);
-    const otherCost = Number(spent.other || 0) + Number(spent.unexpected || 0);
-    const currentCost = executionConfirmed + legacyWorkCost + Number(spent.materials || 0) + otherCost;
-    const forecastCost = executionConfirmed + executionPending + legacyWorkCost + Number(spent.materials || 0) + otherCost;
-    const marginClosed = customerClosed - currentCost;
-    return {
-      customerPlan: Number(planDone.plan || 0),
-      customerClosed,
-      customerProgress: Number(planDone.plan || 0) > 0 ? (customerClosed / Number(planDone.plan || 0)) * 100 : 0,
-      activeEstimates: activeEstimates.length,
-      packages,
-      confirmedWorks: confirmedWorks.length,
-      pendingWorks: pendingWorks.length,
-      executionConfirmed,
-      executionPending,
-      legacyWorkCost,
-      materialPlan: Number(materialSummary?.planSum || 0),
-      materialRows: Number(materialSummary?.planRows?.length || 0),
-      materialCost: Number(spent.materials || 0),
-      otherCost,
-      marginClosed,
-      marginClosedPct: customerClosed > 0 ? (marginClosed / customerClosed) * 100 : 0,
-	      marginForecast: Number(planDone.plan || 0) - forecastCost,
-	    };
-	  };
-	  const projectObjectLinks = (p) => {
-	    if (!p) return [];
-	    const projectName = p.name || '';
-	    const projectId = Number(p.id);
-	    const rowProject = (row) => row?.projectName || row?.project_name || row?.project || row?.location || '';
-	    const projectRows = (list) => (list || []).filter(row => rowProject(row) === projectName || (projectId && Number(row?.projectId || row?.project_id) === projectId));
-	    const projectEstimates = visibleEstimatesForCurrentUser(estimatesList).filter(e => (e.projectName === projectName || e.project === projectName || (projectId && Number(e.projectId) === projectId)) && !isArchivedEstimate(e));
-	    const activeEstimateCount = activeEstimatesForProject(p, 'Заказчик').length;
-	    const projectRooms = (rooms || []).filter(r => r.project === projectName);
-	    const roomChecks = projectRooms.map(roomCompleteness);
-	    const missingRooms = roomChecks.filter(x => x.status === 'Не хватает данных').length;
-	    const measurementDocs = projectRows(projectMeasurements);
-	    const measurementDrafts = projectRows(measurementRoomDrafts).filter(d => d.status === 'Черновик ИИ');
-	    const projectWorks = (workJournal || []).filter(w => w.project === projectName);
-	    const pendingWorks = projectWorks.filter(w => !w.status || w.status === 'На проверке' || w.status === 'Автоматически из сметы').length;
-	    const hiddenCount = projectRows(hiddenActs).length;
-	    const inspections = projectRows(materialInspections);
-	    const inspectionPending = inspections.filter(mi => !mi.inspected).length;
-	    const cables = projectRows(cableJournal);
-	    const cablePending = cables.filter(cb => !cb.installedAt).length;
-	    const materialSummary = materialControlSummaryForProject(projectName);
-	    const materialIssues = (materialSummary.toBuyRows?.length || 0)
-	      + (materialSummary.outsideRows?.length || 0)
-	      + (materialSummary.mismatchRows?.length || 0)
-	      + (materialSummary.stockMismatchRows?.length || 0)
-	      + (materialSummary.usedOverControlRows?.length || 0);
-	    const docs = projectRows(projectDocuments);
-	    const letters = projectRows(projectLetters);
-	    const estimateRecs = estimateReconciliationsForProject(projectName);
-	    const estimateRecChecks = estimateRecs.reduce((sum, rec) => sum + Number(rec.reviewCount || 0), 0);
-	    const aiOpen = aiFindingsForProject(projectName).length;
-	    const aiTasksOpen = aiTasksForProject(projectName).length;
-	    const payments = projectRows(projectPayments);
-	    const objectExpenses = (ownExpenses || []).filter(e => rowProject(e) === projectName);
-	    const items = [
-	      {
-	        key: 'estimates',
-	        tab: 'Смета',
-	        icon: '📋',
-	        label: 'Сметы',
-	        count: projectEstimates.length,
-	        hint: activeEstimateCount + ' активных пакетов',
-	        status: projectEstimates.length ? 'перейти к сметам' : 'нужно загрузить смету',
-	        color: projectEstimates.length ? C.success : C.warning,
-	        bg: projectEstimates.length ? C.successLight : C.warningLight,
-	        border: projectEstimates.length ? C.successBorder : C.warningBorder,
-	      },
-	      {
-	        key: 'measurements',
-	        tab: 'Проект / Обмеры',
-	        icon: '📐',
-	        label: 'Обмеры',
-	        count: measurementDocs.length + projectRooms.length,
-	        hint: projectRooms.length + ' помещений, ' + measurementDocs.length + ' исходников',
-	        status: missingRooms ? 'неполных помещений: ' + missingRooms : (measurementDrafts.length ? 'черновиков ИИ: ' + measurementDrafts.length : 'обмеры без критики'),
-	        color: missingRooms ? C.warning : C.success,
-	        bg: missingRooms ? C.warningLight : C.bg,
-	        border: missingRooms ? C.warningBorder : C.border,
-	      },
-	      {
-	        key: 'journal',
-	        tab: 'Производство работ',
-	        icon: '📖',
-	        label: 'ЖПР',
-	        count: projectWorks.length,
-	        hint: pendingWorks ? pendingWorks + ' на проверке' : 'журнал работ',
-	        status: pendingWorks ? 'требуется подтверждение' : '',
-	        color: pendingWorks ? C.warning : C.accent,
-	        bg: pendingWorks ? C.warningLight : C.bg,
-	        border: pendingWorks ? C.warningBorder : C.border,
-	      },
-	      {
-	        key: 'materials',
-	        tab: 'Материалы',
-	        icon: '📦',
-	        label: 'Материалы',
-	        count: materialSummary.rows.length,
-	        hint: 'план ' + materialSummary.planRows.length + ', поставлено ' + materialSummary.suppliedRows.length,
-	        status: materialIssues ? 'вопросов: ' + materialIssues : 'сопоставление без критики',
-	        color: materialIssues ? C.warning : C.success,
-	        bg: materialIssues ? C.warningLight : C.bg,
-	        border: materialIssues ? C.warningBorder : C.border,
-	      },
-	      {
-	        key: 'journals',
-	        tab: 'Главный',
-	        icon: '📚',
-	        label: 'Журналы',
-	        count: hiddenCount + inspections.length + cables.length,
-	        hint: 'АОСР ' + hiddenCount + ', входной ' + inspections.length + ', кабель ' + cables.length,
-	        status: (inspectionPending || cablePending) ? 'ожидают проверки/монтажа: ' + (inspectionPending + cablePending) : '',
-	        color: (inspectionPending || cablePending) ? C.warning : C.accent,
-	        bg: (inspectionPending || cablePending) ? C.warningLight : C.bg,
-	        border: (inspectionPending || cablePending) ? C.warningBorder : C.border,
-	      },
-	      {
-	        key: 'estimate-reconciliations',
-	        tab: 'Сверки смет',
-	        icon: '🧾',
-	        label: 'Сверки смет',
-	        count: estimateRecs.length,
-	        hint: estimateRecChecks ? 'проверить строк: ' + estimateRecChecks : 'акты сверки редакций',
-	        status: estimateRecChecks ? 'есть спорные позиции' : '',
-	        color: estimateRecChecks ? C.warning : C.info,
-	        bg: estimateRecChecks ? C.warningLight : C.bg,
-	        border: estimateRecChecks ? C.warningBorder : C.border,
-	      },
-	      {
-	        key: 'documents',
-	        tab: '📁 Реестр',
-	        icon: '🗂',
-	        label: 'Документы',
-	        count: docs.length + letters.length,
-	        hint: 'реестр ' + docs.length + ', переписка ' + letters.length,
-	        color: C.info,
-	        bg: C.bg,
-	        border: C.border,
-	      },
-	      {
-	        key: 'ai',
-	        tab: 'ИИ-контроль',
-	        icon: '🤖',
-	        label: 'ИИ-контроль',
-	        count: aiOpen + aiTasksOpen,
-	        hint: aiOpen + ' замечаний, ' + aiTasksOpen + ' поручений',
-	        status: (aiOpen || aiTasksOpen) ? 'есть вопросы к решению' : 'открытых задач нет',
-	        color: (aiOpen || aiTasksOpen) ? C.warning : C.success,
-	        bg: (aiOpen || aiTasksOpen) ? C.warningLight : C.successLight,
-	        border: (aiOpen || aiTasksOpen) ? C.warningBorder : C.successBorder,
-	      },
-	    ];
-	    if (isFinanceRole()) {
-	      items.push({
-	        key: 'finance',
-	        tab: 'Финансы',
-	        icon: '💰',
-	        label: 'Финансы',
-	        count: payments.length + objectExpenses.length,
-	        hint: payments.length + ' оплат, ' + objectExpenses.length + ' расходов',
-	        color: C.success,
-	        bg: C.bg,
-	        border: C.border,
-	      });
-	    }
-	    return items;
-	  };
-	  const directorMapActionTarget = ({ item, action } = {}) => {
-	    if (action === 'create_task') return 'ИИ-контроль';
-	    const signals = item?.signals || [];
-	    const types = signals.map(signal => signal.type);
-	    if (types.includes('material')) return 'Материалы';
-	    if (types.includes('document')) {
-	      return signals.some(signal => String(signal.title || '').includes('Входной')) ? 'Входной контроль' : 'АОСР';
-	    }
-	    if (types.includes('money')) return isFinanceRole() ? 'Финансы' : 'Смета';
-	    if (types.includes('link_quality')) return 'Производство работ';
-	    if (action === 'review_link') return 'Производство работ';
-	    return 'Карта руководителя';
-	  };
+  const workExecutionTotal = (work) => workExecutionTotalValue(work);
+	  const projectEconomy = (p) => buildProjectEconomy({
+	    project: p,
+	    projectPlanDone,
+	    activeEstimatesForProject,
+	    estimatePackage,
+	    materialControlSummaryForProject,
+	    projectBudgetSpent,
+	    workJournal,
+	  });
+	  const projectObjectLinks = (p) => buildProjectObjectLinks({
+	    project: p,
+	    C,
+	    estimatesList,
+	    rooms,
+	    projectMeasurements,
+	    measurementRoomDrafts,
+	    workJournal,
+	    hiddenActs,
+	    materialInspections,
+	    cableJournal,
+	    projectDocuments,
+	    projectLetters,
+	    projectPayments,
+	    ownExpenses,
+	    visibleEstimatesForCurrentUser,
+	    isArchivedEstimate,
+	    activeEstimatesForProject,
+	    roomCompleteness,
+	    materialControlSummaryForProject,
+	    estimateReconciliationsForProject,
+	    aiFindingsForProject,
+	    aiTasksForProject,
+	    isFinanceRole,
+	  });
+	  const directorMapActionTarget = ({ item, action } = {}) => getDirectorMapActionTarget({ item, action, isFinanceRole });
 	  const directorMapContractForProject = (p) => buildDirectorMapContract({
 	    project: p,
 	    stages: projectStages,
@@ -7574,78 +6395,26 @@ function App() {
 	    planDone: projectPlanDone(p),
 	    projectProgress: projectRealProgress(p),
 	  });
-	  const projectRealProgress = (p) => {
-	    if(!p) return 0;
-    const {plan,done}=projectPlanDone(p);
-    if(plan>0) { const pct=done/plan*100; return done>0&&pct<1?1:Math.round(pct); }
-    // Если нет сметы, считаем по бюджету и фактическим тратам
-    const budget=Number(p.budget||0);
-    if(budget>0){ const fact=projectFactSpent(p).total; return Math.min(100,Math.round(fact/budget*100)); }
-    return Number(p.progress||0);
-  };
+	  const projectRealProgress = (p) => projectRealProgressValue({
+	    project: p,
+	    projectPlanDone,
+	    projectFactSpent,
+	  });
 
   // Уведомления для текущего пользователя — собираются из АОСР, изменений к смете, предписаний
-  const computeNotifications = () => {
-    if (!user) return [];
-    const out = [];
-    const today = new Date().toISOString().split('T')[0];
-    if (user.role==='бухгалтер'||user.role==='директор'||user.role==='зам_директора'){
-      // АОСР — документ скрытых работ (для технадзора/заказчика), к оплате бригад отношения не имеет: оплата идёт через «Расчёт с бригадой».
-      // Авансовые отчёты на утверждение
-      (expenseReports||[]).filter(r=>r.status==='На утверждении'||r.status==='Подано'||!r.status).slice(0,5).forEach(r=>{
-        out.push({type:'expreport',title:'Авансовый отчёт на утверждение',text:(r.employeeName||'—')+' · '+Math.round(Number(r.totalAmount||0)).toLocaleString('ru-RU')+' ₽',icon:'💼',color:'#f59e0b'});
-      });
-      // Свои траты сотрудников на возмещение
-      (ownExpenses||[]).filter(e=>e.status==='Ожидает').slice(0,5).forEach(e=>{
-        out.push({type:'ownexp',title:'Возмещение «Мои траты»',text:(e.employeeName||'—')+' · '+e.description+' · '+Math.round(Number(e.amount||0)).toLocaleString('ru-RU')+' ₽',icon:'💸',color:'#3b82f6'});
-      });
-      // Счета поставщиков не оплачены (новые ждут утверждения / утверждённые ждут оплаты)
-      (supplierInvoices||[]).filter(s=>s.status==='На утверждении'||s.status==='Утверждён'||s.status==='Частично оплачен'||!s.status).slice(0,5).forEach(s=>{
-        const amt=Number(s.amount||s.totalAmount||0);
-        out.push({type:'supplyinv',title:s.status==='На утверждении'?'Счёт поставщика на утверждение':'Счёт поставщика к оплате',text:(s.supplierName||'—')+' · '+Math.round(amt).toLocaleString('ru-RU')+' ₽',target:'supply',icon:'📥',color:'#8b5cf6'});
-      });
-    }
-    // Снабженец/кладовщик видят новые счета от поставщиков (Ф5a.2: счета переехали в Снабжение)
-    if (user.role==='снабженец'||user.role==='кладовщик'){
-      (supplierInvoices||[]).filter(s=>s.status==='На утверждении'||!s.status).slice(0,5).forEach(s=>{
-        const amt=Number(s.amount||s.totalAmount||0);
-        out.push({type:'supplyinv',title:'Новый счёт от поставщика',text:(s.supplierName||'—')+' · '+Math.round(amt).toLocaleString('ru-RU')+' ₽ — ждёт утверждения бухгалтером',target:'supply',icon:'📥',color:'#8b5cf6'});
-      });
-    }
-    if (user.role==='заказчик'){
-      (unexpectedWorksList||[]).filter(u=>u.projectName===(user.project_name||user.projectName)&&u.status==='Ожидает согласования').forEach(u=>{
-        out.push({type:'unx',title:'Изменение к смете на согласование',text:(u.changeType||'Работа вне сметы')+' · '+u.description+' · '+(u.total||0).toLocaleString('ru-RU')+' ₽',icon:'🆕',color:'#fbbf24'});
-      });
-      hiddenActs.filter(a=>a.projectName===(user.project_name||user.projectName)&&!a.signedCustomer).forEach(a=>{
-        out.push({type:'aosr',title:'АОСР ждёт моей подписи',text:a.actNumber+' · '+a.workName,icon:'🔒',color:'#f97316'});
-      });
-    }
-    if (user.role==='технадзор'){
-      hiddenActs.filter(a=>a.projectName===(user.project_name||user.projectName)&&!a.signedSupervisor).forEach(a=>{
-        out.push({type:'aosr',title:'АОСР ждёт моей подписи',text:a.actNumber+' · '+a.workName,icon:'🔒',color:'#f97316'});
-      });
-    }
-    if (['прораб','мастер'].includes(user.role)){
-      (prescriptionsList||[]).filter(pr=>pr.responsible===user.name&&pr.status==='Открыто'&&pr.deadline&&pr.deadline<today).forEach(pr=>{
-        out.push({type:'presc',title:'Предписание просрочено',text:(pr.violation||pr.description||'').slice(0,80),icon:'⚠️',color:'#ef4444'});
-      });
-    }
-    // Подотчёт: уведомление получателю «отчитайся»
-    (accountablePayments||[]).filter(a=>a.givenTo===user.name&&Number(a.amount||0)>Number(a.spentAmount||0)).forEach(a=>{
-      const remaining=Number(a.amount||0)-Number(a.spentAmount||0);
-      out.push({type:'accreport',title:'Отчитайся за подотчёт',text:'Осталось отчитаться: '+Math.round(remaining).toLocaleString('ru-RU')+' ₽ · '+(a.projectName||'')+(a.purpose?' · '+a.purpose:''),icon:'💵',color:'#f59e0b',accountableId:a.id});
-    });
-    return out;
-  };
+  const computeNotifications = () => buildComputedNotifications({
+    user,
+    expenseReports,
+    ownExpenses,
+    supplierInvoices,
+    unexpectedWorksList,
+    hiddenActs,
+    prescriptionsList,
+    accountablePayments,
+  });
 
   // Хелпер: статус АОСР для записи журнала работ
-  const getActStatusForJournal = (w) => {
-    if (!w.hiddenWork) return null;
-    const act = hiddenActs.find(a=>a.projectName===w.project&&(a.workName||'').trim()===(w.description||'').trim());
-    if (!act) return {status:'none', icon:'❓', tip:'АОСР не найден'};
-    if (act.status==='Подписан') return {status:'signed', icon:'✅', tip:'АОСР подписан', act};
-    return {status:'draft', icon:'⏳', tip:'АОСР черновик — ждёт подписей', act};
-  };
+  const getActStatusForJournal = (w) => actStatusForJournalWork(w, hiddenActs);
 
   // Формы М-15 (накладная на отпуск материалов) и месячного отчёта технадзора
   const printDocContext = () => ({
@@ -7682,26 +6451,15 @@ function App() {
   );
 
   const buildM8Content = (projectName, masterName, periodFrom, periodTo) => {
-    const inRange=(d)=>!d?false:(!periodFrom||d>=periodFrom)&&(!periodTo||d<=periodTo);
-    const transfers=(materialTransfers||[]).filter(t=>t.projectName===projectName&&(!masterName||t.toPerson===masterName)&&inRange(t.transferDate||t.date));
-    const byMat={};
-    transfers.forEach(t=>{const k=(t.materialName||'').trim().toLowerCase();if(!k)return;if(!byMat[k])byMat[k]={name:t.materialName,unit:t.unit||'',limit:0,issued:0};byMat[k].issued+=Number(t.quantity||0);});
-    // Лимит = только строки сметы, явно распознанные как материалы.
-    const project=projects.find(p=>p.name===projectName)||{};
-    activeEstimatesForProject(project, 'Заказчик').forEach(est=>linkEstimateResourcesToWorks(_sectionsOfEst(est)).forEach(s=>(s.items||[]).forEach(rawIt=>{
-      const it=normalizeEstimateWorkingItem(rawIt,s.name);
-      if(!isEstimateMaterialItem(it, s.name)) return;
-      if(estimateMaterialPlanIssue(it, s.name)) return;
-      const planMeasure=estimateImportedPlanMeasure(it);
-      const limit=toNum(planMeasure.qty);
-      if(limit<=0) return;
-      const k=(it.name||'').trim().toLowerCase();
-      if(!k)return;
-      if(!byMat[k])byMat[k]={name:it.name,unit:planMeasure.unit||it.unit||'',limit:0,issued:0};
-      if(!byMat[k].unit&&planMeasure.unit)byMat[k].unit=planMeasure.unit;
-      byMat[k].limit+=limit;
-    })));
-    const rows=Object.values(byMat).sort((a,b)=>(b.issued/b.limit||0)-(a.issued/a.limit||0));
+    const project = projects.find(p=>p.name===projectName)||{};
+    const rows = buildM8Rows({
+      projectName,
+      masterName,
+      periodFrom,
+      periodTo,
+      materialTransfers,
+      activeEstimates: activeEstimatesForProject(project, 'Заказчик'),
+    });
     return buildM8DocContent({projectName, masterName, periodFrom, periodTo, rows}, printDocContext());
   };
 
@@ -7732,93 +6490,50 @@ function App() {
 
   const buildM29Content = (projectName, periodFrom, periodTo) => {
     const project = projects.find(p=>p.name===projectName)||{};
-    const inRange = (d) => !d ? false : (!periodFrom || String(d).slice(0,10)>=periodFrom) && (!periodTo || String(d).slice(0,10)<=periodTo);
-    // План из сметы по строкам типа "Материал".
-    const planByName = {};
-    activeEstimatesForProject(project, 'Заказчик').forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
-      if (isEstimateMaterialItem(it, s.name)) {
-        if (estimateMaterialPlanIssue(it, s.name)) return;
-        const planMeasure = estimateImportedPlanMeasure(it);
-        const planQty = toNum(planMeasure.qty);
-        if (planQty <= 0) return;
-        const key = (it.name||'').trim().toLowerCase();
-        if (!key) return;
-        if (!planByName[key]) planByName[key] = {name:it.name||'', unit:planMeasure.unit||it.unit||'', plan:0, issued:0, fact:0};
-        if (!planByName[key].unit && planMeasure.unit) planByName[key].unit = planMeasure.unit;
-        planByName[key].plan += planQty;
-      }
-    })));
-    // Выдано мастерам — отдельная колонка: это ещё не факт производственного списания.
-    (materialTransfers||[]).filter(t=>t.projectName===projectName&&inRange(t.transferDate||t.date)).forEach(t=>{
-      const key = (t.materialName||'').trim().toLowerCase();
-      if (!key) return;
-      if (!planByName[key]) planByName[key] = {name:t.materialName||'', unit:t.unit||'', plan:0, issued:0, fact:0};
-      planByName[key].issued += Number(t.quantity||0);
+    const rows = buildM29Rows({
+      projectName,
+      periodFrom,
+      periodTo,
+      activeEstimates: activeEstimatesForProject(project, 'Заказчик'),
+      materialTransfers,
+      workJournal,
     });
-    // Факт списания — только материалы из ЖПР за выбранный период.
-    (workJournal||[]).filter(w=>w.project===projectName&&w.status!=='Отклонено'&&inRange(w.date)).forEach(w=>
-      parseJournalMaterials(w.materialsUsed!==undefined?w.materialsUsed:w.materials_used).forEach(m=>{
-        const key = (m.name||'').trim().toLowerCase();
-        if (!key) return;
-        if (!planByName[key]) planByName[key] = {name:m.name||'', unit:m.unit||'', plan:0, issued:0, fact:0};
-        planByName[key].fact += Number(m.quantity||0);
-      })
-    );
-    const rows = Object.values(planByName).sort((a,b)=>(b.fact-b.plan)-(a.fact-a.plan));
     return buildM29DocContent({projectName, periodFrom, periodTo, rows}, printDocContext());
   };
 
   const buildSupervisorMonthlyReport = (projectName, periodFrom, periodTo) => (
     buildSupervisorMonthlyReportDocContent(projectName, periodFrom, periodTo, printDocContext())
   );
-  const isLeadership = () => ['директор','зам_директора'].includes(user?user.role:'');
+  const isLeadership = () => isLeadershipUser(user);
   const isDirector = () => (user ? user.role : '') === 'директор';
   const canUseDirectorAgent = () => ['директор','system_owner'].includes(user?user.role:'');
-  const isProrab = () => ['директор','зам_директора','прораб','главный_инженер'].includes(user?user.role:'');
+  const isProrab = () => isProrabUser(user);
   const isMasterRole = () => ['мастер','субподрядчик','бригадир'].includes(user?user.role:'');
-  const roleColor = (r) => ({'директор':'#f97316','зам_директора':'#ea580c','главный_инженер':'#8b5cf6','прораб':'#3b82f6','кладовщик':'#10b981','снабженец':'#14b8a6','бухгалтер':'#6b7280','стройконтроль':'#06b6d4','менеджер_crm':'#8b5cf6','мастер':'#ec4899','субподрядчик':'#f59e0b','бригадир':'#ec4899','сметчик':'#3b82f6','заказчик':'#06b6d4','поставщик':'#f59e0b'}[r]||'#6b7280');
-  const workedDays = (id) => daysInMonth.filter(d=>timesheet[id+'-'+d]).length;
-  const pwTotal = (id) => piecework.filter(p=>Number(p.staffId)===id).reduce((s,p)=>s+p.total,0);
-  const calcSalary = (s) => s.payType==='сдельно'?pwTotal(s.id):Math.round((s.salary/31)*workedDays(s.id));
-  const projectPaymentSignedAmount = (pay) => {
-    const amount = Number(pay?.amount||0);
-    const note = String(pay?.note||'').trim().toLowerCase();
-    const outgoing = amount < 0 || note.startsWith('оплата счёта') || note.startsWith('оплата бригаде') || note.startsWith('возмещение') || note.startsWith('выплата исполнителю');
-    return outgoing ? -Math.abs(amount) : Math.max(0, amount);
-  };
-  const projectPaymentInAmount = (pay) => Math.max(0, projectPaymentSignedAmount(pay));
-  const formatSignedRub = (amount) => (amount>=0?'+':'-') + Math.round(Math.abs(amount)).toLocaleString('ru-RU') + ' ₽';
+  const roleColor = (r) => roleColorForRole(r);
+  const workedDays = (id) => workedDaysForStaff(id, timesheet, daysInMonth);
+  const calcSalary = (s) => calcStaffSalary(s, timesheet, piecework, daysInMonth);
+  const projectPaymentSignedAmount = (pay) => projectPaymentSignedAmountValue(pay);
+  const projectPaymentInAmount = (pay) => projectPaymentIncomingAmount(pay);
+  const formatSignedRub = (amount) => formatSignedRubValue(amount);
   // Стоимость материалов на объекте: факт прихода по накладным/поставкам, а не текущий остаток.
   // Остаток уменьшается при выдаче/списании, но себестоимость объекта от этого исчезать не должна.
-  const matCost = (n) => Number(materialControlSummaryForProject(n)?.suppliedSum || 0);
   // Себестоимость работ: что должны бригадам (по priceBrigade × doneQuantity) + зарплата + сдельщина
-  const labCost = (n) => {
-    const fromBrigades = (allBrigadeItems||[]).filter(it=>it.projectName===n&&Number(it.doneQuantity||0)>0).reduce((s,it)=>s+Number(it.doneQuantity||0)*Number(it.priceBrigade||0),0);
-    const salaries = (staff||[]).filter(s=>s.project===n).reduce((s,st)=>s+calcSalary(st),0);
-    const pwSum = (piecework||[]).filter(p=>p.project===n).reduce((s,p)=>s+Number(p.total||0),0);
-    return fromBrigades + salaries + pwSum;
-  };
-  const expByCategory = (pn) => {
-    const r={};
-    EXPENSE_CATEGORIES.forEach(c=>{r[c.id]=0;});
-    r['materials']=matCost(pn);
-    r['works']=labCost(pn);
-    // Ручные расходы директора
-    manualExpenses.filter(e=>e.project===pn).forEach(e=>{
-      const category = String(e.category || 'other').trim() || 'other';
-      r[category]=(r[category]||0)+Number(e.amount);
-    });
-    // Изменения к смете, утверждённые отдельной допработой
-    unexpectedWorksList.filter(u=>u.projectName===pn&&isApprovedEstimateChangeStatus(u.status)&&u.changeType!=='Исключение объёма'&&!u.includedInEstimateId).forEach(u=>{r['unexpected']=(r['unexpected']||0)+u.total;});
-    // Подотчётные траты (только потраченное)
-    accountablePayments.filter(ac=>ac.projectName===pn).forEach(ac=>{r['accountable']=(r['accountable']||0)+Number(ac.spentAmount||0);});
-    // Own expenses are synced into manualExpenses through /expenses.
-    // Do not add ownExpenses here again, otherwise reimbursed employee costs are double-counted.
-    return r;
-  };
+  const expByCategory = (pn) => projectExpenseCategories({
+    projectName: pn,
+    expenseCategories: EXPENSE_CATEGORIES,
+    materialControlSummaryForProject,
+    allBrigadeItems,
+    staff,
+    piecework,
+    calcSalary,
+    manualExpenses,
+    unexpectedWorksList,
+    accountablePayments,
+    isApprovedEstimateChangeStatus,
+  });
   const lowStock = materials.filter(m=>m.minQuantity&&m.quantity<m.minQuantity);
   const lowMainStock = warehouseMain.filter(m=>m.minQuantity&&m.quantity<m.minQuantity);
-  const activeDirectorProjects = () => (projects||[]).filter(p=>!p.archived&&p.status!=='Завершён');
+  const activeDirectorProjects = () => activeProjectsOnly(projects);
   const buildDirectorBriefReportContent = (date) => buildDirectorBriefReportDocContent(date, {
     companyName,
     user,
@@ -7832,58 +6547,19 @@ function App() {
     projectBudgetSpent,
   });
   const estimateControlIssues = (sourceEstimates = estimatesList) => {
-    const issues = [];
-    activeDirectorProjects().forEach(p=>{
-      if(activeEstimatesForProject(p,'Заказчик').length===0) issues.push({severity:'Критично',project:p.name,estimate:'-',where:'Смета заказчика',problem:'Нет активной сметы заказчика',action:'Назначить или создать активную смету'});
+    return buildEstimateControlIssues({
+      sourceEstimates,
+      projects,
+      activeProjects: activeDirectorProjects(),
+      activeEstimatesForProject,
     });
-    (sourceEstimates||[]).filter(e=>!isGlobalEstimateTemplate(e)&&!isArchivedEstimate(e)).forEach(est=>{
-      const sections = _sectionsOfEst(est);
-      const projectName = est.projectName || projects.find(p=>Number(p.id)===Number(est.projectId))?.name || '';
-      if(!sections.length) issues.push({severity:'Критично',project:projectName,estimate:est.name,where:'Состав сметы',problem:'В смете нет разделов и позиций',action:'Заполнить позиции до запуска работ'});
-      const seen = {};
-      let total = 0;
-      sections.forEach(s=>(s.items||[]).forEach((it,idx)=>{
-        const name = String(it.name||'').trim();
-        const qty = toNum(it.quantity);
-        const price = toNum(it.priceWork)+toNum(it.priceMaterial);
-        const itemSum = estimateItemTotal(it);
-        total += itemSum;
-        const where = (s.name||'Раздел')+' / '+(name||'позиция '+(idx+1));
-        if(!name) issues.push({severity:'Критично',project:projectName,estimate:est.name,where,problem:'Пустое наименование позиции',action:'Заполнить название'});
-        if(!it.unit) issues.push({severity:'Внимание',project:projectName,estimate:est.name,where,problem:'Не указана единица измерения',action:'Проверить единицу'});
-        if(qty<=0) issues.push({severity:'Критично',project:projectName,estimate:est.name,where,problem:'Количество равно нулю или пустое',action:'Заполнить объём'});
-        if(price<=0) issues.push({severity:'Внимание',project:projectName,estimate:est.name,where,problem:'Цена работ и материалов нулевая',action:'Проверить расценку'});
-        const key = name.toLowerCase().replace(/[.,;:()«»"']/g,' ').replace(/\s+/g,' ').trim();
-        if(key&&seen[key]) issues.push({severity:'Внимание',project:projectName,estimate:est.name,where,problem:'Возможный дубль позиции',action:'Сравнить с разделом: '+seen[key]});
-        else if(key) seen[key] = s.name||'без раздела';
-      }));
-      const project = projects.find(p=>p.name===projectName||Number(p.id)===Number(est.projectId));
-      if(project&&Number(project.budget||0)>0&&total>Number(project.budget)*1.1) {
-        issues.push({severity:'Критично',project:projectName,estimate:est.name,where:'Бюджет',problem:'Смета выше бюджета объекта на '+Math.round((total/Number(project.budget)-1)*100)+'%',action:'Проверить бюджет или состав сметы'});
-      }
-    });
-    return issues.sort((a,b)=>(a.severity==='Критично'?-1:1)-(b.severity==='Критично'?-1:1));
   };
   const buildEstimateControlReportContent = (sourceEstimates = estimatesList) => {
-    const estimates = (sourceEstimates||[]).filter(e=>!isGlobalEstimateTemplate(e));
-    const activeEstimates = estimates.filter(e=>e.status==='Активная');
     const issues = estimateControlIssues(sourceEstimates);
-    const topItems = activeEstimates.flatMap(est=>_sectionsOfEst(est).flatMap(s=>(s.items||[]).map(it=>({
-      project: est.projectName||'',
-      estimate: est.name||'',
-      section: s.name||'',
-      name: it.name||'',
-      qty: it.quantity,
-      unit: it.unit,
-      sum: estimateItemTotal(it)
-    })))).filter(i=>i.sum>0).sort((a,b)=>b.sum-a.sum).slice(0,12);
-    return buildEstimateControlReportDocContent({
-      estimates,
-      activeEstimates,
+    return buildEstimateControlReportDocContent(buildEstimateControlReportData({
+      sourceEstimates,
       issues,
-      topItems,
-      activeTotal: activeEstimates.reduce((s,e)=>s+estimateTotal(e),0),
-    }, {
+    }), {
       companyName,
       generatedBy: user?.name || '',
     });
@@ -8561,26 +7237,6 @@ function App() {
 
   const deletePlItem = async (id) => { await fetch(API+'/pricelist-items/'+id,{method:'DELETE'}); await loadPricelistItems(selectedPricelist.id); };
 
-  const emptySupplierForm = () => ({
-    name:'',phone:'',email:'',specialization:'',category:'Сыпучие и бетон',rating:5.0,status:'Активный',
-    inn:'',kpp:'',ogrn:'',legalAddress:'',actualAddress:'',bank:'',bik:'',account:'',korAccount:'',
-    directorName:'',directorPosition:'',contractUrl:'',contractNumber:'',contractDate:'',licenseUrl:'',priceUrl:'',website:'',notes:''
-  });
-  const normalizeSupplierPayload = (supplier={}) => ({
-    ...emptySupplierForm(),
-    ...supplier,
-    legalAddress: supplier.legalAddress || supplier.legal_address || '',
-    actualAddress: supplier.actualAddress || supplier.actual_address || '',
-    korAccount: supplier.korAccount || supplier.kor_account || '',
-    directorName: supplier.directorName || supplier.director_name || '',
-    directorPosition: supplier.directorPosition || supplier.director_position || '',
-    contractUrl: supplier.contractUrl || supplier.contract_url || '',
-    contractNumber: supplier.contractNumber || supplier.contract_number || '',
-    contractDate: String(supplier.contractDate || supplier.contract_date || '').slice(0, 10),
-    licenseUrl: supplier.licenseUrl || supplier.license_url || '',
-    priceUrl: supplier.priceUrl || supplier.price_url || '',
-  });
-
   const saveSupplier = async () => {
     if (!newSupplier.name) return;
     const payload = normalizeSupplierPayload(newSupplier);
@@ -8732,60 +7388,6 @@ function App() {
     await refreshData();
   };
 
-  // Парсер items из supply_request: возвращает массив [{materialName, quantity, unit}]
-  // Совместим со старыми заявками без itemsJson — там используется одна позиция из material_name
-  const parseSupplyItems = (req) => {
-    if (!req) return [];
-    if (req.itemsJson) {
-      try {
-        const arr = typeof req.itemsJson === 'string' ? JSON.parse(req.itemsJson) : req.itemsJson;
-        if (Array.isArray(arr) && arr.length>0) return arr.map(it=>({...it, workPackage: it.workPackage || it.work_package || req.workPackage || req.work_package || ''}));
-      } catch(_) {}
-    }
-    // Legacy: одна позиция из материала записи
-    if (req.materialName) return [{materialName:req.materialName, quantity:Number(req.quantity)||0, unit:req.unit||'шт', workPackage:req.workPackage||req.work_package||''}];
-    return [];
-  };
-
-  const supplyNoteLines = (req) => String(req?.notes||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
-  const supplyNoteValue = (lines, label) => {
-    const prefix = String(label||'').toLowerCase()+':';
-    const line = (lines||[]).find(l=>l.toLowerCase().startsWith(prefix));
-    return line ? line.slice(label.length+1).trim() : '';
-  };
-  const supplyRequestOrigin = (req) => {
-    const lines = supplyNoteLines(req);
-    if (!lines.length) return null;
-    const notes = lines.join('\n');
-    const materialControl = lines.some(l=>l.startsWith('MATERIAL_CONTROL_REQUEST:')) || notes.includes('Создано из контроля материалов');
-    const normCoverage = notes.includes('Создано из ведомости') || (notes.includes('Норма:') && notes.includes('Расчётная потребность'));
-    if (!materialControl && !normCoverage) return null;
-    const projectName = supplyNoteValue(lines,'Объект') || req.project || '';
-    const materialName = supplyNoteValue(lines,'Материал') || req.materialName || '';
-    const facts = materialControl ? [
-      ['Сметных строк', supplyNoteValue(lines,'Сметных строк')],
-      ['Разделы', supplyNoteValue(lines,'Разделы')],
-      ['Работы', supplyNoteValue(lines,'Работы')],
-      ['План', supplyNoteValue(lines,'План по смете')],
-      ['Поставлено', supplyNoteValue(lines,'Поставлено/перемещено')],
-      ['Заявки/путь', supplyNoteValue(lines,'В заявках и пути')],
-      ['Нехватка', supplyNoteValue(lines,'Расчётная нехватка')],
-    ] : [
-      ['Смета', supplyNoteValue(lines,'Смета')],
-      ['Раздел', supplyNoteValue(lines,'Раздел')],
-      ['Работа', supplyNoteValue(lines,'Работа')],
-      ['Объём', supplyNoteValue(lines,'Объём работы')],
-      ['Норма', supplyNoteValue(lines,'Норма')],
-      ['Потребность', supplyNoteValue(lines,'Расчётная потребность')],
-    ];
-    return {
-      type: materialControl ? 'material-control' : 'norm-coverage',
-      label: materialControl ? 'Из контроля материалов' : 'Из норм материалов',
-      projectName,
-      materialName,
-      facts: facts.filter(([,v])=>v),
-    };
-  };
   const openProjectMaterialControl = (projectName) => {
     const project = (projects||[]).find(p=>p.name===projectName);
     if (project) {
@@ -8821,23 +7423,6 @@ function App() {
     );
   };
 
-  const supplyMaterialKey = (v) => String(v||'')
-    .toLowerCase()
-    .replace(/[.,;:()«»"']/g,' ')
-    .replace(/\s+/g,' ')
-    .trim();
-  const supplyUnitKey = (v) => String(v||'')
-    .toLowerCase()
-    .replace(/[²]/g,'2')
-    .replace(/[³]/g,'3')
-    .replace(/\s+/g,'')
-    .trim();
-  const isSameSupplyMaterial = (a,b) => {
-    const ak = supplyMaterialKey(a);
-    const bk = supplyMaterialKey(b);
-    if (!ak || !bk) return false;
-    return ak===bk || ak.includes(bk) || bk.includes(ak);
-  };
   const supplyPlanningHint = (it, idx) => {
     const projectName = newSupplyReq.project;
     const materialName = (it?.materialName||'').trim();
@@ -8894,19 +7479,6 @@ function App() {
         )}
       </div>
     );
-  };
-
-  // Парсер itemsKp из supplier_offer: возвращает массив с ценой по каждой позиции
-  // Если поставщик заполнил постатейно — вернётся массив. Иначе пусто.
-  const parseOfferItems = (offer) => {
-    if (!offer) return [];
-    if (offer.itemsKpJson) {
-      try {
-        const arr = typeof offer.itemsKpJson === 'string' ? JSON.parse(offer.itemsKpJson) : offer.itemsKpJson;
-        if (Array.isArray(arr) && arr.length>0) return arr;
-      } catch(_) {}
-    }
-    return [];
   };
 
   const confirmSupplyAsProrab = async (id) => {
@@ -9203,14 +7775,28 @@ function App() {
 
   const saveRoom = async () => {
     if (!newRoom.name||!newRoom.project) return;
-    const data = {project:newRoom.project,name:newRoom.name,floor:Number(newRoom.floor)||1,liter:newRoom.liter||'',roomType:newRoom.roomType||'Комната',floorArea:Number(newRoom.floorArea)||0,wallArea:Number(newRoom.wallArea)||0,ceilingArea:Number(newRoom.ceilingArea)||0,height:Number(newRoom.height)||0,ceilingType:newRoom.ceilingType,wallMaterial:newRoom.wallMaterial,floorMaterial:newRoom.floorMaterial,windows:0,doors:0,photoUrl:newRoom.photoUrl||'',notes:newRoom.notes};
+    const baseRoomTypes = ['Комната','Кабинет','Коридор','Санузел','Кухня','Балкон','Лестница','Холл','Техническое'];
+    const roomType = newRoom.roomType && newRoom.roomType !== 'Другое' ? newRoom.roomType : 'Комната';
+    const data = {project:newRoom.project,name:newRoom.name,floor:Number(newRoom.floor)||1,liter:newRoom.liter||'',roomType,floorArea:Number(newRoom.floorArea)||0,wallArea:Number(newRoom.wallArea)||0,ceilingArea:Number(newRoom.ceilingArea)||0,height:Number(newRoom.height)||0,ceilingType:newRoom.ceilingType,wallMaterial:newRoom.wallMaterial,floorMaterial:newRoom.floorMaterial,windows:0,doors:0,photoUrl:newRoom.photoUrl||'',notes:newRoom.notes};
+    let createdRoomId = null;
     if (editingItem) {
       await fetch(API+'/rooms/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+      createdRoomId = editingItem.id;
     } else {
-      if(newRoom.roomType&&!['Комната','Кабинет','Коридор','Санузел','Кухня','Балкон','Лестница','Холл','Техническое'].includes(newRoom.roomType)){const updated=[...new Set([...customRoomTypes,newRoom.roomType])];setCustomRoomTypes(updated);localStorage.setItem('customRoomTypes',JSON.stringify(updated));}
-      await fetch(API+'/rooms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+      if(roomType&&!baseRoomTypes.includes(roomType)){const updated=[...new Set([...customRoomTypes,roomType])];setCustomRoomTypes(updated);localStorage.setItem('customRoomTypes',JSON.stringify(updated));}
+      const res = await fetch(API+'/rooms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+      const created = await res.json().catch(()=>({}));
+      createdRoomId = created?.id || null;
+      if (createdRoomId) {
+        const windowRows = draftRoomWindows.filter(w=>Number(w.width||0)>0&&Number(w.height||0)>0);
+        const doorRows = draftRoomDoors.filter(d=>Number(d.width||0)>0&&Number(d.height||0)>0);
+        await Promise.all([
+          ...windowRows.map(w=>fetch(API+'/room-windows',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...w,roomId:Number(createdRoomId)})})),
+          ...doorRows.map(d=>fetch(API+'/room-doors',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...d,roomId:Number(createdRoomId)})})),
+        ]);
+      }
     }
-    await refreshData(); setNewRoom({project:'',name:'',floor:'',liter:'',roomType:'Комната',floorArea:'',wallArea:'',ceilingArea:'',height:'',ceilingType:'Простой',wallMaterial:'Штукатурка',floorMaterial:'Стяжка',photoUrl:'',notes:''}); setEditingItem(null); setShowRoomForm(false);
+    await refreshData(); setNewRoom({project:'',name:'',floor:'',liter:'',roomType:'Комната',floorArea:'',wallArea:'',ceilingArea:'',height:'',ceilingType:'Простой',wallMaterial:'Штукатурка',floorMaterial:'Стяжка',photoUrl:'',notes:''}); setDraftRoomWindows([]); setDraftRoomDoors([]); setEditingItem(null); setExpandedRoom(createdRoomId); setShowRoomForm(false);
   };
 
   const deleteRoom = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/rooms/'+id,{method:'DELETE'}); await refreshData(); } };
@@ -9588,75 +8174,22 @@ function App() {
     );
   }
 
-  if (!user) {
-    if (page==='register') {
-      return (
-        <React.Suspense fallback={pageFallback}>
-          <RegisterPage
-            C={C}
-            ROLE_LABELS={ROLE_LABELS}
-            btnO={btnO}
-            card={card}
-            handleRegister={handleRegister}
-            inp={inp}
-            loginError={loginError}
-            regCode={regCode}
-            regEmail={regEmail}
-            regInviteInfo={regInviteInfo}
-            regName={regName}
-            regPassword={regPassword}
-            regSupplierData={regSupplierData}
-            setLoginError={setLoginError}
-            setPage={setPage}
-            setRegCode={setRegCode}
-            setRegEmail={setRegEmail}
-            setRegName={setRegName}
-            setRegPassword={setRegPassword}
-            setRegSupplierData={setRegSupplierData}
-          />
-        </React.Suspense>
-      );
-    }
-    if (page==='login') {
-      return <LoginPage email={email} setEmail={setEmail} password={password} setPassword={setPassword} handleLogin={handleLogin} handleTwoFactorLogin={handleTwoFactorLogin} loginError={loginError} setLoginError={setLoginError} setPage={setPage}/>;
-    }
+  const isEntryRoute = !user || ['system_owner', 'platform_admin', 'platform_support', 'billing_admin', 'account_owner', 'account_admin'].includes(user.role);
+  if (isEntryRoute) {
     return (
-      <React.Suspense fallback={pageFallback}>
-        <PublicSitePage onLogin={() => { setLoginError(''); setPage('login'); }} />
-      </React.Suspense>
+      <AppEntryRoutes
+        user={user}
+        page={page}
+        pageFallback={pageFallback}
+        ui={{ API, C, badge, btnG, btnGr, btnO, btnR, card, inp }}
+        constants={{ ROLE_LABELS }}
+        state={{ email, loginError, password, regCode, regEmail, regInviteInfo, regName, regPassword, regSupplierData }}
+        actions={{ handleLogin, handleLogout, handleRegister, handleTwoFactorLogin, setEmail, setLoginError, setPage, setPassword, setRegCode, setRegEmail, setRegName, setRegPassword, setRegSupplierData, setUser }}
+      />
     );
   }
 
-  const allMenuItems = [
-    {id:'dashboard',icon:<LayoutDashboard size={18}/>,label:'Главная'},
-    {id:'analytics',icon:<BarChart3 size={18}/>,label:'Аналитика'},
-    {id:'crm',icon:<Handshake size={18}/>,label:'CRM'},
-    {id:'projects',icon:<FolderKanban size={18}/>,label:'Проекты'},
-
-    {id:'warehouse',icon:<Package size={18}/>,label:'Склад'},
-    {id:'supply',icon:<ShoppingCart size={18}/>,label:'Снабжение'},
-    {id:'accounting',icon:<DollarSign size={18}/>,label:'Бухгалтерия'},
-    {id:'personnel',icon:<UserCheck size={18}/>,label:'Персонал'},
-
-    {id:'estimates',icon:<Calculator size={18}/>,label:'Сметы'},
-    {id:'weather',icon:<CloudSun size={18}/>,label:'Погода / ЖПР'},
-
-    {id:'myexpenses',icon:<CreditCard size={18}/>,label:'Мои траты'},
-    {id:'activitylog',icon:<ScrollText size={18}/>,label:'Журнал'},
-    {id:'settings',icon:<Settings size={18}/>,label:'Настройки'},
-  ];
-
-
-
-  // Кабинет платформы — SaaS admin/support/billing, отдельно от рабочей ERP
-  if (user && ['system_owner','platform_admin','platform_support','billing_admin'].includes(user.role)) {
-    return <React.Suspense fallback={pageFallback}><SystemOwnerCabinet user={user} setUser={setUser} C={C} card={card} btnO={btnO} btnG={btnG} btnGr={btnGr} btnR={btnR} inp={inp} badge={badge} API={API}/></React.Suspense>;
-  }
-
-  // Кабинет уровня клиентского аккаунта — владелец группы компаний, не рабочая ERP-роль
-  if (user && ['account_owner','account_admin'].includes(user.role)) {
-    return <React.Suspense fallback={pageFallback}><ClientAccountCabinet user={user} setUser={setUser} C={C} card={card} btnG={btnG} badge={badge} API={API} handleLogout={handleLogout}/></React.Suspense>;
-  }
+  const allMenuItems = buildAppMenuItems();
 
   // Кабинет поставщика
   if (user && user.role === 'поставщик') {
@@ -10279,114 +8812,18 @@ function App() {
 
 
 
-  // Кабинет технадзора
-  if (user && user.role === 'технадзор') {
+  if (user && ['технадзор', 'заказчик'].includes(user.role)) {
     return (
-      <React.Suspense fallback={pageFallback}>
-      <SupervisorCabinetPage
+      <AppRoleCabinetRoutes
         user={user}
-        projects={projects}
-        handleLogout={handleLogout}
-        C={C}
-        card={card}
-        btnG={btnG}
-        btnB={btnB}
-        btnO={btnO}
-        inp={inp}
-        listSearch={listSearch}
-        setListSearch={setListSearch}
-        matchSearch={matchSearch}
-        projectRealProgress={projectRealProgress}
-        projectPlanDone={projectPlanDone}
-        showPreview={showPreview}
-        buildSupervisorMonthlyReport={buildSupervisorMonthlyReport}
-        computeNotifications={computeNotifications}
-        workJournal={workJournal}
-        fmtMeasure={fmtMeasure}
-        setShowPhotoModal={setShowPhotoModal}
-        fileSrc={fileSrc}
-        checklists={checklists}
-        prescriptionsList={prescriptionsList}
-        buildPrescriptionContent={buildPrescriptionContent}
-        prescriptionPhoto={prescriptionPhoto}
-        setPrescriptionPhoto={setPrescriptionPhoto}
-        appendPhotos={appendPhotos}
-        refreshData={refreshData}
-        showForm={showForm}
-        setShowForm={setShowForm}
-        newSupervisorAct={newSupervisorAct}
-        setNewSupervisorAct={setNewSupervisorAct}
-        supervisorActPhoto={supervisorActPhoto}
-        setSupervisorActPhoto={setSupervisorActPhoto}
-        supervisorActs={supervisorActs}
-        materialInspections={materialInspections}
-        hiddenActs={hiddenActs}
-        editingAct={editingAct}
-        setEditingAct={setEditingAct}
-        setHiddenActs={setHiddenActs}
-        showPhotoModal={showPhotoModal}
-        previewContent={previewContent}
-        previewTitle={previewTitle}
-        setPreviewContent={setPreviewContent}
-        doPrint={doPrint}
+        pageFallback={pageFallback}
+        ui={{ C, card, btnG, btnB, btnO, btnGr, btnR, inp }}
+        state={{ listSearch, showForm, newSupervisorAct, supervisorActPhoto, prescriptionPhoto, editingAct, showPhotoModal, previewContent, previewTitle }}
+        data={{ projects, workJournal, checklists, prescriptionsList, supervisorActs, materialInspections, hiddenActs, unexpectedWorksList, projectStages, projectPayments, contracts }}
+        actions={{ handleLogout, setListSearch, showPreview, setShowPhotoModal, setPrescriptionPhoto, appendPhotos, refreshData, setShowForm, setNewSupervisorAct, setSupervisorActPhoto, setEditingAct, setHiddenActs, setPreviewContent }}
+        selectors={{ matchSearch, projectRealProgress, projectPlanDone, computeNotifications, fmtMeasure, fileSrc, activeEstimatesForProject, estimatePackage, sectionsOfEstimate: _sectionsOfEst, estimateItemMaterialSum, estimateItemTotal, isApprovedEstimateChangeStatus }}
+        builders={{ buildSupervisorMonthlyReport, buildPrescriptionContent, buildSupplementaryAgreementContent, showKS2, buildKS3Content, doPrint }}
       />
-      </React.Suspense>
-    );
-  }
-
-  // Кабинет заказчика
-  if (user && user.role === 'заказчик') {
-    return (
-      <React.Suspense fallback={pageFallback}>
-      <CustomerCabinetPage
-        user={user}
-        projects={projects}
-        handleLogout={handleLogout}
-        C={C}
-        card={card}
-        btnG={btnG}
-        btnB={btnB}
-        btnO={btnO}
-        btnGr={btnGr}
-        btnR={btnR}
-        inp={inp}
-        listSearch={listSearch}
-        setListSearch={setListSearch}
-        matchSearch={matchSearch}
-        computeNotifications={computeNotifications}
-        workJournal={workJournal}
-        fmtMeasure={fmtMeasure}
-        setShowPhotoModal={setShowPhotoModal}
-        fileSrc={fileSrc}
-        projectRealProgress={projectRealProgress}
-        projectStages={projectStages}
-        hiddenActs={hiddenActs}
-        editingAct={editingAct}
-        setEditingAct={setEditingAct}
-        setHiddenActs={setHiddenActs}
-        unexpectedWorksList={unexpectedWorksList}
-        isApprovedEstimateChangeStatus={isApprovedEstimateChangeStatus}
-        refreshData={refreshData}
-        showPreview={showPreview}
-        buildSupplementaryAgreementContent={buildSupplementaryAgreementContent}
-        activeEstimatesForProject={activeEstimatesForProject}
-        projectPlanDone={projectPlanDone}
-        estimatePackage={estimatePackage}
-        sectionsOfEstimate={_sectionsOfEst}
-        estimateItemMaterialSum={estimateItemMaterialSum}
-        estimateItemTotal={estimateItemTotal}
-        showKS2={showKS2}
-        buildKS3Content={buildKS3Content}
-        projectPayments={projectPayments}
-        contracts={contracts}
-        prescriptionsList={prescriptionsList}
-        showPhotoModal={showPhotoModal}
-        previewContent={previewContent}
-        previewTitle={previewTitle}
-        setPreviewContent={setPreviewContent}
-        doPrint={doPrint}
-      />
-      </React.Suspense>
     );
   }
 
@@ -10748,113 +9185,17 @@ function App() {
       {previewContent&&<PreviewModal content={previewContent} title={previewTitle} onClose={()=>setPreviewContent(null)} onPrint={doPrint}/>}
       <ImagePreviewModal src={showPhotoModal} onClose={()=>setShowPhotoModal(null)}/>
       <React.Suspense fallback={null}>
-      {editingAct&&<ProjectHiddenWorksActEditModal
-        act={editingAct}
-        setEditingAct={setEditingAct}
-        setHiddenActs={setHiddenActs}
-        setShowPhotoModal={setShowPhotoModal}
-        uploadPhoto={uploadPhoto}
-        fileSrc={fileSrc}
-        showPreview={showPreview}
-        buildHiddenActContent={buildHiddenActContent}
-        C={C}
-        card={card}
-        inp={inp}
-        btnB={btnB}
-        btnG={btnG}
-        btnO={btnO}
-        btnR={btnR}
-        aiNotice={aiNotice}
-        aiNoticeIcon={aiNoticeIcon}
-        aiNoticeText={aiNoticeText}
-      />}
-      {editingJournal&&<ProjectWorkJournalEditModal
-        journal={editingJournal}
-        setEditingJournal={setEditingJournal}
-        setWorkJournal={setWorkJournal}
-        weatherLog={weatherLog}
-        users={users}
-        hiddenActs={hiddenActs}
-        setEditingAct={setEditingAct}
-        showPreview={showPreview}
-        buildWorkJournalContent={buildWorkJournalContent}
-        fmtMeasure={fmtMeasure}
-        C={C}
-        card={card}
-        inp={inp}
-        btnB={btnB}
-        btnG={btnG}
-        btnO={btnO}
-        appendPhotos={appendPhotos}
-        fileSrc={fileSrc}
-        setShowPhotoModal={setShowPhotoModal}
-        aiNotice={aiNotice}
-        aiNoticeIcon={aiNoticeIcon}
-        aiNoticeText={aiNoticeText}
-      />}
-      {showJournalTableModal&&<ProjectWorkJournalTableModal
-        projectName={showJournalTableModal}
-        workJournal={workJournal}
-        journalFilter={journalFilter}
-        setJournalFilter={setJournalFilter}
-        setShowJournalTableModal={setShowJournalTableModal}
-        setEditingJournal={setEditingJournal}
-        getActStatusForJournal={getActStatusForJournal}
-        setEditingAct={setEditingAct}
-        showPreview={showPreview}
-        buildWorkJournalContent={buildWorkJournalContent}
-        fmtMeasure={fmtMeasure}
-        C={C}
-        card={card}
-        inp={inp}
-        tbl={tbl}
-        tblH={tblH}
-        tblC={tblC}
-        btnB={btnB}
-        btnG={btnG}
-      />}
-      {editingInspection&&<ProjectMaterialInspectionEditModal
-        inspection={editingInspection}
-        setEditingInspection={setEditingInspection}
-        setMaterialInspections={setMaterialInspections}
-        showPreview={showPreview}
-        buildMaterialInspectionContent={buildMaterialInspectionContent}
-        C={C}
-        card={card}
-        inp={inp}
-        btnB={btnB}
-        btnG={btnG}
-        btnO={btnO}
-        aiNotice={aiNotice}
-        aiNoticeIcon={aiNoticeIcon}
-        aiNoticeText={aiNoticeText}
-      />}
-      {editingCable&&<ProjectCableJournalEditModal
-        cable={editingCable}
-        setEditingCable={setEditingCable}
-        setCableJournal={setCableJournal}
-        users={users}
-        cableTypeOf={cableTypeOf}
-        showPreview={showPreview}
-        buildCableJournalContent={buildCableJournalContent}
-        C={C}
-        card={card}
-        inp={inp}
-        btnB={btnB}
-        btnG={btnG}
-        btnO={btnO}
-        aiNotice={aiNotice}
-        aiNoticeIcon={aiNoticeIcon}
-        aiNoticeText={aiNoticeText}
-      />}
-      {showQRModal&&<QrModal showQRModal={showQRModal} setShowQRModal={setShowQRModal} generateQR={generateQR} C={C} btnG={btnG}/>}
-      {rejectingEntry&&<RejectEntryModal rejectingEntry={rejectingEntry} rejectComment={rejectComment} setRejectComment={setRejectComment} setRejectingEntry={setRejectingEntry} rejectJ={rejectJ} C={C} card={card} inp={inp} btnR={btnR} btnG={btnG}/>}
-      {confirmingEntry&&<ConfirmWorkAcceptanceModal confirmingEntry={confirmingEntry} confirmAcceptedQty={confirmAcceptedQty} setConfirmAcceptedQty={setConfirmAcceptedQty} confirmComment={confirmComment} setConfirmComment={setConfirmComment} setConfirmingEntry={setConfirmingEntry} confirmJ={confirmJ} normalizeMeasure={normalizeMeasure} toNum={toNum} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG}/>}
-      {showIssueToolModal&&<ToolIssueModal showIssueToolModal={showIssueToolModal} setShowIssueToolModal={setShowIssueToolModal} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} issueToolData={issueToolData} setIssueToolData={setIssueToolData} masterProfiles={masterProfiles} projects={projects} issueTool={issueTool}/>}
-      {showReturnToolModal&&<ToolReturnModal showReturnToolModal={showReturnToolModal} setShowReturnToolModal={setShowReturnToolModal} C={C} card={card} inp={inp} btnG={btnG} btnGr={btnGr} returnToolCondition={returnToolCondition} setReturnToolCondition={setReturnToolCondition} returnTool={returnTool}/>}
-      {showBrigadePayModal&&<BrigadePaymentModal showBrigadePayModal={showBrigadePayModal} setShowBrigadePayModal={setShowBrigadePayModal} selectedBrigadeContract={selectedBrigadeContract} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} newBrigadePayment={newBrigadePayment} setNewBrigadePayment={setNewBrigadePayment} saveBrigadePayment={saveBrigadePayment}/>}
-      {showPayActModal&&<ActPaymentModal showPayActModal={showPayActModal} setShowPayActModal={setShowPayActModal} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} newPayment={newPayment} setNewPayment={setNewPayment} paymentTypes={PAYMENT_TYPES} financeUsers={financeUsers} roleLabels={ROLE_LABELS} saveActPayment={saveActPayment} actPayments={actPayments}/>}
-      {showAiAssistant&&<AiAssistantDrawer showAiAssistant={showAiAssistant} setShowAiAssistant={setShowAiAssistant} C={C} inp={inp} btnG={btnG} btnO={btnO} aiChat={aiChat} aiLoading={aiLoading} aiMessage={aiMessage} setAiMessage={setAiMessage} sendAiMessage={sendAiMessage} chatEndRef={chatEndRef}/>}
+      <AppProjectEditModals
+        ui={{ C, aiNotice, aiNoticeIcon, aiNoticeText, btnB, btnG, btnO, btnR, card, inp, tbl, tblC, tblH }}
+        state={{ editingAct, editingCable, editingInspection, editingJournal, hiddenActs, journalFilter, showJournalTableModal, users, weatherLog, workJournal }}
+        actions={{ appendPhotos, buildCableJournalContent, buildHiddenActContent, buildMaterialInspectionContent, buildWorkJournalContent, cableTypeOf, fileSrc, fmtMeasure, getActStatusForJournal, setCableJournal, setEditingAct, setEditingCable, setEditingInspection, setEditingJournal, setHiddenActs, setJournalFilter, setMaterialInspections, setShowJournalTableModal, setShowPhotoModal, setWorkJournal, showPreview, uploadPhoto }}
+      />
+      <AppActionModals
+        ui={{ C, btnG, btnGr, btnO, btnR, card, inp }}
+        constants={{ PAYMENT_TYPES, ROLE_LABELS }}
+        state={{ actPayments, aiChat, aiLoading, aiMessage, chatEndRef, confirmAcceptedQty, confirmComment, confirmingEntry, financeUsers, issueToolData, masterProfiles, newBrigadePayment, newPayment, projects, rejectComment, rejectingEntry, returnToolCondition, selectedBrigadeContract, showAiAssistant, showBrigadePayModal, showIssueToolModal, showPayActModal, showQRModal, showReturnToolModal }}
+        actions={{ confirmJ, generateQR, issueTool, normalizeMeasure, rejectJ, returnTool, saveActPayment, saveBrigadePayment, sendAiMessage, setAiMessage, setConfirmAcceptedQty, setConfirmComment, setConfirmingEntry, setIssueToolData, setNewBrigadePayment, setNewPayment, setRejectComment, setRejectingEntry, setReturnToolCondition, setShowAiAssistant, setShowBrigadePayModal, setShowIssueToolModal, setShowPayActModal, setShowQRModal, setShowReturnToolModal, toNum }}
+      />
       </React.Suspense>
 
       <AppSidebar isMobile={isMobile} sidebarRef={sidebarRef} sidebarVisible={sidebarVisible} setSidebarVisible={setSidebarVisible} C={C} user={user} roleLabels={ROLE_LABELS} roleColor={roleColor} menuItems={menuItems} supplyRequests={supplyRequests} isLeadership={isLeadership} isMasterRole={isMasterRole} activePage={activePage} navigateTo={navigateTo} handleLogout={handleLogout}/>
@@ -11054,52 +9395,6 @@ function App() {
                                 <button type="button" onClick={()=>setMobileExpandedRenderLists(prev=>({...prev,[linksKey]:true}))} style={{...btnB,padding:'8px 12px',fontSize:'12px'}}>Показать</button>
                               </div>
                             </div>);}return <ProjectObjectLinksPanel C={C} card={card} items={projectObjectLinks(p)} isMobile={isMobile} onOpen={(tab)=>tab&&setActiveProjectTab(tab)} />;})()}
-                          {isLeadership()&&(()=>{const siteDraft=projectSiteDraft(p);return(<div style={{...card,padding:'16px',marginBottom:'12px',backgroundColor:siteDraft.publicShowOnSite?C.successLight:C.bgWhite,border:'1.5px solid '+(siteDraft.publicShowOnSite?C.successBorder:C.border)}}>
-                            <div style={{display:'flex',justifyContent:'space-between',gap:'12px',alignItems:'flex-start',flexWrap:'wrap',marginBottom:'12px'}}>
-                              <div>
-                                <b style={{color:C.text,fontSize:'14px'}}>🌐 Публикация на сайте</b>
-                                <p style={{margin:'4px 0 0',color:C.textSec,fontSize:'12px',lineHeight:1.45}}>Наружу уйдут только эти публичные поля и выбранные фото. Внутренние деньги, документы и клиентские данные не публикуются.</p>
-                              </div>
-                              <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                                <label style={{...badge(siteDraft.publicShowOnSite?C.success:C.textSec,siteDraft.publicShowOnSite?C.successLight:C.bg,C.border),cursor:'pointer'}}>
-                                  <input type="checkbox" checked={!!siteDraft.publicShowOnSite} onChange={e=>updateProjectSiteDraft(p.id,{publicShowOnSite:e.target.checked})} style={{margin:0}}/> Показывать
-                                </label>
-                                <label style={{...badge(siteDraft.publicIsLive?C.info:C.textSec,siteDraft.publicIsLive?C.infoLight:C.bg,C.border),cursor:'pointer'}}>
-                                  <input type="checkbox" checked={!!siteDraft.publicIsLive} onChange={e=>updateProjectSiteDraft(p.id,{publicIsLive:e.target.checked})} style={{margin:0}}/> Живой объект
-                                </label>
-                              </div>
-                            </div>
-                            <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(4,1fr)',gap:'10px'}}>
-                              <input placeholder="Публичное название" value={siteDraft.publicTitle||''} onChange={e=>updateProjectSiteDraft(p.id,{publicTitle:e.target.value})} style={{...inp,marginBottom:0}}/>
-                              <select value={siteDraft.publicCategory||'house'} onChange={e=>updateProjectSiteDraft(p.id,{publicCategory:e.target.value})} style={{...inp,marginBottom:0}}>
-                                <option value="house">Дом</option><option value="repair">Ремонт</option><option value="commerce">Коммерция</option><option value="reconstruction">Реконструкция</option>
-                              </select>
-                              <input placeholder="Город / район" value={siteDraft.publicLocation||''} onChange={e=>updateProjectSiteDraft(p.id,{publicLocation:e.target.value})} style={{...inp,marginBottom:0}}/>
-                              <input placeholder="Площадь, например 142 м2" value={siteDraft.publicArea||''} onChange={e=>updateProjectSiteDraft(p.id,{publicArea:e.target.value})} style={{...inp,marginBottom:0}}/>
-                              <input placeholder="Год" value={siteDraft.publicYear||''} onChange={e=>updateProjectSiteDraft(p.id,{publicYear:e.target.value})} style={{...inp,marginBottom:0}}/>
-                              <input placeholder="Этап для сайта" value={siteDraft.publicStage||''} onChange={e=>updateProjectSiteDraft(p.id,{publicStage:e.target.value})} style={{...inp,marginBottom:0}}/>
-                              <input placeholder="Прогресс %" type="number" min="0" max="100" value={siteDraft.publicProgress||0} onChange={e=>updateProjectSiteDraft(p.id,{publicProgress:e.target.value})} style={{...inp,marginBottom:0}}/>
-                              <input placeholder="Срок, например 5 месяцев" value={siteDraft.publicTerm||''} onChange={e=>updateProjectSiteDraft(p.id,{publicTerm:e.target.value})} style={{...inp,marginBottom:0}}/>
-                              <input placeholder="Бюджет для сайта, если можно показывать" value={siteDraft.publicPriceLabel||''} onChange={e=>updateProjectSiteDraft(p.id,{publicPriceLabel:e.target.value})} style={{...inp,marginBottom:0}}/>
-                              <input placeholder="Теги через запятую" value={siteDraft.publicTagsText||''} onChange={e=>updateProjectSiteDraft(p.id,{publicTagsText:e.target.value})} style={{...inp,marginBottom:0}}/>
-                              <select value={siteDraft.publicAiStatus||'Не обработано'} onChange={e=>updateProjectSiteDraft(p.id,{publicAiStatus:e.target.value})} style={{...inp,marginBottom:0}}>
-                                <option>Не обработано</option><option>Нужно улучшить</option><option>AI-версия готова</option><option>Проверено директором</option>
-                              </select>
-                              <input placeholder="Главное фото URL" value={siteDraft.publicMainImageUrl||''} onChange={e=>updateProjectSiteDraft(p.id,{publicMainImageUrl:e.target.value})} style={{...inp,marginBottom:0}}/>
-                            </div>
-                            <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:'10px',marginTop:'10px'}}>
-                              <textarea placeholder="Короткое описание для сайта" value={siteDraft.publicSummary||''} onChange={e=>updateProjectSiteDraft(p.id,{publicSummary:e.target.value})} style={{...inp,minHeight:'70px',marginBottom:0}}/>
-                              <textarea placeholder="Что сделали / результат" value={siteDraft.publicResult||''} onChange={e=>updateProjectSiteDraft(p.id,{publicResult:e.target.value})} style={{...inp,minHeight:'70px',marginBottom:0}}/>
-                              <textarea placeholder="Что есть в цифровом паспорте" value={siteDraft.publicPassport||''} onChange={e=>updateProjectSiteDraft(p.id,{publicPassport:e.target.value})} style={{...inp,minHeight:'70px',marginBottom:0}}/>
-                              <textarea placeholder="Заметки по AI-фото: что улучшить, что скрыть, какие фото выбрать" value={siteDraft.publicAiNotes||''} onChange={e=>updateProjectSiteDraft(p.id,{publicAiNotes:e.target.value})} style={{...inp,minHeight:'70px',marginBottom:0}}/>
-                              <textarea placeholder="Оригинальные фото, по одной ссылке в строке" value={siteDraft.publicOriginalImagesText||''} onChange={e=>updateProjectSiteDraft(p.id,{publicOriginalImagesText:e.target.value})} style={{...inp,minHeight:'88px',marginBottom:0}}/>
-                              <textarea placeholder="AI-фото для сайта, по одной ссылке в строке" value={siteDraft.publicEnhancedImagesText||''} onChange={e=>updateProjectSiteDraft(p.id,{publicEnhancedImagesText:e.target.value})} style={{...inp,minHeight:'88px',marginBottom:0}}/>
-                            </div>
-                            <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginTop:'12px',alignItems:'center'}}>
-                              <button onClick={()=>saveProjectSitePublication(p)} style={btnO}><Check size={14}/>Сохранить публикацию</button>
-                              <span style={{fontSize:'12px',color:C.textSec}}>AI-фото пока сохраняем как подготовленную версию. Реальную обработку подключим отдельным шагом.</span>
-                            </div>
-                          </div>);})()}
 		                      {(()=>{const wj=(workJournal||[]).filter(w=>w.project===p.name);const pending=wj.filter(w=>!w.status||w.status==='На проверке'||w.status==='Автоматически из сметы');const confirmed=wj.filter(w=>w.status==='Подтверждено');const rejected=wj.filter(w=>w.status==='Отклонено');const last7=wj.filter(w=>{if(!w.date) return false;const d=new Date(w.date);return (Date.now()-d.getTime())<7*24*3600*1000;});const sumConfirmed=confirmed.reduce((s,w)=>s+workExecutionTotal(w),0);return(<div style={{...card,padding:'14px',marginBottom:'12px',backgroundColor:pending.length>0?C.warningLight:C.bg,border:'1.5px solid '+(pending.length>0?C.warningBorder:C.border)}}>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px',flexWrap:'wrap',gap:'8px'}}>
                           <b style={{color:C.text,fontSize:'13px'}}>👷 Работы от мастеров {pending.length>0&&<span style={{padding:'2px 8px',borderRadius:'8px',backgroundColor:C.warning,color:'white',fontSize:'11px',marginLeft:'4px'}}>{pending.length+' на проверке'}</span>}</b>
@@ -11786,22 +10081,83 @@ function App() {
 	                    {activeProjectTab==='Помещения'&&(<div>
 	                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
 	                        <b style={{color:C.text}}>Помещения</b>
-                        {isProrab()&&<button onClick={()=>{setShowRoomForm(!showRoomForm);setEditingItem(null);setNewRoom({project:p.name,name:'',floor:'',liter:'',roomType:'Комната',floorArea:'',wallArea:'',ceilingArea:'',height:'',ceilingType:'Простой',wallMaterial:'Штукатурка',floorMaterial:'Стяжка',photoUrl:'',notes:''});}} style={btnO}><Plus size={14}/>Добавить</button>}
+                        {isProrab()&&<button onClick={()=>{setShowRoomForm(!showRoomForm);setEditingItem(null);setDraftRoomWindows([]);setDraftRoomDoors([]);setNewRoom({project:p.name,name:'',floor:'',liter:'',roomType:'Комната',floorArea:'',wallArea:'',ceilingArea:'',height:'',ceilingType:'Простой',wallMaterial:'Штукатурка',floorMaterial:'Стяжка',photoUrl:'',notes:''});}} style={btnO}><Plus size={14}/>Добавить</button>}
                       </div>
                       {showRoomForm&&(<div style={{...card,padding:'16px',marginBottom:'16px',backgroundColor:C.bg}}>
                         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
-                          <input placeholder="Название *" value={newRoom.name} onChange={e=>setNewRoom({...newRoom,name:e.target.value})} style={{...inp,marginBottom:0}}/>
+                          <input placeholder="Название помещения * (например: Кабинет 204)" value={newRoom.name} onChange={e=>setNewRoom({...newRoom,name:e.target.value})} style={{...inp,marginBottom:0}}/>
                           <input placeholder="Этаж (1,2,3...)" type="number" step="any" inputMode="decimal" value={newRoom.floor||''} onChange={e=>setNewRoom({...newRoom,floor:e.target.value})} style={{...inp,marginBottom:0}}/>
                           <input placeholder="Литер (А,Б,В...)" value={newRoom.liter||''} onChange={e=>setNewRoom({...newRoom,liter:e.target.value})} style={{...inp,marginBottom:0}}/>
-                          <select value={newRoom.roomType||'Комната'} onChange={e=>setNewRoom({...newRoom,roomType:e.target.value})} style={{...inp,marginBottom:0}}>
+                          <select value={['Комната','Кабинет','Коридор','Санузел','Кухня','Балкон','Лестница','Холл','Техническое','Другое',...customRoomTypes].includes(newRoom.roomType||'Комната')?(newRoom.roomType||'Комната'):'Другое'} onChange={e=>setNewRoom({...newRoom,roomType:e.target.value})} style={{...inp,marginBottom:0}}>
                             {[...'Комната,Кабинет,Коридор,Санузел,Кухня,Балкон,Лестница,Холл,Техническое'.split(','),...customRoomTypes,'Другое'].map(t=><option key={t}>{t}</option>)}
-                          {(newRoom.roomType==='Другое'||(!['Комната','Кабинет','Коридор','Санузел','Кухня','Балкон','Лестница','Холл','Техническое','Другое',''].includes(newRoom.roomType||'Комната')))&&<input placeholder='Введите своё название' value={newRoom.roomType==='Другое'?'':newRoom.roomType||''} onChange={e=>setNewRoom({...newRoom,roomType:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>}
                           </select>
+                          {(newRoom.roomType==='Другое'||(!['Комната','Кабинет','Коридор','Санузел','Кухня','Балкон','Лестница','Холл','Техническое','Другое',''].includes(newRoom.roomType||'Комната')))&&<input placeholder='Свой тип помещения, например: Серверная' value={newRoom.roomType==='Другое'?'':newRoom.roomType||''} onChange={e=>setNewRoom({...newRoom,roomType:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>}
                           <input placeholder="Высота (м)" type="number" step="any" inputMode="decimal" value={newRoom.height} onChange={e=>setNewRoom({...newRoom,height:e.target.value})} style={{...inp,marginBottom:0}}/>
                           <input placeholder="Площадь пола (м2)" type="number" step="any" inputMode="decimal" value={newRoom.floorArea} onChange={e=>setNewRoom({...newRoom,floorArea:e.target.value})} style={{...inp,marginBottom:0}}/>
                           <input placeholder="Площадь стен (м2)" type="number" step="any" inputMode="decimal" value={newRoom.wallArea} onChange={e=>setNewRoom({...newRoom,wallArea:e.target.value})} style={{...inp,marginBottom:0}}/>
                           <input placeholder="Площадь потолка (м2)" type="number" step="any" inputMode="decimal" value={newRoom.ceilingArea} onChange={e=>setNewRoom({...newRoom,ceilingArea:e.target.value})} style={{...inp,marginBottom:0}}/>
                         </div>
+                        {(()=>{
+                          const existingWins = editingItem ? roomWindows.filter(w=>Number(w.room_id)===Number(editingItem.id)) : [];
+                          const existingDoors = editingItem ? roomDoors.filter(d=>Number(d.room_id)===Number(editingItem.id)) : [];
+                          const draftOpeningsArea = draftRoomWindows.reduce((s,w)=>s+calcWindowArea(w),0)+draftRoomDoors.reduce((s,d)=>s+calcDoorArea(d),0);
+                          const draftWindowReveals = draftRoomWindows.reduce((s,w)=>s+calcWindowReveals(w),0);
+                          const draftDoorReveals = draftRoomDoors.reduce((s,d)=>s+calcDoorReveals(d),0);
+                          const draftNetWall = Math.max(0, Number(newRoom.wallArea||0)-draftOpeningsArea);
+                          return (
+                            <div style={{marginTop:'10px',padding:'12px',borderRadius:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}>
+                              <div style={{display:'flex',justifyContent:'space-between',gap:'10px',alignItems:'flex-start',marginBottom:'10px',flexWrap:'wrap'}}>
+                                <div>
+                                  <b style={{color:C.text,fontSize:'13px'}}>Окна, двери и откосы</b>
+                                  <p style={{color:C.textSec,fontSize:'11px',margin:'3px 0 0'}}>Окна и двери вычитаются из стен. Откосы считаются отдельной площадью.</p>
+                                </div>
+                                {!editingItem&&<div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
+                                  <span style={badge(C.info,C.infoLight,C.infoBorder)}>{'Чистые стены: '+draftNetWall.toFixed(2)+' м2'}</span>
+                                  <span style={badge(C.accent,C.accentLight,C.accentBorder)}>{'Откосы: '+(draftWindowReveals+draftDoorReveals).toFixed(2)+' м2'}</span>
+                                </div>}
+                              </div>
+                              {editingItem?(
+                                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',padding:'10px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border,flexWrap:'wrap'}}>
+                                  <span style={{color:C.textSec,fontSize:'12px'}}>{'Сейчас в помещении: окон '+existingWins.length+', дверей '+existingDoors.length+'. Для правки размеров раскройте карточку помещения ниже.'}</span>
+                                  <button onClick={()=>{setExpandedRoom(editingItem.id);setShowRoomForm(false);}} style={{...btnG,padding:'6px 10px',fontSize:'12px'}}>Открыть окна/двери</button>
+                                </div>
+                              ):(
+                                <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:'10px'}}>
+                                  <div style={{padding:'10px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}>
+                                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px',gap:'8px'}}>
+                                      <b style={{color:C.text,fontSize:'12px'}}>Окна</b>
+                                      <button onClick={()=>setDraftRoomWindows(prev=>[...prev,{name:'Окно '+(prev.length+1),width:'',height:'',windowType:'ПВХ',revealDepth:'',revealMaterial:'Штукатурка'}])} style={{...btnO,padding:'4px 8px',fontSize:'11px'}}><Plus size={11}/>Окно</button>
+                                    </div>
+                                    {draftRoomWindows.length===0&&<p style={{color:C.textMuted,fontSize:'11px',margin:'0'}}>Окон нет</p>}
+                                    {draftRoomWindows.map((w,idx)=>(<div key={'draft-window-'+idx} style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'1.1fr .9fr .8fr .8fr .8fr 34px',gap:'6px',alignItems:'center',marginBottom:'6px'}}>
+                                      <input placeholder="Название" value={w.name} onChange={e=>setDraftRoomWindows(prev=>prev.map((x,i)=>i===idx?{...x,name:e.target.value}:x))} style={{...inp,marginBottom:0,fontSize:'11px',padding:'8px'}}/>
+                                      <select value={w.windowType||'ПВХ'} onChange={e=>setDraftRoomWindows(prev=>prev.map((x,i)=>i===idx?{...x,windowType:e.target.value}:x))} style={{...inp,marginBottom:0,fontSize:'11px',padding:'8px'}}>{WINDOW_TYPES.map(t=><option key={t}>{t}</option>)}</select>
+                                      <input placeholder="Шир., м" type="number" step="any" inputMode="decimal" value={w.width} onChange={e=>setDraftRoomWindows(prev=>prev.map((x,i)=>i===idx?{...x,width:e.target.value}:x))} style={{...inp,marginBottom:0,fontSize:'11px',padding:'8px'}}/>
+                                      <input placeholder="Выс., м" type="number" step="any" inputMode="decimal" value={w.height} onChange={e=>setDraftRoomWindows(prev=>prev.map((x,i)=>i===idx?{...x,height:e.target.value}:x))} style={{...inp,marginBottom:0,fontSize:'11px',padding:'8px'}}/>
+                                      <input placeholder="Откос, см" type="number" step="any" inputMode="decimal" value={w.revealDepth} onChange={e=>setDraftRoomWindows(prev=>prev.map((x,i)=>i===idx?{...x,revealDepth:e.target.value}:x))} style={{...inp,marginBottom:0,fontSize:'11px',padding:'8px'}}/>
+                                      <button onClick={()=>setDraftRoomWindows(prev=>prev.filter((_,i)=>i!==idx))} style={{...btnR,padding:'7px'}}><Trash2 size={11}/></button>
+                                    </div>))}
+                                  </div>
+                                  <div style={{padding:'10px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}>
+                                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px',gap:'8px'}}>
+                                      <b style={{color:C.text,fontSize:'12px'}}>Двери</b>
+                                      <button onClick={()=>setDraftRoomDoors(prev=>[...prev,{name:'Дверь '+(prev.length+1),width:'',height:'',doorType:'Деревянная',doorPurpose:'Межкомнатная',revealDepth:'',revealMaterial:'Штукатурка'}])} style={{...btnO,padding:'4px 8px',fontSize:'11px'}}><Plus size={11}/>Дверь</button>
+                                    </div>
+                                    {draftRoomDoors.length===0&&<p style={{color:C.textMuted,fontSize:'11px',margin:'0'}}>Дверей нет</p>}
+                                    {draftRoomDoors.map((d,idx)=>(<div key={'draft-door-'+idx} style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'1.1fr .9fr .8fr .8fr .8fr 34px',gap:'6px',alignItems:'center',marginBottom:'6px'}}>
+                                      <input placeholder="Название" value={d.name} onChange={e=>setDraftRoomDoors(prev=>prev.map((x,i)=>i===idx?{...x,name:e.target.value}:x))} style={{...inp,marginBottom:0,fontSize:'11px',padding:'8px'}}/>
+                                      <select value={d.doorPurpose||'Межкомнатная'} onChange={e=>setDraftRoomDoors(prev=>prev.map((x,i)=>i===idx?{...x,doorPurpose:e.target.value}:x))} style={{...inp,marginBottom:0,fontSize:'11px',padding:'8px'}}>{DOOR_PURPOSES.map(t=><option key={t}>{t}</option>)}</select>
+                                      <input placeholder="Шир., м" type="number" step="any" inputMode="decimal" value={d.width} onChange={e=>setDraftRoomDoors(prev=>prev.map((x,i)=>i===idx?{...x,width:e.target.value}:x))} style={{...inp,marginBottom:0,fontSize:'11px',padding:'8px'}}/>
+                                      <input placeholder="Выс., м" type="number" step="any" inputMode="decimal" value={d.height} onChange={e=>setDraftRoomDoors(prev=>prev.map((x,i)=>i===idx?{...x,height:e.target.value}:x))} style={{...inp,marginBottom:0,fontSize:'11px',padding:'8px'}}/>
+                                      <input placeholder="Откос, см" type="number" step="any" inputMode="decimal" value={d.revealDepth} onChange={e=>setDraftRoomDoors(prev=>prev.map((x,i)=>i===idx?{...x,revealDepth:e.target.value}:x))} style={{...inp,marginBottom:0,fontSize:'11px',padding:'8px'}}/>
+                                      <button onClick={()=>setDraftRoomDoors(prev=>prev.filter((_,i)=>i!==idx))} style={{...btnR,padding:'7px'}}><Trash2 size={11}/></button>
+                                    </div>))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                         <div style={{marginTop:'8px'}}>
                           <PhotoAttachmentField
                             C={C}
@@ -11816,7 +10172,7 @@ function App() {
                             title="Фото помещения / лист замера"
                           />
                         </div>
-                        <div style={{display:'flex',gap:'8px',marginTop:'10px'}}><button onClick={saveRoom} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button><button onClick={()=>{setShowRoomForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
+                        <div style={{display:'flex',gap:'8px',marginTop:'10px'}}><button onClick={saveRoom} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button><button onClick={()=>{setShowRoomForm(false);setEditingItem(null);setDraftRoomWindows([]);setDraftRoomDoors([]);}} style={btnG}><X size={14}/>Отмена</button></div>
                   </div>)}
                       {(()=>{const projectRooms=rooms.filter(r=>r.project===p.name);if(projectRooms.length===0)return null;const checked=projectRooms.map(roomCompleteness);const full=checked.filter(x=>x.status==='Обмер полный').length;const missing=checked.filter(x=>x.status==='Не хватает данных').length;const openings=checked.filter(x=>x.status==='Проверить проёмы').length;return(<div style={{...card,padding:'12px',marginBottom:'12px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}>
                         <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'repeat(4,1fr)',gap:'8px'}}>
@@ -11839,7 +10195,7 @@ function App() {
                           <div style={{padding:'14px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}} onClick={()=>setExpandedRoom(isRoomOpen?null:room.id)}>
                             <div style={{minWidth:0,flex:1}}><b style={{color:C.text,fontSize:'13px'}}>{room.name}</b>{room.floor&&<span style={{fontSize:'11px',color:C.accent,marginLeft:'6px',padding:'1px 6px',backgroundColor:C.accentLight,borderRadius:'4px'}}>{'Эт.'+room.floor+(room.liter?' Лит.'+room.liter:'')}</span>}{room.roomType&&<span style={{fontSize:'11px',color:C.textSec,marginLeft:'4px'}}>{'· '+room.roomType}</span>}<span style={{...badge(completeness.color,completeness.bg,completeness.border),marginLeft:'6px'}}>{completeness.status}</span><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{'Пол: '+room.floorArea+'м² · Стены: '+room.wallArea+'м² (чистые: '+netWall+'м²) · Потолок: '+room.ceilingArea+'м² · Высота: '+(room.height||'—')+'м'}</p><p style={{color:C.textSec,margin:'0',fontSize:'11px'}}>{'Окна: '+wins.length+'шт · Двери: '+doors.length+'шт'+(winRevTotal>0?' · Откосы окон: '+winRevTotal+'м²':'')+(doorRevTotal>0?' · Откосы дверей: '+doorRevTotal+'м²':'')}</p>{roomPhotos.length>0&&<div style={{display:'flex',gap:'4px',flexWrap:'wrap',marginTop:'6px'}}>{roomPhotos.slice(0,4).map((url,index)=><img key={url+index} src={fileSrc(url)} alt='' onClick={e=>{e.stopPropagation();setShowPhotoModal(fileSrc(url));}} style={{width:'44px',height:'44px',objectFit:'cover',borderRadius:'6px',cursor:'pointer',border:'1px solid '+C.border}}/>)}{roomPhotos.length>4&&<span style={{fontSize:'11px',color:C.textSec,alignSelf:'center'}}>+{roomPhotos.length-4}</span>}</div>}{completeness.issues.length>0&&<p style={{color:completeness.color,margin:'3px 0 0',fontSize:'11px',fontWeight:'600'}}>{'Нужно: '+completeness.issues.slice(0,4).join(', ')+(completeness.issues.length>4?' …':'')}</p>}</div>
                             <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
-                              {isProrab()&&(<><button onClick={e=>{e.stopPropagation();setEditingItem(room);setNewRoom({project:room.project,name:room.name,floor:room.floor||'',liter:room.liter||'',roomType:room.roomType||'Комната',floorArea:room.floorArea,wallArea:room.wallArea,ceilingArea:room.ceilingArea,height:room.height||'',ceilingType:room.ceiling_type||room.ceilingType||'Простой',wallMaterial:room.wall_material||room.wallMaterial||'Штукатурка',floorMaterial:room.floor_material||room.floorMaterial||'Стяжка',photoUrl:room.photoUrl||room.photo_url||'',notes:room.notes||''});setShowRoomForm(true);}} style={{...btnG,padding:'4px 8px'}}><Edit2 size={11}/></button><button onClick={e=>{e.stopPropagation();deleteRoom(room.id);}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button></>)}
+                              {isProrab()&&(<><button onClick={e=>{e.stopPropagation();setEditingItem(room);setDraftRoomWindows([]);setDraftRoomDoors([]);setNewRoom({project:room.project,name:room.name,floor:room.floor||'',liter:room.liter||'',roomType:room.roomType||'Комната',floorArea:room.floorArea,wallArea:room.wallArea,ceilingArea:room.ceilingArea,height:room.height||'',ceilingType:room.ceiling_type||room.ceilingType||'Простой',wallMaterial:room.wall_material||room.wallMaterial||'Штукатурка',floorMaterial:room.floor_material||room.floorMaterial||'Стяжка',photoUrl:room.photoUrl||room.photo_url||'',notes:room.notes||''});setShowRoomForm(true);}} style={{...btnG,padding:'4px 8px'}}><Edit2 size={11}/></button><button onClick={e=>{e.stopPropagation();deleteRoom(room.id);}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button></>)}
                               {isRoomOpen?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}
                             </div>
                           </div>
@@ -12688,536 +11044,45 @@ function App() {
             })}
             {projects.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}><FolderKanban size={48} style={{marginBottom:'15px',opacity:0.3}}/><p>Проектов нет — создайте первый!</p></div>}
           </div>)}
-          {activePage==='clients'&&(
-            <ClientsPage C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnR={btnR} clients={clients} projects={projects} showForm={showForm} setShowForm={setShowForm} editingItem={editingItem} setEditingItem={setEditingItem} newClient={newClient} setNewClient={setNewClient} saveClient={saveClient} listSearch={listSearch} setListSearch={setListSearch} expandedClient={expandedClient} setExpandedClient={setExpandedClient} deleteClient={deleteClient} matchSearch={matchSearch} isMobile={isMobile}/>
-          )}
-
-          {activePage==='warehouse'&&(
-            <WarehousePage
+          {activePage==='site'&&canAccess('site')&&(
+            <ProjectSitePublicationPage
+              C={C}
+              badge={badge}
+              btnG={btnG}
+              btnO={btnO}
+              card={card}
+              inp={inp}
               isMobile={isMobile}
-              warehouseTab={warehouseTab}
-              setWarehouseTab={setWarehouseTab}
-              setShowForm={setShowForm}
-              btnO={btnO}
-              btnG={btnG}
-              C={C}
-              badge={badge}
-              btnB={btnB}
-              buildMaterialRequirementContent={buildMaterialRequirementContent}
-              card={card}
-              exportToExcel={exportToExcel}
-              isFinanceRole={isFinanceRole}
-              isLeadership={isLeadership}
-              materialControlSummaryForProject={materialControlSummaryForProject}
-              materialReconciliationRows={materialReconciliationRows}
               projects={projects}
-              getProjectWorkPackageOptions={getProjectWorkPackageOptions}
-              getProjectEstimateWorkOptions={getProjectEstimateWorkOptions}
-              setSelectedWarehouseProject={setSelectedWarehouseProject}
-              visibleActiveProjects={visibleActiveProjects}
-              showForm={showForm}
-              editingItem={editingItem}
-              setEditingItem={setEditingItem}
-              newWarehouse={newWarehouse}
-              setNewWarehouse={setNewWarehouse}
-              saveWarehouse={saveWarehouse}
-              deleteWarehouse={deleteWarehouse}
-              warehouses={warehouses}
-              inp={inp}
-              btnR={btnR}
-              btnGr={btnGr}
-              tbl={tbl}
-              tblH={tblH}
-              tblC={tblC}
-              selectedWarehouseProject={selectedWarehouseProject}
-              materials={materials}
-              materialsPage={materialsPage}
-              loadMaterialsPage={loadMaterialsPage}
-              openReceiveInvoice={openReceiveInvoice}
-              user={user}
-              materialTransfers={materialTransfers}
-              setMaterialTransfers={setMaterialTransfers}
-              setNewTransfer={setNewTransfer}
-              setShowTransferForm={setShowTransferForm}
-              renderMaterialReconciliationPanel={renderMaterialReconciliationPanel}
-              deleteMaterial={deleteMaterial}
-              showTransferForm={showTransferForm}
-              newTransfer={newTransfer}
-              warehouseMain={warehouseMain}
-              supplyRequests={supplyRequests}
-              _normalizeUnit={_normalizeUnit}
-              convertUnits={convertUnits}
-              staff={staff}
-              setWarehouseMain={setWarehouseMain}
-              setMaterials={setMaterials}
-              notify={notify}
-              newInvoice={newInvoice}
-              setNewInvoice={setNewInvoice}
-              suppliers={suppliers}
-              estimatesList={estimatesList}
-              invoices={invoices}
-              saveInvoiceNew={saveInvoiceNew}
-              uploadPhoto={uploadPhoto}
-              fileSrc={fileSrc}
-              setShowPhotoModal={setShowPhotoModal}
-              setSverkaModal={setSverkaModal}
-              warehouseInvoiceItems={warehouseInvoiceItems}
-              isSupplyDeliveryInvoice={isSupplyDeliveryInvoice}
-              warehouseInvoiceEstimateControl={warehouseInvoiceEstimateControl}
-              renderInvoiceControlActions={renderInvoiceControlActions}
-              showPreview={showPreview}
-              buildInvoiceContent={buildInvoiceContent}
-              setShowQRModal={setShowQRModal}
-              VAT_OPTIONS={VAT_OPTIONS}
-              UNITS={UNITS}
-              MATERIAL_CATEGORIES={MATERIAL_CATEGORIES}
-              history={history}
-              listSearch={listSearch}
-              setListSearch={setListSearch}
-              matchSearch={matchSearch}
-              deleteMainMaterial={deleteMainMaterial}
-              warehouseMovements={warehouseMovements}
-              newMovement={newMovement}
-              setNewMovement={setNewMovement}
-              applyWarehouseMovement={applyWarehouseMovement}
-              buildMovementDoc={buildMovementDoc}
-              toolsTab={toolsTab}
-              setToolsTab={setToolsTab}
-              newTool={newTool}
-              setNewTool={setNewTool}
-              saveTool={saveTool}
-              deleteTool={deleteTool}
-              tools={tools}
-              toolHistory={toolHistory}
-              isProrab={isProrab}
-              setShowIssueToolModal={setShowIssueToolModal}
-              setShowReturnToolModal={setShowReturnToolModal}
-              TOOL_STATUSES={TOOL_STATUSES}
-              newInventory={newInventory}
-              setNewInventory={setNewInventory}
-              selectedInventory={selectedInventory}
-              setSelectedInventory={setSelectedInventory}
-              inventory={inventory}
-              buildInventoryDoc={buildInventoryDoc}
-              refreshData={refreshData}
+              projectSiteDraft={projectSiteDraft}
+              updateProjectSiteDraft={updateProjectSiteDraft}
+              saveProjectSitePublication={saveProjectSitePublication}
             />
           )}
-          {activePage==='supply'&&(()=>{
-            return (
-              <SupplyPage
-                C={C}
-                card={card}
-                inp={inp}
-                isMobile={isMobile}
-                tblH={tblH}
-                tblC={tblC}
-                btnO={btnO}
-                btnG={btnG}
-                btnB={btnB}
-                btnGr={btnGr}
-                btnR={btnR}
-                badge={badge}
-                user={user}
-                isLeadership={isLeadership}
-                isFinanceRole={isFinanceRole}
-                showSupplyForm={showSupplyForm}
-                setShowSupplyForm={setShowSupplyForm}
-                showForm={showForm}
-                setShowForm={setShowForm}
-                supplyTab={supplyTab}
-                setSupplyTab={setSupplyTab}
-                supplyRequests={supplyRequests}
-                listSearch={listSearch}
-                setListSearch={setListSearch}
-                matchSearch={matchSearch}
-                supplyTemplates={supplyTemplates}
-                applySupplyTemplate={applySupplyTemplate}
-                deleteSupplyTemplate={deleteSupplyTemplate}
-                newSupplyReq={newSupplyReq}
-                setNewSupplyReq={setNewSupplyReq}
-                priceHints={priceHints}
-                fetchPriceHint={fetchPriceHint}
-                UNITS={UNITS}
-                projects={projects}
-                getProjectWorkPackageOptions={getProjectWorkPackageOptions}
-                renderSupplyPlanningHint={renderSupplyPlanningHint}
-                createSupplyReq={createSupplyReq}
-                saveSupplyTemplate={saveSupplyTemplate}
-                supplyCollapsedProjects={supplyCollapsedProjects}
-                setSupplyCollapsedProjects={setSupplyCollapsedProjects}
-                parseSupplyItems={parseSupplyItems}
-                renderSupplyRequestOrigin={renderSupplyRequestOrigin}
-                supplyRequestOrigin={supplyRequestOrigin}
-                supplyExpandedId={supplyExpandedId}
-                setSupplyExpandedId={setSupplyExpandedId}
-                confirmSupplyAsProrab={confirmSupplyAsProrab}
-                approveSupplyAsDirector={approveSupplyAsDirector}
-                openRequestKpModal={openRequestKpModal}
-                loadSupplyStockCheck={loadSupplyStockCheck}
-                setSupplyRejectId={setSupplyRejectId}
-                supplyRejectId={supplyRejectId}
-                supplyRejectReason={supplyRejectReason}
-                setSupplyRejectReason={setSupplyRejectReason}
-                rejectSupply={rejectSupply}
-                cancelSupply={cancelSupply}
-                supplyStockCheck={supplyStockCheck}
-                askSupplyAi={askSupplyAi}
-                supplyAiLoading={supplyAiLoading}
-                supplyAiText={supplyAiText}
-                supplierOffers={supplierOffers}
-                compareResultByReq={compareResultByReq}
-                compareLoadingReqId={compareLoadingReqId}
-                runCompareKp={runCompareKp}
-                suppliers={suppliers}
-                fileSrc={fileSrc}
-                parseOfferItems={parseOfferItems}
-                selectSupplierOffer={selectSupplierOffer}
-                rejectSupplierOffer={rejectSupplierOffer}
-                supplierInvoices={supplierInvoices}
-                newSupplierInvoice={newSupplierInvoice}
-                setNewSupplierInvoice={setNewSupplierInvoice}
-                expandedProject={expandedProject}
-                setExpandedProject={setExpandedProject}
-                loadAll={loadAll}
-                toNum={toNum}
-                supplierCategories={SUPPLIER_CATEGORIES}
-                editingItem={editingItem}
-                setEditingItem={setEditingItem}
-                newSupplier={newSupplier}
-                setNewSupplier={setNewSupplier}
-                saveSupplier={saveSupplier}
-                deleteSupplier={deleteSupplier}
-                setSupplierInviteForm={setSupplierInviteForm}
-                setGeneratedInviteLink={setGeneratedInviteLink}
-                setShowSupplierInviteModal={setShowSupplierInviteModal}
-                supplierCatalog={supplierCatalog}
-                supplyClaims={supplyClaims}
-                supplyDeliveries={supplyDeliveries}
-                receivingDeliveryId={receivingDeliveryId}
-                setReceivingDeliveryId={setReceivingDeliveryId}
-                receiveForm={receiveForm}
-                setReceiveForm={setReceiveForm}
-                deliveryAiLoadingId={deliveryAiLoadingId}
-                setDeliveryAiLoadingId={setDeliveryAiLoadingId}
-                deliveryAiResultById={deliveryAiResultById}
-                setDeliveryAiResultById={setDeliveryAiResultById}
-                runDeliveryAiCheck={runDeliveryAiCheck}
-                receiveSupplyDelivery={receiveSupplyDelivery}
-                invoices={invoices}
-                showPreview={showPreview}
-                buildInvoiceContent={buildInvoiceContent}
-                uploadPhoto={uploadPhoto}
-              />
-            );
-          })()}
+          <AppDirectoryPages
+            activePage={activePage}
+            ui={{ API, C, badge, btnB, btnG, btnGr, btnO, btnR, card, inp, isMobile, tbl, tblC, tblH }}
+            constants={{ PRICELISTS_DATA, ROLE_GROUPS, ROLE_LABELS, ROLES, SUPPLIER_CATEGORIES, UNITS }}
+            state={{ clients, compareLoadingReqId, compareResultByReq, editingItem, editingPlItem, estimatesList, expandedClient, expandedGroup, fileSrc, inlineEditPl, inlineEditPlData, inviteCodes, listSearch, newClient, newInviteRole, newOffer, newPlItem, newPricelist, newRequest, newSupplier, newUser, pricelistItems, pricelists, projects, searchUser, selectedPricelist, showForm, showInvites, showOffers, suppliers, suppliersTab, supplierOffers, supplyDeliveries, supplyHistory, supplyRequestOrigin, supplyRequests, user, users }}
+            actions={{ approveOffer, buildPricelistContent, cancelInlinePlEdit, cancelRequest, copyPricelist, createInvite, deleteClient, deleteInvite, deletePlItem, deletePricelist, deleteSupplier, deleteUser, exportToExcel, generateTempPassword, getProjectWorkPackageOptions, isLeadership, loadAll, loadPricelistItems, matchSearch, parseOfferItems, parseSupplyItems, renderSupplyRequestOrigin, resetUserTwoFactor, roleColor, runCompareKp, saveClient, saveInlinePlItem, saveOffer, savePlItem, savePricelist, saveRequest, saveSupplier, saveUser, selectSupplierOffer, setEditingItem, setEditingPlItem, setExpandedClient, setExpandedGroup, setFromEstimateForm, setGeneratedInviteLink, setGeneratePricelistForm, setInlineEditPlData, setInlineEditPrice, setListSearch, setNewClient, setNewInviteRole, setNewOffer, setNewPlItem, setNewPricelist, setNewRequest, setNewSupplier, setNewUser, setPricelistItems, setSearchUser, setSelectedPricelist, setShowForm, setShowFromEstimate, setShowGeneratePricelist, setShowInvites, setShowOffers, setShowSupplierInviteModal, setSupplierInviteForm, setSuppliersTab, showPreview, startInlinePlEdit, rejectSupplierOffer, toggleUserActive }}
+          />
 
-          {activePage==='suppliers'&&(
-            <SuppliersPage
-              C={C}
-              card={card}
-              inp={inp}
-              btnO={btnO}
-              btnG={btnG}
-              btnGr={btnGr}
-              btnR={btnR}
-              btnB={btnB}
-              badge={badge}
-              suppliersTab={suppliersTab}
-              setSuppliersTab={setSuppliersTab}
-              showForm={showForm}
-              setShowForm={setShowForm}
-              editingItem={editingItem}
-              setEditingItem={setEditingItem}
-              newSupplier={newSupplier}
-              setNewSupplier={setNewSupplier}
-              supplierCategories={SUPPLIER_CATEGORIES}
-              suppliers={suppliers}
-              saveSupplier={saveSupplier}
-              deleteSupplier={deleteSupplier}
-              loadAll={loadAll}
-              listSearch={listSearch}
-              setListSearch={setListSearch}
-              matchSearch={matchSearch}
-              setSupplierInviteForm={setSupplierInviteForm}
-              setGeneratedInviteLink={setGeneratedInviteLink}
-              setShowSupplierInviteModal={setShowSupplierInviteModal}
-              newRequest={newRequest}
-              setNewRequest={setNewRequest}
-              projects={projects}
-              getProjectWorkPackageOptions={getProjectWorkPackageOptions}
-              units={UNITS}
-              saveRequest={saveRequest}
-              supplyRequests={supplyRequests}
-              parseSupplyItems={parseSupplyItems}
-              renderSupplyRequestOrigin={renderSupplyRequestOrigin}
-              supplyRequestOrigin={supplyRequestOrigin}
-              showOffers={showOffers}
-              setShowOffers={setShowOffers}
-              cancelRequest={cancelRequest}
-              newOffer={newOffer}
-              setNewOffer={setNewOffer}
-              saveOffer={saveOffer}
-              supplierOffers={supplierOffers}
-              isLeadership={isLeadership}
-              approveOffer={approveOffer}
-              compareResultByReq={compareResultByReq}
-              compareLoadingReqId={compareLoadingReqId}
-              runCompareKp={runCompareKp}
-              fileSrc={fileSrc}
-              parseOfferItems={parseOfferItems}
-              selectSupplierOffer={selectSupplierOffer}
-              rejectSupplierOffer={rejectSupplierOffer}
-              supplyDeliveries={supplyDeliveries}
-              supplyHistory={supplyHistory}
-            />
-          )}
+          <AppOperationsPages
+            activePage={activePage}
+            ui={{ C, badge, btnB, btnG, btnGr, btnO, btnR, card, inp, isMobile, tbl, tblC, tblH }}
+            constants={{ MATERIAL_CATEGORIES, SUPPLIER_CATEGORIES, TOOL_STATUSES, UNITS, VAT_OPTIONS }}
+            state={{ compareLoadingReqId, compareResultByReq, deliveryAiLoadingId, deliveryAiResultById, editingItem, estimatesList, expandedProject, fileSrc, history, inventory, invoices, listSearch, materialReconciliationRows, materials, materialsPage, materialTransfers, newInventory, newInvoice, newMovement, newSupplier, newSupplierInvoice, newSupplyReq, newTool, newTransfer, newWarehouse, priceHints, projects, receiveForm, receivingDeliveryId, selectedInventory, selectedWarehouseProject, showForm, showSupplyForm, showTransferForm, staff, suppliers, supplierCatalog, supplierInvoices, supplierOffers, supplyAiLoading, supplyAiText, supplyClaims, supplyCollapsedProjects, supplyDeliveries, supplyExpandedId, supplyRejectId, supplyRejectReason, supplyRequests, supplyRequestOrigin, supplyStockCheck, supplyTab, supplyTemplates, toolHistory, tools, toolsTab, user, warehouseInvoiceItems, warehouseMain, warehouseMovements, warehouses, warehouseTab }}
+            actions={{ _normalizeUnit, applySupplyTemplate, applyWarehouseMovement, approveSupplyAsDirector, askSupplyAi, buildInventoryDoc, buildInvoiceContent, buildMaterialRequirementContent, buildMovementDoc, cancelSupply, confirmSupplyAsProrab, convertUnits, createSupplyReq, deleteMainMaterial, deleteMaterial, deleteSupplier, deleteSupplyTemplate, deleteTool, deleteWarehouse, exportToExcel, fetchPriceHint, getProjectEstimateWorkOptions, getProjectWorkPackageOptions, isFinanceRole, isLeadership, isProrab, isSupplyDeliveryInvoice, loadAll, loadMaterialsPage, loadSupplyStockCheck, matchSearch, materialControlSummaryForProject, notify, openReceiveInvoice, openRequestKpModal, parseOfferItems, parseSupplyItems, receiveSupplyDelivery, refreshData, rejectSupplierOffer, rejectSupply, renderInvoiceControlActions, renderMaterialReconciliationPanel, renderSupplyPlanningHint, renderSupplyRequestOrigin, runCompareKp, runDeliveryAiCheck, saveInvoiceNew, saveSupplier, saveSupplyTemplate, saveTool, saveWarehouse, selectSupplierOffer, setDeliveryAiLoadingId, setDeliveryAiResultById, setEditingItem, setExpandedProject, setGeneratedInviteLink, setListSearch, setMaterialTransfers, setMaterials, setNewInventory, setNewInvoice, setNewMovement, setNewSupplier, setNewSupplierInvoice, setNewSupplyReq, setNewTool, setNewTransfer, setNewWarehouse, setReceiveForm, setReceivingDeliveryId, setSelectedInventory, setSelectedWarehouseProject, setShowForm, setShowIssueToolModal, setShowPhotoModal, setShowQRModal, setShowReturnToolModal, setShowSupplierInviteModal, setShowSupplyForm, setShowTransferForm, setSupplierInviteForm, setSupplyCollapsedProjects, setSupplyExpandedId, setSupplyRejectId, setSupplyRejectReason, setSupplyTab, setToolsTab, setWarehouseMain, setWarehouseTab, showPreview, toNum, uploadPhoto, visibleActiveProjects, warehouseInvoiceEstimateControl }}
+          />
 
-          {activePage==='accounting'&&(
-            <AccountingPage
-              isMobile={isMobile}
-              accountingTab={accountingTab}
-              setAccountingTab={setAccountingTab}
-              setShowForm={setShowForm}
-              isLeadership={isLeadership()}
-              loadAuditLog={loadAuditLog}
-              btnO={btnO}
-              btnG={btnG}
-              C={C}
-              card={card}
-              projects={projects}
-              projectPayments={projectPayments}
-              projectPaymentInAmount={projectPaymentInAmount}
-              ownExpenses={ownExpenses}
-              manualExpenses={manualExpenses}
-              accountablePayments={accountablePayments}
-              supplierInvoices={supplierInvoices}
-              brigadeContracts={brigadeContracts}
-              piecework={piecework}
-              isFinanceRole={isFinanceRole}
-              inp={inp}
-              btnGr={btnGr}
-              matchSearch={matchSearch}
-              listSearch={listSearch}
-              setListSearch={setListSearch}
-              toNum={toNum}
-              user={user}
-              refreshData={refreshData}
-              setShowReimburseModal={setShowReimburseModal}
-              interimActs={interimActs}
-              expandedProject={expandedProject}
-              setExpandedProject={setExpandedProject}
-              btnB={btnB}
-              btnR={btnR}
-              badge={badge}
-              showForm={showForm}
-              newContract={newContract}
-              setNewContract={setNewContract}
-              resolveContractPerformer={resolveContractPerformer}
-              contractRequisitesWarning={contractRequisitesWarning}
-              createContract={createContract}
-              staff={staff}
-              contracts={contracts}
-              projectDocuments={projectDocuments}
-              normalizePersonKey={normalizePersonKey}
-              allBrigadePayments={allBrigadePayments}
-              pdConsents={pdConsents}
-              allBrigadeItems={allBrigadeItems}
-              showPreview={showPreview}
-              buildContractContent={buildContractContent}
-              deleteContract={deleteContract}
-              workJournal={workJournal}
-              unexpectedWorksList={unexpectedWorksList}
-              isApprovedEstimateChangeStatus={isApprovedEstimateChangeStatus}
-              expandedActDate={expandedActDate}
-              setExpandedActDate={setExpandedActDate}
-              fmtMeasure={fmtMeasure}
-              newAct={newAct}
-              setNewAct={setNewAct}
-              masterProfiles={masterProfiles}
-              createInterimAct={createInterimAct}
-              buildActContent={buildActContent}
-              fileSrc={fileSrc}
-              uploadPhoto={uploadPhoto}
-              setShowPhotoModal={setShowPhotoModal}
-              setShowPayActModal={setShowPayActModal}
-              deleteInterimAct={deleteInterimAct}
-              buildBrigadeActContent={buildBrigadeActContent}
-              estimatesList={estimatesList}
-              accountingDocProject={accountingDocProject}
-              setAccountingDocProject={setAccountingDocProject}
-              projectPlanDone={projectPlanDone}
-              materialControlSummaryForProject={materialControlSummaryForProject}
-              invoices={invoices}
-              warehouseInvoiceEstimateControl={warehouseInvoiceEstimateControl}
-              buildPassportContent={buildPassportContent}
-              showKS2={showKS2}
-              buildKS3Content={buildKS3Content}
-              buildJPRContent={buildJPRContent}
-              buildM29Content={buildM29Content}
-              buildAOSKContent={buildAOSKContent}
-              buildKS11Content={buildKS11Content}
-              buildKS14Content={buildKS14Content}
-              buildIGDContent={buildIGDContent}
-              buildExecPackageContent={buildExecPackageContent}
-              buildVATBookContent={buildVATBookContent}
-              buildInvoiceContent={buildInvoiceContent}
-              suppliers={suppliers}
-              buildM2Content={buildM2Content}
-              buildM8Content={buildM8Content}
-              buildMaterialRequirementContent={buildMaterialRequirementContent}
-              buildSpecJournalContent={buildSpecJournalContent}
-              salaryMonth={salaryMonth}
-              setSalaryMonth={setSalaryMonth}
-              salaryEdits={salaryEdits}
-              payrollExtras={payrollExtras}
-              tools={tools}
-              setSalaryEdit={setSalaryEdit}
-              salaryPayments={salaryPayments}
-              setSalaryPayments={setSalaryPayments}
-              paySalary={paySalary}
-              setPayrollExtra={setPayrollExtra}
-              newExpenseReport={newExpenseReport}
-              setNewExpenseReport={setNewExpenseReport}
-              expenseReports={expenseReports}
-              auditLog={auditLog}
-              setAuditLog={setAuditLog}
-              tbl={tbl}
-              tblH={tblH}
-              tblC={tblC}
-            />
-          )}
-          {activePage==='personnel'&&(
-            <PersonnelPage
-              C={C}
-              ROLE_GROUPS={ROLE_GROUPS}
-              ROLE_LABELS={ROLE_LABELS}
-              PD_CONSENT_TEXT={PD_CONSENT_TEXT}
-              UNITS={UNITS}
-              API={API}
-              addPiecework={addPiecework}
-              addStaffDoc={addStaffDoc}
-              buildContractContent={buildContractContent}
-              buildPositionInstructionContent={buildPositionInstructionContent}
-              btnB={btnB}
-              btnG={btnG}
-              btnO={btnO}
-              btnR={btnR}
-              calcSalary={calcSalary}
-              card={card}
-              contracts={contracts}
-              createStaffAccessFromPrompt={createStaffAccessFromPrompt}
-              daysInMonth={daysInMonth}
-              deletePiecework={deletePiecework}
-              deleteStaff={deleteStaff}
-              editingItem={editingItem}
-              expandedMaster={expandedMaster}
-              expandedMasterProject={expandedMasterProject}
-              expandedPieceworkProject={expandedPieceworkProject}
-              expandedStaffId={expandedStaffId}
-              estimatesList={estimatesList}
-              fileSrc={fileSrc}
-              findUserForStaff={findUserForStaff}
-              fmtMeasure={fmtMeasure}
-              inp={inp}
-              interimActs={interimActs}
-              isMobile={isMobile}
-              listSearch={listSearch}
-              masterProfiles={masterProfiles}
-              masterRatings={masterRatings}
-              matchSearch={matchSearch}
-              newPiecework={newPiecework}
-              newStaff={newStaff}
-              newStaffDoc={newStaffDoc}
-              openStaffProfile={openStaffProfile}
-              pdConsents={pdConsents}
-              personnelTab={personnelTab}
-              piecework={piecework}
-              projects={projects}
-              ratemaster={ratemaster}
-              resetStaffAccessPassword={resetStaffAccessPassword}
-              roleColor={roleColor}
-              saveStaff={saveStaff}
-              setEditingItem={setEditingItem}
-              setExpandedMaster={setExpandedMaster}
-              setExpandedMasterProject={setExpandedMasterProject}
-              setExpandedPieceworkProject={setExpandedPieceworkProject}
-              setListSearch={setListSearch}
-              setNewPiecework={setNewPiecework}
-              setNewStaff={setNewStaff}
-              setNewStaffDoc={setNewStaffDoc}
-              setPersonnelTab={setPersonnelTab}
-              setShowForm={setShowForm}
-              setShowPhotoModal={setShowPhotoModal}
-              setShowPiecework={setShowPiecework}
-              setShowStaffDocForm={setShowStaffDocForm}
-              setStaffProfile={setStaffProfile}
-              setStaffExpandedSections={setStaffExpandedSections}
-              showForm={showForm}
-              showPiecework={showPiecework}
-              showPreview={showPreview}
-              showStaffDocForm={showStaffDocForm}
-              staff={staff}
-              staffExpandedSections={staffExpandedSections}
-              staffProfile={staffProfile}
-              staffProfileLoading={staffProfileLoading}
-              tbl={tbl}
-              tblC={tblC}
-              tblH={tblH}
-              timesheet={timesheet}
-              toggleDay={toggleDay}
-              uploadPhoto={uploadPhoto}
-              users={users}
-              workJournal={workJournal}
-              workedDays={workedDays}
-            />
-          )}
+          <AppBackofficePages
+            activePage={activePage}
+            ui={{ API, C, badge, btnB, btnG, btnGr, btnO, btnR, card, inp, isMobile, tbl, tblC, tblH }}
+            constants={{ PD_CONSENT_TEXT, ROLE_GROUPS, ROLE_LABELS, UNITS }}
+            state={{ accountablePayments, accountingDocProject, accountingTab, allBrigadeItems, allBrigadePayments, auditLog, brigadeContracts, contracts, editingItem, estimatesList, expandedActDate, expandedMaster, expandedMasterProject, expandedPieceworkProject, expandedProject, expandedStaffId, expenseReports, fileSrc, interimActs, invoices, listSearch, manualExpenses, masterProfiles, masterRatings, newAct, newContract, newExpenseReport, newPiecework, newStaff, newStaffDoc, ownExpenses, payrollExtras, pdConsents, personnelTab, piecework, projectDocuments, projectPaymentInAmount, projectPayments, projectPlanDone, projects, salaryEdits, salaryMonth, salaryPayments, showForm, showPiecework, showStaffDocForm, staff, staffExpandedSections, staffProfile, staffProfileLoading, supplierInvoices, suppliers, timesheet, tools, unexpectedWorksList, user, users, workJournal }}
+            actions={{ addPiecework, addStaffDoc, buildAOSKContent, buildActContent, buildBrigadeActContent, buildContractContent, buildExecPackageContent, buildIGDContent, buildInvoiceContent, buildJPRContent, buildKS11Content, buildKS14Content, buildKS3Content, buildM29Content, buildM2Content, buildM8Content, buildMaterialRequirementContent, buildPassportContent, buildPositionInstructionContent, buildSpecJournalContent, buildVATBookContent, calcSalary, contractRequisitesWarning, createContract, createInterimAct, createStaffAccessFromPrompt, daysInMonth, deleteContract, deleteInterimAct, deletePiecework, deleteStaff, findUserForStaff, fmtMeasure, isApprovedEstimateChangeStatus, isFinanceRole, isLeadership, loadAuditLog, matchSearch, materialControlSummaryForProject, normalizePersonKey, openStaffProfile, paySalary, ratemaster, refreshData, resetStaffAccessPassword, resolveContractPerformer, roleColor, saveStaff, setAccountingDocProject, setAccountingTab, setAuditLog, setEditingItem, setExpandedActDate, setExpandedMaster, setExpandedMasterProject, setExpandedPieceworkProject, setExpandedProject, setListSearch, setNewAct, setNewContract, setNewExpenseReport, setNewPiecework, setNewStaff, setNewStaffDoc, setPayrollExtra, setPersonnelTab, setSalaryEdit, setSalaryMonth, setSalaryPayments, setShowForm, setShowPayActModal, setShowPhotoModal, setShowPiecework, setShowReimburseModal, setShowStaffDocForm, setStaffExpandedSections, setStaffProfile, showKS2, showPreview, toggleDay, toNum, uploadPhoto, warehouseInvoiceEstimateControl, workedDays }}
+          />
 
-          {activePage==='pricelists'&&(
-            <PricelistsPage API={API} C={C} PRICELISTS_DATA={PRICELISTS_DATA} UNITS={UNITS} buildPricelistContent={buildPricelistContent} btnB={btnB} btnG={btnG} btnGr={btnGr} btnO={btnO} btnR={btnR} card={card} copyPricelist={copyPricelist} deletePlItem={deletePlItem} deletePricelist={deletePricelist} editingPlItem={editingPlItem} exportToExcel={exportToExcel} inlineEditPl={inlineEditPl} inlineEditPlData={inlineEditPlData} inp={inp} listSearch={listSearch} loadAll={loadAll} loadPricelistItems={loadPricelistItems} matchSearch={matchSearch} newPlItem={newPlItem} newPricelist={newPricelist} pricelistItems={pricelistItems} pricelists={pricelists} saveInlinePlItem={saveInlinePlItem} savePlItem={savePlItem} savePricelist={savePricelist} selectedPricelist={selectedPricelist} setEditingItem={setEditingItem} setEditingPlItem={setEditingPlItem} setFromEstimateForm={setFromEstimateForm} setGeneratePricelistForm={setGeneratePricelistForm} setInlineEditPlData={setInlineEditPlData} setInlineEditPrice={setInlineEditPrice} setListSearch={setListSearch} setNewPlItem={setNewPlItem} setNewPricelist={setNewPricelist} setPricelistItems={setPricelistItems} setSelectedPricelist={setSelectedPricelist} setShowForm={setShowForm} setShowFromEstimate={setShowFromEstimate} setShowGeneratePricelist={setShowGeneratePricelist} showForm={showForm} showPreview={showPreview} startInlinePlEdit={startInlinePlEdit} cancelInlinePlEdit={cancelInlinePlEdit} tbl={tbl} tblC={tblC} tblH={tblH}/>
-          )}
-
-          {activePage==='users'&&isLeadership()&&(
-            <UsersPage
-              C={C}
-              card={card}
-              inp={inp}
-              btnO={btnO}
-              btnG={btnG}
-              btnGr={btnGr}
-              btnR={btnR}
-              badge={badge}
-              users={users}
-              user={user}
-              projects={projects}
-              estimatesList={estimatesList}
-              ROLES={ROLES}
-              ROLE_LABELS={ROLE_LABELS}
-              ROLE_GROUPS={ROLE_GROUPS}
-              roleColor={roleColor}
-              searchUser={searchUser}
-              setSearchUser={setSearchUser}
-              showForm={showForm}
-              setShowForm={setShowForm}
-              editingItem={editingItem}
-              setEditingItem={setEditingItem}
-              newUser={newUser}
-              setNewUser={setNewUser}
-              saveUser={saveUser}
-              generateTempPassword={generateTempPassword}
-              toggleUserActive={toggleUserActive}
-              deleteUser={deleteUser}
-              resetUserTwoFactor={resetUserTwoFactor}
-              showInvites={showInvites}
-              setShowInvites={setShowInvites}
-              newInviteRole={newInviteRole}
-              setNewInviteRole={setNewInviteRole}
-              createInvite={createInvite}
-              inviteCodes={inviteCodes}
-              deleteInvite={deleteInvite}
-              expandedGroup={expandedGroup}
-              setExpandedGroup={setExpandedGroup}
-            />
-          )}
           {activePage==='estimates'&&(<div>
             <EstimatesTabsNav
               estimatesTab={estimatesTab}
@@ -13547,80 +11412,69 @@ function App() {
             </div>)}
           </div>)}
 
-          {activePage==='weather'&&(
-            <WeatherPage
-              C={C}
-              WEATHER_CONDITIONS={WEATHER_CONDITIONS}
-              btnB={btnB}
-              btnG={btnG}
-              btnO={btnO}
-              buildJPRContent={buildJPRContent}
-              card={card}
-              inp={inp}
-              newWeather={newWeather}
-              projects={projects}
-              saveWeather={saveWeather}
-              setNewWeather={setNewWeather}
-              setShowForm={setShowForm}
-              setWeatherTab={setWeatherTab}
-              showForm={showForm}
-              showPreview={showPreview}
-              weatherLog={weatherLog}
-              weatherTab={weatherTab}
-              workJournal={workJournal}
-            />
-          )}
-
-          {activePage==='myexpenses'&&(
-            <MyExpensesPage C={C} EXPENSE_CATEGORIES={EXPENSE_CATEGORIES} accountablePayments={accountablePayments} btnO={btnO} card={card} fileSrc={fileSrc} ownExpenses={ownExpenses} projectOptions={projects} setReportingPayment={setReportingPayment} setShowOwnExpenseForm={setShowOwnExpenseForm} setShowPhotoModal={setShowPhotoModal} user={user}/>
-          )}
-
-          {activePage==='settings'&&isFinanceRole()&&(
-            <SettingsPage API={API} C={C} btnB={btnB} btnG={btnG} btnO={btnO} btnR={btnR} card={card} companyDocuments={companyDocuments} companyReqForm={companyReqForm} companyRequisites={companyRequisites} inp={inp} loadAll={loadAll} newCompanyDoc={newCompanyDoc} saveCompanyRequisites={saveCompanyRequisites} setCompanyReqForm={setCompanyReqForm} setCompanyRequisites={setCompanyRequisites} setNewCompanyDoc={setNewCompanyDoc} setShowForm={setShowForm} setShowPhotoModal={setShowPhotoModal} settingsTab={settingsTab} setSettingsTab={setSettingsTab} showForm={showForm} uploadPhoto={uploadPhoto} user={user}/>
-          )}
-
-          {activePage==='analytics'&&(
-            <AnalyticsPage C={C} badge={badge} card={card} contracts={contracts} expByCategory={expByCategory} projects={projects} staff={staff} suppliers={suppliers} tbl={tbl} tblC={tblC} tblH={tblH} workJournal={workJournal}/>
-          )}
-
-          {activePage==='crm'&&(
-            <CrmPage API={API} C={C} CRM_STAGES={CRM_STAGES} btnG={btnG} btnB={btnB} btnO={btnO} btnR={btnR} card={card} createProjectFromLead={createProjectFromLead} deleteLead={deleteLead} editingItem={editingItem} inp={inp} leads={leads} newLead={newLead} saveLead={saveLead} setEditingItem={setEditingItem} setLeads={setLeads} setNewLead={setNewLead} setShowForm={setShowForm} showForm={showForm} isMobile={isMobile} appendPhotos={appendPhotos} uploadPhoto={uploadPhoto} fileSrc={fileSrc} setShowPhotoModal={setShowPhotoModal} users={users}/>
-          )}
-
-          {activePage==='activitylog'&&(
-            <ActivityLogPage C={C} tbl={tbl} tblH={tblH} tblC={tblC} activityLog={activityLog} auditLog={auditLog} roleLabels={ROLE_LABELS} isMobile={isMobile}/>
-          )}
-
-          {activePage==='companychat'&&(
-            <CompanyChatPage C={C} card={card} inp={inp} btnO={btnO} companyMessages={companyMessages} user={user} roleColor={roleColor} fileSrc={fileSrc} setShowPhotoModal={setShowPhotoModal} companyChatMessage={companyChatMessage} setCompanyChatMessage={setCompanyChatMessage} uploadPhoto={uploadPhoto} sendCompanyChatMessage={sendCompanyChatMessage}/>
-          )}
+          <AppSecondaryPages
+            activePage={activePage}
+            ui={{ API, C, badge, btnB, btnG, btnO, btnR, card, inp, isMobile, tbl, tblC, tblH }}
+            constants={{ CRM_STAGES, EXPENSE_CATEGORIES, ROLE_LABELS, WEATHER_CONDITIONS }}
+            state={{
+              accountablePayments, activityLog, auditLog, companyChatMessage, companyDocuments,
+              companyMessages, companyReqForm, companyRequisites, contracts, editingItem,
+              expByCategory, fileSrc, leads, newCompanyDoc, newLead, newWeather, ownExpenses,
+              projects, settingsTab, showForm, staff, suppliers, user, users, weatherLog,
+              weatherTab, workJournal,
+            }}
+            actions={{
+              appendPhotos, buildJPRContent, createProjectFromLead, deleteLead, isFinanceRole,
+              loadAll, roleColor, saveCompanyRequisites, saveLead, saveWeather,
+              sendCompanyChatMessage, setCompanyChatMessage, setCompanyReqForm,
+              setCompanyRequisites, setEditingItem, setLeads, setNewCompanyDoc, setNewLead,
+              setNewWeather, setReportingPayment, setSettingsTab, setShowForm,
+              setShowOwnExpenseForm, setShowPhotoModal, setWeatherTab, showPreview,
+              uploadPhoto,
+            }}
+          />
           </React.Suspense>
         </div>
       </div>
       <MobileBottomNav activePage={activePage} isMobile={isMobile} unreadMessagesCount={unreadMessagesCount} menuItems={menuItems} navigateTo={navigateTo} setActivePage={setActivePage} setShowMobileMenu={setShowMobileMenu} setShowQuickActions={setShowQuickActions} setShowChatPanel={setShowChatPanel}/>
-    <React.Suspense fallback={null}>
-    {sverkaModal&&<SverkaModal sverkaModal={sverkaModal} setSverkaModal={setSverkaModal} btnO={btnO}/>}
-    {showAiChat&&<AiChatModal showAiChat={showAiChat} isMobile={isMobile} C={C} inp={inp} btnO={btnO} aiMessages={aiMessages} aiLoading={aiLoading} aiInput={aiInput} setAiInput={setAiInput} setShowAiChat={setShowAiChat} onSend={sendAiAssistantMessage}/>}
-      {showSupplierInviteModal&&<SupplierInviteModal showSupplierInviteModal={showSupplierInviteModal} setShowSupplierInviteModal={setShowSupplierInviteModal} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} generatedInviteLink={generatedInviteLink} setGeneratedInviteLink={setGeneratedInviteLink} supplierInviteForm={supplierInviteForm} setSupplierInviteForm={setSupplierInviteForm} suppliers={suppliers} supplierCategories={SUPPLIER_CATEGORIES} createSupplierInvite={createSupplierInvite}/>}
-
-      {showRequestKpModal&&<RequestKpModal showRequestKpModal={showRequestKpModal} setShowRequestKpModal={setShowRequestKpModal} C={C} card={card} btnG={btnG} btnO={btnO} badge={badge} supplyRequests={supplyRequests} parseSupplyItems={parseSupplyItems} renderSupplyRequestOrigin={renderSupplyRequestOrigin} requestKpLoading={requestKpLoading} suggestedSuppliers={suggestedSuppliers} selectedSupplierIds={selectedSupplierIds} setSelectedSupplierIds={setSelectedSupplierIds} sendKpRequest={sendKpRequest}/>}
-
-      {showReimburseModal&&<ReimburseModal showReimburseModal={showReimburseModal} setShowReimburseModal={setShowReimburseModal} C={C} card={card} btnG={btnG} btnO={btnO} btnR={btnR} ownExpenses={ownExpenses} users={users} staff={staff} roleLabels={ROLE_LABELS} expenseCategories={EXPENSE_CATEGORIES} fileSrc={fileSrc} setShowPhotoModal={setShowPhotoModal} API={API} user={user} loadAll={loadAll}/>}
-    {reportingPayment&&<AccountableExpenseReportModal reportingPayment={reportingPayment} setReportingPayment={setReportingPayment} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} projects={projects} expenseCategories={EXPENSE_CATEGORIES} newExpense={newExpense} setNewExpense={setNewExpense} appendPhotos={appendPhotos} fileSrc={fileSrc} expenseSubmitting={expenseSubmitting} setExpenseSubmitting={setExpenseSubmitting} API={API} user={user} loadAll={loadAll}/>}
-    {addExpenseProject&&<ManualExpenseModal addExpenseProject={addExpenseProject} setAddExpenseProject={setAddExpenseProject} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} newManualExpense={newManualExpense} setNewManualExpense={setNewManualExpense} isFinanceRole={isFinanceRole} expenseCategories={EXPENSE_CATEGORIES} projects={projects} visibleActiveProjects={visibleActiveProjects} appendPhotos={appendPhotos} fileSrc={fileSrc} setShowPhotoModal={setShowPhotoModal} API={API} user={user} loadAll={loadAll}/>}
-    {showAccountableForm&&<AccountablePaymentModal showAccountableForm={showAccountableForm} setShowAccountableForm={setShowAccountableForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} projects={projects} users={users} newAccountable={newAccountable} setNewAccountable={setNewAccountable} API={API} user={user} loadAll={loadAll}/>}
-    {showDistribute&&<EstimateDistributeModal showDistribute={showDistribute} setShowDistribute={setShowDistribute} selectedEstimate={selectedEstimate} distributing={distributing} setDistributing={setDistributing} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnB={btnB} distributeBrigades={distributeBrigades} setDistributeBrigades={setDistributeBrigades} newDistributeBrigade={newDistributeBrigade} setNewDistributeBrigade={setNewDistributeBrigade} pricelists={pricelists} staff={staff} distributeAssignments={distributeAssignments} setDistributeAssignments={setDistributeAssignments} API={API} loadAll={loadAll}/>}
-    {showFromEstimate&&<PricelistFromEstimateModal showFromEstimate={showFromEstimate} setShowFromEstimate={setShowFromEstimate} creatingFromEstimate={creatingFromEstimate} setCreatingFromEstimate={setCreatingFromEstimate} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} fromEstimateForm={fromEstimateForm} setFromEstimateForm={setFromEstimateForm} estimatesList={estimatesList} API={API} loadAll={loadAll} setSelectedPricelist={setSelectedPricelist} loadPricelistItems={loadPricelistItems}/>}
-    {showGeneratePricelist&&<GeneratePricelistModal showGeneratePricelist={showGeneratePricelist} setShowGeneratePricelist={setShowGeneratePricelist} generatingPricelist={generatingPricelist} setGeneratingPricelist={setGeneratingPricelist} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} generatePricelistForm={generatePricelistForm} setGeneratePricelistForm={setGeneratePricelistForm} API={API} loadAll={loadAll} setSelectedPricelist={setSelectedPricelist} loadPricelistItems={loadPricelistItems}/>}
-    {showGenerateEstimate&&<GenerateEstimateModal showGenerateEstimate={showGenerateEstimate} setShowGenerateEstimate={setShowGenerateEstimate} generating={generating} setGenerating={setGenerating} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} generateForm={generateForm} setGenerateForm={setGenerateForm} projects={projects} pricelists={pricelists} estimatePackages={ESTIMATE_PACKAGES} nextEstimateVersionFor={nextEstimateVersionFor} API={API} enrichEstimateMeasurementBasis={enrichEstimateMeasurementBasis} estimatesList={estimatesList} setEstimatesList={setEstimatesList} setSelectedEstimate={setSelectedEstimate} activeEstimateFromList={activeEstimateFromList} isGlobalEstimateTemplate={isGlobalEstimateTemplate} sameEstimateGroup={sameEstimateGroup} applyEstimateActivationState={applyEstimateActivationState} queueEstimateDiffReviewTask={queueEstimateDiffReviewTask} autoReconcileEstimateChanges={autoReconcileEstimateChanges} queueEstimateQualityReviewTask={queueEstimateQualityReviewTask} queueEstimateNormReviewTask={queueEstimateNormReviewTask}/>}
-    {showEstimateChat&&<EstimateChatModal showEstimateChat={showEstimateChat} setShowEstimateChat={setShowEstimateChat} selectedEstimate={selectedEstimate} C={C} card={card} inp={inp} btnG={btnG} btnO={btnO} isMobile={isMobile} darkMode={darkMode} API={API} estimateChatMessages={estimateChatMessages} setEstimateChatMessages={setEstimateChatMessages} estimateChatLoading={estimateChatLoading} estimateChatInput={estimateChatInput} setEstimateChatInput={setEstimateChatInput} sendEstimateChatMessage={sendEstimateChatMessage}/>}
-    {showVersionHistory&&<EstimateVersionHistoryModal showVersionHistory={showVersionHistory} setShowVersionHistory={setShowVersionHistory} selectedEstimate={selectedEstimate} estimateVersions={estimateVersions} selectedVersionsToCompare={selectedVersionsToCompare} setSelectedVersionsToCompare={setSelectedVersionsToCompare} isMobile={isMobile} C={C} card={card} btnB={btnB} btnG={btnG} btnO={btnO} API={API} user={user} setSelectedEstimate={setSelectedEstimate} setEstimatesList={setEstimatesList} showPreview={showPreview} buildEstimateDiffContent={buildEstimateDiffContent} estimateItemTotal={estimateItemTotal} setShowAiChat={setShowAiChat} setAiMessages={setAiMessages} setAiLoading={setAiLoading}/>}
-    {showReceiveDialog&&<ReceiveMaterialDialog showReceiveDialog={showReceiveDialog} setShowReceiveDialog={setShowReceiveDialog} setShowScanInvoice={setShowScanInvoice} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} btnB={btnB} btnG={btnG}/>}
-    {showScannedInvoiceForm&&<ScannedInvoiceFormModal showScannedInvoiceForm={showScannedInvoiceForm} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnR={btnR} newInvoice={newInvoice} setNewInvoice={setNewInvoice} projects={projects} getProjectWorkPackageOptions={getProjectWorkPackageOptions} getProjectEstimateWorkOptions={getProjectEstimateWorkOptions} units={UNITS} saveInvoiceNew={saveInvoiceNew}/>}
-    {showScanInvoice&&<ScanInvoiceModal showScanInvoice={showScanInvoice} setShowScanInvoice={setShowScanInvoice} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} btnG={btnG} scanningInvoice={scanningInvoice} setScanningInvoice={setScanningInvoice} API={API} user={user} newInvoice={newInvoice} setNewInvoice={setNewInvoice} projects={projects}/>}
-    {showOwnExpenseForm&&<OwnExpenseFormModal showOwnExpenseForm={showOwnExpenseForm} setShowOwnExpenseForm={setShowOwnExpenseForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} projectOptions={projects} expenseCategories={EXPENSE_CATEGORIES} newOwnExpense={newOwnExpense} setNewOwnExpense={setNewOwnExpense} appendPhotos={appendPhotos} fileSrc={fileSrc} API={API} user={user} loadAll={loadAll}/>}
-    {showQuickActions&&<QuickActionsModal showQuickActions={showQuickActions} setShowQuickActions={setShowQuickActions} C={C} btnG={btnG} user={user} projects={projects} visibleActiveProjects={visibleActiveProjects} openReceiveInvoice={openReceiveInvoice} setActivePage={setActivePage} setWarehouseTab={setWarehouseTab} navigateTo={navigateTo} API={API} setMaterialTransfers={setMaterialTransfers} setShowTransferForm={setShowTransferForm} setSelectedWarehouseProject={setSelectedWarehouseProject} setAddExpenseProject={setAddExpenseProject} setNewManualExpense={setNewManualExpense} setShowOwnExpenseForm={setShowOwnExpenseForm} setShowChatPanel={setShowChatPanel} setShowAiAssistant={setShowAiAssistant}/>}
-    </React.Suspense>
+      <AppWorkflowModals
+        ui={{ API, C, badge, btnB, btnG, btnO, btnR, card, darkMode, inp, isMobile }}
+        constants={{ estimatePackages: ESTIMATE_PACKAGES, expenseCategories: EXPENSE_CATEGORIES, roleLabels: ROLE_LABELS, supplierCategories: SUPPLIER_CATEGORIES, units: UNITS }}
+        state={{
+          activeEstimateFromList, addExpenseProject, aiInput, aiLoading, aiMessages, creatingFromEstimate,
+          distributeAssignments, distributeBrigades, distributing, estimateChatInput, estimateChatLoading,
+          estimateChatMessages, estimateVersions, estimatesList, expenseSubmitting, fileSrc, fromEstimateForm,
+          generateForm, generatePricelistForm, generatedInviteLink, generating, generatingPricelist,
+          isFinanceRole, isGlobalEstimateTemplate, newAccountable, newDistributeBrigade, newExpense,
+          newInvoice, newManualExpense, newOwnExpense, ownExpenses, pricelists, projects, reportingPayment,
+          requestKpLoading, scanningInvoice, selectedEstimate, selectedSupplierIds, selectedVersionsToCompare,
+          showAccountableForm, showAiChat, showDistribute, showEstimateChat, showFromEstimate,
+          showGenerateEstimate, showGeneratePricelist, showOwnExpenseForm, showPreview, showQuickActions,
+          showReceiveDialog, showReimburseModal, showRequestKpModal, showScanInvoice, showScannedInvoiceForm,
+          showSupplierInviteModal, showVersionHistory, suggestedSuppliers, suppliers, supplierInviteForm,
+          supplyRequests, sverkaModal, user, users, staff, visibleActiveProjects,
+        }}
+        actions={{
+          appendPhotos, applyEstimateActivationState, autoReconcileEstimateChanges, buildEstimateDiffContent,
+          createSupplierInvite, enrichEstimateMeasurementBasis, estimateItemTotal, getProjectEstimateWorkOptions,
+          getProjectWorkPackageOptions, loadAll, loadPricelistItems, navigateTo, nextEstimateVersionFor,
+          openReceiveInvoice, parseSupplyItems, queueEstimateDiffReviewTask, queueEstimateNormReviewTask,
+          queueEstimateQualityReviewTask, renderSupplyRequestOrigin, sameEstimateGroup, saveInvoiceNew,
+          sendAiAssistantMessage, sendEstimateChatMessage, sendKpRequest, setActivePage, setAddExpenseProject,
+          setAiInput, setAiLoading, setAiMessages, setCreatingFromEstimate, setDistributeAssignments,
+          setDistributeBrigades, setDistributing, setEstimateChatInput, setEstimateChatMessages, setEstimatesList,
+          setExpenseSubmitting, setFromEstimateForm, setGenerateForm, setGeneratePricelistForm,
+          setGeneratedInviteLink, setGenerating, setGeneratingPricelist, setMaterialTransfers, setNewAccountable,
+          setNewDistributeBrigade, setNewExpense, setNewInvoice, setNewManualExpense, setNewOwnExpense,
+          setReportingPayment, setScanningInvoice, setSelectedEstimate, setSelectedPricelist, setSelectedSupplierIds,
+          setSelectedVersionsToCompare, setSelectedWarehouseProject, setShowAccountableForm, setShowAiAssistant,
+          setShowAiChat, setShowChatPanel, setShowDistribute, setShowEstimateChat, setShowFromEstimate,
+          setShowGenerateEstimate, setShowGeneratePricelist, setShowOwnExpenseForm, setShowPhotoModal,
+          setShowQuickActions, setShowReceiveDialog, setShowReimburseModal, setShowRequestKpModal,
+          setShowScanInvoice, setShowScannedInvoiceForm, setShowSupplierInviteModal, setShowTransferForm,
+          setShowVersionHistory, setSverkaModal, setSupplierInviteForm, setWarehouseTab,
+        }}
+      />
 	    <AppOverlayLayer
 	      showSystemStatus={showSystemStatus}
 	      systemStatus={systemStatus}
