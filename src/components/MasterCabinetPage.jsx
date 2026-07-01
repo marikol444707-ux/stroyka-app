@@ -721,11 +721,21 @@ export default function MasterCabinetPage(props) {
                       const missingExecutionPrice = executionUnitPrice <= 0;
                       return (
                         <div key={index} style={{ padding: '10px', marginBottom: '6px', backgroundColor: C.bgWhite, borderRadius: '8px', border: '1px solid ' + C.border }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-                            <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <div style={{ flex: '1 1 260px', minWidth: '220px' }}>
                               <b style={{ fontSize: '12px', color: C.text }}>{item.name}</b>
                               <p style={{ color: C.textSec, margin: '2px 0', fontSize: '11px' }}>{item.section + ' · план ' + safeFmtMeasure(quantity, item.unit) + ' · сделано ' + safeFmtMeasure(done, item.unit) + ' · осталось ' + safeFmtMeasure(remain, item.unit)}</p>
                             </div>
+                            {projectRooms.length > 0 ? (
+                              <select value={params.roomId || ''} onChange={e => { const room = projectRooms.find(roomItem => Number(roomItem.id) === Number(e.target.value)); setEstimateWorkParams(prev => ({ ...prev, [workKey]: { ...(prev[workKey] || {}), roomId: e.target.value, roomName: room?.name || '' } })); }} style={{ ...inp, marginBottom: 0, width: '180px', maxWidth: '100%', fontSize: '11px', padding: '5px 8px' }}>
+                                <option value="">Помещение</option>
+                                {projectRooms.map(room => <option key={room.id} value={room.id}>{room.name}</option>)}
+                              </select>
+                            ) : project ? (
+                              <span style={{ padding: '6px 9px', borderRadius: '8px', border: '1px solid ' + C.warningBorder, backgroundColor: C.warningLight, color: C.warning, fontSize: '11px', fontWeight: '700', whiteSpace: 'nowrap' }}>
+                                {GENERAL_WORK_ROOM_NAME}
+                              </span>
+                            ) : null}
                             <input
                               type="number"
                               step="any"
@@ -736,6 +746,9 @@ export default function MasterCabinetPage(props) {
                               onBlur={e => syncEstimateNormMaterials(workKey, project, item, e.target.value, done)}
                               style={{ ...inp, marginBottom: 0, width: '80px', fontSize: '12px', padding: '4px 6px' }}
                             />
+                            <select value={params.surface || 'Стены'} onChange={e => setEstimateWorkParams(prev => ({ ...prev, [workKey]: { ...(prev[workKey] || {}), surface: e.target.value } }))} style={{ ...inp, marginBottom: 0, width: '118px', fontSize: '11px', padding: '5px 8px' }}>
+                              {SURFACES.map(surface => <option key={surface}>{surface}</option>)}
+                            </select>
                             {needsThicknessParam(item.name, item.section) && (
                               <input
                                 type="number"
@@ -764,21 +777,6 @@ export default function MasterCabinetPage(props) {
                               Отправить
                             </button>
                           </div>
-                          {projectRooms.length > 0 ? (
-                            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 150px', gap: '6px', marginTop: '8px' }}>
-                              <select value={params.roomId || ''} onChange={e => { const room = projectRooms.find(roomItem => Number(roomItem.id) === Number(e.target.value)); setEstimateWorkParams(prev => ({ ...prev, [workKey]: { ...(prev[workKey] || {}), roomId: e.target.value, roomName: room?.name || '' } })); }} style={{ ...inp, marginBottom: 0, fontSize: '11px', padding: '6px 8px' }}>
-                                <option value="">Помещение по обмеру</option>
-                                {projectRooms.map(room => <option key={room.id} value={room.id}>{room.name}</option>)}
-                              </select>
-                              <select value={params.surface || 'Стены'} onChange={e => setEstimateWorkParams(prev => ({ ...prev, [workKey]: { ...(prev[workKey] || {}), surface: e.target.value } }))} style={{ ...inp, marginBottom: 0, fontSize: '11px', padding: '6px 8px' }}>
-                                {SURFACES.map(surface => <option key={surface}>{surface}</option>)}
-                              </select>
-                            </div>
-                          ) : project ? (
-                            <div style={{ marginTop: '8px', padding: '7px 9px', borderRadius: '8px', border: '1px solid ' + C.warningBorder, backgroundColor: C.warningLight, color: C.warning, fontSize: '11px', fontWeight: '600' }}>
-                              Помещение: {GENERAL_WORK_ROOM_NAME}
-                            </div>
-                          ) : null}
                           {roomCheck && <div style={{ marginTop: '6px', padding: '7px 9px', borderRadius: '8px', border: '1px solid ' + (roomCheck.over > 0 ? C.dangerBorder : C.successBorder), backgroundColor: roomCheck.over > 0 ? C.dangerLight : C.successLight, color: roomCheck.over > 0 ? C.danger : C.success, fontSize: '11px', fontWeight: '600' }}>{roomMeasurementMessage(roomCheck)}</div>}
                           <div style={{ marginTop: '8px' }}>
                             <PhotoAttachmentField
