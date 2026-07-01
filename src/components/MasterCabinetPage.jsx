@@ -185,6 +185,27 @@ export default function MasterCabinetPage(props) {
     setHiddenActs,
   } = props;
 
+  const safeToNum = typeof toNum === 'function' ? toNum : (value) => {
+    if (value === null || value === undefined || value === '') return 0;
+    const parsed = Number(String(value).replace(',', '.').replace(/\s+/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const safeNormalizeMeasure = typeof normalizeMeasure === 'function'
+    ? normalizeMeasure
+    : (qty, unit) => ({ qty: safeToNum(qty), unit: unit || '', factor: 1 });
+  const safeDenormalizeMeasure = typeof denormalizeMeasure === 'function'
+    ? denormalizeMeasure
+    : (qty) => safeToNum(qty);
+  const safeFmtMeasure = typeof fmtMeasure === 'function'
+    ? fmtMeasure
+    : (qty, unit) => String(safeToNum(qty)) + ' ' + (unit || '');
+  const needsThicknessParam = typeof props.workNeedsThicknessParam === 'function'
+    ? props.workNeedsThicknessParam
+    : () => false;
+  const fillNormMaterialsForWork = typeof props.autoFillNormMaterialsForWork === 'function'
+    ? props.autoFillNormMaterialsForWork
+    : (_projectName, _workName, _sectionName, _workQty, _workUnit, currentMaterials = []) => currentMaterials;
+
   const profilePatchFromRecognition = (result) => {
     const extracted = result?.extracted || {};
     const legalText = String(extracted.legalForm || extracted.docType || '').toLowerCase();
@@ -670,11 +691,11 @@ export default function MasterCabinetPage(props) {
                       const quantity = Number(item.quantity) || 0;
                       const done = Number(item.doneQuantity) || 0;
                       const remain = Math.max(0, quantity - done);
-                      const doneNorm = normalizeMeasure(done, item.unit);
+                      const doneNorm = safeNormalizeMeasure(done, item.unit);
                       const workKey = estimateWorkKey(item.estId, item.sectionIdx, item.itemIdx);
                       const params = estimateWorkParams[workKey] || {};
                       const draft = estimateDoneDrafts[workKey] !== undefined ? estimateDoneDrafts[workKey] : (doneNorm.qty || '');
-                      const rawDraft = denormalizeMeasure(draft, item.unit);
+                      const rawDraft = safeDenormalizeMeasure(draft, item.unit);
                       const delta = Math.max(0, rawDraft - done);
                       const project = projects.find(projectRow => projectRow.id === Number(masterProjectId));
                       const roomCheck = project ? roomMeasurementCheck(project.name, params.roomId, params.surface || 'Стены', delta, item.unit, item.name) : null;
@@ -692,27 +713,27 @@ export default function MasterCabinetPage(props) {
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
                             <div style={{ flex: 1 }}>
                               <b style={{ fontSize: '12px', color: C.text }}>{item.name}</b>
-                              <p style={{ color: C.textSec, margin: '2px 0', fontSize: '11px' }}>{item.section + ' · план ' + fmtMeasure(quantity, item.unit) + ' · сделано ' + fmtMeasure(done, item.unit) + ' · осталось ' + fmtMeasure(remain, item.unit)}</p>
+                              <p style={{ color: C.textSec, margin: '2px 0', fontSize: '11px' }}>{item.section + ' · план ' + safeFmtMeasure(quantity, item.unit) + ' · сделано ' + safeFmtMeasure(done, item.unit) + ' · осталось ' + safeFmtMeasure(remain, item.unit)}</p>
                             </div>
                             <input
                               type="number"
                               step="any"
                               inputMode="decimal"
-                              placeholder={'+' + (normalizeMeasure(1, item.unit).unit || item.unit)}
+                              placeholder={'+' + (safeNormalizeMeasure(1, item.unit).unit || item.unit)}
                               value={draft}
                               onChange={e => {
                                 const value = e.target.value;
                                 setEstimateDoneDrafts(prev => ({ ...prev, [workKey]: value }));
-                                const raw = denormalizeMeasure(value, item.unit);
+                                const raw = safeDenormalizeMeasure(value, item.unit);
                                 const nextDelta = Math.max(0, raw - done);
                                 if (project) {
                                   const currentParams = estimateWorkParams[workKey] || {};
-                                  setEstimateWorkMaterials(prev => ({ ...prev, [workKey]: props.autoFillNormMaterialsForWork(project.name, item.name, item.section, nextDelta, item.unit, prev[workKey] || [], currentParams) }));
+                                  setEstimateWorkMaterials(prev => ({ ...prev, [workKey]: fillNormMaterialsForWork(project.name, item.name, item.section, nextDelta, item.unit, prev[workKey] || [], currentParams) }));
                                 }
                               }}
                               style={{ ...inp, marginBottom: 0, width: '80px', fontSize: '12px', padding: '4px 6px' }}
                             />
-                            {props.workNeedsThicknessParam(item.name, item.section) && (
+                            {needsThicknessParam(item.name, item.section) && (
                               <input
                                 type="number"
                                 step="any"
@@ -724,7 +745,7 @@ export default function MasterCabinetPage(props) {
                                   const nextParams = { ...(estimateWorkParams[workKey] || {}), thicknessMm: value };
                                   setEstimateWorkParams(prev => ({ ...prev, [workKey]: nextParams }));
                                   if (project) {
-                                    setEstimateWorkMaterials(prev => ({ ...prev, [workKey]: props.autoFillNormMaterialsForWork(project.name, item.name, item.section, delta, item.unit, prev[workKey] || [], nextParams) }));
+                                    setEstimateWorkMaterials(prev => ({ ...prev, [workKey]: fillNormMaterialsForWork(project.name, item.name, item.section, delta, item.unit, prev[workKey] || [], nextParams) }));
                                   }
                                 }}
                                 style={{ ...inp, marginBottom: 0, width: '78px', fontSize: '12px', padding: '4px 6px' }}
@@ -766,7 +787,7 @@ export default function MasterCabinetPage(props) {
                             <div style={{ marginTop: '8px', padding: '8px', backgroundColor: C.bg, borderRadius: '8px', border: '1px solid ' + C.border }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginBottom: '6px' }}>
                                 <b style={{ fontSize: '11px', color: C.text }}>📦 Материалы к списанию</b>
-                                <span style={{ fontSize: '10px', color: C.textSec }}>{delta > 0 ? 'новый объём: ' + fmtMeasure(delta, item.unit) : 'сначала укажите новый объём'}</span>
+                                <span style={{ fontSize: '10px', color: C.textSec }}>{delta > 0 ? 'новый объём: ' + safeFmtMeasure(delta, item.unit) : 'сначала укажите новый объём'}</span>
                               </div>
                               {suggestions.length > 0 && (
                                 <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', marginBottom: '6px' }}>
@@ -775,7 +796,7 @@ export default function MasterCabinetPage(props) {
                                     const checked = !!usedMap[key];
                                     const available = availableMap[key];
                                     const unit = available?.unit || suggestion.unit || 'шт';
-                                    const hasStock = toNum(available?.quantity) > 0;
+                                    const hasStock = safeToNum(available?.quantity) > 0;
                                     const status = materialControlStatus(suggestion);
                                     const norm = materialNormForWork(project.name, item.name, item.section, delta, item.unit, { name: suggestion.name, unit }, estimateWorkParams[workKey] || {});
                                     const writeQty = norm ? capMaterialWriteoffQty(project.name, suggestion.name, norm.quantity, item.workPackage) : '';
@@ -787,7 +808,7 @@ export default function MasterCabinetPage(props) {
                                         onClick={() => checked ? removeEstimateWorkMaterial(workKey, suggestion.name) : upsertEstimateWorkMaterial(workKey, { name: suggestion.name, unit, workPackage: item.workPackage || '', autoNorm: !!norm, normQuantity: norm?.normQuantity || '', normSource: norm?.normSource || '', normRuleId: norm?.ruleId || '', normThicknessMm: estimateWorkParams[workKey]?.thicknessMm || '' }, writeQty)}
                                         style={{ padding: '4px 7px', borderRadius: '7px', border: '1px solid ' + (checked ? C.accentBorder : status.border), backgroundColor: checked ? C.accentLight : status.bg, color: hasStock ? (checked ? C.accent : status.color) : C.textMuted, cursor: hasStock ? 'pointer' : 'not-allowed', fontSize: '10px', fontWeight: '600' }}
                                       >
-                                        {(checked ? '✓ ' : '') + suggestion.name + (norm ? ' · норма ' + fmtMeasure(norm.quantity, unit) + (writeQty && toNum(writeQty) < toNum(norm.quantity) ? ' · доступно ' + fmtMeasure(writeQty, unit) : '') : (hasStock ? ' · ' + fmtMeasure(available.quantity, available.unit) : ''))}
+                                        {(checked ? '✓ ' : '') + suggestion.name + (norm ? ' · норма ' + safeFmtMeasure(norm.quantity, unit) + (writeQty && safeToNum(writeQty) < safeToNum(norm.quantity) ? ' · доступно ' + safeFmtMeasure(writeQty, unit) : '') : (hasStock ? ' · ' + safeFmtMeasure(available.quantity, available.unit) : ''))}
                                       </button>
                                     );
                                   })}
@@ -801,19 +822,19 @@ export default function MasterCabinetPage(props) {
                                     const checked = !!usedMap[key];
                                     const selected = usedMap[key] || {};
                                     const hint = materialHintForProject(project.name, material.name, item.workPackage);
-                                    const stock = toNum(material.quantity);
+                                    const stock = safeToNum(material.quantity);
                                     const norm = materialNormForWork(project.name, item.name, item.section, delta, item.unit, material, estimateWorkParams[workKey] || {});
                                     const normStatus = checked ? materialNormStatus(selected) : null;
-                                    const over = checked && toNum(selected.quantity) > stock;
+                                    const over = checked && safeToNum(selected.quantity) > stock;
                                     return (
                                       <div key={material.id} style={{ display: 'grid', gridTemplateColumns: '18px minmax(0,1fr) auto', gap: '6px', alignItems: 'center', fontSize: '11px', padding: '5px 6px', border: '1px solid ' + (over ? C.dangerBorder : checked ? C.accentBorder : C.border), borderRadius: '7px' }}>
                                         <input type="checkbox" checked={checked} onChange={e => e.target.checked ? upsertEstimateWorkMaterial(workKey, { name: material.name, unit: material.unit || 'шт', workPackage: item.workPackage || '', autoNorm: !!norm, normQuantity: norm?.normQuantity || '', normSource: norm?.normSource || '', normRuleId: norm?.ruleId || '', normThicknessMm: estimateWorkParams[workKey]?.thicknessMm || '' }, norm ? capMaterialWriteoffQty(project.name, material.name, norm.quantity, item.workPackage) : '') : removeEstimateWorkMaterial(workKey, material.name)} style={{ width: '14px', height: '14px', accentColor: C.accent }} />
                                         <span style={{ color: C.text, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                           {material.name}
                                           <span style={{ color: over ? C.danger : C.textSec }}>
-                                            {' · доступно ' + fmtMeasure(stock, material.unit)}
-                                            {hint?.used > 0 ? ' · списано ' + fmtMeasure(hint.used, hint.unit) : ''}
-                                            {norm ? ' · норма ' + fmtMeasure(norm.quantity, norm.unit) : ''}
+                                            {' · доступно ' + safeFmtMeasure(stock, material.unit)}
+                                            {hint?.used > 0 ? ' · списано ' + safeFmtMeasure(hint.used, hint.unit) : ''}
+                                            {norm ? ' · норма ' + safeFmtMeasure(norm.quantity, norm.unit) : ''}
                                           </span>
                                           {normStatus && <span style={{ marginLeft: '5px', padding: '1px 5px', borderRadius: '7px', fontSize: '9px', fontWeight: '700', backgroundColor: normStatus.bg, color: normStatus.color, border: '1px solid ' + normStatus.border }}>{normStatus.label}</span>}
                                         </span>
@@ -884,13 +905,13 @@ export default function MasterCabinetPage(props) {
                                     setSelectedWorks(prev => {
                                       const current = prev[item.id] || { materials: [] };
                                       const base = { ...current, quantity: value };
-                                      const materials = project ? props.autoFillNormMaterialsForWork(project.name, item.name, category, toNum(value), item.unit, base.materials || [], base) : base.materials;
+                                      const materials = project ? fillNormMaterialsForWork(project.name, item.name, category, safeToNum(value), item.unit, base.materials || [], base) : base.materials;
                                       return { ...prev, [item.id]: { ...base, materials } };
                                     });
                                   }}
                                   style={inp}
                                 />
-                                {props.workNeedsThicknessParam(item.name, category) && (
+                                {needsThicknessParam(item.name, category) && (
                                   <input
                                     placeholder="Толщина слоя, мм"
                                     type="number"
@@ -902,7 +923,7 @@ export default function MasterCabinetPage(props) {
                                       setSelectedWorks(prev => {
                                         const current = prev[item.id] || { materials: [] };
                                         const base = { ...current, thicknessMm: value };
-                                        const materials = project ? props.autoFillNormMaterialsForWork(project.name, item.name, category, toNum(base.quantity), item.unit, base.materials || [], base) : base.materials;
+                                        const materials = project ? fillNormMaterialsForWork(project.name, item.name, category, safeToNum(base.quantity), item.unit, base.materials || [], base) : base.materials;
                                         return { ...prev, [item.id]: { ...base, materials } };
                                       });
                                     }}
@@ -965,10 +986,10 @@ export default function MasterCabinetPage(props) {
                                             const key = materialNameKey(suggestion.name);
                                             const checked = !!usedMap[key];
                                             const available = availableMap[key];
-                                            const hasStock = toNum(available?.quantity) > 0;
+                                            const hasStock = safeToNum(available?.quantity) > 0;
                                             const status = materialControlStatus(suggestion);
                                             const unit = available?.unit || suggestion.unit || 'шт';
-                                            const norm = materialNormForWork(project.name, item.name, category, toNum(selectedWorks[item.id]?.quantity), item.unit, { name: suggestion.name, unit }, selectedWorks[item.id] || {});
+                                            const norm = materialNormForWork(project.name, item.name, category, safeToNum(selectedWorks[item.id]?.quantity), item.unit, { name: suggestion.name, unit }, selectedWorks[item.id] || {});
                                             const writeQty = norm ? capMaterialWriteoffQty(project.name, suggestion.name, norm.quantity, scopedPackage) : '';
                                             return (
                                               <button
@@ -978,7 +999,7 @@ export default function MasterCabinetPage(props) {
                                                 onClick={() => checked ? removeSelectedWorkMaterial(item.id, suggestion.name) : upsertSelectedWorkMaterial(item.id, { name: suggestion.name, unit, workPackage: scopedPackage || '', autoNorm: !!norm, normQuantity: norm?.normQuantity || '', normSource: norm?.normSource || '', normRuleId: norm?.ruleId || '', normThicknessMm: selectedWorks[item.id]?.thicknessMm || '' }, writeQty)}
                                                 style={{ padding: '5px 8px', borderRadius: '8px', border: '1px solid ' + (checked ? C.accentBorder : status.border), backgroundColor: checked ? C.accentLight : status.bg, color: hasStock ? (checked ? C.accent : status.color) : C.textMuted, cursor: hasStock ? 'pointer' : 'not-allowed', fontSize: '10px', fontWeight: '600' }}
                                               >
-                                                {(checked ? '✓ ' : '') + suggestion.name + ' · ' + (norm ? 'норма ' + fmtMeasure(norm.quantity, unit) + (writeQty && toNum(writeQty) < toNum(norm.quantity) ? ' · доступно ' + fmtMeasure(writeQty, unit) : '') : (hasStock ? 'доступно ' + fmtMeasure(available.quantity, available.unit) : isPersonalMaterialRole() ? 'не выдано мне' : 'нет на объекте'))}
+                                                {(checked ? '✓ ' : '') + suggestion.name + ' · ' + (norm ? 'норма ' + safeFmtMeasure(norm.quantity, unit) + (writeQty && safeToNum(writeQty) < safeToNum(norm.quantity) ? ' · доступно ' + safeFmtMeasure(writeQty, unit) : '') : (hasStock ? 'доступно ' + safeFmtMeasure(available.quantity, available.unit) : isPersonalMaterialRole() ? 'не выдано мне' : 'нет на объекте'))}
                                               </button>
                                             );
                                           })}
@@ -992,10 +1013,10 @@ export default function MasterCabinetPage(props) {
                                             const checked = !!usedMap[key];
                                             const selected = usedMap[key] || {};
                                             const hint = materialHintForProject(project.name, material.name, scopedPackage);
-                                            const stock = toNum(material.quantity);
-                                            const norm = materialNormForWork(project.name, item.name, category, toNum(selectedWorks[item.id]?.quantity), item.unit, material, selectedWorks[item.id] || {});
+                                            const stock = safeToNum(material.quantity);
+                                            const norm = materialNormForWork(project.name, item.name, category, safeToNum(selectedWorks[item.id]?.quantity), item.unit, material, selectedWorks[item.id] || {});
                                             const normStatus = checked ? materialNormStatus(selected) : null;
-                                            const over = checked && toNum(selected.quantity) > stock;
+                                            const over = checked && safeToNum(selected.quantity) > stock;
                                             const status = hint ? materialControlStatus(hint) : null;
                                             return (
                                               <div key={material.id} style={{ display: 'grid', gridTemplateColumns: '18px minmax(0,1fr) auto', alignItems: 'center', gap: '8px', padding: '7px 8px', backgroundColor: checked ? C.bgWhite : 'transparent', border: '1px solid ' + (over ? C.dangerBorder : checked ? C.accentBorder : C.border), borderRadius: '8px', fontSize: '11px' }}>
@@ -1006,7 +1027,7 @@ export default function MasterCabinetPage(props) {
                                                     {status && <span style={{ padding: '1px 6px', borderRadius: '8px', fontSize: '9px', fontWeight: '700', backgroundColor: status.bg, color: status.color, border: '1px solid ' + status.border }}>{status.label}</span>}
                                                     {normStatus && <span style={{ padding: '1px 6px', borderRadius: '8px', fontSize: '9px', fontWeight: '700', backgroundColor: normStatus.bg, color: normStatus.color, border: '1px solid ' + normStatus.border }}>{normStatus.label}</span>}
                                                   </div>
-                                                  <div style={{ color: over ? C.danger : C.textSec, marginTop: '2px' }}>{'доступно ' + fmtMeasure(stock, material.unit)}{norm ? ' · норма ' + fmtMeasure(norm.quantity, norm.unit) : ''}{hint?.planQty > 0 ? ' · по смете ' + fmtMeasure(hint.planQty, hint.unit) : ''}{hint?.used > 0 ? ' · списано ' + fmtMeasure(hint.used, hint.unit) : ''}</div>
+                                                  <div style={{ color: over ? C.danger : C.textSec, marginTop: '2px' }}>{'доступно ' + safeFmtMeasure(stock, material.unit)}{norm ? ' · норма ' + safeFmtMeasure(norm.quantity, norm.unit) : ''}{hint?.planQty > 0 ? ' · по смете ' + safeFmtMeasure(hint.planQty, hint.unit) : ''}{hint?.used > 0 ? ' · списано ' + safeFmtMeasure(hint.used, hint.unit) : ''}</div>
                                                 </div>
                                                 {checked && <input type="number" step="any" inputMode="decimal" placeholder="кол-во" value={selected.quantity || ''} max={stock} onChange={e => updateSelectedWorkMaterialQty(item.id, material.name, e.target.value)} style={{ width: '86px', padding: '5px 7px', border: '1.5px solid ' + (over ? C.danger : C.border), borderRadius: '6px', fontSize: '11px', backgroundColor: C.bgWhite, color: C.text }} />}
                                               </div>
@@ -1037,7 +1058,7 @@ export default function MasterCabinetPage(props) {
                   <div key={work.id} style={{ padding: '12px 0', borderBottom: '1.5px solid ' + C.border, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <b style={{ fontSize: '13px', color: C.text }}>{work.description}</b>
-                      <p style={{ color: C.textSec, margin: '3px 0', fontSize: '12px' }}>{fmtMeasure(work.quantity, work.unit) + ' · ' + work.project + ' · ' + work.date}</p>
+                      <p style={{ color: C.textSec, margin: '3px 0', fontSize: '12px' }}>{safeFmtMeasure(work.quantity, work.unit) + ' · ' + work.project + ' · ' + work.date}</p>
                       {journalEntry && <span style={badge(journalEntry.status === 'Подтверждено' ? C.success : journalEntry.status === 'Отклонено' ? C.danger : C.warning, journalEntry.status === 'Подтверждено' ? C.successLight : journalEntry.status === 'Отклонено' ? C.dangerLight : C.warningLight, journalEntry.status === 'Подтверждено' ? C.successBorder : journalEntry.status === 'Отклонено' ? C.dangerBorder : C.warningBorder)}>{journalEntry.status}</span>}
                     </div>
                     <b style={{ color: C.success, fontSize: '13px', whiteSpace: 'nowrap' }}>{(work.total || 0).toLocaleString() + ' ₽'}</b>
