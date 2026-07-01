@@ -128,13 +128,17 @@ import {
   materialNormRuleForCalc,
   materialNormCanCreateSupply,
   materialTitleForNormRule,
-  materialNormSupplyMarker,
-  materialNormSupplyNotes,
-  normListFromText,
   normListToText,
   workNormRulesForCalculation,
 } from './utils/materialNormUtils';
 import { materialLookupText } from './utils/materialMatchUtils';
+import {
+  autoFillNormMaterialsForWorkRows,
+  buildBatchMaterialNormSupplyRequestPayloads,
+  buildMaterialNormPayload,
+  buildMaterialNormSupplyRequestPayload,
+  materialNormSupplyRequestExistsForRow,
+} from './utils/materialNormWorkflowUtils';
 import {
   buildEstimateMaterialPlanRows,
   buildMaterialAliasCandidates,
@@ -4245,10 +4249,11 @@ function App() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, user?.role, projects, rooms, roomWindows, roomDoors, roomWorks, workJournal]);
-  const materialNormSupplyRequestExists = (row) => {
-    const marker = materialNormSupplyMarker(row);
-    return (supplyRequests||[]).some(req=>req.project===row?.projectName && isActiveSupplyRequestStatus(req.status) && String(req.notes||'').includes(marker));
-  };
+  const materialNormSupplyRequestExists = (row) => materialNormSupplyRequestExistsForRow({
+    row,
+    supplyRequests,
+    isActiveSupplyRequestStatus,
+  });
   const createSupplyRequestFromNormCoverage = async (row) => {
     if (!materialNormCanCreateSupply(row)) return;
     if (!canCreateSupplyRequestFromNorm()) { alert('У вашей роли нет права создать заявку снабжения'); return; }
@@ -4263,29 +4268,12 @@ function App() {
     if (qtyRaw === null) return;
     const qty = toNum(qtyRaw);
     if (qty <= 0) { alert('Количество должно быть больше 0'); return; }
-    const unit = row.requiredUnit || row.rule.materialUnit || row.materialUnit || 'шт';
-    const rowPackage = row.packageName || row.workPackage || '';
-    const requestRow = {...row, materialName:cleanName, requiredQty:qty, requiredUnit:unit};
-    const notes = materialNormSupplyNotes([requestRow]);
+    const payload = buildMaterialNormSupplyRequestPayload({row, materialName:cleanName, quantity:qty, user});
+    const unit = payload.unit;
     const res = await fetch(API+'/supply-requests', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        materialName: cleanName,
-        quantity: qty,
-        unit,
-        workPackage: rowPackage,
-        items:[{materialName: cleanName, quantity: qty, unit, workPackage: rowPackage}],
-        project: row.projectName,
-        createdBy: user?.name || '',
-        date: new Date().toISOString().split('T')[0],
-        notes,
-        category: row.packageName || row.sectionName || '',
-        urgency: 'обычная',
-        requestedByRole: user?.role || '',
-        requestedById: user?.id || null,
-        selectedSuppliers: [],
-      })
+      body:JSON.stringify(payload)
     });
     const data = await res.json().catch(()=>({}));
     if (!res.ok) { alert(data.detail || 'Не удалось создать заявку снабжения'); return; }
@@ -4303,118 +4291,45 @@ function App() {
       return;
     }
     if (!window.confirm('Создать одну пакетную заявку снабжения по '+fresh.length+' незаявленным строкам?')) return;
-    const byKey = {};
-    fresh.forEach(row=>{
-      const materialName = row.materialName || materialTitleForNormRule(row.rule) || 'Материал';
-      const unit = row.requiredUnit || row.rule?.materialUnit || row.materialUnit || 'шт';
-      const workPackage = row.packageName || row.workPackage || '';
-      const key = materialNameKey(materialName)+'|'+unit+'|'+workPackage;
-      if (!byKey[key]) byKey[key] = {materialName, quantity:0, unit, workPackage};
-      byKey[key].quantity += toNum(row.shortageQty || row.requiredQty);
+    const payloads = buildBatchMaterialNormSupplyRequestPayloads({
+      rows: fresh,
+      user,
+      materialNameKey,
     });
-    const items = Object.values(byKey).map(it=>({...it, workPackage:it.workPackage || 'Основная', quantity:Number(it.quantity.toFixed(4))}));
-    if (!items.length) { alert('Не удалось собрать позиции заявки'); return; }
-    const rowsByPackage = fresh.reduce((acc, row) => {
-      const pkg = String(row.packageName || row.workPackage || 'Основная').trim() || 'Основная';
-      if (!acc[pkg]) acc[pkg] = [];
-      acc[pkg].push(row);
-      return acc;
-    }, {});
-    const itemsByPackage = items.reduce((acc, item) => {
-      const pkg = String(item.workPackage || 'Основная').trim() || 'Основная';
-      if (!acc[pkg]) acc[pkg] = [];
-      acc[pkg].push(item);
-      return acc;
-    }, {});
+    if (!payloads.length) { alert('Не удалось собрать позиции заявки'); return; }
     const created = [];
-    for (const [requestPackage, packageItems] of Object.entries(itemsByPackage)) {
-      const packageRows = rowsByPackage[requestPackage] || [];
+    for (const {requestPackage, payload} of payloads) {
       const res = await fetch(API+'/supply-requests', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-          materialName: packageItems[0].materialName,
-          quantity: packageItems[0].quantity,
-          unit: packageItems[0].unit,
-          workPackage: requestPackage,
-          items: packageItems,
-          project: fresh[0].projectName,
-          createdBy: user?.name || '',
-          date: new Date().toISOString().split('T')[0],
-          notes: materialNormSupplyNotes(packageRows, 'Пакетная заявка из ведомости «Вся смета по нормам»: материалы нужны по нормам, но отсутствуют в смете или указаны без количества.'),
-          category: 'Нормы материалов',
-          urgency: 'обычная',
-          requestedByRole: user?.role || '',
-          requestedById: user?.id || null,
-          selectedSuppliers: [],
-        })
+        body:JSON.stringify(payload)
       });
       const data = await res.json().catch(()=>({}));
       if (!res.ok) { alert((data.detail || 'Не удалось создать пакетную заявку')+' · раздел '+requestPackage); return; }
       if (data?.id) created.push(data);
     }
     if (created.length) setSupplyRequests(prev=>[...created,...(prev||[]).filter(r=>!created.some(n=>Number(n.id)===Number(r.id)))]);
-    notify('Создано заявок снабжения: '+created.length+' · позиций '+items.length, 'supply');
-    setMaterialNormNotice({tone:'success',title:'Пакетные заявки созданы',text:'В снабжение отправлено '+items.length+' позиций по '+fresh.length+' строкам норм. Заявки разделены по пакетам работ.'});
+    const itemsCount = payloads.reduce((sum, item)=>sum+(item.items||[]).length, 0);
+    notify('Создано заявок снабжения: '+created.length+' · позиций '+itemsCount, 'supply');
+    setMaterialNormNotice({tone:'success',title:'Пакетные заявки созданы',text:'В снабжение отправлено '+itemsCount+' позиций по '+fresh.length+' строкам норм. Заявки разделены по пакетам работ.'});
     await refreshData();
   };
-  const autoFillNormMaterialsForWork = (projectName, workName, sectionName, workQty, workUnit, currentMaterials=[], params={}) => {
-    if (!projectName || toNum(workQty)<=0) return currentMaterials || [];
-    const workPackage = params.workPackage || params.work_package || '';
-    const available = materialRowsAvailableForWork(projectName, workPackage);
-    const matches = available.map(m=>({material:m, norm:materialNormForWork(projectName, workName, sectionName, workQty, workUnit, m, params)})).filter(x=>x.norm);
-    if (!matches.length) return currentMaterials || [];
-    const byRule = {};
-    matches.forEach(x=>{ byRule[x.norm.ruleId]=(byRule[x.norm.ruleId]||0)+1; });
-    const matchByName = {};
-    matches.forEach(x=>{ matchByName[materialNameKey(x.material.name)] = x; });
-    const present = new Set();
-    const next = (currentMaterials||[]).map(m=>{
-      const key = materialNameKey(m.name);
-      present.add(key);
-      const match = matchByName[key];
-      if (!match) return m;
-      const patch = {
-        unit: m.unit || match.norm.unit,
-        workPackage: m.workPackage || match.material.workPackage || '',
-        normQuantity: match.norm.normQuantity,
-        normSource: match.norm.normSource
-      };
-      if (m.autoNorm || m.quantity==='' || m.quantity===undefined || m.quantity===null) {
-        return {...m, ...patch, quantity: capMaterialWriteoffQty(projectName, m.name, match.norm.quantity, patch.workPackage), autoNorm: true};
-      }
-      return {...m, ...patch, autoNorm: false};
-    });
-    matches
-      .filter(x=>byRule[x.norm.ruleId]===1 && !present.has(materialNameKey(x.material.name)))
-      .slice(0, Math.max(0, 5-next.length))
-      .forEach(x=>next.push({
-        name:x.material.name,
-        unit:x.norm.unit || x.material.unit || 'шт',
-        workPackage:x.material.workPackage || '',
-        quantity:capMaterialWriteoffQty(projectName, x.material.name, x.norm.quantity, x.material.workPackage || ''),
-        autoNorm:true,
-        normQuantity:x.norm.normQuantity,
-        normSource:x.norm.normSource
-      }));
-    return next;
-  };
+  const autoFillNormMaterialsForWork = (projectName, workName, sectionName, workQty, workUnit, currentMaterials=[], params={}) => autoFillNormMaterialsForWorkRows({
+    projectName,
+    workName,
+    sectionName,
+    workQty,
+    workUnit,
+    currentMaterials,
+    params,
+    materialRowsAvailableForWork,
+    materialNormForWork,
+    capMaterialWriteoffQty,
+    materialNameKey,
+  });
   const canEditMaterialNorms = () => canEditMaterialNormsForUser(user);
   const canCreateSupplyRequestFromNorm = () => canCreateSupplyRequestFromNormForUser(user);
-  const materialNormPayload = () => ({
-    ruleKey: newMaterialNorm.ruleKey.trim(),
-    name: newMaterialNorm.name.trim(),
-    work: normListFromText(newMaterialNorm.workText),
-    blockWork: normListFromText(newMaterialNorm.blockWorkText),
-    material: normListFromText(newMaterialNorm.materialText),
-    workUnit: newMaterialNorm.workUnit || 'м2',
-    materialUnit: newMaterialNorm.materialUnit || 'кг',
-    qtyPerUnit: toNum(newMaterialNorm.qtyPerUnit),
-    thicknessBaseMm: newMaterialNorm.thicknessBaseMm===''?null:toNum(newMaterialNorm.thicknessBaseMm),
-    defaultThicknessMm: newMaterialNorm.defaultThicknessMm===''?null:toNum(newMaterialNorm.defaultThicknessMm),
-    label: newMaterialNorm.label.trim(),
-    active: true,
-  });
+  const materialNormPayload = () => buildMaterialNormPayload(newMaterialNorm);
   const resetMaterialNormForm = () => {
     setNewMaterialNorm(EMPTY_MATERIAL_NORM_FORM);
     setEditingMaterialNormId(null);
