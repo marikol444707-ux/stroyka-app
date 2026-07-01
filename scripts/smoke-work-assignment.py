@@ -23,6 +23,8 @@ PREFIX = f"CODEX WORK ASSIGNMENT SMOKE {RUN_ID}"
 PROJECT_NAME = f"{PREFIX} Project"
 WORKER_EMAIL = f"work-assignment-worker-{RUN_ID}@stroyka.local"
 WORKER_NAME = f"{PREFIX} Master"
+DIRECTOR_EMAIL = f"work-assignment-director-{RUN_ID}@stroyka.local"
+DIRECTOR_NAME = f"{PREFIX} Deputy"
 WORK_PACKAGE = "Общестрой"
 ITEM_KEY = f"{RUN_ID}:work:1"
 
@@ -111,11 +113,14 @@ def login_director():
     email = os.getenv("SMOKE_EMAIL", "")
     password = os.getenv("SMOKE_PASSWORD", "")
     if not email or not password:
-        raise RuntimeError("Нужно задать SMOKE_EMAIL и SMOKE_PASSWORD")
+        return None
     _, body = api_json("POST", "/login", data={"email": email, "password": password}, expected=200)
     token = body.get("authToken") if isinstance(body, dict) else None
     if not token:
-        raise RuntimeError(f"login {email}: authToken не получен")
+        if isinstance(body, dict) and (body.get("twoFactorRequired") or body.get("challengeToken") or body.get("setupToken")):
+            print(f"login {email}: включен 2FA, использую временного smoke-замдиректора", file=sys.stderr)
+            return None
+        raise RuntimeError(f"login {email}: authToken не получен. Body: {body}")
     return token
 
 
@@ -141,8 +146,33 @@ def cleanup():
         cur.execute("DELETE FROM brigade_contracts WHERE project_name=%s", (PROJECT_NAME,))
         cur.execute("DELETE FROM estimates WHERE project_name=%s", (PROJECT_NAME,))
         cur.execute("DELETE FROM projects WHERE name=%s", (PROJECT_NAME,))
-        cur.execute("DELETE FROM users WHERE LOWER(email)=LOWER(%s)", (WORKER_EMAIL,))
+        cur.execute(
+            "DELETE FROM users WHERE LOWER(email) IN (LOWER(%s), LOWER(%s))",
+            (WORKER_EMAIL, DIRECTOR_EMAIL),
+        )
         conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
+
+def create_temp_director_token():
+    conn = db_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO users
+                (name, email, password, role, project_id, project_name, assigned_projects, assigned_packages, active, two_factor_required, two_factor_enabled)
+            VALUES
+                (%s, %s, %s, 'зам_директора', NULL, '', '[]'::jsonb, '[]'::jsonb, TRUE, FALSE, FALSE)
+            RETURNING id, name, email, role
+            """,
+            (DIRECTOR_NAME, DIRECTOR_EMAIL, hash_password(secrets.token_urlsafe(16))),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        return auth_token_for({"id": row[0], "name": row[1], "email": row[2], "role": row[3]})
     finally:
         cur.close()
         conn.close()
@@ -210,6 +240,8 @@ def rows(body):
 def main():
     director_token = login_director()
     _, estimate_id, worker = prepare_scope()
+    if not director_token:
+        director_token = create_temp_director_token()
     worker_token = auth_token_for(worker)
     try:
         _, created = api_json(
