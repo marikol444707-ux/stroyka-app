@@ -248,6 +248,7 @@ import {
   loadStoredUser,
   matchSearchFields,
   mergeRowsByIdValue,
+  mobileScopeForPage,
   readApiResult,
   requestPushPermission,
   sendPushNotification,
@@ -271,6 +272,7 @@ import {
   canCreateSupplyRequestFromControlForUser,
   canCreateSupplyRequestFromNormForUser,
   canEditMaterialNormsForUser,
+  generateTempPassword,
   isFinanceUser,
   isLeadershipUser,
   isProrabUser,
@@ -373,6 +375,7 @@ import {
 } from './utils/estimateChangeUtils';
 import { emptyStaffForm } from './utils/staffUtils';
 import { emptySupplierForm, normalizeSupplierPayload } from './utils/supplierUtils';
+import { buildScanDraftInvoiceNumber } from './utils/accountingInvoices';
 import {
   isActiveSupplyRequestStatus,
   isSameSupplyMaterial,
@@ -1715,25 +1718,6 @@ function App() {
     }
   };
 
-  const mobileScopeForPage = (page) => {
-    if (page === 'dashboard') return 'mobile:dashboard';
-    if (['projects','site','works','documents','cable'].includes(page)) return 'mobile:projects-docs';
-    if (page === 'estimates') return 'mobile:estimates';
-    if (['warehouse','materials'].includes(page)) return 'mobile:warehouse';
-    if (['supply','suppliers'].includes(page)) return 'mobile:supply';
-    if (['personnel','users'].includes(page)) return 'mobile:people';
-    if (page === 'accounting') return 'mobile:accounting';
-    if (page === 'history') return 'mobile:history';
-    if (page === 'myexpenses') return 'mobile:myexpenses';
-    if (page === 'clients') return 'mobile:clients';
-    if (page === 'pricelists') return 'mobile:pricelists';
-    if (page === 'crm') return 'mobile:crm';
-    if (page === 'analytics') return 'mobile:analytics';
-    if (page === 'settings') return 'mobile:settings';
-    if (page === 'companychat') return 'mobile:chat';
-    return '';
-  };
-
   const refreshData = async (page = activePage) => {
     if (!isMobile) {
       await loadAll();
@@ -1926,20 +1910,6 @@ function App() {
     const sp = await fetch(API+'/salary-payments').then(r=>r.json());
     setSalaryPayments(Array.isArray(sp)?sp:[]);
     alert('💰 Выплата зафиксирована');
-  };
-
-  const buildScanDraftInvoiceNumber = () => {
-    const d = new Date();
-    const stamp = [
-      d.getFullYear(),
-      String(d.getMonth() + 1).padStart(2, '0'),
-      String(d.getDate()).padStart(2, '0'),
-    ].join('');
-    const time = [
-      String(d.getHours()).padStart(2, '0'),
-      String(d.getMinutes()).padStart(2, '0'),
-    ].join('');
-    return `SCAN-${stamp}-${time}`;
   };
 
   const saveInvoiceNew = async () => {
@@ -6590,14 +6560,6 @@ function App() {
   const rejectJ = async (e,c) => {
     await fetch(API+'/work-journal/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено',confirmedBy:user.name,comment:c||''})});
     await refreshData(); setRejectingEntry(null); setRejectComment('');
-  };
-
-  const generateTempPassword = () => {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
-    const bytes = new Uint32Array(14);
-    if (window.crypto?.getRandomValues) window.crypto.getRandomValues(bytes);
-    else for (let i=0;i<bytes.length;i++) bytes[i] = Math.floor(Math.random()*chars.length);
-    return Array.from(bytes, n => chars[n % chars.length]).join('');
   };
 
   const saveUser = async () => {

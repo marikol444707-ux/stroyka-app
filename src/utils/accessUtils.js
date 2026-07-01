@@ -36,6 +36,14 @@ export const canCreateSupplyRequestFromControlForUser = (user) => ['директ
 
 export const canCreateInvoiceControlReviewTaskForUser = (user) => ['директор', 'зам_директора', 'бухгалтер', 'прораб', 'главный_инженер', 'сметчик', 'снабженец', 'кладовщик'].includes(user?.role || '');
 
+export const generateTempPassword = () => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+  const bytes = new Uint32Array(14);
+  if (window.crypto?.getRandomValues) window.crypto.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * chars.length);
+  return Array.from(bytes, n => chars[n % chars.length]).join('');
+};
+
 export const roleFlagsForUser = (user) => {
   const role = user?.role || '';
   const isLeadershipRole = isLeadershipUser(user);

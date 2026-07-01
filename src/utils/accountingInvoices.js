@@ -8,6 +8,19 @@ export const ACCOUNTING_INVOICE_STATUSES = [
   'Отклонена',
 ];
 
+export const buildScanDraftInvoiceNumber = (date = new Date()) => {
+  const stamp = [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('');
+  const time = [
+    String(date.getHours()).padStart(2, '0'),
+    String(date.getMinutes()).padStart(2, '0'),
+  ].join('');
+  return `SCAN-${stamp}-${time}`;
+};
+
 export const accountingStatusGroupLabels = {
   'Нет фото': 'Нет фото',
   'На проверке': 'На проверке',

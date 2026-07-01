@@ -23,6 +23,25 @@ export const initialGuestPage = () => {
   return 'site';
 };
 
+export const mobileScopeForPage = (page) => {
+  if (page === 'dashboard') return 'mobile:dashboard';
+  if (['projects', 'site', 'works', 'documents', 'cable'].includes(page)) return 'mobile:projects-docs';
+  if (page === 'estimates') return 'mobile:estimates';
+  if (['warehouse', 'materials'].includes(page)) return 'mobile:warehouse';
+  if (['supply', 'suppliers'].includes(page)) return 'mobile:supply';
+  if (['personnel', 'users'].includes(page)) return 'mobile:people';
+  if (page === 'accounting') return 'mobile:accounting';
+  if (page === 'history') return 'mobile:history';
+  if (page === 'myexpenses') return 'mobile:myexpenses';
+  if (page === 'clients') return 'mobile:clients';
+  if (page === 'pricelists') return 'mobile:pricelists';
+  if (page === 'crm') return 'mobile:crm';
+  if (page === 'analytics') return 'mobile:analytics';
+  if (page === 'settings') return 'mobile:settings';
+  if (page === 'companychat') return 'mobile:chat';
+  return '';
+};
+
 export const daysInMonth = Array.from({length: 31}, (_, i) => String(i + 1));
 
 export const requestPushPermission = async () => {
