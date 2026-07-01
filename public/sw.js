@@ -1,4 +1,4 @@
-const CACHE_NAME = 'stroyka-shell-v4';
+const CACHE_NAME = 'stroyka-shell-v5';
 const STATIC_CACHE_LIMIT = 90;
 const SHELL_URLS = [
   '/',
@@ -86,13 +86,14 @@ self.addEventListener('fetch', event => {
 
   if (isStaticRequest(url)) {
     event.respondWith(
-      caches.match(request)
-        .then(cached => cached || fetch(request).then(response => {
+      fetch(request)
+        .then(response => {
           if (!response || !response.ok) return response;
           const copy = response.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(request, copy).then(() => trimCache(cache)));
           return response;
-        }))
+        })
+        .catch(() => caches.match(request))
     );
   }
 });
