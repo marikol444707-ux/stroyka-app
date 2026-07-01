@@ -28,6 +28,7 @@ import PreviewModal from './PreviewModal';
 import DocumentRecognitionPanel from './DocumentRecognitionPanel';
 
 export default function MasterCabinetPage(props) {
+  const [showProjectPicker, setShowProjectPicker] = React.useState(false);
   const {
     API,
     C,
@@ -330,6 +331,14 @@ export default function MasterCabinetPage(props) {
     String(estimate.status || 'Активная').toLowerCase() === 'активная' &&
     String(estimate.smetaType || estimate.smeta_type || 'Заказчик') === 'Заказчик'
   );
+  const selectMasterProject = async (projectId) => {
+    setShowProjectPicker(false);
+    setMasterProjectId(projectId);
+    setSelectedWorks({});
+    const project = masterProjectOptions.find(item => item.id === Number(projectId)) || projects.find(item => item.id === Number(projectId));
+    if (project?.pricelistId && typeof loadPricelistItems === 'function') await loadPricelistItems(project.pricelistId);
+    else if (typeof loadPricelistItems === 'function') loadPricelistItems(null);
+  };
   const userAssignedPackages = Array.isArray(user?.assignedPackages)
     ? user.assignedPackages.filter(Boolean)
     : (Array.isArray(user?.assigned_packages) ? user.assigned_packages.filter(Boolean) : []);
@@ -546,22 +555,55 @@ export default function MasterCabinetPage(props) {
             <div style={{ ...card, padding: '20px', marginBottom: '15px' }}>
               <h4 style={{ marginBottom: '15px', color: C.text, fontSize: '14px', fontWeight: '600' }}>Добавить работы</h4>
               {masterProjectOptions.length === 0 && <div style={{ padding: '12px', backgroundColor: C.warningLight, border: '1.5px solid ' + C.warningBorder, borderRadius: '10px', color: C.text, fontSize: '12px', marginBottom: '10px' }}>Нет доступных объектов. Назначьте мастера на объект или привяжите его к договору бригады.</div>}
-              <select
-                value={masterProjectId}
-                onChange={async e => {
-                  const projectId = e.target.value;
-                  setMasterProjectId(projectId);
-                  setSelectedWorks({});
-                  const project = masterProjectOptions.find(item => item.id === Number(projectId)) || projects.find(item => item.id === Number(projectId));
-                  if (project && project.pricelistId) await loadPricelistItems(project.pricelistId);
-                  else loadPricelistItems && loadPricelistItems(null);
-                }}
-                style={inp}
-                disabled={masterProjectOptions.length === 0}
-              >
-                <option value="">{masterProjectOptions.length ? 'Выберите объект' : 'Нет доступных объектов'}</option>
-                {masterProjectOptions.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
-              </select>
+              <div style={{ marginBottom: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => masterProjectOptions.length > 0 && setShowProjectPicker(value => !value)}
+                  disabled={masterProjectOptions.length === 0}
+                  style={{
+                    ...inp,
+                    marginBottom: 0,
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    textAlign: 'left',
+                    cursor: masterProjectOptions.length ? 'pointer' : 'not-allowed',
+                    opacity: masterProjectOptions.length ? 1 : 0.65,
+                  }}
+                >
+                  <span>{selectedMasterProject?.name || (masterProjectOptions.length ? 'Выберите объект' : 'Нет доступных объектов')}</span>
+                  <span style={{ color: C.textSec, fontSize: '18px', lineHeight: 1 }}>{showProjectPicker ? '⌃' : '⌄'}</span>
+                </button>
+                {showProjectPicker && masterProjectOptions.length > 0 && (
+                  <div style={{ marginTop: '8px', display: 'grid', gap: '8px' }}>
+                    {masterProjectOptions.map(project => {
+                      const selected = String(project.id) === String(masterProjectId);
+                      return (
+                        <button
+                          key={project.id}
+                          type="button"
+                          onClick={() => selectMasterProject(String(project.id))}
+                          style={{
+                            width: '100%',
+                            padding: '12px 14px',
+                            borderRadius: '10px',
+                            border: '1.5px solid ' + (selected ? C.accent : C.border),
+                            backgroundColor: selected ? C.accentLight : C.bgWhite,
+                            color: selected ? C.accent : C.text,
+                            fontSize: '14px',
+                            fontWeight: selected ? 700 : 600,
+                            textAlign: 'left',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {project.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
               {masterProjectId && (
                 <>
                   {pricelistItems.length === 0 && !selectedProjectHasActiveCustomerEstimate && <p style={{ color: C.textMuted, textAlign: 'center', padding: '20px' }}>Прайс-лист не привязан к проекту</p>}
