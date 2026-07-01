@@ -141,6 +141,7 @@ import {
   buildMaterialControlSummary,
   buildMaterialReconciliationRows,
 } from './utils/materialReconciliationUtils';
+import { buildWarehouseInvoiceEstimateControl } from './utils/warehouseInvoiceControlUtils';
 import {
   buildEstimateNormCoverageRows,
   buildEstimateWorkNormRequirementRows,
@@ -238,7 +239,6 @@ import {
   buildSupplyControlReportData,
 } from './utils/supplyControlReportUtils';
 import {
-  journalRoomLinkKey,
   invoiceControlMaterialName,
   invoiceControlNeedsReview,
   invoiceControlProjectName,
@@ -246,14 +246,16 @@ import {
   invoiceControlReviewMarker,
   invoiceControlSupplyMarker,
   invoiceControlUnit,
-  materialControlDescription,
-  materialControlMarker,
   materialControlRowPackageKey,
   materialControlSupplyMarker,
   parseAiTaskPayload,
-  roomControlMarker,
-  roomControlDescription,
 } from './utils/aiControlDescriptionUtils';
+import {
+  buildMaterialControlSignatureForProject,
+  buildMaterialControlTaskDescriptorsForProject,
+  buildRoomControlSignatureForProject,
+  buildRoomControlTaskDescriptorsForProject,
+} from './utils/aiControlTaskUtils';
 import {
   buildPagedPath,
   calcVat,
@@ -3074,250 +3076,13 @@ function App() {
     materialNameLookupKey,
   });
   const materialControlSummaryForProject = (projectName) => buildMaterialControlSummary(materialReconciliationRows(projectName));
-  const warehouseInvoiceEstimateControl = (inv) => {
-    const sourcePackageOf = (item = {}, parent = {}) => item.workPackage || item.work_package || parent.workPackage || parent.work_package || '';
-    const linkedWorkLabel = (item = {}) => item.parentWorkName || item.parent_work_name || item.estimateWorkName || item.estimate_work_name || item.workName || item.work_name || '';
-    const invoiceRows = warehouseInvoiceItems(inv);
-    const items = invoiceRows.items || [];
-    const place = inv?.location === 'Основной склад' ? '' : (inv?.project || inv?.location || '');
-	    if (!place) {
-	      return items.map((item, index)=>({
-	        index,
-	        name:item.name||'',
-	        quantity:toNum(item.quantity),
-	        unit:item.unit||'',
-	        lineSum:Number(item.total||0) || Number(item.quantity||0) * Number(item.price||0),
-	        status:'Основной склад',
-	        severity:'neutral',
-	        detail:'Без привязки к объектной смете',
-	        planText:'—',
-	        beforeText:'—',
-        afterText:'—',
-        overText:'—',
-      }));
-    }
-
-    const summary = materialControlSummaryForProject(place);
-    const rowsByKey = new Map((summary.rows||[]).map(r=>[r.key, r]));
-    const itemMeta = items.map(item=>{
-      const itemPackage = sourcePackageOf(item, inv);
-      const meta = canonicalMaterialMeta(place, item.name, item.unit);
-      const baseKey = materialNameLookupKey(meta.name || item.name);
-      const key = baseKey ? baseKey + (itemPackage ? '|' + String(itemPackage).trim().toLowerCase() : '|__no_package__') : '';
-      const norm = normalizeMeasure(item.quantity, item.unit);
-      return {meta, key, qty:norm.qty, unit:norm.unit || item.unit || '', workPackage:itemPackage};
-    });
-    const invoiceQtyByKey = {};
-    itemMeta.forEach(m=>{ if (m.key) invoiceQtyByKey[m.key] = (invoiceQtyByKey[m.key]||0) + Number(m.qty||0); });
-    const seenQtyByKey = {};
-
-    return items.map((item, index)=>{
-      const m = itemMeta[index] || {};
-      const qty = Number(m.qty||0);
-      const unit = m.unit || item.unit || '';
-      const lineSum = Number(item.total||0) || Number(item.quantity||0) * Number(item.price||0);
-	      if (!item?.name) {
-	        return {index, name:'', quantity:0, unit, lineSum:0, status:'Не заполнено', severity:'neutral', detail:'', planText:'—', beforeText:'—', afterText:'—', overText:'—'};
-	      }
-      const backendControl = item.estimateControl || item.estimate_control || {};
-      const row = m.key ? rowsByKey.get(m.key) : null;
-      const alreadySeen = seenQtyByKey[m.key] || 0;
-      seenQtyByKey[m.key] = alreadySeen + qty;
-      const workLabel = linkedWorkLabel(item);
-
-      if (!row || Number(row.controlPlanQty||row.planQty||0) <= 0) {
-        if (Number(backendControl.matchedRows || 0) > 0) {
-          const unitReview = Number(backendControl.matchedWithDifferentUnit || 0) > 0;
-          return {
-            index,
-            name:item.name||'',
-            projectName:place,
-            canonicalName:item.name||'',
-            workPackage:backendControl.workPackage || m.workPackage || item.workPackage || item.work_package || '',
-            quantity:qty,
-            incomingQty:qty,
-            unit,
-            rowUnit:unit,
-            lineSum,
-            shortageQty:0,
-            overQty:0,
-            priceOverSum:0,
-            unitMismatch:unitReview,
-            status:unitReview ? 'Ед. проверить' : 'По смете',
-            severity:unitReview ? 'warning' : 'success',
-            detail:unitReview ? 'Сервер сопоставил материал по семейству/словам, но единица отличается от сметы' : 'Сервер сопоставил материал по семейству/словам полного наименования',
-            planText:backendControl.plannedQty ? fmtMeasure(backendControl.plannedQty, unit) : 'найдено в смете',
-            beforeText:'—',
-            afterText:fmtMeasure(qty, unit),
-            overText:'—',
-            shortageText:'—',
-            lineSumText:lineSum ? lineSum.toLocaleString('ru-RU')+' ₽' : '—',
-            planPriceText:'—',
-            invoicePriceText:qty > 0 && lineSum ? Math.round(lineSum / qty).toLocaleString('ru-RU')+' ₽/'+(unit||'ед.') : '—',
-            priceOverText:'—',
-          };
-        }
-        if (backendControl.status === 'consumable_outside_estimate' || backendControl.isConsumableOutsideEstimate) {
-          return {
-            index,
-            name:item.name||'',
-            projectName:place,
-            canonicalName:item.name||'',
-            workPackage:backendControl.workPackage || m.workPackage || item.workPackage || item.work_package || '',
-            quantity:qty,
-            incomingQty:qty,
-            unit,
-            rowUnit:unit,
-            lineSum,
-            shortageQty:0,
-            overQty:0,
-            priceOverSum:0,
-            unitMismatch:false,
-            status:'Расходник вне сметы',
-            severity:'info',
-            detail:backendControl.controlMessage || 'Расходник принят на склад объекта и оставлен в контроле как позиция вне сметной ресурсной строки',
-            planText:'расходник',
-            beforeText:'—',
-            afterText:fmtMeasure(qty, unit),
-            overText:'—',
-            shortageText:'—',
-            lineSumText:lineSum ? lineSum.toLocaleString('ru-RU')+' ₽' : '—',
-            planPriceText:'—',
-            invoicePriceText:qty > 0 && lineSum ? Math.round(lineSum / qty).toLocaleString('ru-RU')+' ₽/'+(unit||'ед.') : '—',
-            priceOverText:'—',
-          };
-        }
-        if (workLabel) {
-          return {
-            index,
-            name:item.name||'',
-            projectName:place,
-            canonicalName:item.name||'',
-            workPackage:m.workPackage || item.workPackage || item.work_package || '',
-            isCompositeWorkMaterial:true,
-            quantity:qty,
-            incomingQty:qty,
-            unit,
-            rowUnit:unit,
-            lineSum,
-            shortageQty:0,
-            overQty:0,
-            priceOverSum:0,
-            unitMismatch:false,
-            status:'Комплектация работы',
-            severity:'info',
-            detail:'Материал не выделен отдельной ресурсной строкой сметы, но привязан к укрупненной работе',
-            planText:'укрупненная работа',
-            beforeText:'—',
-            afterText:fmtMeasure(qty, unit),
-            overText:'—',
-            shortageText:'—',
-            lineSumText:lineSum ? lineSum.toLocaleString('ru-RU')+' ₽' : '—',
-            planPriceText:'—',
-            invoicePriceText:qty > 0 && lineSum ? Math.round(lineSum / qty).toLocaleString('ru-RU')+' ₽/'+(unit||'ед.') : '—',
-            priceOverText:'—',
-            workRefs:[workLabel],
-            sectionsList:item.sectionName ? [item.sectionName] : [],
-            estimateItemKey:item.estimateItemKey || item.estimate_item_key || item.parentWorkKey || item.parent_work_key || '',
-          };
-        }
-	        return {
-	          index,
-	          name:item.name||'',
-	          projectName:place,
-	          canonicalName:item.name||'',
-	          workPackage:m.workPackage || '',
-	          quantity:qty,
-	          incomingQty:qty,
-	          unit,
-	          rowUnit:unit,
-	          lineSum,
-	          shortageQty:0,
-	          overQty:qty,
-	          priceOverSum:0,
-	          unitMismatch:false,
-	          status:'Вне сметы',
-	          severity:'danger',
-	          detail:'Материал есть в накладной, но не найден в активной смете и нормах объекта',
-	          planText:'нет в смете/нормах',
-          beforeText:'—',
-          afterText:fmtMeasure(qty, unit),
-          overText:fmtMeasure(qty, unit),
-          lineSumText:lineSum ? lineSum.toLocaleString('ru-RU')+' ₽' : '—',
-          planPriceText:'—',
-          priceOverText:'—',
-        };
-      }
-
-      const rowUnit = row.unit || unit;
-      const unitMismatch = rowUnit && unit && _normalizeUnit(rowUnit) !== _normalizeUnit(unit);
-      const invoiceQty = Number(invoiceQtyByKey[m.key]||0);
-      const suppliedBeforeInvoice = inv?.id ? Math.max(0, Number(row.supplied||0) - invoiceQty) : Number(row.supplied||0);
-      const afterQty = suppliedBeforeInvoice + alreadySeen + qty;
-      const controlPlanQty = Number(row.controlPlanQty||row.planQty||0);
-      const overQty = Math.max(0, afterQty - controlPlanQty);
-      const shortageQty = Math.max(0, controlPlanQty - afterQty);
-      const beforeQty = suppliedBeforeInvoice + alreadySeen;
-      const coveredByLineQty = Math.min(qty, Math.max(0, controlPlanQty - beforeQty));
-      const planUnitPrice = Number(row.planQty||0) > 0 ? Number(row.planSum||0) / Number(row.planQty||1) : 0;
-      const invoiceUnitPrice = qty > 0 ? lineSum / qty : Number(item.price||0);
-      const priceOverSum = planUnitPrice > 0 ? Math.max(0, lineSum - planUnitPrice * qty) : 0;
-      const priceOver = priceOverSum > 1;
-      const severity = unitMismatch ? 'warning' : overQty > 0 ? 'danger' : priceOver ? 'warning' : 'success';
-      const status = unitMismatch ? 'Ед. не совпала' : overQty > 0 ? 'Сверх сметы' : priceOver ? 'Цена выше плана' : 'По смете';
-
-	      return {
-	        index,
-	        name:item.name||'',
-	        projectName:place,
-	        canonicalName:row.name,
-	        workPackage:m.workPackage || row.workPackage || '',
-	        planSourceCount: row.planSourceCount || (row.planDetails||[]).length,
-	        planDetails: row.planDetails || [],
-	        sectionsList: row.sections || [],
-	        workRefs: row.workRefs || [],
-	        quantity:qty,
-	        incomingQty:qty,
-	        unit,
-	        rowUnit,
-	        lineSum,
-	        planQty:controlPlanQty,
-	        estimatePlanQty:Number(row.planQty||0),
-	        normPlanQty:Number(row.normPlanQty||0),
-	        beforeQty,
-	        afterQty,
-	        shortageQty,
-	        overQty,
-	        priceOverSum,
-	        unitMismatch,
-	        status,
-	        severity,
-        detail:unitMismatch
-          ? 'В смете '+(rowUnit||'—')+', в накладной '+(unit||'—')
-          : overQty > 0
-            ? 'После этой строки будет превышение плана'
-            : priceOver
-              ? 'Сумма строки выше сметного ориентира'
-              : shortageQty > 0
-                ? 'Поставка закрывает часть сметной потребности'
-                : 'Поставка закрывает сметную потребность',
-        planText:fmtMeasure(controlPlanQty, rowUnit),
-        estimatePlanText:Number(row.planQty||0)>0 ? fmtMeasure(row.planQty, rowUnit) : '—',
-        normPlanText:Number(row.normPlanQty||0)>0 ? fmtMeasure(row.normPlanQty, rowUnit) : '—',
-        incomingText:fmtMeasure(qty, rowUnit),
-        coveredByLineText:fmtMeasure(coveredByLineQty, rowUnit),
-        beforeText:fmtMeasure(beforeQty, rowUnit),
-        afterText:fmtMeasure(afterQty, rowUnit),
-        shortageText:shortageQty > 0 ? fmtMeasure(shortageQty, rowUnit) : '—',
-        overText:overQty > 0 ? fmtMeasure(overQty, rowUnit) : '—',
-        lineSumText:lineSum ? lineSum.toLocaleString('ru-RU')+' ₽' : '—',
-        planPriceText:planUnitPrice > 0 ? Math.round(planUnitPrice).toLocaleString('ru-RU')+' ₽/'+(rowUnit||'ед.') : '—',
-        invoicePriceText:invoiceUnitPrice > 0 ? Math.round(invoiceUnitPrice).toLocaleString('ru-RU')+' ₽/'+(rowUnit||'ед.') : '—',
-        priceOverText:priceOverSum > 1 ? Math.round(priceOverSum).toLocaleString('ru-RU')+' ₽' : '—',
-        sections:(row.sections||[]).slice(0,2).join(' · '),
-      };
-    });
-  };
+  const warehouseInvoiceEstimateControl = (inv) => buildWarehouseInvoiceEstimateControl({
+    inv,
+    warehouseInvoiceItems,
+    materialControlSummaryForProject,
+    canonicalMaterialMeta,
+    materialNameLookupKey,
+  });
   const materialNameKey = materialNameLookupKey;
   const materialControlSupplyRequestExists = (projectName, row) => {
     const marker = materialControlSupplyMarker(projectName, row);
@@ -4279,117 +4044,37 @@ function App() {
       estimateNormReviewQueuedRef.current.delete(marker);
     }
   };
-  const materialControlTaskDescriptorsForProject = (projectName, reason='Фоновая проверка материалов') => {
-    if (!projectName) return [];
-    const summary = materialControlSummaryForProject(projectName);
-    const normSummary = materialNormControlSummaryForProject(projectName);
-    const mk = (kind, row, title, assignedRole, actionType, extraPayload={}) => {
-      const marker = materialControlMarker(kind, projectName, row.name, row.unit);
-      return {
-        marker,
-        projectName,
-        title,
-        description: materialControlDescription(kind, projectName, row, reason),
-        assignedRole,
-        actionLabel: 'Открыть материалы',
-        actionPayload: {
-          type: actionType,
-          marker,
-          projectName,
-          materialName: row.name || '',
-          unit: row.unit || '',
-          reason,
-          ...extraPayload
-        }
-      };
-    };
-    const descriptors = [];
-    summary.toBuyRows
-      .filter(r=>r.toBuy>0 && materialNameKey(r.name))
-      .sort((a,b)=>b.toBuy-a.toBuy)
-      .slice(0,5)
-      .forEach(r=>descriptors.push(mk(
-        'purchase',
-        r,
-        'Докупить материал: '+projectName+' — '+(r.name||'материал'),
-        'снабженец',
-        'material_purchase_review'
-      )));
-    summary.outsideRows
-      .filter(r=>materialNameKey(r.name))
-      .sort((a,b)=>(b.supplied+b.used)-(a.supplied+a.used))
-      .slice(0,3)
-      .forEach(r=>{
-        const candidate = materialAliasCandidates(projectName, r)[0] || null;
-        const row = candidate ? {...r, aliasCandidate:candidate} : r;
-        descriptors.push(mk(
-          'outside',
-          row,
-          candidate
-            ? 'Проверить сопоставление материала: '+projectName+' — '+(r.name||'материал')+' → '+candidate.name
-            : 'Материал вне сметы: '+projectName+' — '+(r.name||'материал'),
-          hasActiveEstimator() ? 'сметчик' : 'директор',
-          'material_outside_estimate_review',
-          candidate ? {aliasCandidate:{
-            projectName,
-            aliasName: r.aliases?.[0] || r.name || '',
-            canonicalName: candidate.name || '',
-            canonicalUnit: candidate.unit || r.unit || '',
-            score: candidate.score || 0,
-          }} : {}
-        ));
-      });
-    summary.usedWithoutIssueRows
-      .filter(r=>r.usedWithoutIssue>0 && materialNameKey(r.name))
-      .sort((a,b)=>b.usedWithoutIssue-a.usedWithoutIssue)
-      .slice(0,3)
-      .forEach(r=>descriptors.push(mk(
-        'writeoff',
-        r,
-        'Проверить списание сверх выдачи: '+projectName+' — '+(r.name||'материал'),
-        'прораб',
-        'material_writeoff_review'
-      )));
-    normSummary.overRows
-      .filter(r=>r.overQty>0 && materialNameKey(r.name))
-      .sort((a,b)=>b.overQty-a.overQty)
-      .slice(0,3)
-      .forEach(r=>descriptors.push(mk(
-        'norm_over',
-        r,
-        'Проверить перерасход по норме: '+projectName+' — '+(r.name||'материал'),
-        'прораб',
-        'material_norm_over_review'
-      )));
-    normSummary.withoutNormRows
-      .filter(r=>r.withoutNormQty>0 && materialNameKey(r.name))
-      .sort((a,b)=>b.withoutNormQty-a.withoutNormQty)
-      .slice(0,3)
-      .forEach(r=>descriptors.push(mk(
-        'without_norm',
-        r,
-        'Добавить норму или проверить списание: '+projectName+' — '+(r.name||'материал'),
-        hasActiveEstimator() ? 'сметчик' : 'директор',
-        'material_without_norm_review'
-      )));
-    return descriptors.slice(0,15);
-  };
-  const materialControlSignatureForProject = (projectName) => {
-    const s = materialControlSummaryForProject(projectName);
-    const n = materialNormControlSummaryForProject(projectName);
-    const qtySum = (rows, field) => Math.round(rows.reduce((sum,row)=>sum+toNum(row[field]),0)*1000)/1000;
-    return [
-      s.toBuyRows.length,
-      qtySum(s.toBuyRows,'toBuy'),
-      s.outsideRows.length,
-      s.usedWithoutIssueRows.length,
-      qtySum(s.usedWithoutIssueRows,'usedWithoutIssue'),
-      n.totalOverRows,
-      n.totalOverRecords,
-      n.totalWithoutNormRows,
-      n.totalWithoutNormRecords
-    ].join('|');
-  };
+  const materialControlTaskDescriptorsForProject = (projectName, reason='Фоновая проверка материалов') => buildMaterialControlTaskDescriptorsForProject({
+    projectName,
+    reason,
+    materialControlSummaryForProject,
+    materialNormControlSummaryForProject,
+    materialNameKey,
+    materialAliasCandidates,
+    hasActiveEstimator,
+  });
+  const materialControlSignatureForProject = (projectName) => buildMaterialControlSignatureForProject({
+    projectName,
+    materialControlSummaryForProject,
+    materialNormControlSummaryForProject,
+  });
+  const roomControlTaskDescriptorsForProject = (projectName, reason='Фоновая проверка помещений') => buildRoomControlTaskDescriptorsForProject({
+    projectName,
+    reason,
+    rooms,
+    roomWorks,
+    workJournal,
+    roomCompleteness,
+    materialNameKey,
+  });
+  const roomControlSignatureForProject = (projectName) => buildRoomControlSignatureForProject({
+    projectName,
+    rooms,
+    roomWorks,
+    workJournal,
+    roomCompleteness,
+    materialNameKey,
+  });
   const queueMaterialControlTask = async (descriptor) => {
     if (!descriptor?.marker || !descriptor.projectName) return;
     const existingTask = aiTaskByMarker(descriptor.marker);
@@ -4444,79 +4129,6 @@ function App() {
     for (const descriptor of descriptors) {
       await queueMaterialControlTask(descriptor);
     }
-  };
-  const roomRelevantJournalRows = (projectName) => {
-    const roomWords = ['стен','потол','пол','окн','двер','откос','штукатур','шпатлев','шпаклев','окрас','облицов','плит','стяж','линолеум','плинтус','кабель','розет','выключ','светильник'];
-    return (workJournal||[])
-      .filter(w=>(w.project||'')===projectName && (w.status||'')!=='Отклонено')
-      .filter(w=>{
-        const unit = _normalizeUnit(normalizeMeasure(toNum(w.quantity), w.unit).unit || w.unit || '');
-        const text = materialNameKey([w.description,w.sectionName,w.comment].filter(Boolean).join(' '));
-        return ['м2','м','шт'].includes(unit) || roomWords.some(word=>text.includes(word));
-      });
-  };
-  const unlinkedRoomJournalRows = (projectName) => {
-    const linked = new Set((roomWorks||[])
-      .filter(w=>(w.project||'')===projectName)
-      .map(journalRoomLinkKey));
-    return roomRelevantJournalRows(projectName).filter(w=>!linked.has(journalRoomLinkKey(w)));
-  };
-  const roomControlTaskDescriptorsForProject = (projectName, reason='Фоновая проверка помещений') => {
-    if (!projectName) return [];
-    const projectRooms = (rooms||[]).filter(r=>r.project===projectName);
-    const descriptors = [];
-    const badRooms = projectRooms
-      .map(room=>({room,check:roomCompleteness(room)}))
-      .filter(x=>x.check.status!=='Обмер полный');
-    if (projectRooms.length===0) {
-      const marker = roomControlMarker('measurements', projectName);
-      descriptors.push({
-        marker,
-        projectName,
-        title:'Добавить помещения и обмеры: '+projectName,
-        description:'Автоконтроль помещений после события: '+reason+'.\nОбъект: '+projectName+'.\n\nВ объекте нет помещений. Без помещений система не сможет сверять фактические работы со стенами, полом, потолком, окнами, дверями и откосами.\n\nЧто сделать: открыть `Проект / Обмеры` или `Помещения`, загрузить проект/обмер или создать помещения вручную.',
-        assignedRole:'прораб',
-        actionLabel:'Открыть обмеры',
-        actionPayload:{type:'room_measurement_review',marker,projectName,reason}
-      });
-    } else if (badRooms.length>0) {
-      const marker = roomControlMarker('measurements', projectName);
-      descriptors.push({
-        marker,
-        projectName,
-        title:'Уточнить обмеры: '+projectName+' — '+badRooms.length+' помещ.',
-        description:roomControlDescription('measurements', projectName, badRooms, reason),
-        assignedRole:'прораб',
-        actionLabel:'Открыть помещения',
-        actionPayload:{type:'room_measurement_review',marker,projectName,reason,count:badRooms.length}
-      });
-    }
-    const unlinked = unlinkedRoomJournalRows(projectName);
-    if (projectRooms.length>0 && unlinked.length>0) {
-      const marker = roomControlMarker('work_links', projectName);
-      descriptors.push({
-        marker,
-        projectName,
-        title:'Привязать ЖПР к помещениям: '+projectName+' — '+unlinked.length+' зап.',
-        description:roomControlDescription('work_links', projectName, unlinked, reason),
-        assignedRole:'прораб',
-        actionLabel:'Открыть ЖПР',
-        actionPayload:{type:'work_room_link_review',marker,projectName,reason,count:unlinked.length}
-      });
-    }
-    return descriptors;
-  };
-  const roomControlSignatureForProject = (projectName) => {
-    const projectRooms = (rooms||[]).filter(r=>r.project===projectName);
-    const badRooms = projectRooms.map(room=>roomCompleteness(room)).filter(c=>c.status!=='Обмер полный');
-    const unlinked = unlinkedRoomJournalRows(projectName);
-    return [
-      projectRooms.length,
-      badRooms.length,
-      badRooms.map(c=>c.status+':'+c.issues.join(',')).join(';'),
-      unlinked.length,
-      unlinked.slice(0,40).map(w=>w.id||journalRoomLinkKey(w)).join(',')
-    ].join('|');
   };
   const queueRoomControlTask = async (descriptor) => {
     if (!descriptor?.marker || !descriptor.projectName) return;
