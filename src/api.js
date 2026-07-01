@@ -84,8 +84,14 @@ export const installAuthFetch = () => {
   window.fetch = async (input, init = {}) => {
     const path = getRequestPath(input);
     const isPublicAuthRequest = isAuthPublicPath(path);
-    const token = localStorage.getItem('authToken');
-    if (!token || isPublicAuthRequest) return nativeFetch(input, init);
+    if (isPublicAuthRequest) return nativeFetch(input, init);
+    let token = '';
+    try {
+      token = localStorage.getItem('authToken') || '';
+    } catch (_e) {
+      token = '';
+    }
+    if (!token) return nativeFetch(input, init);
     const headers = new Headers(init.headers || {});
     if (!headers.has('Authorization')) headers.set('Authorization', 'Bearer ' + token);
     const response = await nativeFetch(input, {...init, headers});
