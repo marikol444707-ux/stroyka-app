@@ -100,8 +100,7 @@ import {
 } from './app/lazyComponents';
 import { buildLeadPayload } from './features/crm/leadUtils';
 import WorkAssignmentModal, { WorkAssignmentStatusPanel } from './features/work-assignment';
-import { buildPerformerContractHtml } from './utils/contractTemplates';
-import { createAppPrintBuilders, createPrintDocContext } from './utils/appPrintBuilders';
+import { createDocumentActions } from './features/documents/documentActions';
 import AppSidebar from './components/AppSidebar';
 import AppHeaderBar from './components/AppHeaderBar';
 import DashboardTopBar from './components/DashboardTopBar';
@@ -352,28 +351,10 @@ import {
 } from './utils/materialDocumentUtils';
 import { actStatusForJournalWork } from './utils/hiddenActUtils';
 import {
-  buildBrigadeActDocContent,
-  buildCableJournalDocContent,
-  buildDailyObjectReportDocContent,
   buildEstimateDiffDocContent,
   buildEstimateMeasurementComparisonDocContent,
   buildEstimateReconciliationDocContent,
-  buildHiddenActDocContent,
-  buildInventoryDocContent,
-  buildInvoiceDocContent,
-  buildJPRDocContent,
-  buildKS2DocContent,
-  buildKS3DocContent,
-  buildMaterialInspectionDocContent,
   buildMaterialNormCoverageDocContent,
-  buildMasterActDocContent,
-  buildMovementDocContent,
-  buildPassportDocContent,
-  buildPositionInstructionDocContent,
-  buildPrescriptionDocContent,
-  buildPricelistDocContent,
-  buildTBContentDoc,
-  buildWorkJournalDocContent,
   buildWorkJournalEstimateReconciliationDocContent,
   fmtDocMoney,
 } from './utils/printDocumentBuilders';
@@ -386,7 +367,7 @@ import {
   signedEstimateChangeTotal,
 } from './utils/estimateChangeUtils';
 import { emptyStaffForm } from './utils/staffUtils';
-import { buildInvoicePrintPayload, buildScanDraftInvoiceNumber } from './utils/accountingInvoices';
+import { buildScanDraftInvoiceNumber } from './utils/accountingInvoices';
 import {
   isActiveSupplyRequestStatus,
   isSameSupplyMaterial,
@@ -2045,79 +2026,6 @@ function App() {
     setNewMovement({materialName:'',fromLocation:'Основной склад',toLocation:'',quantity:'',unit:'шт',notes:'',selectedMaterials:[]});
   };
 
-  const buildMovementDoc = (movement, items) => buildMovementDocContent(movement, items, {
-    companyRequisites,
-    companyName,
-    userName: user?.name || '',
-  });
-
-  const buildInventoryDoc = (inv, items) => buildInventoryDocContent(inv, items, {
-    companyRequisites,
-    companyName,
-  });
-  const buildDailyObjectReportContent = (date) => buildDailyObjectReportDocContent(date, {
-    companyRequisites,
-    companyName,
-    user,
-    projects,
-    workJournal,
-  });
-
-  const buildJPRContent = (projectName) => buildJPRDocContent(projectName, {
-    companyRequisites,
-    companyName,
-    projects,
-    users,
-    workJournal,
-    hiddenActs,
-    materialInspections,
-    prescriptionsList,
-    tbJournal,
-    cableJournal,
-    weatherLog,
-  });
-
-  const buildActContent = (act) => buildMasterActDocContent(act, {
-    companyRequisites,
-    companyName,
-    masterProfiles,
-    workJournal,
-    actPayments,
-    tools,
-    ownExpenses,
-    accountablePayments,
-  });
-
-  const showKS2 = (project) => {
-    // Раздел 1 — выполненные позиции сметы по цене заказчику (единый источник — смета).
-    let sourceItems = ks2ItemsFromEstimate(project);
-    const pw = workJournal.filter(j=>j.project===project.name&&j.status==='Подтверждено');
-    if(sourceItems.length===0) sourceItems = pw.filter(j=>!j.unexpectedWorkId); // запасной вариант, если сметы нет
-    const additionalVolumeItems = estimateChangeRowsForDocs(project.name, 'additional');
-    const outsideEstimateItems = estimateChangeRowsForDocs(project.name, 'outside');
-    const html = buildKS2DocContent(project, {
-      sourceItems,
-      additionalVolumeItems,
-      outsideEstimateItems,
-    }, {
-      companyRequisites,
-      companyName,
-    });
-    showPreview(html,'КС-2 — '+project.name);
-  };
-
-  const buildKS3Content = (project) => buildKS3DocContent(project, {
-    companyRequisites,
-    companyName,
-    ks2ItemsFromEstimate,
-    estimateChangeRowsForDocs,
-  });
-
-  const buildBrigadeActContent = (bc) => buildBrigadeActDocContent(bc, {
-    companyRequisites,
-    companyName,
-    allBrigadeItems,
-  });
   const findUserForStaff = (st) => findUserForStaffRow(st, users);
   const staffAccessRoles = Object.keys(ROLE_LABELS).filter(r=>!['заказчик','поставщик','system_owner','platform_admin','platform_support','billing_admin','account_owner','account_admin'].includes(r));
   const staffProjectRequiredRoles = ['прораб','технадзор','стройконтроль','мастер','субподрядчик','бригадир'];
@@ -2165,91 +2073,6 @@ function App() {
     users,
     masterProfiles,
   });
-  const buildContractContent = (profile, contract, items=[]) => {
-    const performer = resolveContractPerformer(contract, profile);
-    const warning = contractRequisitesWarning(performer, contract?.contractType||contract?.contractorType||performer.contractType);
-    const body = buildPerformerContractHtml({
-      company: companyRequisites&&companyRequisites.fullName ? companyRequisites : companyName,
-      performer,
-      contract,
-      items,
-    });
-    return warning ? '<div style="border:1px solid #f59e0b;background:#fff7ed;padding:10px 12px;margin-bottom:12px;border-radius:8px;color:#92400e"><b>Внимание:</b> '+warning+'</div>'+body : body;
-  };
-
-  const buildHiddenActContent = (act) => buildHiddenActDocContent(act, {
-    companyRequisites,
-    companyName,
-  });
-
-  const buildWorkJournalContent = (records, projectName, dateFrom, dateTo) => buildWorkJournalDocContent(records, projectName, dateFrom, dateTo, {
-    companyRequisites,
-    companyName,
-    projects,
-  });
-
-  const buildMaterialInspectionContent = (records, projectName, dateFrom, dateTo) => buildMaterialInspectionDocContent(records, projectName, dateFrom, dateTo, {
-    companyRequisites,
-    companyName,
-    projects,
-  });
-
-  const buildCableJournalContent = (records, projectName, dateFrom, dateTo) => buildCableJournalDocContent(records, projectName, dateFrom, dateTo, {
-    companyRequisites,
-    companyName,
-    projects,
-    cableTypeOf,
-  });
-
-  const buildPrescriptionContent = (pr) => buildPrescriptionDocContent(pr, {
-    companyRequisites,
-    companyName,
-    project: projects.find(p=>p.name===pr.projectName)||{},
-  });
-
-  const buildTBContent = (entry) => buildTBContentDoc(entry, {
-    companyRequisites,
-    companyName,
-  });
-
-  const buildPricelistContent = (pl, items) => buildPricelistDocContent(pl, items, {
-    companyRequisites,
-    companyName,
-  });
-
-  const buildPositionInstructionContent = (role, name) => buildPositionInstructionDocContent(role, name, {
-    companyRequisites,
-    companyName,
-  });
-
-  const buildPassportContent = (project) => buildPassportDocContent(project, {
-    companyRequisites,
-    companyName,
-    rooms,
-    roomWindows,
-    roomDoors,
-    expByCategory,
-    isFinanceRole,
-    getRoomNetWall,
-    calcWindowArea,
-    calcDoorArea,
-    calcWindowReveals,
-    calcDoorReveals,
-  });
-
-  const buildInvoiceContent = (inv) => {
-    const invoiceRows = warehouseInvoiceItems(inv);
-    const estimateControlRows = warehouseInvoiceEstimateControl(inv);
-    return buildInvoiceDocContent(buildInvoicePrintPayload({
-      inv,
-      invoiceRows,
-      estimateControlRows,
-      calcVat,
-      qrUrl: generateQR(window.location.origin+'/?invoice='+inv.id+'&number='+inv.number),
-      isSupplyDelivery: isSupplyDeliveryInvoice(inv),
-    }), printDocContext());
-  };
-
   const sendCompanyChatMessage = async (text, photoUrl) => {
     if (!text && !photoUrl) return;
     try {
@@ -4669,49 +4492,6 @@ function App() {
   // Хелпер: статус АОСР для записи журнала работ
   const getActStatusForJournal = (w) => actStatusForJournalWork(w, hiddenActs);
 
-  // Печатные формы получают текущий контекст приложения через фабрику оберток.
-  const printDocContext = createPrintDocContext({
-    companyRequisites,
-    companyName,
-    projects,
-    hiddenActs,
-    workJournal,
-    projectPlanDone,
-    materialInspections,
-    cableJournal,
-    tbJournal,
-    prescriptionsList,
-    supplierInvoices,
-    interimActs,
-    supervisorActs,
-    user,
-  });
-
-  const {
-    buildM15Content,
-    buildAOSKContent,
-    buildKS11Content,
-    buildKS14Content,
-    buildIGDContent,
-    buildSpecJournalContent,
-    buildM2Content,
-    buildM8Content,
-    buildMaterialRequirementContent,
-    buildVATBookContent,
-    buildSupplementaryAgreementContent,
-    buildExecPackageContent,
-    buildM29Content,
-    buildSupervisorMonthlyReport,
-  } = createAppPrintBuilders({
-    printDocContext,
-    projects,
-    materialTransfers,
-    activeEstimatesForProject,
-    materialReconciliationRows,
-    estimateWorkNormRequirementRows,
-    materialNormControlSummaryForProject,
-    workJournal,
-  });
   const isLeadership = () => isLeadershipUser(user);
   const isDirector = () => (user ? user.role : '') === 'директор';
   const canUseDirectorAgent = () => ['директор','system_owner'].includes(user?user.role:'');
@@ -4815,6 +4595,91 @@ function App() {
       generatedBy:user?.name||'',
     });
   };
+
+  const {
+    buildActContent,
+    buildBrigadeActContent,
+    buildCableJournalContent,
+    buildContractContent,
+    buildDailyObjectReportContent,
+    buildHiddenActContent,
+    buildInventoryDoc,
+    buildInvoiceContent,
+    buildJPRContent,
+    buildM15Content,
+    buildAOSKContent,
+    buildKS11Content,
+    buildKS14Content,
+    buildIGDContent,
+    buildSpecJournalContent,
+    buildM2Content,
+    buildM8Content,
+    buildMaterialRequirementContent,
+    buildVATBookContent,
+    buildSupplementaryAgreementContent,
+    buildExecPackageContent,
+    buildM29Content,
+    buildSupervisorMonthlyReport,
+    buildKS3Content,
+    buildMaterialInspectionContent,
+    buildMovementDoc,
+    buildPassportContent,
+    buildPositionInstructionContent,
+    buildPrescriptionContent,
+    buildPricelistContent,
+    buildTBContent,
+    buildWorkJournalContent,
+    showKS2,
+  } = createDocumentActions({
+    accountablePayments,
+    activeEstimatesForProject,
+    actPayments,
+    allBrigadeItems,
+    calcDoorArea,
+    calcDoorReveals,
+    calcVat,
+    calcWindowArea,
+    calcWindowReveals,
+    cableJournal,
+    cableTypeOf,
+    companyName,
+    companyRequisites,
+    contractRequisitesWarning,
+    estimateChangeRowsForDocs,
+    estimateWorkNormRequirementRows,
+    expByCategory,
+    generateQR,
+    getRoomNetWall,
+    hiddenActs,
+    interimActs,
+    isFinanceRole,
+    isSupplyDeliveryInvoice,
+    ks2ItemsFromEstimate,
+    materialInspections,
+    materialNormControlSummaryForProject,
+    materialReconciliationRows,
+    materialTransfers,
+    masterProfiles,
+    ownExpenses,
+    prescriptionsList,
+    projects,
+    resolveContractPerformer,
+    roomDoors,
+    rooms,
+    roomWindows,
+    showPreview,
+    supervisorActs,
+    supplierInvoices,
+    tbJournal,
+    tools,
+    user,
+    users,
+    warehouseInvoiceEstimateControl,
+    warehouseInvoiceItems,
+    weatherLog,
+    workJournal,
+  });
+
   const unreadNotifications = myNotifications(notifications).filter(n=>!n.read).length;
 
   const exportToExcel = exportToExcelFile;
