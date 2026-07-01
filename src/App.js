@@ -256,6 +256,7 @@ import {
   normalizeDocDate,
   workDocDate,
 } from './utils/documentFormatUtils';
+import { exportToExcelFile } from './utils/exportUtils';
 import { cableTypeOf } from './utils/cableUtils';
 import {
   contractRequisitesWarning,
@@ -6272,14 +6273,7 @@ function App() {
   };
   const unreadNotifications = myNotifications(notifications).filter(n=>!n.read).length;
 
-  const exportToExcel = (data, filename) => {
-    const headers = Object.keys(data[0]||{});
-    const rows = data.map(row=>headers.map(h=>row[h]||'').join('\t'));
-    const blob = new Blob(['\ufeff'+[headers.join('\t'),...rows].join('\n')],{type:'text/tab-separated-values;charset=utf-8'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href=url; a.download=filename+'.xls'; a.click();
-    URL.revokeObjectURL(url);
-  };
+  const exportToExcel = exportToExcelFile;
 
   const readApiResult = async (res) => {
     const text = await res.text();
