@@ -531,9 +531,65 @@ def has_work_execution_package_access(user: dict, project: str, work_package: st
     package = (work_package or "Основная").strip() or "Основная"
     return has_package_access(user, package)
 
+def _worker_contract_scope_pairs(cur, user: dict) -> list[tuple[str, str]]:
+    if user.get("role") not in WORKER_EXECUTION_ROLES:
+        return []
+    try:
+        user_id = int(user.get("id") or 0)
+    except Exception:
+        user_id = 0
+    user_name = (user.get("name") or "").strip()
+    if user_id <= 0 and not user_name:
+        return []
+    cur.execute("""SELECT DISTINCT
+                          bc.project_name,
+                          COALESCE(NULLIF(bci.work_package,''), NULLIF(bc.work_package,''), 'Основная') AS work_package
+                   FROM brigade_contract_items bci
+                   JOIN brigade_contracts bc ON bc.id=bci.contract_id
+                   WHERE COALESCE(bc.status,'') NOT IN ('Аннулирован','Удалён','Удален')
+                     AND (
+                       COALESCE(bc.contractor_id,0)=%s
+                       OR (
+                         COALESCE(bc.contractor_id,0)=0
+                         AND LOWER(TRIM(COALESCE(bc.brigade_name,'')))=LOWER(TRIM(%s))
+                       )
+                     )""", (user_id, user_name))
+    scopes = []
+    for row in cur.fetchall() or []:
+        project = (row.get("project_name") if isinstance(row, dict) else row[0]) or ""
+        package = (row.get("work_package") if isinstance(row, dict) else row[1]) or "Основная"
+        project = str(project).strip()
+        package = str(package).strip() or "Основная"
+        if project:
+            scopes.append((project, package))
+    return scopes
+
 def enrich_worker_project_links(cur, user: dict) -> dict:
-    """Права исполнителя задаются только явными assignedProjects/assignedPackages."""
-    return user
+    """Назначенные договорные позиции тоже открывают исполнителю объект и пакет."""
+    if user.get("role") not in WORKER_EXECUTION_ROLES:
+        return user
+    try:
+        scopes = _worker_contract_scope_pairs(cur, user)
+    except Exception:
+        return user
+    if not scopes:
+        return user
+    enriched = dict(user)
+    projects = _safe_project_list(enriched.get("assignedProjects", enriched.get("assigned_projects", [])))
+    packages = _safe_project_list(enriched.get("assignedPackages", enriched.get("assigned_packages", [])))
+    for project, package in scopes:
+        if project and project not in projects:
+            projects.append(project)
+        if package and package not in packages:
+            packages.append(package)
+    if not (enriched.get("projectName") or enriched.get("project_name")) and projects:
+        enriched["project_name"] = projects[0]
+        enriched["projectName"] = projects[0]
+    enriched["assigned_projects"] = projects
+    enriched["assignedProjects"] = projects
+    enriched["assigned_packages"] = packages
+    enriched["assignedPackages"] = packages
+    return enriched
 
 def _normalize_supplier_name_key(value: str) -> str:
     text = str(value or "").lower().replace("ё", "е")
@@ -16049,7 +16105,7 @@ def _sanitize_worker_estimate_sections(sections, allowed_items=None, estimate_id
             if description:
                 allowed_by_name.add((section_name, description))
     sanitized_sections = []
-    for section in sections or []:
+    for section_idx, section in enumerate(sections or []):
         if not isinstance(section, dict):
             continue
         items = []

@@ -237,6 +237,26 @@ def rows(body):
     return body if isinstance(body, list) else []
 
 
+def clear_worker_explicit_access(worker_id):
+    conn = db_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            UPDATE users
+               SET project_name='',
+                   assigned_projects='[]'::jsonb,
+                   assigned_packages='[]'::jsonb
+             WHERE id=%s
+            """,
+            (worker_id,),
+        )
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
+
 def main():
     director_token = login_director()
     _, estimate_id, worker = prepare_scope()
@@ -268,6 +288,8 @@ def main():
         )
         if not created.get("ok") or not created.get("contractId") or len(created.get("items") or []) != 1:
             raise RuntimeError(f"work-assignment returned unexpected body: {created}")
+
+        clear_worker_explicit_access(worker["id"])
 
         _, worker_projects = api_json("GET", "/projects", token=worker_token, expected=200)
         if PROJECT_NAME not in {row.get("name") for row in rows(worker_projects) if isinstance(row, dict)}:

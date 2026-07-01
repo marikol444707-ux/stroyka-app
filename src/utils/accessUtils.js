@@ -92,7 +92,7 @@ export const visibleProjectsForUser = (list, user) => {
   if (['директор', 'зам_директора', 'бухгалтер', 'сметчик', 'главный_инженер'].includes(user.role)) return rows;
   if (['мастер', 'субподрядчик', 'бригадир'].includes(user.role)) {
     const mine = assignedProjectsForUser(user);
-    return mine.length > 0 ? rows.filter(project => mine.includes(project.name)) : [];
+    return mine.length > 0 ? rows.filter(project => mine.includes(project.name)) : rows;
   }
   if (['прораб', 'технадзор', 'стройконтроль'].includes(user.role)) {
     const mine = assignedProjectsForUser(user);
@@ -110,7 +110,7 @@ export const visibleEstimatesForUser = (list, user) => {
   const restrictPackages = ['мастер', 'субподрядчик', 'бригадир'].includes(user.role);
   return rows.filter(estimate => {
     const projectOk = projectNames.length === 0 || projectNames.includes(estimate.projectName || estimate.project_name || estimate.project || '');
-    const packageOk = !restrictPackages || (packageNames.length > 0 && packageNames.includes(estimatePackage(estimate)));
+    const packageOk = !restrictPackages || packageNames.length === 0 || packageNames.includes(estimatePackage(estimate));
     return projectOk && packageOk;
   });
 };
