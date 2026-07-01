@@ -96,6 +96,7 @@ import {
   DashboardSupplyPanel,
   MasterCabinetPage,
 } from './app/lazyComponents';
+import { buildLeadPayload } from './features/crm/leadUtils';
 import { buildPerformerContractHtml } from './utils/contractTemplates';
 import AppSidebar from './components/AppSidebar';
 import AppHeaderBar from './components/AppHeaderBar';
@@ -373,7 +374,7 @@ import {
 } from './utils/estimateChangeUtils';
 import { emptyStaffForm } from './utils/staffUtils';
 import { emptySupplierForm, normalizeSupplierPayload } from './utils/supplierUtils';
-import { buildScanDraftInvoiceNumber } from './utils/accountingInvoices';
+import { buildInvoicePrintPayload, buildScanDraftInvoiceNumber } from './utils/accountingInvoices';
 import {
   isActiveSupplyRequestStatus,
   isSameSupplyMaterial,
@@ -2237,26 +2238,14 @@ function App() {
   const buildInvoiceContent = (inv) => {
     const invoiceRows = warehouseInvoiceItems(inv);
     const estimateControlRows = warehouseInvoiceEstimateControl(inv);
-    const estimateControlIssues = estimateControlRows.filter(r=>['danger','warning'].includes(r.severity));
-    const rowsTotal = invoiceRows.items.reduce((s,it)=>s+(Number(it.total||0)||Number(it.quantity||0)*Number(it.price||0)),0);
-    const invoiceAmount = Number(inv.totalWithVat||0) || Number(inv.totalBase||0) || rowsTotal;
-    const calculatedVat = calcVat(invoiceAmount, inv.vat||'Без НДС');
-    const vatCalc = {
-      base: Number(inv.totalBase||0) || calculatedVat.base,
-      vat: Number(inv.totalVat||0) || calculatedVat.vat,
-      total: invoiceAmount,
-    };
-    const qrUrl = generateQR(window.location.origin+'/?invoice='+inv.id+'&number='+inv.number);
-    return buildInvoiceDocContent({
+    return buildInvoiceDocContent(buildInvoicePrintPayload({
       inv,
       invoiceRows,
       estimateControlRows,
-      estimateControlIssues,
-      vatCalc,
-      qrUrl,
+      calcVat,
+      qrUrl: generateQR(window.location.origin+'/?invoice='+inv.id+'&number='+inv.number),
       isSupplyDelivery: isSupplyDeliveryInvoice(inv),
-      compositeCount: estimateControlRows.filter(r=>r.isCompositeWorkMaterial || r.status === 'Комплектация работы').length,
-    }, printDocContext());
+    }), printDocContext());
   };
 
   const sendCompanyChatMessage = async (text, photoUrl) => {
@@ -2282,45 +2271,15 @@ function App() {
   };
 
   const saveLead = async (lead) => {
-    const body = {
-      name: lead.name || '',
-      phone: lead.phone || '',
-      email: lead.email || '',
-      source: lead.source || '',
-      budget: Number(lead.budget) || 0,
-      notes: lead.notes || '',
-      stage: lead.stage || 'Новый',
-      photoUrl: lead.photoUrl || '',
-      leadType: lead.leadType || 'Клиент',
-      counterpartyType: lead.counterpartyType || '',
-      responsibleName: lead.responsibleName || '',
-      nextContactAt: lead.nextContactAt || '',
-      address: lead.address || '',
-      workType: lead.workType || '',
-      area: Number(lead.area) || 0,
-      priority: lead.priority || 'Обычный',
-      lossReason: lead.lossReason || '',
-      legalForm: lead.legalForm || '',
-      passportData: lead.passportData || '',
-      inn: lead.inn || '',
-      kpp: lead.kpp || '',
-      ogrn: lead.ogrn || '',
-      legalAddress: lead.legalAddress || '',
-      contractSubject: lead.contractSubject || '',
-      bank: lead.bank || '',
-      bik: lead.bik || '',
-      bankAccount: lead.bankAccount || '',
-      corrAccount: lead.corrAccount || '',
-      signerName: lead.signerName || '',
-      signerBasis: lead.signerBasis || '',
-      estimateId: Number(lead.estimateId) || null,
-      documentStatus: lead.documentStatus || 'Не собраны',
-      reviewStatus: lead.reviewStatus || 'Новая',
-    };
+    const body = buildLeadPayload(lead);
     if (lead.id) {
       await fetch(API+'/crm/leads/'+lead.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     } else {
-      await fetch(API+'/crm/leads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,createdBy:user.name,createdAt:new Date().toISOString().split('T')[0]})});
+      await fetch(API+'/crm/leads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(buildLeadPayload(lead, {
+        createdBy: user.name,
+        createdAt: new Date().toISOString().split('T')[0],
+        includeCreateMeta: true,
+      }))});
     }
     const ls = await fetch(API+'/crm/lead-summaries').then(r=>r.json());
     setLeads(Array.isArray(ls)?ls:[]);

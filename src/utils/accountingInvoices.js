@@ -21,6 +21,36 @@ export const buildScanDraftInvoiceNumber = (date = new Date()) => {
   return `SCAN-${stamp}-${time}`;
 };
 
+export const buildInvoicePrintPayload = ({
+  inv = {},
+  invoiceRows = { items: [] },
+  estimateControlRows = [],
+  calcVat = (total) => ({ base: total, vat: 0, total }),
+  qrUrl = '',
+  isSupplyDelivery = false,
+} = {}) => {
+  const estimateControlIssues = (estimateControlRows || []).filter(row => ['danger', 'warning'].includes(row.severity));
+  const rowsTotal = (invoiceRows.items || []).reduce((sum, item) => (
+    sum + (Number(item.total || 0) || Number(item.quantity || 0) * Number(item.price || 0))
+  ), 0);
+  const invoiceAmount = Number(inv.totalWithVat || 0) || Number(inv.totalBase || 0) || rowsTotal;
+  const calculatedVat = calcVat(invoiceAmount, inv.vat || 'Без НДС');
+  return {
+    inv,
+    invoiceRows,
+    estimateControlRows,
+    estimateControlIssues,
+    vatCalc: {
+      base: Number(inv.totalBase || 0) || calculatedVat.base,
+      vat: Number(inv.totalVat || 0) || calculatedVat.vat,
+      total: invoiceAmount,
+    },
+    qrUrl,
+    isSupplyDelivery,
+    compositeCount: (estimateControlRows || []).filter(row => row.isCompositeWorkMaterial || row.status === 'Комплектация работы').length,
+  };
+};
+
 export const accountingStatusGroupLabels = {
   'Нет фото': 'Нет фото',
   'На проверке': 'На проверке',
