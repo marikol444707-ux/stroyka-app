@@ -1122,12 +1122,26 @@ function App() {
   }, [user, activePage]);
 
   const roleFlags = () => roleFlagsForUser(user);
+  const handleApiUnauthorized = () => {
+    try {
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+    } catch (e) {}
+    mobileLoadedScopesRef.current.clear();
+    mobileApiRequestsRef.current.clear();
+    setInitialDataLoaded(false);
+    setUser(null);
+  };
 
   const getApi = (path, fallback = []) => {
     if (mobileApiRequestsRef.current.has(path)) return mobileApiRequestsRef.current.get(path);
     const token = localStorage.getItem('authToken');
     const request = fetch(API + path, token ? {headers: {Authorization: 'Bearer ' + token}} : undefined)
-      .then(r => r.ok ? r.json() : fallback)
+      .then(r => {
+        if (r.ok) return r.json();
+        if (r.status === 401) handleApiUnauthorized();
+        return fallback;
+      })
       .catch(() => fallback)
       .finally(() => mobileApiRequestsRef.current.delete(path));
     mobileApiRequestsRef.current.set(path, request);
@@ -1524,7 +1538,11 @@ function App() {
       } = roleFlagsForUser(user);
       const token = localStorage.getItem('authToken');
       const get = (path, fallback = []) => fetch(API + path, token ? {headers: {Authorization: 'Bearer ' + token}} : undefined)
-        .then(r => r.ok ? r.json() : fallback)
+        .then(r => {
+          if (r.ok) return r.json();
+          if (r.status === 401) handleApiUnauthorized();
+          return fallback;
+        })
         .catch(() => fallback);
       const skip = (fallback = []) => Promise.resolve(fallback);
 
