@@ -60,6 +60,7 @@ import ProjectPrescriptionsPanel from './components/ProjectPrescriptionsPanel';
 import ProjectSafetyJournalPanel from './components/ProjectSafetyJournalPanel';
 import ProjectWorkJournalPanel from './components/ProjectWorkJournalPanel';
 import ProjectScheduleSummaryPanel from './components/ProjectScheduleSummaryPanel';
+import MaterialReconciliationPanel from './components/MaterialReconciliationPanel';
 import { ProjectDirectorMapPanel, buildDirectorMapContract, getDirectorMapActionTarget } from './features/director-map';
 import PreviewModal from './components/PreviewModal';
 import ImagePreviewModal from './components/ImagePreviewModal';
@@ -239,9 +240,12 @@ import {
 } from './utils/projectEstimateItemsUtils';
 import { workJournalEstimateSummaryFor } from './utils/workJournalEstimateReconciliationUtils';
 import {
-  buildSupplyControlIssues,
-  buildSupplyControlReportData,
-} from './utils/supplyControlReportUtils';
+  buildDirectorBriefReportContentForDate,
+  buildDirectorEstimateControlIssues,
+  buildDirectorEstimateControlReportContent,
+  buildDirectorSupplyControlIssues,
+  buildDirectorSupplyControlReportContent,
+} from './utils/directorReportWorkflowUtils';
 import {
   invoiceControlMaterialName,
   invoiceControlNeedsReview,
@@ -343,17 +347,11 @@ import {
   packageMatches,
   parseJournalMaterialsValue,
 } from './utils/materialDocumentUtils';
-import {
-  buildEstimateControlIssues,
-  buildEstimateControlReportData,
-} from './utils/estimateControlUtils';
 import { actStatusForJournalWork } from './utils/hiddenActUtils';
 import {
   buildBrigadeActDocContent,
   buildCableJournalDocContent,
   buildDailyObjectReportDocContent,
-  buildDirectorBriefReportDocContent,
-  buildEstimateControlReportDocContent,
   buildEstimateDiffDocContent,
   buildEstimateMeasurementComparisonDocContent,
   buildEstimateReconciliationDocContent,
@@ -371,7 +369,6 @@ import {
   buildPositionInstructionDocContent,
   buildPrescriptionDocContent,
   buildPricelistDocContent,
-  buildSupplyControlReportDocContent,
   buildTBContentDoc,
   buildWorkJournalDocContent,
   buildWorkJournalEstimateReconciliationDocContent,
@@ -398,7 +395,7 @@ import {
   supplyUnitKey,
 } from './utils/supplyUtils';
 import { aiSeverityMeta, estimateStatusView, isOpenAiStatus, materialControlStatus, materialNormCoverageMeta, materialNormStatus, workJournalEstimateStatusMeta } from './utils/statusMetaUtils';
-import { FolderKanban, Package, ScrollText, Search, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, Download, Upload, MapPin, FileText, Archive, QrCode, Calculator, Bot, GitBranch } from 'lucide-react';
+import { FolderKanban, Package, ScrollText, Search, Plus, Edit2, Trash2, Eye, Check, X, ChevronDown, ChevronUp, Download, Upload, MapPin, FileText, Archive, QrCode, Calculator, Bot, GitBranch } from 'lucide-react';
 
 installAuthFetch();
 
@@ -4658,57 +4655,29 @@ function App() {
       return {...prev, [workKey]: list.map(m=>materialNameKey(m.name)===key ? {...m, quantity, autoNorm:false} : m)};
     });
   };
-  const renderMaterialReconciliationPanel = (projectName, options={}) => {
-    const limit = options.limit || 25;
-    const title = options.title || '📊 Материалы: смета ↔ поставки ↔ склад';
-    const s = materialControlSummaryForProject(projectName);
-    const showMoney = isFinanceRole() || isLeadership() || ['кладовщик','снабженец','прораб','главный_инженер'].includes(user?.role);
-    return (<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.accentBorder}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap',marginBottom:'12px'}}>
-        <div>
-          <b style={{color:C.text,fontSize:'14px'}}>{title}</b>
-          <p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>План из активных смет; факт из заявок, поставок, накладных, перемещений, выдач и списаний.</p>
-        </div>
-        <button onClick={()=>showPreview(buildMaterialRequirementContent(projectName),'Потребность материалов — '+projectName)} style={{...btnB,fontSize:'12px',padding:'6px 12px'}}><Printer size={13}/>Печать</button>
-      </div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:'8px',marginBottom:'12px'}}>
-        <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>По смете</p><b style={{color:C.text,fontSize:'15px'}}>{s.planRows.length}</b></div>
-        <div style={{padding:'10px',backgroundColor:C.successLight,borderRadius:'8px',border:'1px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'10px',margin:'0 0 3px'}}>Поставлялось</p><b style={{color:C.success,fontSize:'15px'}}>{s.suppliedRows.length}</b></div>
-        <div style={{padding:'10px',backgroundColor:s.invoiceRows.length?C.infoLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.invoiceRows.length?C.infoBorder:C.border)}}><p style={{color:s.invoiceRows.length?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Накладные</p><b style={{color:s.invoiceRows.length?C.info:C.text,fontSize:'15px'}}>{s.invoiceRows.length}</b></div>
-        <div style={{padding:'10px',backgroundColor:s.deliveryRows.length?C.successLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.deliveryRows.length?C.successBorder:C.border)}}><p style={{color:s.deliveryRows.length?C.success:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Поставки</p><b style={{color:s.deliveryRows.length?C.success:C.text,fontSize:'15px'}}>{s.deliveryRows.length}</b></div>
-        <div style={{padding:'10px',backgroundColor:s.movedRows.length?C.infoLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.movedRows.length?C.infoBorder:C.border)}}><p style={{color:s.movedRows.length?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Перемещения</p><b style={{color:s.movedRows.length?C.info:C.text,fontSize:'15px'}}>{s.movedRows.length}</b></div>
-        <div style={{padding:'10px',backgroundColor:s.masterBalanceRows.length?C.infoLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.masterBalanceRows.length?C.infoBorder:C.border)}}><p style={{color:s.masterBalanceRows.length?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>У мастеров</p><b style={{color:s.masterBalanceRows.length?C.info:C.text,fontSize:'15px'}}>{s.masterBalanceRows.length}</b></div>
-        <div style={{padding:'10px',backgroundColor:s.toBuyRows.length?C.warningLight:C.successLight,borderRadius:'8px',border:'1px solid '+(s.toBuyRows.length?C.warningBorder:C.successBorder)}}><p style={{color:s.toBuyRows.length?C.warning:C.success,fontSize:'10px',margin:'0 0 3px'}}>Докупить</p><b style={{color:s.toBuyRows.length?C.warning:C.success,fontSize:'15px'}}>{s.toBuyRows.length}</b></div>
-        <div style={{padding:'10px',backgroundColor:s.outsideRows.length?C.dangerLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.outsideRows.length?C.dangerBorder:C.border)}}><p style={{color:s.outsideRows.length?C.danger:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Вне сметы</p><b style={{color:s.outsideRows.length?C.danger:C.text,fontSize:'15px'}}>{s.outsideRows.length}</b></div>
-        <div style={{padding:'10px',backgroundColor:s.mismatchRows.length?C.warningLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.mismatchRows.length?C.warningBorder:C.border)}}><p style={{color:s.mismatchRows.length?C.warning:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Ед. изм.</p><b style={{color:s.mismatchRows.length?C.warning:C.text,fontSize:'15px'}}>{s.mismatchRows.length}</b></div>
-        <div style={{padding:'10px',backgroundColor:s.stockMismatchRows.length?C.dangerLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.stockMismatchRows.length?C.dangerBorder:C.border)}}><p style={{color:s.stockMismatchRows.length?C.danger:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Расхождения</p><b style={{color:s.stockMismatchRows.length?C.danger:C.text,fontSize:'15px'}}>{s.stockMismatchRows.length}</b></div>
-        {showMoney&&<div style={{padding:'10px',backgroundColor:C.infoLight,borderRadius:'8px',border:'1px solid '+C.infoBorder}}><p style={{color:C.info,fontSize:'10px',margin:'0 0 3px'}}>План ₽</p><b style={{color:C.info,fontSize:'15px'}}>{Math.round(s.planSum).toLocaleString('ru-RU')}</b></div>}
-      </div>
-      {s.rows.length===0?<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'14px'}}>Нет сметных материалов и движений по объекту.</p>:<div style={{overflowX:'auto'}}>
-        <table style={{...tbl,fontSize:'11px',minWidth:'1420px'}}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>План</th><th style={tblH}>В заявках</th><th style={tblH}>В пути</th><th style={tblH}>Накладные</th><th style={tblH}>Поставки</th><th style={tblH}>Перемещено</th><th style={tblH}>Всего получено</th><th style={tblH}>Выдано</th><th style={tblH}>Списано</th><th style={tblH}>У мастеров</th><th style={tblH}>Остаток</th><th style={tblH}>Расчёт</th><th style={tblH}>Расх.</th><th style={tblH}>Докупить</th><th style={tblH}>Статус</th></tr></thead><tbody>
-          {s.rows.slice(0,limit).map(r=>{const st=materialControlStatus(r);return(<tr key={r.key}>
-            <td style={tblC}><b style={{fontSize:'12px'}}>{r.name}</b>{r.planSourceCount>1&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>Сгруппировано из {r.planSourceCount} строк сметы</p>}{r.sections.length>0&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{r.sections.slice(0,2).join(', ')}{r.sections.length>2?'…':''}</p>}{r.workRefs?.length>0&&<p style={{color:C.accent,fontSize:'10px',margin:'2px 0 0'}}>Работы: {r.workRefs.slice(0,2).join('; ')}{r.workRefs.length>2?'…':''}</p>}{r.aliases?.length>0&&<p style={{color:C.info,fontSize:'10px',margin:'2px 0 0'}}>Синонимы: {r.aliases.slice(0,2).join(', ')}{r.aliases.length>2?'…':''}</p>}{r.unitMismatch&&<p style={{color:C.warning,fontSize:'10px',margin:'2px 0 0'}}>⚠️ Разные единицы измерения</p>}{renderMaterialAliasControls(projectName,r)}</td>
-            <td style={tblC}>{r.planQty>0?fmtMeasure(r.planQty,r.unit):'—'}</td>
-            <td style={{...tblC,color:r.requested>0?C.info:C.textMuted}}>{fmtMeasure(r.requested,r.unit)}</td>
-            <td style={{...tblC,color:r.inTransit>0?C.warning:C.textMuted}}>{fmtMeasure(r.inTransit,r.unit)}</td>
-            <td style={{...tblC,color:r.invoiceReceived>0?C.success:C.textMuted}}>{fmtMeasure(r.invoiceReceived,r.unit)}</td>
-            <td style={{...tblC,color:r.supplyReceived>0?C.success:C.textMuted}}>{fmtMeasure(r.supplyReceived,r.unit)}</td>
-            <td style={{...tblC,color:r.movedNet!==0?C.info:C.textMuted}}>{fmtMeasure(r.movedNet,r.unit)}</td>
-            <td style={{...tblC,color:r.supplied>=r.planQty&&r.planQty>0?C.success:C.text}}>{fmtMeasure(r.supplied,r.unit)}</td>
-            <td style={tblC}>{fmtMeasure(r.issued,r.unit)}</td>
-            <td style={tblC}>{fmtMeasure(r.used,r.unit)}</td>
-            <td style={{...tblC,color:r.masterBalance>0?C.info:C.textMuted}}>{fmtMeasure(r.masterBalance,r.unit)}</td>
-            <td style={{...tblC,fontWeight:'600',color:r.stock>0?C.success:C.textMuted}}>{fmtMeasure(r.stock,r.unit)}</td>
-            <td style={{...tblC,color:r.expectedStock>0?C.text:C.textMuted}}>{fmtMeasure(r.expectedStock,r.unit)}</td>
-            <td style={{...tblC,fontWeight:'700',color:r.stockMismatch?C.danger:C.success}}>{r.stockMismatch?fmtMeasure(r.stockDiff,r.unit):'0'}</td>
-            <td style={{...tblC,fontWeight:'700',color:r.toBuy>0?C.warning:C.success}}>{fmtMeasure(r.toBuy,r.unit)}</td>
-            <td style={tblC}><span style={badge(st.color,st.bg,st.border)}>{st.label}{r.stockMismatch?' · '+fmtMeasure(r.stockDiff,r.unit):r.toBuy>0?' · '+fmtMeasure(r.toBuy,r.unit):r.shortage>0?' · '+fmtMeasure(r.shortage,r.unit):r.masterBalance>0?' · '+fmtMeasure(r.masterBalance,r.unit):''}</span>{renderMaterialSupplyAction(projectName,r)}</td>
-          </tr>);})}
-        </tbody></table>
-        {s.rows.length>limit&&<p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0'}}>Показаны первые {limit} строк. Полный список — в печатной ведомости.</p>}
-      </div>}
-    </div>);
-  };
+  const renderMaterialReconciliationPanel = (projectName, options={}) => (
+    <MaterialReconciliationPanel
+      projectName={projectName}
+      options={options}
+      C={C}
+      card={card}
+      btnB={btnB}
+      tbl={tbl}
+      tblH={tblH}
+      tblC={tblC}
+      badge={badge}
+      fmtMeasure={fmtMeasure}
+      materialControlSummaryForProject={materialControlSummaryForProject}
+      materialControlStatus={materialControlStatus}
+      renderMaterialAliasControls={renderMaterialAliasControls}
+      renderMaterialSupplyAction={renderMaterialSupplyAction}
+      showPreview={showPreview}
+      buildMaterialRequirementContent={buildMaterialRequirementContent}
+      isFinanceRole={isFinanceRole}
+      isLeadership={isLeadership}
+      user={user}
+    />
+  );
   // Себестоимость объекта = все категории из expByCategory (работы, материалы, доставка, топливо, и т.д.)
   const projectBudgetSpent = (p) => {
     if(!p) return projectBudgetSpentSummary(null);
@@ -4861,7 +4830,7 @@ function App() {
   const lowStock = materials.filter(m=>m.minQuantity&&m.quantity<m.minQuantity);
   const lowMainStock = warehouseMain.filter(m=>m.minQuantity&&m.quantity<m.minQuantity);
   const activeDirectorProjects = () => activeProjectsOnly(projects);
-  const buildDirectorBriefReportContent = (date) => buildDirectorBriefReportDocContent(date, {
+  const buildDirectorBriefReportContent = (date) => buildDirectorBriefReportContentForDate(date, {
     companyName,
     user,
     projects,
@@ -4873,20 +4842,17 @@ function App() {
     lowMainStock,
     projectBudgetSpent,
   });
-  const estimateControlIssues = (sourceEstimates = estimatesList) => {
-    return buildEstimateControlIssues({
-      sourceEstimates,
-      projects,
-      activeProjects: activeDirectorProjects(),
-      activeEstimatesForProject,
-    });
-  };
+  const estimateControlIssues = (sourceEstimates = estimatesList) => buildDirectorEstimateControlIssues({
+    sourceEstimates,
+    projects,
+    activeProjects: activeDirectorProjects(),
+    activeEstimatesForProject,
+  });
   const buildEstimateControlReportContent = (sourceEstimates = estimatesList) => {
     const issues = estimateControlIssues(sourceEstimates);
-    return buildEstimateControlReportDocContent(buildEstimateControlReportData({
+    return buildDirectorEstimateControlReportContent({
       sourceEstimates,
       issues,
-    }), {
       companyName,
       generatedBy: user?.name || '',
     });
@@ -4909,7 +4875,7 @@ function App() {
     const list = await loadEstimatesForDirectorReport();
     showPreview(buildEstimateControlReportContent(list),'Проверка смет директора');
   };
-  const supplyControlIssues = () => buildSupplyControlIssues({
+  const supplyControlIssues = () => buildDirectorSupplyControlIssues({
     lowMainStock,
     lowStock,
     supplyRequests,
@@ -4928,12 +4894,14 @@ function App() {
   });
   const buildSupplyControlReportContent = () => {
     const issues = supplyControlIssues();
-    return buildSupplyControlReportDocContent(buildSupplyControlReportData({
+    return buildDirectorSupplyControlReportContent({
       issues,
       supplyRequests,
       supplierOffers,
       supplierInvoices,
-    }), {companyName, generatedBy:user?.name||''});
+      companyName,
+      generatedBy:user?.name||'',
+    });
   };
   const unreadNotifications = myNotifications(notifications).filter(n=>!n.read).length;
 
