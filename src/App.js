@@ -1287,7 +1287,9 @@ function App() {
   const loadMobilePageData = async (page = activePage) => {
     if (!user || !isMobile) return;
     const {role,isLeadershipRole,isFinanceRole,isWarehouseRole,isSupplyRole,canSeeSupplierInvoices,isInternalRole,canSeeProjectDocs} = roleFlags();
+    const isWorkerRole = ['мастер','субподрядчик','бригадир'].includes(role);
     const canLoadEstimates = canLoadEstimatesForUser();
+    const estimatesLoadPath = isWorkerRole ? '/estimates' : '/estimates-summary';
     if (page === 'dashboard') return loadMobileScopeOnce('mobile:dashboard', async () => {
       const [aif,ait,sh,sd,scat] = await Promise.all([
         canSeeProjectDocs ? getApi('/ai-findings') : Promise.resolve([]),
@@ -1315,7 +1317,7 @@ function App() {
         canSeeProjectDocs ? getApi('/project-checklists') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/prescriptions') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/unexpected-works') : Promise.resolve([]),
-        canSeeProjectDocs ? getApi('/estimates-summary') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi(estimatesLoadPath) : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/estimate-reconciliations') : Promise.resolve([]),
         (isInternalRole || isFinanceRole) ? getApi('/brigade-contracts') : Promise.resolve([]),
         (isInternalRole || isFinanceRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/brigade-contract-items-all') : Promise.resolve([]),
@@ -1347,7 +1349,7 @@ function App() {
     });
     if (page === 'estimates') return loadMobileScopeOnce('mobile:estimates', async () => {
       const [est,er,pl,mn,ma,mno,mns,bc,abi,abp] = await Promise.all([
-        canLoadEstimates ? getApi('/estimates-summary') : Promise.resolve([]),
+        canLoadEstimates ? getApi(estimatesLoadPath) : Promise.resolve([]),
         canLoadEstimates ? getApi('/estimate-reconciliations') : Promise.resolve([]),
         ((isInternalRole && !['мастер','субподрядчик','бригадир'].includes(role)) || role === 'технадзор') ? getApi('/pricelists') : Promise.resolve([]),
         canSeeProjectDocs ? getApi(pagedPath('/material-norms', {limit: MATERIAL_NORMS_PAGE_LIMIT})) : Promise.resolve([]),
@@ -1473,7 +1475,7 @@ function App() {
         isFinanceRole ? getApi('/project-payments') : Promise.resolve([]),
         isFinanceRole ? getApi('/expenses') : Promise.resolve([]),
         role === 'поставщик' ? Promise.resolve([]) : getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})),
-        canLoadEstimates ? getApi('/estimates-summary') : Promise.resolve([]),
+        canLoadEstimates ? getApi(estimatesLoadPath) : Promise.resolve([]),
       ]);
       setProjectPayments(Array.isArray(pp)?pp:[]);
       setManualExpenses(Array.isArray(me)?me:[]);
@@ -1524,7 +1526,9 @@ function App() {
         isInternalRole,
         canSeeProjectDocs,
       } = roleFlagsForUser(user);
+      const isWorkerRole = ['мастер','субподрядчик','бригадир'].includes(role);
       const canLoadEstimates = canLoadEstimatesForUser(user);
+      const estimatesLoadPath = isWorkerRole ? '/estimates' : '/estimates-summary';
       const token = localStorage.getItem('authToken');
       const get = (path, fallback = []) => fetch(API + path, token ? {headers: {Authorization: 'Bearer ' + token}} : undefined)
         .then(r => {
@@ -1575,7 +1579,7 @@ function App() {
         canSeeProjectDocs ? get('/project-checklists') : skip([]),
         canSeeProjectDocs ? get('/prescriptions') : skip([]),
         canSeeProjectDocs ? get('/unexpected-works') : skip([]),
-        canLoadEstimates ? get('/estimates-summary') : skip([]),
+        canLoadEstimates ? get(estimatesLoadPath) : skip([]),
         canLoadEstimates ? get('/estimate-reconciliations') : skip([]),
         (isInternalRole || isFinanceRole) ? get('/brigade-contracts') : skip([]),
         canSeeProjectDocs ? get('/hidden-works-acts') : skip([]),

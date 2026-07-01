@@ -278,6 +278,19 @@ def main():
         if not any(row.get("id") == estimate_id for row in estimate_rows if isinstance(row, dict)):
             raise RuntimeError("worker /estimates-summary does not include assigned estimate")
 
+        _, worker_full_estimates = api_json("GET", "/estimates", token=worker_token, expected=200)
+        full_estimate = next((row for row in rows(worker_full_estimates) if isinstance(row, dict) and row.get("id") == estimate_id), None)
+        if not full_estimate:
+            raise RuntimeError("worker /estimates does not include assigned estimate")
+        assigned_rows = [
+            item
+            for section in full_estimate.get("sections") or []
+            for item in (section.get("items") or [])
+            if isinstance(item, dict)
+        ]
+        if not any(row.get("estimateItemKey") == ITEM_KEY or row.get("name") == "Штукатурка стен smoke" for row in assigned_rows):
+            raise RuntimeError(f"worker /estimates does not include assigned section item: {full_estimate}")
+
         _, worker_items = api_json("GET", "/brigade-contract-items-all", token=worker_token, expected=200)
         item_rows = rows(worker_items)
         target = next((row for row in item_rows if isinstance(row, dict) and row.get("estimateItemKey") == ITEM_KEY), None)

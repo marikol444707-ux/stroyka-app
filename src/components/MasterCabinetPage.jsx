@@ -646,6 +646,8 @@ export default function MasterCabinetPage(props) {
                       sectionIdx: sectionIndex,
                       itemIdx: itemIndex,
                       section: section.name,
+                      quantity: assignedContractItem?.quantity ?? item.quantity,
+                      doneQuantity: assignedContractItem?.doneQuantity ?? assignedContractItem?.done_quantity ?? item.doneQuantity,
                       estimateItemKey: itemKey,
                       contractItemId: assignedContractItem?.id || null,
                       executionPricePerUnit: assignedContractItem?.priceBrigade || item.executionPricePerUnit,

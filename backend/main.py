@@ -16024,7 +16024,7 @@ def _worker_estimate_item_kind_for_sanitize(item):
     return "work"
 
 
-def _sanitize_worker_estimate_sections(sections, allowed_items=None):
+def _sanitize_worker_estimate_sections(sections, allowed_items=None, estimate_id=None):
     money_keys = (
         "priceWork", "priceMaterial", "totalWork", "totalMaterial", "lineTotal",
         "currentTotal", "total", "sum", "amount", "totalSum", "workTotal",
@@ -16054,17 +16054,18 @@ def _sanitize_worker_estimate_sections(sections, allowed_items=None):
             continue
         items = []
         section_name = str(section.get("name") or "").strip()
-        for item in section.get("items") or []:
+        for item_idx, item in enumerate(section.get("items") or []):
             if not isinstance(item, dict):
                 continue
             if _worker_estimate_item_kind_for_sanitize(item) in ("material", "equipment", "transport", "note", "adjustment"):
                 continue
             if allowed_items is not None:
-                item_key = str(item.get("estimateItemKey") or item.get("estimate_item_key") or "").strip()
+                item_keys = _estimate_item_key_candidates(item, estimate_id, section_idx, item_idx)
                 name_key = (section_name.lower(), str(item.get("name") or "").strip().lower())
-                if (item_key and item_key not in allowed_by_key) and name_key not in allowed_by_name:
+                has_allowed_key = any(item_key in allowed_by_key for item_key in item_keys)
+                if item_keys and not has_allowed_key and name_key not in allowed_by_name:
                     continue
-                if not item_key and name_key not in allowed_by_name:
+                if not item_keys and name_key not in allowed_by_name:
                     continue
             cleaned = dict(item)
             for key in money_keys:
@@ -16246,7 +16247,7 @@ def get_estimates(summary: bool = False, current_user: dict = Depends(get_curren
             # отсутствие не должно скрывать весь пакет: новая логика работает
             # без обязательного ручного наряда.
             allowed_items = worker_allowed_items_by_scope.get((r[2] or "", r[7] or "Основная"))
-            sections = _sanitize_worker_estimate_sections(sections, allowed_items if allowed_items else None)
+            sections = _sanitize_worker_estimate_sections(sections, allowed_items if allowed_items else None, estimate_id=r[0])
         summary_total = _estimate_sections_total_for_summary(sections)
         if role == "бухгалтер":
             sections = []
@@ -16304,7 +16305,7 @@ def get_estimate_detail(id: int, current_user: dict = Depends(get_current_user))
             [((r[2] or ""), (r[7] or "Основная"))],
         )
         allowed_items = allowed_by_scope.get((r[2] or "", r[7] or "Основная"))
-        sections = _sanitize_worker_estimate_sections(sections, allowed_items if allowed_items else None)
+        sections = _sanitize_worker_estimate_sections(sections, allowed_items if allowed_items else None, estimate_id=r[0])
     summary_total = _estimate_sections_total_for_summary(sections)
     if role == "бухгалтер":
         sections = []
@@ -17720,7 +17721,7 @@ def get_estimate_version_detail(version_id: int, _current_user: dict = Depends(r
     except:
         sections = []
     if _current_user.get("role") in WORKER_EXECUTION_ROLES:
-        sections = _sanitize_worker_estimate_sections(sections, allowed_items or [])
+        sections = _sanitize_worker_estimate_sections(sections, allowed_items or [], estimate_id=r[1])
     return {"id":r[0],"estimateId":r[1],"versionLabel":r[2] or "","sections":sections,"total":_sanitize_worker_estimate_total(_current_user, r[4]),"comment":r[5] or "","createdBy":r[6] or "","createdAt":str(r[7])}
 
 @app.delete("/estimates/{id}")
