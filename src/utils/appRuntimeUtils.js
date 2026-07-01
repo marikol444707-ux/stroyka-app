@@ -12,6 +12,24 @@ export const loadStoredUser = () => {
   }
 };
 
+export const readStoredJson = (key, fallback) => {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const value = localStorage.getItem(key);
+    return value ? JSON.parse(value) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+export const writeStoredJson = (key, value) => {
+  if (typeof window === 'undefined') return value;
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+  return value;
+};
+
 export const initialGuestPage = () => {
   if (typeof window === 'undefined') return 'site';
   const path = window.location.pathname.toLowerCase();

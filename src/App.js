@@ -190,6 +190,7 @@ import {
   normalizeImportedEstimateItem,
   sameEstimateGroup,
 } from './utils/estimateUtils';
+import { buildEstimateChatContext } from './utils/estimateChatUtils';
 import {
   estimateChangeAutoDecision,
   estimateChangeReconcileMarker,
@@ -250,9 +251,11 @@ import {
   matchSearchFields,
   mergeRowsByIdValue,
   mobileScopeForPage,
+  readStoredJson,
   readApiResult,
   requestPushPermission,
   sendPushNotification,
+  writeStoredJson,
 } from './utils/appRuntimeUtils';
 import {
   normalizeDocDate,
@@ -799,23 +802,21 @@ function App() {
   const [showReimburseModal, setShowReimburseModal] = useState(false);
   const [salaryMonth, setSalaryMonth] = useState(new Date().toISOString().slice(0,7));
   // Inline-правки премий/удержаний по сотруднику в месяце (хранится в localStorage)
-  const [salaryEdits, setSalaryEdits] = useState(() => { try { return JSON.parse(localStorage.getItem('salaryEdits')||'{}'); } catch(_) { return {}; } });
-  const [payrollExtras, setPayrollExtras] = useState(() => { try { return JSON.parse(localStorage.getItem('payrollExtras')||'{}'); } catch(_) { return {}; } });
+  const [salaryEdits, setSalaryEdits] = useState(() => readStoredJson('salaryEdits', {}));
+  const [payrollExtras, setPayrollExtras] = useState(() => readStoredJson('payrollExtras', {}));
   const setSalaryEdit = (month, staffId, field, value) => {
     setSalaryEdits(prev => {
       const next = {...prev};
       if(!next[month]) next[month] = {};
       if(!next[month][staffId]) next[month][staffId] = {};
       next[month][staffId][field] = value;
-      try { localStorage.setItem('salaryEdits', JSON.stringify(next)); } catch(_){}
-      return next;
+      return writeStoredJson('salaryEdits', next);
     });
   };
   const setPayrollExtra = (month, list) => {
     setPayrollExtras(prev => {
       const next = {...prev, [month]: list};
-      try { localStorage.setItem('payrollExtras', JSON.stringify(next)); } catch(_){}
-      return next;
+      return writeStoredJson('payrollExtras', next);
     });
   };
   // Универсальная проверка вхождения подстроки во все указанные поля
@@ -964,17 +965,7 @@ function App() {
     setEstimateChatMessages(localHistory);
     setEstimateChatLoading(true);
     try {
-      const fmt = (n) => Number(n||0).toLocaleString('ru-RU');
-      let total = 0;
-      const itemLines = (selectedEstimate.sections||[]).flatMap(s => (s.items||[]).map(i => {
-        const work = Number(i.priceWork||0);
-        const mat = Number(i.priceMaterial||0);
-        const qty = Number(i.quantity||0);
-        const sum = i.isImported ? work + mat : qty * (work + mat);
-        total += sum;
-        return '['+s.name+'] '+i.name+' | '+qty+' '+i.unit+' | работа '+work+'₽ материал '+mat+'₽ итого '+sum+'₽';
-      }));
-      const context = 'Смета "'+selectedEstimate.name+'"\nИтого: '+fmt(total)+' ₽\nПозиций: '+itemLines.length+'\n\nПОЗИЦИИ:\n'+itemLines.join('\n');
+      const context = buildEstimateChatContext(selectedEstimate);
       const res = await fetch(API+'/estimate-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({estimateId:selectedEstimate.id,message:msg,context,history:estimateChatMessages.map(m=>({role:m.role,content:m.content}))})});
       const data = await res.json();
       setEstimateChatMessages([...localHistory,{role:'assistant',content:data.response||'Ошибка ответа',id:data.assistantMessageId||Date.now()+1}]);
