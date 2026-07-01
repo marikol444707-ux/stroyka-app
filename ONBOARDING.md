@@ -517,25 +517,33 @@ npm run build
 Production smoke:
 
 ```bash
-SMOKE_EMAIL='admin@stroyka.ru' SMOKE_PASSWORD="$PASS" npm run smoke:prod
+SMOKE_EMAIL='nikolbas007@gmail.com' SMOKE_PASSWORD="$PASS" npm run smoke:prod
+```
+
+Если у пользователя включена 2FA, `smoke:prod` проверит пароль и публичные маршруты, а защищенные GET-проверки пропустит с пояснением. Для полного protected smoke передать текущий код или TOTP-секрет:
+
+```bash
+SMOKE_EMAIL='nikolbas007@gmail.com' SMOKE_PASSWORD="$PASS" SMOKE_2FA_CODE='123456' npm run smoke:prod
+# или
+SMOKE_EMAIL='nikolbas007@gmail.com' SMOKE_PASSWORD="$PASS" SMOKE_TOTP_SECRET='BASE32_SECRET' npm run smoke:prod
 ```
 
 Core chains:
 
 ```bash
-SMOKE_EMAIL='admin@stroyka.ru' SMOKE_PASSWORD="$PASS" npm run smoke:core-chains
+SMOKE_EMAIL='nikolbas007@gmail.com' SMOKE_PASSWORD="$PASS" npm run smoke:core-chains
 ```
 
 Снабжение и склад:
 
 ```bash
-SMOKE_EMAIL='admin@stroyka.ru' SMOKE_PASSWORD="$PASS" npm run smoke:supply-chain
+SMOKE_EMAIL='nikolbas007@gmail.com' SMOKE_PASSWORD="$PASS" npm run smoke:supply-chain
 ```
 
 ЖПР, АОСР, акт и оплата:
 
 ```bash
-SMOKE_EMAIL='admin@stroyka.ru' SMOKE_PASSWORD="$PASS" npm run smoke:work-doc-chain
+SMOKE_EMAIL='nikolbas007@gmail.com' SMOKE_PASSWORD="$PASS" npm run smoke:work-doc-chain
 ```
 
 Роли и пакеты:
@@ -548,13 +556,13 @@ npm run smoke:role-matrix
 Мои траты:
 
 ```bash
-SMOKE_EMAIL='admin@stroyka.ru' SMOKE_PASSWORD="$PASS" npm run smoke:own-expense
+SMOKE_EMAIL='nikolbas007@gmail.com' SMOKE_PASSWORD="$PASS" npm run smoke:own-expense
 ```
 
 Telegram-траты:
 
 ```bash
-SMOKE_EMAIL='admin@stroyka.ru' SMOKE_PASSWORD="$PASS" SMOKE_TELEGRAM_BOT_TOKEN='123456:ABC...' npm run smoke:telegram-expense
+SMOKE_EMAIL='nikolbas007@gmail.com' SMOKE_PASSWORD="$PASS" SMOKE_TELEGRAM_BOT_TOKEN='123456:ABC...' npm run smoke:telegram-expense
 ```
 
 Сметы и нормы:

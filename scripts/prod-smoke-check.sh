@@ -35,6 +35,29 @@ json_field() {
   python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get(sys.argv[1], ""))' "$field"
 }
 
+totp_code_from_secret() {
+  local secret="$1"
+  python3 - "$secret" <<'PY'
+import base64
+import hashlib
+import hmac
+import re
+import sys
+import time
+
+secret = re.sub(r"\s+", "", sys.argv[1] or "").upper()
+if not secret:
+    raise SystemExit(1)
+secret += "=" * (-len(secret) % 8)
+key = base64.b32decode(secret, casefold=True)
+counter = int(time.time()) // 30
+digest = hmac.new(key, counter.to_bytes(8, "big"), hashlib.sha1).digest()
+offset = digest[-1] & 0x0F
+code = (int.from_bytes(digest[offset:offset + 4], "big") & 0x7FFFFFFF) % 1000000
+print(str(code).zfill(6))
+PY
+}
+
 check_health() {
   local url="$1"
   local attempt
@@ -114,9 +137,34 @@ if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
   login_body="$(curl -skS -X POST "$BASE_URL/login" -H 'Content-Type: application/json' -d "$login_payload" || true)"
   token="$(printf '%s' "$login_body" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("authToken",""))' 2>/dev/null || true)"
   if [[ -z "$token" ]]; then
-    echo "FAIL login"
-    failures+=("login")
-  else
+    two_factor_required="$(printf '%s' "$login_body" | python3 -c 'import json,sys; data=json.load(sys.stdin); print("1" if data.get("twoFactorRequired") else "")' 2>/dev/null || true)"
+    two_factor_setup_required="$(printf '%s' "$login_body" | python3 -c 'import json,sys; data=json.load(sys.stdin); print("1" if data.get("twoFactorSetupRequired") else "")' 2>/dev/null || true)"
+    challenge_token="$(printf '%s' "$login_body" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("challengeToken",""))' 2>/dev/null || true)"
+    if [[ -n "$two_factor_required" && -n "$challenge_token" ]]; then
+      two_factor_code="${SMOKE_2FA_CODE:-}"
+      if [[ -z "$two_factor_code" && -n "${SMOKE_TOTP_SECRET:-}" ]]; then
+        two_factor_code="$(totp_code_from_secret "$SMOKE_TOTP_SECRET" 2>/dev/null || true)"
+      fi
+      if [[ -n "$two_factor_code" ]]; then
+        verify_payload="$(CHALLENGE_TOKEN="$challenge_token" TWO_FACTOR_CODE="$two_factor_code" python3 -c 'import json,os; print(json.dumps({"challengeToken": os.environ["CHALLENGE_TOKEN"], "code": os.environ["TWO_FACTOR_CODE"]}, ensure_ascii=False))')"
+        verify_body="$(curl -skS -X POST "$BASE_URL/login/2fa/verify" -H 'Content-Type: application/json' -d "$verify_payload" || true)"
+        token="$(printf '%s' "$verify_body" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("authToken",""))' 2>/dev/null || true)"
+        if [[ -z "$token" ]]; then
+          echo "FAIL login 2FA"
+          failures+=("login 2FA")
+        fi
+      else
+        echo "SKIP protected checks: login requires 2FA; set SMOKE_2FA_CODE or SMOKE_TOTP_SECRET"
+      fi
+    elif [[ -n "$two_factor_setup_required" ]]; then
+      echo "SKIP protected checks: login requires initial 2FA setup"
+    else
+      login_detail="$(printf '%s' "$login_body" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("detail",""))' 2>/dev/null || true)"
+      echo "FAIL login${login_detail:+: $login_detail}"
+      failures+=("login")
+    fi
+  fi
+  if [[ -n "$token" ]]; then
     echo "OK   login"
     protected_paths=(
       "/system-status"
