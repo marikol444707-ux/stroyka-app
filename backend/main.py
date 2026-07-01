@@ -23496,6 +23496,17 @@ def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_ro
         if existing_supplier_invoice_id:
             cur.close(); conn.close()
             raise HTTPException(status_code=409, detail="Складская накладная уже связана с другим счётом поставщика")
+    supplier_lookup_payload = {
+        **(data or {}),
+        "supplierName": data.get("supplierName") or data.get("supplier") or "",
+        "supplier": data.get("supplier") or data.get("supplierName") or "",
+    }
+    matched_supplier = _supplier_find_match(cur, supplier_lookup_payload)
+    if matched_supplier:
+        data["supplierId"] = matched_supplier["id"]
+        data["supplierName"] = matched_supplier["name"] or data.get("supplierName") or ""
+        _update_supplier_missing_fields(cur, matched_supplier["id"], supplier_lookup_payload)
+        _remember_supplier_alias(cur, matched_supplier["id"], supplier_lookup_payload, source="supplier_invoice")
     cur.execute("""INSERT INTO supplier_invoices
                    (supplier_id, supplier_name, project_name, invoice_number, invoice_date,
                     amount, vat_amount, description, file_url, photo_url, status,
@@ -25878,6 +25889,9 @@ register_crm_module(app, {
     "leadership_roles": LEADERSHIP_ROLES,
     "log_audit": log_audit,
     "prepare_user_access_scope": _prepare_user_access_scope,
+    "supplier_find_match": _supplier_find_match,
+    "supplier_update_missing_fields": _update_supplier_missing_fields,
+    "supplier_remember_alias": _remember_supplier_alias,
     "app_public_url": APP_PUBLIC_URL,
 })
 
