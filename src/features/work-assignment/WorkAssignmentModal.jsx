@@ -1,12 +1,44 @@
 import React, { useMemo, useState } from 'react';
 import { CheckSquare, UserCheck, X } from 'lucide-react';
 import { formatMoney, formatQty, toNumber, workRowsForEstimate } from './workAssignmentUtils';
+import { findUserForStaff, normalizePersonKey } from '../../utils/performerUtils';
 
-function performerRows(staff = []) {
-  return (staff || []).filter(item => {
+function isPerformer(item = {}) {
     const text = [item.role, item.systemRole, item.category, item.employmentType, item.position, item.name].map(value => String(value || '').toLowerCase()).join(' ');
     return ['мастер', 'субподрядчик', 'бригадир', 'электрик', 'слаботочник', 'отделочник', 'гпх', 'самозанятый', 'ип', 'ооо'].some(token => text.includes(token));
+}
+
+function performerRows(staff = [], users = []) {
+  const rows = [];
+  const seenKeys = new Set();
+  const seenUserIds = new Set();
+  const addRow = (item, key, userId = '') => {
+    if (!item || !key || seenKeys.has(key)) return;
+    seenKeys.add(key);
+    if (userId) seenUserIds.add(String(userId));
+    rows.push(item);
+  };
+  (staff || []).filter(isPerformer).forEach(item => {
+    const accessUser = findUserForStaff(item, users);
+    const contractorId = accessUser?.id || item.id;
+    addRow({
+      ...item,
+      id: contractorId,
+      contractorId,
+      role: item.role || accessUser?.role || '',
+      employmentType: item.employmentType || accessUser?.role || 'мастер',
+      email: accessUser?.email || item.email || item.emailWork || item.emailPersonal || '',
+    }, accessUser?.id ? 'user:' + accessUser.id : 'staff:' + (item.id || normalizePersonKey(item.name)), accessUser?.id);
   });
+  (users || []).filter(isPerformer).forEach(item => {
+    if (!item.id || seenUserIds.has(String(item.id))) return;
+    addRow({
+      ...item,
+      contractorId: item.id,
+      employmentType: item.role || 'мастер',
+    }, 'user:' + item.id, item.id);
+  });
+  return rows.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ru'));
 }
 
 export default function WorkAssignmentModal({
@@ -14,6 +46,7 @@ export default function WorkAssignmentModal({
   onClose,
   selectedEstimate,
   staff = [],
+  users = [],
   API,
   loadAll,
   C,
@@ -33,9 +66,9 @@ export default function WorkAssignmentModal({
   const [submitting, setSubmitting] = useState(false);
 
   const rows = useMemo(() => workRowsForEstimate(selectedEstimate), [selectedEstimate]);
-  const performers = useMemo(() => performerRows(staff), [staff]);
+  const performers = useMemo(() => performerRows(staff, users), [staff, users]);
   const selectedRows = rows.filter(row => selectedIds[row.id]);
-  const selectedPerformer = performers.find(item => String(item.id) === String(contractorId));
+  const selectedPerformer = performers.find(item => String(item.contractorId || item.id) === String(contractorId));
   const brigadeName = (selectedPerformer?.name || manualName || '').trim();
   const coef = Math.max(0, toNumber(coefficient));
   const selectedTotal = selectedRows.reduce((sum, row) => {
@@ -75,7 +108,7 @@ export default function WorkAssignmentModal({
     try {
       const payload = {
         assignee: {
-          contractorId: contractorId || null,
+          contractorId: selectedPerformer?.contractorId || contractorId || null,
           brigadeName,
           contractorType: selectedPerformer?.employmentType || selectedPerformer?.role || 'Своя бригада',
         },
@@ -140,7 +173,7 @@ export default function WorkAssignmentModal({
           <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(260px,1fr) 180px 180px', gap: '10px', marginBottom: '14px'}}>
             <select value={contractorId} onChange={event => { setContractorId(event.target.value); if (event.target.value) setManualName(''); }} style={{...inp, marginBottom: 0}}>
               <option value="">Выберите мастера / бригаду</option>
-              {performers.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+              {performers.map(item => <option key={(item.contractorId || item.id) + '-' + item.name} value={item.contractorId || item.id}>{item.name}</option>)}
             </select>
             <input value={manualName} onChange={event => { setManualName(event.target.value); if (event.target.value) setContractorId(''); }} placeholder="Или название бригады" style={{...inp, marginBottom: 0}} />
             <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px'}}>

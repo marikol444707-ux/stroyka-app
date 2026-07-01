@@ -9271,6 +9271,7 @@ function App() {
         onClose={()=>setShowWorkAssignment(false)}
         selectedEstimate={selectedEstimate}
         staff={staff}
+        users={users}
         API={API}
         loadAll={loadAll}
         C={C}
