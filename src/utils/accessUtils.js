@@ -91,8 +91,7 @@ export const visibleProjectsForUser = (list, user) => {
   if (!user) return rows;
   if (['директор', 'зам_директора', 'бухгалтер', 'сметчик', 'главный_инженер'].includes(user.role)) return rows;
   if (['мастер', 'субподрядчик', 'бригадир'].includes(user.role)) {
-    const mine = assignedProjectsForUser(user);
-    return mine.length > 0 ? rows.filter(project => mine.includes(project.name)) : rows;
+    return rows;
   }
   if (['прораб', 'технадзор', 'стройконтроль'].includes(user.role)) {
     const mine = assignedProjectsForUser(user);
@@ -105,6 +104,7 @@ export const visibleEstimatesForUser = (list, user) => {
   const rows = list || [];
   if (!user) return rows;
   if (['директор', 'зам_директора', 'бухгалтер', 'сметчик', 'главный_инженер'].includes(user.role)) return rows;
+  if (['мастер', 'субподрядчик', 'бригадир'].includes(user.role)) return rows;
   const projectNames = assignedProjectsForUser(user);
   const packageNames = assignedPackagesForUser(user);
   const restrictPackages = ['мастер', 'субподрядчик', 'бригадир'].includes(user.role);
