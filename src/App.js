@@ -248,6 +248,7 @@ import {
   loadStoredUser,
   matchSearchFields,
   mergeRowsByIdValue,
+  readApiResult,
   requestPushPermission,
   sendPushNotification,
 } from './utils/appRuntimeUtils';
@@ -6192,16 +6193,6 @@ function App() {
   const unreadNotifications = myNotifications(notifications).filter(n=>!n.read).length;
 
   const exportToExcel = exportToExcelFile;
-
-  const readApiResult = async (res) => {
-    const text = await res.text();
-    let data = null;
-    try { data = text ? JSON.parse(text) : null; } catch (e) {}
-    if (!res.ok) {
-      throw new Error(data?.detail || data?.error || text.slice(0, 240) || ('HTTP '+res.status));
-    }
-    return data;
-  };
 
   const saveProject = async () => {
     if (!newProject.name) { alert('Введите название'); return; }

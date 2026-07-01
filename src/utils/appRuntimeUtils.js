@@ -90,6 +90,18 @@ export const buildPagedPath = (path, params = {}) => {
   return queryString ? `${path}?${queryString}` : path;
 };
 
+export const readApiResult = async (res) => {
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch (e) {}
+  if (!res.ok) {
+    throw new Error(data?.detail || data?.error || text.slice(0, 240) || ('HTTP ' + res.status));
+  }
+  return data;
+};
+
 export const mergeRowsByIdValue = (current = [], incoming = []) => {
   const rows = new Map();
   [...(Array.isArray(current) ? current : []), ...(Array.isArray(incoming) ? incoming : [])].forEach((row, index) => {
