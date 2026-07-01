@@ -51,9 +51,24 @@ export const roleFlagsForUser = (user) => {
   const isWarehouseRole = ['директор', 'зам_директора', 'кладовщик', 'снабженец', 'прораб', 'главный_инженер'].includes(role);
   const isSupplyRole = ['директор', 'зам_директора', 'снабженец', 'кладовщик', 'прораб', 'мастер', 'субподрядчик', 'бригадир', 'поставщик', 'бухгалтер'].includes(role);
   const canSeeSupplierInvoices = ['директор', 'зам_директора', 'бухгалтер', 'снабженец', 'кладовщик', 'прораб', 'поставщик'].includes(role);
-  const isProjectRole = Boolean(role) && !['поставщик', 'system_owner'].includes(role);
+  const isProjectRole = [
+    'директор',
+    'зам_директора',
+    'бухгалтер',
+    'прораб',
+    'главный_инженер',
+    'сметчик',
+    'мастер',
+    'субподрядчик',
+    'бригадир',
+    'кладовщик',
+    'снабженец',
+    'технадзор',
+    'заказчик',
+    'стройконтроль',
+  ].includes(role);
   const isInternalRole = ['директор', 'зам_директора', 'бухгалтер', 'прораб', 'главный_инженер', 'сметчик', 'мастер', 'субподрядчик', 'бригадир', 'кладовщик', 'снабженец', 'менеджер_crm', 'стройконтроль'].includes(role);
-  const canSeeProjectDocs = isProjectRole || ['технадзор', 'заказчик'].includes(role);
+  const canSeeProjectDocs = isProjectRole;
   return { role, isLeadershipRole, isFinanceRole, isWarehouseRole, isSupplyRole, canSeeSupplierInvoices, isProjectRole, isInternalRole, canSeeProjectDocs };
 };
 

@@ -16,6 +16,7 @@ export default function AppOverlayLayer({
   setShowMobileMenu,
   menuItems,
   activePage,
+  navigateTo,
   setActivePage,
   showChatPanel,
   setShowChatPanel,
@@ -43,6 +44,7 @@ export default function AppOverlayLayer({
         setShowMobileMenu={setShowMobileMenu}
         menuItems={menuItems}
         activePage={activePage}
+        navigateTo={navigateTo}
         setActivePage={setActivePage}
         C={C}
       />
