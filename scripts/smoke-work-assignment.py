@@ -264,6 +264,11 @@ def main():
         director_token = create_temp_director_token()
     worker_token = auth_token_for(worker)
     try:
+        _, director_estimates = api_json("GET", "/estimates-summary", token=director_token, expected=200)
+        director_estimate_rows = rows(director_estimates)
+        if not any(row.get("id") == estimate_id for row in director_estimate_rows if isinstance(row, dict)):
+            raise RuntimeError("director /estimates-summary does not include active smoke estimate")
+
         _, created = api_json(
             "POST",
             f"/estimates/{estimate_id}/work-assignment",
@@ -332,6 +337,7 @@ def main():
             "estimateId": estimate_id,
             "contractId": created.get("contractId"),
             "workerItemId": target.get("id"),
+            "directorEstimateSummaryChecked": True,
             "deleteChecked": True,
         }, ensure_ascii=False, indent=2))
     finally:

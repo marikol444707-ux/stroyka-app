@@ -1102,6 +1102,9 @@ function App() {
     const flags = roleFlagsForUser(targetUser);
     return flags.canSeeProjectDocs || canAccessRole(targetUser, 'estimates', ROLES);
   };
+  const applyLoadedEstimates = (payload) => {
+    if (Array.isArray(payload)) setEstimatesList(normalizeEstimateList(payload));
+  };
   const handleApiUnauthorized = () => {
     try {
       localStorage.removeItem('authToken');
@@ -1311,7 +1314,7 @@ function App() {
         canSeeProjectDocs ? getApi('/project-checklists') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/prescriptions') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/unexpected-works') : Promise.resolve([]),
-        canSeeProjectDocs ? getApi(estimatesLoadPath) : Promise.resolve([]),
+        canSeeProjectDocs ? getApi(estimatesLoadPath, null) : Promise.resolve(null),
         canSeeProjectDocs ? getApi('/estimate-reconciliations') : Promise.resolve([]),
         (isInternalRole || isFinanceRole) ? getApi('/brigade-contracts') : Promise.resolve([]),
         (isInternalRole || isFinanceRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/brigade-contract-items-all') : Promise.resolve([]),
@@ -1334,7 +1337,7 @@ function App() {
       setRoomWindows(Array.isArray(rwin)?rwin:[]); setRoomDoors(Array.isArray(rdoor)?rdoor:[]);
       setProjectStages(Array.isArray(ps)?ps:[]); setChecklists(Array.isArray(pcl)?pcl:[]);
       setPrescriptionsList(Array.isArray(pres)?pres:[]); setUnexpectedWorksList(Array.isArray(uw)?uw:[]);
-      setEstimatesList(normalizeEstimateList(est)); setEstimateReconciliations(Array.isArray(er)?er:[]); setBrigadeContracts(Array.isArray(bc)?bc:[]); setAllBrigadeItems(Array.isArray(abi)?abi:[]);
+      applyLoadedEstimates(est); setEstimateReconciliations(Array.isArray(er)?er:[]); setBrigadeContracts(Array.isArray(bc)?bc:[]); setAllBrigadeItems(Array.isArray(abi)?abi:[]);
       setHiddenActs(Array.isArray(hwa)?hwa:[]); setMaterialInspections(Array.isArray(mij)?mij:[]);
       setCableJournal(Array.isArray(cbj)?cbj:[]); setSupervisorActs(Array.isArray(sva)?sva:[]);
       setInspectionOrders(Array.isArray(inspO)?inspO:[]); setWarrantyDefects(Array.isArray(warD)?warD:[]);
@@ -1343,7 +1346,7 @@ function App() {
     });
     if (page === 'estimates') return loadMobileScopeOnce('mobile:estimates', async () => {
       const [est,er,pl,mn,ma,mno,mns,bc,abi,abp] = await Promise.all([
-        canLoadEstimates ? getApi(estimatesLoadPath) : Promise.resolve([]),
+        canLoadEstimates ? getApi(estimatesLoadPath, null) : Promise.resolve(null),
         canLoadEstimates ? getApi('/estimate-reconciliations') : Promise.resolve([]),
         ((isInternalRole && !['мастер','субподрядчик','бригадир'].includes(role)) || role === 'технадзор') ? getApi('/pricelists') : Promise.resolve([]),
         canSeeProjectDocs ? getApi(pagedPath('/material-norms', {limit: MATERIAL_NORMS_PAGE_LIMIT})) : Promise.resolve([]),
@@ -1354,7 +1357,7 @@ function App() {
         (isInternalRole || isFinanceRole) ? getApi('/brigade-contract-items-all') : Promise.resolve([]),
         (isInternalRole || isFinanceRole) ? getApi('/brigade-payments') : Promise.resolve([]),
       ]);
-      setEstimatesList(normalizeEstimateList(est)); setEstimateReconciliations(Array.isArray(er)?er:[]); setPricelists(Array.isArray(pl)?pl:[]);
+      applyLoadedEstimates(est); setEstimateReconciliations(Array.isArray(er)?er:[]); setPricelists(Array.isArray(pl)?pl:[]);
       setMaterialNorms(Array.isArray(mn)?mn:[]); resetMaterialNormsPage(mn); setMaterialAliases(Array.isArray(ma)?ma:[]);
       setMaterialNormOverrides(Array.isArray(mno)?mno:[]); setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);
       setBrigadeContracts(Array.isArray(bc)?bc:[]); setAllBrigadeItems(Array.isArray(abi)?abi:[]);
@@ -1469,13 +1472,13 @@ function App() {
         isFinanceRole ? getApi('/project-payments') : Promise.resolve([]),
         isFinanceRole ? getApi('/expenses') : Promise.resolve([]),
         role === 'поставщик' ? Promise.resolve([]) : getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})),
-        canLoadEstimates ? getApi(estimatesLoadPath) : Promise.resolve([]),
+        canLoadEstimates ? getApi(estimatesLoadPath, null) : Promise.resolve(null),
       ]);
       setProjectPayments(Array.isArray(pp)?pp:[]);
       setManualExpenses(Array.isArray(me)?me:[]);
       setWorkJournal(Array.isArray(wj)?wj:[]);
       resetWorkJournalPage(wj);
-      setEstimatesList(normalizeEstimateList(est));
+      applyLoadedEstimates(est);
     });
     if (page === 'settings') return loadMobileScopeOnce('mobile:settings', async () => {
       const [cr,cd] = await Promise.all([
@@ -1573,7 +1576,7 @@ function App() {
         canSeeProjectDocs ? get('/project-checklists') : skip([]),
         canSeeProjectDocs ? get('/prescriptions') : skip([]),
         canSeeProjectDocs ? get('/unexpected-works') : skip([]),
-        canLoadEstimates ? get(estimatesLoadPath) : skip([]),
+        canLoadEstimates ? get(estimatesLoadPath, null) : skip(null),
         canLoadEstimates ? get('/estimate-reconciliations') : skip([]),
         (isInternalRole || isFinanceRole) ? get('/brigade-contracts') : skip([]),
         canSeeProjectDocs ? get('/hidden-works-acts') : skip([]),
@@ -1602,7 +1605,7 @@ function App() {
       setInventory(inv);setPdConsents(pdc);setWarehouses(Array.isArray(wh)?wh:[]);
       setCompanyRequisites(cr||{});setCompanyDocuments(Array.isArray(cd)?cd:[]);
       setProjectStages(Array.isArray(ps)?ps:[]);setChecklists(Array.isArray(pcl)?pcl:[]);
-      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(normalizeEstimateList(est));setEstimateReconciliations(Array.isArray(er)?er:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);setMaterialNorms(Array.isArray(mn)?mn:[]);resetMaterialNormsPage(mn);setMaterialAliases(Array.isArray(ma)?ma:[]);setMaterialNormOverrides(Array.isArray(mno)?mno:[]);setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);setAuditLog(Array.isArray(aud)?aud:[]);
+      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);applyLoadedEstimates(est);setEstimateReconciliations(Array.isArray(er)?er:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);setMaterialNorms(Array.isArray(mn)?mn:[]);resetMaterialNormsPage(mn);setMaterialAliases(Array.isArray(ma)?ma:[]);setMaterialNormOverrides(Array.isArray(mno)?mno:[]);setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);setAuditLog(Array.isArray(aud)?aud:[]);
       if (canSeeProjectDocs) try {
         const [rwin,rdoor] = await Promise.all([
           get('/room-windows'),
