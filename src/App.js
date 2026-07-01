@@ -354,7 +354,14 @@ import {
   buildWorkJournalEstimateReconciliationDocContent,
   fmtDocMoney,
 } from './utils/printDocumentBuilders';
-import { EMPTY_ESTIMATE_CHANGE, isApprovedEstimateChangeStatus } from './utils/estimateChangeUtils';
+import {
+  EMPTY_ESTIMATE_CHANGE,
+  estimateChangeRowsForDocsFromList,
+  estimateChangesForNewEstimateFromList,
+  includableEstimateChangesForProject,
+  isApprovedEstimateChangeStatus,
+  signedEstimateChangeTotal,
+} from './utils/estimateChangeUtils';
 import { emptyStaffForm } from './utils/staffUtils';
 import { emptySupplierForm, normalizeSupplierPayload } from './utils/supplierUtils';
 import {
@@ -3074,27 +3081,13 @@ function App() {
     workJournal,
   });
   const estimateItemOptionsForProject = (p) => estimateItemOptionsFromActiveEstimates(activeEstimatesForProject(p, 'Заказчик'));
-  const approvedEstimateChanges = (projectName) => (unexpectedWorksList||[]).filter(u=>
-    u.projectName===projectName &&
-    isApprovedEstimateChangeStatus(u.status) &&
-    u.changeType!=='Исключение объёма' &&
-    !u.includedInEstimateId
-  );
-  const includableEstimateChanges = (projectName) => (unexpectedWorksList||[]).filter(u=>
-    u.projectName===projectName &&
-    isApprovedEstimateChangeStatus(u.status) &&
-    !u.includedInEstimateId
-  );
-  const estimateChangesForNewEstimate = (project, est) => {
-    if (!project || !est) return [];
-    const activeCustomerEstimates = activeEstimatesForProject(project, 'Заказчик');
-    return includableEstimateChanges(project.name).filter(u=>{
-      if (u.estimateId) return Number(u.estimateId)===Number(est.id);
-      return activeCustomerEstimates.length===1;
-    });
-  };
-  const signedEstimateChangeTotal = (rows) => (rows||[]).reduce((s,u)=>
-    s + Number(u.total||0) * (u.changeType==='Исключение объёма' ? -1 : 1), 0);
+  const includableEstimateChanges = (projectName) => includableEstimateChangesForProject(projectName, unexpectedWorksList);
+  const estimateChangesForNewEstimate = (project, est) => estimateChangesForNewEstimateFromList({
+    project,
+    estimate: est,
+    unexpectedWorksList,
+    activeCustomerEstimates: project ? activeEstimatesForProject(project, 'Заказчик') : [],
+  });
   const includeChangesInNewEstimate = async (project, est, rows) => {
     if (!project || !est || !rows?.length) return;
     const signedTotal = signedEstimateChangeTotal(rows);
@@ -3115,22 +3108,7 @@ function App() {
     }
     notify('Создана новая версия сметы: '+(next?.name||''),'estimate');
   };
-  const estimateChangeRowsForDocs = (projectName, kind) => approvedEstimateChanges(projectName)
-    .filter(u=>kind==='additional'
-      ? u.changeType==='Дополнительный объём к строке сметы'
-      : u.changeType!=='Дополнительный объём к строке сметы')
-    .map(u=>{
-      const qty=Number(u.deltaQuantity||u.quantity||0);
-      const price=Number(u.price||0) || (qty>0 ? Number(u.total||0)/qty : 0);
-      return {
-        description:u.description||u.estimateItemName||'',
-        unit:u.unit||'шт',
-        quantity:qty,
-        pricePerUnit:price,
-        total:Math.round(Number(u.total||qty*price||0)),
-        changeType:u.changeType||'Работа вне сметы'
-      };
-    });
+  const estimateChangeRowsForDocs = (projectName, kind) => estimateChangeRowsForDocsFromList(projectName, kind, unexpectedWorksList);
   // Фактически освоено по проекту: журнал работ + наряды бригадные (по приёмке) + материалы на объекте
   const projectFactSpent = (p) => projectFactSpentValue({
     project: p,
