@@ -208,6 +208,11 @@ import {
   estimateMeasurementComparisonSummaryFor,
   projectMeasurementBasisTotalsFor,
 } from './utils/estimateMeasurementComparisonUtils';
+import {
+  estimateItemOptionsFromActiveEstimates,
+  ks2ItemsFromActiveEstimates,
+  projectPlanDoneFor,
+} from './utils/projectEstimateItemsUtils';
 import { workJournalEstimateSummaryFor } from './utils/workJournalEstimateReconciliationUtils';
 import {
   journalRoomLinkKey,
@@ -3059,77 +3064,16 @@ function App() {
     setEstimatesList(prev => (prev || []).filter(e => e.id !== est.id));
     setSelectedEstimate(prev => prev && prev.id === est.id ? null : prev);
   };
-  const projectPlanDone = (p) => {
-    const active = activeEstimatesForProject(p, 'Заказчик');
-    if(active.length===0) return {plan:0,done:0};
-    let pl=0,dn=0;
-    active.forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{ pl+=estimateItemTotal(it); dn+=estimateItemDoneTotal(it); })));
-    return {plan:pl,done:dn};
-  };
+  const projectPlanDone = (p) => projectPlanDoneFor(activeEstimatesForProject(p, 'Заказчик'));
   // Выполненные позиции сметы для КС-2/КС-3.
   // Если по смете уже есть ЖПР, в КС попадают только подтвержденные записи,
   // а цена берется из сметы заказчика. Это не дает вывести в КС объемы "На проверке".
-  const ks2ItemsFromEstimate = (p) => {
-    const active = activeEstimatesForProject(p, 'Заказчик');
-    if(active.length===0) return [];
-    const itemByKey = {};
-    const fallbackByName = {};
-    active.forEach(est=>_sectionsOfEst(est).forEach((s,sectionIdx)=>(s.items||[]).forEach((it,itemIdx)=>{
-        if(!isEstimateWorkItem(it,s.name)) return;
-        const pkg=estimatePackage(est);
-        const key=[est.id,sectionIdx,itemIdx].join(':');
-        const row={section:(pkg&&pkg!=='Основная'?pkg+' / ':'')+(s.name||''), workPackage:pkg, description:it.name||'', unit:it.unit||'', pricePerUnit:Number(estimateItemTotal(it))/Math.max(1,Number(it.quantity||0)), item:it};
-        itemByKey[key]=row;
-        fallbackByName[(pkg||'')+'|'+(s.name||'')+'|'+(it.name||'')]=row;
-        fallbackByName[(it.name||'').trim().toLowerCase()]=fallbackByName[(it.name||'').trim().toLowerCase()]||row;
-      })));
-    const linkedJournal = (workJournal||[]).filter(j=>j.project===p.name&&!j.unexpectedWorkId&&j.estimateItemKey);
-    if(linkedJournal.length>0){
-      const grouped = {};
-      linkedJournal.filter(j=>j.status==='Подтверждено').forEach(j=>{
-        const meta = itemByKey[j.estimateItemKey] ||
-          fallbackByName[(j.workPackage||'')+'|'+(j.sectionName||'')+'|'+(j.estimateItemName||j.description||'')] ||
-          fallbackByName[(j.estimateItemName||j.description||'').trim().toLowerCase()];
-        if(!meta) return;
-        const k = j.estimateItemKey || (meta.section+'|'+meta.description);
-        if(!grouped[k]) grouped[k]={...meta, quantity:0, total:0};
-        const qty = Number(j.quantity||0);
-        grouped[k].quantity += qty;
-        grouped[k].total += Number(j.customerTotal||0) || qty*Number(meta.pricePerUnit||0);
-      });
-      return Object.values(grouped).map(r=>({...r, total:Math.round(r.total)})).filter(r=>Number(r.quantity||0)>0);
-    }
-    const rows=[];
-    active.forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
-        if(!isEstimateWorkItem(it,s.name)) return;
-        const dq=Number(it.doneQuantity||0); if(dq<=0) return;
-        const total=estimateItemDoneTotal(it);
-        const price=dq>0 ? total/dq : 0;
-        const pkg=estimatePackage(est);
-        rows.push({section:(pkg&&pkg!=='Основная'?pkg+' / ':'')+(s.name||''), workPackage:pkg, description:it.name||'', unit:it.unit||'', quantity:dq, pricePerUnit:price, total:Math.round(total)});
-      })));
-    return rows;
-  };
-  const estimateItemOptionsForProject = (p) => {
-    const active = activeEstimatesForProject(p, 'Заказчик');
-    if(active.length===0) return [];
-    const rows=[];
-    active.forEach(est=>_sectionsOfEst(est).forEach((s,sectionIdx)=>(s.items||[]).forEach((it,itemIdx)=>{
-        if(!isEstimateWorkItem(it,s.name)) return;
-        rows.push({
-          key:[est.id,sectionIdx,itemIdx].join(':'),
-          estimateId:est.id,
-          workPackage:estimatePackage(est),
-          sectionName:s.name||'',
-          name:it.name||'',
-          unit:it.unit||'шт',
-          quantity:Number(it.quantity||0),
-          pricePerUnit:Number(it.priceWork||0)+Number(it.priceMaterial||0),
-          total:estimateItemTotal(it)
-        });
-      })));
-    return rows;
-  };
+  const ks2ItemsFromEstimate = (p) => ks2ItemsFromActiveEstimates({
+    project: p,
+    activeEstimates: activeEstimatesForProject(p, 'Заказчик'),
+    workJournal,
+  });
+  const estimateItemOptionsForProject = (p) => estimateItemOptionsFromActiveEstimates(activeEstimatesForProject(p, 'Заказчик'));
   const approvedEstimateChanges = (projectName) => (unexpectedWorksList||[]).filter(u=>
     u.projectName===projectName &&
     isApprovedEstimateChangeStatus(u.status) &&
