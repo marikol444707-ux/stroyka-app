@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import base64
+import copy
 import hashlib
 import hmac
 import json
@@ -128,6 +129,7 @@ def cleanup():
     conn = db_conn()
     cur = conn.cursor()
     try:
+        cur.execute("DELETE FROM room_works WHERE project=%s", (PROJECT_NAME,))
         cur.execute("DELETE FROM work_journal WHERE project=%s", (PROJECT_NAME,))
         cur.execute(
             """
@@ -326,6 +328,45 @@ def main():
         if round(float(target.get("quantity") or 0), 2) != 12 or round(float(target.get("priceBrigade") or 0), 2) != 600:
             raise RuntimeError(f"assigned item values are wrong: {target}")
 
+        work_key = f"{estimate_id}:0:0"
+        updated_estimate = copy.deepcopy(full_estimate)
+        updated_estimate["sections"][0]["items"][0]["doneQuantity"] = 5
+        updated_estimate["_workJournalParams"] = {
+            work_key: {
+                "estimateItemKey": ITEM_KEY,
+                "contractItemId": target.get("id"),
+                "workPackage": WORK_PACKAGE,
+                "executionPricePerUnit": target.get("priceBrigade"),
+                "executionPriceMode": "brigade_contract",
+            }
+        }
+        updated_estimate["_workJournalMaterials"] = {work_key: []}
+        api_json("PUT", f"/estimates/{estimate_id}", token=worker_token, data=updated_estimate, expected=200)
+        conn = db_conn()
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """
+                SELECT room_name, quantity, contract_item_id
+                  FROM work_journal
+                 WHERE project=%s AND estimate_item_key=%s
+                 ORDER BY id DESC LIMIT 1
+                """,
+                (PROJECT_NAME, ITEM_KEY),
+            )
+            work_row = cur.fetchone()
+            if not work_row:
+                raise RuntimeError("worker estimate submit did not create work_journal row")
+            if (work_row[0] or "") != "Без помещения":
+                raise RuntimeError(f"worker estimate submit used wrong room fallback: {work_row}")
+            if round(float(work_row[1] or 0), 2) != 5:
+                raise RuntimeError(f"worker estimate submit used wrong quantity: {work_row}")
+            if int(work_row[2] or 0) != int(target.get("id") or 0):
+                raise RuntimeError(f"worker estimate submit used wrong contract item: {work_row}")
+        finally:
+            cur.close()
+            conn.close()
+
         api_json("DELETE", f"/brigade-contract-items/{target.get('id')}", token=director_token, expected=200)
         _, after_delete_items = api_json("GET", "/brigade-contract-items-all", token=worker_token, expected=200)
         if any(isinstance(row, dict) and row.get("estimateItemKey") == ITEM_KEY for row in rows(after_delete_items)):
@@ -338,6 +379,7 @@ def main():
             "contractId": created.get("contractId"),
             "workerItemId": target.get("id"),
             "directorEstimateSummaryChecked": True,
+            "noRoomWorkSubmitChecked": True,
             "deleteChecked": True,
         }, ensure_ascii=False, indent=2))
     finally:

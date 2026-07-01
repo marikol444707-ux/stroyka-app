@@ -370,6 +370,8 @@ import { FolderKanban, Package, ScrollText, Search, Plus, Edit2, Trash2, Eye, Ch
 
 installAuthFetch();
 
+const GENERAL_WORK_ROOM_NAME = 'Без помещения';
+
 function App() {
   const [isMobile, setIsMobile] = useState(detectMobileLayout);
   const [isCompactHeader, setIsCompactHeader] = useState(typeof window !== 'undefined' && window.innerWidth < 1180);
@@ -4274,11 +4276,24 @@ function App() {
     if (qty>0 && raw>qty) { alert('План '+fmtMeasure(qty,mi.unit)+'. Нельзя поставить больше.'); return; }
     const workKey = estimateWorkKey(mi.estId, mi.sectionIdx, mi.itemIdx);
     const estimateItemKey = mi.estimateItemKey || workKey;
-    const params = estimateWorkParams[workKey]||{};
+    let params = estimateWorkParams[workKey]||{};
     const deltaQty = Math.max(0, raw-done);
-    const roomCheck = roomMeasurementCheck(project.name, params.roomId, params.surface||'Стены', deltaQty, mi.unit, mi.name);
+    const projectRoomsForWork = rooms.filter(room => room.project === project.name);
+    if (!params.roomId && !String(params.roomName || '').trim()) {
+      if (projectRoomsForWork.length > 0 && isPersonalMaterialRole()) {
+        alert('Выберите помещение для закрытия объёма.');
+        return;
+      }
+      params = { ...params, roomName: GENERAL_WORK_ROOM_NAME };
+    }
+    const roomCheck = params.roomId ? roomMeasurementCheck(project.name, params.roomId, params.surface||'Стены', deltaQty, mi.unit, mi.name) : null;
     if (roomCheck?.over>0) { alert(roomMeasurementMessage(roomCheck)); return; }
-    let usedMats = (estimateWorkMaterials[workKey]||[])
+    const currentWorkMaterials = autoFillNormMaterialsForWork(project.name, mi.name, mi.section, deltaQty, mi.unit, estimateWorkMaterials[workKey] || [], {
+      ...params,
+      workPackage: estimatePackage(est),
+    });
+    setEstimateWorkMaterials(prev => ({ ...prev, [workKey]: currentWorkMaterials }));
+    let usedMats = currentWorkMaterials
       .filter(m=>m.name)
       .map(m=>({name:m.name, quantity:toNum(m.quantity), unit:m.unit||'шт', workPackage:m.workPackage||estimatePackage(est), normQuantity:toNum(m.normQuantity), normSource:m.normSource||'', normRuleId:m.normRuleId||m.ruleId||'', normThicknessMm:m.normThicknessMm||m.thicknessMm||'', autoNorm:!!m.autoNorm, overNorm:toNum(m.normQuantity)>0 && toNum(m.quantity)>toNum(m.normQuantity)*1.1}));
     for (const m of usedMats) {
@@ -4347,10 +4362,23 @@ function App() {
       return item && workData.quantity && toNum(workData.quantity)>0;
     });
     if (!selectedEntries.length) { alert('Введите количество хотя бы для одной работы'); return; }
+    const projectRoomsForWork = rooms.filter(room => room.project === project.name);
+    const normalizedSelectedEntries = selectedEntries.map(([itemId, workData]) => {
+      if (!workData.roomId && !String(workData.roomName || '').trim() && projectRoomsForWork.length === 0) {
+        return [itemId, { ...workData, roomName: GENERAL_WORK_ROOM_NAME }];
+      }
+      return [itemId, workData];
+    });
     const plannedUsage = {};
-    for (const [itemId, workData] of selectedEntries) {
+    for (const [itemId, workData] of normalizedSelectedEntries) {
       const item = pricelistItems.find(i=>i.id===Number(itemId));
-      const roomCheck = roomMeasurementCheck(project.name, workData.roomId, workData.surface||'Стены', workData.quantity, item.unit, item.name);
+      if (!workData.roomId && !String(workData.roomName || '').trim()) {
+        if (projectRoomsForWork.length > 0 && isPersonalMaterialRole()) {
+          alert('Выберите помещение для работы «'+item.name+'».');
+          return;
+        }
+      }
+      const roomCheck = workData.roomId ? roomMeasurementCheck(project.name, workData.roomId, workData.surface||'Стены', workData.quantity, item.unit, item.name) : null;
       if (roomCheck?.over>0) { alert(roomMeasurementMessage(roomCheck)); return; }
       for (const m of (workData.materials||[]).filter(mm=>mm.name)) {
         const qty = toNum(m.quantity);
@@ -4363,14 +4391,14 @@ function App() {
     const blockMessage = materialWriteoffBlockMessage(project.name, Object.values(plannedUsage));
     if (blockMessage) { alert(blockMessage); return; }
     const overrunReasons = {};
-    for (const [itemId, workData] of selectedEntries) {
+    for (const [itemId, workData] of normalizedSelectedEntries) {
       const item = pricelistItems.find(i=>i.id===Number(itemId));
       if (!item) continue;
       const overReason = materialNormOverrunReason(project.name, item.name, workData.materials||[]);
       if (overReason === null) return;
       if (overReason) overrunReasons[itemId] = overReason;
     }
-    for (const [itemId,workData] of selectedEntries) {
+    for (const [itemId,workData] of normalizedSelectedEntries) {
       const item = pricelistItems.find(i=>i.id===Number(itemId));
       if (!item) continue;
       hasWork = true;

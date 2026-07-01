@@ -11458,6 +11458,15 @@ def _work_journal_duplicate(cur, project, room_id=None, room_name="", estimate_i
 
     return None
 
+def _project_has_rooms(cur, project_name: str) -> bool:
+    cur.execute("SELECT COUNT(*) FROM rooms WHERE project=%s", (project_name or "",))
+    row = cur.fetchone()
+    if isinstance(row, dict):
+        count = row.get("count")
+    else:
+        count = row[0] if row else 0
+    return int(count or 0) > 0
+
 def _raise_work_journal_duplicate(duplicate):
     if not duplicate:
         return
@@ -11663,14 +11672,18 @@ def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(requi
     if user_role in WORKER_EXECUTION_ROLES:
         if str(w.masterId or "") != str(_current_user.get("id") or "") and (w.masterName or "").strip().lower() != (_current_user.get("name") or "").strip().lower():
             raise HTTPException(status_code=403, detail="Мастер может создавать ЖПР только от своего имени")
-        if not w.roomId and not (w.roomName or "").strip():
-            raise HTTPException(status_code=400, detail="Для закрытия работ исполнителем укажите помещение. Это нужно для контроля обмеров и защиты от дублей.")
     used = [m for m in (w.materialsUsed or []) if m.get("name") and float(m.get("quantity") or 0) > 0]
 
     conn = get_db()
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
+        journal_room_id = w.roomId
+        journal_room_name = (w.roomName or "").strip()
+        if user_role in WORKER_EXECUTION_ROLES and not journal_room_id and not journal_room_name:
+            if _project_has_rooms(cur, w.project):
+                raise HTTPException(status_code=400, detail="Для закрытия работ исполнителем укажите помещение. Это нужно для контроля обмеров и защиты от дублей.")
+            journal_room_name = "Без помещения"
         estimate_work_item = None
         journal_estimate_id = w.estimateId
         journal_section_name = w.sectionName
@@ -11702,8 +11715,8 @@ def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(requi
         _raise_work_journal_duplicate(_work_journal_duplicate(
             cur,
             w.project,
-            room_id=w.roomId,
-            room_name=w.roomName,
+            room_id=journal_room_id,
+            room_name=journal_room_name,
             estimate_item_key=journal_estimate_item_key,
             description=journal_description,
             work_package=journal_work_package,
@@ -11772,7 +11785,7 @@ def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(requi
                      w.comment,w.photoUrl,materials_json,
                      journal_estimate_id,journal_section_name,w.responsibleItr,w.weather,w.timeStart,w.timeEnd,
                      w.hiddenWork,w.qualityStatus,w.normatives,w.projectDocs,
-                     journal_work_package,w.roomId,w.roomName,w.surface,w.estimateItemName or journal_description,journal_estimate_item_key,
+                     journal_work_package,journal_room_id,journal_room_name,w.surface,w.estimateItemName or journal_description,journal_estimate_item_key,
                      contract_item_id,customer_price,customer_total,execution_price,execution_total,execution_mode))
         row = cur.fetchone()
         _sync_contract_item_done(cur, contract_item_id, w.quantity)
@@ -17309,8 +17322,10 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                 room_id = None
             room_name = journal_params.get("roomName") or ""
             if _current_user.get("role") in WORKER_EXECUTION_ROLES and not room_id and not str(room_name).strip():
-                cur.close(); conn.close()
-                raise HTTPException(status_code=400, detail="Для закрытия работы нужно выбрать помещение. Так система не даст задвоить объём и свяжет работу с обмерами.")
+                if _project_has_rooms(cur, project_name):
+                    cur.close(); conn.close()
+                    raise HTTPException(status_code=400, detail="Для закрытия работы нужно выбрать помещение. Так система не даст задвоить объём и свяжет работу с обмерами.")
+                room_name = "Без помещения"
             estimate_item_key = journal_params.get("estimateItemKey") or journal_params.get("_estimateItemKey") or (str(id) + ":" + str(section_idx) + ":" + str(item_idx))
             try:
                 work_package_for_journal = journal_params.get("workPackage") or new_work_package
@@ -17339,7 +17354,7 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                     cur,
                     project_name,
                     room_id=room_id,
-                    room_name=journal_params.get("roomName") or "",
+                    room_name=room_name,
                     estimate_item_key=estimate_item_key,
                     description=it.get("name",""),
                     work_package=work_package_for_journal,

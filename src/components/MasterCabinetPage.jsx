@@ -27,6 +27,8 @@ import PhotoAttachmentField from './PhotoAttachmentField';
 import PreviewModal from './PreviewModal';
 import DocumentRecognitionPanel from './DocumentRecognitionPanel';
 
+const GENERAL_WORK_ROOM_NAME = 'Без помещения';
+
 export default function MasterCabinetPage(props) {
   const [showProjectPicker, setShowProjectPicker] = React.useState(false);
   const {
@@ -205,6 +207,15 @@ export default function MasterCabinetPage(props) {
   const fillNormMaterialsForWork = typeof props.autoFillNormMaterialsForWork === 'function'
     ? props.autoFillNormMaterialsForWork
     : (_projectName, _workName, _sectionName, _workQty, _workUnit, currentMaterials = []) => currentMaterials;
+  const syncEstimateNormMaterials = (workKey, project, item, displayQty, doneQty, paramsOverride = null) => {
+    if (!project) return;
+    const nextDelta = Math.max(0, safeDenormalizeMeasure(displayQty, item.unit) - safeToNum(doneQty));
+    const currentParams = paramsOverride || estimateWorkParams[workKey] || {};
+    setEstimateWorkMaterials(prev => ({
+      ...prev,
+      [workKey]: fillNormMaterialsForWork(project.name, item.name, item.section, nextDelta, item.unit, prev[workKey] || [], currentParams),
+    }));
+  };
 
   const profilePatchFromRecognition = (result) => {
     const extracted = result?.extracted || {};
@@ -698,7 +709,7 @@ export default function MasterCabinetPage(props) {
                       const rawDraft = safeDenormalizeMeasure(draft, item.unit);
                       const delta = Math.max(0, rawDraft - done);
                       const project = projects.find(projectRow => projectRow.id === Number(masterProjectId));
-                      const roomCheck = project ? roomMeasurementCheck(project.name, params.roomId, params.surface || 'Стены', delta, item.unit, item.name) : null;
+                      const roomCheck = project && params.roomId ? roomMeasurementCheck(project.name, params.roomId, params.surface || 'Стены', delta, item.unit, item.name) : null;
                       const projectMaterials = project ? materialRowsAvailableForWork(project.name, item.workPackage) : [];
                       const availableMap = project ? materialAvailabilityMapForWork(project.name, item.workPackage) : {};
                       const usedMaterials = estimateWorkMaterials[workKey] || [];
@@ -721,16 +732,8 @@ export default function MasterCabinetPage(props) {
                               inputMode="decimal"
                               placeholder={'+' + (safeNormalizeMeasure(1, item.unit).unit || item.unit)}
                               value={draft}
-                              onChange={e => {
-                                const value = e.target.value;
-                                setEstimateDoneDrafts(prev => ({ ...prev, [workKey]: value }));
-                                const raw = safeDenormalizeMeasure(value, item.unit);
-                                const nextDelta = Math.max(0, raw - done);
-                                if (project) {
-                                  const currentParams = estimateWorkParams[workKey] || {};
-                                  setEstimateWorkMaterials(prev => ({ ...prev, [workKey]: fillNormMaterialsForWork(project.name, item.name, item.section, nextDelta, item.unit, prev[workKey] || [], currentParams) }));
-                                }
-                              }}
+                              onChange={e => setEstimateDoneDrafts(prev => ({ ...prev, [workKey]: e.target.value }))}
+                              onBlur={e => syncEstimateNormMaterials(workKey, project, item, e.target.value, done)}
                               style={{ ...inp, marginBottom: 0, width: '80px', fontSize: '12px', padding: '4px 6px' }}
                             />
                             {needsThicknessParam(item.name, item.section) && (
@@ -744,10 +747,15 @@ export default function MasterCabinetPage(props) {
                                   const value = e.target.value;
                                   const nextParams = { ...(estimateWorkParams[workKey] || {}), thicknessMm: value };
                                   setEstimateWorkParams(prev => ({ ...prev, [workKey]: nextParams }));
-                                  if (project) {
-                                    setEstimateWorkMaterials(prev => ({ ...prev, [workKey]: fillNormMaterialsForWork(project.name, item.name, item.section, delta, item.unit, prev[workKey] || [], nextParams) }));
-                                  }
                                 }}
+                                onBlur={e => syncEstimateNormMaterials(
+                                  workKey,
+                                  project,
+                                  item,
+                                  draft,
+                                  done,
+                                  { ...(estimateWorkParams[workKey] || {}), thicknessMm: e.target.value },
+                                )}
                                 style={{ ...inp, marginBottom: 0, width: '78px', fontSize: '12px', padding: '4px 6px' }}
                               />
                             )}
@@ -756,7 +764,7 @@ export default function MasterCabinetPage(props) {
                               Отправить
                             </button>
                           </div>
-                          {projectRooms.length > 0 && (
+                          {projectRooms.length > 0 ? (
                             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 150px', gap: '6px', marginTop: '8px' }}>
                               <select value={params.roomId || ''} onChange={e => { const room = projectRooms.find(roomItem => Number(roomItem.id) === Number(e.target.value)); setEstimateWorkParams(prev => ({ ...prev, [workKey]: { ...(prev[workKey] || {}), roomId: e.target.value, roomName: room?.name || '' } })); }} style={{ ...inp, marginBottom: 0, fontSize: '11px', padding: '6px 8px' }}>
                                 <option value="">Помещение по обмеру</option>
@@ -766,7 +774,11 @@ export default function MasterCabinetPage(props) {
                                 {SURFACES.map(surface => <option key={surface}>{surface}</option>)}
                               </select>
                             </div>
-                          )}
+                          ) : project ? (
+                            <div style={{ marginTop: '8px', padding: '7px 9px', borderRadius: '8px', border: '1px solid ' + C.warningBorder, backgroundColor: C.warningLight, color: C.warning, fontSize: '11px', fontWeight: '600' }}>
+                              Помещение: {GENERAL_WORK_ROOM_NAME}
+                            </div>
+                          ) : null}
                           {roomCheck && <div style={{ marginTop: '6px', padding: '7px 9px', borderRadius: '8px', border: '1px solid ' + (roomCheck.over > 0 ? C.dangerBorder : C.successBorder), backgroundColor: roomCheck.over > 0 ? C.dangerLight : C.successLight, color: roomCheck.over > 0 ? C.danger : C.success, fontSize: '11px', fontWeight: '600' }}>{roomMeasurementMessage(roomCheck)}</div>}
                           <div style={{ marginTop: '8px' }}>
                             <PhotoAttachmentField
@@ -900,7 +912,8 @@ export default function MasterCabinetPage(props) {
                                   step="any"
                                   inputMode="decimal"
                                   value={selectedWorks[item.id]?.quantity || ''}
-                                  onChange={e => {
+                                  onChange={e => setSelectedWorks(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || { materials: [] }), quantity: e.target.value } }))}
+                                  onBlur={e => {
                                     const value = e.target.value;
                                     setSelectedWorks(prev => {
                                       const current = prev[item.id] || { materials: [] };
@@ -918,7 +931,8 @@ export default function MasterCabinetPage(props) {
                                     step="any"
                                     inputMode="decimal"
                                     value={selectedWorks[item.id]?.thicknessMm || ''}
-                                    onChange={e => {
+                                    onChange={e => setSelectedWorks(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || { materials: [] }), thicknessMm: e.target.value } }))}
+                                    onBlur={e => {
                                       const value = e.target.value;
                                       setSelectedWorks(prev => {
                                         const current = prev[item.id] || { materials: [] };
@@ -930,7 +944,7 @@ export default function MasterCabinetPage(props) {
                                     style={inp}
                                   />
                                 )}
-                                {projectRooms.length > 0 && (
+                                {projectRooms.length > 0 ? (
                                   <>
                                     <select value={selectedWorks[item.id]?.roomId || ''} onChange={e => { const room = projectRooms.find(roomItem => roomItem.id === Number(e.target.value)); setSelectedWorks(prev => ({ ...prev, [item.id]: { ...prev[item.id], roomId: e.target.value, roomName: room?.name || '' } })); }} style={inp}>
                                       <option value="">Выберите помещение</option>
@@ -940,9 +954,13 @@ export default function MasterCabinetPage(props) {
                                       {SURFACES.map(surface => <option key={surface}>{surface}</option>)}
                                     </select>
                                   </>
-                                )}
+                                ) : project ? (
+                                  <div style={{ marginBottom: '8px', padding: '8px 10px', borderRadius: '8px', border: '1px solid ' + C.warningBorder, backgroundColor: C.warningLight, color: C.warning, fontSize: '11px', fontWeight: '600' }}>
+                                    Помещение: {GENERAL_WORK_ROOM_NAME}
+                                  </div>
+                                ) : null}
                                 {(() => {
-                                  const check = project ? roomMeasurementCheck(project.name, selectedWorks[item.id]?.roomId, selectedWorks[item.id]?.surface || 'Стены', selectedWorks[item.id]?.quantity, item.unit, item.name) : null;
+                                  const check = project && selectedWorks[item.id]?.roomId ? roomMeasurementCheck(project.name, selectedWorks[item.id]?.roomId, selectedWorks[item.id]?.surface || 'Стены', selectedWorks[item.id]?.quantity, item.unit, item.name) : null;
                                   return check ? <div style={{ marginBottom: '8px', padding: '8px 10px', borderRadius: '8px', border: '1px solid ' + (check.over > 0 ? C.dangerBorder : C.successBorder), backgroundColor: check.over > 0 ? C.dangerLight : C.successLight, color: check.over > 0 ? C.danger : C.success, fontSize: '11px', fontWeight: '600' }}>{roomMeasurementMessage(check)}</div> : null;
                                 })()}
                                 <input placeholder="Комментарий" value={selectedWorks[item.id]?.comment || ''} onChange={e => setSelectedWorks(prev => ({ ...prev, [item.id]: { ...prev[item.id], comment: e.target.value } }))} style={inp} />
