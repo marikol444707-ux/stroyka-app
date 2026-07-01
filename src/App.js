@@ -100,9 +100,12 @@ import {
 } from './app/lazyComponents';
 import { buildLeadPayload } from './features/crm/leadUtils';
 import WorkAssignmentModal, { WorkAssignmentStatusPanel } from './features/work-assignment';
+import { createAiTaskActions } from './features/ai-control/aiTaskActions';
 import { createDocumentActions } from './features/documents/documentActions';
 import { createPersonnelActions } from './features/personnel/personnelActions';
 import { createMaterialNormActions } from './features/material-norms/materialNormActions';
+import { createMaterialNormCoverageActions } from './features/material-norms/materialNormCoverageActions';
+import { createMaterialWriteoffActions } from './features/material-writeoff/materialWriteoffActions';
 import AppSidebar from './components/AppSidebar';
 import AppHeaderBar from './components/AppHeaderBar';
 import DashboardTopBar from './components/DashboardTopBar';
@@ -151,14 +154,6 @@ import {
   buildMaterialSuggestionsForWork,
   buildPersonalMaterialRowsForProject,
 } from './utils/materialNormSelectors';
-import {
-  applyMaterialOverNormReasonToRows,
-  buildMaterialWriteoffBlockMessage,
-  buildMaterialWriteoffRows,
-  capMaterialWriteoffQtyValue,
-  getMaterialWriteoffAvailableQty,
-  requestMaterialNormOverrunReason,
-} from './utils/materialWriteoffUtils';
 import {
   calcDoorArea,
   calcDoorReveals,
@@ -339,7 +334,6 @@ import {
 } from './utils/notificationUtils';
 import {
   buildWarehouseInvoiceItems,
-  buildWorkMaterialSelectionRow,
   packageMatches,
   parseJournalMaterialsValue,
 } from './utils/materialDocumentUtils';
@@ -2260,154 +2254,36 @@ function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.role, user?.assignedProjects, user?.assigned_projects, projects, masterProjectId]);
-  const aiFindingsForProject = (projectName) => (aiFindings||[]).filter(f=>f.projectName===projectName&&isOpenAiStatus(f.status));
-  const aiTasksForProject = (projectName) => (aiTasks||[]).filter(t=>t.projectName===projectName&&isOpenAiStatus(t.status));
-  const generateAiFindingsForProject = async (projectName) => {
-    if (!projectName) return;
-    const res = await fetch(API+'/ai-control/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName,reason:'manual'})});
-    const data = await res.json().catch(()=>({}));
-    if (!res.ok) { alert(data.detail || 'Не удалось запустить ИИ-контроль'); return; }
-    await refreshData();
-    alert('ИИ-контроль обновлён: замечаний новых '+(data.created||0)+', задач новых '+(data.tasksCreated||0)+', обновлено '+((data.updated||0)+(data.tasksUpdated||0))+', закрыто '+(data.closed||0));
-  };
-  const updateAiFinding = async (id, patch) => {
-    await fetch(API+'/ai-findings/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
-    await refreshData();
-  };
-  const updateAiTask = async (id, patch) => {
-    await fetch(API+'/ai-tasks/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
-    await refreshData();
-  };
-  const patchAiTaskSilent = async (id, patch) => {
-    const res = await fetch(API+'/ai-tasks/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
-    const data = await res.json().catch(()=>({}));
-    if (!res.ok) return null;
-    setAiTasks(prev=>(prev||[]).map(t=>Number(t.id)===Number(id)?data:t));
-    return data;
-  };
-  const patchAiFindingSilent = async (id, patch) => {
-    const res = await fetch(API+'/ai-findings/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
-    const data = await res.json().catch(()=>({}));
-    if (!res.ok) return null;
-    setAiFindings(prev=>(prev||[]).map(f=>Number(f.id)===Number(id)?data:f));
-    return data;
-  };
-  const openAiTaskAction = async (task) => {
-    const payload = parseAiTaskPayload(task);
-    if (payload.type === 'password_reset_request') {
-      navigateTo('users');
-      if (task?.id && ['Новое','Принято к исполнению'].includes(task.status||'')) {
-        await patchAiTaskSilent(task.id,{status:'В работе'});
-      }
-      return;
-    }
-    if (payload.type === 'estimate_diff_review') {
-      const next = (estimatesList||[]).find(e=>Number(e.id)===Number(payload.nextEstimateId));
-      const base = (estimatesList||[]).find(e=>Number(e.id)===Number(payload.baseEstimateId)) || (next ? estimateDiffBaseFor(next) : null);
-      if (!base || !next) {
-        alert('Не удалось открыть ведомость: одна из смет не найдена');
-        return;
-      }
-      showPreview(buildEstimateDiffContent(base,next),'Сопоставительная ведомость');
-      if (task?.id && ['Новое','Принято к исполнению'].includes(task.status||'')) {
-        await patchAiTaskSilent(task.id,{status:'В работе'});
-      }
-      return;
-    }
-    if (payload.type === 'estimate_quality_review') {
-      const estimateId = payload.estimateId;
-      if (estimateId) {
-        const est = (estimatesList||[]).find(e=>Number(e.id)===Number(estimateId));
-        if (est) openEstimateDetail(est);
-      }
-      setEstimatesTab('list');
-      navigateTo('estimates');
-      if (task?.id && ['Новое','Принято к исполнению'].includes(task.status||'')) {
-        await patchAiTaskSilent(task.id,{status:'В работе'});
-      }
-      return;
-    }
-    if (['estimate_norm_review','material_norm_coverage'].includes(payload.type)) {
-      const projectName = payload.projectName || task.projectName || '';
-      const estimateId = payload.estimateId;
-      if (projectName) setMaterialNormCoverageProject(projectName);
-      if (estimateId) {
-        const est = (estimatesList||[]).find(e=>Number(e.id)===Number(estimateId));
-        if (est) openEstimateDetail(est);
-      }
-      setEstimatesTab('norms');
-      navigateTo('estimates');
-      if (task?.id && ['Новое','Принято к исполнению'].includes(task.status||'')) {
-        await patchAiTaskSilent(task.id,{status:'В работе'});
-      }
-      return;
-    }
-    if (payload.type === 'estimate_change_reconcile') {
-      const projectName = payload.projectName || task.projectName || '';
-      const project = (projects||[]).find(p=>p.name===projectName);
-      if (project) {
-        navigateTo('projects');
-        setExpandedProject(project.id);
-        setActiveProjectTab('Изменения к смете');
-        setActiveTabGroup('work');
-      }
-      if (task?.id && ['Новое','Принято к исполнению'].includes(task.status||'')) {
-        await patchAiTaskSilent(task.id,{status:'В работе'});
-      }
-      return;
-    }
-    if ([
-      'material_purchase_review',
-      'material_outside_estimate_review',
-      'material_writeoff_review',
-      'material_norm_over_review',
-      'material_without_norm_review',
-      'material_transfer_sign_review'
-    ].includes(payload.type)) {
-      const projectName = payload.projectName || task.projectName || '';
-      const project = (projects||[]).find(p=>p.name===projectName);
-      if (project) {
-        navigateTo('projects');
-        setExpandedProject(project.id);
-        setActiveProjectTab('Материалы');
-        setActiveTabGroup('object');
-      } else {
-        navigateTo('warehouse');
-        setWarehouseTab('control');
-      }
-      if (task?.id && ['Новое','Принято к исполнению'].includes(task.status||'')) {
-        await patchAiTaskSilent(task.id,{status:'В работе'});
-      }
-      return;
-    }
-    if (['room_measurement_review','work_room_link_review'].includes(payload.type)) {
-      const projectName = payload.projectName || task.projectName || '';
-      const project = (projects||[]).find(p=>p.name===projectName);
-      if (project) {
-        navigateTo('projects');
-        setExpandedProject(project.id);
-        if (payload.type === 'work_room_link_review') {
-          setActiveProjectTab('Производство работ');
-          setActiveTabGroup('journals');
-        } else {
-          setActiveProjectTab('Помещения');
-          setActiveTabGroup('object');
-        }
-      }
-      if (task?.id && ['Новое','Принято к исполнению'].includes(task.status||'')) {
-        await patchAiTaskSilent(task.id,{status:'В работе'});
-      }
-      return;
-    }
-    if (task?.projectName) {
-      const project = (projects||[]).find(p=>p.name===task.projectName);
-      if (project) {
-        navigateTo('projects');
-        setExpandedProject(project.id);
-        setActiveProjectTab('ИИ-контроль');
-      }
-    }
-  };
+  const {
+    aiFindingsForProject,
+    aiTasksForProject,
+    generateAiFindingsForProject,
+    openAiTaskAction,
+    patchAiFindingSilent,
+    patchAiTaskSilent,
+    updateAiFinding,
+    updateAiTask,
+  } = createAiTaskActions({
+    API,
+    aiFindings,
+    aiTasks,
+    buildEstimateDiffContent: (...args) => buildEstimateDiffContent(...args),
+    estimateDiffBaseFor: (...args) => estimateDiffBaseFor(...args),
+    estimatesList,
+    navigateTo: (...args) => navigateTo(...args),
+    openEstimateDetail: (...args) => openEstimateDetail(...args),
+    projects,
+    refreshData,
+    setActiveProjectTab,
+    setActiveTabGroup,
+    setAiFindings,
+    setAiTasks,
+    setEstimatesTab,
+    setExpandedProject,
+    setMaterialNormCoverageProject,
+    setWarehouseTab,
+    showPreview,
+  });
 
   // Расчёт прогресса и сумм по факту сметы (используется в дашборде, кабинетах технадзора и заказчика, карточке объекта)
   const nextEstimateVersionFor = (draft, sourceEstimates=estimatesList) => {
@@ -3274,119 +3150,6 @@ function App() {
     projectName ? estimateNormCoverageRows(projectName) : [],
     {companyRequisites, companyName, materialTitleForNormRule, materialNormCoverageComment}
   );
-  const saveMaterialNormOverrideFromCoverage = async (row) => {
-    if (!canEditMaterialNorms() || !row?.projectName || !row?.rule) return;
-    const nextQty = window.prompt('Расход для этого объекта/сметы ('+(row.rule.materialUnit||row.materialUnit||'')+' / '+(row.rule.workUnit||row.workUnit||'')+'):', String(row.qtyPerUnit || row.rule.qtyPerUnit || ''));
-    if (nextQty === null) return;
-    const qty = toNum(nextQty);
-    if (qty <= 0) { alert('Расход должен быть больше 0'); return; }
-    const payload = {
-      baseNormId: row.rule.baseNormId || row.rule.dbId || null,
-      projectName: row.projectName,
-      estimateId: row.estimateId || null,
-      sectionName: row.sectionName || '',
-      workName: row.workName || '',
-      materialName: row.materialName || row.rule.name || '',
-      work: row.rule.work || [],
-      blockWork: row.rule.blockWork || [],
-      material: row.rule.material || [],
-      workUnit: row.rule.workUnit || row.workUnit || 'м2',
-      materialUnit: row.rule.materialUnit || row.materialUnit || 'кг',
-      qtyPerUnit: qty,
-      thicknessBaseMm: row.rule.thicknessBaseMm || null,
-      defaultThicknessMm: row.rule.defaultThicknessMm || null,
-      label: 'Поправка '+row.projectName+': '+qty+' '+(row.rule.materialUnit||row.materialUnit||'')+' / '+(row.rule.workUnit||row.workUnit||''),
-      reason: 'Уточнение по активной смете: '+(row.estimateName||'')+' / '+(row.sectionName||''),
-      active: true,
-    };
-    const res = await fetch(API+'/material-norms/overrides',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-    const data = await res.json().catch(()=>({}));
-    if (!res.ok) { alert(data.detail || 'Не удалось сохранить поправку'); return; }
-    setMaterialNormNotice({tone:'success',title:'Поправка нормы сохранена',text:'Поправка применится к объекту '+row.projectName+' и этой смете. Базовый справочник не изменён.'});
-    await refreshData();
-  };
-  const updateEstimateFromNormCoverage = async (row, updater, successTitle, successText) => {
-    if (!canEditMaterialNorms() || !row?.estimateId) return;
-    const est = (estimatesList||[]).find(e=>Number(e.id)===Number(row.estimateId));
-    if (!est) { alert('Смета не найдена в текущем списке'); return; }
-    const sections = _sectionsOfEst(est).map((s,si)=>si===Number(row.sectionIdx)?updater(s,si):s);
-    const updated = {...est, sections, updatedBy:user?.name||''};
-    setEstimatesList(prev=>prev.map(e=>Number(e.id)===Number(updated.id)?updated:e));
-    if (selectedEstimate && Number(selectedEstimate.id)===Number(updated.id)) setSelectedEstimate(updated);
-    await persistEstimate(updated);
-    setMaterialNormNotice({tone:'success',title:successTitle,text:successText});
-  };
-  const addEstimateMaterialFromCoverage = async (row) => {
-    if (!row?.rule || row.status!=='Нет материала в смете') return;
-    const defaultName = row.materialName || materialTitleForNormRule(row.rule);
-    const name = window.prompt('Название материала для добавления в раздел сметы:', defaultName);
-    if (name === null) return;
-    const cleanName = name.trim();
-    if (!cleanName) { alert('Название материала не может быть пустым'); return; }
-    const qtyRaw = window.prompt('Количество материала:', String(row.requiredQty || ''));
-    if (qtyRaw === null) return;
-    const qty = toNum(qtyRaw);
-    if (qty <= 0) { alert('Количество должно быть больше 0'); return; }
-    const unit = row.requiredUnit || row.rule.materialUnit || row.materialUnit || 'шт';
-    await updateEstimateFromNormCoverage(row, (section)=>{
-      const items = section.items || [];
-      const insertAfter = Math.max(0, Number(row.itemIdx));
-      const materialItem = {
-        id: Date.now()+Math.random(),
-        itemType: 'material',
-        type: 'Материал',
-        name: cleanName,
-        unit,
-        quantity: qty,
-        priceWork: 0,
-        priceMaterial: 0,
-        isImported: false,
-        measurementBasis: 'manual',
-        sourceNormRule: row.rule.ruleKey || row.rule.id || '',
-        sourceWorkName: row.workName || '',
-        sourceEstimateAction: 'added_from_norm_coverage',
-      };
-      return {...section, items:[...items.slice(0,insertAfter+1), materialItem, ...items.slice(insertAfter+1)]};
-    }, 'Материал добавлен в смету', cleanName+' добавлен в раздел '+(row.sectionName||'')+'. Цена 0 — сметчик может заполнить её отдельно.');
-  };
-  const markEstimateWorkNoMaterialFromCoverage = async (row) => {
-    if (!row?.rule || row.status!=='Нет материала в смете') return;
-    const ruleKey = String(row.rule.ruleKey || row.rule.id || '');
-    if (!ruleKey) return;
-    if (!window.confirm('Пометить эту работу как не требующую материала по норме «'+(row.materialName||materialTitleForNormRule(row.rule))+'»?')) return;
-    await updateEstimateFromNormCoverage(row, (section)=>{
-      const items = (section.items||[]).map((it,idx)=>{
-        if (idx!==Number(row.itemIdx)) return it;
-        const skip = new Set((Array.isArray(it.materialNormSkipRules)?it.materialNormSkipRules:[]).map(String));
-        skip.add(ruleKey);
-        return {
-          ...it,
-          materialNormSkipRules: Array.from(skip),
-          materialNormSkipReason: 'Материал по норме не требуется / входит в цену работы',
-          materialNormSkipUpdatedAt: new Date().toISOString(),
-          materialNormSkipUpdatedBy: user?.name || '',
-        };
-      });
-      return {...section, items};
-    }, 'Работа помечена без материала', 'Строка останется в смете, но больше не будет считаться ошибкой покрытия норм.');
-  };
-  const createMaterialNormCoverageTask = async (row) => {
-    if (!row?.projectName || row.status!=='Нет материала в смете') return;
-    const payload = {
-      projectName: row.projectName,
-      title: 'Уточнить материал в смете: '+(row.materialName||materialTitleForNormRule(row.rule)||'материал'),
-      description: 'В активной смете есть работа, для которой найдена норма, но нет строки материала. Объект: '+row.projectName+'. Смета: '+(row.estimateName||'')+'. Раздел: '+(row.sectionName||'')+'. Работа: '+(row.workName||'')+'. Норма: '+(row.materialName||materialTitleForNormRule(row.rule)||'')+'. Расчетная потребность: '+(row.requiredQty?fmtMeasure(row.requiredQty,row.requiredUnit):'не рассчитана')+'. Нужно добавить материал в смету или пометить работу как не требующую материала.',
-      assignedRole: 'сметчик',
-      status: 'Новое',
-      actionLabel: 'Проверить смету',
-      actionPayload: JSON.stringify({type:'material_norm_coverage',estimateId:row.estimateId,sectionName:row.sectionName,workName:row.workName,ruleKey:row.rule?.ruleKey||row.rule?.id||''}),
-    };
-    const res = await fetch(API+'/ai-tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-    const data = await res.json().catch(()=>({}));
-    if (!res.ok) { alert(data.detail || 'Не удалось создать поручение'); return; }
-    setAiTasks(prev=>[data,...(prev||[])]);
-    setMaterialNormNotice({tone:'success',title:'Поручение создано',text:'Сметчику поставлена задача уточнить материал или подтвердить, что он не нужен.'});
-  };
   const aiTaskByMarker = (marker) => (aiTasks||[]).find(t=>
     isOpenAiStatus(t.status) && String(t.actionPayload||'').includes(marker)
   );
@@ -4031,104 +3794,49 @@ function App() {
     refreshData,
     navigateTo: (...args) => navigateTo(...args),
   });
-  const materialWriteoffRows = (projectName, usedMaterials=[]) => buildMaterialWriteoffRows({
-    projectName,
-    usedMaterials,
-    materialAvailabilityMapForWork,
+  const {
+    addEstimateMaterialFromCoverage,
+    createMaterialNormCoverageTask,
+    markEstimateWorkNoMaterialFromCoverage,
+    saveMaterialNormOverrideFromCoverage,
+  } = createMaterialNormCoverageActions({
+    API,
+    user,
+    estimatesList,
+    selectedEstimate,
+    canEditMaterialNorms,
+    sectionsOfEstimate: _sectionsOfEst,
+    persistEstimate,
+    refreshData,
+    setAiTasks,
+    setEstimatesList,
+    setMaterialNormNotice,
+    setSelectedEstimate,
+  });
+  const {
+    applyMaterialOverNormReason,
+    capMaterialWriteoffQty,
+    materialNormOverrunReason,
+    materialWriteoffBlockMessage,
+    removeEstimateWorkMaterial,
+    removeSelectedWorkMaterial,
+    renderMaterialWriteoffStatus,
+    updateEstimateWorkMaterialQty,
+    updateSelectedWorkMaterialQty,
+    upsertEstimateWorkMaterial,
+    upsertSelectedWorkMaterial,
+  } = createMaterialWriteoffActions({
+    C,
+    MaterialWriteoffStatus,
     canonicalMaterialMeta,
-    materialNameKey,
-  });
-  const materialWriteoffAvailableQty = (projectName, materialName, workPackage='') => getMaterialWriteoffAvailableQty({
-    projectName,
-    materialName,
-    workPackage,
-    materialAvailabilityMapForWork,
-    canonicalMaterialMeta,
-    materialNameKey,
-  });
-  const capMaterialWriteoffQty = (projectName, materialName, quantity, workPackage='') => capMaterialWriteoffQtyValue({
-    projectName,
-    materialName,
-    quantity,
-    workPackage,
-    materialWriteoffAvailableQty,
-  });
-  const materialWriteoffBlockMessage = (projectName, usedMaterials=[]) => buildMaterialWriteoffBlockMessage({
-    projectName,
-    rows: materialWriteoffRows(projectName, usedMaterials),
-    isPersonalMaterialRole,
     fmtMeasure,
+    isMobile,
+    isPersonalMaterialRole,
+    materialAvailabilityMapForWork,
+    materialNameKey,
+    setEstimateWorkMaterials,
+    setSelectedWorks,
   });
-  const materialNormOverrunReason = (projectName, workName, usedMaterials=[]) => requestMaterialNormOverrunReason({
-    rows: materialWriteoffRows(projectName, usedMaterials), workName, fmtMeasure,
-    confirmFn: window.confirm, promptFn: window.prompt,
-  });
-  const applyMaterialOverNormReason = (projectName, usedMaterials=[], reason='') => {
-    return applyMaterialOverNormReasonToRows({
-      usedMaterials,
-      rows: materialWriteoffRows(projectName, usedMaterials),
-      reason,
-      materialNameKey,
-    });
-  };
-  const renderMaterialWriteoffStatus = (projectName, usedMaterials=[]) => (
-    <MaterialWriteoffStatus rows={materialWriteoffRows(projectName, usedMaterials)} C={C} fmtMeasure={fmtMeasure} isMobile={isMobile} isPersonalMaterialRole={isPersonalMaterialRole}/>
-  );
-  const upsertSelectedWorkMaterial = (itemId, material, quantity='') => {
-    const key = materialNameKey(material.name);
-    setSelectedWorks(prev=>{
-      const cur = prev[itemId] || {};
-      const list = Array.isArray(cur.materials) ? cur.materials : [];
-      const exists = list.some(m=>materialNameKey(m.name)===key);
-      const row = buildWorkMaterialSelectionRow(material, quantity);
-      const next = exists
-        ? list.map(m=>materialNameKey(m.name)===key ? {...m, ...row, quantity:quantity!==undefined?quantity:m.quantity} : m)
-        : [...list, row];
-      return {...prev, [itemId]: {...cur, materials: next}};
-    });
-  };
-  const removeSelectedWorkMaterial = (itemId, materialName) => {
-    const key = materialNameKey(materialName);
-    setSelectedWorks(prev=>{
-      const cur = prev[itemId] || {};
-      const list = Array.isArray(cur.materials) ? cur.materials : [];
-      return {...prev, [itemId]: {...cur, materials: list.filter(m=>materialNameKey(m.name)!==key)}};
-    });
-  };
-  const updateSelectedWorkMaterialQty = (itemId, materialName, quantity) => {
-    const key = materialNameKey(materialName);
-    setSelectedWorks(prev=>{
-      const cur = prev[itemId] || {};
-      const list = Array.isArray(cur.materials) ? cur.materials : [];
-      return {...prev, [itemId]: {...cur, materials: list.map(m=>materialNameKey(m.name)===key ? {...m, quantity, autoNorm:false} : m)}};
-    });
-  };
-  const upsertEstimateWorkMaterial = (workKey, material, quantity='') => {
-    const key = materialNameKey(material.name);
-    setEstimateWorkMaterials(prev=>{
-      const list = Array.isArray(prev[workKey]) ? prev[workKey] : [];
-      const exists = list.some(m=>materialNameKey(m.name)===key);
-      const row = buildWorkMaterialSelectionRow(material, quantity);
-      const next = exists
-        ? list.map(m=>materialNameKey(m.name)===key ? {...m, ...row, quantity:quantity!==undefined?quantity:m.quantity} : m)
-        : [...list, row];
-      return {...prev, [workKey]: next};
-    });
-  };
-  const removeEstimateWorkMaterial = (workKey, materialName) => {
-    const key = materialNameKey(materialName);
-    setEstimateWorkMaterials(prev=>{
-      const list = Array.isArray(prev[workKey]) ? prev[workKey] : [];
-      return {...prev, [workKey]: list.filter(m=>materialNameKey(m.name)!==key)};
-    });
-  };
-  const updateEstimateWorkMaterialQty = (workKey, materialName, quantity) => {
-    const key = materialNameKey(materialName);
-    setEstimateWorkMaterials(prev=>{
-      const list = Array.isArray(prev[workKey]) ? prev[workKey] : [];
-      return {...prev, [workKey]: list.map(m=>materialNameKey(m.name)===key ? {...m, quantity, autoNorm:false} : m)};
-    });
-  };
   const renderMaterialReconciliationPanel = (projectName, options={}) => (
     <MaterialReconciliationPanel
       projectName={projectName}
