@@ -98,6 +98,7 @@ import {
 } from './app/lazyComponents';
 import { buildLeadPayload } from './features/crm/leadUtils';
 import { buildPerformerContractHtml } from './utils/contractTemplates';
+import { createAppPrintBuilders, createPrintDocContext } from './utils/appPrintBuilders';
 import AppSidebar from './components/AppSidebar';
 import AppHeaderBar from './components/AppHeaderBar';
 import DashboardTopBar from './components/DashboardTopBar';
@@ -124,8 +125,6 @@ import {
   materialNormCoverageComment,
   materialNormCoverageDisplayRows,
   materialNormCoverageExportRows,
-  materialNoNormCoverageReason,
-  materialNormMatchesMaterial,
   materialNormRuleForCalc,
   materialNormCanCreateSupply,
   materialTitleForNormRule,
@@ -133,11 +132,31 @@ import {
   materialNormSupplyNotes,
   normListFromText,
   normListToText,
-  roundNormQty,
-  workNoMaterialNormReason,
   workNormRulesForCalculation,
 } from './utils/materialNormUtils';
-import { materialAutoMatchSafe, materialLookupText, materialNameMatchScore } from './utils/materialMatchUtils';
+import { materialLookupText } from './utils/materialMatchUtils';
+import {
+  buildEstimateMaterialPlanRows,
+  buildMaterialAliasCandidates,
+  buildMaterialControlSummary,
+  buildMaterialReconciliationRows,
+} from './utils/materialReconciliationUtils';
+import {
+  buildEstimateNormCoverageRows,
+  buildEstimateWorkNormRequirementRows,
+  buildMaterialAvailabilityMap,
+  buildMaterialNormControlSummary,
+  buildMaterialNormDeviationRows,
+  buildMaterialSuggestionsForWork,
+  buildPersonalMaterialRowsForProject,
+} from './utils/materialNormSelectors';
+import {
+  applyMaterialOverNormReasonToRows,
+  buildMaterialWriteoffBlockMessage,
+  buildMaterialWriteoffRows,
+  capMaterialWriteoffQtyValue,
+  getMaterialWriteoffAvailableQty,
+} from './utils/materialWriteoffUtils';
 import {
   calcDoorArea,
   calcDoorReveals,
@@ -186,7 +205,6 @@ import {
   normalizeEstimateImportSections,
   normalizeEstimateItemType,
   normalizeEstimateList,
-  normalizeEstimateWorkingItem,
   normalizeImportedEstimateItem,
   sameEstimateGroup,
 } from './utils/estimateUtils';
@@ -314,9 +332,6 @@ import {
   notificationsForUser,
 } from './utils/notificationUtils';
 import {
-  buildM8ReportContent,
-  buildM29ReportContent,
-  buildMaterialRequirementReportContent,
   buildWarehouseInvoiceItems,
   buildWorkMaterialSelectionRow,
   packageMatches,
@@ -328,7 +343,6 @@ import {
 } from './utils/estimateControlUtils';
 import { actStatusForJournalWork } from './utils/hiddenActUtils';
 import {
-  buildAOSKDocContent,
   buildBrigadeActDocContent,
   buildCableJournalDocContent,
   buildDailyObjectReportDocContent,
@@ -337,18 +351,12 @@ import {
   buildEstimateDiffDocContent,
   buildEstimateMeasurementComparisonDocContent,
   buildEstimateReconciliationDocContent,
-  buildExecPackageDocContent,
   buildHiddenActDocContent,
-  buildIGDDocContent,
   buildInventoryDocContent,
   buildInvoiceDocContent,
   buildJPRDocContent,
-  buildKS11DocContent,
-  buildKS14DocContent,
   buildKS2DocContent,
   buildKS3DocContent,
-  buildM2DocContent,
-  buildM15DocContent,
   buildMaterialInspectionDocContent,
   buildMaterialNormCoverageDocContent,
   buildMasterActDocContent,
@@ -357,12 +365,8 @@ import {
   buildPositionInstructionDocContent,
   buildPrescriptionDocContent,
   buildPricelistDocContent,
-  buildSpecJournalDocContent,
-  buildSupervisorMonthlyReportDocContent,
-  buildSupplementaryAgreementDocContent,
   buildSupplyControlReportDocContent,
   buildTBContentDoc,
-  buildVATBookDocContent,
   buildWorkJournalDocContent,
   buildWorkJournalEstimateReconciliationDocContent,
   fmtDocMoney,
@@ -2984,50 +2988,18 @@ function App() {
       alias,
     };
   };
-  const estimateMaterialPlanRows = (projectName) => {
-    const project = projects.find(pr=>pr.name===projectName) || {name:projectName};
-    const rows = {};
-    const ensure = (name, unit, sectionLabel='') => {
-      const key = materialNameLookupKey(name);
-      if (!key) return null;
-      if (!rows[key]) rows[key] = {key,name:name||'',unit:normalizeMeasure(1, unit).unit||unit||'',sections:[],workRefs:[],planQty:0,planSum:0};
-      if (sectionLabel && !rows[key].sections.includes(sectionLabel)) rows[key].sections.push(sectionLabel);
-      return rows[key];
-    };
-    const activeEstimates = activeEstimatesForProject(project, 'Заказчик');
-    activeEstimates.forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(rawIt=>{
-      const it = normalizeEstimateWorkingItem(rawIt, s.name);
-      if (!isEstimateMaterialItem(it, s.name)) return;
-      if (toNum(estimateImportedPlanMeasure(it).qty) <= 0) return;
-      if (estimateMaterialPlanIssue(it, s.name)) return;
-      const sectionLabel = (estimatePackage(est)!=='Основная'?estimatePackage(est)+' / ':'')+(s.name||'');
-      const planMeasure = estimateImportedPlanMeasure(it);
-      const r = ensure(it.name, planMeasure.unit || it.unit, sectionLabel);
-      if (!r) return;
-      if (it.parentWorkName && !r.workRefs.includes(it.parentWorkName)) r.workRefs.push(it.parentWorkName);
-      r.planQty += toNum(planMeasure.qty);
-      r.planSum += estimateItemMaterialSum(it);
-    })));
-    return Object.values(rows).sort((a,b)=>a.name.localeCompare(b.name,'ru'));
-  };
-  const materialAliasCandidates = (projectName, row) => {
-    const sourceText = materialNameLookupKey([row?.name, ...(row?.aliases||[])].join(' '));
-    const tokens = sourceText.split(' ').filter(t=>t.length>2);
-    return estimateMaterialPlanRows(projectName)
-      .filter(r=>materialNameLookupKey(r.name)!==materialNameLookupKey(row?.name))
-      .map(r=>{
-        const text = materialNameLookupKey(r.name+' '+(r.sections||[]).join(' '));
-        let score = 0;
-        tokens.forEach(t=>{ if (text.includes(t)) score += 8; });
-        if (row?.unit && r.unit && _normalizeUnit(row.unit)===_normalizeUnit(r.unit)) score += 5;
-        if (text.includes(sourceText) || sourceText.includes(text)) score += 20;
-        score = Math.max(score, Math.round(materialNameMatchScore(sourceText, text) * 100));
-        return {...r, score};
-      })
-      .filter(r=>r.score>0)
-      .sort((a,b)=>(b.score-a.score)||(b.planQty-a.planQty)||a.name.localeCompare(b.name,'ru'))
-      .slice(0,4);
-  };
+  const estimateMaterialPlanRows = (projectName) => buildEstimateMaterialPlanRows({
+    projectName,
+    projects,
+    activeEstimatesForProject,
+    materialNameLookupKey,
+  });
+  const materialAliasCandidates = (projectName, row) => buildMaterialAliasCandidates({
+    projectName,
+    row,
+    estimateMaterialPlanRows,
+    materialNameLookupKey,
+  });
   const createMaterialAlias = async (projectName, aliasName, canonicalName, canonicalUnit='') => {
     if (!aliasName || !canonicalName) return null;
     const res = await fetch(API+'/material-aliases', {
@@ -3080,408 +3052,28 @@ function App() {
       </div>
     );
   };
-  const materialReconciliationRows = (projectName, workPackage='') => {
-    const project = projects.find(pr=>pr.name===projectName) || {name:projectName};
-    const keyOf = materialNameLookupKey;
-    const rows = {};
-    const requiredPackage = String(workPackage || '').trim();
-    const sourcePackageMatches = (value) => !requiredPackage || String(value || '').trim() === requiredPackage;
-    const sourcePackageOf = (item = {}, parent = {}) => item.workPackage || item.work_package || parent.workPackage || parent.work_package || '';
-    const materialUnit = (unit) => normalizeMeasure(1, unit).unit || unit || '';
-    const materialQty = (qty, unit) => {
-      const norm = normalizeMeasure(qty, unit);
-      return {qty: norm.qty, unit: norm.unit || unit || ''};
-    };
-    const packageKeyPart = (pkg='') => {
-      const clean = String(pkg || '').trim();
-      return requiredPackage ? '' : (clean ? '|' + clean.toLowerCase() : '|__no_package__');
-    };
-    const rowPackageCompatible = (rowPackage='', sourcePackage='') => {
-      if (requiredPackage) return true;
-      const rowPkg = String(rowPackage || '').trim();
-      const sourcePkg = String(sourcePackage || '').trim();
-      return !rowPkg || !sourcePkg || rowPkg === sourcePkg;
-    };
-    const autoMatchedRow = (rawName, unit, sourcePackage='') => {
-      const cleanName = String(rawName || '').trim();
-      if (!cleanName) return null;
-      const cleanUnit = materialUnit(unit);
-      let best = null;
-      Object.values(rows).forEach(row => {
-        if (!row || !rowPackageCompatible(row.workPackage, sourcePackage)) return;
-        if (cleanUnit && row.unit && cleanUnit !== row.unit) return;
-        const names = [row.name, ...(row.aliases || [])].filter(Boolean);
-        const score = Math.max(...names.map(name => materialNameMatchScore(cleanName, name)), 0);
-        if (!materialAutoMatchSafe(cleanName, names.join(' '), score)) return;
-        const boosted = score + (cleanUnit && row.unit === cleanUnit ? 0.01 : 0);
-        if (!best || boosted > best.score) best = {row, score: boosted};
-      });
-      return best?.row || null;
-    };
-    const ensure = (name, unit, sourcePackage='') => {
-      const rawName = name || '';
-      const meta = canonicalMaterialMeta(projectName, rawName, unit);
-      const baseKey = keyOf(meta.name);
-      if (!baseKey) return null;
-      const cleanPackage = String(sourcePackage || '').trim();
-      const matched = meta.alias ? null : autoMatchedRow(rawName, meta.unit || unit, cleanPackage);
-      if (matched) {
-        const cleanUnit = materialUnit(meta.unit || unit);
-        if (rawName && keyOf(rawName)!==matched.materialKey && !matched.aliases.includes(rawName)) matched.aliases.push(rawName);
-        if (cleanUnit && matched.unit && matched.unit!==cleanUnit) matched.unitMismatch = true;
-        if (!matched.unit && cleanUnit) matched.unit = cleanUnit;
-        return matched;
-      }
-      const key = baseKey + packageKeyPart(cleanPackage);
-      const cleanUnit = materialUnit(meta.unit || unit);
-      if (!rows[key]) rows[key] = {key,materialKey:baseKey,name:meta.name||'',unit:cleanUnit,workPackage:cleanPackage,sections:[],workRefs:[],aliases:[],aliasIds:[],holders:{},invoiceDetails:[],supplyDetails:[],movementDetails:[],planDetails:[],invalidPlanDetails:[],normDetails:[],normSections:[],normWorks:[],normSources:[],planQty:0,normPlanQty:0,planSum:0,invoiceReceived:0,supplyReceived:0,received:0,receivedSum:0,movedIn:0,movedOut:0,issuedFromMain:0,issued:0,issuedSigned:0,issuedPending:0,returnedFromMasters:0,used:0,stock:0,requested:0,inTransit:0,unitMismatch:false};
-      if (cleanPackage && !rows[key].workPackage) rows[key].workPackage = cleanPackage;
-      if (rawName && keyOf(rawName)!==baseKey && !rows[key].aliases.includes(rawName)) rows[key].aliases.push(rawName);
-      if (meta.alias?.id && !rows[key].aliasIds.includes(meta.alias.id)) rows[key].aliasIds.push(meta.alias.id);
-      if (cleanUnit && rows[key].unit && rows[key].unit!==cleanUnit) rows[key].unitMismatch = true;
-      if (!rows[key].unit && cleanUnit) rows[key].unit = cleanUnit;
-      return rows[key];
-    };
-    const addQty = (row, field, qty, unit) => {
-      if (!row) return;
-      const converted = materialQty(qty, unit || row.unit);
-      if (converted.unit && row.unit && converted.unit!==row.unit) row.unitMismatch = true;
-      if (!row.unit && converted.unit) row.unit = converted.unit;
-      row[field] += converted.qty;
-    };
-    const addHolderQty = (row, person, role, field, qty, unit, transfer) => {
-      if (!row) return;
-      const name = (person || 'Без ответственного').trim();
-      const key = name.toLowerCase();
-      const converted = materialQty(qty, unit || row.unit);
-      if (converted.unit && row.unit && converted.unit !== row.unit) row.unitMismatch = true;
-      if (!row.unit && converted.unit) row.unit = converted.unit;
-      if (!row.holders[key]) row.holders[key] = {name, role: role || '', unit: row.unit || converted.unit || unit || '', issued: 0, pending: 0, used: 0, returned: 0, transfers: []};
-      row.holders[key][field] += converted.qty;
-      if (transfer) row.holders[key].transfers.push(transfer);
-    };
-    const activeEstimates = activeEstimatesForProject(project, 'Заказчик');
-    activeEstimates
-      .filter(est=>packageMatches(estimatePackage(est), workPackage))
-      .forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(rawIt=>{
-      const it = normalizeEstimateWorkingItem(rawIt, s.name);
-      if (isEstimateMaterialItem(it, s.name)) {
-        if (toNum(estimateImportedPlanMeasure(it).qty) <= 0) return;
-        const r = ensure(it.name, it.unit, estimatePackage(est));
-        if (!r) return;
-        const planMeasure = estimateImportedPlanMeasure(it);
-        const converted = materialQty(planMeasure.qty, planMeasure.unit || it.unit || r.unit);
-        const planSum = estimateItemMaterialSum(it);
-        const sectionLabel = (estimatePackage(est)!=='Основная'?estimatePackage(est)+' / ':'')+(s.name||'');
-        if (sectionLabel && !r.sections.includes(sectionLabel)) r.sections.push(sectionLabel);
-        if (it.parentWorkName && !r.workRefs.includes(it.parentWorkName)) r.workRefs.push(it.parentWorkName);
-        const planIssue = estimateMaterialPlanIssue(it, s.name);
-        if (planIssue) {
-          r.invalidPlanDetails.push({
-            estimateId: est.id,
-            estimateName: est.name || '',
-            packageName: estimatePackage(est),
-            sectionName: s.name || '',
-            materialName: it.name || '',
-            workName: it.parentWorkName || '',
-            qty: converted.qty,
-            unit: converted.unit || it.unit || r.unit,
-            sourceQty: Number(it.quantity || 0),
-            sourceUnit: it.unit || '',
-            rawQty: it.rawQuantity,
-            rawUnit: it.rawUnit,
-            sum: planSum,
-            reason: planIssue,
-          });
-          return;
-        }
-        addQty(r, 'planQty', planMeasure.qty, planMeasure.unit || it.unit);
-        r.planSum += planSum;
-        r.planDetails.push({
-          estimateId: est.id,
-          estimateName: est.name || '',
-          packageName: estimatePackage(est),
-          sectionName: s.name || '',
-          materialName: it.name || '',
-          workName: it.parentWorkName || '',
-          qty: converted.qty,
-          unit: converted.unit || it.unit || r.unit,
-          sourceQty: Number(it.quantity || 0),
-          sourceUnit: it.unit || '',
-          rawQty: it.rawQuantity,
-          rawUnit: it.rawUnit,
-          sum: planSum,
-        });
-      }
-    })));
-    (invoices||[]).filter(inv=>{
-      const invoiceStatus = String(inv.status || '').trim().toLowerCase();
-      if (invoiceStatus === 'аннулирована' || invoiceStatus === 'аннулирован') return false;
-      return !isSupplyDeliveryInvoice(inv) && ((inv.project||inv.location)===projectName || inv.location===projectName);
-    }).forEach(inv=>{
-      warehouseInvoiceItems(inv).items.filter(it=>sourcePackageMatches(sourcePackageOf(it, inv))).forEach(it=>{
-        const itemPackage = sourcePackageOf(it, inv);
-        const r = ensure(it.name, it.unit, itemPackage);
-        if (!r) return;
-        const qty = Number(it.quantity||0);
-        const price = Number(it.price||0);
-        const converted = materialQty(qty, it.unit || r.unit);
-        addQty(r, 'invoiceReceived', qty, it.unit);
-        addQty(r, 'received', qty, it.unit);
-        const total = Number(it.total||qty*price||0);
-        r.receivedSum += total;
-        r.invoiceDetails.push({
-          id: inv.id,
-          number: inv.number || '',
-          date: inv.date || '',
-          supplierName: inv.supplierName || '',
-          qty: converted.qty,
-          unit: converted.unit || it.unit || r.unit,
-          sourceUnit: it.unit || '',
-          sourceQty: qty,
-          total,
-          workPackage: itemPackage,
-        });
-      });
-    });
-    const acceptedDeliveryKeys = new Set();
-    const deliveryKey = (row, pkg='') => (row?.key || '') + '|' + String(pkg || '').trim();
-    (supplyDeliveries||[])
-      .filter(d=>d.project===projectName && sourcePackageMatches(sourcePackageOf({}, d)) && ['Принято','Проблема'].includes(d.status||'') && Number(d.receivedQuantity||0)>0)
-      .forEach(d=>{
-        const deliveryPackage = sourcePackageOf({}, d);
-        const r = ensure(d.materialName, d.unit, deliveryPackage);
-        if (!r) return;
-        const qty = Number(d.receivedQuantity||0);
-        const converted = materialQty(qty, d.unit || r.unit);
-        addQty(r, 'supplyReceived', qty, d.unit);
-        addQty(r, 'received', qty, d.unit);
-        const total = Number(d.totalPrice||0) || qty * Number(d.pricePerUnit||0);
-        r.receivedSum += total;
-        r.supplyDetails.push({
-          id: d.id,
-          requestId: d.requestId,
-          status: d.status || '',
-          supplierName: d.supplierName || '',
-          qty: converted.qty,
-          unit: converted.unit || d.unit || r.unit,
-          total,
-          date: d.receivedAt || d.deliveryDate || d.plannedDate || '',
-          workPackage: deliveryPackage,
-        });
-        acceptedDeliveryKeys.add(deliveryKey(r, deliveryPackage));
-      });
-    (supplyHistory||[])
-      .filter(h=>h.project===projectName && sourcePackageMatches(sourcePackageOf({}, h)) && ['Доставлено','Поставлено','Принято'].includes(h.status||''))
-      .forEach(h=>{
-        const historyPackage = sourcePackageOf({}, h);
-        const r = ensure(h.materialName, h.unit, historyPackage);
-        if (!r || acceptedDeliveryKeys.has(deliveryKey(r, historyPackage))) return;
-        const qty = Number(h.quantity||0);
-        const converted = materialQty(qty, h.unit || r.unit);
-        addQty(r, 'supplyReceived', qty, h.unit);
-        addQty(r, 'received', qty, h.unit);
-        const total = Number(h.totalPrice||0) || qty * Number(h.pricePerUnit||0);
-        r.receivedSum += total;
-        r.supplyDetails.push({
-          id: h.id,
-          status: h.status || '',
-          supplierName: h.supplierName || '',
-          qty: converted.qty,
-          unit: converted.unit || h.unit || r.unit,
-          total,
-          date: h.date || h.createdAt || '',
-          workPackage: historyPackage,
-        });
-      });
-    (warehouseMovements||[]).forEach(m=>{
-      const movementPackage = sourcePackageOf({}, m);
-      if (!sourcePackageMatches(movementPackage)) return;
-      const qty = Number(m.quantity||0);
-      if ((m.toLocation||'')===projectName) {
-        const r = ensure(m.materialName, m.unit, movementPackage);
-        addQty(r, 'movedIn', qty, m.unit);
-        const converted = materialQty(qty, m.unit || r?.unit);
-        if (r) r.movementDetails.push({id:m.id, type:'in', from:m.fromLocation||'', to:m.toLocation||'', qty:converted.qty, unit:converted.unit||m.unit||r.unit, date:m.date||m.createdAt||'', workPackage:movementPackage});
-      }
-      if ((m.fromLocation||'')===projectName) {
-        const r = ensure(m.materialName, m.unit, movementPackage);
-        addQty(r, 'movedOut', qty, m.unit);
-        const converted = materialQty(qty, m.unit || r?.unit);
-        if (r) r.movementDetails.push({id:m.id, type:'out', from:m.fromLocation||'', to:m.toLocation||'', qty:converted.qty, unit:converted.unit||m.unit||r.unit, date:m.date||m.createdAt||'', workPackage:movementPackage});
-      }
-    });
-    (materialTransfers||[]).filter(t=>t.projectName===projectName && (t.status||'Активна')!=='Аннулирована' && sourcePackageMatches(t.workPackage || t.work_package)).forEach(t=>{
-      const transferPackage = t.workPackage || t.work_package || '';
-      const r = ensure(t.materialName, t.unit, transferPackage);
-      if ((t.fromLocation||'')==='Основной склад') addQty(r, 'issuedFromMain', t.quantity, t.unit);
-      addQty(r, 'issued', t.quantity, t.unit);
-      if (t.signed) addQty(r, 'issuedSigned', t.quantity, t.unit);
-      else addQty(r, 'issuedPending', t.quantity, t.unit);
-      addHolderQty(r, t.toPerson, t.toPersonRole, t.signed ? 'issued' : 'pending', t.quantity, t.unit, t);
-    });
-    (workJournal||[]).filter(w=>w.project===projectName&&!['Отклонено','Аннулировано','Удалено','Отменено'].includes(w.status||'') && sourcePackageMatches(w.workPackage || w.work_package)).forEach(w=>{
-      let mats = w.materialsUsed!==undefined ? w.materialsUsed : w.materials_used;
-      if (typeof mats === 'string') { try { mats = JSON.parse(mats); } catch(_) { mats = []; } }
-      if (!Array.isArray(mats)) return;
-      mats.forEach(m=>{
-        const writeoffPackage = m.workPackage || m.work_package || w.workPackage || w.work_package || '';
-        const r = ensure(m.name, m.unit, writeoffPackage);
-        addQty(r, 'used', m.quantity, m.unit);
-        addHolderQty(r, w.masterName||w.master_name||'Без ответственного', '', 'used', m.quantity, m.unit);
-      });
-    });
-    (history||[])
-      .filter(h=>h.project===projectName && h.type==='возврат от мастера' && sourcePackageMatches(h.workPackage || h.work_package))
-      .forEach(h=>{
-        const returnPackage = h.workPackage || h.work_package || '';
-        const r = ensure(h.material, '', returnPackage);
-        addQty(r, 'returnedFromMasters', h.quantity, r?.unit);
-        addHolderQty(r, h.issuedBy||h.issued_by||'Без ответственного', '', 'returned', h.quantity, r?.unit);
-      });
-    (materials||[]).filter(m=>m.project===projectName && sourcePackageMatches(sourcePackageOf({}, m))).forEach(m=>{
-      const stockPackage = sourcePackageOf({}, m);
-      const r = ensure(m.name, m.unit, stockPackage);
-      if (r) {
-        addQty(r, 'stock', m.quantity, m.unit);
-        if (!r.receivedSum && Number(m.price||0)>0) r.receivedSum += Number(m.quantity||0)*Number(m.price||0);
-      }
-    });
-    const requestPipelineStatuses = new Set(['Новая','Подтверждена прорабом','Утверждена','КП запрошены']);
-    (supplyRequests||[])
-      .filter(req=>req.project===projectName && requestPipelineStatuses.has(req.status||'Новая'))
-      .forEach(req=>parseSupplyItems(req).filter(it=>sourcePackageMatches(sourcePackageOf(it, req))).forEach(it=>{
-        const requestPackage = sourcePackageOf(it, req);
-        const r = ensure(it.materialName, it.unit, requestPackage);
-        addQty(r, 'requested', it.quantity, it.unit);
-      }));
-    (supplyDeliveries||[])
-      .filter(d=>d.project===projectName && sourcePackageMatches(sourcePackageOf({}, d)) && d.status==='В пути')
-      .forEach(d=>{
-        const transitPackage = sourcePackageOf({}, d);
-        const r = ensure(d.materialName, d.unit, transitPackage);
-        addQty(r, 'inTransit', d.shippedQuantity || d.plannedQuantity, d.unit);
-    });
-    estimateWorkNormRequirementRows(projectName, workPackage).forEach(n=>{
-      const normPackage = (n.packageNames || []).find(Boolean) || n.packageName || '';
-      const r = ensure(n.name, n.unit, normPackage);
-      if (!r) return;
-      addQty(r, 'normPlanQty', n.planQty, n.unit);
-      (n.sections||[]).forEach(s=>{ if (s && !r.normSections.includes(s)) r.normSections.push(s); });
-      (n.normSources||[]).forEach(src=>{ if (src && !r.normSources.includes(src)) r.normSources.push(src); });
-      (n.works||[]).forEach(w=>{
-        const workName = w?.name || '';
-        if (workName && !r.workRefs.includes(workName)) r.workRefs.push(workName);
-        if (workName && !r.normWorks.some(x=>x.name===workName && x.section===w.section)) r.normWorks.push(w);
-      });
-      r.normDetails.push(n);
-    });
-    const materialRowMatchesPackage = (row) => {
-      if (!workPackage) return true;
-      const planPackages = (row.planDetails || []).map(d=>d.packageName).filter(Boolean);
-      const invalidPackages = (row.invalidPlanDetails || []).map(d=>d.packageName).filter(Boolean);
-      const normPackages = (row.normDetails || []).flatMap(d=>d.packageNames || []).filter(Boolean);
-      const transferPackages = (row.holders ? Object.values(row.holders) : [])
-        .flatMap(h=>(h.transfers || []).map(t=>t.workPackage || t.work_package).filter(Boolean));
-      const hasStrictSourceActivity = (row.received||0) || (row.stock||0) || (row.requested||0) ||
-        (row.inTransit||0) || (row.movedIn||0) || (row.movedOut||0) || (row.issued||0) || (row.used||0);
-      if (hasStrictSourceActivity) return true;
-      return [...planPackages, ...invalidPackages, ...normPackages, ...transferPackages].includes(workPackage);
-    };
-    return Object.values(rows).filter(materialRowMatchesPackage).map(r=>{
-      const detailPackages = [
-        ...(r.planDetails || []).map(d => d.packageName),
-        ...(r.invalidPlanDetails || []).map(d => d.packageName),
-        ...(r.normDetails || []).flatMap(d => d.packageNames || []),
-        ...(r.invoiceDetails || []).map(d => d.workPackage),
-        ...(r.supplyDetails || []).map(d => d.workPackage),
-        ...(r.movementDetails || []).map(d => d.workPackage),
-      ].map(v => String(v || '').trim()).filter(Boolean);
-      const rowPackage = requiredPackage || r.workPackage || detailPackages[0] || '';
-      const movedNet = r.movedIn + r.issuedFromMain - r.movedOut;
-      const supplied = r.received + movedNet;
-      const estimatePlanQty = Number(r.planQty||0);
-      const normPlanQty = Number(r.normPlanQty||0);
-      const hasEstimatePlan = estimatePlanQty > 0;
-      const controlPlanQty = hasEstimatePlan ? estimatePlanQty : normPlanQty;
-      const normOverEstimateQty = estimatePlanQty>0 ? Math.max(0, normPlanQty - estimatePlanQty) : normPlanQty;
-      const normWithoutEstimateQty = !hasEstimatePlan ? normPlanQty : 0;
-      const estimateOverNormQty = normPlanQty>0 ? Math.max(0, estimatePlanQty - normPlanQty) : 0;
-      const usedOverEstimateQty = estimatePlanQty>0 ? Math.max(0, (r.used||0) - estimatePlanQty) : 0;
-      const invalidPlanCount = (r.invalidPlanDetails || []).length;
-      const toBuy = hasEstimatePlan && invalidPlanCount <= 0 ? Math.max(0, estimatePlanQty - supplied - (r.requested||0) - (r.inTransit||0)) : 0;
-      const coveredWithPipeline = supplied + (r.requested||0) + (r.inTransit||0);
-      const hasMaterialActivity = coveredWithPipeline>0 || (r.stock||0)>0 || (r.issued||0)>0 || (r.used||0)>0;
-      const holders = Object.values(r.holders||{}).map(h=>({
-        ...h,
-        balance: Math.max(0, (h.issued||0) - (h.used||0) - (h.returned||0)),
-      })).filter(h=>(h.issued||0)>0 || (h.pending||0)>0 || (h.used||0)>0)
-        .sort((a,b)=>(b.balance-a.balance)||(b.pending-a.pending)||a.name.localeCompare(b.name,'ru'));
-      const masterBalance = holders.reduce((sum,h)=>sum+(h.balance||0),0);
-      const pendingAtMasters = holders.reduce((sum,h)=>sum+(h.pending||0),0);
-      const usedWithoutIssue = Math.max(0, (r.used||0) - (r.issuedSigned||0));
-      const expectedStock = supplied - (r.issued||0) + (r.returnedFromMasters||0) - usedWithoutIssue;
-      const stockDiff = (r.stock||0) - expectedStock;
-      return {
-        ...r,
-        workPackage: rowPackage,
-        packageName: rowPackage,
-	        planSourceCount: (r.planDetails || []).length,
-	        invalidPlanCount,
-        movedNet,
-        supplied,
-        holders,
-        masterBalance,
-        pendingAtMasters,
-        usedWithoutIssue,
-        expectedStock,
-        stockDiff,
-        stockMismatch: Math.abs(stockDiff)>0.0001,
-        estimatePlanQty,
-        normPlanQty,
-        controlPlanQty,
-        procurementPlanQty: hasEstimatePlan ? estimatePlanQty : 0,
-        normWithoutEstimateQty,
-        normSourceCount: (r.normDetails || []).length,
-        normOverEstimateQty,
-        estimateOverNormQty,
-        usedOverEstimateQty,
-        usedOverControlQty: controlPlanQty>0 ? Math.max(0, (r.used||0) - controlPlanQty) : 0,
-        usedOverNormQty: normPlanQty>0 ? Math.max(0, (r.used||0) - normPlanQty) : 0,
-        spendPct: controlPlanQty>0 ? Math.min(999, Math.round((r.used||0)/controlPlanQty*100)) : 0,
-        shortage: hasEstimatePlan ? Math.max(0, estimatePlanQty - supplied) : 0,
-        toBuy,
-        coveredWithPipeline,
-        over: controlPlanQty>0 ? Math.max(0, supplied - controlPlanQty) : coveredWithPipeline,
-        isOutsideEstimate: !estimatePlanQty && !normPlanQty && hasMaterialActivity,
-        coveragePct: controlPlanQty>0 ? Math.min(999, Math.round(supplied/controlPlanQty*100)) : 0,
-      };
-    }).sort((a,b)=>(b.toBuy-a.toBuy)||(b.shortage-a.shortage)||(b.isOutsideEstimate-a.isOutsideEstimate)||a.name.localeCompare(b.name,'ru'));
-  };
-  const materialControlSummaryForProject = (projectName) => {
-    const rows = materialReconciliationRows(projectName);
-    const planRows = rows.filter(r=>r.planQty>0);
-    const suppliedRows = rows.filter(r=>r.supplied>0);
-    const invoiceRows = rows.filter(r=>r.invoiceReceived>0);
-    const deliveryRows = rows.filter(r=>r.supplyReceived>0);
-    const movedRows = rows.filter(r=>r.movedNet!==0);
-    const toBuyRows = rows.filter(r=>r.toBuy>0);
-    const outsideRows = rows.filter(r=>r.isOutsideEstimate);
-    const overRows = rows.filter(r=>r.over>0);
-    const mismatchRows = rows.filter(r=>r.unitMismatch);
-    const stockMismatchRows = rows.filter(r=>r.stockMismatch);
-    const masterBalanceRows = rows.filter(r=>r.masterBalance>0);
-    const usedWithoutIssueRows = rows.filter(r=>r.issued>0 && r.usedWithoutIssue>0);
-    const invalidPlanRows = rows.filter(r=>r.invalidPlanCount>0);
-    const normRows = rows.filter(r=>r.normPlanQty>0);
-    const normOverEstimateRows = rows.filter(r=>r.normOverEstimateQty>0);
-    const normWithoutEstimateRows = rows.filter(r=>r.normWithoutEstimateQty>0);
-    const usedOverControlRows = rows.filter(r=>r.usedOverControlQty>0);
-    const usedOverEstimateRows = rows.filter(r=>r.usedOverEstimateQty>0);
-    const planSum = rows.reduce((s,r)=>s+Number(r.planSum||0),0);
-    const suppliedSum = rows.reduce((s,r)=>s+Number(r.receivedSum||0),0);
-    return {rows, planRows, suppliedRows, invoiceRows, deliveryRows, movedRows, toBuyRows, outsideRows, overRows, mismatchRows, stockMismatchRows, masterBalanceRows, usedWithoutIssueRows, invalidPlanRows, normRows, normOverEstimateRows, normWithoutEstimateRows, usedOverControlRows, usedOverEstimateRows, planSum, suppliedSum};
-  };
+  const materialReconciliationRows = (projectName, workPackage='') => buildMaterialReconciliationRows({
+    projectName,
+    workPackage,
+    projects,
+    invoices,
+    supplyDeliveries,
+    supplyHistory,
+    warehouseMovements,
+    materialTransfers,
+    workJournal,
+    history,
+    materials,
+    supplyRequests,
+    activeEstimatesForProject,
+    canonicalMaterialMeta,
+    warehouseInvoiceItems,
+    isSupplyDeliveryInvoice,
+    estimateWorkNormRequirementRows,
+    parseSupplyItems,
+    materialNameLookupKey,
+  });
+  const materialControlSummaryForProject = (projectName) => buildMaterialControlSummary(materialReconciliationRows(projectName));
   const warehouseInvoiceEstimateControl = (inv) => {
     const sourcePackageOf = (item = {}, parent = {}) => item.workPackage || item.work_package || parent.workPackage || parent.work_package || '';
     const linkedWorkLabel = (item = {}) => item.parentWorkName || item.parent_work_name || item.estimateWorkName || item.estimate_work_name || item.workName || item.work_name || '';
@@ -4074,183 +3666,52 @@ function App() {
   };
   const isPersonalMaterialRole = () => ['мастер','субподрядчик','бригадир'].includes(user?.role);
   const parseJournalMaterials = (value) => parseJournalMaterialsValue(value);
-  const materialNormDeviationRows = (projectName, workPackage='') => {
-    const rows = {};
-    (workJournal||[])
-      .filter(w=>w.project===projectName && w.status!=='Отклонено' && packageMatches(w.workPackage || w.work_package, workPackage))
-      .forEach(w=>parseJournalMaterials(w.materialsUsed!==undefined?w.materialsUsed:w.materials_used).forEach(m=>{
-        const name = m.name || '';
-        const key = materialNameKey(name)+'|'+_normalizeUnit(m.unit||'шт');
-        if (!materialNameKey(name)) return;
-        const qty = toNum(m.quantity);
-        const norm = toNum(m.normQuantity);
-        const unit = m.unit || 'шт';
-        const tolerance = norm>0 ? Math.max(0.001, norm*0.1) : 0;
-        const diff = norm>0 ? qty - norm : 0;
-        if (!rows[key]) rows[key] = {key,name,unit,qty:0,normQty:0,overQty:0,savedQty:0,withoutNormQty:0,records:0,overRecords:0,withoutNormRecords:0,works:[],normSources:[]};
-        const row = rows[key];
-        row.qty += qty;
-        row.records += 1;
-        if (norm>0) {
-          row.normQty += norm;
-          if (diff>tolerance) {
-            row.overQty += diff;
-            row.overRecords += 1;
-          } else if (diff < -tolerance) {
-            row.savedQty += Math.abs(diff);
-          }
-        } else if (qty>0) {
-          row.withoutNormQty += qty;
-          row.withoutNormRecords += 1;
-        }
-        if (m.normSource && !row.normSources.includes(m.normSource)) row.normSources.push(m.normSource);
-        row.works.push({
-          workName:w.description||'',
-          master:w.masterName||w.master_name||'',
-          date:w.date||'',
-          qty,
-          norm,
-          diff,
-          unit,
-          normSource:m.normSource||'',
-          overNormReason:m.overNormReason||'',
-        });
-      }));
-    return Object.values(rows).map(r=>({...r,overPct:r.normQty>0?Math.round(r.overQty/r.normQty*100):0})).sort((a,b)=>(b.overQty-a.overQty)||(b.withoutNormQty-a.withoutNormQty)||a.name.localeCompare(b.name,'ru'));
-  };
-  const materialNormControlSummaryForProject = (projectName, workPackage='') => {
-    const rows = materialNormDeviationRows(projectName, workPackage);
-    const overRows = rows.filter(r=>r.overQty>0);
-    const withoutNormRows = rows.filter(r=>r.withoutNormQty>0);
-    const savedRows = rows.filter(r=>r.savedQty>0 && r.overQty===0);
-    return {
-      rows,
-      overRows,
-      withoutNormRows,
-      savedRows,
-      totalOverRows: overRows.length,
-      totalWithoutNormRows: withoutNormRows.length,
-      totalOverRecords: rows.reduce((s,r)=>s+r.overRecords,0),
-      totalWithoutNormRecords: rows.reduce((s,r)=>s+r.withoutNormRecords,0),
-    };
-  };
-  const personalMaterialRowsForProject = (projectName, personName=user?.name, personId=user?.id, workPackage='') => {
-    const byName = {};
-    const materialTransferKey = (name, workPackage='', unit='') => {
-      const meta = canonicalMaterialMeta(projectName, name, unit);
-      const base = materialNameKey(meta.name);
-      return base ? base+'|'+(workPackage||'')+'|'+_normalizeUnit(meta.unit||unit||'шт') : '';
-    };
-    const ensurePersonalMaterialRow = (key, source = {}) => {
-      if (!key) return null;
-      if (!byName[key]) {
-        const meta = canonicalMaterialMeta(projectName, source.materialName || source.material || source.name || '', source.unit || 'шт');
-        byName[key] = {
-          id:key+'|'+projectName,
-          key,
-          name:meta.name || source.materialName || source.material || source.name || '',
-          unit:meta.unit || source.unit || 'шт',
-          workPackage:source.workPackage || source.work_package || '',
-          quantity:0,
-          received:0,
-          used:0,
-          returned:0,
-          pending:0,
-          project:projectName,
-          aliases:[],
-          transfers:[],
-          pendingTransfers:[]
-        };
-      }
-      const rawName = source.materialName || source.material || source.name || '';
-      if (rawName && materialNameKey(rawName)!==materialNameKey(byName[key].name) && !byName[key].aliases.includes(rawName)) byName[key].aliases.push(rawName);
-      return byName[key];
-    };
-    const transferBelongsToPerson = (t) => {
-      const transferUserId = t.toUserId || t.to_user_id;
-      if (personId && transferUserId) return Number(transferUserId) === Number(personId);
-      return !transferUserId && t.toPerson === personName;
-    };
-    (materialTransfers||[])
-      .filter(t=>t.projectName===projectName && transferBelongsToPerson(t) && t.signed && (t.status||'Активна')!=='Аннулирована' && packageMatches(t.workPackage || t.work_package, workPackage))
-      .forEach(t=>{
-        const key = materialTransferKey(t.materialName, t.workPackage, t.unit);
-        const row = ensurePersonalMaterialRow(key, t);
-        if (!row) return;
-        row.received += toNum(t.quantity);
-        row.quantity += toNum(t.quantity);
-        row.transfers.push(t);
-      });
-    (materialTransfers||[])
-      .filter(t=>t.projectName===projectName && transferBelongsToPerson(t) && !t.signed && (t.status||'Активна')!=='Аннулирована' && packageMatches(t.workPackage || t.work_package, workPackage))
-      .forEach(t=>{
-        const key = materialTransferKey(t.materialName, t.workPackage, t.unit);
-        const row = ensurePersonalMaterialRow(key, t);
-        if (!row) return;
-        row.pending += toNum(t.quantity);
-        row.pendingTransfers.push(t);
-      });
-    (workJournal||[])
-      .filter(w=>w.project===projectName && w.status!=='Отклонено' && packageMatches(w.workPackage || w.work_package, workPackage) && (Number(w.masterId||w.master_id)===Number(personId) || w.masterName===personName || w.master_name===personName))
-      .forEach(w=>parseJournalMaterials(w.materialsUsed!==undefined?w.materialsUsed:w.materials_used).forEach(m=>{
-        const key = materialTransferKey(m.name, m.workPackage || w.workPackage || w.work_package, m.unit);
-        const cur = byName[key] || byName[materialTransferKey(m.name, '', m.unit)];
-	        if (cur) {
-	          cur.used += toNum(m.quantity);
-	          cur.quantity -= toNum(m.quantity);
-	        }
-	      }));
-    (history||[])
-      .filter(h=>h.project===projectName && h.type==='возврат от мастера' && h.issuedBy===personName && packageMatches(h.workPackage || h.work_package, workPackage))
-      .forEach(h=>{
-        const key = materialTransferKey(h.material, h.workPackage || h.work_package, h.unit);
-        const cur = byName[key] || byName[materialTransferKey(h.material, '', h.unit)];
-        if (cur) {
-          cur.returned += toNum(h.quantity);
-          cur.quantity -= toNum(h.quantity);
-        }
-      });
-    return Object.values(byName).filter(r=>r.received>0 || r.pending>0).map(r=>({...r, quantity:Math.max(0,r.quantity)}));
-  };
+  const materialNormDeviationRows = (projectName, workPackage='') => buildMaterialNormDeviationRows({
+    projectName,
+    workPackage,
+    workJournal,
+    parseJournalMaterials,
+    materialNameKey,
+  });
+  const materialNormControlSummaryForProject = (projectName, workPackage='') =>
+    buildMaterialNormControlSummary(materialNormDeviationRows(projectName, workPackage));
+  const personalMaterialRowsForProject = (projectName, personName=user?.name, personId=user?.id, workPackage='') =>
+    buildPersonalMaterialRowsForProject({
+      projectName,
+      personName,
+      personId,
+      workPackage,
+      materialTransfers,
+      workJournal,
+      history,
+      canonicalMaterialMeta,
+      parseJournalMaterials,
+      materialNameKey,
+    });
   const materialRowsAvailableForWork = (projectName, workPackage='') => {
     if (isPersonalMaterialRole()) return personalMaterialRowsForProject(projectName, user?.name, user?.id, workPackage).filter(r=>toNum(r.quantity)>0);
     return (materials||[]).filter(m=>m.project===projectName&&toNum(m.quantity)>0&&packageMatches(m.workPackage || m.work_package, workPackage));
   };
-  const materialAvailabilityMapForWork = (projectName, workPackage='') => {
-    const byName = {};
-    materialRowsAvailableForWork(projectName, workPackage).forEach(m=>{
-      const meta = canonicalMaterialMeta(projectName, m.name, m.unit);
-      const key = materialNameKey(meta.name);
-      if (!key) return;
-      if (!byName[key]) byName[key] = {name:meta.name, unit:meta.unit||m.unit||'шт', quantity:0, aliases:[]};
-      byName[key].quantity += toNum(m.quantity);
-      if (m.name && materialNameKey(m.name)!==key && !byName[key].aliases.includes(m.name)) byName[key].aliases.push(m.name);
-      if (!byName[key].unit && (meta.unit || m.unit)) byName[key].unit = meta.unit || m.unit;
-    });
-    return byName;
-  };
+  const materialAvailabilityMapForWork = (projectName, workPackage='') => buildMaterialAvailabilityMap({
+    rows: materialRowsAvailableForWork(projectName, workPackage),
+    projectName,
+    canonicalMaterialMeta,
+    materialNameKey,
+  });
   const materialHintForProject = (projectName, materialName, workPackage='') => {
     const meta = canonicalMaterialMeta(projectName, materialName);
     const key = materialNameKey(meta.name);
     if (!key) return null;
     return materialReconciliationRows(projectName, workPackage).find(r=>materialNameKey(r.name)===key) || null;
   };
-  const materialSuggestionsForWork = (projectName, workName, sectionName='', workPackage='') => {
-    const rows = materialReconciliationRows(projectName, workPackage).filter(r=>toNum(r.stock)>0 || toNum(r.planQty)>0);
-    const stop = new Set(['работ','работа','монтаж','установка','устройство','демонтаж','прочее','раздел']);
-    const tokens = materialNameKey(workName+' '+sectionName).split(' ').filter(w=>w.length>3&&!stop.has(w));
-    return rows.map(r=>{
-      const text = materialNameKey([r.name, ...(r.sections||[])].join(' '));
-      let score = 0;
-      if (toNum(r.stock)>0) score += 20;
-      if (toNum(r.planQty)>0) score += 12;
-      if (toNum(r.toBuy)>0) score -= 4;
-      if (r.isOutsideEstimate) score -= 3;
-      tokens.forEach(t=>{ if (text.includes(t)) score += 7; });
-      if (sectionName && text.includes(materialNameKey(sectionName))) score += 10;
-      return {...r, score};
-    }).sort((a,b)=>(b.score-a.score)||(b.stock-a.stock)||(b.planQty-a.planQty)||a.name.localeCompare(b.name,'ru')).slice(0,8);
-  };
+  const materialSuggestionsForWork = (projectName, workName, sectionName='', workPackage='') => buildMaterialSuggestionsForWork({
+    projectName,
+    workName,
+    sectionName,
+    workPackage,
+    materialReconciliationRows,
+    materialNameKey,
+  });
   const workNormRulesFor = (workName, sectionName='', projectName='', estimateId=null) => {
     return workNormRulesForCalculation({
       workName,
@@ -4290,112 +3751,23 @@ function App() {
       baseRules: WORK_MATERIAL_NORM_RULES,
     });
   };
-  const estimateWorkNormRequirementRows = (projectName, workPackage='') => {
-    const project = projects.find(pr=>pr.name===projectName) || {name:projectName};
-    const activeEstimates = activeEstimatesForProject(project, 'Заказчик');
-    const rows = {};
-    activeEstimates
-      .filter(est=>packageMatches(estimatePackage(est), workPackage))
-      .forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
-      if (!isEstimateWorkItem(it, s.name)) return;
-      normRequirementsForWork(it.name, s.name, it.quantity, it.unit, {projectName, estimateId:est.id}).forEach(req=>{
-        const key = req.ruleId+'|'+materialNameKey(req.name)+'|'+_normalizeUnit(req.unit);
-        if (!rows[key]) rows[key] = {key,name:req.name,unit:req.unit,planQty:0,works:[],sections:[],normSources:[],packageNames:[]};
-        rows[key].planQty += toNum(req.quantity);
-        const packageName = estimatePackage(est);
-        const sectionLabel = (estimatePackage(est)!=='Основная'?estimatePackage(est)+' / ':'')+(s.name||'');
-        if (sectionLabel && !rows[key].sections.includes(sectionLabel)) rows[key].sections.push(sectionLabel);
-        if (packageName && !rows[key].packageNames.includes(packageName)) rows[key].packageNames.push(packageName);
-        if (req.normSource && !rows[key].normSources.includes(req.normSource)) rows[key].normSources.push(req.normSource);
-        rows[key].works.push({name:it.name,section:s.name,quantity:it.quantity,unit:it.unit,source:req.normSource,packageName});
-      });
-    })));
-    return Object.values(rows).map(r=>({...r,planQty:roundNormQty(r.planQty)})).sort((a,b)=>b.planQty-a.planQty || a.name.localeCompare(b.name,'ru'));
-  };
-  const estimateNormCoverageRows = (projectName, sourceEstimates=null) => {
-    const project = projects.find(pr=>pr.name===projectName) || {name:projectName};
-    const activeEstimates = activeEstimatesForProject(project, 'Заказчик', sourceEstimates);
-    const rows = [];
-    activeEstimates.forEach(est=>_sectionsOfEst(est).forEach((section,sectionIdx)=>{
-      const items = section.items || [];
-      const materialsInSection = items.filter(it=>isEstimateMaterialItem(it, section.name) && !materialNoNormCoverageReason(it.name));
-      const coveredMaterialKeys = new Set();
-      items.forEach((it,itemIdx)=>{
-        if (!isEstimateWorkItem(it, section.name)) return;
-        const workQty = toNum(it.quantity);
-        const workUnit = it.unit || '';
-        const rules = workNormRulesFor(it.name, section.name, projectName, est.id)
-          .filter(rule=>_normalizeUnit(normalizeMeasure(workQty,workUnit).unit)===_normalizeUnit(rule.workUnit));
-        if (!rules.length) {
-          const noMaterialReason = workNoMaterialNormReason(it.name, section.name);
-          rows.push({key:[est.id,section.name,itemIdx,'no'].join('|'),projectName,estimateId:est.id,estimateName:est.name,packageName:estimatePackage(est),sectionIdx,itemIdx,itemId:it.id,sectionName:section.name||'',workName:it.name||'',workQty,workUnit,status:noMaterialReason?'Норма не нужна':'Нет нормы',severity:noMaterialReason?'info':'warning',message:noMaterialReason||'Для работы не найдено правило расхода материала',rule:null,materialName:'',materialQty:0,materialUnit:''});
-          return;
-        }
-        rules.forEach(rule=>{
-          const ruleKey = String(rule.ruleKey||rule.id||'');
-          const skippedRules = new Set((Array.isArray(it.materialNormSkipRules)?it.materialNormSkipRules:[]).map(String));
-          const req = normRequirementsForWork(it.name, section.name, workQty, workUnit, {projectName, estimateId:est.id}).find(r=>String(r.ruleId)===String(rule.ruleKey||rule.id));
-          if (it.materialNormNoMaterial===true || skippedRules.has(ruleKey)) {
-            rows.push({key:[est.id,section.name,itemIdx,rule.ruleKey||rule.id,'skip'].join('|'),projectName,estimateId:est.id,estimateName:est.name,packageName:estimatePackage(est),sectionIdx,itemIdx,itemId:it.id,sectionName:section.name||'',workName:it.name||'',workQty,workUnit,status:'Норма не нужна',severity:'info',message:it.materialNormSkipReason||'Помечено в смете: материал по этой норме не требуется',rule,materialName:materialTitleForNormRule(rule),materialQty:0,materialUnit:rule.materialUnit||'',requiredQty:0,requiredUnit:rule.materialUnit||'',qtyPerUnit:rule.qtyPerUnit});
-            return;
-          }
-          const matchingMaterials = materialsInSection.filter(m=>materialNormMatchesMaterial(rule, m.name, m.unit, it.name+' '+section.name));
-          matchingMaterials.forEach(m=>coveredMaterialKeys.add(materialNameKey(m.name)));
-          const material = matchingMaterials[0];
-          const positiveMaterialQty = matchingMaterials.reduce((sum,m)=>sum+Math.max(0,toNum(m.quantity)),0);
-          const negativeMaterialQty = matchingMaterials.reduce((sum,m)=>sum+Math.min(0,toNum(m.quantity)),0);
-          const materialQty = positiveMaterialQty || toNum(material?.quantity);
-          const requiredQty = toNum(req?.quantity);
-          const shortageQty = requiredQty>0 ? Math.max(0, roundNormQty(requiredQty - positiveMaterialQty)) : 0;
-          const hasPositiveMaterial = positiveMaterialQty > 0;
-          const hasOnlyNegativeMaterial = matchingMaterials.length>0 && !hasPositiveMaterial && negativeMaterialQty < 0;
-          const materialStatus = material
-            ? (hasOnlyNegativeMaterial ? 'Некорректное количество' : hasPositiveMaterial ? (shortageQty>0?'Нехватка материала по норме':(rule.scope==='estimate'?'Поправка сметы':rule.scope==='project'?'Поправка объекта':'Норма применена')) : 'Материал без количества')
-            : 'Нет материала в смете';
-          rows.push({
-            key:[est.id,section.name,itemIdx,rule.ruleKey||rule.id].join('|'),
-            projectName,
-            estimateId:est.id,
-            estimateName:est.name,
-            packageName:estimatePackage(est),
-            sectionIdx,
-            itemIdx,
-            itemId:it.id,
-            sectionName:section.name||'',
-            workName:it.name||'',
-            workQty,
-            workUnit,
-            status: materialStatus,
-            severity: material ? (shortageQty>0 || hasOnlyNegativeMaterial || !hasPositiveMaterial ? 'warning':'success') : 'info',
-            message: material
-              ? (hasOnlyNegativeMaterial
-                ? 'Материал найден в разделе сметы, но количество отрицательное — это корректировка, она не закрывает потребность по норме'
-                : !hasPositiveMaterial
-                  ? 'Материал найден в разделе сметы, но количество не заполнено или равно 0'
-                  : shortageQty>0
-                    ? 'Материала в смете меньше, чем требуется по норме'
-                    : 'Работа покрыта нормой и материал найден в разделе сметы')
-              : 'Норма есть, но строка материала в этом разделе сметы не найдена',
-            rule,
-            hasEstimateMaterial: !!material,
-            materialName: material?.name || materialTitleForNormRule(rule),
-            materialQty,
-            materialUnit: material?.unit || rule.materialUnit || '',
-            requiredQty,
-            requiredUnit: req?.unit || rule.materialUnit || '',
-            shortageQty,
-            qtyPerUnit: rule.qtyPerUnit,
-          });
-        });
-      });
-      materialsInSection.forEach((m,idx)=>{
-        const key = materialNameKey(m.name);
-        if (!key || coveredMaterialKeys.has(key)) return;
-        rows.push({key:[est.id,section.name,'mat',idx].join('|'),projectName,estimateId:est.id,estimateName:est.name,packageName:estimatePackage(est),sectionIdx,itemIdx:idx,itemId:m.id,sectionName:section.name||'',workName:'—',workQty:0,workUnit:'',status:'Материал без работы',severity:'warning',message:'Материал есть в смете, но система не связала его с работой раздела',rule:null,materialName:m.name||'',materialQty:toNum(m.quantity),materialUnit:m.unit||''});
-      });
-    }));
-    return rows;
-  };
+  const estimateWorkNormRequirementRows = (projectName, workPackage='') => buildEstimateWorkNormRequirementRows({
+    projectName,
+    workPackage,
+    projects,
+    activeEstimatesForProject,
+    normRequirementsForWork,
+    materialNameKey,
+  });
+  const estimateNormCoverageRows = (projectName, sourceEstimates=null) => buildEstimateNormCoverageRows({
+    projectName,
+    sourceEstimates,
+    projects,
+    activeEstimatesForProject,
+    workNormRulesFor,
+    normRequirementsForWork,
+    materialNameKey,
+  });
   const buildMaterialNormCoverageContent = (projectName) => buildMaterialNormCoverageDocContent(
     projectName,
     projectName ? estimateNormCoverageRows(projectName) : [],
@@ -5635,64 +5007,34 @@ function App() {
     await refreshData();
     alert('Поручение создано в ИИ-контроле объекта');
   };
-  const materialWriteoffRows = (projectName, usedMaterials=[]) => {
-    return (usedMaterials||[])
-      .filter(m=>m?.name)
-      .map(m=>{
-        const workPackage = m.workPackage || m.work_package || '';
-        const stockByName = materialAvailabilityMapForWork(projectName, workPackage);
-        const meta = canonicalMaterialMeta(projectName, m.name, m.unit);
-        const key = materialNameKey(meta.name);
-        const stock = stockByName[key] || null;
-        const qty = toNum(m.quantity);
-        const normQty = toNum(m.normQuantity);
-        const unit = meta.unit || m.unit || stock?.unit || 'шт';
-        const available = toNum(stock?.quantity);
-        const tolerance = normQty>0 ? Math.max(0.001, normQty*0.1) : 0;
-        const overNormQty = normQty>0 ? Math.max(0, qty - normQty) : 0;
-        const overNorm = normQty>0 && overNormQty > tolerance;
-        const overStock = qty > available + 0.0001;
-        const noNorm = qty>0 && normQty<=0;
-        const restAfter = Math.max(0, available - qty);
-        return {
-          ...m,
-          key,
-          qty,
-          unit,
-          stock,
-          available,
-          normQty,
-          overNorm,
-          overNormQty,
-          overStock,
-          noNorm,
-          restAfter,
-        };
-      });
-  };
-  const materialWriteoffAvailableQty = (projectName, materialName, workPackage='') => {
-    const meta = canonicalMaterialMeta(projectName, materialName);
-    const stock = materialAvailabilityMapForWork(projectName, workPackage)[materialNameKey(meta.name)];
-    return stock ? toNum(stock.quantity) : 0;
-  };
-  const capMaterialWriteoffQty = (projectName, materialName, quantity, workPackage='') => {
-    const qty = toNum(quantity);
-    if (qty <= 0) return quantity || '';
-    const available = materialWriteoffAvailableQty(projectName, materialName, workPackage);
-    if (available > 0 && qty > available) return Math.round(available * 1000) / 1000;
-    return qty;
-  };
-  const materialWriteoffBlockMessage = (projectName, usedMaterials=[]) => {
-    const rows = materialWriteoffRows(projectName, usedMaterials);
-    const bad = rows.filter(r=>!r.stock || r.overStock);
-    if (!bad.length) return '';
-    return bad.map(r=>{
-      if (!r.stock) return isPersonalMaterialRole()
-        ? 'Материал «'+r.name+'» не выдан вам или получение не подтверждено.'
-        : 'Материал «'+r.name+'» не найден на складе объекта «'+projectName+'».';
-      return 'Недостаточно материала «'+r.name+'»: выбрано '+fmtMeasure(r.qty,r.unit)+', доступно '+fmtMeasure(r.available,r.stock.unit||r.unit)+'.';
-    }).join('\n');
-  };
+  const materialWriteoffRows = (projectName, usedMaterials=[]) => buildMaterialWriteoffRows({
+    projectName,
+    usedMaterials,
+    materialAvailabilityMapForWork,
+    canonicalMaterialMeta,
+    materialNameKey,
+  });
+  const materialWriteoffAvailableQty = (projectName, materialName, workPackage='') => getMaterialWriteoffAvailableQty({
+    projectName,
+    materialName,
+    workPackage,
+    materialAvailabilityMapForWork,
+    canonicalMaterialMeta,
+    materialNameKey,
+  });
+  const capMaterialWriteoffQty = (projectName, materialName, quantity, workPackage='') => capMaterialWriteoffQtyValue({
+    projectName,
+    materialName,
+    quantity,
+    workPackage,
+    materialWriteoffAvailableQty,
+  });
+  const materialWriteoffBlockMessage = (projectName, usedMaterials=[]) => buildMaterialWriteoffBlockMessage({
+    projectName,
+    rows: materialWriteoffRows(projectName, usedMaterials),
+    isPersonalMaterialRole,
+    fmtMeasure,
+  });
   const materialNormOverrunReason = (projectName, workName, usedMaterials=[]) => {
     const rows = materialWriteoffRows(projectName, usedMaterials).filter(r=>r.overNorm);
     if (!rows.length) return '';
@@ -5703,9 +5045,12 @@ function App() {
     return reason.trim() || 'Причина не указана';
   };
   const applyMaterialOverNormReason = (projectName, usedMaterials=[], reason='') => {
-    if (!reason) return usedMaterials || [];
-    const overKeys = new Set(materialWriteoffRows(projectName, usedMaterials).filter(r=>r.overNorm).map(r=>r.key));
-    return (usedMaterials||[]).map(m=>overKeys.has(materialNameKey(m.name)) ? {...m, overNorm:true, overNormReason:reason} : m);
+    return applyMaterialOverNormReasonToRows({
+      usedMaterials,
+      rows: materialWriteoffRows(projectName, usedMaterials),
+      reason,
+      materialNameKey,
+    });
   };
   const renderMaterialWriteoffStatus = (projectName, usedMaterials=[]) => {
     const rows = materialWriteoffRows(projectName, usedMaterials).filter(r=>r.qty>0 || r.normQty>0);
@@ -5916,8 +5261,8 @@ function App() {
   // Хелпер: статус АОСР для записи журнала работ
   const getActStatusForJournal = (w) => actStatusForJournalWork(w, hiddenActs);
 
-  // Формы М-15 (накладная на отпуск материалов) и месячного отчёта технадзора
-  const printDocContext = () => ({
+  // Печатные формы получают текущий контекст приложения через фабрику оберток.
+  const printDocContext = createPrintDocContext({
     companyRequisites,
     companyName,
     projects,
@@ -5934,67 +5279,31 @@ function App() {
     user,
   });
 
-  const buildM15Content = (transfer) => buildM15DocContent(transfer, printDocContext());
-
-  const buildAOSKContent = (projectName) => buildAOSKDocContent(projectName, printDocContext());
-
-  const buildKS11Content = (project) => buildKS11DocContent(project, printDocContext());
-
-  const buildKS14Content = (project) => buildKS14DocContent(project, printDocContext());
-
-  const buildIGDContent = (projectName) => buildIGDDocContent(projectName, printDocContext());
-
-  const buildSpecJournalContent = (projectName, kind) => buildSpecJournalDocContent(projectName, kind, printDocContext());
-
-  const buildM2Content = (supplier, items, projectName, recipientName, recipientPassport) => (
-    buildM2DocContent(supplier, items, projectName, recipientName, recipientPassport, printDocContext())
-  );
-
-  const buildM8Content = (projectName, masterName, periodFrom, periodTo) => buildM8ReportContent({
-    projectName,
-    masterName,
-    periodFrom,
-    periodTo,
+  const {
+    buildM15Content,
+    buildAOSKContent,
+    buildKS11Content,
+    buildKS14Content,
+    buildIGDContent,
+    buildSpecJournalContent,
+    buildM2Content,
+    buildM8Content,
+    buildMaterialRequirementContent,
+    buildVATBookContent,
+    buildSupplementaryAgreementContent,
+    buildExecPackageContent,
+    buildM29Content,
+    buildSupervisorMonthlyReport,
+  } = createAppPrintBuilders({
+    printDocContext,
     projects,
     materialTransfers,
-    activeEstimatesForProject,
-    printDocContext: printDocContext(),
-  });
-
-  const buildMaterialRequirementContent = (projectName) => buildMaterialRequirementReportContent({
-    projectName,
-    projects,
     activeEstimatesForProject,
     materialReconciliationRows,
     estimateWorkNormRequirementRows,
     materialNormControlSummaryForProject,
-    printDocContext: printDocContext(),
-  });
-
-  const buildVATBookContent = (periodFrom, periodTo) => (
-    buildVATBookDocContent(periodFrom, periodTo, printDocContext())
-  );
-
-  const buildSupplementaryAgreementContent = (unx, project) => (
-    buildSupplementaryAgreementDocContent(unx, project, printDocContext())
-  );
-
-  const buildExecPackageContent = (project) => buildExecPackageDocContent(project, printDocContext());
-
-  const buildM29Content = (projectName, periodFrom, periodTo) => buildM29ReportContent({
-    projectName,
-    periodFrom,
-    periodTo,
-    projects,
-    materialTransfers,
     workJournal,
-    activeEstimatesForProject,
-    printDocContext: printDocContext(),
   });
-
-  const buildSupervisorMonthlyReport = (projectName, periodFrom, periodTo) => (
-    buildSupervisorMonthlyReportDocContent(projectName, periodFrom, periodTo, printDocContext())
-  );
   const isLeadership = () => isLeadershipUser(user);
   const isDirector = () => (user ? user.role : '') === 'директор';
   const canUseDirectorAgent = () => ['директор','system_owner'].includes(user?user.role:'');
