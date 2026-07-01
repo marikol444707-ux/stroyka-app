@@ -183,6 +183,9 @@ def register_crm_module(app, deps):
     leadership_roles = deps["leadership_roles"]
     log_audit = deps.get("log_audit")
     prepare_user_access_scope = deps.get("prepare_user_access_scope")
+    supplier_find_match = deps.get("supplier_find_match")
+    supplier_update_missing_fields = deps.get("supplier_update_missing_fields")
+    supplier_remember_alias = deps.get("supplier_remember_alias")
     app_public_url = (deps.get("app_public_url") or "").rstrip("/")
 
     _ensure_crm_schema(get_db)
@@ -212,6 +215,20 @@ def register_crm_module(app, deps):
     def supplier_id_for_lead(cur, lead, data):
         if data.get("supplierId"):
             return int(data.get("supplierId") or 0) or None
+        supplier_payload = {
+            **(data or {}),
+            "name": lead.get("name") or "",
+            "supplierName": lead.get("name") or "",
+            "phone": lead.get("phone") or "",
+            "email": lead.get("email") or "",
+            "inn": lead.get("inn") or data.get("inn") or "",
+            "kpp": lead.get("kpp") or data.get("kpp") or "",
+            "ogrn": lead.get("ogrn") or data.get("ogrn") or "",
+        }
+        if supplier_find_match:
+            supplier = supplier_find_match(cur, supplier_payload)
+            if supplier:
+                return int(supplier.get("id") or 0) or None
         cur.execute("""
             SELECT id FROM suppliers
             WHERE LOWER(COALESCE(name,''))=LOWER(%s)
@@ -540,14 +557,44 @@ def register_crm_module(app, deps):
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             lead = fetch_lead(cur, lead_id)
-            cur.execute("""
-                SELECT * FROM suppliers
-                WHERE LOWER(COALESCE(name,''))=LOWER(%s)
-                   OR (%s<>'' AND COALESCE(phone,'')=%s)
-                   OR (%s<>'' AND LOWER(COALESCE(email,''))=LOWER(%s))
-                ORDER BY id LIMIT 1
-            """, (lead["name"], lead["phone"], lead["phone"], lead["email"], lead["email"]))
-            supplier = cur.fetchone()
+            supplier_payload = {
+                **(data or {}),
+                "name": lead.get("name") or "",
+                "supplierName": lead.get("name") or "",
+                "phone": lead.get("phone") or "",
+                "email": lead.get("email") or "",
+                "specialization": lead.get("workType") or data.get("specialization") or "",
+                "category": data.get("category") or lead.get("counterpartyType") or lead.get("workType") or "Прочее",
+                "status": "На проверке",
+                "inn": lead.get("inn") or data.get("inn") or "",
+                "kpp": lead.get("kpp") or data.get("kpp") or "",
+                "ogrn": lead.get("ogrn") or data.get("ogrn") or "",
+                "legalAddress": lead.get("legalAddress") or data.get("legalAddress") or "",
+                "actualAddress": lead.get("address") or data.get("actualAddress") or "",
+                "bank": lead.get("bank") or data.get("bank") or "",
+                "bik": lead.get("bik") or data.get("bik") or "",
+                "bankAccount": lead.get("bankAccount") or data.get("bankAccount") or "",
+                "corrAccount": lead.get("corrAccount") or data.get("corrAccount") or "",
+                "signerName": lead.get("signerName") or data.get("signerName") or "",
+                "signerBasis": lead.get("signerBasis") or data.get("signerBasis") or "",
+                "notes": ("Создан из CRM-заявки #" + str(lead_id) + "\n\n" + (lead.get("notes") or ""))[:4000],
+            }
+            supplier = supplier_find_match(cur, supplier_payload) if supplier_find_match else None
+            if supplier and supplier_update_missing_fields:
+                supplier_update_missing_fields(cur, supplier.get("id"), supplier_payload)
+                if supplier_remember_alias:
+                    supplier_remember_alias(cur, supplier.get("id"), supplier_payload, "crm_supplier")
+                cur.execute("SELECT * FROM suppliers WHERE id=%s", (supplier.get("id"),))
+                supplier = cur.fetchone()
+            if not supplier:
+                cur.execute("""
+                    SELECT * FROM suppliers
+                    WHERE LOWER(COALESCE(name,''))=LOWER(%s)
+                       OR (%s<>'' AND COALESCE(phone,'')=%s)
+                       OR (%s<>'' AND LOWER(COALESCE(email,''))=LOWER(%s))
+                    ORDER BY id LIMIT 1
+                """, (lead["name"], lead["phone"], lead["phone"], lead["email"], lead["email"]))
+                supplier = cur.fetchone()
             if not supplier:
                 cur.execute("""
                     INSERT INTO suppliers (
@@ -564,6 +611,8 @@ def register_crm_module(app, deps):
                     ("Создан из CRM-заявки #" + str(lead_id) + "\n\n" + (lead.get("notes") or ""))[:4000],
                 ))
                 supplier = cur.fetchone()
+                if supplier_remember_alias:
+                    supplier_remember_alias(cur, supplier["id"], supplier_payload, "crm_supplier")
             cur.execute("""
                 UPDATE crm_leads
                    SET lead_type='Поставщик', review_status='Одобрен как поставщик',

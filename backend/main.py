@@ -606,7 +606,10 @@ def _supplier_match_dict(row):
 
 def _supplier_find_match(cur, payload: dict):
     req = _supplier_extract_requisites(payload)
-    explicit_id = int(_supplier_payload_text(payload, "supplierId", "supplier_id", "id") or 0)
+    try:
+        explicit_id = int(_supplier_payload_text(payload, "supplierId", "supplier_id", "id") or 0)
+    except Exception:
+        explicit_id = 0
     if explicit_id:
         cur.execute(f"SELECT {SUPPLIER_MATCH_SELECT} FROM suppliers WHERE id=%s LIMIT 1", (explicit_id,))
         row = cur.fetchone()
