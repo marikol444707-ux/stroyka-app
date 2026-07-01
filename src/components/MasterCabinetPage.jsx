@@ -31,6 +31,7 @@ const GENERAL_WORK_ROOM_NAME = 'Без помещения';
 
 export default function MasterCabinetPage(props) {
   const [showProjectPicker, setShowProjectPicker] = React.useState(false);
+  const estimateDraftValueRef = React.useRef({});
   const {
     API,
     C,
@@ -215,6 +216,13 @@ export default function MasterCabinetPage(props) {
       ...prev,
       [workKey]: fillNormMaterialsForWork(project.name, item.name, item.section, nextDelta, item.unit, prev[workKey] || [], currentParams),
     }));
+  };
+  const commitEstimateDoneDraft = (workKey, value) => {
+    estimateDraftValueRef.current[workKey] = value;
+    setEstimateDoneDrafts(prev => {
+      if (prev[workKey] === value) return prev;
+      return { ...prev, [workKey]: value };
+    });
   };
 
   const profilePatchFromRecognition = (result) => {
@@ -705,7 +713,9 @@ export default function MasterCabinetPage(props) {
                       const doneNorm = safeNormalizeMeasure(done, item.unit);
                       const workKey = estimateWorkKey(item.estId, item.sectionIdx, item.itemIdx);
                       const params = estimateWorkParams[workKey] || {};
-                      const draft = estimateDoneDrafts[workKey] !== undefined ? estimateDoneDrafts[workKey] : (doneNorm.qty || '');
+                      const draft = estimateDoneDrafts[workKey] !== undefined
+                        ? estimateDoneDrafts[workKey]
+                        : (estimateDraftValueRef.current[workKey] !== undefined ? estimateDraftValueRef.current[workKey] : (doneNorm.qty || ''));
                       const rawDraft = safeDenormalizeMeasure(draft, item.unit);
                       const delta = Math.max(0, rawDraft - done);
                       const project = projects.find(projectRow => projectRow.id === Number(masterProjectId));
@@ -720,7 +730,7 @@ export default function MasterCabinetPage(props) {
                       const deltaEarning = Math.round(delta * executionUnitPrice);
                       const missingExecutionPrice = executionUnitPrice <= 0;
                       return (
-                        <div key={index} style={{ padding: '10px', marginBottom: '6px', backgroundColor: C.bgWhite, borderRadius: '8px', border: '1px solid ' + C.border }}>
+                        <div key={workKey} style={{ padding: '10px', marginBottom: '6px', backgroundColor: C.bgWhite, borderRadius: '8px', border: '1px solid ' + C.border }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                             <div style={{ flex: '1 1 260px', minWidth: '220px' }}>
                               <b style={{ fontSize: '12px', color: C.text }}>{item.name}</b>
@@ -737,13 +747,17 @@ export default function MasterCabinetPage(props) {
                               </span>
                             ) : null}
                             <input
+                              key={workKey + ':' + done}
                               type="number"
                               step="any"
                               inputMode="decimal"
                               placeholder={'+' + (safeNormalizeMeasure(1, item.unit).unit || item.unit)}
-                              value={draft}
-                              onChange={e => setEstimateDoneDrafts(prev => ({ ...prev, [workKey]: e.target.value }))}
-                              onBlur={e => syncEstimateNormMaterials(workKey, project, item, e.target.value, done)}
+                              defaultValue={draft}
+                              onChange={e => { estimateDraftValueRef.current[workKey] = e.target.value; }}
+                              onBlur={e => {
+                                commitEstimateDoneDraft(workKey, e.target.value);
+                                syncEstimateNormMaterials(workKey, project, item, e.target.value, done);
+                              }}
                               style={{ ...inp, marginBottom: 0, width: '80px', fontSize: '12px', padding: '4px 6px' }}
                             />
                             <select value={params.surface || 'Стены'} onChange={e => setEstimateWorkParams(prev => ({ ...prev, [workKey]: { ...(prev[workKey] || {}), surface: e.target.value } }))} style={{ ...inp, marginBottom: 0, width: '118px', fontSize: '11px', padding: '5px 8px' }}>
@@ -773,7 +787,15 @@ export default function MasterCabinetPage(props) {
                               />
                             )}
                             <span style={{ fontSize: '11px', color: missingExecutionPrice ? C.warning : C.success, fontWeight: '600', whiteSpace: 'nowrap' }}>{missingExecutionPrice ? 'цена не назначена' : deltaEarning.toLocaleString('ru-RU') + ' ₽'}</span>
-                            <button onClick={() => submitEstimateWorkDone(item, draft)} disabled={delta <= 0 || missingExecutionPrice} style={{ ...(!missingExecutionPrice && delta > 0 ? btnO : btnG), padding: '5px 9px', fontSize: '11px', opacity: (!missingExecutionPrice && delta > 0) ? 1 : 0.65 }}>
+                            <button
+                              onClick={() => {
+                                const liveDraft = estimateDraftValueRef.current[workKey] !== undefined ? estimateDraftValueRef.current[workKey] : draft;
+                                commitEstimateDoneDraft(workKey, liveDraft);
+                                submitEstimateWorkDone(item, liveDraft);
+                              }}
+                              disabled={missingExecutionPrice}
+                              style={{ ...(!missingExecutionPrice ? btnO : btnG), padding: '5px 9px', fontSize: '11px', opacity: !missingExecutionPrice ? 1 : 0.65 }}
+                            >
                               Отправить
                             </button>
                           </div>
