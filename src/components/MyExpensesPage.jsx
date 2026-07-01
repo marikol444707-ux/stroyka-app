@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { FileText, Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText, Plus } from 'lucide-react';
 
 export default function MyExpensesPage({
   C,
@@ -17,6 +17,7 @@ export default function MyExpensesPage({
 }) {
   const [projectFilter, setProjectFilter] = useState('');
   const [employeeFilter, setEmployeeFilter] = useState('');
+  const [openEmployeeGroups, setOpenEmployeeGroups] = useState({});
   const reviewerRoles = ['директор','зам_директора','бухгалтер'];
   const canReviewAll = reviewerRoles.includes(user.role);
   const baseExp = canReviewAll ? (ownExpenses||[]) : (ownExpenses||[]).filter(e=>e.employeeName===user.name||e.employeeId===user.id);
@@ -59,6 +60,7 @@ export default function MyExpensesPage({
     });
     return Array.from(map.values()).sort((a,b)=>a.name.localeCompare(b.name,'ru'));
   };
+  const toggleEmployeeGroup = (key) => setOpenEmployeeGroups(prev=>({...prev,[key]:!prev[key]}));
 
   return (
     <div>
@@ -103,24 +105,29 @@ export default function MyExpensesPage({
       {myExp.length===0?<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Трат пока нет.<br/>Нажмите «Новая трата» чтобы зафиксировать расход.</div>:
         ['Ожидает','Возмещено','Отклонено'].map(st=>{const items=myExp.filter(e=>e.status===st);if(items.length===0) return null;const stColor=st==='Возмещено'?C.success:st==='Отклонено'?C.danger:C.warning;const stBg=st==='Возмещено'?C.successLight:st==='Отклонено'?C.dangerLight:C.warningLight;const groups=employeeExpenseGroups(items);return(<div key={st} style={{marginBottom:'18px'}}>
           <b style={{color:stColor,fontSize:'12px',display:'block',marginBottom:'8px'}}>{st==='Ожидает'?'⏳':st==='Возмещено'?'✅':'❌'} {st} ({items.length})</b>
-          {groups.map(group=>(<div key={group.key} style={{marginBottom:'14px'}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',padding:'8px 2px',borderBottom:'1px solid '+C.border,marginBottom:'8px'}}>
-              <b style={{color:C.text,fontSize:'13px'}}>👤 {group.name}</b>
-              <span style={{color:stColor,fontSize:'12px',fontWeight:'700'}}>{group.items.length+' шт · '+Math.round(group.total).toLocaleString('ru-RU')+' ₽'}</span>
-            </div>
-            {group.items.map(e=>{const cat=EXPENSE_CATEGORIES.find(c=>c.id===e.category)||{label:'Прочее',color:C.textMuted};return(<div key={e.id} style={{...card,padding:'12px',marginBottom:'6px',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
-              <div style={{flex:1,minWidth:'200px'}}>
-                <b style={{color:C.text,fontSize:'13px'}}>{e.description}</b>
-                <p style={{color:C.textSec,margin:'4px 0',fontSize:'11px'}}>📍 {e.projectName||'Личные/без объекта'} · 📅 {e.date||e.createdAt||'—'}</p>
-                <span style={{padding:'2px 8px',borderRadius:'8px',backgroundColor:stBg,color:cat.color,fontSize:'10px',fontWeight:'600'}}>{cat.label}</span>
-                {e.photoUrl&&<img src={fileSrc(e.photoUrl)} alt='' onClick={()=>setShowPhotoModal(fileSrc(e.photoUrl))} style={{width:'40px',height:'40px',borderRadius:'6px',objectFit:'cover',cursor:'pointer',marginLeft:'8px',verticalAlign:'middle'}}/>}
-              </div>
-              <div style={{textAlign:'right'}}>
-                <b style={{color:stColor,fontSize:'15px',display:'block'}}>{Math.round(Number(e.amount||0)).toLocaleString('ru-RU')+' ₽'}</b>
-                {e.approvedBy&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{e.status==='Возмещено'?'Утв.':'Откл.'} {e.approvedBy}</p>}
-              </div>
-            </div>);})}
-          </div>))}
+          {groups.map(group=>{const groupKey=st+':'+group.key;const isOpen=!!openEmployeeGroups[groupKey];return(<div key={group.key} style={{marginBottom:'8px',border:'1.5px solid '+C.border,borderRadius:'12px',overflow:'hidden',backgroundColor:C.bgWhite}}>
+            <button type='button' onClick={()=>toggleEmployeeGroup(groupKey)} style={{width:'100%',border:0,background:'transparent',padding:'12px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',cursor:'pointer',textAlign:'left'}}>
+              <span style={{display:'flex',alignItems:'center',gap:'8px',minWidth:0}}>
+                {isOpen?<ChevronDown size={16} color={C.textSec}/>:<ChevronRight size={16} color={C.textSec}/>}
+                <b style={{color:C.text,fontSize:'13px',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>👤 {group.name}</b>
+              </span>
+              <span style={{color:stColor,fontSize:'12px',fontWeight:'700',whiteSpace:'nowrap'}}>{group.items.length+' шт · '+Math.round(group.total).toLocaleString('ru-RU')+' ₽'}</span>
+            </button>
+            {isOpen&&<div style={{padding:'0 12px 10px'}}>
+              {group.items.map(e=>{const cat=EXPENSE_CATEGORIES.find(c=>c.id===e.category)||{label:'Прочее',color:C.textMuted};return(<div key={e.id} style={{...card,padding:'12px',marginBottom:'6px',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                <div style={{flex:1,minWidth:'200px'}}>
+                  <b style={{color:C.text,fontSize:'13px'}}>{e.description}</b>
+                  <p style={{color:C.textSec,margin:'4px 0',fontSize:'11px'}}>📍 {e.projectName||'Личные/без объекта'} · 📅 {e.date||e.createdAt||'—'}</p>
+                  <span style={{padding:'2px 8px',borderRadius:'8px',backgroundColor:stBg,color:cat.color,fontSize:'10px',fontWeight:'600'}}>{cat.label}</span>
+                  {e.photoUrl&&<img src={fileSrc(e.photoUrl)} alt='' onClick={()=>setShowPhotoModal(fileSrc(e.photoUrl))} style={{width:'40px',height:'40px',borderRadius:'6px',objectFit:'cover',cursor:'pointer',marginLeft:'8px',verticalAlign:'middle'}}/>}
+                </div>
+                <div style={{textAlign:'right'}}>
+                  <b style={{color:stColor,fontSize:'15px',display:'block'}}>{Math.round(Number(e.amount||0)).toLocaleString('ru-RU')+' ₽'}</b>
+                  {e.approvedBy&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{e.status==='Возмещено'?'Утв.':'Откл.'} {e.approvedBy}</p>}
+                </div>
+              </div>);})}
+            </div>}
+          </div>);})}
         </div>);})
       }
     </div>
