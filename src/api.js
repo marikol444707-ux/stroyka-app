@@ -62,16 +62,37 @@ export const installClientErrorLogging = () => {
 export const installAuthFetch = () => {
   if (typeof window === 'undefined' || window.__stroykaAuthFetchInstalled) return;
   const nativeFetch = window.fetch.bind(window);
+  const authPublicPaths = [
+    '/login',
+    '/login/2fa/setup-confirm',
+    '/login/2fa/verify',
+    '/register',
+    '/password-reset',
+    '/password-reset/request',
+    '/password-reset/confirm',
+  ];
+  const getRequestPath = (input) => {
+    try {
+      const url = typeof input === 'string' ? input : input?.url;
+      if (!url) return '';
+      return new URL(url, window.location.origin).pathname;
+    } catch (_e) {
+      return '';
+    }
+  };
+  const isAuthPublicPath = (path) => authPublicPaths.some(publicPath => path === publicPath || path.startsWith(publicPath + '/'));
   window.fetch = async (input, init = {}) => {
+    const path = getRequestPath(input);
+    const isPublicAuthRequest = isAuthPublicPath(path);
     const token = localStorage.getItem('authToken');
-    if (!token) return nativeFetch(input, init);
+    if (!token || isPublicAuthRequest) return nativeFetch(input, init);
     const headers = new Headers(init.headers || {});
     if (!headers.has('Authorization')) headers.set('Authorization', 'Bearer ' + token);
     const response = await nativeFetch(input, {...init, headers});
     // Токен истёк или стал недействителен — сервер отвечает 401.
     // Чистим сессию и возвращаем на экран входа, чтобы приложение не показывало
     // пустые данные (нули, «Проектов нет»), как будто всё удалено.
-    if (response.status === 401 && !window.__stroykaSessionExpiring) {
+    if (response.status === 401 && !isPublicAuthRequest && !window.__stroykaSessionExpiring) {
       window.__stroykaSessionExpiring = true;
       try {
         localStorage.removeItem('authToken');
