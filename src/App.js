@@ -232,6 +232,8 @@ import {
 import { workJournalEstimateSummaryFor } from './utils/workJournalEstimateReconciliationUtils';
 import { createEstimateWorkflowActions } from './features/estimates/estimateWorkflowActions';
 import { createSupplyActions } from './features/supply/supplyActions';
+import { createSupplyPlanningUi } from './features/supply/supplyPlanningUi';
+import { createProjectOperationActions } from './features/project-operations/projectOperationActions';
 import {
   buildDirectorBriefReportContentForDate,
   buildDirectorEstimateControlIssues,
@@ -4308,99 +4310,6 @@ function App() {
     user,
   });
 
-  const openProjectMaterialControl = (projectName) => {
-    const project = (projects||[]).find(p=>p.name===projectName);
-    if (project) {
-      navigateTo('projects');
-      setExpandedProject(project.id);
-      setActiveProjectTab('Материалы');
-      setActiveTabGroup(user?.role==='прораб'?'object':'finance');
-    } else {
-      navigateTo('warehouse');
-      setWarehouseTab('control');
-    }
-  };
-  const renderSupplyRequestOrigin = (req, opts={}) => {
-    const origin = supplyRequestOrigin(req);
-    if (!origin) return null;
-    const color = origin.type==='material-control' ? C.warning : C.info;
-    const bg = origin.type==='material-control' ? C.warningLight : C.infoLight;
-    const borderColor = origin.type==='material-control' ? C.warningBorder : C.infoBorder;
-    const compact = !!opts.compact;
-    return (
-      <div style={{marginTop:compact?'6px':'8px',padding:compact?'7px 9px':'9px 11px',border:'1.5px solid '+borderColor,borderRadius:'8px',backgroundColor:bg}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
-          <b style={{color,fontSize:compact?'11px':'12px'}}>{origin.label}</b>
-          {origin.projectName&&<button onClick={e=>{e.stopPropagation();openProjectMaterialControl(origin.projectName);}} style={{...btnG,padding:compact?'3px 7px':'4px 9px',fontSize:compact?'10px':'11px'}}>Открыть контроль</button>}
-        </div>
-        {!compact&&origin.facts.length>0&&(
-          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:'5px 10px',marginTop:'7px'}}>
-            {origin.facts.slice(0,6).map(([k,v])=><div key={k} style={{fontSize:'11px',color:C.textSec}}><span style={{color:C.textMuted}}>{k}: </span><b style={{color:C.text,fontWeight:'600'}}>{v}</b></div>)}
-          </div>
-        )}
-        {compact&&origin.facts.length>0&&<p style={{color:C.textSec,margin:'4px 0 0',fontSize:'11px'}}>{origin.facts.slice(-2).map(([k,v])=>k+': '+v).join(' · ')}</p>}
-      </div>
-    );
-  };
-
-  const supplyPlanningHint = (it, idx) => {
-    const projectName = newSupplyReq.project;
-    const materialName = (it?.materialName||'').trim();
-    if (!projectName || !materialName) return null;
-    const rows = materialReconciliationRows(projectName);
-    const canonicalName = canonicalMaterialMeta(projectName, materialName).name;
-    const row = rows.find(r=>isSameSupplyMaterial(r.name, canonicalName) || isSameSupplyMaterial(r.name, materialName));
-    const sameUnit = !row?.unit || !it?.unit || supplyUnitKey(row.unit)===supplyUnitKey(it.unit);
-    const draftOther = (newSupplyReq.items||[])
-      .filter((x,i)=>i!==idx && isSameSupplyMaterial(x.materialName, materialName))
-      .reduce((sum,x)=>sum+toNum(x.quantity),0);
-    const planQty = toNum(row?.planQty);
-    const supplied = toNum(row?.supplied);
-    const stock = toNum(row?.stock);
-    const ordered = toNum(row?.requested);
-    const inTransit = toNum(row?.inTransit);
-    const requested = toNum(it?.quantity);
-    const unit = row?.unit || it?.unit || 'шт';
-    const recommended = row && planQty>0 && sameUnit ? Math.max(0, toNum(row.toBuy) - draftOther) : null;
-    const outsideEstimate = !row || planQty<=0;
-    const tooMuch = recommended!==null && requested>0 && requested>recommended+0.0001;
-    return {row, unit, sameUnit, planQty, supplied, stock, ordered, inTransit, draftOther, requested, recommended, outsideEstimate, tooMuch};
-  };
-  const applySupplyRecommendedQty = (idx, hint) => {
-    if (!hint || hint.recommended===null) return;
-    const qty = Number(hint.recommended.toFixed(3));
-    const items = [...(newSupplyReq.items||[])];
-    items[idx] = {...items[idx], quantity: String(qty), unit: hint.unit || items[idx].unit || 'шт'};
-    setNewSupplyReq({...newSupplyReq, items});
-  };
-  const renderSupplyPlanningHint = (it, idx) => {
-    const hint = supplyPlanningHint(it, idx);
-    if (!hint) return null;
-    const pill = (label, value, color=C.text) => (
-      <span style={{padding:'4px 7px',borderRadius:'8px',backgroundColor:C.bgWhite,border:'1px solid '+C.border,color,fontSize:'11px',whiteSpace:'nowrap'}}>
-        {label}: <b>{value}</b>
-      </span>
-    );
-    return (
-      <div style={{display:'flex',gap:'6px',flexWrap:'wrap',alignItems:'center',margin:'0 0 8px 2px',padding:'7px 8px',backgroundColor:hint.outsideEstimate?C.warningLight:C.successLight,border:'1px solid '+(hint.outsideEstimate?C.warningBorder:C.successBorder),borderRadius:'8px'}}>
-        {hint.outsideEstimate
-          ? <span style={{fontSize:'11px',color:C.warning,fontWeight:'700'}}>⚠️ Материала нет в активной смете</span>
-          : pill('По смете', fmtMeasure(hint.planQty, hint.unit), C.text)}
-        {pill('Поставлено', fmtMeasure(hint.supplied, hint.unit), hint.supplied>0?C.success:C.textSec)}
-        {pill('На объекте', fmtMeasure(hint.stock, hint.unit), hint.stock>0?C.success:C.textSec)}
-        {hint.ordered>0 && pill('Уже в заявках', fmtMeasure(hint.ordered, hint.unit), C.info)}
-        {hint.inTransit>0 && pill('В пути', fmtMeasure(hint.inTransit, hint.unit), C.warning)}
-        {hint.draftOther>0 && pill('В этой заявке ещё', fmtMeasure(hint.draftOther, hint.unit), C.info)}
-        {hint.recommended!==null && pill('Докупить', fmtMeasure(hint.recommended, hint.unit), hint.recommended>0?C.warning:C.success)}
-        {!hint.sameUnit && <span style={{fontSize:'11px',color:C.danger,fontWeight:'700'}}>Ед. изм. отличается от сметы</span>}
-        {hint.tooMuch && <span style={{fontSize:'11px',color:C.danger,fontWeight:'700'}}>Заявка больше расчётной потребности</span>}
-        {hint.recommended!==null && hint.recommended>0 && (
-          <button onClick={()=>applySupplyRecommendedQty(idx, hint)} style={{...btnB,padding:'3px 7px',fontSize:'11px'}}>Подставить {fmtMeasure(hint.recommended, hint.unit)}</button>
-        )}
-      </div>
-    );
-  };
-
   const {
     addPiecework,
     addStaffDoc,
@@ -4454,205 +4363,78 @@ function App() {
     workJournal,
   });
 
-  const saveRoom = async () => {
-    if (!newRoom.name||!newRoom.project) return;
-    const baseRoomTypes = ['Комната','Кабинет','Коридор','Санузел','Кухня','Балкон','Лестница','Холл','Техническое'];
-    const roomType = newRoom.roomType && newRoom.roomType !== 'Другое' ? newRoom.roomType : 'Комната';
-    const data = {project:newRoom.project,name:newRoom.name,floor:Number(newRoom.floor)||1,liter:newRoom.liter||'',roomType,floorArea:Number(newRoom.floorArea)||0,wallArea:Number(newRoom.wallArea)||0,ceilingArea:Number(newRoom.ceilingArea)||0,height:Number(newRoom.height)||0,ceilingType:newRoom.ceilingType,wallMaterial:newRoom.wallMaterial,floorMaterial:newRoom.floorMaterial,windows:0,doors:0,photoUrl:newRoom.photoUrl||'',notes:newRoom.notes};
-    let createdRoomId = null;
-    if (editingItem) {
-      await fetch(API+'/rooms/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-      createdRoomId = editingItem.id;
-    } else {
-      if(roomType&&!baseRoomTypes.includes(roomType)){const updated=[...new Set([...customRoomTypes,roomType])];setCustomRoomTypes(updated);localStorage.setItem('customRoomTypes',JSON.stringify(updated));}
-      const res = await fetch(API+'/rooms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-      const created = await res.json().catch(()=>({}));
-      createdRoomId = created?.id || null;
-      if (createdRoomId) {
-        const windowRows = draftRoomWindows.filter(w=>Number(w.width||0)>0&&Number(w.height||0)>0);
-        const doorRows = draftRoomDoors.filter(d=>Number(d.width||0)>0&&Number(d.height||0)>0);
-        await Promise.all([
-          ...windowRows.map(w=>fetch(API+'/room-windows',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...w,roomId:Number(createdRoomId)})})),
-          ...doorRows.map(d=>fetch(API+'/room-doors',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...d,roomId:Number(createdRoomId)})})),
-        ]);
-      }
-    }
-    await refreshData(); setNewRoom({project:'',name:'',floor:'',liter:'',roomType:'Комната',floorArea:'',wallArea:'',ceilingArea:'',height:'',ceilingType:'Простой',wallMaterial:'Штукатурка',floorMaterial:'Стяжка',photoUrl:'',notes:''}); setDraftRoomWindows([]); setDraftRoomDoors([]); setEditingItem(null); setExpandedRoom(createdRoomId); setShowRoomForm(false);
-  };
-
-  const deleteRoom = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/rooms/'+id,{method:'DELETE'}); await refreshData(); } };
-
-  const saveWindow = async (roomId) => {
-    if (!newWindow.width||!newWindow.height) return;
-    try {
-      await fetch(API+'/room-windows',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newWindow,roomId:Number(roomId)})});
-      const rwin = await fetch(API+'/room-windows').then(r=>r.json()).catch(()=>[]);
-      setRoomWindows(Array.isArray(rwin)?rwin:[]);
-    } catch(e) {
-      const win = {...newWindow,id:Date.now(),room_id:Number(roomId)};
-      setRoomWindows(prev=>[...prev,win]);
-    }
-    setNewWindow({roomId:'',name:'Окно '+(roomWindows.filter(w=>w.room_id===roomId).length+2),width:'',height:'',windowType:'ПВХ',revealDepth:'',revealMaterial:'Штукатурка'});
-  };
-
-  const updateWindow = async (win) => {
-    try {
-      await fetch(API+'/room-windows/'+win.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(win)});
-      const rwin = await fetch(API+'/room-windows').then(r=>r.json()).catch(()=>[]);
-      setRoomWindows(Array.isArray(rwin)?rwin:[]);
-    } catch(e) {}
-    setEditingWindow(null);
-  };
-
-  const deleteWindow = async (id) => {
-    try {
-      await fetch(API+'/room-windows/'+id,{method:'DELETE'});
-      setRoomWindows(prev=>prev.filter(w=>w.id!==id));
-    } catch(e) { setRoomWindows(prev=>prev.filter(w=>w.id!==id)); }
-  };
-
-  const saveDoor = async (roomId) => {
-    if (!newDoor.width||!newDoor.height) return;
-    try {
-      await fetch(API+'/room-doors',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newDoor,roomId:Number(roomId)})});
-      const rdoor = await fetch(API+'/room-doors').then(r=>r.json()).catch(()=>[]);
-      setRoomDoors(Array.isArray(rdoor)?rdoor:[]);
-    } catch(e) {
-      const door = {...newDoor,id:Date.now(),room_id:Number(roomId)};
-      setRoomDoors(prev=>[...prev,door]);
-    }
-    setNewDoor({roomId:'',name:'Дверь '+(roomDoors.filter(d=>d.room_id===roomId).length+2),width:'',height:'',doorType:'Деревянная',doorPurpose:'Межкомнатная',revealDepth:'',revealMaterial:'Штукатурка'});
-  };
-
-  const updateDoor = async (door) => {
-    try {
-      await fetch(API+'/room-doors/'+door.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(door)});
-      const rdoor = await fetch(API+'/room-doors').then(r=>r.json()).catch(()=>[]);
-      setRoomDoors(Array.isArray(rdoor)?rdoor:[]);
-    } catch(e) {}
-    setEditingDoor(null);
-  };
-
-  const deleteDoor = async (id) => {
-    try {
-      await fetch(API+'/room-doors/'+id,{method:'DELETE'});
-      setRoomDoors(prev=>prev.filter(d=>d.id!==id));
-    } catch(e) { setRoomDoors(prev=>prev.filter(d=>d.id!==id)); }
-  };
-
-  const saveWeather = () => {
-    if (!newWeather.projectName||!newWeather.date) return;
-    const entry = {...newWeather,id:Date.now(),createdBy:user.name,temperature:Number(newWeather.temperature||0),windSpeed:Number(newWeather.windSpeed||0)};
-    const updated = [...weatherLog,entry];
-    setWeatherLog(updated); localStorage.setItem('weatherLog',JSON.stringify(updated));
-    setNewWeather({projectName:'',date:'',temperature:'',condition:'Ясно',windSpeed:'',notes:''});
-  };
-
-  const saveTbEntry = async (data) => {
-    // Сохраняем в backend (новая БД) + дублируем в localStorage для совместимости со старыми экранами
-    const payload = {
-      projectName: data.project || data.projectName || '',
-      masterName: data.masterName || '',
-      instructor: data.instructor || (user?user.name:''),
-      instructionType: data.type || data.instructionType || 'Первичный инструктаж на рабочем месте',
-      program: data.program || '',
-      instructionText: data.instructionText || '',
-      participants: data.participants || [],
-      photoUrl: data.photoUrl || '',
-      date: data.date || new Date().toISOString().split('T')[0],
-    };
-    let saved = null;
-    try {
-      const res = await fetch(API+'/tb-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-      saved = await res.json();
-    } catch(e){ console.error('TB save error', e); }
-    const localEntry = {...payload,id:saved?saved.id:Date.now(),createdBy:user.name,project:payload.projectName,type:payload.instructionType};
-    const updated = [...tbJournal,localEntry];
-    setTbJournal(updated); localStorage.setItem('tbJournal',JSON.stringify(updated));
-  };
-
-  const saveWarehouse = async () => {
-    if (!newWarehouse.name) return;
-    if (editingItem) await fetch(API+'/warehouses/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(newWarehouse)});
-    else await fetch(API+'/warehouses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(newWarehouse)});
-    await refreshData(); setNewWarehouse({name:'',city:'',address:'',notes:''}); setEditingItem(null); setShowForm(false);
-  };
-
-  const deleteWarehouse = async (id) => { if (window.confirm('Удалить склад?')) { await fetch(API+'/warehouses/'+id,{method:'DELETE'}); await refreshData(); } };
-
-  const saveCompanyRequisites = async () => {
-    await fetch(API+'/company-requisites',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(companyReqForm)});
-    await refreshData(); alert('Реквизиты сохранены!');
-  };
-
-  const saveProjectStage = async (projectId, projectName) => {
-    if (!newStage.name) return;
-    await fetch(API+'/project-stages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newStage,projectId,projectName,progress:Number(newStage.progress)||0})});
-    await refreshData(); setNewStage({name:'',status:'Не начат',startDate:'',endDate:'',progress:0,responsible:'',notes:''});
-  };
-
-  const updateStage = async (stage) => {
-    await fetch(API+'/project-stages/'+stage.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(stage)});
-    await refreshData();
-  };
-
-  const deleteStage = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/project-stages/'+id,{method:'DELETE'}); await refreshData(); } };
-
-  const saveChecklist = async (projectId, projectName) => {
-    if (!newChecklist.name) return;
-    const res = await fetch(API+'/project-checklists',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newChecklist,projectId,projectName,createdBy:user.name,createdAt:new Date().toISOString().split('T')[0]})});
-    const cl = await res.json();
-    if (newChecklist.template && CHECKLIST_TEMPLATES[newChecklist.template]) {
-      const items = CHECKLIST_TEMPLATES[newChecklist.template];
-      for (let i=0; i<items.length; i++) {
-        await fetch(API+'/checklist-items',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({checklistId:cl.id,name:items[i],checked:false,orderNum:i})});
-      }
-    }
-    await refreshData(); setNewChecklist({name:'',template:''});
-  };
-
-  const toggleChecklistItem = async (item) => {
-    await fetch(API+'/checklist-items/'+item.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({checked:!item.checked,checkedBy:!item.checked?user.name:'',checkedAt:!item.checked?new Date().toISOString().split('T')[0]:''})});
-    await loadChecklistItems(item.checklistId);
-  };
-
-  const savePrescription = async (projectName) => {
-    if (!newPrescription.violation) return;
-    await fetch(API+'/prescriptions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newPrescription,projectName,issuedBy:user.name,issuedByRole:user.role})});
-    await refreshData(); setNewPrescription({number:'',violation:'',deadline:'',responsible:'',photoUrl:''});
-  };
-
-  const saveUnexpectedWork = async (projectName) => {
-    if (!newUnexpected.description) return;
-    const baseQty = toNum(newUnexpected.baseQuantity);
-    const newQty = toNum(newUnexpected.newRequiredQuantity);
-    const deltaQty = newUnexpected.changeType==='Дополнительный объём к строке сметы'
-      ? Math.max(0, newQty - baseQty)
-      : toNum(newUnexpected.quantity);
-    const price = toNum(newUnexpected.price);
-    await fetch(API+'/unexpected-works',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-      ...newUnexpected,
-      projectName,
-      quantity:deltaQty,
-      deltaQuantity:deltaQty,
-      baseQuantity:baseQty,
-      newRequiredQuantity:newQty,
-      price,
-      total:deltaQty*price,
-      addedBy:user.name,
-      addedByRole:user.role
-    })});
-    notify('Новое изменение к смете: '+newUnexpected.description,'unexpected');
-    await refreshData(); setNewUnexpected(EMPTY_ESTIMATE_CHANGE);
-  };
-
-  const approveUnexpectedWork = async (work, price) => {
-    const qty = Number(work.deltaQuantity||work.quantity||0);
-    const total = qty * Number(price);
-    const status = work.changeType==='Исключение объёма' ? 'Утверждено' : 'Утверждено отдельной допработой';
-    await fetch(API+'/unexpected-works/'+work.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status,price:Number(price),total,approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});
-    await refreshData();
-  };
+  const {
+    approveUnexpectedWork,
+    deleteDoor,
+    deleteRoom,
+    deleteStage,
+    deleteWarehouse,
+    deleteWindow,
+    saveChecklist,
+    saveCompanyRequisites,
+    saveDoor,
+    savePrescription,
+    saveProjectStage,
+    saveRoom,
+    saveTbEntry,
+    saveUnexpectedWork,
+    saveWarehouse,
+    saveWeather,
+    saveWindow,
+    toggleChecklistItem,
+    updateDoor,
+    updateStage,
+    updateWindow,
+  } = createProjectOperationActions({
+    API,
+    CHECKLIST_TEMPLATES,
+    EMPTY_ESTIMATE_CHANGE,
+    companyReqForm,
+    customRoomTypes,
+    draftRoomDoors,
+    draftRoomWindows,
+    editingItem,
+    loadChecklistItems,
+    newChecklist,
+    newDoor,
+    newPrescription,
+    newRoom,
+    newStage,
+    newUnexpected,
+    newWarehouse,
+    newWeather,
+    newWindow,
+    notify,
+    refreshData,
+    roomDoors,
+    roomWindows,
+    setCustomRoomTypes,
+    setDraftRoomDoors,
+    setDraftRoomWindows,
+    setEditingDoor,
+    setEditingItem,
+    setEditingWindow,
+    setExpandedRoom,
+    setNewChecklist,
+    setNewDoor,
+    setNewPrescription,
+    setNewRoom,
+    setNewStage,
+    setNewUnexpected,
+    setNewWarehouse,
+    setNewWeather,
+    setNewWindow,
+    setRoomDoors,
+    setRoomWindows,
+    setShowForm,
+    setShowRoomForm,
+    setTbJournal,
+    setWeatherLog,
+    tbJournal,
+    toNum,
+    user,
+    weatherLog,
+  });
 
   const navigateTo = (p) => {
     if (canAccess(p)) {
@@ -4665,6 +4447,31 @@ function App() {
       setSelectedWarehouseProject(null); setInlineEditPl(null); setShowRoomForm(false);
     }
   };
+
+  const {
+    renderSupplyPlanningHint,
+    renderSupplyRequestOrigin,
+  } = createSupplyPlanningUi({
+    C,
+    btnB,
+    btnG,
+    projects,
+    user,
+    navigateTo,
+    setExpandedProject,
+    setActiveProjectTab,
+    setActiveTabGroup,
+    setWarehouseTab,
+    supplyRequestOrigin,
+    newSupplyReq,
+    setNewSupplyReq,
+    materialReconciliationRows,
+    canonicalMaterialMeta,
+    isSameSupplyMaterial,
+    supplyUnitKey,
+    toNum,
+    fmtMeasure,
+  });
 
   const searchTerm = globalSearch.trim().toLowerCase();
   const searchResults = (!isMobile && searchTerm.length>=2) ? [
