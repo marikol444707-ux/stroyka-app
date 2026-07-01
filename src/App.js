@@ -102,7 +102,8 @@ import {
   DashboardSupplyPanel,
   MasterCabinetPage,
 } from './app/lazyComponents';
-import { buildLeadPayload } from './features/crm/leadUtils';
+import { createAuthActions } from './features/auth/authActions';
+import { createCrmActions } from './features/crm/crmActions';
 import WorkAssignmentModal, { WorkAssignmentStatusPanel } from './features/work-assignment';
 import { createAiTaskActions } from './features/ai-control/aiTaskActions';
 import { createUserAccessActions } from './features/admin/userAccessActions';
@@ -2065,47 +2066,17 @@ function App() {
     setProjectChatMessage('');
   };
 
-  const saveLead = async (lead) => {
-    const body = buildLeadPayload(lead);
-    if (lead.id) {
-      await fetch(API+'/crm/leads/'+lead.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    } else {
-      await fetch(API+'/crm/leads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(buildLeadPayload(lead, {
-        createdBy: user.name,
-        createdAt: new Date().toISOString().split('T')[0],
-        includeCreateMeta: true,
-      }))});
-    }
-    const ls = await fetch(API+'/crm/lead-summaries').then(r=>r.json());
-    setLeads(Array.isArray(ls)?ls:[]);
-  };
-
-  const deleteLead = async (id) => { await fetch(API+'/crm/leads/'+id,{method:'DELETE'}); const ls=await fetch(API+'/crm/lead-summaries').then(r=>r.json()); setLeads(Array.isArray(ls)?ls:[]); };
-  const createProjectFromLead = async (lead) => {
-    if (!lead?.id) return;
-    if (lead.projectId) {
-      notify('По этой заявке объект уже создан', 'project');
-      return;
-    }
-    const projectName = window.prompt('Название объекта:', lead.name || ('Заявка #'+lead.id));
-    if (projectName === null) return;
-    const cleanName = String(projectName || '').trim();
-    if (!cleanName) return alert('Укажите название объекта');
-    const res = await fetch(API+'/crm/leads/'+lead.id+'/create-project', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({projectName:cleanName,budget:Number(lead.budget)||0})
-    });
-    const data = await res.json().catch(()=>({}));
-    if (!res.ok) return alert(data.detail || 'Не удалось создать объект из заявки');
-    const [ls, ps] = await Promise.all([
-      fetch(API+'/crm/lead-summaries').then(r=>r.json()).catch(()=>[]),
-      fetch(API+'/projects').then(r=>r.json()).catch(()=>[])
-    ]);
-    setLeads(Array.isArray(ls)?ls:[]);
-    setProjects(Array.isArray(ps)?ps:[]);
-    notify((data.alreadyExists?'Объект уже был создан: ':'Создан объект: ')+(data.project?.name||cleanName), 'project');
-  };
+  const {
+    saveLead,
+    deleteLead,
+    createProjectFromLead,
+  } = createCrmActions({
+    API,
+    notify,
+    setLeads,
+    setProjects,
+    user,
+  });
   const ratemaster = (masterId, rating) => { const updated={...masterRatings,[masterId]:rating}; setMasterRatings(updated); localStorage.setItem('masterRatings',JSON.stringify(updated)); };
 	  const confirmMaterialReceipt = async (transferId) => {
 	    await fetch(API+'/material-transfers/'+transferId+'/sign',{method:'PUT'});
@@ -2137,82 +2108,35 @@ function App() {
 	    await refreshData();
 	  };
 
-  const handleLogout = () => {
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('user');
-    setInitialDataLoaded(false);
-    setUser(null);
-  };
-
-  const handleLogin = async () => {
-    try {
-      const res = await fetch(API+'/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:(email||'').trim().toLowerCase(),password:(password||'').trim()})});
-      const data = await res.json().catch(()=>({}));
-      if (!res.ok) { setLoginError(data.detail || 'Неверный email или пароль'); return null; }
-      if (data.twoFactorRequired || data.twoFactorSetupRequired) {
-        setLoginError('');
-        return data;
-      }
-      if (!data.authToken) { setLoginError('Сервер не вернул токен входа'); return null; }
-      localStorage.setItem('authToken', data.authToken);
-      localStorage.setItem('user', JSON.stringify(data));
-      setInitialDataLoaded(false);
-      setUser(data);
-      return data;
-    } catch { setLoginError('Ошибка подключения к серверу'); return null; }
-  };
-
-  const handleTwoFactorLogin = async ({mode, token, code}) => {
-    try {
-      const endpoint = mode === 'setup' ? '/login/2fa/setup-confirm' : '/login/2fa/verify';
-      const body = mode === 'setup' ? {setupToken: token, code} : {challengeToken: token, code};
-      const res = await fetch(API+endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-      const data = await res.json();
-      if (!res.ok) return {ok:false, error:data.detail || 'Неверный код 2FA'};
-      if (data.authToken) localStorage.setItem('authToken', data.authToken);
-      localStorage.setItem('user', JSON.stringify(data));
-      setInitialDataLoaded(false);
-      setUser(data);
-      return {ok:true, data};
-    } catch {
-      return {ok:false, error:'Ошибка подключения к серверу'};
-    }
-  };
-
-  const handleRegister = async () => {
-    if (!regName||!regEmail||!regPassword||!regCode) { setLoginError('Заполните все поля'); return; }
-    try {
-      const body = {name:regName, email:regEmail, password:regPassword, code:regCode};
-      // Если приглашение для поставщика — добавляем расширенные поля
-      if (regInviteInfo?.role === 'поставщик') {
-        Object.assign(body, regSupplierData);
-      }
-      const res = await fetch(API+'/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-      if (!res.ok) { const err=await res.json(); setLoginError(err.detail); return; }
-      const data = await res.json();
-      if (data.authToken) localStorage.setItem('authToken', data.authToken);
-      localStorage.setItem('user', JSON.stringify(data));
-      setInitialDataLoaded(false);
-      setUser(data);
-    } catch { setLoginError('Ошибка подключения'); }
-  };
-
-  // Проверка кода приглашения — показывает расширенную форму для поставщика
-  const checkInviteCode = async (code) => {
-    if (!code || code.length < 4) { setRegInviteInfo(null); return; }
-    try {
-      const r = await fetch(API+'/invite-codes/'+encodeURIComponent(code)+'/info');
-      const data = await r.json();
-      if (data.valid) {
-        setRegInviteInfo(data);
-        if (data.role === 'поставщик') {
-          setRegSupplierData(prev => ({...prev, companyName: data.presetName||'', category: data.presetCategory||''}));
-        }
-      } else {
-        setRegInviteInfo(null);
-      }
-    } catch(_) { setRegInviteInfo(null); }
-  };
+  const {
+    handleLogout,
+    handleLogin,
+    handleTwoFactorLogin,
+    handleRegister,
+    checkInviteCode,
+    saveProfile,
+  } = createAuthActions({
+    API,
+    consentChecked,
+    email,
+    password,
+    profileData,
+    refreshData,
+    regCode,
+    regEmail,
+    regInviteInfo,
+    regName,
+    regPassword,
+    regSupplierData,
+    setInitialDataLoaded,
+    setLoginError,
+    setMasterProfile,
+    setRegInviteInfo,
+    setRegSupplierData,
+    setShowProfileForm,
+    setUser,
+    user,
+  });
 
   // Авто-проверка при изменении кода (debounce 400 мс)
   useEffect(() => {
@@ -2221,15 +2145,6 @@ function App() {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [regCode]);
-
-  const saveProfile = async () => {
-    if (!profileData.fullName||!profileData.inn||!profileData.bankAccount) { alert('Заполните обязательные поля'); return; }
-    if (!consentChecked) { alert('Необходимо согласие на обработку ПД'); return; }
-    const res = await fetch(API+'/master-profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...profileData,userId:user.id})});
-    setMasterProfile(await res.json()); setShowProfileForm(false);
-    await fetch(API+'/pd-consents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:user.id,signedAt:new Date().toLocaleString('ru-RU'),scanUrl:'',uploadedBy:user.name})});
-    await refreshData();
-  };
 
   const canAccess = (p) => canAccessRole(user, p, ROLES);
   const isFinanceRole = () => isFinanceUser(user);
