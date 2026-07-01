@@ -45,12 +45,7 @@ function itemTotal(item) {
 
 export function unitPrice(item) {
   const directPrice = toNumber(
-    item?.executionPricePerUnit ||
-    item?.priceBrigade ||
-    item?.masterPricePerUnit ||
-    item?.contractorPricePerUnit ||
-    item?.executorPricePerUnit ||
-    item?.internalPricePerUnit ||
+    item?.customerPricePerUnit ||
     item?.priceWork ||
     item?.priceSmeta ||
     item?.price ||

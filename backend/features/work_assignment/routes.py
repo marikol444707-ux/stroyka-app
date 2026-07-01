@@ -40,12 +40,7 @@ def _item_total(item):
 
 def _unit_price(item):
     for field in (
-        "executionPricePerUnit",
-        "priceBrigade",
-        "masterPricePerUnit",
-        "contractorPricePerUnit",
-        "executorPricePerUnit",
-        "internalPricePerUnit",
+        "customerPricePerUnit",
         "priceWork",
         "priceSmeta",
         "price",
