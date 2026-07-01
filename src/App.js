@@ -248,8 +248,9 @@ import {
 import { cableTypeOf } from './utils/cableUtils';
 import {
   contractRequisitesWarning,
+  findUserForStaff as findUserForStaffRow,
   normalizePersonKey,
-  staffPassportText,
+  resolveContractPerformer as resolveContractPerformerRow,
 } from './utils/performerUtils';
 import {
   activeProjectsOnly,
@@ -2107,24 +2108,7 @@ function App() {
     companyName,
     allBrigadeItems,
   });
-  const findStaffForPerformer = (contract={}) => {
-    const id = Number(contract.masterId||contract.contractorId||0);
-    if (id) {
-      const byId = (staff||[]).find(s=>Number(s.id)===id);
-      if (byId) return byId;
-    }
-    const name = normalizePersonKey(contract.masterName||contract.brigadeName||contract.performerName);
-    if (!name) return null;
-    return (staff||[]).find(s=>normalizePersonKey(s.name)===name||normalizePersonKey(s.brigade)===name) || null;
-  };
-  const findUserForStaff = (st) => {
-    if (!st) return null;
-    const emails = [st.emailWork, st.emailPersonal, st.email].map(e=>String(e||'').trim().toLowerCase()).filter(Boolean);
-    const byEmail = (users||[]).find(u=>emails.includes(String(u.email||'').trim().toLowerCase()));
-    if (byEmail) return byEmail;
-    const name = normalizePersonKey(st.name);
-    return (users||[]).find(u=>normalizePersonKey(u.name)===name) || null;
-  };
+  const findUserForStaff = (st) => findUserForStaffRow(st, users);
   const staffAccessRoles = Object.keys(ROLE_LABELS).filter(r=>!['заказчик','поставщик','system_owner','platform_admin','platform_support','billing_admin','account_owner','account_admin'].includes(r));
   const staffProjectRequiredRoles = ['прораб','технадзор','стройконтроль','мастер','субподрядчик','бригадир'];
   const staffPackageRequiredRoles = ['мастер','субподрядчик','бригадир'];
@@ -2164,43 +2148,13 @@ function App() {
     }
     return {accessUser, updatedExisting: !!existing};
   };
-  const findProfileForPerformer = (contract={}, st=null, preferredProfile=null) => {
-    if (preferredProfile) return preferredProfile;
-    const id = Number(contract.masterId||contract.contractorId||0);
-    const userRow = findUserForStaff(st);
-    const name = normalizePersonKey(contract.masterName||contract.brigadeName||st?.name);
-    return (masterProfiles||[]).find(p=>Number(p.userId)===id)
-      || (userRow ? (masterProfiles||[]).find(p=>Number(p.userId)===Number(userRow.id)) : null)
-      || (name ? (masterProfiles||[]).find(p=>normalizePersonKey(p.fullName)===name) : null)
-      || null;
-  };
-  const resolveContractPerformer = (contract={}, preferredProfile=null) => {
-    const st = findStaffForPerformer(contract);
-    const userRow = findUserForStaff(st);
-    const profile = findProfileForPerformer(contract, st, preferredProfile);
-    const type = contract.contractType || contract.contractorType || profile?.contractType || st?.employmentType || 'ГПХ';
-    const fullName = profile?.fullName || st?.name || contract.masterName || contract.brigadeName || 'Исполнитель не выбран';
-    return {
-      ...(st||{}),
-      ...(profile||{}),
-      userId: profile?.userId || userRow?.id || st?.userId || contract.masterId || contract.contractorId || '',
-      staffId: st?.id || contract.masterId || contract.contractorId || '',
-      fullName,
-      name: fullName,
-      brigadeName: contract.brigadeName || st?.brigade || fullName,
-      passport: profile?.passport || staffPassportText(st) || '',
-      inn: profile?.inn || st?.inn || '',
-      bankAccount: profile?.bankAccount || st?.bankAccount || '',
-      bankName: profile?.bankName || st?.bankName || '',
-      ogrnip: profile?.ogrnip || st?.ogrnip || '',
-      phone: profile?.phone || st?.phone || '',
-      specialization: profile?.specialization || st?.specialization || st?.role || '',
-      contractType: type,
-      _staff: st,
-      _user: userRow,
-      _profile: profile,
-    };
-  };
+  const resolveContractPerformer = (contract={}, preferredProfile=null) => resolveContractPerformerRow({
+    contract,
+    preferredProfile,
+    staffRows: staff,
+    users,
+    masterProfiles,
+  });
   const buildContractContent = (profile, contract, items=[]) => {
     const performer = resolveContractPerformer(contract, profile);
     const warning = contractRequisitesWarning(performer, contract?.contractType||contract?.contractorType||performer.contractType);
