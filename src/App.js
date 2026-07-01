@@ -64,6 +64,8 @@ import MaterialReconciliationPanel from './components/MaterialReconciliationPane
 import MaterialWriteoffStatus from './components/MaterialWriteoffStatus';
 import { ProjectDirectorMapPanel, buildDirectorMapContract, getDirectorMapActionTarget } from './features/director-map';
 import { ProjectLaunchPanel } from './features/project-launch';
+import { createProjectCrudActions } from './features/projects/projectCrudActions';
+import { createWarehouseCrudActions } from './features/warehouse/warehouseCrudActions';
 import { createMaterialControlActions } from './features/material-control/materialControlActions';
 import PreviewModal from './components/PreviewModal';
 import ImagePreviewModal from './components/ImagePreviewModal';
@@ -312,10 +314,6 @@ import {
   projectPaymentIncomingAmount,
   projectPaymentSignedAmountValue,
 } from './utils/projectPaymentUtils';
-import {
-  projectSitePublicationDraft,
-  projectSitePublicationPayload,
-} from './utils/projectSitePublicationUtils';
 import {
   buildProjectEconomy,
   projectBudgetSpentSummary,
@@ -3770,135 +3768,61 @@ function App() {
 
   const exportToExcel = exportToExcelFile;
 
-  const saveProject = async () => {
-    if (!newProject.name) { alert('Введите название'); return; }
-    const data = {...newProject,budget:Number(newProject.budget)};
-    ['archived', 'archivedAt', 'archived_at', 'id'].forEach(key => delete data[key]);
-    try {
-      if (editingItem) {
-        await readApiResult(await fetch(API+'/projects/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}));
-      } else {
-        await readApiResult(await fetch(API+'/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}));
-        notify('Создан проект: '+newProject.name,'project');
-      }
-      await refreshData(); addActivity((editingItem?'Обновил':'Создал')+' проект: '+newProject.name);
-      if (!editingItem && newProject.clientEmail && newProject.clientPassword) {
-        await readApiResult(await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newProject.client||newProject.name,email:newProject.clientEmail,password:newProject.clientPassword,role:'заказчик',projectName:newProject.name})}));
-        alert('Заказчик создан! Логин: '+newProject.clientEmail+' Пароль: '+newProject.clientPassword);
-      }
-      setNewProject({name:'',client:'',status:'Планирование',budget:'',deadline:'',progress:0,tasks:[],pricelistId:null}); setEditingItem(null); setShowForm(false);
-    } catch (err) {
-      alert('Не удалось сохранить проект: '+(err.message||err));
-    }
-  };
+  const {
+    saveProject,
+    updateProjectProgress,
+    editProject,
+    projectSiteDraft,
+    updateProjectSiteDraft,
+    saveProjectSitePublication,
+    addTask,
+    removeTask,
+    saveClient,
+    deleteClient,
+  } = createProjectCrudActions({
+    API,
+    brigadeContracts,
+    editingItem,
+    newClient,
+    newProject,
+    newTask,
+    notify,
+    projects,
+    readApiResult,
+    refreshData,
+    setEditingItem,
+    setNewClient,
+    setNewProject,
+    setNewTask,
+    setShowForm,
+    setSitePublicationDrafts,
+    sitePublicationDrafts,
+    addActivity,
+  });
 
-  const updateProjectProgress = async (projectName) => {
-    const contracts = brigadeContracts.filter(bc=>bc.projectName===projectName);
-    if(!contracts.length) return;
-    let totalQty = 0, doneQty = 0;
-    for(const bc of contracts){
-      const res = await fetch(API+'/brigade-contract-items/'+bc.id);
-      const items = await res.json();
-      for(const item of items){
-        totalQty += Number(item.quantity||0);
-        doneQty += Number(item.doneQuantity||0);
-      }
-    }
-    const pct = totalQty>0 ? Math.round(doneQty/totalQty*100) : 0;
-    const proj = projects.find(p=>p.name===projectName);
-    if(proj && proj.progress!==pct){
-      await fetch(API+'/projects/'+proj.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...proj,progress:pct})});
-      await refreshData();
-    }
-  };
-
-  const editProject = (p) => { setEditingItem(p); setNewProject({...p}); setShowForm(true); };
-  const projectSiteDraft = (p) => projectSitePublicationDraft(p, sitePublicationDrafts);
-  const updateProjectSiteDraft = (projectId, patch) => {
-    setSitePublicationDrafts(prev => ({...prev, [projectId]: {...projectSiteDraft(projects.find(pr=>pr.id===projectId) || {id:projectId}), ...patch}}));
-  };
-  const saveProjectSitePublication = async (p) => {
-    const d = projectSiteDraft(p);
-    try {
-      await readApiResult(await fetch(API+'/projects/'+p.id+'/site-publication', {
-        method:'PUT',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify(projectSitePublicationPayload(p, d))
-      }));
-      setSitePublicationDrafts(prev => { const next = {...prev}; delete next[p.id]; return next; });
-      await refreshData();
-      notify('Публикация объекта обновлена: '+p.name, 'project');
-    } catch (err) {
-      alert('Не удалось сохранить публикацию: '+(err.message||err));
-    }
-  };
-  const addTask = async (p) => { if (!newTask) return; await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...p,tasks:[...(p.tasks||[]),newTask]})}); await refreshData(); setNewTask(''); };
-  const removeTask = async (p,i) => { await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...p,tasks:p.tasks.filter((_,idx)=>idx!==i)})}); await refreshData(); };
-
-  const saveClient = async () => {
-    if (!newClient.name) return;
-    if (editingItem) await fetch(API+'/clients/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(newClient)});
-    else await fetch(API+'/clients',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(newClient)});
-    await refreshData(); setNewClient({name:'',phone:'',email:'',status:'Активный',notes:''}); setEditingItem(null); setShowForm(false);
-  };
-
-  const deleteClient = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/clients/'+id,{method:'DELETE'}); await refreshData(); } };
-
-  const deleteMaterial = async (id) => {
-    if (!window.confirm('Удалить материал со склада? Это действие доступно только директору.')) return;
-    const res = await fetch(API+'/materials/'+id,{method:'DELETE'});
-    if (!res.ok) {
-      let msg = 'Не удалось удалить материал';
-      try {
-        const body = await res.json();
-        msg = body.detail || msg;
-      } catch {}
-      alert(msg);
-      return;
-    }
-    await refreshData();
-  };
-
-  const deleteMainMaterial = async (id) => {
-    if (!window.confirm('Удалить материал с основного склада? Это действие доступно только директору.')) return;
-    const res = await fetch(API+'/warehouse-main/'+id,{method:'DELETE'});
-    if (!res.ok) {
-      let msg = 'Не удалось удалить материал';
-      try {
-        const body = await res.json();
-        msg = body.detail || msg;
-      } catch {}
-      alert(msg);
-      return;
-    }
-    await refreshData();
-  };
-
-  const saveTool = async () => {
-    if (!newTool.name) return;
-    const data = {...newTool,cost:Number(newTool.cost),masterId:newTool.masterId?Number(newTool.masterId):null};
-    if (editingItem) await fetch(API+'/tools/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-    else await fetch(API+'/tools',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-    await refreshData(); setNewTool({name:'',inventoryNumber:'',cost:'',status:'На складе',location:'Основной склад',project:'',masterId:'',masterName:'',issueType:'',notes:''}); setEditingItem(null); setShowForm(false);
-  };
-
-  const deleteTool = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/tools/'+id,{method:'DELETE'}); await refreshData(); } };
-
-  const issueTool = async (tool) => {
-    const {masterName, project, issueType} = issueToolData;
-    if (!masterName) { alert('Выберите мастера'); return; }
-    const updated = {...tool,status:issueType==='В счёт зарплаты'?'У мастера (куплен)':'У мастера',location:'У мастера',masterName,project,issueType};
-    await fetch(API+'/tools/'+tool.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(updated)});
-    await fetch(API+'/tool-history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({toolId:tool.id,toolName:tool.name,action:'Выдача',fromLocation:tool.location,toLocation:'У мастера — '+masterName,masterName,project,issueType,condition:'Исправен',date:new Date().toISOString().split('T')[0],createdBy:user.name})});
-    await refreshData(); setShowIssueToolModal(null); setIssueToolData({masterName:'',project:'',issueType:'Временно'});
-  };
-
-  const returnTool = async (tool) => {
-    const updated = {...tool,status:returnToolCondition==='Исправен'?'На складе':'На ремонте',location:'Основной склад',masterName:'',project:'',issueType:''};
-    await fetch(API+'/tools/'+tool.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(updated)});
-    await fetch(API+'/tool-history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({toolId:tool.id,toolName:tool.name,action:'Возврат',fromLocation:'У мастера — '+tool.masterName,toLocation:'Основной склад',masterName:tool.masterName,project:tool.project,condition:returnToolCondition,date:new Date().toISOString().split('T')[0],createdBy:user.name})});
-    await refreshData(); setShowReturnToolModal(null); setReturnToolCondition('Исправен');
-  };
+  const {
+    deleteMaterial,
+    deleteMainMaterial,
+    saveTool,
+    deleteTool,
+    issueTool,
+    returnTool,
+  } = createWarehouseCrudActions({
+    API,
+    editingItem,
+    issueToolData,
+    newTool,
+    refreshData,
+    returnToolCondition,
+    setEditingItem,
+    setIssueToolData,
+    setNewTool,
+    setReturnToolCondition,
+    setShowForm,
+    setShowIssueToolModal,
+    setShowReturnToolModal,
+    user,
+  });
 
   const submitEstimateWorkDone = async (mi, displayQty) => {
     const project = projects.find(p=>p.id===Number(masterProjectId));
