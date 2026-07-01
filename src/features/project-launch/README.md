@@ -6,12 +6,12 @@
 
 ## План компонентов
 
-- `ProjectLaunchPanel.jsx` - контейнер вкладки/блока в карточке объекта.
+- ✅ `ProjectLaunchPanel.jsx` - контейнер вкладки/блока в карточке объекта: готовность объекта, документы/сметы, создание безопасного черновика и список черновиков.
 - `ProjectLaunchUpload.jsx` - загрузка договора, сметы, ТЗ, реквизитов, фото и файлов.
 - `ProjectLaunchReview.jsx` - проверка распознанных полей перед применением.
 - `ProjectLaunchLegalFindings.jsx` - юридические риски, сроки, штрафы, гарантия.
-- `ProjectLaunchReadiness.jsx` - готовность объекта: что заполнено, чего не хватает.
-- `projectLaunchApi.js` - API-клиент для `/project-launch/*`.
+- `ProjectLaunchReadiness.jsx` - готовность объекта: что заполнено, чего не хватает. Сейчас встроено в `ProjectLaunchPanel.jsx`, можно вынести при росте экрана.
+- ✅ `projectLaunchApi.js` - API-клиент для `/project-launch/*`.
 
 ## Правила интеграции
 

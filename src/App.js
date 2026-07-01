@@ -63,6 +63,7 @@ import ProjectScheduleSummaryPanel from './components/ProjectScheduleSummaryPane
 import MaterialReconciliationPanel from './components/MaterialReconciliationPanel';
 import MaterialWriteoffStatus from './components/MaterialWriteoffStatus';
 import { ProjectDirectorMapPanel, buildDirectorMapContract, getDirectorMapActionTarget } from './features/director-map';
+import { ProjectLaunchPanel } from './features/project-launch';
 import PreviewModal from './components/PreviewModal';
 import ImagePreviewModal from './components/ImagePreviewModal';
 import EstimatesTabsNav from './components/EstimatesTabsNav';
@@ -7059,6 +7060,24 @@ function App() {
                           const targetTab = directorMapActionTarget({ item, action });
                           if (targetTab) setActiveProjectTab(targetTab);
                         }}
+                      />
+                    )}
+
+                    {activeProjectTab==='Запуск объекта'&&(
+                      <ProjectLaunchPanel
+                        API={API}
+                        C={C}
+                        card={card}
+                        btnB={btnB}
+                        btnG={btnG}
+                        btnO={btnO}
+                        btnR={btnR}
+                        project={p}
+                        projectDocuments={(projectDocuments||[]).filter(doc=>(doc.projectName||doc.project_name)===p.name||Number(doc.projectId||doc.project_id)===Number(p.id))}
+                        estimates={visibleEstimatesForCurrentUser(estimatesList).filter(e=>e.projectName===p.name||Number(e.projectId)===Number(p.id))}
+                        isMobile={isMobile}
+                        onOpenDocuments={()=>setActiveProjectTab('📁 Реестр')}
+                        onOpenEstimate={()=>setActiveProjectTab('Смета')}
                       />
                     )}
 

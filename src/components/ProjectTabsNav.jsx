@@ -15,7 +15,7 @@ const projectTabGroupsForRole = (role) => {
   if (role === 'прораб') {
     return [
       {id:'work',icon:'🔨',label:'Работы',tabs:['Расчёт с бригадой','Изменения к смете','Сверки смет',...(canSeeJournalReconcile?['Сверка ЖПР']:[]),'Чек-листы','Смета']},
-      {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','ИИ-контроль','Проект / Обмеры','Помещения',...OBJECT_PLANNING_TABS,'Материалы'],hiddenTabs:OBJECT_INTERNAL_TABS},
+      {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','Запуск объекта','ИИ-контроль','Проект / Обмеры','Помещения',...OBJECT_PLANNING_TABS,'Материалы'],hiddenTabs:OBJECT_INTERNAL_TABS},
       {id:'journals',icon:'📚',label:'Журналы',tabs:['Главный','Производство работ','АОСР','Входной контроль','Кабельная продукция','Журнал ТБ','Погода','Предписания','Чат']},
       {id:'docs',icon:'📋',label:'Документы',tabs:['📁 Реестр','✉️ Переписка','Акты технадзора','Замечания ГСН','Гарантия']},
     ];
@@ -23,7 +23,7 @@ const projectTabGroupsForRole = (role) => {
   return [
     {id:'work',icon:'🔨',label:'Работы',tabs:['Расчёт с бригадой','Изменения к смете','Сверки смет',...(canSeeJournalReconcile?['Сверка ЖПР']:[]),'Чек-листы']},
     {id:'finance',icon:'💰',label:'Финансы',tabs:['Финансы','Смета','Материалы']},
-    {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','ИИ-контроль','Проект / Обмеры','Помещения',...OBJECT_PLANNING_TABS],hiddenTabs:OBJECT_INTERNAL_TABS},
+    {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','Запуск объекта','ИИ-контроль','Проект / Обмеры','Помещения',...OBJECT_PLANNING_TABS],hiddenTabs:OBJECT_INTERNAL_TABS},
     {id:'journals',icon:'📚',label:'Журналы',tabs:['Главный','Производство работ','АОСР','Входной контроль','Кабельная продукция','Журнал ТБ','Погода','Предписания','Чат']},
     {id:'docs',icon:'📋',label:'Документы',tabs:['📁 Реестр','✉️ Переписка','КС-2','КС-3','Паспорт','Акты технадзора','Замечания ГСН','Гарантия']},
   ];
