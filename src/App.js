@@ -289,6 +289,10 @@ import {
   projectPaymentSignedAmountValue,
 } from './utils/projectPaymentUtils';
 import {
+  projectSitePublicationDraft,
+  projectSitePublicationPayload,
+} from './utils/projectSitePublicationUtils';
+import {
   buildProjectEconomy,
   projectBudgetSpentSummary,
   projectExpenseCategories,
@@ -6329,31 +6333,7 @@ function App() {
   };
 
   const editProject = (p) => { setEditingItem(p); setNewProject({...p}); setShowForm(true); };
-  const siteListText = (value) => Array.isArray(value) ? value.join('\n') : String(value || '');
-  const projectSiteDraft = (p) => sitePublicationDrafts[p.id] || {
-    publicShowOnSite: !!p.publicShowOnSite,
-    publicIsLive: !!p.publicIsLive,
-    publicStatus: p.publicStatus || 'Черновик',
-    publicTitle: p.publicTitle || p.name || '',
-    publicCategory: p.publicCategory || 'house',
-    publicLocation: p.publicLocation || '',
-    publicArea: p.publicArea || '',
-    publicYear: p.publicYear || String(new Date().getFullYear()),
-    publicStage: p.publicStage || p.status || '',
-    publicProgress: p.publicProgress ?? p.progress ?? 0,
-    publicPriceLabel: p.publicPriceLabel || '',
-    publicTerm: p.publicTerm || p.deadline || '',
-    publicSummary: p.publicSummary || '',
-    publicResult: p.publicResult || '',
-    publicPassport: p.publicPassport || '',
-    publicTagsText: siteListText(p.publicTags),
-    publicImagesText: siteListText(p.publicImages),
-    publicOriginalImagesText: siteListText(p.publicOriginalImages),
-    publicEnhancedImagesText: siteListText(p.publicEnhancedImages),
-    publicMainImageUrl: p.publicMainImageUrl || '',
-    publicAiStatus: p.publicAiStatus || 'Не обработано',
-    publicAiNotes: p.publicAiNotes || '',
-  };
+  const projectSiteDraft = (p) => projectSitePublicationDraft(p, sitePublicationDrafts);
   const updateProjectSiteDraft = (projectId, patch) => {
     setSitePublicationDrafts(prev => ({...prev, [projectId]: {...projectSiteDraft(projects.find(pr=>pr.id===projectId) || {id:projectId}), ...patch}}));
   };
@@ -6363,30 +6343,7 @@ function App() {
       await readApiResult(await fetch(API+'/projects/'+p.id+'/site-publication', {
         method:'PUT',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-          publicShowOnSite: !!d.publicShowOnSite,
-          publicIsLive: !!d.publicIsLive,
-          publicStatus: d.publicStatus || 'Черновик',
-          publicTitle: d.publicTitle || p.name,
-          publicCategory: d.publicCategory || 'house',
-          publicLocation: d.publicLocation || '',
-          publicArea: d.publicArea || '',
-          publicYear: d.publicYear || '',
-          publicStage: d.publicStage || '',
-          publicProgress: Number(d.publicProgress || 0),
-          publicPriceLabel: d.publicPriceLabel || '',
-          publicTerm: d.publicTerm || '',
-          publicSummary: d.publicSummary || '',
-          publicResult: d.publicResult || '',
-          publicPassport: d.publicPassport || '',
-          publicTags: d.publicTagsText || '',
-          publicImages: d.publicImagesText || '',
-          publicOriginalImages: d.publicOriginalImagesText || '',
-          publicEnhancedImages: d.publicEnhancedImagesText || '',
-          publicMainImageUrl: d.publicMainImageUrl || '',
-          publicAiStatus: d.publicAiStatus || 'Не обработано',
-          publicAiNotes: d.publicAiNotes || '',
-        })
+        body:JSON.stringify(projectSitePublicationPayload(p, d))
       }));
       setSitePublicationDrafts(prev => { const next = {...prev}; delete next[p.id]; return next; });
       await refreshData();
