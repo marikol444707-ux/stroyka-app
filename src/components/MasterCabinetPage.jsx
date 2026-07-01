@@ -334,6 +334,15 @@ export default function MasterCabinetPage(props) {
     ? user.assignedPackages.filter(Boolean)
     : (Array.isArray(user?.assigned_packages) ? user.assigned_packages.filter(Boolean) : []);
   const estimatePackageName = (estimate) => estimate?.workPackage || estimate?.work_package || 'Основная';
+  const estimateItemKeyForRow = (estimate, sectionIndex, itemIndex, item) => (
+    item?.estimateItemKey ||
+    item?.estimate_item_key ||
+    item?.workKey ||
+    item?.work_key ||
+    item?.key ||
+    item?.id ||
+    (String(estimate?.id || '') + ':' + sectionIndex + ':' + itemIndex)
+  );
   const estimateIsActive = (estimate) => String(estimate?.status || 'Активная').toLowerCase() === 'активная';
   const estimateItemIsMaterial = (item) => {
     const itemType = String(item?.type || item?.itemType || item?._type || '').toLowerCase();
@@ -555,7 +564,7 @@ export default function MasterCabinetPage(props) {
               </select>
               {masterProjectId && (
                 <>
-                  {pricelistItems.length === 0 && <p style={{ color: C.textMuted, textAlign: 'center', padding: '20px' }}>Прайс-лист не привязан к проекту</p>}
+                  {pricelistItems.length === 0 && !selectedProjectHasActiveCustomerEstimate && <p style={{ color: C.textMuted, textAlign: 'center', padding: '20px' }}>Прайс-лист не привязан к проекту</p>}
                   {activePage === 'works' && null}
                   {/* Содержимое списка работ оставлено в компоненте, но в отдельном файле — это и есть текущий шаг рефакторинга. */}
                 </>
@@ -569,16 +578,22 @@ export default function MasterCabinetPage(props) {
                   if (!estimateIsActive(estimate) || estimateItemIsMaterial(item)) return;
                   const packageAllowed = userAssignedPackages.length > 0 && userAssignedPackages.includes(estimatePackageName(estimate));
                   const namedToMe = item.brigadeName && (item.brigadeName === user.name || (user.brigade && item.brigadeName === user.brigade));
+                  const itemKey = String(estimateItemKeyForRow(estimate, sectionIndex, itemIndex, item) || '').trim();
                   const itemName = String(item.name || '').trim().toLowerCase();
+                  const sectionName = String(section.name || '').trim().toLowerCase();
                   const itemUnit = String(item.unit || '').trim().toLowerCase();
                   const assignedContractItem = assignedContractItems.find(contractItem => {
+                    const contractKey = String(contractItem.estimateItemKey || contractItem.estimate_item_key || '').trim();
                     const contractName = String(contractItem.name || contractItem.description || '').trim().toLowerCase();
                     const contractUnit = String(contractItem.unit || '').trim().toLowerCase();
+                    const contractSection = String(contractItem.estimateSection || contractItem.estimate_section || '').trim().toLowerCase();
                     const contractProject = String(contractItem.projectName || contractItem.project_name || '').trim();
                     const contractPackage = String(contractItem.workPackage || contractItem.work_package || '').trim();
                     const sameProject = !contractProject || contractProject === projectName;
                     const samePackage = contractPackage && contractPackage === estimatePackageName(estimate);
-                    return sameProject && samePackage && contractName && contractName === itemName && (!itemUnit || !contractUnit || contractUnit === itemUnit);
+                    const sameKey = itemKey && contractKey && contractKey === itemKey;
+                    const sameName = contractName && contractName === itemName && (!contractSection || !sectionName || contractSection === sectionName) && (!itemUnit || !contractUnit || contractUnit === itemUnit);
+                    return sameProject && samePackage && (sameKey || sameName);
                   });
                   if ((assignedContractItems.length > 0 && assignedContractItem) || (assignedContractItems.length === 0 && (packageAllowed || namedToMe))) {
                     myItems.push({
@@ -589,12 +604,21 @@ export default function MasterCabinetPage(props) {
                       sectionIdx: sectionIndex,
                       itemIdx: itemIndex,
                       section: section.name,
+                      estimateItemKey: itemKey,
                       contractItemId: assignedContractItem?.id || null,
                       executionPricePerUnit: assignedContractItem?.priceBrigade || item.executionPricePerUnit,
                     });
                   }
                 })));
-                if (myItems.length === 0) return null;
+                if (myItems.length === 0) {
+                  if (!projectEstimates.some(estimate => estimateIsActive(estimate))) return null;
+                  return (
+                    <div style={{ ...card, padding: '14px', marginBottom: '15px', backgroundColor: C.warningLight, border: '1.5px solid ' + C.warningBorder }}>
+                      <b style={{ color: C.warning, fontSize: '13px' }}>Работы по смете еще не назначены</b>
+                      <p style={{ color: C.textSec, margin: '5px 0 0', fontSize: '12px' }}>После выдачи работ мастеру здесь появятся объемы, цены исполнителя и кнопка отправки в ЖПР.</p>
+                    </div>
+                  );
+                }
                 return (
                   <div style={{ ...card, padding: '14px', marginBottom: '15px', backgroundColor: C.accentLight, border: '1.5px solid ' + C.accentBorder }}>
                     <b style={{ color: C.accent, fontSize: '13px', display: 'block', marginBottom: '10px' }}>🎯 Мои работы по смете ({myItems.length})</b>

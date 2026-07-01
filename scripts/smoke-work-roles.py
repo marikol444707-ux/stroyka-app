@@ -14,6 +14,11 @@ BASE_URL = os.getenv("BASE_URL", "https://stroyka26.pro").rstrip("/")
 
 STEPS = [
     {
+        "name": "work-assignment",
+        "title": "Смета -> назначение мастеру -> видимость в кабинете исполнителя",
+        "command": ["python3", "scripts/smoke-work-assignment.py"],
+    },
+    {
         "name": "work-doc-chain",
         "title": "ЖПР -> помещение -> АОСР -> акт исполнителя -> оплата",
         "command": ["python3", "scripts/smoke-work-doc-chain.py"],

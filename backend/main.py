@@ -25917,3 +25917,32 @@ register_document_recognition_module(app, {
     "upload_dir": UPLOAD_DIR,
     "log_audit": log_audit,
 })
+
+try:
+    from backend.features.project_launch import register_project_launch_module
+except ModuleNotFoundError:
+    from features.project_launch import register_project_launch_module
+
+register_project_launch_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "require_project_access": require_project_access,
+    "read_roles": PROJECT_DOCUMENT_ROLES,
+    "write_roles": PROJECT_DOCUMENT_WRITE_ROLES,
+    "log_audit": log_audit,
+})
+
+try:
+    from backend.features.work_assignment import register_work_assignment_module
+except ModuleNotFoundError:
+    from features.work_assignment import register_work_assignment_module
+
+register_work_assignment_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "require_estimate_access": require_estimate_access,
+    "resolve_staff_or_user_id": _resolve_staff_or_user_id,
+    "grant_user_project_package_access": _grant_user_project_package_access,
+    "assign_roles": LEADERSHIP_ROLES,
+    "log_audit": log_audit,
+})

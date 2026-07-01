@@ -99,6 +99,7 @@ import {
   MasterCabinetPage,
 } from './app/lazyComponents';
 import { buildLeadPayload } from './features/crm/leadUtils';
+import WorkAssignmentModal, { WorkAssignmentStatusPanel } from './features/work-assignment';
 import { buildPerformerContractHtml } from './utils/contractTemplates';
 import { createAppPrintBuilders, createPrintDocContext } from './utils/appPrintBuilders';
 import AppSidebar from './components/AppSidebar';
@@ -184,7 +185,6 @@ import {
   estimateDisplayVersion,
   estimateExecutionFillPercentOf,
   estimateGroupKey,
-  estimateHasLoadedSections,
   estimateImportedPlanMeasure,
   estimateItemDoneTotal,
   estimateItemMaterialSum,
@@ -234,13 +234,13 @@ import {
   estimateMeasurementComparisonSummaryFor,
   projectMeasurementBasisTotalsFor,
 } from './utils/estimateMeasurementComparisonUtils';
-import { buildEstimateDiffDocumentPayload } from './utils/estimateDiffDocumentUtils';
 import {
   estimateItemOptionsFromActiveEstimates,
   ks2ItemsFromActiveEstimates,
   projectPlanDoneFor,
 } from './utils/projectEstimateItemsUtils';
 import { workJournalEstimateSummaryFor } from './utils/workJournalEstimateReconciliationUtils';
+import { createEstimateWorkflowActions } from './features/estimates/estimateWorkflowActions';
 import {
   buildDirectorBriefReportContentForDate,
   buildDirectorEstimateControlIssues,
@@ -949,6 +949,7 @@ function App() {
   const [fromEstimateForm, setFromEstimateForm] = useState({estimateId:'',name:'',forWho:'',coefficient:1.0});
   const [creatingFromEstimate, setCreatingFromEstimate] = useState(false);
   const [showDistribute, setShowDistribute] = useState(false);
+  const [showWorkAssignment, setShowWorkAssignment] = useState(false);
   const [distributeAssignments, setDistributeAssignments] = useState({});
   const [distributeBrigades, setDistributeBrigades] = useState([]);
   const [newDistributeBrigade, setNewDistributeBrigade] = useState({brigadeName:'',contractorType:'Своя бригада',contractorId:'',pricelistId:''});
@@ -1341,10 +1342,10 @@ function App() {
       setSupplierCatalog(Array.isArray(scat)?scat:[]);
     });
     if (['projects','site','works','documents','cable'].includes(page)) return loadMobileScopeOnce('mobile:projects-docs', async () => {
-      const [p,wj,mt,ro,rw,rwin,rdoor,ps,pcl,pres,uw,est,er,bc,hwa,mij,cbj,sva,inspO,warD,pdocs,plet,pmeas,mdrafts] = await Promise.all([
+      const [p,wj,mt,ro,rw,rwin,rdoor,ps,pcl,pres,uw,est,er,bc,abi,hwa,mij,cbj,sva,inspO,warD,pdocs,plet,pmeas,mdrafts] = await Promise.all([
         role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
         role === 'поставщик' ? Promise.resolve([]) : getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})),
-	        (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
+        (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/rooms') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/room-works') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/room-windows') : Promise.resolve([]),
@@ -1356,6 +1357,7 @@ function App() {
         canSeeProjectDocs ? getApi('/estimates-summary') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/estimate-reconciliations') : Promise.resolve([]),
         (isInternalRole || isFinanceRole) ? getApi('/brigade-contracts') : Promise.resolve([]),
+        (isInternalRole || isFinanceRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/brigade-contract-items-all') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/hidden-works-acts') : Promise.resolve([]),
         (canSeeProjectDocs || isWarehouseRole) ? getApi('/material-inspection') : Promise.resolve([]),
         (canSeeProjectDocs || isWarehouseRole) ? getApi('/cable-journal') : Promise.resolve([]),
@@ -1375,7 +1377,7 @@ function App() {
       setRoomWindows(Array.isArray(rwin)?rwin:[]); setRoomDoors(Array.isArray(rdoor)?rdoor:[]);
       setProjectStages(Array.isArray(ps)?ps:[]); setChecklists(Array.isArray(pcl)?pcl:[]);
       setPrescriptionsList(Array.isArray(pres)?pres:[]); setUnexpectedWorksList(Array.isArray(uw)?uw:[]);
-      setEstimatesList(normalizeEstimateList(est)); setEstimateReconciliations(Array.isArray(er)?er:[]); setBrigadeContracts(Array.isArray(bc)?bc:[]);
+      setEstimatesList(normalizeEstimateList(est)); setEstimateReconciliations(Array.isArray(er)?er:[]); setBrigadeContracts(Array.isArray(bc)?bc:[]); setAllBrigadeItems(Array.isArray(abi)?abi:[]);
       setHiddenActs(Array.isArray(hwa)?hwa:[]); setMaterialInspections(Array.isArray(mij)?mij:[]);
       setCableJournal(Array.isArray(cbj)?cbj:[]); setSupervisorActs(Array.isArray(sva)?sva:[]);
       setInspectionOrders(Array.isArray(inspO)?inspO:[]); setWarrantyDefects(Array.isArray(warD)?warD:[]);
@@ -1689,7 +1691,7 @@ function App() {
         setTbJournal(tbNorm);
         try { localStorage.setItem('tbJournal', JSON.stringify(tbNorm)); } catch(e){}
       } catch(e) {}
-      if (isInternalRole || isFinanceRole) try {
+      if (isInternalRole || isFinanceRole || ['мастер','субподрядчик','бригадир'].includes(role)) try {
         const abi = await get('/brigade-contract-items-all');
         setAllBrigadeItems(Array.isArray(abi)?abi:[]);
       } catch(e) {}
@@ -2611,99 +2613,33 @@ function App() {
   };
 
   // Расчёт прогресса и сумм по факту сметы (используется в дашборде, кабинетах технадзора и заказчика, карточке объекта)
-  const loadEstimateDetail = async (estimate) => {
-    if (!estimate?.id || estimateHasLoadedSections(estimate)) return estimate;
-    const token = localStorage.getItem('authToken');
-    const res = await fetch(API + '/estimates/' + encodeURIComponent(estimate.id), token ? {headers:{Authorization:'Bearer '+token}} : undefined);
-    if (!res.ok) throw new Error(await res.text());
-    const fullRaw = await res.json();
-    const normalized = normalizeEstimateList([fullRaw])[0] || fullRaw;
-    const merged = {...estimate, ...normalized, sectionsLoaded:true};
-    setEstimatesList(prev => (prev||[]).map(e => String(e.id)===String(merged.id) ? {...e, ...merged} : e));
-    return merged;
-  };
-  const openEstimateDetail = async (estimate) => {
-    setSelectedEstimate(estimate);
-    try {
-      const full = await loadEstimateDetail(estimate);
-      if (full && full !== estimate) setSelectedEstimate(full);
-      return full;
-    } catch (err) {
-      alert('Не удалось загрузить смету: ' + (err?.message || err));
-      return estimate;
-    }
-  };
   const nextEstimateVersionFor = (draft, sourceEstimates=estimatesList) => {
     return nextEstimateVersionForFromList(draft, sourceEstimates);
   };
-  const estimateDiffBaseFor = (est) => {
-    const group = (estimatesList||[])
-      .filter(e=>!isGlobalEstimateTemplate(e) && est?.id!==e.id && sameEstimateGroup(e,est))
-      .sort((a,b)=>(estimateUpdatedTs(b)||Number(b.id||0))-(estimateUpdatedTs(a)||Number(a.id||0)));
-    return group.find(e=>e.status==='Активная') || group[0] || null;
-  };
-  const buildEstimateDiffContent = (baseEst, nextEst) => {
-    return buildEstimateDiffDocContent(buildEstimateDiffDocumentPayload({
-      baseEstimate: baseEst,
-      nextEstimate: nextEst,
-      unexpectedWorksList,
-      isApprovedEstimateChangeStatus,
-      estimateChangeAutoDecision,
-    }));
-  };
-  const estimateReconciliationsForProject = (projectName) => (estimateReconciliations||[])
-    .filter(r=>r.projectName===projectName)
-    .sort((a,b)=>Number(b.id||0)-Number(a.id||0));
-  const buildEstimateReconciliationContent = (rec) => buildEstimateReconciliationDocContent(rec);
-  const loadEstimateReconciliationDetail = async (recOrId) => {
-    const id = typeof recOrId === 'object' ? recOrId?.id : recOrId;
-    if (!id) return null;
-    const cached = typeof recOrId === 'object' && Array.isArray(recOrId.items) ? recOrId : null;
-    if (cached) return cached;
-    const res = await fetch(API+'/estimate-reconciliations/'+id,{headers:apiAuthHeaders()});
-    const data = await res.json().catch(()=>({}));
-    if (!res.ok) throw new Error(data.detail || 'Не удалось загрузить сверку');
-    setEstimateReconciliations(prev=>(prev||[]).map(r=>Number(r.id)===Number(id)?{...r,...data}:r));
-    return data;
-  };
-  const openEstimateReconciliationPreview = async (recOrId) => {
-    try {
-      const detail = await loadEstimateReconciliationDetail(recOrId);
-      if (detail) showPreview(buildEstimateReconciliationContent(detail),'Сверка смет № '+detail.id);
-    } catch(e) {
-      alert(e.message || 'Не удалось открыть сверку');
-    }
-  };
-  const createEstimateReconciliation = async (baseEst, nextEst, options={}) => {
-    if (!baseEst?.id || !nextEst?.id) {
-      if (!options.silent) alert('Не найдена базовая и новая смета для сверки');
-      return null;
-    }
-    try {
-      const res = await fetch(API+'/estimate-reconciliations',{method:'POST',headers:apiAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({baseEstimateId:baseEst.id,nextEstimateId:nextEst.id,notes:options.notes||''})});
-      const data = await res.json().catch(()=>({}));
-      if (!res.ok) throw new Error(data.detail || 'Не удалось создать сверку');
-      const detail = await loadEstimateReconciliationDetail(data.id);
-      if (detail) {
-        setEstimateReconciliations(prev=>[detail,...(prev||[]).filter(r=>Number(r.id)!==Number(detail.id))]);
-        if (!options.silent && options.preview !== false) showPreview(buildEstimateReconciliationContent(detail),'Сверка смет № '+detail.id);
-      }
-      if (!options.silent) await refreshData();
-      return detail || data;
-    } catch(e) {
-      if (!options.silent) alert(e.message || 'Не удалось создать сверку');
-      return null;
-    }
-  };
-  const approveEstimateReconciliation = async (rec) => {
-    if (!rec?.id) return;
-    if (!window.confirm('Утвердить сверку смет № '+rec.id+'? После этого она будет считаться подписанным документом в реестре.')) return;
-    const res = await fetch(API+'/estimate-reconciliations/'+rec.id,{method:'PUT',headers:apiAuthHeaders({'Content-Type':'application/json'}),body:JSON.stringify({status:'Утверждена'})});
-    const data = await res.json().catch(()=>({}));
-    if (!res.ok) { alert(data.detail || 'Не удалось утвердить сверку'); return; }
-    setEstimateReconciliations(prev=>(prev||[]).map(r=>Number(r.id)===Number(rec.id)?{...r,status:'Утверждена',approvedBy:user.name,approvedAt:new Date().toISOString().slice(0,10)}:r));
-    await refreshData();
-  };
+  const {
+    openEstimateDetail,
+    estimateDiffBaseFor,
+    buildEstimateDiffContent,
+    estimateReconciliationsForProject,
+    openEstimateReconciliationPreview,
+    createEstimateReconciliation,
+    approveEstimateReconciliation,
+  } = createEstimateWorkflowActions({
+    API,
+    estimatesList,
+    setEstimatesList,
+    setSelectedEstimate,
+    estimateReconciliations,
+    setEstimateReconciliations,
+    unexpectedWorksList,
+    isApprovedEstimateChangeStatus,
+    buildEstimateDiffDocContent,
+    buildEstimateReconciliationDocContent,
+    apiAuthHeaders,
+    showPreview,
+    refreshData,
+    user,
+  });
   const activeEstimatesForProject = (p, kind='Заказчик', sourceEstimates=null) => {
     const groups = {};
     visibleEstimatesForCurrentUser(sourceEstimates||estimatesList||[]).filter(e=>
@@ -5123,6 +5059,7 @@ function App() {
     if (raw <= done) { alert('Введите объём больше уже отправленного: сейчас '+fmtMeasure(done,mi.unit)); return; }
     if (qty>0 && raw>qty) { alert('План '+fmtMeasure(qty,mi.unit)+'. Нельзя поставить больше.'); return; }
     const workKey = estimateWorkKey(mi.estId, mi.sectionIdx, mi.itemIdx);
+    const estimateItemKey = mi.estimateItemKey || workKey;
     const params = estimateWorkParams[workKey]||{};
     const deltaQty = Math.max(0, raw-done);
     const roomCheck = roomMeasurementCheck(project.name, params.roomId, params.surface||'Стены', deltaQty, mi.unit, mi.name);
@@ -5159,10 +5096,10 @@ function App() {
         surface: params.surface || 'Стены',
         workPackage: estimatePackage(est),
         estimateItemName: mi.name,
-        estimateItemKey: workKey,
-	        contractItemId: mi.contractItemId || null,
-	        customerPricePerUnit,
-	        customerTotal: deltaQty * customerPricePerUnit,
+        estimateItemKey,
+        contractItemId: mi.contractItemId || null,
+        customerPricePerUnit,
+        customerTotal: deltaQty * customerPricePerUnit,
         executionPricePerUnit,
         executionTotal: deltaQty * executionPricePerUnit,
         executionPriceMode,
@@ -6208,7 +6145,7 @@ function App() {
         autoFillNormMaterialsForWork={autoFillNormMaterialsForWork}
         badge={badge}
         brigadeContracts={brigadeContracts}
-        brigadeContractItems={brigadeContractItems}
+        brigadeContractItems={allBrigadeItems}
         buildActContent={buildActContent}
         buildCableJournalContent={buildCableJournalContent}
         buildContractContent={buildContractContent}
@@ -7359,6 +7296,11 @@ function App() {
     const existing=brigadeContracts.filter(bc=>bc.projectName===selectedEstimate.projectName);
     setDistributeBrigades(existing.length?existing.map(bc=>({name:bc.brigadeName,contractorType:bc.contractorType,pricelistId:bc.pricelistId||''})) : []);
     setShowDistribute(true);
+  };
+
+  const handleOpenWorkAssignment = () => {
+    if(!selectedEstimate) return;
+    setShowWorkAssignment(true);
   };
 
   const menuItems = allMenuItems.filter(item=>canAccess(item.id));
@@ -9372,6 +9314,7 @@ function App() {
                   onNormalize={handleNormalizeSelectedEstimateImport}
                   onOpenChat={handleOpenSelectedEstimateChat}
                   onOpenDistribute={handleOpenEstimateDistribute}
+                  onOpenWorkAssignment={handleOpenWorkAssignment}
                   onCreateReconciliation={()=>{const base=estimateDiffBaseFor(selectedEstimate);if(base)createEstimateReconciliation(base,selectedEstimate);}}
                   onPreview={handlePreviewSelectedEstimate}
                   onShowDiff={handleShowSelectedEstimateDiff}
@@ -9392,6 +9335,21 @@ function App() {
 		                    isMobile={isMobile}
 		                  />
 		                )}
+                <WorkAssignmentStatusPanel
+                  selectedEstimate={selectedEstimate}
+                  brigadeContracts={brigadeContracts}
+                  brigadeContractItems={allBrigadeItems}
+                  API={API}
+                  loadAll={loadAll}
+                  C={C}
+                  card={card}
+                  btnG={btnG}
+                  btnO={btnO}
+                  btnR={btnR}
+                  isMobile={isMobile}
+                  showLeadership={['директор','зам_директора'].includes(user?.role)}
+                  onOpenWorkAssignment={handleOpenWorkAssignment}
+                />
                 <EstimateDuplicateWorkSummaryPanel
                   selectedEstimate={selectedEstimate}
                   userRole={user?.role}
@@ -9620,6 +9578,21 @@ function App() {
         </div>
       </div>
       <MobileBottomNav activePage={activePage} isMobile={isMobile} unreadMessagesCount={unreadMessagesCount} menuItems={menuItems} navigateTo={navigateTo} setActivePage={setActivePage} setShowMobileMenu={setShowMobileMenu} setShowQuickActions={setShowQuickActions} setShowChatPanel={setShowChatPanel}/>
+      <WorkAssignmentModal
+        show={showWorkAssignment}
+        onClose={()=>setShowWorkAssignment(false)}
+        selectedEstimate={selectedEstimate}
+        staff={staff}
+        API={API}
+        loadAll={loadAll}
+        C={C}
+        card={card}
+        inp={inp}
+        btnO={btnO}
+        btnG={btnG}
+        btnB={btnB}
+        isMobile={isMobile}
+      />
       <AppWorkflowModals
         ui={{ API, C, badge, btnB, btnG, btnO, btnR, card, darkMode, inp, isMobile }}
         constants={{ estimatePackages: ESTIMATE_PACKAGES, expenseCategories: EXPENSE_CATEGORIES, roleLabels: ROLE_LABELS, supplierCategories: SUPPLIER_CATEGORIES, units: UNITS }}

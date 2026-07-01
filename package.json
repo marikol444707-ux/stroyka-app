@@ -37,6 +37,7 @@
     "smoke:norms-dry-run": "python3 scripts/smoke-norms-dry-run.py",
     "smoke:estimate-norms": "python3 scripts/smoke-estimate-norms.py",
     "smoke:work-roles": "python3 scripts/smoke-work-roles.py",
+    "smoke:work-assignment": "python3 scripts/smoke-work-assignment.py",
     "smoke:accounting-prod": "python3 scripts/smoke-accounting-prod.py",
     "smoke:workflow-invoice": "python3 scripts/smoke-workflow-invoice-preview.py",
     "smoke:activity-log": "python3 scripts/smoke-activity-log.py",

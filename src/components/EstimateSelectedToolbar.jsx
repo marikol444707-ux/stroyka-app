@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, Bot, Download, Eye, FileText, GitBranch, MessageSquare, Users } from 'lucide-react';
+import { ArrowLeft, Bot, Download, Eye, FileText, GitBranch, MessageSquare, UserCheck, Users } from 'lucide-react';
 import EstimateSelectedStatusActions from './EstimateSelectedStatusActions';
 import EstimateSelectedTitleBadges from './EstimateSelectedTitleBadges';
 
@@ -25,6 +25,7 @@ export default function EstimateSelectedToolbar({
   onNormalize,
   onOpenChat,
   onOpenDistribute,
+  onOpenWorkAssignment,
   onPreview,
   onCreateReconciliation,
   onShowDiff,
@@ -81,7 +82,8 @@ export default function EstimateSelectedToolbar({
       <button onClick={onHistory} style={btnG}>📜 История</button>
       {showLeadership && <button onClick={onNormalize} style={btnGr}>🧹 Нормализовать импорт</button>}
       <button onClick={onOpenChat} style={{...btnB,backgroundColor:'#0ea5e9'}}><MessageSquare size={14}/>Чат</button>
-      {showLeadership && <button onClick={onOpenDistribute} style={{...btnO,backgroundColor:'#16a34a'}}><Users size={14}/>👷 Распределить</button>}
+      {showLeadership && <button onClick={onOpenWorkAssignment} style={{...btnO,backgroundColor:'#16a34a'}}><UserCheck size={14}/>Назначить мастеру</button>}
+      {showLeadership && <button onClick={onOpenDistribute} style={btnG}><Users size={14}/>Расширенное</button>}
       <button onClick={onAiAnalysis} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669'}}><Bot size={14}/>ИИ Анализ</button>
       <button onClick={onDetectHiddenWorks} style={btnB}><Bot size={14}/>Найти работы для АОСР</button>
     </div>
