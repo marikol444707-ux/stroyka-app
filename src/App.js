@@ -142,7 +142,11 @@ import {
   calcDoorReveals,
   calcWindowArea,
   calcWindowReveals,
-  roomIdOf,
+  buildRoomMeasurementCheck,
+  getRoomDoorRevealsTotal as calcRoomDoorRevealsTotal,
+  getRoomNetWall as calcRoomNetWall,
+  getRoomWindowRevealsTotal as calcRoomWindowRevealsTotal,
+  roomCompleteness as calcRoomCompleteness,
   roomMeasurementMessage,
 } from './utils/roomMeasurementUtils';
 import {
@@ -1789,73 +1793,24 @@ function App() {
     }, () => alert('Не удалось получить геолокацию'));
   };
 
-  const getRoomNetWall = (room) => {
-    const wins = roomWindows.filter(w=>Number(w.room_id)===Number(room.id));
-    const doors = roomDoors.filter(d=>Number(d.room_id)===Number(room.id));
-    const winArea = wins.reduce((s,w)=>s+calcWindowArea(w),0);
-    const doorArea = doors.reduce((s,d)=>s+calcDoorArea(d),0);
-    return Math.max(0, Math.round((room.wallArea - winArea - doorArea)*100)/100);
-  };
-  const roomCompleteness = (room) => {
-    const wins = roomWindows.filter(w=>Number(w.room_id)===Number(room.id));
-    const doors = roomDoors.filter(d=>Number(d.room_id)===Number(room.id));
-    const issues = [];
-    if (toNum(room.floorArea) <= 0) issues.push('нет площади пола');
-    if (toNum(room.wallArea) <= 0) issues.push('нет площади стен');
-    if (toNum(room.ceilingArea) <= 0) issues.push('нет площади потолка');
-    if (toNum(room.height) <= 0) issues.push('нет высоты');
-    wins.forEach(w=>{
-      const name = w.name || 'окно';
-      if (toNum(w.width) <= 0 || toNum(w.height) <= 0) issues.push(name+': нет размера');
-      if (toNum(w.reveal_depth||w.revealDepth) <= 0) issues.push(name+': нет глубины откоса');
-    });
-    doors.forEach(d=>{
-      const name = d.name || 'дверь';
-      if (toNum(d.width) <= 0 || toNum(d.height) <= 0) issues.push(name+': нет размера');
-      if (toNum(d.reveal_depth||d.revealDepth) <= 0) issues.push(name+': нет глубины откоса');
-    });
-    const grossWall = toNum(room.wallArea);
-    const openingsArea = wins.reduce((s,w)=>s+calcWindowArea(w),0)+doors.reduce((s,d)=>s+calcDoorArea(d),0);
-    if (grossWall > 0 && openingsArea > grossWall) issues.push('проёмы больше площади стен');
-    const hasBaseMiss = issues.some(x=>x.startsWith('нет площади')||x==='нет высоты');
-    if (!issues.length) return {status:'Обмер полный', issues, color:C.success, bg:C.successLight, border:C.successBorder};
-    if (hasBaseMiss) return {status:'Не хватает данных', issues, color:C.warning, bg:C.warningLight, border:C.warningBorder};
-    return {status:'Проверить проёмы', issues, color:C.info, bg:C.infoLight, border:C.infoBorder};
-  };
-
-  const getRoomWindowRevealsTotal = (room) => roomWindows.filter(w=>Number(w.room_id)===Number(room.id)).reduce((s,w)=>s+calcWindowReveals(w),0);
-  const getRoomDoorRevealsTotal = (room) => roomDoors.filter(d=>Number(d.room_id)===Number(room.id)).reduce((s,d)=>s+calcDoorReveals(d),0);
-  const roomSurfaceArea = (room, surface='Стены') => {
-    if (!room) return 0;
-    if (surface==='Потолок') return toNum(room.ceilingArea);
-    if (surface==='Пол') return toNum(room.floorArea);
-    if (surface==='Откосы оконные') return getRoomWindowRevealsTotal(room);
-    if (surface==='Откосы дверные') return getRoomDoorRevealsTotal(room);
-    if (surface==='Стены') return getRoomNetWall(room);
-    return 0;
-  };
+  const getRoomNetWall = (room) => calcRoomNetWall(room, roomWindows, roomDoors);
+  const roomCompleteness = (room) => calcRoomCompleteness(room, roomWindows, roomDoors, C);
+  const getRoomWindowRevealsTotal = (room) => calcRoomWindowRevealsTotal(room, roomWindows);
+  const getRoomDoorRevealsTotal = (room) => calcRoomDoorRevealsTotal(room, roomDoors);
   const roomMeasurementCheck = (projectName, roomId, surface, quantity, unit, description='') => {
-    if (!roomId) return null;
-    const room = rooms.find(r=>Number(r.id)===Number(roomId));
-    if (!room) return null;
-    const normalized = normalizeMeasure(quantity, unit);
-    if (_normalizeUnit(normalized.unit)!=='м2') return null;
-    const limit = roomSurfaceArea(room, surface||'Стены');
-    if (limit<=0) return null;
-    const workKey = materialNameKey(description);
-    const doneInRoom = (roomWorks||[])
-      .filter(w=>Number(roomIdOf(w))===Number(room.id))
-      .filter(w=>(w.project||'')===(projectName||''))
-      .filter(w=>(w.surface||'Стены')===(surface||'Стены'))
-      .filter(w=>(w.status||'')!=='Отклонено')
-      .filter(w=>!workKey || materialNameKey(w.description)===workKey)
-      .reduce((sum,w)=>{
-        const n = normalizeMeasure(w.quantity, w.unit);
-        return _normalizeUnit(n.unit)==='м2' ? sum+n.qty : sum;
-      },0);
-    const requested = Math.max(0, normalized.qty);
-    const total = doneInRoom + requested;
-    return {room, surface:surface||'Стены', limit, doneInRoom, requested, total, over:Math.max(0,total-limit), pct:Math.round(total/limit*100)};
+    return buildRoomMeasurementCheck({
+      projectName,
+      roomId,
+      surface,
+      quantity,
+      unit,
+      description,
+      rooms,
+      roomWindows,
+      roomDoors,
+      roomWorks,
+      materialNameKey,
+    });
   };
   const saveActPayment = async (actId) => {
     if (!newPayment.amount||!newPayment.date) { alert('Заполните сумму и дату'); return; }
