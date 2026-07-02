@@ -113,6 +113,7 @@ import { createSystemActions } from './features/system/systemActions';
 import { createUploadActions } from './features/uploads/uploadActions';
 import WorkAssignmentModal, { WorkAssignmentStatusPanel } from './features/work-assignment';
 import { createAiTaskActions } from './features/ai-control/aiTaskActions';
+import EstimateChangeReconcileTask from './features/ai-control/EstimateChangeReconcileTask';
 import {
   closeStaleAiTasksByMarkerPrefix,
   queueAiControlDescriptor,
@@ -2362,45 +2363,16 @@ function App() {
     const nextEst = (estimatesList||[]).find(e=>Number(e.id)===Number(payload.nextEstimateId));
     const baseEst = (estimatesList||[]).find(e=>Number(e.id)===Number(payload.baseEstimateId)) || (nextEst ? estimateDiffBaseFor(nextEst) : null);
     const rows = estimateChangeReconcileRowsForTask(task);
-    const scoreLabel = (score) => score ? Math.round(score*100)+'%' : '—';
     return (
-      <div style={{marginTop:'10px',padding:'10px',borderRadius:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}>
-        <div style={{display:'flex',justifyContent:'space-between',gap:'8px',flexWrap:'wrap',marginBottom:'8px'}}>
-          <div>
-            <b style={{color:C.text,fontSize:'12px'}}>Сверка изменений с новой сметой</b>
-            <p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>{(baseEst?.name||'База')+' → '+(nextEst?.name||'Новая смета')}</p>
-          </div>
-          <span style={badge(rows.length?C.warning:C.success,rows.length?C.warningLight:C.successLight,rows.length?C.warningBorder:C.successBorder)}>{rows.length?rows.length+' на проверке':'закрыто'}</span>
-        </div>
-        {rows.length===0?<p style={{color:C.success,fontSize:'12px',margin:0}}>Спорных изменений не осталось.</p>:(
-          <div style={{overflowX:'auto'}}>
-            <table style={{...tbl,fontSize:'12px'}}>
-              <thead><tr><th style={tblH}>Изменение</th><th style={tblH}>Кандидат в новой смете</th><th style={tblH}>Причина</th><th style={tblH}>Увер.</th><th style={tblH}></th></tr></thead>
-              <tbody>{rows.map(d=>{
-                const u=d.change||{};
-                const c=d.candidate||null;
-                return (<tr key={u.id}>
-                  <td style={{...tblC,minWidth:'220px'}}>
-                    <b style={{display:'block',color:C.text,fontSize:'12px'}}>{u.estimateItemName||u.description||'Изменение'}</b>
-                    <span style={{color:C.textSec,fontSize:'11px'}}>{(u.changeType||'')+' · '+fmtMeasure(u.deltaQuantity||u.quantity,u.unit)}</span>
-                  </td>
-                  <td style={{...tblC,minWidth:'240px'}}>
-                    {c?<><b style={{display:'block',color:C.text,fontSize:'12px'}}>{c.name}</b><span style={{color:C.textSec,fontSize:'11px'}}>{(c.section||'')+' · '+fmtMeasure(c.qty,c.unit)+' · '+Math.round(c.sum||0).toLocaleString('ru-RU')+' ₽'}</span></>:<span style={{color:C.textMuted}}>Не найден</span>}
-                  </td>
-                  <td style={{...tblC,color:d.autoInclude?C.success:C.warning,fontWeight:'600',minWidth:'180px'}}>{d.reason||'Нужно проверить'}</td>
-                  <td style={tblC}>{scoreLabel(d.score)}</td>
-                  <td style={tblC}>
-                    <div style={{display:'flex',gap:'5px',justifyContent:'flex-end',flexWrap:'wrap'}}>
-                      {c&&<button onClick={()=>confirmEstimateChangeIncluded(task,d)} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}><Check size={11}/>Включить</button>}
-                      <button onClick={()=>openAiTaskAction(task)} style={{...btnB,padding:'4px 8px',fontSize:'11px'}}><Eye size={11}/>Открыть</button>
-                    </div>
-                  </td>
-                </tr>);
-              })}</tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      <EstimateChangeReconcileTask
+        task={task}
+        baseEstimate={baseEst}
+        nextEstimate={nextEst}
+        rows={rows}
+        fmtMeasure={fmtMeasure}
+        onConfirmIncluded={confirmEstimateChangeIncluded}
+        onOpenTask={openAiTaskAction}
+      />
     );
   };
   const queueEstimateNormReviewTask = async (est, reason='Автопроверка сметы', sourceEstimates=null) => {
