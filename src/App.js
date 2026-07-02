@@ -1971,7 +1971,7 @@ function App() {
     setProjects,
     user,
   });
-  const ratemaster = (masterId, rating) => { const updated={...masterRatings,[masterId]:rating}; setMasterRatings(updated); localStorage.setItem('masterRatings',JSON.stringify(updated)); };
+
   const {
     confirmMaterialReceipt,
     returnMaterialToProject,
@@ -3956,6 +3956,7 @@ function App() {
     deleteStaff,
     openStaffProfile,
     paySalary,
+    ratemaster,
     resetStaffAccessPassword,
     saveStaff,
     toggleDay,
@@ -3966,6 +3967,7 @@ function App() {
     editingItem,
     expandedStaffId,
     findUserForStaff,
+    masterRatings,
     newAct,
     newContract,
     newPiecework,
@@ -3982,6 +3984,7 @@ function App() {
     setNewPiecework,
     setNewStaff,
     setNewStaffDoc,
+    setMasterRatings,
     setSalaryPayments,
     setShowForm,
     setShowStaffDocForm,

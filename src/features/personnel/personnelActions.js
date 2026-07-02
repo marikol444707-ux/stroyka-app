@@ -7,6 +7,7 @@ export const createPersonnelActions = ({
   editingItem,
   expandedStaffId,
   findUserForStaff,
+  masterRatings,
   newAct,
   newContract,
   newPiecework,
@@ -23,6 +24,7 @@ export const createPersonnelActions = ({
   setNewPiecework,
   setNewStaff,
   setNewStaffDoc,
+  setMasterRatings,
   setSalaryPayments,
   setShowForm,
   setShowStaffDocForm,
@@ -89,6 +91,12 @@ export const createPersonnelActions = ({
     const sp = await fetch(API + '/salary-payments').then(r => r.json());
     setSalaryPayments(Array.isArray(sp) ? sp : []);
     alert('💰 Выплата зафиксирована');
+  };
+
+  const ratemaster = (masterId, rating) => {
+    const updated = {...masterRatings, [masterId]: rating};
+    setMasterRatings(updated);
+    localStorage.setItem('masterRatings', JSON.stringify(updated));
   };
 
   const saveStaff = async () => {
@@ -316,6 +324,7 @@ export const createPersonnelActions = ({
     deleteStaff,
     openStaffProfile,
     paySalary,
+    ratemaster,
     resetStaffAccessPassword,
     saveStaff,
     toggleDay,
