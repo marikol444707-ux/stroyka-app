@@ -1824,6 +1824,9 @@ function App() {
     openEstimateReconciliationPreview,
     createEstimateReconciliation,
     approveEstimateReconciliation,
+    estimateChangeForComparisonRow,
+    createEstimateChangeFromComparisonRow,
+    includeChangesInNewEstimate,
     setEstimateStatusRemote,
     deleteEstimateRemote,
   } = createEstimateWorkflowActions({
@@ -1841,6 +1844,12 @@ function App() {
     showPreview,
     refreshData,
     user,
+    notify,
+    setActiveProjectTab,
+    setActiveTabGroup,
+    setShowForm,
+    setActivePage,
+    setEstimatesTab,
     queueEstimateDiffReviewTask: (...args) => queueEstimateDiffReviewTask(...args),
     autoReconcileEstimateChanges: (...args) => autoReconcileEstimateChanges(...args),
     queueEstimateQualityReviewTask: (...args) => queueEstimateQualityReviewTask(...args),
@@ -1930,73 +1939,6 @@ function App() {
     totals: projectMeasurementBasisTotals(project?.name || ''),
     activeEstimates: project ? activeEstimatesForProject(project, 'Заказчик') : [],
   });
-  const estimateChangeTypeForComparisonRow = (row) => row?.status==='Сверх сметы'
-    ? 'Дополнительный объём к строке сметы'
-    : row?.status==='В смете больше'
-      ? 'Исключение объёма'
-      : '';
-  const estimateChangeForComparisonRow = (projectName, row) => {
-    const changeType = estimateChangeTypeForComparisonRow(row);
-    if (!changeType) return null;
-    return (unexpectedWorksList||[]).find(u=>
-      u.projectName===projectName &&
-      u.changeType===changeType &&
-      Number(u.estimateId||0)===Number(row.estimateId||0) &&
-      (u.sectionName||'')===(row.sectionName||'') &&
-      (u.estimateItemName||'')===(row.itemName||'') &&
-      !['Отклонено','Включено в новую смету'].includes(u.status||'')
-    ) || null;
-  };
-  const createEstimateChangeFromComparisonRow = async (project, row) => {
-    const changeType = estimateChangeTypeForComparisonRow(row);
-    if (!project || !changeType) return;
-    const existing = estimateChangeForComparisonRow(project.name, row);
-    if (existing) {
-      alert('Изменение по этой строке уже оформлено: '+(existing.status||''));
-      setActiveProjectTab('Изменения к смете');
-      setActiveTabGroup('work');
-      return;
-    }
-    const unit = row.expectedUnit || row.planUnit || '';
-    const deltaQty = row.status==='Сверх сметы' ? toNum(row.overQty) : toNum(row.shortageQty);
-    if (deltaQty<=0) return;
-    const price = toNum(row.price);
-    const total = deltaQty * price;
-    const reason = row.status==='Сверх сметы'
-      ? 'По обмеру помещений требуется больше, чем указано в активной смете: '+fmtMeasure(row.measuredQty, unit)+' против '+fmtMeasure(row.planQty, row.planUnit)+'.'
-      : 'По обмеру помещений требуется меньше, чем указано в активной смете: '+fmtMeasure(row.measuredQty, unit)+' против '+fmtMeasure(row.planQty, row.planUnit)+'.';
-    const payload = {
-      projectName: project.name,
-      description: row.itemName,
-      unit,
-      quantity: deltaQty,
-      price,
-      total,
-      addedBy: user.name,
-      addedByRole: user.role,
-      status: 'Ожидает согласования',
-      notes: 'Создано из панели «Смета ↔ обмеры помещений». Основание: '+row.basisLabel+'.',
-      changeType,
-      estimateId: row.estimateId,
-      sectionName: row.sectionName,
-      estimateItemName: row.itemName,
-      baseQuantity: row.planQty,
-      newRequiredQuantity: row.measuredQty,
-      deltaQuantity: deltaQty,
-      reason
-    };
-    const res = await fetch(API+'/unexpected-works',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-    if (!res.ok) {
-      const data = await res.json().catch(()=>({}));
-      alert(data.detail||'Не удалось оформить изменение');
-      return;
-    }
-    notify('Оформлено изменение к смете: '+row.itemName,'unexpected');
-    await refreshData();
-    setActiveProjectTab('Изменения к смете');
-    setActiveTabGroup('work');
-    setShowForm(false);
-  };
   const buildEstimateMeasurementComparisonContent = (project) => buildEstimateMeasurementComparisonDocContent(
     project,
     estimateMeasurementComparisonSummary(project),
@@ -2052,26 +1994,6 @@ function App() {
     unexpectedWorksList,
     activeCustomerEstimates: project ? activeEstimatesForProject(project, 'Заказчик') : [],
   });
-  const includeChangesInNewEstimate = async (project, est, rows) => {
-    if (!project || !est || !rows?.length) return;
-    const signedTotal = signedEstimateChangeTotal(rows);
-    const msg = 'Создать новую активную версию сметы "'+(est.name||'')+'" и включить изменений: '+rows.length+' на '+(signedTotal>0?'+':'')+Math.round(signedTotal).toLocaleString('ru-RU')+' ₽?\n\nСтарая смета уйдёт в архив, изменения получат статус "Включено в новую смету" и не будут идти в КС отдельными строками.';
-    if (!window.confirm(msg)) return;
-    const res = await fetch(API+'/estimates/'+est.id+'/include-changes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({changeIds:rows.map(u=>u.id),updatedBy:user.name})});
-    const data = await res.json().catch(()=>({}));
-    if (!res.ok) {
-      alert(data.detail || 'Не удалось включить изменения в смету');
-      return;
-    }
-    await refreshData();
-    const next = data.estimate || null;
-    if (next) {
-      setSelectedEstimate(next);
-      setActivePage('estimates');
-      setEstimatesTab('list');
-    }
-    notify('Создана новая версия сметы: '+(next?.name||''),'estimate');
-  };
   const estimateChangeRowsForDocs = (projectName, kind) => estimateChangeRowsForDocsFromList(projectName, kind, unexpectedWorksList);
   // Фактически освоено по проекту: журнал работ + наряды бригадные (по приёмке) + материалы на объекте
   const projectFactSpent = (p) => projectFactSpentValue({
