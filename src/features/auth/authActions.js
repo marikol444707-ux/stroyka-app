@@ -28,6 +28,7 @@ export const createAuthActions = ({
   };
 
   const handleLogout = () => {
+    fetch(API + '/logout', {method: 'POST', credentials: 'include'}).catch(() => {});
     localStorage.removeItem('authToken');
     localStorage.removeItem('user');
     setInitialDataLoaded(false);
@@ -36,7 +37,7 @@ export const createAuthActions = ({
 
   const handleLogin = async () => {
     try {
-      const res = await fetch(API + '/login', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({email: (email || '').trim().toLowerCase(), password: (password || '').trim()})});
+      const res = await fetch(API + '/login', {method: 'POST', credentials: 'include', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({email: (email || '').trim().toLowerCase(), password: (password || '').trim()})});
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setLoginError(data.detail || 'Неверный email или пароль');
@@ -62,7 +63,7 @@ export const createAuthActions = ({
     try {
       const endpoint = mode === 'setup' ? '/login/2fa/setup-confirm' : '/login/2fa/verify';
       const body = mode === 'setup' ? {setupToken: token, code} : {challengeToken: token, code};
-      const res = await fetch(API + endpoint, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+      const res = await fetch(API + endpoint, {method: 'POST', credentials: 'include', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
       const data = await res.json();
       if (!res.ok) return {ok: false, error: data.detail || 'Неверный код 2FA'};
       persistLogin(data);
@@ -82,7 +83,7 @@ export const createAuthActions = ({
       if (regInviteInfo?.role === 'поставщик') {
         Object.assign(body, regSupplierData);
       }
-      const res = await fetch(API + '/register', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+      const res = await fetch(API + '/register', {method: 'POST', credentials: 'include', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
       if (!res.ok) {
         const err = await res.json();
         setLoginError(err.detail);

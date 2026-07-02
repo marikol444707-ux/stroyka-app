@@ -91,10 +91,11 @@ export const installAuthFetch = () => {
     } catch (_e) {
       token = '';
     }
-    if (!token) return nativeFetch(input, init);
+    const nextInit = {...init, credentials: init.credentials || 'include'};
+    if (!token) return nativeFetch(input, nextInit);
     const headers = new Headers(init.headers || {});
     if (!headers.has('Authorization')) headers.set('Authorization', 'Bearer ' + token);
-    const response = await nativeFetch(input, {...init, headers});
+    const response = await nativeFetch(input, {...nextInit, headers});
     // Токен истёк или стал недействителен — сервер отвечает 401.
     // Чистим сессию и возвращаем на экран входа, чтобы приложение не показывало
     // пустые данные (нули, «Проектов нет»), как будто всё удалено.

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header, Form, Request, Body
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header, Form, Request, Response, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -236,6 +236,15 @@ TWO_FACTOR_REQUIRED_ROLES = (
     "account_owner", "account_admin",
 )
 TWO_FACTOR_TOKEN_TTL_SECONDS = 10 * 60
+AUTH_SESSION_COOKIE_NAME = os.getenv("AUTH_SESSION_COOKIE_NAME", "stroyka_session").strip() or "stroyka_session"
+AUTH_SESSION_TTL_SECONDS = int(os.getenv("AUTH_SESSION_TTL_SECONDS", str(30 * 24 * 60 * 60)))
+AUTH_SESSION_COOKIE_SECURE = os.getenv(
+    "AUTH_SESSION_COOKIE_SECURE",
+    "true" if APP_PUBLIC_URL.startswith("https://") else "false",
+).lower() in ("1", "true", "yes")
+AUTH_SESSION_COOKIE_SAMESITE = os.getenv("AUTH_SESSION_COOKIE_SAMESITE", "lax").strip().lower()
+if AUTH_SESSION_COOKIE_SAMESITE not in ("lax", "strict", "none"):
+    AUTH_SESSION_COOKIE_SAMESITE = "lax"
 
 def hash_password(password: str) -> str:
     salt = secrets.token_hex(16)
@@ -407,13 +416,64 @@ def verify_auth_token(token: str) -> dict:
     except Exception:
         raise HTTPException(status_code=401, detail="Сессия недействительна. Войдите заново.")
 
-def get_current_user(authorization: Optional[str] = Header(default=None)) -> dict:
-    if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="Требуется вход в систему")
-    payload = verify_auth_token(authorization.split(" ", 1)[1].strip())
+def _session_token_hash(token: str) -> str:
+    return hmac.new(AUTH_SECRET.encode("utf-8"), str(token or "").encode("utf-8"), hashlib.sha256).hexdigest()
+
+def _request_ip(request: Optional[Request]) -> str:
+    if not request:
+        return ""
+    forwarded = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    return forwarded or (request.client.host if request.client else "")
+
+def _request_user_agent(request: Optional[Request]) -> str:
+    if not request:
+        return ""
+    return (request.headers.get("user-agent") or "")[:500]
+
+def _set_auth_session_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=AUTH_SESSION_COOKIE_NAME,
+        value=token,
+        max_age=AUTH_SESSION_TTL_SECONDS,
+        httponly=True,
+        secure=AUTH_SESSION_COOKIE_SECURE,
+        samesite=AUTH_SESSION_COOKIE_SAMESITE,
+        path="/",
+    )
+
+def _clear_auth_session_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=AUTH_SESSION_COOKIE_NAME,
+        path="/",
+    )
+
+def _create_auth_session(cur, user: dict, request: Optional[Request], two_factor_passed: bool) -> str:
+    token = secrets.token_urlsafe(48)
+    cur.execute(
+        """UPDATE user_sessions
+           SET revoked_at=NOW()
+           WHERE user_id=%s AND expires_at<NOW() AND revoked_at IS NULL""",
+        (user.get("id"),),
+    )
+    cur.execute(
+        """INSERT INTO user_sessions
+             (user_id, session_hash, ip, user_agent, two_factor_passed, expires_at)
+           VALUES (%s,%s,%s,%s,%s,NOW() + (%s || ' seconds')::interval)""",
+        (
+            user.get("id"),
+            _session_token_hash(token),
+            _request_ip(request),
+            _request_user_agent(request),
+            bool(two_factor_passed),
+            int(AUTH_SESSION_TTL_SECONDS),
+        ),
+    )
+    return token
+
+def _public_user_by_id(user_id) -> dict:
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM users WHERE id=%s", (payload.get("id"),))
+    cur.execute("SELECT * FROM users WHERE id=%s", (user_id,))
     user = cur.fetchone()
     if user:
         user = enrich_worker_project_links(cur, user)
@@ -424,6 +484,47 @@ def get_current_user(authorization: Optional[str] = Header(default=None)) -> dic
         raise HTTPException(status_code=403, detail="Аккаунт отключён. Обратитесь к администратору.")
     return public_user(user, include_token=True)
 
+def _current_user_from_bearer(authorization: Optional[str]) -> dict:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Требуется вход в систему")
+    payload = verify_auth_token(authorization.split(" ", 1)[1].strip())
+    return _public_user_by_id(payload.get("id"))
+
+def _current_user_from_session_cookie(request: Optional[Request]) -> dict:
+    token = request.cookies.get(AUTH_SESSION_COOKIE_NAME) if request else ""
+    if not token:
+        raise HTTPException(status_code=401, detail="Требуется вход в систему")
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
+        """SELECT u.*, s.id AS auth_session_id, s.two_factor_passed AS auth_session_two_factor_passed
+           FROM user_sessions s
+           JOIN users u ON u.id=s.user_id
+           WHERE s.session_hash=%s
+             AND s.revoked_at IS NULL
+             AND s.expires_at>NOW()
+           LIMIT 1""",
+        (_session_token_hash(token),),
+    )
+    user = cur.fetchone()
+    if user:
+        cur.execute("UPDATE user_sessions SET last_seen_at=NOW() WHERE id=%s", (user.get("auth_session_id"),))
+        user = enrich_worker_project_links(cur, user)
+        conn.commit()
+    cur.close(); conn.close()
+    if not user:
+        raise HTTPException(status_code=401, detail="Сессия недействительна. Войдите заново.")
+    if user.get("active") is False:
+        raise HTTPException(status_code=403, detail="Аккаунт отключён. Обратитесь к администратору.")
+    if _user_requires_2fa(user) and not user.get("auth_session_two_factor_passed"):
+        raise HTTPException(status_code=401, detail="Требуется подтверждение 2FA")
+    return public_user(user, include_token=True)
+
+def get_current_user(request: Request, authorization: Optional[str] = Header(default=None)) -> dict:
+    if authorization and authorization.lower().startswith("bearer "):
+        return _current_user_from_bearer(authorization)
+    return _current_user_from_session_cookie(request)
+
 def require_roles(*roles: str):
     allowed = set(roles)
     def _dep(user: dict = Depends(get_current_user)) -> dict:
@@ -433,12 +534,13 @@ def require_roles(*roles: str):
     return _dep
 
 def get_ai_control_runner(
+    request: Request,
     authorization: Optional[str] = Header(default=None),
     x_ai_control_token: Optional[str] = Header(default=None),
 ) -> dict:
     if AI_CONTROL_RUN_TOKEN and x_ai_control_token and hmac.compare_digest(x_ai_control_token, AI_CONTROL_RUN_TOKEN):
         return _ai_system_user()
-    return get_current_user(authorization)
+    return get_current_user(request, authorization)
 
 def require_workflow_token(x_workflow_token: Optional[str] = Header(default=None)) -> dict:
     if not WORKFLOW_TOKEN:
@@ -2228,6 +2330,21 @@ def init_db():
         ALTER TABLE users ADD COLUMN IF NOT EXISTS platform_account_id INT;
         UPDATE users SET two_factor_required=TRUE WHERE role IN ('директор','зам_директора','бухгалтер','system_owner','platform_admin','platform_support','billing_admin','account_owner','account_admin');
         UPDATE users SET active=TRUE WHERE active IS NULL;
+        CREATE TABLE IF NOT EXISTS user_sessions (
+            id SERIAL PRIMARY KEY,
+            user_id INT NOT NULL,
+            session_hash VARCHAR(128) NOT NULL UNIQUE,
+            ip VARCHAR(100),
+            user_agent TEXT,
+            two_factor_passed BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT NOW(),
+            last_seen_at TIMESTAMP DEFAULT NOW(),
+            expires_at TIMESTAMP NOT NULL,
+            revoked_at TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_user_sessions_hash_active ON user_sessions(session_hash) WHERE revoked_at IS NULL;
+        CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at ON user_sessions(expires_at);
         CREATE TABLE IF NOT EXISTS messages (
             id SERIAL PRIMARY KEY,
             chat_type VARCHAR(50) DEFAULT 'company',
@@ -4765,7 +4882,7 @@ class PdConsentModel(BaseModel):
     uploadedBy: str = ""
 
 @app.post("/login")
-def login(data: LoginModel):
+def login(data: LoginModel, response: Response, request: Request):
     from datetime import datetime as _dt, timedelta as _td
     email = (data.email or "").strip().lower()
     conn = get_db()
@@ -4826,16 +4943,18 @@ def login(data: LoginModel):
         conn.close()
         return _two_factor_challenge_response(user)
     cur.execute("UPDATE users SET failed_login_count=0, locked_until=NULL WHERE id=%s", (user['id'],))
+    session_token = _create_auth_session(cur, user, request, two_factor_passed=False)
     conn.commit()
     user = enrich_worker_project_links(cur, user)
     conn.close()
+    _set_auth_session_cookie(response, session_token)
     log_audit(user_name=user.get("name",""), user_role=user.get("role",""),
               action="login", entity_type="user", entity_id=user['id'],
               description="Успешный вход в систему")
     return public_user(user, include_token=True)
 
 @app.post("/login/2fa/verify")
-def verify_login_2fa(data: TwoFactorVerifyModel):
+def verify_login_2fa(data: TwoFactorVerifyModel, response: Response, request: Request):
     payload = _verify_signed_flow_token(data.challengeToken, "2fa_login")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -4851,16 +4970,18 @@ def verify_login_2fa(data: TwoFactorVerifyModel):
         conn.close()
         raise HTTPException(status_code=401, detail="Неверный код 2FA")
     cur.execute("UPDATE users SET failed_login_count=0, locked_until=NULL WHERE id=%s", (user["id"],))
+    session_token = _create_auth_session(cur, user, request, two_factor_passed=True)
     conn.commit()
     user = enrich_worker_project_links(cur, user)
     conn.close()
+    _set_auth_session_cookie(response, session_token)
     log_audit(user_name=user.get("name",""), user_role=user.get("role",""),
               action="login", entity_type="user", entity_id=user['id'],
               description="Успешный вход в систему с 2FA")
     return public_user(user, include_token=True)
 
 @app.post("/login/2fa/setup-confirm")
-def confirm_login_2fa_setup(data: TwoFactorSetupConfirmModel):
+def confirm_login_2fa_setup(data: TwoFactorSetupConfirmModel, response: Response, request: Request):
     payload = _verify_signed_flow_token(data.setupToken, "2fa_setup")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -4879,15 +5000,40 @@ def confirm_login_2fa_setup(data: TwoFactorSetupConfirmModel):
         "UPDATE users SET two_factor_enabled=TRUE, two_factor_required=TRUE, two_factor_confirmed_at=NOW(), failed_login_count=0, locked_until=NULL WHERE id=%s",
         (user["id"],),
     )
+    session_token = _create_auth_session(cur, user, request, two_factor_passed=True)
     conn.commit()
     user["two_factor_enabled"] = True
     user["two_factor_required"] = True
     user = enrich_worker_project_links(cur, user)
     conn.close()
+    _set_auth_session_cookie(response, session_token)
     log_audit(user_name=user.get("name",""), user_role=user.get("role",""),
               action="2fa_setup", entity_type="user", entity_id=user['id'],
               description="Пользователь включил 2FA")
     return public_user(user, include_token=True)
+
+@app.post("/logout")
+def logout(response: Response, request: Request):
+    token = request.cookies.get(AUTH_SESSION_COOKIE_NAME)
+    user_id = None
+    if token:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            """UPDATE user_sessions
+               SET revoked_at=NOW()
+               WHERE session_hash=%s AND revoked_at IS NULL
+               RETURNING user_id""",
+            (_session_token_hash(token),),
+        )
+        row = cur.fetchone()
+        user_id = row.get("user_id") if row else None
+        conn.commit()
+        cur.close(); conn.close()
+    _clear_auth_session_cookie(response)
+    if user_id:
+        log_audit(user_name="—", user_role="—", action="logout", entity_type="user", entity_id=user_id, description="Выход из серверной сессии")
+    return {"ok": True}
 
 def _password_reset_dedupe_key(user_id) -> str:
     return f"PASSWORD_RESET:{user_id}"
@@ -5107,7 +5253,7 @@ def password_reset(data: dict):
     return {"ok": True, "message": "Пароль изменён, можно входить"}
 
 @app.post("/register")
-def register(data: dict):
+def register(data: dict, response: Response, request: Request):
     from datetime import datetime
     code = (data.get("code") or "").strip()
     name = (data.get("name") or "").strip()
@@ -5207,7 +5353,13 @@ def register(data: dict):
                     supplier_id = new_supplier.get("id") if isinstance(new_supplier, dict) else new_supplier[0]
                     _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite")
         cur.execute("UPDATE invite_codes SET used=TRUE WHERE code=%s", (code,))
+        session_token = None
+        if not _user_requires_2fa(user):
+            session_token = _create_auth_session(cur, user, request, two_factor_passed=False)
+        conn.commit()
         conn.close()
+        if session_token:
+            _set_auth_session_cookie(response, session_token)
         return public_user(user, include_token=True)
     except HTTPException:
         conn.close()
