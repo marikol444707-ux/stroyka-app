@@ -106,6 +106,7 @@ import { createAuthActions } from './features/auth/authActions';
 import { createAiAssistantActions } from './features/ai-assistant/aiAssistantActions';
 import { createChatActions } from './features/chat/chatActions';
 import { createCrmActions } from './features/crm/crmActions';
+import { createGeoActions } from './features/geolocation/geoActions';
 import { createNotificationActions } from './features/notifications/notificationActions';
 import { createSystemActions } from './features/system/systemActions';
 import { createUploadActions } from './features/uploads/uploadActions';
@@ -1698,15 +1699,11 @@ function App() {
 
   const fileSrc = createFileSrc(API);
 
-  const checkinGeo = () => {
-    if (!navigator.geolocation) { alert('Геолокация не поддерживается'); return; }
-    navigator.geolocation.getCurrentPosition((pos) => {
-      const checkin = {id:Date.now(),userId:user.id,userName:user.name,lat:pos.coords.latitude,lng:pos.coords.longitude,time:new Date().toLocaleString('ru-RU'),date:new Date().toISOString().split('T')[0]};
-      const updated = [...geoCheckins,checkin];
-      setGeoCheckins(updated); localStorage.setItem('geoCheckins',JSON.stringify(updated));
-      alert('Отметка зафиксирована: '+new Date().toLocaleTimeString('ru-RU'));
-    }, () => alert('Не удалось получить геолокацию'));
-  };
+  const { checkinGeo } = createGeoActions({
+    geoCheckins,
+    setGeoCheckins,
+    user,
+  });
 
   const getRoomNetWall = (room) => calcRoomNetWall(room, roomWindows, roomDoors);
   const roomCompleteness = (room) => calcRoomCompleteness(room, roomWindows, roomDoors, C);
