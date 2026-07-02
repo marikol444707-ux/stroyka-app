@@ -626,6 +626,7 @@ function App() {
   const [actPayments, setActPayments] = useState([]);
   const [weatherLog, setWeatherLog] = useState([]);
   const [estimatesList, setEstimatesList] = useState([]);
+  const [estimatesPage, setEstimatesPage] = useState({loading:false, error:''});
   const [companyRequisites, setCompanyRequisites] = useState({});
   const [companyDocuments, setCompanyDocuments] = useState([]);
   const [aiLoading, setAiLoading] = useState(false);
@@ -983,8 +984,21 @@ function App() {
     const flags = roleFlagsForUser(targetUser);
     return flags.canSeeProjectDocs || canAccessRole(targetUser, 'estimates', ROLES);
   };
-  const applyLoadedEstimates = (payload) => {
-    if (Array.isArray(payload)) setEstimatesList(normalizeEstimateList(payload));
+  const markEstimatesLoading = (enabled) => {
+    setEstimatesPage(prev => ({...prev, loading:enabled, error:enabled ? '' : prev.error}));
+  };
+  const applyLoadedEstimates = (payload, expectLoad = true) => {
+    if (Array.isArray(payload)) {
+      setEstimatesList(normalizeEstimateList(payload));
+      setEstimatesPage({loading:false, error:''});
+      return;
+    }
+    if (expectLoad) {
+      setEstimatesPage({
+        loading:false,
+        error:'Не удалось загрузить сметы. Проверьте соединение или повторите загрузку.',
+      });
+    }
   };
   const handleApiUnauthorized = () => {
     try {
@@ -1183,6 +1197,7 @@ function App() {
       setSupplierCatalog(Array.isArray(scat)?scat:[]);
     });
     if (['projects','site','works','documents','cable'].includes(page)) return loadMobileScopeOnce('mobile:projects-docs', async () => {
+      if (canSeeProjectDocs) markEstimatesLoading(true);
       const [p,wj,mt,ro,rw,rwin,rdoor,ps,pcl,pres,uw,est,er,bc,abi,hwa,mij,cbj,sva,inspO,warD,pdocs,plet,pmeas,mdrafts] = await Promise.all([
         role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
         role === 'поставщик' ? Promise.resolve([]) : getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})),
@@ -1218,7 +1233,7 @@ function App() {
       setRoomWindows(Array.isArray(rwin)?rwin:[]); setRoomDoors(Array.isArray(rdoor)?rdoor:[]);
       setProjectStages(Array.isArray(ps)?ps:[]); setChecklists(Array.isArray(pcl)?pcl:[]);
       setPrescriptionsList(Array.isArray(pres)?pres:[]); setUnexpectedWorksList(Array.isArray(uw)?uw:[]);
-      applyLoadedEstimates(est); setEstimateReconciliations(Array.isArray(er)?er:[]); setBrigadeContracts(Array.isArray(bc)?bc:[]); setAllBrigadeItems(Array.isArray(abi)?abi:[]);
+      applyLoadedEstimates(est, canSeeProjectDocs); setEstimateReconciliations(Array.isArray(er)?er:[]); setBrigadeContracts(Array.isArray(bc)?bc:[]); setAllBrigadeItems(Array.isArray(abi)?abi:[]);
       setHiddenActs(Array.isArray(hwa)?hwa:[]); setMaterialInspections(Array.isArray(mij)?mij:[]);
       setCableJournal(Array.isArray(cbj)?cbj:[]); setSupervisorActs(Array.isArray(sva)?sva:[]);
       setInspectionOrders(Array.isArray(inspO)?inspO:[]); setWarrantyDefects(Array.isArray(warD)?warD:[]);
@@ -1226,6 +1241,7 @@ function App() {
       setProjectMeasurements(Array.isArray(pmeas)?pmeas:[]); setMeasurementRoomDrafts(Array.isArray(mdrafts)?mdrafts:[]);
     });
     if (page === 'estimates') return loadMobileScopeOnce('mobile:estimates', async () => {
+      if (canLoadEstimates) markEstimatesLoading(true);
       const [est,er,pl,mn,ma,mno,mns,bc,abi,abp] = await Promise.all([
         canLoadEstimates ? getApi(estimatesLoadPath, null) : Promise.resolve(null),
         canLoadEstimates ? getApi('/estimate-reconciliations') : Promise.resolve([]),
@@ -1238,7 +1254,7 @@ function App() {
         (isInternalRole || isFinanceRole) ? getApi('/brigade-contract-items-all') : Promise.resolve([]),
         (isInternalRole || isFinanceRole) ? getApi('/brigade-payments') : Promise.resolve([]),
       ]);
-      applyLoadedEstimates(est); setEstimateReconciliations(Array.isArray(er)?er:[]); setPricelists(Array.isArray(pl)?pl:[]);
+      applyLoadedEstimates(est, canLoadEstimates); setEstimateReconciliations(Array.isArray(er)?er:[]); setPricelists(Array.isArray(pl)?pl:[]);
       setMaterialNorms(Array.isArray(mn)?mn:[]); resetMaterialNormsPage(mn); setMaterialAliases(Array.isArray(ma)?ma:[]);
       setMaterialNormOverrides(Array.isArray(mno)?mno:[]); setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);
       setBrigadeContracts(Array.isArray(bc)?bc:[]); setAllBrigadeItems(Array.isArray(abi)?abi:[]);
@@ -1349,6 +1365,7 @@ function App() {
       setLeads(Array.isArray(ls)?ls:[]);
     });
     if (page === 'analytics') return loadMobileScopeOnce('mobile:analytics', async () => {
+      if (canLoadEstimates) markEstimatesLoading(true);
       const [pp,me,wj,est] = await Promise.all([
         isFinanceRole ? getApi('/project-payments') : Promise.resolve([]),
         isFinanceRole ? getApi('/expenses') : Promise.resolve([]),
@@ -1359,7 +1376,7 @@ function App() {
       setManualExpenses(Array.isArray(me)?me:[]);
       setWorkJournal(Array.isArray(wj)?wj:[]);
       resetWorkJournalPage(wj);
-      applyLoadedEstimates(est);
+      applyLoadedEstimates(est, canLoadEstimates);
     });
     if (page === 'settings') return loadMobileScopeOnce('mobile:settings', async () => {
       const [cr,cd] = await Promise.all([
@@ -1407,6 +1424,7 @@ function App() {
       const isWorkerRole = ['мастер','субподрядчик','бригадир'].includes(role);
       const canLoadEstimates = canLoadEstimatesForUser(user);
       const estimatesLoadPath = isWorkerRole ? '/estimates' : '/estimates-summary';
+      if (canLoadEstimates) markEstimatesLoading(true);
       const token = localStorage.getItem('authToken');
       const get = (path, fallback = []) => fetch(API + path, token ? {headers: {Authorization: 'Bearer ' + token}} : undefined)
         .then(r => {
@@ -1486,7 +1504,7 @@ function App() {
       setInventory(inv);setPdConsents(pdc);setWarehouses(Array.isArray(wh)?wh:[]);
       setCompanyRequisites(cr||{});setCompanyDocuments(Array.isArray(cd)?cd:[]);
       setProjectStages(Array.isArray(ps)?ps:[]);setChecklists(Array.isArray(pcl)?pcl:[]);
-      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);applyLoadedEstimates(est);setEstimateReconciliations(Array.isArray(er)?er:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);setMaterialNorms(Array.isArray(mn)?mn:[]);resetMaterialNormsPage(mn);setMaterialAliases(Array.isArray(ma)?ma:[]);setMaterialNormOverrides(Array.isArray(mno)?mno:[]);setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);setAuditLog(Array.isArray(aud)?aud:[]);
+      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);applyLoadedEstimates(est, canLoadEstimates);setEstimateReconciliations(Array.isArray(er)?er:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);setMaterialNorms(Array.isArray(mn)?mn:[]);resetMaterialNormsPage(mn);setMaterialAliases(Array.isArray(ma)?ma:[]);setMaterialNormOverrides(Array.isArray(mno)?mno:[]);setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);setAuditLog(Array.isArray(aud)?aud:[]);
       if (canSeeProjectDocs) try {
         const [rwin,rdoor] = await Promise.all([
           get('/room-windows'),
@@ -1558,6 +1576,10 @@ function App() {
       mobileLoadedScopesRef.current.add('full');
     } catch(e) {
       console.error('loadAll failed', e);
+      setEstimatesPage(prev => prev.loading ? {
+        loading:false,
+        error:'Не удалось загрузить сметы. Проверьте соединение или повторите загрузку.',
+      } : prev);
     } finally {
       setInitialDataLoaded(true);
     }
@@ -6955,6 +6977,8 @@ function App() {
                   btnO={btnO}
                   btnR={btnR}
                   estimatesList={filteredEstimateList}
+                  estimatesPage={estimatesPage}
+                  onRetryEstimates={() => isMobile ? loadMobilePageData('estimates') : loadAll()}
                   projectFilter={estimateProjectFilter}
                   showArchivedEstimates={showArchivedEstimates}
                   setShowArchivedEstimates={setShowArchivedEstimates}

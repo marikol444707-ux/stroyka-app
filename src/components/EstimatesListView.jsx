@@ -1,4 +1,5 @@
 import React from 'react';
+import { RefreshCw } from 'lucide-react';
 import EstimateListEmptyStates from './EstimateListEmptyStates';
 import EstimateListSummaryBar from './EstimateListSummaryBar';
 import EstimateProjectGroupCard from './EstimateProjectGroupCard';
@@ -14,6 +15,8 @@ export default function EstimatesListView({
   btnO,
   btnR,
   estimatesList,
+  estimatesPage,
+  onRetryEstimates,
   showArchivedEstimates,
   setShowArchivedEstimates,
   setSelectedEstimate,
@@ -72,9 +75,26 @@ export default function EstimatesListView({
   });
   const isProjectOpen = (projectName) => Boolean(openProjects[projectName]);
   const toggleProjectOpen = (projectName) => setOpenProjects(prev => ({ ...prev, [projectName]: !prev[projectName] }));
+  const hasEstimateRows = normal.length > 0 || templates.length > 0;
+  const showLoadingState = estimatesPage?.loading && !hasEstimateRows;
+  const showErrorState = Boolean(estimatesPage?.error) && !hasEstimateRows;
 
   return (
     <>
+      {showLoadingState && (
+        <div style={{...card,padding:'22px',marginBottom:'12px',textAlign:'center',color:C.textMuted}}>
+          Загружаем сметы...
+        </div>
+      )}
+      {showErrorState && (
+        <div style={{...card,padding:'18px',marginBottom:'12px',borderColor:C.warningBorder,backgroundColor:C.warningLight}}>
+          <b style={{color:C.warning,fontSize:'14px'}}>Сметы не загрузились</b>
+          <p style={{color:C.textSec,margin:'6px 0 12px',fontSize:'13px'}}>{estimatesPage.error}</p>
+          <button onClick={onRetryEstimates} style={{...btnG,padding:'8px 12px'}}>
+            <RefreshCw size={14}/>Повторить
+          </button>
+        </div>
+      )}
       <EstimateListSummaryBar
         C={C}
         card={card}
@@ -87,7 +107,7 @@ export default function EstimatesListView({
         showArchivedEstimates={showArchivedEstimates}
         setShowArchivedEstimates={setShowArchivedEstimates}
       />
-      {groupedByProject.map(([projectName, projectEstimateGroups]) => (
+      {!showLoadingState && !showErrorState && groupedByProject.map(([projectName, projectEstimateGroups]) => (
         <EstimateProjectGroupCard
           key={projectName}
           C={C}
@@ -133,9 +153,9 @@ export default function EstimatesListView({
       <EstimateListEmptyStates
         C={C}
         card={card}
-        normalCount={normal.length}
+        normalCount={showLoadingState || showErrorState ? 1 : normal.length}
         templatesCount={templates.length}
-        groupedCount={groupedByProject.length}
+        groupedCount={showLoadingState || showErrorState ? 1 : groupedByProject.length}
         showArchivedEstimates={showArchivedEstimates}
         setShowArchivedEstimates={setShowArchivedEstimates}
       />
