@@ -252,13 +252,7 @@ import { createSupplierPortalActions } from './features/supply/supplierPortalAct
 import { createSupplyPlanningUi } from './features/supply/supplyPlanningUi';
 import { createProjectOperationActions } from './features/project-operations/projectOperationActions';
 import { createProjectMeasurementActions } from './features/project-measurements/projectMeasurementActions';
-import {
-  buildDirectorBriefReportContentForDate,
-  buildDirectorEstimateControlIssues,
-  buildDirectorEstimateControlReportContent,
-  buildDirectorSupplyControlIssues,
-  buildDirectorSupplyControlReportContent,
-} from './utils/directorReportWorkflowUtils';
+import { createDirectorDashboardActions } from './features/dashboard/directorDashboardActions';
 import {
   invoiceControlMaterialName,
   invoiceControlNeedsReview,
@@ -303,7 +297,6 @@ import {
   normalizePersonKey,
 } from './utils/performerUtils';
 import {
-  activeProjectsOnly,
   canAccessRole,
   canCreateSupplyRequestFromNormForUser,
   canEditMaterialNormsForUser,
@@ -3139,80 +3132,41 @@ function App() {
   });
   const lowStock = materials.filter(m=>m.minQuantity&&m.quantity<m.minQuantity);
   const lowMainStock = warehouseMain.filter(m=>m.minQuantity&&m.quantity<m.minQuantity);
-  const activeDirectorProjects = () => activeProjectsOnly(projects);
-  const buildDirectorBriefReportContent = (date) => buildDirectorBriefReportContentForDate(date, {
-    companyName,
-    user,
-    projects,
-    workJournal,
-    inspectionOrders,
-    ownExpenses,
-    supplierInvoices,
-    lowStock,
-    lowMainStock,
-    projectBudgetSpent,
-  });
-  const estimateControlIssues = (sourceEstimates = estimatesList) => buildDirectorEstimateControlIssues({
-    sourceEstimates,
-    projects,
-    activeProjects: activeDirectorProjects(),
+  const {
+    buildDirectorBriefReportContent,
+    buildSupplyControlReportContent,
+    estimateControlIssues,
+    openEstimateControlReport,
+  } = createDirectorDashboardActions({
+    API,
     activeEstimatesForProject,
-  });
-  const buildEstimateControlReportContent = (sourceEstimates = estimatesList) => {
-    const issues = estimateControlIssues(sourceEstimates);
-    return buildDirectorEstimateControlReportContent({
-      sourceEstimates,
-      issues,
-      companyName,
-      generatedBy: user?.name || '',
-    });
-  };
-  const loadEstimatesForDirectorReport = async () => {
-    if ((estimatesList||[]).length) return estimatesList;
-    try {
-      const token = localStorage.getItem('authToken');
-      const res = await fetch(API+'/estimates-summary', token ? {headers:{Authorization:'Bearer '+token}} : undefined);
-      if (!res.ok) return estimatesList||[];
-      const data = await res.json();
-      const list = Array.isArray(data) ? data : [];
-      if (list.length) setEstimatesList(normalizeEstimateList(list));
-      return list;
-    } catch(e) {
-      return estimatesList||[];
-    }
-  };
-  const openEstimateControlReport = async () => {
-    const list = await loadEstimatesForDirectorReport();
-    showPreview(buildEstimateControlReportContent(list),'Проверка смет директора');
-  };
-  const supplyControlIssues = () => buildDirectorSupplyControlIssues({
-    lowMainStock,
-    lowStock,
-    supplyRequests,
-    supplierInvoices,
-    invoices,
-    activeProjects: activeDirectorProjects(),
-    warehouseInvoiceEstimateControl,
+    companyName,
+    estimateList: estimatesList,
+    fmtDocMoney,
+    fmtMeasure,
+    inspectionOrders,
+    invoiceControlMaterialName,
     invoiceControlNeedsReview,
     invoiceControlProjectName,
-    invoiceControlMaterialName,
     invoiceControlReviewReason,
-    materialReconciliationRows,
+    invoices,
+    lowMainStock,
+    lowStock,
     materialNormControlSummaryForProject,
-    fmtMeasure,
-    fmtMoney: fmtDocMoney,
+    materialReconciliationRows,
+    normalizeEstimateList,
+    ownExpenses,
+    projectBudgetSpent,
+    projects,
+    setEstimatesList,
+    showPreview,
+    supplierInvoices,
+    supplierOffers,
+    supplyRequests,
+    user,
+    warehouseInvoiceEstimateControl,
+    workJournal,
   });
-  const buildSupplyControlReportContent = () => {
-    const issues = supplyControlIssues();
-    return buildDirectorSupplyControlReportContent({
-      issues,
-      supplyRequests,
-      supplierOffers,
-      supplierInvoices,
-      companyName,
-      generatedBy:user?.name||'',
-    });
-  };
 
   const {
     addPiecework,
