@@ -226,7 +226,6 @@ import {
   normalizeImportedEstimateItem,
   sameEstimateGroup,
 } from './utils/estimateUtils';
-import { buildEstimateChatContext } from './utils/estimateChatUtils';
 import {
   estimateChangeAutoDecision,
   estimateChangeReconcileMarker,
@@ -846,23 +845,6 @@ function App() {
     } catch(e) {}
   };
 
-  const sendEstimateChatMessage = async () => {
-    if (!selectedEstimate || !estimateChatInput.trim() || estimateChatLoading) return;
-    const msg = estimateChatInput.trim();
-    setEstimateChatInput('');
-    const localHistory = [...estimateChatMessages, {role:'user', content:msg, id:Date.now()}];
-    setEstimateChatMessages(localHistory);
-    setEstimateChatLoading(true);
-    try {
-      const context = buildEstimateChatContext(selectedEstimate);
-      const res = await fetch(API+'/estimate-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({estimateId:selectedEstimate.id,message:msg,context,history:estimateChatMessages.map(m=>({role:m.role,content:m.content}))})});
-      const data = await res.json();
-      setEstimateChatMessages([...localHistory,{role:'assistant',content:data.response||'Ошибка ответа',id:data.assistantMessageId||Date.now()+1}]);
-    } catch(err) {
-      setEstimateChatMessages([...localHistory,{role:'assistant',content:'Ошибка соединения',id:Date.now()+1}]);
-    }
-    setEstimateChatLoading(false);
-  };
   const [newEstimateSection, setNewEstimateSection] = useState({name:''});
   const [newEstimateItem, setNewEstimateItem] = useState({sectionId:'',itemType:'work',name:'',unit:'м2',quantity:'',priceWork:'',priceMaterial:'',measurementBasis:''});
   const [newStage, setNewStage] = useState({name:'',status:'Не начат',startDate:'',endDate:'',progress:0,responsible:'',notes:''});
@@ -4313,6 +4295,7 @@ function App() {
     handleToggleSelectedEstimateTemplate,
     selectedEstimateExecutionPriceStats,
     sendAiAssistantMessage,
+    sendEstimateChatMessage,
   } = createEstimatePageActions({
     API,
     ROLE_LABELS,
@@ -4325,6 +4308,9 @@ function App() {
     estimateItemTotal,
     estimateItemTypeMeta,
     estimateItemWorkSum,
+    estimateChatInput,
+    estimateChatLoading,
+    estimateChatMessages,
     estimateMeasurementBasisMeta,
     estimateMeasurementBasisOf,
     estimateQualityRows,
@@ -4343,6 +4329,8 @@ function App() {
     setAiMessages,
     setDistributeAssignments,
     setDistributeBrigades,
+    setEstimateChatInput,
+    setEstimateChatLoading,
     setEstimateChatMessages,
     setEstimateVersions,
     setEstimatesList,

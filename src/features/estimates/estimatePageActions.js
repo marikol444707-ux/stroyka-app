@@ -1,3 +1,5 @@
+import { buildEstimateChatContext } from '../../utils/estimateChatUtils';
+
 export function createEstimatePageActions({
   API,
   ROLE_LABELS,
@@ -10,6 +12,9 @@ export function createEstimatePageActions({
   estimateItemTotal,
   estimateItemTypeMeta,
   estimateItemWorkSum,
+  estimateChatInput,
+  estimateChatLoading,
+  estimateChatMessages,
   estimateMeasurementBasisMeta,
   estimateMeasurementBasisOf,
   estimateQualityRows,
@@ -28,6 +33,8 @@ export function createEstimatePageActions({
   setAiMessages,
   setDistributeAssignments,
   setDistributeBrigades,
+  setEstimateChatInput,
+  setEstimateChatLoading,
   setEstimateChatMessages,
   setEstimateVersions,
   setEstimatesList,
@@ -63,6 +70,33 @@ export function createEstimatePageActions({
       setAiMessages(prev => [...prev, {role: 'assistant', content: fallbackText}]);
     }
     setAiLoading(false);
+  };
+
+  const sendEstimateChatMessage = async () => {
+    if (!selectedEstimate || !estimateChatInput.trim() || estimateChatLoading) return;
+    const msg = estimateChatInput.trim();
+    setEstimateChatInput('');
+    const localHistory = [...estimateChatMessages, {role: 'user', content: msg, id: Date.now()}];
+    setEstimateChatMessages(localHistory);
+    setEstimateChatLoading(true);
+    try {
+      const context = buildEstimateChatContext(selectedEstimate);
+      const res = await fetchFn(API + '/estimate-chat', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          estimateId: selectedEstimate.id,
+          message: msg,
+          context,
+          history: estimateChatMessages.map(m => ({role: m.role, content: m.content})),
+        }),
+      });
+      const data = await res.json();
+      setEstimateChatMessages([...localHistory, {role: 'assistant', content: data.response || 'Ошибка ответа', id: data.assistantMessageId || Date.now() + 1}]);
+    } catch (err) {
+      setEstimateChatMessages([...localHistory, {role: 'assistant', content: 'Ошибка соединения', id: Date.now() + 1}]);
+    }
+    setEstimateChatLoading(false);
   };
 
   const handleEstimateAiAnalysis = async () => {
@@ -352,5 +386,6 @@ export function createEstimatePageActions({
     handleToggleSelectedEstimateTemplate,
     selectedEstimateExecutionPriceStats,
     sendAiAssistantMessage,
+    sendEstimateChatMessage,
   };
 }
