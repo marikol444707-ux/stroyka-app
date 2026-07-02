@@ -248,6 +248,7 @@ import { workJournalEstimateSummaryFor } from './utils/workJournalEstimateReconc
 import { createEstimateWorkflowActions } from './features/estimates/estimateWorkflowActions';
 import { createEstimatePageActions } from './features/estimates/estimatePageActions';
 import { createSupplyActions } from './features/supply/supplyActions';
+import { createSupplierPortalActions } from './features/supply/supplierPortalActions';
 import { createSupplyPlanningUi } from './features/supply/supplyPlanningUi';
 import { createProjectOperationActions } from './features/project-operations/projectOperationActions';
 import {
@@ -3939,64 +3940,15 @@ function App() {
     const myDeliveries = supplyDeliveries.filter(d => d.supplierId===mySupplier?.id || d.supplierName===mySupplier?.name || d.supplierName===user.name);
     const myClaims = supplyClaims.filter(c => c.supplierId===mySupplier?.id);
     const SUPPLIER_TABS = [{id:'requests',label:'📋 Заявки'},{id:'catalog',label:'📦 Мой каталог'},{id:'offers',label:'💰 Предложения'},{id:'deliveries',label:'🚚 Отгрузки'},{id:'documents',label:'📄 Счета'},{id:'claims',label:'⚠️ Претензии'},{id:'profile',label:'⚙️ Профиль'}];
-    const appendSupplierReqNote = (current, line) => {
-      const base = String(current || '').trim();
-      const addition = String(line || '').trim();
-      if (!addition || base.includes(addition)) return base;
-      return base ? base + '\n' + addition : addition;
-    };
-    const supplierRequisitesPatchFromRecognition = (result, current = {}) => {
-      const extracted = result?.extracted || {};
-      const doc = result?.suggestedCrmDocument || {};
-      const docType = String(extracted.docType || doc.docType || '').toLowerCase();
-      const contractLike = docType.includes('договор') || docType.includes('контракт');
-      const patch = {
-        companyName: extracted.counterpartyName || '',
-        inn: extracted.inn || '',
-        kpp: extracted.kpp || '',
-        ogrn: extracted.ogrn || '',
-        address: extracted.legalAddress || '',
-        bank: extracted.bank || '',
-        bik: extracted.bik || '',
-        account: extracted.bankAccount || '',
-        korAccount: extracted.corrAccount || '',
-        directorName: extracted.signerName || '',
-        directorPosition: extracted.signerBasis || '',
-        contractNumber: contractLike ? (extracted.number || '') : '',
-        contractDate: contractLike ? (extracted.docDate || '') : '',
-        contractUrl: contractLike ? (result?.fileUrl || '') : '',
-        specialization: extracted.workType || '',
-      };
-      if (extracted.contractSubject) {
-        patch.notes = appendSupplierReqNote(current.notes, 'Предмет договора: ' + extracted.contractSubject);
-      }
-      return Object.fromEntries(Object.entries(patch).filter(([, value]) => value));
-    };
-    const createOwnSupplierDocumentFromRecognition = async (docPatch, result) => {
-      const supplierId = mySupplier?.id || 0;
-      if (!supplierId) return alert('Сначала сохраните реквизиты поставщика');
-      const extracted = result?.extracted || {};
-      const res = await fetch(API + '/supplier-documents', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          supplierId,
-          docType: docPatch.docType || extracted.docType || 'Другое',
-          title: docPatch.title || extracted.documentTitle || 'Распознанный документ',
-          fileUrl: docPatch.fileUrl || result?.fileUrl || '',
-          status: 'На проверке',
-          signedAt: extracted.docDate || '',
-          notes: docPatch.notes || (extracted.contractSubject ? 'Предмет договора: ' + extracted.contractSubject : ''),
-          uploadedBy: user?.name || '',
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || data.detail || data.error) {
-        alert(data.detail || data.error || 'Не удалось добавить документ');
-        return;
-      }
-      await refreshData();
-    };
+    const {
+      createOwnSupplierDocumentFromRecognition,
+      supplierRequisitesPatchFromRecognition,
+    } = createSupplierPortalActions({
+      API,
+      mySupplier,
+      refreshData,
+      user,
+    });
     return (
       <div style={{minHeight:'100vh',backgroundColor:C.bg,padding:'20px'}}>
         <div style={{maxWidth:'900px',margin:'0 auto'}}>
