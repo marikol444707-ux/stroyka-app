@@ -1824,6 +1824,8 @@ function App() {
     openEstimateReconciliationPreview,
     createEstimateReconciliation,
     approveEstimateReconciliation,
+    setEstimateStatusRemote,
+    deleteEstimateRemote,
   } = createEstimateWorkflowActions({
     API,
     estimatesList,
@@ -1839,6 +1841,10 @@ function App() {
     showPreview,
     refreshData,
     user,
+    queueEstimateDiffReviewTask: (...args) => queueEstimateDiffReviewTask(...args),
+    autoReconcileEstimateChanges: (...args) => autoReconcileEstimateChanges(...args),
+    queueEstimateQualityReviewTask: (...args) => queueEstimateQualityReviewTask(...args),
+    queueEstimateNormReviewTask: (...args) => queueEstimateNormReviewTask(...args),
   });
   const activeEstimatesForProject = (p, kind='Заказчик', sourceEstimates=null) => {
     const groups = {};
@@ -2028,39 +2034,6 @@ function App() {
         onPrint={() => showPreview(buildWorkJournalEstimateReconciliationContent(project),'Сверка ЖПР ↔ смета — '+project.name)}
       />
     );
-  };
-  const setEstimateStatusRemote = async (est, status) => {
-    if(!est?.id) return;
-    const diffBase = status==='Активная'
-      ? activeEstimateFromList((estimatesList||[]).filter(e=>!isGlobalEstimateTemplate(e) && e.id!==est.id && sameEstimateGroup(e,est) && e.status==='Активная'))
-      : null;
-    const res = await fetch(API+'/estimates/'+est.id+'/status',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
-    if(!res.ok){const data=await res.json().catch(()=>({}));alert(data.detail||'Не удалось изменить статус сметы');return;}
-    const updated = {...est,status};
-    const nextEstimates = applyEstimateActivationState((estimatesList||[]).map(e=>e.id===est.id?updated:e), updated);
-    setEstimatesList(nextEstimates);
-    setSelectedEstimate(prev=>prev&&prev.id===est.id?updated:prev);
-    if (status==='Активная') {
-      if (diffBase) {
-        await queueEstimateDiffReviewTask(diffBase, updated, 'Смета активирована');
-        await autoReconcileEstimateChanges(diffBase, updated, 'Смета активирована');
-      }
-      await queueEstimateQualityReviewTask(updated, 'Смета активирована');
-      await queueEstimateNormReviewTask(updated, 'Смета активирована', nextEstimates);
-    }
-  };
-  const deleteEstimateRemote = async (est) => {
-    if (!est?.id) return;
-    const title = est.name || 'смету';
-    if (!window.confirm('Удалить смету "' + title + '" безвозвратно? Это действие доступно только директору. Если смета уже связана с ЖПР, АОСР, договорными позициями или материалами, сервер не даст удалить ее, чтобы не потерять историю объекта.')) return;
-    const res = await fetch(API + '/estimates/' + est.id + '?hard=true', {method: 'DELETE'});
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      alert(data.detail || 'Не удалось удалить смету');
-      return;
-    }
-    setEstimatesList(prev => (prev || []).filter(e => e.id !== est.id));
-    setSelectedEstimate(prev => prev && prev.id === est.id ? null : prev);
   };
   const projectPlanDone = (p) => projectPlanDoneFor(activeEstimatesForProject(p, 'Заказчик'));
   // Выполненные позиции сметы для КС-2/КС-3.
