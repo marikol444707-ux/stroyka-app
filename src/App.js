@@ -67,6 +67,7 @@ import { ProjectLaunchPanel } from './features/project-launch';
 import { createProjectCrudActions } from './features/projects/projectCrudActions';
 import { createWarehouseCrudActions } from './features/warehouse/warehouseCrudActions';
 import { createMaterialControlActions } from './features/material-control/materialControlActions';
+import { createDataLoadActions } from './features/data-loaders/dataLoadActions';
 import PreviewModal from './components/PreviewModal';
 import ImagePreviewModal from './components/ImagePreviewModal';
 import EstimatesTabsNav from './components/EstimatesTabsNav';
@@ -1661,32 +1662,20 @@ function App() {
     }
   };
 
-  const loadMasterProfile = async () => {
-    try {
-      const profile = await fetch(API+'/master-profile/'+user.id).then(r=>r.json());
-      setMasterProfile(profile);
-      if (!profile.profileCompleted) setShowProfileForm(true);
-    } catch(e) {}
-  };
-
-  const loadPricelistItems = async (plId) => {
-    const items = await fetch(API+'/pricelists/'+plId+'/items').then(r=>r.json());
-    setPricelistItems(items);
-  };
-
-  const loadProjectChat = async (projectName) => {
-    try {
-      const msgs = await fetch(API+'/project-chat/'+encodeURIComponent(projectName)).then(r=>r.json()).catch(()=>[]);
-      setProjectChatMessages(prev=>({...prev,[projectName]:Array.isArray(msgs)?msgs:[]}));
-    } catch(e) {}
-  };
-
-  const loadChecklistItems = async (checklistId) => {
-    try {
-      const items = await fetch(API+'/checklist-items/'+checklistId).then(r=>r.json()).catch(()=>[]);
-      setChecklistItems(prev=>({...prev,[checklistId]:Array.isArray(items)?items:[]}));
-    } catch(e) {}
-  };
+  const {
+    loadChecklistItems,
+    loadMasterProfile,
+    loadPricelistItems,
+    loadProjectChat,
+  } = createDataLoadActions({
+    API,
+    setChecklistItems,
+    setMasterProfile,
+    setPricelistItems,
+    setProjectChatMessages,
+    setShowProfileForm,
+    user,
+  });
 
   const { appendPhotos, uploadPhoto } = createUploadActions({
     API,
