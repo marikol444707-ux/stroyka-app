@@ -251,6 +251,7 @@ import { createSupplyActions } from './features/supply/supplyActions';
 import { createSupplierPortalActions } from './features/supply/supplierPortalActions';
 import { createSupplyPlanningUi } from './features/supply/supplyPlanningUi';
 import { createProjectOperationActions } from './features/project-operations/projectOperationActions';
+import { createProjectMeasurementActions } from './features/project-measurements/projectMeasurementActions';
 import {
   buildDirectorBriefReportContentForDate,
   buildDirectorEstimateControlIssues,
@@ -5208,49 +5209,25 @@ function App() {
                       const pendingDrafts = drafts.filter(d=>d.status==='Черновик ИИ').length;
                       const acceptedDrafts = drafts.filter(d=>d.acceptedRoomId||d.status==='Принято').length;
                       const canEditMeasurements = user&&['директор','зам_директора','прораб','главный_инженер','сметчик'].includes(user.role);
-                      const statusMeta = (st) => st==='Принято'
-                        ? [C.success,C.successLight,C.successBorder]
-                        : st==='На проверке'
-                          ? [C.warning,C.warningLight,C.warningBorder]
-                          : st==='Отклонено'
-                            ? [C.danger,C.dangerLight,C.dangerBorder]
-                            : [C.textSec,C.bgGray,C.border];
-                      const saveMeasurement = async () => {
-                        if (!newMeasurementDoc.title.trim() && !newMeasurementDoc.fileUrl && !newMeasurementDoc.photoUrl) { alert('Укажите название или загрузите файл/фото'); return; }
-                        await fetch(API+'/project-measurements',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newMeasurementDoc,projectName:p.name,roomsCreated:Number(newMeasurementDoc.roomsCreated||0),uploadedBy:user.name})});
-                        setNewMeasurementDoc({sourceType:'Фактический ручной',docType:'Обмер',title:'',fileUrl:'',photoUrl:'',status:'Черновик',roomsCreated:'0',notes:''});
-                        setShowMeasurementForm(false);
-                        await refreshData();
-                      };
-                      const updateMeasurement = async (doc, patch) => {
-                        await fetch(API+'/project-measurements/'+doc.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
-                        await refreshData();
-                      };
-                      const deleteMeasurement = async (doc) => {
-                        if (!window.confirm('Удалить исходник «'+(doc.title||doc.docType||'обмер')+'»?')) return;
-                        await fetch(API+'/project-measurements/'+doc.id,{method:'DELETE'});
-                        await refreshData();
-                      };
-                      const generateRoomDrafts = async (doc) => {
-                        setMeasurementDraftLoadingId(doc.id);
-                        try {
-                          const r = await fetch(API+'/project-measurements/'+doc.id+'/ai-draft-rooms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replaceExisting:true})});
-                          const data = await r.json().catch(()=>({}));
-                          if (!r.ok || data.detail) alert('Не удалось разобрать источник: '+(data.detail||'ошибка'));
-                          else if (!data.created) alert('ИИ не нашёл помещений. Добавьте текст в комментарий или загрузите более читаемый скан.');
-                        } finally {
-                          setMeasurementDraftLoadingId(null);
-                          await refreshData();
-                        }
-                      };
-                      const acceptRoomDraft = async (draft) => {
-                        await fetch(API+'/measurement-room-drafts/'+draft.id+'/accept',{method:'POST'});
-                        await refreshData();
-                      };
-                      const rejectRoomDraft = async (draft) => {
-                        await fetch(API+'/measurement-room-drafts/'+draft.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено'})});
-                        await refreshData();
-                      };
+                      const {
+                        acceptRoomDraft,
+                        deleteMeasurement,
+                        generateRoomDrafts,
+                        rejectRoomDraft,
+                        saveMeasurement,
+                        statusMeta,
+                        updateMeasurement,
+                      } = createProjectMeasurementActions({
+                        API,
+                        C,
+                        newMeasurementDoc,
+                        project: p,
+                        refreshData,
+                        setMeasurementDraftLoadingId,
+                        setNewMeasurementDoc,
+                        setShowMeasurementForm,
+                        user,
+                      });
                       return (<div>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'14px'}}>
                           <div>
