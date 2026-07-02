@@ -1651,17 +1651,6 @@ function App() {
     return user && !rb.includes(user.id) && (m.author_id!==user.id);
   }).length;
 
-  // Открыть чат-панель и сразу пометить сообщения прочитанными
-  const setShowChatPanel = (val) => {
-    const next = typeof val === 'function' ? val(showChatPanel) : val;
-    setShowChatPanelRaw(next);
-    if(next && user && unreadMessagesCount>0){
-      fetch(API+'/messages/mark-read',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:user.id,chatType:'company'})})
-        .then(()=>setCompanyMessages(prev=>prev.map(m=>({...m,readBy:[...(m.readBy||[]),user.id]}))))
-        .catch(()=>{});
-    }
-  };
-
   const {
     loadChecklistItems,
     loadMasterProfile,
@@ -1958,12 +1947,16 @@ function App() {
   const {
     sendCompanyChatMessage,
     sendProjectChatMessage,
+    setShowChatPanel,
   } = createChatActions({
     API,
     loadProjectChat,
     setCompanyChatMessage,
     setCompanyMessages,
+    setShowChatPanelRaw,
     setProjectChatMessage,
+    showChatPanel,
+    unreadMessagesCount,
     user,
   });
 

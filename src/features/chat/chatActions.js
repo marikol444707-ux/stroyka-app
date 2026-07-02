@@ -3,9 +3,26 @@ export const createChatActions = ({
   loadProjectChat,
   setCompanyChatMessage,
   setCompanyMessages,
+  setShowChatPanelRaw,
   setProjectChatMessage,
+  showChatPanel,
+  unreadMessagesCount,
   user,
 }) => {
+  const setShowChatPanel = (val) => {
+    const next = typeof val === 'function' ? val(showChatPanel) : val;
+    setShowChatPanelRaw(next);
+    if (next && user && unreadMessagesCount > 0) {
+      fetch(API + '/messages/mark-read', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({userId: user.id, chatType: 'company'}),
+      })
+        .then(() => setCompanyMessages(prev => prev.map(m => ({...m, readBy: [...(m.readBy || []), user.id]}))))
+        .catch(() => {});
+    }
+  };
+
   const sendCompanyChatMessage = async (text, photoUrl) => {
     if (!text && !photoUrl) return;
     try {
@@ -61,5 +78,6 @@ export const createChatActions = ({
   return {
     sendCompanyChatMessage,
     sendProjectChatMessage,
+    setShowChatPanel,
   };
 };
