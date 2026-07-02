@@ -107,6 +107,7 @@ import { createAiAssistantActions } from './features/ai-assistant/aiAssistantAct
 import { createChatActions } from './features/chat/chatActions';
 import { createCrmActions } from './features/crm/crmActions';
 import { createNotificationActions } from './features/notifications/notificationActions';
+import { createSystemActions } from './features/system/systemActions';
 import WorkAssignmentModal, { WorkAssignmentStatusPanel } from './features/work-assignment';
 import { createAiTaskActions } from './features/ai-control/aiTaskActions';
 import { createUserAccessActions } from './features/admin/userAccessActions';
@@ -618,19 +619,6 @@ function App() {
     }
     setShowReceiveDialog(true);
   };
-  const openSystemStatus = async () => {
-    setShowSystemStatus(true);
-    setSystemStatusLoading(true);
-    try {
-      const res = await fetch(API+'/system-status');
-      const data = await res.json().catch(()=>({ok:false,error:'bad_json'}));
-      setSystemStatus(res.ok ? data : {...data,ok:false,httpStatus:res.status});
-    } catch (e) {
-      setSystemStatus({ok:false,error:e.message});
-    } finally {
-      setSystemStatusLoading(false);
-    }
-  };
   const [scanningInvoice, setScanningInvoice] = useState(false);
   const [projectPayments, setProjectPayments] = useState([]);
   const [accountablePayments, setAccountablePayments] = useState([]);
@@ -975,6 +963,17 @@ function App() {
   });
 
   const {
+    loadAuditLog,
+    openSystemStatus,
+  } = createSystemActions({
+    API,
+    setAuditLog,
+    setShowSystemStatus,
+    setSystemStatus,
+    setSystemStatusLoading,
+  });
+
+  const {
     addActivity,
     closeNotifications,
     getNotifPage,
@@ -985,7 +984,7 @@ function App() {
   } = createNotificationActions({
     API,
     activePage,
-    loadAuditLog: () => loadAuditLog(),
+    loadAuditLog,
     notifications,
     pushEnabled,
     sendPushNotification,
@@ -994,16 +993,6 @@ function App() {
     setShowNotifications,
     user,
   });
-
-  const loadAuditLog = async () => {
-    try {
-      const token = localStorage.getItem('authToken');
-      const data = await fetch(API + pagedPath('/audit-log', {limit: AUDIT_LOG_PAGE_LIMIT}), token ? {headers: {Authorization: 'Bearer ' + token}} : undefined).then(r => r.ok ? r.json() : []);
-      setAuditLog(Array.isArray(data) ? data : []);
-    } catch (e) {
-      setAuditLog([]);
-    }
-  };
 
   useEffect(() => {
     const handleOutside = (e) => {
