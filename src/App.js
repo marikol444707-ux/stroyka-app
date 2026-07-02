@@ -252,6 +252,7 @@ import {
 import { workJournalEstimateSummaryFor } from './utils/workJournalEstimateReconciliationUtils';
 import { createEstimateWorkflowActions } from './features/estimates/estimateWorkflowActions';
 import { createEstimatePageActions } from './features/estimates/estimatePageActions';
+import { createEstimateChangeReconcileTaskActions } from './features/estimates/estimateChangeReconcileTaskActions';
 import { createSupplyActions } from './features/supply/supplyActions';
 import { createSupplierPortalActions } from './features/supply/supplierPortalActions';
 import { createSupplyPlanningUi } from './features/supply/supplyPlanningUi';
@@ -2330,44 +2331,29 @@ function App() {
       patchAiTaskSilent,
     });
   };
-  const estimateChangeReconcileRowsForTask = (task) => {
-    const payload = parseAiTaskPayload(task);
-    if (payload.type !== 'estimate_change_reconcile') return [];
-    const nextEst = (estimatesList||[]).find(e=>Number(e.id)===Number(payload.nextEstimateId));
-    const baseEst = (estimatesList||[]).find(e=>Number(e.id)===Number(payload.baseEstimateId)) || (nextEst ? estimateDiffBaseFor(nextEst) : null);
-    if (!baseEst || !nextEst) return [];
-    const diff = buildEstimateDiff(baseEst,nextEst);
-    const projectName = payload.projectName || task.projectName || nextEst.projectName || baseEst.projectName || '';
-    return includableEstimateChanges(projectName).map(change=>estimateChangeAutoDecision(change,nextEst,diff));
-  };
-  const confirmEstimateChangeIncluded = async (task, decision) => {
-    const payload = parseAiTaskPayload(task);
-    const changeId = Number(decision?.change?.id);
-    const estimateId = Number(payload.nextEstimateId);
-    if (!changeId || !estimateId) return;
-    const res = await fetch(API+'/estimates/'+estimateId+'/reconcile-changes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({changeIds:[changeId],updatedBy:user.name})});
-    const data = await res.json().catch(()=>({}));
-    if (!res.ok) {
-      alert(data.detail || 'Не удалось включить изменение в новую смету');
-      return;
-    }
-    const included = new Set((data.includedChangeIds||[]).map(Number));
-    if (included.size) {
-      setUnexpectedWorksList(prev=>(prev||[]).map(u=>included.has(Number(u.id))?{...u,status:'Включено в новую смету',includedInEstimateId:estimateId,reason:u.reason||('Подтверждено при сверке с новой сметой №'+estimateId)}:u));
-      const remaining = estimateChangeReconcileRowsForTask(task).filter(r=>Number(r.change?.id)!==changeId);
-      if (remaining.length === 0 && task?.id) await patchAiTaskSilent(task.id,{status:'Закрыто'});
-    }
-  };
+  const {
+    confirmEstimateChangeIncluded,
+    estimateChangeReconcileEstimatesForTask,
+    estimateChangeReconcileRowsForTask,
+  } = createEstimateChangeReconcileTaskActions({
+    API,
+    user,
+    estimatesList,
+    estimateDiffBaseFor,
+    buildEstimateDiff,
+    includableEstimateChanges,
+    estimateChangeAutoDecision,
+    setUnexpectedWorksList,
+    patchAiTaskSilent,
+  });
   const renderEstimateChangeReconcileTask = (task) => {
-    const payload = parseAiTaskPayload(task);
-    const nextEst = (estimatesList||[]).find(e=>Number(e.id)===Number(payload.nextEstimateId));
-    const baseEst = (estimatesList||[]).find(e=>Number(e.id)===Number(payload.baseEstimateId)) || (nextEst ? estimateDiffBaseFor(nextEst) : null);
+    const {baseEstimate, nextEstimate} = estimateChangeReconcileEstimatesForTask(task);
     const rows = estimateChangeReconcileRowsForTask(task);
     return (
       <EstimateChangeReconcileTask
         task={task}
-        baseEstimate={baseEst}
-        nextEstimate={nextEst}
+        baseEstimate={baseEstimate}
+        nextEstimate={nextEstimate}
         rows={rows}
         fmtMeasure={fmtMeasure}
         onConfirmIncluded={confirmEstimateChangeIncluded}
