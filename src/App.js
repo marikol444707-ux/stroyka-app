@@ -103,6 +103,7 @@ import {
   MasterCabinetPage,
 } from './app/lazyComponents';
 import { createAuthActions } from './features/auth/authActions';
+import { createChatActions } from './features/chat/chatActions';
 import { createCrmActions } from './features/crm/crmActions';
 import WorkAssignmentModal, { WorkAssignmentStatusPanel } from './features/work-assignment';
 import { createAiTaskActions } from './features/ai-control/aiTaskActions';
@@ -112,6 +113,7 @@ import { createPersonnelActions } from './features/personnel/personnelActions';
 import { createPricelistActions } from './features/pricelists/pricelistActions';
 import { createMaterialNormActions } from './features/material-norms/materialNormActions';
 import { createMaterialNormCoverageActions } from './features/material-norms/materialNormCoverageActions';
+import { createMaterialTransferActions } from './features/material-transfer/materialTransferActions';
 import { createMaterialWriteoffActions } from './features/material-writeoff/materialWriteoffActions';
 import AppSidebar from './components/AppSidebar';
 import AppHeaderBar from './components/AppHeaderBar';
@@ -2044,27 +2046,17 @@ function App() {
     users,
     masterProfiles,
   });
-  const sendCompanyChatMessage = async (text, photoUrl) => {
-    if (!text && !photoUrl) return;
-    try {
-      await fetch(API+'/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chatType:'company',projectId:null,authorId:user.id,authorName:user.name,authorRole:user.role,text,photoUrl})});
-      const msgs = await fetch(API+'/messages').then(r=>r.json()).catch(()=>[]);
-      setCompanyMessages(Array.isArray(msgs)?msgs:[]);
-    } catch(e) {
-      const msg = {id:Date.now(),text,photo_url:photoUrl,author_name:user.name,author_role:user.role,created_at:new Date().toISOString()};
-      setCompanyMessages(prev=>[...prev,msg]);
-    }
-    setCompanyChatMessage('');
-  };
-
-  const sendProjectChatMessage = async (projectName, text, photoUrl) => {
-    if (!text && !photoUrl) return;
-    try {
-      await fetch(API+'/project-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName,authorId:user.id,authorName:user.name,authorRole:user.role,text,photoUrl})});
-      await loadProjectChat(projectName);
-    } catch(e) {}
-    setProjectChatMessage('');
-  };
+  const {
+    sendCompanyChatMessage,
+    sendProjectChatMessage,
+  } = createChatActions({
+    API,
+    loadProjectChat,
+    setCompanyChatMessage,
+    setCompanyMessages,
+    setProjectChatMessage,
+    user,
+  });
 
   const {
     saveLead,
@@ -2078,35 +2070,17 @@ function App() {
     user,
   });
   const ratemaster = (masterId, rating) => { const updated={...masterRatings,[masterId]:rating}; setMasterRatings(updated); localStorage.setItem('masterRatings',JSON.stringify(updated)); };
-	  const confirmMaterialReceipt = async (transferId) => {
-	    await fetch(API+'/material-transfers/'+transferId+'/sign',{method:'PUT'});
-	    setMaterialTransfers(prev=>prev.map(t=>t.id===transferId?{...t,signed:true}:t));
-	  };
-	  const returnMaterialToProject = async (materialRow) => {
-	    const maxQty = toNum(materialRow?.quantity);
-	    if (!materialRow || maxQty <= 0) return;
-	    const raw = window.prompt('Сколько вернуть на склад объекта? Доступно: '+fmtMeasure(maxQty, materialRow.unit), String(maxQty));
-	    if (raw === null) return;
-	    const qty = toNum(raw);
-	    if (!qty || qty <= 0) return alert('Укажите количество больше 0');
-	    if (qty > maxQty) return alert('Нельзя вернуть больше остатка: '+fmtMeasure(maxQty, materialRow.unit));
-	    const res = await fetch(API+'/material-transfers/return', {
-	      method:'POST',
-	      headers:{'Content-Type':'application/json'},
-	      body:JSON.stringify({
-	        projectName: materialRow.project,
-	        materialName: materialRow.name,
-	        quantity: qty,
-	        unit: materialRow.unit,
-	        workPackage: materialRow.workPackage || '',
-	        date: new Date().toISOString().split('T')[0],
-	      })
-	    });
-	    const data = await res.json().catch(()=>({}));
-	    if (!res.ok || !data.ok) return alert('Ошибка: '+(data.detail||data.error||'не удалось вернуть материал'));
-	    notify('Материал возвращён на склад объекта: '+materialRow.name+' · '+fmtMeasure(qty, materialRow.unit), 'material');
-	    await refreshData();
-	  };
+  const {
+    confirmMaterialReceipt,
+    returnMaterialToProject,
+  } = createMaterialTransferActions({
+    API,
+    fmtMeasure,
+    notify,
+    refreshData,
+    setMaterialTransfers,
+    toNum,
+  });
 
   const {
     handleLogout,
