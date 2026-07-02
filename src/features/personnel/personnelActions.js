@@ -1,4 +1,5 @@
 import { emptyStaffForm } from '../../utils/staffUtils';
+import { writeStoredJson } from '../../utils/appRuntimeUtils';
 
 export const createPersonnelActions = ({
   API,
@@ -25,7 +26,9 @@ export const createPersonnelActions = ({
   setNewStaff,
   setNewStaffDoc,
   setMasterRatings,
+  setPayrollExtras,
   setSalaryPayments,
+  setSalaryEdits,
   setShowForm,
   setShowStaffDocForm,
   setStaffProfile,
@@ -97,6 +100,23 @@ export const createPersonnelActions = ({
     const updated = {...masterRatings, [masterId]: rating};
     setMasterRatings(updated);
     localStorage.setItem('masterRatings', JSON.stringify(updated));
+  };
+
+  const setSalaryEdit = (month, staffId, field, value) => {
+    setSalaryEdits(prev => {
+      const next = {...prev};
+      if (!next[month]) next[month] = {};
+      if (!next[month][staffId]) next[month][staffId] = {};
+      next[month][staffId][field] = value;
+      return writeStoredJson('salaryEdits', next);
+    });
+  };
+
+  const setPayrollExtra = (month, list) => {
+    setPayrollExtras(prev => {
+      const next = {...prev, [month]: list};
+      return writeStoredJson('payrollExtras', next);
+    });
   };
 
   const saveStaff = async () => {
@@ -327,6 +347,8 @@ export const createPersonnelActions = ({
     ratemaster,
     resetStaffAccessPassword,
     saveStaff,
+    setPayrollExtra,
+    setSalaryEdit,
     toggleDay,
   };
 };

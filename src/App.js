@@ -287,7 +287,6 @@ import {
   readApiResult,
   requestPushPermission,
   sendPushNotification,
-  writeStoredJson,
 } from './utils/appRuntimeUtils';
 import {
   normalizeDocDate,
@@ -775,21 +774,6 @@ function App() {
   // Inline-правки премий/удержаний по сотруднику в месяце (хранится в localStorage)
   const [salaryEdits, setSalaryEdits] = useState(() => readStoredJson('salaryEdits', {}));
   const [payrollExtras, setPayrollExtras] = useState(() => readStoredJson('payrollExtras', {}));
-  const setSalaryEdit = (month, staffId, field, value) => {
-    setSalaryEdits(prev => {
-      const next = {...prev};
-      if(!next[month]) next[month] = {};
-      if(!next[month][staffId]) next[month][staffId] = {};
-      next[month][staffId][field] = value;
-      return writeStoredJson('salaryEdits', next);
-    });
-  };
-  const setPayrollExtra = (month, list) => {
-    setPayrollExtras(prev => {
-      const next = {...prev, [month]: list};
-      return writeStoredJson('payrollExtras', next);
-    });
-  };
   // Универсальная проверка вхождения подстроки во все указанные поля
   const matchSearch = (q, ...fields) => matchSearchFields(q, ...fields);
   const [weatherTab, setWeatherTab] = useState('log');
@@ -3959,6 +3943,8 @@ function App() {
     ratemaster,
     resetStaffAccessPassword,
     saveStaff,
+    setPayrollExtra,
+    setSalaryEdit,
     toggleDay,
   } = createPersonnelActions({
     API,
@@ -3985,7 +3971,9 @@ function App() {
     setNewStaff,
     setNewStaffDoc,
     setMasterRatings,
+    setPayrollExtras,
     setSalaryPayments,
+    setSalaryEdits,
     setShowForm,
     setShowStaffDocForm,
     setStaffProfile,
