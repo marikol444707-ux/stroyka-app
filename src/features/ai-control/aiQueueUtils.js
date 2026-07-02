@@ -47,3 +47,56 @@ export const upsertAiTaskByMarker = async ({
     return null;
   }
 };
+
+export const queueAiControlDescriptor = async ({
+  API,
+  descriptor,
+  aiTaskByMarker,
+  queuedRef,
+  setAiTasks,
+  patchAiTaskSilent,
+}) => {
+  if (!descriptor?.marker || !descriptor.projectName) return null;
+
+  const existingTask = aiTaskByMarker(descriptor.marker);
+  return upsertAiTaskByMarker({
+    API,
+    marker: descriptor.marker,
+    projectName: descriptor.projectName,
+    existingTask,
+    queuedRef,
+    setAiTasks,
+    patchAiTaskSilent,
+    patch: {
+      title: descriptor.title,
+      description: descriptor.description,
+      assignedRole: descriptor.assignedRole,
+      actionLabel: descriptor.actionLabel,
+      actionPayload: JSON.stringify(descriptor.actionPayload),
+    },
+  });
+};
+
+export const closeStaleAiTasksByMarkerPrefix = ({
+  tasks,
+  projectName,
+  markerPrefix,
+  activeMarkers,
+  parsePayload,
+  isOpenStatus,
+  patchTaskSilent,
+}) => {
+  (tasks || [])
+    .filter(task => {
+      if (!isOpenStatus(task.status)) return false;
+      const payload = parsePayload(task);
+      return String(payload.marker || '').startsWith(markerPrefix)
+        && (payload.projectName || task.projectName || '') === projectName;
+    })
+    .forEach(task => {
+      const payload = parsePayload(task);
+      if (payload.marker && !activeMarkers.has(payload.marker)) {
+        patchTaskSilent(task.id, {status: 'Закрыто'});
+      }
+    });
+};

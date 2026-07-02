@@ -113,7 +113,11 @@ import { createSystemActions } from './features/system/systemActions';
 import { createUploadActions } from './features/uploads/uploadActions';
 import WorkAssignmentModal, { WorkAssignmentStatusPanel } from './features/work-assignment';
 import { createAiTaskActions } from './features/ai-control/aiTaskActions';
-import { upsertAiTaskByMarker } from './features/ai-control/aiQueueUtils';
+import {
+  closeStaleAiTasksByMarkerPrefix,
+  queueAiControlDescriptor,
+  upsertAiTaskByMarker,
+} from './features/ai-control/aiQueueUtils';
 import { createUserAccessActions } from './features/admin/userAccessActions';
 import { createDocumentActions } from './features/documents/documentActions';
 import { createPaymentActions } from './features/payments/paymentActions';
@@ -2491,22 +2495,11 @@ function App() {
     materialNameKey,
   });
   const queueMaterialControlTask = async (descriptor) => {
-    if (!descriptor?.marker || !descriptor.projectName) return;
-    const existingTask = aiTaskByMarker(descriptor.marker);
-    const patch = {
-      title: descriptor.title,
-      description: descriptor.description,
-      assignedRole: descriptor.assignedRole,
-      actionLabel: descriptor.actionLabel,
-      actionPayload: JSON.stringify(descriptor.actionPayload),
-    };
-    await upsertAiTaskByMarker({
+    await queueAiControlDescriptor({
       API,
-      marker: descriptor.marker,
-      projectName: descriptor.projectName,
-      existingTask,
+      descriptor,
+      aiTaskByMarker,
       queuedRef: materialControlTaskQueuedRef,
-      patch,
       setAiTasks,
       patchAiTaskSilent,
     });
@@ -2514,37 +2507,25 @@ function App() {
   const queueMaterialControlTasksForProject = async (projectName, reason='Фоновая проверка материалов') => {
     const descriptors = materialControlTaskDescriptorsForProject(projectName, reason);
     const activeMarkers = new Set(descriptors.map(d=>d.marker));
-    const openMaterialTasks = (aiTasks||[]).filter(t=>{
-      if (!isOpenAiStatus(t.status)) return false;
-      const payload = parseAiTaskPayload(t);
-      return String(payload.marker||'').startsWith('MATERIAL_CONTROL:')
-        && (payload.projectName || t.projectName || '') === projectName;
-    });
-    openMaterialTasks.forEach(t=>{
-      const payload = parseAiTaskPayload(t);
-      if (payload.marker && !activeMarkers.has(payload.marker)) patchAiTaskSilent(t.id,{status:'Закрыто'});
+    closeStaleAiTasksByMarkerPrefix({
+      tasks: aiTasks,
+      projectName,
+      markerPrefix: 'MATERIAL_CONTROL:',
+      activeMarkers,
+      parsePayload: parseAiTaskPayload,
+      isOpenStatus: isOpenAiStatus,
+      patchTaskSilent: patchAiTaskSilent,
     });
     for (const descriptor of descriptors) {
       await queueMaterialControlTask(descriptor);
     }
   };
   const queueRoomControlTask = async (descriptor) => {
-    if (!descriptor?.marker || !descriptor.projectName) return;
-    const existingTask = aiTaskByMarker(descriptor.marker);
-    const patch = {
-      title: descriptor.title,
-      description: descriptor.description,
-      assignedRole: descriptor.assignedRole,
-      actionLabel: descriptor.actionLabel,
-      actionPayload: JSON.stringify(descriptor.actionPayload),
-    };
-    await upsertAiTaskByMarker({
+    await queueAiControlDescriptor({
       API,
-      marker: descriptor.marker,
-      projectName: descriptor.projectName,
-      existingTask,
+      descriptor,
+      aiTaskByMarker,
       queuedRef: roomControlTaskQueuedRef,
-      patch,
       setAiTasks,
       patchAiTaskSilent,
     });
@@ -2563,15 +2544,14 @@ function App() {
     (aiFindings||[])
       .filter(f=>isOpenAiStatus(f.status) && (f.projectName||'')===projectName && isLegacyRoomBinding(f))
       .forEach(f=>patchAiFindingSilent(f.id,{status:'Закрыто'}));
-    const openRoomTasks = (aiTasks||[]).filter(t=>{
-      if (!isOpenAiStatus(t.status)) return false;
-      const payload = parseAiTaskPayload(t);
-      return String(payload.marker||'').startsWith('ROOM_CONTROL:')
-        && (payload.projectName || t.projectName || '') === projectName;
-    });
-    openRoomTasks.forEach(t=>{
-      const payload = parseAiTaskPayload(t);
-      if (payload.marker && !activeMarkers.has(payload.marker)) patchAiTaskSilent(t.id,{status:'Закрыто'});
+    closeStaleAiTasksByMarkerPrefix({
+      tasks: aiTasks,
+      projectName,
+      markerPrefix: 'ROOM_CONTROL:',
+      activeMarkers,
+      parsePayload: parseAiTaskPayload,
+      isOpenStatus: isOpenAiStatus,
+      patchTaskSilent: patchAiTaskSilent,
     });
     for (const descriptor of descriptors) {
       await queueRoomControlTask(descriptor);
