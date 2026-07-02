@@ -6978,7 +6978,7 @@ function App() {
                   btnR={btnR}
                   estimatesList={filteredEstimateList}
                   estimatesPage={estimatesPage}
-                  onRetryEstimates={() => isMobile ? loadMobilePageData('estimates') : loadAll()}
+                  onRetryEstimates={() => refreshData('estimates')}
                   projectFilter={estimateProjectFilter}
                   showArchivedEstimates={showArchivedEstimates}
                   setShowArchivedEstimates={setShowArchivedEstimates}
