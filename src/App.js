@@ -297,9 +297,7 @@ import { exportToExcelFile } from './utils/exportUtils';
 import { cableTypeOf } from './utils/cableUtils';
 import {
   contractRequisitesWarning,
-  findUserForStaff as findUserForStaffRow,
   normalizePersonKey,
-  resolveContractPerformer as resolveContractPerformerRow,
 } from './utils/performerUtils';
 import {
   activeProjectsOnly,
@@ -1662,53 +1660,6 @@ function App() {
     user,
   });
 
-  const findUserForStaff = (st) => findUserForStaffRow(st, users);
-  const staffAccessRoles = Object.keys(ROLE_LABELS).filter(r=>!['заказчик','поставщик','system_owner','platform_admin','platform_support','billing_admin','account_owner','account_admin'].includes(r));
-  const staffProjectRequiredRoles = ['прораб','технадзор','стройконтроль','мастер','субподрядчик','бригадир'];
-  const staffPackageRequiredRoles = ['мастер','субподрядчик','бригадир'];
-  const upsertStaffAccess = async ({staffRow={}, fullName, email, password, role, projectName, assignedProjects=[], assignedPackages=[]}) => {
-    const cleanEmail = String(email||'').trim().toLowerCase();
-    const cleanPassword = String(password||'').trim();
-    if (!cleanEmail || !role) throw new Error('Нужны системная роль и email');
-    if (!staffAccessRoles.includes(role)) throw new Error('Недопустимая системная роль: '+role);
-    const existing = (users||[]).find(u=>String(u.email||'').trim().toLowerCase()===cleanEmail);
-    if (!existing && !cleanPassword) throw new Error('Для нового пользователя нужен пароль');
-    if (cleanPassword && cleanPassword.length < 5) throw new Error('Пароль минимум 5 символов');
-    const project = projectName || staffRow.project || existing?.projectName || existing?.project_name || '';
-    const projectRow = (projects||[]).find(p=>String(p.name||'')===String(project||''));
-    const payload = {
-      name: fullName || staffRow.name || existing?.name || cleanEmail,
-      email: cleanEmail,
-      password: cleanPassword,
-      role,
-      projectId: existing?.projectId || existing?.project_id || projectRow?.id || '',
-      projectName: project,
-      assignedProjects: Array.isArray(assignedProjects) ? assignedProjects : [],
-      assignedPackages: Array.isArray(assignedPackages) ? assignedPackages : [],
-      active: true
-    };
-    if (!cleanPassword) delete payload.password;
-    let accessUser = existing || null;
-    if (existing?.id) {
-      await readApiResult(await fetch(API+'/users/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}));
-      accessUser = {...existing, ...payload};
-    } else {
-      accessUser = await readApiResult(await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}));
-    }
-    const ap = Array.isArray(assignedProjects) ? assignedProjects : [];
-    const apk = Array.isArray(assignedPackages) ? assignedPackages : [];
-    if (accessUser?.id && (ap.length>0 || apk.length>0 || ['прораб','технадзор','стройконтроль','мастер','субподрядчик','бригадир'].includes(role))) {
-      await readApiResult(await fetch(API+'/users/'+accessUser.id+'/assigned-projects',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({assignedProjects:ap,assignedPackages:apk})}));
-    }
-    return {accessUser, updatedExisting: !!existing};
-  };
-  const resolveContractPerformer = (contract={}, preferredProfile=null) => resolveContractPerformerRow({
-    contract,
-    preferredProfile,
-    staffRows: staff,
-    users,
-    masterProfiles,
-  });
   const {
     sendCompanyChatMessage,
     sendProjectChatMessage,
@@ -3239,6 +3190,65 @@ function App() {
   };
 
   const {
+    addPiecework,
+    addStaffDoc,
+    createContract,
+    createInterimAct,
+    createStaffAccessFromPrompt,
+    deleteContract,
+    deleteInterimAct,
+    deletePiecework,
+    deleteStaff,
+    findUserForStaff,
+    openStaffProfile,
+    paySalary,
+    ratemaster,
+    resetStaffAccessPassword,
+    resolveContractPerformer,
+    saveStaff,
+    setPayrollExtra,
+    setSalaryEdit,
+    toggleDay,
+  } = createPersonnelActions({
+    API,
+    ROLE_LABELS,
+    contracts,
+    editingItem,
+    expandedStaffId,
+    masterProfiles,
+    masterRatings,
+    newAct,
+    newContract,
+    newPiecework,
+    newStaff,
+    newStaffDoc,
+    notify,
+    readApiResult,
+    refreshData,
+    setEditingItem,
+    setExpandedStaffId,
+    setNewAct,
+    setNewContract,
+    setNewPiecework,
+    setNewStaff,
+    setNewStaffDoc,
+    setMasterRatings,
+    setPayrollExtras,
+    setSalaryPayments,
+    setSalaryEdits,
+    setShowForm,
+    setShowStaffDocForm,
+    setStaffProfile,
+    setStaffProfileLoading,
+    setTimesheet,
+    projects,
+    staff,
+    user,
+    users,
+    workJournal,
+  });
+
+  const {
     buildActContent,
     buildBrigadeActContent,
     buildCableJournalContent,
@@ -3723,66 +3733,6 @@ function App() {
     supplyRequests,
     supplyTemplates,
     user,
-  });
-
-  const {
-    addPiecework,
-    addStaffDoc,
-    createContract,
-    createInterimAct,
-    createStaffAccessFromPrompt,
-    deleteContract,
-    deleteInterimAct,
-    deletePiecework,
-    deleteStaff,
-    openStaffProfile,
-    paySalary,
-    ratemaster,
-    resetStaffAccessPassword,
-    saveStaff,
-    setPayrollExtra,
-    setSalaryEdit,
-    toggleDay,
-  } = createPersonnelActions({
-    API,
-    ROLE_LABELS,
-    contracts,
-    editingItem,
-    expandedStaffId,
-    findUserForStaff,
-    masterRatings,
-    newAct,
-    newContract,
-    newPiecework,
-    newStaff,
-    newStaffDoc,
-    notify,
-    readApiResult,
-    refreshData,
-    resolveContractPerformer,
-    setEditingItem,
-    setExpandedStaffId,
-    setNewAct,
-    setNewContract,
-    setNewPiecework,
-    setNewStaff,
-    setNewStaffDoc,
-    setMasterRatings,
-    setPayrollExtras,
-    setSalaryPayments,
-    setSalaryEdits,
-    setShowForm,
-    setShowStaffDocForm,
-    setStaffProfile,
-    setStaffProfileLoading,
-    setTimesheet,
-    staffAccessRoles,
-    staffPackageRequiredRoles,
-    staffProjectRequiredRoles,
-    upsertStaffAccess,
-    user,
-    users,
-    workJournal,
   });
 
   const {

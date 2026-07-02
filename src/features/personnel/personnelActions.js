@@ -1,5 +1,9 @@
 import { emptyStaffForm } from '../../utils/staffUtils';
 import { writeStoredJson } from '../../utils/appRuntimeUtils';
+import {
+  findUserForStaff as findUserForStaffRow,
+  resolveContractPerformer as resolveContractPerformerRow,
+} from '../../utils/performerUtils';
 
 export const createPersonnelActions = ({
   API,
@@ -7,8 +11,8 @@ export const createPersonnelActions = ({
   contracts,
   editingItem,
   expandedStaffId,
-  findUserForStaff,
   masterRatings,
+  masterProfiles,
   newAct,
   newContract,
   newPiecework,
@@ -17,7 +21,6 @@ export const createPersonnelActions = ({
   notify,
   readApiResult,
   refreshData,
-  resolveContractPerformer,
   setEditingItem,
   setExpandedStaffId,
   setNewAct,
@@ -34,14 +37,72 @@ export const createPersonnelActions = ({
   setStaffProfile,
   setStaffProfileLoading,
   setTimesheet,
-  staffAccessRoles,
-  staffPackageRequiredRoles,
-  staffProjectRequiredRoles,
-  upsertStaffAccess,
+  projects,
+  staff,
   user,
   users,
   workJournal,
 }) => {
+  const staffAccessRoles = Object.keys(ROLE_LABELS).filter(r => ![
+    'заказчик',
+    'поставщик',
+    'system_owner',
+    'platform_admin',
+    'platform_support',
+    'billing_admin',
+    'account_owner',
+    'account_admin',
+  ].includes(r));
+  const staffProjectRequiredRoles = ['прораб','технадзор','стройконтроль','мастер','субподрядчик','бригадир'];
+  const staffPackageRequiredRoles = ['мастер','субподрядчик','бригадир'];
+
+  const findUserForStaff = (st) => findUserForStaffRow(st, users);
+
+  const upsertStaffAccess = async ({staffRow={}, fullName, email, password, role, projectName, assignedProjects=[], assignedPackages=[]}) => {
+    const cleanEmail = String(email||'').trim().toLowerCase();
+    const cleanPassword = String(password||'').trim();
+    if (!cleanEmail || !role) throw new Error('Нужны системная роль и email');
+    if (!staffAccessRoles.includes(role)) throw new Error('Недопустимая системная роль: '+role);
+    const existing = (users||[]).find(u=>String(u.email||'').trim().toLowerCase()===cleanEmail);
+    if (!existing && !cleanPassword) throw new Error('Для нового пользователя нужен пароль');
+    if (cleanPassword && cleanPassword.length < 5) throw new Error('Пароль минимум 5 символов');
+    const project = projectName || staffRow.project || existing?.projectName || existing?.project_name || '';
+    const projectRow = (projects||[]).find(p=>String(p.name||'')===String(project||''));
+    const payload = {
+      name: fullName || staffRow.name || existing?.name || cleanEmail,
+      email: cleanEmail,
+      password: cleanPassword,
+      role,
+      projectId: existing?.projectId || existing?.project_id || projectRow?.id || '',
+      projectName: project,
+      assignedProjects: Array.isArray(assignedProjects) ? assignedProjects : [],
+      assignedPackages: Array.isArray(assignedPackages) ? assignedPackages : [],
+      active: true
+    };
+    if (!cleanPassword) delete payload.password;
+    let accessUser = existing || null;
+    if (existing?.id) {
+      await readApiResult(await fetch(API+'/users/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}));
+      accessUser = {...existing, ...payload};
+    } else {
+      accessUser = await readApiResult(await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}));
+    }
+    const ap = Array.isArray(assignedProjects) ? assignedProjects : [];
+    const apk = Array.isArray(assignedPackages) ? assignedPackages : [];
+    if (accessUser?.id && (ap.length>0 || apk.length>0 || ['прораб','технадзор','стройконтроль','мастер','субподрядчик','бригадир'].includes(role))) {
+      await readApiResult(await fetch(API+'/users/'+accessUser.id+'/assigned-projects',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({assignedProjects:ap,assignedPackages:apk})}));
+    }
+    return {accessUser, updatedExisting: !!existing};
+  };
+
+  const resolveContractPerformer = (contract={}, preferredProfile=null) => resolveContractPerformerRow({
+    contract,
+    preferredProfile,
+    staffRows: staff,
+    users,
+    masterProfiles,
+  });
+
   const openStaffProfile = async (s) => {
     if (expandedStaffId === s.id) {
       setExpandedStaffId(null);
@@ -342,10 +403,12 @@ export const createPersonnelActions = ({
     deleteInterimAct,
     deletePiecework,
     deleteStaff,
+    findUserForStaff,
     openStaffProfile,
     paySalary,
     ratemaster,
     resetStaffAccessPassword,
+    resolveContractPerformer,
     saveStaff,
     setPayrollExtra,
     setSalaryEdit,
