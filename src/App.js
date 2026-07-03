@@ -95,13 +95,7 @@ import MaterialNormsListPanel from './components/MaterialNormsListPanel';
 import EstimateExecutionPricingPanel from './components/EstimateExecutionPricingPanel';
 import PhotoAttachmentField from './components/PhotoAttachmentField';
 import MobileBottomNav from './components/MobileBottomNav';
-import {
-  DashboardActivityPanel,
-  DashboardDirectorAiPanel,
-  DashboardProductionSummaryPanel,
-  DashboardSupplyPanel,
-  MasterCabinetPage,
-} from './app/lazyComponents';
+import { MasterCabinetPage } from './app/lazyComponents';
 import { createAuthActions } from './features/auth/authActions';
 import { createAiAssistantActions } from './features/ai-assistant/aiAssistantActions';
 import { createChatActions } from './features/chat/chatActions';
@@ -124,11 +118,9 @@ import { createMaterialTransferActions } from './features/material-transfer/mate
 import { createMaterialWriteoffActions } from './features/material-writeoff/materialWriteoffActions';
 import { createWorkJournalActions } from './features/work-journal/workJournalActions';
 import SupplierCabinetPage from './features/supply/SupplierCabinetPage';
+import DashboardPage from './features/dashboard/DashboardPage';
 import AppSidebar from './components/AppSidebar';
 import AppHeaderBar from './components/AppHeaderBar';
-import DashboardTopBar from './components/DashboardTopBar';
-import DashboardStatsGrid from './components/DashboardStatsGrid';
-import DashboardRisksPanel from './components/DashboardRisksPanel';
 import AppWorkflowModals from './components/AppWorkflowModals';
 import AppSecondaryPages from './components/AppSecondaryPages';
 import AppDirectoryPages from './components/AppDirectoryPages';
@@ -3477,126 +3469,13 @@ function App() {
         <AppHeaderBar C={C} activePage={activePage} isCompactHeader={isCompactHeader} isMobile={isMobile} setSidebarVisible={setSidebarVisible} allMenuItems={allMenuItems} globalSearch={globalSearch} setGlobalSearch={setGlobalSearch} setShowSearch={setShowSearch} showSearch={showSearch} searchResults={searchResults} navigateTo={navigateTo} inp={inp} darkMode={darkMode} setDarkMode={setDarkMode} setShowQuickActions={setShowQuickActions} user={user} openSystemStatus={openSystemStatus} setShowChatPanel={setShowChatPanel} unreadMessagesCount={unreadMessagesCount} showNotifications={showNotifications} toggleNotifications={toggleNotifications} unreadNotifications={unreadNotifications} btnG={btnG} btnO={btnO} myNotifications={myNotifications} notifications={notifications} markMyNotificationsRead={markMyNotificationsRead} closeNotifications={closeNotifications} getNotifPage={getNotifPage} setShowNotifications={setShowNotifications} setNotifications={setNotifications} setUser={setUser} API={API}/>
         <div style={{flex:1,overflowY:'auto',backgroundColor:activePage==='dashboard'?'#0b1120':C.bg,padding:activePage==='dashboard'?'0':'24px'}}>
           <React.Suspense fallback={pageFallback}>
-          {activePage==='dashboard'&&(()=>{
-            if(!initialDataLoaded){
-              return (
-                <div style={{minHeight:'100%',padding:'28px',background:'radial-gradient(circle at 15% 0%,rgba(249,115,22,.15),transparent 32%),linear-gradient(135deg,#0b1120 0%,#111827 100%)',color:'#f8fafc'}}>
-                  <DashboardTopBar C={C} setSidebarVisible={setSidebarVisible} darkMode={darkMode} setDarkMode={setDarkMode} setShowChatPanel={setShowChatPanel} unreadMessagesCount={unreadMessagesCount} setShowAiAssistant={setShowAiAssistant} showAiAssistant={showAiAssistant} showNotifications={showNotifications} toggleNotifications={toggleNotifications} unreadNotifications={unreadNotifications} btnG={btnG} btnO={btnO} myNotifications={myNotifications} notifications={notifications} markMyNotificationsRead={markMyNotificationsRead} closeNotifications={closeNotifications} navigateTo={navigateTo} getNotifPage={getNotifPage} setShowNotifications={setShowNotifications} setNotifications={setNotifications} user={user} setUser={setUser} API={API} setShowQuickActions={setShowQuickActions} isMobile={isMobile}/>
-                  <div style={{marginTop:'24px',background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'24px',boxShadow:'0 18px 60px rgba(0,0,0,.25)'}}>
-                    <div style={{fontSize:'18px',fontWeight:800,marginBottom:'8px'}}>Загружаю данные объекта</div>
-                    <div style={{color:'#94a3b8',fontSize:'14px'}}>Сейчас подтягиваются сметы, задачи, склад и журналы. Нули на дашборде не показываются до окончания загрузки.</div>
-                  </div>
-                </div>
-              );
-            }
-            const _today=new Date().toISOString().split('T')[0];
-            const dashboardProjects = visibleActiveProjects(projects||[]);
-            const risks=[];
-            // Низкие остатки материалов
-            lowStock.slice(0,2).forEach(m=>risks.push({icon:'📦',text:'Мало на объекте: '+m.name,severity:'warn',page:'warehouse'}));
-            lowMainStock.slice(0,2).forEach(m=>risks.push({icon:'🏭',text:'Мало на складе: '+m.name,severity:'warn',page:'warehouse',tab:'main'}));
-            // Просроченные проекты
-            dashboardProjects.filter(p=>p.deadline&&p.deadline<_today).slice(0,2).forEach(p=>risks.push({icon:'⏰',text:'Срок истёк: '+p.name+' (до '+p.deadline+')',severity:'danger',page:'projects'}));
-            // АОСР зависшие в черновике > 7 дней
-            const _weekAgo=new Date(Date.now()-7*24*3600*1000).toISOString().split('T')[0];
-            (hiddenActs||[]).filter(a=>a.status!=='Подписан'&&a.createdAt&&String(a.createdAt).split('T')[0]<_weekAgo).slice(0,2).forEach(a=>risks.push({icon:'🔒',text:'АОСР долго без подписи: '+a.actNumber,severity:'warn',page:'projects'}));
-            // Открытые замечания ГСН
-            const openInsp=(inspectionOrders||[]).filter(o=>o.status!=='Закрыто').length;
-            if(openInsp>0) risks.push({icon:'🏛',text:'Открытых замечаний ГСН: '+openInsp,severity:'danger',page:'projects'});
-            // Изменения к смете отдельной допработой >10%
-            dashboardProjects.forEach(p=>{const budget=Number(p.budget||0);if(budget<=0) return;const sumUnx=(unexpectedWorksList||[]).filter(u=>u.projectName===p.name&&isApprovedEstimateChangeStatus(u.status)&&u.changeType!=='Исключение объёма'&&!u.includedInEstimateId).reduce((s,u)=>s+Number(u.total||0),0);const pct=sumUnx/budget*100;if(pct>10) risks.push({icon:'💸',text:p.name+': изменения к смете '+pct.toFixed(1)+'% от бюджета',severity:'danger',page:'projects'});});
-            // Траты сотрудников на возмещении
-            const pendingExp=(ownExpenses||[]).filter(e=>e.status==='Ожидает');
-            if(pendingExp.length>0){const sum=pendingExp.reduce((s,e)=>s+Number(e.amount||0),0);risks.push({icon:'💸',text:'К возмещению сотрудникам: '+Math.round(sum).toLocaleString('ru-RU')+' ₽ ('+pendingExp.length+' трат)',severity:'warn',action:'reimburse'});}
-            const openAiControl=(aiFindings||[]).filter(f=>isOpenAiStatus(f.status));
-            const criticalAiControl=openAiControl.filter(f=>f.severity==='Критично'||f.severity==='Не хватает данных');
-            if(openAiControl.length>0) risks.push({icon:'🤖',text:'ИИ-контроль: '+openAiControl.length+' замечаний, из них важных '+criticalAiControl.length,severity:criticalAiControl.length?'danger':'warn',page:'projects'});
-            const _projProgress=projectRealProgress;
-            const avgProg=dashboardProjects.length?Math.round(dashboardProjects.reduce((s,p)=>s+_projProgress(p),0)/dashboardProjects.length):0;
-            // Выполнено = работы (max сметы/журнала) + материалы + утв.доп.соглашения по всем проектам
-            const dashboardBudgetSpent = dashboardProjects.map(p=>({projectId:p.id,projectName:p.name,spent:projectBudgetSpent(p)}));
-            const dashboardBudgetSpentById = new Map(dashboardBudgetSpent.map(x=>[String(x.projectId),x.spent]));
-            const dashboardBudgetSpentByName = new Map(dashboardBudgetSpent.map(x=>[x.projectName,x.spent]));
-            const totalDone=dashboardBudgetSpent.reduce((s,x)=>s+Number(x.spent?.total||0),0);
-            const dashboardJournalExpenses = (projectPayments||[]).reduce((sum,pay)=>{const signed=projectPaymentSignedAmount(pay);return signed<0?sum+Math.abs(signed):sum;},0);
-            const dashboardDirectExpenses = (manualExpenses||[])
-              .filter(expense=>!expense.ownExpenseId&&expense.source!=='own_expense')
-              .reduce((sum,expense)=>sum+Number(expense.amount||0),0);
-            const dashboardAccountableExpenses = (accountablePayments||[]).reduce((sum,payment)=>sum+Number(payment.amount||0),0);
-            const dashboardAccountingExpenses = dashboardJournalExpenses + dashboardDirectExpenses + dashboardAccountableExpenses;
-            const dashboardProjectPreviewLimit=isMobile?3:5;
-            const openSupplyDashboard = (tab) => { setActivePage('supply'); setSupplyTab(tab); setShowSupplyForm(false); setShowForm(false); };
-            const dashboardExtraKey = 'dashboard-extra-panels';
-            const showDashboardExtra = !isMobile || !!mobileExpandedRenderLists[dashboardExtraKey];
-            const showSupplyDashboard = showDashboardExtra && ['директор','зам_директора','бухгалтер','прораб','кладовщик','снабженец'].includes(user.role);
-            const supplyPendingRequests = showDashboardExtra ? (supplyRequests||[]).filter(r=>{
-              if (user.role==='прораб') return r.status==='Новая';
-              if (isLeadership()) return r.status==='Новая'||r.status==='Подтверждена прорабом';
-              return r.status==='Утверждена'||r.status==='КП запрошены';
-            }) : [];
-            const supplyOffersToReview = showDashboardExtra ? (supplierOffers||[]).filter(o=>o.status==='Получено') : [];
-            const supplyInvoicesToPay = showDashboardExtra ? (supplierInvoices||[]).filter(i=>i.status==='На утверждении'||i.status==='Утверждён'||i.status==='Частично оплачен'||!i.status) : [];
-            const supplyInvoiceDebt = showDashboardExtra ? supplyInvoicesToPay.reduce((s,i)=>s+Math.max(0,Number(i.amount||i.totalAmount||0)-Number(i.paidAmount||0)),0) : 0;
-            const directorSkillDate = showDashboardExtra ? (normalizeDocDate(dailyReportDate)||_today) : _today;
-            const directorSkillDailyWorks = showDashboardExtra ? (workJournal||[]).filter(w=>workDocDate(w)===directorSkillDate) : [];
-            const directorSkillEstimateIssues = showDashboardExtra && isLeadership()?estimateControlIssues().length:0;
-            const directorSkillSupplyIssues = showDashboardExtra ? lowStock.length+lowMainStock.length
-              +(supplyRequests||[]).filter(r=>r.status==='Новая'||r.status==='Подтверждена прорабом').length
-              +(supplierInvoices||[]).filter(i=>i.status==='На утверждении'||!i.status).length : 0;
-            const directorSkillCards = showDashboardExtra ? [
-              {label:'Сводка директору',sub:'риски, деньги, задачи',icon:<Bot size={18}/>,color:'#fdba74',bg:'rgba(234,88,12,.14)',border:'rgba(234,88,12,.32)',metric:risks.length+' рисков',onClick:()=>showPreview(buildDirectorBriefReportContent(directorSkillDate),'Сводка директора — '+new Date(directorSkillDate+'T00:00:00').toLocaleDateString('ru-RU'))},
-              {label:'ИИ-контроль',sub:'обмеры и поручения',icon:<Bot size={18}/>,color:'#fca5a5',bg:'rgba(239,68,68,.12)',border:'rgba(239,68,68,.28)',metric:openAiControl.length+' замеч.',onClick:()=>navigateTo('projects')},
-              {label:'Ежедневный отчёт',sub:'работы по объектам',icon:<FileText size={18}/>,color:'#86efac',bg:'rgba(34,197,94,.12)',border:'rgba(34,197,94,.28)',metric:directorSkillDailyWorks.length+' работ',onClick:()=>showPreview(buildDailyObjectReportContent(directorSkillDate),'Ежедневный отчет — '+new Date(directorSkillDate+'T00:00:00').toLocaleDateString('ru-RU'))},
-              {label:'Проверка смет',sub:'нули, дубли, бюджет',icon:<Calculator size={18}/>,color:'#93c5fd',bg:'rgba(59,130,246,.12)',border:'rgba(59,130,246,.28)',metric:directorSkillEstimateIssues+' замеч.',onClick:openEstimateControlReport},
-              {label:'Склад и снабжение',sub:'остатки, заявки, счета',icon:<Package size={18}/>,color:'#c4b5fd',bg:'rgba(139,92,246,.12)',border:'rgba(139,92,246,.28)',metric:directorSkillSupplyIssues+' задач',onClick:()=>showPreview(buildSupplyControlReportContent(),'Контроль снабжения и склада')},
-            ] : [];
-            return(
-            <div style={{minHeight:'100%',padding:'28px',background:'radial-gradient(circle at 15% 0%,rgba(249,115,22,.15),transparent 32%),linear-gradient(135deg,#0b1120 0%,#111827 100%)',color:'#f8fafc'}}>
-              <DashboardTopBar C={C} setSidebarVisible={setSidebarVisible} darkMode={darkMode} setDarkMode={setDarkMode} setShowChatPanel={setShowChatPanel} unreadMessagesCount={unreadMessagesCount} setShowAiAssistant={setShowAiAssistant} showAiAssistant={showAiAssistant} showNotifications={showNotifications} toggleNotifications={toggleNotifications} unreadNotifications={unreadNotifications} btnG={btnG} btnO={btnO} myNotifications={myNotifications} notifications={notifications} markMyNotificationsRead={markMyNotificationsRead} closeNotifications={closeNotifications} navigateTo={navigateTo} getNotifPage={getNotifPage} setShowNotifications={setShowNotifications} setNotifications={setNotifications} user={user} setUser={setUser} API={API} setShowQuickActions={setShowQuickActions} isMobile={isMobile}/>
-              <DashboardStatsGrid dashboardProjects={dashboardProjects} avgProg={avgProg} totalDone={totalDone} totalExpenses={dashboardAccountingExpenses} setActivePage={setActivePage} navigateTo={navigateTo} setAccountingTab={setAccountingTab}/>
-              {showDashboardExtra&&<DashboardDirectorAiPanel isLeadership={isLeadership} directorSkillCards={directorSkillCards} dailyReportDate={dailyReportDate} setDailyReportDate={setDailyReportDate} canUseDirectorAgent={canUseDirectorAgent} directorAgentLoading={directorAgentLoading} askDirectorAgent={askDirectorAgent} directorAgentQuestion={directorAgentQuestion} setDirectorAgentQuestion={setDirectorAgentQuestion} isMobile={isMobile} directorAgentAnswer={directorAgentAnswer} directorAgentError={directorAgentError} directorAgentSteps={directorAgentSteps}/>}
-              {showDashboardExtra&&<DashboardSupplyPanel showSupplyDashboard={showSupplyDashboard} user={user} openSupplyDashboard={openSupplyDashboard} supplyPendingRequests={supplyPendingRequests} supplyOffersToReview={supplyOffersToReview} supplyInvoicesToPay={supplyInvoicesToPay} supplyInvoiceDebt={supplyInvoiceDebt}/>}
-              <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1.3fr 0.7fr',gap:'16px'}}>
-                <div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>
-                  <h2 style={{margin:'0 0 16px',fontSize:'18px',color:'#f8fafc'}}>Ключевые объекты</h2>
-                  {dashboardProjects.slice(0,dashboardProjectPreviewLimit).map(p=>{const bs=dashboardBudgetSpentById.get(String(p.id))||dashboardBudgetSpentByName.get(p.name)||{works:0,materials:0,unexpected:0,total:0};const factTotal=bs.total;const realProg=_projProgress(p);return(
-                    <div key={p.id} onClick={()=>{setExpandedProject(p.id);navigateTo('projects');}} style={{padding:'16px',borderRadius:'18px',background:'rgba(30,41,59,.62)',border:'1px solid rgba(148,163,184,.18)',marginBottom:'10px',cursor:'pointer'}}>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px'}}>
-                        <div><div style={{fontWeight:'800',fontSize:'15px',color:'#f8fafc'}}>{p.name}</div><div style={{color:'#94a3b8',fontSize:'12px',marginTop:'3px'}}>{p.client||'Без заказчика'} · {p.status}</div></div>
-                        <span style={{display:'inline-flex',borderRadius:'999px',padding:'4px 10px',fontSize:'11px',fontWeight:'700',background:'rgba(234,88,12,.14)',color:'#fdba74',border:'1px solid rgba(234,88,12,.32)',whiteSpace:'nowrap'}}>{realProg}%</span>
-                      </div>
-                      <div style={{height:'6px',background:'rgba(148,163,184,.16)',borderRadius:'999px',overflow:'hidden',margin:'10px 0'}}>
-                        <div style={{height:'100%',borderRadius:'999px',background:'linear-gradient(90deg,#f97316,#22c55e)',width:`${realProg}%`}}/>
-                      </div>
-                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px'}}>
-                        <div style={{background:'rgba(30,41,59,.6)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',padding:'10px'}}><div style={{color:'#94a3b8',fontSize:'11px'}}>Бюджет</div><div style={{fontWeight:'700',color:'#f8fafc',fontSize:'13px',marginTop:'3px'}}>{(Number(p.budget||0)/1000).toFixed(0)+' тыс'}</div></div>
-                        <div style={{background:'rgba(30,41,59,.6)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',padding:'10px'}} title={'Работы: '+Math.round(bs.works).toLocaleString('ru-RU')+' ₽\nМатериалы: '+Math.round(bs.materials).toLocaleString('ru-RU')+' ₽'+(bs.unexpected>0?'\nДоп.соглашения: '+Math.round(bs.unexpected).toLocaleString('ru-RU')+' ₽':'')}><div style={{color:'#94a3b8',fontSize:'11px'}}>Выполнено</div><div style={{fontWeight:'700',color:'#86efac',fontSize:'13px',marginTop:'3px'}}>{factTotal>0?(factTotal/1000).toFixed(0)+' тыс':'0'}</div></div>
-                        <div style={{background:'rgba(30,41,59,.6)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',padding:'10px'}}><div style={{color:'#94a3b8',fontSize:'11px'}}>Срок</div><div style={{fontWeight:'700',color:'#f8fafc',fontSize:'13px',marginTop:'3px'}}>{p.deadline||'—'}</div></div>
-                      </div>
-                      <div style={{marginTop:'10px',padding:'8px 12px',borderRadius:'12px',background:'rgba(234,88,12,.12)',border:'1px solid rgba(234,88,12,.24)',color:'#fed7aa',fontSize:'12px',fontWeight:'700'}}>{realProg<40?'⚠️ AI: низкий темп':realProg>80?'✅ AI: близко к сдаче':'🔵 AI: темп в норме'}</div>
-                    </div>
-                  );})}
-                  {isMobile&&dashboardProjects.length>dashboardProjectPreviewLimit&&(
-                    <button type="button" onClick={()=>navigateTo('projects')} style={{...btnG,width:'100%',justifyContent:'center',marginTop:'8px',borderColor:'rgba(148,163,184,.28)',background:'rgba(30,41,59,.72)',color:'#e2e8f0'}}>
-                      Показать все объекты ({dashboardProjects.length})
-                    </button>
-                  )}
-                </div>
-                <div style={{display:'flex',flexDirection:'column',gap:'16px'}}>
-                  <DashboardRisksPanel risks={risks} setShowReimburseModal={setShowReimburseModal} setActivePage={setActivePage} setWarehouseTab={setWarehouseTab}/>
-                  {!showDashboardExtra&&isMobile&&(
-                    <button type="button" onClick={()=>setMobileExpandedRenderLists(prev=>({...prev,[dashboardExtraKey]:true}))} style={{...btnO,width:'100%',justifyContent:'center',padding:'12px 14px'}}>
-                      Загрузить рабочие панели
-                    </button>
-                  )}
-                  {showDashboardExtra&&<DashboardProductionSummaryPanel workJournal={workJournal} workDocDate={workDocDate} normalizeDocDate={normalizeDocDate} dailyReportDate={dailyReportDate} setDailyReportDate={setDailyReportDate} user={user} showPreview={showPreview} buildDailyObjectReportContent={buildDailyObjectReportContent} setActivePage={setActivePage} setAccountingTab={setAccountingTab}/>}
-                  {showDashboardExtra&&<DashboardActivityPanel activityLog={activityLog}/>}
-                </div>
-              </div>
-              <div style={{height:'100px'}}/>
-            </div>
-            );
-          })()}
+          {activePage==='dashboard'&&(
+            <DashboardPage
+              ui={{ API, C, btnG, btnO, darkMode, isMobile, showAiAssistant, showNotifications, unreadMessagesCount, unreadNotifications }}
+              data={{ accountablePayments, activityLog, aiFindings, canUseDirectorAgent, dailyReportDate, directorAgentAnswer, directorAgentError, directorAgentLoading, directorAgentQuestion, directorAgentSteps, estimateControlIssues, hiddenActs, initialDataLoaded, inspectionOrders, lowMainStock, lowStock, manualExpenses, mobileExpandedRenderLists, myNotifications, notifications, ownExpenses, projectPayments, projects, supplierInvoices, supplierOffers, supplyRequests, unexpectedWorksList, user, workJournal }}
+              actions={{ askDirectorAgent, buildDailyObjectReportContent, buildDirectorBriefReportContent, buildSupplyControlReportContent, closeNotifications, getNotifPage, isApprovedEstimateChangeStatus, isLeadership, markMyNotificationsRead, navigateTo, normalizeDocDate, openEstimateControlReport, projectBudgetSpent, projectPaymentSignedAmount, projectRealProgress, setAccountingTab, setActivePage, setDailyReportDate, setDirectorAgentQuestion, setDarkMode, setExpandedProject, setMobileExpandedRenderLists, setNotifications, setShowAiAssistant, setShowChatPanel, setShowForm, setShowNotifications, setShowQuickActions, setShowReimburseModal, setShowSupplyForm, setSidebarVisible, setSupplyTab, setUser, setWarehouseTab, showPreview, toggleNotifications, visibleActiveProjects, workDocDate }}
+            />
+          )}
           {activePage==='projects'&&canAccess('projects')&&(<div>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px',flexWrap:'wrap',gap:'10px'}}>
               <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
