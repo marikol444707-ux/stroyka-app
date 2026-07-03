@@ -171,6 +171,7 @@ if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
       "/projects"
       "/users"
       "/estimates"
+      "/estimates?summary=true"
       "/materials"
       "/supply-requests"
       "/supply-history"

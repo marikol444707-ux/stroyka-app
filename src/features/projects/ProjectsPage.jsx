@@ -21,7 +21,7 @@ export default function ProjectsPage({ ctx }) {
     estimateReconciliationsForProject, estimateSearch, estimateWorkNormRequirementRows, estimatesList, expByCategory, expandedProject, expandedRoom, fileSrc,
     fmtMeasure, formatSignedRub, generateAiFindingsForProject, getActStatusForJournal, getRoomNetWall, hiddenActs, history, includableEstimateChanges,
     includeChangesInNewEstimate, inp, inspectionOrders, isApprovedEstimateChangeStatus, isEstimateMaterialItem, isEstimatePricelist, isEstimateWorkItem, isFinanceRole,
-    isLeadership, isMobile, isProrab, listSearch, loadAll, loadChecklistItems, loadProjectChat, loadWorkJournalPage,
+    isCableName, isLeadership, isMobile, isProrab, listSearch, loadAll, loadChecklistItems, loadProjectChat, loadWorkJournalPage,
     manualExpenses, masterProfiles, matchSearch, materialControlStatus, materialControlSummaryForProject, materialInspections, materialNameKey, materialNormControlSummaryForProject,
     materialReconciliationRows, materialTransfers, materials, measurementDraftLoadingId, measurementRoomDrafts, mobileExpandedRenderLists, navigateTo, newAccountable,
     newBrigadeContract, newBrigadeItem, newChecklist, newChecklistItem, newDoor, newInspOrder, newLetter, newMeasurementDoc,
@@ -49,6 +49,47 @@ export default function ProjectsPage({ ctx }) {
     user, users, visibleActiveProjects, visibleEstimatesForCurrentUser, visibleProjects, warehouseMain, warrantyDefects, warrantyEditForm,
     weatherLog, workExecutionTotal, workJournal, workJournalPage,
   } = ctx;
+
+  const journalPackage = (row = {}) => String(row.workPackage || row.work_package || '').trim() || 'Основная';
+  const journalMaterialKey = (name, unit, workPackage) => [
+    materialNameKey ? materialNameKey(name || '') : String(name || '').toLowerCase().trim(),
+    _normalizeUnit ? _normalizeUnit(unit || '') : String(unit || '').toLowerCase().trim(),
+    String(workPackage || 'Основная').trim() || 'Основная',
+  ].join('|');
+  const journalNamePackageKey = (name, workPackage) => [
+    materialNameKey ? materialNameKey(name || '') : String(name || '').toLowerCase().trim(),
+    String(workPackage || 'Основная').trim() || 'Основная',
+  ].join('|');
+  const projectJournalDiagnostics = (projectName) => {
+    const projectStock = (materials || []).filter(m => m.project === projectName && toNum(m.quantity) > 0);
+    const inspections = (materialInspections || []).filter(mi => mi.projectName === projectName);
+    const inspectionKeys = new Set(inspections.map(mi => journalMaterialKey(mi.materialName, mi.unit, journalPackage(mi))));
+    const stockWithoutInspection = projectStock.filter(m => !inspectionKeys.has(journalMaterialKey(m.name, m.unit, journalPackage(m))));
+    const cableStock = projectStock.filter(m => isCableName ? isCableName(m.name) : false);
+    const cables = (cableJournal || []).filter(c => c.projectName === projectName);
+    const cableKeys = new Set(cables.map(c => journalNamePackageKey(c.cableBrand, journalPackage(c))));
+    const cableWithoutJournal = cableStock.filter(m => !cableKeys.has(journalNamePackageKey(m.name, journalPackage(m))));
+    const reconciliationRows = (materialReconciliationRows(projectName) || []);
+    const smetaRows = reconciliationRows.filter(r => (r.supplied || 0) > 0 || (r.stock || 0) > 0 || (r.received || 0) > 0);
+    const smetaInPlanRows = smetaRows.filter(r => (r.estimatePlanQty || 0) > 0);
+    const smetaOverRows = smetaRows.filter(r => (r.controlPlanQty || 0) > 0 && (r.over || 0) > 0);
+    const smetaOutsideRows = smetaRows.filter(r => r.isOutsideEstimate);
+    const aliasNeededRows = smetaOutsideRows.filter(r => !(r.aliasIds || []).length);
+    return {
+      projectStock,
+      inspections,
+      stockWithoutInspection,
+      cableStock,
+      cables,
+      cableWithoutJournal,
+      smetaRows,
+      smetaInPlanRows,
+      smetaOverRows,
+      smetaOutsideRows,
+      aliasNeededRows,
+    };
+  };
+  const [journalDiagnosticMode, setJournalDiagnosticMode] = React.useState('all');
 
   return (
 <div>
@@ -1211,6 +1252,17 @@ export default function ProjectsPage({ ctx }) {
                           }} style={btnO}><Plus size={14}/>Передать материал</button>)}
                         </div>
                       </div>
+                      {(()=>{
+                        const diag=projectJournalDiagnostics(p.name);
+                        if(!diag.smetaOutsideRows.length&&!diag.smetaOverRows.length) return null;
+                        return(<div style={{...card,padding:'12px',marginBottom:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
+                          <b style={{color:C.warning,fontSize:'13px'}}>Сметная сверка требует внимания</b>
+                          <p style={{color:C.textSec,fontSize:'11px',margin:'4px 0 0'}}>Вне сметы: {diag.smetaOutsideRows.length} · нужен алиас/решение: {diag.aliasNeededRows.length} · сверх плана: {diag.smetaOverRows.length}</p>
+                          <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'8px'}}>
+                            {diag.aliasNeededRows.slice(0,6).map((r,idx)=><span key={(r.key||r.name||'a')+'-'+idx} style={badge(C.warning,C.warningLight,C.warningBorder)}>{r.name}</span>)}
+                          </div>
+                        </div>);
+                      })()}
                       <ProjectMaterialsControlPanel
                         projectName={p.name}
                         rows={materialReconciliationRows(p.name)}
@@ -1416,18 +1468,32 @@ export default function ProjectsPage({ ctx }) {
                       <p style={{color:C.textMuted,fontSize:'12px',margin:'4px 0 0'}}>Клик по карточке откроет соответствующий журнал.</p>
                     </div>
                     {(()=>{
+                      const diag=projectJournalDiagnostics(p.name);
                       const cards=[
                         {tab:'Производство работ',icon:'📖',label:'Производство работ',hint:'Журнал по форме КС-6а',count:workJournal.filter(jw=>jw.project===p.name).length},
                         {tab:'АОСР',icon:'🔒',label:'АОСР',hint:'Печатные формы из сметы и журнала работ',count:hiddenActs.filter(a=>a.projectName===p.name).length},
-                        {tab:'Входной контроль',icon:'📦',label:'Входной контроль материалов',hint:'СП 48.13330.2019',count:materialInspections.filter(mi=>mi.projectName===p.name).length},
-                        {tab:'Кабельная продукция',icon:'⚡',label:'Кабельная продукция',hint:'СП 76.13330 · ПУЭ',count:cableJournal.filter(c=>c.projectName===p.name).length},
+                        {tab:'Входной контроль',icon:'📦',label:'Входной контроль материалов',hint:'СП 48.13330.2019',count:diag.inspections.length,warningCount:diag.stockWithoutInspection.length,details:[
+                          {label:'склад',value:diag.projectStock.length,color:C.textSec},
+                          {label:'контроль',value:diag.inspections.length,color:C.success},
+                          {label:'не связано',value:diag.stockWithoutInspection.length,color:diag.stockWithoutInspection.length?C.warning:C.textMuted},
+                        ]},
+                        {tab:'Кабельная продукция',icon:'⚡',label:'Кабельная продукция',hint:'СП 76.13330 · ПУЭ',count:diag.cables.length,warningCount:diag.cableWithoutJournal.length,details:[
+                          {label:'на складе',value:diag.cableStock.length,color:C.textSec},
+                          {label:'в журнале',value:diag.cables.length,color:C.success},
+                          {label:'не связано',value:diag.cableWithoutJournal.length,color:diag.cableWithoutJournal.length?C.warning:C.textMuted},
+                        ]},
+                        {tab:'Материалы',icon:'🔎',label:'Сметная сверка',hint:'По смете · сверх · вне сметы · алиасы',count:diag.smetaRows.length,warningCount:diag.smetaOutsideRows.length+diag.aliasNeededRows.length,details:[
+                          {label:'по смете',value:diag.smetaInPlanRows.length,color:C.success},
+                          {label:'сверх',value:diag.smetaOverRows.length,color:diag.smetaOverRows.length?C.warning:C.textMuted},
+                          {label:'вне/алиас',value:diag.smetaOutsideRows.length+'/'+diag.aliasNeededRows.length,color:diag.smetaOutsideRows.length?C.warning:C.textMuted},
+                        ]},
                         {tab:'Журнал ТБ',icon:'🛡️',label:'Техника безопасности',hint:'ГОСТ 12.0.004-2015',count:(tbJournal||[]).filter(e=>e.project===p.name).length},
                         {tab:'Погода',icon:'🌤',label:'Погода',hint:'Метеоусловия по дням',count:(weatherLog||[]).filter(w=>w.projectName===p.name).length},
                         {tab:'Предписания',icon:'⚠️',label:'Предписания',hint:'От технадзора и стройконтроля',count:(prescriptionsList||[]).filter(pr=>pr.projectName===p.name).length},
                         {tab:'Чат',icon:'💬',label:'Чат проекта',hint:'Переписка по объекту',count:0},
                       ];
                       return(<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:'12px'}}>
-                        {cards.map(c=>(<div key={c.tab} onClick={()=>setActiveProjectTab(c.tab)} style={{...card,padding:'16px',cursor:'pointer',border:'1.5px solid '+C.border}}><div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'6px'}}><span style={{fontSize:'24px'}}>{c.icon}</span><b style={{color:C.text,fontSize:'13px'}}>{c.label}</b></div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 6px'}}>{c.hint}</p><b style={{color:C.accent,fontSize:'13px'}}>{c.count+' '+(c.count===1?'запись':c.count>=2&&c.count<=4?'записи':'записей')}</b></div>))}
+                        {cards.map(c=>(<div key={c.tab} onClick={()=>setActiveProjectTab(c.tab)} style={{...card,padding:'16px',cursor:'pointer',border:'1.5px solid '+(c.warningCount?C.warningBorder:C.border),backgroundColor:c.warningCount?C.warningLight:card.backgroundColor}}><div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'6px'}}><span style={{fontSize:'24px'}}>{c.icon}</span><b style={{color:C.text,fontSize:'13px'}}>{c.label}</b></div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 6px'}}>{c.hint}</p><b style={{color:c.warningCount?C.warning:C.accent,fontSize:'13px'}}>{c.count+' '+(c.count===1?'запись':c.count>=2&&c.count<=4?'записи':'записей')}</b>{c.details&&<div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:'6px',marginTop:'10px'}}>{c.details.map(d=><div key={d.label} style={{minWidth:0}}><p style={{color:C.textMuted,fontSize:'10px',margin:'0 0 2px',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{d.label}</p><b style={{color:d.color,fontSize:'12px'}}>{d.value}</b></div>)}</div>}{c.warningCount>0&&<p style={{color:C.warning,fontSize:'11px',margin:'8px 0 0',fontWeight:'700'}}>Есть несвязанные позиции</p>}</div>))}
                       </div>);
                     })()}
                   </div>)}
@@ -1660,14 +1726,54 @@ export default function ProjectsPage({ ctx }) {
                       <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>📦 Журнал входного контроля материалов</b>
                       <span style={{fontSize:'11px',color:C.textMuted}}>СП 48.13330.2019 · автозаполняется из накладных</span>
                     </div>
-                    {(()=>{
-                      const here=materialInspections.filter(mi=>mi.projectName===p.name);
-	                      if(here.length===0) return(<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}><div style={{fontSize:'40px',marginBottom:'10px'}}>📦</div><p style={{margin:'0 0 8px',fontWeight:'600'}}>Записей пока нет</p><p style={{fontSize:'12px',margin:0,lineHeight:1.6}}>Записи создаются автоматически при приёмке поставки или оформлении приходной накладной на склад.<br/>Затем здесь прораб/кладовщик дополняет паспорт, сертификат и отметку об осмотре.</p></div>);
-                      const cntInsp=here.filter(r=>r.inspected).length;
-                      const cntPending=here.length-cntInsp;
-                      const cntOk=here.filter(r=>r.visualInspectionResult==='Соответствует').length;
-                      return(<div>
-                        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:'10px',marginBottom:'14px'}}>
+	                    {(()=>{
+	                      const diag=projectJournalDiagnostics(p.name);
+	                      const here=materialInspections.filter(mi=>mi.projectName===p.name);
+	                      const inspectionModeControls=(
+	                        <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginBottom:'10px'}}>
+	                          <button onClick={()=>setJournalDiagnosticMode('all')} style={{...btnG,fontSize:'12px',padding:'6px 10px',backgroundColor:journalDiagnosticMode==='all'?C.accent:C.bg,color:journalDiagnosticMode==='all'?'white':C.text}}>Все записи: {here.length}</button>
+	                          <button onClick={()=>setJournalDiagnosticMode('unlinked')} style={{...btnG,fontSize:'12px',padding:'6px 10px',backgroundColor:journalDiagnosticMode==='unlinked'?C.warning:C.bg,color:journalDiagnosticMode==='unlinked'?'white':C.text}}>Не связано: {diag.stockWithoutInspection.length}</button>
+	                        </div>
+	                      );
+	                      const unlinkedInspectionNotice=diag.stockWithoutInspection.length>0&&(
+	                        <div style={{...card,padding:'12px',marginBottom:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
+	                          <b style={{color:C.warning,fontSize:'13px'}}>Не связан входной контроль: {diag.stockWithoutInspection.length}</b>
+	                          <p style={{color:C.textSec,fontSize:'11px',margin:'4px 0 0'}}>Материал есть на складе объекта, но связанная запись контроля не найдена в загруженных данных.</p>
+                          <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'8px'}}>
+                            {diag.stockWithoutInspection.slice(0,6).map((m,idx)=><span key={(m.id||m.name||'m')+'-'+idx} style={badge(C.warning,C.warningLight,C.warningBorder)}>{m.name} · {toNum(m.quantity)} {m.unit||''}</span>)}
+	                          </div>
+	                        </div>
+	                      );
+	                      if(journalDiagnosticMode==='unlinked') return(<div>
+	                        {inspectionModeControls}
+	                        {diag.stockWithoutInspection.length===0?<div style={{...card,padding:'18px',color:C.success,backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,fontWeight:'700'}}>Все складские материалы объекта связаны с входным контролем.</div>:(
+	                          <div style={{...card,padding:0,overflow:'auto'}}>
+	                            <table style={tbl}><thead><tr>
+	                              <th style={tblH}>Материал на складе</th>
+	                              <th style={tblH}>Кол-во</th>
+	                              <th style={tblH}>Ед.</th>
+	                              <th style={tblH}>Пакет работ</th>
+	                              <th style={tblH}>Что сделать</th>
+	                            </tr></thead><tbody>
+	                              {diag.stockWithoutInspection.map((m,idx)=>(<tr key={(m.id||m.name||'stock')+'-'+idx}>
+	                                <td style={{...tblC,maxWidth:'320px',whiteSpace:'normal'}}>{m.name}</td>
+	                                <td style={tblC}>{toNum(m.quantity)}</td>
+	                                <td style={tblC}>{m.unit||'—'}</td>
+	                                <td style={tblC}>{journalPackage(m)}</td>
+	                                <td style={{...tblC,color:C.textSec,maxWidth:'260px',whiteSpace:'normal'}}>Проверить накладную, алиас или автоматическую связь журнала.</td>
+	                              </tr>))}
+	                            </tbody></table>
+	                          </div>
+	                        )}
+	                      </div>);
+		                      if(here.length===0) return(<div>{inspectionModeControls}{unlinkedInspectionNotice}<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}><div style={{fontSize:'40px',marginBottom:'10px'}}>📦</div><p style={{margin:'0 0 8px',fontWeight:'600'}}>Записей пока нет</p><p style={{fontSize:'12px',margin:0,lineHeight:1.6}}>Записи создаются автоматически при приёмке поставки или оформлении приходной накладной на склад.<br/>Затем здесь прораб/кладовщик дополняет паспорт, сертификат и отметку об осмотре.</p></div></div>);
+	                      const cntInsp=here.filter(r=>r.inspected).length;
+	                      const cntPending=here.length-cntInsp;
+	                      const cntOk=here.filter(r=>r.visualInspectionResult==='Соответствует').length;
+	                      return(<div>
+	                        {inspectionModeControls}
+	                        {unlinkedInspectionNotice}
+	                        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:'10px',marginBottom:'14px'}}>
                           <div style={{...card,padding:'12px',backgroundColor:C.bg}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Записей</p><b style={{color:C.text,fontSize:'16px'}}>{here.length}</b></div>
                           <div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>Ждут проверки</p><b style={{color:C.warning,fontSize:'16px'}}>{cntPending}</b></div>
                           <div style={{...card,padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Проверено</p><b style={{color:C.success,fontSize:'16px'}}>{cntInsp}</b></div>
@@ -1707,15 +1813,57 @@ export default function ProjectsPage({ ctx }) {
                       <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>⚡ Журнал кабельной продукции</b>
                       <span style={{fontSize:'11px',color:C.textMuted}}>Электрика · СКС · пожарка · слаботочка</span>
                     </div>
-                    {(()=>{
-                      const here=cableJournal.filter(cb=>cb.projectName===p.name);
-                      if(here.length===0) return(<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}><div style={{fontSize:'40px',marginBottom:'10px'}}>⚡</div><p style={{margin:'0 0 8px',fontWeight:'600'}}>Записей пока нет</p><p style={{fontSize:'12px',margin:0,lineHeight:1.6}}>Записи создаются автоматически при приходе кабеля (по поставке или накладной).<br/>Система распознаёт силовые ВВГ/NYM/СИП, СКС UTP/FTP/SFTP, слаботочку КСВВ/КСПВ и пожарные КПС/КПСЭ/FRLS.</p></div>);
-                      const cntInstalled=here.filter(cb=>cb.installedAt).length;
-                      const cntPending=here.length-cntInstalled;
-                      const totalLength=here.reduce((s,cb)=>s+Number(cb.lengthReceived||0),0);
-                      const typeCounts=here.reduce((acc,cb)=>{const t=cableTypeOf(cb);acc[t]=(acc[t]||0)+1;return acc;},{});
-                      return(<div>
-                        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:'10px',marginBottom:'14px'}}>
+	                    {(()=>{
+	                      const diag=projectJournalDiagnostics(p.name);
+	                      const here=cableJournal.filter(cb=>cb.projectName===p.name);
+	                      const cableModeControls=(
+	                        <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginBottom:'10px'}}>
+	                          <button onClick={()=>setJournalDiagnosticMode('all')} style={{...btnG,fontSize:'12px',padding:'6px 10px',backgroundColor:journalDiagnosticMode==='all'?C.accent:C.bg,color:journalDiagnosticMode==='all'?'white':C.text}}>Все записи: {here.length}</button>
+	                          <button onClick={()=>setJournalDiagnosticMode('unlinked')} style={{...btnG,fontSize:'12px',padding:'6px 10px',backgroundColor:journalDiagnosticMode==='unlinked'?C.warning:C.bg,color:journalDiagnosticMode==='unlinked'?'white':C.text}}>Не связано: {diag.cableWithoutJournal.length}</button>
+	                        </div>
+	                      );
+	                      const unlinkedCableNotice=diag.cableWithoutJournal.length>0&&(
+	                        <div style={{...card,padding:'12px',marginBottom:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
+	                          <b style={{color:C.warning,fontSize:'13px'}}>Кабель на складе без журнальной записи: {diag.cableWithoutJournal.length}</b>
+	                          <p style={{color:C.textSec,fontSize:'11px',margin:'4px 0 0'}}>Система распознала кабель в остатках объекта, но не видит соответствующую строку в журнале кабельной продукции.</p>
+                          <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'8px'}}>
+                            {diag.cableWithoutJournal.slice(0,6).map((m,idx)=><span key={(m.id||m.name||'c')+'-'+idx} style={badge(C.warning,C.warningLight,C.warningBorder)}>{m.name} · {toNum(m.quantity)} {m.unit||''}</span>)}
+	                          </div>
+	                        </div>
+	                      );
+	                      if(journalDiagnosticMode==='unlinked') return(<div>
+	                        {cableModeControls}
+	                        {diag.cableWithoutJournal.length===0?<div style={{...card,padding:'18px',color:C.success,backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,fontWeight:'700'}}>Весь кабель на складе связан с журналом кабельной продукции.</div>:(
+	                          <div style={{...card,padding:0,overflow:'auto'}}>
+	                            <table style={tbl}><thead><tr>
+	                              <th style={tblH}>Кабель на складе</th>
+	                              <th style={tblH}>Тип</th>
+	                              <th style={tblH}>Кол-во</th>
+	                              <th style={tblH}>Ед.</th>
+	                              <th style={tblH}>Пакет работ</th>
+	                              <th style={tblH}>Что сделать</th>
+	                            </tr></thead><tbody>
+	                              {diag.cableWithoutJournal.map((m,idx)=>(<tr key={(m.id||m.name||'cable')+'-'+idx}>
+	                                <td style={{...tblC,maxWidth:'320px',whiteSpace:'normal'}}>{m.name}</td>
+	                                <td style={tblC}>{cableTypeOf({cableBrand:m.name})}</td>
+	                                <td style={tblC}>{toNum(m.quantity)}</td>
+	                                <td style={tblC}>{m.unit||'—'}</td>
+	                                <td style={tblC}>{journalPackage(m)}</td>
+	                                <td style={{...tblC,color:C.textSec,maxWidth:'260px',whiteSpace:'normal'}}>Проверить распознавание марки, пакет работ или backfill кабельного журнала.</td>
+	                              </tr>))}
+	                            </tbody></table>
+	                          </div>
+	                        )}
+	                      </div>);
+	                      if(here.length===0) return(<div>{cableModeControls}{unlinkedCableNotice}<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}><div style={{fontSize:'40px',marginBottom:'10px'}}>⚡</div><p style={{margin:'0 0 8px',fontWeight:'600'}}>Записей пока нет</p><p style={{fontSize:'12px',margin:0,lineHeight:1.6}}>Записи создаются автоматически при приходе кабеля (по поставке или накладной).<br/>Система распознаёт силовые ВВГ/NYM/СИП, СКС UTP/FTP/SFTP, слаботочку КСВВ/КСПВ и пожарные КПС/КПСЭ/FRLS.</p></div></div>);
+	                      const cntInstalled=here.filter(cb=>cb.installedAt).length;
+	                      const cntPending=here.length-cntInstalled;
+	                      const totalLength=here.reduce((s,cb)=>s+Number(cb.lengthReceived||0),0);
+	                      const typeCounts=here.reduce((acc,cb)=>{const t=cableTypeOf(cb);acc[t]=(acc[t]||0)+1;return acc;},{});
+	                      return(<div>
+	                        {cableModeControls}
+	                        {unlinkedCableNotice}
+	                        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:'10px',marginBottom:'14px'}}>
                           <div style={{...card,padding:'12px',backgroundColor:C.bg}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Записей</p><b style={{color:C.text,fontSize:'16px'}}>{here.length}</b></div>
                           <div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>Ждут монтажа</p><b style={{color:C.warning,fontSize:'16px'}}>{cntPending}</b></div>
                           <div style={{...card,padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Проложено</p><b style={{color:C.success,fontSize:'16px'}}>{cntInstalled}</b></div>

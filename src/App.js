@@ -280,7 +280,7 @@ import {
   workDocDate,
 } from './utils/documentFormatUtils';
 import { exportToExcelFile } from './utils/exportUtils';
-import { cableTypeOf } from './utils/cableUtils';
+import { cableTypeOf, isCableName } from './utils/cableUtils';
 import {
   contractRequisitesWarning,
   normalizePersonKey,
@@ -2885,7 +2885,7 @@ function App() {
     activeProjectTab, activeTabGroup, addTask, aiFindingsForProject, aiSeverityMeta, aiTasksForProject, appendPhotos, approveUnexpectedWork,
     badge, brigadeCoef, brigadeContractItems, brigadeContracts, brigadePayments, btnB, btnG, btnGr,
     btnO, btnR, buildCableJournalContent, buildHiddenActContent, buildJPRContent, buildKS3Content, buildM15Content, buildMaterialInspectionContent,
-    buildMaterialRequirementContent, buildPassportContent, buildSupplementaryAgreementContent, buildTBContent, cableJournal, cableTypeOf, calcDoorArea, calcDoorReveals,
+    buildMaterialRequirementContent, buildPassportContent, buildSupplementaryAgreementContent, buildTBContent, cableJournal, cableTypeOf, isCableName, calcDoorArea, calcDoorReveals,
     calcWindowArea, calcWindowReveals, card, checklistItems, checklists, companyName, companyRequisites, convertUnits,
     createBatchSupplyRequestFromMaterialControl, createProjectMeasurementActions, customRoomTypes, deleteBrigadePayment, deleteDoor, deleteRoom, deleteStage, deleteWindow,
     denormalizeMeasure, directorMapActionTarget, directorMapContractForProject, draftRoomDoors, draftRoomWindows, editProject, editingDoor, editingItem,

@@ -281,10 +281,10 @@ def main():
             data={"archived": True},
         )
 
-        _, director_estimates = api_json("GET", "/estimates-summary", token=director_token, expected=200)
+        _, director_estimates = api_json("GET", "/estimates?summary=true", token=director_token, expected=200)
         director_estimate_rows = rows(director_estimates)
         if not any(row.get("id") == estimate_id for row in director_estimate_rows if isinstance(row, dict)):
-            raise RuntimeError("director /estimates-summary does not include active smoke estimate")
+            raise RuntimeError("director /estimates?summary=true does not include active smoke estimate")
 
         _, created = api_json(
             "POST",
@@ -317,10 +317,10 @@ def main():
         if PROJECT_NAME not in {row.get("name") for row in rows(worker_projects) if isinstance(row, dict)}:
             raise RuntimeError("worker /projects does not include assigned project")
 
-        _, worker_estimates = api_json("GET", "/estimates-summary", token=worker_token, expected=200)
+        _, worker_estimates = api_json("GET", "/estimates?summary=true", token=worker_token, expected=200)
         estimate_rows = rows(worker_estimates)
         if not any(row.get("id") == estimate_id for row in estimate_rows if isinstance(row, dict)):
-            raise RuntimeError("worker /estimates-summary does not include assigned estimate")
+            raise RuntimeError("worker /estimates?summary=true does not include assigned estimate")
 
         _, worker_full_estimates = api_json("GET", "/estimates", token=worker_token, expected=200)
         full_estimate = next((row for row in rows(worker_full_estimates) if isinstance(row, dict) and row.get("id") == estimate_id), None)

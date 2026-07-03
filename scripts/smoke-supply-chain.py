@@ -6,6 +6,7 @@ import re
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -471,6 +472,24 @@ def assert_visible_chain(token, candidate, delivery_id, invoice_id):
     if not matched_history:
         raise RuntimeError("История снабжения не содержит принятую поставку")
 
+    def matching_candidate_inspections(rows):
+        return [
+            r for r in rows
+            if norm_text(r.get("materialName")) == norm_text(candidate["materialName"])
+            and (r.get("projectName") or "") == candidate["projectName"]
+            and (r.get("workPackage") or "Основная") == candidate["workPackage"]
+            and as_float(r.get("quantity")) >= candidate["quantity"] - 0.000001
+        ]
+
+    _, inspections = api_json("GET", f"/material-inspection?project_name={urllib.parse.quote(candidate['projectName'])}", token=token, expected=200)
+    matched_inspections = matching_candidate_inspections(inspections)
+    if not matched_inspections:
+        raise RuntimeError("Журнал входного контроля не подтянул принятую поставку")
+    _, inspections_again = api_json("GET", f"/material-inspection?project_name={urllib.parse.quote(candidate['projectName'])}", token=token, expected=200)
+    matched_again = matching_candidate_inspections(inspections_again)
+    if len(matched_again) != len(matched_inspections):
+        raise RuntimeError("Повторное открытие входного контроля создало дубль записи")
+
     manual_material_name = f"CODEX QA прямой заказ директора {delivery_id}"
     _, manual_invoice = api_json(
         "POST",
@@ -520,7 +539,69 @@ def assert_visible_chain(token, candidate, delivery_id, invoice_id):
         for r in materials_after_manual
     ):
         raise RuntimeError("Прямой материал директора не попал на склад объекта")
+
+    _, inspections_after_manual = api_json("GET", f"/material-inspection?project_name={urllib.parse.quote(candidate['projectName'])}", token=token, expected=200)
+    if not any(
+        int(r.get("invoiceId") or 0) == int(manual_invoice_id)
+        and norm_text(r.get("materialName")) == norm_text(manual_material_name)
+        for r in inspections_after_manual
+    ):
+        raise RuntimeError("Журнал входного контроля не подтянул ручную накладную объекта")
     return manual_invoice_id, manual_material_name
+
+
+def assert_cable_journal_chain(token, candidate, delivery_id):
+    cable_name = f"Кабель ВВГнг-LS 3х2.5 CODEX QA {delivery_id}"
+    cable_qty = max(1.0, candidate["quantity"])
+    _, cable_invoice = api_json(
+        "POST",
+        "/warehouse-invoices",
+        token=token,
+        data={
+            "number": f"CODEX-CABLE-{delivery_id}",
+            "date": dt.date.today().isoformat(),
+            "supplierName": "CODEX QA",
+            "acceptedBy": "CODEX QA",
+            "location": candidate["projectName"],
+            "project": candidate["projectName"],
+            "sourceType": "manual_project_invoice",
+            "items": [{
+                "name": cable_name,
+                "quantity": cable_qty,
+                "unit": "м",
+                "price": TEST_PRICE,
+                "workPackage": candidate["workPackage"],
+            }],
+            "totalBase": round(TEST_PRICE * cable_qty, 2),
+            "totalVat": 0,
+            "totalWithVat": round(TEST_PRICE * cable_qty, 2),
+        },
+        expected=200,
+    )
+    cable_invoice_id = cable_invoice.get("id")
+    if not cable_invoice_id:
+        raise RuntimeError("Кабельная накладная не вернула id")
+
+    def matching_cables(rows):
+        return [
+            r for r in rows
+            if int(r.get("invoiceId") or 0) == int(cable_invoice_id)
+            and norm_text(r.get("cableBrand")) == norm_text(cable_name)
+        ]
+
+    _, cables = api_json("GET", f"/cable-journal?project_name={urllib.parse.quote(candidate['projectName'])}", token=token, expected=200)
+    matched_rows = matching_cables(cables)
+    matched = matched_rows[0] if matched_rows else None
+    if not matched:
+        raise RuntimeError("Журнал кабельной продукции не подтянул кабельную накладную")
+    _, cables_again = api_json("GET", f"/cable-journal?project_name={urllib.parse.quote(candidate['projectName'])}", token=token, expected=200)
+    if len(matching_cables(cables_again)) != len(matched_rows):
+        raise RuntimeError("Повторное открытие кабельного журнала создало дубль записи")
+    if as_float(matched.get("lengthReceived")) < cable_qty - 0.000001:
+        raise RuntimeError("Журнал кабельной продукции показал неверную длину прихода")
+    if "силовой" not in norm_text(matched.get("cableType") or ""):
+        raise RuntimeError("Кабель ВВГнг-LS не классифицирован как силовой")
+    return cable_invoice_id, cable_name, cable_qty
 
 
 def assert_foreman_invoice_chain(admin_token, candidate, delivery_id):
@@ -702,20 +783,22 @@ def cleanup(created):
         cur = conn.cursor()
         project_name = created.get("projectName")
         package = created.get("workPackage")
-        unit = created.get("unit")
-        qty_by_name = {}
-        for material_name, qty in [
-            (created.get("materialName"), created.get("quantity")),
-            (created.get("manualMaterialName"), created.get("manualQuantity")),
-            (created.get("foremanManualMaterialName"), created.get("foremanManualQuantity")),
-            (created.get("aliasCanonicalMaterialName"), created.get("aliasQuantity")),
+        default_unit = created.get("unit")
+        qty_by_material = {}
+        for material_name, qty, material_unit in [
+            (created.get("materialName"), created.get("quantity"), default_unit),
+            (created.get("manualMaterialName"), created.get("manualQuantity"), default_unit),
+            (created.get("foremanManualMaterialName"), created.get("foremanManualQuantity"), default_unit),
+            (created.get("aliasCanonicalMaterialName"), created.get("aliasQuantity"), default_unit),
+            (created.get("cableMaterialName"), created.get("cableQuantity"), created.get("cableUnit") or "м"),
         ]:
             if material_name:
-                qty_by_name[material_name] = qty_by_name.get(material_name, 0) + as_float(qty)
-        material_names = list(qty_by_name.keys())
+                key = (material_name, material_unit or default_unit or "")
+                qty_by_material[key] = qty_by_material.get(key, 0) + as_float(qty)
+        material_names = [name for name, _unit in qty_by_material.keys()]
 
-        for material_name in [n for n in material_names if n]:
-            qty = qty_by_name.get(material_name, 0)
+        for material_name, material_unit in [k for k in qty_by_material.keys() if k[0]]:
+            qty = qty_by_material.get((material_name, material_unit), 0)
             if material_name and project_name and qty > 0:
                 remaining = qty
                 cur.execute(
@@ -728,7 +811,7 @@ def cleanup(created):
                        AND LOWER(COALESCE(unit,''))=LOWER(%s)
                      ORDER BY id DESC
                     """,
-                    (material_name, project_name, package or "", unit or ""),
+                    (material_name, project_name, package or "", material_unit or ""),
                 )
                 for row_id, row_qty in cur.fetchall():
                     if remaining <= 0:
@@ -747,11 +830,16 @@ def cleanup(created):
             "manualInvoiceId": created.get("manualInvoiceId"),
             "foremanManualInvoiceId": created.get("foremanManualInvoiceId"),
             "aliasInvoiceId": created.get("aliasInvoiceId"),
+            "cableInvoiceId": created.get("cableInvoiceId"),
             "deliveryId": created.get("deliveryId"),
             "offerId": created.get("offerId"),
             "requestId": created.get("requestId"),
             "supplierId": created.get("supplierId"),
         }
+        for invoice_key in ["invoiceId", "manualInvoiceId", "foremanManualInvoiceId", "aliasInvoiceId", "cableInvoiceId"]:
+            if ids.get(invoice_key):
+                cur.execute("DELETE FROM material_inspection_journal WHERE invoice_id=%s", (ids[invoice_key],))
+                cur.execute("DELETE FROM cable_journal WHERE invoice_id=%s", (ids[invoice_key],))
         if ids["invoiceId"]:
             cur.execute("DELETE FROM warehouse_invoices WHERE id=%s", (ids["invoiceId"],))
         if ids["manualInvoiceId"]:
@@ -760,6 +848,8 @@ def cleanup(created):
             cur.execute("DELETE FROM warehouse_invoices WHERE id=%s", (ids["foremanManualInvoiceId"],))
         if ids["aliasInvoiceId"]:
             cur.execute("DELETE FROM warehouse_invoices WHERE id=%s", (ids["aliasInvoiceId"],))
+        if ids["cableInvoiceId"]:
+            cur.execute("DELETE FROM warehouse_invoices WHERE id=%s", (ids["cableInvoiceId"],))
         if ids["deliveryId"]:
             cur.execute("DELETE FROM material_inspection_journal WHERE delivery_id=%s", (ids["deliveryId"],))
             cur.execute("DELETE FROM cable_journal WHERE delivery_id=%s", (ids["deliveryId"],))
@@ -840,6 +930,11 @@ def main():
         created["manualInvoiceId"] = manual_invoice_id
         created["manualMaterialName"] = manual_material_name
         created["manualQuantity"] = candidate["quantity"]
+        cable_invoice_id, cable_material_name, cable_quantity = assert_cable_journal_chain(token, candidate, delivery_id)
+        created["cableInvoiceId"] = cable_invoice_id
+        created["cableMaterialName"] = cable_material_name
+        created["cableQuantity"] = cable_quantity
+        created["cableUnit"] = "м"
         foreman_invoice_id, foreman_material_name = assert_foreman_invoice_chain(token, candidate, delivery_id)
         created["foremanManualInvoiceId"] = foreman_invoice_id
         created["foremanManualMaterialName"] = foreman_material_name
@@ -863,6 +958,8 @@ def main():
             "invoiceId": invoice_id,
             "manualInvoiceId": manual_invoice_id,
             "manualMaterial": manual_material_name,
+            "cableInvoiceId": cable_invoice_id,
+            "cableMaterial": cable_material_name,
             "foremanManualInvoiceId": foreman_invoice_id,
             "foremanManualMaterial": foreman_material_name,
             "aliasInvoiceId": alias_invoice_id,
@@ -876,6 +973,8 @@ def main():
                 "receipt updated project materials",
                 "receipt wrote supply history",
                 "manual director object invoice is allowed, controlled and written to object warehouse",
+                "material inspection journal follows supply and manual object invoice",
+                "cable journal follows cable invoice from project warehouse",
                 "foreman object invoice is allowed for assigned project warehouse",
                 "foreman main warehouse invoice is blocked",
                 "invoice alias rewrites raw supplier material to estimate material",

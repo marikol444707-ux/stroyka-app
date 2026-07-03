@@ -1,5 +1,7 @@
 import { useCallback, useEffect } from 'react';
 
+const ESTIMATES_SUMMARY_PATH = '/estimates?summary=true';
+
 export const useAppDataLoaders = (ctx) => {
   const {
     activePage, API, AUDIT_LOG_PAGE_LIMIT, buildPagedPath, canAccessRole, createMaterialNormsPageState,
@@ -221,7 +223,7 @@ export const useAppDataLoaders = (ctx) => {
     const {role,isLeadershipRole,isFinanceRole,isWarehouseRole,isSupplyRole,canSeeSupplierInvoices,isInternalRole,canSeeProjectDocs} = roleFlags();
     const isWorkerRole = ['мастер','субподрядчик','бригадир'].includes(role);
     const canLoadEstimates = canLoadEstimatesForUser();
-    const estimatesLoadPath = isWorkerRole ? '/estimates' : '/estimates-summary';
+    const estimatesLoadPath = isWorkerRole ? '/estimates' : ESTIMATES_SUMMARY_PATH;
     if (page === 'dashboard') return loadMobileScopeOnce('mobile:dashboard', async () => {
       const [aif,ait,sh,sd,scat] = await Promise.all([
         canSeeProjectDocs ? getApi('/ai-findings') : Promise.resolve([]),
@@ -463,7 +465,7 @@ export const useAppDataLoaders = (ctx) => {
       } = roleFlagsForUser(user);
       const isWorkerRole = ['мастер','субподрядчик','бригадир'].includes(role);
       const canLoadEstimates = canLoadEstimatesForUser(user);
-      const estimatesLoadPath = isWorkerRole ? '/estimates' : '/estimates-summary';
+      const estimatesLoadPath = isWorkerRole ? '/estimates' : ESTIMATES_SUMMARY_PATH;
       if (canLoadEstimates) markEstimatesLoading(true);
       const token = localStorage.getItem('authToken');
       const get = (path, fallback = []) => fetch(API + path, token ? {headers: {Authorization: 'Bearer ' + token}} : undefined)

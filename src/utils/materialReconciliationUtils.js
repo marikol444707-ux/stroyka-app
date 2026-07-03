@@ -3,6 +3,18 @@ import { materialAutoMatchSafe, materialLookupText, materialNameMatchScore } fro
 import { normalizeMeasure, toNum, _normalizeUnit } from './measureUtils';
 import { packageMatches } from './materialDocumentUtils';
 
+const materialControlEstimatesForProject = (project, activeEstimatesForProject) => {
+  if (typeof activeEstimatesForProject !== 'function') return [];
+  const seen = new Set();
+  return ['Заказчик', 'Материалы'].flatMap(kind => activeEstimatesForProject(project, kind) || [])
+    .filter(est => {
+      const key = est?.id || `${est?.name || ''}|${estimatePackage(est)}|${est?.smetaType || est?.smeta_type || ''}`;
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+};
+
 export const buildEstimateMaterialPlanRows = ({
   projectName,
   projects = [],
@@ -28,7 +40,7 @@ export const buildEstimateMaterialPlanRows = ({
     if (sectionLabel && !rows[key].sections.includes(sectionLabel)) rows[key].sections.push(sectionLabel);
     return rows[key];
   };
-  const activeEstimates = activeEstimatesForProject(project, 'Заказчик');
+  const activeEstimates = materialControlEstimatesForProject(project, activeEstimatesForProject);
   activeEstimates.forEach(est => estimateSectionsOf(est).forEach(s => (s.items || []).forEach(rawIt => {
     const it = normalizeEstimateWorkingItem(rawIt, s.name);
     if (!isEstimateMaterialItem(it, s.name)) return;
@@ -209,7 +221,7 @@ export const buildMaterialReconciliationRows = ({
     if (transfer) row.holders[key].transfers.push(transfer);
   };
 
-  const activeEstimates = activeEstimatesForProject(project, 'Заказчик');
+  const activeEstimates = materialControlEstimatesForProject(project, activeEstimatesForProject);
   activeEstimates
     .filter(est => packageMatches(estimatePackage(est), workPackage))
     .forEach(est => estimateSectionsOf(est).forEach(s => (s.items || []).forEach(rawIt => {

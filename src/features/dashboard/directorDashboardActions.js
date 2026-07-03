@@ -75,7 +75,7 @@ export function createDirectorDashboardActions({
     if ((estimateList || []).length) return estimateList;
     try {
       const token = localStorage.getItem('authToken');
-      const res = await fetch(API + '/estimates-summary', token ? {headers: {Authorization: 'Bearer ' + token}} : undefined);
+      const res = await fetch(API + '/estimates?summary=true', token ? {headers: {Authorization: 'Bearer ' + token}} : undefined);
       if (!res.ok) return estimateList || [];
       const data = await res.json();
       const list = Array.isArray(data) ? data : [];

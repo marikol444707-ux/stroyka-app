@@ -3935,7 +3935,14 @@ def init_db():
         ALTER TABLE material_inspection_journal ADD COLUMN IF NOT EXISTS delivery_id INT;
         ALTER TABLE material_inspection_journal ADD COLUMN IF NOT EXISTS work_package VARCHAR(100);
         ALTER TABLE material_inspection_journal ADD COLUMN IF NOT EXISTS status VARCHAR(100) DEFAULT 'Активна';
+        ALTER TABLE material_inspection_journal ADD COLUMN IF NOT EXISTS warehouse_history_id INT;
+        ALTER TABLE material_inspection_journal ADD COLUMN IF NOT EXISTS source_type VARCHAR(100);
+        ALTER TABLE material_inspection_journal ADD COLUMN IF NOT EXISTS source_id INT;
+        ALTER TABLE material_inspection_journal ADD COLUMN IF NOT EXISTS source_item_key VARCHAR(255);
         ALTER TABLE material_inspection_journal ALTER COLUMN material_name TYPE TEXT;
+        CREATE INDEX IF NOT EXISTS idx_material_inspection_delivery_id ON material_inspection_journal(delivery_id);
+        CREATE INDEX IF NOT EXISTS idx_material_inspection_invoice_id ON material_inspection_journal(invoice_id);
+        CREATE INDEX IF NOT EXISTS idx_material_inspection_source ON material_inspection_journal(source_type, source_id, source_item_key);
         CREATE TABLE IF NOT EXISTS supervisor_acts (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -3981,7 +3988,15 @@ def init_db():
         ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS delivery_id INT;
         ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS cable_type VARCHAR(100);
         ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS status VARCHAR(100) DEFAULT 'Активна';
+        ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS work_package VARCHAR(100);
+        ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS warehouse_history_id INT;
+        ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS source_type VARCHAR(100);
+        ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS source_id INT;
+        ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS source_item_key VARCHAR(255);
         ALTER TABLE cable_journal ALTER COLUMN cable_brand TYPE TEXT;
+        CREATE INDEX IF NOT EXISTS idx_cable_journal_delivery_id ON cable_journal(delivery_id);
+        CREATE INDEX IF NOT EXISTS idx_cable_journal_invoice_id ON cable_journal(invoice_id);
+        CREATE INDEX IF NOT EXISTS idx_cable_journal_source ON cable_journal(source_type, source_id, source_item_key);
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'Черновик';
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS is_template BOOLEAN DEFAULT FALSE;
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS smeta_type VARCHAR(50) DEFAULT 'Заказчик';
@@ -9926,11 +9941,22 @@ def _detect_cable_info(name):
     up = raw.upper().replace("Ё", "Е")
     compact = _re.sub(r"[\s\"'«»()\\/._-]", "", up)
     start_prefixes = [
-        "ВВГ", "АВВГ", "ВББШВ", "ПВВ", "ПВС", "СИП", "КВВГ", "КГ",
-        "ТППЭП", "ТПВ", "КВПЭФ", "NYM", "NYY", "ПУНП",
-        "UTP", "FTP", "SFTP", "FUTP", "UUTP", "SFUTP",
-        "КПС", "КПСЭ", "КПСВВ", "КСВВ", "КСПВ", "КСПЭВ", "ППГ",
-        "JYSTY", "JEH", "JHSTH"
+        "ВВГ", "АВВГ", "ВББШВ", "ВБШВ", "ПВВ", "ПВС", "ШВВП", "СИП", "КВВГ", "КГ",
+        "ПУГВ", "ПВ1", "ПВ3", "ППГ", "ПУНП", "NYM", "NYY", "N2XH",
+        "UTP", "FTP", "SFTP", "FUTP", "UUTP", "SFUTP", "UFTP", "FFTP",
+        "CAT5", "CAT5E", "CAT6", "CAT6A", "LAN", "ETHERNET", "RG6", "RG59", "КОАКС",
+        "КПС", "КПСЭ", "КПСВВ", "КПСНГ", "КСВВ", "КСПВ", "КСПЭВ", "КВПЭФ", "КВП",
+        "ТППЭП", "ТПП", "ТПВ", "ШВЭВ", "ШВЭП", "КВК",
+        "JYSTY", "JEH", "JHSTH", "JY", "JEHSTH"
+    ]
+    scs_markers = [
+        "UTP", "FTP", "SFTP", "FUTP", "UUTP", "SFUTP", "UFTP", "FFTP",
+        "CAT5", "CAT5E", "CAT6", "CAT6A", "LAN", "ETHERNET", "ВИТАЯПАРА", "КОАКС", "RG6", "RG59"
+    ]
+    fire_markers = ["КПС", "КПСЭ", "КПСВВ", "ОПС", "ПОЖАР", "FRLS", "FRHF", "ОГНЕСТ", "СИГНАЛИЗАЦ"]
+    weak_markers = [
+        "КСВВ", "КСПВ", "КСПЭВ", "КВПЭФ", "КВП", "ТППЭП", "ТПП", "ТПВ",
+        "ШВЭВ", "ШВЭП", "КВК", "JYSTY", "JEH", "JHSTH", "JY", "ДОМОФОН", "ОХРАН", "КИП", "RS485", "RS232"
     ]
     non_cable_markers = [
         "КОРОБ", "РАСПАЕЧ", "РАСПРЕДЕЛ", "РАЗВЕТВ", "ПОДРОЗЕТ", "РОЗЕТК",
@@ -9946,13 +9972,16 @@ def _detect_cable_info(name):
     brand_match = any(compact.startswith(p) for p in start_prefixes)
     named_cable = any(compact.startswith(p) for p in ["КАБЕЛ", "ПРОВОД", "ШНУР"])
     has_cable_mark = any(p in compact for p in start_prefixes if len(p) >= 3)
-    is_cable = brand_match or named_cable or has_cable_mark
+    has_structured_size = bool(_re.search(r"\d+\s*[х×x*]\s*\d+(?:[.,]\d+)?", raw, _re.IGNORECASE))
+    is_cable = brand_match or named_cable or has_cable_mark or (
+        has_structured_size and any(p in compact for p in ["НГLS", "НГАЛS", "FRLS", "FRHF"])
+    )
     cable_type = ""
-    if any(p in compact for p in ["КПС", "КПСЭ", "КПСВВ", "ОПС", "ПОЖАР"]):
+    if any(p in compact for p in fire_markers) and (any(p in compact for p in ["КПС", "ОПС", "ПОЖАР", "СИГНАЛИЗАЦ"]) or named_cable):
         cable_type = "Пожарная сигнализация"
-    elif any(p in compact for p in ["UTP", "FTP", "SFTP", "FUTP", "UUTP", "SFUTP"]):
+    elif any(p in compact for p in scs_markers):
         cable_type = "СКС / интернет"
-    elif any(p in compact for p in ["КСВВ", "КСПВ", "КСПЭВ", "КВПЭФ", "ТППЭП", "ТПВ", "JYSTY", "JEH", "JHSTH"]):
+    elif any(p in compact for p in weak_markers):
         cable_type = "Слаботочка / сигнализация"
     elif is_cable:
         cable_type = "Силовой кабель"
@@ -10003,70 +10032,43 @@ def _create_delivery_quality_records(cur, delivery):
     unit = delivery.get('unit') or 'шт'
     work_package = (delivery.get('work_package') or delivery.get('workPackage') or '').strip()
     received_at = delivery.get('received_at') or __import__("datetime").date.today()
-    has_inspection = False
-    if delivery_id:
-        try:
-            cur.execute("SELECT id FROM material_inspection_journal WHERE delivery_id=%s LIMIT 1", (delivery_id,))
-            has_inspection = bool(cur.fetchone())
-        except Exception as e:
-            print("DELIVERY INSPECTION CHECK ERROR:", str(e))
-    if not has_inspection:
-        try:
-            cur.execute("""INSERT INTO material_inspection_journal
-                           (project_name, delivery_id, material_name, unit, quantity, supplier, work_package,
-                            received_at, visual_inspection_result, remarks, inspected)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                        (project, delivery_id, name, unit, qty, supplier, work_package, received_at,
-                         delivery.get('quality_status') or 'Принято',
-                         delivery.get('quality_notes') or '', True))
-        except Exception as e:
-            print("DELIVERY INSPECTION INSERT ERROR:", str(e))
-            try:
-                cur.execute("""INSERT INTO material_inspection_journal
-                               (project_name, material_name, unit, quantity, supplier, work_package,
-                                received_at, visual_inspection_result, remarks, inspected)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                            (project, name, unit, qty, supplier, work_package, received_at,
-                             delivery.get('quality_status') or 'Принято',
-                             delivery.get('quality_notes') or '', True))
-            except Exception as legacy_error:
-                print("DELIVERY INSPECTION LEGACY INSERT ERROR:", str(legacy_error))
-    cable_info = _detect_cable_info(name)
-    if cable_info["isCable"]:
-        has_cable = False
-        if delivery_id:
-            try:
-                cur.execute("SELECT id FROM cable_journal WHERE delivery_id=%s LIMIT 1", (delivery_id,))
-                has_cable = bool(cur.fetchone())
-            except Exception as e:
-                print("DELIVERY CABLE CHECK ERROR:", str(e))
-        if not has_cable:
-            try:
-                cur.execute("""SELECT id FROM cable_journal
-                               WHERE project_name=%s AND cable_brand=%s AND COALESCE(length_received,0)=%s
-                               LIMIT 1""", (project, name, qty))
-                has_cable = bool(cur.fetchone())
-            except Exception as e:
-                print("DELIVERY CABLE LEGACY CHECK ERROR:", str(e))
-        if not has_cable:
-            try:
-                cur.execute("""INSERT INTO cable_journal
-                               (project_name, delivery_id, cable_brand, cable_type, cross_section, cores_count,
-                                length_received, supplier, received_at)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                            (project, delivery_id, name, cable_info["cableType"],
-                             cable_info["section"], cable_info["cores"], qty, supplier, received_at))
-            except Exception as e:
-                print("DELIVERY CABLE INSERT ERROR:", str(e))
-                try:
-                    cur.execute("""INSERT INTO cable_journal
-                                   (project_name, cable_brand, cross_section, cores_count,
-                                    length_received, supplier, received_at)
-                                   VALUES (%s,%s,%s,%s,%s,%s,%s)""",
-                                (project, name, cable_info["section"], cable_info["cores"],
-                                 qty, supplier, received_at))
-                except Exception as legacy_error:
-                    print("DELIVERY CABLE LEGACY INSERT ERROR:", str(legacy_error))
+    source_item_key = _journal_item_key(name, unit, qty, work_package)
+    try:
+        _ensure_material_inspection_row(
+            cur,
+            project=project,
+            material_name=name,
+            qty=qty,
+            unit=unit,
+            supplier=supplier,
+            received_at=received_at,
+            delivery_id=delivery_id,
+            work_package=work_package,
+            visual_result=delivery.get('quality_status') or 'Принято',
+            remarks=delivery.get('quality_notes') or '',
+            inspected=True,
+            source_type="supply_delivery",
+            source_id=delivery_id,
+            source_item_key=source_item_key,
+        )
+    except Exception as e:
+        print("DELIVERY INSPECTION ENSURE ERROR:", str(e))
+    try:
+        _ensure_cable_journal_row(
+            cur,
+            project=project,
+            cable_brand=name,
+            qty=qty,
+            supplier=supplier,
+            received_at=received_at,
+            delivery_id=delivery_id,
+            work_package=work_package,
+            source_type="supply_delivery",
+            source_id=delivery_id,
+            source_item_key=source_item_key,
+        )
+    except Exception as e:
+        print("DELIVERY CABLE ENSURE ERROR:", str(e))
 
 def _create_supply_delivery_history(cur, delivery, status=None, received_qty=None, confirmed_by=None):
     delivery_id = delivery.get('id')
@@ -10264,10 +10266,259 @@ def _update_supply_flow_status_after_delivery(cur, request_id=None, offer_id=Non
                 offer_status = "В пути"
             cur.execute("UPDATE supplier_offers SET delivery_status=%s WHERE id=%s", (offer_status, offer_id))
 
-def _ensure_cable_journal_row(cur, *, project, cable_brand, qty, supplier="", received_at=None, delivery_id=None, invoice_id=None):
+def _ensure_journal_source_columns(cur):
+    try:
+        cur.execute("ALTER TABLE material_inspection_journal ADD COLUMN IF NOT EXISTS warehouse_history_id INT")
+        cur.execute("ALTER TABLE material_inspection_journal ADD COLUMN IF NOT EXISTS source_type VARCHAR(100)")
+        cur.execute("ALTER TABLE material_inspection_journal ADD COLUMN IF NOT EXISTS source_id INT")
+        cur.execute("ALTER TABLE material_inspection_journal ADD COLUMN IF NOT EXISTS source_item_key VARCHAR(255)")
+        cur.execute("ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS work_package VARCHAR(100)")
+        cur.execute("ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS warehouse_history_id INT")
+        cur.execute("ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS source_type VARCHAR(100)")
+        cur.execute("ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS source_id INT")
+        cur.execute("ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS source_item_key VARCHAR(255)")
+    except Exception as e:
+        print("JOURNAL SOURCE COLUMNS ERROR:", str(e))
+
+def _journal_item_key(name="", unit="", qty=0, work_package="", item_index=None):
+    base = [
+        _norm_key_text(name or ""),
+        _norm_base_unit(unit or "") or "",
+        str(round(_float_or_zero(qty), 6)),
+        _supply_work_package(work_package or ""),
+    ]
+    if item_index is not None:
+        base.append(str(item_index))
+    return "|".join(base)[:255]
+
+def _receipt_date_value(value):
+    if hasattr(value, "date"):
+        return value.date().isoformat()
+    text = str(value or "").strip()
+    return text[:10] if text else None
+
+def _ensure_material_inspection_row(
+    cur,
+    *,
+    project,
+    material_name,
+    qty,
+    unit="",
+    supplier="",
+    received_at=None,
+    delivery_id=None,
+    invoice_id=None,
+    warehouse_history_id=None,
+    work_package="",
+    visual_result="",
+    remarks="",
+    inspected=False,
+    source_type="",
+    source_id=None,
+    source_item_key="",
+):
+    project = (project or "").strip()
+    material_name = (material_name or "").strip()
+    qty = _float_or_zero(qty)
+    if not project or not material_name or qty <= 0:
+        return False
+    _ensure_journal_source_columns(cur)
+    unit = _norm_base_unit(unit or "шт") or "шт"
+    work_package = _supply_work_package(work_package or "")
+    received_at = _receipt_date_value(received_at) or __import__("datetime").date.today().isoformat()
+    source_type = (source_type or "").strip()
+    source_item_key = (source_item_key or _journal_item_key(material_name, unit, qty, work_package)).strip()
+    exists = False
+    if delivery_id:
+        try:
+            cur.execute("SELECT id FROM material_inspection_journal WHERE delivery_id=%s LIMIT 1", (delivery_id,))
+            exists = bool(cur.fetchone())
+        except Exception as e:
+            print("INSPECTION ENSURE DELIVERY CHECK ERROR:", str(e))
+    if not exists and invoice_id:
+        try:
+            cur.execute("""SELECT id FROM material_inspection_journal
+                           WHERE invoice_id=%s AND COALESCE(source_item_key,'')=%s
+                           LIMIT 1""", (invoice_id, source_item_key))
+            exists = bool(cur.fetchone())
+        except Exception as e:
+            print("INSPECTION ENSURE INVOICE CHECK ERROR:", str(e))
+    if not exists and warehouse_history_id:
+        try:
+            cur.execute("SELECT id FROM material_inspection_journal WHERE warehouse_history_id=%s LIMIT 1", (warehouse_history_id,))
+            exists = bool(cur.fetchone())
+        except Exception as e:
+            print("INSPECTION ENSURE HISTORY CHECK ERROR:", str(e))
+    if not exists and source_type and source_id:
+        try:
+            cur.execute("""SELECT id FROM material_inspection_journal
+                           WHERE source_type=%s AND source_id=%s AND COALESCE(source_item_key,'')=%s
+                           LIMIT 1""", (source_type, source_id, source_item_key))
+            exists = bool(cur.fetchone())
+        except Exception as e:
+            print("INSPECTION ENSURE SOURCE CHECK ERROR:", str(e))
+    if not exists:
+        try:
+            cur.execute(f"""SELECT id FROM material_inspection_journal
+                            WHERE project_name=%s
+                              AND LOWER(TRIM(COALESCE(material_name,'')))=LOWER(TRIM(%s))
+                              AND {_sql_norm_unit('unit')}=%s
+                              AND COALESCE(quantity,0)=%s
+                              AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                              AND COALESCE(received_at::text,'')=%s
+                            LIMIT 1""",
+                        (project, material_name, unit, qty, work_package, received_at))
+            exists = bool(cur.fetchone())
+        except Exception as e:
+            print("INSPECTION ENSURE LEGACY CHECK ERROR:", str(e))
+    if exists:
+        return False
+    cur.execute("""INSERT INTO material_inspection_journal
+                   (project_name, delivery_id, invoice_id, warehouse_history_id, source_type, source_id, source_item_key,
+                    material_name, unit, quantity, supplier, work_package, received_at,
+                    visual_inspection_result, remarks, inspected)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (project, delivery_id, invoice_id, warehouse_history_id, source_type or None, source_id, source_item_key,
+                 material_name, unit, qty, supplier or "", work_package, received_at,
+                 visual_result or "", remarks or "", bool(inspected)))
+    return True
+
+def _backfill_material_inspection_journal(cur, project_names=None):
+    repaired = 0
+    _ensure_journal_source_columns(cur)
+    project_names = list(project_names or [])
+    delivery_where = "WHERE COALESCE(received_quantity,0)>0 AND status IN ('Принято','Проблема')"
+    delivery_params = []
+    if project_names:
+        delivery_where += " AND project = ANY(%s)"
+        delivery_params.append(project_names)
+    cur.execute("""SELECT id, project, material_name, received_quantity, unit, supplier_name,
+                          received_at, work_package, quality_status, quality_notes
+                   FROM supply_deliveries """ + delivery_where, delivery_params)
+    for row in cur.fetchall():
+        delivery_id, project, name, qty, unit, supplier, received_at, work_package, quality_status, quality_notes = row
+        if _ensure_material_inspection_row(
+            cur,
+            project=project,
+            material_name=name,
+            qty=qty,
+            unit=unit,
+            supplier=supplier,
+            received_at=received_at,
+            delivery_id=delivery_id,
+            work_package=work_package,
+            visual_result=quality_status or "Принято",
+            remarks=quality_notes or "",
+            inspected=True,
+            source_type="supply_delivery",
+            source_id=delivery_id,
+        ):
+            repaired += 1
+    invoice_where = "WHERE COALESCE(status,'Принята') <> 'Аннулирована'"
+    invoice_params = []
+    if project_names:
+        invoice_where += " AND (project = ANY(%s) OR location = ANY(%s))"
+        invoice_params = [project_names, project_names]
+    cur.execute("""SELECT id, project, location, supplier_name, date, items, supply_delivery_id, source_type
+                   FROM warehouse_invoices """ + invoice_where, invoice_params)
+    for inv in cur.fetchall():
+        invoice_id, project, location, supplier, date_value, items_json, supply_delivery_id, source_type = inv
+        target_project = project or (location if location and location != "Основной склад" else "")
+        if not target_project or (project_names and target_project not in project_names):
+            continue
+        for idx, item in enumerate(_json_list_or_empty(items_json)):
+            if not isinstance(item, dict):
+                continue
+            name = (item.get("name") or item.get("materialName") or "").strip()
+            qty = _float_or_zero(item.get("quantity"))
+            unit = item.get("unit") or "шт"
+            work_package = _supply_work_package(item.get("workPackage") or item.get("work_package") or "")
+            if _ensure_material_inspection_row(
+                cur,
+                project=target_project,
+                material_name=name,
+                qty=qty,
+                unit=unit,
+                supplier=supplier,
+                received_at=date_value,
+                delivery_id=supply_delivery_id,
+                invoice_id=invoice_id,
+                work_package=work_package,
+                source_type=source_type or "warehouse_invoice",
+                source_id=invoice_id,
+                source_item_key=_journal_item_key(name, unit, qty, work_package, idx),
+            ):
+                repaired += 1
+    history_where = "WHERE COALESCE(quantity,0)>0 AND LOWER(COALESCE(type,'')) LIKE 'приход%' AND COALESCE(project,'')<>'' AND project<>'Основной склад'"
+    history_params = []
+    if project_names:
+        history_where += " AND project = ANY(%s)"
+        history_params.append(project_names)
+    cur.execute("""SELECT id, material, quantity, unit, date, project, issued_by, work_package
+                   FROM warehouse_history """ + history_where, history_params)
+    for row in cur.fetchall():
+        history_id, name, qty, unit, date_value, project, issued_by, work_package = row
+        if _ensure_material_inspection_row(
+            cur,
+            project=project,
+            material_name=name,
+            qty=qty,
+            unit=unit,
+            supplier=issued_by,
+            received_at=date_value,
+            warehouse_history_id=history_id,
+            work_package=work_package,
+            source_type="warehouse_history",
+            source_id=history_id,
+        ):
+            repaired += 1
+    material_where = "WHERE COALESCE(quantity,0)>0 AND COALESCE(project,'')<>''"
+    material_params = []
+    if project_names:
+        material_where += " AND project = ANY(%s)"
+        material_params.append(project_names)
+    cur.execute("SELECT name, quantity, unit, project, COALESCE(work_package,'') FROM materials " + material_where, material_params)
+    for name, qty, unit, project, work_package in cur.fetchall():
+        try:
+            cur.execute(f"""SELECT id FROM material_inspection_journal
+                            WHERE project_name=%s
+                              AND LOWER(TRIM(COALESCE(material_name,'')))=LOWER(TRIM(%s))
+                              AND {_sql_norm_unit('unit')}=%s
+                            LIMIT 1""", (project, name, _norm_base_unit(unit or "шт") or "шт"))
+            if cur.fetchone():
+                continue
+        except Exception as e:
+            print("INSPECTION MATERIAL STOCK CHECK ERROR:", str(e))
+        if _ensure_material_inspection_row(
+            cur,
+            project=project,
+            material_name=name,
+            qty=qty,
+            unit=unit,
+            supplier="Склад объекта",
+            work_package=work_package,
+            remarks="Восстановлено по остатку склада объекта без найденной первички.",
+            source_type="project_stock",
+            source_id=None,
+            source_item_key=_journal_item_key(name, unit, qty, work_package, "stock"),
+        ):
+            repaired += 1
+    return repaired
+
+def _ensure_cable_journal_row(cur, *, project, cable_brand, qty, supplier="", received_at=None, delivery_id=None, invoice_id=None, warehouse_history_id=None, work_package="", source_type="", source_id=None, source_item_key=""):
     cable_info = _detect_cable_info(cable_brand)
     if not cable_info["isCable"]:
         return False
+    _ensure_journal_source_columns(cur)
+    project = (project or "").strip()
+    cable_brand = (cable_brand or "").strip()
+    qty = _float_or_zero(qty)
+    if not project or not cable_brand or qty <= 0:
+        return False
+    work_package = _supply_work_package(work_package or "")
+    received_at = _receipt_date_value(received_at)
+    source_type = (source_type or "").strip()
+    source_item_key = (source_item_key or _journal_item_key(cable_brand, "м", qty, work_package)).strip()
     exists = False
     if delivery_id:
         try:
@@ -10277,15 +10528,32 @@ def _ensure_cable_journal_row(cur, *, project, cable_brand, qty, supplier="", re
             print("CABLE BACKFILL DELIVERY CHECK ERROR:", str(e))
     if not exists and invoice_id:
         try:
-            cur.execute("SELECT id FROM cable_journal WHERE invoice_id=%s AND cable_brand=%s LIMIT 1", (invoice_id, cable_brand))
+            cur.execute("""SELECT id FROM cable_journal
+                           WHERE invoice_id=%s AND COALESCE(source_item_key,'')=%s
+                           LIMIT 1""", (invoice_id, source_item_key))
             exists = bool(cur.fetchone())
         except Exception as e:
             print("CABLE BACKFILL INVOICE CHECK ERROR:", str(e))
+    if not exists and warehouse_history_id:
+        try:
+            cur.execute("SELECT id FROM cable_journal WHERE warehouse_history_id=%s LIMIT 1", (warehouse_history_id,))
+            exists = bool(cur.fetchone())
+        except Exception as e:
+            print("CABLE BACKFILL HISTORY CHECK ERROR:", str(e))
+    if not exists and source_type and source_id:
+        try:
+            cur.execute("""SELECT id FROM cable_journal
+                           WHERE source_type=%s AND source_id=%s AND COALESCE(source_item_key,'')=%s
+                           LIMIT 1""", (source_type, source_id, source_item_key))
+            exists = bool(cur.fetchone())
+        except Exception as e:
+            print("CABLE BACKFILL SOURCE CHECK ERROR:", str(e))
     if not exists:
         try:
             cur.execute("""SELECT id FROM cable_journal
                            WHERE project_name=%s AND cable_brand=%s AND COALESCE(length_received,0)=%s
-                           LIMIT 1""", (project or "", cable_brand or "", _float_or_zero(qty)))
+                             AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                           LIMIT 1""", (project or "", cable_brand or "", _float_or_zero(qty), work_package))
             exists = bool(cur.fetchone())
         except Exception as e:
             print("CABLE BACKFILL LEGACY CHECK ERROR:", str(e))
@@ -10293,11 +10561,12 @@ def _ensure_cable_journal_row(cur, *, project, cable_brand, qty, supplier="", re
         return False
     try:
         cur.execute("""INSERT INTO cable_journal
-                       (project_name, delivery_id, invoice_id, cable_brand, cable_type, cross_section, cores_count,
-                        length_received, supplier, received_at)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (project or "", delivery_id, invoice_id, cable_brand or "", cable_info["cableType"],
-                     cable_info["section"], cable_info["cores"], _float_or_zero(qty), supplier or "", received_at))
+                       (project_name, delivery_id, invoice_id, warehouse_history_id, source_type, source_id, source_item_key,
+                        cable_brand, cable_type, cross_section, cores_count, length_received, supplier, received_at, work_package)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (project or "", delivery_id, invoice_id, warehouse_history_id, source_type or None, source_id, source_item_key,
+                     cable_brand or "", cable_info["cableType"], cable_info["section"], cable_info["cores"],
+                     qty, supplier or "", received_at, work_package))
         return True
     except Exception as e:
         print("CABLE BACKFILL INSERT ERROR:", str(e))
@@ -10316,48 +10585,73 @@ def _ensure_cable_journal_row(cur, *, project, cable_brand, qty, supplier="", re
 def _backfill_cable_journal(cur, project_names=None):
     import json as _json
     repaired = 0
+    _ensure_journal_source_columns(cur)
     project_names = list(project_names or [])
     delivery_where = "WHERE COALESCE(received_quantity,0)>0 AND status IN ('Принято','Проблема')"
     delivery_params = []
     if project_names:
         delivery_where += " AND project = ANY(%s)"
         delivery_params.append(project_names)
-    cur.execute("""SELECT id, project, material_name, received_quantity, supplier_name, received_at
+    cur.execute("""SELECT id, project, material_name, received_quantity, unit, supplier_name, received_at, work_package
                    FROM supply_deliveries """ + delivery_where, delivery_params)
     for d in cur.fetchall():
-        delivery_id, project, name, qty, supplier, received_at = d
+        delivery_id, project, name, qty, unit, supplier, received_at, work_package = d
         if _ensure_cable_journal_row(cur, project=project, cable_brand=name, qty=qty,
-                                     supplier=supplier, received_at=received_at, delivery_id=delivery_id):
+                                     supplier=supplier, received_at=received_at, delivery_id=delivery_id,
+                                     work_package=work_package, source_type="supply_delivery",
+                                     source_id=delivery_id,
+                                     source_item_key=_journal_item_key(name, unit or "м", qty, work_package)):
             repaired += 1
     invoice_where = ""
     invoice_params = []
     if project_names:
         invoice_where = " WHERE project = ANY(%s) OR location = ANY(%s)"
         invoice_params = [project_names, project_names]
-    cur.execute("SELECT id, project, location, supplier_name, date, items FROM warehouse_invoices" + invoice_where, invoice_params)
+    cur.execute("SELECT id, project, location, supplier_name, date, items, source_type FROM warehouse_invoices" + invoice_where, invoice_params)
     for inv in cur.fetchall():
-        invoice_id, project, location, supplier, date_value, items_json = inv
+        invoice_id, project, location, supplier, date_value, items_json, source_type = inv
         target_project = project or (location if location and location != "Основной склад" else "")
         if project_names and target_project not in project_names:
             continue
         items = _json_list_or_empty(items_json)
-        for item in items:
+        for idx, item in enumerate(items):
             if not isinstance(item, dict):
                 continue
             name = (item.get("name") or item.get("materialName") or "").strip()
             qty = _float_or_zero(item.get("quantity"))
+            unit = item.get("unit") or "м"
+            work_package = _supply_work_package(item.get("workPackage") or item.get("work_package") or "")
             if _ensure_cable_journal_row(cur, project=target_project, cable_brand=name, qty=qty,
-                                         supplier=supplier, received_at=date_value, invoice_id=invoice_id):
+                                         supplier=supplier, received_at=date_value, invoice_id=invoice_id,
+                                         work_package=work_package, source_type=source_type or "warehouse_invoice",
+                                         source_id=invoice_id,
+                                         source_item_key=_journal_item_key(name, unit, qty, work_package, idx)):
                 repaired += 1
+    history_where = "WHERE COALESCE(quantity,0)>0 AND LOWER(COALESCE(type,'')) LIKE 'приход%' AND COALESCE(project,'')<>'' AND project<>'Основной склад'"
+    history_params = []
+    if project_names:
+        history_where += " AND project = ANY(%s)"
+        history_params.append(project_names)
+    cur.execute("""SELECT id, material, quantity, unit, date, project, issued_by, work_package
+                   FROM warehouse_history """ + history_where, history_params)
+    for history_id, name, qty, unit, date_value, project, issued_by, work_package in cur.fetchall():
+        if _ensure_cable_journal_row(cur, project=project, cable_brand=name, qty=qty,
+                                     supplier=issued_by, received_at=date_value,
+                                     warehouse_history_id=history_id, work_package=work_package,
+                                     source_type="warehouse_history", source_id=history_id,
+                                     source_item_key=_journal_item_key(name, unit or "м", qty, work_package)):
+            repaired += 1
     material_where = "WHERE COALESCE(quantity,0)>0"
     material_params = []
     if project_names:
         material_where += " AND project = ANY(%s)"
         material_params.append(project_names)
-    cur.execute("SELECT name, quantity, project FROM materials " + material_where, material_params)
+    cur.execute("SELECT name, quantity, unit, project, COALESCE(work_package,'') FROM materials " + material_where, material_params)
     for material in cur.fetchall():
-        name, qty, project = material
-        if _ensure_cable_journal_row(cur, project=project, cable_brand=name, qty=qty):
+        name, qty, unit, project, work_package = material
+        if _ensure_cable_journal_row(cur, project=project, cable_brand=name, qty=qty,
+                                     work_package=work_package, source_type="project_stock",
+                                     source_item_key=_journal_item_key(name, unit or "м", qty, work_package, "stock")):
             repaired += 1
     return repaired
 
@@ -20531,7 +20825,7 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
         history_added = 0
         restricted_packages = user_package_names(current_user) if current_user.get("role") in PACKAGE_LIMIT_ROLES else []
 
-        for it in items_list:
+        for item_index, it in enumerate(items_list):
             name = (it.get("name") or "").strip()
             qty = _invoice_float(it.get("quantity"), 0)
             if not name or qty <= 0:
@@ -20597,20 +20891,35 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
             history_added += 1
 
             if target_project:
-                cur.execute("""INSERT INTO material_inspection_journal
-                               (project_name, invoice_id, material_name, unit, quantity, supplier, work_package, received_at)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                            (target_project, invoice_id, name, unit, qty, sup, work_package, rcv_date))
-                inspections_added += 1
-
-                cable_info = _detect_cable_info(name)
-                if cable_info["isCable"]:
-                    cur.execute("""INSERT INTO cable_journal
-                                   (project_name, invoice_id, cable_brand, cable_type, cross_section, cores_count,
-                                    length_received, supplier, received_at)
-                                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                                (target_project, invoice_id, name, cable_info["cableType"], cable_info["section"],
-                                 cable_info["cores"], qty, sup, rcv_date))
+                source_item_key = _journal_item_key(name, unit, qty, work_package, item_index)
+                if _ensure_material_inspection_row(
+                    cur,
+                    project=target_project,
+                    material_name=name,
+                    qty=qty,
+                    unit=unit,
+                    supplier=sup,
+                    received_at=rcv_date,
+                    invoice_id=invoice_id,
+                    work_package=work_package,
+                    source_type=source_type or "warehouse_invoice",
+                    source_id=invoice_id,
+                    source_item_key=source_item_key,
+                ):
+                    inspections_added += 1
+                if _ensure_cable_journal_row(
+                    cur,
+                    project=target_project,
+                    cable_brand=name,
+                    qty=qty,
+                    supplier=sup,
+                    received_at=rcv_date,
+                    invoice_id=invoice_id,
+                    work_package=work_package,
+                    source_type=source_type or "warehouse_invoice",
+                    source_id=invoice_id,
+                    source_item_key=source_item_key,
+                ):
                     cables_added += 1
 
         conn.commit()
@@ -22843,22 +23152,33 @@ def accept_material_norm_suggestion_as_override(id: int, payload: dict = Body(de
 def list_material_inspections(project_name: str = None, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    _ensure_journal_source_columns(cur)
     cols = """id, project_name, invoice_id, material_name, unit, quantity, supplier,
               batch_number, passport_number, certificate_number, test_protocol_number,
               visual_inspection_result, remarks, inspector_name,
               received_at, inspected_at, inspected, normatives, ai_filled, created_at,
-              COALESCE(work_package,'')"""
+              COALESCE(work_package,''), delivery_id, warehouse_history_id,
+              COALESCE(source_type,''), source_id, COALESCE(source_item_key,'')"""
     allowed_projects = visible_project_names(_current_user)
     package_sql, package_params = package_access_filter(_current_user)
+    if project_name and allowed_projects is not None and project_name not in allowed_projects:
+        cur.close(); conn.close()
+        return []
+    if not project_name and allowed_projects is not None and not allowed_projects:
+        cur.close(); conn.close()
+        return []
+    backfill_projects = None
     if project_name:
-        if allowed_projects is not None and project_name not in allowed_projects:
-            cur.close(); conn.close()
-            return []
+        backfill_projects = [project_name]
+    elif allowed_projects is not None:
+        backfill_projects = allowed_projects
+    try:
+        _backfill_material_inspection_journal(cur, backfill_projects)
+    except Exception as e:
+        print("MATERIAL INSPECTION BACKFILL ERROR:", str(e))
+    if project_name:
         cur.execute(f"SELECT {cols} FROM material_inspection_journal WHERE project_name=%s" + package_sql + " ORDER BY id DESC", [project_name] + package_params)
     elif allowed_projects is not None:
-        if not allowed_projects:
-            cur.close(); conn.close()
-            return []
         cur.execute(f"SELECT {cols} FROM material_inspection_journal WHERE project_name = ANY(%s)" + package_sql + " ORDER BY id DESC", [allowed_projects] + package_params)
     else:
         q = f"SELECT {cols} FROM material_inspection_journal"
@@ -22875,7 +23195,9 @@ def list_material_inspections(project_name: str = None, _current_user: dict = De
              "remarks":r[12] or "","inspectorName":r[13] or "",
              "receivedAt":str(r[14]) if r[14] else "","inspectedAt":str(r[15]) if r[15] else "",
              "inspected":bool(r[16]),"normatives":r[17] or "",
-             "aiFilled":bool(r[18]),"createdAt":str(r[19]),"workPackage":r[20] or ""} for r in rows]
+             "aiFilled":bool(r[18]),"createdAt":str(r[19]),"workPackage":r[20] or "",
+             "deliveryId":r[21],"warehouseHistoryId":r[22],"sourceType":r[23] or "",
+             "sourceId":r[24],"sourceItemKey":r[25] or ""} for r in rows]
 
 @app.put("/material-inspection/{id}")
 def update_material_inspection(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "кладовщик", "снабженец"))):
@@ -22990,13 +23312,21 @@ def list_cable_journal(project_name: str = None, _current_user: dict = Depends(r
         return []
     conn = get_db()
     cur = conn.cursor()
+    _ensure_journal_source_columns(cur)
     cols = """id, project_name, invoice_id, cable_brand, cross_section, cores_count,
               length_received, length_installed, drum_number, manufacturer, supplier,
               certificate_number, passport_number, insulation_before, insulation_after,
               installation_location, installation_method,
               installed_at, received_at, responsible_itr, normatives, ai_filled, created_at,
-              cable_type"""
+              cable_type, COALESCE(work_package,''), delivery_id, warehouse_history_id,
+              COALESCE(source_type,''), source_id, COALESCE(source_item_key,'')"""
     allowed_projects = visible_project_names(_current_user)
+    if project_name and allowed_projects is not None and project_name not in allowed_projects:
+        cur.close(); conn.close()
+        return []
+    if not project_name and allowed_projects is not None and not allowed_projects:
+        cur.close(); conn.close()
+        return []
     backfill_projects = None
     if project_name:
         backfill_projects = [project_name]
@@ -23007,19 +23337,13 @@ def list_cable_journal(project_name: str = None, _current_user: dict = Depends(r
     except Exception as e:
         print("CABLE JOURNAL BACKFILL ERROR:", str(e))
     if project_name:
-        if allowed_projects is not None and project_name not in allowed_projects:
-            cur.close(); conn.close()
-            return []
         cur.execute(f"SELECT {cols} FROM cable_journal WHERE project_name=%s ORDER BY id DESC", (project_name,))
     elif allowed_projects is not None:
-        if not allowed_projects:
-            cur.close(); conn.close()
-            return []
         cur.execute(f"SELECT {cols} FROM cable_journal WHERE project_name = ANY(%s) ORDER BY id DESC", (allowed_projects,))
     else:
         cur.execute(f"SELECT {cols} FROM cable_journal ORDER BY id DESC")
     rows = cur.fetchall()
-    rows = [r for r in rows if _detect_cable_info(r[3] if len(r) > 3 else "")["isCable"]]
+    rows = [r for r in rows if (r[23] or _detect_cable_info(r[3] if len(r) > 3 else "")["isCable"])]
     cur.close(); conn.close()
     return [{"id":r[0],"projectName":r[1] or "","invoiceId":r[2],
              "cableBrand":r[3] or "","crossSection":float(r[4] or 0),"coresCount":r[5],
@@ -23030,7 +23354,9 @@ def list_cable_journal(project_name: str = None, _current_user: dict = Depends(r
              "installationLocation":r[15] or "","installationMethod":r[16] or "",
              "installedAt":str(r[17]) if r[17] else "","receivedAt":str(r[18]) if r[18] else "",
              "responsibleItr":r[19] or "","normatives":r[20] or "",
-             "aiFilled":bool(r[21]),"createdAt":str(r[22]),"cableType":r[23] or ""} for r in rows]
+             "aiFilled":bool(r[21]),"createdAt":str(r[22]),"cableType":r[23] or "",
+             "workPackage":r[24] or "","deliveryId":r[25],"warehouseHistoryId":r[26],
+             "sourceType":r[27] or "","sourceId":r[28],"sourceItemKey":r[29] or ""} for r in rows]
 
 @app.put("/cable-journal/{id}")
 def update_cable_journal(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "кладовщик", "снабженец"))):
