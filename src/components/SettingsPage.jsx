@@ -2,6 +2,7 @@ import React from 'react';
 import { Check, Eye, FileText, Plus, Trash2, Upload, X } from 'lucide-react';
 import SettingsTabsNav from './SettingsTabsNav';
 import SitePricingSettingsPanel from './SitePricingSettingsPanel';
+import { createCompanyDocumentForm } from '../features/settings/settingsInitialForms';
 
 const COMPANY_DOC_TYPES = ['Устав','ОГРН','ИНН','Выписка ЕГРЮЛ','Лицензия СРО','Доверенность','Прочее'];
 
@@ -91,7 +92,7 @@ export default function SettingsPage({
             <label style={{cursor:'pointer',backgroundColor:C.infoLight,padding:'10px',borderRadius:'8px',fontSize:'13px',color:C.info,border:'1.5px solid '+C.infoBorder,display:'flex',alignItems:'center',gap:'8px'}}><Upload size={14}/>Загрузить файл<input type="file" accept="image/*,application/pdf" style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{context:'company-documents'});setNewCompanyDoc(prev=>({...prev,fileUrl:url}));}}} /></label>
           </div>
           {newCompanyDoc.fileUrl&&<p style={{color:C.success,fontSize:'12px',marginTop:'8px'}}>✅ Файл загружен</p>}
-          <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={async()=>{if(!newCompanyDoc.name) return;await fetch(API+'/company-documents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newCompanyDoc,uploadedBy:user.name})});await loadAll();setNewCompanyDoc({name:'',docType:'Устав',fileUrl:'',expiresAt:''});setShowForm(false);}} style={btnO}><Check size={14}/>Сохранить</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
+          <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={async()=>{if(!newCompanyDoc.name) return;await fetch(API+'/company-documents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newCompanyDoc,uploadedBy:user.name})});await loadAll();setNewCompanyDoc(createCompanyDocumentForm());setShowForm(false);}} style={btnO}><Check size={14}/>Сохранить</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
         </div>)}
         {COMPANY_DOC_TYPES.map(docType=>{
           const docs=companyDocuments.filter(d=>d.docType===docType);

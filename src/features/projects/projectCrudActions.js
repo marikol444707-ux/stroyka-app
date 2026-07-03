@@ -2,6 +2,7 @@ import {
   projectSitePublicationDraft,
   projectSitePublicationPayload,
 } from '../../utils/projectSitePublicationUtils';
+import { createClientForm, createProjectForm } from './projectInitialForms';
 
 export const createProjectCrudActions = ({
   API,
@@ -43,7 +44,7 @@ export const createProjectCrudActions = ({
         await readApiResult(await fetch(API + '/users', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: newProject.client || newProject.name, email: newProject.clientEmail, password: newProject.clientPassword, role: 'заказчик', projectName: newProject.name})}));
         alert('Заказчик создан! Логин: ' + newProject.clientEmail + ' Пароль: ' + newProject.clientPassword);
       }
-      setNewProject({name: '', client: '', status: 'Планирование', budget: '', deadline: '', progress: 0, tasks: [], pricelistId: null});
+      setNewProject(createProjectForm());
       setEditingItem(null);
       setShowForm(false);
     } catch (err) {
@@ -127,7 +128,7 @@ export const createProjectCrudActions = ({
     if (editingItem) await fetch(API + '/clients/' + editingItem.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(newClient)});
     else await fetch(API + '/clients', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(newClient)});
     await refreshData();
-    setNewClient({name: '', phone: '', email: '', status: 'Активный', notes: ''});
+    setNewClient(createClientForm());
     setEditingItem(null);
     setShowForm(false);
   };

@@ -1,4 +1,5 @@
 import { emptySupplierForm, normalizeSupplierPayload } from '../../utils/supplierUtils';
+import { createRequestForm, createSupplierOfferForm } from './supplyInitialForms';
 
 export const createSupplyActions = ({
   API,
@@ -123,7 +124,7 @@ export const createSupplyActions = ({
     }
     notify('Новая заявка на материалы', 'supply');
     await refreshData();
-    setNewRequest({ items: [{ materialName: '', quantity: '', unit: 'шт', workPackage: '' }], project: '', notes: '', selectedSuppliers: [], category: '' });
+    setNewRequest(createRequestForm());
     setShowForm(false);
   };
 
@@ -508,7 +509,7 @@ export const createSupplyActions = ({
       }),
     });
     await refreshData();
-    setNewOffer({ supplierId: '', pricePerUnit: '', deliveryDays: '', notes: '' });
+    setNewOffer(createSupplierOfferForm());
   };
 
   const approveOffer = async (offer) => {

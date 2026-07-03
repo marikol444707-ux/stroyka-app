@@ -1,6 +1,7 @@
 import React from 'react';
 import { Check, Plus, X } from 'lucide-react';
 import { API } from '../api';
+import { createWarehouseInvoiceItemForm } from '../features/warehouse/warehouseInitialForms';
 
 export default function ScannedInvoiceFormModal({
   showScannedInvoiceForm,
@@ -216,7 +217,7 @@ export default function ScannedInvoiceFormModal({
               <input placeholder='Цена с НДС' type='number' step='any' inputMode='decimal' value={item.price} onChange={e=>updateItem(idx,{price:e.target.value})} style={itemInputStyle}/>
               <input placeholder='Сумма строки' type='number' step='any' inputMode='decimal' value={item.lineTotal||''} onChange={e=>updateItem(idx,{lineTotal:e.target.value})} style={itemInputStyle}/>
             </div>
-            <button onClick={()=>{const items=newInvoice.items.filter((_,i)=>i!==idx);if(!items.length)items.push({name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:defaultWorkPackage});setNewInvoice({...newInvoice,items,...(isScannedInvoice?{scanHasManualCorrections:true}:{})});}} style={{...btnR,padding:isMobile?'8px':'4px 6px',fontSize:'11px',alignSelf:'stretch',justifyContent:'center'}}><X size={isMobile?16:12}/></button>
+            <button onClick={()=>{const items=newInvoice.items.filter((_,i)=>i!==idx);if(!items.length)items.push(createWarehouseInvoiceItemForm({workPackage:defaultWorkPackage}));setNewInvoice({...newInvoice,items,...(isScannedInvoice?{scanHasManualCorrections:true}:{})});}} style={{...btnR,padding:isMobile?'8px':'4px 6px',fontSize:'11px',alignSelf:'stretch',justifyContent:'center'}}><X size={isMobile?16:12}/></button>
             {invoiceProject && (
               <select value={item.estimateWorkValue || ''} onChange={e=>updateItemWork(idx, e.target.value)} style={{...itemSelectStyle,gridColumn:isMobile?undefined:'1 / span 6'}}>
                 <option value=''>Работа сметы, если материал не выделен отдельной строкой</option>
@@ -225,7 +226,7 @@ export default function ScannedInvoiceFormModal({
             )}
           </div>
         ))}
-        <button onClick={()=>setNewInvoice({...newInvoice,items:[...(newInvoice.items||[]),{name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:defaultWorkPackage}],...(isScannedInvoice?{scanHasManualCorrections:true}:{})})} style={{...btnG,fontSize:isMobile?'15px':'12px',padding:isMobile?'10px 14px':'6px 12px',marginBottom:'10px'}}><Plus size={12}/>Ещё позиция</button>
+        <button onClick={()=>setNewInvoice({...newInvoice,items:[...(newInvoice.items||[]),createWarehouseInvoiceItemForm({workPackage:defaultWorkPackage})],...(isScannedInvoice?{scanHasManualCorrections:true}:{})})} style={{...btnG,fontSize:isMobile?'15px':'12px',padding:isMobile?'10px 14px':'6px 12px',marginBottom:'10px'}}><Plus size={12}/>Ещё позиция</button>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',margin:'8px 0'}}>
           <b style={{color:C.text,fontSize:isMobile?'18px':'13px'}}>Итого: {displayTotal.toLocaleString()} ₽</b>
         </div>

@@ -1,3 +1,5 @@
+import { createUserForm } from '../personnel/personnelInitialForms';
+
 export const createUserAccessActions = ({
   API,
   editingItem,
@@ -46,7 +48,7 @@ export const createUserAccessActions = ({
       }
     }
     await refreshData();
-    setNewUser({name: '', email: '', password: '', role: 'прораб', companyName: '', inn: '', projectId: '', projectName: '', assignedProjects: [], assignedPackages: [], active: true});
+    setNewUser(createUserForm());
     setEditingItem(null);
     setShowForm(false);
   };

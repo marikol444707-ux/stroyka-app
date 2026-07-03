@@ -1,28 +1,13 @@
-const defaultRoomForm = {
-  project: '',
-  name: '',
-  floor: '',
-  liter: '',
-  roomType: 'Комната',
-  floorArea: '',
-  wallArea: '',
-  ceilingArea: '',
-  height: '',
-  ceilingType: 'Простой',
-  wallMaterial: 'Штукатурка',
-  floorMaterial: 'Стяжка',
-  photoUrl: '',
-  notes: '',
-};
-
-const defaultWeatherForm = {
-  projectName: '',
-  date: '',
-  temperature: '',
-  condition: 'Ясно',
-  windSpeed: '',
-  notes: '',
-};
+import {
+  createChecklistForm,
+  createDoorForm,
+  createPrescriptionForm,
+  createProjectStageForm,
+  createRoomForm,
+  createWeatherForm,
+  createWindowForm,
+} from './projectOperationInitialForms';
+import { createWarehouseForm } from '../warehouse/warehouseInitialForms';
 
 export function createProjectOperationActions({
   API,
@@ -119,7 +104,7 @@ export function createProjectOperationActions({
       }
     }
     await refreshData();
-    setNewRoom(defaultRoomForm);
+    setNewRoom(createRoomForm());
     setDraftRoomWindows([]);
     setDraftRoomDoors([]);
     setEditingItem(null);
@@ -144,7 +129,7 @@ export function createProjectOperationActions({
       const win = { ...newWindow, id: Date.now(), room_id: Number(roomId) };
       setRoomWindows(prev => [...prev, win]);
     }
-    setNewWindow({ roomId: '', name: 'Окно ' + (roomWindows.filter(w => w.room_id === roomId).length + 2), width: '', height: '', windowType: 'ПВХ', revealDepth: '', revealMaterial: 'Штукатурка' });
+    setNewWindow(createWindowForm({ name: 'Окно ' + (roomWindows.filter(w => w.room_id === roomId).length + 2) }));
   };
 
   const updateWindow = async (win) => {
@@ -173,7 +158,7 @@ export function createProjectOperationActions({
       const door = { ...newDoor, id: Date.now(), room_id: Number(roomId) };
       setRoomDoors(prev => [...prev, door]);
     }
-    setNewDoor({ roomId: '', name: 'Дверь ' + (roomDoors.filter(d => d.room_id === roomId).length + 2), width: '', height: '', doorType: 'Деревянная', doorPurpose: 'Межкомнатная', revealDepth: '', revealMaterial: 'Штукатурка' });
+    setNewDoor(createDoorForm({ name: 'Дверь ' + (roomDoors.filter(d => d.room_id === roomId).length + 2) }));
   };
 
   const updateDoor = async (door) => {
@@ -198,7 +183,7 @@ export function createProjectOperationActions({
     const updated = [...weatherLog, entry];
     setWeatherLog(updated);
     localStorage.setItem('weatherLog', JSON.stringify(updated));
-    setNewWeather(defaultWeatherForm);
+    setNewWeather(createWeatherForm());
   };
 
   const saveTbEntry = async (data) => {
@@ -229,7 +214,7 @@ export function createProjectOperationActions({
     if (editingItem) await fetch(API + '/warehouses/' + editingItem.id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newWarehouse) });
     else await fetch(API + '/warehouses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newWarehouse) });
     await refreshData();
-    setNewWarehouse({ name: '', city: '', address: '', notes: '' });
+    setNewWarehouse(createWarehouseForm());
     setEditingItem(null);
     setShowForm(false);
   };
@@ -251,7 +236,7 @@ export function createProjectOperationActions({
     if (!newStage.name) return;
     await fetch(API + '/project-stages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...newStage, projectId, projectName, progress: Number(newStage.progress) || 0 }) });
     await refreshData();
-    setNewStage({ name: '', status: 'Не начат', startDate: '', endDate: '', progress: 0, responsible: '', notes: '' });
+    setNewStage(createProjectStageForm());
   };
 
   const updateStage = async (stage) => {
@@ -277,7 +262,7 @@ export function createProjectOperationActions({
       }
     }
     await refreshData();
-    setNewChecklist({ name: '', template: '' });
+    setNewChecklist(createChecklistForm());
   };
 
   const toggleChecklistItem = async (item) => {
@@ -289,7 +274,7 @@ export function createProjectOperationActions({
     if (!newPrescription.violation) return;
     await fetch(API + '/prescriptions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...newPrescription, projectName, issuedBy: user.name, issuedByRole: user.role }) });
     await refreshData();
-    setNewPrescription({ number: '', violation: '', deadline: '', responsible: '', photoUrl: '' });
+    setNewPrescription(createPrescriptionForm());
   };
 
   const saveUnexpectedWork = async (projectName) => {

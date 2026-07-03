@@ -1,12 +1,21 @@
 import { buildEstimateChatContext } from '../../utils/estimateChatUtils';
+import { resolveEstimatePackage } from '../../utils/estimatePackage';
+import {
+  activeEstimateFromList,
+  normalizeImportedEstimateItem,
+} from '../../utils/estimateUtils';
 
 export function createEstimatePageActions({
   API,
   ROLE_LABELS,
+  applyEstimateActivationState,
   aiMessages,
+  autoReconcileEstimateChanges,
   brigadeContracts,
   buildEstimateDiffContent,
   contracts,
+  createEstimateReconciliation,
+  enrichEstimateMeasurementBasis,
   estimateDiffBaseFor,
   estimateItemMaterialSum,
   estimateItemTotal,
@@ -20,13 +29,22 @@ export function createEstimatePageActions({
   estimateQualityRows,
   executionPriceFillPercent,
   exportToExcel,
+  estimatesList,
+  isGlobalEstimateTemplate,
+  isLeadership,
   isEstimateWorkItem,
   materials,
+  newEstimate,
+  nextEstimateVersionFor,
   normalizeEstimateImportSections,
   normalizeEstimateItemType,
   persistEstimate,
   projects,
+  queueEstimateDiffReviewTask,
+  queueEstimateNormReviewTask,
   queueEstimateQualityReviewTask,
+  readApiResult,
+  sameEstimateGroup,
   selectedEstimate,
   setAiInput,
   setAiLoading,
@@ -38,7 +56,9 @@ export function createEstimatePageActions({
   setEstimateChatMessages,
   setEstimateVersions,
   setEstimatesList,
+  setEstimatesTab,
   setExecutionPriceFillPercent,
+  setImportValidating,
   setImportValidationWarnings,
   setSelectedEstimate,
   setSelectedVersionsToCompare,
@@ -97,6 +117,156 @@ export function createEstimatePageActions({
       setEstimateChatMessages([...localHistory, {role: 'assistant', content: 'Ошибка соединения', id: Date.now() + 1}]);
     }
     setEstimateChatLoading(false);
+  };
+
+  const handleEstimateImportFile = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!newEstimate.projectId) {
+      alertFn('Сначала выберите проект — без привязки смета не сохранится');
+      e.target.value = '';
+      return;
+    }
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const data = await readApiResult(await fetchFn(API + '/parse-smeta', {method: 'POST', body: fd}));
+      if (data.error) throw new Error(data.error);
+      if (!Array.isArray(data.items) || !data.items.length) {
+        throw new Error('В файле не найдены рабочие строки сметы. Если это ССР/сводный расчёт, загрузите его как документ, а рабочую смету импортируйте из ЛСР или СК.');
+      }
+      const sections = {};
+      (data.items || []).forEach(item => {
+        if (!sections[item.section]) {
+          sections[item.section] = {id: Date.now() + Math.random(), name: item.section, items: []};
+        }
+        const importedItem = normalizeImportedEstimateItem({
+          id: Date.now() + Math.random(),
+          name: item.name,
+          unit: item.unit,
+          quantity: item.quantity,
+          rawUnit: item.rawUnit || '',
+          rawQuantity: item.rawQuantity,
+          unitFactor: item.unitFactor || 1,
+          quantityBase: item.quantityBase,
+          quantityCoefficient: item.quantityCoefficient,
+          quantityFinal: item.quantityFinal,
+          baseUnitPrice: item.baseUnitPrice,
+          costCoefficient: item.costCoefficient,
+          baseTotal: item.baseTotal,
+          costIndex: item.costIndex,
+          currentTotal: item.currentTotal,
+          lineTotalSource: item.lineTotalSource,
+          total: item.total,
+          sum: item.sum,
+          amount: item.amount,
+          lineTotal: item.lineTotal,
+          totalSum: item.totalSum,
+          totalWork: item.totalWork,
+          totalMaterial: item.totalMaterial,
+          priceWork: item.priceWork,
+          priceMaterial: item.priceMaterial,
+          sourceCode: item.sourceCode || item.obosn || '',
+          workKey: item.workKey || '',
+          workName: item.workName || '',
+          workSourceCode: item.workSourceCode || '',
+          parentWorkKey: item.parentWorkKey || '',
+          parentWorkName: item.parentWorkName || '',
+          parentWorkSourceCode: item.parentWorkSourceCode || '',
+          resourceRole: item.resourceRole || '',
+          isImported: true,
+          itemType: item.type || '',
+        }, item.section);
+        sections[item.section].items.push(importedItem);
+      });
+
+      const projName = newEstimate.projectName || ((projects || []).find(p => p.id === Number(newEstimate.projectId))?.name || '');
+      const fileName = file.name.replace('.xlsx', '').replace('.xls', '');
+      const resolvedWorkPackage = resolveEstimatePackage(newEstimate.workPackage, fileName, newEstimate.name);
+      const estimateStatus = isLeadership() ? (newEstimate.status || 'Активная') : 'Черновик';
+      const estDraft = {
+        projectId: newEstimate.projectId,
+        projectName: projName,
+        smetaType: newEstimate.smetaType || 'Заказчик',
+        workPackage: resolvedWorkPackage,
+      };
+      const est = {
+        id: Date.now(),
+        name: fileName || newEstimate.name || 'Смета — ' + projName,
+        projectId: newEstimate.projectId,
+        projectName: projName,
+        version: newEstimate.version || nextEstimateVersionFor(estDraft),
+        smetaType: newEstimate.smetaType || 'Заказчик',
+        workPackage: resolvedWorkPackage,
+        status: estimateStatus,
+        sections: enrichEstimateMeasurementBasis(Object.values(sections)),
+      };
+      const saved = await readApiResult(await fetchFn(API + '/estimates', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(est),
+      }));
+      if (!saved?.id) throw new Error('Сервер не вернул id сохранённой сметы');
+      const estWithId = {...est, id: saved.id, smetaType: newEstimate.smetaType || 'Заказчик', workPackage: resolvedWorkPackage, status: estimateStatus};
+      const diffBase = activeEstimateFromList((estimatesList || []).filter(e => (
+        estWithId.status === 'Активная' &&
+        !isGlobalEstimateTemplate(e) &&
+        sameEstimateGroup(e, estWithId) &&
+        e.status === 'Активная'
+      )));
+      const nextEstimates = applyEstimateActivationState([...(estimatesList || []), estWithId], estWithId);
+      setEstimatesList(nextEstimates);
+      setSelectedEstimate(estWithId);
+      setEstimatesTab('list');
+      if (diffBase) {
+        await queueEstimateDiffReviewTask(diffBase, estWithId, 'Импорт сметы');
+        await autoReconcileEstimateChanges(diffBase, estWithId, 'Импорт сметы');
+        await createEstimateReconciliation(diffBase, estWithId, {silent: true});
+      }
+      await queueEstimateQualityReviewTask(estWithId, 'Импорт сметы');
+      await queueEstimateNormReviewTask(estWithId, 'Импорт сметы', nextEstimates);
+      const qualityWarnings = estimateQualityRows(estWithId).map(row => ({
+        type: 'качество',
+        where: (row.sectionName || '') + ' / ' + (row.itemName || ''),
+        message: row.status + ': ' + row.message,
+        severity: row.severity === 'critical' ? 'критично' : row.severity === 'info' ? 'совет' : 'внимание',
+      }));
+      setImportValidating(true);
+      setImportValidationWarnings(qualityWarnings);
+      try {
+        const items = Object.values(sections).flatMap(s => (s.items || []).map(i => ({
+          section: s.name,
+          name: i.name,
+          unit: i.unit,
+          qty: Number(i.quantity || 0),
+        })));
+        const valPrompt = 'Проверь смету "' + est.name + '" на типовые проблемы при импорте из Гранд Сметы. Позиции:\n' + JSON.stringify(items, null, 1) + '\n\nИЩИ:\n- Забытые сопутствующие работы (например штукатурка без грунтовки)\n- Возможные дубликаты позиций\n- Подозрительно большие или маленькие объёмы\n- Странные единицы измерения\n\nОТВЕТЬ СТРОГО JSON:\n{"warnings":[{"type":"забыто|дубль|объём|единица|другое","where":"раздел или позиция","message":"что не так","severity":"критично|внимание|совет"}]}\nЕсли всё хорошо — пиши {"warnings":[]}. Только JSON.';
+        const r = await fetchFn(API + '/ai-chat', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({messages: [{role: 'user', content: valPrompt}], jsonOnly: true}),
+        });
+        const d = await r.json();
+        const raw = (d.response || '').trim();
+        const clean = raw.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+        const s = clean.indexOf('{');
+        const en = clean.lastIndexOf('}');
+        if (s >= 0 && en > s) {
+          const p = JSON.parse(clean.slice(s, en + 1));
+          if (Array.isArray(p.warnings)) setImportValidationWarnings([...qualityWarnings, ...p.warnings]);
+        }
+      } catch (err) {}
+      setImportValidating(false);
+      const meta = data.meta || {};
+      const mismatchText = meta.totalMismatch
+        ? '\n\nВнимание: итог файла ' + Number(meta.declaredTotal || 0).toLocaleString('ru-RU') + ' ₽, сумма разобранных строк ' + Number(meta.parsedTotal || 0).toLocaleString('ru-RU') + ' ₽. Строки НЕ умножались общим коэффициентом, чтобы не ломать оплату мастерам. Нужно разобрать итоговый блок/индексы работ и материалов отдельно.'
+        : '';
+      alertFn('Импортировано ' + data.count + ' позиций! ИИ проверяет смету в фоне — результат появится сверху.' + mismatchText);
+    } catch (err) {
+      alertFn('Ошибка импорта: ' + (err.message || err));
+    } finally {
+      e.target.value = '';
+    }
   };
 
   const handleEstimateAiAnalysis = async () => {
@@ -375,6 +545,7 @@ export function createEstimatePageActions({
     fillSelectedEstimateExecutionPrices,
     handleDetectEstimateHiddenWorks,
     handleEstimateAiAnalysis,
+    handleEstimateImportFile,
     handleExportSelectedEstimate,
     handleNormalizeSelectedEstimateImport,
     handleOpenEstimateDistribute,

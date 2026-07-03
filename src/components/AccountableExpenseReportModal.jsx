@@ -1,5 +1,6 @@
 import React from 'react';
 import { Check, X } from 'lucide-react';
+import { createAccountableExpenseForm } from '../features/payments/paymentInitialForms';
 
 export default function AccountableExpenseReportModal({
   reportingPayment,
@@ -25,7 +26,7 @@ export default function AccountableExpenseReportModal({
 
   const reset = () => {
     setReportingPayment(null);
-    setNewExpense({description:'',amount:'',photoUrl:''});
+    setNewExpense(createAccountableExpenseForm());
   };
 
   const submit = async () => {
@@ -33,7 +34,7 @@ export default function AccountableExpenseReportModal({
     setExpenseSubmitting(true);
     await fetch(API+'/accountable-expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paymentId:reportingPayment.id,projectName:newExpense.projectName||reportingPayment.projectName,description:newExpense.description,amount:Number(newExpense.amount),photoUrl:newExpense.photoUrl||'',date:new Date().toISOString().split('T')[0],addedBy:user.name})});
     setReportingPayment(null);
-    setNewExpense({description:'',amount:'',photoUrl:''});
+    setNewExpense(createAccountableExpenseForm());
     setExpenseSubmitting(false);
     await loadAll();
     alert('Отчёт отправлен!');

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Check, X } from 'lucide-react';
+import { createAccountablePaymentForm } from '../features/payments/paymentInitialForms';
 
 export default function AccountablePaymentModal({
   showAccountableForm,
@@ -21,13 +22,13 @@ export default function AccountablePaymentModal({
 
   const reset = () => {
     setShowAccountableForm(false);
-    setNewAccountable({givenTo:'',amount:'',paymentMethod:'Наличные',purpose:'',date:'',projectName:''});
+    setNewAccountable(createAccountablePaymentForm());
   };
 
   const submit = async () => {
     if(!newAccountable.givenTo||!newAccountable.amount||!newAccountable.projectName) return;
     await fetch(API+'/accountable-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newAccountable,amount:Number(newAccountable.amount),addedBy:user.name})});
-    setNewAccountable({givenTo:'',amount:'',paymentMethod:'Наличные',purpose:'',date:'',projectName:''});
+    setNewAccountable(createAccountablePaymentForm());
     setShowAccountableForm(false);
     await loadAll();
   };

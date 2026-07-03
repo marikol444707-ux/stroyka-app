@@ -4,6 +4,7 @@ import ProjectHiddenWorksActSignatureModal from './ProjectHiddenWorksActSignatur
 import PreviewModal from './PreviewModal';
 import ImagePreviewModal from './ImagePreviewModal';
 import { Search, Eye, Check, Plus, Upload, ChevronRight } from 'lucide-react';
+import { createSupervisorActForm } from '../features/documents/projectDocumentInitialForms';
 
 export default function SupervisorCabinetPage(props) {
   const {
@@ -675,13 +676,7 @@ export default function SupervisorCabinetPage(props) {
                           }),
                         });
                         await refreshData();
-                        setNewSupervisorAct({
-                          actType: 'Осмотр',
-                          description: '',
-                          findings: '',
-                          recommendations: '',
-                          date: '',
-                        });
+                        setNewSupervisorAct(createSupervisorActForm());
                         setSupervisorActPhoto('');
                         setShowForm(false);
                         alert('Акт сохранён');
@@ -694,13 +689,7 @@ export default function SupervisorCabinetPage(props) {
                     <button
                       onClick={() => {
                         setShowForm(false);
-                        setNewSupervisorAct({
-                          actType: 'Осмотр',
-                          description: '',
-                          findings: '',
-                          recommendations: '',
-                          date: '',
-                        });
+                        setNewSupervisorAct(createSupervisorActForm());
                         setSupervisorActPhoto('');
                       }}
                       style={btnG}

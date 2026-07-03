@@ -1,6 +1,7 @@
 import React from 'react';
 import { Check, Edit2, Eye, Plus, Trash2, X } from 'lucide-react';
 import { API } from '../api';
+import { createToolForm } from '../features/warehouse/warehouseInitialForms';
 
 export default function WarehouseOperationsPanel({
   warehouseTab,
@@ -286,18 +287,7 @@ export default function WarehouseOperationsPanel({
             onClick={() => {
               setShowForm(!showForm);
               setEditingItem(null);
-              setNewTool({
-                name: '',
-                inventoryNumber: '',
-                cost: '',
-                status: 'На складе',
-                location: 'Основной склад',
-                project: '',
-                masterId: '',
-                masterName: '',
-                issueType: '',
-                notes: '',
-              });
+              setNewTool(createToolForm());
             }}
             style={btnO}
           >

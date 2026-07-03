@@ -1,17 +1,6 @@
 import React from 'react';
 import { Check, ChevronDown, ChevronUp, Copy, Edit2, Plus, RefreshCw, Trash2, X } from 'lucide-react';
-
-const emptyUser = {
-  name: '',
-  email: '',
-  password: '',
-  role: 'прораб',
-  projectId: '',
-  projectName: '',
-  assignedProjects: [],
-  assignedPackages: [],
-  active: true,
-};
+import { createUserForm } from '../features/personnel/personnelInitialForms';
 
 function UsersPage({
   C,
@@ -56,12 +45,12 @@ function UsersPage({
   const openNewUser = () => {
     setShowForm(!showForm);
     setEditingItem(null);
-    setNewUser({...emptyUser});
+    setNewUser(createUserForm());
   };
 
   const editUser = (u) => {
     setEditingItem(u);
-    setNewUser({
+    setNewUser(createUserForm({
       name: u.name,
       email: u.email,
       password: '',
@@ -71,7 +60,7 @@ function UsersPage({
       assignedProjects: Array.isArray(u.assignedProjects) ? u.assignedProjects : [],
       assignedPackages: Array.isArray(u.assignedPackages) ? u.assignedPackages : [],
       active: u.active !== false,
-    });
+    }));
     setShowForm(true);
   };
 

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Check, Eye, Plus, QrCode, Truck, Upload, X } from 'lucide-react';
 import { invoiceImageAccept, normalizeInvoiceImageFiles } from '../../utils/invoiceImages';
+import { createWarehouseInvoiceItemForm } from '../../features/warehouse/warehouseInitialForms';
 
 export function WarehouseInvoiceForm({
   newInvoice,
@@ -96,14 +97,14 @@ export function WarehouseInvoiceForm({
     const items = invoiceItems.filter((_, itemIdx) => itemIdx !== idx);
     setNewInvoice({
       ...newInvoice,
-      items: items.length ? items : [{name:'', quantity:'', unit:'шт', price:'', category:'', workPackage:defaultWorkPackage}],
+      items: items.length ? items : [createWarehouseInvoiceItemForm({ workPackage: defaultWorkPackage })],
     });
   };
 
   const addItem = () => {
     setNewInvoice({
       ...newInvoice,
-      items: [...invoiceItems, {name:'', quantity:'', unit:'шт', price:'', category:'', workPackage:defaultWorkPackage}],
+      items: [...invoiceItems, createWarehouseInvoiceItemForm({ workPackage: defaultWorkPackage })],
     });
   };
 

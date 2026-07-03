@@ -1,6 +1,7 @@
 import React from 'react';
 import { Check, ChevronDown, ChevronUp, Edit2, Plus, Search, Trash2, X } from 'lucide-react';
 import { API } from '../api';
+import { createSupplierForm, createSupplierInviteForm } from '../features/supply/supplyInitialForms';
 import DocumentRecognitionPanel from './DocumentRecognitionPanel';
 
 const normalizeSupplierKey = value => String(value || '')
@@ -80,11 +81,10 @@ function SupplySuppliersPanel({
 }) {
   const [openedSupplierId, setOpenedSupplierId] = React.useState(null);
   const canEditSuppliers = ['директор','зам_директора','кладовщик','снабженец'].includes(user.role);
-  const emptySupplier = {
-    name:'',phone:'',email:'',specialization:'',category:'Сыпучие и бетон',rating:5.0,status:'Активный',
+  const emptySupplier = createSupplierForm({
     inn:'',kpp:'',ogrn:'',legalAddress:'',actualAddress:'',bank:'',bik:'',account:'',korAccount:'',
     directorName:'',directorPosition:'',contractUrl:'',contractNumber:'',contractDate:'',licenseUrl:'',priceUrl:'',website:'',notes:''
-  };
+  });
   const supplierValue = (supplier, camel, snake=camel) => supplier?.[camel] || supplier?.[snake] || '';
   const normalizeSupplierForEdit = (supplier={}) => ({
     ...emptySupplier,
@@ -281,7 +281,7 @@ function SupplySuppliersPanel({
   };
 
   const openInvite = () => {
-    setSupplierInviteForm({presetName:'',presetCategory:'Сыпучие и бетон',supplierId:null,expiresInDays:14});
+    setSupplierInviteForm(createSupplierInviteForm());
     setGeneratedInviteLink(null);
     setShowSupplierInviteModal(true);
   };
@@ -289,7 +289,7 @@ function SupplySuppliersPanel({
   const openManualForm = () => {
     setShowForm(!showForm);
     setEditingItem(null);
-    setNewSupplier({...emptySupplier});
+    setNewSupplier(createSupplierForm(emptySupplier));
   };
 
   const editSupplier = (supplier, event) => {

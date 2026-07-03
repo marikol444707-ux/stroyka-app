@@ -1,3 +1,5 @@
+import { createMeasurementDocForm } from './projectMeasurementInitialForms';
+
 const alertMessage = (message) => {
   if (typeof window !== 'undefined' && typeof window.alert === 'function') {
     window.alert(message);
@@ -44,16 +46,7 @@ export function createProjectMeasurementActions({
         uploadedBy: user.name,
       }),
     });
-    setNewMeasurementDoc({
-      sourceType: 'Фактический ручной',
-      docType: 'Обмер',
-      title: '',
-      fileUrl: '',
-      photoUrl: '',
-      status: 'Черновик',
-      roomsCreated: '0',
-      notes: '',
-    });
+    setNewMeasurementDoc(createMeasurementDocForm());
     setShowMeasurementForm(false);
     await refreshData();
   };

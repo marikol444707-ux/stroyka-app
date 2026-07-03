@@ -1,3 +1,5 @@
+import { createPricelistForm, createPricelistItemForm } from './pricelistInitialForms';
+
 export const createPricelistActions = ({
   API,
   editingItem,
@@ -25,7 +27,7 @@ export const createPricelistActions = ({
     if (editingItem) await fetch(API + '/pricelists/' + editingItem.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(newPricelist)});
     else await fetch(API + '/pricelists', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(newPricelist)});
     await refreshData();
-    setNewPricelist({name: '', description: '', forWho: '', coefficient: 1.0});
+    setNewPricelist(createPricelistForm());
     setEditingItem(null);
     setShowForm(false);
   };
@@ -54,7 +56,7 @@ export const createPricelistActions = ({
     if (editingPlItem && editingPlItem.id) await fetch(API + '/pricelist-items/' + editingPlItem.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});
     else await fetch(API + '/pricelist-items', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});
     await loadPricelistItems(selectedPricelist.id);
-    setNewPlItem({name: '', unit: 'м2', price: '', category: ''});
+    setNewPlItem(createPricelistItemForm());
     setEditingPlItem(null);
   };
 
@@ -67,7 +69,7 @@ export const createPricelistActions = ({
   const cancelInlinePlEdit = () => {
     setInlineEditPl(null);
     setInlineEditPrice('');
-    setInlineEditPlData({name: '', unit: 'м2', price: '', category: ''});
+    setInlineEditPlData(createPricelistItemForm());
   };
 
   const saveInlinePlItem = async (item) => {

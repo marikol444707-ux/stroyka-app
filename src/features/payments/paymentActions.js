@@ -1,3 +1,5 @@
+import { createActPaymentForm, createBrigadePaymentForm } from './paymentInitialForms';
+
 export const createPaymentActions = ({
   API,
   actPayments,
@@ -45,7 +47,7 @@ export const createPaymentActions = ({
     setActPayments(updated);
     localStorage.setItem('actPayments', JSON.stringify(updated));
     await refreshData();
-    setNewPayment({amount:'', paymentType:'Наличный расчёт', paidBy:'', date:'', notes:''});
+    setNewPayment(createActPaymentForm());
     setShowPayActModal(null);
   };
 
@@ -84,7 +86,7 @@ export const createPaymentActions = ({
     }
     const pays = await fetch(API + '/brigade-payments?contract_id=' + selectedBrigadeContract.id).then(r => r.json());
     setBrigadePayments(Array.isArray(pays) ? pays : []);
-    setNewBrigadePayment({amount:'', paidBy:'', paidDate:'', note:''});
+    setNewBrigadePayment(createBrigadePaymentForm());
     setShowBrigadePayModal(false);
     await refreshData();
   };

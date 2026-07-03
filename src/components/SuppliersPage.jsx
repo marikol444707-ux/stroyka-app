@@ -1,6 +1,7 @@
 import React from 'react';
 import { Bot, Check, Edit2, Plus, Search, Trash2, X } from 'lucide-react';
 import { API } from '../api';
+import { createRequestForm, createSupplierForm, createSupplierInviteForm } from '../features/supply/supplyInitialForms';
 
 function SuppliersPage({
   C,
@@ -67,12 +68,12 @@ function SuppliersPage({
   const updateRequestProject = (projectName) => {
     const packages = typeof getProjectWorkPackageOptions === 'function' ? getProjectWorkPackageOptions(projectName) : [];
     const defaultPackage = packages.length === 1 ? packages[0] : '';
-    setNewRequest({
+    setNewRequest(createRequestForm({
       ...newRequest,
       project: projectName,
       workPackage: defaultPackage,
       items: (newRequest.items || []).map(item => ({...item, workPackage: item.workPackage || defaultPackage})),
-    });
+    }));
   };
 
   return (
@@ -90,8 +91,8 @@ function SuppliersPage({
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',gap:'8px',flexWrap:'wrap'}}>
             <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Поставщики</b>
             <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
-              <button onClick={()=>{setSupplierInviteForm({presetName:'',presetCategory:'Сыпучие и бетон',supplierId:null,expiresInDays:14});setGeneratedInviteLink(null);setShowSupplierInviteModal(true);}} style={btnGr}><Plus size={14}/>🔗 Пригласить по ссылке</button>
-              <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewSupplier({name:'',phone:'',email:'',specialization:'',category:'Сыпучие и бетон',rating:5.0,status:'Активный'});}} style={btnO}><Plus size={14}/>Добавить вручную</button>
+              <button onClick={()=>{setSupplierInviteForm(createSupplierInviteForm());setGeneratedInviteLink(null);setShowSupplierInviteModal(true);}} style={btnGr}><Plus size={14}/>🔗 Пригласить по ссылке</button>
+              <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewSupplier(createSupplierForm());}} style={btnO}><Plus size={14}/>Добавить вручную</button>
             </div>
           </div>
 
@@ -139,7 +140,7 @@ function SuppliersPage({
                         </div>
                       </div>
                       <div style={{display:'flex',gap:'6px'}}>
-                        <button onClick={()=>{setEditingItem(s);setNewSupplier({...s});setShowForm(true);}} style={{...btnG,padding:'5px 10px'}}><Edit2 size={11}/></button>
+                        <button onClick={()=>{setEditingItem(s);setNewSupplier(createSupplierForm(s));setShowForm(true);}} style={{...btnG,padding:'5px 10px'}}><Edit2 size={11}/></button>
                         <button onClick={()=>deleteSupplier(s.id)} style={{...btnR,padding:'5px 10px'}}><Trash2 size={11}/></button>
                       </div>
                     </div>

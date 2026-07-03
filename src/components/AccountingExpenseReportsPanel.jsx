@@ -1,6 +1,7 @@
 import React from 'react';
 import { Check, Plus, Trash2 } from 'lucide-react';
 import { API } from '../api';
+import { createExpenseReportForm } from '../features/payments/paymentInitialForms';
 
 export default function AccountingExpenseReportsPanel({
   C,
@@ -26,17 +27,7 @@ export default function AccountingExpenseReportsPanel({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', flexWrap: 'wrap', gap: '8px' }}>
         <b style={{ color: C.text, fontSize: '15px', fontWeight: '700' }}>💼 Авансовые отчёты и командировочные</b>
         <button
-          onClick={() => setNewExpenseReport({
-            reportType: 'Авансовый отчёт',
-            employeeName: '',
-            projectName: '',
-            purpose: '',
-            issuedAmount: '',
-            spentAmount: '',
-            balance: '',
-            dateFrom: '',
-            dateTo: '',
-          })}
+          onClick={() => setNewExpenseReport(createExpenseReportForm())}
           style={btnO}
         >
           <Plus size={14} />

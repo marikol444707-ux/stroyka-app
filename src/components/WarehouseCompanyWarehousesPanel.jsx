@@ -1,5 +1,6 @@
 import React from 'react';
 import { Check, Edit2, Plus, Trash2, X } from 'lucide-react';
+import { createWarehouseForm } from '../features/warehouse/warehouseInitialForms';
 
 export default function WarehouseCompanyWarehousesPanel({
   warehouses,
@@ -20,7 +21,7 @@ export default function WarehouseCompanyWarehousesPanel({
 }) {
   const resetForm = () => {
     setEditingItem(null);
-    setNewWarehouse({name:'',city:'',address:'',notes:''});
+    setNewWarehouse(createWarehouseForm());
   };
 
   return (
@@ -53,7 +54,7 @@ export default function WarehouseCompanyWarehousesPanel({
             {warehouse.notes&&<p style={{color:C.textMuted,margin:'0',fontSize:'11px'}}>{warehouse.notes}</p>}
           </div>
           <div style={{display:'flex',gap:'6px'}}>
-            <button onClick={() => {setEditingItem(warehouse);setNewWarehouse({name:warehouse.name,city:warehouse.city,address:warehouse.address,notes:warehouse.notes});setShowForm(true);}} style={{...btnG,padding:'5px 10px'}}><Edit2 size={11}/></button>
+            <button onClick={() => {setEditingItem(warehouse);setNewWarehouse(createWarehouseForm({name:warehouse.name,city:warehouse.city,address:warehouse.address,notes:warehouse.notes}));setShowForm(true);}} style={{...btnG,padding:'5px 10px'}}><Edit2 size={11}/></button>
             <button onClick={() => deleteWarehouse(warehouse.id)} style={{...btnR,padding:'5px 10px'}}><Trash2 size={11}/></button>
           </div>
         </div>

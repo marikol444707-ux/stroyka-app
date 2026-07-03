@@ -2,18 +2,7 @@ import React from 'react';
 import { Check, Eye, Plus, Trash2, Upload, X } from 'lucide-react';
 import { API } from '../api';
 import DocumentRecognitionPanel from './DocumentRecognitionPanel';
-
-const emptyProjectDoc = () => ({
-  side: 'customer',
-  docType: 'Договор',
-  number: '',
-  docDate: '',
-  counterparty: '',
-  signStatus: 'Не подписан',
-  scanUrl: '',
-  amount: '',
-  notes: '',
-});
+import { createProjectDocumentForm } from '../features/documents/projectDocumentInitialForms';
 
 const DOC_TYPES = ['Договор', 'Акт КС-2', 'Акт КС-3', 'АОСР', 'Доп.соглашение', 'Акт выполненных работ', 'Журнал', 'Счёт', 'Письмо', 'Другое'];
 const SIGN_STATUSES = ['Не подписан', 'На подписи', 'Подписан'];
@@ -54,7 +43,7 @@ export default function ProjectDocumentsRegistryPanel({
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({...newProjectDoc, projectName, uploadedBy: user.name}),
     });
-    setNewProjectDoc(emptyProjectDoc());
+    setNewProjectDoc(createProjectDocumentForm());
     setShowDocForm(false);
     await loadAll();
   };

@@ -1,4 +1,13 @@
 import React from 'react';
+import {
+  createDoorForm,
+  createInspectionOrderForm,
+  createRoomForm,
+  createWarrantyDefectForm,
+  createWindowForm,
+} from '../project-operations/projectOperationInitialForms';
+import { createProjectForm } from './projectInitialForms';
+import { createMaterialTransferForm } from '../warehouse/warehouseInitialForms';
 
 export default function ProjectsPage({ ctx }) {
   const {
@@ -23,7 +32,7 @@ export default function ProjectsPage({ ctx }) {
     includeChangesInNewEstimate, inp, inspectionOrders, isApprovedEstimateChangeStatus, isEstimateMaterialItem, isEstimatePricelist, isEstimateWorkItem, isFinanceRole,
     isCableName, isLeadership, isMobile, isProrab, listSearch, loadAll, loadChecklistItems, loadProjectChat, loadWorkJournalPage,
     manualExpenses, masterProfiles, matchSearch, materialControlStatus, materialControlSummaryForProject, materialInspections, materialNameKey, materialNormControlSummaryForProject,
-    materialReconciliationRows, materialTransfers, materials, measurementDraftLoadingId, measurementRoomDrafts, mobileExpandedRenderLists, navigateTo, newAccountable,
+    materialReconciliationRows, materialTransfers, materials, measurementDraftLoadingId, measurementRoomDrafts, mobileExpandedRenderLists, navigateTo,
     newBrigadeContract, newBrigadeItem, newChecklist, newChecklistItem, newDoor, newInspOrder, newLetter, newMeasurementDoc,
     newParticipant, newPrescription, newProject, newProjectDoc, newRoom, newStage, newTask, newTbEntry,
     newTransfer, newUnexpected, newWarrantyDefect, newWindow, normalizeMeasure, openAiTaskAction, openBrigadeContract, openConfirmModal,
@@ -95,7 +104,7 @@ export default function ProjectsPage({ ctx }) {
 <div>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px',flexWrap:'wrap',gap:'10px'}}>
               <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                {isLeadership()&&<button onClick={()=>{setShowForm(showForm===true?false:true);setEditingItem(null);setNewProject({name:'',client:'',status:'Планирование',budget:'',deadline:'',progress:0,tasks:[],pricelistId:null});}} style={btnO}><Plus size={14}/>Новый проект</button>}
+                {isLeadership()&&<button onClick={()=>{setShowForm(showForm===true?false:true);setEditingItem(null);setNewProject(createProjectForm());}} style={btnO}><Plus size={14}/>Новый проект</button>}
                 {projects.some(pr=>pr.archived)&&<button onClick={()=>setShowArchive(!showArchive)} style={btnG}><Archive size={14}/>{showArchive?'Активные':'Архив'}</button>}
               </div>
             </div>
@@ -843,7 +852,7 @@ export default function ProjectsPage({ ctx }) {
 	                    {activeProjectTab==='Помещения'&&(<div>
 	                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
 	                        <b style={{color:C.text}}>Помещения</b>
-                        {isProrab()&&<button onClick={()=>{setShowRoomForm(!showRoomForm);setEditingItem(null);setDraftRoomWindows([]);setDraftRoomDoors([]);setNewRoom({project:p.name,name:'',floor:'',liter:'',roomType:'Комната',floorArea:'',wallArea:'',ceilingArea:'',height:'',ceilingType:'Простой',wallMaterial:'Штукатурка',floorMaterial:'Стяжка',photoUrl:'',notes:''});}} style={btnO}><Plus size={14}/>Добавить</button>}
+                        {isProrab()&&<button onClick={()=>{setShowRoomForm(!showRoomForm);setEditingItem(null);setDraftRoomWindows([]);setDraftRoomDoors([]);setNewRoom(createRoomForm({project:p.name}));}} style={btnO}><Plus size={14}/>Добавить</button>}
                       </div>
                       {showRoomForm&&(<div style={{...card,padding:'16px',marginBottom:'16px',backgroundColor:C.bg}}>
                         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
@@ -966,7 +975,7 @@ export default function ProjectsPage({ ctx }) {
                               <div>
                                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
                                   <b style={{color:C.text,fontSize:'13px'}}>🪟 Окна</b>
-                                  <button onClick={()=>setNewWindow({roomId:room.id,name:'Окно '+(wins.length+1),width:'',height:'',windowType:'ПВХ',revealDepth:'',revealMaterial:'Штукатурка'})} style={{...btnO,padding:'4px 10px',fontSize:'11px'}}><Plus size={11}/>Добавить</button>
+                                  <button onClick={()=>setNewWindow(createWindowForm({roomId:room.id,name:'Окно '+(wins.length+1)}))} style={{...btnO,padding:'4px 10px',fontSize:'11px'}}><Plus size={11}/>Добавить</button>
                                 </div>
                                 {wins.map(w=>(<div key={w.id} style={{padding:'8px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border}}>
                                   {editingWindow===w.id?(<div>
@@ -993,13 +1002,13 @@ export default function ProjectsPage({ ctx }) {
                                     <input placeholder="Откос (см)" type="number" step="any" inputMode="decimal" value={newWindow.revealDepth} onChange={e=>setNewWindow({...newWindow,revealDepth:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
                                     <select value={newWindow.revealMaterial} onChange={e=>setNewWindow({...newWindow,revealMaterial:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>{REVEAL_MATERIALS.map(t=><option key={t}>{t}</option>)}</select>
                                   </div>
-                                  <div style={{display:'flex',gap:'6px'}}><button onClick={()=>saveWindow(room.id)} style={{...btnO,padding:'5px 12px',fontSize:'11px'}}><Check size={11}/>Добавить</button><button onClick={()=>setNewWindow({roomId:'',name:'Окно 1',width:'',height:'',windowType:'ПВХ',revealDepth:'',revealMaterial:'Штукатурка'})} style={{...btnG,padding:'5px 12px',fontSize:'11px'}}><X size={11}/>Отмена</button></div>
+                                  <div style={{display:'flex',gap:'6px'}}><button onClick={()=>saveWindow(room.id)} style={{...btnO,padding:'5px 12px',fontSize:'11px'}}><Check size={11}/>Добавить</button><button onClick={()=>setNewWindow(createWindowForm())} style={{...btnG,padding:'5px 12px',fontSize:'11px'}}><X size={11}/>Отмена</button></div>
                   </div>)}
                               </div>
                               <div>
                                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
                                   <b style={{color:C.text,fontSize:'13px'}}>🚪 Двери</b>
-                                  <button onClick={()=>setNewDoor({roomId:room.id,name:'Дверь '+(doors.length+1),width:'',height:'',doorType:'Деревянная',doorPurpose:'Межкомнатная',revealDepth:'',revealMaterial:'Штукатурка'})} style={{...btnO,padding:'4px 10px',fontSize:'11px'}}><Plus size={11}/>Добавить</button>
+                                  <button onClick={()=>setNewDoor(createDoorForm({roomId:room.id,name:'Дверь '+(doors.length+1)}))} style={{...btnO,padding:'4px 10px',fontSize:'11px'}}><Plus size={11}/>Добавить</button>
                                 </div>
                                 {doors.map(d=>(<div key={d.id} style={{padding:'8px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border}}>
                                   {editingDoor===d.id?(<div>
@@ -1028,7 +1037,7 @@ export default function ProjectsPage({ ctx }) {
                                     <input placeholder="Откос (см)" type="number" step="any" inputMode="decimal" value={newDoor.revealDepth} onChange={e=>setNewDoor({...newDoor,revealDepth:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
                                     <select value={newDoor.revealMaterial} onChange={e=>setNewDoor({...newDoor,revealMaterial:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>{REVEAL_MATERIALS.map(t=><option key={t}>{t}</option>)}</select>
                                   </div>
-                                  <div style={{display:'flex',gap:'6px'}}><button onClick={()=>saveDoor(room.id)} style={{...btnO,padding:'5px 12px',fontSize:'11px'}}><Check size={11}/>Добавить</button><button onClick={()=>setNewDoor({roomId:'',name:'Дверь 1',width:'',height:'',doorType:'Деревянная',doorPurpose:'Межкомнатная',revealDepth:'',revealMaterial:'Штукатурка'})} style={{...btnG,padding:'5px 12px',fontSize:'11px'}}><X size={11}/>Отмена</button></div>
+                                  <div style={{display:'flex',gap:'6px'}}><button onClick={()=>saveDoor(room.id)} style={{...btnO,padding:'5px 12px',fontSize:'11px'}}><Check size={11}/>Добавить</button><button onClick={()=>setNewDoor(createDoorForm())} style={{...btnG,padding:'5px 12px',fontSize:'11px'}}><X size={11}/>Отмена</button></div>
                   </div>)}
                               </div>
                             </div>
@@ -1237,17 +1246,7 @@ export default function ProjectsPage({ ctx }) {
                             const res=await fetch(API+'/material-transfers?project_name='+encodeURIComponent(p.name));
                             const data=await res.json();
                             setMaterialTransfers(Array.isArray(data)?data:[]);
-                            setNewTransfer({
-                              materialName: '',
-                              quantity: '',
-                              unit: 'шт',
-                              workPackage: '',
-                              toPerson: '',
-                              toPersonRole: '',
-                              fromLocation: p.name,
-                              notes: '',
-                              transferDate: new Date().toISOString().split('T')[0],
-                            });
+                            setNewTransfer(createMaterialTransferForm({ fromLocation: p.name }));
                             setShowTransferForm(!showTransferForm);
                           }} style={btnO}><Plus size={14}/>Передать материал</button>)}
                         </div>
@@ -1287,17 +1286,13 @@ export default function ProjectsPage({ ctx }) {
 	                        showPreview={showPreview}
 	                        buildMaterialRequirementContent={buildMaterialRequirementContent}
 	                        onIssueMaterial={(row)=>{
-	                          setNewTransfer({
+	                          setNewTransfer(createMaterialTransferForm({
 	                            materialName: row.name || '',
-	                            quantity: '',
 	                            unit: row.unit || 'шт',
 	                            workPackage: row.packageName || row.workPackage || '',
-	                            toPerson: '',
-	                            toPersonRole: '',
 	                            fromLocation: p.name,
 	                            notes: 'Выдача мастеру из контроля материалов',
-	                            transferDate: new Date().toISOString().split('T')[0],
-	                          });
+	                          }));
 	                          setShowTransferForm(true);
 	                        }}
 	                      />
@@ -1385,7 +1380,6 @@ export default function ProjectsPage({ ctx }) {
                           setAddExpenseProject={setAddExpenseProject}
                           setNewManualExpense={setNewManualExpense}
                           setShowAccountableForm={setShowAccountableForm}
-                          newAccountable={newAccountable}
                           setNewAccountable={setNewAccountable}
                           setShowPhotoModal={setShowPhotoModal}
                           fileSrc={fileSrc}
@@ -1601,7 +1595,7 @@ export default function ProjectsPage({ ctx }) {
                   {activeProjectTab==='Замечания ГСН'&&(<div>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'8px'}}>
                       <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>🏛 Замечания контролирующих органов</b>
-                      <button onClick={()=>setShowForm(showForm==='gsn'?false:'gsn')} style={btnO}><Plus size={14}/>Добавить</button>
+                      <button onClick={()=>{const nextOpen=showForm!=='gsn';setShowForm(nextOpen?'gsn':false);setNewInspOrder(nextOpen?createInspectionOrderForm():null);}} style={btnO}><Plus size={14}/>Добавить</button>
                     </div>
                     {showForm==='gsn'&&(<div style={{...card,padding:'16px',marginBottom:'14px',backgroundColor:C.bg}}>
                       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
@@ -1651,7 +1645,7 @@ export default function ProjectsPage({ ctx }) {
                   {activeProjectTab==='Гарантия'&&(<div>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'8px'}}>
                       <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>🛠 Гарантийный период и дефекты</b>
-                      <button onClick={()=>setNewWarrantyDefect({description:'',foundAt:new Date().toISOString().split('T')[0],reportedBy:'',reporterPhone:'',severity:'Средний'})} style={btnO}><Plus size={14}/>Зафиксировать дефект</button>
+                      <button onClick={()=>setNewWarrantyDefect(createWarrantyDefectForm())} style={btnO}><Plus size={14}/>Зафиксировать дефект</button>
                     </div>
                     <div style={{...card,padding:'14px',marginBottom:'12px',backgroundColor:C.bg,border:'1.5px solid '+C.border}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px',flexWrap:'wrap',gap:'6px'}}>

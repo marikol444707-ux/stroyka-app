@@ -1,5 +1,7 @@
 import React from 'react';
 import { Bot, Check, Copy, Download, Edit2, Eye, FileText, Plus, Search, Tag, Trash2, X } from 'lucide-react';
+import { createGeneratePricelistForm, createFromEstimateForm } from '../features/estimates/estimateInitialForms';
+import { createPricelistForm, createPricelistItemForm } from '../features/pricelists/pricelistInitialForms';
 
 export default function PricelistsPage({
   API,
@@ -59,9 +61,9 @@ export default function PricelistsPage({
     <div>
       <div style={{display:'flex',gap:'16px',height:'calc(100vh - 120px)'}}>
         <div style={{width:'280px',flexShrink:0,display:'flex',flexDirection:'column',gap:'10px',overflowY:'auto'}}>
-          <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewPricelist({name:'',description:'',forWho:'',coefficient:1.0});setSelectedPricelist(null);setPricelistItems([]);}} style={{...btnO,justifyContent:'center'}}><Plus size={14}/>Новый прайс-лист</button>
-          <button onClick={()=>{setGeneratePricelistForm({description:'',name:'',forWho:'',coefficient:1.0});setShowGeneratePricelist(true);}} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669',justifyContent:'center'}}><Bot size={14}/>🤖 Сгенерировать ИИ</button>
-          <button onClick={()=>{setFromEstimateForm({estimateId:'',name:'',forWho:'',coefficient:1.0});setShowFromEstimate(true);}} style={{...btnB,justifyContent:'center'}}><FileText size={14}/>📋 Из сметы</button>
+          <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewPricelist(createPricelistForm());setSelectedPricelist(null);setPricelistItems([]);}} style={{...btnO,justifyContent:'center'}}><Plus size={14}/>Новый прайс-лист</button>
+          <button onClick={()=>{setGeneratePricelistForm(createGeneratePricelistForm());setShowGeneratePricelist(true);}} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669',justifyContent:'center'}}><Bot size={14}/>🤖 Сгенерировать ИИ</button>
+          <button onClick={()=>{setFromEstimateForm(createFromEstimateForm());setShowFromEstimate(true);}} style={{...btnB,justifyContent:'center'}}><FileText size={14}/>📋 Из сметы</button>
           {showForm&&!selectedPricelist&&(<div style={{...card,padding:'20px'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><input placeholder="Название *" value={newPricelist.name} onChange={e=>setNewPricelist({...newPricelist,name:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newPricelist.forWho} onChange={e=>setNewPricelist({...newPricelist,forWho:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Для кого</option>{['Электрики','Сантехники','Каменщики','Отделочники','Кровельщики','Монтажники','Общий'].map(r=><option key={r}>{r}</option>)}</select></div><label style={{color:C.textSec,fontSize:'13px',display:'block',marginTop:'10px',marginBottom:'4px'}}>{'Коэффициент: ×'+newPricelist.coefficient}</label><input type="range" min="0.5" max="3" step="0.1" value={newPricelist.coefficient} onChange={e=>setNewPricelist({...newPricelist,coefficient:Number(e.target.value)})} style={{width:'100%',marginBottom:'12px',accentColor:C.accent}}/><div style={{display:'flex',gap:'10px'}}><button onClick={savePricelist} style={btnO}>Сохранить</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}>Отмена</button></div></div>)}
           {pricelists.map(pl=>(<div key={pl.id} onClick={async()=>{setSelectedPricelist(pl);await loadPricelistItems(pl.id);setShowForm(false);setEditingPlItem(null);}} style={{...card,padding:'14px',cursor:'pointer',border:'1.5px solid '+(selectedPricelist?.id===pl.id?C.accent:C.border),backgroundColor:selectedPricelist?.id===pl.id?C.accentLight:C.bgWhite}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
@@ -88,7 +90,7 @@ export default function PricelistsPage({
                 <select value={newPlItem.category} onChange={e=>setNewPlItem({...newPlItem,category:e.target.value})} style={{...inp,marginBottom:0,fontSize:'13px'}}><option value="">Категория</option>{Object.keys(PRICELISTS_DATA).map(c=><option key={c}>{c}</option>)}</select>
                 <button onClick={savePlItem} style={{...btnO,padding:'8px 14px'}}><Check size={14}/>{editingPlItem?'Сохр.':'Добавить'}</button>
               </div>
-              {editingPlItem&&<button onClick={()=>{setEditingPlItem(null);setNewPlItem({name:'',unit:'м2',price:'',category:''});}} style={{...btnG,marginTop:'8px',fontSize:'12px'}}><X size={12}/>Отменить</button>}
+              {editingPlItem&&<button onClick={()=>{setEditingPlItem(null);setNewPlItem(createPricelistItemForm());}} style={{...btnG,marginTop:'8px',fontSize:'12px'}}><X size={12}/>Отменить</button>}
             </div>
             <div style={{position:'relative',marginBottom:'12px'}}>
               <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>

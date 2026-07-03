@@ -1,6 +1,7 @@
 import React from 'react';
 import { Plus, Search } from 'lucide-react';
 import { WarehouseInvoiceCard, WarehouseInvoiceForm } from './warehouse/WarehouseInvoicesParts';
+import { createMaterialTransferForm } from '../features/warehouse/warehouseInitialForms';
 
 export default function WarehouseInvoicesPanel({
   showForm,
@@ -142,7 +143,7 @@ export default function WarehouseInvoicesPanel({
     const first = transferItems[0];
     const invoiceLabel = ['накладной №' + (inv.number || inv.id || ''), inv.date ? 'от ' + inv.date : ''].filter(Boolean).join(' ');
     setSelectedWarehouseProject?.(projectName);
-    setNewTransfer({
+    setNewTransfer(createMaterialTransferForm({
       materialName: first.materialName,
       quantity: first.quantity,
       unit: first.unit || 'шт',
@@ -157,8 +158,7 @@ export default function WarehouseInvoicesPanel({
       invoiceLineIndex: first.invoiceLineIndex ?? null,
       invoiceNumber: inv.number || '',
       notes: 'Подготовлено из ' + invoiceLabel + '. Проверьте количество перед передачей.',
-      transferDate: new Date().toISOString().split('T')[0],
-    });
+    }));
     setWarehouseTab?.('objects');
     setShowTransferForm(true);
   };

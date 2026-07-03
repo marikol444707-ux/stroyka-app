@@ -1,16 +1,7 @@
 import React from 'react';
 import { Bot, Check, Eye, Plus, Search, X } from 'lucide-react';
 import { API } from '../api';
-
-const EMPTY_TB_ENTRY = {
-  project: '',
-  type: 'Вводный инструктаж',
-  participants: [],
-  date: '',
-  program: '',
-  instructionText: '',
-  aiLoading: false,
-};
+import { createTbEntryForm } from '../features/project-operations/projectOperationInitialForms';
 
 export default function ProjectSafetyJournalPanel({
   projectName,
@@ -78,7 +69,7 @@ export default function ProjectSafetyJournalPanel({
   const saveEntry = async () => {
     await saveTbEntry({...newTbEntry, project: projectName});
     setShowForm(false);
-    setNewTbEntry(EMPTY_TB_ENTRY);
+    setNewTbEntry(createTbEntryForm());
   };
 
   return (

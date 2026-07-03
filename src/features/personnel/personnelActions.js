@@ -1,4 +1,10 @@
 import { emptyStaffForm } from '../../utils/staffUtils';
+import {
+  createContractForm,
+  createInterimActForm,
+  createPieceworkForm,
+  createStaffDocumentForm,
+} from './personnelInitialForms';
 import { writeStoredJson } from '../../utils/appRuntimeUtils';
 import {
   findUserForStaff as findUserForStaffRow,
@@ -129,7 +135,7 @@ export const createPersonnelActions = ({
     });
     const data = await fetch(API + '/staff/' + staffId + '/profile').then(r => r.json());
     setStaffProfile(data);
-    setNewStaffDoc({docType: 'другое', title: '', fileUrl: '', signedAt: '', expiresAt: '', notes: ''});
+    setNewStaffDoc(createStaffDocumentForm());
     setShowStaffDocForm(false);
   };
 
@@ -296,7 +302,7 @@ export const createPersonnelActions = ({
       body: JSON.stringify({...newPiecework, total: Number(newPiecework.quantity) * Number(newPiecework.pricePerUnit), date: new Date().toISOString().split('T')[0]}),
     });
     await refreshData();
-    setNewPiecework({staffId: '', description: '', unit: 'м2', quantity: '', pricePerUnit: '', project: ''});
+    setNewPiecework(createPieceworkForm());
   };
 
   const deletePiecework = async (id) => {
@@ -340,7 +346,7 @@ export const createPersonnelActions = ({
     };
     await fetch(API + '/contracts', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
     await refreshData();
-    setNewContract({masterId: '', masterName: '', contractType: 'ГПХ', contractNumber: '', project: '', startDate: '', endDate: ''});
+    setNewContract(createContractForm());
     setShowForm(false);
   };
 
@@ -389,7 +395,7 @@ export const createPersonnelActions = ({
     }
     notify('Акт создан: ' + newAct.masterName + (createdCount > 1 ? ' · разделов ' + createdCount : ''), 'act');
     await refreshData();
-    setNewAct({masterId: '', masterName: '', project: '', workPackage: '', periodStart: '', periodEnd: ''});
+    setNewAct(createInterimActForm());
     setShowForm(false);
   };
 

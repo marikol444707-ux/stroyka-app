@@ -10,6 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import { API } from '../api';
+import { createMaterialTransferForm } from '../features/warehouse/warehouseInitialForms';
 
 export default function WarehouseObjectsPanel({
   C,
@@ -263,18 +264,10 @@ export default function WarehouseObjectsPanel({
                   const response = await fetch(API + '/material-transfers?project_name=' + encodeURIComponent(selectedWarehouseProject));
                   const data = await response.json();
                   setMaterialTransfers(Array.isArray(data) ? data : []);
-                  setNewTransfer({
-                    materialName: '',
-                    quantity: '',
-                    unit: 'шт',
-                    workPackage: '',
+                  setNewTransfer(createMaterialTransferForm({
                     items: [],
-                    toPerson: '',
-                    toPersonRole: '',
                     fromLocation: selectedWarehouseProject,
-                    notes: '',
-                    transferDate: new Date().toISOString().split('T')[0],
-                  });
+                  }));
                   setShowTransferForm(true);
                 }}
                 style={btnGr}
@@ -737,7 +730,7 @@ export default function WarehouseObjectsPanel({
                     (material.workPackage || material.work_package || '') === (row.data.workPackage || '')
                   ) ? { ...material, quantity: Number(material.quantity || 0) - Number(row.data.quantity || 0) } : material), prev));
                   setShowTransferForm(false);
-                  setNewTransfer({ materialName: '', quantity: '', unit: 'шт', workPackage: '', items: [], toPerson: '', toPersonRole: '', toUserId: '', fromLocation: selectedWarehouseProject, notes: '', transferDate: new Date().toISOString().split('T')[0] });
+                  setNewTransfer(createMaterialTransferForm({ items: [], fromLocation: selectedWarehouseProject }));
                   notify('Передано материалов: ' + savedRows.length + ' → ' + newTransfer.toPerson, 'material');
                 }}
                 disabled={!canSaveObjectTransfer}

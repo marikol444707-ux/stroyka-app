@@ -1,6 +1,7 @@
 import React from 'react';
 import { FileText, Image, Paperclip, Plus } from 'lucide-react';
 import { API } from '../api';
+import { createAccountablePaymentForm, createManualExpenseForm } from '../features/payments/paymentInitialForms';
 
 export default function ProjectFinancePanel({
   projectName,
@@ -25,7 +26,6 @@ export default function ProjectFinancePanel({
   setAddExpenseProject,
   setNewManualExpense,
   setShowAccountableForm,
-  newAccountable,
   setNewAccountable,
   setShowPhotoModal,
   fileSrc,
@@ -111,14 +111,14 @@ export default function ProjectFinancePanel({
         {canAddExpense && (
           <button onClick={() => {
             setAddExpenseProject(projectName);
-            setNewManualExpense({category: 'materials', customCategory: '', projectName: '', amount: '', note: '', date: '', photoUrl: ''});
+            setNewManualExpense(createManualExpenseForm());
           }} style={{...btnB, fontSize: '12px', padding: '7px 14px'}}>
             <Plus size={13}/>Расход по объекту
           </button>
         )}
         <button onClick={() => {
           setShowAccountableForm(true);
-          setNewAccountable({...newAccountable, projectName});
+          setNewAccountable(createAccountablePaymentForm({projectName}));
         }} style={{...btnG, fontSize: '12px', padding: '7px 14px'}}>
           <Plus size={13}/>Подотчёт по объекту
         </button>

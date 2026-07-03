@@ -1,5 +1,6 @@
 import React from 'react';
 import { Camera, Check, FileText, Paperclip, Upload, X } from 'lucide-react';
+import { createManualExpenseForm } from '../features/payments/paymentInitialForms';
 
 export default function ManualExpenseModal({
   addExpenseProject,
@@ -35,7 +36,6 @@ export default function ManualExpenseModal({
     ? expenseCategories
     : expenseCategories.filter(c => ['materials', 'delivery', 'other'].includes(c.id));
   const attachmentUrls = (newManualExpense.photoUrl || '').split(',').map(url => url.trim()).filter(Boolean);
-  const resetManualExpense = {category: 'materials', customCategory: '', projectName: '', amount: '', note: '', date: '', photoUrl: ''};
   const isImageUrl = url => /\.(png|jpe?g|webp|gif|heic|heif|bmp|svg)(\?|$)/i.test(String(url || ''));
   const attachmentLabel = url => {
     const raw = String(url || '').split('?')[0].split('/').filter(Boolean).pop() || 'Файл';
@@ -47,7 +47,7 @@ export default function ManualExpenseModal({
   };
   const close = () => {
     setAddExpenseProject('');
-    setNewManualExpense(resetManualExpense);
+    setNewManualExpense(createManualExpenseForm());
   };
 
   const appendExpenseFiles = async (event) => {

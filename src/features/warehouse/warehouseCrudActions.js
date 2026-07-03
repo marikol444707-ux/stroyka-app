@@ -1,4 +1,10 @@
 import { buildScanDraftInvoiceNumber } from '../../utils/accountingInvoices';
+import {
+  createIssueToolForm,
+  createToolForm,
+  createWarehouseInvoiceForm,
+  createWarehouseMovementForm,
+} from './warehouseInitialForms';
 
 export const createWarehouseCrudActions = ({
   API,
@@ -51,23 +57,13 @@ export const createWarehouseCrudActions = ({
     }
     const warehouseTarget = location && location !== 'Основной склад' ? 'object' : 'main';
     setNewInvoice({
-      number:'',
+      ...createWarehouseInvoiceForm(),
       date:new Date().toISOString().split('T')[0],
-      supplierId:'',
-      isNewSupplier:false,
-      newSupplierName:'',
       acceptedBy:user?.name||'',
       location,
       project:warehouseTarget === 'object' ? location : '',
       warehouseTarget,
-      selectedAction:'receive_to_warehouse',
       sourceType:warehouseTarget === 'object' ? 'manual_project_invoice' : 'manual_main_invoice',
-      sourceId:null,
-      vat:'Без НДС',
-      photos:[],
-      photoUrls:[],
-      pagesCount:1,
-      items:[{name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:''}],
       supplier:'',
       totalWithVat:0
     });
@@ -185,7 +181,7 @@ export const createWarehouseCrudActions = ({
     notify('Накладная №'+invoiceNumber+' принята'+(reviewTasksCreated ? ' · задач ИИ-контроля: '+reviewTasksCreated : ''),'invoice');
     addActivity('Принята накладная №'+invoiceNumber);
     await refreshData();
-    setNewInvoice({number:'',date:'',supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:'',location:'Основной склад',project:'',warehouseTarget:'main',selectedAction:'receive_to_warehouse',sourceType:'manual_main_invoice',sourceId:null,vat:'Без НДС',photos:[],photoUrls:[],pagesCount:1,items:[{name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:''}]});
+    setNewInvoice(createWarehouseInvoiceForm());
     setShowForm(false);
     alert('Накладная принята!'+(reviewTasksCreated ? '\nСоздано задач ИИ-контроля: '+reviewTasksCreated : ''));
     return true;
@@ -207,7 +203,7 @@ export const createWarehouseCrudActions = ({
     }
     notify('Перемещение выполнено','material');
     await refreshData();
-    setNewMovement({materialName:'',fromLocation:'Основной склад',toLocation:'',quantity:'',unit:'шт',notes:'',selectedMaterials:[]});
+    setNewMovement(createWarehouseMovementForm());
   };
 
   const deleteMaterial = async (id) => {
@@ -246,7 +242,7 @@ export const createWarehouseCrudActions = ({
     if (editingItem) await fetch(API + '/tools/' + editingItem.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});
     else await fetch(API + '/tools', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});
     await refreshData();
-    setNewTool({name: '', inventoryNumber: '', cost: '', status: 'На складе', location: 'Основной склад', project: '', masterId: '', masterName: '', issueType: '', notes: ''});
+    setNewTool(createToolForm());
     setEditingItem(null);
     setShowForm(false);
   };
@@ -269,7 +265,7 @@ export const createWarehouseCrudActions = ({
     await fetch(API + '/tool-history', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({toolId: tool.id, toolName: tool.name, action: 'Выдача', fromLocation: tool.location, toLocation: 'У мастера — ' + masterName, masterName, project, issueType, condition: 'Исправен', date: new Date().toISOString().split('T')[0], createdBy: user.name})});
     await refreshData();
     setShowIssueToolModal(null);
-    setIssueToolData({masterName: '', project: '', issueType: 'Временно'});
+    setIssueToolData(createIssueToolForm());
   };
 
   const returnTool = async (tool) => {

@@ -1,16 +1,7 @@
 import React from 'react';
 import { Check, Eye, Plus, Trash2, Upload, X } from 'lucide-react';
 import { API } from '../api';
-
-const emptyLetter = () => ({
-  side: 'customer',
-  direction: 'outgoing',
-  subject: '',
-  body: '',
-  counterparty: '',
-  letterDate: '',
-  fileUrl: '',
-});
+import { createProjectLetterForm } from '../features/documents/projectDocumentInitialForms';
 
 export default function ProjectLettersPanel({
   projectName,
@@ -54,7 +45,7 @@ export default function ProjectLettersPanel({
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({...newLetter, projectName, author: user.name}),
     });
-    setNewLetter(emptyLetter());
+    setNewLetter(createProjectLetterForm());
     setShowLetterForm(false);
     await loadAll();
   };

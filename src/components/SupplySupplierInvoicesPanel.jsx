@@ -1,6 +1,7 @@
 import React from 'react';
 import { Check, ChevronDown, ChevronUp, FileCheck2, Plus, Search, Trash2 } from 'lucide-react';
 import { API } from '../api';
+import { createSupplierInvoiceForm } from '../features/supply/supplyInitialForms';
 
 function SupplySupplierInvoicesPanel({
   C,
@@ -46,7 +47,7 @@ function SupplySupplierInvoicesPanel({
   const projectNames = Object.keys(byProject).sort();
 
   const openNewInvoice = () => {
-    setNewSupplierInvoice({supplierName:'',projectName:'',workPackage:'',invoiceNumber:'',invoiceDate:'',amount:'',vatAmount:'',description:''});
+    setNewSupplierInvoice(createSupplierInvoiceForm());
   };
 
   const saveInvoice = async () => {

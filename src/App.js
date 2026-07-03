@@ -34,14 +34,12 @@ import {
   btnR,
   btnState,
   card,
-  detectMobileLayout,
   inp,
   tbl,
   tblC,
   tblH,
 } from './constants/uiTheme';
 import { ROLES, ROLE_GROUPS, ROLE_LABELS } from './constants/roles';
-import AppOverlayLayer from './components/AppOverlayLayer';
 import ProjectCardHeader from './components/ProjectCardHeader';
 import ProjectTabsNav from './components/ProjectTabsNav';
 import ProjectMaterialsControlPanel from './components/ProjectMaterialsControlPanel';
@@ -50,7 +48,6 @@ import ProjectMaterialsTransferPanel from './components/ProjectMaterialsTransfer
 import ProjectFinancePanel from './components/ProjectFinancePanel';
 import ProjectEconomyPanel from './components/ProjectEconomyPanel';
 import ProjectObjectLinksPanel from './components/ProjectObjectLinksPanel';
-import ProjectSitePublicationPage from './components/ProjectSitePublicationPage';
 import ProjectDocumentsRegistryPanel from './components/ProjectDocumentsRegistryPanel';
 import ProjectLettersPanel from './components/ProjectLettersPanel';
 import ProjectBrigadeCalculationTab from './components/ProjectBrigadeCalculationTab';
@@ -63,14 +60,27 @@ import MaterialWriteoffStatus from './components/MaterialWriteoffStatus';
 import { ProjectDirectorMapPanel } from './features/director-map';
 import { ProjectLaunchPanel } from './features/project-launch';
 import { createProjectCrudActions } from './features/projects/projectCrudActions';
-import ProjectsPage from './features/projects/ProjectsPage';
+import {
+  createClientForm,
+  createProjectForm,
+} from './features/projects/projectInitialForms';
 import { createWarehouseCrudActions } from './features/warehouse/warehouseCrudActions';
+import {
+  createCatalogItemForm,
+  createInventoryForm,
+  createIssueToolForm,
+  createMaterialTransferForm,
+  createSupplierRequisitesForm,
+  createToolForm,
+  createWarehouseForm,
+  createWarehouseInvoiceForm,
+  createWarehouseMovementForm,
+} from './features/warehouse/warehouseInitialForms';
 import { createMaterialControlActions } from './features/material-control/materialControlActions';
+import { createMaterialRuntime } from './features/material-control/materialRuntime';
 import { createDataLoadActions } from './features/data-loaders/dataLoadActions';
 import { useAppDataLoaders } from './features/data-loaders/useAppDataLoaders';
 import { createProjectDashboardRuntime } from './features/dashboard/projectDashboardRuntime';
-import PreviewModal from './components/PreviewModal';
-import ImagePreviewModal from './components/ImagePreviewModal';
 import EstimatesTabsNav from './components/EstimatesTabsNav';
 import EstimatesListToolbar from './components/EstimatesListToolbar';
 import EstimateSearchResults from './components/EstimateSearchResults';
@@ -87,61 +97,70 @@ import EstimateSelectedToolbar from './components/EstimateSelectedToolbar';
 import EstimateAddSectionForm from './components/EstimateAddSectionForm';
 import EstimateTotalCard from './components/EstimateTotalCard';
 import MaterialNormSuggestionsPanel from './components/MaterialNormSuggestionsPanel';
-import EstimateReconciliationsPanel from './components/EstimateReconciliationsPanel';
-import EstimateMeasurementComparisonPanel from './components/EstimateMeasurementComparisonPanel';
-import WorkJournalEstimateReconciliationPanel from './components/WorkJournalEstimateReconciliationPanel';
 import EstimateDuplicateWorkSummaryPanel from './components/EstimateDuplicateWorkSummaryPanel';
 import EstimateSectionsEditor from './components/EstimateSectionsEditor';
 import MaterialNormFormPanel from './components/MaterialNormFormPanel';
 import MaterialNormsListPanel from './components/MaterialNormsListPanel';
 import EstimateExecutionPricingPanel from './components/EstimateExecutionPricingPanel';
 import PhotoAttachmentField from './components/PhotoAttachmentField';
-import MobileBottomNav from './components/MobileBottomNav';
-import { MasterCabinetPage } from './app/lazyComponents';
+import AppAuthenticatedShell from './components/AppAuthenticatedShell';
+import AppMasterCabinetRoute from './components/AppMasterCabinetRoute';
+import AppSupplierCabinetRoute from './components/AppSupplierCabinetRoute';
 import { createAuthActions } from './features/auth/authActions';
 import { createAiAssistantActions } from './features/ai-assistant/aiAssistantActions';
 import { createChatActions } from './features/chat/chatActions';
 import { createCrmActions } from './features/crm/crmActions';
+import { createLeadForm } from './features/crm/crmInitialForms';
 import { createGeoActions } from './features/geolocation/geoActions';
 import { createNotificationActions } from './features/notifications/notificationActions';
 import { createSystemActions } from './features/system/systemActions';
 import { createUploadActions } from './features/uploads/uploadActions';
-import WorkAssignmentModal, { WorkAssignmentStatusPanel } from './features/work-assignment';
+import { WorkAssignmentStatusPanel } from './features/work-assignment';
+import { useAiAssistantState } from './features/ai-assistant/useAiAssistantState';
 import { createAiTaskActions } from './features/ai-control/aiTaskActions';
 import { createAiReviewQueueActions } from './features/ai-control/aiReviewQueueActions';
 import { createUserAccessActions } from './features/admin/userAccessActions';
 import { createDocumentActions } from './features/documents/documentActions';
+import {
+  createProjectDocumentForm,
+  createProjectLetterForm,
+  createSupervisorActForm,
+} from './features/documents/projectDocumentInitialForms';
 import { createPaymentActions } from './features/payments/paymentActions';
+import {
+  createActPaymentForm,
+  createBrigadePaymentForm,
+} from './features/payments/paymentInitialForms';
+import { usePaymentUiState } from './features/payments/usePaymentUiState';
 import { createPersonnelActions } from './features/personnel/personnelActions';
+import {
+  createBrigadeContractForm,
+  createBrigadeItemForm,
+  createContractForm,
+  createInterimActForm,
+  createPieceworkForm,
+  createStaffDocumentForm,
+  createUserForm,
+} from './features/personnel/personnelInitialForms';
 import { createPricelistActions } from './features/pricelists/pricelistActions';
+import {
+  createPricelistForm,
+  createPricelistItemForm,
+} from './features/pricelists/pricelistInitialForms';
 import { createMaterialNormActions } from './features/material-norms/materialNormActions';
 import { createMaterialNormCoverageActions } from './features/material-norms/materialNormCoverageActions';
+import { useMaterialNormsState } from './features/material-norms/useMaterialNormsState';
 import { createMaterialTransferActions } from './features/material-transfer/materialTransferActions';
 import { createMaterialWriteoffActions } from './features/material-writeoff/materialWriteoffActions';
 import { createWorkJournalActions } from './features/work-journal/workJournalActions';
-import SupplierCabinetPage from './features/supply/SupplierCabinetPage';
-import DashboardPage from './features/dashboard/DashboardPage';
-import EstimatesPage from './features/estimates/EstimatesPage';
-import AppSidebar from './components/AppSidebar';
-import AppHeaderBar from './components/AppHeaderBar';
-import AppWorkflowModals from './components/AppWorkflowModals';
-import AppSecondaryPages from './components/AppSecondaryPages';
-import AppDirectoryPages from './components/AppDirectoryPages';
-import AppOperationsPages from './components/AppOperationsPages';
-import AppBackofficePages from './components/AppBackofficePages';
-import AppActionModals from './components/AppActionModals';
+import { createProjectEstimateRuntime } from './features/estimates/projectEstimateRuntime';
 import AppEntryRoutes from './components/AppEntryRoutes';
-import AppProjectEditModals from './components/AppProjectEditModals';
 import AppPageFallback from './components/AppPageFallback';
 import { buildAppMenuItems } from './components/AppMenuItems';
 import AppRoleCabinetRoutes from './components/AppRoleCabinetRoutes';
-import { resolveEstimatePackage } from './utils/estimatePackage';
 import { _normalizeUnit, denormalizeMeasure, fmtMeasure, normalizeMeasure, toNum } from './utils/measureUtils';
 import {
-  EMPTY_MATERIAL_NORM_FORM,
   WORK_MATERIAL_NORM_RULES,
-  calculateMaterialNormForWork,
-  calculateNormRequirementsForWork,
   convertUnits,
   materialNormCoverageComment,
   materialNormCoverageDisplayRows,
@@ -149,34 +168,12 @@ import {
   materialNormRuleForCalc,
   materialNormCanCreateSupply,
   materialTitleForNormRule,
-  workNormRulesForCalculation,
 } from './utils/materialNormUtils';
-import { materialLookupText } from './utils/materialMatchUtils';
-import {
-  buildEstimateMaterialPlanRows,
-  buildMaterialAliasCandidates,
-  buildMaterialControlSummary,
-  buildMaterialReconciliationRows,
-} from './utils/materialReconciliationUtils';
-import { buildWarehouseInvoiceEstimateControl } from './utils/warehouseInvoiceControlUtils';
-import {
-  buildEstimateNormCoverageRows,
-  buildEstimateWorkNormRequirementRows,
-  buildMaterialAvailabilityMap,
-  buildMaterialNormControlSummary,
-  buildMaterialNormDeviationRows,
-  buildMaterialSuggestionsForWork,
-  buildPersonalMaterialRowsForProject,
-} from './utils/materialNormSelectors';
 import {
   calcDoorArea,
   calcDoorReveals,
   calcWindowArea,
   calcWindowReveals,
-  buildRoomMeasurementCheck,
-  getRoomNetWall as calcRoomNetWall,
-  roomCompleteness as calcRoomCompleteness,
-  roomMeasurementMessage,
 } from './utils/roomMeasurementUtils';
 import {
   buildEstimateWorkSummary,
@@ -206,7 +203,6 @@ import {
   estimateVersionChain,
   nextEstimateVersionFor as nextEstimateVersionForFromList,
   estimateWorkKey,
-  estimateWorkKeyForItem,
   isArchivedEstimate,
   isGlobalEstimateTemplate,
   isEstimatePricelist,
@@ -215,7 +211,6 @@ import {
   normalizeEstimateImportSections,
   normalizeEstimateItemType,
   normalizeEstimateList,
-  normalizeImportedEstimateItem,
   sameEstimateGroup,
 } from './utils/estimateUtils';
 import {
@@ -231,23 +226,51 @@ import {
   estimateQualityDescription,
   estimateQualityRows,
 } from './utils/estimateReviewUtils';
-import {
-  estimateMeasurementComparisonSummaryFor,
-  projectMeasurementBasisTotalsFor,
-} from './utils/estimateMeasurementComparisonUtils';
-import {
-  estimateItemOptionsFromActiveEstimates,
-  ks2ItemsFromActiveEstimates,
-  projectPlanDoneFor,
-} from './utils/projectEstimateItemsUtils';
-import { workJournalEstimateSummaryFor } from './utils/workJournalEstimateReconciliationUtils';
 import { createEstimateWorkflowActions } from './features/estimates/estimateWorkflowActions';
 import { createEstimatePageActions } from './features/estimates/estimatePageActions';
+import { persistEstimateAction } from './features/estimates/estimatePersistenceActions';
 import { createSupplyActions } from './features/supply/supplyActions';
+import {
+  createRequestForm,
+  createSupplierForm,
+  createSupplierOfferForm,
+} from './features/supply/supplyInitialForms';
 import { createSupplyPlanningUi } from './features/supply/supplyPlanningUi';
+import { useSupplyWorkflowState } from './features/supply/useSupplyWorkflowState';
+import { useSupplierRequisitesSync } from './features/supply/useSupplierRequisitesSync';
 import { createProjectOperationActions } from './features/project-operations/projectOperationActions';
+import {
+  createChecklistForm,
+  createDoorForm,
+  createPrescriptionForm,
+  createProjectStageForm,
+  createRoomForm,
+  createTbEntryForm,
+  createWeatherForm,
+  createWindowForm,
+} from './features/project-operations/projectOperationInitialForms';
+import {
+  createCompanyDocumentForm,
+  createCompanyRequisitesForm,
+  createProfileForm,
+} from './features/settings/settingsInitialForms';
 import { createProjectMeasurementActions } from './features/project-measurements/projectMeasurementActions';
+import { createMeasurementDocForm } from './features/project-measurements/projectMeasurementInitialForms';
+import { createRoomMeasurementRuntime } from './features/project-measurements/roomMeasurementRuntime';
 import { createDirectorDashboardActions } from './features/dashboard/directorDashboardActions';
+import { useAppNavigationRuntime } from './features/navigation/appNavigationRuntime';
+import { createAppRoleRuntime, createAppUtilityRuntime, unreadCompanyMessagesCount } from './features/app-shell/appShellSelectors';
+import {
+  useAuthenticatedAppBootstrapEffect,
+  useAuthEntryState,
+  useDarkModeState,
+  useInviteCodeCheckEffect,
+  useNotificationDismissEffect,
+  useResponsiveLayout,
+  useShellOverlayState,
+} from './features/app-shell/useAppShellState';
+import { useEstimateExecutionFillPercentSync } from './features/estimates/useEstimateExecutionPricingState';
+import { useEstimateWorkflowState } from './features/estimates/useEstimateWorkflowState';
 import {
   invoiceControlMaterialName,
   invoiceControlNeedsReview,
@@ -260,19 +283,14 @@ import {
   calcVat,
   createMaterialsPageState,
   createMaterialNormsPageState,
-  createFileSrc,
   createWorkJournalPageState,
   daysInMonth,
   doPrint,
   generateQR,
-  initialGuestPage,
-  loadStoredUser,
-  matchSearchFields,
   mergeRowsByIdValue,
   mobileScopeForPage,
   readStoredJson,
   readApiResult,
-  requestPushPermission,
   sendPushNotification,
 } from './utils/appRuntimeUtils';
 import {
@@ -290,45 +308,15 @@ import {
   canCreateSupplyRequestFromNormForUser,
   canEditMaterialNormsForUser,
   generateTempPassword,
-  isFinanceUser,
-  isLeadershipUser,
-  isProrabUser,
-  roleColorForRole,
   roleFlagsForUser,
-  selectableActiveProjectsForUser,
-  visibleEstimatesForUser,
-  visibleProjectsForUser,
 } from './utils/accessUtils';
 import {
-  calcStaffSalary,
-  workedDaysForStaff,
-} from './utils/payrollUtils';
-import {
-  formatSignedRubValue,
-  projectPaymentIncomingAmount,
-  projectPaymentSignedAmountValue,
-} from './utils/projectPaymentUtils';
-import {
-  projectFactSpentValue,
-} from './utils/projectEconomyUtils';
-import {
-  buildWarehouseInvoiceItems,
-  packageMatches,
-  parseJournalMaterialsValue,
-} from './utils/materialDocumentUtils';
-import {
   buildEstimateDiffDocContent,
-  buildEstimateMeasurementComparisonDocContent,
   buildEstimateReconciliationDocContent,
-  buildMaterialNormCoverageDocContent,
-  buildWorkJournalEstimateReconciliationDocContent,
   fmtDocMoney,
 } from './utils/printDocumentBuilders';
 import {
   EMPTY_ESTIMATE_CHANGE,
-  estimateChangeRowsForDocsFromList,
-  estimateChangesForNewEstimateFromList,
-  includableEstimateChangesForProject,
   isApprovedEstimateChangeStatus,
   signedEstimateChangeTotal,
 } from './utils/estimateChangeUtils';
@@ -349,61 +337,15 @@ installAuthFetch();
 const GENERAL_WORK_ROOM_NAME = 'Без помещения';
 
 function App() {
-  const [isMobile, setIsMobile] = useState(detectMobileLayout);
-  const [isCompactHeader, setIsCompactHeader] = useState(typeof window !== 'undefined' && window.innerWidth < 1180);
+  const { isMobile, isCompactHeader } = useResponsiveLayout();
   const mobileLoadedScopesRef = useRef(new Set());
   const mobileApiRequestsRef = useRef(new Map());
-  const [darkMode, setDarkMode] = useState(typeof window !== 'undefined' && localStorage.getItem('darkMode')==='1');
-  useEffect(() => {
-    if (typeof document !== 'undefined') document.documentElement.dataset.theme = darkMode ? 'dark' : 'light';
-    try { localStorage.setItem('darkMode', darkMode ? '1' : '0'); } catch(e) {}
-  }, [darkMode]);
-  useEffect(() => {
-    const onResize = () => {
-      setIsMobile(detectMobileLayout());
-      setIsCompactHeader(window.innerWidth < 1180);
-    };
-    window.addEventListener('resize', onResize);
-    window.visualViewport?.addEventListener('resize', onResize);
-    onResize();
-    return () => {
-      window.removeEventListener('resize', onResize);
-      window.visualViewport?.removeEventListener('resize', onResize);
-    };
-  }, []);
-  // Регистрация по ссылке: проверяем URL ?invite=CODE и переходим на форму регистрации
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const code = params.get('invite');
-      if (code) {
-        setRegCode(code.toUpperCase());
-        setPage('register');
-        // Очищаем URL чтобы при F5 ссылка не дублировалась
-        window.history.replaceState({}, '', window.location.pathname);
-      }
-    } catch(_) {}
-  }, []);
-  const [user, setUser] = useState(loadStoredUser);
-  const [page, setPage] = useState(initialGuestPage);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [regName, setRegName] = useState('');
-  const [regEmail, setRegEmail] = useState('');
-  const [regPassword, setRegPassword] = useState('');
-  const [regCode, setRegCode] = useState('');
-  const [regInviteInfo, setRegInviteInfo] = useState(null); // {role, presetName, presetCategory, supplierId}
-  const [regSupplierData, setRegSupplierData] = useState({companyName:'',inn:'',kpp:'',ogrn:'',phone:'',legalAddress:'',bank:'',bik:'',account:'',directorName:'',category:'',specialization:''});
-  const [loginError, setLoginError] = useState(() => {
-    try {
-      if (typeof window !== 'undefined' && sessionStorage.getItem('authExpiredNotice')) {
-        sessionStorage.removeItem('authExpiredNotice');
-        return 'Сессия истекла, войдите снова';
-      }
-    } catch (e) {}
-    return '';
-  });
+  const [darkMode, setDarkMode] = useDarkModeState();
+  const {
+    email, loginError, page, password, regCode, regEmail, regInviteInfo, regName, regPassword, regSupplierData,
+    setEmail, setLoginError, setPage, setPassword, setRegCode, setRegEmail, setRegInviteInfo,
+    setRegName, setRegPassword, setRegSupplierData, setUser, user,
+  } = useAuthEntryState();
   const [activePage, setActivePage] = useState('dashboard');
   const [initialDataLoaded, setInitialDataLoaded] = useState(false);
   const [activeProjectTab, setActiveProjectTab] = useState('Общее');
@@ -458,112 +400,74 @@ function App() {
   const [warrantyDefects, setWarrantyDefects] = useState([]);
   const [newWarrantyDefect, setNewWarrantyDefect] = useState(null);
   const [warrantyEditForm, setWarrantyEditForm] = useState(null);
-  const [newSupervisorAct, setNewSupervisorAct] = useState({actType:'Осмотр',description:'',findings:'',recommendations:'',date:''});
+  const [newSupervisorAct, setNewSupervisorAct] = useState(createSupervisorActForm);
   const [supervisorActPhoto, setSupervisorActPhoto] = useState('');
   const [prescriptionPhoto, setPrescriptionPhoto] = useState('');
   const [selectedBrigadeContract, setSelectedBrigadeContract] = useState(null);
   const [brigadeContractItems, setBrigadeContractItems] = useState([]);
   const [brigadePayments, setBrigadePayments] = useState([]);
   const [showBrigadePayModal, setShowBrigadePayModal] = useState(false);
-  const [newBrigadePayment, setNewBrigadePayment] = useState({amount:'',paidBy:'',paidDate:'',note:''});
+  const [newBrigadePayment, setNewBrigadePayment] = useState(createBrigadePaymentForm);
   const [allBrigadeItems, setAllBrigadeItems] = useState([]);
   const [allBrigadePayments, setAllBrigadePayments] = useState([]);
   const [projectDocuments, setProjectDocuments] = useState([]);
-  const [newProjectDoc, setNewProjectDoc] = useState({side:'customer',docType:'Договор',number:'',docDate:'',counterparty:'',signStatus:'Не подписан',scanUrl:'',amount:'',notes:''});
+  const [newProjectDoc, setNewProjectDoc] = useState(createProjectDocumentForm);
   const [sitePublicationDrafts, setSitePublicationDrafts] = useState({});
   const [showDocForm, setShowDocForm] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [projectMeasurements, setProjectMeasurements] = useState([]);
   const [measurementRoomDrafts, setMeasurementRoomDrafts] = useState([]);
   const [measurementDraftLoadingId, setMeasurementDraftLoadingId] = useState(null);
-  const [newMeasurementDoc, setNewMeasurementDoc] = useState({sourceType:'Фактический ручной',docType:'Обмер',title:'',fileUrl:'',photoUrl:'',status:'Черновик',roomsCreated:'0',notes:''});
+  const [newMeasurementDoc, setNewMeasurementDoc] = useState(createMeasurementDocForm);
   const [showMeasurementForm, setShowMeasurementForm] = useState(false);
   const [uploadingMeasurementDoc, setUploadingMeasurementDoc] = useState(false);
   const [projectLetters, setProjectLetters] = useState([]);
-  const [newLetter, setNewLetter] = useState({side:'customer',direction:'outgoing',subject:'',body:'',counterparty:'',letterDate:'',fileUrl:''});
+  const [newLetter, setNewLetter] = useState(createProjectLetterForm);
   const [showLetterForm, setShowLetterForm] = useState(false);
   const [uploadingLetter, setUploadingLetter] = useState(false);
   const [showBrigadeForm, setShowBrigadeForm] = useState(false);
-  const [newBrigadeContract, setNewBrigadeContract] = useState({projectId:'',projectName:'',brigadeName:'',contractorType:'Своя бригада',contractorId:'',notes:'',pricelistId:''});
-  const [newBrigadeItem, setNewBrigadeItem] = useState({name:'',unit:'м',quantity:'',priceSmeta:'',priceBrigade:'',estimateSection:'',workPackage:'Основная',estimateItemKey:''});
+  const [newBrigadeContract, setNewBrigadeContract] = useState(createBrigadeContractForm);
+  const [newBrigadeItem, setNewBrigadeItem] = useState(createBrigadeItemForm);
   const [brigadeCoef, setBrigadeCoef] = useState('0.6');
   const [supplierCatalog, setSupplierCatalog] = useState([]);
   const [supplyTemplates, setSupplyTemplates] = useState([]);
   const [priceHints, setPriceHints] = useState({});
   const [showCatalogForm, setShowCatalogForm] = useState(false);
-  const [newCatalogItem, setNewCatalogItem] = useState({materialName:'',unit:'шт',price:'',minQuantity:'1',deliveryDays:'3',notes:''});
+  const [newCatalogItem, setNewCatalogItem] = useState(createCatalogItemForm);
   const [supplierTab, setSupplierTab] = useState('requests');
-  const [supplierRequisites, setSupplierRequisites] = useState({companyName:'',inn:'',kpp:'',address:'',bank:'',bik:'',account:'',phone:'',email:'',priceUrl:''});
-
-  // Подтягиваем реквизиты из БД когда поставщик логинится
-  useEffect(() => {
-    if (user && user.role === 'поставщик' && suppliers && suppliers.length > 0) {
-      const my = suppliers.find(s => s.name === user.name || s.email === user.email || s.user_id === user.id);
-      if (my) {
-        setSupplierRequisites(prev => ({
-          ...prev,
-          companyName: my.name || prev.companyName || '',
-          inn: my.inn || '',
-          kpp: my.kpp || '',
-          ogrn: my.ogrn || '',
-          address: my.legal_address || my.legalAddress || prev.address || '',
-          actualAddress: my.actual_address || my.actualAddress || '',
-          bank: my.bank || '',
-          bik: my.bik || '',
-          account: my.account || '',
-          korAccount: my.kor_account || my.korAccount || '',
-          directorName: my.director_name || my.directorName || '',
-          directorPosition: my.director_position || my.directorPosition || '',
-          phone: my.phone || prev.phone || '',
-          email: my.email || prev.email || '',
-          website: my.website || '',
-          specialization: my.specialization || '',
-          category: my.category || '',
-          contractUrl: my.contract_url || my.contractUrl || '',
-          contractNumber: my.contract_number || my.contractNumber || '',
-          contractDate: String(my.contract_date || my.contractDate || '').slice(0, 10),
-          licenseUrl: my.license_url || my.licenseUrl || '',
-          priceUrl: my.price_url || my.priceUrl || prev.priceUrl || '',
-          notes: my.notes || prev.notes || '',
-        }));
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, suppliers]);
+  const [supplierRequisites, setSupplierRequisites] = useState(createSupplierRequisitesForm);
+  useSupplierRequisitesSync({ setSupplierRequisites, suppliers, user });
   const [materialTransfers, setMaterialTransfers] = useState([]);
   const [showTransferForm, setShowTransferForm] = useState(false);
-  const [newTransfer, setNewTransfer] = useState({materialName:'',quantity:'',unit:'шт',workPackage:'',toPerson:'',toPersonRole:'',toUserId:'',fromLocation:'Основной склад',notes:'',transferDate:new Date().toISOString().split('T')[0]});
+  const [newTransfer, setNewTransfer] = useState(createMaterialTransferForm);
   const [sverkaModal, setSverkaModal] = useState(null);
-  const [showAiChat, setShowAiChat] = useState(false);
-  const [showMobileMenu, setShowMobileMenu] = useState(false);
-  const [showQuickActions, setShowQuickActions] = useState(false);
-  const [systemStatus, setSystemStatus] = useState(null);
-  const [systemStatusLoading, setSystemStatusLoading] = useState(false);
-  const [showSystemStatus, setShowSystemStatus] = useState(false);
-  const [showChatPanel, setShowChatPanelRaw] = useState(false);
-  const [companyChatInput, setCompanyChatInput] = useState('');
-  const [showScanInvoice, setShowScanInvoice] = useState(false);
-  const [showScannedInvoiceForm, setShowScannedInvoiceForm] = useState(false);
-  const [showReceiveDialog, setShowReceiveDialog] = useState(false);
-
-  const [scanningInvoice, setScanningInvoice] = useState(false);
+  const {
+    companyChatInput, scanningInvoice, setCompanyChatInput, setScanningInvoice, setShowAiChat,
+    setShowChatPanelRaw, setShowMobileMenu, setShowQuickActions, setShowReceiveDialog,
+    setShowScanInvoice, setShowScannedInvoiceForm, setShowSystemStatus, setSystemStatus,
+    setSystemStatusLoading, showAiChat, showChatPanel, showMobileMenu, showQuickActions,
+    showReceiveDialog, showScanInvoice, showScannedInvoiceForm, showSystemStatus,
+    systemStatus, systemStatusLoading,
+  } = useShellOverlayState();
   const [projectPayments, setProjectPayments] = useState([]);
   const [accountablePayments, setAccountablePayments] = useState([]);
-  const [showAccountableForm, setShowAccountableForm] = useState(false);
-  const [newAccountable, setNewAccountable] = useState({givenTo:'',amount:'',paymentMethod:'Наличные',purpose:'',date:''});
-  const [reportingPayment, setReportingPayment] = useState(null);
-  const [newExpense, setNewExpense] = useState({description:'',amount:'',photoUrl:''});
-  const [expenseSubmitting, setExpenseSubmitting] = useState(false);
   const [ownExpenses, setOwnExpenses] = useState([]);
-  const [showOwnExpenseForm, setShowOwnExpenseForm] = useState(false);
-  const [addExpenseProject, setAddExpenseProject] = useState('');
-  const [showBalanceDetails, setShowBalanceDetails] = useState(false);
   const [customRoomTypes, setCustomRoomTypes] = useState(()=>{try{return JSON.parse(localStorage.getItem('customRoomTypes')||'[]');}catch{return [];}});
   const [manualExpenses, setManualExpenses] = useState([]);
-  const [newManualExpense, setNewManualExpense] = useState({category:'materials',customCategory:'',projectName:'',amount:'',note:'',date:'',photoUrl:''});
-  const [newOwnExpense, setNewOwnExpense] = useState({projectName:'',category:'other',description:'',amount:'',photoUrl:'',date:''});
-  const [aiMessages, setAiMessages] = useState([{role:'assistant',content:'Привет! Я ИИ помощник СтройКа. Могу ответить на вопросы по вашим объектам, сметам, складу и финансам. Спрашивайте!'}]);
-  const [aiInput, setAiInput] = useState('');
+  const {
+    addExpenseProject, expenseSubmitting, newAccountable, newExpense, newManualExpense,
+    newOwnExpense, reportingPayment, setAddExpenseProject, setExpenseSubmitting,
+    setNewAccountable, setNewExpense, setNewManualExpense, setNewOwnExpense,
+    setReportingPayment, setShowAccountableForm, setShowBalanceDetails,
+    setShowOwnExpenseForm, showAccountableForm, showBalanceDetails, showOwnExpenseForm,
+  } = usePaymentUiState();
+  const {
+    aiChat, aiInput, aiLoading, aiMessage, aiMessages, directorAgentAnswer,
+    directorAgentError, directorAgentLoading, directorAgentQuestion, directorAgentSteps,
+    setAiChat, setAiInput, setAiLoading, setAiMessage, setAiMessages,
+    setDirectorAgentAnswer, setDirectorAgentError, setDirectorAgentLoading,
+    setDirectorAgentQuestion, setDirectorAgentSteps,
+  } = useAiAssistantState();
   const [checklists, setChecklists] = useState([]);
   const [checklistItems, setChecklistItems] = useState({});
   const [projectStages, setProjectStages] = useState([]);
@@ -604,14 +508,6 @@ function App() {
   const [estimatesPage, setEstimatesPage] = useState({loading:false, error:''});
   const [companyRequisites, setCompanyRequisites] = useState({});
   const [companyDocuments, setCompanyDocuments] = useState([]);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiChat, setAiChat] = useState([]);
-  const [aiMessage, setAiMessage] = useState('');
-  const [directorAgentQuestion, setDirectorAgentQuestion] = useState('');
-  const [directorAgentAnswer, setDirectorAgentAnswer] = useState('');
-  const [directorAgentSteps, setDirectorAgentSteps] = useState([]);
-  const [directorAgentLoading, setDirectorAgentLoading] = useState(false);
-  const [directorAgentError, setDirectorAgentError] = useState('');
   const [pushEnabled, setPushEnabled] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [previewContent, setPreviewContent] = useState(null);
@@ -636,41 +532,20 @@ function App() {
   const [accountingTab, setAccountingTab] = useState('summary');
   const [accountingDocProject, setAccountingDocProject] = useState('');
   const [suppliersTab, setSuppliersTab] = useState('active');
-  const [supplyTab, setSupplyTab] = useState('inbox');
-  const [showSupplyForm, setShowSupplyForm] = useState(false);
-  const [newSupplyReq, setNewSupplyReq] = useState({items:[{materialName:'',quantity:'',unit:'шт',workPackage:''}],project:'',urgency:'обычная',notes:'',category:''});
-  const [supplyExpandedId, setSupplyExpandedId] = useState(null);
-  const [supplyStockCheck, setSupplyStockCheck] = useState(null);
-  const [supplyAiText, setSupplyAiText] = useState('');
-  const [supplyAiLoading, setSupplyAiLoading] = useState(false);
-  const [supplyRejectId, setSupplyRejectId] = useState(null);
-  const [supplyRejectReason, setSupplyRejectReason] = useState('');
-  const [supplyCollapsedProjects, setSupplyCollapsedProjects] = useState({});
-  // Сн.2: запрос КП у поставщиков
-  const [showRequestKpModal, setShowRequestKpModal] = useState(null); // id заявки или null
-  const [suggestedSuppliers, setSuggestedSuppliers] = useState(null); // {suppliers:[], aiRecommendedCount}
-  const [selectedSupplierIds, setSelectedSupplierIds] = useState([]);
-  const [requestKpLoading, setRequestKpLoading] = useState(false);
-  // Сн.2: ответ поставщика на RFQ
-  const [respondingOfferId, setRespondingOfferId] = useState(null);
-  const [newKpResponse, setNewKpResponse] = useState({pricePerUnit:'',deliveryDays:'',paymentTerms:'Постоплата',vatIncluded:true,validUntil:'',supplierMessage:'',pdfUrl:''});
-  // Сн.3: AI сравнение КП
-  const [compareResultByReq, setCompareResultByReq] = useState({}); // {reqId: {ranking, aiText, bestOfferId, ...}}
-  const [compareLoadingReqId, setCompareLoadingReqId] = useState(null);
-  // Сн.3: поставщик выставляет счёт
-  const [invoicingOfferId, setInvoicingOfferId] = useState(null);
-  const [newOfferInvoice, setNewOfferInvoice] = useState({invoiceNumber:'',invoiceDate:new Date().toISOString().split('T')[0],amount:'',vatAmount:'',description:'',fileUrl:''});
-  // Сн.4: отгрузка, приемка, качество, претензии
-  const [shippingOfferId, setShippingOfferId] = useState(null);
-  const [shipmentForm, setShipmentForm] = useState({shippedQuantity:'',waybillNumber:'',waybillDate:new Date().toISOString().split('T')[0],vehicleNumber:'',driverName:'',documentUrl:'',photoUrl:''});
-  const [receivingDeliveryId, setReceivingDeliveryId] = useState(null);
-  const [receiveForm, setReceiveForm] = useState({receivedQuantity:'',qualityStatus:'Принято',qualityNotes:'',photoUrl:'',claimDescription:''});
-  const [deliveryAiResultById, setDeliveryAiResultById] = useState({});
-  const [deliveryAiLoadingId, setDeliveryAiLoadingId] = useState(null);
-  // Регистрация поставщика по ссылке
-  const [showSupplierInviteModal, setShowSupplierInviteModal] = useState(false);
-  const [supplierInviteForm, setSupplierInviteForm] = useState({presetName:'',presetCategory:'Сыпучие и бетон',supplierId:null,expiresInDays:14});
-  const [generatedInviteLink, setGeneratedInviteLink] = useState(null);
+  const {
+    compareLoadingReqId, compareResultByReq, deliveryAiLoadingId, deliveryAiResultById,
+    generatedInviteLink, invoicingOfferId, newKpResponse, newOfferInvoice, newSupplyReq,
+    receiveForm, receivingDeliveryId, requestKpLoading, respondingOfferId, selectedSupplierIds,
+    setCompareLoadingReqId, setCompareResultByReq, setDeliveryAiLoadingId, setDeliveryAiResultById,
+    setGeneratedInviteLink, setInvoicingOfferId, setNewKpResponse, setNewOfferInvoice, setNewSupplyReq,
+    setReceiveForm, setReceivingDeliveryId, setRequestKpLoading, setRespondingOfferId, setSelectedSupplierIds,
+    setShipmentForm, setShippingOfferId, setShowRequestKpModal, setShowSupplierInviteModal, setShowSupplyForm,
+    setSuggestedSuppliers, setSupplierInviteForm, setSupplyAiLoading, setSupplyAiText, setSupplyCollapsedProjects,
+    setSupplyExpandedId, setSupplyRejectId, setSupplyRejectReason, setSupplyStockCheck, setSupplyTab,
+    shipmentForm, shippingOfferId, showRequestKpModal, showSupplierInviteModal, showSupplyForm,
+    suggestedSuppliers, supplierInviteForm, supplyAiLoading, supplyAiText, supplyCollapsedProjects,
+    supplyExpandedId, supplyRejectId, supplyRejectReason, supplyStockCheck, supplyTab,
+  } = useSupplyWorkflowState();
   const [personnelTab, setPersonnelTab] = useState('staff');
   const [warehouseTab, setWarehouseTab] = useState('objects');
   const [selectedWarehouseProject, setSelectedWarehouseProject] = useState(null);
@@ -678,21 +553,18 @@ function App() {
   const [estimatesTab, setEstimatesTab] = useState('list');
   const [materialNorms, setMaterialNorms] = useState([]);
   const [materialsPage, setMaterialsPage] = useState({projectName:'', search:'', hasMore:false, loading:false, error:''});
-  const [materialNormSearch, setMaterialNormSearch] = useState('');
-  const [materialNormsPage, setMaterialNormsPage] = useState({search:'', hasMore:false, loading:false, error:''});
   const [workJournalPage, setWorkJournalPage] = useState({projectName:'', search:'', dateFrom:'', dateTo:'', hasMore:false, loading:false, error:''});
   const [materialAliases, setMaterialAliases] = useState([]);
   const [materialNormOverrides, setMaterialNormOverrides] = useState([]);
-  const [materialNormSuggestions, setMaterialNormSuggestions] = useState([]);
-  const [materialNormPreviewSuggestions, setMaterialNormPreviewSuggestions] = useState([]);
-  const [materialNormNotice, setMaterialNormNotice] = useState(null);
-  const [materialNormSuggestionLoading, setMaterialNormSuggestionLoading] = useState(false);
-  const [materialNormCoverageProject, setMaterialNormCoverageProject] = useState('');
-  const [newMaterialNorm, setNewMaterialNorm] = useState(EMPTY_MATERIAL_NORM_FORM);
-  const [editingMaterialNormId, setEditingMaterialNormId] = useState(null);
-  const [estimateSearch, setEstimateSearch] = useState('');
-  const [estimateProjectFilter, setEstimateProjectFilter] = useState('');
-  const [showArchivedEstimates, setShowArchivedEstimates] = useState(false);
+  const {
+    editingMaterialNormId, estimateProjectFilter, estimateSearch, materialNormCoverageProject,
+    materialNormNotice, materialNormPreviewSuggestions, materialNormSearch,
+    materialNormSuggestionLoading, materialNormSuggestions, materialNormsPage, newMaterialNorm,
+    setEditingMaterialNormId, setEstimateProjectFilter, setEstimateSearch,
+    setMaterialNormCoverageProject, setMaterialNormNotice, setMaterialNormPreviewSuggestions,
+    setMaterialNormSearch, setMaterialNormSuggestionLoading, setMaterialNormSuggestions,
+    setMaterialNormsPage, setNewMaterialNorm, setShowArchivedEstimates, showArchivedEstimates,
+  } = useMaterialNormsState();
   const [listSearch, setListSearch] = useState('');
   const [expandedActDate, setExpandedActDate] = useState(null);
   const [showReimburseModal, setShowReimburseModal] = useState(false);
@@ -700,8 +572,20 @@ function App() {
   // Inline-правки премий/удержаний по сотруднику в месяце (хранится в localStorage)
   const [salaryEdits, setSalaryEdits] = useState(() => readStoredJson('salaryEdits', {}));
   const [payrollExtras, setPayrollExtras] = useState(() => readStoredJson('payrollExtras', {}));
-  // Универсальная проверка вхождения подстроки во все указанные поля
-  const matchSearch = (q, ...fields) => matchSearchFields(q, ...fields);
+  const {
+    fileSrc,
+    lowStockFor,
+    matchSearch,
+    nextEstimateVersionFor,
+    projectFactSpent,
+  } = createAppUtilityRuntime({
+    API,
+    allBrigadeItems,
+    estimatesList,
+    materials,
+    nextEstimateVersionForFromList,
+    workJournal,
+  });
   const [weatherTab, setWeatherTab] = useState('log');
   const [settingsTab, setSettingsTab] = useState('requisites');
   const [rejectComment, setRejectComment] = useState('');
@@ -739,99 +623,85 @@ function App() {
   const [estimateWorkMaterials, setEstimateWorkMaterials] = useState({});
   const [estimateWorkParams, setEstimateWorkParams] = useState({});
   const [companyName, setCompanyName] = useState('');
-  const [issueToolData, setIssueToolData] = useState({masterName:'',project:'',issueType:'Временно'});
+  const [issueToolData, setIssueToolData] = useState(createIssueToolForm);
   const [returnToolCondition, setReturnToolCondition] = useState('Исправен');
-  const [newPayment, setNewPayment] = useState({amount:'',paymentType:'Наличный расчёт',paidBy:'',date:'',notes:''});
-  const [newPiecework, setNewPiecework] = useState({staffId:'',description:'',unit:'м2',quantity:'',pricePerUnit:'',project:''});
-  const [newProject, setNewProject] = useState({name:'',client:'',status:'Планирование',budget:'',deadline:'',progress:0,tasks:[],pricelistId:null});
-  const [newClient, setNewClient] = useState({name:'',phone:'',email:'',status:'Активный',notes:''});
-  const [newWarehouse, setNewWarehouse] = useState({name:'',city:'',address:'',notes:''});
-  const [newMovement, setNewMovement] = useState({materialName:'',fromLocation:'Основной склад',toLocation:'',quantity:'',unit:'шт',notes:'',selectedMaterials:[]});
-  const [newInvoice, setNewInvoice] = useState({number:'',date:'',supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:'',location:'Основной склад',project:'',vat:'Без НДС',photos:[],items:[{name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:''}]});
+  const [newPayment, setNewPayment] = useState(createActPaymentForm);
+  const [newPiecework, setNewPiecework] = useState(createPieceworkForm);
+  const [newProject, setNewProject] = useState(createProjectForm);
+  const [newClient, setNewClient] = useState(createClientForm);
+  const [newWarehouse, setNewWarehouse] = useState(createWarehouseForm);
+  const [newMovement, setNewMovement] = useState(createWarehouseMovementForm);
+  const [newInvoice, setNewInvoice] = useState(createWarehouseInvoiceForm);
   const [newStaff, setNewStaff] = useState(emptyStaffForm());
   const [staffExpandedSections, setStaffExpandedSections] = useState({access:false,docs:false,finance:false,extra:false});
   const [expandedStaffId, setExpandedStaffId] = useState(null);
   const [staffProfile, setStaffProfile] = useState(null);
   const [staffProfileLoading, setStaffProfileLoading] = useState(false);
-  const [newStaffDoc, setNewStaffDoc] = useState({docType:'другое',title:'',fileUrl:'',signedAt:'',expiresAt:'',notes:''});
+  const [newStaffDoc, setNewStaffDoc] = useState(createStaffDocumentForm);
   const [showStaffDocForm, setShowStaffDocForm] = useState(false);
 
-  const [newUser, setNewUser] = useState({name:'',email:'',password:'',role:'прораб',projectId:'',projectName:'',assignedProjects:[],assignedPackages:[],active:true});
-  const [newPricelist, setNewPricelist] = useState({name:'',description:'',forWho:'',coefficient:1.0});
-  const [newPlItem, setNewPlItem] = useState({name:'',unit:'м2',price:'',category:''});
+  const [newUser, setNewUser] = useState(createUserForm);
+  const [newPricelist, setNewPricelist] = useState(createPricelistForm);
+  const [newPlItem, setNewPlItem] = useState(createPricelistItemForm);
   const [newInviteRole, setNewInviteRole] = useState('мастер');
-  const [newSupplier, setNewSupplier] = useState({name:'',phone:'',email:'',specialization:'',category:'Сыпучие и бетон',rating:5.0,status:'Активный'});
-  const [newRequest, setNewRequest] = useState({items:[{materialName:'',quantity:'',unit:'шт',workPackage:''}],project:'',notes:'',selectedSuppliers:[],category:''});
-  const [newOffer, setNewOffer] = useState({supplierId:'',pricePerUnit:'',deliveryDays:'',notes:''});
-  const [newContract, setNewContract] = useState({masterId:'',masterName:'',contractType:'ГПХ',contractNumber:'',project:'',startDate:'',endDate:''});
-  const [newAct, setNewAct] = useState({masterId:'',masterName:'',project:'',workPackage:'',periodStart:'',periodEnd:''});
-  const [newTool, setNewTool] = useState({name:'',inventoryNumber:'',cost:'',status:'На складе',location:'Основной склад',project:'',masterId:'',masterName:'',issueType:'',notes:''});
-  const [newRoom, setNewRoom] = useState({project:'',name:'',floorArea:'',wallArea:'',ceilingArea:'',height:'',ceilingType:'Простой',wallMaterial:'Штукатурка',floorMaterial:'Стяжка',photoUrl:'',notes:''});
+  const [newSupplier, setNewSupplier] = useState(createSupplierForm);
+  const [newRequest, setNewRequest] = useState(createRequestForm);
+  const [newOffer, setNewOffer] = useState(createSupplierOfferForm);
+  const [newContract, setNewContract] = useState(createContractForm);
+  const [newAct, setNewAct] = useState(createInterimActForm);
+  const [newTool, setNewTool] = useState(createToolForm);
+  const [newRoom, setNewRoom] = useState(createRoomForm);
   const [draftRoomWindows, setDraftRoomWindows] = useState([]);
   const [draftRoomDoors, setDraftRoomDoors] = useState([]);
-  const [newWindow, setNewWindow] = useState({roomId:'',name:'Окно 1',width:'',height:'',windowType:'ПВХ',revealDepth:'',revealMaterial:'Штукатурка'});
-  const [newDoor, setNewDoor] = useState({roomId:'',name:'Дверь 1',width:'',height:'',doorType:'Деревянная',doorPurpose:'Межкомнатная',revealDepth:'',revealMaterial:'Штукатурка'});
-  const [newInventory, setNewInventory] = useState({project:'',date:'',notes:''});
-  const [newWeather, setNewWeather] = useState({projectName:'',date:'',temperature:'',condition:'Ясно',windSpeed:'',notes:''});
-  const [newEstimate, setNewEstimate] = useState({projectId:'',projectName:'',name:'',version:'1.0',smetaType:'Заказчик',workPackage:'Основная',status:'Активная',templateId:''});
-  const [showVersionHistory, setShowVersionHistory] = useState(false);
-  const [estimateVersions, setEstimateVersions] = useState([]);
-  const [selectedVersionsToCompare, setSelectedVersionsToCompare] = useState([]);
-  const [importValidationWarnings, setImportValidationWarnings] = useState([]);
-  const [importValidating, setImportValidating] = useState(false);
-  const [estimateIssueFocusKey, setEstimateIssueFocusKey] = useState('');
-  const [showEstimateIssuesOnly, setShowEstimateIssuesOnly] = useState(false);
-  const [showEstimateWorkSummary, setShowEstimateWorkSummary] = useState(false);
-  const [executionPriceFillPercent, setExecutionPriceFillPercent] = useState(50);
+  const [newWindow, setNewWindow] = useState(createWindowForm);
+  const [newDoor, setNewDoor] = useState(createDoorForm);
+  const [newInventory, setNewInventory] = useState(createInventoryForm);
+  const [newWeather, setNewWeather] = useState(createWeatherForm);
+  const {
+    creatingFromEstimate, distributeAssignments, distributeBrigades, distributing,
+    estimateChatInput, estimateChatLoading, estimateChatMessages, estimateIssueFocusKey,
+    estimateVersions, executionPriceFillPercent, fromEstimateForm, generateForm,
+    generatePricelistForm, generating, generatingPricelist, importValidating,
+    importValidationWarnings, newDistributeBrigade, newEstimate, newEstimateItem,
+    newEstimateSection, selectedVersionsToCompare, setCreatingFromEstimate,
+    setDistributeAssignments, setDistributeBrigades, setDistributing, setEstimateChatInput,
+    setEstimateChatLoading, setEstimateChatMessages, setEstimateIssueFocusKey,
+    setEstimateVersions, setExecutionPriceFillPercent, setFromEstimateForm, setGenerateForm,
+    setGeneratePricelistForm, setGenerating, setGeneratingPricelist, setImportValidating,
+    setImportValidationWarnings, setNewDistributeBrigade, setNewEstimate, setNewEstimateItem,
+    setNewEstimateSection, setSelectedVersionsToCompare, setShowDistribute, setShowEstimateChat,
+    setShowEstimateIssuesOnly, setShowEstimateWorkSummary, setShowFromEstimate,
+    setShowGenerateEstimate, setShowGeneratePricelist, setShowVersionHistory,
+    setShowWorkAssignment, showDistribute, showEstimateChat, showEstimateIssuesOnly,
+    showEstimateWorkSummary, showFromEstimate, showGenerateEstimate, showGeneratePricelist,
+    showVersionHistory, showWorkAssignment,
+  } = useEstimateWorkflowState();
   const selectedEstimateExecutionFillPercent = estimateExecutionFillPercentOf(selectedEstimate);
-  useEffect(() => {
-    if (!selectedEstimate?.id || !selectedEstimateExecutionFillPercent) return;
-    setExecutionPriceFillPercent(prev => String(prev) === selectedEstimateExecutionFillPercent ? prev : selectedEstimateExecutionFillPercent);
-  }, [selectedEstimate?.id, selectedEstimateExecutionFillPercent]);
-  const [showEstimateChat, setShowEstimateChat] = useState(false);
-  const [estimateChatMessages, setEstimateChatMessages] = useState([]);
-  const [estimateChatInput, setEstimateChatInput] = useState('');
-  const [estimateChatLoading, setEstimateChatLoading] = useState(false);
-  const [showGenerateEstimate, setShowGenerateEstimate] = useState(false);
-  const [generateForm, setGenerateForm] = useState({description:'',projectId:'',projectName:'',pricelistId:'',area:'',name:'',version:'1.0',smetaType:'Заказчик',workPackage:'Основная',status:'Активная'});
-  const [generating, setGenerating] = useState(false);
-  const [showGeneratePricelist, setShowGeneratePricelist] = useState(false);
-  const [generatePricelistForm, setGeneratePricelistForm] = useState({description:'',name:'',forWho:'',coefficient:1.0});
-  const [generatingPricelist, setGeneratingPricelist] = useState(false);
-  const [showFromEstimate, setShowFromEstimate] = useState(false);
-  const [fromEstimateForm, setFromEstimateForm] = useState({estimateId:'',name:'',forWho:'',coefficient:1.0});
-  const [creatingFromEstimate, setCreatingFromEstimate] = useState(false);
-  const [showDistribute, setShowDistribute] = useState(false);
-  const [showWorkAssignment, setShowWorkAssignment] = useState(false);
-  const [distributeAssignments, setDistributeAssignments] = useState({});
-  const [distributeBrigades, setDistributeBrigades] = useState([]);
-  const [newDistributeBrigade, setNewDistributeBrigade] = useState({brigadeName:'',contractorType:'Своя бригада',contractorId:'',pricelistId:''});
-  const [distributing, setDistributing] = useState(false);
+  useEstimateExecutionFillPercentSync({
+    selectedEstimate,
+    selectedEstimateExecutionFillPercent,
+    setExecutionPriceFillPercent,
+  });
 
-  const persistEstimate = async (est) => {
-    if (!est || !est.id) return;
-    try {
-      const res = await fetch(API+'/estimates/'+est.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)});
-      if (res.ok) {
-        const nextEstimates = estimateListWithUpdatedEstimate(est);
-        await queueEstimateQualityReviewTask(est, 'Смета сохранена');
-        await queueEstimateNormReviewTask(est, 'Смета сохранена', nextEstimates);
-      }
-    } catch(e) {}
-  };
+  const persistEstimate = async (est) => persistEstimateAction({
+    API,
+    est,
+    estimateListWithUpdatedEstimate,
+    estimatesList,
+    queueEstimateNormReviewTask,
+    queueEstimateQualityReviewTask,
+  });
 
-  const [newEstimateSection, setNewEstimateSection] = useState({name:''});
-  const [newEstimateItem, setNewEstimateItem] = useState({sectionId:'',itemType:'work',name:'',unit:'м2',quantity:'',priceWork:'',priceMaterial:'',measurementBasis:''});
-  const [newStage, setNewStage] = useState({name:'',status:'Не начат',startDate:'',endDate:'',progress:0,responsible:'',notes:''});
-  const [newChecklist, setNewChecklist] = useState({name:'',template:''});
+  const [newStage, setNewStage] = useState(createProjectStageForm);
+  const [newChecklist, setNewChecklist] = useState(createChecklistForm);
   const [newChecklistItem, setNewChecklistItem] = useState('');
-  const [newPrescription, setNewPrescription] = useState({number:'',violation:'',deadline:'',responsible:'',photoUrl:''});
+  const [newPrescription, setNewPrescription] = useState(createPrescriptionForm);
   const [newUnexpected, setNewUnexpected] = useState(EMPTY_ESTIMATE_CHANGE);
-  const [newCompanyDoc, setNewCompanyDoc] = useState({name:'',docType:'Устав',fileUrl:'',expiresAt:''});
-  const [companyReqForm, setCompanyReqForm] = useState({fullName:'',shortName:'',inn:'',kpp:'',ogrn:'',legalAddress:'',actualAddress:'',phone:'',email:'',directorName:'',directorPosition:'Генеральный директор',basis:'Устава',bankName:'',bik:'',rs:'',ks:''});
-  const [profileData, setProfileData] = useState({fullName:'',passport:'',inn:'',contractType:'ГПХ',bankAccount:'',bankName:'',phone:'',specialization:'',ogrnip:''});
-  const [newLead, setNewLead] = useState({name:'',phone:'',email:'',source:'',budget:'',notes:'',stage:'Новый',photoUrl:'',contractSubject:''});
-  const [newTbEntry, setNewTbEntry] = useState({project:'',type:'Вводный инструктаж',participants:[],date:'',program:'',instructionText:'',aiLoading:false});
+  const [newCompanyDoc, setNewCompanyDoc] = useState(createCompanyDocumentForm);
+  const [companyReqForm, setCompanyReqForm] = useState(createCompanyRequisitesForm);
+  const [profileData, setProfileData] = useState(createProfileForm);
+  const [newLead, setNewLead] = useState(createLeadForm);
+  const [newTbEntry, setNewTbEntry] = useState(createTbEntryForm);
   const [newParticipant, setNewParticipant] = useState('');
   const sidebarRef = useRef(null);
   const chatEndRef = useRef(null);
@@ -890,46 +760,7 @@ function App() {
     user,
   });
 
-  useEffect(() => {
-    const handleOutside = (e) => {
-      const target = e.target;
-      if (target && typeof target.closest === 'function' && target.closest('[data-notification-root="1"]')) return;
-      setShowNotifications(false);
-    };
-    const handleKey = (e) => { if (e.key === 'Escape') setShowNotifications(false); };
-    document.addEventListener('pointerdown', handleOutside);
-    document.addEventListener('touchstart', handleOutside, {passive:true});
-    document.addEventListener('keydown', handleKey);
-    return () => {
-      document.removeEventListener('pointerdown', handleOutside);
-      document.removeEventListener('touchstart', handleOutside);
-      document.removeEventListener('keydown', handleKey);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (user) {
-      mobileLoadedScopesRef.current.clear();
-      mobileApiRequestsRef.current.clear();
-      if (isMobile) loadMobileInitial();
-      else refreshData();
-      if (['мастер','субподрядчик','бригадир'].includes(user.role)) { loadMasterProfile(); setActivePage('works'); }
-      const saved = localStorage.getItem('companyName'); if (saved) setCompanyName(saved);
-      const keys = ['masterRatings','activityLog','notifications','tbJournal','geoCheckins','signedDocs','actPayments','weatherLog'];
-      const setters = [setMasterRatings,setActivityLog,setNotifications,setTbJournal,setGeoCheckins,setSignedDocs,setActPayments,setWeatherLog];
-      keys.forEach((k,i) => { const v=localStorage.getItem(k); if(v) setters[i](JSON.parse(v)); });
-      requestPushPermission().then(granted => setPushEnabled(granted));
-      const pingOnline = async () => {
-        try {
-          await fetch(API+'/online',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:user.id,userName:user.name,userRole:user.role,lastSeen:new Date().toISOString()})});
-        } catch(e){}
-      };
-      pingOnline();
-      const pingInterval = setInterval(pingOnline, 30000);
-      return ()=>clearInterval(pingInterval);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  useNotificationDismissEffect(setShowNotifications);
 
   useEffect(() => {
     if (!user || activePage !== 'activitylog') return;
@@ -958,11 +789,7 @@ function App() {
     setWarehouses, setWarrantyDefects, setWorkJournal, setWorkJournalPage, user, WORK_JOURNAL_PAGE_LIMIT,
   });
 
-  // Счётчик непрочитанных сообщений чата для текущего пользователя
-  const unreadMessagesCount = (companyMessages||[]).filter(m=>{
-    const rb = m.readBy||[];
-    return user && !rb.includes(user.id) && (m.author_id!==user.id);
-  }).length;
+  const unreadMessagesCount = unreadCompanyMessagesCount(companyMessages, user);
 
   const {
     loadChecklistItems,
@@ -979,6 +806,30 @@ function App() {
     user,
   });
 
+  useAuthenticatedAppBootstrapEffect({
+    API,
+    isMobile,
+    loadMasterProfile,
+    loadMobileInitial,
+    mobileApiRequestsRef,
+    mobileLoadedScopesRef,
+    refreshData,
+    setActivePage,
+    setCompanyName,
+    setPushEnabled,
+    storageSetters: {
+      masterRatings: setMasterRatings,
+      activityLog: setActivityLog,
+      notifications: setNotifications,
+      tbJournal: setTbJournal,
+      geoCheckins: setGeoCheckins,
+      signedDocs: setSignedDocs,
+      actPayments: setActPayments,
+      weatherLog: setWeatherLog,
+    },
+    user,
+  });
+
   const { appendPhotos, uploadPhoto } = createUploadActions({
     API,
     activePage,
@@ -988,31 +839,12 @@ function App() {
     projects,
   });
 
-  const fileSrc = createFileSrc(API);
-
   const { checkinGeo } = createGeoActions({
     geoCheckins,
     setGeoCheckins,
     user,
   });
 
-  const getRoomNetWall = (room) => calcRoomNetWall(room, roomWindows, roomDoors);
-  const roomCompleteness = (room) => calcRoomCompleteness(room, roomWindows, roomDoors, C);
-  const roomMeasurementCheck = (projectName, roomId, surface, quantity, unit, description='') => {
-    return buildRoomMeasurementCheck({
-      projectName,
-      roomId,
-      surface,
-      quantity,
-      unit,
-      description,
-      rooms,
-      roomWindows,
-      roomDoors,
-      roomWorks,
-      materialNameKey,
-    });
-  };
   const {
     deleteBrigadePayment,
     openBrigadeContract,
@@ -1108,40 +940,46 @@ function App() {
     setUser,
     user,
   });
+  useInviteCodeCheckEffect({ checkInviteCode, regCode, setRegInviteInfo });
 
-  // Авто-проверка при изменении кода (debounce 400 мс)
-  useEffect(() => {
-    if (!regCode) { setRegInviteInfo(null); return; }
-    const t = setTimeout(()=>{ checkInviteCode(regCode); }, 400);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [regCode]);
-
-  const canAccess = (p) => canAccessRole(user, p, ROLES);
-  const isFinanceRole = () => isFinanceUser(user);
-  const visibleProjects = (list) => visibleProjectsForUser(list, user);
-  const visibleEstimatesForCurrentUser = (list) => visibleEstimatesForUser(list, user);
-  const selectableActiveProjects = (list=projects) => selectableActiveProjectsForUser(list||[], user);
-  const visibleActiveProjects = (list=projects) => selectableActiveProjects(list||[]);
-  useEffect(() => {
-    if(!user||!['мастер','субподрядчик','бригадир'].includes(user.role)) return;
-    const options = selectableActiveProjects(projects);
-    const currentOk = masterProjectId&&options.some(p=>String(p.id)===String(masterProjectId));
-    if(currentOk) return;
-    if(masterProjectId&&!currentOk){
-      setMasterProjectId('');
-      setSelectedWorks({});
-      setPricelistItems([]);
-    }
-    if(options.length===1){
-      const project = options[0];
-      setMasterProjectId(String(project.id));
-      setSelectedWorks({});
-      if(project.pricelistId) loadPricelistItems(project.pricelistId);
-      else setPricelistItems([]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.role, user?.assignedProjects, user?.assigned_projects, projects, masterProjectId]);
+  const {
+    canAccess,
+    isFinanceRole,
+    navigateTo,
+    searchResults,
+    selectableActiveProjects,
+    visibleActiveProjects,
+    visibleEstimatesForCurrentUser,
+    visibleProjects,
+  } = useAppNavigationRuntime({
+    ROLES,
+    data: { clients, materials, projects, tools },
+    state: { globalSearch, isMobile, masterProjectId, user },
+    actions: {
+      loadPricelistItems,
+      setActivePage,
+      setEditingItem,
+      setEditingPlItem,
+      setExpandedClient,
+      setExpandedProject,
+      setGlobalSearch,
+      setInlineEditPl,
+      setMasterProjectId,
+      setPricelistItems,
+      setSelectedInventory,
+      setSelectedPricelist,
+      setSelectedWarehouseProject,
+      setSelectedWorks,
+      setShowArchive,
+      setShowForm,
+      setShowInvites,
+      setShowOffers,
+      setShowPiecework,
+      setShowRoomForm,
+      setShowSearch,
+      setSidebarVisible,
+    },
+  });
   const {
     aiFindingsForProject,
     aiTasksForProject,
@@ -1173,10 +1011,6 @@ function App() {
     showPreview,
   });
 
-  // Расчёт прогресса и сумм по факту сметы (используется в дашборде, кабинетах технадзора и заказчика, карточке объекта)
-  const nextEstimateVersionFor = (draft, sourceEstimates=estimatesList) => {
-    return nextEstimateVersionForFromList(draft, sourceEstimates);
-  };
   const {
     openEstimateDetail,
     estimateDiffBaseFor,
@@ -1216,326 +1050,103 @@ function App() {
     queueEstimateQualityReviewTask: (...args) => queueEstimateQualityReviewTask(...args),
     queueEstimateNormReviewTask: (...args) => queueEstimateNormReviewTask(...args),
   });
-  const activeEstimatesForProject = (p, kind='Заказчик', sourceEstimates=null) => {
-    const groups = {};
-    visibleEstimatesForCurrentUser(sourceEstimates||estimatesList||[]).filter(e=>
-      (e.projectName===p.name||Number(e.projectId)===Number(p.id)) &&
-      estimateKind(e)===kind &&
-      e.status==='Активная' &&
-      !isArchivedEstimate(e)
-    ).forEach(e=>{
-      const k = estimatePackage(e);
-      if(!groups[k]) groups[k] = [];
-      groups[k].push(e);
-    });
-    return Object.values(groups)
-      .map(items=>activeEstimateFromList(items))
-      .filter(Boolean);
-  };
-  const renderEstimateReconciliationsPanel = (p) => {
-    const recs = estimateReconciliationsForProject(p.name);
-    const projectEstimates = visibleEstimatesForCurrentUser(estimatesList)
-      .filter(e=>e.projectName===p.name && estimateKind(e)==='Заказчик' && !isArchivedEstimate(e) && !isGlobalEstimateTemplate(e));
-    return (
-      <EstimateReconciliationsPanel
-        project={p}
-        reconciliations={recs}
-        projectEstimates={projectEstimates}
-        estimateDiffBaseFor={estimateDiffBaseFor}
-        estimatePackage={estimatePackage}
-        estimateTotal={estimateTotal}
-        estimateUpdatedTs={estimateUpdatedTs}
-        canApprove={isLeadership()}
-        onApprove={approveEstimateReconciliation}
-        onCreate={createEstimateReconciliation}
-        onOpenPreview={openEstimateReconciliationPreview}
-      />
-    );
-  };
-  const getProjectWorkPackageOptions = (projectName='') => {
-    const project = (projects||[]).find(p=>p.name===projectName);
-    const activePackages = project
-      ? activeEstimatesForProject(project, 'Заказчик').map(estimatePackage).filter(Boolean)
-      : [];
-    const fallback = ESTIMATE_PACKAGES.filter(Boolean);
-    return [...new Set((activePackages.length ? activePackages : fallback).filter(Boolean))];
-  };
-  const getProjectEstimateWorkOptions = (projectName='', workPackage='') => {
-    const project = (projects||[]).find(p=>p.name===projectName);
-    if (!project) return [];
-    const packageFilter = String(workPackage || '').trim();
-    const seen = new Set();
-    const out = [];
-    activeEstimatesForProject(project, 'Заказчик')
-      .filter(est => !packageFilter || estimatePackage(est) === packageFilter)
-      .forEach(est => {
-        const pkg = estimatePackage(est);
-        _sectionsOfEst(est).forEach((section, sectionIdx) => {
-          const sectionName = section?.name || '';
-          (section?.items || []).forEach((item, itemIdx) => {
-            if (normalizeEstimateItemType(item, sectionName) !== 'work') return;
-            const key = item.workKey || estimateWorkKeyForItem(item, sectionName, itemIdx);
-            const value = [est.id, sectionIdx, itemIdx, key].join(':');
-            if (seen.has(value)) return;
-            seen.add(value);
-            out.push({
-              value,
-              estimateId: est.id,
-              estimateName: est.name,
-              estimateItemKey: key,
-              parentWorkKey: key,
-              parentWorkName: item.workName || item.name || '',
-              parentWorkSourceCode: item.workSourceCode || item.sourceCode || item.obosn || '',
-              sectionName,
-              workPackage: pkg,
-              label: (item.workName || item.name || '').slice(0, 140),
-            });
-          });
-        });
-      });
-    return out;
-  };
-  const projectMeasurementBasisTotals = (projectName) => projectMeasurementBasisTotalsFor(projectName, {rooms, roomWindows, roomDoors});
-  const estimateMeasurementComparisonSummary = (project) => estimateMeasurementComparisonSummaryFor(project, {
-    totals: projectMeasurementBasisTotals(project?.name || ''),
-    activeEstimates: project ? activeEstimatesForProject(project, 'Заказчик') : [],
-  });
-  const buildEstimateMeasurementComparisonContent = (project) => buildEstimateMeasurementComparisonDocContent(
-    project,
-    estimateMeasurementComparisonSummary(project),
-    projectMeasurementBasisTotals(project?.name||''),
-    {generatedBy:user?.name||''}
-  );
-  const renderEstimateMeasurementComparisonPanel = (project) => {
-    return (
-      <EstimateMeasurementComparisonPanel
-        project={project}
-        summary={estimateMeasurementComparisonSummary(project)}
-        totals={projectMeasurementBasisTotals(project?.name||'')}
-        estimateChangeForComparisonRow={estimateChangeForComparisonRow}
-        onCreateEstimateChange={createEstimateChangeFromComparisonRow}
-        onOpenChangesTab={() => {setActiveProjectTab('Изменения к смете');setActiveTabGroup('work');}}
-        onPrint={() => showPreview(buildEstimateMeasurementComparisonContent(project),'Смета ↔ обмеры — '+project.name)}
-      />
-    );
-  };
-  const workJournalEstimateSummary = (project) => workJournalEstimateSummaryFor(project, {
-    activeEstimates: project ? activeEstimatesForProject(project, 'Заказчик') : [],
-    workJournal,
-    planDone: projectPlanDone(project||{}),
-  });
-  const buildWorkJournalEstimateReconciliationContent = (project) => buildWorkJournalEstimateReconciliationDocContent(
-    project,
-    workJournalEstimateSummary(project),
-    {generatedBy:user?.name||'', statusMeta:workJournalEstimateStatusMeta}
-  );
-  const renderWorkJournalEstimateReconciliationPanel = (project) => {
-    return (
-      <WorkJournalEstimateReconciliationPanel
-        project={project}
-        summary={workJournalEstimateSummary(project)}
-        onPrint={() => showPreview(buildWorkJournalEstimateReconciliationContent(project),'Сверка ЖПР ↔ смета — '+project.name)}
-      />
-    );
-  };
-  const projectPlanDone = (p) => projectPlanDoneFor(activeEstimatesForProject(p, 'Заказчик'));
-  // Выполненные позиции сметы для КС-2/КС-3.
-  // Если по смете уже есть ЖПР, в КС попадают только подтвержденные записи,
-  // а цена берется из сметы заказчика. Это не дает вывести в КС объемы "На проверке".
-  const ks2ItemsFromEstimate = (p) => ks2ItemsFromActiveEstimates({
-    project: p,
-    activeEstimates: activeEstimatesForProject(p, 'Заказчик'),
-    workJournal,
-  });
-  const estimateItemOptionsForProject = (p) => estimateItemOptionsFromActiveEstimates(activeEstimatesForProject(p, 'Заказчик'));
-  const includableEstimateChanges = (projectName) => includableEstimateChangesForProject(projectName, unexpectedWorksList);
-  const estimateChangesForNewEstimate = (project, est) => estimateChangesForNewEstimateFromList({
-    project,
-    estimate: est,
-    unexpectedWorksList,
-    activeCustomerEstimates: project ? activeEstimatesForProject(project, 'Заказчик') : [],
-  });
-  const estimateChangeRowsForDocs = (projectName, kind) => estimateChangeRowsForDocsFromList(projectName, kind, unexpectedWorksList);
-  // Фактически освоено по проекту: журнал работ + наряды бригадные (по приёмке) + материалы на объекте
-  const projectFactSpent = (p) => projectFactSpentValue({
-    project: p,
-    workJournal,
-    allBrigadeItems,
-    materials,
-  });
-  const warehouseInvoiceItems = (inv) => buildWarehouseInvoiceItems(inv, {
-    materials,
-    warehouseMain,
-    materialInspections,
-    history,
-  });
-  const isSupplyDeliveryInvoice = (inv) => !!(inv?.supplyDeliveryId || inv?.sourceType==='supply_delivery');
-  const materialNameLookupKey = materialLookupText;
-  const materialAliasFor = (projectName, aliasName) => {
-    const key = materialNameLookupKey(aliasName);
-    if (!key) return null;
-    const active = (materialAliases||[]).filter(a=>a&&a.active!==false&&materialNameLookupKey(a.aliasName)===key);
-    return active.find(a=>(a.projectName||'')===projectName) || active.find(a=>!(a.projectName||'')) || null;
-  };
-  const canonicalMaterialMeta = (projectName, name, unit='') => {
-    const alias = materialAliasFor(projectName, name);
-    return {
-      name: alias?.canonicalName || name || '',
-      unit: alias?.canonicalUnit || unit || '',
-      alias,
-    };
-  };
-  const estimateMaterialPlanRows = (projectName) => buildEstimateMaterialPlanRows({
-    projectName,
-    projects,
+  const {
     activeEstimatesForProject,
-    materialNameLookupKey,
-  });
-  const materialAliasCandidates = (projectName, row) => buildMaterialAliasCandidates({
-    projectName,
-    row,
-    estimateMaterialPlanRows,
-    materialNameLookupKey,
-  });
-  const materialReconciliationRows = (projectName, workPackage='') => buildMaterialReconciliationRows({
-    projectName,
-    workPackage,
+    estimateChangeRowsForDocs,
+    estimateChangesForNewEstimate,
+    estimateItemOptionsForProject,
+    getProjectEstimateWorkOptions,
+    getProjectWorkPackageOptions,
+    includableEstimateChanges,
+    ks2ItemsFromEstimate,
+    projectPlanDone,
+    renderEstimateMeasurementComparisonPanel,
+    renderEstimateReconciliationsPanel,
+    renderWorkJournalEstimateReconciliationPanel,
+  } = createProjectEstimateRuntime({
+    ESTIMATE_PACKAGES,
+    activeTabActions: {
+      openEstimateChanges: () => {
+        setActiveProjectTab('Изменения к смете');
+        setActiveTabGroup('work');
+      },
+    },
+    approveEstimateReconciliation,
+    createEstimateChangeFromComparisonRow,
+    createEstimateReconciliation,
+    estimateChangeForComparisonRow,
+    estimateDiffBaseFor,
+    estimateReconciliationsForProject,
+    estimatesList,
+    openEstimateReconciliationPreview,
     projects,
+    rooms,
+    roomDoors,
+    roomWindows,
+    showPreview,
+    unexpectedWorksList,
+    user,
+    visibleEstimatesForCurrentUser,
+    workJournal,
+    workJournalEstimateStatusMeta,
+  });
+  const {
+    buildMaterialNormCoverageContent,
+    canonicalMaterialMeta,
+    estimateNormCoverageRows,
+    estimateWorkNormRequirementRows,
+    isPersonalMaterialRole,
+    isSupplyDeliveryInvoice,
+    materialAliasCandidates,
+    materialAvailabilityMapForWork,
+    materialControlSummaryForProject,
+    materialHintForProject,
+    materialNameKey,
+    materialNameLookupKey,
+    materialNormControlSummaryForProject,
+    materialNormForWork,
+    materialReconciliationRows,
+    materialRowsAvailableForWork,
+    materialSuggestionsForWork,
+    personalMaterialRowsForProject,
+    warehouseInvoiceEstimateControl,
+    warehouseInvoiceItems,
+    workNeedsThicknessParam,
+  } = createMaterialRuntime({
+    activeEstimatesForProject,
+    canonicalCompanyName: companyName,
+    companyRequisites,
+    history,
     invoices,
+    materialAliases,
+    materialInspections,
+    materialNormOverrides,
+    materialNorms,
+    materials,
+    materialTransfers,
+    parseSupplyItems,
+    projects,
     supplyDeliveries,
     supplyHistory,
-    warehouseMovements,
-    materialTransfers,
-    workJournal,
-    history,
-    materials,
     supplyRequests,
-    activeEstimatesForProject,
-    canonicalMaterialMeta,
-    warehouseInvoiceItems,
-    isSupplyDeliveryInvoice,
-    estimateWorkNormRequirementRows,
-    parseSupplyItems,
-    materialNameLookupKey,
-  });
-  const materialControlSummaryForProject = (projectName) => buildMaterialControlSummary(materialReconciliationRows(projectName));
-  const warehouseInvoiceEstimateControl = (inv) => buildWarehouseInvoiceEstimateControl({
-    inv,
-    warehouseInvoiceItems,
-    materialControlSummaryForProject,
-    canonicalMaterialMeta,
-    materialNameLookupKey,
-  });
-  const materialNameKey = materialNameLookupKey;
-  const isPersonalMaterialRole = () => ['мастер','субподрядчик','бригадир'].includes(user?.role);
-  const parseJournalMaterials = (value) => parseJournalMaterialsValue(value);
-  const materialNormDeviationRows = (projectName, workPackage='') => buildMaterialNormDeviationRows({
-    projectName,
-    workPackage,
+    user,
+    warehouseMain,
+    warehouseMovements,
     workJournal,
-    parseJournalMaterials,
-    materialNameKey,
   });
-  const materialNormControlSummaryForProject = (projectName, workPackage='') =>
-    buildMaterialNormControlSummary(materialNormDeviationRows(projectName, workPackage));
-  const personalMaterialRowsForProject = (projectName, personName=user?.name, personId=user?.id, workPackage='') =>
-    buildPersonalMaterialRowsForProject({
-      projectName,
-      personName,
-      personId,
-      workPackage,
-      materialTransfers,
-      workJournal,
-      history,
-      canonicalMaterialMeta,
-      parseJournalMaterials,
-      materialNameKey,
-    });
-  const materialRowsAvailableForWork = (projectName, workPackage='') => {
-    if (isPersonalMaterialRole()) return personalMaterialRowsForProject(projectName, user?.name, user?.id, workPackage).filter(r=>toNum(r.quantity)>0);
-    return (materials||[]).filter(m=>m.project===projectName&&toNum(m.quantity)>0&&packageMatches(m.workPackage || m.work_package, workPackage));
-  };
-  const materialAvailabilityMapForWork = (projectName, workPackage='') => buildMaterialAvailabilityMap({
-    rows: materialRowsAvailableForWork(projectName, workPackage),
-    projectName,
-    canonicalMaterialMeta,
+  const {
+    getRoomNetWall,
+    roomCompleteness,
+    roomMeasurementCheck,
+    roomMeasurementMessage,
+  } = createRoomMeasurementRuntime({
+    C,
     materialNameKey,
+    roomDoors,
+    roomWindows,
+    roomWorks,
+    rooms,
   });
-  const materialHintForProject = (projectName, materialName, workPackage='') => {
-    const meta = canonicalMaterialMeta(projectName, materialName);
-    const key = materialNameKey(meta.name);
-    if (!key) return null;
-    return materialReconciliationRows(projectName, workPackage).find(r=>materialNameKey(r.name)===key) || null;
-  };
-  const materialSuggestionsForWork = (projectName, workName, sectionName='', workPackage='') => buildMaterialSuggestionsForWork({
-    projectName,
-    workName,
-    sectionName,
-    workPackage,
-    materialReconciliationRows,
-    materialNameKey,
-  });
-  const workNormRulesFor = (workName, sectionName='', projectName='', estimateId=null) => {
-    return workNormRulesForCalculation({
-      workName,
-      sectionName,
-      projectName,
-      estimateId,
-      materialNorms,
-      materialNormOverrides,
-      baseRules: WORK_MATERIAL_NORM_RULES,
-    });
-  };
-  const workNeedsThicknessParam = (workName, sectionName='') =>
-    workNormRulesFor(workName, sectionName).some(r=>r.thicknessBaseMm);
-  const materialNormForWork = (projectName, workName, sectionName, workQty, workUnit, material, params={}) => {
-    return calculateMaterialNormForWork({
-      projectName,
-      workName,
-      sectionName,
-      workQty,
-      workUnit,
-      material,
-      params,
-      materialNorms,
-      materialNormOverrides,
-      baseRules: WORK_MATERIAL_NORM_RULES,
-    });
-  };
-  const normRequirementsForWork = (workName, sectionName, workQty, workUnit, params={}) => {
-    return calculateNormRequirementsForWork({
-      workName,
-      sectionName,
-      workQty,
-      workUnit,
-      params,
-      materialNorms,
-      materialNormOverrides,
-      baseRules: WORK_MATERIAL_NORM_RULES,
-    });
-  };
-  const estimateWorkNormRequirementRows = (projectName, workPackage='') => buildEstimateWorkNormRequirementRows({
-    projectName,
-    workPackage,
-    projects,
-    activeEstimatesForProject,
-    normRequirementsForWork,
-    materialNameKey,
-  });
-  const estimateNormCoverageRows = (projectName, sourceEstimates=null) => buildEstimateNormCoverageRows({
-    projectName,
-    sourceEstimates,
-    projects,
-    activeEstimatesForProject,
-    workNormRulesFor,
-    normRequirementsForWork,
-    materialNameKey,
-  });
-  const buildMaterialNormCoverageContent = (projectName) => buildMaterialNormCoverageDocContent(
-    projectName,
-    projectName ? estimateNormCoverageRows(projectName) : [],
-    {companyRequisites, companyName, materialTitleForNormRule, materialNormCoverageComment}
-  );
   const {
     aiTaskByMarker,
     autoReconcileEstimateChanges,
@@ -1744,7 +1355,20 @@ function App() {
     setEstimateWorkMaterials,
     setSelectedWorks,
   });
-  const isLeadership = () => isLeadershipUser(user);
+  const {
+    canUseDirectorAgent,
+    calcSalary,
+    financeUsers,
+    formatSignedRub,
+    isDirector,
+    isLeadership,
+    isMasterRole,
+    isProrab,
+    projectPaymentInAmount,
+    projectPaymentSignedAmount,
+    roleColor,
+    workedDays,
+  } = createAppRoleRuntime({ piecework, timesheet, user, users });
   const {
     acceptMaterialAliasTask,
     createBatchSupplyRequestFromMaterialControl,
@@ -1779,16 +1403,6 @@ function App() {
     _normalizeUnit,
     isLeadership,
   });
-  const isDirector = () => (user ? user.role : '') === 'директор';
-  const canUseDirectorAgent = () => ['директор','system_owner'].includes(user?user.role:'');
-  const isProrab = () => isProrabUser(user);
-  const isMasterRole = () => ['мастер','субподрядчик','бригадир'].includes(user?user.role:'');
-  const roleColor = (r) => roleColorForRole(r);
-  const workedDays = (id) => workedDaysForStaff(id, timesheet, daysInMonth);
-  const calcSalary = (s) => calcStaffSalary(s, timesheet, piecework, daysInMonth);
-  const projectPaymentSignedAmount = (pay) => projectPaymentSignedAmountValue(pay);
-  const projectPaymentInAmount = (pay) => projectPaymentIncomingAmount(pay);
-  const formatSignedRub = (amount) => formatSignedRubValue(amount);
   const documentActionRefs = {};
   const {
     computeNotifications,
@@ -1860,8 +1474,8 @@ function App() {
     visibleEstimatesForCurrentUser,
     workJournal,
   });
-  const lowStock = materials.filter(m=>m.minQuantity&&m.quantity<m.minQuantity);
-  const lowMainStock = warehouseMain.filter(m=>m.minQuantity&&m.quantity<m.minQuantity);
+  const lowStock = lowStockFor(materials);
+  const lowMainStock = lowStockFor(warehouseMain);
   const {
     buildDirectorBriefReportContent,
     buildSupplyControlReportContent,
@@ -2374,18 +1988,6 @@ function App() {
     weatherLog,
   });
 
-  const navigateTo = (p) => {
-    if (canAccess(p)) {
-      setActivePage(p); setShowForm(false); setExpandedProject(null);
-      setExpandedClient(null); setEditingItem(null); setEditingPlItem(null);
-      setShowPiecework(false); setSelectedPricelist(null); setPricelistItems([]);
-      setShowInvites(false); setShowOffers(null);
-      setShowSearch(false); setGlobalSearch(''); setShowArchive(false);
-      setSelectedInventory(null); setSidebarVisible(false);
-      setSelectedWarehouseProject(null); setInlineEditPl(null); setShowRoomForm(false);
-    }
-  };
-
   const {
     renderSupplyPlanningHint,
     renderSupplyRequestOrigin,
@@ -2411,182 +2013,162 @@ function App() {
     fmtMeasure,
   });
 
-  const searchTerm = globalSearch.trim().toLowerCase();
-  const searchResults = (!isMobile && searchTerm.length>=2) ? [
-    ...projects.filter(p=>String(p.name||'').toLowerCase().includes(searchTerm)).map(p=>({icon:'📋',title:p.name,subtitle:p.client,page:'projects'})),
-    ...clients.filter(c=>String(c.name||'').toLowerCase().includes(searchTerm)).map(c=>({icon:'👥',title:c.name,subtitle:c.phone,page:'clients'})),
-    ...materials.filter(m=>String(m.name||'').toLowerCase().includes(searchTerm)).map(m=>({icon:'📦',title:m.name,subtitle:m.quantity+' '+m.unit,page:'warehouse'})),
-    ...tools.filter(t=>String(t.name||'').toLowerCase().includes(searchTerm)).map(t=>({icon:'🔧',title:t.name,subtitle:t.status,page:'warehouse'})),
-  ].slice(0,8) : [];
-
   const pageFallback = <AppPageFallback C={C} card={card} isMobile={isMobile} />;
 
-  const financeUsers = users.filter(u=>['директор','зам_директора','бухгалтер'].includes(u.role));
   if (isMasterRole()) {
     return (
-      <React.Suspense fallback={pageFallback}>
-      <MasterCabinetPage
-        API={API}
-        C={C}
-        EXPENSE_CATEGORIES={EXPENSE_CATEGORIES}
-        PD_CONSENT_TEXT={PD_CONSENT_TEXT}
-        ROLE_LABELS={ROLE_LABELS}
-        SURFACES={SURFACES}
-        UNITS={UNITS}
-        accountablePayments={accountablePayments}
-        activePage={activePage}
-        addMasterWorks={addMasterWorks}
-        appendPhotos={appendPhotos}
-        applySupplyTemplate={applySupplyTemplate}
-        autoFillNormMaterialsForWork={autoFillNormMaterialsForWork}
-        badge={badge}
-        brigadeContracts={brigadeContracts}
-        brigadeContractItems={allBrigadeItems}
-        buildActContent={buildActContent}
-        buildCableJournalContent={buildCableJournalContent}
-        buildContractContent={buildContractContent}
-        buildHiddenActContent={buildHiddenActContent}
-        btnB={btnB}
-        btnG={btnG}
-        btnGr={btnGr}
-        btnO={btnO}
-        btnR={btnR}
-        cableJournal={cableJournal}
-        cableTypeOf={cableTypeOf}
-        card={card}
-        checkinGeo={checkinGeo}
-        closeNotifications={closeNotifications}
-        companyChatMessage={companyChatMessage}
-        companyMessages={companyMessages}
-        consentChecked={consentChecked}
-        confirmMaterialReceipt={confirmMaterialReceipt}
-        contracts={contracts}
-        createSupplyReq={createSupplyReq}
-        deleteSupplyTemplate={deleteSupplyTemplate}
-        doPrint={doPrint}
-        estimateDoneDrafts={estimateDoneDrafts}
-        estimateItemDoneTotal={estimateItemDoneTotal}
-        estimateWorkKey={estimateWorkKey}
-        estimateWorkMaterials={estimateWorkMaterials}
-        estimateWorkParams={estimateWorkParams}
-        estimatesList={estimatesList}
-        expandedProject={expandedProject}
-        fetchPriceHint={fetchPriceHint}
-        fileSrc={fileSrc}
-        fmtMeasure={fmtMeasure}
-        getNotifPage={getNotifPage}
-        handleLogout={handleLogout}
-        hiddenActs={hiddenActs}
-        inp={inp}
-        interimActs={interimActs}
-        isMobile={isMobile}
-        isPersonalMaterialRole={isPersonalMaterialRole}
-        listSearch={listSearch}
-        loadAll={loadAll}
-        loadPricelistItems={loadPricelistItems}
-        markMyNotificationsRead={markMyNotificationsRead}
-        masterProfile={masterProfile}
-        masterProfiles={masterProfiles}
-        masterProjectId={masterProjectId}
-        matchSearch={matchSearch}
-        materialAvailabilityMapForWork={materialAvailabilityMapForWork}
-        materialControlStatus={materialControlStatus}
-        materialHintForProject={materialHintForProject}
-        materialNameKey={materialNameKey}
-        materialNormForWork={materialNormForWork}
-        materialNormStatus={materialNormStatus}
-        materialRowsAvailableForWork={materialRowsAvailableForWork}
-        materialSuggestionsForWork={materialSuggestionsForWork}
-        materialTransfers={materialTransfers}
-        myNotifications={myNotifications}
-        navigateTo={navigateTo}
-        newOwnExpense={newOwnExpense}
-        newSupplyReq={newSupplyReq}
-        normalizeMeasure={normalizeMeasure}
-        notifications={notifications}
-        notify={notify}
-        ownExpenses={ownExpenses}
-        parseSupplyItems={parseSupplyItems}
-        pdConsents={pdConsents}
-        personalMaterialRowsForProject={personalMaterialRowsForProject}
-        piecework={piecework}
-        previewContent={previewContent}
-        previewTitle={previewTitle}
-        priceHints={priceHints}
-        pricelistItems={pricelistItems}
-        pricelists={pricelists}
-        profileData={profileData}
-        projects={projects}
-        refreshData={refreshData}
-        removeEstimateWorkMaterial={removeEstimateWorkMaterial}
-        removeSelectedWorkMaterial={removeSelectedWorkMaterial}
-        renderMaterialWriteoffStatus={renderMaterialWriteoffStatus}
-        renderSupplyPlanningHint={renderSupplyPlanningHint}
-        renderSupplyRequestOrigin={renderSupplyRequestOrigin}
-        returnMaterialToProject={returnMaterialToProject}
-        roleColor={roleColor}
-        roomMeasurementCheck={roomMeasurementCheck}
-        roomMeasurementMessage={roomMeasurementMessage}
-        rooms={rooms}
-        saveProfile={saveProfile}
-        saveSupplyTemplate={saveSupplyTemplate}
-        selectableActiveProjects={selectableActiveProjects}
-        selectedBrigadeContract={selectedBrigadeContract}
-        selectedWorks={selectedWorks}
-        sendCompanyChatMessage={sendCompanyChatMessage}
-        setActivePage={setActivePage}
-        setCableJournal={setCableJournal}
-        setCompanyChatMessage={setCompanyChatMessage}
-        setConsentChecked={setConsentChecked}
-        setEstimateDoneDrafts={setEstimateDoneDrafts}
-        setEstimateWorkMaterials={setEstimateWorkMaterials}
-        setEstimateWorkParams={setEstimateWorkParams}
-        setEditingAct={setEditingAct}
-        setExpandedProject={setExpandedProject}
-        setListSearch={setListSearch}
-        setMasterProjectId={setMasterProjectId}
-        setNewOwnExpense={setNewOwnExpense}
-        setNewSupplyReq={setNewSupplyReq}
-        setNotifications={setNotifications}
-        setPreviewContent={setPreviewContent}
-        setProfileData={setProfileData}
-        setReportingPayment={setReportingPayment}
-        setSelectedWorks={setSelectedWorks}
-        setShowNotifications={setShowNotifications}
-        setShowOwnExpenseForm={setShowOwnExpenseForm}
-        setShowPhotoModal={setShowPhotoModal}
-        setShowProfileForm={setShowProfileForm}
-        setShowSupplyForm={setShowSupplyForm}
-        setSupplyCollapsedProjects={setSupplyCollapsedProjects}
-        setUser={setUser}
-        setHiddenActs={setHiddenActs}
-        showNotifications={showNotifications}
-        showOwnExpenseForm={showOwnExpenseForm}
-        showPhotoModal={showPhotoModal}
-        showPreview={showPreview}
-        showProfileForm={showProfileForm}
-        showSupplyForm={showSupplyForm}
-        submitEstimateWorkDone={submitEstimateWorkDone}
-        supplyCollapsedProjects={supplyCollapsedProjects}
-        supplyRequestOrigin={supplyRequestOrigin}
-        supplyRequests={supplyRequests}
-        supplyTemplates={supplyTemplates}
-        toNum={toNum}
-        toggleNotifications={toggleNotifications}
-        tools={tools}
-        unreadNotifications={unreadNotifications}
-        updateEstimateWorkMaterialQty={updateEstimateWorkMaterialQty}
-        updateProjectProgress={updateProjectProgress}
-        updateSelectedWorkMaterialQty={updateSelectedWorkMaterialQty}
-        uploadPhoto={uploadPhoto}
-        upsertEstimateWorkMaterial={upsertEstimateWorkMaterial}
-        upsertSelectedWorkMaterial={upsertSelectedWorkMaterial}
-        user={user}
-        visibleEstimatesForCurrentUser={visibleEstimatesForCurrentUser}
-        workJournal={workJournal}
-        workNeedsThicknessParam={workNeedsThicknessParam}
+      <AppMasterCabinetRoute
+        pageFallback={pageFallback}
+        constants={{ EXPENSE_CATEGORIES, PD_CONSENT_TEXT, ROLE_LABELS, SURFACES, UNITS }}
+        ui={{ API, C, badge, btnB, btnG, btnGr, btnO, btnR, card, inp, isMobile }}
+        data={{
+          accountablePayments,
+          activePage,
+          brigadeContracts,
+          brigadeContractItems: allBrigadeItems,
+          cableJournal,
+          companyChatMessage,
+          companyMessages,
+          consentChecked,
+          contracts,
+          estimateDoneDrafts,
+          estimateItemDoneTotal,
+          estimateWorkKey,
+          estimateWorkMaterials,
+          estimateWorkParams,
+          estimatesList,
+          expandedProject,
+          fileSrc,
+          hiddenActs,
+          interimActs,
+          isPersonalMaterialRole,
+          listSearch,
+          masterProfile,
+          masterProfiles,
+          masterProjectId,
+          materialAvailabilityMapForWork,
+          materialControlStatus,
+          materialHintForProject,
+          materialNameKey,
+          materialNormForWork,
+          materialNormStatus,
+          materialRowsAvailableForWork,
+          materialSuggestionsForWork,
+          materialTransfers,
+          myNotifications,
+          newOwnExpense,
+          newSupplyReq,
+          notifications,
+          ownExpenses,
+          pdConsents,
+          personalMaterialRowsForProject,
+          piecework,
+          previewContent,
+          previewTitle,
+          priceHints,
+          pricelistItems,
+          pricelists,
+          profileData,
+          projects,
+          rooms,
+          selectableActiveProjects,
+          selectedBrigadeContract,
+          selectedWorks,
+          showNotifications,
+          showOwnExpenseForm,
+          showPhotoModal,
+          showProfileForm,
+          showSupplyForm,
+          supplyCollapsedProjects,
+          supplyRequestOrigin,
+          supplyRequests,
+          supplyTemplates,
+          tools,
+          unreadNotifications,
+          user,
+          visibleEstimatesForCurrentUser,
+          workJournal,
+          workNeedsThicknessParam,
+        }}
+        actions={{
+          addMasterWorks,
+          appendPhotos,
+          applySupplyTemplate,
+          autoFillNormMaterialsForWork,
+          buildActContent,
+          buildCableJournalContent,
+          buildContractContent,
+          buildHiddenActContent,
+          cableTypeOf,
+          checkinGeo,
+          closeNotifications,
+          confirmMaterialReceipt,
+          createSupplyReq,
+          deleteSupplyTemplate,
+          doPrint,
+          fetchPriceHint,
+          fmtMeasure,
+          getNotifPage,
+          handleLogout,
+          loadAll,
+          loadPricelistItems,
+          markMyNotificationsRead,
+          matchSearch,
+          navigateTo,
+          normalizeMeasure,
+          notify,
+          parseSupplyItems,
+          refreshData,
+          removeEstimateWorkMaterial,
+          removeSelectedWorkMaterial,
+          renderMaterialWriteoffStatus,
+          renderSupplyPlanningHint,
+          renderSupplyRequestOrigin,
+          returnMaterialToProject,
+          roleColor,
+          roomMeasurementCheck,
+          roomMeasurementMessage,
+          saveProfile,
+          saveSupplyTemplate,
+          sendCompanyChatMessage,
+          setActivePage,
+          setCableJournal,
+          setCompanyChatMessage,
+          setConsentChecked,
+          setEstimateDoneDrafts,
+          setEstimateWorkMaterials,
+          setEstimateWorkParams,
+          setEditingAct,
+          setExpandedProject,
+          setHiddenActs,
+          setListSearch,
+          setMasterProjectId,
+          setNewOwnExpense,
+          setNewSupplyReq,
+          setNotifications,
+          setPreviewContent,
+          setProfileData,
+          setReportingPayment,
+          setSelectedWorks,
+          setShowNotifications,
+          setShowOwnExpenseForm,
+          setShowPhotoModal,
+          setShowProfileForm,
+          setShowSupplyForm,
+          setSupplyCollapsedProjects,
+          setUser,
+          showPreview,
+          submitEstimateWorkDone,
+          toNum,
+          toggleNotifications,
+          updateEstimateWorkMaterialQty,
+          updateProjectProgress,
+          updateSelectedWorkMaterialQty,
+          uploadPhoto,
+          upsertEstimateWorkMaterial,
+          upsertSelectedWorkMaterial,
+        }}
       />
-      </React.Suspense>
     );
   }
 
@@ -2610,58 +2192,50 @@ function App() {
   // Кабинет поставщика
   if (user && user.role === 'поставщик') {
     return (
-      <SupplierCabinetPage
-        API={API}
-        C={C}
-        UNITS={UNITS}
-        badge={badge}
-        btnB={btnB}
-        btnG={btnG}
-        btnGr={btnGr}
-        btnO={btnO}
-        btnR={btnR}
-        card={card}
-        createInvoiceFromOffer={createInvoiceFromOffer}
-        createShipmentFromOffer={createShipmentFromOffer}
-        fileSrc={fileSrc}
-        handleLogout={handleLogout}
-        inp={inp}
-        invoicingOfferId={invoicingOfferId}
-        newCatalogItem={newCatalogItem}
-        newKpResponse={newKpResponse}
-        newOfferInvoice={newOfferInvoice}
-        notify={notify}
-        parseSupplyItems={parseSupplyItems}
-        refreshData={refreshData}
-        respondingOfferId={respondingOfferId}
-        setInvoicingOfferId={setInvoicingOfferId}
-        setNewCatalogItem={setNewCatalogItem}
-        setNewKpResponse={setNewKpResponse}
-        setNewOfferInvoice={setNewOfferInvoice}
-        setRespondingOfferId={setRespondingOfferId}
-        setShipmentForm={setShipmentForm}
-        setShippingOfferId={setShippingOfferId}
-        setShowCatalogForm={setShowCatalogForm}
-        setSupplierCatalog={setSupplierCatalog}
-        setSupplierRequisites={setSupplierRequisites}
-        setSupplierTab={setSupplierTab}
-        shipmentForm={shipmentForm}
-        shippingOfferId={shippingOfferId}
-        showCatalogForm={showCatalogForm}
-        supplierCatalog={supplierCatalog}
-        supplierInvoices={supplierInvoices}
-        supplierOffers={supplierOffers}
-        supplierRequisites={supplierRequisites}
-        supplierTab={supplierTab}
-        suppliers={suppliers}
-        supplyClaims={supplyClaims}
-        supplyDeliveries={supplyDeliveries}
-        supplyRequests={supplyRequests}
-        tbl={tbl}
-        tblC={tblC}
-        tblH={tblH}
-        uploadPhoto={uploadPhoto}
-        user={user}
+      <AppSupplierCabinetRoute
+        constants={{ UNITS }}
+        ui={{ API, C, badge, btnB, btnG, btnGr, btnO, btnR, card, inp, tbl, tblC, tblH }}
+        data={{
+          invoicingOfferId,
+          newCatalogItem,
+          newKpResponse,
+          newOfferInvoice,
+          respondingOfferId,
+          shipmentForm,
+          shippingOfferId,
+          showCatalogForm,
+          supplierCatalog,
+          supplierInvoices,
+          supplierOffers,
+          supplierRequisites,
+          supplierTab,
+          suppliers,
+          supplyClaims,
+          supplyDeliveries,
+          supplyRequests,
+          user,
+        }}
+        actions={{
+          createInvoiceFromOffer,
+          createShipmentFromOffer,
+          fileSrc,
+          handleLogout,
+          notify,
+          parseSupplyItems,
+          refreshData,
+          setInvoicingOfferId,
+          setNewCatalogItem,
+          setNewKpResponse,
+          setNewOfferInvoice,
+          setRespondingOfferId,
+          setShipmentForm,
+          setShippingOfferId,
+          setShowCatalogForm,
+          setSupplierCatalog,
+          setSupplierRequisites,
+          setSupplierTab,
+          uploadPhoto,
+        }}
       />
     );
   }
@@ -2683,103 +2257,11 @@ function App() {
     );
   }
 
-  const handleEstimateImportFile = async (e) => {
-    if(!e.target.files[0]) return;
-    if(!newEstimate.projectId){alert('Сначала выберите проект — без привязки смета не сохранится');e.target.value='';return;}
-    const fd=new FormData();
-    fd.append('file',e.target.files[0]);
-    try {
-      const data=await readApiResult(await fetch(API+'/parse-smeta',{method:'POST',body:fd}));
-      if(data.error) throw new Error(data.error);
-      if(!Array.isArray(data.items)||!data.items.length) throw new Error('В файле не найдены рабочие строки сметы. Если это ССР/сводный расчёт, загрузите его как документ, а рабочую смету импортируйте из ЛСР или СК.');
-      const sections={};
-      (data.items||[]).forEach(item=>{
-        if(!sections[item.section]) sections[item.section]={id:Date.now()+Math.random(),name:item.section,items:[]};
-        const importedItem=normalizeImportedEstimateItem({
-          id:Date.now()+Math.random(),
-          name:item.name,
-          unit:item.unit,
-          quantity:item.quantity,
-          rawUnit:item.rawUnit||'',
-          rawQuantity:item.rawQuantity,
-          unitFactor:item.unitFactor||1,
-          quantityBase:item.quantityBase,
-          quantityCoefficient:item.quantityCoefficient,
-          quantityFinal:item.quantityFinal,
-          baseUnitPrice:item.baseUnitPrice,
-          costCoefficient:item.costCoefficient,
-          baseTotal:item.baseTotal,
-          costIndex:item.costIndex,
-          currentTotal:item.currentTotal,
-          lineTotalSource:item.lineTotalSource,
-          total:item.total,
-          sum:item.sum,
-          amount:item.amount,
-          lineTotal:item.lineTotal,
-          totalSum:item.totalSum,
-          totalWork:item.totalWork,
-          totalMaterial:item.totalMaterial,
-          priceWork:item.priceWork,
-          priceMaterial:item.priceMaterial,
-          sourceCode:item.sourceCode||item.obosn||'',
-          workKey:item.workKey||'',
-          workName:item.workName||'',
-          workSourceCode:item.workSourceCode||'',
-          parentWorkKey:item.parentWorkKey||'',
-          parentWorkName:item.parentWorkName||'',
-          parentWorkSourceCode:item.parentWorkSourceCode||'',
-          resourceRole:item.resourceRole||'',
-          isImported:true,
-          itemType:item.type||''
-        }, item.section);
-        sections[item.section].items.push(importedItem);
-      });
-      const projName=newEstimate.projectName||(projects.find(p=>p.id===Number(newEstimate.projectId))?.name||'');const fileName=e.target.files[0].name.replace('.xlsx','').replace('.xls','');const resolvedWorkPackage=resolveEstimatePackage(newEstimate.workPackage,fileName,newEstimate.name);const estimateStatus=isLeadership()?(newEstimate.status||'Активная'):'Черновик';const estDraft={projectId:newEstimate.projectId,projectName:projName,smetaType:newEstimate.smetaType||'Заказчик',workPackage:resolvedWorkPackage};const est={id:Date.now(),name:fileName||newEstimate.name||'Смета — '+projName,projectId:newEstimate.projectId,projectName:projName,version:newEstimate.version||nextEstimateVersionFor(estDraft),smetaType:newEstimate.smetaType||'Заказчик',workPackage:resolvedWorkPackage,status:estimateStatus,sections:enrichEstimateMeasurementBasis(Object.values(sections))};
-      const saved=await readApiResult(await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)}));
-      if(!saved?.id) throw new Error('Сервер не вернул id сохранённой сметы');
-      const estWithId={...est,id:saved.id,smetaType:newEstimate.smetaType||'Заказчик',workPackage:resolvedWorkPackage,status:estimateStatus};
-      const diffBase=activeEstimateFromList((estimatesList||[]).filter(e=>estWithId.status==='Активная'&&!isGlobalEstimateTemplate(e)&&sameEstimateGroup(e,estWithId)&&e.status==='Активная'));
-      const nextEstimates=applyEstimateActivationState([...(estimatesList||[]),estWithId], estWithId);
-      setEstimatesList(nextEstimates);
-      setSelectedEstimate(estWithId);
-      setEstimatesTab('list');
-      if(diffBase) {
-        await queueEstimateDiffReviewTask(diffBase,estWithId,'Импорт сметы');
-        await autoReconcileEstimateChanges(diffBase,estWithId,'Импорт сметы');
-        await createEstimateReconciliation(diffBase,estWithId,{silent:true});
-      }
-      await queueEstimateQualityReviewTask(estWithId, 'Импорт сметы');
-      await queueEstimateNormReviewTask(estWithId, 'Импорт сметы', nextEstimates);
-      const qualityWarnings = estimateQualityRows(estWithId).map(row=>({
-        type:'качество',
-        where:(row.sectionName||'')+' / '+(row.itemName||''),
-        message:row.status+': '+row.message,
-        severity:row.severity==='critical'?'критично':row.severity==='info'?'совет':'внимание'
-      }));
-      setImportValidating(true);
-      setImportValidationWarnings(qualityWarnings);
-      try{
-        const items=Object.values(sections).flatMap(s=>(s.items||[]).map(i=>({section:s.name,name:i.name,unit:i.unit,qty:Number(i.quantity||0)})));
-        const valPrompt='Проверь смету "'+est.name+'" на типовые проблемы при импорте из Гранд Сметы. Позиции:\n'+JSON.stringify(items,null,1)+'\n\nИЩИ:\n- Забытые сопутствующие работы (например штукатурка без грунтовки)\n- Возможные дубликаты позиций\n- Подозрительно большие или маленькие объёмы\n- Странные единицы измерения\n\nОТВЕТЬ СТРОГО JSON:\n{"warnings":[{"type":"забыто|дубль|объём|единица|другое","where":"раздел или позиция","message":"что не так","severity":"критично|внимание|совет"}]}\nЕсли всё хорошо — пиши {"warnings":[]}. Только JSON.';
-        const r=await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:valPrompt}],jsonOnly:true})});
-        const d=await r.json();
-        const raw=(d.response||'').trim();
-        const clean=raw.replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();
-        const s=clean.indexOf('{'),en=clean.lastIndexOf('}');
-        if(s>=0&&en>s){const p=JSON.parse(clean.slice(s,en+1));if(Array.isArray(p.warnings))setImportValidationWarnings([...qualityWarnings,...p.warnings]);}
-      }catch(err){}
-      setImportValidating(false);
-      const meta=data.meta||{};
-      const mismatchText=meta.totalMismatch?('\n\nВнимание: итог файла '+Number(meta.declaredTotal||0).toLocaleString('ru-RU')+' ₽, сумма разобранных строк '+Number(meta.parsedTotal||0).toLocaleString('ru-RU')+' ₽. Строки НЕ умножались общим коэффициентом, чтобы не ломать оплату мастерам. Нужно разобрать итоговый блок/индексы работ и материалов отдельно.'):'';
-      alert('Импортировано '+data.count+' позиций! ИИ проверяет смету в фоне — результат появится сверху.'+mismatchText);
-    } catch(err){alert('Ошибка импорта: '+(err.message||err));}
-    finally { e.target.value=''; }
-  };
-
   const {
     fillSelectedEstimateExecutionPrices,
     handleDetectEstimateHiddenWorks,
     handleEstimateAiAnalysis,
+    handleEstimateImportFile,
     handleExportSelectedEstimate,
     handleNormalizeSelectedEstimateImport,
     handleOpenEstimateDistribute,
@@ -2795,10 +2277,14 @@ function App() {
   } = createEstimatePageActions({
     API,
     ROLE_LABELS,
+    applyEstimateActivationState,
     aiMessages,
+    autoReconcileEstimateChanges,
     brigadeContracts,
     buildEstimateDiffContent,
     contracts,
+    createEstimateReconciliation,
+    enrichEstimateMeasurementBasis,
     estimateDiffBaseFor,
     estimateItemMaterialSum,
     estimateItemTotal,
@@ -2807,18 +2293,27 @@ function App() {
     estimateChatInput,
     estimateChatLoading,
     estimateChatMessages,
+    estimateListWithUpdatedEstimate,
     estimateMeasurementBasisMeta,
     estimateMeasurementBasisOf,
     estimateQualityRows,
     executionPriceFillPercent,
     exportToExcel,
+    estimatesList,
+    isGlobalEstimateTemplate,
+    isLeadership,
     isEstimateWorkItem,
     materials,
+    newEstimate,
+    nextEstimateVersionFor,
     normalizeEstimateImportSections,
     normalizeEstimateItemType,
-    persistEstimate,
     projects,
+    queueEstimateDiffReviewTask,
+    queueEstimateNormReviewTask,
     queueEstimateQualityReviewTask,
+    readApiResult,
+    sameEstimateGroup,
     selectedEstimate,
     setAiInput,
     setAiLoading,
@@ -2830,7 +2325,9 @@ function App() {
     setEstimateChatMessages,
     setEstimateVersions,
     setEstimatesList,
+    setEstimatesTab,
     setExecutionPriceFillPercent,
+    setImportValidating,
     setImportValidationWarnings,
     setSelectedEstimate,
     setSelectedVersionsToCompare,
@@ -2922,184 +2419,213 @@ function App() {
     weatherLog, workExecutionTotal, workJournal, workJournalPage,
   };
 
+  const appProjectEditModalsProps = {
+    ui: { C, aiNotice, aiNoticeIcon, aiNoticeText, btnB, btnG, btnO, btnR, card, inp, tbl, tblC, tblH },
+    state: { editingAct, editingCable, editingInspection, editingJournal, hiddenActs, journalFilter, showJournalTableModal, users, weatherLog, workJournal },
+    actions: { appendPhotos, buildCableJournalContent, buildHiddenActContent, buildMaterialInspectionContent, buildWorkJournalContent, cableTypeOf, fileSrc, fmtMeasure, getActStatusForJournal, setCableJournal, setEditingAct, setEditingCable, setEditingInspection, setEditingJournal, setHiddenActs, setJournalFilter, setMaterialInspections, setShowJournalTableModal, setShowPhotoModal, setWorkJournal, showPreview, uploadPhoto },
+  };
+
+  const appActionModalsProps = {
+    ui: { C, btnG, btnGr, btnO, btnR, card, inp },
+    constants: { PAYMENT_TYPES, ROLE_LABELS },
+    state: { actPayments, aiChat, aiLoading, aiMessage, chatEndRef, confirmAcceptedQty, confirmComment, confirmingEntry, financeUsers, issueToolData, masterProfiles, newBrigadePayment, newPayment, projects, rejectComment, rejectingEntry, returnToolCondition, selectedBrigadeContract, showAiAssistant, showBrigadePayModal, showIssueToolModal, showPayActModal, showQRModal, showReturnToolModal },
+    actions: { confirmJ, generateQR, issueTool, normalizeMeasure, rejectJ, returnTool, saveActPayment, saveBrigadePayment, sendAiMessage, setAiMessage, setConfirmAcceptedQty, setConfirmComment, setConfirmingEntry, setIssueToolData, setNewBrigadePayment, setNewPayment, setRejectComment, setRejectingEntry, setReturnToolCondition, setShowAiAssistant, setShowBrigadePayModal, setShowIssueToolModal, setShowPayActModal, setShowQRModal, setShowReturnToolModal, toNum },
+  };
+
+  const sidebarProps = { isMobile, sidebarRef, sidebarVisible, setSidebarVisible, C, user, roleLabels: ROLE_LABELS, roleColor, menuItems, supplyRequests, isLeadership, isMasterRole, activePage, navigateTo, handleLogout };
+
+  const headerProps = { C, activePage, isCompactHeader, isMobile, setSidebarVisible, allMenuItems, globalSearch, setGlobalSearch, setShowSearch, showSearch, searchResults, navigateTo, inp, darkMode, setDarkMode, setShowQuickActions, user, openSystemStatus, setShowChatPanel, unreadMessagesCount, showNotifications, toggleNotifications, unreadNotifications, btnG, btnO, myNotifications, notifications, markMyNotificationsRead, closeNotifications, getNotifPage, setShowNotifications, setNotifications, setUser, API };
+
+  const dashboardProps = {
+    ui: { API, C, btnG, btnO, darkMode, isMobile, showAiAssistant, showNotifications, unreadMessagesCount, unreadNotifications },
+    data: { accountablePayments, activityLog, aiFindings, canUseDirectorAgent, dailyReportDate, directorAgentAnswer, directorAgentError, directorAgentLoading, directorAgentQuestion, directorAgentSteps, estimateControlIssues, hiddenActs, initialDataLoaded, inspectionOrders, lowMainStock, lowStock, manualExpenses, mobileExpandedRenderLists, myNotifications, notifications, ownExpenses, projectPayments, projects, supplierInvoices, supplierOffers, supplyRequests, unexpectedWorksList, user, workJournal },
+    actions: { askDirectorAgent, buildDailyObjectReportContent, buildDirectorBriefReportContent, buildSupplyControlReportContent, closeNotifications, getNotifPage, isApprovedEstimateChangeStatus, isLeadership, markMyNotificationsRead, navigateTo, normalizeDocDate, openEstimateControlReport, projectBudgetSpent, projectPaymentSignedAmount, projectRealProgress, setAccountingTab, setActivePage, setDailyReportDate, setDirectorAgentQuestion, setDarkMode, setExpandedProject, setMobileExpandedRenderLists, setNotifications, setShowAiAssistant, setShowChatPanel, setShowForm, setShowNotifications, setShowQuickActions, setShowReimburseModal, setShowSupplyForm, setSidebarVisible, setSupplyTab, setUser, setWarehouseTab, showPreview, toggleNotifications, visibleActiveProjects, workDocDate },
+  };
+
+  const projectSiteProps = {
+    C,
+    badge,
+    btnG,
+    btnO,
+    card,
+    inp,
+    isMobile,
+    projects,
+    projectSiteDraft,
+    updateProjectSiteDraft,
+    saveProjectSitePublication,
+  };
+
+  const appDirectoryPagesProps = {
+    activePage,
+    ui: { API, C, badge, btnB, btnG, btnGr, btnO, btnR, card, inp, isMobile, tbl, tblC, tblH },
+    constants: { PRICELISTS_DATA, ROLE_GROUPS, ROLE_LABELS, ROLES, SUPPLIER_CATEGORIES, UNITS },
+    state: { clients, compareLoadingReqId, compareResultByReq, editingItem, editingPlItem, estimatesList, expandedClient, expandedGroup, fileSrc, inlineEditPl, inlineEditPlData, inviteCodes, listSearch, newClient, newInviteRole, newOffer, newPlItem, newPricelist, newRequest, newSupplier, newUser, pricelistItems, pricelists, projects, searchUser, selectedPricelist, showForm, showInvites, showOffers, suppliers, suppliersTab, supplierOffers, supplyDeliveries, supplyHistory, supplyRequestOrigin, supplyRequests, user, users },
+    actions: { approveOffer, buildPricelistContent, cancelInlinePlEdit, cancelRequest, copyPricelist, createInvite, deleteClient, deleteInvite, deletePlItem, deletePricelist, deleteSupplier, deleteUser, exportToExcel, generateTempPassword, getProjectWorkPackageOptions, isLeadership, loadAll, loadPricelistItems, matchSearch, parseOfferItems, parseSupplyItems, renderSupplyRequestOrigin, resetUserTwoFactor, roleColor, runCompareKp, saveClient, saveInlinePlItem, saveOffer, savePlItem, savePricelist, saveRequest, saveSupplier, saveUser, selectSupplierOffer, setEditingItem, setEditingPlItem, setExpandedClient, setExpandedGroup, setFromEstimateForm, setGeneratedInviteLink, setGeneratePricelistForm, setInlineEditPlData, setInlineEditPrice, setListSearch, setNewClient, setNewInviteRole, setNewOffer, setNewPlItem, setNewPricelist, setNewRequest, setNewSupplier, setNewUser, setPricelistItems, setSearchUser, setSelectedPricelist, setShowForm, setShowFromEstimate, setShowGeneratePricelist, setShowInvites, setShowOffers, setShowSupplierInviteModal, setSupplierInviteForm, setSuppliersTab, showPreview, startInlinePlEdit, rejectSupplierOffer, toggleUserActive },
+  };
+
+  const appOperationsPagesProps = {
+    activePage,
+    ui: { C, badge, btnB, btnG, btnGr, btnO, btnR, card, inp, isMobile, tbl, tblC, tblH },
+    constants: { MATERIAL_CATEGORIES, SUPPLIER_CATEGORIES, TOOL_STATUSES, UNITS, VAT_OPTIONS },
+    state: { compareLoadingReqId, compareResultByReq, deliveryAiLoadingId, deliveryAiResultById, editingItem, estimatesList, expandedProject, fileSrc, history, inventory, invoices, listSearch, materialReconciliationRows, materials, materialsPage, materialTransfers, newInventory, newInvoice, newMovement, newSupplier, newSupplierInvoice, newSupplyReq, newTool, newTransfer, newWarehouse, priceHints, projects, receiveForm, receivingDeliveryId, selectedInventory, selectedWarehouseProject, showForm, showSupplyForm, showTransferForm, staff, suppliers, supplierCatalog, supplierInvoices, supplierOffers, supplyAiLoading, supplyAiText, supplyClaims, supplyCollapsedProjects, supplyDeliveries, supplyExpandedId, supplyRejectId, supplyRejectReason, supplyRequests, supplyRequestOrigin, supplyStockCheck, supplyTab, supplyTemplates, toolHistory, tools, toolsTab, user, warehouseInvoiceItems, warehouseMain, warehouseMovements, warehouses, warehouseTab },
+    actions: { _normalizeUnit, applySupplyTemplate, applyWarehouseMovement, approveSupplyAsDirector, askSupplyAi, buildInventoryDoc, buildInvoiceContent, buildMaterialRequirementContent, buildMovementDoc, cancelSupply, confirmSupplyAsProrab, convertUnits, createSupplyReq, deleteMainMaterial, deleteMaterial, deleteSupplier, deleteSupplyTemplate, deleteTool, deleteWarehouse, exportToExcel, fetchPriceHint, getProjectEstimateWorkOptions, getProjectWorkPackageOptions, isFinanceRole, isLeadership, isProrab, isSupplyDeliveryInvoice, loadAll, loadMaterialsPage, loadSupplyStockCheck, matchSearch, materialControlSummaryForProject, notify, openReceiveInvoice, openRequestKpModal, parseOfferItems, parseSupplyItems, receiveSupplyDelivery, refreshData, rejectSupplierOffer, rejectSupply, renderInvoiceControlActions, renderMaterialReconciliationPanel, renderSupplyPlanningHint, renderSupplyRequestOrigin, runCompareKp, runDeliveryAiCheck, saveInvoiceNew, saveSupplier, saveSupplyTemplate, saveTool, saveWarehouse, selectSupplierOffer, setDeliveryAiLoadingId, setDeliveryAiResultById, setEditingItem, setExpandedProject, setGeneratedInviteLink, setListSearch, setMaterialTransfers, setMaterials, setNewInventory, setNewInvoice, setNewMovement, setNewSupplier, setNewSupplierInvoice, setNewSupplyReq, setNewTool, setNewTransfer, setNewWarehouse, setReceiveForm, setReceivingDeliveryId, setSelectedInventory, setSelectedWarehouseProject, setShowForm, setShowIssueToolModal, setShowPhotoModal, setShowQRModal, setShowReturnToolModal, setShowSupplierInviteModal, setShowSupplyForm, setShowTransferForm, setSupplierInviteForm, setSupplyCollapsedProjects, setSupplyExpandedId, setSupplyRejectId, setSupplyRejectReason, setSupplyTab, setToolsTab, setWarehouseMain, setWarehouseTab, showPreview, toNum, uploadPhoto, visibleActiveProjects, warehouseInvoiceEstimateControl },
+  };
+
+  const appBackofficePagesProps = {
+    activePage,
+    ui: { API, C, badge, btnB, btnG, btnGr, btnO, btnR, card, inp, isMobile, tbl, tblC, tblH },
+    constants: { PD_CONSENT_TEXT, ROLE_GROUPS, ROLE_LABELS, UNITS },
+    state: { accountablePayments, accountingDocProject, accountingTab, allBrigadeItems, allBrigadePayments, auditLog, brigadeContracts, contracts, editingItem, estimatesList, expandedActDate, expandedMaster, expandedMasterProject, expandedPieceworkProject, expandedProject, expandedStaffId, expenseReports, fileSrc, interimActs, invoices, listSearch, manualExpenses, masterProfiles, masterRatings, newAct, newContract, newExpenseReport, newPiecework, newStaff, newStaffDoc, ownExpenses, payrollExtras, pdConsents, personnelTab, piecework, projectDocuments, projectPaymentInAmount, projectPayments, projectPlanDone, projects, salaryEdits, salaryMonth, salaryPayments, showForm, showPiecework, showStaffDocForm, staff, staffExpandedSections, staffProfile, staffProfileLoading, supplierInvoices, suppliers, timesheet, tools, unexpectedWorksList, user, users, workJournal },
+    actions: { addPiecework, addStaffDoc, buildAOSKContent, buildActContent, buildBrigadeActContent, buildContractContent, buildExecPackageContent, buildIGDContent, buildInvoiceContent, buildJPRContent, buildKS11Content, buildKS14Content, buildKS3Content, buildM29Content, buildM2Content, buildM8Content, buildMaterialRequirementContent, buildPassportContent, buildPositionInstructionContent, buildSpecJournalContent, buildVATBookContent, calcSalary, contractRequisitesWarning, createContract, createInterimAct, createStaffAccessFromPrompt, daysInMonth, deleteContract, deleteInterimAct, deletePiecework, deleteStaff, findUserForStaff, fmtMeasure, isApprovedEstimateChangeStatus, isFinanceRole, isLeadership, loadAuditLog, matchSearch, materialControlSummaryForProject, normalizePersonKey, openStaffProfile, paySalary, ratemaster, refreshData, resetStaffAccessPassword, resolveContractPerformer, roleColor, saveStaff, setAccountingDocProject, setAccountingTab, setAuditLog, setEditingItem, setExpandedActDate, setExpandedMaster, setExpandedMasterProject, setExpandedPieceworkProject, setExpandedProject, setListSearch, setNewAct, setNewContract, setNewExpenseReport, setNewPiecework, setNewStaff, setNewStaffDoc, setPayrollExtra, setPersonnelTab, setSalaryEdit, setSalaryMonth, setSalaryPayments, setShowForm, setShowPayActModal, setShowPhotoModal, setShowPiecework, setShowReimburseModal, setShowStaffDocForm, setStaffExpandedSections, setStaffProfile, showKS2, showPreview, toggleDay, toNum, uploadPhoto, warehouseInvoiceEstimateControl, workedDays },
+  };
+
+  const appSecondaryPagesProps = {
+    activePage,
+    ui: { API, C, badge, btnB, btnG, btnO, btnR, card, inp, isMobile, tbl, tblC, tblH },
+    constants: { CRM_STAGES, EXPENSE_CATEGORIES, ROLE_LABELS, WEATHER_CONDITIONS },
+    state: {
+      accountablePayments, activityLog, auditLog, companyChatMessage, companyDocuments,
+      companyMessages, companyReqForm, companyRequisites, contracts, editingItem,
+      expByCategory, fileSrc, leads, newCompanyDoc, newLead, newWeather, ownExpenses,
+      projects, settingsTab, showForm, staff, suppliers, user, users, weatherLog,
+      weatherTab, workJournal,
+    },
+    actions: {
+      appendPhotos, buildJPRContent, createProjectFromLead, deleteLead, isFinanceRole,
+      loadAll, roleColor, saveCompanyRequisites, saveLead, saveWeather,
+      sendCompanyChatMessage, setCompanyChatMessage, setCompanyReqForm,
+      setCompanyRequisites, setEditingItem, setLeads, setNewCompanyDoc, setNewLead,
+      setNewWeather, setReportingPayment, setSettingsTab, setShowForm,
+      setShowOwnExpenseForm, setShowPhotoModal, setWeatherTab, showPreview,
+      uploadPhoto,
+    },
+  };
+
+  const workAssignmentProps = {
+    show: showWorkAssignment,
+    onClose: () => setShowWorkAssignment(false),
+    selectedEstimate,
+    staff,
+    users,
+    API,
+    loadAll,
+    C,
+    card,
+    inp,
+    btnO,
+    btnG,
+    btnB,
+    isMobile,
+  };
+
+  const appWorkflowModalsProps = {
+    ui: { API, C, badge, btnB, btnG, btnO, btnR, card, darkMode, inp, isMobile },
+    constants: { estimatePackages: ESTIMATE_PACKAGES, expenseCategories: EXPENSE_CATEGORIES, roleLabels: ROLE_LABELS, supplierCategories: SUPPLIER_CATEGORIES, units: UNITS },
+    state: {
+      activeEstimateFromList, addExpenseProject, aiInput, aiLoading, aiMessages, creatingFromEstimate,
+      distributeAssignments, distributeBrigades, distributing, estimateChatInput, estimateChatLoading,
+      estimateChatMessages, estimateVersions, estimatesList, expenseSubmitting, fileSrc, fromEstimateForm,
+      generateForm, generatePricelistForm, generatedInviteLink, generating, generatingPricelist,
+      isFinanceRole, isGlobalEstimateTemplate, newAccountable, newDistributeBrigade, newExpense,
+      newInvoice, newManualExpense, newOwnExpense, ownExpenses, pricelists, projects, reportingPayment,
+      requestKpLoading, scanningInvoice, selectedEstimate, selectedSupplierIds, selectedVersionsToCompare,
+      showAccountableForm, showAiChat, showDistribute, showEstimateChat, showFromEstimate,
+      showGenerateEstimate, showGeneratePricelist, showOwnExpenseForm, showPreview, showQuickActions,
+      showReceiveDialog, showReimburseModal, showRequestKpModal, showScanInvoice, showScannedInvoiceForm,
+      showSupplierInviteModal, showVersionHistory, suggestedSuppliers, suppliers, supplierInviteForm,
+      supplyRequests, sverkaModal, user, users, staff, visibleActiveProjects,
+    },
+    actions: {
+      appendPhotos, applyEstimateActivationState, autoReconcileEstimateChanges, buildEstimateDiffContent,
+      createSupplierInvite, enrichEstimateMeasurementBasis, estimateItemTotal, getProjectEstimateWorkOptions,
+      getProjectWorkPackageOptions, loadAll, loadPricelistItems, navigateTo, nextEstimateVersionFor,
+      openReceiveInvoice, parseSupplyItems, queueEstimateDiffReviewTask, queueEstimateNormReviewTask,
+      queueEstimateQualityReviewTask, renderSupplyRequestOrigin, sameEstimateGroup, saveInvoiceNew,
+      sendAiAssistantMessage, sendEstimateChatMessage, sendKpRequest, setActivePage, setAddExpenseProject,
+      setAiInput, setAiLoading, setAiMessages, setCreatingFromEstimate, setDistributeAssignments,
+      setDistributeBrigades, setDistributing, setEstimateChatInput, setEstimateChatMessages, setEstimatesList,
+      setExpenseSubmitting, setFromEstimateForm, setGenerateForm, setGeneratePricelistForm,
+      setGeneratedInviteLink, setGenerating, setGeneratingPricelist, setMaterialTransfers, setNewAccountable,
+      setNewDistributeBrigade, setNewExpense, setNewInvoice, setNewManualExpense, setNewOwnExpense,
+      setReportingPayment, setScanningInvoice, setSelectedEstimate, setSelectedPricelist, setSelectedSupplierIds,
+      setSelectedVersionsToCompare, setSelectedWarehouseProject, setShowAccountableForm, setShowAiAssistant,
+      setShowAiChat, setShowChatPanel, setShowDistribute, setShowEstimateChat, setShowFromEstimate,
+      setShowGenerateEstimate, setShowGeneratePricelist, setShowOwnExpenseForm, setShowPhotoModal,
+      setShowQuickActions, setShowReceiveDialog, setShowReimburseModal, setShowRequestKpModal,
+      setShowScanInvoice, setShowScannedInvoiceForm, setShowSupplierInviteModal, setShowTransferForm,
+      setShowVersionHistory, setSverkaModal, setSupplierInviteForm, setWarehouseTab,
+    },
+  };
+
+  const overlayProps = {
+    showSystemStatus,
+    systemStatus,
+    systemStatusLoading,
+    openSystemStatus,
+    setShowSystemStatus,
+    C,
+    badge,
+    btnG,
+    showMobileMenu,
+    setShowMobileMenu,
+    menuItems,
+    activePage,
+    navigateTo,
+    setActivePage,
+    showChatPanel,
+    setShowChatPanel,
+    companyMessages,
+    user,
+    companyChatInput,
+    setCompanyChatInput,
+    sendCompanyChatMessage,
+    uploadPhoto,
+  };
+
+  const mobileBottomNavProps = {
+    activePage,
+    isMobile,
+    unreadMessagesCount,
+    menuItems,
+    navigateTo,
+    setActivePage,
+    setShowMobileMenu,
+    setShowQuickActions,
+    setShowChatPanel,
+  };
+
   return (
-    <div style={{display:'flex',height:'100vh',backgroundColor:C.bg,position:'relative',overflow:'hidden'}}>
-      {previewContent&&<PreviewModal content={previewContent} title={previewTitle} onClose={()=>setPreviewContent(null)} onPrint={doPrint}/>}
-      <ImagePreviewModal src={showPhotoModal} onClose={()=>setShowPhotoModal(null)}/>
-      <React.Suspense fallback={null}>
-      <AppProjectEditModals
-        ui={{ C, aiNotice, aiNoticeIcon, aiNoticeText, btnB, btnG, btnO, btnR, card, inp, tbl, tblC, tblH }}
-        state={{ editingAct, editingCable, editingInspection, editingJournal, hiddenActs, journalFilter, showJournalTableModal, users, weatherLog, workJournal }}
-        actions={{ appendPhotos, buildCableJournalContent, buildHiddenActContent, buildMaterialInspectionContent, buildWorkJournalContent, cableTypeOf, fileSrc, fmtMeasure, getActStatusForJournal, setCableJournal, setEditingAct, setEditingCable, setEditingInspection, setEditingJournal, setHiddenActs, setJournalFilter, setMaterialInspections, setShowJournalTableModal, setShowPhotoModal, setWorkJournal, showPreview, uploadPhoto }}
-      />
-      <AppActionModals
-        ui={{ C, btnG, btnGr, btnO, btnR, card, inp }}
-        constants={{ PAYMENT_TYPES, ROLE_LABELS }}
-        state={{ actPayments, aiChat, aiLoading, aiMessage, chatEndRef, confirmAcceptedQty, confirmComment, confirmingEntry, financeUsers, issueToolData, masterProfiles, newBrigadePayment, newPayment, projects, rejectComment, rejectingEntry, returnToolCondition, selectedBrigadeContract, showAiAssistant, showBrigadePayModal, showIssueToolModal, showPayActModal, showQRModal, showReturnToolModal }}
-        actions={{ confirmJ, generateQR, issueTool, normalizeMeasure, rejectJ, returnTool, saveActPayment, saveBrigadePayment, sendAiMessage, setAiMessage, setConfirmAcceptedQty, setConfirmComment, setConfirmingEntry, setIssueToolData, setNewBrigadePayment, setNewPayment, setRejectComment, setRejectingEntry, setReturnToolCondition, setShowAiAssistant, setShowBrigadePayModal, setShowIssueToolModal, setShowPayActModal, setShowQRModal, setShowReturnToolModal, toNum }}
-      />
-      </React.Suspense>
-
-      <AppSidebar isMobile={isMobile} sidebarRef={sidebarRef} sidebarVisible={sidebarVisible} setSidebarVisible={setSidebarVisible} C={C} user={user} roleLabels={ROLE_LABELS} roleColor={roleColor} menuItems={menuItems} supplyRequests={supplyRequests} isLeadership={isLeadership} isMasterRole={isMasterRole} activePage={activePage} navigateTo={navigateTo} handleLogout={handleLogout}/>
-
-      <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',width:'100%',minWidth:0,marginLeft:isMobile?0:'240px'}}>
-        <AppHeaderBar C={C} activePage={activePage} isCompactHeader={isCompactHeader} isMobile={isMobile} setSidebarVisible={setSidebarVisible} allMenuItems={allMenuItems} globalSearch={globalSearch} setGlobalSearch={setGlobalSearch} setShowSearch={setShowSearch} showSearch={showSearch} searchResults={searchResults} navigateTo={navigateTo} inp={inp} darkMode={darkMode} setDarkMode={setDarkMode} setShowQuickActions={setShowQuickActions} user={user} openSystemStatus={openSystemStatus} setShowChatPanel={setShowChatPanel} unreadMessagesCount={unreadMessagesCount} showNotifications={showNotifications} toggleNotifications={toggleNotifications} unreadNotifications={unreadNotifications} btnG={btnG} btnO={btnO} myNotifications={myNotifications} notifications={notifications} markMyNotificationsRead={markMyNotificationsRead} closeNotifications={closeNotifications} getNotifPage={getNotifPage} setShowNotifications={setShowNotifications} setNotifications={setNotifications} setUser={setUser} API={API}/>
-        <div style={{flex:1,overflowY:'auto',backgroundColor:activePage==='dashboard'?'#0b1120':C.bg,padding:activePage==='dashboard'?'0':'24px'}}>
-          <React.Suspense fallback={pageFallback}>
-          {activePage==='dashboard'&&(
-            <DashboardPage
-              ui={{ API, C, btnG, btnO, darkMode, isMobile, showAiAssistant, showNotifications, unreadMessagesCount, unreadNotifications }}
-              data={{ accountablePayments, activityLog, aiFindings, canUseDirectorAgent, dailyReportDate, directorAgentAnswer, directorAgentError, directorAgentLoading, directorAgentQuestion, directorAgentSteps, estimateControlIssues, hiddenActs, initialDataLoaded, inspectionOrders, lowMainStock, lowStock, manualExpenses, mobileExpandedRenderLists, myNotifications, notifications, ownExpenses, projectPayments, projects, supplierInvoices, supplierOffers, supplyRequests, unexpectedWorksList, user, workJournal }}
-              actions={{ askDirectorAgent, buildDailyObjectReportContent, buildDirectorBriefReportContent, buildSupplyControlReportContent, closeNotifications, getNotifPage, isApprovedEstimateChangeStatus, isLeadership, markMyNotificationsRead, navigateTo, normalizeDocDate, openEstimateControlReport, projectBudgetSpent, projectPaymentSignedAmount, projectRealProgress, setAccountingTab, setActivePage, setDailyReportDate, setDirectorAgentQuestion, setDarkMode, setExpandedProject, setMobileExpandedRenderLists, setNotifications, setShowAiAssistant, setShowChatPanel, setShowForm, setShowNotifications, setShowQuickActions, setShowReimburseModal, setShowSupplyForm, setSidebarVisible, setSupplyTab, setUser, setWarehouseTab, showPreview, toggleNotifications, visibleActiveProjects, workDocDate }}
-            />
-          )}
-          {activePage==='projects'&&canAccess('projects')&&(<ProjectsPage ctx={projectsPageContext}/>)}
-          {activePage==='site'&&canAccess('site')&&(
-            <ProjectSitePublicationPage
-              C={C}
-              badge={badge}
-              btnG={btnG}
-              btnO={btnO}
-              card={card}
-              inp={inp}
-              isMobile={isMobile}
-              projects={projects}
-              projectSiteDraft={projectSiteDraft}
-              updateProjectSiteDraft={updateProjectSiteDraft}
-              saveProjectSitePublication={saveProjectSitePublication}
-            />
-          )}
-          <AppDirectoryPages
-            activePage={activePage}
-            ui={{ API, C, badge, btnB, btnG, btnGr, btnO, btnR, card, inp, isMobile, tbl, tblC, tblH }}
-            constants={{ PRICELISTS_DATA, ROLE_GROUPS, ROLE_LABELS, ROLES, SUPPLIER_CATEGORIES, UNITS }}
-            state={{ clients, compareLoadingReqId, compareResultByReq, editingItem, editingPlItem, estimatesList, expandedClient, expandedGroup, fileSrc, inlineEditPl, inlineEditPlData, inviteCodes, listSearch, newClient, newInviteRole, newOffer, newPlItem, newPricelist, newRequest, newSupplier, newUser, pricelistItems, pricelists, projects, searchUser, selectedPricelist, showForm, showInvites, showOffers, suppliers, suppliersTab, supplierOffers, supplyDeliveries, supplyHistory, supplyRequestOrigin, supplyRequests, user, users }}
-            actions={{ approveOffer, buildPricelistContent, cancelInlinePlEdit, cancelRequest, copyPricelist, createInvite, deleteClient, deleteInvite, deletePlItem, deletePricelist, deleteSupplier, deleteUser, exportToExcel, generateTempPassword, getProjectWorkPackageOptions, isLeadership, loadAll, loadPricelistItems, matchSearch, parseOfferItems, parseSupplyItems, renderSupplyRequestOrigin, resetUserTwoFactor, roleColor, runCompareKp, saveClient, saveInlinePlItem, saveOffer, savePlItem, savePricelist, saveRequest, saveSupplier, saveUser, selectSupplierOffer, setEditingItem, setEditingPlItem, setExpandedClient, setExpandedGroup, setFromEstimateForm, setGeneratedInviteLink, setGeneratePricelistForm, setInlineEditPlData, setInlineEditPrice, setListSearch, setNewClient, setNewInviteRole, setNewOffer, setNewPlItem, setNewPricelist, setNewRequest, setNewSupplier, setNewUser, setPricelistItems, setSearchUser, setSelectedPricelist, setShowForm, setShowFromEstimate, setShowGeneratePricelist, setShowInvites, setShowOffers, setShowSupplierInviteModal, setSupplierInviteForm, setSuppliersTab, showPreview, startInlinePlEdit, rejectSupplierOffer, toggleUserActive }}
-          />
-
-          <AppOperationsPages
-            activePage={activePage}
-            ui={{ C, badge, btnB, btnG, btnGr, btnO, btnR, card, inp, isMobile, tbl, tblC, tblH }}
-            constants={{ MATERIAL_CATEGORIES, SUPPLIER_CATEGORIES, TOOL_STATUSES, UNITS, VAT_OPTIONS }}
-            state={{ compareLoadingReqId, compareResultByReq, deliveryAiLoadingId, deliveryAiResultById, editingItem, estimatesList, expandedProject, fileSrc, history, inventory, invoices, listSearch, materialReconciliationRows, materials, materialsPage, materialTransfers, newInventory, newInvoice, newMovement, newSupplier, newSupplierInvoice, newSupplyReq, newTool, newTransfer, newWarehouse, priceHints, projects, receiveForm, receivingDeliveryId, selectedInventory, selectedWarehouseProject, showForm, showSupplyForm, showTransferForm, staff, suppliers, supplierCatalog, supplierInvoices, supplierOffers, supplyAiLoading, supplyAiText, supplyClaims, supplyCollapsedProjects, supplyDeliveries, supplyExpandedId, supplyRejectId, supplyRejectReason, supplyRequests, supplyRequestOrigin, supplyStockCheck, supplyTab, supplyTemplates, toolHistory, tools, toolsTab, user, warehouseInvoiceItems, warehouseMain, warehouseMovements, warehouses, warehouseTab }}
-            actions={{ _normalizeUnit, applySupplyTemplate, applyWarehouseMovement, approveSupplyAsDirector, askSupplyAi, buildInventoryDoc, buildInvoiceContent, buildMaterialRequirementContent, buildMovementDoc, cancelSupply, confirmSupplyAsProrab, convertUnits, createSupplyReq, deleteMainMaterial, deleteMaterial, deleteSupplier, deleteSupplyTemplate, deleteTool, deleteWarehouse, exportToExcel, fetchPriceHint, getProjectEstimateWorkOptions, getProjectWorkPackageOptions, isFinanceRole, isLeadership, isProrab, isSupplyDeliveryInvoice, loadAll, loadMaterialsPage, loadSupplyStockCheck, matchSearch, materialControlSummaryForProject, notify, openReceiveInvoice, openRequestKpModal, parseOfferItems, parseSupplyItems, receiveSupplyDelivery, refreshData, rejectSupplierOffer, rejectSupply, renderInvoiceControlActions, renderMaterialReconciliationPanel, renderSupplyPlanningHint, renderSupplyRequestOrigin, runCompareKp, runDeliveryAiCheck, saveInvoiceNew, saveSupplier, saveSupplyTemplate, saveTool, saveWarehouse, selectSupplierOffer, setDeliveryAiLoadingId, setDeliveryAiResultById, setEditingItem, setExpandedProject, setGeneratedInviteLink, setListSearch, setMaterialTransfers, setMaterials, setNewInventory, setNewInvoice, setNewMovement, setNewSupplier, setNewSupplierInvoice, setNewSupplyReq, setNewTool, setNewTransfer, setNewWarehouse, setReceiveForm, setReceivingDeliveryId, setSelectedInventory, setSelectedWarehouseProject, setShowForm, setShowIssueToolModal, setShowPhotoModal, setShowQRModal, setShowReturnToolModal, setShowSupplierInviteModal, setShowSupplyForm, setShowTransferForm, setSupplierInviteForm, setSupplyCollapsedProjects, setSupplyExpandedId, setSupplyRejectId, setSupplyRejectReason, setSupplyTab, setToolsTab, setWarehouseMain, setWarehouseTab, showPreview, toNum, uploadPhoto, visibleActiveProjects, warehouseInvoiceEstimateControl }}
-          />
-
-          <AppBackofficePages
-            activePage={activePage}
-            ui={{ API, C, badge, btnB, btnG, btnGr, btnO, btnR, card, inp, isMobile, tbl, tblC, tblH }}
-            constants={{ PD_CONSENT_TEXT, ROLE_GROUPS, ROLE_LABELS, UNITS }}
-            state={{ accountablePayments, accountingDocProject, accountingTab, allBrigadeItems, allBrigadePayments, auditLog, brigadeContracts, contracts, editingItem, estimatesList, expandedActDate, expandedMaster, expandedMasterProject, expandedPieceworkProject, expandedProject, expandedStaffId, expenseReports, fileSrc, interimActs, invoices, listSearch, manualExpenses, masterProfiles, masterRatings, newAct, newContract, newExpenseReport, newPiecework, newStaff, newStaffDoc, ownExpenses, payrollExtras, pdConsents, personnelTab, piecework, projectDocuments, projectPaymentInAmount, projectPayments, projectPlanDone, projects, salaryEdits, salaryMonth, salaryPayments, showForm, showPiecework, showStaffDocForm, staff, staffExpandedSections, staffProfile, staffProfileLoading, supplierInvoices, suppliers, timesheet, tools, unexpectedWorksList, user, users, workJournal }}
-            actions={{ addPiecework, addStaffDoc, buildAOSKContent, buildActContent, buildBrigadeActContent, buildContractContent, buildExecPackageContent, buildIGDContent, buildInvoiceContent, buildJPRContent, buildKS11Content, buildKS14Content, buildKS3Content, buildM29Content, buildM2Content, buildM8Content, buildMaterialRequirementContent, buildPassportContent, buildPositionInstructionContent, buildSpecJournalContent, buildVATBookContent, calcSalary, contractRequisitesWarning, createContract, createInterimAct, createStaffAccessFromPrompt, daysInMonth, deleteContract, deleteInterimAct, deletePiecework, deleteStaff, findUserForStaff, fmtMeasure, isApprovedEstimateChangeStatus, isFinanceRole, isLeadership, loadAuditLog, matchSearch, materialControlSummaryForProject, normalizePersonKey, openStaffProfile, paySalary, ratemaster, refreshData, resetStaffAccessPassword, resolveContractPerformer, roleColor, saveStaff, setAccountingDocProject, setAccountingTab, setAuditLog, setEditingItem, setExpandedActDate, setExpandedMaster, setExpandedMasterProject, setExpandedPieceworkProject, setExpandedProject, setListSearch, setNewAct, setNewContract, setNewExpenseReport, setNewPiecework, setNewStaff, setNewStaffDoc, setPayrollExtra, setPersonnelTab, setSalaryEdit, setSalaryMonth, setSalaryPayments, setShowForm, setShowPayActModal, setShowPhotoModal, setShowPiecework, setShowReimburseModal, setShowStaffDocForm, setStaffExpandedSections, setStaffProfile, showKS2, showPreview, toggleDay, toNum, uploadPhoto, warehouseInvoiceEstimateControl, workedDays }}
-          />
-
-          {activePage==='estimates'&&(<EstimatesPage ctx={estimatesPageContext}/>)}
-
-          <AppSecondaryPages
-            activePage={activePage}
-            ui={{ API, C, badge, btnB, btnG, btnO, btnR, card, inp, isMobile, tbl, tblC, tblH }}
-            constants={{ CRM_STAGES, EXPENSE_CATEGORIES, ROLE_LABELS, WEATHER_CONDITIONS }}
-            state={{
-              accountablePayments, activityLog, auditLog, companyChatMessage, companyDocuments,
-              companyMessages, companyReqForm, companyRequisites, contracts, editingItem,
-              expByCategory, fileSrc, leads, newCompanyDoc, newLead, newWeather, ownExpenses,
-              projects, settingsTab, showForm, staff, suppliers, user, users, weatherLog,
-              weatherTab, workJournal,
-            }}
-            actions={{
-              appendPhotos, buildJPRContent, createProjectFromLead, deleteLead, isFinanceRole,
-              loadAll, roleColor, saveCompanyRequisites, saveLead, saveWeather,
-              sendCompanyChatMessage, setCompanyChatMessage, setCompanyReqForm,
-              setCompanyRequisites, setEditingItem, setLeads, setNewCompanyDoc, setNewLead,
-              setNewWeather, setReportingPayment, setSettingsTab, setShowForm,
-              setShowOwnExpenseForm, setShowPhotoModal, setWeatherTab, showPreview,
-              uploadPhoto,
-            }}
-          />
-          </React.Suspense>
-        </div>
-      </div>
-      <MobileBottomNav activePage={activePage} isMobile={isMobile} unreadMessagesCount={unreadMessagesCount} menuItems={menuItems} navigateTo={navigateTo} setActivePage={setActivePage} setShowMobileMenu={setShowMobileMenu} setShowQuickActions={setShowQuickActions} setShowChatPanel={setShowChatPanel}/>
-      <WorkAssignmentModal
-        show={showWorkAssignment}
-        onClose={()=>setShowWorkAssignment(false)}
-        selectedEstimate={selectedEstimate}
-        staff={staff}
-        users={users}
-        API={API}
-        loadAll={loadAll}
-        C={C}
-        card={card}
-        inp={inp}
-        btnO={btnO}
-        btnG={btnG}
-        btnB={btnB}
-        isMobile={isMobile}
-      />
-      <AppWorkflowModals
-        ui={{ API, C, badge, btnB, btnG, btnO, btnR, card, darkMode, inp, isMobile }}
-        constants={{ estimatePackages: ESTIMATE_PACKAGES, expenseCategories: EXPENSE_CATEGORIES, roleLabels: ROLE_LABELS, supplierCategories: SUPPLIER_CATEGORIES, units: UNITS }}
-        state={{
-          activeEstimateFromList, addExpenseProject, aiInput, aiLoading, aiMessages, creatingFromEstimate,
-          distributeAssignments, distributeBrigades, distributing, estimateChatInput, estimateChatLoading,
-          estimateChatMessages, estimateVersions, estimatesList, expenseSubmitting, fileSrc, fromEstimateForm,
-          generateForm, generatePricelistForm, generatedInviteLink, generating, generatingPricelist,
-          isFinanceRole, isGlobalEstimateTemplate, newAccountable, newDistributeBrigade, newExpense,
-          newInvoice, newManualExpense, newOwnExpense, ownExpenses, pricelists, projects, reportingPayment,
-          requestKpLoading, scanningInvoice, selectedEstimate, selectedSupplierIds, selectedVersionsToCompare,
-          showAccountableForm, showAiChat, showDistribute, showEstimateChat, showFromEstimate,
-          showGenerateEstimate, showGeneratePricelist, showOwnExpenseForm, showPreview, showQuickActions,
-          showReceiveDialog, showReimburseModal, showRequestKpModal, showScanInvoice, showScannedInvoiceForm,
-          showSupplierInviteModal, showVersionHistory, suggestedSuppliers, suppliers, supplierInviteForm,
-          supplyRequests, sverkaModal, user, users, staff, visibleActiveProjects,
-        }}
-        actions={{
-          appendPhotos, applyEstimateActivationState, autoReconcileEstimateChanges, buildEstimateDiffContent,
-          createSupplierInvite, enrichEstimateMeasurementBasis, estimateItemTotal, getProjectEstimateWorkOptions,
-          getProjectWorkPackageOptions, loadAll, loadPricelistItems, navigateTo, nextEstimateVersionFor,
-          openReceiveInvoice, parseSupplyItems, queueEstimateDiffReviewTask, queueEstimateNormReviewTask,
-          queueEstimateQualityReviewTask, renderSupplyRequestOrigin, sameEstimateGroup, saveInvoiceNew,
-          sendAiAssistantMessage, sendEstimateChatMessage, sendKpRequest, setActivePage, setAddExpenseProject,
-          setAiInput, setAiLoading, setAiMessages, setCreatingFromEstimate, setDistributeAssignments,
-          setDistributeBrigades, setDistributing, setEstimateChatInput, setEstimateChatMessages, setEstimatesList,
-          setExpenseSubmitting, setFromEstimateForm, setGenerateForm, setGeneratePricelistForm,
-          setGeneratedInviteLink, setGenerating, setGeneratingPricelist, setMaterialTransfers, setNewAccountable,
-          setNewDistributeBrigade, setNewExpense, setNewInvoice, setNewManualExpense, setNewOwnExpense,
-          setReportingPayment, setScanningInvoice, setSelectedEstimate, setSelectedPricelist, setSelectedSupplierIds,
-          setSelectedVersionsToCompare, setSelectedWarehouseProject, setShowAccountableForm, setShowAiAssistant,
-          setShowAiChat, setShowChatPanel, setShowDistribute, setShowEstimateChat, setShowFromEstimate,
-          setShowGenerateEstimate, setShowGeneratePricelist, setShowOwnExpenseForm, setShowPhotoModal,
-          setShowQuickActions, setShowReceiveDialog, setShowReimburseModal, setShowRequestKpModal,
-          setShowScanInvoice, setShowScannedInvoiceForm, setShowSupplierInviteModal, setShowTransferForm,
-          setShowVersionHistory, setSverkaModal, setSupplierInviteForm, setWarehouseTab,
-        }}
-      />
-	    <AppOverlayLayer
-	      showSystemStatus={showSystemStatus}
-	      systemStatus={systemStatus}
-	      systemStatusLoading={systemStatusLoading}
-	      openSystemStatus={openSystemStatus}
-	      setShowSystemStatus={setShowSystemStatus}
-	      C={C}
-	      badge={badge}
-	      btnG={btnG}
-	      showMobileMenu={showMobileMenu}
-	      setShowMobileMenu={setShowMobileMenu}
-	      menuItems={menuItems}
-	      activePage={activePage}
-	      navigateTo={navigateTo}
-	      setActivePage={setActivePage}
-	      showChatPanel={showChatPanel}
-	      setShowChatPanel={setShowChatPanel}
-	      companyMessages={companyMessages}
-	      user={user}
-	      companyChatInput={companyChatInput}
-	      setCompanyChatInput={setCompanyChatInput}
-	      sendCompanyChatMessage={sendCompanyChatMessage}
-	      uploadPhoto={uploadPhoto}
-	    />
-
-    </div>
+    <AppAuthenticatedShell
+      activePage={activePage}
+      appActionModalsProps={appActionModalsProps}
+      appBackofficePagesProps={appBackofficePagesProps}
+      appDirectoryPagesProps={appDirectoryPagesProps}
+      appOperationsPagesProps={appOperationsPagesProps}
+      appProjectEditModalsProps={appProjectEditModalsProps}
+      appSecondaryPagesProps={appSecondaryPagesProps}
+      appWorkflowModalsProps={appWorkflowModalsProps}
+      C={C}
+      canOpenProjects={canAccess('projects')}
+      dashboardProps={dashboardProps}
+      estimatesPageContext={estimatesPageContext}
+      headerProps={headerProps}
+      isMobile={isMobile}
+      mobileBottomNavProps={mobileBottomNavProps}
+      overlayProps={overlayProps}
+      pageFallback={pageFallback}
+      photoPreviewProps={{ src: showPhotoModal, onClose: () => setShowPhotoModal(null) }}
+      previewProps={{
+        content: previewContent,
+        title: previewTitle,
+        onClose: () => setPreviewContent(null),
+        onPrint: doPrint,
+      }}
+      projectSiteProps={projectSiteProps}
+      projectsPageContext={projectsPageContext}
+      sidebarProps={sidebarProps}
+      workAssignmentProps={workAssignmentProps}
+    />
   );
 }
 

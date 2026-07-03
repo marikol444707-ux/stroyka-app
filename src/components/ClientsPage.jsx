@@ -1,5 +1,6 @@
 import React from 'react';
 import { Check, Edit2, Plus, Search, Trash2, X } from 'lucide-react';
+import { createClientForm } from '../features/projects/projectInitialForms';
 
 export default function ClientsPage({
   C,
@@ -31,7 +32,7 @@ export default function ClientsPage({
   return (
     <div>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px',gap:'10px',flexWrap:'wrap'}}>
-        <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewClient({name:'',phone:'',email:'',status:'Активный',notes:''});}} style={{...btnO,width:isMobile?'100%':'auto',justifyContent:'center',minHeight:isMobile?'44px':undefined}}><Plus size={14}/>Новый клиент</button>
+        <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewClient(createClientForm());}} style={{...btnO,width:isMobile?'100%':'auto',justifyContent:'center',minHeight:isMobile?'44px':undefined}}><Plus size={14}/>Новый клиент</button>
       </div>
       {showForm&&(<div style={{...card,padding:isMobile?'14px':'20px',marginBottom:'20px',maxWidth:isMobile?'720px':undefined,marginLeft:isMobile?'auto':undefined,marginRight:isMobile?'auto':undefined}}>
         <h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>{editingItem?'Редактировать':'Новый клиент'}</h3>
