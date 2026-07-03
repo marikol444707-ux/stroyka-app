@@ -60,14 +60,14 @@ import ProjectPrescriptionsPanel from './components/ProjectPrescriptionsPanel';
 import ProjectSafetyJournalPanel from './components/ProjectSafetyJournalPanel';
 import ProjectWorkJournalPanel from './components/ProjectWorkJournalPanel';
 import ProjectScheduleSummaryPanel from './components/ProjectScheduleSummaryPanel';
-import MaterialReconciliationPanel from './components/MaterialReconciliationPanel';
 import MaterialWriteoffStatus from './components/MaterialWriteoffStatus';
-import { ProjectDirectorMapPanel, buildDirectorMapContract, getDirectorMapActionTarget } from './features/director-map';
+import { ProjectDirectorMapPanel } from './features/director-map';
 import { ProjectLaunchPanel } from './features/project-launch';
 import { createProjectCrudActions } from './features/projects/projectCrudActions';
 import { createWarehouseCrudActions } from './features/warehouse/warehouseCrudActions';
 import { createMaterialControlActions } from './features/material-control/materialControlActions';
 import { createDataLoadActions } from './features/data-loaders/dataLoadActions';
+import { createProjectDashboardRuntime } from './features/dashboard/projectDashboardRuntime';
 import PreviewModal from './components/PreviewModal';
 import ImagePreviewModal from './components/ImagePreviewModal';
 import EstimatesTabsNav from './components/EstimatesTabsNav';
@@ -326,23 +326,13 @@ import {
   projectPaymentSignedAmountValue,
 } from './utils/projectPaymentUtils';
 import {
-  buildProjectEconomy,
-  projectBudgetSpentSummary,
-  projectExpenseCategories,
   projectFactSpentValue,
-  projectRealProgressValue,
-  workExecutionTotalValue,
 } from './utils/projectEconomyUtils';
-import { buildProjectObjectLinks } from './utils/projectObjectLinksUtils';
-import {
-  buildComputedNotifications,
-} from './utils/notificationUtils';
 import {
   buildWarehouseInvoiceItems,
   packageMatches,
   parseJournalMaterialsValue,
 } from './utils/materialDocumentUtils';
-import { actStatusForJournalWork } from './utils/hiddenActUtils';
 import {
   buildEstimateDiffDocContent,
   buildEstimateMeasurementComparisonDocContent,
@@ -2639,108 +2629,6 @@ function App() {
     setEstimateWorkMaterials,
     setSelectedWorks,
   });
-  const renderMaterialReconciliationPanel = (projectName, options={}) => (
-    <MaterialReconciliationPanel
-      projectName={projectName}
-      options={options}
-      C={C}
-      card={card}
-      btnB={btnB}
-      tbl={tbl}
-      tblH={tblH}
-      tblC={tblC}
-      badge={badge}
-      fmtMeasure={fmtMeasure}
-      materialControlSummaryForProject={materialControlSummaryForProject}
-      materialControlStatus={materialControlStatus}
-      renderMaterialAliasControls={renderMaterialAliasControls}
-      renderMaterialSupplyAction={renderMaterialSupplyAction}
-      showPreview={showPreview}
-      buildMaterialRequirementContent={buildMaterialRequirementContent}
-      isFinanceRole={isFinanceRole}
-      isLeadership={isLeadership}
-      user={user}
-    />
-  );
-  // Себестоимость объекта = все категории из expByCategory (работы, материалы, доставка, топливо, и т.д.)
-  const projectBudgetSpent = (p) => {
-    if(!p) return projectBudgetSpentSummary(null);
-    return projectBudgetSpentSummary(p, expByCategory(p.name));
-  };
-  const workExecutionTotal = (work) => workExecutionTotalValue(work);
-	  const projectEconomy = (p) => buildProjectEconomy({
-	    project: p,
-	    projectPlanDone,
-	    activeEstimatesForProject,
-	    estimatePackage,
-	    materialControlSummaryForProject,
-	    projectBudgetSpent,
-	    workJournal,
-	  });
-	  const projectObjectLinks = (p) => buildProjectObjectLinks({
-	    project: p,
-	    C,
-	    estimatesList,
-	    rooms,
-	    projectMeasurements,
-	    measurementRoomDrafts,
-	    workJournal,
-	    hiddenActs,
-	    materialInspections,
-	    cableJournal,
-	    projectDocuments,
-	    projectLetters,
-	    projectPayments,
-	    ownExpenses,
-	    visibleEstimatesForCurrentUser,
-	    isArchivedEstimate,
-	    activeEstimatesForProject,
-	    roomCompleteness,
-	    materialControlSummaryForProject,
-	    estimateReconciliationsForProject,
-	    aiFindingsForProject,
-	    aiTasksForProject,
-	    isFinanceRole,
-	  });
-	  const directorMapActionTarget = ({ item, action } = {}) => getDirectorMapActionTarget({ item, action, isFinanceRole });
-	  const directorMapContractForProject = (p) => buildDirectorMapContract({
-	    project: p,
-	    stages: projectStages,
-	    estimates: activeEstimatesForProject(p, 'Заказчик').map(est => ({...est, workPackage: estimatePackage(est)})),
-	    workJournal,
-	    materials,
-	    supplyRequests,
-	    supplyDeliveries,
-	    supplierInvoices,
-	    warehouseInvoices: invoices,
-	    materialInspections,
-	    hiddenActs,
-	    projectPayments,
-	    materialSummary: materialControlSummaryForProject(p.name),
-	    planDone: projectPlanDone(p),
-	    projectProgress: projectRealProgress(p),
-	  });
-	  const projectRealProgress = (p) => projectRealProgressValue({
-	    project: p,
-	    projectPlanDone,
-	    projectFactSpent,
-	  });
-
-  // Уведомления для текущего пользователя — собираются из АОСР, изменений к смете, предписаний
-  const computeNotifications = () => buildComputedNotifications({
-    user,
-    expenseReports,
-    ownExpenses,
-    supplierInvoices,
-    unexpectedWorksList,
-    hiddenActs,
-    prescriptionsList,
-    accountablePayments,
-  });
-
-  // Хелпер: статус АОСР для записи журнала работ
-  const getActStatusForJournal = (w) => actStatusForJournalWork(w, hiddenActs);
-
   const isLeadership = () => isLeadershipUser(user);
   const {
     acceptMaterialAliasTask,
@@ -2786,21 +2674,76 @@ function App() {
   const projectPaymentSignedAmount = (pay) => projectPaymentSignedAmountValue(pay);
   const projectPaymentInAmount = (pay) => projectPaymentIncomingAmount(pay);
   const formatSignedRub = (amount) => formatSignedRubValue(amount);
-  // Стоимость материалов на объекте: факт прихода по накладным/поставкам, а не текущий остаток.
-  // Остаток уменьшается при выдаче/списании, но себестоимость объекта от этого исчезать не должна.
-  // Себестоимость работ: что должны бригадам (по priceBrigade × doneQuantity) + зарплата + сдельщина
-  const expByCategory = (pn) => projectExpenseCategories({
-    projectName: pn,
-    expenseCategories: EXPENSE_CATEGORIES,
-    materialControlSummaryForProject,
-    allBrigadeItems,
-    staff,
-    piecework,
-    calcSalary,
-    manualExpenses,
-    unexpectedWorksList,
+  const documentActionRefs = {};
+  const {
+    computeNotifications,
+    directorMapActionTarget,
+    directorMapContractForProject,
+    expByCategory,
+    getActStatusForJournal,
+    projectBudgetSpent,
+    projectEconomy,
+    projectObjectLinks,
+    projectRealProgress,
+    renderMaterialReconciliationPanel,
+    workExecutionTotal,
+  } = createProjectDashboardRuntime({
+    C,
+    EXPENSE_CATEGORIES,
     accountablePayments,
+    activeEstimatesForProject,
+    aiFindingsForProject,
+    aiTasksForProject,
+    allBrigadeItems,
+    badge,
+    btnB,
+    buildMaterialRequirementContent: (...args) => documentActionRefs.buildMaterialRequirementContent?.(...args) || '',
+    cableJournal,
+    calcSalary,
+    card,
+    estimatePackage,
+    estimateReconciliationsForProject,
+    estimatesList,
+    expenseReports,
+    fmtMeasure,
+    hiddenActs,
+    invoices,
     isApprovedEstimateChangeStatus,
+    isArchivedEstimate,
+    isFinanceRole,
+    isLeadership,
+    manualExpenses,
+    materialControlStatus,
+    materialControlSummaryForProject,
+    materialInspections,
+    materials,
+    measurementRoomDrafts,
+    ownExpenses,
+    piecework,
+    prescriptionsList,
+    projectDocuments,
+    projectFactSpent,
+    projectLetters,
+    projectMeasurements,
+    projectPayments,
+    projectPlanDone,
+    projectStages,
+    renderMaterialAliasControls,
+    renderMaterialSupplyAction,
+    roomCompleteness,
+    rooms,
+    showPreview,
+    staff,
+    supplierInvoices,
+    supplyDeliveries,
+    supplyRequests,
+    tbl,
+    tblC,
+    tblH,
+    unexpectedWorksList,
+    user,
+    visibleEstimatesForCurrentUser,
+    workJournal,
   });
   const lowStock = materials.filter(m=>m.minQuantity&&m.quantity<m.minQuantity);
   const lowMainStock = warehouseMain.filter(m=>m.minQuantity&&m.quantity<m.minQuantity);
@@ -2982,6 +2925,7 @@ function App() {
     weatherLog,
     workJournal,
   });
+  documentActionRefs.buildMaterialRequirementContent = buildMaterialRequirementContent;
 
   const unreadNotifications = myNotifications(notifications).filter(n=>!n.read).length;
 
