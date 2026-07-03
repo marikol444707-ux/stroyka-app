@@ -113,12 +113,7 @@ import { createSystemActions } from './features/system/systemActions';
 import { createUploadActions } from './features/uploads/uploadActions';
 import WorkAssignmentModal, { WorkAssignmentStatusPanel } from './features/work-assignment';
 import { createAiTaskActions } from './features/ai-control/aiTaskActions';
-import EstimateChangeReconcileTask from './features/ai-control/EstimateChangeReconcileTask';
-import {
-  closeStaleAiTasksByMarkerPrefix,
-  queueAiControlDescriptor,
-  upsertAiTaskByMarker,
-} from './features/ai-control/aiQueueUtils';
+import { createAiReviewQueueActions } from './features/ai-control/aiReviewQueueActions';
 import { createUserAccessActions } from './features/admin/userAccessActions';
 import { createDocumentActions } from './features/documents/documentActions';
 import { createPaymentActions } from './features/payments/paymentActions';
@@ -252,7 +247,6 @@ import {
 import { workJournalEstimateSummaryFor } from './utils/workJournalEstimateReconciliationUtils';
 import { createEstimateWorkflowActions } from './features/estimates/estimateWorkflowActions';
 import { createEstimatePageActions } from './features/estimates/estimatePageActions';
-import { createEstimateChangeReconcileTaskActions } from './features/estimates/estimateChangeReconcileTaskActions';
 import { createSupplyActions } from './features/supply/supplyActions';
 import { createSupplierPortalActions } from './features/supply/supplierPortalActions';
 import { createSupplyPlanningUi } from './features/supply/supplyPlanningUi';
@@ -266,12 +260,6 @@ import {
   invoiceControlReviewReason,
   parseAiTaskPayload,
 } from './utils/aiControlDescriptionUtils';
-import {
-  buildMaterialControlSignatureForProject,
-  buildMaterialControlTaskDescriptorsForProject,
-  buildRoomControlSignatureForProject,
-  buildRoomControlTaskDescriptorsForProject,
-} from './utils/aiControlTaskUtils';
 import {
   buildPagedPath,
   calcVat,
@@ -2154,339 +2142,72 @@ function App() {
     projectName ? estimateNormCoverageRows(projectName) : [],
     {companyRequisites, companyName, materialTitleForNormRule, materialNormCoverageComment}
   );
-  const aiTaskByMarker = (marker) => (aiTasks||[]).find(t=>
-    isOpenAiStatus(t.status) && String(t.actionPayload||'').includes(marker)
-  );
-  const jumpToEstimateIssue = (row) => {
-    if (!row || row.sectionIdx === undefined || row.itemIdx === undefined) return;
-    const key = estimateIssueDomId(row.estimateId || selectedEstimate?.id, row.sectionIdx, row.itemIdx);
-    setEstimateIssueFocusKey(key);
-    setTimeout(() => {
-      const el = document.getElementById(key);
-      if (el) el.scrollIntoView({behavior:'smooth', block:'center'});
-    }, 30);
-    setTimeout(() => setEstimateIssueFocusKey(prev => prev === key ? '' : prev), 4500);
-  };
-  const queueEstimateQualityReviewTask = async (est, reason='Автопроверка сметы') => {
-    if (!est?.id || !est.projectName) return;
-    if (estimateKind(est)!=='Заказчик' || isArchivedEstimate(est) || (est.status||'Черновик')!=='Активная') return;
-    const marker = estimateQualityReviewMarker(est.id);
-    const existingTask = aiTaskByMarker(marker);
-    const rows = estimateQualityRows(est);
-    const counts = rows.reduce((acc,row)=>{acc[row.status]=(acc[row.status]||0)+1;return acc;},{});
-    if (!rows.length) {
-      if (existingTask) await patchAiTaskSilent(existingTask.id,{status:'Закрыто'});
-      return;
-    }
-    await upsertAiTaskByMarker({
-      API,
-      marker,
-      projectName: est.projectName,
-      existingTask,
-      queuedRef: estimateQualityReviewQueuedRef,
-      setAiTasks,
-      patchAiTaskSilent,
-      patch: {
-        title:'Исправить данные сметы: '+est.projectName+' — '+rows.length+' ош.',
-        description:estimateQualityDescription(est, rows, reason),
-        assignedRole:hasActiveEstimator() ? 'сметчик' : 'директор',
-        actionLabel:'Открыть смету',
-        actionPayload:JSON.stringify({
-          type:'estimate_quality_review',
-          marker,
-          estimateId:est.id,
-          estimateName:est.name||'',
-          projectName:est.projectName||'',
-          workPackage:estimatePackage(est),
-          reason,
-          counts
-        }),
-      },
-    });
-  };
-  const estimateListWithUpdatedEstimate = (est) => {
-    if (!est?.id) return estimatesList||[];
-    let found = false;
-    const mapped = (estimatesList||[]).map(e=>{
-      if (Number(e.id)===Number(est.id)) { found = true; return est; }
-      return e;
-    });
-    return found ? mapped : [...mapped, est];
-  };
-  const hasActiveEstimator = () => {
-    const roleOf = (v) => String(v||'').trim().toLowerCase();
-    return (users||[]).some(u=>roleOf(u.role)==='сметчик')
-      || (staff||[]).some(s=>roleOf(s.systemRole||s.role)==='сметчик' && roleOf(s.status||'активен')!=='уволен');
-  };
-  const estimateNormReviewExistingTask = (marker) => aiTaskByMarker(marker);
-  const queueEstimateDiffReviewTask = async (baseEst, nextEst, reason='Новая смета') => {
-    if (!baseEst?.id || !nextEst?.id || Number(baseEst.id)===Number(nextEst.id)) return;
-    if (!sameEstimateGroup(baseEst,nextEst) || isGlobalEstimateTemplate(nextEst) || (nextEst.status||'Черновик')!=='Активная') return;
-    const diff = buildEstimateDiff(baseEst,nextEst);
-    const changeCount = diff.changed.length + diff.added.length + diff.removed.length;
-    const marker = estimateDiffReviewMarker(baseEst.id,nextEst.id);
-    const existingTask = aiTaskByMarker(marker);
-    if (!changeCount) {
-      if (existingTask) await patchAiTaskSilent(existingTask.id,{status:'Закрыто'});
-      return;
-    }
-    await upsertAiTaskByMarker({
-      API,
-      marker,
-      projectName: nextEst.projectName || baseEst.projectName || '',
-      existingTask,
-      queuedRef: estimateDiffReviewQueuedRef,
-      setAiTasks,
-      patchAiTaskSilent,
-      patch: {
-        title:'Сверить разницу смет: '+(nextEst.projectName||baseEst.projectName||'')+' — '+changeCount+' изм.',
-        description:estimateDiffReviewDescription(baseEst,nextEst,diff,reason),
-        assignedRole:hasActiveEstimator() ? 'сметчик' : 'директор',
-        actionLabel:'Открыть ведомость смет',
-        actionPayload:JSON.stringify({
-          type:'estimate_diff_review',
-          marker,
-          baseEstimateId:baseEst.id,
-          nextEstimateId:nextEst.id,
-          projectName:nextEst.projectName||baseEst.projectName||'',
-          workPackage:estimatePackage(nextEst),
-          reason,
-          changed:diff.changed.length,
-          added:diff.added.length,
-          removed:diff.removed.length,
-          impact:diff.impact
-        }),
-      },
-    });
-  };
-  const autoReconcileEstimateChanges = async (baseEst, nextEst, reason='Новая смета') => {
-    if (!baseEst?.id || !nextEst?.id || Number(baseEst.id)===Number(nextEst.id)) return;
-    if (!sameEstimateGroup(baseEst,nextEst) || isGlobalEstimateTemplate(nextEst) || estimateKind(nextEst)!=='Заказчик' || (nextEst.status||'Черновик')!=='Активная') return;
-    const marker = estimateChangeReconcileMarker(nextEst.id);
-    const candidates = includableEstimateChanges(nextEst.projectName || baseEst.projectName || '');
-    const existingTask = aiTaskByMarker(marker);
-    if (!candidates.length) {
-      if (existingTask) await patchAiTaskSilent(existingTask.id,{status:'Закрыто'});
-      return;
-    }
-    const diff = buildEstimateDiff(baseEst,nextEst);
-    const decisions = candidates.map(change=>estimateChangeAutoDecision(change,nextEst,diff));
-    const autoIds = decisions.filter(d=>d.autoInclude).map(d=>Number(d.change.id)).filter(Boolean);
-    let includedIds = [];
-    if (autoIds.length) {
-      try {
-        const res = await fetch(API+'/estimates/'+nextEst.id+'/reconcile-changes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({changeIds:autoIds,updatedBy:user.name})});
-        const data = await res.json().catch(()=>({}));
-        if (res.ok) {
-          includedIds = (data.includedChangeIds||[]).map(Number);
-          if (includedIds.length) {
-            const includedSet = new Set(includedIds);
-            setUnexpectedWorksList(prev=>(prev||[]).map(u=>includedSet.has(Number(u.id))?{...u,status:'Включено в новую смету',includedInEstimateId:nextEst.id,reason:u.reason||('Автоматически сопоставлено с новой сметой №'+nextEst.id)}:u));
-          }
-        }
-      } catch(e) {}
-    }
-    const includedSet = new Set(includedIds);
-    const unresolved = decisions.filter(d=>!includedSet.has(Number(d.change.id)));
-    if (!unresolved.length) {
-      if (existingTask) await patchAiTaskSilent(existingTask.id,{status:'Закрыто'});
-      return;
-    }
-    const payloadData = {
-      type:'estimate_change_reconcile',
-      marker,
-      baseEstimateId:baseEst.id,
-      nextEstimateId:nextEst.id,
-      projectName:nextEst.projectName||baseEst.projectName||'',
-      workPackage:estimatePackage(nextEst),
-      reason,
-      included:includedIds.length,
-      unresolved:unresolved.length
-    };
-    const patch = {
-      title:'Проверить включение допработ: '+(nextEst.projectName||baseEst.projectName||'')+' — '+unresolved.length+' спорн.',
-      description:estimateChangeReconcileDescription(baseEst,nextEst,unresolved,includedIds.length,reason),
-      assignedRole:hasActiveEstimator() ? 'сметчик' : 'директор',
-      actionPayload:JSON.stringify(payloadData),
-      actionLabel:'Открыть изменения к смете',
-    };
-    await upsertAiTaskByMarker({
-      API,
-      marker,
-      projectName: nextEst.projectName || baseEst.projectName || '',
-      existingTask,
-      queuedRef: estimateChangeReconcileQueuedRef,
-      patch,
-      setAiTasks,
-      patchAiTaskSilent,
-    });
-  };
   const {
-    confirmEstimateChangeIncluded,
-    estimateChangeReconcileEstimatesForTask,
-    estimateChangeReconcileRowsForTask,
-  } = createEstimateChangeReconcileTaskActions({
-    API,
-    user,
-    estimatesList,
-    estimateDiffBaseFor,
-    buildEstimateDiff,
-    includableEstimateChanges,
-    estimateChangeAutoDecision,
-    setUnexpectedWorksList,
-    patchAiTaskSilent,
-  });
-  const renderEstimateChangeReconcileTask = (task) => {
-    const {baseEstimate, nextEstimate} = estimateChangeReconcileEstimatesForTask(task);
-    const rows = estimateChangeReconcileRowsForTask(task);
-    return (
-      <EstimateChangeReconcileTask
-        task={task}
-        baseEstimate={baseEstimate}
-        nextEstimate={nextEstimate}
-        rows={rows}
-        fmtMeasure={fmtMeasure}
-        onConfirmIncluded={confirmEstimateChangeIncluded}
-        onOpenTask={openAiTaskAction}
-      />
-    );
-  };
-  const queueEstimateNormReviewTask = async (est, reason='Автопроверка сметы', sourceEstimates=null) => {
-    if (!est?.id || !est.projectName) return;
-    if (estimateKind(est)!=='Заказчик' || isArchivedEstimate(est) || (est.status||'Черновик')!=='Активная') return;
-    const marker = estimateNormReviewMarker(est.id);
-    const existingTask = estimateNormReviewExistingTask(marker);
-    const rows = estimateNormCoverageRows(est.projectName, sourceEstimates)
-      .filter(r=>Number(r.estimateId)===Number(est.id) && estimateNormReviewIssueStatuses.includes(r.status));
-    const counts = estimateNormReviewIssueStatuses.reduce((acc,status)=>{
-      const count = rows.filter(r=>r.status===status).length;
-      if (count) acc[status] = count;
-      return acc;
-    }, {});
-    if (!rows.length) {
-      if (existingTask) await patchAiTaskSilent(existingTask.id,{status:'Закрыто'});
-      return;
-    }
-    await upsertAiTaskByMarker({
-      API,
-      marker,
-      projectName: est.projectName,
-      existingTask,
-      queuedRef: estimateNormReviewQueuedRef,
-      setAiTasks,
-      patchAiTaskSilent,
-      patch: {
-        title: 'Проверить смету: '+est.projectName+' — '+rows.length+' замеч.',
-        description: estimateNormReviewDescription(est, rows, reason),
-        assignedRole: hasActiveEstimator() ? 'сметчик' : 'директор',
-        actionLabel: 'Открыть проверку сметы',
-        actionPayload: JSON.stringify({
-          type:'estimate_norm_review',
-          marker,
-          estimateId:est.id,
-          estimateName:est.name||'',
-          projectName:est.projectName||'',
-          workPackage:estimatePackage(est),
-          reason,
-          counts
-        }),
-      },
-    });
-  };
-  const materialControlTaskDescriptorsForProject = (projectName, reason='Фоновая проверка материалов') => buildMaterialControlTaskDescriptorsForProject({
-    projectName,
-    reason,
-    materialControlSummaryForProject,
-    materialNormControlSummaryForProject,
-    materialNameKey,
-    materialAliasCandidates,
+    aiTaskByMarker,
+    autoReconcileEstimateChanges,
+    estimateListWithUpdatedEstimate,
     hasActiveEstimator,
-  });
-  const materialControlSignatureForProject = (projectName) => buildMaterialControlSignatureForProject({
-    projectName,
+    jumpToEstimateIssue,
+    materialControlSignatureForProject,
+    queueEstimateDiffReviewTask,
+    queueEstimateNormReviewTask,
+    queueEstimateQualityReviewTask,
+    queueMaterialControlTasksForProject,
+    queueRoomControlTasksForProject,
+    renderEstimateChangeReconcileTask,
+    roomControlSignatureForProject,
+  } = createAiReviewQueueActions({
+    API,
+    aiFindings,
+    aiTasks,
+    buildEstimateDiff,
+    estimateChangeAutoDecision,
+    estimateChangeReconcileDescription,
+    estimateChangeReconcileMarker,
+    estimateChangeReconcileQueuedRef,
+    estimateDiffBaseFor,
+    estimateDiffReviewDescription,
+    estimateDiffReviewMarker,
+    estimateDiffReviewQueuedRef,
+    estimateKind,
+    estimateNormCoverageRows,
+    estimateNormReviewDescription,
+    estimateNormReviewIssueStatuses,
+    estimateNormReviewMarker,
+    estimateNormReviewQueuedRef,
+    estimatePackage,
+    estimateQualityDescription,
+    estimateQualityReviewMarker,
+    estimateQualityReviewQueuedRef,
+    estimateQualityRows,
+    estimatesList,
+    fmtMeasure,
+    includableEstimateChanges,
+    isArchivedEstimate,
+    isGlobalEstimateTemplate,
+    isOpenAiStatus,
+    materialAliasCandidates,
     materialControlSummaryForProject,
+    materialControlTaskQueuedRef,
+    materialNameKey,
     materialNormControlSummaryForProject,
-  });
-  const roomControlTaskDescriptorsForProject = (projectName, reason='Фоновая проверка помещений') => buildRoomControlTaskDescriptorsForProject({
-    projectName,
-    reason,
-    rooms,
-    roomWorks,
-    workJournal,
+    openAiTaskAction,
+    patchAiFindingSilent,
+    patchAiTaskSilent,
     roomCompleteness,
-    materialNameKey,
-  });
-  const roomControlSignatureForProject = (projectName) => buildRoomControlSignatureForProject({
-    projectName,
-    rooms,
+    roomControlTaskQueuedRef,
     roomWorks,
+    rooms,
+    sameEstimateGroup,
+    selectedEstimate,
+    setAiTasks,
+    setEstimateIssueFocusKey,
+    setUnexpectedWorksList,
+    staff,
+    user,
+    users,
     workJournal,
-    roomCompleteness,
-    materialNameKey,
   });
-  const queueMaterialControlTask = async (descriptor) => {
-    await queueAiControlDescriptor({
-      API,
-      descriptor,
-      aiTaskByMarker,
-      queuedRef: materialControlTaskQueuedRef,
-      setAiTasks,
-      patchAiTaskSilent,
-    });
-  };
-  const queueMaterialControlTasksForProject = async (projectName, reason='Фоновая проверка материалов') => {
-    const descriptors = materialControlTaskDescriptorsForProject(projectName, reason);
-    const activeMarkers = new Set(descriptors.map(d=>d.marker));
-    closeStaleAiTasksByMarkerPrefix({
-      tasks: aiTasks,
-      projectName,
-      markerPrefix: 'MATERIAL_CONTROL:',
-      activeMarkers,
-      parsePayload: parseAiTaskPayload,
-      isOpenStatus: isOpenAiStatus,
-      patchTaskSilent: patchAiTaskSilent,
-    });
-    for (const descriptor of descriptors) {
-      await queueMaterialControlTask(descriptor);
-    }
-  };
-  const queueRoomControlTask = async (descriptor) => {
-    await queueAiControlDescriptor({
-      API,
-      descriptor,
-      aiTaskByMarker,
-      queuedRef: roomControlTaskQueuedRef,
-      setAiTasks,
-      patchAiTaskSilent,
-    });
-  };
-  const queueRoomControlTasksForProject = async (projectName, reason='Фоновая проверка помещений') => {
-    const descriptors = roomControlTaskDescriptorsForProject(projectName, reason);
-    const activeMarkers = new Set(descriptors.map(d=>d.marker));
-    const isLegacyRoomBinding = (item) => {
-      const dedupe = String(item?.dedupeKey || item?.dedupe_key || '');
-      const payload = String(item?.actionPayload || item?.action_payload || '');
-      return (dedupe.startsWith('work_journal:') && dedupe.endsWith(':room_binding')) || payload.includes('room_binding');
-    };
-    (aiTasks||[])
-      .filter(t=>isOpenAiStatus(t.status) && (t.projectName||'')===projectName && isLegacyRoomBinding(t))
-      .forEach(t=>patchAiTaskSilent(t.id,{status:'Закрыто'}));
-    (aiFindings||[])
-      .filter(f=>isOpenAiStatus(f.status) && (f.projectName||'')===projectName && isLegacyRoomBinding(f))
-      .forEach(f=>patchAiFindingSilent(f.id,{status:'Закрыто'}));
-    closeStaleAiTasksByMarkerPrefix({
-      tasks: aiTasks,
-      projectName,
-      markerPrefix: 'ROOM_CONTROL:',
-      activeMarkers,
-      parsePayload: parseAiTaskPayload,
-      isOpenStatus: isOpenAiStatus,
-      patchTaskSilent: patchAiTaskSilent,
-    });
-    for (const descriptor of descriptors) {
-      await queueRoomControlTask(descriptor);
-    }
-  };
   const frontendAiAutoControlEnabled = false; // backend /ai-control/* теперь единый источник фоновых задач
   useEffect(() => {
     if (!frontendAiAutoControlEnabled) return;
