@@ -1,0 +1,894 @@
+<!doctype html>
+<html lang="ru" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Карта руководителя - React preview</title>
+<style>
+:root, html[data-theme="light"] {
+  --c-bg: #f8fafc;
+  --c-bg-white: #ffffff;
+  --c-bg-gray: #f1f5f9;
+  --c-border: #e2e8f0;
+  --c-border-dark: #cbd5e1;
+  --c-text: #0f172a;
+  --c-text-sec: #64748b;
+  --c-text-muted: #94a3b8;
+  --c-accent: #f97316;
+  --c-accent-dark: #ea580c;
+  --c-accent-light: #fff7ed;
+  --c-accent-border: #fed7aa;
+  --c-success: #10b981;
+  --c-success-light: #ecfdf5;
+  --c-success-border: #a7f3d0;
+  --c-danger: #ef4444;
+  --c-danger-light: #fef2f2;
+  --c-danger-border: #fecaca;
+  --c-warning: #f59e0b;
+  --c-warning-light: #fffbeb;
+  --c-warning-border: #fde68a;
+  --c-info: #3b82f6;
+  --c-info-light: #eff6ff;
+  --c-info-border: #bfdbfe;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 100%; min-height: 100%; background: var(--c-bg); color: var(--c-text); font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+.preview-shell { max-width: 1360px; margin: 0 auto; padding: 20px; }
+@media (max-width: 760px) { .preview-shell { padding: 12px; max-width: 100vw; overflow-x: hidden; } }
+.dm-panel {
+  --dm-bg: var(--c-bg, #f8fafc);
+  --dm-panel: var(--c-bg-white, #ffffff);
+  --dm-soft: var(--c-bg-gray, #f1f5f9);
+  --dm-line: var(--c-border, #e2e8f0);
+  --dm-line-strong: var(--c-border-dark, #cbd5e1);
+  --dm-text: var(--c-text, #0f172a);
+  --dm-muted: var(--c-text-sec, #64748b);
+  --dm-muted-soft: var(--c-text-muted, #94a3b8);
+  --dm-accent: var(--c-accent, #f97316);
+  --dm-accent-soft: var(--c-accent-light, #fff7ed);
+  --dm-accent-border: var(--c-accent-border, #fed7aa);
+  --dm-success: var(--c-success, #10b981);
+  --dm-success-soft: var(--c-success-light, #ecfdf5);
+  --dm-success-border: var(--c-success-border, #a7f3d0);
+  --dm-danger: var(--c-danger, #ef4444);
+  --dm-danger-soft: var(--c-danger-light, #fef2f2);
+  --dm-danger-border: var(--c-danger-border, #fecaca);
+  --dm-warning: var(--c-warning, #f59e0b);
+  --dm-warning-soft: var(--c-warning-light, #fffbeb);
+  --dm-warning-border: var(--c-warning-border, #fde68a);
+  --dm-info: var(--c-info, #3b82f6);
+  --dm-info-soft: var(--c-info-light, #eff6ff);
+  --dm-info-border: var(--c-info-border, #bfdbfe);
+  width: 100%;
+  min-width: 0;
+  color: var(--dm-text);
+  background: var(--dm-bg);
+  border-radius: 0;
+  letter-spacing: 0;
+}
+
+.dm-panel * {
+  box-sizing: border-box;
+}
+
+.dm-topbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: end;
+  margin-bottom: 14px;
+}
+
+.dm-eyebrow {
+  margin: 0 0 5px;
+  color: var(--dm-accent);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.dm-topbar h1 {
+  margin: 0;
+  color: var(--dm-text);
+  font-size: 26px;
+  line-height: 1.15;
+}
+
+.dm-subtitle {
+  margin: 7px 0 0;
+  color: var(--dm-muted);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.dm-filterbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dm-filter-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 36px;
+  border: 1.5px solid var(--dm-line);
+  background: var(--dm-panel);
+  color: var(--dm-text);
+  padding: 8px 11px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.dm-filter-button[aria-pressed="true"] {
+  border-color: var(--dm-accent);
+  color: #ffffff;
+  background: var(--dm-accent);
+}
+
+.dm-summary {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.dm-metric,
+.dm-section,
+.dm-guardrail {
+  background: var(--dm-panel);
+  border: 1.5px solid var(--dm-line);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  min-width: 0;
+}
+
+.dm-metric {
+  padding: 13px;
+  min-height: 92px;
+}
+
+.dm-metric-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dm-metric p,
+.dm-metric span {
+  margin: 0;
+  color: var(--dm-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.dm-metric strong {
+  display: block;
+  margin-top: 7px;
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.dm-metric span {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+.dm-main-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(340px, 0.65fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.dm-section {
+  overflow: hidden;
+}
+
+.dm-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--dm-line);
+  background: var(--dm-panel);
+}
+
+.dm-section-head h2 {
+  margin: 0;
+  color: var(--dm-text);
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.dm-section-head p {
+  margin: 4px 0 0;
+  color: var(--dm-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.dm-legend {
+  display: flex;
+  gap: 9px;
+  flex-wrap: wrap;
+  color: var(--dm-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.dm-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  margin-right: 4px;
+  vertical-align: -1px;
+}
+
+.dm-timeline-list {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+}
+
+.dm-work-row {
+  display: grid;
+  grid-template-columns: minmax(170px, 210px) minmax(260px, 1fr) 126px;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  border: 1px solid var(--dm-line);
+  border-radius: 12px;
+  padding: 11px;
+  background: var(--dm-panel);
+  color: var(--dm-text);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.dm-work-row.is-selected {
+  border-color: var(--dm-accent);
+  background: var(--dm-accent-soft);
+}
+
+.dm-work-title {
+  min-width: 0;
+}
+
+.dm-work-title strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.dm-work-title span {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--dm-muted);
+  font-size: 11px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dm-bar-wrap {
+  position: relative;
+  height: 32px;
+  overflow: hidden;
+  border: 1px solid var(--dm-line);
+  border-radius: 6px;
+  background: var(--dm-soft);
+}
+
+.dm-bar-window {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  min-width: 28px;
+  align-items: center;
+  overflow: hidden;
+  border-radius: 5px;
+  padding-left: 7px;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.dm-today-line {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--dm-text);
+  opacity: 0.55;
+}
+
+.dm-row-status {
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+  text-align: right;
+}
+
+.dm-row-status small {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--dm-muted);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.dm-pill {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  border: 1px solid var(--dm-line);
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.dm-stage-body {
+  padding: 16px;
+}
+
+.dm-stage-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 13px;
+}
+
+.dm-stage-title h3 {
+  margin: 0;
+  color: var(--dm-text);
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.dm-kv-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.dm-kv {
+  min-width: 0;
+  border: 1px solid var(--dm-line);
+  border-radius: 12px;
+  padding: 10px;
+  background: color-mix(in srgb, var(--dm-panel) 86%, var(--dm-soft));
+}
+
+.dm-kv span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--dm-muted);
+  font-size: 11px;
+}
+
+.dm-kv b {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--dm-text);
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.dm-signal-list {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.dm-signal {
+  border: 1px solid var(--dm-line);
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.dm-signal b,
+.dm-signal span {
+  display: block;
+}
+
+.dm-signal span {
+  margin-top: 3px;
+}
+
+.dm-action-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dm-action-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--dm-line);
+  border-radius: 7px;
+  background: var(--dm-text);
+  color: var(--dm-panel);
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.dm-action-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.dm-supply-chain,
+.dm-links-table,
+.dm-guardrail {
+  margin-top: 14px;
+}
+
+.dm-chain-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+}
+
+.dm-chain-step {
+  position: relative;
+  display: grid;
+  min-height: 116px;
+  align-content: start;
+  gap: 7px;
+  border: 1.5px solid var(--dm-line);
+  border-radius: 12px;
+  padding: 11px;
+  background: var(--dm-panel);
+}
+
+.dm-chain-step-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dm-muted);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.dm-chain-step b {
+  color: var(--dm-text);
+  font-size: 13px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.dm-chain-step p {
+  margin: 0;
+  color: var(--dm-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.dm-chain-arrow {
+  position: absolute;
+  right: -9px;
+  top: 48px;
+  z-index: 2;
+  border-radius: 999px;
+  background: var(--dm-text);
+  color: var(--dm-panel);
+  padding: 2px;
+}
+
+.dm-table-wrap {
+  overflow-x: auto;
+}
+
+.dm-links-table table {
+  width: 100%;
+  min-width: 940px;
+  border-collapse: collapse;
+}
+
+.dm-links-table th,
+.dm-links-table td {
+  border-bottom: 1px solid var(--dm-line);
+  padding: 10px 12px;
+  text-align: left;
+  vertical-align: top;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.dm-links-table th {
+  background: var(--dm-soft);
+  color: var(--dm-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.dm-links-table td b {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--dm-text);
+}
+
+.dm-guardrail {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  color: var(--dm-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.dm-empty-state {
+  display: grid;
+  gap: 4px;
+  border: 1px dashed var(--dm-line-strong);
+  border-radius: 12px;
+  padding: 18px;
+  color: var(--dm-muted);
+}
+
+.dm-empty-state strong {
+  color: var(--dm-text);
+}
+
+.dm-tone-success {
+  background-color: var(--dm-success);
+  color: #ffffff;
+}
+
+.dm-pill.dm-tone-success,
+.dm-metric.dm-tone-success,
+.dm-signal.dm-tone-success,
+.dm-chain-step.dm-tone-success {
+  border-color: var(--dm-success-border);
+  background-color: var(--dm-success-soft);
+  color: var(--dm-success);
+}
+
+.dm-tone-warning {
+  background-color: var(--dm-warning);
+  color: #ffffff;
+}
+
+.dm-pill.dm-tone-warning,
+.dm-metric.dm-tone-warning,
+.dm-signal.dm-tone-warning,
+.dm-chain-step.dm-tone-warning {
+  border-color: var(--dm-warning-border);
+  background-color: var(--dm-warning-soft);
+  color: var(--dm-warning);
+}
+
+.dm-tone-danger {
+  background-color: var(--dm-danger);
+  color: #ffffff;
+}
+
+.dm-pill.dm-tone-danger,
+.dm-metric.dm-tone-danger,
+.dm-signal.dm-tone-danger,
+.dm-chain-step.dm-tone-danger {
+  border-color: var(--dm-danger-border);
+  background-color: var(--dm-danger-soft);
+  color: var(--dm-danger);
+}
+
+.dm-tone-info {
+  background-color: var(--dm-info);
+  color: #ffffff;
+}
+
+.dm-pill.dm-tone-info,
+.dm-metric.dm-tone-info,
+.dm-signal.dm-tone-info,
+.dm-chain-step.dm-tone-info {
+  border-color: var(--dm-info-border);
+  background-color: var(--dm-info-soft);
+  color: var(--dm-info);
+}
+
+.dm-pill.dm-tone-neutral {
+  border-color: var(--dm-line);
+  background-color: var(--dm-soft);
+  color: var(--dm-muted);
+}
+
+.dm-metric.dm-tone-success strong,
+.dm-metric.dm-tone-success svg {
+  color: var(--dm-success);
+}
+
+.dm-metric.dm-tone-warning strong,
+.dm-metric.dm-tone-warning svg {
+  color: var(--dm-warning);
+}
+
+.dm-metric.dm-tone-danger strong,
+.dm-metric.dm-tone-danger svg {
+  color: var(--dm-danger);
+}
+
+.dm-metric.dm-tone-info strong,
+.dm-metric.dm-tone-info svg {
+  color: var(--dm-info);
+}
+
+@supports not (background: color-mix(in srgb, white 50%, black)) {
+  .dm-kv {
+    background: var(--dm-soft);
+  }
+}
+
+@media (max-width: 1120px) {
+  .dm-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .dm-main-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dm-chain-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dm-chain-arrow {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .dm-panel {
+    overflow-x: hidden;
+  }
+
+  .dm-topbar {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .dm-filterbar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: stretch;
+    overflow: visible;
+    flex-wrap: initial;
+    padding-bottom: 0;
+    max-width: 100%;
+    gap: 7px;
+  }
+
+  .dm-filter-button {
+    min-width: 0;
+    width: 100%;
+    min-height: 35px;
+    padding: 7px 8px;
+    font-size: 12px;
+  }
+
+  .dm-filter-button:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .dm-topbar h1 {
+    font-size: 22px;
+    overflow-wrap: anywhere;
+  }
+
+  .dm-subtitle {
+    font-size: 13px;
+  }
+
+  .dm-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .dm-chain-grid,
+  .dm-kv-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dm-metric {
+    min-height: 84px;
+    padding: 10px;
+  }
+
+  .dm-metric-top svg {
+    display: none;
+  }
+
+  .dm-metric p {
+    font-size: 11px;
+  }
+
+  .dm-metric strong {
+    margin-top: 6px;
+    font-size: 20px;
+  }
+
+  .dm-metric span {
+    font-size: 10px;
+  }
+
+  .dm-section-head {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 12px;
+  }
+
+  .dm-section-head h2 {
+    font-size: 15px;
+  }
+
+  .dm-section-head .dm-pill {
+    align-self: flex-start;
+  }
+
+  .dm-work-row {
+    grid-template-columns: 1fr;
+    gap: 9px;
+    padding: 10px;
+  }
+
+  .dm-work-title strong,
+  .dm-work-title span {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .dm-row-status {
+    justify-items: start;
+    text-align: left;
+  }
+
+  .dm-stage-body {
+    padding: 12px;
+  }
+
+  .dm-stage-title {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dm-stage-title .dm-pill {
+    align-self: flex-start;
+  }
+
+  .dm-action-button {
+    flex: 1 1 140px;
+    justify-content: center;
+  }
+
+  .dm-chain-step {
+    min-height: auto;
+  }
+
+  .dm-table-wrap {
+    overflow-x: visible;
+  }
+
+  .dm-links-table table,
+  .dm-links-table tbody,
+  .dm-links-table tr,
+  .dm-links-table td {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .dm-links-table table {
+    min-width: 0;
+  }
+
+  .dm-links-table thead {
+    display: none;
+  }
+
+  .dm-links-table tbody {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .dm-links-table tr {
+    border: 1px solid var(--dm-line);
+    border-radius: 12px;
+    padding: 10px;
+    background: var(--dm-panel);
+  }
+
+  .dm-links-table td {
+    display: grid;
+    grid-template-columns: 96px minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+    border-bottom: 1px solid var(--dm-line);
+    padding: 8px 0;
+  }
+
+  .dm-links-table td:last-child {
+    border-bottom: 0;
+  }
+
+  .dm-links-table td::before {
+    content: attr(data-label);
+    color: var(--dm-muted);
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+
+  .dm-links-table td:first-child {
+    display: block;
+    padding-top: 0;
+  }
+
+  .dm-links-table td:first-child::before {
+    display: none;
+  }
+
+  .dm-links-table td:first-child b {
+    margin-bottom: 8px;
+  }
+
+  .dm-guardrail {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 420px) {
+  .dm-filter-button {
+    min-height: 34px;
+    padding: 7px 10px;
+    font-size: 12px;
+  }
+
+  .dm-metric {
+    min-height: auto;
+  }
+
+  .dm-action-button {
+    flex-basis: 100%;
+  }
+}
+
+</style>
+</head>
+<body>
+<main id="root" class="preview-shell"><div class="dm-panel" data-mode="sandbox_unbound"><header class="dm-topbar"><div><p class="dm-eyebrow">Песочница без привязки</p><h1>Карта руководителя</h1><p class="dm-subtitle">Лермонтова, спортзал · В работе</p></div><div class="dm-filterbar" aria-label="Фильтры карты"><button type="button" class="dm-filter-button" aria-pressed="true"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-dot" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="1"></circle></svg>Все</button><button type="button" class="dm-filter-button" aria-pressed="false"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-triangle-alert" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>Красные</button><button type="button" class="dm-filter-button" aria-pressed="false"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-package" aria-hidden="true"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"></path><path d="M12 22V12"></path><polyline points="3.29 7 12 12 20.71 7"></polyline><path d="m7.5 4.27 9 5.15"></path></svg>Материалы</button><button type="button" class="dm-filter-button" aria-pressed="false"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-package" aria-hidden="true"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"></path><path d="M12 22V12"></path><polyline points="3.29 7 12 12 20.71 7"></polyline><path d="m7.5 4.27 9 5.15"></path></svg>Поставка</button><button type="button" class="dm-filter-button" aria-pressed="false"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file-text" aria-hidden="true"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"></path><path d="M14 2v5a1 1 0 0 0 1 1h5"></path><path d="M10 9H8"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></svg>Документы</button><button type="button" class="dm-filter-button" aria-pressed="false"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-wallet" aria-hidden="true"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"></path><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"></path></svg>Деньги</button><button type="button" class="dm-filter-button" aria-pressed="false"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-search" aria-hidden="true"><path d="m21 21-4.34-4.34"></path><circle cx="11" cy="11" r="8"></circle></svg>Проверить связи</button></div></header><section class="dm-summary" aria-label="Сводка карты руководителя"><div class="dm-metric dm-tone-warning"><div class="dm-metric-top"><p>План по календарю</p><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-clipboard-list" aria-hidden="true"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="M12 11h4"></path><path d="M12 16h4"></path><path d="M8 11h.01"></path><path d="M8 16h.01"></path></svg></div><strong>76%</strong><span>расчетный план</span></div><div class="dm-metric dm-tone-info"><div class="dm-metric-top"><p>Факт по ЖПР</p><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-check" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg></div><strong>62%</strong><span>подтвержденные объемы</span></div><div class="dm-metric dm-tone-danger"><div class="dm-metric-top"><p>Критичные сигналы</p><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-triangle-alert" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg></div><strong>2</strong><span>сначала смотреть</span></div><div class="dm-metric dm-tone-warning"><div class="dm-metric-top"><p>На проверке</p><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-triangle-alert" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg></div><strong>5</strong><span>связи и документы</span></div><div class="dm-metric dm-tone-success"><div class="dm-metric-top"><p>Оплачено факт</p><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-wallet" aria-hidden="true"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"></path><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"></path></svg></div><strong>1,85 млн</strong><span>только project_payments</span></div><div class="dm-metric dm-tone-info"><div class="dm-metric-top"><p>Обязательства</p><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-wallet" aria-hidden="true"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"></path><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"></path></svg></div><strong>420 тыс.</strong><span>счета и поставки</span></div></section><div class="dm-main-grid"><section class="dm-section dm-timeline-section"><div class="dm-section-head"><div><h2>График работ с сигналами</h2><p>Красная строка означает приоритет просмотра, а не запрет работы.</p></div><div class="dm-legend" aria-label="Легенда"><span><i class="dm-dot dm-tone-success"></i>норма</span><span><i class="dm-dot dm-tone-warning"></i>риск</span><span><i class="dm-dot dm-tone-danger"></i>критично</span></div></div><div class="dm-timeline-list"><button type="button" class="dm-work-row "><span class="dm-work-title"><strong>Демонтаж и вывоз</strong><span>Демонтаж · Зал 1, коридор · Прораб Иванов</span></span><span class="dm-bar-wrap" aria-label="Срок и прогресс"><span class="dm-today-line" style="left:52%"></span><span class="dm-bar-window dm-tone-success" style="left:0%;width:18%">100%</span></span><span class="dm-row-status"><span class="dm-pill dm-tone-success">Завершен</span><small><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-calendar-days" aria-hidden="true"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path><path d="M8 14h.01"></path><path d="M12 14h.01"></path><path d="M16 14h.01"></path><path d="M8 18h.01"></path><path d="M12 18h.01"></path><path d="M16 18h.01"></path></svg>без критики</small></span></button><button type="button" class="dm-work-row is-selected"><span class="dm-work-title"><strong>Стяжка и подготовка основания</strong><span>Полы · Зал 1 · Прораб Иванов</span></span><span class="dm-bar-wrap" aria-label="Срок и прогресс"><span class="dm-today-line" style="left:52%"></span><span class="dm-bar-window dm-tone-danger" style="left:17%;width:24%">54%</span></span><span class="dm-row-status"><span class="dm-pill dm-tone-danger">В работе</span><small><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-calendar-days" aria-hidden="true"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path><path d="M8 14h.01"></path><path d="M12 14h.01"></path><path d="M16 14h.01"></path><path d="M8 18h.01"></path><path d="M12 18h.01"></path><path d="M16 18h.01"></path></svg>2 сигнала</small></span></button><button type="button" class="dm-work-row "><span class="dm-work-title"><strong>Электрика под скрытые работы</strong><span>Электрика · Зал 1, серверная · Главный инженер</span></span><span class="dm-bar-wrap" aria-label="Срок и прогресс"><span class="dm-today-line" style="left:52%"></span><span class="dm-bar-window dm-tone-danger" style="left:34%;width:26%">48%</span></span><span class="dm-row-status"><span class="dm-pill dm-tone-danger">В работе</span><small><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-calendar-days" aria-hidden="true"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path><path d="M8 14h.01"></path><path d="M12 14h.01"></path><path d="M16 14h.01"></path><path d="M8 18h.01"></path><path d="M12 18h.01"></path><path d="M16 18h.01"></path></svg>2 сигнала</small></span></button><button type="button" class="dm-work-row "><span class="dm-work-title"><strong>Штукатурка и стены</strong><span>Отделка · Зал 1 · Мастер Петров</span></span><span class="dm-bar-wrap" aria-label="Срок и прогресс"><span class="dm-today-line" style="left:52%"></span><span class="dm-bar-window dm-tone-warning" style="left:56%;width:22%">0%</span></span><span class="dm-row-status"><span class="dm-pill dm-tone-warning">Не начат</span><small><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-calendar-days" aria-hidden="true"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path><path d="M8 14h.01"></path><path d="M12 14h.01"></path><path d="M16 14h.01"></path><path d="M8 18h.01"></path><path d="M12 18h.01"></path><path d="M16 18h.01"></path></svg>2 сигнала</small></span></button><button type="button" class="dm-work-row "><span class="dm-work-title"><strong>Финишное покрытие пола</strong><span>Полы · Зал 1 · Субподрядчик СК Пол</span></span><span class="dm-bar-wrap" aria-label="Срок и прогресс"><span class="dm-today-line" style="left:52%"></span><span class="dm-bar-window dm-tone-warning" style="left:76%;width:18%">0%</span></span><span class="dm-row-status"><span class="dm-pill dm-tone-warning">Следующий</span><small><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-calendar-days" aria-hidden="true"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path><path d="M8 14h.01"></path><path d="M12 14h.01"></path><path d="M16 14h.01"></path><path d="M8 18h.01"></path><path d="M12 18h.01"></path><path d="M16 18h.01"></path></svg>1 сигнала</small></span></button></div></section><aside class="dm-section dm-stage-card" aria-live="polite"><div class="dm-section-head"><div><h2>Карточка выбранного этапа</h2><p>Стяжка и подготовка основания</p></div></div><div class="dm-stage-body"><div class="dm-stage-title"><h3>Стяжка и подготовка основания</h3><span class="dm-pill dm-tone-warning">needs_review</span></div><div class="dm-kv-grid"><div class="dm-kv"><span>Пакет</span><b>Полы</b></div><div class="dm-kv"><span>Зона</span><b>Зал 1</b></div><div class="dm-kv"><span>Ответственный</span><b>Прораб Иванов</b></div><div class="dm-kv"><span>Факт</span><b>54% из 74%</b></div><div class="dm-kv"><span>План денег</span><b>820 тыс. ₽</b></div><div class="dm-kv"><span>Факт денег</span><b>410 тыс. ₽</b></div></div><div class="dm-signal-list"><div class="dm-signal dm-tone-danger"><b>Не хватает армирующей сетки 120 м2</b><span>Поставка принята частично, объем не закрывает текущую потребность этапа.</span></div><div class="dm-signal dm-tone-warning"><b>Две записи ЖПР без помещения</b><span>Факт есть, но связь с зоной требует проверки прорабом.</span></div></div><div class="dm-action-row"><button type="button" class="dm-action-button" disabled=""><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-external-link" aria-hidden="true"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>Открыть источник</button><button type="button" class="dm-action-button" disabled=""><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-search" aria-hidden="true"><path d="m21 21-4.34-4.34"></path><circle cx="11" cy="11" r="8"></circle></svg>Проверить связь</button><button type="button" class="dm-action-button" disabled=""><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-link2 lucide-link-2" aria-hidden="true"><path d="M9 17H7A5 5 0 0 1 7 7h2"></path><path d="M15 7h2a5 5 0 1 1 0 10h-2"></path><line x1="8" x2="16" y1="12" y2="12"></line></svg>Создать задачу</button></div></div></aside></div><section class="dm-section dm-supply-chain"><div class="dm-section-head"><div><h2>Цепочка поставки по выбранному этапу</h2><p>Полы · Зал 1</p></div><span class="dm-pill dm-tone-danger">поставка в фокусе</span></div><div class="dm-chain-grid"><div class="dm-chain-step dm-tone-info"><div class="dm-chain-step-top"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-package" aria-hidden="true"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"></path><path d="M12 22V12"></path><polyline points="3.29 7 12 12 20.71 7"></polyline><path d="m7.5 4.27 9 5.15"></path></svg><span>01 · Потребность</span></div><b>120 м2 не хватает</b><p>Из сметы и текущего этапа.</p><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-right dm-chain-arrow" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></div><div class="dm-chain-step dm-tone-success"><div class="dm-chain-step-top"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-package" aria-hidden="true"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"></path><path d="M12 22V12"></path><polyline points="3.29 7 12 12 20.71 7"></polyline><path d="m7.5 4.27 9 5.15"></path></svg><span>02 · Заявка</span></div><b>Заявка #55</b><p>Согласована директором.</p><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-right dm-chain-arrow" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></div><div class="dm-chain-step dm-tone-success"><div class="dm-chain-step-top"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-package" aria-hidden="true"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"></path><path d="M12 22V12"></path><polyline points="3.29 7 12 12 20.71 7"></polyline><path d="m7.5 4.27 9 5.15"></path></svg><span>03 · КП</span></div><b>Поставщик выбран</b><p>Цена и срок согласованы.</p><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-right dm-chain-arrow" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></div><div class="dm-chain-step dm-tone-warning"><div class="dm-chain-step-top"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-shield-check" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"></path><path d="m9 12 2 2 4-4"></path></svg><span>04 · Счет</span></div><b>Оплата частичная</b><p>Факт только из платежей проекта.</p><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-right dm-chain-arrow" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></div><div class="dm-chain-step dm-tone-danger"><div class="dm-chain-step-top"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-truck" aria-hidden="true"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"></path><path d="M15 18H9"></path><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"></path><circle cx="17" cy="18" r="2"></circle><circle cx="7" cy="18" r="2"></circle></svg><span>05 · Отгрузка</span></div><b>80 из 200 м2</b><p>Нужен дозавоз.</p><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-right dm-chain-arrow" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></div><div class="dm-chain-step dm-tone-danger"><div class="dm-chain-step-top"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-truck" aria-hidden="true"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"></path><path d="M15 18H9"></path><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"></path><circle cx="17" cy="18" r="2"></circle><circle cx="7" cy="18" r="2"></circle></svg><span>06 · Приемка</span></div><b>Недостача 120 м2</b><p>Можно открыть претензию.</p><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-right dm-chain-arrow" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></div><div class="dm-chain-step dm-tone-warning"><div class="dm-chain-step-top"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-shield-check" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"></path><path d="m9 12 2 2 4-4"></path></svg><span>07 · Накладная</span></div><b>Фото загружено</b><p>Бухгалтерия проверяет сумму.</p><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-right dm-chain-arrow" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></div><div class="dm-chain-step dm-tone-warning"><div class="dm-chain-step-top"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-shield-check" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"></path><path d="m9 12 2 2 4-4"></path></svg><span>08 · Входной контроль</span></div><b>Нет сертификата</b><p>Контроль качества не закрыт.</p><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-right dm-chain-arrow" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></div><div class="dm-chain-step dm-tone-info"><div class="dm-chain-step-top"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-warehouse" aria-hidden="true"><path d="M18 21V10a1 1 0 0 0-1-1H7a1 1 0 0 0-1 1v11"></path><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 1.132-1.803l7.95-3.974a2 2 0 0 1 1.837 0l7.948 3.974A2 2 0 0 1 22 8z"></path><path d="M6 13h12"></path><path d="M6 17h12"></path></svg><span>09 · Склад</span></div><b>80 м2 на объекте</b><p>Выдача мастеру не оформлена.</p><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-right dm-chain-arrow" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></div><div class="dm-chain-step dm-tone-info"><div class="dm-chain-step-top"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-shield-check" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"></path><path d="m9 12 2 2 4-4"></path></svg><span>10 · ЖПР</span></div><b>Списание после работы</b><p>Факт появится после выдачи.</p></div></div></section><section class="dm-section dm-links-table"><div class="dm-section-head"><div><h2>Цепочка связей</h2><p>Модуль показывает будущие связи, но в песочнице ничего не проводит.</p></div></div><div class="dm-table-wrap"><table><thead><tr><th>Этап</th><th>Смета</th><th>ЖПР</th><th>Поставка</th><th>Склад</th><th>Документы</th><th>Деньги</th><th>Решение</th></tr></thead><tbody><tr><td data-label="Этап"><b>Демонтаж и вывоз</b><span class="dm-pill dm-tone-success">Завершен</span></td><td data-label="Смета"><span class="dm-pill dm-tone-info">смета: Демонтаж</span></td><td data-label="ЖПР"><span class="dm-pill dm-tone-info">ЖПР 12/12</span></td><td data-label="Поставка"><span class="dm-pill dm-tone-neutral">нет связи</span></td><td data-label="Склад"><span class="dm-pill dm-tone-neutral">нет связи</span></td><td data-label="Документы"><span class="dm-pill dm-tone-neutral">нет связи</span></td><td data-label="Деньги"><span class="dm-pill dm-tone-info">310 000 ₽ факт</span></td><td data-label="Решение">Наблюдать</td></tr><tr><td data-label="Этап"><b>Стяжка и подготовка основания</b><span class="dm-pill dm-tone-danger">В работе</span></td><td data-label="Смета"><span class="dm-pill dm-tone-danger">смета: Полы</span></td><td data-label="ЖПР"><span class="dm-pill dm-tone-warning">2 ЖПР без зоны</span></td><td data-label="Поставка"><span class="dm-pill dm-tone-danger">поставка частичная</span></td><td data-label="Склад"><span class="dm-pill dm-tone-danger">80 м2 на объекте</span></td><td data-label="Документы"><span class="dm-pill dm-tone-warning">сертификат нужен</span></td><td data-label="Деньги"><span class="dm-pill dm-tone-danger">410 000 ₽ факт</span></td><td data-label="Решение">Открыть поставку</td></tr><tr><td data-label="Этап"><b>Электрика под скрытые работы</b><span class="dm-pill dm-tone-danger">В работе</span></td><td data-label="Смета"><span class="dm-pill dm-tone-danger">смета: Электрика</span></td><td data-label="ЖПР"><span class="dm-pill dm-tone-danger">ЖПР 5</span></td><td data-label="Поставка"><span class="dm-pill dm-tone-neutral">нет связи</span></td><td data-label="Склад"><span class="dm-pill dm-tone-neutral">нет связи</span></td><td data-label="Документы"><span class="dm-pill dm-tone-warning">АОСР не создан</span></td><td data-label="Деньги"><span class="dm-pill dm-tone-danger">260 000 ₽ факт</span></td><td data-label="Решение">Открыть АОСР</td></tr><tr><td data-label="Этап"><b>Штукатурка и стены</b><span class="dm-pill dm-tone-warning">Не начат</span></td><td data-label="Смета"><span class="dm-pill dm-tone-info">смета: Отделка</span></td><td data-label="ЖПР"><span class="dm-pill dm-tone-neutral">нет связи</span></td><td data-label="Поставка"><span class="dm-pill dm-tone-warning">выдачи нет</span></td><td data-label="Склад"><span class="dm-pill dm-tone-neutral">нет связи</span></td><td data-label="Документы"><span class="dm-pill dm-tone-warning">зависит от АОСР</span></td><td data-label="Деньги"><span class="dm-pill dm-tone-neutral">нет связи</span></td><td data-label="Решение">Проверить зависимость</td></tr><tr><td data-label="Этап"><b>Финишное покрытие пола</b><span class="dm-pill dm-tone-warning">Следующий</span></td><td data-label="Смета"><span class="dm-pill dm-tone-info">смета: Покрытие</span></td><td data-label="ЖПР"><span class="dm-pill dm-tone-neutral">нет связи</span></td><td data-label="Поставка"><span class="dm-pill dm-tone-neutral">нет связи</span></td><td data-label="Склад"><span class="dm-pill dm-tone-neutral">нет связи</span></td><td data-label="Документы"><span class="dm-pill dm-tone-neutral">нет связи</span></td><td data-label="Деньги"><span class="dm-pill dm-tone-warning">счет на проверке</span></td><td data-label="Решение">Открыть счет</td></tr></tbody></table></div></section><footer class="dm-guardrail"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-shield-check" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"></path><path d="m9 12 2 2 4-4"></path></svg><span>Read-only режим: модуль не проводит склад, ЖПР, оплату, документы и сроки.</span></footer></div></main>
+</body>
+</html>
