@@ -36,7 +36,9 @@ export default function NotificationsDropdown({
       || (typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || ''))
     );
   const compactDropdown = isMobile || touchCompact;
-  const fullList = myNotifications(notifications);
+  const readMyNotifications = typeof myNotifications === 'function' ? myNotifications : () => [];
+  const fullListRaw = readMyNotifications(notifications);
+  const fullList = Array.isArray(fullListRaw) ? fullListRaw : [];
   const list = fullList.slice(0, compactDropdown ? 20 : 50);
   const width = dropdownWidth || (compactDropdown ? 'calc(100vw - 24px)' : '360px');
   const right = dropdownRight !== undefined ? dropdownRight : (compactDropdown ? '-8px' : 0);
@@ -64,10 +66,12 @@ export default function NotificationsDropdown({
       };
 
   const markReadAndOpen = (n) => {
-    navigateTo(getNotifPage(n.type));
-    setShowNotifications(false);
-    const updated = notifications.map(x => x.id === n.id ? {...x, read: true} : x);
-    setNotifications(updated);
+    const resolveNotifPage = typeof getNotifPage === 'function' ? getNotifPage : () => 'dashboard';
+    if (typeof navigateTo === 'function') navigateTo(resolveNotifPage(n.type));
+    if (typeof setShowNotifications === 'function') setShowNotifications(false);
+    const sourceNotifications = Array.isArray(notifications) ? notifications : [];
+    const updated = sourceNotifications.map(x => x.id === n.id ? {...x, read: true} : x);
+    if (typeof setNotifications === 'function') setNotifications(updated);
     localStorage.setItem('notifications', JSON.stringify(updated));
   };
 
