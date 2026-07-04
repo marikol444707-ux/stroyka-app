@@ -9,12 +9,15 @@ import {
 import ProjectAiControlTab from './ProjectAiControlTab';
 import ProjectChecklistsTab from './ProjectChecklistsTab';
 import ProjectChatTab from './ProjectChatTab';
+import ProjectFinanceTab from './ProjectFinanceTab';
 import ProjectJournalsHubTab from './ProjectJournalsHubTab';
+import ProjectInspectionOrdersTab from './ProjectInspectionOrdersTab';
 import ProjectMaterialInspectionTab from './ProjectMaterialInspectionTab';
 import ProjectCableJournalTab from './ProjectCableJournalTab';
 import ProjectPrintDocumentCard from './ProjectPrintDocumentCard';
 import ProjectScheduleTab from './ProjectScheduleTab';
 import ProjectStagesTab from './ProjectStagesTab';
+import ProjectSupervisorActsTab from './ProjectSupervisorActsTab';
 import ProjectWeatherTab from './ProjectWeatherTab';
 import ProjectWarrantyTab from './ProjectWarrantyTab';
 import { createProjectForm } from './projectInitialForms';
@@ -1221,40 +1224,39 @@ export default function ProjectsPage({ ctx }) {
                       />
                     )}
 
-                    {activeProjectTab==='Финансы'&&(<div>
-                      {isFinanceRole()&&(
-                        <ProjectFinancePanel
-                          projectName={p.name}
-                          projectPayments={projectPayments}
-                          accountablePayments={accountablePayments}
-                          ownExpenses={ownExpenses}
-                          manualExpenses={manualExpenses}
-                          expenseCategories={EXPENSE_CATEGORIES}
-                          expByCategory={expByCategory}
-                          projectPaymentInAmount={projectPaymentInAmount}
-                          projectPaymentSignedAmount={projectPaymentSignedAmount}
-                          formatSignedRub={formatSignedRub}
-                          user={user}
-                          C={C}
-                          card={card}
-                          btnO={btnO}
-                          btnB={btnB}
-                          btnG={btnG}
-                          btnR={btnR}
-                          showBalanceDetails={showBalanceDetails}
-                          setShowBalanceDetails={setShowBalanceDetails}
-                          setAddExpenseProject={setAddExpenseProject}
-                          setNewManualExpense={setNewManualExpense}
-                          setShowAccountableForm={setShowAccountableForm}
-                          setNewAccountable={setNewAccountable}
-                          setShowPhotoModal={setShowPhotoModal}
-                          fileSrc={fileSrc}
-                          loadAll={loadAll}
-                          showProfit={isLeadership()}
-                          canAddExpense={isFinanceRole()||user.role==='прораб'}
-                        />
-                      )}
-                  </div>)}
+                    {activeProjectTab==='Финансы'&&(
+                      <ProjectFinanceTab
+                        C={C}
+                        EXPENSE_CATEGORIES={EXPENSE_CATEGORIES}
+                        ProjectFinancePanel={ProjectFinancePanel}
+                        accountablePayments={accountablePayments}
+                        btnB={btnB}
+                        btnG={btnG}
+                        btnO={btnO}
+                        btnR={btnR}
+                        card={card}
+                        expByCategory={expByCategory}
+                        fileSrc={fileSrc}
+                        formatSignedRub={formatSignedRub}
+                        isFinanceRole={isFinanceRole()}
+                        isLeadership={isLeadership()}
+                        loadAll={loadAll}
+                        manualExpenses={manualExpenses}
+                        ownExpenses={ownExpenses}
+                        project={p}
+                        projectPaymentInAmount={projectPaymentInAmount}
+                        projectPaymentSignedAmount={projectPaymentSignedAmount}
+                        projectPayments={projectPayments}
+                        setAddExpenseProject={setAddExpenseProject}
+                        setNewAccountable={setNewAccountable}
+                        setNewManualExpense={setNewManualExpense}
+                        setShowAccountableForm={setShowAccountableForm}
+                        setShowBalanceDetails={setShowBalanceDetails}
+                        setShowPhotoModal={setShowPhotoModal}
+                        showBalanceDetails={showBalanceDetails}
+                        user={user}
+                      />
+                    )}
                     {activeProjectTab==='Предписания'&&(
                       <ProjectPrescriptionsPanel
                         projectName={p.name}
@@ -1429,74 +1431,40 @@ export default function ProjectsPage({ ctx }) {
                       title="Паспорт объекта"
                     />
                   )}
-                  {activeProjectTab==='Акты технадзора'&&(<div>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-                      <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>📝 Акты осмотра / обследования от технадзора</b>
-                      <span style={{fontSize:'11px',color:C.textMuted}}>Создаются технадзором в его кабинете</span>
-                    </div>
-                    {(()=>{const here=(supervisorActs||[]).filter(a=>a.projectName===p.name);if(here.length===0) return(<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Технадзор пока не загружал актов осмотра по этому объекту.</div>);return(<div>{here.map(a=>(<div key={a.id} style={{...card,padding:'14px',marginBottom:'8px',borderLeft:'3px solid '+C.accent}}>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px'}}>
-                        <div style={{flex:1}}>
-                          <b style={{color:C.text,fontSize:'13px'}}>{a.actNumber+' · '+a.actType}</b>
-                          <p style={{color:C.textSec,margin:'4px 0',fontSize:'12px'}}>{a.description||'—'}</p>
-                          {a.findings&&<p style={{color:C.text,margin:'4px 0',fontSize:'11px'}}><b>Обнаружено:</b> {a.findings}</p>}
-                          {a.recommendations&&<p style={{color:C.text,margin:'4px 0',fontSize:'11px'}}><b>Рекомендации:</b> {a.recommendations}</p>}
-                          <p style={{color:C.textMuted,margin:'4px 0 0',fontSize:'11px'}}>{a.date+' · '+(a.issuedBy||'—')}</p>
-                        </div>
-                        {a.photoUrl&&<img src={fileSrc(a.photoUrl)} alt='' onClick={()=>setShowPhotoModal(fileSrc(a.photoUrl))} style={{width:'56px',height:'56px',borderRadius:'6px',objectFit:'cover',cursor:'pointer',flexShrink:0}}/>}
-                      </div>
-                    </div>))}</div>);})()}
-                  </div>)}
-                  {activeProjectTab==='Замечания ГСН'&&(<div>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'8px'}}>
-                      <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>🏛 Замечания контролирующих органов</b>
-                      <button onClick={()=>{const nextOpen=showForm!=='gsn';setShowForm(nextOpen?'gsn':false);setNewInspOrder(nextOpen?createInspectionOrderForm():null);}} style={btnO}><Plus size={14}/>Добавить</button>
-                    </div>
-                    {showForm==='gsn'&&(<div style={{...card,padding:'16px',marginBottom:'14px',backgroundColor:C.bg}}>
-                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
-                        <select value={newInspOrder?.body||'ГСН'} onChange={e=>setNewInspOrder({...(newInspOrder||{}),body:e.target.value})} style={{...inp,marginBottom:0}}>{['ГСН','ГПН','Роспотребнадзор','Ростехнадзор','Прокуратура','Иное'].map(b=><option key={b}>{b}</option>)}</select>
-                        <input placeholder='ФИО инспектора' value={newInspOrder?.inspector||''} onChange={e=>setNewInspOrder({...(newInspOrder||{}),inspector:e.target.value})} style={{...inp,marginBottom:0}}/>
-                      </div>
-                      <textarea placeholder='Описание замечания/нарушения *' value={newInspOrder?.description||''} onChange={e=>setNewInspOrder({...(newInspOrder||{}),description:e.target.value})} style={{...inp,minHeight:'60px',marginBottom:'8px'}}/>
-                      <textarea placeholder='Требования / рекомендации' value={newInspOrder?.recommendations||''} onChange={e=>setNewInspOrder({...(newInspOrder||{}),recommendations:e.target.value})} style={{...inp,minHeight:'50px',marginBottom:'8px'}}/>
-                      <div style={{display:'flex',gap:'8px',marginBottom:'8px'}}>
-                        <input type='date' value={newInspOrder?.date||''} onChange={e=>setNewInspOrder({...(newInspOrder||{}),date:e.target.value})} title='Дата проверки' style={{...inp,marginBottom:0,flex:1}}/>
-                        <input type='date' value={newInspOrder?.deadline||''} onChange={e=>setNewInspOrder({...(newInspOrder||{}),deadline:e.target.value})} title='Срок устранения' style={{...inp,marginBottom:0,flex:1}}/>
-                      </div>
-                      <div style={{display:'flex',gap:'8px'}}>
-                        <button onClick={async()=>{
-                          if(!(newInspOrder&&newInspOrder.description)){alert('Опишите замечание');return;}
-                          await fetch(API+'/inspection-orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:p.name,body:newInspOrder.body||'ГСН',inspector:newInspOrder.inspector||'',description:newInspOrder.description,recommendations:newInspOrder.recommendations||'',deadline:newInspOrder.deadline||null,date:newInspOrder.date||new Date().toISOString().split('T')[0],status:'Открыто'})});
-                          await refreshData();
-                          setNewInspOrder(null); setShowForm(false);
-                        }} style={btnO}><Check size={14}/>Сохранить</button>
-                        <button onClick={()=>{setShowForm(false);setNewInspOrder(null);}} style={btnG}>Отмена</button>
-                      </div>
-                    </div>)}
-                    {(()=>{const here=(inspectionOrders||[]).filter(o=>o.projectName===p.name);if(here.length===0) return(<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Замечаний контролирующих органов нет. Если приходила проверка с замечаниями — зафиксируй её здесь, чтобы пакет ИД был полным.</div>);const open=here.filter(o=>o.status!=='Закрыто').length;const closed=here.filter(o=>o.status==='Закрыто').length;return(<div>
-                      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px',marginBottom:'12px'}}>
-                        <div style={{...card,padding:'10px',backgroundColor:C.dangerLight}}><p style={{color:C.danger,fontSize:'11px',margin:'0 0 4px'}}>Открытых</p><b style={{color:C.danger,fontSize:'16px'}}>{open}</b></div>
-                        <div style={{...card,padding:'10px',backgroundColor:C.successLight}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Закрытых</p><b style={{color:C.success,fontSize:'16px'}}>{closed}</b></div>
-                        <div style={{...card,padding:'10px',backgroundColor:C.bg}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Всего</p><b style={{color:C.text,fontSize:'16px'}}>{here.length}</b></div>
-                      </div>
-                      {here.map(o=>(<div key={o.id} style={{...card,padding:'14px',marginBottom:'8px',borderLeft:'3px solid '+(o.status==='Закрыто'?C.success:C.danger)}}>
-                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
-                          <div style={{flex:1,minWidth:'200px'}}>
-                            <b style={{color:C.text,fontSize:'13px'}}>{o.orderNumber+' · '+(o.body||'ГСН')+(o.inspector?' · '+o.inspector:'')}</b>
-                            <p style={{color:C.danger,margin:'4px 0',fontSize:'12px'}}>{o.description||'—'}</p>
-                            {o.recommendations&&<p style={{color:C.text,margin:'4px 0',fontSize:'11px'}}><b>Требования:</b> {o.recommendations}</p>}
-                            <p style={{color:C.textMuted,margin:'4px 0 0',fontSize:'11px'}}>{(o.date||'')+(o.deadline?' · срок: '+o.deadline:'')}</p>
-                            {o.response&&<div style={{marginTop:'8px',padding:'8px 10px',backgroundColor:C.successLight,borderRadius:'6px',fontSize:'11px',color:C.success}}><b>Ответ ({o.responseDate||'—'}):</b> {o.response}</div>}
-                          </div>
-                          <div style={{display:'flex',gap:'4px',alignItems:'flex-start'}}>
-                            <span style={badge(o.status==='Закрыто'?C.success:C.danger,o.status==='Закрыто'?C.successLight:C.dangerLight,o.status==='Закрыто'?C.successBorder:C.dangerBorder)}>{o.status||'Открыто'}</span>
-                            {o.status!=='Закрыто'&&<button onClick={async()=>{const resp=prompt('Опишите как устранили / ответ органу:');if(!resp) return;await fetch(API+'/inspection-orders/'+o.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Закрыто',response:resp,responseDate:new Date().toISOString().split('T')[0]})});await refreshData();}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>Закрыть</button>}
-                            <button onClick={async()=>{if(!window.confirm('Удалить замечание?')) return;await fetch(API+'/inspection-orders/'+o.id,{method:'DELETE'});await refreshData();}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>
-                          </div>
-                        </div>
-                      </div>))}
-                    </div>);})()}
-                  </div>)}
+                  {activeProjectTab==='Акты технадзора'&&(
+                    <ProjectSupervisorActsTab
+                      C={C}
+                      card={card}
+                      fileSrc={fileSrc}
+                      project={p}
+                      setShowPhotoModal={setShowPhotoModal}
+                      supervisorActs={supervisorActs}
+                    />
+                  )}
+                  {activeProjectTab==='Замечания ГСН'&&(
+                    <ProjectInspectionOrdersTab
+                      API={API}
+                      C={C}
+                      Check={Check}
+                      Plus={Plus}
+                      Trash2={Trash2}
+                      badge={badge}
+                      btnG={btnG}
+                      btnGr={btnGr}
+                      btnO={btnO}
+                      btnR={btnR}
+                      card={card}
+                      createInspectionOrderForm={createInspectionOrderForm}
+                      inp={inp}
+                      inspectionOrders={inspectionOrders}
+                      newInspOrder={newInspOrder}
+                      project={p}
+                      refreshData={refreshData}
+                      setNewInspOrder={setNewInspOrder}
+                      setShowForm={setShowForm}
+                      showForm={showForm}
+                    />
+                  )}
                   {activeProjectTab==='Гарантия'&&(
                     <ProjectWarrantyTab
                       API={API}
