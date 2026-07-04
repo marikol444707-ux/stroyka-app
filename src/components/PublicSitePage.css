@@ -3292,7 +3292,10 @@
   }
   .public-login {
     margin-left: auto;
-    min-height: 42px;
+    min-height: 40px;
+    padding: 8px 12px;
+    font-size: 13px;
+    line-height: 1.1;
   }
   .public-nav-links {
     order: 3;
@@ -3319,7 +3322,7 @@
   }
   .public-hero {
     min-height: auto;
-    padding: 18px 14px 32px;
+    padding: max(38px, calc(env(safe-area-inset-top, 0px) + 12px)) 14px 32px;
     background-position: 58% center;
   }
   .public-hero-content {
