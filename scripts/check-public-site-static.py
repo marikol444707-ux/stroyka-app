@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC = ROOT / "public"
 BUILD = ROOT / "build"
+PUBLIC_SITE_CONTENT = ROOT / "src" / "features" / "public-site" / "publicSiteContent.jsx"
 
 REQUIRED_PAGES = [
     "index.html",
@@ -76,14 +77,18 @@ def quoted_strings(value):
     return re.findall(r"'([^']+)'", value or "")
 
 
+def read_public_site_content():
+    return read(PUBLIC_SITE_CONTENT)
+
+
 def parse_ready_project_details(source):
     cards_match = re.search(
-        r"const readyProjectCardsByDirection = \{(?P<body>.*?)\n\};\n\nconst makeProjectMedia",
+        r"(?:export\s+)?const readyProjectCardsByDirection = \{(?P<body>.*?)\n\};\n\n(?:export\s+)?const makeProjectMedia",
         source,
         re.S,
     )
     if not cards_match:
-        fail("cannot find readyProjectCardsByDirection in PublicSitePage.jsx")
+        fail("cannot find readyProjectCardsByDirection in publicSiteContent.jsx")
 
     rows = re.findall(
         r"code:\s*'([^']+)'\s*,\s*title:\s*'([^']+)'\s*,\s*area:\s*'([^']+)'\s*,\s*floors:\s*'([^']+)'\s*,\s*layout:\s*'([^']+)'\s*,\s*visuals:\s*'([^']+)'",
@@ -162,7 +167,7 @@ def check_catalog_assets():
 
 
 def check_catalog_matches_react_source():
-    source = read(ROOT / "src" / "components" / "PublicSitePage.jsx")
+    source = read_public_site_content()
     catalog = read(PUBLIC / "project-catalog.html")
 
     react_projects = parse_ready_project_details(source)
@@ -196,12 +201,12 @@ def check_catalog_matches_react_source():
             fail(f"project catalog details differ for {code}")
 
     directions_match = re.search(
-        r"const referenceDirections = \[(?P<body>.*?)\n\];\n\nconst readyProjectCardsByDirection",
+        r"(?:export\s+)?const referenceDirections = \[(?P<body>.*?)\n\];\n\n(?:export\s+)?const readyProjectCardsByDirection",
         source,
         re.S,
     )
     if not directions_match:
-        fail("cannot find referenceDirections in PublicSitePage.jsx")
+        fail("cannot find referenceDirections in publicSiteContent.jsx")
 
     react_directions = [
         title
@@ -220,7 +225,7 @@ def check_catalog_matches_react_source():
 
 
 def check_catalog_json_matches_react_source():
-    source = read(ROOT / "src" / "components" / "PublicSitePage.jsx")
+    source = read_public_site_content()
     catalog = read(PUBLIC / "project-catalog.html")
     catalog_json = json.loads(read(PUBLIC / "project-catalog.json"))
 
@@ -342,15 +347,15 @@ def check_catalog_json_matches_react_source():
 
 
 def check_react_project_media_assets():
-    source = read(ROOT / "src" / "components" / "PublicSitePage.jsx")
+    source = read_public_site_content()
 
     cards_match = re.search(
-        r"const readyProjectCardsByDirection = \{(?P<body>.*?)\n\};\n\nconst makeProjectMedia",
+        r"(?:export\s+)?const readyProjectCardsByDirection = \{(?P<body>.*?)\n\};\n\n(?:export\s+)?const makeProjectMedia",
         source,
         re.S,
     )
     if not cards_match:
-        fail("cannot find readyProjectCardsByDirection in PublicSitePage.jsx")
+        fail("cannot find readyProjectCardsByDirection in publicSiteContent.jsx")
 
     project_codes = set(re.findall(r"code:\s*'([^']+)'", cards_match.group("body")))
     expected_slugs = {code.lower() for code in project_codes}
@@ -364,12 +369,12 @@ def check_react_project_media_assets():
         media_by_slug.setdefault(slug, set()).add(src)
 
     media_map_match = re.search(
-        r"const readyProjectMediaByCode = \{(?P<body>.*?)\n\};\n\nconst getReferenceProjectCards",
+        r"(?:export\s+)?const readyProjectMediaByCode = \{(?P<body>.*?)\n\};\n\n(?:export\s+)?const getReferenceProjectCards",
         source,
         re.S,
     )
     if not media_map_match:
-        fail("cannot find readyProjectMediaByCode in PublicSitePage.jsx")
+        fail("cannot find readyProjectMediaByCode in publicSiteContent.jsx")
 
     default_files = ["facade.png", "side.png", "plan.png"]
     for match in re.finditer(
