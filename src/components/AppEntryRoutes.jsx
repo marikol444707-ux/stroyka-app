@@ -84,7 +84,13 @@ export default function AppEntryRoutes({ user, page, pageFallback, ui, constants
     }
     return (
       <React.Suspense fallback={pageFallback}>
-        <PublicSitePage onLogin={() => { setLoginError(''); setPage('login'); }} />
+        <PublicSitePage onLogin={() => {
+          if (typeof window !== 'undefined' && window.location.pathname !== '/app') {
+            window.history.pushState({}, '', '/app');
+          }
+          setLoginError('');
+          setPage('login');
+        }} />
       </React.Suspense>
     );
   }
