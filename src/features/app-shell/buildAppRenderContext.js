@@ -487,6 +487,13 @@ export function buildAppRenderContext({
     ui: { API, C, badge, btnB, btnG, btnGr, btnO, btnR, card, inp, isMobile, tbl, tblC, tblH }
   });
 
+  if (earlyRoleRoute) {
+    return {
+      appShellProps: null,
+      earlyRoleRoute
+    };
+  }
+
   const estimatesPageContext = buildEstimatesPageContext({
     API,
     actions: { exportToExcel, persistEstimate, showPreview },
