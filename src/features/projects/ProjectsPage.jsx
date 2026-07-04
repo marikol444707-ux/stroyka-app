@@ -7,7 +7,16 @@ import {
   createWindowForm,
 } from '../project-operations/projectOperationInitialForms';
 import ProjectAiControlTab from './ProjectAiControlTab';
+import ProjectChecklistsTab from './ProjectChecklistsTab';
+import ProjectChatTab from './ProjectChatTab';
+import ProjectJournalsHubTab from './ProjectJournalsHubTab';
+import ProjectMaterialInspectionTab from './ProjectMaterialInspectionTab';
+import ProjectCableJournalTab from './ProjectCableJournalTab';
+import ProjectPrintDocumentCard from './ProjectPrintDocumentCard';
+import ProjectScheduleTab from './ProjectScheduleTab';
 import ProjectStagesTab from './ProjectStagesTab';
+import ProjectWeatherTab from './ProjectWeatherTab';
+import ProjectWarrantyTab from './ProjectWarrantyTab';
 import { createProjectForm } from './projectInitialForms';
 import { createMaterialTransferForm } from '../warehouse/warehouseInitialForms';
 
@@ -586,63 +595,23 @@ export default function ProjectsPage({ ctx }) {
                       />
                     )}
 
-	                    {activeProjectTab==='График'&&(<div>
-	                      <ProjectScheduleSummaryPanel
-	                        C={C}
-	                        card={card}
-	                        project={p}
-	                        stages={projectStages}
-	                        workJournal={workJournal}
-	                        planDone={projectPlanDone(p)}
-	                        progress={projectRealProgress(p)}
-	                        materialSummary={materialControlSummaryForProject(p.name)}
-	                        supplierInvoices={supplierInvoices}
-	                        isMobile={isMobile}
-	                        onOpenStages={()=>setActiveProjectTab('Этапы')}
-	                        onOpenJournal={()=>setActiveProjectTab('Производство работ')}
-	                        onOpenMaterials={()=>setActiveProjectTab('Материалы')}
-	                      />
-	                      <b style={{color:C.text,display:'block',marginBottom:'15px'}}>График Ганта</b>
-	                      {(()=>{
-                        const stages=projectStages.filter(s=>s.projectName===p.name&&s.startDate&&s.endDate);
-                        if(stages.length===0) return <p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Добавьте этапы с датами во вкладке Этапы</p>;
-                        const allDates=stages.flatMap(s=>[s.startDate,s.endDate]).filter(Boolean).sort();
-                        const minDate=new Date(allDates[0]);
-                        const maxDate=new Date(allDates[allDates.length-1]);
-                        const totalDays=Math.max(1,Math.round((maxDate-minDate)/86400000))+1;
-                        const stColors={'Не начат':C.textSec,'В работе':C.info,'Завершён':C.success,'Заморожен':C.warning,'Просрочен':C.danger};
-                        return(<div style={{overflowX:'auto'}}>
-                          <div style={{minWidth:'600px'}}>
-                            <div style={{display:'flex',borderBottom:'1.5px solid '+C.border,paddingBottom:'6px',marginBottom:'8px'}}>
-                              <div style={{width:'200px',flexShrink:0,fontSize:'11px',color:C.textSec,fontWeight:'600'}}>Этап</div>
-                              <div style={{flex:1,fontSize:'11px',color:C.textSec,fontWeight:'600'}}>Временная шкала</div>
-                            </div>
-                            {stages.map(stage=>{
-                              const sd=new Date(stage.startDate);
-                              const ed=new Date(stage.endDate);
-                              const left=Math.round((sd-minDate)/86400000)/totalDays*100;
-                              const width=Math.max(1,Math.round((ed-sd)/86400000)+1)/totalDays*100;
-                              const color=stColors[stage.status]||C.textSec;
-                              return(<div key={stage.id} style={{display:'flex',alignItems:'center',marginBottom:'10px'}}>
-                                <div style={{width:'200px',flexShrink:0,fontSize:'12px',color:C.text,paddingRight:'10px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{stage.name}</div>
-                                <div style={{flex:1,position:'relative',height:'26px',backgroundColor:C.bg,borderRadius:'4px',border:'1px solid '+C.border}}>
-                                  <div style={{position:'absolute',left:left+'%',width:width+'%',minWidth:'2%',height:'100%',backgroundColor:color,borderRadius:'4px',display:'flex',alignItems:'center',paddingLeft:'6px',overflow:'hidden'}}>
-                                    <span style={{fontSize:'10px',color:'white',fontWeight:'600',whiteSpace:'nowrap'}}>{stage.progress+'%'}</span>
-                                  </div>
-                                </div>
-                              </div>);
-                            })}
-                          </div>
-                          {projectPayments.filter(pay=>pay.projectName===p.name).length>0&&(<div style={{marginTop:'12px'}}>
-                            <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'8px'}}>История оплат:</b>
-                            {projectPayments.filter(pay=>pay.projectName===p.name).map(pay=>(<div key={pay.id} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid '+C.border}}>
-                              <div><span style={{fontSize:'12px',color:C.text}}>{pay.note||'Оплата'}</span>{(pay.workPackage||pay.work_package)&&<span style={{fontSize:'11px',color:C.info,marginLeft:'8px'}}>📁 {pay.workPackage||pay.work_package}</span>}<span style={{fontSize:'11px',color:C.textMuted,marginLeft:'8px'}}>{pay.date}</span></div>
-                              <b style={{fontSize:'12px',color:C.success}}>+{Number(pay.amount).toLocaleString()+' ₽'}</b>
-                            </div>))}
-                          </div>)}
-                        </div>);
-                      })()}
-                  </div>)}
+                    {activeProjectTab==='График'&&(
+                      <ProjectScheduleTab
+                        C={C}
+                        ProjectScheduleSummaryPanel={ProjectScheduleSummaryPanel}
+                        card={card}
+                        isMobile={isMobile}
+                        materialControlSummaryForProject={materialControlSummaryForProject}
+                        project={p}
+                        projectPayments={projectPayments}
+                        projectPlanDone={projectPlanDone}
+                        projectRealProgress={projectRealProgress}
+                        projectStages={projectStages}
+                        setActiveProjectTab={setActiveProjectTab}
+                        supplierInvoices={supplierInvoices}
+                        workJournal={workJournal}
+                      />
+                    )}
 
                     {DIRECTOR_MAP_FEATURE_ENABLED&&activeProjectTab==='Карта руководителя'&&(
                       <ProjectDirectorMapPanel
@@ -943,43 +912,37 @@ export default function ProjectsPage({ ctx }) {
                       {rooms.filter(r=>r.project===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Помещений нет</p>}
                   </div>)}
 
-                    {activeProjectTab==='Чек-листы'&&(<div>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-                        <b style={{color:C.text}}>Чек-листы</b>
-                        {isProrab()&&<button onClick={()=>setShowForm(showForm==='checklist'?false:'checklist')} style={btnO}><Plus size={14}/>Создать</button>}
-                      </div>
-                      {showForm==='checklist'&&(<div style={{...card,padding:'16px',marginBottom:'16px',backgroundColor:C.bg}}>
-                        <input placeholder="Название чек-листа *" value={newChecklist.name} onChange={e=>setNewChecklist({...newChecklist,name:e.target.value})} style={inp}/>
-                        <select value={newChecklist.template} onChange={e=>setNewChecklist({...newChecklist,template:e.target.value,name:e.target.value||newChecklist.name})} style={inp}><option value="">Свой чек-лист</option>{Object.keys(CHECKLIST_TEMPLATES).map(t=><option key={t} value={t}>{t}</option>)}</select>
-                        <div style={{display:'flex',gap:'8px'}}><button onClick={()=>saveChecklist(p.id,p.name)} style={btnO}><Check size={14}/>Создать</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
-                  </div>)}
-                      {checklists.filter(cl=>cl.projectName===p.name).map(cl=>{
-                        const items=checklistItems[cl.id]||[];
-                        const checked=items.filter(i=>i.checked).length;
-                        const isOpen=selectedChecklist===cl.id;
-                        return(<div key={cl.id} style={{...card,marginBottom:'10px'}}>
-                          <div style={{padding:'14px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}} onClick={async()=>{if(isOpen){setSelectedChecklist(null);}else{setSelectedChecklist(cl.id);await loadChecklistItems(cl.id);}}}>
-                            <div><b style={{color:C.text,fontSize:'13px'}}>{cl.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{checked+'/'+items.length+' выполнено'}</p></div>
-                            <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
-                              <div style={{backgroundColor:C.bgGray,borderRadius:'10px',height:'8px',width:'80px'}}><div style={{backgroundColor:items.length>0&&checked===items.length?C.success:C.accent,width:(items.length>0?checked/items.length*100:0)+'%',height:'100%',borderRadius:'10px'}}/></div>
-                              {isOpen?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}
-                            </div>
-                          </div>
-                          {isOpen&&(<div style={{borderTop:'1.5px solid '+C.border,padding:'12px 14px'}}>
-                            {items.map(item=>(<div key={item.id} style={{display:'flex',alignItems:'center',gap:'10px',padding:'8px 0',borderBottom:'1px solid '+C.border}}>
-                              <input type="checkbox" checked={item.checked} onChange={()=>toggleChecklistItem(item)} style={{width:'18px',height:'18px',accentColor:C.accent,cursor:'pointer'}}/>
-                              <span style={{fontSize:'13px',color:item.checked?C.textMuted:C.text,textDecoration:item.checked?'line-through':'none',flex:1}}>{item.name}</span>
-                              {item.checked&&item.checkedBy&&<span style={{fontSize:'11px',color:C.textMuted}}>{item.checkedBy}</span>}
-                            </div>))}
-                            <div style={{display:'flex',gap:'8px',marginTop:'10px'}}>
-                              <input placeholder="Добавить пункт..." value={newChecklistItem} onChange={e=>setNewChecklistItem(e.target.value)} style={{...inp,marginBottom:0,flex:1,fontSize:'12px'}}/>
-                              <button onClick={async()=>{if(!newChecklistItem) return;await fetch(API+'/checklist-items',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({checklistId:cl.id,name:newChecklistItem,checked:false,orderNum:items.length})});await loadChecklistItems(cl.id);setNewChecklistItem('');}} style={{...btnO,padding:'6px 12px'}}><Plus size={13}/></button>
-                            </div>
-                  </div>)}
-                        </div>);
-                      })}
-                      {checklists.filter(cl=>cl.projectName===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Чек-листов нет</p>}
-                  </div>)}
+                    {activeProjectTab==='Чек-листы'&&(
+                      <ProjectChecklistsTab
+                        API={API}
+                        C={C}
+                        CHECKLIST_TEMPLATES={CHECKLIST_TEMPLATES}
+                        Check={Check}
+                        ChevronDown={ChevronDown}
+                        ChevronUp={ChevronUp}
+                        Plus={Plus}
+                        X={X}
+                        btnG={btnG}
+                        btnO={btnO}
+                        card={card}
+                        checklistItems={checklistItems}
+                        checklists={checklists}
+                        inp={inp}
+                        isProrab={isProrab}
+                        loadChecklistItems={loadChecklistItems}
+                        newChecklist={newChecklist}
+                        newChecklistItem={newChecklistItem}
+                        project={p}
+                        saveChecklist={saveChecklist}
+                        selectedChecklist={selectedChecklist}
+                        setNewChecklist={setNewChecklist}
+                        setNewChecklistItem={setNewChecklistItem}
+                        setSelectedChecklist={setSelectedChecklist}
+                        setShowForm={setShowForm}
+                        showForm={showForm}
+                        toggleChecklistItem={toggleChecklistItem}
+                      />
+                    )}
 
                     {activeProjectTab==='Изменения к смете'&&(<div>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
@@ -1239,17 +1202,24 @@ export default function ProjectsPage({ ctx }) {
                         buildM15Content={buildM15Content}
                       />
                   </div>)}
-                    {activeProjectTab==='Чат'&&(<div>
-                      <b style={{color:C.text,display:'block',marginBottom:'15px'}}>Чат проекта</b>
-                      <div style={{backgroundColor:C.bg,borderRadius:'12px',padding:'15px',minHeight:'250px',maxHeight:'350px',overflowY:'auto',marginBottom:'15px',display:'flex',flexDirection:'column',gap:'10px',border:'1.5px solid '+C.border}}>
-                        {(()=>{const msgs=projectChatMessages[p.name]||[];if(msgs.length===0) return <p style={{color:C.textMuted,textAlign:'center',margin:'auto',fontSize:'13px'}}>Нет сообщений</p>;return msgs.map(msg=>{const isMe=msg.authorName===user.name;const msgPhoto=fileSrc(msg.photoUrl||msg.photo_url);return(<div key={msg.id} style={{display:'flex',justifyContent:isMe?'flex-end':'flex-start'}}><div style={{maxWidth:'80%',backgroundColor:isMe?C.accent:C.bgWhite,color:isMe?'white':C.text,padding:'10px 14px',borderRadius:isMe?'16px 16px 4px 16px':'16px 16px 16px 4px',border:'1.5px solid '+(isMe?C.accent:C.border)}}>{!isMe&&<div style={{fontSize:'11px',fontWeight:'700',color:roleColor(msg.authorRole),marginBottom:'4px'}}>{msg.authorName}</div>}{msg.text&&<p style={{margin:0,fontSize:'13px'}}>{msg.text}</p>}{msgPhoto&&<img src={msgPhoto} alt='' style={{width:'180px',borderRadius:'8px',display:'block',marginTop:'6px',cursor:'pointer'}} onClick={()=>setShowPhotoModal(msgPhoto)}/>}<div style={{fontSize:'10px',color:isMe?'rgba(255,255,255,0.7)':C.textMuted,marginTop:'4px',textAlign:'right'}}>{msg.createdAt?new Date(msg.createdAt).toLocaleTimeString('ru-RU'):''}</div></div></div>);});})()}
-                      </div>
-                      <div style={{display:'flex',gap:'8px'}}>
-                        <input placeholder="Написать..." value={projectChatMessage} onChange={e=>setProjectChatMessage(e.target.value)} onKeyDown={e=>e.key==='Enter'&&sendProjectChatMessage(p.name,projectChatMessage,'')} style={{...inp,marginBottom:0,flex:1}}/>
-                        <button onClick={()=>{if(!projectChatMessages[p.name]) loadProjectChat(p.name);sendProjectChatMessage(p.name,projectChatMessage,'');}} style={btnO}>➤</button>
-                      </div>
-                      {!projectChatMessages[p.name]&&<button onClick={()=>loadProjectChat(p.name)} style={{...btnG,marginTop:'8px',fontSize:'12px'}}>Загрузить чат</button>}
-                  </div>)}
+                    {activeProjectTab==='Чат'&&(
+                      <ProjectChatTab
+                        C={C}
+                        btnG={btnG}
+                        btnO={btnO}
+                        fileSrc={fileSrc}
+                        inp={inp}
+                        loadProjectChat={loadProjectChat}
+                        project={p}
+                        projectChatMessage={projectChatMessage}
+                        projectChatMessages={projectChatMessages}
+                        roleColor={roleColor}
+                        sendProjectChatMessage={sendProjectChatMessage}
+                        setProjectChatMessage={setProjectChatMessage}
+                        setShowPhotoModal={setShowPhotoModal}
+                        user={user}
+                      />
+                    )}
 
                     {activeProjectTab==='Финансы'&&(<div>
                       {isFinanceRole()&&(
@@ -1352,54 +1322,28 @@ export default function ProjectsPage({ ctx }) {
                         btnR={btnR}
                       />
                     )}
-                  {activeProjectTab==='Главный'&&(<div>
-                    <div style={{marginBottom:'15px'}}>
-                      <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>📚 Журналы объекта</b>
-                      <p style={{color:C.textMuted,fontSize:'12px',margin:'4px 0 0'}}>Клик по карточке откроет соответствующий журнал.</p>
-                    </div>
-                    {(()=>{
-                      const diag=projectJournalDiagnostics(p.name);
-                      const cards=[
-                        {tab:'Производство работ',icon:'📖',label:'Производство работ',hint:'Журнал по форме КС-6а',count:workJournal.filter(jw=>jw.project===p.name).length},
-                        {tab:'АОСР',icon:'🔒',label:'АОСР',hint:'Печатные формы из сметы и журнала работ',count:hiddenActs.filter(a=>a.projectName===p.name).length},
-                        {tab:'Входной контроль',icon:'📦',label:'Входной контроль материалов',hint:'СП 48.13330.2019',count:diag.inspections.length,warningCount:diag.stockWithoutInspection.length,details:[
-                          {label:'склад',value:diag.projectStock.length,color:C.textSec},
-                          {label:'контроль',value:diag.inspections.length,color:C.success},
-                          {label:'не связано',value:diag.stockWithoutInspection.length,color:diag.stockWithoutInspection.length?C.warning:C.textMuted},
-                        ]},
-                        {tab:'Кабельная продукция',icon:'⚡',label:'Кабельная продукция',hint:'СП 76.13330 · ПУЭ',count:diag.cables.length,warningCount:diag.cableWithoutJournal.length,details:[
-                          {label:'на складе',value:diag.cableStock.length,color:C.textSec},
-                          {label:'в журнале',value:diag.cables.length,color:C.success},
-                          {label:'не связано',value:diag.cableWithoutJournal.length,color:diag.cableWithoutJournal.length?C.warning:C.textMuted},
-                        ]},
-                        {tab:'Материалы',icon:'🔎',label:'Сметная сверка',hint:'По смете · сверх · вне сметы · алиасы',count:diag.smetaRows.length,warningCount:diag.smetaOutsideRows.length+diag.aliasNeededRows.length,details:[
-                          {label:'по смете',value:diag.smetaInPlanRows.length,color:C.success},
-                          {label:'сверх',value:diag.smetaOverRows.length,color:diag.smetaOverRows.length?C.warning:C.textMuted},
-                          {label:'вне/алиас',value:diag.smetaOutsideRows.length+'/'+diag.aliasNeededRows.length,color:diag.smetaOutsideRows.length?C.warning:C.textMuted},
-                        ]},
-                        {tab:'Журнал ТБ',icon:'🛡️',label:'Техника безопасности',hint:'ГОСТ 12.0.004-2015',count:(tbJournal||[]).filter(e=>e.project===p.name).length},
-                        {tab:'Погода',icon:'🌤',label:'Погода',hint:'Метеоусловия по дням',count:(weatherLog||[]).filter(w=>w.projectName===p.name).length},
-                        {tab:'Предписания',icon:'⚠️',label:'Предписания',hint:'От технадзора и стройконтроля',count:(prescriptionsList||[]).filter(pr=>pr.projectName===p.name).length},
-                        {tab:'Чат',icon:'💬',label:'Чат проекта',hint:'Переписка по объекту',count:0},
-                      ];
-                      return(<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:'12px'}}>
-                        {cards.map(c=>(<div key={c.tab} onClick={()=>setActiveProjectTab(c.tab)} style={{...card,padding:'16px',cursor:'pointer',border:'1.5px solid '+(c.warningCount?C.warningBorder:C.border),backgroundColor:c.warningCount?C.warningLight:card.backgroundColor}}><div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'6px'}}><span style={{fontSize:'24px'}}>{c.icon}</span><b style={{color:C.text,fontSize:'13px'}}>{c.label}</b></div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 6px'}}>{c.hint}</p><b style={{color:c.warningCount?C.warning:C.accent,fontSize:'13px'}}>{c.count+' '+(c.count===1?'запись':c.count>=2&&c.count<=4?'записи':'записей')}</b>{c.details&&<div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:'6px',marginTop:'10px'}}>{c.details.map(d=><div key={d.label} style={{minWidth:0}}><p style={{color:C.textMuted,fontSize:'10px',margin:'0 0 2px',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{d.label}</p><b style={{color:d.color,fontSize:'12px'}}>{d.value}</b></div>)}</div>}{c.warningCount>0&&<p style={{color:C.warning,fontSize:'11px',margin:'8px 0 0',fontWeight:'700'}}>Есть несвязанные позиции</p>}</div>))}
-                      </div>);
-                    })()}
-                  </div>)}
-                  {activeProjectTab==='Погода'&&(<div>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-                      <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>🌤 Журнал погоды</b>
-                      <span style={{fontSize:'11px',color:C.textMuted}}>Метеоусловия по дням строительства</span>
-                    </div>
-                    {(()=>{
-                      const here=(weatherLog||[]).filter(w=>w.projectName===p.name).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-                      if(here.length===0) return(<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Записей о погоде нет. Логируйте погоду из глобального раздела «Погода» — она автоматически появится здесь по этому объекту.</div>);
-                      return(<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:'10px'}}>
-                        {here.map((w,i)=>(<div key={i} style={{...card,padding:'12px'}}><b style={{color:C.text,fontSize:'13px'}}>{w.date}</b><p style={{color:C.textSec,margin:'4px 0 0',fontSize:'12px'}}>{(w.condition||'—')+' · '+(w.temperature!=null?w.temperature+'°C':'—')+(w.windSpeed?' · ветер '+w.windSpeed+' м/с':'')}</p>{w.notes&&<p style={{color:C.textMuted,fontSize:'11px',margin:'4px 0 0',fontStyle:'italic'}}>{w.notes}</p>}</div>))}
-                      </div>);
-                    })()}
-                  </div>)}
+                  {activeProjectTab==='Главный'&&(
+                    <ProjectJournalsHubTab
+                      C={C}
+                      card={card}
+                      hiddenActs={hiddenActs}
+                      prescriptionsList={prescriptionsList}
+                      project={p}
+                      projectJournalDiagnostics={projectJournalDiagnostics}
+                      setActiveProjectTab={setActiveProjectTab}
+                      tbJournal={tbJournal}
+                      weatherLog={weatherLog}
+                      workJournal={workJournal}
+                    />
+                  )}
+                  {activeProjectTab==='Погода'&&(
+                    <ProjectWeatherTab
+                      C={C}
+                      card={card}
+                      project={p}
+                      weatherLog={weatherLog}
+                    />
+                  )}
                   {activeProjectTab==='📁 Реестр'&&(
                     <ProjectDocumentsRegistryPanel
                       projectName={p.name}
@@ -1446,30 +1390,45 @@ export default function ProjectsPage({ ctx }) {
                       btnR={btnR}
                     />
                   )}
-                  {activeProjectTab==='КС-2'&&(<div>
-                    <div style={{...card,padding:'24px',textAlign:'center'}}>
-                      <div style={{fontSize:'40px',marginBottom:'10px'}}>📄</div>
-                      <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'6px'}}>Акт о приёмке выполненных работ (КС-2)</b>
-                      <p style={{color:C.textMuted,fontSize:'12px',margin:'0 0 16px'}}>Унифицированная форма по ОКУД 0322005. Формируется из выполненных позиций активной сметы. Утверждённые изменения к смете выводятся отдельными разделами без задвоения.</p>
-                      <button onClick={()=>showKS2(p)} style={btnO}><Eye size={14}/>🖨 Открыть КС-2</button>
-                    </div>
-                  </div>)}
-                  {activeProjectTab==='КС-3'&&(<div>
-                    <div style={{...card,padding:'24px',textAlign:'center'}}>
-                      <div style={{fontSize:'40px',marginBottom:'10px'}}>📋</div>
-                      <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'6px'}}>Справка о стоимости выполненных работ (КС-3)</b>
-                      <p style={{color:C.textMuted,fontSize:'12px',margin:'0 0 16px'}}>Унифицированная форма по ОКУД 0322001. Подаётся вместе с КС-2 за отчётный период.</p>
-                      <button onClick={()=>showPreview(buildKS3Content(p),'КС-3 — '+p.name)} style={btnO}><Eye size={14}/>🖨 Открыть КС-3</button>
-                    </div>
-                  </div>)}
-                  {activeProjectTab==='Паспорт'&&(<div>
-                    <div style={{...card,padding:'24px',textAlign:'center'}}>
-                      <div style={{fontSize:'40px',marginBottom:'10px'}}>📘</div>
-                      <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'6px'}}>Паспорт объекта</b>
-                      <p style={{color:C.textMuted,fontSize:'12px',margin:'0 0 16px'}}>Сводная карточка объекта с основными характеристиками и реквизитами.</p>
-                      <button onClick={()=>showPreview(buildPassportContent(p),'Паспорт — '+p.name)} style={btnO}><Eye size={14}/>🖨 Открыть Паспорт</button>
-                    </div>
-                  </div>)}
+                  {activeProjectTab==='КС-2'&&(
+                    <ProjectPrintDocumentCard
+                      C={C}
+                      Eye={Eye}
+                      btnO={btnO}
+                      card={card}
+                      description="Унифицированная форма по ОКУД 0322005. Формируется из выполненных позиций активной сметы. Утверждённые изменения к смете выводятся отдельными разделами без задвоения."
+                      icon="📄"
+                      openLabel="КС-2"
+                      onOpen={()=>showKS2(p)}
+                      title="Акт о приёмке выполненных работ (КС-2)"
+                    />
+                  )}
+                  {activeProjectTab==='КС-3'&&(
+                    <ProjectPrintDocumentCard
+                      C={C}
+                      Eye={Eye}
+                      btnO={btnO}
+                      card={card}
+                      description="Унифицированная форма по ОКУД 0322001. Подаётся вместе с КС-2 за отчётный период."
+                      icon="📋"
+                      openLabel="КС-3"
+                      onOpen={()=>showPreview(buildKS3Content(p),'КС-3 — '+p.name)}
+                      title="Справка о стоимости выполненных работ (КС-3)"
+                    />
+                  )}
+                  {activeProjectTab==='Паспорт'&&(
+                    <ProjectPrintDocumentCard
+                      C={C}
+                      Eye={Eye}
+                      btnO={btnO}
+                      card={card}
+                      description="Сводная карточка объекта с основными характеристиками и реквизитами."
+                      icon="📘"
+                      openLabel="Паспорт"
+                      onOpen={()=>showPreview(buildPassportContent(p),'Паспорт — '+p.name)}
+                      title="Паспорт объекта"
+                    />
+                  )}
                   {activeProjectTab==='Акты технадзора'&&(<div>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
                       <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>📝 Акты осмотра / обследования от технадзора</b>
@@ -1538,265 +1497,90 @@ export default function ProjectsPage({ ctx }) {
                       </div>))}
                     </div>);})()}
                   </div>)}
-                  {activeProjectTab==='Гарантия'&&(<div>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'8px'}}>
-                      <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>🛠 Гарантийный период и дефекты</b>
-                      <button onClick={()=>setNewWarrantyDefect(createWarrantyDefectForm())} style={btnO}><Plus size={14}/>Зафиксировать дефект</button>
-                    </div>
-                    <div style={{...card,padding:'14px',marginBottom:'12px',backgroundColor:C.bg,border:'1.5px solid '+C.border}}>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px',flexWrap:'wrap',gap:'6px'}}>
-                        <b style={{color:C.text,fontSize:'13px'}}>📋 Условия гарантии</b>
-                        {warrantyEditForm?.__projectId!==p.id&&(['директор','зам_директора','бухгалтер','прораб'].includes(user.role))&&(
-                          <button onClick={()=>setWarrantyEditForm({__projectId:p.id,warrantyStartDate:p.warrantyStartDate||p.warranty_start_date||'',warrantyEndDate:p.warrantyEndDate||p.warranty_end_date||'',warrantyContact:p.warrantyContact||p.warranty_contact||''})} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>✏️ Редактировать</button>
-                        )}
+                  {activeProjectTab==='Гарантия'&&(
+                    <ProjectWarrantyTab
+                      API={API}
+                      C={C}
+                      Check={Check}
+                      Plus={Plus}
+                      Trash2={Trash2}
+                      badge={badge}
+                      btnG={btnG}
+                      btnGr={btnGr}
+                      btnO={btnO}
+                      btnR={btnR}
+                      card={card}
+                      createWarrantyDefectForm={createWarrantyDefectForm}
+                      inp={inp}
+                      newWarrantyDefect={newWarrantyDefect}
+                      project={p}
+                      refreshData={refreshData}
+                      setNewWarrantyDefect={setNewWarrantyDefect}
+                      setWarrantyEditForm={setWarrantyEditForm}
+                      user={user}
+                      warrantyDefects={warrantyDefects}
+                      warrantyEditForm={warrantyEditForm}
+                    />
+                  )}
+                  {activeProjectTab==='Входной контроль'&&(
+                    <div>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'10px'}}>
+                        <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>📦 Журнал входного контроля материалов</b>
+                        <span style={{fontSize:'11px',color:C.textMuted}}>СП 48.13330.2019 · автозаполняется из накладных</span>
                       </div>
-                      {warrantyEditForm?.__projectId===p.id?(<div>
-                        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'8px',marginBottom:'8px'}}>
-                          <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Начало гарантии</p><input type='date' value={warrantyEditForm.warrantyStartDate||''} onChange={e=>setWarrantyEditForm({...warrantyEditForm,warrantyStartDate:e.target.value})} style={{...inp,marginBottom:0}}/></div>
-                          <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Окончание</p><input type='date' value={warrantyEditForm.warrantyEndDate||''} onChange={e=>setWarrantyEditForm({...warrantyEditForm,warrantyEndDate:e.target.value})} style={{...inp,marginBottom:0}}/></div>
-                          <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Контакт</p><input type='text' placeholder='ФИО + телефон' value={warrantyEditForm.warrantyContact||''} onChange={e=>setWarrantyEditForm({...warrantyEditForm,warrantyContact:e.target.value})} style={{...inp,marginBottom:0}}/></div>
-                        </div>
-                        <div style={{display:'flex',gap:'8px'}}>
-                          <button onClick={async()=>{
-                            await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({warrantyStartDate:warrantyEditForm.warrantyStartDate||null,warrantyEndDate:warrantyEditForm.warrantyEndDate||null,warrantyContact:warrantyEditForm.warrantyContact||''})});
-                            await refreshData(); setWarrantyEditForm(null);
-                          }} style={btnO}><Check size={14}/>Сохранить</button>
-                          <button onClick={()=>setWarrantyEditForm(null)} style={btnG}>Отмена</button>
-                        </div>
-                      </div>):(<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'8px',fontSize:'12px'}}>
-                        <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Начало гарантии</p><b style={{color:C.text}}>{p.warrantyStartDate||p.warranty_start_date||'не задано'}</b></div>
-                        <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Окончание</p><b style={{color:C.text}}>{p.warrantyEndDate||p.warranty_end_date||'обычно +1 год'}</b></div>
-                        <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Контакт по гарантии</p><b style={{color:C.text}}>{p.warrantyContact||p.warranty_contact||(p.foreman||'—')}</b></div>
-                      </div>)}
-                      <p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0',lineHeight:1.4}}>Срок гарантии устанавливается договором подряда (обычно 1-5 лет). В период гарантии устранение дефектов — за счёт подрядчика, если они вызваны его работой.</p>
+                      <ProjectMaterialInspectionTab
+                        C={C}
+                        Eye={Eye}
+                        badge={badge}
+                        btnB={btnB}
+                        btnG={btnG}
+                        buildMaterialInspectionContent={buildMaterialInspectionContent}
+                        card={card}
+                        journalDiagnosticMode={journalDiagnosticMode}
+                        journalPackage={journalPackage}
+                        materialInspections={materialInspections}
+                        project={p}
+                        projectJournalDiagnostics={projectJournalDiagnostics}
+                        setEditingInspection={setEditingInspection}
+                        setJournalDiagnosticMode={setJournalDiagnosticMode}
+                        showPreview={showPreview}
+                        tbl={tbl}
+                        tblC={tblC}
+                        tblH={tblH}
+                        toNum={toNum}
+                      />
                     </div>
-                    {newWarrantyDefect&&(<div style={{...card,padding:'16px',marginBottom:'14px',backgroundColor:C.bg,border:'1.5px solid '+C.warningBorder}}>
-                      <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'8px'}}>📝 Новый дефект</b>
-                      <textarea placeholder='Описание дефекта *' value={newWarrantyDefect.description} onChange={e=>setNewWarrantyDefect({...newWarrantyDefect,description:e.target.value})} style={{...inp,minHeight:'60px',marginBottom:'8px'}}/>
-                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
-                        <input type='date' value={newWarrantyDefect.foundAt} onChange={e=>setNewWarrantyDefect({...newWarrantyDefect,foundAt:e.target.value})} title='Когда обнаружено' style={{...inp,marginBottom:0}}/>
-                        <select value={newWarrantyDefect.severity} onChange={e=>setNewWarrantyDefect({...newWarrantyDefect,severity:e.target.value})} style={{...inp,marginBottom:0}}>{['Низкий','Средний','Высокий','Критический'].map(s=><option key={s}>{s}</option>)}</select>
-                        <input placeholder='ФИО кто обнаружил' value={newWarrantyDefect.reportedBy} onChange={e=>setNewWarrantyDefect({...newWarrantyDefect,reportedBy:e.target.value})} style={{...inp,marginBottom:0}}/>
-                        <input placeholder='Телефон для связи' value={newWarrantyDefect.reporterPhone} onChange={e=>setNewWarrantyDefect({...newWarrantyDefect,reporterPhone:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  )}
+                  {activeProjectTab==='Кабельная продукция'&&(
+                    <div>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'10px'}}>
+                        <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>⚡ Журнал кабельной продукции</b>
+                        <span style={{fontSize:'11px',color:C.textMuted}}>Электрика · СКС · пожарка · слаботочка</span>
                       </div>
-                      <div style={{display:'flex',gap:'8px'}}>
-                        <button onClick={async()=>{
-                          if(!newWarrantyDefect.description){alert('Опишите дефект');return;}
-                          await fetch(API+'/warranty-defects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newWarrantyDefect,projectName:p.name,status:'Открыт'})});
-                          await refreshData(); setNewWarrantyDefect(null);
-                        }} style={btnO}><Check size={14}/>Сохранить</button>
-                        <button onClick={()=>setNewWarrantyDefect(null)} style={btnG}>Отмена</button>
-                      </div>
-                    </div>)}
-                    {(()=>{const here=warrantyDefects.filter(d=>d.projectName===p.name);if(here.length===0) return(<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Дефектов нет — гарантийных обращений по объекту не было.</div>);const open=here.filter(d=>d.status!=='Закрыт').length;const fixed=here.filter(d=>d.status==='Закрыт').length;return(<div>
-                      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px',marginBottom:'12px'}}>
-                        <div style={{...card,padding:'10px',backgroundColor:C.dangerLight}}><p style={{color:C.danger,fontSize:'11px',margin:'0 0 4px'}}>Открытых</p><b style={{color:C.danger,fontSize:'16px'}}>{open}</b></div>
-                        <div style={{...card,padding:'10px',backgroundColor:C.successLight}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Устранено</p><b style={{color:C.success,fontSize:'16px'}}>{fixed}</b></div>
-                        <div style={{...card,padding:'10px',backgroundColor:C.bg}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Всего</p><b style={{color:C.text,fontSize:'16px'}}>{here.length}</b></div>
-                      </div>
-                      {here.map(d=>(<div key={d.id} style={{...card,padding:'14px',marginBottom:'8px',borderLeft:'3px solid '+(d.status==='Закрыт'?C.success:d.severity==='Критический'?C.danger:d.severity==='Высокий'?C.warning:C.textSec)}}>
-                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
-                          <div style={{flex:1,minWidth:'200px'}}>
-                            <b style={{color:C.text,fontSize:'13px'}}>{d.description}</b>
-                            <p style={{color:C.textSec,margin:'4px 0',fontSize:'11px'}}>Обнаружено: {d.foundAt}{d.reportedBy?' · '+d.reportedBy:''}{d.reporterPhone?' · '+d.reporterPhone:''}</p>
-                            <p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>Уровень: <b>{d.severity||'—'}</b></p>
-                            {d.fixNotes&&<div style={{marginTop:'6px',padding:'8px 10px',backgroundColor:C.successLight,borderRadius:'6px',fontSize:'11px',color:C.success}}><b>Устранено ({d.fixedAt||'—'}):</b> {d.fixNotes}</div>}
-                          </div>
-                          <div style={{display:'flex',gap:'4px',alignItems:'flex-start'}}>
-                            <span style={badge(d.status==='Закрыт'?C.success:d.severity==='Критический'?C.danger:C.warning,d.status==='Закрыт'?C.successLight:d.severity==='Критический'?C.dangerLight:C.warningLight,d.status==='Закрыт'?C.successBorder:d.severity==='Критический'?C.dangerBorder:C.warningBorder)}>{d.status||'Открыт'}</span>
-                            {d.status!=='Закрыт'&&<button onClick={async()=>{const notes=prompt('Опишите как устранили:');if(!notes) return;await fetch(API+'/warranty-defects/'+d.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Закрыт',fixNotes:notes,fixedAt:new Date().toISOString().split('T')[0]})});await refreshData();}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>Устранено</button>}
-                            <button onClick={async()=>{if(!window.confirm('Удалить дефект?')) return;await fetch(API+'/warranty-defects/'+d.id,{method:'DELETE'});await refreshData();}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>
-                          </div>
-                        </div>
-                      </div>))}
-                    </div>);})()}
-                  </div>)}
-                  {activeProjectTab==='Входной контроль'&&(<div>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'10px'}}>
-                      <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>📦 Журнал входного контроля материалов</b>
-                      <span style={{fontSize:'11px',color:C.textMuted}}>СП 48.13330.2019 · автозаполняется из накладных</span>
+                      <ProjectCableJournalTab
+                        C={C}
+                        Eye={Eye}
+                        badge={badge}
+                        btnB={btnB}
+                        btnG={btnG}
+                        buildCableJournalContent={buildCableJournalContent}
+                        cableJournal={cableJournal}
+                        cableTypeOf={cableTypeOf}
+                        card={card}
+                        journalDiagnosticMode={journalDiagnosticMode}
+                        journalPackage={journalPackage}
+                        project={p}
+                        projectJournalDiagnostics={projectJournalDiagnostics}
+                        setEditingCable={setEditingCable}
+                        setJournalDiagnosticMode={setJournalDiagnosticMode}
+                        showPreview={showPreview}
+                        tbl={tbl}
+                        tblC={tblC}
+                        tblH={tblH}
+                        toNum={toNum}
+                      />
                     </div>
-	                    {(()=>{
-	                      const diag=projectJournalDiagnostics(p.name);
-	                      const here=materialInspections.filter(mi=>mi.projectName===p.name);
-	                      const inspectionModeControls=(
-	                        <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginBottom:'10px'}}>
-	                          <button onClick={()=>setJournalDiagnosticMode('all')} style={{...btnG,fontSize:'12px',padding:'6px 10px',backgroundColor:journalDiagnosticMode==='all'?C.accent:C.bg,color:journalDiagnosticMode==='all'?'white':C.text}}>Все записи: {here.length}</button>
-	                          <button onClick={()=>setJournalDiagnosticMode('unlinked')} style={{...btnG,fontSize:'12px',padding:'6px 10px',backgroundColor:journalDiagnosticMode==='unlinked'?C.warning:C.bg,color:journalDiagnosticMode==='unlinked'?'white':C.text}}>Не связано: {diag.stockWithoutInspection.length}</button>
-	                        </div>
-	                      );
-	                      const unlinkedInspectionNotice=diag.stockWithoutInspection.length>0&&(
-	                        <div style={{...card,padding:'12px',marginBottom:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
-	                          <b style={{color:C.warning,fontSize:'13px'}}>Не связан входной контроль: {diag.stockWithoutInspection.length}</b>
-	                          <p style={{color:C.textSec,fontSize:'11px',margin:'4px 0 0'}}>Материал есть на складе объекта, но связанная запись контроля не найдена в загруженных данных.</p>
-                          <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'8px'}}>
-                            {diag.stockWithoutInspection.slice(0,6).map((m,idx)=><span key={(m.id||m.name||'m')+'-'+idx} style={badge(C.warning,C.warningLight,C.warningBorder)}>{m.name} · {toNum(m.quantity)} {m.unit||''}</span>)}
-	                          </div>
-	                        </div>
-	                      );
-	                      if(journalDiagnosticMode==='unlinked') return(<div>
-	                        {inspectionModeControls}
-	                        {diag.stockWithoutInspection.length===0?<div style={{...card,padding:'18px',color:C.success,backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,fontWeight:'700'}}>Все складские материалы объекта связаны с входным контролем.</div>:(
-	                          <div style={{...card,padding:0,overflow:'auto'}}>
-	                            <table style={tbl}><thead><tr>
-	                              <th style={tblH}>Материал на складе</th>
-	                              <th style={tblH}>Кол-во</th>
-	                              <th style={tblH}>Ед.</th>
-	                              <th style={tblH}>Пакет работ</th>
-	                              <th style={tblH}>Что сделать</th>
-	                            </tr></thead><tbody>
-	                              {diag.stockWithoutInspection.map((m,idx)=>(<tr key={(m.id||m.name||'stock')+'-'+idx}>
-	                                <td style={{...tblC,maxWidth:'320px',whiteSpace:'normal'}}>{m.name}</td>
-	                                <td style={tblC}>{toNum(m.quantity)}</td>
-	                                <td style={tblC}>{m.unit||'—'}</td>
-	                                <td style={tblC}>{journalPackage(m)}</td>
-	                                <td style={{...tblC,color:C.textSec,maxWidth:'260px',whiteSpace:'normal'}}>Проверить накладную, алиас или автоматическую связь журнала.</td>
-	                              </tr>))}
-	                            </tbody></table>
-	                          </div>
-	                        )}
-	                      </div>);
-		                      if(here.length===0) return(<div>{inspectionModeControls}{unlinkedInspectionNotice}<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}><div style={{fontSize:'40px',marginBottom:'10px'}}>📦</div><p style={{margin:'0 0 8px',fontWeight:'600'}}>Записей пока нет</p><p style={{fontSize:'12px',margin:0,lineHeight:1.6}}>Записи создаются автоматически при приёмке поставки или оформлении приходной накладной на склад.<br/>Затем здесь прораб/кладовщик дополняет паспорт, сертификат и отметку об осмотре.</p></div></div>);
-	                      const cntInsp=here.filter(r=>r.inspected).length;
-	                      const cntPending=here.length-cntInsp;
-	                      const cntOk=here.filter(r=>r.visualInspectionResult==='Соответствует').length;
-	                      return(<div>
-	                        {inspectionModeControls}
-	                        {unlinkedInspectionNotice}
-	                        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:'10px',marginBottom:'14px'}}>
-                          <div style={{...card,padding:'12px',backgroundColor:C.bg}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Записей</p><b style={{color:C.text,fontSize:'16px'}}>{here.length}</b></div>
-                          <div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>Ждут проверки</p><b style={{color:C.warning,fontSize:'16px'}}>{cntPending}</b></div>
-                          <div style={{...card,padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Проверено</p><b style={{color:C.success,fontSize:'16px'}}>{cntInsp}</b></div>
-                          <div style={{...card,padding:'12px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}><p style={{color:C.accent,fontSize:'11px',margin:'0 0 4px'}}>Соответствует</p><b style={{color:C.accent,fontSize:'16px'}}>{cntOk}</b></div>
-                        </div>
-                        <div style={{display:'flex',justifyContent:'flex-end',marginBottom:'10px'}}>
-                          <button onClick={()=>showPreview(buildMaterialInspectionContent(here,p.name,'',''),'Журнал входного контроля — '+p.name)} style={{...btnB,fontSize:'12px',padding:'7px 12px'}}><Eye size={13}/>🖨 Печать журнала</button>
-                        </div>
-                        <div style={{...card,padding:0,overflow:'auto'}}>
-                          <table style={tbl}><thead><tr>
-                            <th style={tblH}>Дата приёмки</th>
-                            <th style={tblH}>Материал</th>
-                            <th style={tblH}>Кол-во</th>
-                            <th style={tblH}>Поставщик</th>
-                            <th style={tblH}>Партия</th>
-                            <th style={tblH}>Сертификат</th>
-                            <th style={tblH}>Результат осмотра</th>
-                            <th style={tblH}>Статус</th>
-                          </tr></thead><tbody>
-                            {here.map(mi=>(<tr key={mi.id} style={{cursor:'pointer'}} onClick={()=>setEditingInspection(mi)}>
-                              <td style={tblC}>{mi.receivedAt||'—'}</td>
-                              <td style={{...tblC,maxWidth:'260px',whiteSpace:'normal'}}>{mi.materialName}{mi.aiFilled?<span title="Заполнено AI" style={{marginLeft:'4px'}}>🤖</span>:null}</td>
-                              <td style={tblC}>{(mi.quantity||0)+' '+(mi.unit||'')}</td>
-                              <td style={tblC}>{mi.supplier||'—'}</td>
-                              <td style={tblC}>{mi.batchNumber||'—'}</td>
-                              <td style={tblC}>{mi.certificateNumber||(mi.passportNumber?'паспорт '+mi.passportNumber:'—')}</td>
-                              <td style={tblC}>{mi.visualInspectionResult||'—'}</td>
-                              <td style={tblC}><span style={{padding:'2px 8px',borderRadius:'10px',fontSize:'11px',fontWeight:'600',backgroundColor:mi.inspected?(mi.visualInspectionResult==='Не соответствует'?C.dangerLight:C.successLight):C.warningLight,color:mi.inspected?(mi.visualInspectionResult==='Не соответствует'?C.danger:C.success):C.warning}}>{mi.inspected?'Проверено':'Ждёт проверки'}</span></td>
-                            </tr>))}
-                          </tbody></table>
-                        </div>
-                      </div>);
-                    })()}
-                  </div>)}
-                  {activeProjectTab==='Кабельная продукция'&&(<div>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'10px'}}>
-                      <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>⚡ Журнал кабельной продукции</b>
-                      <span style={{fontSize:'11px',color:C.textMuted}}>Электрика · СКС · пожарка · слаботочка</span>
-                    </div>
-	                    {(()=>{
-	                      const diag=projectJournalDiagnostics(p.name);
-	                      const here=cableJournal.filter(cb=>cb.projectName===p.name);
-	                      const cableModeControls=(
-	                        <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginBottom:'10px'}}>
-	                          <button onClick={()=>setJournalDiagnosticMode('all')} style={{...btnG,fontSize:'12px',padding:'6px 10px',backgroundColor:journalDiagnosticMode==='all'?C.accent:C.bg,color:journalDiagnosticMode==='all'?'white':C.text}}>Все записи: {here.length}</button>
-	                          <button onClick={()=>setJournalDiagnosticMode('unlinked')} style={{...btnG,fontSize:'12px',padding:'6px 10px',backgroundColor:journalDiagnosticMode==='unlinked'?C.warning:C.bg,color:journalDiagnosticMode==='unlinked'?'white':C.text}}>Не связано: {diag.cableWithoutJournal.length}</button>
-	                        </div>
-	                      );
-	                      const unlinkedCableNotice=diag.cableWithoutJournal.length>0&&(
-	                        <div style={{...card,padding:'12px',marginBottom:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
-	                          <b style={{color:C.warning,fontSize:'13px'}}>Кабель на складе без журнальной записи: {diag.cableWithoutJournal.length}</b>
-	                          <p style={{color:C.textSec,fontSize:'11px',margin:'4px 0 0'}}>Система распознала кабель в остатках объекта, но не видит соответствующую строку в журнале кабельной продукции.</p>
-                          <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'8px'}}>
-                            {diag.cableWithoutJournal.slice(0,6).map((m,idx)=><span key={(m.id||m.name||'c')+'-'+idx} style={badge(C.warning,C.warningLight,C.warningBorder)}>{m.name} · {toNum(m.quantity)} {m.unit||''}</span>)}
-	                          </div>
-	                        </div>
-	                      );
-	                      if(journalDiagnosticMode==='unlinked') return(<div>
-	                        {cableModeControls}
-	                        {diag.cableWithoutJournal.length===0?<div style={{...card,padding:'18px',color:C.success,backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,fontWeight:'700'}}>Весь кабель на складе связан с журналом кабельной продукции.</div>:(
-	                          <div style={{...card,padding:0,overflow:'auto'}}>
-	                            <table style={tbl}><thead><tr>
-	                              <th style={tblH}>Кабель на складе</th>
-	                              <th style={tblH}>Тип</th>
-	                              <th style={tblH}>Кол-во</th>
-	                              <th style={tblH}>Ед.</th>
-	                              <th style={tblH}>Пакет работ</th>
-	                              <th style={tblH}>Что сделать</th>
-	                            </tr></thead><tbody>
-	                              {diag.cableWithoutJournal.map((m,idx)=>(<tr key={(m.id||m.name||'cable')+'-'+idx}>
-	                                <td style={{...tblC,maxWidth:'320px',whiteSpace:'normal'}}>{m.name}</td>
-	                                <td style={tblC}>{cableTypeOf({cableBrand:m.name})}</td>
-	                                <td style={tblC}>{toNum(m.quantity)}</td>
-	                                <td style={tblC}>{m.unit||'—'}</td>
-	                                <td style={tblC}>{journalPackage(m)}</td>
-	                                <td style={{...tblC,color:C.textSec,maxWidth:'260px',whiteSpace:'normal'}}>Проверить распознавание марки, пакет работ или backfill кабельного журнала.</td>
-	                              </tr>))}
-	                            </tbody></table>
-	                          </div>
-	                        )}
-	                      </div>);
-	                      if(here.length===0) return(<div>{cableModeControls}{unlinkedCableNotice}<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}><div style={{fontSize:'40px',marginBottom:'10px'}}>⚡</div><p style={{margin:'0 0 8px',fontWeight:'600'}}>Записей пока нет</p><p style={{fontSize:'12px',margin:0,lineHeight:1.6}}>Записи создаются автоматически при приходе кабеля (по поставке или накладной).<br/>Система распознаёт силовые ВВГ/NYM/СИП, СКС UTP/FTP/SFTP, слаботочку КСВВ/КСПВ и пожарные КПС/КПСЭ/FRLS.</p></div></div>);
-	                      const cntInstalled=here.filter(cb=>cb.installedAt).length;
-	                      const cntPending=here.length-cntInstalled;
-	                      const totalLength=here.reduce((s,cb)=>s+Number(cb.lengthReceived||0),0);
-	                      const typeCounts=here.reduce((acc,cb)=>{const t=cableTypeOf(cb);acc[t]=(acc[t]||0)+1;return acc;},{});
-	                      return(<div>
-	                        {cableModeControls}
-	                        {unlinkedCableNotice}
-	                        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:'10px',marginBottom:'14px'}}>
-                          <div style={{...card,padding:'12px',backgroundColor:C.bg}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Записей</p><b style={{color:C.text,fontSize:'16px'}}>{here.length}</b></div>
-                          <div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>Ждут монтажа</p><b style={{color:C.warning,fontSize:'16px'}}>{cntPending}</b></div>
-                          <div style={{...card,padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Проложено</p><b style={{color:C.success,fontSize:'16px'}}>{cntInstalled}</b></div>
-                          <div style={{...card,padding:'12px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}><p style={{color:C.accent,fontSize:'11px',margin:'0 0 4px'}}>Общая длина</p><b style={{color:C.accent,fontSize:'16px'}}>{totalLength.toLocaleString('ru-RU')+' м'}</b></div>
-                        </div>
-                        <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginBottom:'10px'}}>
-                          {Object.entries(typeCounts).map(([t,n])=><span key={t} style={badge(C.accent,C.accentLight,C.accentBorder)}>{t+': '+n}</span>)}
-                        </div>
-                        <div style={{display:'flex',justifyContent:'flex-end',marginBottom:'10px'}}>
-                          <button onClick={()=>showPreview(buildCableJournalContent(here,p.name,'',''),'Журнал кабельной продукции — '+p.name)} style={{...btnB,fontSize:'12px',padding:'7px 12px'}}><Eye size={13}/>🖨 Печать журнала</button>
-                        </div>
-                        <div style={{...card,padding:0,overflow:'auto'}}>
-                          <table style={tbl}><thead><tr>
-                            <th style={tblH}>Дата</th>
-                            <th style={tblH}>Тип системы</th>
-                            <th style={tblH}>Марка</th>
-                            <th style={tblH}>Сечение</th>
-                            <th style={tblH}>Жил</th>
-                            <th style={tblH}>Длина</th>
-                            <th style={tblH}>Барабан №</th>
-                            <th style={tblH}>R изол. ДО</th>
-                            <th style={tblH}>R изол. ПОСЛЕ</th>
-                            <th style={tblH}>Место прокладки</th>
-                            <th style={tblH}>Статус</th>
-                          </tr></thead><tbody>
-                            {here.map(cb=>(<tr key={cb.id} style={{cursor:'pointer'}} onClick={()=>setEditingCable(cb)}>
-                              <td style={tblC}>{cb.receivedAt||'—'}</td>
-                              <td style={tblC}>{cableTypeOf(cb)}</td>
-                              <td style={{...tblC,maxWidth:'220px',whiteSpace:'normal'}}>{cb.cableBrand}{cb.aiFilled?<span title="Заполнено AI" style={{marginLeft:'4px'}}>🤖</span>:null}</td>
-                              <td style={tblC}>{cb.crossSection?cb.crossSection+' мм²':'—'}</td>
-                              <td style={tblC}>{cb.coresCount||'—'}</td>
-                              <td style={tblC}>{(cb.lengthReceived||0)+' м'}</td>
-                              <td style={tblC}>{cb.drumNumber||'—'}</td>
-                              <td style={tblC}>{cb.insulationBefore?cb.insulationBefore+' МΩ':'—'}</td>
-                              <td style={tblC}>{cb.insulationAfter?cb.insulationAfter+' МΩ':'—'}</td>
-                              <td style={{...tblC,maxWidth:'220px',whiteSpace:'normal'}}>{cb.installationLocation||'—'}</td>
-                              <td style={tblC}><span style={{padding:'2px 8px',borderRadius:'10px',fontSize:'11px',fontWeight:'600',backgroundColor:cb.installedAt?C.successLight:C.warningLight,color:cb.installedAt?C.success:C.warning}}>{cb.installedAt?'Проложен':'На складе'}</span></td>
-                            </tr>))}
-                          </tbody></table>
-                        </div>
-                      </div>);
-                    })()}
-                  </div>)}
+                  )}
                   </div>
                 </div>)}
               </div>);
