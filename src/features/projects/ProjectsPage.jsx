@@ -1,10 +1,7 @@
 import React from 'react';
 import {
-  createDoorForm,
   createInspectionOrderForm,
-  createRoomForm,
   createWarrantyDefectForm,
-  createWindowForm,
 } from '../project-operations/projectOperationInitialForms';
 import ProjectAiControlTab from './ProjectAiControlTab';
 import ProjectChecklistsTab from './ProjectChecklistsTab';
@@ -14,8 +11,10 @@ import ProjectJournalsHubTab from './ProjectJournalsHubTab';
 import ProjectInspectionOrdersTab from './ProjectInspectionOrdersTab';
 import ProjectMaterialInspectionTab from './ProjectMaterialInspectionTab';
 import ProjectCableJournalTab from './ProjectCableJournalTab';
+import ProjectMeasurementSourcesTab from './ProjectMeasurementSourcesTab';
 import ProjectOverviewTab from './ProjectOverviewTab';
 import ProjectPrintDocumentCard from './ProjectPrintDocumentCard';
+import ProjectRoomsTab from './ProjectRoomsTab';
 import ProjectScheduleTab from './ProjectScheduleTab';
 import ProjectStagesTab from './ProjectStagesTab';
 import ProjectSupervisorActsTab from './ProjectSupervisorActsTab';
@@ -27,49 +26,49 @@ import { createMaterialTransferForm } from '../warehouse/warehouseInitialForms';
 export default function ProjectsPage({ ctx }) {
   const {
     API, Archive, Bot, C, CHECKLIST_TEMPLATES, Calculator, Check, ChevronDown,
-    ChevronUp, DIRECTOR_MAP_FEATURE_ENABLED, DOOR_PURPOSES, DOOR_TYPES, EMPTY_ESTIMATE_CHANGE, ESTIMATE_CHANGE_TYPES, ESTIMATE_CHANGE_VISIBLE_STATUSES, ESTIMATE_PACKAGES,
-    EXPENSE_CATEGORIES, Edit2, Eye, FileText, FolderKanban, GitBranch, MapPin, PROJECT_MEASUREMENT_DOC_TYPES,
-    PROJECT_MEASUREMENT_SOURCE_TYPES, PROJECT_MEASUREMENT_STATUSES, Package, PhotoAttachmentField, Plus, ProjectBrigadeCalculationTab, ProjectCardHeader, ProjectDirectorMapPanel,
+    ChevronUp, DIRECTOR_MAP_FEATURE_ENABLED, EMPTY_ESTIMATE_CHANGE, ESTIMATE_CHANGE_TYPES, ESTIMATE_CHANGE_VISIBLE_STATUSES, ESTIMATE_PACKAGES,
+    EXPENSE_CATEGORIES, Eye, FileText, FolderKanban, GitBranch, MapPin,
+    Package, Plus, ProjectBrigadeCalculationTab, ProjectCardHeader, ProjectDirectorMapPanel,
     ProjectDocumentsRegistryPanel, ProjectFinancePanel, ProjectHiddenWorksActsPanel, ProjectLaunchPanel, ProjectLettersPanel, ProjectMaterialsControlPanel, ProjectMaterialsStockPanel,
     ProjectMaterialsTransferPanel, ProjectPrescriptionsPanel, ProjectSafetyJournalPanel, ProjectScheduleSummaryPanel, ProjectTabsNav, ProjectWorkJournalPanel,
-    REVEAL_MATERIALS, STAGE_STATUSES, Search, TB_INSTRUCTIONS, TB_TYPES_GOST, Trash2, UNITS,
-    Upload, WINDOW_TYPES, X, _normalizeUnit, acceptMaterialAliasTask, accountablePayments, activeEstimatesForProject,
+    STAGE_STATUSES, Search, TB_INSTRUCTIONS, TB_TYPES_GOST, Trash2, UNITS,
+    Upload, X, _normalizeUnit, acceptMaterialAliasTask, accountablePayments, activeEstimatesForProject,
     activeProjectTab, activeTabGroup, aiFindingsForProject, aiSeverityMeta, aiTasksForProject, appendPhotos, approveUnexpectedWork,
     badge, brigadeCoef, brigadeContractItems, brigadeContracts, brigadePayments, btnB, btnG, btnGr,
     btnO, btnR, buildCableJournalContent, buildHiddenActContent, buildJPRContent, buildKS3Content, buildM15Content, buildMaterialInspectionContent,
-    buildMaterialRequirementContent, buildPassportContent, buildSupplementaryAgreementContent, buildTBContent, cableJournal, cableTypeOf, calcDoorArea, calcDoorReveals,
-    calcWindowArea, calcWindowReveals, card, checklistItems, checklists, companyName, companyRequisites, convertUnits,
-    createBatchSupplyRequestFromMaterialControl, createProjectMeasurementActions, customRoomTypes, deleteBrigadePayment, deleteDoor, deleteRoom, deleteStage, deleteWindow,
-    denormalizeMeasure, directorMapActionTarget, directorMapContractForProject, draftRoomDoors, draftRoomWindows, editProject, editingDoor, editingItem,
-    editingWindow, estimateChangesForNewEstimate, estimateItemOptionsForProject, estimateKind, estimatePackage,
-    estimateReconciliationsForProject, estimateSearch, estimateWorkNormRequirementRows, estimatesList, expByCategory, expandedProject, expandedRoom, fileSrc,
-    fmtMeasure, formatSignedRub, generateAiFindingsForProject, getActStatusForJournal, getRoomNetWall, hiddenActs, history, includableEstimateChanges,
+    buildMaterialRequirementContent, buildPassportContent, buildSupplementaryAgreementContent, buildTBContent, cableJournal, cableTypeOf,
+    card, checklistItems, checklists, companyName, companyRequisites, convertUnits,
+    createBatchSupplyRequestFromMaterialControl, deleteBrigadePayment, deleteStage,
+    denormalizeMeasure, directorMapActionTarget, directorMapContractForProject, editProject, editingItem,
+    estimateChangesForNewEstimate, estimateItemOptionsForProject, estimateKind, estimatePackage,
+    estimateReconciliationsForProject, estimateSearch, estimateWorkNormRequirementRows, estimatesList, expByCategory, expandedProject, fileSrc,
+    fmtMeasure, formatSignedRub, generateAiFindingsForProject, getActStatusForJournal, hiddenActs, history, includableEstimateChanges,
     includeChangesInNewEstimate, inp, inspectionOrders, isApprovedEstimateChangeStatus, isEstimatePricelist, isFinanceRole,
     isCableName, isLeadership, isMobile, isProrab, listSearch, loadAll, loadChecklistItems, loadProjectChat, loadWorkJournalPage,
     manualExpenses, masterProfiles, matchSearch, materialControlStatus, materialControlSummaryForProject, materialInspections, materialNameKey, materialNormControlSummaryForProject,
-    materialReconciliationRows, materialTransfers, materials, measurementDraftLoadingId, measurementRoomDrafts, navigateTo,
-    newBrigadeContract, newBrigadeItem, newChecklist, newChecklistItem, newDoor, newInspOrder, newLetter, newMeasurementDoc,
-    newParticipant, newPrescription, newProject, newProjectDoc, newRoom, newStage, newTbEntry,
-    newTransfer, newUnexpected, newWarrantyDefect, newWindow, normalizeMeasure, openAiTaskAction, openBrigadeContract, openConfirmModal,
+    materialReconciliationRows, materialTransfers, materials, navigateTo,
+    newBrigadeContract, newBrigadeItem, newChecklist, newChecklistItem, newInspOrder, newLetter,
+    newParticipant, newPrescription, newProject, newProjectDoc, newStage, newTbEntry,
+    newTransfer, newUnexpected, newWarrantyDefect, normalizeMeasure, openAiTaskAction, openBrigadeContract, openConfirmModal,
     openEstimateDetail, ownExpenses, parseAiTaskPayload, prescriptionsList, pricelists, projectAiSummaries, projectBudgetSpent, projectChatMessage,
-    projectChatMessages, projectDocuments, projectEconomy, projectLetters, projectMeasurements, projectPaymentInAmount, projectPaymentSignedAmount,
+    projectChatMessages, projectDocuments, projectEconomy, projectLetters, projectPaymentInAmount, projectPaymentSignedAmount,
     projectPayments, projectPlanDone, projectRealProgress, projectStages, projects, refreshData, renderEstimateChangeReconcileTask,
-    renderEstimateMeasurementComparisonPanel, renderEstimateReconciliationsPanel, renderMaterialAliasControls, renderMaterialSupplyAction, renderWorkJournalEstimateReconciliationPanel, roleColor, roomCompleteness, roomDoors,
-    roomWindows, rooms, saveChecklist, saveDoor, savePrescription, saveProject, saveProjectStage, saveRoom,
-    saveTbEntry, saveUnexpectedWork, saveWindow, selectedBrigadeContract, selectedChecklist, sendProjectChatMessage, setActiveProjectTab, setActiveTabGroup,
-    setAddExpenseProject, setBrigadeCoef, setBrigadeContractItems, setBrigadeContracts, setBrigadePayments, setDraftRoomDoors, setDraftRoomWindows, setEditingAct,
-    setEditingCable, setEditingDoor, setEditingInspection, setEditingItem, setEditingJournal, setEditingWindow, setEstimateSearch, setExpandedProject,
-    setExpandedRoom, setHiddenActs, setListSearch, setMaterialTransfers, setMaterials, setMeasurementDraftLoadingId, setNewAccountable,
-    setNewBrigadeContract, setNewBrigadeItem, setNewBrigadePayment, setNewChecklist, setNewChecklistItem, setNewDoor, setNewInspOrder, setNewLetter,
-    setNewManualExpense, setNewMeasurementDoc, setNewParticipant, setNewPrescription, setNewProject, setNewProjectDoc, setNewRoom, setNewStage,
-    setNewTbEntry, setNewTransfer, setNewUnexpected, setNewWarrantyDefect, setNewWindow, setProjectAiSummaries, setProjectChatMessage,
-    setRejectingEntry, setRoomDoors, setRoomWindows, setSelectedBrigadeContract, setSelectedChecklist, setShowAccountableForm, setShowArchive, setShowBalanceDetails,
-    setShowBrigadeForm, setShowBrigadePayModal, setShowDocForm, setShowForm, setShowJournalTableModal, setShowLetterForm, setShowMeasurementForm, setShowPhotoModal,
-    setShowRoomForm, setShowTransferForm, setUploadingDoc, setUploadingLetter, setUploadingMeasurementDoc, setWarehouseMain, setWarrantyEditForm,
-    showArchive, showBalanceDetails, showBrigadeForm, showDocForm, showForm, showKS2, showLetterForm, showMeasurementForm,
-    showPreview, showRoomForm, showTransferForm, signedEstimateChangeTotal, staff, supervisorActs, supplierInvoices, supplyRequests,
+    renderEstimateReconciliationsPanel, renderMaterialAliasControls, renderMaterialSupplyAction, renderWorkJournalEstimateReconciliationPanel, roleColor,
+    saveChecklist, savePrescription, saveProject, saveProjectStage,
+    saveTbEntry, saveUnexpectedWork, selectedBrigadeContract, selectedChecklist, sendProjectChatMessage, setActiveProjectTab, setActiveTabGroup,
+    setAddExpenseProject, setBrigadeCoef, setBrigadeContractItems, setBrigadeContracts, setBrigadePayments, setEditingAct,
+    setEditingCable, setEditingInspection, setEditingItem, setEditingJournal, setEstimateSearch, setExpandedProject,
+    setHiddenActs, setListSearch, setMaterialTransfers, setMaterials, setNewAccountable,
+    setNewBrigadeContract, setNewBrigadeItem, setNewBrigadePayment, setNewChecklist, setNewChecklistItem, setNewInspOrder, setNewLetter,
+    setNewManualExpense, setNewParticipant, setNewPrescription, setNewProject, setNewProjectDoc, setNewStage,
+    setNewTbEntry, setNewTransfer, setNewUnexpected, setNewWarrantyDefect, setProjectAiSummaries, setProjectChatMessage,
+    setRejectingEntry, setSelectedBrigadeContract, setSelectedChecklist, setShowAccountableForm, setShowArchive, setShowBalanceDetails,
+    setShowBrigadeForm, setShowBrigadePayModal, setShowDocForm, setShowForm, setShowJournalTableModal, setShowLetterForm, setShowPhotoModal,
+    setShowTransferForm, setUploadingDoc, setUploadingLetter, setWarehouseMain, setWarrantyEditForm,
+    showArchive, showBalanceDetails, showBrigadeForm, showDocForm, showForm, showKS2, showLetterForm,
+    showPreview, showTransferForm, signedEstimateChangeTotal, staff, supervisorActs, supplierInvoices, supplyRequests,
     tbJournal, tbl, tblC, tblH, toNum, toggleChecklistItem, unexpectedWorksList, updateAiFinding,
-    updateAiTask, updateDoor, updateStage, updateWindow, uploadPhoto, uploadingDoc, uploadingLetter, uploadingMeasurementDoc,
+    updateAiTask, updateStage, uploadPhoto, uploadingDoc, uploadingLetter,
     user, users, visibleActiveProjects, visibleEstimatesForCurrentUser, visibleProjects, warehouseMain, warrantyDefects, warrantyEditForm,
     weatherLog, workJournal, workJournalPage,
   } = ctx;
@@ -223,170 +222,9 @@ export default function ProjectsPage({ ctx }) {
                       />
                     )}
 
-                    {activeProjectTab==='Проект / Обмеры'&&(()=> {
-                      const docs = (projectMeasurements||[]).filter(d=>d.projectName===p.name);
-                      const drafts = (measurementRoomDrafts||[]).filter(d=>d.projectName===p.name);
-                      const projectRooms = rooms.filter(r=>r.project===p.name);
-                      const roomChecks = projectRooms.map(roomCompleteness);
-                      const fullRooms = roomChecks.filter(x=>x.status==='Обмер полный').length;
-                      const missingRooms = roomChecks.filter(x=>x.status==='Не хватает данных').length;
-                      const acceptedDocs = docs.filter(d=>d.status==='Принято').length;
-                      const reviewDocs = docs.filter(d=>d.status==='На проверке').length;
-                      const pendingDrafts = drafts.filter(d=>d.status==='Черновик ИИ').length;
-                      const acceptedDrafts = drafts.filter(d=>d.acceptedRoomId||d.status==='Принято').length;
-                      const canEditMeasurements = user&&['директор','зам_директора','прораб','главный_инженер','сметчик'].includes(user.role);
-                      const {
-                        acceptRoomDraft,
-                        deleteMeasurement,
-                        generateRoomDrafts,
-                        rejectRoomDraft,
-                        saveMeasurement,
-                        statusMeta,
-                        updateMeasurement,
-                      } = createProjectMeasurementActions({
-                        API,
-                        C,
-                        newMeasurementDoc,
-                        project: p,
-                        refreshData,
-                        setMeasurementDraftLoadingId,
-                        setNewMeasurementDoc,
-                        setShowMeasurementForm,
-                        user,
-                      });
-                      return (<div>
-                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'14px'}}>
-                          <div>
-                            <b style={{color:C.text,fontSize:'15px'}}>📐 Проект / Обмеры</b>
-                            <p style={{color:C.textSec,fontSize:'12px',margin:'4px 0 0'}}>Исходники объёмов: проект, экспликации, ведомости окон/дверей, ручные и фактические обмеры.</p>
-                          </div>
-                          {canEditMeasurements&&<button onClick={()=>setShowMeasurementForm(!showMeasurementForm)} style={btnO}><Plus size={14}/>Добавить источник</button>}
-                        </div>
-
-                        <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'repeat(auto-fit,minmax(130px,1fr))',gap:'10px',marginBottom:'14px'}}>
-                          <div style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Исходников</p><b style={{color:C.text,fontSize:'20px'}}>{docs.length}</b></div>
-                          <div style={{padding:'12px',borderRadius:'10px',backgroundColor:acceptedDocs?C.successLight:C.bgWhite,border:'1.5px solid '+(acceptedDocs?C.successBorder:C.border)}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Принято</p><b style={{color:acceptedDocs?C.success:C.text,fontSize:'20px'}}>{acceptedDocs}</b></div>
-                          <div style={{padding:'12px',borderRadius:'10px',backgroundColor:reviewDocs?C.warningLight:C.bgWhite,border:'1.5px solid '+(reviewDocs?C.warningBorder:C.border)}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>На проверке</p><b style={{color:reviewDocs?C.warning:C.text,fontSize:'20px'}}>{reviewDocs}</b></div>
-                          <div style={{padding:'12px',borderRadius:'10px',backgroundColor:pendingDrafts?C.infoLight:C.bgWhite,border:'1.5px solid '+(pendingDrafts?C.infoBorder:C.border)}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Черновики ИИ</p><b style={{color:pendingDrafts?C.info:C.text,fontSize:'20px'}}>{pendingDrafts}</b><span style={{color:C.textMuted,fontSize:'11px',marginLeft:'6px'}}>принято {acceptedDrafts}</span></div>
-                          <div style={{padding:'12px',borderRadius:'10px',backgroundColor:missingRooms?C.warningLight:C.successLight,border:'1.5px solid '+(missingRooms?C.warningBorder:C.successBorder)}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Помещения</p><b style={{color:missingRooms?C.warning:C.success,fontSize:'20px'}}>{fullRooms+'/'+projectRooms.length}</b></div>
-                        </div>
-
-                        {showMeasurementForm&&canEditMeasurements&&(<div style={{...card,padding:'16px',marginBottom:'14px',backgroundColor:C.bg}}>
-                          <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr 1fr',gap:'8px'}}>
-                            <select value={newMeasurementDoc.sourceType} onChange={e=>setNewMeasurementDoc({...newMeasurementDoc,sourceType:e.target.value})} style={{...inp,marginBottom:0}}>{PROJECT_MEASUREMENT_SOURCE_TYPES.map(t=><option key={t}>{t}</option>)}</select>
-                            <select value={newMeasurementDoc.docType} onChange={e=>setNewMeasurementDoc({...newMeasurementDoc,docType:e.target.value})} style={{...inp,marginBottom:0}}>{PROJECT_MEASUREMENT_DOC_TYPES.map(t=><option key={t}>{t}</option>)}</select>
-                            <select value={newMeasurementDoc.status} onChange={e=>setNewMeasurementDoc({...newMeasurementDoc,status:e.target.value})} style={{...inp,marginBottom:0}}>{PROJECT_MEASUREMENT_STATUSES.map(t=><option key={t}>{t}</option>)}</select>
-                            <input placeholder="Название / лист / файл" value={newMeasurementDoc.title} onChange={e=>setNewMeasurementDoc({...newMeasurementDoc,title:e.target.value})} style={{...inp,marginBottom:0}}/>
-                            <input placeholder="Создано помещений" type="number" min="0" inputMode="numeric" value={newMeasurementDoc.roomsCreated} onChange={e=>setNewMeasurementDoc({...newMeasurementDoc,roomsCreated:e.target.value})} style={{...inp,marginBottom:0}}/>
-                            <label style={{...btnG,cursor:'pointer',justifyContent:'center',margin:0}}>
-                              <Upload size={14}/>{uploadingMeasurementDoc?'Загрузка...':(newMeasurementDoc.fileUrl?'Файл загружен':'Загрузить файл')}
-                              <input type='file' accept='.pdf,.doc,.docx,.xls,.xlsx,image/*' style={{display:'none'}} onChange={async e=>{const f=e.target.files[0];if(!f)return;setUploadingMeasurementDoc(true);const url=await uploadPhoto(f,{projectName:p.name,context:'project-measurements'});setUploadingMeasurementDoc(false);if(url)setNewMeasurementDoc(prev=>({...prev,fileUrl:url,title:prev.title||f.name}));}}/>
-                            </label>
-                          </div>
-                          <div style={{marginTop:'8px'}}>
-                            <PhotoAttachmentField
-                              C={C}
-                              btnG={btnG}
-                              value={newMeasurementDoc.photoUrl || ''}
-                              onChange={photoUrl => {
-                                const firstPhoto = String(photoUrl || '').split(',').map(url => url.trim()).filter(Boolean)[0] || '';
-                                setNewMeasurementDoc(prev => ({...prev, photoUrl, fileUrl: prev.fileUrl || firstPhoto, title: prev.title || (firstPhoto ? 'Фото обмера' : '')}));
-                              }}
-                              appendPhotos={appendPhotos}
-                              fileSrc={fileSrc}
-                              setShowPhotoModal={setShowPhotoModal}
-                              projectName={p.name}
-                              context="project-measurements"
-                              title="Фото/сканы листов замеров"
-                            />
-                          </div>
-                          <textarea placeholder="Комментарий: откуда взяты объёмы, что нужно проверить, какие помещения создать" value={newMeasurementDoc.notes} onChange={e=>setNewMeasurementDoc({...newMeasurementDoc,notes:e.target.value})} style={{...inp,minHeight:'70px',resize:'vertical',marginTop:'8px'}}/>
-                          <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                            <button onClick={saveMeasurement} style={btnO}><Check size={14}/>Сохранить</button>
-                            <button onClick={()=>setShowMeasurementForm(false)} style={btnG}><X size={14}/>Отмена</button>
-                          </div>
-                        </div>)}
-
-                        <div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:missingRooms?C.warningLight:C.successLight,border:'1.5px solid '+(missingRooms?C.warningBorder:C.successBorder)}}>
-                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
-                            <div>
-                              <b style={{color:C.text,fontSize:'13px'}}>Помещения и обмеры</b>
-                              <p style={{color:C.textSec,fontSize:'12px',margin:'4px 0 0'}}>{projectRooms.length?('Полный обмер: '+fullRooms+' из '+projectRooms.length+(missingRooms?' · дозаполнить: '+missingRooms:'')):'Помещения ещё не заведены'}</p>
-                            </div>
-                            <button onClick={()=>setActiveProjectTab('Помещения')} style={btnG}>Открыть помещения</button>
-                          </div>
-                        </div>
-
-                        {renderEstimateMeasurementComparisonPanel(p)}
-
-                        {docs.length===0&&(<div style={{...card,padding:'28px',textAlign:'center',color:C.textMuted}}>
-                          <FileText size={42} style={{opacity:.35,marginBottom:'10px'}}/>
-                          <p style={{margin:0}}>Исходники проекта и обмеров пока не добавлены</p>
-                        </div>)}
-                        {docs.map(doc=>{
-                          const sm=statusMeta(doc.status);
-                          const docDrafts = drafts.filter(d=>Number(d.measurementId)===Number(doc.id));
-                          const docPhotos = String(doc.photoUrl || '').split(',').map(url=>url.trim()).filter(Boolean);
-                          return (<div key={doc.id} style={{...card,padding:'14px',marginBottom:'10px',borderLeft:'4px solid '+sm[0]}}>
-                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
-                              <div style={{flex:1,minWidth:'220px'}}>
-                                <div style={{display:'flex',gap:'6px',flexWrap:'wrap',alignItems:'center',marginBottom:'6px'}}>
-                                  <span style={badge(sm[0],sm[1],sm[2])}>{doc.status}</span>
-                                  <span style={{fontSize:'11px',color:C.textSec}}>{doc.sourceType+' · '+doc.docType}</span>
-                                </div>
-                                <b style={{color:C.text,fontSize:'13px',display:'block'}}>{doc.title||doc.docType}</b>
-                                <p style={{color:C.textSec,fontSize:'12px',margin:'4px 0'}}>{(doc.uploadedBy?'Загрузил: '+doc.uploadedBy:'')+(doc.createdAt?' · '+String(doc.createdAt).slice(0,10):'')+(doc.roomsCreated?(' · помещений: '+doc.roomsCreated):'')}</p>
-                                {doc.notes&&<p style={{color:C.textSec,fontSize:'12px',margin:'4px 0 0',lineHeight:1.45}}>{doc.notes}</p>}
-                                {docPhotos.length>0&&<div style={{display:'flex',gap:'5px',flexWrap:'wrap',marginTop:'8px'}}>{docPhotos.slice(0,6).map((url,index)=><img key={url+index} src={fileSrc(url)} alt='' onClick={()=>setShowPhotoModal(fileSrc(url))} style={{width:'54px',height:'54px',objectFit:'cover',borderRadius:'7px',cursor:'pointer',border:'1px solid '+C.border}}/>)}{docPhotos.length>6&&<span style={{fontSize:'11px',color:C.textSec,alignSelf:'center'}}>+{docPhotos.length-6}</span>}</div>}
-                                {doc.reviewedBy&&<p style={{color:C.success,fontSize:'11px',margin:'4px 0 0'}}>{'Принял: '+doc.reviewedBy}</p>}
-                              </div>
-                              <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
-                                {doc.fileUrl&&<a href={fileSrc(doc.fileUrl)} target='_blank' rel='noreferrer' style={{...btnB,padding:'5px 9px',fontSize:'11px',textDecoration:'none'}}><Eye size={11}/>Файл</a>}
-                                {canEditMeasurements&&<button disabled={measurementDraftLoadingId===doc.id} onClick={()=>generateRoomDrafts(doc)} style={{...btnB,padding:'5px 9px',fontSize:'11px',opacity:measurementDraftLoadingId===doc.id?0.7:1}}><Bot size={11}/>{measurementDraftLoadingId===doc.id?'Разбираю...':'ИИ разобрать'}</button>}
-                                {canEditMeasurements&&doc.status!=='На проверке'&&<button onClick={()=>updateMeasurement(doc,{status:'На проверке'})} style={{...btnG,padding:'5px 9px',fontSize:'11px'}}>На проверку</button>}
-                                {canEditMeasurements&&doc.status!=='Принято'&&<button onClick={()=>updateMeasurement(doc,{status:'Принято'})} style={{...btnGr,padding:'5px 9px',fontSize:'11px'}}>Принять</button>}
-                                {canEditMeasurements&&doc.status!=='Отклонено'&&<button onClick={()=>updateMeasurement(doc,{status:'Отклонено'})} style={{...btnR,padding:'5px 9px',fontSize:'11px'}}>Отклонить</button>}
-                                {canEditMeasurements&&<button onClick={()=>deleteMeasurement(doc)} style={{...btnR,padding:'5px 9px',fontSize:'11px'}}><Trash2 size={11}/></button>}
-                              </div>
-                            </div>
-                            {docDrafts.length>0&&(<div style={{marginTop:'12px',paddingTop:'12px',borderTop:'1px solid '+C.border}}>
-                              <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'8px'}}>Черновики помещений из этого источника ({docDrafts.length})</b>
-                              <div style={{display:'grid',gap:'8px'}}>
-                                {docDrafts.map(draft=>{
-                                  const accepted = draft.acceptedRoomId || draft.status==='Принято';
-                                  const rejected = draft.status==='Отклонено';
-                                  const dColor = accepted ? C.success : rejected ? C.danger : C.info;
-                                  const dBg = accepted ? C.successLight : rejected ? C.dangerLight : C.infoLight;
-                                  const dBorder = accepted ? C.successBorder : rejected ? C.dangerBorder : C.infoBorder;
-                                  return (<div key={draft.id} style={{padding:'10px',borderRadius:'8px',backgroundColor:dBg,border:'1.5px solid '+dBorder}}>
-                                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px',flexWrap:'wrap'}}>
-                                      <div style={{flex:1,minWidth:'210px'}}>
-                                        <span style={badge(dColor,dBg,dBorder)}>{draft.status||'Черновик ИИ'}</span>
-                                        <b style={{display:'block',color:C.text,fontSize:'13px',marginTop:'5px'}}>{draft.name}</b>
-                                        <p style={{color:C.textSec,fontSize:'12px',margin:'4px 0 0'}}>
-                                          {'Этаж '+(draft.floor||1)+(draft.roomType?' · '+draft.roomType:'')+
-                                          ' · пол '+fmtMeasure(draft.floorArea||0,'м2')+
-                                          (draft.wallArea?(' · стены '+fmtMeasure(draft.wallArea,'м2')):'')+
-                                          (draft.ceilingArea?(' · потолок '+fmtMeasure(draft.ceilingArea,'м2')):'')+
-                                          (draft.height?(' · высота '+fmtMeasure(draft.height,'м')):'')+
-                                          ((draft.windows||draft.doors)?(' · окна '+(draft.windows||0)+' / двери '+(draft.doors||0)):'')}
-                                        </p>
-                                        {draft.notes&&<p style={{color:C.textMuted,fontSize:'11px',margin:'4px 0 0',lineHeight:1.4}}>{draft.notes}</p>}
-                                      </div>
-                                      {canEditMeasurements&&<div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
-                                        {!accepted&&!rejected&&<button onClick={()=>acceptRoomDraft(draft)} style={{...btnGr,padding:'5px 9px',fontSize:'11px'}}><Check size={11}/>В помещения</button>}
-                                        {!accepted&&!rejected&&<button onClick={()=>rejectRoomDraft(draft)} style={{...btnR,padding:'5px 9px',fontSize:'11px'}}><X size={11}/>Отклонить</button>}
-                                        {accepted&&<button onClick={()=>setActiveProjectTab('Помещения')} style={{...btnG,padding:'5px 9px',fontSize:'11px'}}>Открыть</button>}
-                                      </div>}
-                                    </div>
-                                  </div>);
-                                })}
-                              </div>
-                            </div>)}
-                          </div>);
-                        })}
-                      </div>);
-                    })()}
+                    {activeProjectTab==='Проект / Обмеры'&&(
+                      <ProjectMeasurementSourcesTab ctx={ctx} project={p} />
+                    )}
 
                     {activeProjectTab==='Этапы'&&(
                       <ProjectStagesTab
@@ -534,203 +372,9 @@ export default function ProjectsPage({ ctx }) {
                       />
                     )}
 
-	                    {activeProjectTab==='Помещения'&&(<div>
-	                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-	                        <b style={{color:C.text}}>Помещения</b>
-                        {isProrab()&&<button onClick={()=>{setShowRoomForm(!showRoomForm);setEditingItem(null);setDraftRoomWindows([]);setDraftRoomDoors([]);setNewRoom(createRoomForm({project:p.name}));}} style={btnO}><Plus size={14}/>Добавить</button>}
-                      </div>
-                      {showRoomForm&&(<div style={{...card,padding:'16px',marginBottom:'16px',backgroundColor:C.bg}}>
-                        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
-                          <input placeholder="Название помещения * (например: Кабинет 204)" value={newRoom.name} onChange={e=>setNewRoom({...newRoom,name:e.target.value})} style={{...inp,marginBottom:0}}/>
-                          <input placeholder="Этаж (1,2,3...)" type="number" step="any" inputMode="decimal" value={newRoom.floor||''} onChange={e=>setNewRoom({...newRoom,floor:e.target.value})} style={{...inp,marginBottom:0}}/>
-                          <input placeholder="Литер (А,Б,В...)" value={newRoom.liter||''} onChange={e=>setNewRoom({...newRoom,liter:e.target.value})} style={{...inp,marginBottom:0}}/>
-                          <select value={['Комната','Кабинет','Коридор','Санузел','Кухня','Балкон','Лестница','Холл','Техническое','Другое',...customRoomTypes].includes(newRoom.roomType||'Комната')?(newRoom.roomType||'Комната'):'Другое'} onChange={e=>setNewRoom({...newRoom,roomType:e.target.value})} style={{...inp,marginBottom:0}}>
-                            {[...'Комната,Кабинет,Коридор,Санузел,Кухня,Балкон,Лестница,Холл,Техническое'.split(','),...customRoomTypes,'Другое'].map(t=><option key={t}>{t}</option>)}
-                          </select>
-                          {(newRoom.roomType==='Другое'||(!['Комната','Кабинет','Коридор','Санузел','Кухня','Балкон','Лестница','Холл','Техническое','Другое',''].includes(newRoom.roomType||'Комната')))&&<input placeholder='Свой тип помещения, например: Серверная' value={newRoom.roomType==='Другое'?'':newRoom.roomType||''} onChange={e=>setNewRoom({...newRoom,roomType:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>}
-                          <input placeholder="Высота (м)" type="number" step="any" inputMode="decimal" value={newRoom.height} onChange={e=>setNewRoom({...newRoom,height:e.target.value})} style={{...inp,marginBottom:0}}/>
-                          <input placeholder="Площадь пола (м2)" type="number" step="any" inputMode="decimal" value={newRoom.floorArea} onChange={e=>setNewRoom({...newRoom,floorArea:e.target.value})} style={{...inp,marginBottom:0}}/>
-                          <input placeholder="Площадь стен (м2)" type="number" step="any" inputMode="decimal" value={newRoom.wallArea} onChange={e=>setNewRoom({...newRoom,wallArea:e.target.value})} style={{...inp,marginBottom:0}}/>
-                          <input placeholder="Площадь потолка (м2)" type="number" step="any" inputMode="decimal" value={newRoom.ceilingArea} onChange={e=>setNewRoom({...newRoom,ceilingArea:e.target.value})} style={{...inp,marginBottom:0}}/>
-                        </div>
-                        {(()=>{
-                          const existingWins = editingItem ? roomWindows.filter(w=>Number(w.room_id)===Number(editingItem.id)) : [];
-                          const existingDoors = editingItem ? roomDoors.filter(d=>Number(d.room_id)===Number(editingItem.id)) : [];
-                          const draftOpeningsArea = draftRoomWindows.reduce((s,w)=>s+calcWindowArea(w),0)+draftRoomDoors.reduce((s,d)=>s+calcDoorArea(d),0);
-                          const draftWindowReveals = draftRoomWindows.reduce((s,w)=>s+calcWindowReveals(w),0);
-                          const draftDoorReveals = draftRoomDoors.reduce((s,d)=>s+calcDoorReveals(d),0);
-                          const draftNetWall = Math.max(0, Number(newRoom.wallArea||0)-draftOpeningsArea);
-                          return (
-                            <div style={{marginTop:'10px',padding:'12px',borderRadius:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}>
-                              <div style={{display:'flex',justifyContent:'space-between',gap:'10px',alignItems:'flex-start',marginBottom:'10px',flexWrap:'wrap'}}>
-                                <div>
-                                  <b style={{color:C.text,fontSize:'13px'}}>Окна, двери и откосы</b>
-                                  <p style={{color:C.textSec,fontSize:'11px',margin:'3px 0 0'}}>Окна и двери вычитаются из стен. Откосы считаются отдельной площадью.</p>
-                                </div>
-                                {!editingItem&&<div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
-                                  <span style={badge(C.info,C.infoLight,C.infoBorder)}>{'Чистые стены: '+draftNetWall.toFixed(2)+' м2'}</span>
-                                  <span style={badge(C.accent,C.accentLight,C.accentBorder)}>{'Откосы: '+(draftWindowReveals+draftDoorReveals).toFixed(2)+' м2'}</span>
-                                </div>}
-                              </div>
-                              {editingItem?(
-                                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',padding:'10px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border,flexWrap:'wrap'}}>
-                                  <span style={{color:C.textSec,fontSize:'12px'}}>{'Сейчас в помещении: окон '+existingWins.length+', дверей '+existingDoors.length+'. Для правки размеров раскройте карточку помещения ниже.'}</span>
-                                  <button onClick={()=>{setExpandedRoom(editingItem.id);setShowRoomForm(false);}} style={{...btnG,padding:'6px 10px',fontSize:'12px'}}>Открыть окна/двери</button>
-                                </div>
-                              ):(
-                                <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:'10px'}}>
-                                  <div style={{padding:'10px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}>
-                                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px',gap:'8px'}}>
-                                      <b style={{color:C.text,fontSize:'12px'}}>Окна</b>
-                                      <button onClick={()=>setDraftRoomWindows(prev=>[...prev,{name:'Окно '+(prev.length+1),width:'',height:'',windowType:'ПВХ',revealDepth:'',revealMaterial:'Штукатурка'}])} style={{...btnO,padding:'4px 8px',fontSize:'11px'}}><Plus size={11}/>Окно</button>
-                                    </div>
-                                    {draftRoomWindows.length===0&&<p style={{color:C.textMuted,fontSize:'11px',margin:'0'}}>Окон нет</p>}
-                                    {draftRoomWindows.map((w,idx)=>(<div key={'draft-window-'+idx} style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'1.1fr .9fr .8fr .8fr .8fr 34px',gap:'6px',alignItems:'center',marginBottom:'6px'}}>
-                                      <input placeholder="Название" value={w.name} onChange={e=>setDraftRoomWindows(prev=>prev.map((x,i)=>i===idx?{...x,name:e.target.value}:x))} style={{...inp,marginBottom:0,fontSize:'11px',padding:'8px'}}/>
-                                      <select value={w.windowType||'ПВХ'} onChange={e=>setDraftRoomWindows(prev=>prev.map((x,i)=>i===idx?{...x,windowType:e.target.value}:x))} style={{...inp,marginBottom:0,fontSize:'11px',padding:'8px'}}>{WINDOW_TYPES.map(t=><option key={t}>{t}</option>)}</select>
-                                      <input placeholder="Шир., м" type="number" step="any" inputMode="decimal" value={w.width} onChange={e=>setDraftRoomWindows(prev=>prev.map((x,i)=>i===idx?{...x,width:e.target.value}:x))} style={{...inp,marginBottom:0,fontSize:'11px',padding:'8px'}}/>
-                                      <input placeholder="Выс., м" type="number" step="any" inputMode="decimal" value={w.height} onChange={e=>setDraftRoomWindows(prev=>prev.map((x,i)=>i===idx?{...x,height:e.target.value}:x))} style={{...inp,marginBottom:0,fontSize:'11px',padding:'8px'}}/>
-                                      <input placeholder="Откос, см" type="number" step="any" inputMode="decimal" value={w.revealDepth} onChange={e=>setDraftRoomWindows(prev=>prev.map((x,i)=>i===idx?{...x,revealDepth:e.target.value}:x))} style={{...inp,marginBottom:0,fontSize:'11px',padding:'8px'}}/>
-                                      <button onClick={()=>setDraftRoomWindows(prev=>prev.filter((_,i)=>i!==idx))} style={{...btnR,padding:'7px'}}><Trash2 size={11}/></button>
-                                    </div>))}
-                                  </div>
-                                  <div style={{padding:'10px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}>
-                                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px',gap:'8px'}}>
-                                      <b style={{color:C.text,fontSize:'12px'}}>Двери</b>
-                                      <button onClick={()=>setDraftRoomDoors(prev=>[...prev,{name:'Дверь '+(prev.length+1),width:'',height:'',doorType:'Деревянная',doorPurpose:'Межкомнатная',revealDepth:'',revealMaterial:'Штукатурка'}])} style={{...btnO,padding:'4px 8px',fontSize:'11px'}}><Plus size={11}/>Дверь</button>
-                                    </div>
-                                    {draftRoomDoors.length===0&&<p style={{color:C.textMuted,fontSize:'11px',margin:'0'}}>Дверей нет</p>}
-                                    {draftRoomDoors.map((d,idx)=>(<div key={'draft-door-'+idx} style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'1.1fr .9fr .8fr .8fr .8fr 34px',gap:'6px',alignItems:'center',marginBottom:'6px'}}>
-                                      <input placeholder="Название" value={d.name} onChange={e=>setDraftRoomDoors(prev=>prev.map((x,i)=>i===idx?{...x,name:e.target.value}:x))} style={{...inp,marginBottom:0,fontSize:'11px',padding:'8px'}}/>
-                                      <select value={d.doorPurpose||'Межкомнатная'} onChange={e=>setDraftRoomDoors(prev=>prev.map((x,i)=>i===idx?{...x,doorPurpose:e.target.value}:x))} style={{...inp,marginBottom:0,fontSize:'11px',padding:'8px'}}>{DOOR_PURPOSES.map(t=><option key={t}>{t}</option>)}</select>
-                                      <input placeholder="Шир., м" type="number" step="any" inputMode="decimal" value={d.width} onChange={e=>setDraftRoomDoors(prev=>prev.map((x,i)=>i===idx?{...x,width:e.target.value}:x))} style={{...inp,marginBottom:0,fontSize:'11px',padding:'8px'}}/>
-                                      <input placeholder="Выс., м" type="number" step="any" inputMode="decimal" value={d.height} onChange={e=>setDraftRoomDoors(prev=>prev.map((x,i)=>i===idx?{...x,height:e.target.value}:x))} style={{...inp,marginBottom:0,fontSize:'11px',padding:'8px'}}/>
-                                      <input placeholder="Откос, см" type="number" step="any" inputMode="decimal" value={d.revealDepth} onChange={e=>setDraftRoomDoors(prev=>prev.map((x,i)=>i===idx?{...x,revealDepth:e.target.value}:x))} style={{...inp,marginBottom:0,fontSize:'11px',padding:'8px'}}/>
-                                      <button onClick={()=>setDraftRoomDoors(prev=>prev.filter((_,i)=>i!==idx))} style={{...btnR,padding:'7px'}}><Trash2 size={11}/></button>
-                                    </div>))}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()}
-                        <div style={{marginTop:'8px'}}>
-                          <PhotoAttachmentField
-                            C={C}
-                            btnG={btnG}
-                            value={newRoom.photoUrl || ''}
-                            onChange={photoUrl => setNewRoom({...newRoom, photoUrl})}
-                            appendPhotos={appendPhotos}
-                            fileSrc={fileSrc}
-                            setShowPhotoModal={setShowPhotoModal}
-                            projectName={p.name}
-                            context="room-measurements"
-                            title="Фото помещения / лист замера"
-                          />
-                        </div>
-                        <div style={{display:'flex',gap:'8px',marginTop:'10px'}}><button onClick={saveRoom} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button><button onClick={()=>{setShowRoomForm(false);setEditingItem(null);setDraftRoomWindows([]);setDraftRoomDoors([]);}} style={btnG}><X size={14}/>Отмена</button></div>
-                  </div>)}
-                      {(()=>{const projectRooms=rooms.filter(r=>r.project===p.name);if(projectRooms.length===0)return null;const checked=projectRooms.map(roomCompleteness);const full=checked.filter(x=>x.status==='Обмер полный').length;const missing=checked.filter(x=>x.status==='Не хватает данных').length;const openings=checked.filter(x=>x.status==='Проверить проёмы').length;return(<div style={{...card,padding:'12px',marginBottom:'12px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}>
-                        <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'repeat(4,1fr)',gap:'8px'}}>
-                          <div style={{padding:'10px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Помещений</p><b style={{color:C.text,fontSize:'16px'}}>{projectRooms.length}</b></div>
-                          <div style={{padding:'10px',borderRadius:'8px',backgroundColor:C.successLight,border:'1px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'10px',margin:'0 0 3px'}}>Обмер полный</p><b style={{color:C.success,fontSize:'16px'}}>{full}</b></div>
-                          <div style={{padding:'10px',borderRadius:'8px',backgroundColor:missing?C.warningLight:C.bg,border:'1px solid '+(missing?C.warningBorder:C.border)}}><p style={{color:missing?C.warning:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Дозаполнить</p><b style={{color:missing?C.warning:C.text,fontSize:'16px'}}>{missing}</b></div>
-                          <div style={{padding:'10px',borderRadius:'8px',backgroundColor:openings?C.infoLight:C.bg,border:'1px solid '+(openings?C.infoBorder:C.border)}}><p style={{color:openings?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Проёмы/откосы</p><b style={{color:openings?C.info:C.text,fontSize:'16px'}}>{openings}</b></div>
-                        </div>
-                      </div>);})()}
-                      {rooms.filter(r=>r.project===p.name).map(room=>{
-                        const wins=roomWindows.filter(w=>Number(w.room_id)===Number(room.id));
-                        const doors=roomDoors.filter(d=>Number(d.room_id)===Number(room.id));
-                        const netWall=getRoomNetWall(room);
-                        const winRevTotal=wins.reduce((s,w)=>s+calcWindowReveals(w),0);
-                        const doorRevTotal=doors.reduce((s,d)=>s+calcDoorReveals(d),0);
-                        const isRoomOpen=expandedRoom===room.id;
-                        const completeness=roomCompleteness(room);
-                        const roomPhotos=String(room.photoUrl||room.photo_url||'').split(',').map(url=>url.trim()).filter(Boolean);
-                        return(<div key={room.id} style={{...card,marginBottom:'10px'}}>
-                          <div style={{padding:'14px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}} onClick={()=>setExpandedRoom(isRoomOpen?null:room.id)}>
-                            <div style={{minWidth:0,flex:1}}><b style={{color:C.text,fontSize:'13px'}}>{room.name}</b>{room.floor&&<span style={{fontSize:'11px',color:C.accent,marginLeft:'6px',padding:'1px 6px',backgroundColor:C.accentLight,borderRadius:'4px'}}>{'Эт.'+room.floor+(room.liter?' Лит.'+room.liter:'')}</span>}{room.roomType&&<span style={{fontSize:'11px',color:C.textSec,marginLeft:'4px'}}>{'· '+room.roomType}</span>}<span style={{...badge(completeness.color,completeness.bg,completeness.border),marginLeft:'6px'}}>{completeness.status}</span><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{'Пол: '+room.floorArea+'м² · Стены: '+room.wallArea+'м² (чистые: '+netWall+'м²) · Потолок: '+room.ceilingArea+'м² · Высота: '+(room.height||'—')+'м'}</p><p style={{color:C.textSec,margin:'0',fontSize:'11px'}}>{'Окна: '+wins.length+'шт · Двери: '+doors.length+'шт'+(winRevTotal>0?' · Откосы окон: '+winRevTotal+'м²':'')+(doorRevTotal>0?' · Откосы дверей: '+doorRevTotal+'м²':'')}</p>{roomPhotos.length>0&&<div style={{display:'flex',gap:'4px',flexWrap:'wrap',marginTop:'6px'}}>{roomPhotos.slice(0,4).map((url,index)=><img key={url+index} src={fileSrc(url)} alt='' onClick={e=>{e.stopPropagation();setShowPhotoModal(fileSrc(url));}} style={{width:'44px',height:'44px',objectFit:'cover',borderRadius:'6px',cursor:'pointer',border:'1px solid '+C.border}}/>)}{roomPhotos.length>4&&<span style={{fontSize:'11px',color:C.textSec,alignSelf:'center'}}>+{roomPhotos.length-4}</span>}</div>}{completeness.issues.length>0&&<p style={{color:completeness.color,margin:'3px 0 0',fontSize:'11px',fontWeight:'600'}}>{'Нужно: '+completeness.issues.slice(0,4).join(', ')+(completeness.issues.length>4?' …':'')}</p>}</div>
-                            <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
-                              {isProrab()&&(<><button onClick={e=>{e.stopPropagation();setEditingItem(room);setDraftRoomWindows([]);setDraftRoomDoors([]);setNewRoom({project:room.project,name:room.name,floor:room.floor||'',liter:room.liter||'',roomType:room.roomType||'Комната',floorArea:room.floorArea,wallArea:room.wallArea,ceilingArea:room.ceilingArea,height:room.height||'',ceilingType:room.ceiling_type||room.ceilingType||'Простой',wallMaterial:room.wall_material||room.wallMaterial||'Штукатурка',floorMaterial:room.floor_material||room.floorMaterial||'Стяжка',photoUrl:room.photoUrl||room.photo_url||'',notes:room.notes||''});setShowRoomForm(true);}} style={{...btnG,padding:'4px 8px'}}><Edit2 size={11}/></button><button onClick={e=>{e.stopPropagation();deleteRoom(room.id);}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button></>)}
-                              {isRoomOpen?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}
-                            </div>
-                          </div>
-                          {isRoomOpen&&(<div style={{borderTop:'1.5px solid '+C.border,padding:'14px'}}>
-                            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'16px'}}>
-                              <div>
-                                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
-                                  <b style={{color:C.text,fontSize:'13px'}}>🪟 Окна</b>
-                                  <button onClick={()=>setNewWindow(createWindowForm({roomId:room.id,name:'Окно '+(wins.length+1)}))} style={{...btnO,padding:'4px 10px',fontSize:'11px'}}><Plus size={11}/>Добавить</button>
-                                </div>
-                                {wins.map(w=>(<div key={w.id} style={{padding:'8px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border}}>
-                                  {editingWindow===w.id?(<div>
-                                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px',marginBottom:'8px'}}>
-                                      <input placeholder="Название" value={w.name} onChange={e=>{const updated=roomWindows.map(x=>x.id===w.id?{...x,name:e.target.value}:x);setRoomWindows(updated);}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                                      <select value={w.window_type||w.windowType||'ПВХ'} onChange={e=>{const updated=roomWindows.map(x=>x.id===w.id?{...x,window_type:e.target.value}:x);setRoomWindows(updated);}} style={{...inp,marginBottom:0,fontSize:'12px'}}>{WINDOW_TYPES.map(t=><option key={t}>{t}</option>)}</select>
-                                      <input placeholder="Ширина (м)" type="number" step="any" inputMode="decimal" value={w.width} onChange={e=>{const updated=roomWindows.map(x=>x.id===w.id?{...x,width:e.target.value}:x);setRoomWindows(updated);}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                                      <input placeholder="Высота (м)" type="number" step="any" inputMode="decimal" value={w.height} onChange={e=>{const updated=roomWindows.map(x=>x.id===w.id?{...x,height:e.target.value}:x);setRoomWindows(updated);}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                                      <input placeholder="Откос (см)" type="number" step="any" inputMode="decimal" value={w.reveal_depth||w.revealDepth||''} onChange={e=>{const updated=roomWindows.map(x=>x.id===w.id?{...x,reveal_depth:e.target.value}:x);setRoomWindows(updated);}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                                      <select value={w.reveal_material||w.revealMaterial||'Штукатурка'} onChange={e=>{const updated=roomWindows.map(x=>x.id===w.id?{...x,reveal_material:e.target.value}:x);setRoomWindows(updated);}} style={{...inp,marginBottom:0,fontSize:'12px'}}>{REVEAL_MATERIALS.map(t=><option key={t}>{t}</option>)}</select>
-                                    </div>
-                                    <div style={{display:'flex',gap:'6px'}}><button onClick={()=>updateWindow(w)} style={{...btnGr,padding:'4px 10px',fontSize:'11px'}}><Check size={11}/>Сохранить</button><button onClick={()=>setEditingWindow(null)} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}><X size={11}/>Отмена</button></div>
-                                  </div>):(<div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                                    <div><b style={{fontSize:'12px',color:C.text}}>{w.name}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{(w.window_type||w.windowType||'ПВХ')+' '+w.width+'×'+w.height+'м = '+calcWindowArea(w).toFixed(2)+'м²'}</p>{calcWindowReveals(w)>0&&<p style={{color:C.info,margin:'0',fontSize:'10px'}}>{'Откосы: '+calcWindowReveals(w).toFixed(2)+'м² ('+((w.reveal_depth||w.revealDepth)||0)+'см)'}</p>}</div>
-                                    <div style={{display:'flex',gap:'4px'}}><button onClick={()=>setEditingWindow(w.id)} style={{...btnG,padding:'3px 7px'}}><Edit2 size={10}/></button><button onClick={()=>deleteWindow(w.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={10}/></button></div>
-                  </div>)}
-                                </div>))}
-                                {newWindow.roomId===room.id&&(<div style={{padding:'10px',backgroundColor:C.accentLight,borderRadius:'8px',border:'1.5px solid '+C.accentBorder}}>
-                                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px',marginBottom:'8px'}}>
-                                    <input placeholder="Название" value={newWindow.name} onChange={e=>setNewWindow({...newWindow,name:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                                    <select value={newWindow.windowType} onChange={e=>setNewWindow({...newWindow,windowType:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>{WINDOW_TYPES.map(t=><option key={t}>{t}</option>)}</select>
-                                    <input placeholder="Ширина (м)" type="number" step="any" inputMode="decimal" value={newWindow.width} onChange={e=>setNewWindow({...newWindow,width:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                                    <input placeholder="Высота (м)" type="number" step="any" inputMode="decimal" value={newWindow.height} onChange={e=>setNewWindow({...newWindow,height:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                                    <input placeholder="Откос (см)" type="number" step="any" inputMode="decimal" value={newWindow.revealDepth} onChange={e=>setNewWindow({...newWindow,revealDepth:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                                    <select value={newWindow.revealMaterial} onChange={e=>setNewWindow({...newWindow,revealMaterial:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>{REVEAL_MATERIALS.map(t=><option key={t}>{t}</option>)}</select>
-                                  </div>
-                                  <div style={{display:'flex',gap:'6px'}}><button onClick={()=>saveWindow(room.id)} style={{...btnO,padding:'5px 12px',fontSize:'11px'}}><Check size={11}/>Добавить</button><button onClick={()=>setNewWindow(createWindowForm())} style={{...btnG,padding:'5px 12px',fontSize:'11px'}}><X size={11}/>Отмена</button></div>
-                  </div>)}
-                              </div>
-                              <div>
-                                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
-                                  <b style={{color:C.text,fontSize:'13px'}}>🚪 Двери</b>
-                                  <button onClick={()=>setNewDoor(createDoorForm({roomId:room.id,name:'Дверь '+(doors.length+1)}))} style={{...btnO,padding:'4px 10px',fontSize:'11px'}}><Plus size={11}/>Добавить</button>
-                                </div>
-                                {doors.map(d=>(<div key={d.id} style={{padding:'8px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border}}>
-                                  {editingDoor===d.id?(<div>
-                                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px',marginBottom:'8px'}}>
-                                      <input placeholder="Название" value={d.name} onChange={e=>{const updated=roomDoors.map(x=>x.id===d.id?{...x,name:e.target.value}:x);setRoomDoors(updated);}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                                      <select value={d.door_type||d.doorType||'Деревянная'} onChange={e=>{const updated=roomDoors.map(x=>x.id===d.id?{...x,door_type:e.target.value}:x);setRoomDoors(updated);}} style={{...inp,marginBottom:0,fontSize:'12px'}}>{DOOR_TYPES.map(t=><option key={t}>{t}</option>)}</select>
-                                      <select value={d.door_purpose||d.doorPurpose||'Межкомнатная'} onChange={e=>{const updated=roomDoors.map(x=>x.id===d.id?{...x,door_purpose:e.target.value}:x);setRoomDoors(updated);}} style={{...inp,marginBottom:0,fontSize:'12px'}}>{DOOR_PURPOSES.map(t=><option key={t}>{t}</option>)}</select>
-                                      <input placeholder="Ширина (м)" type="number" step="any" inputMode="decimal" value={d.width} onChange={e=>{const updated=roomDoors.map(x=>x.id===d.id?{...x,width:e.target.value}:x);setRoomDoors(updated);}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                                      <input placeholder="Высота (м)" type="number" step="any" inputMode="decimal" value={d.height} onChange={e=>{const updated=roomDoors.map(x=>x.id===d.id?{...x,height:e.target.value}:x);setRoomDoors(updated);}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                                      <input placeholder="Откос (см)" type="number" step="any" inputMode="decimal" value={d.reveal_depth||d.revealDepth||''} onChange={e=>{const updated=roomDoors.map(x=>x.id===d.id?{...x,reveal_depth:e.target.value}:x);setRoomDoors(updated);}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                                      <select value={d.reveal_material||d.revealMaterial||'Штукатурка'} onChange={e=>{const updated=roomDoors.map(x=>x.id===d.id?{...x,reveal_material:e.target.value}:x);setRoomDoors(updated);}} style={{...inp,marginBottom:0,fontSize:'12px'}}>{REVEAL_MATERIALS.map(t=><option key={t}>{t}</option>)}</select>
-                                    </div>
-                                    <div style={{display:'flex',gap:'6px'}}><button onClick={()=>updateDoor(d)} style={{...btnGr,padding:'4px 10px',fontSize:'11px'}}><Check size={11}/>Сохранить</button><button onClick={()=>setEditingDoor(null)} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}><X size={11}/>Отмена</button></div>
-                                  </div>):(<div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                                    <div><b style={{fontSize:'12px',color:C.text}}>{d.name}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{(d.door_type||d.doorType||'')+(d.door_purpose||d.doorPurpose?'/'+(d.door_purpose||d.doorPurpose):'')+ ' '+d.width+'×'+d.height+'м = '+calcDoorArea(d).toFixed(2)+'м²'}</p>{calcDoorReveals(d)>0&&<p style={{color:C.info,margin:'0',fontSize:'10px'}}>{'Откосы: '+calcDoorReveals(d).toFixed(2)+'м² ('+((d.reveal_depth||d.revealDepth)||0)+'см)'}</p>}</div>
-                                    <div style={{display:'flex',gap:'4px'}}><button onClick={()=>setEditingDoor(d.id)} style={{...btnG,padding:'3px 7px'}}><Edit2 size={10}/></button><button onClick={()=>deleteDoor(d.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={10}/></button></div>
-                  </div>)}
-                                </div>))}
-                                {newDoor.roomId===room.id&&(<div style={{padding:'10px',backgroundColor:C.accentLight,borderRadius:'8px',border:'1.5px solid '+C.accentBorder}}>
-                                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px',marginBottom:'8px'}}>
-                                    <input placeholder="Название" value={newDoor.name} onChange={e=>setNewDoor({...newDoor,name:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                                    <select value={newDoor.doorType} onChange={e=>setNewDoor({...newDoor,doorType:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>{DOOR_TYPES.map(t=><option key={t}>{t}</option>)}</select>
-                                    <select value={newDoor.doorPurpose} onChange={e=>setNewDoor({...newDoor,doorPurpose:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>{DOOR_PURPOSES.map(t=><option key={t}>{t}</option>)}</select>
-                                    <input placeholder="Ширина (м)" type="number" step="any" inputMode="decimal" value={newDoor.width} onChange={e=>setNewDoor({...newDoor,width:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                                    <input placeholder="Высота (м)" type="number" step="any" inputMode="decimal" value={newDoor.height} onChange={e=>setNewDoor({...newDoor,height:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                                    <input placeholder="Откос (см)" type="number" step="any" inputMode="decimal" value={newDoor.revealDepth} onChange={e=>setNewDoor({...newDoor,revealDepth:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                                    <select value={newDoor.revealMaterial} onChange={e=>setNewDoor({...newDoor,revealMaterial:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>{REVEAL_MATERIALS.map(t=><option key={t}>{t}</option>)}</select>
-                                  </div>
-                                  <div style={{display:'flex',gap:'6px'}}><button onClick={()=>saveDoor(room.id)} style={{...btnO,padding:'5px 12px',fontSize:'11px'}}><Check size={11}/>Добавить</button><button onClick={()=>setNewDoor(createDoorForm())} style={{...btnG,padding:'5px 12px',fontSize:'11px'}}><X size={11}/>Отмена</button></div>
-                  </div>)}
-                              </div>
-                            </div>
-                  </div>)}
-                        </div>);
-                      })}
-                      {rooms.filter(r=>r.project===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Помещений нет</p>}
-                  </div>)}
+                    {activeProjectTab==='Помещения'&&(
+                      <ProjectRoomsTab ctx={ctx} project={p} />
+                    )}
 
                     {activeProjectTab==='Чек-листы'&&(
                       <ProjectChecklistsTab
