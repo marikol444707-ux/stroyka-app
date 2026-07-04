@@ -151,6 +151,7 @@ export function buildAppRenderContext({
     uploadPhoto,
     visibleEstimatesForCurrentUser
   } = appCoreRuntime;
+  const readMyNotifications = typeof myNotifications === 'function' ? myNotifications : () => [];
   const {
     activeEstimatesForProject,
     autoFillNormMaterialsForWork,
@@ -263,7 +264,8 @@ export function buildAppRenderContext({
     tblC,
     tblH
   } = ui;
-  const unreadNotifications = myNotifications(notifications).filter((n) => !n.read).length;
+  const notificationItems = readMyNotifications(notifications);
+  const unreadNotifications = (Array.isArray(notificationItems) ? notificationItems : []).filter((n) => !n.read).length;
   const exportToExcel = exportToExcelFile;
   const allMenuItems = buildAppMenuItems();
   const pageFallback = <AppPageFallback C={C} card={card} isMobile={isMobile} />;
@@ -447,7 +449,7 @@ export function buildAppRenderContext({
         checkinGeo, closeNotifications, confirmMaterialReceipt, createInvoiceFromOffer,
         createShipmentFromOffer, createSupplyReq, deleteSupplyTemplate, fetchPriceHint,
         getNotifPage, handleLogin, handleLogout, handleRegister, handleTwoFactorLogin,
-        loadAll, loadPricelistItems, markMyNotificationsRead, myNotifications, navigateTo,
+        loadAll, loadPricelistItems, markMyNotificationsRead, myNotifications: readMyNotifications, navigateTo,
         notify, refreshData, removeEstimateWorkMaterial, removeSelectedWorkMaterial,
         renderMaterialWriteoffStatus, renderSupplyPlanningHint, renderSupplyRequestOrigin,
         returnMaterialToProject, roleColor, saveProfile, saveSupplyTemplate,

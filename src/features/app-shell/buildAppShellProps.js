@@ -165,6 +165,8 @@ export function buildAppShellProps({
     toggleNotifications,
     unreadMessagesCount
   } = coreRuntime;
+  const safeCanAccess = typeof canAccess === 'function' ? canAccess : () => true;
+  const readMyNotifications = typeof myNotifications === 'function' ? myNotifications : () => [];
   const {
     buildDirectorBriefReportContent,
     buildSupplyControlReportContent,
@@ -218,10 +220,13 @@ export function buildAppShellProps({
     ...estimatePageActions,
     ...dashboardActions,
     ...selectors,
+    canAccess: safeCanAccess,
+    myNotifications: readMyNotifications,
     setUser
   };
-  const menuItems = allMenuItems.filter((item) => canAccess(item.id));
-  const unreadNotifications = myNotifications(notifications).filter((n) => !n.read).length;
+  const menuItems = allMenuItems.filter((item) => safeCanAccess(item.id));
+  const notificationItems = readMyNotifications(notifications);
+  const unreadNotifications = (Array.isArray(notificationItems) ? notificationItems : []).filter((n) => !n.read).length;
   const uiBase = { API, C, badge, btnB, btnG, btnGr, btnO, btnR, card, inp, isMobile, tbl, tblC, tblH };
   const showPreview = dashboardActions.showPreview;
 
@@ -308,7 +313,7 @@ export function buildAppShellProps({
       actions: sharedActions
     },
     C,
-    canOpenProjects: canAccess('projects'),
+    canOpenProjects: safeCanAccess('projects'),
     dashboardProps: {
       ui: { API, C, btnG, btnO, darkMode, isMobile, showAiAssistant, showNotifications, unreadMessagesCount, unreadNotifications },
       data: {
