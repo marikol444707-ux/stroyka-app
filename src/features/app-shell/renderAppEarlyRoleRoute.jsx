@@ -5,12 +5,12 @@ import AppRoleCabinetRoutes from '../../components/AppRoleCabinetRoutes';
 import AppSupplierCabinetRoute from '../../components/AppSupplierCabinetRoute';
 
 export function renderAppEarlyRoleRoute({
-  constants,
-  data,
+  constants = {},
+  data = {},
   pageFallback,
-  selectors,
-  ui,
-}) {
+  selectors = {},
+  ui = {},
+} = {}) {
   const {
     API,
     C,
@@ -46,8 +46,12 @@ export function renderAppEarlyRoleRoute({
     user,
   } = data;
   const { isMasterRole } = selectors;
+  const currentRole = user?.role || '';
+  const isMasterRoleSafe = typeof isMasterRole === 'function'
+    ? isMasterRole
+    : () => ['мастер', 'субподрядчик', 'бригадир'].includes(currentRole);
 
-  if (isMasterRole()) {
+  if (isMasterRoleSafe()) {
     return (
       <AppMasterCabinetRoute
         pageFallback={pageFallback}

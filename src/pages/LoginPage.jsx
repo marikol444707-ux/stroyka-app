@@ -4,6 +4,20 @@ const isLocalHost = ['localhost', '127.0.0.1', '::1'].includes(window.location.h
 const API = process.env.REACT_APP_API_URL || (isLocalHost ? 'http://localhost:8001' : '');
 
 const LoginPage = ({email, setEmail, password, setPassword, handleLogin, handleTwoFactorLogin, loginError, setLoginError, setPage}) => {
+  const noop = () => {};
+  const changeEmail = typeof setEmail === 'function' ? setEmail : noop;
+  const changePassword = typeof setPassword === 'function' ? setPassword : noop;
+  const changeLoginError = typeof setLoginError === 'function' ? setLoginError : noop;
+  const changePage = typeof setPage === 'function' ? setPage : noop;
+  const runLogin = typeof handleLogin === 'function'
+    ? handleLogin
+    : async () => {
+      changeLoginError('Форма входа ещё загружается. Обновите страницу и попробуйте снова.');
+      return null;
+    };
+  const runTwoFactorLogin = typeof handleTwoFactorLogin === 'function'
+    ? handleTwoFactorLogin
+    : async () => ({ok:false,error:'Проверка 2FA ещё загружается. Обновите страницу и попробуйте снова.'});
   const [forgotMode, setForgotMode] = useState(false);
   const [forgotStep, setForgotStep] = useState(1);
   const [resetCode, setResetCode] = useState('');
@@ -19,7 +33,7 @@ const LoginPage = ({email, setEmail, password, setPassword, handleLogin, handleT
 
   const submitLogin = async () => {
     setTwoFactorErr('');
-    const data = await handleLogin();
+    const data = await runLogin();
     if (data?.twoFactorSetupRequired) {
       setTwoFactor({
         mode: 'setup',
@@ -48,7 +62,7 @@ const LoginPage = ({email, setEmail, password, setPassword, handleLogin, handleT
       setTwoFactorErr('Введите 6 цифр из приложения-аутентификатора');
       return;
     }
-    const result = await handleTwoFactorLogin({mode: twoFactor.mode, token: twoFactor.token, code: cleanCode});
+    const result = await runTwoFactorLogin({mode: twoFactor.mode, token: twoFactor.token, code: cleanCode});
     if (!result?.ok) setTwoFactorErr(result?.error || 'Неверный код 2FA');
   };
 
@@ -75,7 +89,7 @@ const LoginPage = ({email, setEmail, password, setPassword, handleLogin, handleT
       if(!res.ok){setForgotErr(d.detail||'Ошибка');return;}
       setForgotStep(3);
       setForgotMsg('Пароль изменён. Войди с новым паролем.');
-      setPassword(newPass);
+      changePassword(newPass);
     } catch(e){ setForgotErr('Ошибка соединения'); }
   };
 
@@ -87,7 +101,7 @@ const LoginPage = ({email, setEmail, password, setPassword, handleLogin, handleT
         {forgotStep===1&&(<div>
           <div style={{background:'#2c2c2e',borderRadius:'11px',padding:'11px 14px',marginBottom:'10px'}}>
             <span style={{fontSize:'11px',color:'#636366',display:'block',marginBottom:'2px'}}>E-mail</span>
-            <input type='email' value={email} onChange={e=>setEmail(e.target.value)} placeholder='you@stroyka.ru' style={{background:'none',border:'none',outline:'none',color:'#e5e5ea',fontSize:'14px',width:'100%'}}/>
+            <input type='email' value={email} onChange={e=>changeEmail(e.target.value)} placeholder='you@stroyka.ru' style={{background:'none',border:'none',outline:'none',color:'#e5e5ea',fontSize:'14px',width:'100%'}}/>
           </div>
           <button onClick={requestReset} style={{width:'100%',padding:'15px 18px',borderRadius:'12px',border:'none',cursor:'pointer',background:'linear-gradient(135deg,#FF6000 0%,#FF8000 45%,#FF6A00 100%)',color:'white',fontSize:'15px',fontWeight:'700'}}>Получить код</button>
         </div>)}
@@ -145,14 +159,14 @@ const LoginPage = ({email, setEmail, password, setPassword, handleLogin, handleT
         <button onClick={verifyTwoFactor} style={{width:'100%',padding:'15px 18px',borderRadius:'12px',border:'none',cursor:'pointer',background:'linear-gradient(135deg,#FF6000 0%,#FF8000 45%,#FF6A00 100%)',color:'white',fontSize:'15px',fontWeight:'700',marginBottom:'10px'}}>
           {twoFactor.mode === 'setup' ? 'Включить 2FA и войти' : 'Подтвердить вход'}
         </button>
-        <button onClick={()=>{setTwoFactor(null);setTwoFactorCode('');setTwoFactorErr('');setPassword('');}} style={{width:'100%',padding:'12px',borderRadius:'12px',border:'1px solid #3a3a3c',background:'#252527',cursor:'pointer',color:'#aeaeb2',fontSize:'13px',fontWeight:'500'}}>Вернуться ко входу</button>
+        <button onClick={()=>{setTwoFactor(null);setTwoFactorCode('');setTwoFactorErr('');changePassword('');}} style={{width:'100%',padding:'12px',borderRadius:'12px',border:'1px solid #3a3a3c',background:'#252527',cursor:'pointer',color:'#aeaeb2',fontSize:'13px',fontWeight:'500'}}>Вернуться ко входу</button>
       </div>
     </div>
   );
 
   return (
     <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:'20px',background:'radial-gradient(circle at 15% 10%,rgba(234,88,12,.18),transparent 28%),linear-gradient(135deg,#020617 0%,#0f172a 54%,#020617 100%)'}}>
-      <button onClick={()=>{setPage('site');setLoginError('');}} style={{position:'fixed',top:'18px',left:'18px',zIndex:2,padding:'10px 14px',borderRadius:'12px',border:'1px solid rgba(255,255,255,.18)',background:'rgba(15,23,42,.72)',color:'#e5e7eb',fontSize:'13px',fontWeight:'700',cursor:'pointer',backdropFilter:'blur(12px)'}}>На сайт СтройКа</button>
+      <button onClick={()=>{changePage('site');changeLoginError('');}} style={{position:'fixed',top:'18px',left:'18px',zIndex:2,padding:'10px 14px',borderRadius:'12px',border:'1px solid rgba(255,255,255,.18)',background:'rgba(15,23,42,.72)',color:'#e5e7eb',fontSize:'13px',fontWeight:'700',cursor:'pointer',backdropFilter:'blur(12px)'}}>На сайт СтройКа</button>
       <div style={{position:'absolute',width:'260px',height:'260px',borderRadius:'50%',background:'rgba(234,88,12,.35)',filter:'blur(70px)',top:'-90px',left:'-70px',pointerEvents:'none'}}/>
       <div style={{position:'absolute',width:'260px',height:'260px',borderRadius:'50%',background:'rgba(59,130,246,.18)',filter:'blur(70px)',bottom:'-90px',right:'-70px',pointerEvents:'none'}}/>
       <div style={{width:'100%',maxWidth:'400px',position:'relative',overflow:'hidden',borderRadius:'34px',background:'linear-gradient(145deg,rgba(15,23,42,.96),rgba(2,6,23,.96))',border:'1px solid rgba(148,163,184,.2)',boxShadow:'0 30px 100px rgba(0,0,0,.55)'}}>
@@ -180,11 +194,11 @@ const LoginPage = ({email, setEmail, password, setPassword, handleLogin, handleT
         <div style={{padding:'16px 28px 28px'}}>
           <div style={{background:'#2c2c2e',borderRadius:'11px',padding:'11px 14px 11px 14px',marginBottom:'10px'}}>
             <span style={{fontSize:'11px',color:'#636366',display:'block',marginBottom:'2px'}}>E-mail</span>
-            <input type="email" placeholder="admin@stroyka.ru" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submitLogin()} style={{background:'none',border:'none',outline:'none',color:'#e5e5ea',fontSize:'14px',width:'100%'}}/>
+            <input type="email" placeholder="admin@stroyka.ru" value={email} onChange={e=>changeEmail(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submitLogin()} style={{background:'none',border:'none',outline:'none',color:'#e5e5ea',fontSize:'14px',width:'100%'}}/>
           </div>
           <div style={{background:'#2c2c2e',borderRadius:'11px',padding:'11px 14px',marginBottom:'10px'}}>
             <span style={{fontSize:'11px',color:'#636366',display:'block',marginBottom:'2px'}}>Пароль</span>
-            <input type="password" placeholder="••••••••" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submitLogin()} style={{background:'none',border:'none',outline:'none',color:'#e5e5ea',fontSize:'14px',width:'100%'}}/>
+            <input type="password" placeholder="••••••••" value={password} onChange={e=>changePassword(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submitLogin()} style={{background:'none',border:'none',outline:'none',color:'#e5e5ea',fontSize:'14px',width:'100%'}}/>
           </div>
           {loginError&&<div style={{padding:'10px 14px',borderRadius:'10px',background:'rgba(239,68,68,.12)',border:'1px solid rgba(239,68,68,.26)',color:'#fca5a5',fontSize:'13px',marginBottom:'10px'}}>{loginError}</div>}
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0 14px'}}>
@@ -192,7 +206,7 @@ const LoginPage = ({email, setEmail, password, setPassword, handleLogin, handleT
               <div style={{width:'20px',height:'20px',borderRadius:'50%',background:'radial-gradient(circle at 38% 35%,#ffb84d,#FF6A00 70%)',boxShadow:'0 0 10px rgba(255,106,0,0.55)'}}/>
               <span style={{fontSize:'13px',color:'#e5e5ea'}}>Запомнить меня</span>
             </div>
-            <button onClick={()=>{setForgotMode(true);setLoginError('');}} style={{fontSize:'13px',color:'#FF6A00',fontWeight:'500',background:'none',border:'none',cursor:'pointer'}}>Забыли пароль?</button>
+            <button onClick={()=>{setForgotMode(true);changeLoginError('');}} style={{fontSize:'13px',color:'#FF6A00',fontWeight:'500',background:'none',border:'none',cursor:'pointer'}}>Забыли пароль?</button>
           </div>
           <button onClick={submitLogin} style={{width:'100%',padding:'15px 18px',borderRadius:'12px',border:'none',cursor:'pointer',background:'linear-gradient(135deg,#FF6000 0%,#FF8000 45%,#FF6A00 100%)',display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'12px',boxShadow:'0 4px 24px rgba(255,100,0,0.45)'}}>
             <span style={{color:'#fff',fontSize:'15px',fontWeight:'700'}}>Войти в систему</span>
@@ -203,7 +217,7 @@ const LoginPage = ({email, setEmail, password, setPassword, handleLogin, handleT
             <span style={{fontSize:'11px',color:'#3a3a3c',letterSpacing:'1.5px'}}>или</span>
             <div style={{flex:1,height:'1px',background:'#2c2c2e'}}/>
           </div>
-          <button onClick={()=>{setPage('register');setLoginError('');}} style={{width:'100%',padding:'14px',borderRadius:'12px',border:'1px solid #3a3a3c',background:'#252527',cursor:'pointer',color:'#aeaeb2',fontSize:'13px',fontWeight:'500',marginBottom:'12px'}}>Вход по коду</button>
+          <button onClick={()=>{changePage('register');changeLoginError('');}} style={{width:'100%',padding:'14px',borderRadius:'12px',border:'1px solid #3a3a3c',background:'#252527',cursor:'pointer',color:'#aeaeb2',fontSize:'13px',fontWeight:'500',marginBottom:'12px'}}>Вход по коду</button>
           <div style={{background:'#252527',borderRadius:'13px',padding:'14px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:'14px'}}>
             <div>
               <div style={{fontSize:'14px',fontWeight:'700',color:'#fff',marginBottom:'4px'}}>Ваши данные<br/>под защитой</div>

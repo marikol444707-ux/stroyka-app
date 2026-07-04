@@ -1,5 +1,6 @@
 import React from 'react';
 import { Bot, Menu, MessageSquare } from 'lucide-react';
+import { C as DEFAULT_C } from '../constants/uiTheme';
 import NotificationsDropdown from './NotificationsDropdown';
 
 export default function DashboardTopBar({
@@ -30,6 +31,14 @@ export default function DashboardTopBar({
   setShowQuickActions,
   isMobile = false,
 }) {
+  const noop = () => {};
+  const safeFn = (fn, fallback = noop) => (typeof fn === 'function' ? fn : fallback);
+  const theme = C || DEFAULT_C;
+  const toggleSidebar = () => safeFn(setSidebarVisible)(true);
+  const toggleTheme = () => safeFn(setDarkMode)((value) => !value);
+  const toggleChat = () => safeFn(setShowChatPanel)((value) => !value);
+  const toggleAi = () => safeFn(setShowAiAssistant)(!showAiAssistant);
+  const openQuickActions = () => safeFn(setShowQuickActions)(true);
   const touchCompact = typeof window !== 'undefined'
     && (window.visualViewport?.width || window.innerWidth || 0) < 1100
     && (
@@ -57,12 +66,12 @@ export default function DashboardTopBar({
         <p style={{color:'#94a3b8',margin:'6px 0 0',fontSize:phoneLike?'13px':'14px',lineHeight:1.35,overflowWrap:'anywhere'}}>Контроль объектов, финансов, склада и рисков</p>
       </div>
       <div style={{display:'flex',gap:phoneLike?'8px':'10px',alignItems:'center',justifyContent:phoneLike?'flex-start':'flex-end',flexWrap:'wrap',width:phoneLike?'100%':'auto',minWidth:0}}>
-        <button onClick={()=>setSidebarVisible(true)} title="Открыть меню" style={iconButtonStyle}><Menu size={18}/></button>
-        <button onClick={()=>setDarkMode(d=>!d)} title={darkMode?'Светлая тема':'Тёмная тема'} style={{...iconButtonStyle,fontSize:'16px'}}>{darkMode?'☀️':'🌙'}</button>
-        <button onClick={()=>setShowChatPanel(s=>!s)} style={{...iconButtonStyle,position:'relative'}}><MessageSquare size={18} color='#94a3b8'/>{unreadMessagesCount>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700',minWidth:'16px',textAlign:'center'}}>{unreadMessagesCount>99?'99+':unreadMessagesCount}</span>}</button>
-        <button onClick={()=>setShowAiAssistant(!showAiAssistant)} style={iconButtonStyle}><Bot size={18} color='#94a3b8'/></button>
-        <NotificationsDropdown showNotifications={showNotifications} toggleNotifications={toggleNotifications} unreadNotifications={unreadNotifications} C={C} btnG={btnG} btnO={btnO} myNotifications={myNotifications} notifications={notifications} markMyNotificationsRead={markMyNotificationsRead} closeNotifications={closeNotifications} navigateTo={navigateTo} getNotifPage={getNotifPage} setShowNotifications={setShowNotifications} setNotifications={setNotifications} user={user} setUser={setUser} API={API} isMobile={phoneLike} buttonStyle={{...iconButtonStyle,padding:phoneLike?'9px 11px':'8px 10px'}}/>
-        <button onClick={()=>setShowQuickActions(true)} style={{background:'linear-gradient(135deg,#f97316,#ea580c)',border:'none',borderRadius:'14px',padding:phoneLike?'9px 14px':'10px 18px',color:'white',fontWeight:'700',cursor:'pointer',fontSize:phoneLike?'12px':'13px',boxShadow:'0 8px 24px rgba(234,88,12,.35)',flex:'0 0 auto'}}>⚡ Быстро</button>
+        <button onClick={toggleSidebar} title="Открыть меню" style={iconButtonStyle}><Menu size={18}/></button>
+        <button onClick={toggleTheme} title={darkMode?'Светлая тема':'Тёмная тема'} style={{...iconButtonStyle,fontSize:'16px'}}>{darkMode?'☀️':'🌙'}</button>
+        <button onClick={toggleChat} style={{...iconButtonStyle,position:'relative'}}><MessageSquare size={18} color='#94a3b8'/>{unreadMessagesCount>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700',minWidth:'16px',textAlign:'center'}}>{unreadMessagesCount>99?'99+':unreadMessagesCount}</span>}</button>
+        <button onClick={toggleAi} style={iconButtonStyle}><Bot size={18} color='#94a3b8'/></button>
+        <NotificationsDropdown showNotifications={showNotifications} toggleNotifications={toggleNotifications} unreadNotifications={unreadNotifications} C={theme} btnG={btnG} btnO={btnO} myNotifications={myNotifications} notifications={notifications} markMyNotificationsRead={markMyNotificationsRead} closeNotifications={closeNotifications} navigateTo={navigateTo} getNotifPage={getNotifPage} setShowNotifications={setShowNotifications} setNotifications={setNotifications} user={user} setUser={setUser} API={API} isMobile={phoneLike} buttonStyle={{...iconButtonStyle,padding:phoneLike?'9px 11px':'8px 10px'}}/>
+        <button onClick={openQuickActions} style={{background:'linear-gradient(135deg,#f97316,#ea580c)',border:'none',borderRadius:'14px',padding:phoneLike?'9px 14px':'10px 18px',color:'white',fontWeight:'700',cursor:'pointer',fontSize:phoneLike?'12px':'13px',boxShadow:'0 8px 24px rgba(234,88,12,.35)',flex:'0 0 auto'}}>⚡ Быстро</button>
       </div>
     </div>
   );

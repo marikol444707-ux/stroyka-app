@@ -7,7 +7,8 @@ import {
   SystemOwnerCabinet,
 } from '../app/lazyComponents';
 
-export default function AppEntryRoutes({ user, page, pageFallback, ui, constants, state, actions }) {
+export default function AppEntryRoutes({ user, page, pageFallback, ui = {}, constants = {}, state = {}, actions = {} }) {
+  const noop = () => {};
   const { API, C, badge, btnG, btnGr, btnO, btnR, card, inp } = ui;
   const { ROLE_LABELS } = constants;
   const {
@@ -37,6 +38,8 @@ export default function AppEntryRoutes({ user, page, pageFallback, ui, constants
     setRegSupplierData,
     setUser,
   } = actions;
+  const changeLoginError = typeof setLoginError === 'function' ? setLoginError : noop;
+  const changePage = typeof setPage === 'function' ? setPage : noop;
 
   if (!user) {
     if (page === 'register') {
@@ -56,8 +59,8 @@ export default function AppEntryRoutes({ user, page, pageFallback, ui, constants
             regName={regName}
             regPassword={regPassword}
             regSupplierData={regSupplierData}
-            setLoginError={setLoginError}
-            setPage={setPage}
+            setLoginError={changeLoginError}
+            setPage={changePage}
             setRegCode={setRegCode}
             setRegEmail={setRegEmail}
             setRegName={setRegName}
@@ -76,8 +79,8 @@ export default function AppEntryRoutes({ user, page, pageFallback, ui, constants
           loginError={loginError}
           password={password}
           setEmail={setEmail}
-          setLoginError={setLoginError}
-          setPage={setPage}
+          setLoginError={changeLoginError}
+          setPage={changePage}
           setPassword={setPassword}
         />
       );
@@ -88,8 +91,8 @@ export default function AppEntryRoutes({ user, page, pageFallback, ui, constants
           if (typeof window !== 'undefined' && window.location.pathname !== '/app') {
             window.history.pushState({}, '', '/app');
           }
-          setLoginError('');
-          setPage('login');
+          changeLoginError('');
+          changePage('login');
         }} />
       </React.Suspense>
     );

@@ -1,4 +1,5 @@
 import React from 'react';
+import { C as DEFAULT_C } from '../constants/uiTheme';
 import DashboardPage from '../features/dashboard/DashboardPage';
 import EstimatesPage from '../features/estimates/EstimatesPage';
 import ProjectsPage from '../features/projects/ProjectsPage';
@@ -43,45 +44,47 @@ export default function AppAuthenticatedShell({
   sidebarProps,
   workAssignmentProps,
 }) {
+  const theme = C || DEFAULT_C;
+  const safePreviewProps = previewProps || {};
   return (
-    <div style={{display:'flex',height:'100vh',backgroundColor:C.bg,position:'relative',overflow:'hidden'}}>
-      {previewProps.content && (
+    <div style={{display:'flex',height:'100vh',backgroundColor:theme.bg,position:'relative',overflow:'hidden'}}>
+      {safePreviewProps.content && (
         <PreviewModal
-          content={previewProps.content}
-          title={previewProps.title}
-          onClose={previewProps.onClose}
-          onPrint={previewProps.onPrint}
+          content={safePreviewProps.content}
+          title={safePreviewProps.title}
+          onClose={safePreviewProps.onClose}
+          onPrint={safePreviewProps.onPrint}
         />
       )}
-      <ImagePreviewModal {...photoPreviewProps} />
+      <ImagePreviewModal {...(photoPreviewProps || {})} />
 
       <React.Suspense fallback={null}>
-        <AppProjectEditModals {...appProjectEditModalsProps} />
-        <AppActionModals {...appActionModalsProps} />
+        <AppProjectEditModals {...(appProjectEditModalsProps || {})} />
+        <AppActionModals {...(appActionModalsProps || {})} />
       </React.Suspense>
 
-      <AppSidebar {...sidebarProps} />
+      <AppSidebar {...(sidebarProps || {})} />
 
       <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',width:'100%',minWidth:0,marginLeft:isMobile?0:'240px'}}>
-        <AppHeaderBar {...headerProps} />
-        <div style={{flex:1,overflowY:'auto',backgroundColor:activePage==='dashboard'?'#0b1120':C.bg,padding:activePage==='dashboard'?'0':'24px'}}>
+        <AppHeaderBar {...(headerProps || {})} />
+        <div style={{flex:1,overflowY:'auto',backgroundColor:activePage==='dashboard'?'#0b1120':theme.bg,padding:activePage==='dashboard'?'0':'24px'}}>
           <React.Suspense fallback={pageFallback}>
-            {activePage === 'dashboard' && <DashboardPage {...dashboardProps} />}
+            {activePage === 'dashboard' && <DashboardPage {...(dashboardProps || {})} />}
             {activePage === 'projects' && canOpenProjects && <ProjectsPage ctx={projectsPageContext} />}
-            {activePage === 'site' && <ProjectSitePublicationPage {...projectSiteProps} />}
-            <AppDirectoryPages {...appDirectoryPagesProps} />
-            <AppOperationsPages {...appOperationsPagesProps} />
-            <AppBackofficePages {...appBackofficePagesProps} />
+            {activePage === 'site' && <ProjectSitePublicationPage {...(projectSiteProps || {})} />}
+            <AppDirectoryPages {...(appDirectoryPagesProps || {})} />
+            <AppOperationsPages {...(appOperationsPagesProps || {})} />
+            <AppBackofficePages {...(appBackofficePagesProps || {})} />
             {activePage === 'estimates' && <EstimatesPage ctx={estimatesPageContext} />}
-            <AppSecondaryPages {...appSecondaryPagesProps} />
+            <AppSecondaryPages {...(appSecondaryPagesProps || {})} />
           </React.Suspense>
         </div>
       </div>
 
-      <MobileBottomNav {...mobileBottomNavProps} />
-      <WorkAssignmentModal {...workAssignmentProps} />
-      <AppWorkflowModals {...appWorkflowModalsProps} />
-      <AppOverlayLayer {...overlayProps} />
+      <MobileBottomNav {...(mobileBottomNavProps || {})} />
+      <WorkAssignmentModal {...(workAssignmentProps || {})} />
+      <AppWorkflowModals {...(appWorkflowModalsProps || {})} />
+      <AppOverlayLayer {...(overlayProps || {})} />
     </div>
   );
 }

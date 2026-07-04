@@ -1,5 +1,6 @@
 import React from 'react';
 import { FloatingCompanyChatPanel } from '../app/lazyComponents';
+import { C as DEFAULT_C } from '../constants/uiTheme';
 import SystemStatusModal from './SystemStatusModal';
 import MobileMenuSheet from './MobileMenuSheet';
 
@@ -27,15 +28,18 @@ export default function AppOverlayLayer({
   sendCompanyChatMessage,
   uploadPhoto,
 }) {
+  const theme = C || DEFAULT_C;
+  const closeSystemStatus = typeof setShowSystemStatus === 'function' ? setShowSystemStatus : () => {};
+  const refreshSystemStatus = typeof openSystemStatus === 'function' ? openSystemStatus : () => {};
   return (
     <>
       <SystemStatusModal
         show={showSystemStatus}
         systemStatus={systemStatus}
         systemStatusLoading={systemStatusLoading}
-        onRefresh={openSystemStatus}
-        onClose={() => setShowSystemStatus(false)}
-        C={C}
+        onRefresh={refreshSystemStatus}
+        onClose={() => closeSystemStatus(false)}
+        C={theme}
         badge={badge}
         btnG={btnG}
       />
@@ -46,7 +50,7 @@ export default function AppOverlayLayer({
         activePage={activePage}
         navigateTo={navigateTo}
         setActivePage={setActivePage}
-        C={C}
+        C={theme}
       />
       {showChatPanel && (
         <React.Suspense fallback={null}>

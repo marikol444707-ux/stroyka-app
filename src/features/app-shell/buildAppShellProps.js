@@ -47,6 +47,8 @@ export function buildAppShellProps({
   warehouseActions = {},
   workJournalActions = {}
 }) {
+  const noop = () => {};
+  const safeFn = (fn, fallback = noop) => (typeof fn === 'function' ? fn : fallback);
   const {
     C,
     aiNotice,
@@ -121,7 +123,7 @@ export function buildAppShellProps({
     workJournal
   } = appMainState;
   const user = authUser || authEntryState.user || appMainUser || null;
-  const setUser = authEntryState.setUser || appMainSetUser || (() => {});
+  const setUser = safeFn(authEntryState.setUser, safeFn(appMainSetUser));
   const {
     aiChat,
     aiLoading,
@@ -167,6 +169,26 @@ export function buildAppShellProps({
   } = coreRuntime;
   const safeCanAccess = typeof canAccess === 'function' ? canAccess : () => true;
   const readMyNotifications = typeof myNotifications === 'function' ? myNotifications : () => [];
+  const safeAllMenuItems = Array.isArray(allMenuItems) ? allMenuItems : [];
+  const safeNavigateTo = safeFn(navigateTo, safeFn(setActivePage));
+  const safeSetActivePage = safeFn(setActivePage);
+  const safeSetPreviewContent = safeFn(setPreviewContent);
+  const safeSetShowPhotoModal = safeFn(setShowPhotoModal);
+  const safeSetShowMobileMenu = safeFn(setShowMobileMenu);
+  const safeSetShowQuickActions = safeFn(setShowQuickActions);
+  const safeSetShowChatPanel = safeFn(setShowChatPanel);
+  const safeSetSidebarVisible = safeFn(setSidebarVisible);
+  const safeSetDarkMode = safeFn(setDarkMode);
+  const safeSetGlobalSearch = safeFn(setGlobalSearch);
+  const safeSetShowNotifications = safeFn(setShowNotifications);
+  const safeSetNotifications = safeFn(setNotifications);
+  const safeSetShowAiAssistant = safeFn(setShowAiAssistant);
+  const safeSetCompanyChatInput = safeFn(setCompanyChatInput);
+  const safeSetShowSystemStatus = safeFn(setShowSystemStatus);
+  const safeOpenSystemStatus = safeFn(openSystemStatus);
+  const safeSendCompanyChatMessage = safeFn(sendCompanyChatMessage);
+  const safeUploadPhoto = typeof coreRuntime.uploadPhoto === 'function' ? coreRuntime.uploadPhoto : async () => '';
+  const safeSetShowWorkAssignment = safeFn(estimateWorkflowState.setShowWorkAssignment);
   const {
     buildDirectorBriefReportContent,
     buildSupplyControlReportContent,
@@ -224,11 +246,11 @@ export function buildAppShellProps({
     myNotifications: readMyNotifications,
     setUser
   };
-  const menuItems = allMenuItems.filter((item) => safeCanAccess(item.id));
+  const menuItems = safeAllMenuItems.filter((item) => item && safeCanAccess(item.id));
   const notificationItems = readMyNotifications(notifications);
   const unreadNotifications = (Array.isArray(notificationItems) ? notificationItems : []).filter((n) => !n.read).length;
   const uiBase = { API, C, badge, btnB, btnG, btnGr, btnO, btnR, card, inp, isMobile, tbl, tblC, tblH };
-  const showPreview = dashboardActions.showPreview;
+  const showPreview = safeFn(dashboardActions.showPreview);
 
   return {
     activePage,
@@ -336,22 +358,22 @@ export function buildAppShellProps({
         closeNotifications,
         getNotifPage,
         markMyNotificationsRead,
-        navigateTo,
+        navigateTo: safeNavigateTo,
         openEstimateControlReport,
         projectBudgetSpent,
         projectPaymentSignedAmount,
         projectRealProgress,
         setDailyReportDate,
-        setDarkMode,
+        setDarkMode: safeSetDarkMode,
         setDirectorAgentQuestion,
-        setNotifications,
-        setShowAiAssistant,
-        setShowChatPanel,
+        setNotifications: safeSetNotifications,
+        setShowAiAssistant: safeSetShowAiAssistant,
+        setShowChatPanel: safeSetShowChatPanel,
         setShowForm,
-        setShowNotifications,
-        setShowQuickActions,
+        setShowNotifications: safeSetShowNotifications,
+        setShowQuickActions: safeSetShowQuickActions,
         setShowReimburseModal,
-        setSidebarVisible,
+        setSidebarVisible: safeSetSidebarVisible,
         setUser,
         showPreview,
         toggleNotifications,
@@ -365,7 +387,7 @@ export function buildAppShellProps({
       C,
       API,
       activePage,
-      allMenuItems,
+      allMenuItems: safeAllMenuItems,
       btnG,
       btnO,
       darkMode,
@@ -374,16 +396,17 @@ export function buildAppShellProps({
       isCompactHeader,
       isMobile,
       menuItems,
-      navigateTo,
+      navigateTo: safeNavigateTo,
       notifications,
-      openSystemStatus,
+      openSystemStatus: safeOpenSystemStatus,
       searchResults,
-      setDarkMode,
-      setGlobalSearch,
-      setShowChatPanel,
-      setShowNotifications,
-      setShowQuickActions,
-      setSidebarVisible,
+      setDarkMode: safeSetDarkMode,
+      setGlobalSearch: safeSetGlobalSearch,
+      setNotifications: safeSetNotifications,
+      setShowChatPanel: safeSetShowChatPanel,
+      setShowNotifications: safeSetShowNotifications,
+      setShowQuickActions: safeSetShowQuickActions,
+      setSidebarVisible: safeSetSidebarVisible,
       setUser,
       showNotifications,
       toggleNotifications,
@@ -396,11 +419,11 @@ export function buildAppShellProps({
       activePage,
       isMobile,
       menuItems,
-      navigateTo,
-      setActivePage,
-      setShowChatPanel,
-      setShowMobileMenu,
-      setShowQuickActions,
+      navigateTo: safeNavigateTo,
+      setActivePage: safeSetActivePage,
+      setShowChatPanel: safeSetShowChatPanel,
+      setShowMobileMenu: safeSetShowMobileMenu,
+      setShowQuickActions: safeSetShowQuickActions,
       unreadMessagesCount
     },
     overlayProps: {
@@ -411,29 +434,29 @@ export function buildAppShellProps({
       companyChatInput,
       companyMessages,
       menuItems,
-      navigateTo,
-      openSystemStatus,
-      sendCompanyChatMessage,
-      setActivePage,
-      setCompanyChatInput,
-      setShowChatPanel,
-      setShowMobileMenu,
-      setShowSystemStatus,
+      navigateTo: safeNavigateTo,
+      openSystemStatus: safeOpenSystemStatus,
+      sendCompanyChatMessage: safeSendCompanyChatMessage,
+      setActivePage: safeSetActivePage,
+      setCompanyChatInput: safeSetCompanyChatInput,
+      setShowChatPanel: safeSetShowChatPanel,
+      setShowMobileMenu: safeSetShowMobileMenu,
+      setShowSystemStatus: safeSetShowSystemStatus,
       showChatPanel,
       showMobileMenu,
       showSystemStatus,
       systemStatus,
       systemStatusLoading,
-      uploadPhoto: coreRuntime.uploadPhoto,
+      uploadPhoto: safeUploadPhoto,
       user
     },
     pageFallback,
-    photoPreviewProps: { src: showPhotoModal, onClose: () => setShowPhotoModal(null) },
+    photoPreviewProps: { src: showPhotoModal, onClose: () => safeSetShowPhotoModal(null) },
     previewProps: {
       content: previewContent,
       title: previewTitle,
-      onClose: () => setPreviewContent(null),
-      onPrint: selectors.doPrint
+      onClose: () => safeSetPreviewContent(null),
+      onPrint: safeFn(selectors.doPrint)
     },
     projectSiteProps: {
       C,
@@ -452,15 +475,15 @@ export function buildAppShellProps({
     sidebarProps: {
       C,
       activePage,
-      handleLogout,
+      handleLogout: safeFn(handleLogout),
       isLeadership,
       isMasterRole,
       isMobile,
       menuItems,
-      navigateTo,
+      navigateTo: safeNavigateTo,
       roleColor,
       roleLabels: ROLE_LABELS,
-      setSidebarVisible,
+      setSidebarVisible: safeSetSidebarVisible,
       sidebarRef: refs.sidebarRef,
       sidebarVisible,
       supplyRequests,
@@ -468,7 +491,7 @@ export function buildAppShellProps({
     },
     workAssignmentProps: {
       show: estimateWorkflowState.showWorkAssignment,
-      onClose: () => estimateWorkflowState.setShowWorkAssignment(false),
+      onClose: () => safeSetShowWorkAssignment(false),
       selectedEstimate: estimateWorkflowState.selectedEstimate,
       staff: appMainState.staff,
       users,
