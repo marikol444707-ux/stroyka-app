@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
+import AppErrorBoundary from './components/AppErrorBoundary';
 import reportWebVitals from './reportWebVitals';
 import { registerServiceWorker } from './registerServiceWorker';
 import { installClientErrorLogging } from './api';
@@ -10,7 +11,9 @@ installClientErrorLogging();
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
-    <App />
+    <AppErrorBoundary resetKey="root">
+      <App />
+    </AppErrorBoundary>
   </React.StrictMode>
 );
 
