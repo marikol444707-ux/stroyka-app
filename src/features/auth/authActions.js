@@ -64,12 +64,18 @@ export const createAuthActions = ({
       const endpoint = mode === 'setup' ? '/login/2fa/setup-confirm' : '/login/2fa/verify';
       const body = mode === 'setup' ? {setupToken: token, code} : {challengeToken: token, code};
       const res = await fetch(API + endpoint, {method: 'POST', credentials: 'include', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
-      const data = await res.json();
-      if (!res.ok) return {ok: false, error: data.detail || 'Неверный код 2FA'};
+      const raw = await res.text();
+      let data = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        data = {detail: raw ? raw.slice(0, 180) : ''};
+      }
+      if (!res.ok) return {ok: false, error: data.detail || `Ошибка 2FA: сервер ответил ${res.status}`};
       persistLogin(data);
       return {ok: true, data};
-    } catch {
-      return {ok: false, error: 'Ошибка подключения к серверу'};
+    } catch (err) {
+      return {ok: false, error: `Ошибка подключения к серверу: ${err?.message || 'проверьте интернет и обновите страницу'}`};
     }
   };
 
