@@ -6,6 +6,8 @@ import {
   createWarrantyDefectForm,
   createWindowForm,
 } from '../project-operations/projectOperationInitialForms';
+import ProjectAiControlTab from './ProjectAiControlTab';
+import ProjectStagesTab from './ProjectStagesTab';
 import { createProjectForm } from './projectInitialForms';
 import { createMaterialTransferForm } from '../warehouse/warehouseInitialForms';
 
@@ -353,129 +355,44 @@ export default function ProjectsPage({ ctx }) {
 
                   </div>)}
 
-                    {activeProjectTab==='ИИ-контроль'&&(()=> {
-                      const projectFindings = aiFindingsForProject(p.name);
-                      const projectTasks = aiTasksForProject(p.name);
-                      const standaloneTasks = projectTasks.filter(t=>!t.findingId);
-                      const byCategory = projectFindings.reduce((acc,f)=>{const k=f.category||'Общее';if(!acc[k])acc[k]=[];acc[k].push(f);return acc;},{});
-                      const importantCount = projectFindings.filter(f=>f.severity==='Критично'||f.severity==='Не хватает данных').length;
-                      const canRunAiControl = user&&['директор','зам_директора','прораб','главный_инженер','сметчик','технадзор','стройконтроль'].includes(user.role);
-                      const taskTypeMeta = (task) => {
-                        const type = parseAiTaskPayload(task).type;
-                        if (['material_purchase_review','material_outside_estimate_review','material_writeoff_review','material_norm_over_review','material_without_norm_review','material_transfer_sign_review'].includes(type)) return {key:'materials',label:'Материалы',icon:<Package size={13}/>,color:C.info,bg:C.infoLight,border:C.infoBorder};
-                        if (['room_measurement_review','work_room_link_review'].includes(type)) return {key:'rooms',label:'Помещения',icon:<MapPin size={13}/>,color:C.success,bg:C.successLight,border:C.successBorder};
-                        if (['estimate_quality_review','estimate_norm_review','material_norm_coverage'].includes(type)) return {key:'estimate',label:'Смета и нормы',icon:<Calculator size={13}/>,color:C.accent,bg:C.accentLight,border:C.accentBorder};
-                        if (['estimate_diff_review','estimate_change_reconcile'].includes(type)) return {key:'changes',label:'Изменения к смете',icon:<GitBranch size={13}/>,color:C.warning,bg:C.warningLight,border:C.warningBorder};
-                        return {key:'other',label:'Прочее',icon:<Eye size={13}/>,color:C.textSec,bg:C.bgGray,border:C.border};
-                      };
-                      const groupedStandaloneTasks = standaloneTasks.reduce((acc,task)=>{
-                        const meta = taskTypeMeta(task);
-                        if (!acc[meta.key]) acc[meta.key] = {meta,tasks:[]};
-                        acc[meta.key].tasks.push(task);
-                        return acc;
-                      },{});
-                      const standaloneTaskGroups = ['materials','rooms','estimate','changes','other'].map(k=>groupedStandaloneTasks[k]).filter(Boolean);
-                      return (<div>
-                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'14px'}}>
-                          <div>
-                            <b style={{color:C.text,fontSize:'15px'}}>🤖 ИИ-контроль объекта</b>
-                            <p style={{color:C.textSec,fontSize:'12px',margin:'4px 0 0'}}>Фоновый контроль обмеров, ЖПР, смет, норм, материалов и поручений.</p>
-                          </div>
-                          <button onClick={()=>generateAiFindingsForProject(p.name)} disabled={!canRunAiControl} style={{...btnO,opacity:canRunAiControl?1:.55}}><Bot size={14}/>Обновить контроль</button>
-                        </div>
-                        <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'repeat(4,1fr)',gap:'10px',marginBottom:'14px'}}>
-                          <div style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Открыто</p><b style={{color:C.text,fontSize:'20px'}}>{projectFindings.length}</b></div>
-                          <div style={{padding:'12px',borderRadius:'10px',backgroundColor:importantCount?C.warningLight:C.successLight,border:'1.5px solid '+(importantCount?C.warningBorder:C.successBorder)}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Важные</p><b style={{color:importantCount?C.warning:C.success,fontSize:'20px'}}>{importantCount}</b></div>
-                          <div style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Поручения</p><b style={{color:C.accent,fontSize:'20px'}}>{projectTasks.length}</b></div>
-                          <div style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Категорий</p><b style={{color:C.text,fontSize:'20px'}}>{Object.keys(byCategory).length}</b></div>
-                        </div>
-                        {projectFindings.length===0&&standaloneTasks.length===0&&(<div style={{...card,padding:'18px',textAlign:'center',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}>
-                          <b style={{color:C.success,fontSize:'14px'}}>Замечаний пока нет</b>
-                          <p style={{color:C.textSec,fontSize:'12px',margin:'6px 0 12px'}}>Система обновляет контроль после ключевых событий, а эту кнопку можно использовать для ручного пересчёта.</p>
-                          <button onClick={()=>generateAiFindingsForProject(p.name)} disabled={!canRunAiControl} style={{...btnGr,opacity:canRunAiControl?1:.55}}><Bot size={14}/>Обновить контроль</button>
-                        </div>)}
-                        {standaloneTasks.length>0&&(<div style={{...card,padding:'14px',marginBottom:'12px'}}>
-                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',marginBottom:'10px'}}>
-                            <b style={{color:C.text,fontSize:'13px'}}>Поручения</b>
-                            <span style={badge(C.accent,C.accentLight,C.accentBorder)}>{standaloneTasks.length}</span>
-                          </div>
-                          {standaloneTaskGroups.map(group=>(
-                            <div key={group.meta.key} style={{marginBottom:'12px'}}>
-                              <div style={{display:'flex',alignItems:'center',gap:'8px',margin:'0 0 8px',padding:'7px 9px',borderRadius:'10px',backgroundColor:group.meta.bg,border:'1.5px solid '+group.meta.border}}>
-                                <span style={{color:group.meta.color,display:'inline-flex'}}>{group.meta.icon}</span>
-                                <b style={{color:group.meta.color,fontSize:'12px'}}>{group.meta.label}</b>
-                                <span style={badge(group.meta.color,group.meta.bg,group.meta.border)}>{group.tasks.length}</span>
-                              </div>
-                              {group.tasks.map(task=>{
-                                const payload=parseAiTaskPayload(task);
-                                const isEstimateTask=['estimate_quality_review','estimate_norm_review','material_norm_coverage','estimate_diff_review','estimate_change_reconcile'].includes(payload.type);
-                                const isMaterialTask=['material_purchase_review','material_outside_estimate_review','material_writeoff_review','material_norm_over_review','material_without_norm_review','material_transfer_sign_review'].includes(payload.type);
-                                const isRoomTask=['room_measurement_review','work_room_link_review'].includes(payload.type);
-                                const aliasCandidate=payload.aliasCandidate||null;
-                                const purchaseRow=payload.type==='material_purchase_review'
-                                  ? materialReconciliationRows(payload.projectName||task.projectName||'').find(r=>materialNameKey(r.name)===materialNameKey(payload.materialName)&&(!payload.unit||_normalizeUnit(r.unit||'')===_normalizeUnit(payload.unit||'')))
-                                  : null;
-                                return (<div key={task.id} style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bg,border:'1.5px solid '+C.border,marginBottom:'8px'}}>
-                                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
-                                    <div style={{flex:1,minWidth:'220px'}}>
-                                      <div style={{display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap',marginBottom:'5px'}}>
-                                        <span style={badge(C.info,C.infoLight,C.infoBorder)}>{task.status||'Новое'}</span>
-                                        <span style={{fontSize:'11px',color:C.textSec}}>{task.assignedRole?'кому: '+task.assignedRole:'без роли'}</span>
-                                      </div>
-                                      <b style={{display:'block',color:C.text,fontSize:'13px',lineHeight:1.35}}>{task.title}</b>
-                                      {payload.type==='estimate_change_reconcile'
-                                        ? renderEstimateChangeReconcileTask(task)
-                                        : task.description&&<p style={{color:C.textSec,fontSize:'12px',margin:'6px 0 0',lineHeight:1.45,whiteSpace:'pre-wrap'}}>{task.description}</p>}
-                                    </div>
-                                    <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
-                                      {aliasCandidate?.aliasName&&aliasCandidate?.canonicalName&&<button onClick={()=>acceptMaterialAliasTask(task)} style={{...btnGr,padding:'5px 9px',fontSize:'11px'}}><Check size={11}/>Привязать</button>}
-                                      {purchaseRow&&toNum(purchaseRow.toBuy)>0&&renderMaterialSupplyAction(payload.projectName||task.projectName||'', purchaseRow)}
-                                      {task.actionLabel&&<button onClick={()=>openAiTaskAction(task)} style={{...btnB,padding:'5px 9px',fontSize:'11px'}}>{payload.type==='estimate_diff_review'?<FileText size={11}/>:isEstimateTask?<Calculator size={11}/>:isMaterialTask?<Package size={11}/>:isRoomTask?<MapPin size={11}/>:<Eye size={11}/>} {task.actionLabel}</button>}
-                                      {task.status==='Новое'&&<button onClick={()=>updateAiTask(task.id,{status:'Принято к исполнению'})} style={{...btnG,padding:'5px 9px',fontSize:'11px'}}>Принять</button>}
-                                      {['Новое','Принято к исполнению'].includes(task.status||'')&&<button onClick={()=>updateAiTask(task.id,{status:'В работе'})} style={{...btnO,padding:'5px 9px',fontSize:'11px'}}>В работу</button>}
-                                      <button onClick={()=>updateAiTask(task.id,{status:'Закрыто'})} style={{...btnGr,padding:'5px 9px',fontSize:'11px'}}>Закрыть</button>
-                                      <button onClick={()=>updateAiTask(task.id,{status:'Отклонено'})} style={{...btnR,padding:'5px 9px',fontSize:'11px'}}>Отклонить</button>
-                                    </div>
-                                  </div>
-                                </div>);
-                              })}
-                            </div>
-                          ))}
-                        </div>)}
-                        {Object.entries(byCategory).map(([category,list])=>(
-                          <div key={category} style={{...card,padding:'14px',marginBottom:'12px'}}>
-                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',marginBottom:'10px'}}>
-                              <b style={{color:C.text,fontSize:'13px'}}>{category}</b>
-                              <span style={badge(C.accent,C.accentLight,C.accentBorder)}>{list.length}</span>
-                            </div>
-                            {list.map(f=>{
-                              const meta=aiSeverityMeta(f.severity);
-                              const task=projectTasks.find(t=>Number(t.findingId)===Number(f.id));
-                              return (<div key={f.id} style={{padding:'12px',borderRadius:'10px',backgroundColor:meta.bg,border:'1.5px solid '+meta.border,marginBottom:'8px'}}>
-                                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
-                                  <div style={{flex:1,minWidth:'220px'}}>
-                                    <div style={{display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap',marginBottom:'5px'}}>
-                                      <span style={badge(meta.color,meta.bg,meta.border)}>{f.severity||'Проверить'}</span>
-                                      <span style={{fontSize:'11px',color:C.textSec}}>{f.assignedRole?'кому: '+f.assignedRole:'без роли'}{task&&task.status?' · '+task.status:''}</span>
-                                    </div>
-                                    <b style={{display:'block',color:C.text,fontSize:'13px',lineHeight:1.35}}>{f.title}</b>
-                                    {f.description&&<p style={{color:C.textSec,fontSize:'12px',margin:'6px 0 0',lineHeight:1.45}}>{f.description}</p>}
-                                    {f.suggestedAction&&<p style={{color:C.text,fontSize:'12px',margin:'6px 0 0'}}><b>Что сделать:</b> {f.suggestedAction}</p>}
-                                  </div>
-                                  <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
-                                    {task&&task.status==='Новое'&&<button onClick={()=>updateAiTask(task.id,{status:'Принято к исполнению'})} style={{...btnG,padding:'5px 9px',fontSize:'11px'}}>Принять</button>}
-                                    {task&&['Новое','Принято к исполнению'].includes(task.status||'')&&<button onClick={()=>updateAiTask(task.id,{status:'В работе'})} style={{...btnO,padding:'5px 9px',fontSize:'11px'}}>В работу</button>}
-                                    <button onClick={()=>updateAiFinding(f.id,{status:'Исправлено'})} style={{...btnGr,padding:'5px 9px',fontSize:'11px'}}>Исправлено</button>
-                                    <button onClick={()=>updateAiFinding(f.id,{status:'Закрыто'})} style={{...btnG,padding:'5px 9px',fontSize:'11px'}}>Закрыть</button>
-                                    <button onClick={()=>updateAiFinding(f.id,{status:'Отклонено'})} style={{...btnR,padding:'5px 9px',fontSize:'11px'}}>Отклонить</button>
-                                  </div>
-                                </div>
-                              </div>);
-                            })}
-                          </div>
-                        ))}
-                      </div>);
-                    })()}
+                    {activeProjectTab==='ИИ-контроль'&&(
+                      <ProjectAiControlTab
+                        C={C}
+                        Bot={Bot}
+                        Calculator={Calculator}
+                        Check={Check}
+                        Eye={Eye}
+                        FileText={FileText}
+                        GitBranch={GitBranch}
+                        MapPin={MapPin}
+                        Package={Package}
+                        _normalizeUnit={_normalizeUnit}
+                        acceptMaterialAliasTask={acceptMaterialAliasTask}
+                        aiFindingsForProject={aiFindingsForProject}
+                        aiSeverityMeta={aiSeverityMeta}
+                        aiTasksForProject={aiTasksForProject}
+                        badge={badge}
+                        btnB={btnB}
+                        btnG={btnG}
+                        btnGr={btnGr}
+                        btnO={btnO}
+                        btnR={btnR}
+                        card={card}
+                        generateAiFindingsForProject={generateAiFindingsForProject}
+                        isMobile={isMobile}
+                        materialNameKey={materialNameKey}
+                        materialReconciliationRows={materialReconciliationRows}
+                        openAiTaskAction={openAiTaskAction}
+                        parseAiTaskPayload={parseAiTaskPayload}
+                        project={p}
+                        renderEstimateChangeReconcileTask={renderEstimateChangeReconcileTask}
+                        renderMaterialSupplyAction={renderMaterialSupplyAction}
+                        toNum={toNum}
+                        updateAiFinding={updateAiFinding}
+                        updateAiTask={updateAiTask}
+                        user={user}
+                      />
+                    )}
 
                     {activeProjectTab==='Проект / Обмеры'&&(()=> {
                       const docs = (projectMeasurements||[]).filter(d=>d.projectName===p.name);
@@ -642,53 +559,32 @@ export default function ProjectsPage({ ctx }) {
                       </div>);
                     })()}
 
-                    {activeProjectTab==='Этапы'&&(<div>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-                        <b style={{color:C.text}}>Этапы проекта</b>
-                        {isProrab()&&<button onClick={()=>setShowForm(showForm==='stages'?false:'stages')} style={btnO}><Plus size={14}/>Добавить этап</button>}
-                      </div>
-                      {showForm==='stages'&&(<div style={{...card,padding:'16px',marginBottom:'16px',backgroundColor:C.bg}}>
-                        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
-                          <input placeholder="Название этапа *" value={newStage.name} onChange={e=>setNewStage({...newStage,name:e.target.value})} style={{...inp,marginBottom:0}}/>
-                          <select value={newStage.status} onChange={e=>setNewStage({...newStage,status:e.target.value})} style={{...inp,marginBottom:0}}>{STAGE_STATUSES.map(s=><option key={s}>{s}</option>)}</select>
-                          <input type="date" placeholder="Начало" value={newStage.startDate} onChange={e=>setNewStage({...newStage,startDate:e.target.value})} style={{...inp,marginBottom:0}}/>
-                          <input type="date" placeholder="Конец" value={newStage.endDate} onChange={e=>setNewStage({...newStage,endDate:e.target.value})} style={{...inp,marginBottom:0}}/>
-                          <input placeholder="Ответственный" value={newStage.responsible} onChange={e=>setNewStage({...newStage,responsible:e.target.value})} style={{...inp,marginBottom:0}}/>
-                          <div style={{display:'flex',alignItems:'center',gap:'8px'}}><label style={{fontSize:'12px',color:C.textSec,whiteSpace:'nowrap'}}>Прогресс: {newStage.progress}%</label><input type="range" min="0" max="100" value={newStage.progress} onChange={e=>setNewStage({...newStage,progress:Number(e.target.value)})} style={{flex:1,accentColor:C.accent}}/></div>
-                        </div>
-                        <div style={{display:'flex',gap:'8px',marginTop:'10px'}}>
-                          <button onClick={()=>saveProjectStage(p.id,p.name)} style={btnO}><Check size={14}/>Сохранить</button>
-                          <button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button>
-                        </div>
-                  </div>)}
-                      {projectStages.filter(s=>s.projectName===p.name).map(stage=>{
-                        const stColors={'Не начат':[C.textSec,C.bgGray,C.border],'В работе':[C.info,C.infoLight,C.infoBorder],'Завершён':[C.success,C.successLight,C.successBorder],'Заморожен':[C.warning,C.warningLight,C.warningBorder],'Просрочен':[C.danger,C.dangerLight,C.dangerBorder]};
-                        const sc=stColors[stage.status]||stColors['Не начат'];
-                        return(<div key={stage.id} style={{...card,padding:'14px',marginBottom:'10px',borderLeft:'3px solid '+sc[0]}}>
-                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-                            <div style={{flex:1}}>
-                              <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'6px'}}>
-                                <b style={{color:C.text,fontSize:'13px'}}>{stage.name}</b>
-                                <span style={badge(sc[0],sc[1],sc[2])}>{stage.status}</span>
-                              </div>
-                              {(stage.startDate||stage.endDate)&&<p style={{color:C.textSec,margin:'0 0 4px',fontSize:'12px'}}>{(stage.startDate||'')+(stage.endDate?' — '+stage.endDate:'')}</p>}
-                              {stage.responsible&&<p style={{color:C.textSec,margin:'0 0 6px',fontSize:'12px'}}>{'👤 '+stage.responsible}</p>}
-                              <div style={{backgroundColor:C.bgGray,borderRadius:'4px',height:'6px',marginTop:'6px'}}>
-                                <div style={{backgroundColor:sc[0],width:(stage.progress||0)+'%',height:'100%',borderRadius:'4px'}}/>
-                              </div>
-                              <p style={{color:C.textMuted,margin:'4px 0 0',fontSize:'11px'}}>{(stage.progress||0)+'% выполнено'}</p>
-                            </div>
-                            {isProrab()&&(<div style={{display:'flex',gap:'4px',marginLeft:'10px'}}>
-                              <select value={stage.status} onChange={async e=>{await updateStage({...stage,status:e.target.value});}} style={{fontSize:'11px',padding:'3px 6px',border:'1.5px solid '+C.border,borderRadius:'6px',cursor:'pointer'}}>
-                                {STAGE_STATUSES.map(s=><option key={s}>{s}</option>)}
-                              </select>
-                              <button onClick={()=>deleteStage(stage.id)} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>
-                  </div>)}
-                          </div>
-                        </div>);
-                      })}
-                      {projectStages.filter(s=>s.projectName===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Этапов нет — добавьте первый!</p>}
-                  </div>)}
+                    {activeProjectTab==='Этапы'&&(
+                      <ProjectStagesTab
+                        C={C}
+                        Check={Check}
+                        Plus={Plus}
+                        STAGE_STATUSES={STAGE_STATUSES}
+                        Trash2={Trash2}
+                        X={X}
+                        badge={badge}
+                        btnG={btnG}
+                        btnO={btnO}
+                        btnR={btnR}
+                        card={card}
+                        inp={inp}
+                        isProrab={isProrab}
+                        newStage={newStage}
+                        project={p}
+                        projectStages={projectStages}
+                        saveProjectStage={saveProjectStage}
+                        setNewStage={setNewStage}
+                        setShowForm={setShowForm}
+                        showForm={showForm}
+                        updateStage={updateStage}
+                        deleteStage={deleteStage}
+                      />
+                    )}
 
 	                    {activeProjectTab==='График'&&(<div>
 	                      <ProjectScheduleSummaryPanel
