@@ -1,4 +1,4 @@
-const CACHE_NAME = 'stroyka-shell-v6';
+const CACHE_NAME = 'stroyka-shell-v7';
 const STATIC_CACHE_LIMIT = 90;
 const SHELL_URLS = [
   '/',

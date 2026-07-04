@@ -7,6 +7,7 @@ import { CHECKLIST_TEMPLATES } from './constants/documentTemplates';
 import { ROLES, ROLE_LABELS } from './constants/roles';
 import { C, aiNotice, aiNoticeIcon, aiNoticeText, badge, btnB, btnG, btnGr, btnO, btnR, btnState, card, inp, tbl, tblC, tblH } from './constants/uiTheme';
 import AppAuthenticatedShell from './components/AppAuthenticatedShell';
+import AppErrorBoundary from './components/AppErrorBoundary';
 import { buildAppActionGroups } from './features/app-shell/buildAppActionGroups';
 import { createAppUtilityRuntime } from './features/app-shell/appShellSelectors';
 import { buildAppRenderContext } from './features/app-shell/buildAppRenderContext';
@@ -303,7 +304,20 @@ function App() {
     },
     user
   });
-  if (earlyRoleRoute) return earlyRoleRoute;
-  return <AppAuthenticatedShell {...appShellProps} />;
+  const errorBoundaryKey = `${user?.role || 'guest'}:${authEntryState.page || appMainState.activePage || 'app'}`;
+
+  if (earlyRoleRoute) {
+    return (
+      <AppErrorBoundary resetKey={errorBoundaryKey}>
+        {earlyRoleRoute}
+      </AppErrorBoundary>
+    );
+  }
+
+  return (
+    <AppErrorBoundary resetKey={errorBoundaryKey}>
+      <AppAuthenticatedShell {...appShellProps} />
+    </AppErrorBoundary>
+  );
 }
 export default App;
