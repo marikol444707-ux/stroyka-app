@@ -10,9 +10,10 @@ export default function DashboardSupplyPanel({
   supplyInvoiceDebt,
 }) {
   if (!showSupplyDashboard) return null;
+  const role = user?.role || '';
 
   const cards = [
-    {label:user.role==='прораб'?'Ждут подтверждения':'Заявки в работе',value:supplyPendingRequests.length,sub:'материалы по объектам',color:'#fdba74',bg:'rgba(234,88,12,.14)',border:'rgba(234,88,12,.32)',tab:'inbox'},
+    {label:role==='прораб'?'Ждут подтверждения':'Заявки в работе',value:supplyPendingRequests.length,sub:'материалы по объектам',color:'#fdba74',bg:'rgba(234,88,12,.14)',border:'rgba(234,88,12,.32)',tab:'inbox'},
     {label:'КП на согласование',value:supplyOffersToReview.length,sub:'ответы поставщиков',color:'#93c5fd',bg:'rgba(59,130,246,.12)',border:'rgba(59,130,246,.28)',tab:'all'},
     {label:'Счета к оплате',value:supplyInvoicesToPay.length,sub:supplyInvoiceDebt>0?Math.round(supplyInvoiceDebt).toLocaleString('ru-RU')+' ₽':'долга нет',color:'#86efac',bg:'rgba(34,197,94,.12)',border:'rgba(34,197,94,.28)',tab:'invoices'},
   ];
@@ -24,7 +25,7 @@ export default function DashboardSupplyPanel({
           <h2 style={{margin:0,fontSize:'18px',color:'#f8fafc'}}>🛒 Снабжение</h2>
           <p style={{color:'#94a3b8',fontSize:'12px',margin:'3px 0 0'}}>Заявки, КП и счета поставщиков в одном месте</p>
         </div>
-        <button onClick={()=>openSupplyDashboard(user.role==='бухгалтер'?'invoices':'all')} style={{background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',padding:'8px 12px',color:'#fdba74',fontWeight:'700',cursor:'pointer',fontSize:'12px'}}>Открыть →</button>
+        <button onClick={()=>openSupplyDashboard(role==='бухгалтер'?'invoices':'all')} style={{background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',padding:'8px 12px',color:'#fdba74',fontWeight:'700',cursor:'pointer',fontSize:'12px'}}>Открыть →</button>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'12px'}}>
         {cards.map((k,i)=>(<div key={i} onClick={()=>openSupplyDashboard(k.tab)} style={{padding:'14px',borderRadius:'16px',background:k.bg,border:'1px solid '+k.border,cursor:'pointer',transition:'transform 0.15s, background 0.15s'}} onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.background='rgba(30,41,59,.75)';}} onMouseLeave={e=>{e.currentTarget.style.transform='';e.currentTarget.style.background=k.bg;}}>

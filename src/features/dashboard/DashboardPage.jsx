@@ -191,9 +191,10 @@ export default function DashboardPage({
   };
   const dashboardExtraKey = 'dashboard-extra-panels';
   const showDashboardExtra = !isMobile || !!mobileExpandedRenderLists[dashboardExtraKey];
-  const showSupplyDashboard = showDashboardExtra && ['директор','зам_директора','бухгалтер','прораб','кладовщик','снабженец'].includes(user.role);
+  const currentUserRole = user?.role || '';
+  const showSupplyDashboard = showDashboardExtra && ['директор','зам_директора','бухгалтер','прораб','кладовщик','снабженец'].includes(currentUserRole);
   const supplyPendingRequests = showDashboardExtra ? (supplyRequests||[]).filter(r=>{
-    if (user.role==='прораб') return r.status==='Новая';
+    if (currentUserRole==='прораб') return r.status==='Новая';
     if (isLeadership()) return r.status==='Новая'||r.status==='Подтверждена прорабом';
     return r.status==='Утверждена'||r.status==='КП запрошены';
   }) : [];

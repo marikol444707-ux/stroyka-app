@@ -531,6 +531,7 @@ export function buildAppRenderContext({
     aiAssistantState,
     allMenuItems,
     appMainState,
+    authEntryState,
     businessRuntime: appBusinessRuntime,
     coreRuntime: appCoreRuntime,
     dashboardActions: { showPreview },
@@ -554,6 +555,7 @@ export function buildAppRenderContext({
     supplyPlanningUi,
     supplyWorkflowState,
     ui: appShellUi,
+    user,
     userAccessActions,
     warehouseActions,
     workJournalActions

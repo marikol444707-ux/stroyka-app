@@ -18,6 +18,7 @@ export function buildAppShellProps({
   aiAssistantState = {},
   allMenuItems,
   appMainState = {},
+  authEntryState = {},
   businessRuntime = {},
   coreRuntime = {},
   dashboardActions = {},
@@ -41,6 +42,7 @@ export function buildAppShellProps({
   supplyPlanningUi = {},
   supplyWorkflowState = {},
   ui = {},
+  user: authUser,
   userAccessActions = {},
   warehouseActions = {},
   workJournalActions = {}
@@ -103,7 +105,7 @@ export function buildAppShellProps({
     setShowPhotoModal,
     setShowQuickActions,
     setSidebarVisible,
-    setUser,
+    setUser: appMainSetUser,
     showAiAssistant,
 
     showJournalTableModal,
@@ -114,10 +116,12 @@ export function buildAppShellProps({
     sidebarVisible,
     supplyRequests,
     users,
-    user,
+    user: appMainUser,
     weatherLog,
     workJournal
   } = appMainState;
+  const user = authUser || authEntryState.user || appMainUser || null;
+  const setUser = authEntryState.setUser || appMainSetUser || (() => {});
   const {
     aiChat,
     aiLoading,
@@ -194,7 +198,8 @@ export function buildAppShellProps({
     ...estimateWorkflowState,
     ...refs,
     ...selectors,
-    ...businessRuntime
+    ...businessRuntime,
+    user
   };
   const sharedActions = {
     ...sharedState,
@@ -212,7 +217,8 @@ export function buildAppShellProps({
     ...supplyPlanningUi,
     ...estimatePageActions,
     ...dashboardActions,
-    ...selectors
+    ...selectors,
+    setUser
   };
   const menuItems = allMenuItems.filter((item) => canAccess(item.id));
   const unreadNotifications = myNotifications(notifications).filter((n) => !n.read).length;
