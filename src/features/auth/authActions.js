@@ -20,19 +20,40 @@ export const createAuthActions = ({
   setUser,
   user,
 }) => {
+  const readResponseJson = async (res) => {
+    if (!res) return {};
+    if (typeof res.text === 'function') {
+      const raw = await res.text();
+      try {
+        return raw ? JSON.parse(raw) : {};
+      } catch {
+        return {detail: raw ? raw.slice(0, 180) : ''};
+      }
+    }
+    if (typeof res.json === 'function') {
+      try {
+        return await res.json();
+      } catch {
+        return {};
+      }
+    }
+    return {};
+  };
+
   const persistLogin = (data) => {
+    if (!data?.authToken) throw new Error('сервер не вернул токен входа');
     if (data.authToken) localStorage.setItem('authToken', data.authToken);
     localStorage.setItem('user', JSON.stringify(data));
-    setInitialDataLoaded(false);
-    setUser(data);
+    if (typeof setInitialDataLoaded === 'function') setInitialDataLoaded(false);
+    if (typeof setUser === 'function') setUser(data);
   };
 
   const handleLogout = () => {
     fetch(API + '/logout', {method: 'POST', credentials: 'include'}).catch(() => {});
     localStorage.removeItem('authToken');
     localStorage.removeItem('user');
-    setInitialDataLoaded(false);
-    setUser(null);
+    if (typeof setInitialDataLoaded === 'function') setInitialDataLoaded(false);
+    if (typeof setUser === 'function') setUser(null);
   };
 
   const handleLogin = async () => {
@@ -60,23 +81,23 @@ export const createAuthActions = ({
   };
 
   const handleTwoFactorLogin = async ({mode, token, code}) => {
+    let res;
+    let data = {};
     try {
       const endpoint = mode === 'setup' ? '/login/2fa/setup-confirm' : '/login/2fa/verify';
       const body = mode === 'setup' ? {setupToken: token, code} : {challengeToken: token, code};
-      const res = await fetch(API + endpoint, {method: 'POST', credentials: 'include', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
-      const raw = await res.text();
-      let data = {};
-      try {
-        data = raw ? JSON.parse(raw) : {};
-      } catch {
-        data = {detail: raw ? raw.slice(0, 180) : ''};
-      }
-      if (!res.ok) return {ok: false, error: data.detail || `Ошибка 2FA: сервер ответил ${res.status}`};
-      persistLogin(data);
-      return {ok: true, data};
+      res = await fetch(API + endpoint, {method: 'POST', credentials: 'include', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+      data = await readResponseJson(res);
     } catch (err) {
       return {ok: false, error: `Ошибка подключения к серверу: ${err?.message || 'проверьте интернет и обновите страницу'}`};
     }
+    if (!res.ok) return {ok: false, error: data.detail || `Ошибка 2FA: сервер ответил ${res.status}`};
+    try {
+      persistLogin(data);
+    } catch (err) {
+      return {ok: false, error: `2FA подтверждена, но сессия не сохранена: ${err?.message || 'обновите страницу и войдите снова'}`};
+    }
+    return {ok: true, data};
   };
 
   const handleRegister = async () => {
