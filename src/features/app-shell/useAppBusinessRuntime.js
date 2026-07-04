@@ -12,44 +12,14 @@ import { createMaterialNormCoverageActions } from '../material-norms/materialNor
 import { createMaterialWriteoffActions } from '../material-writeoff/materialWriteoffActions';
 import { createRoomMeasurementRuntime } from '../project-measurements/roomMeasurementRuntime';
 import { canCreateSupplyRequestFromNormForUser, canEditMaterialNormsForUser } from '../../utils/accessUtils';
-import {
-  invoiceControlMaterialName,
-  invoiceControlNeedsReview,
-  invoiceControlProjectName,
-  invoiceControlReviewReason,
-} from '../../utils/aiControlDescriptionUtils';
-import {
-  buildEstimateDiffDocContent,
-  buildEstimateReconciliationDocContent,
-  fmtDocMoney,
-} from '../../utils/printDocumentBuilders';
-import {
-  estimateChangeAutoDecision,
-  estimateChangeReconcileDescription,
-  estimateChangeReconcileMarker,
-  estimateDiffReviewDescription,
-  estimateDiffReviewMarker,
-  estimateNormReviewDescription,
-  estimateNormReviewIssueStatuses,
-  estimateNormReviewMarker,
-  estimateQualityDescription,
-  estimateQualityReviewMarker,
-  estimateQualityRows,
-} from '../../utils/estimateReviewUtils';
-import {
-  buildEstimateDiff,
-  estimateKind,
-  estimatePackage,
-  isArchivedEstimate,
-  isGlobalEstimateTemplate,
-  normalizeEstimateList,
-  sameEstimateGroup,
-} from '../../utils/estimateUtils';
+import { invoiceControlMaterialName, invoiceControlNeedsReview, invoiceControlProjectName, invoiceControlReviewReason } from '../../utils/aiControlDescriptionUtils';
+import { buildEstimateDiffDocContent, buildEstimateReconciliationDocContent, fmtDocMoney } from '../../utils/printDocumentBuilders';
+import { estimateChangeAutoDecision, estimateChangeReconcileDescription, estimateChangeReconcileMarker, estimateDiffReviewDescription, estimateDiffReviewMarker, estimateNormReviewDescription, estimateNormReviewIssueStatuses, estimateNormReviewMarker, estimateQualityDescription, estimateQualityReviewMarker, estimateQualityRows } from '../../utils/estimateReviewUtils';
+import { buildEstimateDiff, estimateKind, estimatePackage, isArchivedEstimate, isGlobalEstimateTemplate, normalizeEstimateList, sameEstimateGroup } from '../../utils/estimateUtils';
 import { isActiveSupplyRequestStatus } from '../../utils/supplyUtils';
 import { isOpenAiStatus, materialControlStatus, workJournalEstimateStatusMeta } from '../../utils/statusMetaUtils';
 import { _normalizeUnit, fmtMeasure, toNum } from '../../utils/measureUtils';
 import { createAppRoleRuntime } from './appShellSelectors';
-
 export function useAppBusinessRuntime({
   API,
   constants,
@@ -63,24 +33,42 @@ export function useAppBusinessRuntime({
   utilities,
   selectors,
   showPreview,
-  persistEstimate,
+  persistEstimate
 }) {
-  const { ESTIMATE_PACKAGES, EXPENSE_CATEGORIES } = constants;
-  const { isMobile } = layout;
-  const { C, badge, btnB, btnG, btnO, card, tbl, tblC, tblH } = ui;
+  const {
+    ESTIMATE_PACKAGES,
+    EXPENSE_CATEGORIES
+  } = constants;
+  const {
+    isMobile
+  } = layout;
+  const {
+    C,
+    badge,
+    btnB,
+    btnG,
+    btnO,
+    card,
+    tbl,
+    tblC,
+    tblH
+  } = ui;
   const {
     isApprovedEstimateChangeStatus,
     parseSupplyItems,
-    visibleEstimatesForCurrentUser,
+    visibleEstimatesForCurrentUser
   } = selectors;
-  const { lowStockFor, projectFactSpent } = utilities;
+  const {
+    lowStockFor,
+    projectFactSpent
+  } = utilities;
   const {
     apiAuthHeaders,
     isFinanceRole,
     navigateTo,
     notify,
     refreshData,
-    visibleActiveProjects,
+    visibleActiveProjects
   } = coreRuntime;
   const {
     materialNormPreviewSuggestions,
@@ -94,7 +82,7 @@ export function useAppBusinessRuntime({
     setNewMaterialNorm,
     setEditingMaterialNormId,
     setMaterialNormSuggestionLoading,
-    setMaterialNormPreviewSuggestions,
+    setMaterialNormPreviewSuggestions
   } = materialNormsState;
   const {
     estimateChangeReconcileQueuedRef,
@@ -102,9 +90,11 @@ export function useAppBusinessRuntime({
     estimateNormReviewQueuedRef,
     estimateQualityReviewQueuedRef,
     materialControlTaskQueuedRef,
-    roomControlTaskQueuedRef,
+    roomControlTaskQueuedRef
   } = refs;
-  const { setEstimateIssueFocusKey } = estimateWorkflowState;
+  const {
+    setEstimateIssueFocusKey
+  } = estimateWorkflowState;
   const {
     accountablePayments,
     aiFindings,
@@ -168,19 +158,9 @@ export function useAppBusinessRuntime({
     warehouseMain,
     warehouseMovements,
     workJournal,
-    estimatesList,
+    estimatesList
   } = appMainState;
-
-  const {
-    aiFindingsForProject,
-    aiTasksForProject,
-    generateAiFindingsForProject,
-    openAiTaskAction,
-    patchAiFindingSilent,
-    patchAiTaskSilent,
-    updateAiFinding,
-    updateAiTask,
-  } = createAiTaskActions({
+  const aiTaskActions = createAiTaskActions({
     API,
     aiFindings,
     aiTasks,
@@ -199,23 +179,17 @@ export function useAppBusinessRuntime({
     setExpandedProject,
     setMaterialNormCoverageProject: materialNormsState.setMaterialNormCoverageProject,
     setWarehouseTab: appMainState.setWarehouseTab,
-    showPreview,
+    showPreview
   });
-
   const {
-    openEstimateDetail,
-    estimateDiffBaseFor,
-    buildEstimateDiffContent,
-    estimateReconciliationsForProject,
-    openEstimateReconciliationPreview,
-    createEstimateReconciliation,
-    approveEstimateReconciliation,
-    estimateChangeForComparisonRow,
-    createEstimateChangeFromComparisonRow,
-    includeChangesInNewEstimate,
-    setEstimateStatusRemote,
-    deleteEstimateRemote,
-  } = createEstimateWorkflowActions({
+    aiFindingsForProject,
+    aiTasksForProject,
+    openAiTaskAction,
+    patchAiFindingSilent,
+    patchAiTaskSilent,
+    updateAiTask
+  } = aiTaskActions;
+  const estimateWorkflowActions = createEstimateWorkflowActions({
     API,
     estimatesList,
     setEstimatesList,
@@ -239,29 +213,26 @@ export function useAppBusinessRuntime({
     queueEstimateDiffReviewTask: (...args) => queueEstimateDiffReviewTask(...args),
     autoReconcileEstimateChanges: (...args) => autoReconcileEstimateChanges(...args),
     queueEstimateQualityReviewTask: (...args) => queueEstimateQualityReviewTask(...args),
-    queueEstimateNormReviewTask: (...args) => queueEstimateNormReviewTask(...args),
+    queueEstimateNormReviewTask: (...args) => queueEstimateNormReviewTask(...args)
   });
-
   const {
-    activeEstimatesForProject,
-    estimateChangeRowsForDocs,
-    estimateChangesForNewEstimate,
-    estimateItemOptionsForProject,
-    getProjectEstimateWorkOptions,
-    getProjectWorkPackageOptions,
-    includableEstimateChanges,
-    ks2ItemsFromEstimate,
-    projectPlanDone,
-    renderEstimateMeasurementComparisonPanel,
-    renderEstimateReconciliationsPanel,
-    renderWorkJournalEstimateReconciliationPanel,
-  } = createProjectEstimateRuntime({
+    openEstimateDetail,
+    estimateDiffBaseFor,
+    buildEstimateDiffContent,
+    estimateReconciliationsForProject,
+    openEstimateReconciliationPreview,
+    createEstimateReconciliation,
+    approveEstimateReconciliation,
+    estimateChangeForComparisonRow,
+    createEstimateChangeFromComparisonRow
+  } = estimateWorkflowActions;
+  const projectEstimateRuntime = createProjectEstimateRuntime({
     ESTIMATE_PACKAGES,
     activeTabActions: {
       openEstimateChanges: () => {
         setActiveProjectTab('Изменения к смете');
         setActiveTabGroup('work');
-      },
+      }
     },
     approveEstimateReconciliation,
     createEstimateChangeFromComparisonRow,
@@ -280,32 +251,14 @@ export function useAppBusinessRuntime({
     user,
     visibleEstimatesForCurrentUser,
     workJournal,
-    workJournalEstimateStatusMeta,
+    workJournalEstimateStatusMeta
   });
-
   const {
-    buildMaterialNormCoverageContent,
-    canonicalMaterialMeta,
-    estimateNormCoverageRows,
-    estimateWorkNormRequirementRows,
-    isPersonalMaterialRole,
-    isSupplyDeliveryInvoice,
-    materialAliasCandidates,
-    materialAvailabilityMapForWork,
-    materialControlSummaryForProject,
-    materialHintForProject,
-    materialNameKey,
-    materialNameLookupKey,
-    materialNormControlSummaryForProject,
-    materialNormForWork,
-    materialReconciliationRows,
-    materialRowsAvailableForWork,
-    materialSuggestionsForWork,
-    personalMaterialRowsForProject,
-    warehouseInvoiceEstimateControl,
-    warehouseInvoiceItems,
-    workNeedsThicknessParam,
-  } = createMaterialRuntime({
+    activeEstimatesForProject,
+    includableEstimateChanges,
+    projectPlanDone
+  } = projectEstimateRuntime;
+  const materialRuntime = createMaterialRuntime({
     activeEstimatesForProject,
     canonicalCompanyName: companyName,
     companyRequisites,
@@ -325,38 +278,35 @@ export function useAppBusinessRuntime({
     user,
     warehouseMain,
     warehouseMovements,
-    workJournal,
+    workJournal
   });
-
   const {
-    getRoomNetWall,
-    roomCompleteness,
-    roomMeasurementCheck,
-    roomMeasurementMessage,
-  } = createRoomMeasurementRuntime({
+    canonicalMaterialMeta,
+    estimateNormCoverageRows,
+    isPersonalMaterialRole,
+    materialAliasCandidates,
+    materialAvailabilityMapForWork,
+    materialControlSummaryForProject,
+    materialNameKey,
+    materialNameLookupKey,
+    materialNormControlSummaryForProject,
+    materialNormForWork,
+    materialReconciliationRows,
+    materialRowsAvailableForWork,
+    warehouseInvoiceEstimateControl
+  } = materialRuntime;
+  const roomMeasurementRuntime = createRoomMeasurementRuntime({
     C,
     materialNameKey,
     roomDoors,
     roomWindows,
     roomWorks,
-    rooms,
+    rooms
   });
-
   const {
-    aiTaskByMarker,
-    autoReconcileEstimateChanges,
-    estimateListWithUpdatedEstimate,
-    hasActiveEstimator,
-    jumpToEstimateIssue,
-    materialControlSignatureForProject,
-    queueEstimateDiffReviewTask,
-    queueEstimateNormReviewTask,
-    queueEstimateQualityReviewTask,
-    queueMaterialControlTasksForProject,
-    queueRoomControlTasksForProject,
-    renderEstimateChangeReconcileTask,
-    roomControlSignatureForProject,
-  } = createAiReviewQueueActions({
+    roomCompleteness
+  } = roomMeasurementRuntime;
+  const aiReviewQueueActions = createAiReviewQueueActions({
     API,
     aiFindings,
     aiTasks,
@@ -406,28 +356,17 @@ export function useAppBusinessRuntime({
     staff,
     user,
     users,
-    workJournal,
+    workJournal
   });
-
   const {
-    materialNormSupplyRequestExists,
-    createSupplyRequestFromNormCoverage,
-    createBatchSupplyRequestFromNormCoverage,
-    autoFillNormMaterialsForWork,
-    canEditMaterialNorms,
-    canCreateSupplyRequestFromNorm,
-    resetMaterialNormForm,
-    editMaterialNorm,
-    saveMaterialNorm,
-    disableMaterialNorm,
-    activeMaterialNormSuggestions,
-    generateMaterialNormSuggestions,
-    acceptMaterialNormSuggestion,
-    acceptMaterialNormSuggestionAsOverride,
-    createEstimateFromNormSuggestions,
-    rejectMaterialNormSuggestion,
-    createTaskFromMaterialNormSuggestion,
-  } = createMaterialNormActions({
+    aiTaskByMarker,
+    autoReconcileEstimateChanges,
+    hasActiveEstimator,
+    queueEstimateDiffReviewTask,
+    queueEstimateNormReviewTask,
+    queueEstimateQualityReviewTask
+  } = aiReviewQueueActions;
+  const materialNormActions = createMaterialNormActions({
     API,
     user,
     projects,
@@ -457,15 +396,12 @@ export function useAppBusinessRuntime({
     setSelectedEstimate,
     notify,
     refreshData,
-    navigateTo: (...args) => navigateTo(...args),
+    navigateTo: (...args) => navigateTo(...args)
   });
-
   const {
-    addEstimateMaterialFromCoverage,
-    createMaterialNormCoverageTask,
-    markEstimateWorkNoMaterialFromCoverage,
-    saveMaterialNormOverrideFromCoverage,
-  } = createMaterialNormCoverageActions({
+    canEditMaterialNorms
+  } = materialNormActions;
+  const materialNormCoverageActions = createMaterialNormCoverageActions({
     API,
     user,
     estimatesList,
@@ -477,22 +413,9 @@ export function useAppBusinessRuntime({
     setAiTasks,
     setEstimatesList,
     setMaterialNormNotice,
-    setSelectedEstimate,
+    setSelectedEstimate
   });
-
-  const {
-    applyMaterialOverNormReason,
-    capMaterialWriteoffQty,
-    materialNormOverrunReason,
-    materialWriteoffBlockMessage,
-    removeEstimateWorkMaterial,
-    removeSelectedWorkMaterial,
-    renderMaterialWriteoffStatus,
-    updateEstimateWorkMaterialQty,
-    updateSelectedWorkMaterialQty,
-    upsertEstimateWorkMaterial,
-    upsertSelectedWorkMaterial,
-  } = createMaterialWriteoffActions({
+  const materialWriteoffActions = createMaterialWriteoffActions({
     C,
     MaterialWriteoffStatus,
     canonicalMaterialMeta,
@@ -502,32 +425,22 @@ export function useAppBusinessRuntime({
     materialAvailabilityMapForWork,
     materialNameKey,
     setEstimateWorkMaterials,
-    setSelectedWorks,
+    setSelectedWorks
   });
-
   const {
-    canUseDirectorAgent,
+    capMaterialWriteoffQty
+  } = materialWriteoffActions;
+  const appRoleRuntime = createAppRoleRuntime({
+    piecework,
+    timesheet,
+    user,
+    users
+  });
+  const {
     calcSalary,
-    financeUsers,
-    formatSignedRub,
-    isDirector,
-    isLeadership,
-    isMasterRole,
-    isProrab,
-    projectPaymentInAmount,
-    projectPaymentSignedAmount,
-    roleColor,
-    workedDays,
-  } = createAppRoleRuntime({ piecework, timesheet, user, users });
-
-  const {
-    acceptMaterialAliasTask,
-    createBatchSupplyRequestFromMaterialControl,
-    createInvoiceControlReviewTasksForInvoice,
-    renderInvoiceControlActions,
-    renderMaterialAliasControls,
-    renderMaterialSupplyAction,
-  } = createMaterialControlActions({
+    isLeadership
+  } = appRoleRuntime;
+  const materialControlActions = createMaterialControlActions({
     API,
     C,
     btnB,
@@ -552,23 +465,14 @@ export function useAppBusinessRuntime({
     fmtMeasure,
     toNum,
     _normalizeUnit,
-    isLeadership,
+    isLeadership
   });
-
-  const documentActionRefs = {};
   const {
-    computeNotifications,
-    directorMapActionTarget,
-    directorMapContractForProject,
-    expByCategory,
-    getActStatusForJournal,
-    projectBudgetSpent,
-    projectEconomy,
-    projectObjectLinks,
-    projectRealProgress,
-    renderMaterialReconciliationPanel,
-    workExecutionTotal,
-  } = createProjectDashboardRuntime({
+    renderMaterialAliasControls,
+    renderMaterialSupplyAction
+  } = materialControlActions;
+  const documentActionRefs = {};
+  const projectDashboardRuntime = createProjectDashboardRuntime({
     C,
     EXPENSE_CATEGORIES,
     accountablePayments,
@@ -624,17 +528,14 @@ export function useAppBusinessRuntime({
     unexpectedWorksList,
     user,
     visibleEstimatesForCurrentUser,
-    workJournal,
+    workJournal
   });
-
+  const {
+    projectBudgetSpent
+  } = projectDashboardRuntime;
   const lowStock = lowStockFor(materials);
   const lowMainStock = lowStockFor(warehouseMain);
-  const {
-    buildDirectorBriefReportContent,
-    buildSupplyControlReportContent,
-    estimateControlIssues,
-    openEstimateControlReport,
-  } = createDirectorDashboardActions({
+  const directorDashboardActions = createDirectorDashboardActions({
     API,
     activeEstimatesForProject,
     companyName,
@@ -662,146 +563,24 @@ export function useAppBusinessRuntime({
     supplyRequests,
     user,
     warehouseInvoiceEstimateControl,
-    workJournal,
+    workJournal
   });
-
   return {
-    acceptMaterialAliasTask,
-    acceptMaterialNormSuggestion,
-    acceptMaterialNormSuggestionAsOverride,
-    activeEstimatesForProject,
-    activeMaterialNormSuggestions,
-    addEstimateMaterialFromCoverage,
-    aiFindingsForProject,
-    aiTaskByMarker,
-    aiTasksForProject,
-    applyMaterialOverNormReason,
-    approveEstimateReconciliation,
-    autoFillNormMaterialsForWork,
-    autoReconcileEstimateChanges,
-    buildDirectorBriefReportContent,
-    buildEstimateDiffContent,
-    buildMaterialNormCoverageContent,
-    buildSupplyControlReportContent,
-    calcSalary,
-    canonicalMaterialMeta,
-    canCreateSupplyRequestFromNorm,
-    canEditMaterialNorms,
-    canUseDirectorAgent,
-    computeNotifications,
-    createBatchSupplyRequestFromMaterialControl,
-    createBatchSupplyRequestFromNormCoverage,
-    createEstimateChangeFromComparisonRow,
-    createEstimateFromNormSuggestions,
-    createEstimateReconciliation,
-    createInvoiceControlReviewTasksForInvoice,
-    createMaterialNormCoverageTask,
-    createSupplyRequestFromNormCoverage,
-    createTaskFromMaterialNormSuggestion,
-    deleteEstimateRemote,
-    directorMapActionTarget,
-    directorMapContractForProject,
-    disableMaterialNorm,
+    ...aiTaskActions,
+    ...estimateWorkflowActions,
+    ...projectEstimateRuntime,
+    ...materialRuntime,
+    ...roomMeasurementRuntime,
+    ...aiReviewQueueActions,
+    ...materialNormActions,
+    ...materialNormCoverageActions,
+    ...materialWriteoffActions,
+    ...appRoleRuntime,
+    ...materialControlActions,
+    ...projectDashboardRuntime,
+    ...directorDashboardActions,
     documentActionRefs,
-    editMaterialNorm,
-    estimateChangeForComparisonRow,
-    estimateChangeRowsForDocs,
-    estimateChangesForNewEstimate,
-    estimateControlIssues,
-    estimateDiffBaseFor,
-    estimateItemOptionsForProject,
-    estimateListWithUpdatedEstimate,
-    estimateNormCoverageRows,
-    estimateReconciliationsForProject,
-    estimateWorkNormRequirementRows,
-    expByCategory,
-    financeUsers,
-    formatSignedRub,
-    generateAiFindingsForProject,
-    generateMaterialNormSuggestions,
-    getActStatusForJournal,
-    getProjectEstimateWorkOptions,
-    getProjectWorkPackageOptions,
-    getRoomNetWall,
-    hasActiveEstimator,
-    includableEstimateChanges,
-    includeChangesInNewEstimate,
-    isDirector,
-    isLeadership,
-    isMasterRole,
-    isPersonalMaterialRole,
-    isProrab,
-    isSupplyDeliveryInvoice,
-    jumpToEstimateIssue,
-    ks2ItemsFromEstimate,
     lowMainStock,
-    lowStock,
-    markEstimateWorkNoMaterialFromCoverage,
-    materialAliasCandidates,
-    materialAvailabilityMapForWork,
-    materialControlSignatureForProject,
-    materialControlSummaryForProject,
-    materialHintForProject,
-    materialNameKey,
-    materialNameLookupKey,
-    materialNormControlSummaryForProject,
-    materialNormForWork,
-    materialNormOverrunReason,
-    materialNormSupplyRequestExists,
-    materialReconciliationRows,
-    materialRowsAvailableForWork,
-    materialSuggestionsForWork,
-    materialWriteoffBlockMessage,
-    openAiTaskAction,
-    openEstimateControlReport,
-    openEstimateDetail,
-    openEstimateReconciliationPreview,
-    patchAiFindingSilent,
-    patchAiTaskSilent,
-    personalMaterialRowsForProject,
-    projectBudgetSpent,
-    projectEconomy,
-    projectObjectLinks,
-    projectPaymentInAmount,
-    projectPaymentSignedAmount,
-    projectPlanDone,
-    projectRealProgress,
-    queueEstimateDiffReviewTask,
-    queueEstimateNormReviewTask,
-    queueEstimateQualityReviewTask,
-    queueMaterialControlTasksForProject,
-    queueRoomControlTasksForProject,
-    rejectMaterialNormSuggestion,
-    removeEstimateWorkMaterial,
-    removeSelectedWorkMaterial,
-    renderEstimateChangeReconcileTask,
-    renderEstimateMeasurementComparisonPanel,
-    renderEstimateReconciliationsPanel,
-    renderInvoiceControlActions,
-    renderMaterialAliasControls,
-    renderMaterialReconciliationPanel,
-    renderMaterialSupplyAction,
-    renderMaterialWriteoffStatus,
-    renderWorkJournalEstimateReconciliationPanel,
-    resetMaterialNormForm,
-    roleColor,
-    roomCompleteness,
-    roomControlSignatureForProject,
-    roomMeasurementCheck,
-    roomMeasurementMessage,
-    saveMaterialNorm,
-    saveMaterialNormOverrideFromCoverage,
-    setEstimateStatusRemote,
-    updateAiFinding,
-    updateAiTask,
-    updateEstimateWorkMaterialQty,
-    updateSelectedWorkMaterialQty,
-    upsertEstimateWorkMaterial,
-    upsertSelectedWorkMaterial,
-    warehouseInvoiceEstimateControl,
-    warehouseInvoiceItems,
-    workExecutionTotal,
-    workedDays,
-    workNeedsThicknessParam,
+    lowStock
   };
 }
