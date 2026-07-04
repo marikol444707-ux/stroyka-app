@@ -140,8 +140,41 @@ export default function DashboardPage({
     );
   }
 
+  const currentUserRole = user?.role || '';
+  const isApprovedEstimateChange = typeof isApprovedEstimateChangeStatus === 'function'
+    ? isApprovedEstimateChangeStatus
+    : () => false;
+  const getProjectBudgetSpent = typeof projectBudgetSpent === 'function'
+    ? projectBudgetSpent
+    : () => ({ works: 0, materials: 0, unexpected: 0, total: 0 });
+  const getProjectPaymentSignedAmount = typeof projectPaymentSignedAmount === 'function'
+    ? projectPaymentSignedAmount
+    : () => 0;
+  const getProjectRealProgress = typeof projectRealProgress === 'function'
+    ? projectRealProgress
+    : (project) => Math.max(0, Math.min(100, Number(project?.progress || 0)));
+  const isLeadershipUser = typeof isLeadership === 'function'
+    ? isLeadership
+    : () => ['директор', 'зам_директора'].includes(currentUserRole);
+  const formatDocDate = typeof normalizeDocDate === 'function'
+    ? normalizeDocDate
+    : (value) => String(value || '').split('T')[0] || '';
+  const getWorkDocDate = typeof workDocDate === 'function'
+    ? workDocDate
+    : (work) => formatDocDate(work?.date || work?.createdAt);
+  const getEstimateControlIssues = typeof estimateControlIssues === 'function'
+    ? estimateControlIssues
+    : () => [];
+  const previewDocument = typeof showPreview === 'function' ? showPreview : () => {};
+  const buildDirectorBriefReport = typeof buildDirectorBriefReportContent === 'function' ? buildDirectorBriefReportContent : () => '';
+  const buildDailyObjectReport = typeof buildDailyObjectReportContent === 'function' ? buildDailyObjectReportContent : () => '';
+  const buildSupplyControlReport = typeof buildSupplyControlReportContent === 'function' ? buildSupplyControlReportContent : () => '';
+
   const _today = new Date().toISOString().split('T')[0];
-  const dashboardProjects = visibleActiveProjects(projects || []);
+  const getVisibleActiveProjects = typeof visibleActiveProjects === 'function'
+    ? visibleActiveProjects
+    : (list = []) => (list || []).filter(project => !project?.archived);
+  const dashboardProjects = getVisibleActiveProjects(projects || []);
   const risks = [];
   lowStock.slice(0,2).forEach(m=>risks.push({icon:'📦',text:'Мало на объекте: '+m.name,severity:'warn',page:'warehouse'}));
   lowMainStock.slice(0,2).forEach(m=>risks.push({icon:'🏭',text:'Мало на складе: '+m.name,severity:'warn',page:'warehouse',tab:'main'}));
@@ -154,7 +187,7 @@ export default function DashboardPage({
     const budget = Number(p.budget||0);
     if (budget <= 0) return;
     const sumUnx = (unexpectedWorksList||[])
-      .filter(u=>u.projectName===p.name&&isApprovedEstimateChangeStatus(u.status)&&u.changeType!=='Исключение объёма'&&!u.includedInEstimateId)
+      .filter(u=>u.projectName===p.name&&isApprovedEstimateChange(u.status)&&u.changeType!=='Исключение объёма'&&!u.includedInEstimateId)
       .reduce((s,u)=>s+Number(u.total||0),0);
     const pct = sumUnx/budget*100;
     if (pct > 10) risks.push({icon:'💸',text:p.name+': изменения к смете '+pct.toFixed(1)+'% от бюджета',severity:'danger',page:'projects'});
@@ -167,14 +200,14 @@ export default function DashboardPage({
   const openAiControl = (aiFindings||[]).filter(f=>isOpenAiStatus(f.status));
   const criticalAiControl = openAiControl.filter(f=>f.severity==='Критично'||f.severity==='Не хватает данных');
   if (openAiControl.length > 0) risks.push({icon:'🤖',text:'ИИ-контроль: '+openAiControl.length+' замечаний, из них важных '+criticalAiControl.length,severity:criticalAiControl.length?'danger':'warn',page:'projects'});
-  const _projProgress = projectRealProgress;
+  const _projProgress = getProjectRealProgress;
   const avgProg = dashboardProjects.length ? Math.round(dashboardProjects.reduce((s,p)=>s+_projProgress(p),0)/dashboardProjects.length) : 0;
-  const dashboardBudgetSpent = dashboardProjects.map(p=>({projectId:p.id,projectName:p.name,spent:projectBudgetSpent(p)}));
+  const dashboardBudgetSpent = dashboardProjects.map(p=>({projectId:p.id,projectName:p.name,spent:getProjectBudgetSpent(p)}));
   const dashboardBudgetSpentById = new Map(dashboardBudgetSpent.map(x=>[String(x.projectId),x.spent]));
   const dashboardBudgetSpentByName = new Map(dashboardBudgetSpent.map(x=>[x.projectName,x.spent]));
   const totalDone = dashboardBudgetSpent.reduce((s,x)=>s+Number(x.spent?.total||0),0);
   const dashboardJournalExpenses = (projectPayments||[]).reduce((sum,pay)=>{
-    const signed = projectPaymentSignedAmount(pay);
+    const signed = getProjectPaymentSignedAmount(pay);
     return signed < 0 ? sum + Math.abs(signed) : sum;
   },0);
   const dashboardDirectExpenses = (manualExpenses||[])
@@ -191,35 +224,34 @@ export default function DashboardPage({
   };
   const dashboardExtraKey = 'dashboard-extra-panels';
   const showDashboardExtra = !isMobile || !!mobileExpandedRenderLists[dashboardExtraKey];
-  const currentUserRole = user?.role || '';
   const showSupplyDashboard = showDashboardExtra && ['директор','зам_директора','бухгалтер','прораб','кладовщик','снабженец'].includes(currentUserRole);
   const supplyPendingRequests = showDashboardExtra ? (supplyRequests||[]).filter(r=>{
     if (currentUserRole==='прораб') return r.status==='Новая';
-    if (isLeadership()) return r.status==='Новая'||r.status==='Подтверждена прорабом';
+    if (isLeadershipUser()) return r.status==='Новая'||r.status==='Подтверждена прорабом';
     return r.status==='Утверждена'||r.status==='КП запрошены';
   }) : [];
   const supplyOffersToReview = showDashboardExtra ? (supplierOffers||[]).filter(o=>o.status==='Получено') : [];
   const supplyInvoicesToPay = showDashboardExtra ? (supplierInvoices||[]).filter(i=>i.status==='На утверждении'||i.status==='Утверждён'||i.status==='Частично оплачен'||!i.status) : [];
   const supplyInvoiceDebt = showDashboardExtra ? supplyInvoicesToPay.reduce((s,i)=>s+Math.max(0,Number(i.amount||i.totalAmount||0)-Number(i.paidAmount||0)),0) : 0;
-  const directorSkillDate = showDashboardExtra ? (normalizeDocDate(dailyReportDate)||_today) : _today;
-  const directorSkillDailyWorks = showDashboardExtra ? (workJournal||[]).filter(w=>workDocDate(w)===directorSkillDate) : [];
-  const directorSkillEstimateIssues = showDashboardExtra && isLeadership() ? estimateControlIssues().length : 0;
+  const directorSkillDate = showDashboardExtra ? (formatDocDate(dailyReportDate)||_today) : _today;
+  const directorSkillDailyWorks = showDashboardExtra ? (workJournal||[]).filter(w=>getWorkDocDate(w)===directorSkillDate) : [];
+  const directorSkillEstimateIssues = showDashboardExtra && isLeadershipUser() ? getEstimateControlIssues().length : 0;
   const directorSkillSupplyIssues = showDashboardExtra ? lowStock.length+lowMainStock.length
     +(supplyRequests||[]).filter(r=>r.status==='Новая'||r.status==='Подтверждена прорабом').length
     +(supplierInvoices||[]).filter(i=>i.status==='На утверждении'||!i.status).length : 0;
   const directorSkillCards = showDashboardExtra ? [
-    {label:'Сводка директору',sub:'риски, деньги, задачи',icon:<Bot size={18}/>,color:'#fdba74',bg:'rgba(234,88,12,.14)',border:'rgba(234,88,12,.32)',metric:risks.length+' рисков',onClick:()=>showPreview(buildDirectorBriefReportContent(directorSkillDate),'Сводка директора — '+new Date(directorSkillDate+'T00:00:00').toLocaleDateString('ru-RU'))},
+    {label:'Сводка директору',sub:'риски, деньги, задачи',icon:<Bot size={18}/>,color:'#fdba74',bg:'rgba(234,88,12,.14)',border:'rgba(234,88,12,.32)',metric:risks.length+' рисков',onClick:()=>previewDocument(buildDirectorBriefReport(directorSkillDate),'Сводка директора — '+new Date(directorSkillDate+'T00:00:00').toLocaleDateString('ru-RU'))},
     {label:'ИИ-контроль',sub:'обмеры и поручения',icon:<Bot size={18}/>,color:'#fca5a5',bg:'rgba(239,68,68,.12)',border:'rgba(239,68,68,.28)',metric:openAiControl.length+' замеч.',onClick:()=>navigateTo('projects')},
-    {label:'Ежедневный отчёт',sub:'работы по объектам',icon:<FileText size={18}/>,color:'#86efac',bg:'rgba(34,197,94,.12)',border:'rgba(34,197,94,.28)',metric:directorSkillDailyWorks.length+' работ',onClick:()=>showPreview(buildDailyObjectReportContent(directorSkillDate),'Ежедневный отчет — '+new Date(directorSkillDate+'T00:00:00').toLocaleDateString('ru-RU'))},
+    {label:'Ежедневный отчёт',sub:'работы по объектам',icon:<FileText size={18}/>,color:'#86efac',bg:'rgba(34,197,94,.12)',border:'rgba(34,197,94,.28)',metric:directorSkillDailyWorks.length+' работ',onClick:()=>previewDocument(buildDailyObjectReport(directorSkillDate),'Ежедневный отчет — '+new Date(directorSkillDate+'T00:00:00').toLocaleDateString('ru-RU'))},
     {label:'Проверка смет',sub:'нули, дубли, бюджет',icon:<Calculator size={18}/>,color:'#93c5fd',bg:'rgba(59,130,246,.12)',border:'rgba(59,130,246,.28)',metric:directorSkillEstimateIssues+' замеч.',onClick:openEstimateControlReport},
-    {label:'Склад и снабжение',sub:'остатки, заявки, счета',icon:<Package size={18}/>,color:'#c4b5fd',bg:'rgba(139,92,246,.12)',border:'rgba(139,92,246,.28)',metric:directorSkillSupplyIssues+' задач',onClick:()=>showPreview(buildSupplyControlReportContent(),'Контроль снабжения и склада')},
+    {label:'Склад и снабжение',sub:'остатки, заявки, счета',icon:<Package size={18}/>,color:'#c4b5fd',bg:'rgba(139,92,246,.12)',border:'rgba(139,92,246,.28)',metric:directorSkillSupplyIssues+' задач',onClick:()=>previewDocument(buildSupplyControlReport(),'Контроль снабжения и склада')},
   ] : [];
 
   return (
     <div style={{minHeight:'100%',padding:'28px',background:'radial-gradient(circle at 15% 0%,rgba(249,115,22,.15),transparent 32%),linear-gradient(135deg,#0b1120 0%,#111827 100%)',color:'#f8fafc'}}>
       <DashboardTopBar {...topBarProps}/>
       <DashboardStatsGrid dashboardProjects={dashboardProjects} avgProg={avgProg} totalDone={totalDone} totalExpenses={dashboardAccountingExpenses} setActivePage={setActivePage} navigateTo={navigateTo} setAccountingTab={setAccountingTab}/>
-      {showDashboardExtra&&<DashboardDirectorAiPanel isLeadership={isLeadership} directorSkillCards={directorSkillCards} dailyReportDate={dailyReportDate} setDailyReportDate={setDailyReportDate} canUseDirectorAgent={canUseDirectorAgent} directorAgentLoading={directorAgentLoading} askDirectorAgent={askDirectorAgent} directorAgentQuestion={directorAgentQuestion} setDirectorAgentQuestion={setDirectorAgentQuestion} isMobile={isMobile} directorAgentAnswer={directorAgentAnswer} directorAgentError={directorAgentError} directorAgentSteps={directorAgentSteps}/>}
+      {showDashboardExtra&&<DashboardDirectorAiPanel isLeadership={isLeadershipUser} directorSkillCards={directorSkillCards} dailyReportDate={dailyReportDate} setDailyReportDate={setDailyReportDate} canUseDirectorAgent={canUseDirectorAgent} directorAgentLoading={directorAgentLoading} askDirectorAgent={askDirectorAgent} directorAgentQuestion={directorAgentQuestion} setDirectorAgentQuestion={setDirectorAgentQuestion} isMobile={isMobile} directorAgentAnswer={directorAgentAnswer} directorAgentError={directorAgentError} directorAgentSteps={directorAgentSteps}/>}
       {showDashboardExtra&&<DashboardSupplyPanel showSupplyDashboard={showSupplyDashboard} user={user} openSupplyDashboard={openSupplyDashboard} supplyPendingRequests={supplyPendingRequests} supplyOffersToReview={supplyOffersToReview} supplyInvoicesToPay={supplyInvoicesToPay} supplyInvoiceDebt={supplyInvoiceDebt}/>}
       <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1.3fr 0.7fr',gap:'16px'}}>
         <div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>
@@ -259,7 +291,7 @@ export default function DashboardPage({
               Загрузить рабочие панели
             </button>
           )}
-          {showDashboardExtra&&<DashboardProductionSummaryPanel workJournal={workJournal} workDocDate={workDocDate} normalizeDocDate={normalizeDocDate} dailyReportDate={dailyReportDate} setDailyReportDate={setDailyReportDate} user={user} showPreview={showPreview} buildDailyObjectReportContent={buildDailyObjectReportContent} setActivePage={setActivePage} setAccountingTab={setAccountingTab}/>}
+          {showDashboardExtra&&<DashboardProductionSummaryPanel workJournal={workJournal} workDocDate={getWorkDocDate} normalizeDocDate={formatDocDate} dailyReportDate={dailyReportDate} setDailyReportDate={setDailyReportDate} user={user} showPreview={previewDocument} buildDailyObjectReportContent={buildDailyObjectReport} setActivePage={setActivePage} setAccountingTab={setAccountingTab}/>}
           {showDashboardExtra&&<DashboardActivityPanel activityLog={activityLog}/>}
         </div>
       </div>

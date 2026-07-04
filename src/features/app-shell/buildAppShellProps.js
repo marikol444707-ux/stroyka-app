@@ -349,7 +349,8 @@ export function buildAppShellProps({
         setSidebarVisible,
         setUser,
         showPreview,
-        toggleNotifications
+        toggleNotifications,
+        visibleActiveProjects: coreRuntime.visibleActiveProjects || sharedActions.visibleActiveProjects
       }
     },
     estimatesPageContext,
