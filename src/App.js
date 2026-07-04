@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useRef } from 'react';
 import './App.css';
 import { API, installAuthFetch } from './api';
 import { CRM_STAGES, DOOR_PURPOSES, DOOR_TYPES, ESTIMATE_CHANGE_TYPES, ESTIMATE_CHANGE_VISIBLE_STATUSES, ESTIMATE_PACKAGES, EXPENSE_CATEGORIES, MATERIAL_CATEGORIES, PAYMENT_TYPES, REVEAL_MATERIALS, STAGE_STATUSES, SUPPLIER_CATEGORIES, SURFACES, TOOL_STATUSES, UNITS, VAT_OPTIONS, WEATHER_CONDITIONS, WINDOW_TYPES } from './constants/catalogs';
@@ -56,31 +56,10 @@ import ProjectPrescriptionsPanel from './components/ProjectPrescriptionsPanel';
 import ProjectSafetyJournalPanel from './components/ProjectSafetyJournalPanel';
 import ProjectWorkJournalPanel from './components/ProjectWorkJournalPanel';
 import ProjectScheduleSummaryPanel from './components/ProjectScheduleSummaryPanel';
-import MaterialWriteoffStatus from './components/MaterialWriteoffStatus';
 import { ProjectDirectorMapPanel } from './features/director-map';
 import { ProjectLaunchPanel } from './features/project-launch';
 import { createProjectCrudActions } from './features/projects/projectCrudActions';
-import {
-  createClientForm,
-  createProjectForm,
-} from './features/projects/projectInitialForms';
 import { createWarehouseCrudActions } from './features/warehouse/warehouseCrudActions';
-import {
-  createCatalogItemForm,
-  createInventoryForm,
-  createIssueToolForm,
-  createMaterialTransferForm,
-  createSupplierRequisitesForm,
-  createToolForm,
-  createWarehouseForm,
-  createWarehouseInvoiceForm,
-  createWarehouseMovementForm,
-} from './features/warehouse/warehouseInitialForms';
-import { createMaterialControlActions } from './features/material-control/materialControlActions';
-import { createMaterialRuntime } from './features/material-control/materialRuntime';
-import { createDataLoadActions } from './features/data-loaders/dataLoadActions';
-import { useAppDataLoaders } from './features/data-loaders/useAppDataLoaders';
-import { createProjectDashboardRuntime } from './features/dashboard/projectDashboardRuntime';
 import EstimatesTabsNav from './components/EstimatesTabsNav';
 import EstimatesListToolbar from './components/EstimatesListToolbar';
 import EstimateSearchResults from './components/EstimateSearchResults';
@@ -104,60 +83,17 @@ import MaterialNormsListPanel from './components/MaterialNormsListPanel';
 import EstimateExecutionPricingPanel from './components/EstimateExecutionPricingPanel';
 import PhotoAttachmentField from './components/PhotoAttachmentField';
 import AppAuthenticatedShell from './components/AppAuthenticatedShell';
-import AppMasterCabinetRoute from './components/AppMasterCabinetRoute';
-import AppSupplierCabinetRoute from './components/AppSupplierCabinetRoute';
-import { createAuthActions } from './features/auth/authActions';
-import { createAiAssistantActions } from './features/ai-assistant/aiAssistantActions';
-import { createChatActions } from './features/chat/chatActions';
-import { createCrmActions } from './features/crm/crmActions';
-import { createLeadForm } from './features/crm/crmInitialForms';
-import { createGeoActions } from './features/geolocation/geoActions';
-import { createNotificationActions } from './features/notifications/notificationActions';
-import { createSystemActions } from './features/system/systemActions';
-import { createUploadActions } from './features/uploads/uploadActions';
 import { WorkAssignmentStatusPanel } from './features/work-assignment';
 import { useAiAssistantState } from './features/ai-assistant/useAiAssistantState';
-import { createAiTaskActions } from './features/ai-control/aiTaskActions';
-import { createAiReviewQueueActions } from './features/ai-control/aiReviewQueueActions';
 import { createUserAccessActions } from './features/admin/userAccessActions';
 import { createDocumentActions } from './features/documents/documentActions';
-import {
-  createProjectDocumentForm,
-  createProjectLetterForm,
-  createSupervisorActForm,
-} from './features/documents/projectDocumentInitialForms';
-import { createPaymentActions } from './features/payments/paymentActions';
-import {
-  createActPaymentForm,
-  createBrigadePaymentForm,
-} from './features/payments/paymentInitialForms';
 import { usePaymentUiState } from './features/payments/usePaymentUiState';
 import { createPersonnelActions } from './features/personnel/personnelActions';
-import {
-  createBrigadeContractForm,
-  createBrigadeItemForm,
-  createContractForm,
-  createInterimActForm,
-  createPieceworkForm,
-  createStaffDocumentForm,
-  createUserForm,
-} from './features/personnel/personnelInitialForms';
 import { createPricelistActions } from './features/pricelists/pricelistActions';
-import {
-  createPricelistForm,
-  createPricelistItemForm,
-} from './features/pricelists/pricelistInitialForms';
-import { createMaterialNormActions } from './features/material-norms/materialNormActions';
-import { createMaterialNormCoverageActions } from './features/material-norms/materialNormCoverageActions';
 import { useMaterialNormsState } from './features/material-norms/useMaterialNormsState';
-import { createMaterialTransferActions } from './features/material-transfer/materialTransferActions';
-import { createMaterialWriteoffActions } from './features/material-writeoff/materialWriteoffActions';
 import { createWorkJournalActions } from './features/work-journal/workJournalActions';
-import { createProjectEstimateRuntime } from './features/estimates/projectEstimateRuntime';
-import AppEntryRoutes from './components/AppEntryRoutes';
 import AppPageFallback from './components/AppPageFallback';
 import { buildAppMenuItems } from './components/AppMenuItems';
-import AppRoleCabinetRoutes from './components/AppRoleCabinetRoutes';
 import { _normalizeUnit, denormalizeMeasure, fmtMeasure, normalizeMeasure, toNum } from './utils/measureUtils';
 import {
   WORK_MATERIAL_NORM_RULES,
@@ -177,7 +113,6 @@ import {
 } from './utils/roomMeasurementUtils';
 import {
   buildEstimateWorkSummary,
-  buildEstimateDiff,
   enrichEstimateMeasurementBasis,
   activeEstimateFromList,
   applyEstimateActivationState,
@@ -210,126 +145,40 @@ import {
   isEstimateWorkItem,
   normalizeEstimateImportSections,
   normalizeEstimateItemType,
-  normalizeEstimateList,
   sameEstimateGroup,
 } from './utils/estimateUtils';
-import {
-  estimateChangeAutoDecision,
-  estimateChangeReconcileMarker,
-  estimateChangeReconcileDescription,
-  estimateDiffReviewMarker,
-  estimateDiffReviewDescription,
-  estimateNormReviewMarker,
-  estimateNormReviewDescription,
-  estimateNormReviewIssueStatuses,
-  estimateQualityReviewMarker,
-  estimateQualityDescription,
-  estimateQualityRows,
-} from './utils/estimateReviewUtils';
-import { createEstimateWorkflowActions } from './features/estimates/estimateWorkflowActions';
+import { estimateQualityRows } from './utils/estimateReviewUtils';
 import { createEstimatePageActions } from './features/estimates/estimatePageActions';
 import { persistEstimateAction } from './features/estimates/estimatePersistenceActions';
 import { createSupplyActions } from './features/supply/supplyActions';
-import {
-  createRequestForm,
-  createSupplierForm,
-  createSupplierOfferForm,
-} from './features/supply/supplyInitialForms';
 import { createSupplyPlanningUi } from './features/supply/supplyPlanningUi';
 import { useSupplyWorkflowState } from './features/supply/useSupplyWorkflowState';
 import { useSupplierRequisitesSync } from './features/supply/useSupplierRequisitesSync';
 import { createProjectOperationActions } from './features/project-operations/projectOperationActions';
-import {
-  createChecklistForm,
-  createDoorForm,
-  createPrescriptionForm,
-  createProjectStageForm,
-  createRoomForm,
-  createTbEntryForm,
-  createWeatherForm,
-  createWindowForm,
-} from './features/project-operations/projectOperationInitialForms';
-import {
-  createCompanyDocumentForm,
-  createCompanyRequisitesForm,
-  createProfileForm,
-} from './features/settings/settingsInitialForms';
 import { createProjectMeasurementActions } from './features/project-measurements/projectMeasurementActions';
-import { createMeasurementDocForm } from './features/project-measurements/projectMeasurementInitialForms';
-import { createRoomMeasurementRuntime } from './features/project-measurements/roomMeasurementRuntime';
-import { createDirectorDashboardActions } from './features/dashboard/directorDashboardActions';
-import { useAppNavigationRuntime } from './features/navigation/appNavigationRuntime';
-import { createAppRoleRuntime, createAppUtilityRuntime, unreadCompanyMessagesCount } from './features/app-shell/appShellSelectors';
+import { createAppUtilityRuntime } from './features/app-shell/appShellSelectors';
 import {
-  useAuthenticatedAppBootstrapEffect,
   useAuthEntryState,
   useDarkModeState,
-  useInviteCodeCheckEffect,
-  useNotificationDismissEffect,
   useResponsiveLayout,
   useShellOverlayState,
 } from './features/app-shell/useAppShellState';
+import { useAppCoreRuntime } from './features/app-shell/useAppCoreRuntime';
+import { useAppMainState } from './features/app-shell/useAppMainState';
+import { useAppBusinessRuntime } from './features/app-shell/useAppBusinessRuntime';
+import { renderAppEarlyRoleRoute } from './features/app-shell/renderAppEarlyRoleRoute';
 import { useEstimateExecutionFillPercentSync } from './features/estimates/useEstimateExecutionPricingState';
 import { useEstimateWorkflowState } from './features/estimates/useEstimateWorkflowState';
-import {
-  invoiceControlMaterialName,
-  invoiceControlNeedsReview,
-  invoiceControlProjectName,
-  invoiceControlReviewReason,
-  parseAiTaskPayload,
-} from './utils/aiControlDescriptionUtils';
-import {
-  buildPagedPath,
-  calcVat,
-  createMaterialsPageState,
-  createMaterialNormsPageState,
-  createWorkJournalPageState,
-  daysInMonth,
-  doPrint,
-  generateQR,
-  mergeRowsByIdValue,
-  mobileScopeForPage,
-  readStoredJson,
-  readApiResult,
-  sendPushNotification,
-} from './utils/appRuntimeUtils';
-import {
-  normalizeDocDate,
-  workDocDate,
-} from './utils/documentFormatUtils';
+import { parseAiTaskPayload } from './utils/aiControlDescriptionUtils';
+import { calcVat, daysInMonth, doPrint, generateQR, readApiResult } from './utils/appRuntimeUtils';
+import { normalizeDocDate, workDocDate } from './utils/documentFormatUtils';
 import { exportToExcelFile } from './utils/exportUtils';
 import { cableTypeOf, isCableName } from './utils/cableUtils';
-import {
-  contractRequisitesWarning,
-  normalizePersonKey,
-} from './utils/performerUtils';
-import {
-  canAccessRole,
-  canCreateSupplyRequestFromNormForUser,
-  canEditMaterialNormsForUser,
-  generateTempPassword,
-  roleFlagsForUser,
-} from './utils/accessUtils';
-import {
-  buildEstimateDiffDocContent,
-  buildEstimateReconciliationDocContent,
-  fmtDocMoney,
-} from './utils/printDocumentBuilders';
-import {
-  EMPTY_ESTIMATE_CHANGE,
-  isApprovedEstimateChangeStatus,
-  signedEstimateChangeTotal,
-} from './utils/estimateChangeUtils';
-import { emptyStaffForm } from './utils/staffUtils';
-import {
-  isActiveSupplyRequestStatus,
-  isSameSupplyMaterial,
-  parseOfferItems,
-  parseSupplyItems,
-  supplyRequestOrigin,
-  supplyUnitKey,
-} from './utils/supplyUtils';
-import { aiSeverityMeta, estimateStatusView, isOpenAiStatus, materialControlStatus, materialNormCoverageMeta, materialNormStatus, workJournalEstimateStatusMeta } from './utils/statusMetaUtils';
+import { contractRequisitesWarning, normalizePersonKey } from './utils/performerUtils';
+import { generateTempPassword } from './utils/accessUtils';
+import { EMPTY_ESTIMATE_CHANGE, isApprovedEstimateChangeStatus, signedEstimateChangeTotal } from './utils/estimateChangeUtils';
+import { isSameSupplyMaterial, parseOfferItems, parseSupplyItems, supplyRequestOrigin, supplyUnitKey } from './utils/supplyUtils';
+import { aiSeverityMeta, estimateStatusView, materialControlStatus, materialNormCoverageMeta, materialNormStatus } from './utils/statusMetaUtils';
 import { FolderKanban, Package, ScrollText, Search, Plus, Edit2, Trash2, Eye, Check, X, ChevronDown, ChevronUp, Upload, MapPin, FileText, Archive, QrCode, Calculator, Bot, GitBranch } from 'lucide-react';
 
 installAuthFetch();
@@ -341,237 +190,143 @@ function App() {
   const mobileLoadedScopesRef = useRef(new Set());
   const mobileApiRequestsRef = useRef(new Map());
   const [darkMode, setDarkMode] = useDarkModeState();
+  const authEntryState = useAuthEntryState();
+  const { setUser, user } = authEntryState;
+  const appMainState = useAppMainState();
   const {
-    email, loginError, page, password, regCode, regEmail, regInviteInfo, regName, regPassword, regSupplierData,
-    setEmail, setLoginError, setPage, setPassword, setRegCode, setRegEmail, setRegInviteInfo,
-    setRegName, setRegPassword, setRegSupplierData, setUser, user,
-  } = useAuthEntryState();
-  const [activePage, setActivePage] = useState('dashboard');
-  const [initialDataLoaded, setInitialDataLoaded] = useState(false);
-  const [activeProjectTab, setActiveProjectTab] = useState('Общее');
-  const [activeTabGroup, setActiveTabGroup] = useState(null);
-  const [sidebarVisible, setSidebarVisible] = useState(false);
-  const [projects, setProjects] = useState([]);
-  const [clients, setClients] = useState([]);
-  const [materials, setMaterials] = useState([]);
-  const [warehouseMain, setWarehouseMain] = useState([]);
-  const [warehouses, setWarehouses] = useState([]);
-  const [warehouseMovements, setWarehouseMovements] = useState([]);
-  const [history, setHistory] = useState([]);
-  const [staff, setStaff] = useState([]);
-  const [piecework, setPiecework] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [pricelists, setPricelists] = useState([]);
-  const [pricelistItems, setPricelistItems] = useState([]);
-  const [inviteCodes, setInviteCodes] = useState([]);
-  const [suppliers, setSuppliers] = useState([]);
-  const [supplyRequests, setSupplyRequests] = useState([]);
-  const [supplierOffers, setSupplierOffers] = useState([]);
-  const [supplyHistory, setSupplyHistory] = useState([]);
-  const [supplyDeliveries, setSupplyDeliveries] = useState([]);
-  const [supplyClaims, setSupplyClaims] = useState([]);
-  const [workJournal, setWorkJournal] = useState([]);
-  const [masterProfile, setMasterProfile] = useState(null);
-  const [masterProfiles, setMasterProfiles] = useState([]);
-  const [contracts, setContracts] = useState([]);
-  const [interimActs, setInterimActs] = useState([]);
-  const [timesheet, setTimesheet] = useState({});
-  const [salaryPayments, setSalaryPayments] = useState([]);
-  const [unexpectedWorksList, setUnexpectedWorksList] = useState([]);
-  const [estimateReconciliations, setEstimateReconciliations] = useState([]);
-  const [brigadeContracts, setBrigadeContracts] = useState([]);
-  const [hiddenActs, setHiddenActs] = useState([]);
-  const [editingAct, setEditingAct] = useState(null);
-  const [editingJournal, setEditingJournal] = useState(null);
-  const [journalFilter, setJournalFilter] = useState({from:'',to:'',masterName:'',sectionName:'',status:''});
-  const [showJournalTableModal, setShowJournalTableModal] = useState(null);
-  const [materialInspections, setMaterialInspections] = useState([]);
-  const [editingInspection, setEditingInspection] = useState(null);
-  const [cableJournal, setCableJournal] = useState([]);
-  const [editingCable, setEditingCable] = useState(null);
-  const [supervisorActs, setSupervisorActs] = useState([]);
-  const [inspectionOrders, setInspectionOrders] = useState([]);
-  const [newInspOrder, setNewInspOrder] = useState(null);
-  const [auditLog, setAuditLog] = useState([]);
-  const [expenseReports, setExpenseReports] = useState([]);
-  const [newExpenseReport, setNewExpenseReport] = useState(null);
-  const [supplierInvoices, setSupplierInvoices] = useState([]);
-  const [newSupplierInvoice, setNewSupplierInvoice] = useState(null);
-  const [warrantyDefects, setWarrantyDefects] = useState([]);
-  const [newWarrantyDefect, setNewWarrantyDefect] = useState(null);
-  const [warrantyEditForm, setWarrantyEditForm] = useState(null);
-  const [newSupervisorAct, setNewSupervisorAct] = useState(createSupervisorActForm);
-  const [supervisorActPhoto, setSupervisorActPhoto] = useState('');
-  const [prescriptionPhoto, setPrescriptionPhoto] = useState('');
-  const [selectedBrigadeContract, setSelectedBrigadeContract] = useState(null);
-  const [brigadeContractItems, setBrigadeContractItems] = useState([]);
-  const [brigadePayments, setBrigadePayments] = useState([]);
-  const [showBrigadePayModal, setShowBrigadePayModal] = useState(false);
-  const [newBrigadePayment, setNewBrigadePayment] = useState(createBrigadePaymentForm);
-  const [allBrigadeItems, setAllBrigadeItems] = useState([]);
-  const [allBrigadePayments, setAllBrigadePayments] = useState([]);
-  const [projectDocuments, setProjectDocuments] = useState([]);
-  const [newProjectDoc, setNewProjectDoc] = useState(createProjectDocumentForm);
-  const [sitePublicationDrafts, setSitePublicationDrafts] = useState({});
-  const [showDocForm, setShowDocForm] = useState(false);
-  const [uploadingDoc, setUploadingDoc] = useState(false);
-  const [projectMeasurements, setProjectMeasurements] = useState([]);
-  const [measurementRoomDrafts, setMeasurementRoomDrafts] = useState([]);
-  const [measurementDraftLoadingId, setMeasurementDraftLoadingId] = useState(null);
-  const [newMeasurementDoc, setNewMeasurementDoc] = useState(createMeasurementDocForm);
-  const [showMeasurementForm, setShowMeasurementForm] = useState(false);
-  const [uploadingMeasurementDoc, setUploadingMeasurementDoc] = useState(false);
-  const [projectLetters, setProjectLetters] = useState([]);
-  const [newLetter, setNewLetter] = useState(createProjectLetterForm);
-  const [showLetterForm, setShowLetterForm] = useState(false);
-  const [uploadingLetter, setUploadingLetter] = useState(false);
-  const [showBrigadeForm, setShowBrigadeForm] = useState(false);
-  const [newBrigadeContract, setNewBrigadeContract] = useState(createBrigadeContractForm);
-  const [newBrigadeItem, setNewBrigadeItem] = useState(createBrigadeItemForm);
-  const [brigadeCoef, setBrigadeCoef] = useState('0.6');
-  const [supplierCatalog, setSupplierCatalog] = useState([]);
-  const [supplyTemplates, setSupplyTemplates] = useState([]);
-  const [priceHints, setPriceHints] = useState({});
-  const [showCatalogForm, setShowCatalogForm] = useState(false);
-  const [newCatalogItem, setNewCatalogItem] = useState(createCatalogItemForm);
-  const [supplierTab, setSupplierTab] = useState('requests');
-  const [supplierRequisites, setSupplierRequisites] = useState(createSupplierRequisitesForm);
+    accountablePayments, accountingDocProject, accountingTab, activePage, activeProjectTab,
+    activeTabGroup, activityLog, actPayments, aiFindings, allBrigadeItems, allBrigadePayments,
+    auditLog, brigadeCoef, brigadeContractItems, brigadeContracts, brigadePayments, cableJournal,
+    checklists, checklistItems, clients, companyChatMessage, companyDocuments, companyMessages,
+    companyName, companyReqForm, companyRequisites, confirmAcceptedQty, confirmComment,
+    confirmingEntry, contracts, customRoomTypes, dailyReportDate, draftRoomDoors, draftRoomWindows,
+    editingAct, editingCable, editingDoor, editingInspection, editingItem, editingJournal,
+    editingPlItem, editingWindow, estimateWorkMaterials, estimateWorkParams, estimatesList,
+    estimatesPage, estimatesTab, expandedActDate, expandedClient, expandedGroup, expandedMaster,
+    expandedMasterProject, expandedPieceworkProject, expandedProject, expandedRoom,
+    expandedStaffId, expenseReports, globalSearch, hiddenActs, history, initialDataLoaded,
+    inlineEditPl, inlineEditPlData, inlineEditPrice, inspectionOrders, interimActs, inventory,
+    inviteCodes, invoices, issueToolData, journalFilter, leads, listSearch, manualExpenses,
+    masterProfiles, masterProjectId, masterRatings, materialInspections, materialNormOverrides,
+    materialNorms, materialTransfers, materials, materialsPage, measurementDraftLoadingId,
+    measurementRoomDrafts, mobileExpandedRenderLists, newAct, newBrigadeContract, newBrigadeItem,
+    newBrigadePayment, newChecklist, newChecklistItem, newClient, newCompanyDoc, newContract,
+    newDoor, newExpenseReport, newInspOrder, newInventory, newInvoice, newInviteRole, newLead,
+    newLetter, newMeasurementDoc, newMovement, newOffer, newParticipant, newPayment, newPiecework,
+    newPlItem, newPrescription, newPricelist, newProject, newProjectDoc, newRequest, newRoom,
+    newStaff, newStaffDoc, newStage, newSupplier, newSupplierInvoice, newTbEntry, newTask, newTool,
+    newTransfer, newUnexpected, newUser, newWarehouse, newWarrantyDefect, newWeather, newWindow,
+    notifications, ownExpenses, payrollExtras, pdConsents, personnelTab, piecework,
+    prescriptionsList, previewContent, previewTitle, priceHints, pricelistItems, pricelists,
+    projectAiSummaries, projectChatMessage, projectChatMessages, projectDocuments, projectLetters,
+    projectMeasurements, projectPayments, projectStages, projects, rejectingEntry, rejectComment,
+    returnToolCondition, roomDoors, roomWindows, rooms, salaryEdits, salaryMonth, salaryPayments,
+    searchUser, selectedBrigadeContract, selectedChecklist, selectedEstimate, selectedInventory,
+    selectedPricelist, selectedWarehouseProject, selectedWorks, showAiAssistant, showArchive,
+    showBrigadeForm, showBrigadePayModal, showDocForm, showForm, showInvites, showIssueToolModal,
+    showJournalTableModal, showLetterForm, showMeasurementForm, showNotifications, showOffers,
+    showPayActModal, showPhotoModal, showPiecework, showQRModal, showReimburseModal,
+    showReturnToolModal, showRoomForm, showSearch, showStaffDocForm, showTransferForm,
+    sidebarVisible, sitePublicationDrafts, staff, staffExpandedSections, staffProfile,
+    staffProfileLoading, settingsTab, supervisorActs, supplierCatalog, supplierInvoices,
+    supplierOffers, suppliers, suppliersTab, supplyClaims, supplyDeliveries, supplyHistory,
+    supplyRequests, supplyTemplates, sverkaModal, tbJournal, timesheet, toolHistory, tools,
+    toolsTab, unexpectedWorksList, uploadingDoc, uploadingLetter, uploadingMeasurementDoc, users,
+    warehouseMain, warehouseMovements, warehouses, warehouseTab, warrantyDefects, warrantyEditForm,
+    weatherLog, weatherTab, workJournal, workJournalPage, setAccountingDocProject,
+    setAccountingTab, setActivePage, setActiveProjectTab, setActiveTabGroup, setAuditLog,
+    setBrigadeCoef, setBrigadeContractItems, setBrigadeContracts, setBrigadePayments,
+    setCableJournal, setCompanyChatMessage, setCompanyReqForm, setCompanyRequisites,
+    setConfirmAcceptedQty, setConfirmComment, setConfirmingEntry, setCustomRoomTypes,
+    setDailyReportDate, setDraftRoomDoors, setDraftRoomWindows, setEditingAct, setEditingCable,
+    setEditingDoor, setEditingInspection, setEditingItem, setEditingJournal, setEditingPlItem,
+    setEditingWindow, setEstimateDoneDrafts, setEstimateWorkMaterials, setEstimateWorkParams,
+    setEstimatesList, setEstimatesTab, setExpandedActDate, setExpandedClient, setExpandedGroup,
+    setExpandedMaster, setExpandedMasterProject, setExpandedPieceworkProject, setExpandedProject,
+    setExpandedRoom, setExpandedStaffId, setGlobalSearch, setHiddenActs, setInlineEditPl,
+    setInlineEditPlData, setInlineEditPrice, setIssueToolData, setJournalFilter, setLeads,
+    setListSearch, setMasterProjectId, setMasterRatings, setMaterialInspections,
+    setMaterialTransfers, setMaterials, setMeasurementDraftLoadingId, setMobileExpandedRenderLists,
+    setNewAct, setNewBrigadeContract, setNewBrigadeItem, setNewBrigadePayment, setNewChecklist,
+    setNewChecklistItem, setNewClient, setNewCompanyDoc, setNewContract, setNewDoor,
+    setNewExpenseReport, setNewInspOrder, setNewInventory, setNewInvoice, setNewInviteRole,
+    setNewLead, setNewLetter, setNewMeasurementDoc, setNewMovement, setNewOffer, setNewParticipant,
+    setNewPayment, setNewPiecework, setNewPlItem, setNewPrescription, setNewPricelist,
+    setNewProject, setNewProjectDoc, setNewRequest, setNewRoom, setNewStaff, setNewStaffDoc,
+    setNewStage, setNewSupplier, setNewSupplierInvoice, setNewTbEntry, setNewTask, setNewTool,
+    setNewTransfer, setNewUnexpected, setNewUser, setNewWarehouse, setNewWarrantyDefect,
+    setNewWeather, setNewWindow, setNotifications, setPayrollExtras, setPersonnelTab,
+    setPreviewContent, setPreviewTitle, setPriceHints, setPricelistItems, setProjectAiSummaries,
+    setProjectChatMessage, setRejectingEntry, setRejectComment, setReturnToolCondition,
+    setRoomDoors, setRoomWindows, setSalaryEdits, setSalaryMonth, setSalaryPayments, setSearchUser,
+    setSelectedBrigadeContract, setSelectedChecklist, setSelectedEstimate, setSelectedInventory,
+    setSelectedPricelist, setSelectedWarehouseProject, setSelectedWorks, setShowAiAssistant,
+    setShowArchive, setShowBrigadeForm, setShowBrigadePayModal, setShowDocForm, setShowForm,
+    setShowInvites, setShowIssueToolModal, setShowJournalTableModal, setShowLetterForm,
+    setShowMeasurementForm, setShowNotifications, setShowOffers, setShowPayActModal,
+    setShowPhotoModal, setShowPiecework, setShowQRModal, setShowReimburseModal,
+    setShowReturnToolModal, setShowRoomForm, setShowSearch, setShowStaffDocForm,
+    setShowTransferForm, setSidebarVisible, setSitePublicationDrafts, setStaffExpandedSections,
+    setStaffProfile, setStaffProfileLoading, setSettingsTab, setSupplierRequisites,
+    setSuppliersTab, setSverkaModal, setTbJournal, setTimesheet, setToolsTab, setUploadingDoc,
+    setUploadingLetter, setUploadingMeasurementDoc, setWarehouseMain, setWarehouseTab,
+    setWarrantyEditForm, setWeatherLog, setWeatherTab, setWorkJournal,
+  } = appMainState;
   useSupplierRequisitesSync({ setSupplierRequisites, suppliers, user });
-  const [materialTransfers, setMaterialTransfers] = useState([]);
-  const [showTransferForm, setShowTransferForm] = useState(false);
-  const [newTransfer, setNewTransfer] = useState(createMaterialTransferForm);
-  const [sverkaModal, setSverkaModal] = useState(null);
+  const shellOverlayState = useShellOverlayState();
   const {
     companyChatInput, scanningInvoice, setCompanyChatInput, setScanningInvoice, setShowAiChat,
-    setShowChatPanelRaw, setShowMobileMenu, setShowQuickActions, setShowReceiveDialog,
-    setShowScanInvoice, setShowScannedInvoiceForm, setShowSystemStatus, setSystemStatus,
-    setSystemStatusLoading, showAiChat, showChatPanel, showMobileMenu, showQuickActions,
+    setShowMobileMenu, setShowQuickActions, setShowReceiveDialog,
+    setShowScanInvoice, setShowScannedInvoiceForm, setShowSystemStatus,
+    showAiChat, showChatPanel, showMobileMenu, showQuickActions,
     showReceiveDialog, showScanInvoice, showScannedInvoiceForm, showSystemStatus,
     systemStatus, systemStatusLoading,
-  } = useShellOverlayState();
-  const [projectPayments, setProjectPayments] = useState([]);
-  const [accountablePayments, setAccountablePayments] = useState([]);
-  const [ownExpenses, setOwnExpenses] = useState([]);
-  const [customRoomTypes, setCustomRoomTypes] = useState(()=>{try{return JSON.parse(localStorage.getItem('customRoomTypes')||'[]');}catch{return [];}});
-  const [manualExpenses, setManualExpenses] = useState([]);
+  } = shellOverlayState;
+  const paymentUiState = usePaymentUiState();
   const {
     addExpenseProject, expenseSubmitting, newAccountable, newExpense, newManualExpense,
     newOwnExpense, reportingPayment, setAddExpenseProject, setExpenseSubmitting,
     setNewAccountable, setNewExpense, setNewManualExpense, setNewOwnExpense,
     setReportingPayment, setShowAccountableForm, setShowBalanceDetails,
     setShowOwnExpenseForm, showAccountableForm, showBalanceDetails, showOwnExpenseForm,
-  } = usePaymentUiState();
+  } = paymentUiState;
+  const aiAssistantState = useAiAssistantState();
   const {
     aiChat, aiInput, aiLoading, aiMessage, aiMessages, directorAgentAnswer,
     directorAgentError, directorAgentLoading, directorAgentQuestion, directorAgentSteps,
-    setAiChat, setAiInput, setAiLoading, setAiMessage, setAiMessages,
-    setDirectorAgentAnswer, setDirectorAgentError, setDirectorAgentLoading,
-    setDirectorAgentQuestion, setDirectorAgentSteps,
-  } = useAiAssistantState();
-  const [checklists, setChecklists] = useState([]);
-  const [checklistItems, setChecklistItems] = useState({});
-  const [projectStages, setProjectStages] = useState([]);
-  const [prescriptionsList, setPrescriptionsList] = useState([]);
-  const [projectChatMessages, setProjectChatMessages] = useState({});
-  const [companyMessages, setCompanyMessages] = useState([]);
-  const [leads, setLeads] = useState([]);
-  const [masterRatings, setMasterRatings] = useState({});
-  const [activityLog, setActivityLog] = useState([]);
-  const [invoices, setInvoices] = useState([]);
-  const [notifications, setNotifications] = useState([]);
-  const [aiFindings, setAiFindings] = useState([]);
-  const [aiTasks, setAiTasks] = useState([]);
+    setAiInput, setAiLoading, setAiMessage, setAiMessages,
+    setDirectorAgentQuestion,
+  } = aiAssistantState;
   const estimateNormReviewQueuedRef = useRef(new Set());
-  const estimateNormReviewAutoCheckedRef = useRef(new Set());
   const estimateQualityReviewQueuedRef = useRef(new Set());
-  const estimateQualityReviewAutoCheckedRef = useRef(new Set());
   const estimateDiffReviewQueuedRef = useRef(new Set());
   const estimateChangeReconcileQueuedRef = useRef(new Set());
   const materialControlTaskQueuedRef = useRef(new Set());
-  const materialControlTaskAutoCheckedRef = useRef(new Map());
   const roomControlTaskQueuedRef = useRef(new Set());
-  const roomControlTaskAutoCheckedRef = useRef(new Map());
-  const [tbJournal, setTbJournal] = useState([]);
-  const [geoCheckins, setGeoCheckins] = useState([]);
-  const [, setSignedDocs] = useState({});
-  const [rooms, setRooms] = useState([]);
-  const [roomWorks, setRoomWorks] = useState([]);
-  const [roomWindows, setRoomWindows] = useState([]);
-  const [roomDoors, setRoomDoors] = useState([]);
-  const [tools, setTools] = useState([]);
-  const [toolHistory, setToolHistory] = useState([]);
-  const [inventory, setInventory] = useState([]);
-  const [pdConsents, setPdConsents] = useState([]);
-  const [actPayments, setActPayments] = useState([]);
-  const [weatherLog, setWeatherLog] = useState([]);
-  const [estimatesList, setEstimatesList] = useState([]);
-  const [estimatesPage, setEstimatesPage] = useState({loading:false, error:''});
-  const [companyRequisites, setCompanyRequisites] = useState({});
-  const [companyDocuments, setCompanyDocuments] = useState([]);
-  const [pushEnabled, setPushEnabled] = useState(false);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [previewContent, setPreviewContent] = useState(null);
-  const [previewTitle, setPreviewTitle] = useState('');
-  const [dailyReportDate, setDailyReportDate] = useState(new Date().toISOString().split('T')[0]);
-  const [globalSearch, setGlobalSearch] = useState('');
-  const [showSearch, setShowSearch] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [showRoomForm, setShowRoomForm] = useState(false);
-  const [showPiecework, setShowPiecework] = useState(false);
-  const [showInvites, setShowInvites] = useState(false);
-  const [showOffers, setShowOffers] = useState(null);
-  const [showProfileForm, setShowProfileForm] = useState(false);
-  const [showPhotoModal, setShowPhotoModal] = useState(null);
-  const [showArchive, setShowArchive] = useState(false);
-  const [showIssueToolModal, setShowIssueToolModal] = useState(null);
-  const [showReturnToolModal, setShowReturnToolModal] = useState(null);
-  const [showPayActModal, setShowPayActModal] = useState(null);
-  const [showAiAssistant, setShowAiAssistant] = useState(false);
-  const [showQRModal, setShowQRModal] = useState(null);
-  const [consentChecked, setConsentChecked] = useState(false);
-  const [accountingTab, setAccountingTab] = useState('summary');
-  const [accountingDocProject, setAccountingDocProject] = useState('');
-  const [suppliersTab, setSuppliersTab] = useState('active');
+  const supplyWorkflowState = useSupplyWorkflowState();
   const {
     compareLoadingReqId, compareResultByReq, deliveryAiLoadingId, deliveryAiResultById,
-    generatedInviteLink, invoicingOfferId, newKpResponse, newOfferInvoice, newSupplyReq,
-    receiveForm, receivingDeliveryId, requestKpLoading, respondingOfferId, selectedSupplierIds,
+    generatedInviteLink, newOfferInvoice, newSupplyReq,
+    receiveForm, receivingDeliveryId, requestKpLoading, selectedSupplierIds,
     setCompareLoadingReqId, setCompareResultByReq, setDeliveryAiLoadingId, setDeliveryAiResultById,
-    setGeneratedInviteLink, setInvoicingOfferId, setNewKpResponse, setNewOfferInvoice, setNewSupplyReq,
-    setReceiveForm, setReceivingDeliveryId, setRequestKpLoading, setRespondingOfferId, setSelectedSupplierIds,
+    setGeneratedInviteLink, setInvoicingOfferId, setNewOfferInvoice, setNewSupplyReq,
+    setReceiveForm, setReceivingDeliveryId, setRequestKpLoading, setSelectedSupplierIds,
     setShipmentForm, setShippingOfferId, setShowRequestKpModal, setShowSupplierInviteModal, setShowSupplyForm,
     setSuggestedSuppliers, setSupplierInviteForm, setSupplyAiLoading, setSupplyAiText, setSupplyCollapsedProjects,
     setSupplyExpandedId, setSupplyRejectId, setSupplyRejectReason, setSupplyStockCheck, setSupplyTab,
-    shipmentForm, shippingOfferId, showRequestKpModal, showSupplierInviteModal, showSupplyForm,
+    shipmentForm, showRequestKpModal, showSupplierInviteModal, showSupplyForm,
     suggestedSuppliers, supplierInviteForm, supplyAiLoading, supplyAiText, supplyCollapsedProjects,
     supplyExpandedId, supplyRejectId, supplyRejectReason, supplyStockCheck, supplyTab,
-  } = useSupplyWorkflowState();
-  const [personnelTab, setPersonnelTab] = useState('staff');
-  const [warehouseTab, setWarehouseTab] = useState('objects');
-  const [selectedWarehouseProject, setSelectedWarehouseProject] = useState(null);
-  const [toolsTab, setToolsTab] = useState('list');
-  const [estimatesTab, setEstimatesTab] = useState('list');
-  const [materialNorms, setMaterialNorms] = useState([]);
-  const [materialsPage, setMaterialsPage] = useState({projectName:'', search:'', hasMore:false, loading:false, error:''});
-  const [workJournalPage, setWorkJournalPage] = useState({projectName:'', search:'', dateFrom:'', dateTo:'', hasMore:false, loading:false, error:''});
-  const [materialAliases, setMaterialAliases] = useState([]);
-  const [materialNormOverrides, setMaterialNormOverrides] = useState([]);
+  } = supplyWorkflowState;
+  const materialNormsState = useMaterialNormsState();
   const {
     editingMaterialNormId, estimateProjectFilter, estimateSearch, materialNormCoverageProject,
     materialNormNotice, materialNormPreviewSuggestions, materialNormSearch,
-    materialNormSuggestionLoading, materialNormSuggestions, materialNormsPage, newMaterialNorm,
-    setEditingMaterialNormId, setEstimateProjectFilter, setEstimateSearch,
+    materialNormSuggestionLoading, materialNormsPage, newMaterialNorm,
+    setEstimateProjectFilter, setEstimateSearch,
     setMaterialNormCoverageProject, setMaterialNormNotice, setMaterialNormPreviewSuggestions,
-    setMaterialNormSearch, setMaterialNormSuggestionLoading, setMaterialNormSuggestions,
-    setMaterialNormsPage, setNewMaterialNorm, setShowArchivedEstimates, showArchivedEstimates,
-  } = useMaterialNormsState();
-  const [listSearch, setListSearch] = useState('');
-  const [expandedActDate, setExpandedActDate] = useState(null);
-  const [showReimburseModal, setShowReimburseModal] = useState(false);
-  const [salaryMonth, setSalaryMonth] = useState(new Date().toISOString().slice(0,7));
-  // Inline-правки премий/удержаний по сотруднику в месяце (хранится в localStorage)
-  const [salaryEdits, setSalaryEdits] = useState(() => readStoredJson('salaryEdits', {}));
-  const [payrollExtras, setPayrollExtras] = useState(() => readStoredJson('payrollExtras', {}));
+    setMaterialNormSearch, setNewMaterialNorm, setShowArchivedEstimates, showArchivedEstimates,
+  } = materialNormsState;
   const {
     fileSrc,
     lowStockFor,
@@ -586,77 +341,6 @@ function App() {
     nextEstimateVersionForFromList,
     workJournal,
   });
-  const [weatherTab, setWeatherTab] = useState('log');
-  const [settingsTab, setSettingsTab] = useState('requisites');
-  const [rejectComment, setRejectComment] = useState('');
-  const [rejectingEntry, setRejectingEntry] = useState(null);
-  const [confirmingEntry, setConfirmingEntry] = useState(null);
-  const [confirmAcceptedQty, setConfirmAcceptedQty] = useState('');
-  const [confirmComment, setConfirmComment] = useState('');
-  const [editingItem, setEditingItem] = useState(null);
-  const [editingPlItem, setEditingPlItem] = useState(null);
-  const [inlineEditPl, setInlineEditPl] = useState(null);
-  const [inlineEditPrice, setInlineEditPrice] = useState('');
-  const [inlineEditPlData, setInlineEditPlData] = useState({name:'',unit:'м2',price:'',category:''});
-  const [editingWindow, setEditingWindow] = useState(null);
-  const [editingDoor, setEditingDoor] = useState(null);
-  const [selectedPricelist, setSelectedPricelist] = useState(null);
-  const [selectedInventory, setSelectedInventory] = useState(null);
-  const [selectedEstimate, setSelectedEstimate] = useState(null);
-  const [mobileExpandedRenderLists, setMobileExpandedRenderLists] = useState({});
-  const [selectedChecklist, setSelectedChecklist] = useState(null);
-  const [expandedProject, setExpandedProject] = useState(null);
-  const [projectAiSummaries, setProjectAiSummaries] = useState({});
-  const [expandedClient, setExpandedClient] = useState(null);
-  const [expandedGroup, setExpandedGroup] = useState(null);
-  const [expandedMaster, setExpandedMaster] = useState(null);
-  const [expandedMasterProject, setExpandedMasterProject] = useState(null);
-  const [expandedPieceworkProject, setExpandedPieceworkProject] = useState(null);
-  const [expandedRoom, setExpandedRoom] = useState(null);
-  const [searchUser, setSearchUser] = useState('');
-  const [newTask, setNewTask] = useState('');
-  const [companyChatMessage, setCompanyChatMessage] = useState('');
-  const [projectChatMessage, setProjectChatMessage] = useState('');
-  const [masterProjectId, setMasterProjectId] = useState('');
-  const [selectedWorks, setSelectedWorks] = useState({});
-  const [estimateDoneDrafts, setEstimateDoneDrafts] = useState({});
-  const [estimateWorkMaterials, setEstimateWorkMaterials] = useState({});
-  const [estimateWorkParams, setEstimateWorkParams] = useState({});
-  const [companyName, setCompanyName] = useState('');
-  const [issueToolData, setIssueToolData] = useState(createIssueToolForm);
-  const [returnToolCondition, setReturnToolCondition] = useState('Исправен');
-  const [newPayment, setNewPayment] = useState(createActPaymentForm);
-  const [newPiecework, setNewPiecework] = useState(createPieceworkForm);
-  const [newProject, setNewProject] = useState(createProjectForm);
-  const [newClient, setNewClient] = useState(createClientForm);
-  const [newWarehouse, setNewWarehouse] = useState(createWarehouseForm);
-  const [newMovement, setNewMovement] = useState(createWarehouseMovementForm);
-  const [newInvoice, setNewInvoice] = useState(createWarehouseInvoiceForm);
-  const [newStaff, setNewStaff] = useState(emptyStaffForm());
-  const [staffExpandedSections, setStaffExpandedSections] = useState({access:false,docs:false,finance:false,extra:false});
-  const [expandedStaffId, setExpandedStaffId] = useState(null);
-  const [staffProfile, setStaffProfile] = useState(null);
-  const [staffProfileLoading, setStaffProfileLoading] = useState(false);
-  const [newStaffDoc, setNewStaffDoc] = useState(createStaffDocumentForm);
-  const [showStaffDocForm, setShowStaffDocForm] = useState(false);
-
-  const [newUser, setNewUser] = useState(createUserForm);
-  const [newPricelist, setNewPricelist] = useState(createPricelistForm);
-  const [newPlItem, setNewPlItem] = useState(createPricelistItemForm);
-  const [newInviteRole, setNewInviteRole] = useState('мастер');
-  const [newSupplier, setNewSupplier] = useState(createSupplierForm);
-  const [newRequest, setNewRequest] = useState(createRequestForm);
-  const [newOffer, setNewOffer] = useState(createSupplierOfferForm);
-  const [newContract, setNewContract] = useState(createContractForm);
-  const [newAct, setNewAct] = useState(createInterimActForm);
-  const [newTool, setNewTool] = useState(createToolForm);
-  const [newRoom, setNewRoom] = useState(createRoomForm);
-  const [draftRoomWindows, setDraftRoomWindows] = useState([]);
-  const [draftRoomDoors, setDraftRoomDoors] = useState([]);
-  const [newWindow, setNewWindow] = useState(createWindowForm);
-  const [newDoor, setNewDoor] = useState(createDoorForm);
-  const [newInventory, setNewInventory] = useState(createInventoryForm);
-  const [newWeather, setNewWeather] = useState(createWeatherForm);
   const {
     creatingFromEstimate, distributeAssignments, distributeBrigades, distributing,
     estimateChatInput, estimateChatLoading, estimateChatMessages, estimateIssueFocusKey,
@@ -692,824 +376,193 @@ function App() {
     queueEstimateQualityReviewTask,
   });
 
-  const [newStage, setNewStage] = useState(createProjectStageForm);
-  const [newChecklist, setNewChecklist] = useState(createChecklistForm);
-  const [newChecklistItem, setNewChecklistItem] = useState('');
-  const [newPrescription, setNewPrescription] = useState(createPrescriptionForm);
-  const [newUnexpected, setNewUnexpected] = useState(EMPTY_ESTIMATE_CHANGE);
-  const [newCompanyDoc, setNewCompanyDoc] = useState(createCompanyDocumentForm);
-  const [companyReqForm, setCompanyReqForm] = useState(createCompanyRequisitesForm);
-  const [profileData, setProfileData] = useState(createProfileForm);
-  const [newLead, setNewLead] = useState(createLeadForm);
-  const [newTbEntry, setNewTbEntry] = useState(createTbEntryForm);
-  const [newParticipant, setNewParticipant] = useState('');
   const sidebarRef = useRef(null);
   const chatEndRef = useRef(null);
 
   const showPreview = (content, title) => { setPreviewContent(content); setPreviewTitle(title); };
 
   const {
-    askDirectorAgent,
-    sendAiMessage,
-  } = createAiAssistantActions({
-    API,
-    aiChat,
-    aiMessage,
-    chatEndRef,
-    directorAgentLoading,
-    directorAgentQuestion,
-    setAiChat,
-    setAiLoading,
-    setAiMessage,
-    setDirectorAgentAnswer,
-    setDirectorAgentError,
-    setDirectorAgentLoading,
-    setDirectorAgentQuestion,
-    setDirectorAgentSteps,
-  });
-
-  const {
-    loadAuditLog,
-    openSystemStatus,
-  } = createSystemActions({
-    API,
-    setAuditLog,
-    setShowSystemStatus,
-    setSystemStatus,
-    setSystemStatusLoading,
-  });
-
-  const {
-    addActivity,
-    closeNotifications,
-    getNotifPage,
-    markMyNotificationsRead,
-    myNotifications,
-    notify,
-    toggleNotifications,
-  } = createNotificationActions({
-    API,
-    activePage,
-    loadAuditLog,
-    notifications,
-    pushEnabled,
-    sendPushNotification,
-    setActivityLog,
-    setNotifications,
-    setShowNotifications,
-    user,
-  });
-
-  useNotificationDismissEffect(setShowNotifications);
-
-  useEffect(() => {
-    if (!user || activePage !== 'activitylog') return;
-    loadAuditLog();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, activePage]);
-
-  const {
-    apiAuthHeaders, loadAll, loadMaterialNormsPage, loadMaterialsPage, loadMobileInitial, loadWorkJournalPage,
-    refreshData,
-  } = useAppDataLoaders({
-    activePage, API, AUDIT_LOG_PAGE_LIMIT, buildPagedPath, canAccessRole, createMaterialNormsPageState,
-    createMaterialsPageState, createWorkJournalPageState, estimatesTab, initialDataLoaded, isMobile, MATERIAL_NORMS_PAGE_LIMIT, materialNormSearch,
-    MATERIALS_PAGE_LIMIT, mergeRowsByIdValue, mobileApiRequestsRef, mobileLoadedScopesRef, mobileScopeForPage, normalizeEstimateList, roleFlagsForUser,
-    ROLES, setAccountablePayments, setAiFindings, setAiTasks, setAllBrigadeItems, setAllBrigadePayments, setAuditLog,
-    setBrigadeContracts, setCableJournal, setChecklists, setClients, setCompanyDocuments, setCompanyMessages, setCompanyRequisites,
-    setContracts, setEstimateReconciliations, setEstimatesList, setEstimatesPage, setExpenseReports, setHiddenActs, setHistory,
-    setInitialDataLoaded, setInspectionOrders, setInterimActs, setInventory, setInviteCodes, setInvoices, setLeads,
-    setManualExpenses, setMasterProfiles, setMaterialAliases, setMaterialInspections, setMaterialNormOverrides, setMaterialNorms, setMaterialNormsPage,
-    setMaterialNormSuggestions, setMaterials, setMaterialsPage, setMaterialTransfers, setMeasurementRoomDrafts, setOwnExpenses, setPdConsents,
-    setPiecework, setPrescriptionsList, setPricelists, setProjectDocuments, setProjectLetters, setProjectMeasurements, setProjectPayments,
-    setProjects, setProjectStages, setRoomDoors, setRooms, setRoomWindows, setRoomWorks, setSalaryPayments,
-    setStaff, setSupervisorActs, setSupplierCatalog, setSupplierInvoices, setSupplierOffers, setSuppliers, setSupplyClaims,
-    setSupplyDeliveries, setSupplyHistory, setSupplyRequests, setSupplyTemplates, setTbJournal, setTimesheet,
-    setToolHistory, setTools, setUnexpectedWorksList, setUser, setUsers, setWarehouseMain, setWarehouseMovements,
-    setWarehouses, setWarrantyDefects, setWorkJournal, setWorkJournalPage, user, WORK_JOURNAL_PAGE_LIMIT,
-  });
-
-  const unreadMessagesCount = unreadCompanyMessagesCount(companyMessages, user);
-
-  const {
-    loadChecklistItems,
-    loadMasterProfile,
-    loadPricelistItems,
-    loadProjectChat,
-  } = createDataLoadActions({
-    API,
-    setChecklistItems,
-    setMasterProfile,
-    setPricelistItems,
-    setProjectChatMessages,
-    setShowProfileForm,
-    user,
-  });
-
-  useAuthenticatedAppBootstrapEffect({
-    API,
-    isMobile,
-    loadMasterProfile,
-    loadMobileInitial,
-    mobileApiRequestsRef,
-    mobileLoadedScopesRef,
-    refreshData,
-    setActivePage,
-    setCompanyName,
-    setPushEnabled,
-    storageSetters: {
-      masterRatings: setMasterRatings,
-      activityLog: setActivityLog,
-      notifications: setNotifications,
-      tbJournal: setTbJournal,
-      geoCheckins: setGeoCheckins,
-      signedDocs: setSignedDocs,
-      actPayments: setActPayments,
-      weatherLog: setWeatherLog,
-    },
-    user,
-  });
-
-  const { appendPhotos, uploadPhoto } = createUploadActions({
-    API,
-    activePage,
-    activeProjectTab,
-    expandedProject,
-    masterProjectId,
-    projects,
-  });
-
-  const { checkinGeo } = createGeoActions({
-    geoCheckins,
-    setGeoCheckins,
-    user,
-  });
-
-  const {
-    deleteBrigadePayment,
-    openBrigadeContract,
-    saveActPayment,
-    saveBrigadePayment,
-  } = createPaymentActions({
-    API,
-    actPayments,
-    interimActs,
-    loadPricelistItems,
-    newBrigadePayment,
-    newPayment,
-    refreshData,
-    selectedBrigadeContract,
-    setActPayments,
-    setBrigadeContractItems,
-    setBrigadePayments,
-    setNewBrigadePayment,
-    setNewPayment,
-    setSelectedBrigadeContract,
-    setShowBrigadePayModal,
-    setShowPayActModal,
-    toNum,
-    user,
-  });
-
-  const {
-    sendCompanyChatMessage,
-    sendProjectChatMessage,
-    setShowChatPanel,
-  } = createChatActions({
-    API,
-    loadProjectChat,
-    setCompanyChatMessage,
-    setCompanyMessages,
-    setShowChatPanelRaw,
-    setProjectChatMessage,
-    showChatPanel,
-    unreadMessagesCount,
-    user,
-  });
-
-  const {
-    saveLead,
-    deleteLead,
-    createProjectFromLead,
-  } = createCrmActions({
-    API,
-    notify,
-    setLeads,
-    setProjects,
-    user,
-  });
-
-  const {
-    confirmMaterialReceipt,
-    returnMaterialToProject,
-  } = createMaterialTransferActions({
-    API,
-    fmtMeasure,
-    notify,
-    refreshData,
-    setMaterialTransfers,
-    toNum,
-  });
-
-  const {
-    handleLogout,
-    handleLogin,
-    handleTwoFactorLogin,
-    handleRegister,
-    checkInviteCode,
-    saveProfile,
-  } = createAuthActions({
-    API,
-    consentChecked,
-    email,
-    password,
-    profileData,
-    refreshData,
-    regCode,
-    regEmail,
-    regInviteInfo,
-    regName,
-    regPassword,
-    regSupplierData,
-    setInitialDataLoaded,
-    setLoginError,
-    setMasterProfile,
-    setRegInviteInfo,
-    setRegSupplierData,
-    setShowProfileForm,
-    setUser,
-    user,
-  });
-  useInviteCodeCheckEffect({ checkInviteCode, regCode, setRegInviteInfo });
-
-  const {
-    canAccess,
-    isFinanceRole,
-    navigateTo,
-    searchResults,
-    selectableActiveProjects,
-    visibleActiveProjects,
-    visibleEstimatesForCurrentUser,
+    addActivity, apiAuthHeaders, appendPhotos, askDirectorAgent, canAccess,
+    checkinGeo, closeNotifications, confirmMaterialReceipt, createProjectFromLead,
+    deleteBrigadePayment, deleteLead, getNotifPage, handleLogin, handleLogout,
+    handleRegister, handleTwoFactorLogin, isFinanceRole, loadAll, loadAuditLog,
+    loadChecklistItems, loadMaterialNormsPage, loadMaterialsPage,
+    loadPricelistItems, loadProjectChat, loadWorkJournalPage, markMyNotificationsRead,
+    myNotifications, navigateTo, notify, openBrigadeContract, openSystemStatus,
+    refreshData, returnMaterialToProject, saveActPayment, saveBrigadePayment,
+    saveLead, saveProfile, searchResults, selectableActiveProjects, sendAiMessage,
+    sendCompanyChatMessage, sendProjectChatMessage, setShowChatPanel, toggleNotifications,
+    unreadMessagesCount, uploadPhoto, visibleActiveProjects, visibleEstimatesForCurrentUser,
     visibleProjects,
-  } = useAppNavigationRuntime({
+  } = useAppCoreRuntime({
+    API,
     ROLES,
-    data: { clients, materials, projects, tools },
-    state: { globalSearch, isMobile, masterProjectId, user },
-    actions: {
-      loadPricelistItems,
-      setActivePage,
-      setEditingItem,
-      setEditingPlItem,
-      setExpandedClient,
-      setExpandedProject,
-      setGlobalSearch,
-      setInlineEditPl,
-      setMasterProjectId,
-      setPricelistItems,
-      setSelectedInventory,
-      setSelectedPricelist,
-      setSelectedWarehouseProject,
-      setSelectedWorks,
-      setShowArchive,
-      setShowForm,
-      setShowInvites,
-      setShowOffers,
-      setShowPiecework,
-      setShowRoomForm,
-      setShowSearch,
-      setSidebarVisible,
-    },
+    aiAssistantState,
+    appMainState,
+    authEntryState,
+    layout: { isMobile },
+    limits: { AUDIT_LOG_PAGE_LIMIT, MATERIAL_NORMS_PAGE_LIMIT, MATERIALS_PAGE_LIMIT, WORK_JOURNAL_PAGE_LIMIT },
+    materialNormsState,
+    refs: { chatEndRef, mobileApiRequestsRef, mobileLoadedScopesRef },
+    shellOverlayState,
   });
   const {
+    acceptMaterialAliasTask,
+    acceptMaterialNormSuggestion,
+    acceptMaterialNormSuggestionAsOverride,
+    activeEstimatesForProject,
+    activeMaterialNormSuggestions,
+    addEstimateMaterialFromCoverage,
     aiFindingsForProject,
     aiTasksForProject,
-    generateAiFindingsForProject,
-    openAiTaskAction,
-    patchAiFindingSilent,
-    patchAiTaskSilent,
-    updateAiFinding,
-    updateAiTask,
-  } = createAiTaskActions({
-    API,
-    aiFindings,
-    aiTasks,
-    buildEstimateDiffContent: (...args) => buildEstimateDiffContent(...args),
-    estimateDiffBaseFor: (...args) => estimateDiffBaseFor(...args),
-    estimatesList,
-    navigateTo: (...args) => navigateTo(...args),
-    openEstimateDetail: (...args) => openEstimateDetail(...args),
-    projects,
-    refreshData,
-    setActiveProjectTab,
-    setActiveTabGroup,
-    setAiFindings,
-    setAiTasks,
-    setEstimatesTab,
-    setExpandedProject,
-    setMaterialNormCoverageProject,
-    setWarehouseTab,
-    showPreview,
-  });
-
-  const {
-    openEstimateDetail,
-    estimateDiffBaseFor,
+    applyMaterialOverNormReason,
+    autoFillNormMaterialsForWork,
+    autoReconcileEstimateChanges,
+    buildDirectorBriefReportContent,
     buildEstimateDiffContent,
-    estimateReconciliationsForProject,
-    openEstimateReconciliationPreview,
+    buildMaterialNormCoverageContent,
+    buildSupplyControlReportContent,
+    calcSalary,
+    canonicalMaterialMeta,
+    canCreateSupplyRequestFromNorm,
+    canEditMaterialNorms,
+    canUseDirectorAgent,
+    computeNotifications,
+    createBatchSupplyRequestFromMaterialControl,
+    createBatchSupplyRequestFromNormCoverage,
+    createEstimateFromNormSuggestions,
     createEstimateReconciliation,
-    approveEstimateReconciliation,
-    estimateChangeForComparisonRow,
-    createEstimateChangeFromComparisonRow,
-    includeChangesInNewEstimate,
-    setEstimateStatusRemote,
+    createInvoiceControlReviewTasksForInvoice,
+    createMaterialNormCoverageTask,
+    createSupplyRequestFromNormCoverage,
+    createTaskFromMaterialNormSuggestion,
     deleteEstimateRemote,
-  } = createEstimateWorkflowActions({
-    API,
-    estimatesList,
-    setEstimatesList,
-    setSelectedEstimate,
-    estimateReconciliations,
-    setEstimateReconciliations,
-    unexpectedWorksList,
-    isApprovedEstimateChangeStatus,
-    buildEstimateDiffDocContent,
-    buildEstimateReconciliationDocContent,
-    apiAuthHeaders,
-    showPreview,
-    refreshData,
-    user,
-    notify,
-    setActiveProjectTab,
-    setActiveTabGroup,
-    setShowForm,
-    setActivePage,
-    setEstimatesTab,
-    queueEstimateDiffReviewTask: (...args) => queueEstimateDiffReviewTask(...args),
-    autoReconcileEstimateChanges: (...args) => autoReconcileEstimateChanges(...args),
-    queueEstimateQualityReviewTask: (...args) => queueEstimateQualityReviewTask(...args),
-    queueEstimateNormReviewTask: (...args) => queueEstimateNormReviewTask(...args),
-  });
-  const {
-    activeEstimatesForProject,
+    directorMapActionTarget,
+    directorMapContractForProject,
+    disableMaterialNorm,
+    documentActionRefs,
+    editMaterialNorm,
     estimateChangeRowsForDocs,
     estimateChangesForNewEstimate,
+    estimateControlIssues,
+    estimateDiffBaseFor,
     estimateItemOptionsForProject,
+    estimateListWithUpdatedEstimate,
+    estimateNormCoverageRows,
+    estimateReconciliationsForProject,
+    estimateWorkNormRequirementRows,
+    expByCategory,
+    financeUsers,
+    formatSignedRub,
+    generateAiFindingsForProject,
+    generateMaterialNormSuggestions,
+    getActStatusForJournal,
     getProjectEstimateWorkOptions,
     getProjectWorkPackageOptions,
+    getRoomNetWall,
     includableEstimateChanges,
-    ks2ItemsFromEstimate,
-    projectPlanDone,
-    renderEstimateMeasurementComparisonPanel,
-    renderEstimateReconciliationsPanel,
-    renderWorkJournalEstimateReconciliationPanel,
-  } = createProjectEstimateRuntime({
-    ESTIMATE_PACKAGES,
-    activeTabActions: {
-      openEstimateChanges: () => {
-        setActiveProjectTab('Изменения к смете');
-        setActiveTabGroup('work');
-      },
-    },
-    approveEstimateReconciliation,
-    createEstimateChangeFromComparisonRow,
-    createEstimateReconciliation,
-    estimateChangeForComparisonRow,
-    estimateDiffBaseFor,
-    estimateReconciliationsForProject,
-    estimatesList,
-    openEstimateReconciliationPreview,
-    projects,
-    rooms,
-    roomDoors,
-    roomWindows,
-    showPreview,
-    unexpectedWorksList,
-    user,
-    visibleEstimatesForCurrentUser,
-    workJournal,
-    workJournalEstimateStatusMeta,
-  });
-  const {
-    buildMaterialNormCoverageContent,
-    canonicalMaterialMeta,
-    estimateNormCoverageRows,
-    estimateWorkNormRequirementRows,
+    includeChangesInNewEstimate,
+    isDirector,
+    isLeadership,
+    isMasterRole,
     isPersonalMaterialRole,
+    isProrab,
     isSupplyDeliveryInvoice,
-    materialAliasCandidates,
+    jumpToEstimateIssue,
+    ks2ItemsFromEstimate,
+    lowMainStock,
+    lowStock,
+    markEstimateWorkNoMaterialFromCoverage,
     materialAvailabilityMapForWork,
     materialControlSummaryForProject,
     materialHintForProject,
     materialNameKey,
-    materialNameLookupKey,
     materialNormControlSummaryForProject,
     materialNormForWork,
+    materialNormOverrunReason,
+    materialNormSupplyRequestExists,
     materialReconciliationRows,
     materialRowsAvailableForWork,
     materialSuggestionsForWork,
+    materialWriteoffBlockMessage,
+    openAiTaskAction,
+    openEstimateControlReport,
+    openEstimateDetail,
     personalMaterialRowsForProject,
-    warehouseInvoiceEstimateControl,
-    warehouseInvoiceItems,
-    workNeedsThicknessParam,
-  } = createMaterialRuntime({
-    activeEstimatesForProject,
-    canonicalCompanyName: companyName,
-    companyRequisites,
-    history,
-    invoices,
-    materialAliases,
-    materialInspections,
-    materialNormOverrides,
-    materialNorms,
-    materials,
-    materialTransfers,
-    parseSupplyItems,
-    projects,
-    supplyDeliveries,
-    supplyHistory,
-    supplyRequests,
-    user,
-    warehouseMain,
-    warehouseMovements,
-    workJournal,
-  });
-  const {
-    getRoomNetWall,
-    roomCompleteness,
-    roomMeasurementCheck,
-    roomMeasurementMessage,
-  } = createRoomMeasurementRuntime({
-    C,
-    materialNameKey,
-    roomDoors,
-    roomWindows,
-    roomWorks,
-    rooms,
-  });
-  const {
-    aiTaskByMarker,
-    autoReconcileEstimateChanges,
-    estimateListWithUpdatedEstimate,
-    hasActiveEstimator,
-    jumpToEstimateIssue,
-    materialControlSignatureForProject,
+    projectBudgetSpent,
+    projectEconomy,
+    projectObjectLinks,
+    projectPaymentInAmount,
+    projectPaymentSignedAmount,
+    projectPlanDone,
+    projectRealProgress,
     queueEstimateDiffReviewTask,
     queueEstimateNormReviewTask,
     queueEstimateQualityReviewTask,
-    queueMaterialControlTasksForProject,
-    queueRoomControlTasksForProject,
-    renderEstimateChangeReconcileTask,
-    roomControlSignatureForProject,
-  } = createAiReviewQueueActions({
-    API,
-    aiFindings,
-    aiTasks,
-    buildEstimateDiff,
-    estimateChangeAutoDecision,
-    estimateChangeReconcileDescription,
-    estimateChangeReconcileMarker,
-    estimateChangeReconcileQueuedRef,
-    estimateDiffBaseFor,
-    estimateDiffReviewDescription,
-    estimateDiffReviewMarker,
-    estimateDiffReviewQueuedRef,
-    estimateKind,
-    estimateNormCoverageRows,
-    estimateNormReviewDescription,
-    estimateNormReviewIssueStatuses,
-    estimateNormReviewMarker,
-    estimateNormReviewQueuedRef,
-    estimatePackage,
-    estimateQualityDescription,
-    estimateQualityReviewMarker,
-    estimateQualityReviewQueuedRef,
-    estimateQualityRows,
-    estimatesList,
-    fmtMeasure,
-    includableEstimateChanges,
-    isArchivedEstimate,
-    isGlobalEstimateTemplate,
-    isOpenAiStatus,
-    materialAliasCandidates,
-    materialControlSummaryForProject,
-    materialControlTaskQueuedRef,
-    materialNameKey,
-    materialNormControlSummaryForProject,
-    openAiTaskAction,
-    patchAiFindingSilent,
-    patchAiTaskSilent,
-    roomCompleteness,
-    roomControlTaskQueuedRef,
-    roomWorks,
-    rooms,
-    sameEstimateGroup,
-    selectedEstimate,
-    setAiTasks,
-    setEstimateIssueFocusKey,
-    setUnexpectedWorksList,
-    staff,
-    user,
-    users,
-    workJournal,
-  });
-  const frontendAiAutoControlEnabled = false; // backend /ai-control/* теперь единый источник фоновых задач
-  useEffect(() => {
-    if (!frontendAiAutoControlEnabled) return;
-    if (!user || !['директор','зам_директора','сметчик','главный_инженер'].includes(user.role)) return;
-    if (!Array.isArray(estimatesList) || estimatesList.length===0) return;
-    const activeCustomerEstimates = (estimatesList||[])
-      .filter(est=>est?.id && estimateKind(est)==='Заказчик' && !isArchivedEstimate(est) && (est.status||'Черновик')==='Активная')
-      .slice(0, 25);
-    activeCustomerEstimates.forEach(est=>{
-      const qualityMarker = estimateQualityReviewMarker(est.id);
-      if (!estimateQualityReviewAutoCheckedRef.current.has(qualityMarker)) {
-        estimateQualityReviewAutoCheckedRef.current.add(qualityMarker);
-        queueEstimateQualityReviewTask(est, 'Фоновая проверка активной сметы');
-      }
-      const normMarker = estimateNormReviewMarker(est.id);
-      if (estimateNormReviewAutoCheckedRef.current.has(normMarker)) return;
-      estimateNormReviewAutoCheckedRef.current.add(normMarker);
-      queueEstimateNormReviewTask(est, 'Фоновая проверка активной сметы', estimatesList);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, user?.role, estimatesList, materialNorms, materialNormOverrides]);
-  useEffect(() => {
-    if (!frontendAiAutoControlEnabled) return;
-    if (!user || !['директор','зам_директора','снабженец','прораб','главный_инженер','сметчик'].includes(user.role)) return;
-    if (!Array.isArray(projects) || projects.length===0) return;
-    const visible = visibleActiveProjects(projects).slice(0,20);
-    visible.forEach(p=>{
-      const signature = materialControlSignatureForProject(p.name);
-      const prev = materialControlTaskAutoCheckedRef.current.get(p.name);
-      if (prev === signature) return;
-      materialControlTaskAutoCheckedRef.current.set(p.name, signature);
-      queueMaterialControlTasksForProject(p.name, 'Фоновая проверка материалов');
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, user?.role, projects, estimatesList, materials, supplyRequests, supplyDeliveries, supplyHistory, supplierInvoices, invoices, materialTransfers, workJournal, materialNorms, materialNormOverrides, materialAliases]);
-  useEffect(() => {
-    if (!frontendAiAutoControlEnabled) return;
-    if (!user || !['директор','зам_директора','прораб','главный_инженер','сметчик'].includes(user.role)) return;
-    if (!Array.isArray(projects) || projects.length===0) return;
-    const visible = visibleActiveProjects(projects).slice(0,20);
-    visible.forEach(p=>{
-      const signature = roomControlSignatureForProject(p.name);
-      const prev = roomControlTaskAutoCheckedRef.current.get(p.name);
-      if (prev === signature) return;
-      roomControlTaskAutoCheckedRef.current.set(p.name, signature);
-      queueRoomControlTasksForProject(p.name, 'Фоновая проверка помещений и ЖПР');
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, user?.role, projects, rooms, roomWindows, roomDoors, roomWorks, workJournal]);
-  const {
-    materialNormSupplyRequestExists,
-    createSupplyRequestFromNormCoverage,
-    createBatchSupplyRequestFromNormCoverage,
-    autoFillNormMaterialsForWork,
-    canEditMaterialNorms,
-    canCreateSupplyRequestFromNorm,
-    resetMaterialNormForm,
-    editMaterialNorm,
-    saveMaterialNorm,
-    disableMaterialNorm,
-    activeMaterialNormSuggestions,
-    generateMaterialNormSuggestions,
-    acceptMaterialNormSuggestion,
-    acceptMaterialNormSuggestionAsOverride,
-    createEstimateFromNormSuggestions,
     rejectMaterialNormSuggestion,
-    createTaskFromMaterialNormSuggestion,
-  } = createMaterialNormActions({
-    API,
-    user,
-    projects,
-    supplyRequests,
-    materialNormPreviewSuggestions,
-    materialNormSuggestions,
-    materialNormCoverageProject,
-    newMaterialNorm,
-    editingMaterialNormId,
-    estimatesTab,
-    isActiveSupplyRequestStatus,
-    materialRowsAvailableForWork,
-    materialNormForWork,
-    capMaterialWriteoffQty: (...args) => capMaterialWriteoffQty(...args),
-    materialNameKey,
-    visibleActiveProjects,
-    canEditMaterialNormsForUser,
-    canCreateSupplyRequestFromNormForUser,
-    setSupplyRequests,
-    setMaterialNormNotice,
-    setNewMaterialNorm,
-    setEditingMaterialNormId,
-    setEstimatesTab,
-    setMaterialNormSuggestionLoading,
-    setMaterialNormPreviewSuggestions,
-    setEstimatesList,
-    setSelectedEstimate,
-    notify,
-    refreshData,
-    navigateTo: (...args) => navigateTo(...args),
-  });
-  const {
-    addEstimateMaterialFromCoverage,
-    createMaterialNormCoverageTask,
-    markEstimateWorkNoMaterialFromCoverage,
-    saveMaterialNormOverrideFromCoverage,
-  } = createMaterialNormCoverageActions({
-    API,
-    user,
-    estimatesList,
-    selectedEstimate,
-    canEditMaterialNorms,
-    sectionsOfEstimate: _sectionsOfEst,
-    persistEstimate,
-    refreshData,
-    setAiTasks,
-    setEstimatesList,
-    setMaterialNormNotice,
-    setSelectedEstimate,
-  });
-  const {
-    applyMaterialOverNormReason,
-    capMaterialWriteoffQty,
-    materialNormOverrunReason,
-    materialWriteoffBlockMessage,
     removeEstimateWorkMaterial,
     removeSelectedWorkMaterial,
+    renderEstimateChangeReconcileTask,
+    renderEstimateMeasurementComparisonPanel,
+    renderEstimateReconciliationsPanel,
+    renderInvoiceControlActions,
+    renderMaterialAliasControls,
+    renderMaterialReconciliationPanel,
+    renderMaterialSupplyAction,
     renderMaterialWriteoffStatus,
+    renderWorkJournalEstimateReconciliationPanel,
+    resetMaterialNormForm,
+    roleColor,
+    roomCompleteness,
+    roomMeasurementCheck,
+    roomMeasurementMessage,
+    saveMaterialNorm,
+    saveMaterialNormOverrideFromCoverage,
+    setEstimateStatusRemote,
+    updateAiFinding,
+    updateAiTask,
     updateEstimateWorkMaterialQty,
     updateSelectedWorkMaterialQty,
     upsertEstimateWorkMaterial,
     upsertSelectedWorkMaterial,
-  } = createMaterialWriteoffActions({
-    C,
-    MaterialWriteoffStatus,
-    canonicalMaterialMeta,
-    fmtMeasure,
-    isMobile,
-    isPersonalMaterialRole,
-    materialAvailabilityMapForWork,
-    materialNameKey,
-    setEstimateWorkMaterials,
-    setSelectedWorks,
-  });
-  const {
-    canUseDirectorAgent,
-    calcSalary,
-    financeUsers,
-    formatSignedRub,
-    isDirector,
-    isLeadership,
-    isMasterRole,
-    isProrab,
-    projectPaymentInAmount,
-    projectPaymentSignedAmount,
-    roleColor,
-    workedDays,
-  } = createAppRoleRuntime({ piecework, timesheet, user, users });
-  const {
-    acceptMaterialAliasTask,
-    createBatchSupplyRequestFromMaterialControl,
-    createInvoiceControlReviewTasksForInvoice,
-    renderInvoiceControlActions,
-    renderMaterialAliasControls,
-    renderMaterialSupplyAction,
-  } = createMaterialControlActions({
-    API,
-    C,
-    btnB,
-    btnG,
-    btnO,
-    user,
-    materialAliases,
-    setMaterialAliases,
-    supplyRequests,
-    aiTaskByMarker,
-    setAiTasks,
-    materialNameLookupKey,
-    materialAliasCandidates,
-    canonicalMaterialMeta,
-    materialNameKey,
     warehouseInvoiceEstimateControl,
-    openAiTaskAction,
-    updateAiTask,
-    hasActiveEstimator,
-    notify,
-    refreshData,
-    fmtMeasure,
-    toNum,
-    _normalizeUnit,
-    isLeadership,
-  });
-  const documentActionRefs = {};
-  const {
-    computeNotifications,
-    directorMapActionTarget,
-    directorMapContractForProject,
-    expByCategory,
-    getActStatusForJournal,
-    projectBudgetSpent,
-    projectEconomy,
-    projectObjectLinks,
-    projectRealProgress,
-    renderMaterialReconciliationPanel,
+    warehouseInvoiceItems,
     workExecutionTotal,
-  } = createProjectDashboardRuntime({
-    C,
-    EXPENSE_CATEGORIES,
-    accountablePayments,
-    activeEstimatesForProject,
-    aiFindingsForProject,
-    aiTasksForProject,
-    allBrigadeItems,
-    badge,
-    btnB,
-    buildMaterialRequirementContent: (...args) => documentActionRefs.buildMaterialRequirementContent?.(...args) || '',
-    cableJournal,
-    calcSalary,
-    card,
-    estimatePackage,
-    estimateReconciliationsForProject,
-    estimatesList,
-    expenseReports,
-    fmtMeasure,
-    hiddenActs,
-    invoices,
-    isApprovedEstimateChangeStatus,
-    isArchivedEstimate,
-    isFinanceRole,
-    isLeadership,
-    manualExpenses,
-    materialControlStatus,
-    materialControlSummaryForProject,
-    materialInspections,
-    materials,
-    measurementRoomDrafts,
-    ownExpenses,
-    piecework,
-    prescriptionsList,
-    projectDocuments,
-    projectFactSpent,
-    projectLetters,
-    projectMeasurements,
-    projectPayments,
-    projectPlanDone,
-    projectStages,
-    renderMaterialAliasControls,
-    renderMaterialSupplyAction,
-    roomCompleteness,
-    rooms,
-    showPreview,
-    staff,
-    supplierInvoices,
-    supplyDeliveries,
-    supplyRequests,
-    tbl,
-    tblC,
-    tblH,
-    unexpectedWorksList,
-    user,
-    visibleEstimatesForCurrentUser,
-    workJournal,
-  });
-  const lowStock = lowStockFor(materials);
-  const lowMainStock = lowStockFor(warehouseMain);
-  const {
-    buildDirectorBriefReportContent,
-    buildSupplyControlReportContent,
-    estimateControlIssues,
-    openEstimateControlReport,
-  } = createDirectorDashboardActions({
+    workedDays,
+    workNeedsThicknessParam,
+  } = useAppBusinessRuntime({
     API,
-    activeEstimatesForProject,
-    companyName,
-    estimateList: estimatesList,
-    fmtDocMoney,
-    fmtMeasure,
-    inspectionOrders,
-    invoiceControlMaterialName,
-    invoiceControlNeedsReview,
-    invoiceControlProjectName,
-    invoiceControlReviewReason,
-    invoices,
-    lowMainStock,
-    lowStock,
-    materialNormControlSummaryForProject,
-    materialReconciliationRows,
-    normalizeEstimateList,
-    ownExpenses,
-    projectBudgetSpent,
-    projects,
-    setEstimatesList,
+    constants: { ESTIMATE_PACKAGES, EXPENSE_CATEGORIES },
+    appMainState,
+    coreRuntime: {
+      apiAuthHeaders,
+      isFinanceRole,
+      navigateTo,
+      notify,
+      refreshData,
+      visibleActiveProjects,
+    },
+    estimateWorkflowState: { setEstimateIssueFocusKey },
+    materialNormsState,
+    refs: {
+      estimateChangeReconcileQueuedRef,
+      estimateDiffReviewQueuedRef,
+      estimateNormReviewQueuedRef,
+      estimateQualityReviewQueuedRef,
+      materialControlTaskQueuedRef,
+      roomControlTaskQueuedRef,
+    },
+    layout: { isMobile },
+    ui: { C, badge, btnB, btnG, btnO, card, tbl, tblC, tblH },
+    utilities: { lowStockFor, projectFactSpent },
+    selectors: {
+      isApprovedEstimateChangeStatus,
+      parseSupplyItems,
+      sectionsOfEstimate: _sectionsOfEst,
+      visibleEstimatesForCurrentUser,
+    },
     showPreview,
-    supplierInvoices,
-    supplierOffers,
-    supplyRequests,
-    user,
-    warehouseInvoiceEstimateControl,
-    workJournal,
+    persistEstimate,
   });
 
   const {
@@ -2015,247 +1068,56 @@ function App() {
 
   const pageFallback = <AppPageFallback C={C} card={card} isMobile={isMobile} />;
 
-  if (isMasterRole()) {
-    return (
-      <AppMasterCabinetRoute
-        pageFallback={pageFallback}
-        constants={{ EXPENSE_CATEGORIES, PD_CONSENT_TEXT, ROLE_LABELS, SURFACES, UNITS }}
-        ui={{ API, C, badge, btnB, btnG, btnGr, btnO, btnR, card, inp, isMobile }}
-        data={{
-          accountablePayments,
-          activePage,
-          brigadeContracts,
-          brigadeContractItems: allBrigadeItems,
-          cableJournal,
-          companyChatMessage,
-          companyMessages,
-          consentChecked,
-          contracts,
-          estimateDoneDrafts,
-          estimateItemDoneTotal,
-          estimateWorkKey,
-          estimateWorkMaterials,
-          estimateWorkParams,
-          estimatesList,
-          expandedProject,
-          fileSrc,
-          hiddenActs,
-          interimActs,
-          isPersonalMaterialRole,
-          listSearch,
-          masterProfile,
-          masterProfiles,
-          masterProjectId,
-          materialAvailabilityMapForWork,
-          materialControlStatus,
-          materialHintForProject,
-          materialNameKey,
-          materialNormForWork,
-          materialNormStatus,
-          materialRowsAvailableForWork,
-          materialSuggestionsForWork,
-          materialTransfers,
-          myNotifications,
-          newOwnExpense,
-          newSupplyReq,
-          notifications,
-          ownExpenses,
-          pdConsents,
-          personalMaterialRowsForProject,
-          piecework,
-          previewContent,
-          previewTitle,
-          priceHints,
-          pricelistItems,
-          pricelists,
-          profileData,
-          projects,
-          rooms,
-          selectableActiveProjects,
-          selectedBrigadeContract,
-          selectedWorks,
-          showNotifications,
-          showOwnExpenseForm,
-          showPhotoModal,
-          showProfileForm,
-          showSupplyForm,
-          supplyCollapsedProjects,
-          supplyRequestOrigin,
-          supplyRequests,
-          supplyTemplates,
-          tools,
-          unreadNotifications,
-          user,
-          visibleEstimatesForCurrentUser,
-          workJournal,
-          workNeedsThicknessParam,
-        }}
-        actions={{
-          addMasterWorks,
-          appendPhotos,
-          applySupplyTemplate,
-          autoFillNormMaterialsForWork,
-          buildActContent,
-          buildCableJournalContent,
-          buildContractContent,
-          buildHiddenActContent,
-          cableTypeOf,
-          checkinGeo,
-          closeNotifications,
-          confirmMaterialReceipt,
-          createSupplyReq,
-          deleteSupplyTemplate,
-          doPrint,
-          fetchPriceHint,
-          fmtMeasure,
-          getNotifPage,
-          handleLogout,
-          loadAll,
-          loadPricelistItems,
-          markMyNotificationsRead,
-          matchSearch,
-          navigateTo,
-          normalizeMeasure,
-          notify,
-          parseSupplyItems,
-          refreshData,
-          removeEstimateWorkMaterial,
-          removeSelectedWorkMaterial,
-          renderMaterialWriteoffStatus,
-          renderSupplyPlanningHint,
-          renderSupplyRequestOrigin,
-          returnMaterialToProject,
-          roleColor,
-          roomMeasurementCheck,
-          roomMeasurementMessage,
-          saveProfile,
-          saveSupplyTemplate,
-          sendCompanyChatMessage,
-          setActivePage,
-          setCableJournal,
-          setCompanyChatMessage,
-          setConsentChecked,
-          setEstimateDoneDrafts,
-          setEstimateWorkMaterials,
-          setEstimateWorkParams,
-          setEditingAct,
-          setExpandedProject,
-          setHiddenActs,
-          setListSearch,
-          setMasterProjectId,
-          setNewOwnExpense,
-          setNewSupplyReq,
-          setNotifications,
-          setPreviewContent,
-          setProfileData,
-          setReportingPayment,
-          setSelectedWorks,
-          setShowNotifications,
-          setShowOwnExpenseForm,
-          setShowPhotoModal,
-          setShowProfileForm,
-          setShowSupplyForm,
-          setSupplyCollapsedProjects,
-          setUser,
-          showPreview,
-          submitEstimateWorkDone,
-          toNum,
-          toggleNotifications,
-          updateEstimateWorkMaterialQty,
-          updateProjectProgress,
-          updateSelectedWorkMaterialQty,
-          uploadPhoto,
-          upsertEstimateWorkMaterial,
-          upsertSelectedWorkMaterial,
-        }}
-      />
-    );
-  }
-
-  const isEntryRoute = !user || ['system_owner', 'platform_admin', 'platform_support', 'billing_admin', 'account_owner', 'account_admin'].includes(user.role);
-  if (isEntryRoute) {
-    return (
-      <AppEntryRoutes
-        user={user}
-        page={page}
-        pageFallback={pageFallback}
-        ui={{ API, C, badge, btnG, btnGr, btnO, btnR, card, inp }}
-        constants={{ ROLE_LABELS }}
-        state={{ email, loginError, password, regCode, regEmail, regInviteInfo, regName, regPassword, regSupplierData }}
-        actions={{ handleLogin, handleLogout, handleRegister, handleTwoFactorLogin, setEmail, setLoginError, setPage, setPassword, setRegCode, setRegEmail, setRegName, setRegPassword, setRegSupplierData, setUser }}
-      />
-    );
-  }
+  const earlyRoleRoute = renderAppEarlyRoleRoute({
+    constants: { EXPENSE_CATEGORIES, PD_CONSENT_TEXT, ROLE_LABELS, SURFACES, UNITS },
+    data: {
+      actions: {
+        addMasterWorks, appendPhotos, applySupplyTemplate, autoFillNormMaterialsForWork,
+        checkinGeo, closeNotifications, confirmMaterialReceipt, createInvoiceFromOffer,
+        createShipmentFromOffer, createSupplyReq, deleteSupplyTemplate, fetchPriceHint,
+        getNotifPage, handleLogin, handleLogout, handleRegister, handleTwoFactorLogin,
+        loadAll, loadPricelistItems, markMyNotificationsRead, myNotifications, navigateTo,
+        notify, refreshData, removeEstimateWorkMaterial, removeSelectedWorkMaterial,
+        renderMaterialWriteoffStatus, renderSupplyPlanningHint, renderSupplyRequestOrigin,
+        returnMaterialToProject, roleColor, saveProfile, saveSupplyTemplate,
+        selectableActiveProjects, sendCompanyChatMessage, showPreview, submitEstimateWorkDone,
+        toggleNotifications, updateEstimateWorkMaterialQty, updateProjectProgress,
+        updateSelectedWorkMaterialQty, uploadPhoto, upsertEstimateWorkMaterial,
+        upsertSelectedWorkMaterial, visibleEstimatesForCurrentUser,
+      },
+      appMainState,
+      authEntryState,
+      builders: {
+        buildActContent, buildCableJournalContent, buildContractContent, buildHiddenActContent,
+        buildKS3Content, buildPrescriptionContent, buildSupervisorMonthlyReport,
+        buildSupplementaryAgreementContent, showKS2,
+      },
+      materialRuntime: {
+        isPersonalMaterialRole, materialAvailabilityMapForWork, materialHintForProject,
+        materialNameKey, materialNormForWork, materialRowsAvailableForWork,
+        materialSuggestionsForWork, personalMaterialRowsForProject, workNeedsThicknessParam,
+      },
+      paymentUiState,
+      projectRuntime: {
+        activeEstimatesForProject, computeNotifications, projectPlanDone, roomMeasurementCheck,
+        roomMeasurementMessage,
+      },
+      supplyWorkflowState,
+      user,
+    },
+    pageFallback,
+    selectors: {
+      cableTypeOf, doPrint, estimateItemDoneTotal, estimateItemMaterialSum, estimateItemTotal,
+      estimatePackage, estimateWorkKey, fileSrc, fmtMeasure, isApprovedEstimateChangeStatus,
+      isMasterRole, matchSearch, materialControlStatus, materialNormStatus, normalizeMeasure,
+      parseSupplyItems, projectRealProgress, sectionsOfEstimate: _sectionsOfEst,
+      supplyRequestOrigin, toNum, unreadNotifications,
+    },
+    ui: { API, C, badge, btnB, btnG, btnGr, btnO, btnR, card, inp, isMobile, tbl, tblC, tblH },
+  });
+  if (earlyRoleRoute) return earlyRoleRoute;
 
   const allMenuItems = buildAppMenuItems();
-
-  // Кабинет поставщика
-  if (user && user.role === 'поставщик') {
-    return (
-      <AppSupplierCabinetRoute
-        constants={{ UNITS }}
-        ui={{ API, C, badge, btnB, btnG, btnGr, btnO, btnR, card, inp, tbl, tblC, tblH }}
-        data={{
-          invoicingOfferId,
-          newCatalogItem,
-          newKpResponse,
-          newOfferInvoice,
-          respondingOfferId,
-          shipmentForm,
-          shippingOfferId,
-          showCatalogForm,
-          supplierCatalog,
-          supplierInvoices,
-          supplierOffers,
-          supplierRequisites,
-          supplierTab,
-          suppliers,
-          supplyClaims,
-          supplyDeliveries,
-          supplyRequests,
-          user,
-        }}
-        actions={{
-          createInvoiceFromOffer,
-          createShipmentFromOffer,
-          fileSrc,
-          handleLogout,
-          notify,
-          parseSupplyItems,
-          refreshData,
-          setInvoicingOfferId,
-          setNewCatalogItem,
-          setNewKpResponse,
-          setNewOfferInvoice,
-          setRespondingOfferId,
-          setShipmentForm,
-          setShippingOfferId,
-          setShowCatalogForm,
-          setSupplierCatalog,
-          setSupplierRequisites,
-          setSupplierTab,
-          uploadPhoto,
-        }}
-      />
-    );
-  }
-
-
-
-  if (user && ['технадзор', 'заказчик'].includes(user.role)) {
-    return (
-      <AppRoleCabinetRoutes
-        user={user}
-        pageFallback={pageFallback}
-        ui={{ C, card, btnG, btnB, btnO, btnGr, btnR, inp }}
-        state={{ listSearch, showForm, newSupervisorAct, supervisorActPhoto, prescriptionPhoto, editingAct, showPhotoModal, previewContent, previewTitle }}
-        data={{ projects, workJournal, checklists, prescriptionsList, supervisorActs, materialInspections, hiddenActs, unexpectedWorksList, projectStages, projectPayments, contracts }}
-        actions={{ handleLogout, setListSearch, showPreview, setShowPhotoModal, setPrescriptionPhoto, appendPhotos, refreshData, setShowForm, setNewSupervisorAct, setSupervisorActPhoto, setEditingAct, setHiddenActs, setPreviewContent }}
-        selectors={{ matchSearch, projectRealProgress, projectPlanDone, computeNotifications, fmtMeasure, fileSrc, activeEstimatesForProject, estimatePackage, sectionsOfEstimate: _sectionsOfEst, estimateItemMaterialSum, estimateItemTotal, isApprovedEstimateChangeStatus }}
-        builders={{ buildSupervisorMonthlyReport, buildPrescriptionContent, buildSupplementaryAgreementContent, showKS2, buildKS3Content, doPrint }}
-      />
-    );
-  }
 
   const {
     fillSelectedEstimateExecutionPrices,
