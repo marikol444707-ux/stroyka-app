@@ -16,6 +16,12 @@ export default function DashboardDirectorAiPanel({
   directorAgentError,
   directorAgentSteps,
 }) {
+  const cards = Array.isArray(directorSkillCards) ? directorSkillCards : [];
+  const question = String(directorAgentQuestion || '');
+  const steps = Array.isArray(directorAgentSteps) ? directorAgentSteps : [];
+  const changeDailyReportDate = typeof setDailyReportDate === 'function' ? setDailyReportDate : () => {};
+  const askAgent = typeof askDirectorAgent === 'function' ? askDirectorAgent : () => {};
+  const changeQuestion = typeof setDirectorAgentQuestion === 'function' ? setDirectorAgentQuestion : () => {};
   const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
   const canUseAgent = typeof canUseDirectorAgent === 'function' ? canUseDirectorAgent() : Boolean(canUseDirectorAgent);
   if (!isLeadershipUser) return null;
@@ -27,11 +33,11 @@ export default function DashboardDirectorAiPanel({
           <h2 style={{margin:0,fontSize:'18px',color:'#f8fafc',display:'flex',alignItems:'center',gap:'8px'}}><Bot size={18} color='#fdba74'/>ИИ-контроль директора</h2>
           <p style={{color:'#94a3b8',fontSize:'12px',margin:'3px 0 0'}}>Автопроверки по данным программы</p>
         </div>
-        <input type='date' value={dailyReportDate} onChange={e=>setDailyReportDate(e.target.value)} style={{height:'34px',padding:'6px 8px',borderRadius:'8px',border:'1px solid rgba(148,163,184,.32)',background:'rgba(15,23,42,.72)',color:'#f8fafc',fontSize:'12px',boxSizing:'border-box'}}/>
+        <input type='date' value={dailyReportDate || ''} onChange={e=>changeDailyReportDate(e.target.value)} style={{height:'34px',padding:'6px 8px',borderRadius:'8px',border:'1px solid rgba(148,163,184,.32)',background:'rgba(15,23,42,.72)',color:'#f8fafc',fontSize:'12px',boxSizing:'border-box'}}/>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:'12px'}}>
-        {directorSkillCards.map((k,i)=>(
-          <button key={i} onClick={k.onClick} style={{textAlign:'left',padding:'14px',borderRadius:'16px',background:k.bg,border:'1px solid '+k.border,cursor:'pointer',transition:'transform 0.15s, background 0.15s',color:'#f8fafc',display:'flex',flexDirection:'column',gap:'10px',minHeight:'116px'}} onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.background='rgba(30,41,59,.75)';}} onMouseLeave={e=>{e.currentTarget.style.transform='';e.currentTarget.style.background=k.bg;}}>
+        {cards.map((k,i)=>(
+          <button key={i} onClick={typeof k.onClick === 'function' ? k.onClick : undefined} style={{textAlign:'left',padding:'14px',borderRadius:'16px',background:k.bg,border:'1px solid '+k.border,cursor:'pointer',transition:'transform 0.15s, background 0.15s',color:'#f8fafc',display:'flex',flexDirection:'column',gap:'10px',minHeight:'116px'}} onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.background='rgba(30,41,59,.75)';}} onMouseLeave={e=>{e.currentTarget.style.transform='';e.currentTarget.style.background=k.bg;}}>
             <span style={{width:'34px',height:'34px',borderRadius:'12px',display:'inline-flex',alignItems:'center',justifyContent:'center',background:'rgba(15,23,42,.55)',border:'1px solid '+k.border,color:k.color}}>{k.icon}</span>
             <span style={{display:'block'}}>
               <b style={{display:'block',fontSize:'13px',color:'#f8fafc'}}>{k.label}</b>
@@ -52,21 +58,21 @@ export default function DashboardDirectorAiPanel({
           </div>
           <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'10px'}}>
             {['Что сейчас критично по объектам?','Где есть риски по снабжению?','Какие сметы требуют внимания?','Где зависли задачи ИИ-контроля?'].map(q=>(
-              <button key={q} onClick={()=>askDirectorAgent(q)} disabled={directorAgentLoading} style={{padding:'7px 10px',borderRadius:'999px',border:'1px solid rgba(148,163,184,.22)',background:'rgba(30,41,59,.72)',color:'#cbd5e1',fontSize:'11px',cursor:directorAgentLoading?'not-allowed':'pointer',opacity:directorAgentLoading?0.65:1}}>{q}</button>
+              <button key={q} onClick={()=>askAgent(q)} disabled={directorAgentLoading} style={{padding:'7px 10px',borderRadius:'999px',border:'1px solid rgba(148,163,184,.22)',background:'rgba(30,41,59,.72)',color:'#cbd5e1',fontSize:'11px',cursor:directorAgentLoading?'not-allowed':'pointer',opacity:directorAgentLoading?0.65:1}}>{q}</button>
             ))}
           </div>
           <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr auto',gap:'10px',alignItems:'stretch'}}>
-            <textarea value={directorAgentQuestion} onChange={e=>setDirectorAgentQuestion(e.target.value)} placeholder="Спросите по объектам, складу, деньгам, сметам или задачам..." rows={isMobile?3:2} disabled={directorAgentLoading} style={{width:'100%',resize:'vertical',minHeight:'48px',padding:'11px 12px',borderRadius:'12px',border:'1px solid rgba(148,163,184,.28)',background:'rgba(2,6,23,.62)',color:'#f8fafc',outline:'none',fontSize:'13px',lineHeight:1.45,boxSizing:'border-box'}}/>
-            <button onClick={()=>askDirectorAgent()} disabled={directorAgentLoading||!directorAgentQuestion.trim()} style={{padding:'10px 16px',borderRadius:'12px',border:'none',background:(directorAgentLoading||!directorAgentQuestion.trim())?'#334155':'linear-gradient(135deg,#0ea5e9,#0284c7)',color:'#f8fafc',fontWeight:'800',fontSize:'13px',cursor:(directorAgentLoading||!directorAgentQuestion.trim())?'not-allowed':'pointer',minWidth:isMobile?'100%':'120px'}}>{directorAgentLoading?'Думаю...':'Спросить'}</button>
+            <textarea value={question} onChange={e=>changeQuestion(e.target.value)} placeholder="Спросите по объектам, складу, деньгам, сметам или задачам..." rows={isMobile?3:2} disabled={directorAgentLoading} style={{width:'100%',resize:'vertical',minHeight:'48px',padding:'11px 12px',borderRadius:'12px',border:'1px solid rgba(148,163,184,.28)',background:'rgba(2,6,23,.62)',color:'#f8fafc',outline:'none',fontSize:'13px',lineHeight:1.45,boxSizing:'border-box'}}/>
+            <button onClick={()=>askAgent()} disabled={directorAgentLoading||!question.trim()} style={{padding:'10px 16px',borderRadius:'12px',border:'none',background:(directorAgentLoading||!question.trim())?'#334155':'linear-gradient(135deg,#0ea5e9,#0284c7)',color:'#f8fafc',fontWeight:'800',fontSize:'13px',cursor:(directorAgentLoading||!question.trim())?'not-allowed':'pointer',minWidth:isMobile?'100%':'120px'}}>{directorAgentLoading?'Думаю...':'Спросить'}</button>
           </div>
           {(directorAgentAnswer||directorAgentError||directorAgentLoading)&&(
             <div style={{marginTop:'12px',padding:'13px 14px',borderRadius:'14px',background:directorAgentError?'rgba(239,68,68,.10)':'rgba(30,41,59,.62)',border:'1px solid '+(directorAgentError?'rgba(239,68,68,.26)':'rgba(148,163,184,.18)'),color:directorAgentError?'#fca5a5':'#e2e8f0',fontSize:'13px',lineHeight:1.55,whiteSpace:'pre-wrap'}}>
               {directorAgentLoading?'Запрашиваю данные и собираю ответ...':(directorAgentError||directorAgentAnswer)}
             </div>
           )}
-          {directorAgentSteps.length>0&&(
+          {steps.length>0&&(
             <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'10px'}}>
-              {directorAgentSteps.map((s,i)=><span key={i} style={{fontSize:'10px',fontWeight:'800',color:'#bae6fd',background:'rgba(14,165,233,.12)',border:'1px solid rgba(14,165,233,.24)',borderRadius:'999px',padding:'4px 8px'}}>{s.tool}</span>)}
+              {steps.map((s,i)=><span key={i} style={{fontSize:'10px',fontWeight:'800',color:'#bae6fd',background:'rgba(14,165,233,.12)',border:'1px solid rgba(14,165,233,.24)',borderRadius:'999px',padding:'4px 8px'}}>{s.tool}</span>)}
             </div>
           )}
         </div>

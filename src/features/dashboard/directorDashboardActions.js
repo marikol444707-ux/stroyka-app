@@ -39,32 +39,45 @@ export function createDirectorDashboardActions({
   warehouseInvoiceEstimateControl,
   workJournal,
 }) {
-  const activeDirectorProjects = () => activeProjectsOnly(projects);
+  const noop = () => {};
+  const safeProjects = Array.isArray(projects) ? projects : [];
+  const safeEstimateList = Array.isArray(estimateList) ? estimateList : [];
+  const safeSetEstimatesList = typeof setEstimatesList === 'function' ? setEstimatesList : noop;
+  const safeShowPreview = typeof showPreview === 'function' ? showPreview : noop;
+  const safeNormalizeEstimateList = typeof normalizeEstimateList === 'function' ? normalizeEstimateList : (list) => list;
+  const getActiveEstimatesForProject = typeof activeEstimatesForProject === 'function'
+    ? activeEstimatesForProject
+    : () => [];
+  const safeProjectBudgetSpent = typeof projectBudgetSpent === 'function'
+    ? projectBudgetSpent
+    : () => ({ works: 0, materials: 0, unexpected: 0, total: 0 });
+  const activeDirectorProjects = () => activeProjectsOnly(safeProjects);
 
   const buildDirectorBriefReportContent = (date) => buildDirectorBriefReportContentForDate(date, {
     companyName,
     user,
-    projects,
+    projects: safeProjects,
     workJournal,
     inspectionOrders,
     ownExpenses,
     supplierInvoices,
     lowStock,
     lowMainStock,
-    projectBudgetSpent,
+    projectBudgetSpent: safeProjectBudgetSpent,
   });
 
-  const estimateControlIssues = (sourceEstimates = estimateList) => buildDirectorEstimateControlIssues({
-    sourceEstimates,
-    projects,
+  const estimateControlIssues = (sourceEstimates = safeEstimateList) => buildDirectorEstimateControlIssues({
+    sourceEstimates: Array.isArray(sourceEstimates) ? sourceEstimates : [],
+    projects: safeProjects,
     activeProjects: activeDirectorProjects(),
-    activeEstimatesForProject,
+    activeEstimatesForProject: getActiveEstimatesForProject,
   });
 
-  const buildEstimateControlReportContent = (sourceEstimates = estimateList) => {
-    const issues = estimateControlIssues(sourceEstimates);
+  const buildEstimateControlReportContent = (sourceEstimates = safeEstimateList) => {
+    const safeSourceEstimates = Array.isArray(sourceEstimates) ? sourceEstimates : [];
+    const issues = estimateControlIssues(safeSourceEstimates);
     return buildDirectorEstimateControlReportContent({
-      sourceEstimates,
+      sourceEstimates: safeSourceEstimates,
       issues,
       companyName,
       generatedBy: user?.name || '',
@@ -72,23 +85,23 @@ export function createDirectorDashboardActions({
   };
 
   const loadEstimatesForDirectorReport = async () => {
-    if ((estimateList || []).length) return estimateList;
+    if (safeEstimateList.length) return safeEstimateList;
     try {
       const token = localStorage.getItem('authToken');
       const res = await fetch(API + '/estimates?summary=true', token ? {headers: {Authorization: 'Bearer ' + token}} : undefined);
-      if (!res.ok) return estimateList || [];
+      if (!res.ok) return safeEstimateList;
       const data = await res.json();
       const list = Array.isArray(data) ? data : [];
-      if (list.length) setEstimatesList(normalizeEstimateList(list));
+      if (list.length) safeSetEstimatesList(safeNormalizeEstimateList(list));
       return list;
     } catch (e) {
-      return estimateList || [];
+      return safeEstimateList;
     }
   };
 
   const openEstimateControlReport = async () => {
     const list = await loadEstimatesForDirectorReport();
-    showPreview(buildEstimateControlReportContent(list), 'Проверка смет директора');
+    safeShowPreview(buildEstimateControlReportContent(list), 'Проверка смет директора');
   };
 
   const supplyControlIssues = () => buildDirectorSupplyControlIssues({

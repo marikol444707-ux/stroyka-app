@@ -12,10 +12,10 @@ import {
 import { isOpenAiStatus } from '../../utils/statusMetaUtils';
 
 export default function DashboardPage({
-  actions,
-  data,
-  ui,
-}) {
+  actions = {},
+  data = {},
+  ui = {},
+} = {}) {
   const {
   API,
   C,
@@ -99,30 +99,73 @@ export default function DashboardPage({
   visibleActiveProjects,
   workDocDate,
   } = actions;
+  const noop = () => {};
+  const safeSetActivePage = typeof setActivePage === 'function' ? setActivePage : noop;
+  const safeNavigateTo = typeof navigateTo === 'function' ? navigateTo : safeSetActivePage;
+  const safeSetAccountingTab = typeof setAccountingTab === 'function' ? setAccountingTab : noop;
+  const safeSetDarkMode = typeof setDarkMode === 'function' ? setDarkMode : noop;
+  const safeSetDailyReportDate = typeof setDailyReportDate === 'function' ? setDailyReportDate : noop;
+  const safeSetDirectorAgentQuestion = typeof setDirectorAgentQuestion === 'function' ? setDirectorAgentQuestion : noop;
+  const safeSetExpandedProject = typeof setExpandedProject === 'function' ? setExpandedProject : noop;
+  const safeSetMobileExpandedRenderLists = typeof setMobileExpandedRenderLists === 'function' ? setMobileExpandedRenderLists : noop;
+  const safeSetNotifications = typeof setNotifications === 'function' ? setNotifications : noop;
+  const safeSetShowAiAssistant = typeof setShowAiAssistant === 'function' ? setShowAiAssistant : noop;
+  const safeSetShowChatPanel = typeof setShowChatPanel === 'function' ? setShowChatPanel : noop;
+  const safeSetShowForm = typeof setShowForm === 'function' ? setShowForm : noop;
+  const safeSetShowNotifications = typeof setShowNotifications === 'function' ? setShowNotifications : noop;
+  const safeSetShowQuickActions = typeof setShowQuickActions === 'function' ? setShowQuickActions : noop;
+  const safeSetShowReimburseModal = typeof setShowReimburseModal === 'function' ? setShowReimburseModal : noop;
+  const safeSetShowSupplyForm = typeof setShowSupplyForm === 'function' ? setShowSupplyForm : noop;
+  const safeSetSidebarVisible = typeof setSidebarVisible === 'function' ? setSidebarVisible : noop;
+  const safeSetSupplyTab = typeof setSupplyTab === 'function' ? setSupplyTab : noop;
+  const safeSetUser = typeof setUser === 'function' ? setUser : noop;
+  const safeSetWarehouseTab = typeof setWarehouseTab === 'function' ? setWarehouseTab : noop;
+  const safeAskDirectorAgent = typeof askDirectorAgent === 'function' ? askDirectorAgent : noop;
+  const safeCloseNotifications = typeof closeNotifications === 'function' ? closeNotifications : noop;
+  const safeGetNotifPage = typeof getNotifPage === 'function' ? getNotifPage : () => null;
+  const safeMarkMyNotificationsRead = typeof markMyNotificationsRead === 'function' ? markMyNotificationsRead : noop;
+  const safeToggleNotifications = typeof toggleNotifications === 'function' ? toggleNotifications : noop;
+  const lowStockList = Array.isArray(lowStock) ? lowStock : [];
+  const lowMainStockList = Array.isArray(lowMainStock) ? lowMainStock : [];
+  const activityLogList = Array.isArray(activityLog) ? activityLog : [];
+  const hiddenActsList = Array.isArray(hiddenActs) ? hiddenActs : [];
+  const inspectionOrdersList = Array.isArray(inspectionOrders) ? inspectionOrders : [];
+  const unexpectedWorks = Array.isArray(unexpectedWorksList) ? unexpectedWorksList : [];
+  const ownExpensesList = Array.isArray(ownExpenses) ? ownExpenses : [];
+  const aiFindingsList = Array.isArray(aiFindings) ? aiFindings : [];
+  const projectPaymentsList = Array.isArray(projectPayments) ? projectPayments : [];
+  const manualExpensesList = Array.isArray(manualExpenses) ? manualExpenses : [];
+  const accountablePaymentsList = Array.isArray(accountablePayments) ? accountablePayments : [];
+  const projectsList = Array.isArray(projects) ? projects : [];
+  const supplyRequestsList = Array.isArray(supplyRequests) ? supplyRequests : [];
+  const supplierOffersList = Array.isArray(supplierOffers) ? supplierOffers : [];
+  const supplierInvoicesList = Array.isArray(supplierInvoices) ? supplierInvoices : [];
+  const workJournalList = Array.isArray(workJournal) ? workJournal : [];
+  const mobileExpandedRenderListsState = mobileExpandedRenderLists && typeof mobileExpandedRenderLists === 'object' ? mobileExpandedRenderLists : {};
   const topBarProps = {
     API,
     C,
     btnG,
     btnO,
-    closeNotifications,
+    closeNotifications: safeCloseNotifications,
     darkMode,
-    getNotifPage,
+    getNotifPage: safeGetNotifPage,
     isMobile,
-    markMyNotificationsRead,
-    myNotifications,
-    navigateTo,
-    notifications,
-    setDarkMode,
-    setNotifications,
-    setShowAiAssistant,
-    setShowChatPanel,
-    setShowNotifications,
-    setShowQuickActions,
-    setSidebarVisible,
-    setUser,
+    markMyNotificationsRead: safeMarkMyNotificationsRead,
+    myNotifications: Array.isArray(myNotifications) ? myNotifications : [],
+    navigateTo: safeNavigateTo,
+    notifications: Array.isArray(notifications) ? notifications : [],
+    setDarkMode: safeSetDarkMode,
+    setNotifications: safeSetNotifications,
+    setShowAiAssistant: safeSetShowAiAssistant,
+    setShowChatPanel: safeSetShowChatPanel,
+    setShowNotifications: safeSetShowNotifications,
+    setShowQuickActions: safeSetShowQuickActions,
+    setSidebarVisible: safeSetSidebarVisible,
+    setUser: safeSetUser,
     showAiAssistant,
     showNotifications,
-    toggleNotifications,
+    toggleNotifications: safeToggleNotifications,
     unreadMessagesCount,
     unreadNotifications,
     user,
@@ -169,35 +212,36 @@ export default function DashboardPage({
   const buildDirectorBriefReport = typeof buildDirectorBriefReportContent === 'function' ? buildDirectorBriefReportContent : () => '';
   const buildDailyObjectReport = typeof buildDailyObjectReportContent === 'function' ? buildDailyObjectReportContent : () => '';
   const buildSupplyControlReport = typeof buildSupplyControlReportContent === 'function' ? buildSupplyControlReportContent : () => '';
+  const openEstimateControl = typeof openEstimateControlReport === 'function' ? openEstimateControlReport : () => {};
 
   const _today = new Date().toISOString().split('T')[0];
   const getVisibleActiveProjects = typeof visibleActiveProjects === 'function'
     ? visibleActiveProjects
     : (list = []) => (list || []).filter(project => !project?.archived);
-  const dashboardProjects = getVisibleActiveProjects(projects || []);
+  const dashboardProjects = getVisibleActiveProjects(projectsList);
   const risks = [];
-  lowStock.slice(0,2).forEach(m=>risks.push({icon:'📦',text:'Мало на объекте: '+m.name,severity:'warn',page:'warehouse'}));
-  lowMainStock.slice(0,2).forEach(m=>risks.push({icon:'🏭',text:'Мало на складе: '+m.name,severity:'warn',page:'warehouse',tab:'main'}));
+  lowStockList.slice(0,2).forEach(m=>risks.push({icon:'📦',text:'Мало на объекте: '+m.name,severity:'warn',page:'warehouse'}));
+  lowMainStockList.slice(0,2).forEach(m=>risks.push({icon:'🏭',text:'Мало на складе: '+m.name,severity:'warn',page:'warehouse',tab:'main'}));
   dashboardProjects.filter(p=>p.deadline&&p.deadline<_today).slice(0,2).forEach(p=>risks.push({icon:'⏰',text:'Срок истёк: '+p.name+' (до '+p.deadline+')',severity:'danger',page:'projects'}));
   const _weekAgo = new Date(Date.now()-7*24*3600*1000).toISOString().split('T')[0];
-  (hiddenActs||[]).filter(a=>a.status!=='Подписан'&&a.createdAt&&String(a.createdAt).split('T')[0]<_weekAgo).slice(0,2).forEach(a=>risks.push({icon:'🔒',text:'АОСР долго без подписи: '+a.actNumber,severity:'warn',page:'projects'}));
-  const openInsp = (inspectionOrders||[]).filter(o=>o.status!=='Закрыто').length;
+  hiddenActsList.filter(a=>a.status!=='Подписан'&&a.createdAt&&String(a.createdAt).split('T')[0]<_weekAgo).slice(0,2).forEach(a=>risks.push({icon:'🔒',text:'АОСР долго без подписи: '+a.actNumber,severity:'warn',page:'projects'}));
+  const openInsp = inspectionOrdersList.filter(o=>o.status!=='Закрыто').length;
   if (openInsp > 0) risks.push({icon:'🏛',text:'Открытых замечаний ГСН: '+openInsp,severity:'danger',page:'projects'});
   dashboardProjects.forEach(p=>{
     const budget = Number(p.budget||0);
     if (budget <= 0) return;
-    const sumUnx = (unexpectedWorksList||[])
+    const sumUnx = unexpectedWorks
       .filter(u=>u.projectName===p.name&&isApprovedEstimateChange(u.status)&&u.changeType!=='Исключение объёма'&&!u.includedInEstimateId)
       .reduce((s,u)=>s+Number(u.total||0),0);
     const pct = sumUnx/budget*100;
     if (pct > 10) risks.push({icon:'💸',text:p.name+': изменения к смете '+pct.toFixed(1)+'% от бюджета',severity:'danger',page:'projects'});
   });
-  const pendingExp = (ownExpenses||[]).filter(e=>e.status==='Ожидает');
+  const pendingExp = ownExpensesList.filter(e=>e.status==='Ожидает');
   if (pendingExp.length > 0) {
     const sum = pendingExp.reduce((s,e)=>s+Number(e.amount||0),0);
     risks.push({icon:'💸',text:'К возмещению сотрудникам: '+Math.round(sum).toLocaleString('ru-RU')+' ₽ ('+pendingExp.length+' трат)',severity:'warn',action:'reimburse'});
   }
-  const openAiControl = (aiFindings||[]).filter(f=>isOpenAiStatus(f.status));
+  const openAiControl = aiFindingsList.filter(f=>isOpenAiStatus(f.status));
   const criticalAiControl = openAiControl.filter(f=>f.severity==='Критично'||f.severity==='Не хватает данных');
   if (openAiControl.length > 0) risks.push({icon:'🤖',text:'ИИ-контроль: '+openAiControl.length+' замечаний, из них важных '+criticalAiControl.length,severity:criticalAiControl.length?'danger':'warn',page:'projects'});
   const _projProgress = getProjectRealProgress;
@@ -206,52 +250,52 @@ export default function DashboardPage({
   const dashboardBudgetSpentById = new Map(dashboardBudgetSpent.map(x=>[String(x.projectId),x.spent]));
   const dashboardBudgetSpentByName = new Map(dashboardBudgetSpent.map(x=>[x.projectName,x.spent]));
   const totalDone = dashboardBudgetSpent.reduce((s,x)=>s+Number(x.spent?.total||0),0);
-  const dashboardJournalExpenses = (projectPayments||[]).reduce((sum,pay)=>{
+  const dashboardJournalExpenses = projectPaymentsList.reduce((sum,pay)=>{
     const signed = getProjectPaymentSignedAmount(pay);
     return signed < 0 ? sum + Math.abs(signed) : sum;
   },0);
-  const dashboardDirectExpenses = (manualExpenses||[])
+  const dashboardDirectExpenses = manualExpensesList
     .filter(expense=>!expense.ownExpenseId&&expense.source!=='own_expense')
     .reduce((sum,expense)=>sum+Number(expense.amount||0),0);
-  const dashboardAccountableExpenses = (accountablePayments||[]).reduce((sum,payment)=>sum+Number(payment.amount||0),0);
+  const dashboardAccountableExpenses = accountablePaymentsList.reduce((sum,payment)=>sum+Number(payment.amount||0),0);
   const dashboardAccountingExpenses = dashboardJournalExpenses + dashboardDirectExpenses + dashboardAccountableExpenses;
   const dashboardProjectPreviewLimit = isMobile ? 3 : 5;
   const openSupplyDashboard = (tab) => {
-    setActivePage('supply');
-    setSupplyTab(tab);
-    setShowSupplyForm(false);
-    setShowForm(false);
+    safeSetActivePage('supply');
+    safeSetSupplyTab(tab);
+    safeSetShowSupplyForm(false);
+    safeSetShowForm(false);
   };
   const dashboardExtraKey = 'dashboard-extra-panels';
-  const showDashboardExtra = !isMobile || !!mobileExpandedRenderLists[dashboardExtraKey];
+  const showDashboardExtra = !isMobile || !!mobileExpandedRenderListsState[dashboardExtraKey];
   const showSupplyDashboard = showDashboardExtra && ['директор','зам_директора','бухгалтер','прораб','кладовщик','снабженец'].includes(currentUserRole);
-  const supplyPendingRequests = showDashboardExtra ? (supplyRequests||[]).filter(r=>{
+  const supplyPendingRequests = showDashboardExtra ? supplyRequestsList.filter(r=>{
     if (currentUserRole==='прораб') return r.status==='Новая';
     if (isLeadershipUser()) return r.status==='Новая'||r.status==='Подтверждена прорабом';
     return r.status==='Утверждена'||r.status==='КП запрошены';
   }) : [];
-  const supplyOffersToReview = showDashboardExtra ? (supplierOffers||[]).filter(o=>o.status==='Получено') : [];
-  const supplyInvoicesToPay = showDashboardExtra ? (supplierInvoices||[]).filter(i=>i.status==='На утверждении'||i.status==='Утверждён'||i.status==='Частично оплачен'||!i.status) : [];
+  const supplyOffersToReview = showDashboardExtra ? supplierOffersList.filter(o=>o.status==='Получено') : [];
+  const supplyInvoicesToPay = showDashboardExtra ? supplierInvoicesList.filter(i=>i.status==='На утверждении'||i.status==='Утверждён'||i.status==='Частично оплачен'||!i.status) : [];
   const supplyInvoiceDebt = showDashboardExtra ? supplyInvoicesToPay.reduce((s,i)=>s+Math.max(0,Number(i.amount||i.totalAmount||0)-Number(i.paidAmount||0)),0) : 0;
   const directorSkillDate = showDashboardExtra ? (formatDocDate(dailyReportDate)||_today) : _today;
-  const directorSkillDailyWorks = showDashboardExtra ? (workJournal||[]).filter(w=>getWorkDocDate(w)===directorSkillDate) : [];
+  const directorSkillDailyWorks = showDashboardExtra ? workJournalList.filter(w=>getWorkDocDate(w)===directorSkillDate) : [];
   const directorSkillEstimateIssues = showDashboardExtra && isLeadershipUser() ? getEstimateControlIssues().length : 0;
-  const directorSkillSupplyIssues = showDashboardExtra ? lowStock.length+lowMainStock.length
-    +(supplyRequests||[]).filter(r=>r.status==='Новая'||r.status==='Подтверждена прорабом').length
-    +(supplierInvoices||[]).filter(i=>i.status==='На утверждении'||!i.status).length : 0;
+  const directorSkillSupplyIssues = showDashboardExtra ? lowStockList.length+lowMainStockList.length
+    +supplyRequestsList.filter(r=>r.status==='Новая'||r.status==='Подтверждена прорабом').length
+    +supplierInvoicesList.filter(i=>i.status==='На утверждении'||!i.status).length : 0;
   const directorSkillCards = showDashboardExtra ? [
     {label:'Сводка директору',sub:'риски, деньги, задачи',icon:<Bot size={18}/>,color:'#fdba74',bg:'rgba(234,88,12,.14)',border:'rgba(234,88,12,.32)',metric:risks.length+' рисков',onClick:()=>previewDocument(buildDirectorBriefReport(directorSkillDate),'Сводка директора — '+new Date(directorSkillDate+'T00:00:00').toLocaleDateString('ru-RU'))},
-    {label:'ИИ-контроль',sub:'обмеры и поручения',icon:<Bot size={18}/>,color:'#fca5a5',bg:'rgba(239,68,68,.12)',border:'rgba(239,68,68,.28)',metric:openAiControl.length+' замеч.',onClick:()=>navigateTo('projects')},
+    {label:'ИИ-контроль',sub:'обмеры и поручения',icon:<Bot size={18}/>,color:'#fca5a5',bg:'rgba(239,68,68,.12)',border:'rgba(239,68,68,.28)',metric:openAiControl.length+' замеч.',onClick:()=>safeNavigateTo('projects')},
     {label:'Ежедневный отчёт',sub:'работы по объектам',icon:<FileText size={18}/>,color:'#86efac',bg:'rgba(34,197,94,.12)',border:'rgba(34,197,94,.28)',metric:directorSkillDailyWorks.length+' работ',onClick:()=>previewDocument(buildDailyObjectReport(directorSkillDate),'Ежедневный отчет — '+new Date(directorSkillDate+'T00:00:00').toLocaleDateString('ru-RU'))},
-    {label:'Проверка смет',sub:'нули, дубли, бюджет',icon:<Calculator size={18}/>,color:'#93c5fd',bg:'rgba(59,130,246,.12)',border:'rgba(59,130,246,.28)',metric:directorSkillEstimateIssues+' замеч.',onClick:openEstimateControlReport},
+    {label:'Проверка смет',sub:'нули, дубли, бюджет',icon:<Calculator size={18}/>,color:'#93c5fd',bg:'rgba(59,130,246,.12)',border:'rgba(59,130,246,.28)',metric:directorSkillEstimateIssues+' замеч.',onClick:openEstimateControl},
     {label:'Склад и снабжение',sub:'остатки, заявки, счета',icon:<Package size={18}/>,color:'#c4b5fd',bg:'rgba(139,92,246,.12)',border:'rgba(139,92,246,.28)',metric:directorSkillSupplyIssues+' задач',onClick:()=>previewDocument(buildSupplyControlReport(),'Контроль снабжения и склада')},
   ] : [];
 
   return (
     <div style={{minHeight:'100%',padding:'28px',background:'radial-gradient(circle at 15% 0%,rgba(249,115,22,.15),transparent 32%),linear-gradient(135deg,#0b1120 0%,#111827 100%)',color:'#f8fafc'}}>
       <DashboardTopBar {...topBarProps}/>
-      <DashboardStatsGrid dashboardProjects={dashboardProjects} avgProg={avgProg} totalDone={totalDone} totalExpenses={dashboardAccountingExpenses} setActivePage={setActivePage} navigateTo={navigateTo} setAccountingTab={setAccountingTab}/>
-      {showDashboardExtra&&<DashboardDirectorAiPanel isLeadership={isLeadershipUser} directorSkillCards={directorSkillCards} dailyReportDate={dailyReportDate} setDailyReportDate={setDailyReportDate} canUseDirectorAgent={canUseDirectorAgent} directorAgentLoading={directorAgentLoading} askDirectorAgent={askDirectorAgent} directorAgentQuestion={directorAgentQuestion} setDirectorAgentQuestion={setDirectorAgentQuestion} isMobile={isMobile} directorAgentAnswer={directorAgentAnswer} directorAgentError={directorAgentError} directorAgentSteps={directorAgentSteps}/>}
+      <DashboardStatsGrid dashboardProjects={dashboardProjects} avgProg={avgProg} totalDone={totalDone} totalExpenses={dashboardAccountingExpenses} setActivePage={safeSetActivePage} navigateTo={safeNavigateTo} setAccountingTab={safeSetAccountingTab}/>
+      {showDashboardExtra&&<DashboardDirectorAiPanel isLeadership={isLeadershipUser} directorSkillCards={directorSkillCards} dailyReportDate={dailyReportDate} setDailyReportDate={safeSetDailyReportDate} canUseDirectorAgent={canUseDirectorAgent} directorAgentLoading={directorAgentLoading} askDirectorAgent={safeAskDirectorAgent} directorAgentQuestion={directorAgentQuestion} setDirectorAgentQuestion={safeSetDirectorAgentQuestion} isMobile={isMobile} directorAgentAnswer={directorAgentAnswer} directorAgentError={directorAgentError} directorAgentSteps={directorAgentSteps}/>}
       {showDashboardExtra&&<DashboardSupplyPanel showSupplyDashboard={showSupplyDashboard} user={user} openSupplyDashboard={openSupplyDashboard} supplyPendingRequests={supplyPendingRequests} supplyOffersToReview={supplyOffersToReview} supplyInvoicesToPay={supplyInvoicesToPay} supplyInvoiceDebt={supplyInvoiceDebt}/>}
       <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1.3fr 0.7fr',gap:'16px'}}>
         <div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>
@@ -261,7 +305,7 @@ export default function DashboardPage({
             const factTotal = bs.total;
             const realProg = _projProgress(p);
             return (
-              <div key={p.id} onClick={()=>{setExpandedProject(p.id);navigateTo('projects');}} style={{padding:'16px',borderRadius:'18px',background:'rgba(30,41,59,.62)',border:'1px solid rgba(148,163,184,.18)',marginBottom:'10px',cursor:'pointer'}}>
+              <div key={p.id} onClick={()=>{safeSetExpandedProject(p.id);safeNavigateTo('projects');}} style={{padding:'16px',borderRadius:'18px',background:'rgba(30,41,59,.62)',border:'1px solid rgba(148,163,184,.18)',marginBottom:'10px',cursor:'pointer'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px'}}>
                   <div><div style={{fontWeight:'800',fontSize:'15px',color:'#f8fafc'}}>{p.name}</div><div style={{color:'#94a3b8',fontSize:'12px',marginTop:'3px'}}>{p.client||'Без заказчика'} · {p.status}</div></div>
                   <span style={{display:'inline-flex',borderRadius:'999px',padding:'4px 10px',fontSize:'11px',fontWeight:'700',background:'rgba(234,88,12,.14)',color:'#fdba74',border:'1px solid rgba(234,88,12,.32)',whiteSpace:'nowrap'}}>{realProg}%</span>
@@ -279,20 +323,20 @@ export default function DashboardPage({
             );
           })}
           {isMobile&&dashboardProjects.length>dashboardProjectPreviewLimit&&(
-            <button type="button" onClick={()=>navigateTo('projects')} style={{...btnG,width:'100%',justifyContent:'center',marginTop:'8px',borderColor:'rgba(148,163,184,.28)',background:'rgba(30,41,59,.72)',color:'#e2e8f0'}}>
+            <button type="button" onClick={()=>safeNavigateTo('projects')} style={{...btnG,width:'100%',justifyContent:'center',marginTop:'8px',borderColor:'rgba(148,163,184,.28)',background:'rgba(30,41,59,.72)',color:'#e2e8f0'}}>
               Показать все объекты ({dashboardProjects.length})
             </button>
           )}
         </div>
         <div style={{display:'flex',flexDirection:'column',gap:'16px'}}>
-          <DashboardRisksPanel risks={risks} setShowReimburseModal={setShowReimburseModal} setActivePage={setActivePage} setWarehouseTab={setWarehouseTab}/>
+          <DashboardRisksPanel risks={risks} setShowReimburseModal={safeSetShowReimburseModal} setActivePage={safeSetActivePage} setWarehouseTab={safeSetWarehouseTab}/>
           {!showDashboardExtra&&isMobile&&(
-            <button type="button" onClick={()=>setMobileExpandedRenderLists(prev=>({...prev,[dashboardExtraKey]:true}))} style={{...btnO,width:'100%',justifyContent:'center',padding:'12px 14px'}}>
+            <button type="button" onClick={()=>safeSetMobileExpandedRenderLists(prev=>({...prev,[dashboardExtraKey]:true}))} style={{...btnO,width:'100%',justifyContent:'center',padding:'12px 14px'}}>
               Загрузить рабочие панели
             </button>
           )}
-          {showDashboardExtra&&<DashboardProductionSummaryPanel workJournal={workJournal} workDocDate={getWorkDocDate} normalizeDocDate={formatDocDate} dailyReportDate={dailyReportDate} setDailyReportDate={setDailyReportDate} user={user} showPreview={previewDocument} buildDailyObjectReportContent={buildDailyObjectReport} setActivePage={setActivePage} setAccountingTab={setAccountingTab}/>}
-          {showDashboardExtra&&<DashboardActivityPanel activityLog={activityLog}/>}
+          {showDashboardExtra&&<DashboardProductionSummaryPanel workJournal={workJournalList} workDocDate={getWorkDocDate} normalizeDocDate={formatDocDate} dailyReportDate={dailyReportDate} setDailyReportDate={safeSetDailyReportDate} user={user} showPreview={previewDocument} buildDailyObjectReportContent={buildDailyObjectReport} setActivePage={safeSetActivePage} setAccountingTab={safeSetAccountingTab}/>}
+          {showDashboardExtra&&<DashboardActivityPanel activityLog={activityLogList}/>}
         </div>
       </div>
       <div style={{height:'100px'}}/>
