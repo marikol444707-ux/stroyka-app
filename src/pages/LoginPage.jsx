@@ -94,8 +94,8 @@ const LoginPage = ({email, setEmail, password, setPassword, handleLogin, handleT
   };
 
   if (forgotMode) return (
-    <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:'20px',background:'radial-gradient(circle at 15% 10%,rgba(234,88,12,.18),transparent 28%),linear-gradient(135deg,#020617 0%,#0f172a 54%,#020617 100%)'}}>
-      <div style={{width:'100%',maxWidth:'400px',borderRadius:'34px',background:'linear-gradient(145deg,rgba(15,23,42,.96),rgba(2,6,23,.96))',border:'1px solid rgba(148,163,184,.2)',padding:'32px 28px',color:'#e5e5ea'}}>
+    <div className="auth-screen" style={{width:'100vw',minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:'20px',background:'radial-gradient(circle at 15% 10%,rgba(234,88,12,.18),transparent 28%),linear-gradient(135deg,#020617 0%,#0f172a 54%,#020617 100%)'}}>
+      <div className="auth-card auth-card-compact" style={{width:'100%',maxWidth:'min(400px, calc(100vw - 24px))',borderRadius:'34px',background:'linear-gradient(145deg,rgba(15,23,42,.96),rgba(2,6,23,.96))',border:'1px solid rgba(148,163,184,.2)',padding:'32px 28px',color:'#e5e5ea'}}>
         <h2 style={{margin:'0 0 8px',fontSize:'22px',fontWeight:'800',color:'#fff'}}>🔑 Восстановление пароля</h2>
         <p style={{margin:'0 0 20px',fontSize:'13px',color:'#8e8e93'}}>{forgotStep===1?'Введи свой email — мы создадим код восстановления':forgotStep===2?'Введи 6-значный код и новый пароль':'Готово!'}</p>
         {forgotStep===1&&(<div>
@@ -129,8 +129,8 @@ const LoginPage = ({email, setEmail, password, setPassword, handleLogin, handleT
   );
 
   if (twoFactor) return (
-    <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:'20px',background:'radial-gradient(circle at 15% 10%,rgba(234,88,12,.18),transparent 28%),linear-gradient(135deg,#020617 0%,#0f172a 54%,#020617 100%)'}}>
-      <div style={{width:'100%',maxWidth:'430px',borderRadius:'30px',background:'linear-gradient(145deg,rgba(15,23,42,.96),rgba(2,6,23,.96))',border:'1px solid rgba(148,163,184,.2)',padding:'28px',color:'#e5e5ea',boxShadow:'0 30px 100px rgba(0,0,0,.55)'}}>
+    <div className="auth-screen" style={{width:'100vw',minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:'20px',background:'radial-gradient(circle at 15% 10%,rgba(234,88,12,.18),transparent 28%),linear-gradient(135deg,#020617 0%,#0f172a 54%,#020617 100%)'}}>
+      <div className="auth-card auth-card-compact" style={{width:'100%',maxWidth:'min(430px, calc(100vw - 24px))',borderRadius:'30px',background:'linear-gradient(145deg,rgba(15,23,42,.96),rgba(2,6,23,.96))',border:'1px solid rgba(148,163,184,.2)',padding:'28px',color:'#e5e5ea',boxShadow:'0 30px 100px rgba(0,0,0,.55)'}}>
         <h2 style={{margin:'0 0 8px',fontSize:'22px',fontWeight:'800',color:'#fff'}}>{twoFactor.mode === 'setup' ? '🛡️ Настройка 2FA' : '🛡️ Код 2FA'}</h2>
         <p style={{margin:'0 0 16px',fontSize:'13px',color:'#8e8e93',lineHeight:1.5}}>
           {twoFactor.mode === 'setup'
@@ -165,11 +165,11 @@ const LoginPage = ({email, setEmail, password, setPassword, handleLogin, handleT
   );
 
   return (
-    <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:'20px',background:'radial-gradient(circle at 15% 10%,rgba(234,88,12,.18),transparent 28%),linear-gradient(135deg,#020617 0%,#0f172a 54%,#020617 100%)'}}>
+    <div className="auth-screen" style={{width:'100vw',minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:'20px',background:'radial-gradient(circle at 15% 10%,rgba(234,88,12,.18),transparent 28%),linear-gradient(135deg,#020617 0%,#0f172a 54%,#020617 100%)'}}>
       <button onClick={()=>{changePage('site');changeLoginError('');}} style={{position:'fixed',top:'18px',left:'18px',zIndex:2,padding:'10px 14px',borderRadius:'12px',border:'1px solid rgba(255,255,255,.18)',background:'rgba(15,23,42,.72)',color:'#e5e7eb',fontSize:'13px',fontWeight:'700',cursor:'pointer',backdropFilter:'blur(12px)'}}>На сайт СтройКа</button>
       <div style={{position:'absolute',width:'260px',height:'260px',borderRadius:'50%',background:'rgba(234,88,12,.35)',filter:'blur(70px)',top:'-90px',left:'-70px',pointerEvents:'none'}}/>
       <div style={{position:'absolute',width:'260px',height:'260px',borderRadius:'50%',background:'rgba(59,130,246,.18)',filter:'blur(70px)',bottom:'-90px',right:'-70px',pointerEvents:'none'}}/>
-      <div style={{width:'100%',maxWidth:'400px',position:'relative',overflow:'hidden',borderRadius:'34px',background:'linear-gradient(145deg,rgba(15,23,42,.96),rgba(2,6,23,.96))',border:'1px solid rgba(148,163,184,.2)',boxShadow:'0 30px 100px rgba(0,0,0,.55)'}}>
+      <div className="auth-card" style={{width:'100%',maxWidth:'min(400px, calc(100vw - 24px))',position:'relative',overflow:'hidden',borderRadius:'34px',background:'linear-gradient(145deg,rgba(15,23,42,.96),rgba(2,6,23,.96))',border:'1px solid rgba(148,163,184,.2)',boxShadow:'0 30px 100px rgba(0,0,0,.55)'}}>
         <div style={{position:'relative',height:'180px',padding:'24px 28px 0',overflow:'hidden',background:'transparent'}}>
           <div style={{position:'absolute',top:0,right:0,width:'200px',height:'180px',pointerEvents:'none'}}>
             <svg width="200" height="180" viewBox="0 0 200 180" fill="none">
@@ -201,12 +201,12 @@ const LoginPage = ({email, setEmail, password, setPassword, handleLogin, handleT
             <input type="password" placeholder="••••••••" value={password} onChange={e=>changePassword(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submitLogin()} style={{background:'none',border:'none',outline:'none',color:'#e5e5ea',fontSize:'14px',width:'100%'}}/>
           </div>
           {loginError&&<div style={{padding:'10px 14px',borderRadius:'10px',background:'rgba(239,68,68,.12)',border:'1px solid rgba(239,68,68,.26)',color:'#fca5a5',fontSize:'13px',marginBottom:'10px'}}>{loginError}</div>}
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0 14px'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',padding:'8px 0 14px'}}>
             <div style={{display:'flex',alignItems:'center',gap:'9px'}}>
               <div style={{width:'20px',height:'20px',borderRadius:'50%',background:'radial-gradient(circle at 38% 35%,#ffb84d,#FF6A00 70%)',boxShadow:'0 0 10px rgba(255,106,0,0.55)'}}/>
               <span style={{fontSize:'13px',color:'#e5e5ea'}}>Запомнить меня</span>
             </div>
-            <button onClick={()=>{setForgotMode(true);changeLoginError('');}} style={{fontSize:'13px',color:'#FF6A00',fontWeight:'500',background:'none',border:'none',cursor:'pointer'}}>Забыли пароль?</button>
+            <button onClick={()=>{setForgotMode(true);changeLoginError('');}} style={{fontSize:'13px',color:'#FF6A00',fontWeight:'500',background:'none',border:'none',cursor:'pointer',marginLeft:'auto',whiteSpace:'nowrap'}}>Забыли пароль?</button>
           </div>
           <button onClick={submitLogin} style={{width:'100%',padding:'15px 18px',borderRadius:'12px',border:'none',cursor:'pointer',background:'linear-gradient(135deg,#FF6000 0%,#FF8000 45%,#FF6A00 100%)',display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'12px',boxShadow:'0 4px 24px rgba(255,100,0,0.45)'}}>
             <span style={{color:'#fff',fontSize:'15px',fontWeight:'700'}}>Войти в систему</span>

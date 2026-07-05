@@ -193,7 +193,7 @@ class CdpClient {
     });
   }
 
-  send(method, params = {}) {
+  send(method, params = {}, timeoutMs = 15000) {
     const id = this.nextId++;
     this.ws.send(JSON.stringify({ id, method, params }));
     return new Promise((resolve, reject) => {
@@ -203,7 +203,7 @@ class CdpClient {
           this.pending.delete(id);
           reject(new Error(`CDP command timeout: ${method}`));
         }
-      }, 15000);
+      }, timeoutMs);
     });
   }
 
@@ -234,7 +234,7 @@ function relevantConsoleErrors(events) {
     .map((event) => {
       if (event.method === 'Runtime.exceptionThrown') {
         const details = event.params?.exceptionDetails || {};
-        return details.text || details.exception?.description || details.exception?.value || 'Runtime.exceptionThrown';
+        return details.exception?.description || details.exception?.value || details.text || 'Runtime.exceptionThrown';
       }
       if (event.method === 'Log.entryAdded') {
         const entry = event.params?.entry || {};
@@ -255,8 +255,12 @@ function relevantConsoleErrors(events) {
 
 function validatePage(url, info) {
   const text = (info.bodyText || '').replace(/\s+/g, ' ').trim();
+  const consoleErrors = relevantConsoleErrors(info.events);
+  if (consoleErrors.length) {
+    throw new Error(`console/runtime errors on ${url}: ${consoleErrors.slice(0, 3).join(' | ')}`);
+  }
   if (text.length < 30) {
-    throw new Error(`rendered almost empty body: ${text.slice(0, 200)}`);
+    throw new Error(`rendered almost empty body on ${url}: title="${info.title || ''}" href="${info.href || ''}" readyState="${info.readyState || ''}" text="${text.slice(0, 200)}"`);
   }
   const marker = FORBIDDEN_RENDER_MARKERS.find((needle) => text.includes(needle));
   if (marker) {
@@ -265,10 +269,6 @@ function validatePage(url, info) {
   const hangingMarker = HANGING_RENDER_MARKERS.find((needle) => text.includes(needle));
   if (hangingMarker) {
     throw new Error(`rendered stuck loading marker "${hangingMarker}": ${text.slice(0, 500)}`);
-  }
-  const consoleErrors = relevantConsoleErrors(info.events);
-  if (consoleErrors.length) {
-    throw new Error(`console/runtime errors: ${consoleErrors.slice(0, 3).join(' | ')}`);
   }
   console.log(`OK   browser ${url}`);
 }
@@ -346,7 +346,7 @@ async function inspectPage(port, url) {
     await client.send('Runtime.enable');
     await client.send('Page.enable');
     await client.send('Log.enable');
-    await client.send('Page.navigate', { url });
+    await client.send('Page.navigate', { url }, 45000);
     return await waitForRenderedPage(client);
   } finally {
     client.close();
@@ -373,7 +373,7 @@ async function inspectAuthenticatedPage(port, url, authData) {
         } catch (error) {}
       `,
     });
-    await client.send('Page.navigate', { url });
+    await client.send('Page.navigate', { url }, 45000);
     return await waitForRenderedPage(client);
   } finally {
     client.close();

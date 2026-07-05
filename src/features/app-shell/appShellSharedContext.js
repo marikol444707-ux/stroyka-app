@@ -44,7 +44,7 @@ export function buildAppShellSharedContext({
   const safeSetShowPhotoModal = safeFn(appMainState.setShowPhotoModal);
   const safeSetShowMobileMenu = safeFn(shellOverlayState.setShowMobileMenu);
   const safeSetShowQuickActions = safeFn(appMainState.setShowQuickActions);
-  const safeSetShowChatPanel = safeFn(appMainState.setShowChatPanel);
+  const safeSetShowChatPanel = safeFn(coreRuntime.setShowChatPanel, safeFn(appMainState.setShowChatPanel));
   const safeSetSidebarVisible = safeFn(appMainState.setSidebarVisible);
   const safeSetDarkMode = safeFn(ui.setDarkMode);
   const safeSetGlobalSearch = safeFn(appMainState.setGlobalSearch);

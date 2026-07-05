@@ -3277,33 +3277,57 @@
 }
 
 @media (max-width: 760px) {
+  html,
+  body,
   .public-site {
     width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+  .public-site {
+    min-width: 0;
+  }
+  .public-site > *,
+  .public-hero,
+  .public-section {
+    width: 100%;
+    max-width: 100vw;
+    min-width: 0;
     overflow-x: hidden;
   }
   .public-nav {
-    align-items: flex-start;
-    flex-wrap: wrap;
-    gap: 12px;
+    width: 100%;
+    max-width: calc(100vw - 28px);
+    align-items: stretch;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 10px;
+    margin-left: 0;
+    margin-right: 0;
   }
   .public-brand {
+    align-self: flex-start;
     font-size: 22px;
     line-height: 1.1;
   }
   .public-login {
-    margin-left: auto;
-    min-height: 40px;
-    padding: 8px 12px;
-    font-size: 13px;
+    order: 2;
+    align-self: flex-start;
+    margin-left: 0;
+    max-width: 100%;
+    min-height: 42px;
+    padding: 10px 14px;
+    font-size: 14px;
     line-height: 1.1;
   }
   .public-nav-links {
     order: 3;
     flex: 0 0 100%;
     width: 100%;
+    max-width: calc(100vw - 28px);
     min-width: 0;
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 4px;
     padding: 4px;
     overflow: visible;
@@ -3321,12 +3345,24 @@
     text-align: center;
   }
   .public-hero {
+    width: 100%;
+    max-width: 100vw;
     min-height: auto;
-    padding: max(38px, calc(env(safe-area-inset-top, 0px) + 12px)) 14px 32px;
+    padding: max(56px, calc(env(safe-area-inset-top, 0px) + 28px)) 14px 32px;
     background-position: 58% center;
   }
   .public-hero-content {
+    width: 100%;
+    max-width: calc(100vw - 28px);
     margin: 38px auto 22px;
+  }
+  .public-hero-copy,
+  .public-lead,
+  .public-hero-actions,
+  .public-hero-flow {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
   }
   .public-hero h1 {
     font-size: clamp(32px, 10vw, 40px);
@@ -3441,6 +3477,8 @@
   .public-reference-card {
     padding: 16px;
     min-width: 0;
+    width: 100%;
+    max-width: calc(100vw - 28px);
   }
   .public-reference-card {
     padding: 0 0 14px;
@@ -3655,6 +3693,20 @@
   .public-hero {
     padding-left: 12px;
     padding-right: 12px;
+  }
+  .public-nav {
+    gap: 8px;
+  }
+  .public-login {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+  }
+  .public-nav-links {
+    grid-template-columns: 1fr;
+  }
+  .public-eyebrow {
+    overflow-wrap: anywhere;
   }
   .public-calculator,
   .public-passport,
