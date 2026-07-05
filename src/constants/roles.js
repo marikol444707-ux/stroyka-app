@@ -2,7 +2,7 @@ export const ROLES = {
   директор: ['dashboard','projects','site','clients','warehouse','pricelists','supply','accounting','analytics','personnel','crm','activitylog','companychat','estimates','settings','myexpenses'],
   зам_директора: ['dashboard','projects','site','clients','warehouse','pricelists','supply','analytics','accounting','personnel','crm','activitylog','companychat','estimates','settings','myexpenses'],
   главный_инженер: ['dashboard','projects','warehouse','personnel','companychat','estimates','weather','myexpenses'],
-  прораб: ['projects','supply','companychat','weather','myexpenses'],
+  прораб: ['projects','estimates','supply','companychat','weather','myexpenses'],
   кладовщик: ['warehouse','supply','companychat','myexpenses'],
   бухгалтер: ['dashboard','accounting','supply','personnel','companychat','settings','myexpenses'],
   снабженец: ['warehouse','supply','companychat','myexpenses'],

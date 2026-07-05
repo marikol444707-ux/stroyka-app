@@ -40,7 +40,7 @@ function App() {
   } = useResponsiveLayout();
   const mobileLoadedScopesRef = useRef(new Set());
   const mobileApiRequestsRef = useRef(new Map());
-  const [darkMode] = useDarkModeState();
+  const [darkMode, setDarkMode] = useDarkModeState();
   const authEntryState = useAuthEntryState();
   const {
     user
@@ -298,6 +298,7 @@ function App() {
       btnState,
       card,
       darkMode,
+      setDarkMode,
       inp,
       tbl,
       tblC,

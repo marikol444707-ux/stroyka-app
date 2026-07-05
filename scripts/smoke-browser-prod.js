@@ -244,12 +244,20 @@ function validatePage(url, info) {
     'Ошибка подключения к серверу',
     'Minified React error',
   ];
+  const hangingMarkers = [
+    'Загружаю данные объекта',
+    'Сейчас подтягиваются сметы',
+  ];
   if (text.length < 30) {
     throw new Error(`rendered almost empty body: ${text.slice(0, 200)}`);
   }
   const marker = forbidden.find((needle) => text.includes(needle));
   if (marker) {
     throw new Error(`rendered error marker "${marker}": ${text.slice(0, 500)}`);
+  }
+  const hangingMarker = hangingMarkers.find((needle) => text.includes(needle));
+  if (hangingMarker) {
+    throw new Error(`rendered stuck loading marker "${hangingMarker}": ${text.slice(0, 500)}`);
   }
   const consoleErrors = relevantConsoleErrors(info.events);
   if (consoleErrors.length) {

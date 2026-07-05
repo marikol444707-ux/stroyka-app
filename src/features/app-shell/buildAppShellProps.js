@@ -62,6 +62,7 @@ export function buildAppShellProps({
     btnR,
     card,
     darkMode,
+    setDarkMode: uiSetDarkMode,
     inp,
     isCompactHeader,
     isMobile,
@@ -94,7 +95,6 @@ export function buildAppShellProps({
     rejectingEntry,
     setActivePage,
     setDailyReportDate,
-    setDarkMode,
     setGlobalSearch,
     setNotifications,
     setPreviewContent,
@@ -178,7 +178,7 @@ export function buildAppShellProps({
   const safeSetShowQuickActions = safeFn(setShowQuickActions);
   const safeSetShowChatPanel = safeFn(setShowChatPanel);
   const safeSetSidebarVisible = safeFn(setSidebarVisible);
-  const safeSetDarkMode = safeFn(setDarkMode);
+  const safeSetDarkMode = safeFn(uiSetDarkMode);
   const safeSetGlobalSearch = safeFn(setGlobalSearch);
   const safeSetShowNotifications = safeFn(setShowNotifications);
   const safeSetNotifications = safeFn(setNotifications);

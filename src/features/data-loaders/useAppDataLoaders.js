@@ -187,36 +187,42 @@ export const useAppDataLoaders = (ctx) => {
     if (mobileLoadedScopesRef.current.has('full') || mobileLoadedScopesRef.current.has(scope)) return;
     mobileLoadedScopesRef.current.add(scope);
     try { await loader(); }
-    catch(e) { mobileLoadedScopesRef.current.delete(scope); }
+    catch(e) {
+      console.error(`loadMobileScopeOnce failed: ${scope}`, e);
+      mobileLoadedScopesRef.current.delete(scope);
+    }
   };
 
-  const loadMobileInitial = async () => loadMobileScopeOnce('mobile:init', async () => {
-    const {role,isLeadershipRole,isFinanceRole,isSupplyRole,isInternalRole,canSeeProjectDocs} = roleFlags();
-    const isWorkerRole = ['мастер','субподрядчик','бригадир'].includes(role);
-    const shouldLoadUsersAtBoot = isLeadershipRole || isFinanceRole;
-    const [
-      p,u,sr,ait,oe,pp,wm,wj
-    ] = await Promise.all([
-      role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
-      shouldLoadUsersAtBoot ? getApi('/users') : Promise.resolve([]),
-      isSupplyRole ? getApi('/supply-requests') : Promise.resolve([]),
-      canSeeProjectDocs ? getApi('/ai-tasks') : Promise.resolve([]),
-      isInternalRole ? getApi('/own-expenses') : Promise.resolve([]),
-      isFinanceRole ? getApi('/project-payments') : Promise.resolve([]),
-      role === 'кладовщик' ? getApi('/warehouse-main') : Promise.resolve([]),
-      isWorkerRole ? getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})) : Promise.resolve([]),
-    ]);
-    setProjects(Array.isArray(p)?p:[]);
-    setUsers(Array.isArray(u)?u:[]);
-    setSupplyRequests(Array.isArray(sr)?sr:[]);
-    setAiTasks(Array.isArray(ait)?ait:[]);
-    setOwnExpenses(Array.isArray(oe)?oe:[]);
-    setProjectPayments(Array.isArray(pp)?pp:[]);
-    setWarehouseMain(Array.isArray(wm)?wm:[]);
-    setWorkJournal(Array.isArray(wj)?wj:[]);
-    resetWorkJournalPage(wj);
+  const loadMobileInitial = async () => {
+    await loadMobileScopeOnce('mobile:init', async () => {
+      const {role,isLeadershipRole,isFinanceRole,isSupplyRole,isInternalRole,canSeeProjectDocs} = roleFlags();
+      const isWorkerRole = ['мастер','субподрядчик','бригадир'].includes(role);
+      const shouldLoadUsersAtBoot = isLeadershipRole || isFinanceRole;
+      const [
+        p,u,sr,ait,oe,pp,wm,wj
+      ] = await Promise.all([
+        role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
+        shouldLoadUsersAtBoot ? getApi('/users') : Promise.resolve([]),
+        isSupplyRole ? getApi('/supply-requests') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/ai-tasks') : Promise.resolve([]),
+        isInternalRole ? getApi('/own-expenses') : Promise.resolve([]),
+        isFinanceRole ? getApi('/project-payments') : Promise.resolve([]),
+        role === 'кладовщик' ? getApi('/warehouse-main') : Promise.resolve([]),
+        isWorkerRole ? getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})) : Promise.resolve([]),
+      ]);
+      const safeWorkJournal = Array.isArray(wj) ? wj : [];
+      setProjects(Array.isArray(p)?p:[]);
+      setUsers(Array.isArray(u)?u:[]);
+      setSupplyRequests(Array.isArray(sr)?sr:[]);
+      setAiTasks(Array.isArray(ait)?ait:[]);
+      setOwnExpenses(Array.isArray(oe)?oe:[]);
+      setProjectPayments(Array.isArray(pp)?pp:[]);
+      setWarehouseMain(Array.isArray(wm)?wm:[]);
+      setWorkJournal(safeWorkJournal);
+      resetWorkJournalPage(safeWorkJournal);
+    });
     setInitialDataLoaded(true);
-  });
+  };
 
   const loadMobilePageData = async (page = activePage) => {
     if (!user || !isMobile) return;
@@ -267,15 +273,18 @@ export const useAppDataLoaders = (ctx) => {
         canSeeProjectDocs ? getApi('/project-measurements') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/measurement-room-drafts') : Promise.resolve([]),
       ]);
+      const safeWorkJournal = Array.isArray(wj) ? wj : [];
       setProjects(Array.isArray(p)?p:[]);
-      setWorkJournal(Array.isArray(wj)?wj:[]);
-      resetWorkJournalPage(wj);
+      setWorkJournal(safeWorkJournal);
+      resetWorkJournalPage(safeWorkJournal);
       setMaterialTransfers(Array.isArray(mt)?mt:[]);
       setRooms(Array.isArray(ro)?ro:[]); setRoomWorks(Array.isArray(rw)?rw:[]);
       setRoomWindows(Array.isArray(rwin)?rwin:[]); setRoomDoors(Array.isArray(rdoor)?rdoor:[]);
       setProjectStages(Array.isArray(ps)?ps:[]); setChecklists(Array.isArray(pcl)?pcl:[]);
       setPrescriptionsList(Array.isArray(pres)?pres:[]); setUnexpectedWorksList(Array.isArray(uw)?uw:[]);
-      applyLoadedEstimates(est, canSeeProjectDocs); setEstimateReconciliations(Array.isArray(er)?er:[]); setBrigadeContracts(Array.isArray(bc)?bc:[]); setAllBrigadeItems(Array.isArray(abi)?abi:[]);
+      applyLoadedEstimates(est, canSeeProjectDocs);
+      if (canSeeProjectDocs && est === null) mobileLoadedScopesRef.current.delete('mobile:projects-docs');
+      setEstimateReconciliations(Array.isArray(er)?er:[]); setBrigadeContracts(Array.isArray(bc)?bc:[]); setAllBrigadeItems(Array.isArray(abi)?abi:[]);
       setHiddenActs(Array.isArray(hwa)?hwa:[]); setMaterialInspections(Array.isArray(mij)?mij:[]);
       setCableJournal(Array.isArray(cbj)?cbj:[]); setSupervisorActs(Array.isArray(sva)?sva:[]);
       setInspectionOrders(Array.isArray(inspO)?inspO:[]); setWarrantyDefects(Array.isArray(warD)?warD:[]);
@@ -296,7 +305,9 @@ export const useAppDataLoaders = (ctx) => {
         (isInternalRole || isFinanceRole) ? getApi('/brigade-contract-items-all') : Promise.resolve([]),
         (isInternalRole || isFinanceRole) ? getApi('/brigade-payments') : Promise.resolve([]),
       ]);
-      applyLoadedEstimates(est, canLoadEstimates); setEstimateReconciliations(Array.isArray(er)?er:[]); setPricelists(Array.isArray(pl)?pl:[]);
+      applyLoadedEstimates(est, canLoadEstimates);
+      if (canLoadEstimates && est === null) mobileLoadedScopesRef.current.delete('mobile:estimates');
+      setEstimateReconciliations(Array.isArray(er)?er:[]); setPricelists(Array.isArray(pl)?pl:[]);
       setMaterialNorms(Array.isArray(mn)?mn:[]); resetMaterialNormsPage(mn); setMaterialAliases(Array.isArray(ma)?ma:[]);
       setMaterialNormOverrides(Array.isArray(mno)?mno:[]); setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);
       setBrigadeContracts(Array.isArray(bc)?bc:[]); setAllBrigadeItems(Array.isArray(abi)?abi:[]);
