@@ -40,6 +40,9 @@ try:
         SMTP_SSL,
         SMTP_TLS,
         SMTP_USER,
+        MAX_BOT_API_TOKEN,
+        MAX_INITDATA_TTL_SECONDS,
+        MAX_WEBHOOK_SECRET,
         TELEGRAM_BOT_API_TOKEN,
         VK_TOKEN,
         WORKFLOW_TOKEN,
@@ -66,6 +69,9 @@ except ModuleNotFoundError:
         SMTP_SSL,
         SMTP_TLS,
         SMTP_USER,
+        MAX_BOT_API_TOKEN,
+        MAX_INITDATA_TTL_SECONDS,
+        MAX_WEBHOOK_SECRET,
         TELEGRAM_BOT_API_TOKEN,
         VK_TOKEN,
         WORKFLOW_TOKEN,
@@ -3420,6 +3426,7 @@ def init_db():
         );
         ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS source_type VARCHAR(100);
         ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS source_id INT;
+        ALTER TABLE warehouse_invoices ALTER COLUMN source_id TYPE TEXT USING source_id::text;
         ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_delivery_id INT;
         ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_request_id INT;
         ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS photo_urls TEXT;
@@ -9772,6 +9779,7 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
     try:
         cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS source_type VARCHAR(100)")
         cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS source_id INT")
+        cur.execute("ALTER TABLE warehouse_invoices ALTER COLUMN source_id TYPE TEXT USING source_id::text")
         cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_delivery_id INT")
         cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_request_id INT")
         cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS warehouse_target VARCHAR(50)")
@@ -13165,6 +13173,10 @@ SELECT id,
        action_label as "actionLabel",
        action_payload as "actionPayload",
        dedupe_key as "dedupeKey",
+       COALESCE((SELECT COUNT(*) FROM ai_task_reports r WHERE r.task_id=ai_tasks.id),0) as "reportsCount",
+       COALESCE((SELECT r.report_text FROM ai_task_reports r WHERE r.task_id=ai_tasks.id ORDER BY r.created_at DESC, r.id DESC LIMIT 1),'') as "latestReportText",
+       COALESCE((SELECT r.author_name FROM ai_task_reports r WHERE r.task_id=ai_tasks.id ORDER BY r.created_at DESC, r.id DESC LIMIT 1),'') as "latestReportAuthor",
+       (SELECT r.created_at FROM ai_task_reports r WHERE r.task_id=ai_tasks.id ORDER BY r.created_at DESC, r.id DESC LIMIT 1) as "latestReportAt",
        created_at as "createdAt",
        updated_at as "updatedAt"
 FROM ai_tasks
@@ -20644,6 +20656,207 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
     _run_project_ai_control_safely(target_project, "warehouse_invoice:create")
     return {"id": invoice_id, "ok": True, "stockRowsAdded": stock_rows_added, "historyAdded": history_added, "inspectionsAdded": inspections_added, "cablesAdded": cables_added}
 
+def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: dict = None, actor: dict = None):
+    payload = payload or {}
+    actor = actor or {}
+    conn = get_db()
+    conn.autocommit = False
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        _ensure_warehouse_invoice_accounting_columns(cur)
+        _ensure_invoice_document_link_columns(cur)
+        cur.execute(
+            """
+            SELECT id,number,date,supplier_id,supplier_name,location,project,items,
+                   total_base,total_vat,total_with_vat,photo_url,photo_urls,
+                   supplier_invoice_id,source_type
+              FROM warehouse_invoices
+             WHERE id=%s AND COALESCE(status,'Принята') <> 'Аннулирована'
+             FOR UPDATE
+            """,
+            (warehouse_invoice_id,),
+        )
+        warehouse_invoice = cur.fetchone()
+        if not warehouse_invoice:
+            raise HTTPException(status_code=404, detail="Складская накладная для бухгалтерии не найдена")
+        existing_supplier_invoice_id = warehouse_invoice.get("supplier_invoice_id")
+        if existing_supplier_invoice_id:
+            conn.commit()
+            return {"id": existing_supplier_invoice_id, "ok": True, "alreadyExists": True}
+
+        items = _json_list_or_empty(warehouse_invoice.get("items"))
+        first_item = items[0] if items and isinstance(items[0], dict) else {}
+        project_name = (
+            warehouse_invoice.get("project")
+            or (warehouse_invoice.get("location") if warehouse_invoice.get("location") != "Основной склад" else "")
+            or ""
+        )
+        supplier_name = (
+            payload.get("supplierName")
+            or payload.get("supplier")
+            or warehouse_invoice.get("supplier_name")
+            or ""
+        ).strip()
+        supplier_payload = {
+            **payload,
+            "supplierName": supplier_name,
+            "supplier": payload.get("supplier") or supplier_name,
+        }
+
+        supplier_id = warehouse_invoice.get("supplier_id")
+        matched_supplier = _supplier_find_match(cur, supplier_payload)
+        if matched_supplier:
+            supplier_id = matched_supplier["id"]
+            supplier_name = matched_supplier["name"] or supplier_name
+            _update_supplier_missing_fields(cur, supplier_id, supplier_payload)
+            _remember_supplier_alias(cur, supplier_id, supplier_payload, source="warehouse_accounting")
+        elif supplier_name:
+            req = _supplier_extract_requisites(supplier_payload)
+            cur.execute(
+                """
+                INSERT INTO suppliers
+                    (name,phone,email,specialization,category,rating,status,
+                     inn,kpp,ogrn,notes)
+                VALUES (%s,'','','','Материалы',5.0,'На проверке',%s,%s,%s,%s)
+                RETURNING id,name
+                """,
+                (
+                    supplier_name,
+                    req.get("inn") or "",
+                    req.get("kpp") or "",
+                    req.get("ogrn") or "",
+                    "Создано из складской накладной #" + str(warehouse_invoice_id),
+                ),
+            )
+            supplier_row = cur.fetchone()
+            supplier_id = supplier_row.get("id")
+            supplier_name = supplier_row.get("name") or supplier_name
+            _remember_supplier_alias(cur, supplier_id, supplier_payload, source="warehouse_accounting")
+
+        invoice_number = str(payload.get("invoiceNumber") or payload.get("number") or warehouse_invoice.get("number") or "").strip()
+        invoice_date = payload.get("invoiceDate") or payload.get("date") or warehouse_invoice.get("date") or None
+        amount = _float_or_zero(payload.get("amount") or payload.get("totalWithVat") or warehouse_invoice.get("total_with_vat") or warehouse_invoice.get("total_base"))
+        vat_amount = _float_or_zero(payload.get("vatAmount") or payload.get("totalVat") or warehouse_invoice.get("total_vat"))
+        work_package = (
+            payload.get("workPackage")
+            or payload.get("work_package")
+            or first_item.get("workPackage")
+            or first_item.get("work_package")
+            or ""
+        )
+        material_name = payload.get("materialName") or first_item.get("name") or ""
+        photo_urls = _json_list_or_empty(warehouse_invoice.get("photo_urls"))
+        photo_url = payload.get("photoUrl") or warehouse_invoice.get("photo_url") or (photo_urls[0] if photo_urls else "")
+        file_url = payload.get("fileUrl") or payload.get("file_url") or ""
+        description = payload.get("description") or (
+            "Первичка по складской накладной #" + str(warehouse_invoice_id)
+            + (" из MAX" if str(warehouse_invoice.get("source_type") or "").startswith("max_") else "")
+        )
+
+        supplier_invoice_id = None
+        if invoice_number and (supplier_id or supplier_name):
+            supplier_match_sql = []
+            supplier_match_params = []
+            if supplier_id:
+                supplier_match_sql.append("supplier_id=%s")
+                supplier_match_params.append(supplier_id)
+            if supplier_name:
+                supplier_match_sql.append("COALESCE(supplier_name,'')=%s")
+                supplier_match_params.append(supplier_name)
+            cur.execute(
+                f"""
+                SELECT id, warehouse_invoice_id
+                  FROM supplier_invoices
+                 WHERE COALESCE(status,'') <> 'Аннулирован'
+                   AND COALESCE(invoice_number,'')=%s
+                   AND COALESCE(invoice_date::text,'')=COALESCE(%s::text,'')
+                   AND COALESCE(project_name,'')=%s
+                   AND ({" OR ".join(supplier_match_sql)})
+                 ORDER BY id DESC
+                 LIMIT 1
+                """,
+                (invoice_number, invoice_date, project_name, *supplier_match_params),
+            )
+            existing = cur.fetchone()
+            if existing:
+                linked_warehouse_id = existing.get("warehouse_invoice_id")
+                if linked_warehouse_id and int(linked_warehouse_id) != int(warehouse_invoice_id):
+                    raise HTTPException(status_code=409, detail="Счет поставщика уже связан с другой складской накладной")
+                supplier_invoice_id = existing.get("id")
+
+        if supplier_invoice_id:
+            cur.execute(
+                "UPDATE supplier_invoices SET warehouse_invoice_id=%s WHERE id=%s",
+                (warehouse_invoice_id, supplier_invoice_id),
+            )
+        else:
+            cur.execute(
+                """
+                INSERT INTO supplier_invoices
+                    (supplier_id,supplier_name,project_name,invoice_number,invoice_date,
+                     amount,vat_amount,description,file_url,photo_url,status,
+                     offer_id,request_id,payment_terms,material_name,work_package,warehouse_invoice_id)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'На утверждении',
+                        NULL,NULL,%s,%s,%s,%s)
+                RETURNING id
+                """,
+                (
+                    supplier_id,
+                    supplier_name,
+                    project_name,
+                    invoice_number,
+                    invoice_date or None,
+                    amount,
+                    vat_amount,
+                    description,
+                    file_url,
+                    photo_url,
+                    payload.get("paymentTerms") or payload.get("payment_terms") or "",
+                    material_name,
+                    work_package,
+                    warehouse_invoice_id,
+                ),
+            )
+            supplier_invoice_id = cur.fetchone().get("id")
+
+        actor_name = actor.get("name") or actor.get("email") or "MAX"
+        cur.execute(
+            """
+            UPDATE warehouse_invoices
+               SET supplier_invoice_id=%s,
+                   supplier_id=COALESCE(supplier_id,%s),
+                   supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
+                   accounting_status=COALESCE(NULLIF(accounting_status,''),'На проверке'),
+                   accounting_comment=COALESCE(NULLIF(accounting_comment,''),%s),
+                   accounting_updated_by=%s,
+                   accounting_updated_at=NOW()
+             WHERE id=%s
+            """,
+            (
+                supplier_invoice_id,
+                supplier_id,
+                supplier_name,
+                "Первичка создана автоматически из складской накладной. Проверить реквизиты, сумму и фото перед оплатой.",
+                actor_name,
+                warehouse_invoice_id,
+            ),
+        )
+        conn.commit()
+        return {
+            "id": supplier_invoice_id,
+            "ok": True,
+            "supplierId": supplier_id,
+            "supplierName": supplier_name,
+            "warehouseInvoiceId": warehouse_invoice_id,
+            "accountingStatus": "На проверке",
+        }
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
 @app.post("/warehouse-invoices")
 def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     return _create_warehouse_invoice_record(data, _current_user)
@@ -26228,4 +26441,49 @@ register_work_assignment_module(app, {
     "grant_user_project_package_access": _grant_user_project_package_access,
     "assign_roles": LEADERSHIP_ROLES,
     "log_audit": log_audit,
+})
+
+try:
+    from backend.features.messenger import register_messenger_module
+except ModuleNotFoundError:
+    from features.messenger import register_messenger_module
+
+register_messenger_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "create_warehouse_invoice_record": _create_warehouse_invoice_record,
+    "warehouse_roles": WAREHOUSE_ROLES,
+    "leadership_roles": LEADERSHIP_ROLES,
+    "finance_roles": FINANCE_ROLES,
+    "user_project_names": user_project_names,
+    "supply_work_package": _supply_work_package,
+    "hash_password": hash_password,
+    "prepare_user_access_scope": _prepare_user_access_scope,
+    "safe_project_list": _safe_project_list,
+    "role_requires_2fa": _role_requires_2fa,
+    "scan_invoice": scan_invoice,
+    "sync_supplier_invoice_from_warehouse": _sync_supplier_invoice_from_warehouse,
+    "max_bot_api_token": MAX_BOT_API_TOKEN,
+    "max_webhook_secret": MAX_WEBHOOK_SECRET,
+    "max_initdata_ttl_seconds": MAX_INITDATA_TTL_SECONDS,
+})
+
+try:
+    from backend.features.assignments import register_assignments_module
+except ModuleNotFoundError:
+    from features.assignments import register_assignments_module
+
+register_assignments_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "require_project_access": require_project_access,
+    "visible_project_names": visible_project_names,
+    "leadership_roles": LEADERSHIP_ROLES,
+    "finance_roles": FINANCE_ROLES,
+    "assignment_roles": (
+        *PROJECT_DOCUMENT_ROLES,
+        *WORKER_EXECUTION_ROLES,
+        "снабженец",
+        "кладовщик",
+    ),
 })

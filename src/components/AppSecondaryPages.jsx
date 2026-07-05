@@ -2,6 +2,7 @@ import React from 'react';
 import {
   ActivityLogPage,
   AnalyticsPage,
+  AssignmentsPage,
   CompanyChatPage,
   CrmPage,
   MyExpensesPage,
@@ -15,6 +16,7 @@ export default function AppSecondaryPages({ activePage, ui, constants, state, ac
   const {
     accountablePayments,
     activityLog,
+    aiTasks,
     auditLog,
     companyChatMessage,
     companyDocuments,
@@ -43,7 +45,10 @@ export default function AppSecondaryPages({ activePage, ui, constants, state, ac
   } = state;
   const {
     appendPhotos,
+    acceptAiTask,
     buildJPRContent,
+    closeAiTask,
+    createAiTask,
     createProjectFromLead,
     deleteLead,
     isFinanceRole,
@@ -68,6 +73,9 @@ export default function AppSecondaryPages({ activePage, ui, constants, state, ac
     setShowPhotoModal,
     setWeatherTab,
     showPreview,
+    openAiTaskAction,
+    refreshData,
+    submitAiTaskReport,
     uploadPhoto,
   } = actions;
   const isFinanceUser = typeof isFinanceRole === 'function' ? isFinanceRole() : Boolean(isFinanceRole);
@@ -158,6 +166,30 @@ export default function AppSecondaryPages({ activePage, ui, constants, state, ac
           tblC={tblC}
           tblH={tblH}
           workJournal={workJournal}
+        />
+      )}
+
+      {activePage === 'assignments' && (
+        <AssignmentsPage
+          C={C}
+          acceptAiTask={acceptAiTask}
+          aiTasks={aiTasks}
+          btnB={btnB}
+          btnG={btnG}
+          btnO={btnO}
+          btnR={btnR}
+          card={card}
+          closeAiTask={closeAiTask}
+          createAiTask={createAiTask}
+          inp={inp}
+          isMobile={isMobile}
+          openAiTaskAction={openAiTaskAction}
+          projects={projects}
+          refreshData={refreshData}
+          submitAiTaskReport={submitAiTaskReport}
+          uploadPhoto={uploadPhoto}
+          user={user}
+          users={users}
         />
       )}
 

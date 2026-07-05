@@ -21,6 +21,13 @@ OPTIONAL_STEPS = [
         "enabled": lambda: bool(os.getenv("SMOKE_TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_BOT_API_TOKEN")),
         "skip": "SMOKE_TELEGRAM_BOT_TOKEN не задан",
     },
+    {
+        "name": "max-warehouse",
+        "title": "MAX -> накладная прораба -> склад объекта",
+        "command": ["npm", "run", "smoke:max-warehouse"],
+        "enabled": lambda: bool(os.getenv("SMOKE_MAX_BOT_TOKEN") or os.getenv("MAX_WEBHOOK_SECRET") or os.getenv("MAX_BOT_API_TOKEN")),
+        "skip": "SMOKE_MAX_BOT_TOKEN или MAX_BOT_API_TOKEN не задан",
+    },
 ]
 
 

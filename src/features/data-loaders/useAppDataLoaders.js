@@ -217,7 +217,7 @@ export const useAppDataLoaders = (ctx) => {
           role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
           shouldLoadUsersAtBoot ? getApi('/users') : Promise.resolve([]),
           isSupplyRole ? getApi('/supply-requests') : Promise.resolve([]),
-          canSeeProjectDocs ? getApi('/ai-tasks') : Promise.resolve([]),
+          canSeeProjectDocs ? getApi('/assignments') : Promise.resolve([]),
           isInternalRole ? getApi('/own-expenses') : Promise.resolve([]),
           isFinanceRole ? getApi('/project-payments') : Promise.resolve([]),
           role === 'кладовщик' ? getApi('/warehouse-main') : Promise.resolve([]),
@@ -282,7 +282,7 @@ export const useAppDataLoaders = (ctx) => {
     if (page === 'dashboard') return loadMobileScopeOnce('mobile:dashboard', async () => {
       const [aif,ait,sh,sd,scat] = await Promise.all([
         canSeeProjectDocs ? getApi('/ai-findings') : Promise.resolve([]),
-        canSeeProjectDocs ? getApi('/ai-tasks') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/assignments') : Promise.resolve([]),
         (isSupplyRole || isWarehouseRole || isFinanceRole) ? getApi('/supply-history') : Promise.resolve([]),
         isSupplyRole ? getApi('/supply-deliveries') : Promise.resolve([]),
         (isSupplyRole || isWarehouseRole || isFinanceRole || role === 'поставщик') ? getApi('/supplier-catalog') : Promise.resolve([]),
@@ -292,6 +292,16 @@ export const useAppDataLoaders = (ctx) => {
       setSupplyHistory(Array.isArray(sh)?sh:[]);
       setSupplyDeliveries(Array.isArray(sd)?sd:[]);
       setSupplierCatalog(Array.isArray(scat)?scat:[]);
+    });
+    if (page === 'assignments') return loadMobileScopeOnce('mobile:assignments', async () => {
+      const [p, ait, u] = await Promise.all([
+        role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
+        canSeeProjectDocs ? getApi('/assignments') : Promise.resolve([]),
+        canLoadUserDirectory ? getApi('/users') : Promise.resolve([]),
+      ]);
+      setProjects(Array.isArray(p)?p:[]);
+      setAiTasks(Array.isArray(ait)?ait:[]);
+      setUsers(Array.isArray(u)?u:[]);
     });
     if (['projects','site','works','documents','cable'].includes(page)) return loadMobileScopeOnce('mobile:projects-docs', async () => {
       if (canSeeProjectDocs) markEstimatesLoading(true);
@@ -617,7 +627,7 @@ export const useAppDataLoaders = (ctx) => {
         (isSupplyRole || isWarehouseRole || isFinanceRole || role === 'поставщик') ? get('/supplier-catalog') : skip([]),
         isSupplyRole ? get('/supply-request-templates') : skip([]),
         canSeeProjectDocs ? get('/ai-findings') : skip([]),
-        canSeeProjectDocs ? get('/ai-tasks') : skip([]),
+        canSeeProjectDocs ? get('/assignments') : skip([]),
         canSeeProjectDocs ? get(pagedPath('/material-norms', {limit: MATERIAL_NORMS_PAGE_LIMIT})) : skip([]),
         canSeeProjectDocs ? get('/material-aliases') : skip([]),
         canSeeProjectDocs ? get('/material-norms/overrides') : skip([]),

@@ -67,7 +67,7 @@ export default function ProjectsPage({ ctx }) {
     setShowBrigadeForm, setShowBrigadePayModal, setShowDocForm, setShowForm, setShowJournalTableModal, setShowLetterForm, setShowPhotoModal,
     setUploadingDoc, setUploadingLetter, setWarrantyEditForm,
     showArchive, showBalanceDetails, showBrigadeForm, showDocForm, showForm, showKS2, showLetterForm,
-    showPreview, staff, supervisorActs, supplierInvoices,
+    showPreview, staff, submitAiTaskReport, supervisorActs, supplierInvoices,
     tbJournal, tbl, tblC, tblH, toNum, toggleChecklistItem, updateAiFinding,
     updateAiTask, updateStage, uploadPhoto, uploadingDoc, uploadingLetter,
     user, users, visibleEstimatesForCurrentUser, visibleProjects, warrantyDefects, warrantyEditForm,
@@ -220,9 +220,11 @@ export default function ProjectsPage({ ctx }) {
                         project={p}
                         renderEstimateChangeReconcileTask={renderEstimateChangeReconcileTask}
                         renderMaterialSupplyAction={renderMaterialSupplyAction}
+                        submitAiTaskReport={submitAiTaskReport}
                         toNum={toNum}
                         updateAiFinding={updateAiFinding}
                         updateAiTask={updateAiTask}
+                        uploadPhoto={uploadPhoto}
                         user={user}
                       />
                     )}

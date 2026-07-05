@@ -3,6 +3,7 @@ import {
   BarChart3,
   Calculator,
   CloudSun,
+  ClipboardList,
   CreditCard,
   DollarSign,
   FolderKanban,
@@ -21,6 +22,7 @@ export const buildAppMenuItems = () => [
   { id: 'analytics', icon: <BarChart3 size={18} />, label: 'Аналитика' },
   { id: 'crm', icon: <Handshake size={18} />, label: 'CRM' },
   { id: 'projects', icon: <FolderKanban size={18} />, label: 'Проекты' },
+  { id: 'assignments', icon: <ClipboardList size={18} />, label: 'Поручения' },
   { id: 'site', icon: <Globe2 size={18} />, label: 'Сайт' },
 
   { id: 'warehouse', icon: <Package size={18} />, label: 'Склад' },

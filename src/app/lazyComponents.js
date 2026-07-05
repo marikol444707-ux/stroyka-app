@@ -17,6 +17,7 @@ export const PricelistsPage = React.lazy(() => import('../components/PricelistsP
 export const MyExpensesPage = React.lazy(() => import('../components/MyExpensesPage'));
 export const SettingsPage = React.lazy(() => import('../components/SettingsPage'));
 export const AnalyticsPage = React.lazy(() => import('../components/AnalyticsPage'));
+export const AssignmentsPage = React.lazy(() => import('../components/AssignmentsPage'));
 export const CrmPage = React.lazy(() => import('../features/crm'));
 export const ActivityLogPage = React.lazy(() => import('../components/ActivityLogPage'));
 export const CompanyChatPage = React.lazy(() => import('../components/CompanyChatPage'));

@@ -2,6 +2,7 @@ import React from 'react';
 import {
   BarChart3,
   Briefcase,
+  ClipboardList,
   Eye,
   FileText,
   LogOut,
@@ -14,6 +15,7 @@ import {
   ShoppingCart,
 } from 'lucide-react';
 import CompanyChatPage from './CompanyChatPage';
+import AssignmentsPage from './AssignmentsPage';
 import ImagePreviewModal from './ImagePreviewModal';
 import MasterCablePage from './MasterCablePage';
 import MasterDocumentsPage from './MasterDocumentsPage';
@@ -42,6 +44,8 @@ export default function MasterCabinetPage(props) {
     UNITS,
     accountablePayments,
     activePage,
+    aiTasks = [],
+    acceptAiTask,
     addMasterWorks,
     appendPhotos,
     applySupplyTemplate,
@@ -68,6 +72,8 @@ export default function MasterCabinetPage(props) {
     consentChecked,
     confirmMaterialReceipt,
     contracts,
+    closeAiTask,
+    createAiTask,
     createSupplyReq,
     denormalizeMeasure,
     doPrint,
@@ -111,6 +117,7 @@ export default function MasterCabinetPage(props) {
     normalizeMeasure,
     notifications,
     notify,
+    openAiTaskAction,
     ownExpenses,
     pdConsents,
     personalMaterialRowsForProject,
@@ -121,6 +128,7 @@ export default function MasterCabinetPage(props) {
     renderMaterialWriteoffStatus,
     renderSupplyPlanningHint,
     renderSupplyRequestOrigin,
+    refreshData,
     returnMaterialToProject,
     roleColor,
     roomMeasurementCheck,
@@ -160,6 +168,7 @@ export default function MasterCabinetPage(props) {
     showPreview,
     showProfileForm,
     showSupplyForm,
+    submitAiTaskReport,
     submitEstimateWorkDone,
     supplyCollapsedProjects,
     supplyRequestOrigin,
@@ -175,6 +184,7 @@ export default function MasterCabinetPage(props) {
     upsertEstimateWorkMaterial,
     upsertSelectedWorkMaterial,
     user,
+    users,
     workJournal,
     profileData,
     previewContent,
@@ -342,6 +352,14 @@ export default function MasterCabinetPage(props) {
   const myMaterialProjectNames = [...new Set(materialTransfers.filter(transfer => transfer.toPerson === user.name).map(transfer => transfer.projectName).filter(Boolean))];
   const myMaterialBalances = myMaterialProjectNames.flatMap(projectName => personalMaterialRowsForProject(projectName, user.name, user.id));
   const myPendingMaterialTransfers = materialTransfers.filter(transfer => transfer.toPerson === user.name && !transfer.signed);
+  const myOpenAssignmentsCount = (aiTasks || []).filter(task => {
+    if (['Закрыто', 'Отклонено', 'Отменено'].includes(task.status || '')) return false;
+    const assignedRole = String(task.assignedRole || '').trim().toLowerCase();
+    const assignedTo = String(task.assignedTo || '').trim().toLowerCase();
+    if (assignedRole && assignedRole === String(user.role || '').trim().toLowerCase()) return true;
+    if (!assignedTo) return false;
+    return [user.name, user.email, user.id].some(value => String(value || '').trim().toLowerCase() === assignedTo);
+  }).length;
   const categories = [...new Set(pricelistItems.map(item => item.category))];
   const userNameKey = String(user?.name || '').trim().toLowerCase();
   const myContract = [...(contracts || []), ...(brigadeContracts || [])].find(contract =>
@@ -1211,6 +1229,30 @@ export default function MasterCabinetPage(props) {
           />
         )}
 
+        {activePage === 'assignments' && (
+          <AssignmentsPage
+            C={C}
+            acceptAiTask={acceptAiTask}
+            aiTasks={aiTasks}
+            btnB={btnB}
+            btnG={btnG}
+            btnO={btnO}
+            btnR={btnR}
+            card={card}
+            closeAiTask={closeAiTask}
+            createAiTask={createAiTask}
+            inp={inp}
+            isMobile={isMobile}
+            openAiTaskAction={openAiTaskAction}
+            projects={projects}
+            refreshData={refreshData}
+            submitAiTaskReport={submitAiTaskReport}
+            uploadPhoto={uploadPhoto}
+            user={user}
+            users={users || []}
+          />
+        )}
+
         {activePage === 'supply' && (
           <MasterSupplyPage
             C={C}
@@ -1269,6 +1311,7 @@ export default function MasterCabinetPage(props) {
       <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, backgroundColor: 'white', borderTop: '1.5px solid ' + C.border, display: 'flex', justifyContent: 'flex-start', gap: '2px', padding: '10px 8px 14px', zIndex: 100, boxShadow: '0 -4px 20px rgba(0,0,0,0.06)', overflowX: 'auto' }}>
         {[
           { id: 'works', icon: <Briefcase size={22} />, label: 'Работы' },
+          { id: 'assignments', icon: <ClipboardList size={22} />, label: 'Поруч.', badge: myOpenAssignmentsCount },
           { id: 'history', icon: <BarChart3 size={22} />, label: 'История' },
           { id: 'materials', icon: <Package size={22} />, label: 'Склад', badge: myPendingMaterialTransfers.length },
           { id: 'cable', icon: <ScrollText size={22} />, label: 'Кабель' },

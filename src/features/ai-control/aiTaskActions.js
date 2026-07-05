@@ -61,6 +61,82 @@ export const createAiTaskActions = ({
     await refreshData();
   };
 
+  const upsertAiTaskLocal = (task) => {
+    if (!task?.id) return;
+    setAiTasks(prev => {
+      const list = Array.isArray(prev) ? prev : [];
+      const exists = list.some(t => Number(t.id) === Number(task.id));
+      if (exists) return list.map(t => Number(t.id) === Number(task.id) ? task : t);
+      return [task, ...list];
+    });
+  };
+
+  const createAiTask = async (payload) => {
+    const res = await fetchFn(API + '/ai-tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alertFn(data.detail || 'Не удалось создать поручение');
+      return null;
+    }
+    upsertAiTaskLocal(data);
+    await refreshData();
+    return data;
+  };
+
+  const acceptAiTask = async (id, status = 'В работе') => {
+    const res = await fetchFn(API + '/ai-tasks/' + id + '/accept', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alertFn(data.detail || 'Не удалось принять поручение');
+      return null;
+    }
+    upsertAiTaskLocal(data);
+    await refreshData();
+    return data;
+  };
+
+  const submitAiTaskReport = async (id, payload) => {
+    const res = await fetchFn(API + '/ai-tasks/' + id + '/reports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alertFn(data.detail || 'Не удалось отправить отчет');
+      return null;
+    }
+    if (data.task) {
+      setAiTasks(prev => (prev || []).map(t => Number(t.id) === Number(id) ? data.task : t));
+    }
+    await refreshData();
+    return data;
+  };
+
+  const closeAiTask = async (id, payload = {}) => {
+    const res = await fetchFn(API + '/ai-tasks/' + id + '/close', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alertFn(data.detail || 'Не удалось закрыть поручение');
+      return null;
+    }
+    if (data.task) upsertAiTaskLocal(data.task);
+    await refreshData();
+    return data;
+  };
+
   const patchAiTaskSilent = async (id, patch) => {
     const res = await fetchFn(API + '/ai-tasks/' + id, {
       method: 'PUT',
@@ -179,12 +255,16 @@ export const createAiTaskActions = ({
   };
 
   return {
+    acceptAiTask,
     aiFindingsForProject,
     aiTasksForProject,
+    closeAiTask,
+    createAiTask,
     generateAiFindingsForProject,
     openAiTaskAction,
     patchAiFindingSilent,
     patchAiTaskSilent,
+    submitAiTaskReport,
     updateAiFinding,
     updateAiTask,
   };

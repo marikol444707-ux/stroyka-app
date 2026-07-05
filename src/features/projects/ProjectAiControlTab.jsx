@@ -44,9 +44,11 @@ export default function ProjectAiControlTab({
   project,
   renderEstimateChangeReconcileTask,
   renderMaterialSupplyAction,
+  submitAiTaskReport,
   toNum,
   updateAiFinding,
   updateAiTask,
+  uploadPhoto,
   user,
 }) {
   const projectFindings = aiFindingsForProject(project.name);
@@ -167,9 +169,11 @@ export default function ProjectAiControlTab({
                   parseAiTaskPayload={parseAiTaskPayload}
                   renderEstimateChangeReconcileTask={renderEstimateChangeReconcileTask}
                   renderMaterialSupplyAction={renderMaterialSupplyAction}
+                  submitAiTaskReport={submitAiTaskReport}
                   task={task}
                   toNum={toNum}
                   updateAiTask={updateAiTask}
+                  uploadPhoto={uploadPhoto}
                 />
               ))}
             </div>
@@ -197,6 +201,8 @@ export default function ProjectAiControlTab({
               projectTasks={projectTasks}
               updateAiFinding={updateAiFinding}
               updateAiTask={updateAiTask}
+              submitAiTaskReport={submitAiTaskReport}
+              uploadPhoto={uploadPhoto}
             />
           ))}
         </div>
@@ -227,9 +233,11 @@ function StandaloneAiTaskCard({
   parseAiTaskPayload,
   renderEstimateChangeReconcileTask,
   renderMaterialSupplyAction,
+  submitAiTaskReport,
   task,
   toNum,
   updateAiTask,
+  uploadPhoto,
 }) {
   const payload = parseAiTaskPayload(task);
   const isEstimateTask = [...ESTIMATE_TASK_TYPES, ...CHANGE_TASK_TYPES].includes(payload.type);
@@ -273,6 +281,86 @@ function StandaloneAiTaskCard({
           <button onClick={() => updateAiTask(task.id, { status: 'Отклонено' })} style={{ ...btnR, padding: '5px 9px', fontSize: '11px' }}>Отклонить</button>
         </div>
       </div>
+      <AiTaskReportBox
+        C={C}
+        btnB={btnB}
+        btnG={btnG}
+        btnGr={btnGr}
+        task={task}
+        submitAiTaskReport={submitAiTaskReport}
+        uploadPhoto={uploadPhoto}
+      />
+    </div>
+  );
+}
+
+function AiTaskReportBox({ C, btnB, btnG, btnGr, task, submitAiTaskReport, uploadPhoto }) {
+  const [open, setOpen] = React.useState(false);
+  const [text, setText] = React.useState('');
+  const [attachmentUrl, setAttachmentUrl] = React.useState('');
+  const [sending, setSending] = React.useState(false);
+  const [uploading, setUploading] = React.useState(false);
+  const fileRef = React.useRef(null);
+  const latestText = task.latestReportText || task.latestReport?.text || '';
+  const latestAuthor = task.latestReportAuthor || task.latestReport?.authorName || '';
+  const reportsCount = Number(task.reportsCount || 0);
+
+  const submit = async () => {
+    if (!submitAiTaskReport || (!text.trim() && !attachmentUrl.trim())) return;
+    setSending(true);
+    try {
+      const attachments = attachmentUrl.trim() ? [{ url: attachmentUrl.trim(), type: 'photo', source: 'task_report' }] : [];
+      const result = await submitAiTaskReport(task.id, { text, attachments, nextStatus: 'На проверке' });
+      if (result) {
+        setText('');
+        setAttachmentUrl('');
+        setOpen(false);
+      }
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const upload = async (file) => {
+    if (!file || !uploadPhoto) return;
+    setUploading(true);
+    try {
+      const url = await uploadPhoto(file, { projectName: task.projectName, context: 'ai-task-reports' });
+      if (url) setAttachmentUrl(url);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid ' + C.border }}>
+      {(reportsCount > 0 || latestText) && (
+        <div style={{ marginBottom: '8px', padding: '8px 10px', borderRadius: '8px', backgroundColor: C.bgWhite, border: '1px solid ' + C.border }}>
+          <p style={{ color: C.textSec, fontSize: '11px', margin: '0 0 3px' }}>{'Отчетов: ' + reportsCount + (latestAuthor ? ' · ' + latestAuthor : '')}</p>
+          {latestText && <p style={{ color: C.text, fontSize: '12px', margin: 0, whiteSpace: 'pre-wrap' }}>{latestText}</p>}
+        </div>
+      )}
+      {!open && submitAiTaskReport && (
+        <button onClick={() => setOpen(true)} style={{ ...btnB, padding: '5px 9px', fontSize: '11px' }}>Отчет</button>
+      )}
+      {open && (
+        <div style={{ display: 'grid', gap: '8px' }}>
+          <textarea
+            value={text}
+            onChange={e => setText(e.target.value)}
+            placeholder="Краткий отчет"
+            rows={3}
+            style={{ width: '100%', boxSizing: 'border-box', border: '1px solid ' + C.border, borderRadius: '8px', padding: '8px', color: C.text, backgroundColor: C.bgWhite, resize: 'vertical' }}
+          />
+          <input type="file" ref={fileRef} accept="image/*,.pdf" style={{ display: 'none' }} onChange={e => upload(e.target.files?.[0])} />
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <button onClick={() => fileRef.current?.click()} disabled={!uploadPhoto || uploading} style={{ ...btnG, padding: '5px 9px', fontSize: '11px', opacity: !uploadPhoto || uploading ? 0.55 : 1 }}>{uploading ? 'Загрузка' : 'Фото/файл'}</button>
+            {attachmentUrl && <span style={{ color: C.success, fontSize: '11px' }}>Файл прикреплен</span>}
+            <button onClick={submit} disabled={sending || (!text.trim() && !attachmentUrl.trim())} style={{ ...btnGr, padding: '5px 9px', fontSize: '11px', opacity: sending || (!text.trim() && !attachmentUrl.trim()) ? 0.55 : 1 }}>{sending ? 'Отправка' : 'Отправить'}</button>
+            <button onClick={() => setOpen(false)} style={{ ...btnG, padding: '5px 9px', fontSize: '11px' }}>Отмена</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -289,6 +377,8 @@ function AiFindingCard({
   projectTasks,
   updateAiFinding,
   updateAiTask,
+  submitAiTaskReport,
+  uploadPhoto,
 }) {
   const meta = aiSeverityMeta(finding.severity);
   const task = projectTasks.find(item => Number(item.findingId) === Number(finding.id));
@@ -313,6 +403,17 @@ function AiFindingCard({
           <button onClick={() => updateAiFinding(finding.id, { status: 'Отклонено' })} style={{ ...btnR, padding: '5px 9px', fontSize: '11px' }}>Отклонить</button>
         </div>
       </div>
+      {task && (
+        <AiTaskReportBox
+          C={C}
+          btnB={btnG}
+          btnG={btnG}
+          btnGr={btnGr}
+          task={task}
+          submitAiTaskReport={submitAiTaskReport}
+          uploadPhoto={uploadPhoto}
+        />
+      )}
     </div>
   );
 }

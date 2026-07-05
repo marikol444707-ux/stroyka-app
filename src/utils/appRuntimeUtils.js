@@ -67,6 +67,7 @@ export const initialGuestPage = () => {
 
 export const mobileScopeForPage = (page) => {
   if (page === 'dashboard') return 'mobile:dashboard';
+  if (page === 'assignments') return 'mobile:assignments';
   if (['projects', 'site', 'works', 'documents', 'cable'].includes(page)) return 'mobile:projects-docs';
   if (page === 'estimates') return 'mobile:estimates';
   if (['warehouse', 'materials'].includes(page)) return 'mobile:warehouse';
