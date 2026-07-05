@@ -688,6 +688,12 @@ SMOKE_EMAIL='nikolbas007@gmail.com' SMOKE_PASSWORD="$PASS" SMOKE_TELEGRAM_BOT_TO
 SMOKE_SMETA_DIR="$HOME/Desktop/Kislovodsk" npm run smoke:estimate-norms
 ```
 
+Сметы на production: список, открытие большой сметы, суммы, работы/материалы, время загрузки:
+
+```bash
+SMOKE_EMAIL='nikolbas007@gmail.com' SMOKE_PASSWORD="$PASS" SMOKE_2FA_CODE='123456' npm run smoke:estimates-prod
+```
+
 Data guard:
 
 ```bash

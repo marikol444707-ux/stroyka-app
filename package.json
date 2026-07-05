@@ -36,6 +36,7 @@
     "smoke:auth-session": "python3 scripts/smoke-auth-session.py",
     "smoke:platform-crm": "python3 scripts/smoke-platform-crm.py",
     "smoke:staff-access": "python3 scripts/smoke-staff-access.py",
+    "smoke:estimates-prod": "python3 scripts/smoke-estimates-prod.py",
     "smoke:norms-dry-run": "python3 scripts/smoke-norms-dry-run.py",
     "smoke:estimate-norms": "python3 scripts/smoke-estimate-norms.py",
     "smoke:work-roles": "python3 scripts/smoke-work-roles.py",
