@@ -107,7 +107,6 @@ export function buildAppShellProps({
     setShowPhotoModal,
     setShowQuickActions,
     setSidebarVisible,
-    setUser: appMainSetUser,
     showAiAssistant,
 
     showJournalTableModal,
@@ -118,12 +117,11 @@ export function buildAppShellProps({
     sidebarVisible,
     supplyRequests,
     users,
-    user: appMainUser,
     weatherLog,
     workJournal
   } = appMainState;
-  const user = authUser || authEntryState.user || appMainUser || null;
-  const setUser = safeFn(authEntryState.setUser, safeFn(appMainSetUser));
+  const user = authUser || authEntryState.user || null;
+  const setUser = safeFn(authEntryState.setUser);
   const {
     aiChat,
     aiLoading,

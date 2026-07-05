@@ -45,13 +45,10 @@ export function renderAppEarlyRoleRoute({
     supplyWorkflowState,
     user,
   } = data;
-  const { isMasterRole } = selectors;
   const currentRole = user?.role || '';
-  const isMasterRoleSafe = typeof isMasterRole === 'function'
-    ? isMasterRole
-    : () => ['мастер', 'субподрядчик', 'бригадир'].includes(currentRole);
+  const isMasterRoleSafe = ['мастер', 'субподрядчик', 'бригадир'].includes(currentRole);
 
-  if (isMasterRoleSafe()) {
+  if (user && isMasterRoleSafe) {
     return (
       <AppMasterCabinetRoute
         pageFallback={pageFallback}

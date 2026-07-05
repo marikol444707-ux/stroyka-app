@@ -201,50 +201,72 @@ export const useAppDataLoaders = (ctx) => {
   };
 
   const loadMobileInitial = async () => {
-    await loadMobileScopeOnce('mobile:init', async () => {
-      const {role,isLeadershipRole,isFinanceRole,isSupplyRole,isInternalRole,canSeeProjectDocs} = roleFlags();
-      const isWorkerRole = ['мастер','субподрядчик','бригадир'].includes(role);
-      const shouldLoadPeopleAtBoot = canLoadPeopleDataForRole(role);
-      const shouldLoadUsersAtBoot = canLoadUserDirectoryForRole(role) || isLeadershipRole;
-      const shouldLoadAccountingAtBoot = canLoadAccountingDataForRole(role) || isFinanceRole;
-      const [
-        p,u,sr,ait,oe,pp,wm,wj,s,pw,ct,ia,mp,bc,abi
-      ] = await Promise.all([
-        role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
-        shouldLoadUsersAtBoot ? getApi('/users') : Promise.resolve([]),
-        isSupplyRole ? getApi('/supply-requests') : Promise.resolve([]),
-        canSeeProjectDocs ? getApi('/ai-tasks') : Promise.resolve([]),
-        isInternalRole ? getApi('/own-expenses') : Promise.resolve([]),
-        isFinanceRole ? getApi('/project-payments') : Promise.resolve([]),
-        role === 'кладовщик' ? getApi('/warehouse-main') : Promise.resolve([]),
-        isWorkerRole ? getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})) : Promise.resolve([]),
-        shouldLoadPeopleAtBoot ? getApi('/staff') : Promise.resolve([]),
-        shouldLoadPeopleAtBoot ? getApi('/piecework') : Promise.resolve([]),
-        shouldLoadAccountingAtBoot ? getApi('/contracts') : Promise.resolve([]),
-        shouldLoadAccountingAtBoot ? getApi('/interim-acts') : Promise.resolve([]),
-        shouldLoadPeopleAtBoot ? getApi('/master-profiles') : Promise.resolve([]),
-        (shouldLoadPeopleAtBoot || isWorkerRole) ? getApi('/brigade-contracts') : Promise.resolve([]),
-        shouldLoadPeopleAtBoot || isWorkerRole ? getApi('/brigade-contract-items-all') : Promise.resolve([]),
-      ]);
-      const safeWorkJournal = Array.isArray(wj) ? wj : [];
-      setProjects(Array.isArray(p)?p:[]);
-      setUsers(Array.isArray(u)?u:[]);
-      setSupplyRequests(Array.isArray(sr)?sr:[]);
-      setAiTasks(Array.isArray(ait)?ait:[]);
-      setOwnExpenses(Array.isArray(oe)?oe:[]);
-      setProjectPayments(Array.isArray(pp)?pp:[]);
-      setWarehouseMain(Array.isArray(wm)?wm:[]);
-      setWorkJournal(safeWorkJournal);
-      resetWorkJournalPage(safeWorkJournal);
-      setStaff(Array.isArray(s)?s:[]);
-      setPiecework(Array.isArray(pw)?pw:[]);
-      setContracts(Array.isArray(ct)?ct:[]);
-      setInterimActs(Array.isArray(ia)?ia:[]);
-      setMasterProfiles(Array.isArray(mp)?mp:[]);
-      setBrigadeContracts(Array.isArray(bc)?bc:[]);
-      setAllBrigadeItems(Array.isArray(abi)?abi:[]);
-    });
-    setInitialDataLoaded(true);
+    try {
+      await loadMobileScopeOnce('mobile:init', async () => {
+        const {role,isLeadershipRole,isFinanceRole,isSupplyRole,isInternalRole,canSeeProjectDocs} = roleFlags();
+        const isWorkerRole = ['мастер','субподрядчик','бригадир'].includes(role);
+        const canLoadEstimates = canLoadEstimatesForUser();
+        const estimatesLoadPath = isWorkerRole ? '/estimates' : ESTIMATES_SUMMARY_PATH;
+        const shouldLoadPeopleAtBoot = canLoadPeopleDataForRole(role);
+        const shouldLoadUsersAtBoot = canLoadUserDirectoryForRole(role) || isLeadershipRole;
+        const shouldLoadAccountingAtBoot = canLoadAccountingDataForRole(role) || isFinanceRole;
+        const shouldLoadBrigadeAtBoot = shouldLoadPeopleAtBoot || shouldLoadAccountingAtBoot || isWorkerRole;
+        const [
+          p,u,sr,ait,oe,pp,wm,wj,s,pw,ct,ia,mp,bc,abi,est,er,hwa,mij,cbj,sva,pdocs,pmeas
+        ] = await Promise.all([
+          role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
+          shouldLoadUsersAtBoot ? getApi('/users') : Promise.resolve([]),
+          isSupplyRole ? getApi('/supply-requests') : Promise.resolve([]),
+          canSeeProjectDocs ? getApi('/ai-tasks') : Promise.resolve([]),
+          isInternalRole ? getApi('/own-expenses') : Promise.resolve([]),
+          isFinanceRole ? getApi('/project-payments') : Promise.resolve([]),
+          role === 'кладовщик' ? getApi('/warehouse-main') : Promise.resolve([]),
+          role === 'поставщик' ? Promise.resolve([]) : getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})),
+          shouldLoadPeopleAtBoot ? getApi('/staff') : Promise.resolve([]),
+          shouldLoadPeopleAtBoot ? getApi('/piecework') : Promise.resolve([]),
+          shouldLoadAccountingAtBoot ? getApi('/contracts') : Promise.resolve([]),
+          shouldLoadAccountingAtBoot ? getApi('/interim-acts') : Promise.resolve([]),
+          shouldLoadPeopleAtBoot ? getApi('/master-profiles') : Promise.resolve([]),
+          shouldLoadBrigadeAtBoot ? getApi('/brigade-contracts') : Promise.resolve([]),
+          shouldLoadBrigadeAtBoot ? getApi('/brigade-contract-items-all') : Promise.resolve([]),
+          canLoadEstimates ? getApi(estimatesLoadPath, null) : Promise.resolve(null),
+          canLoadEstimates ? getApi('/estimate-reconciliations') : Promise.resolve([]),
+          canSeeProjectDocs ? getApi('/hidden-works-acts') : Promise.resolve([]),
+          canSeeProjectDocs ? getApi('/material-inspection') : Promise.resolve([]),
+          canSeeProjectDocs ? getApi('/cable-journal') : Promise.resolve([]),
+          canSeeProjectDocs ? getApi('/supervisor-acts') : Promise.resolve([]),
+          (isInternalRole || isFinanceRole || role === 'заказчик') ? getApi('/project-documents') : Promise.resolve([]),
+          canSeeProjectDocs ? getApi('/project-measurements') : Promise.resolve([]),
+        ]);
+        const safeWorkJournal = Array.isArray(wj) ? wj : [];
+        setProjects(Array.isArray(p)?p:[]);
+        setUsers(Array.isArray(u)?u:[]);
+        setSupplyRequests(Array.isArray(sr)?sr:[]);
+        setAiTasks(Array.isArray(ait)?ait:[]);
+        setOwnExpenses(Array.isArray(oe)?oe:[]);
+        setProjectPayments(Array.isArray(pp)?pp:[]);
+        setWarehouseMain(Array.isArray(wm)?wm:[]);
+        setWorkJournal(safeWorkJournal);
+        resetWorkJournalPage(safeWorkJournal);
+        setStaff(Array.isArray(s)?s:[]);
+        setPiecework(Array.isArray(pw)?pw:[]);
+        setContracts(Array.isArray(ct)?ct:[]);
+        setInterimActs(Array.isArray(ia)?ia:[]);
+        setMasterProfiles(Array.isArray(mp)?mp:[]);
+        setBrigadeContracts(Array.isArray(bc)?bc:[]);
+        setAllBrigadeItems(Array.isArray(abi)?abi:[]);
+        applyLoadedEstimates(est, canLoadEstimates);
+        setEstimateReconciliations(Array.isArray(er)?er:[]);
+        setHiddenActs(Array.isArray(hwa)?hwa:[]);
+        setMaterialInspections(Array.isArray(mij)?mij:[]);
+        setCableJournal(Array.isArray(cbj)?cbj:[]);
+        setSupervisorActs(Array.isArray(sva)?sva:[]);
+        setProjectDocuments(Array.isArray(pdocs)?pdocs:[]);
+        setProjectMeasurements(Array.isArray(pmeas)?pmeas:[]);
+      });
+    } finally {
+      setInitialDataLoaded(true);
+    }
   };
 
   const loadMobilePageData = async (page = activePage) => {
@@ -252,8 +274,9 @@ export const useAppDataLoaders = (ctx) => {
     const {role,isLeadershipRole,isFinanceRole,isWarehouseRole,isSupplyRole,canSeeSupplierInvoices,isInternalRole,canSeeProjectDocs} = roleFlags();
     const isWorkerRole = ['мастер','субподрядчик','бригадир'].includes(role);
     const canLoadPeopleData = canLoadPeopleDataForRole(role);
-    const canLoadUserDirectory = canLoadUserDirectoryForRole(role);
+    const canLoadUserDirectory = canLoadUserDirectoryForRole(role) || isLeadershipRole;
     const canLoadAccountingData = canLoadAccountingDataForRole(role) || isFinanceRole;
+    const canLoadBrigadeData = canLoadPeopleData || canLoadAccountingData || isWorkerRole;
     const canLoadEstimates = canLoadEstimatesForUser();
     const estimatesLoadPath = isWorkerRole ? '/estimates' : ESTIMATES_SUMMARY_PATH;
     if (page === 'dashboard') return loadMobileScopeOnce('mobile:dashboard', async () => {
@@ -339,9 +362,9 @@ export const useAppDataLoaders = (ctx) => {
         canSeeProjectDocs ? getApi('/material-aliases') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/material-norms/overrides') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/material-norm-suggestions') : Promise.resolve([]),
-        (isInternalRole || isFinanceRole) ? getApi('/brigade-contracts') : Promise.resolve([]),
-        (isInternalRole || isFinanceRole) ? getApi('/brigade-contract-items-all') : Promise.resolve([]),
-        (isInternalRole || isFinanceRole) ? getApi('/brigade-payments') : Promise.resolve([]),
+        canLoadBrigadeData ? getApi('/brigade-contracts') : Promise.resolve([]),
+        canLoadBrigadeData ? getApi('/brigade-contract-items-all') : Promise.resolve([]),
+        canLoadBrigadeData ? getApi('/brigade-payments') : Promise.resolve([]),
       ]);
       applyLoadedEstimates(est, canLoadEstimates);
       if (canLoadEstimates && est === null) mobileLoadedScopesRef.current.delete('mobile:estimates');
@@ -389,11 +412,11 @@ export const useAppDataLoaders = (ctx) => {
     });
     if (['personnel','users'].includes(page)) return loadMobileScopeOnce('mobile:people', async () => {
       const [s,pw,u,mp,ts,pdc,ic] = await Promise.all([
-        (isInternalRole || isFinanceRole) ? getApi('/staff') : Promise.resolve([]),
-        (isInternalRole || isFinanceRole) ? getApi('/piecework') : Promise.resolve([]),
-        role === 'system_owner' ? Promise.resolve([]) : getApi('/users'),
-        (isInternalRole || isFinanceRole) ? getApi('/master-profiles') : Promise.resolve([]),
-        (isInternalRole || isFinanceRole) ? getApi('/timesheet') : Promise.resolve([]),
+        canLoadPeopleData ? getApi('/staff') : Promise.resolve([]),
+        canLoadPeopleData ? getApi('/piecework') : Promise.resolve([]),
+        canLoadUserDirectory ? getApi('/users') : Promise.resolve([]),
+        canLoadPeopleData ? getApi('/master-profiles') : Promise.resolve([]),
+        canLoadPeopleData ? getApi('/timesheet') : Promise.resolve([]),
         (isLeadershipRole || isFinanceRole) ? getApi('/pd-consents') : Promise.resolve([]),
         isLeadershipRole ? getApi('/invite-codes') : Promise.resolve([]),
       ]);
@@ -409,16 +432,16 @@ export const useAppDataLoaders = (ctx) => {
         isFinanceRole ? getApi('/accountable-payments') : Promise.resolve([]),
         isInternalRole ? getApi('/own-expenses') : Promise.resolve([]),
         isFinanceRole ? getApi('/expenses') : Promise.resolve([]),
-        (isInternalRole || isFinanceRole) ? getApi('/contracts') : Promise.resolve([]),
-        (isInternalRole || isFinanceRole) ? getApi('/interim-acts') : Promise.resolve([]),
+        canLoadAccountingData ? getApi('/contracts') : Promise.resolve([]),
+        canLoadAccountingData ? getApi('/interim-acts') : Promise.resolve([]),
         isFinanceRole ? getApi('/expense-reports') : Promise.resolve([]),
         canSeeSupplierInvoices ? getApi('/supplier-invoices') : Promise.resolve([]),
         isFinanceRole ? getApi('/company-documents') : Promise.resolve([]),
         isFinanceRole ? getApi('/salary-payments') : Promise.resolve([]),
-        (isInternalRole || isFinanceRole) ? getApi('/staff') : Promise.resolve([]),
-        (isInternalRole || isFinanceRole) ? getApi('/piecework') : Promise.resolve([]),
-        role === 'system_owner' ? Promise.resolve([]) : getApi('/users'),
-        (isInternalRole || isFinanceRole) ? getApi('/brigade-contracts') : Promise.resolve([]),
+        canLoadPeopleData ? getApi('/staff') : Promise.resolve([]),
+        canLoadPeopleData ? getApi('/piecework') : Promise.resolve([]),
+        canLoadUserDirectory ? getApi('/users') : Promise.resolve([]),
+        canLoadBrigadeData ? getApi('/brigade-contracts') : Promise.resolve([]),
       ]);
       setProjectPayments(Array.isArray(pp)?pp:[]); setAccountablePayments(Array.isArray(acp)?acp:[]);
       setOwnExpenses(Array.isArray(oe)?oe:[]); setManualExpenses(Array.isArray(me)?me:[]);
@@ -516,6 +539,10 @@ export const useAppDataLoaders = (ctx) => {
         canSeeProjectDocs,
       } = roleFlagsForUser(user);
       const isWorkerRole = ['мастер','субподрядчик','бригадир'].includes(role);
+      const canLoadPeopleData = canLoadPeopleDataForRole(role);
+      const canLoadUserDirectory = canLoadUserDirectoryForRole(role) || isLeadershipRole;
+      const canLoadAccountingData = canLoadAccountingDataForRole(role) || isFinanceRole;
+      const canLoadBrigadeData = canLoadPeopleData || canLoadAccountingData || isWorkerRole;
       const canLoadEstimates = canLoadEstimatesForUser(user);
       const estimatesLoadPath = isWorkerRole ? '/estimates' : ESTIMATES_SUMMARY_PATH;
       if (canLoadEstimates) markEstimatesLoading(true);
@@ -548,9 +575,9 @@ export const useAppDataLoaders = (ctx) => {
         (isWarehouseRole || isFinanceRole) ? get('/warehouse-main') : skip([]),
         (isWarehouseRole || isFinanceRole) ? get('/warehouse-movements') : skip([]),
 	        (isWarehouseRole || isFinanceRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? get('/warehouse-history') : skip([]),
-        (isInternalRole || isFinanceRole) ? get('/staff') : skip([]),
-        (isInternalRole || isFinanceRole) ? get('/piecework') : skip([]),
-        role === 'system_owner' ? skip([]) : get('/users'),
+        canLoadPeopleData ? get('/staff') : skip([]),
+        canLoadPeopleData ? get('/piecework') : skip([]),
+        canLoadUserDirectory ? get('/users') : skip([]),
         ((isInternalRole && !['мастер','субподрядчик','бригадир'].includes(role)) || role === 'технадзор') ? get('/pricelists') : skip([]),
         isLeadershipRole ? get('/invite-codes') : skip([]),
         (isSupplyRole || isWarehouseRole || isFinanceRole) ? get('/suppliers') : skip([]),
@@ -560,9 +587,9 @@ export const useAppDataLoaders = (ctx) => {
         isSupplyRole ? get('/supply-deliveries') : skip([]),
         isSupplyRole ? get('/supply-claims') : skip([]),
         role === 'поставщик' ? skip([]) : get(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})),
-        (isInternalRole || isFinanceRole) ? get('/master-profiles') : skip([]),
-        (isInternalRole || isFinanceRole) ? get('/contracts') : skip([]),
-        (isInternalRole || isFinanceRole) ? get('/interim-acts') : skip([]),
+        canLoadPeopleData ? get('/master-profiles') : skip([]),
+        canLoadAccountingData ? get('/contracts') : skip([]),
+        canLoadAccountingData ? get('/interim-acts') : skip([]),
         canSeeProjectDocs ? get('/rooms') : skip([]),
         canSeeProjectDocs ? get('/room-works') : skip([]),
         isInternalRole ? get('/tools') : skip([]),
@@ -578,7 +605,7 @@ export const useAppDataLoaders = (ctx) => {
         canSeeProjectDocs ? get('/unexpected-works') : skip([]),
         canLoadEstimates ? get(estimatesLoadPath, null) : skip(null),
         canLoadEstimates ? get('/estimate-reconciliations') : skip([]),
-        (isInternalRole || isFinanceRole) ? get('/brigade-contracts') : skip([]),
+        canLoadBrigadeData ? get('/brigade-contracts') : skip([]),
         canSeeProjectDocs ? get('/hidden-works-acts') : skip([]),
         (canSeeProjectDocs || isWarehouseRole) ? get('/material-inspection') : skip([]),
         (canSeeProjectDocs || isWarehouseRole) ? get('/cable-journal') : skip([]),
@@ -627,7 +654,7 @@ export const useAppDataLoaders = (ctx) => {
         ]);
         setLoaded(setRoomWindows, rwin); setLoaded(setRoomDoors, rdoor);
       } catch(e) {}
-      if (isInternalRole || isFinanceRole) try {
+      if (canLoadPeopleData) try {
         const ts = await get('/timesheet');
         if (isLoaded(ts) && Array.isArray(ts)) setTimesheet(Object.fromEntries(ts.map(t=>[t.staffId+'-'+t.day, true])));
       } catch(e) {}
@@ -672,15 +699,15 @@ export const useAppDataLoaders = (ctx) => {
           try { localStorage.setItem('tbJournal', JSON.stringify(tbNorm)); } catch(e){}
         }
       } catch(e) {}
-      if (isInternalRole || isFinanceRole || ['мастер','субподрядчик','бригадир'].includes(role)) try {
+      if (canLoadBrigadeData) try {
         const abi = await get('/brigade-contract-items-all');
         setLoaded(setAllBrigadeItems, abi);
       } catch(e) {}
-      if (isInternalRole || isFinanceRole) try {
+      if (canLoadBrigadeData) try {
         const abp = await get('/brigade-payments');
         setLoaded(setAllBrigadePayments, abp);
       } catch(e) {}
-      if (isInternalRole || isFinanceRole || role==='заказчик') try {
+      if (canSeeProjectDocs || canLoadAccountingData || role==='заказчик') try {
         const pdocs = await get('/project-documents');
         setLoaded(setProjectDocuments, pdocs);
         const plet = await get('/project-letters');

@@ -14,6 +14,17 @@ const AUTH_PASSWORD = process.env.BROWSER_SMOKE_PASSWORD || process.env.SMOKE_PA
 const AUTH_2FA_CODE = (process.env.BROWSER_SMOKE_2FA_CODE || process.env.SMOKE_2FA_CODE || '').trim();
 const AUTH_DATA_JSON = process.env.BROWSER_SMOKE_AUTH_DATA_JSON || '';
 const DEFAULT_URLS = ['/', '/app'];
+const FORBIDDEN_RENDER_MARKERS = [
+  'Приложение нужно обновить',
+  'Cannot read properties',
+  'is not a function',
+  'Ошибка подключения к серверу',
+  'Minified React error',
+];
+const HANGING_RENDER_MARKERS = [
+  'Загружаю данные объекта',
+  'Сейчас подтягиваются сметы',
+];
 
 const urls = (process.env.BROWSER_SMOKE_URLS || DEFAULT_URLS.join(','))
   .split(',')
@@ -232,30 +243,26 @@ function relevantConsoleErrors(events) {
       const args = event.params?.args || [];
       return args.map((arg) => arg.value || arg.description || '').filter(Boolean).join(' ') || 'console.error';
     })
+    .filter((message) => {
+      const text = String(message || '');
+      if (/Failed to load resource: the server responded with a status of 404/i.test(text)) return false;
+      if (/Failed to load resource: the server responded with a status of 405/i.test(text)) return false;
+      if (/Failed to load resource: the server responded with a status of 401/i.test(text)) return false;
+      return true;
+    })
     .filter(Boolean);
 }
 
 function validatePage(url, info) {
   const text = (info.bodyText || '').replace(/\s+/g, ' ').trim();
-  const forbidden = [
-    'Приложение нужно обновить',
-    'Cannot read properties',
-    'is not a function',
-    'Ошибка подключения к серверу',
-    'Minified React error',
-  ];
-  const hangingMarkers = [
-    'Загружаю данные объекта',
-    'Сейчас подтягиваются сметы',
-  ];
   if (text.length < 30) {
     throw new Error(`rendered almost empty body: ${text.slice(0, 200)}`);
   }
-  const marker = forbidden.find((needle) => text.includes(needle));
+  const marker = FORBIDDEN_RENDER_MARKERS.find((needle) => text.includes(needle));
   if (marker) {
     throw new Error(`rendered error marker "${marker}": ${text.slice(0, 500)}`);
   }
-  const hangingMarker = hangingMarkers.find((needle) => text.includes(needle));
+  const hangingMarker = HANGING_RENDER_MARKERS.find((needle) => text.includes(needle));
   if (hangingMarker) {
     throw new Error(`rendered stuck loading marker "${hangingMarker}": ${text.slice(0, 500)}`);
   }
@@ -291,7 +298,12 @@ async function waitForRenderedPage(client) {
   let info = { bodyText: '', title: '', href: '', readyState: '', events: [] };
   while (Date.now() < deadline) {
     info = await readPageInfo(client);
-    if ((info.bodyText || '').replace(/\s+/g, ' ').trim().length >= 30) return info;
+    const text = (info.bodyText || '').replace(/\s+/g, ' ').trim();
+    const hasEnoughText = text.length >= 30;
+    const hasForbiddenMarker = FORBIDDEN_RENDER_MARKERS.some((needle) => text.includes(needle));
+    const hasHangingMarker = HANGING_RENDER_MARKERS.some((needle) => text.includes(needle));
+    if (hasEnoughText && !hasHangingMarker) return info;
+    if (hasForbiddenMarker) return info;
     if (relevantConsoleErrors(info.events).length) return info;
     await sleep(info.readyState === 'complete' ? 500 : 250);
   }

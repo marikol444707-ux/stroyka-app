@@ -211,6 +211,7 @@ export function useAuthenticatedAppBootstrapEffect({
   refreshData,
   setActivePage,
   setCompanyName,
+  setInitialDataLoaded,
   setPushEnabled,
   storageSetters = {},
   user,
@@ -220,11 +221,27 @@ export function useAuthenticatedAppBootstrapEffect({
 
     mobileLoadedScopesRef.current.clear();
     mobileApiRequestsRef.current.clear();
-    if (isMobile) loadMobileInitial();
-    else refreshData();
+    const initialLoader = isMobile && typeof loadMobileInitial === 'function' ? loadMobileInitial : refreshData;
+    const loadFallbackTimer = typeof setInitialDataLoaded === 'function'
+      ? setTimeout(() => setInitialDataLoaded(true), 15000)
+      : null;
+    const clearLoadFallback = () => {
+      if (loadFallbackTimer) clearTimeout(loadFallbackTimer);
+    };
+    if (typeof initialLoader === 'function') {
+      Promise.resolve(initialLoader())
+        .catch((error) => {
+          console.error('initial app data load failed', error);
+          if (typeof setInitialDataLoaded === 'function') setInitialDataLoaded(true);
+        })
+        .finally(clearLoadFallback);
+    } else {
+      if (typeof setInitialDataLoaded === 'function') setInitialDataLoaded(true);
+      clearLoadFallback();
+    }
 
     if (['мастер', 'субподрядчик', 'бригадир'].includes(user.role)) {
-      loadMasterProfile();
+      if (typeof loadMasterProfile === 'function') loadMasterProfile();
       setActivePage('works');
     }
 
@@ -258,7 +275,10 @@ export function useAuthenticatedAppBootstrapEffect({
 
     pingOnline();
     const pingInterval = setInterval(pingOnline, 30000);
-    return () => clearInterval(pingInterval);
+    return () => {
+      clearLoadFallback();
+      clearInterval(pingInterval);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 }

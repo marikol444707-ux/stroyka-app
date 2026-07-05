@@ -154,14 +154,13 @@ export function useAppBusinessRuntime({
     supplyRequests,
     timesheet,
     unexpectedWorksList,
-    user: appMainUser,
     users,
     warehouseMain,
     warehouseMovements,
     workJournal,
     estimatesList
   } = appMainState;
-  const user = authUser || appMainUser || null;
+  const user = authUser || null;
   const aiTaskActions = createAiTaskActions({
     API,
     aiFindings,

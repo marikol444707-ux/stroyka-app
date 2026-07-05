@@ -123,10 +123,10 @@ export function useAppCoreRuntime({
     setSupplyHistory, setSupplyRequests, setSupplyTemplates, setTbJournal, setTimesheet,
     setToolHistory, setTools, setUnexpectedWorksList, setWarehouseMain, setWarehouseMovements,
     setWarehouses, setWarrantyDefects, setWeatherLog, setWorkJournal, setWorkJournalPage,
-    tools, user: mainUser,
+    tools,
   } = appMainState;
 
-  const currentUser = user || mainUser;
+  const currentUser = user || null;
 
   const { askDirectorAgent, sendAiMessage } = createAiAssistantActions({
     API,
@@ -322,6 +322,7 @@ export function useAppCoreRuntime({
     refreshData,
     setActivePage,
     setCompanyName,
+    setInitialDataLoaded,
     setPushEnabled,
     storageSetters: {
       masterRatings: appMainState.setMasterRatings,
