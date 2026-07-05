@@ -23,7 +23,8 @@ export default function ProjectWarrantyTab({
   warrantyDefects,
   warrantyEditForm,
 }) {
-  const canEditWarranty = ['директор', 'зам_директора', 'бухгалтер', 'прораб'].includes(user.role);
+  const currentUser = user || {};
+  const canEditWarranty = ['директор', 'зам_директора', 'бухгалтер', 'прораб'].includes(currentUser.role);
   const defects = warrantyDefects.filter(defect => defect.projectName === project.name);
 
   const openCount = defects.filter(defect => defect.status !== 'Закрыт').length;

@@ -70,6 +70,7 @@ export default function AppSecondaryPages({ activePage, ui, constants, state, ac
     showPreview,
     uploadPhoto,
   } = actions;
+  const isFinanceUser = typeof isFinanceRole === 'function' ? isFinanceRole() : Boolean(isFinanceRole);
 
   return (
     <>
@@ -114,7 +115,7 @@ export default function AppSecondaryPages({ activePage, ui, constants, state, ac
         />
       )}
 
-      {activePage === 'settings' && isFinanceRole() && (
+      {activePage === 'settings' && isFinanceUser && (
         <SettingsPage
           API={API}
           C={C}

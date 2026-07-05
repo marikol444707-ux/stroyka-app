@@ -19,6 +19,8 @@ export default function WarehouseMaterialControlOverview({
   showPreview,
   visibleActiveProjects,
 }) {
+  const isFinanceUser = typeof isFinanceRole === 'function' ? isFinanceRole() : Boolean(isFinanceRole);
+  const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
   const activeProjects = visibleActiveProjects(projects);
 
   return (
@@ -48,7 +50,7 @@ export default function WarehouseMaterialControlOverview({
               {s.mismatchRows.length>0&&<span style={badge(C.warning,C.warningLight,C.warningBorder)}>{'Ед. изм.: '+s.mismatchRows.length}</span>}
               {s.stockMismatchRows.length>0&&<span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>{'Расхождения: '+s.stockMismatchRows.length}</span>}
             </div>
-            {(isFinanceRole()||isLeadership())&&<p style={{color:C.textMuted,margin:'6px 0 0',fontSize:'11px'}}>План материалов: {Math.round(s.planSum).toLocaleString('ru-RU')+' ₽'} · Оприходовано: {Math.round(s.suppliedSum).toLocaleString('ru-RU')+' ₽'}</p>}
+            {(isFinanceUser||isLeadershipUser)&&<p style={{color:C.textMuted,margin:'6px 0 0',fontSize:'11px'}}>План материалов: {Math.round(s.planSum).toLocaleString('ru-RU')+' ₽'} · Оприходовано: {Math.round(s.suppliedSum).toLocaleString('ru-RU')+' ₽'}</p>}
           </div>
           <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
             <button onClick={()=>{setSelectedWarehouseProject(p.name);setWarehouseTab('objects');}} style={{...btnB,padding:'6px 10px',fontSize:'12px'}}><Eye size={13}/>Открыть</button>

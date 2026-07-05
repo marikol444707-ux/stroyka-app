@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle, ChevronDown, ChevronRight, ChevronUp, FileText, GitBranch, Trash2 } from 'lucide-react';
+import { CheckCircle, ChevronDown, ChevronRight, ChevronUp, FileText, GitBranch } from 'lucide-react';
 
 export default function EstimateProjectGroupCard({
   C,
@@ -26,13 +26,12 @@ export default function EstimateProjectGroupCard({
   estimateVersionChain,
   isArchivedEstimate,
   setEstimateStatusRemote,
-  deleteEstimateRemote,
   showPreview,
   buildEstimateDiffContent,
   onCreateReconciliation,
   isLeadership,
-  canHardDeleteEstimate,
 }) {
+  const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
   const projectGroups = (groups || []).map(([key, items]) => {
     const sorted = [...items].sort((a, b) => (estimateUpdatedTs(b) || Number(b.id || 0)) - (estimateUpdatedTs(a) || Number(a.id || 0)));
     const active = sorted.find(e => e.status === 'Активная') || null;
@@ -121,9 +120,8 @@ export default function EstimateProjectGroupCard({
                       <b style={{ color: C.success, fontSize: '13px' }}>{Math.round(estimateTotal(est)).toLocaleString('ru-RU') + ' ₽'}</b>
                       {diffBase && <button onClick={e => { e.stopPropagation(); showPreview(buildEstimateDiffContent(diffBase, est), 'Сопоставительная ведомость'); }} style={{ ...btnB, padding: '4px 8px', fontSize: '11px' }}><FileText size={11} />Ведомость</button>}
                       {diffBase && onCreateReconciliation && <button onClick={e => { e.stopPropagation(); onCreateReconciliation(diffBase, est); }} style={{ ...(btnO || btnB), padding: '4px 8px', fontSize: '11px' }}><GitBranch size={11} />Сверка</button>}
-                      {isLeadership() && est.status !== 'Активная' && <button onClick={e => { e.stopPropagation(); setEstimateStatusRemote(est, 'Активная'); }} style={{ ...btnGr, padding: '4px 8px', fontSize: '11px' }}><CheckCircle size={11} />Активной</button>}
-                      {isLeadership() && est.status === 'Активная' && <button onClick={e => { e.stopPropagation(); setEstimateStatusRemote(est, 'Черновик'); }} style={{ ...btnG, padding: '4px 8px', fontSize: '11px' }}>Снять активность</button>}
-                      {canHardDeleteEstimate?.() && <button onClick={e => { e.stopPropagation(); deleteEstimateRemote(est); }} style={{ ...btnR, padding: '4px 8px', fontSize: '11px' }} title="Удалить смету"><Trash2 size={11} /></button>}
+                      {isLeadershipUser && est.status !== 'Активная' && <button onClick={e => { e.stopPropagation(); setEstimateStatusRemote(est, 'Активная'); }} style={{ ...btnGr, padding: '4px 8px', fontSize: '11px' }}><CheckCircle size={11} />Активной</button>}
+                      {isLeadershipUser && est.status === 'Активная' && <button onClick={e => { e.stopPropagation(); setEstimateStatusRemote(est, 'Черновик'); }} style={{ ...btnG, padding: '4px 8px', fontSize: '11px' }}>Снять активность</button>}
                       <ChevronRight size={16} color={C.textMuted} />
                     </div>
                   </div>

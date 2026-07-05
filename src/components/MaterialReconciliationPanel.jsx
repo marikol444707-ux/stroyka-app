@@ -25,7 +25,10 @@ export default function MaterialReconciliationPanel({
   const limit = options.limit || 25;
   const title = options.title || '📊 Материалы: смета ↔ поставки ↔ склад';
   const summary = materialControlSummaryForProject(projectName);
-  const showMoney = isFinanceRole() || isLeadership() || ['кладовщик','снабженец','прораб','главный_инженер'].includes(user?.role);
+  const currentUser = user || {};
+  const isFinanceUser = typeof isFinanceRole === 'function' ? isFinanceRole() : Boolean(isFinanceRole);
+  const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
+  const showMoney = isFinanceUser || isLeadershipUser || ['кладовщик','снабженец','прораб','главный_инженер'].includes(currentUser.role);
 
   return (
     <div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.accentBorder}}>

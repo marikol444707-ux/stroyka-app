@@ -147,6 +147,7 @@ export function getDefaultActionDisabled(onAction) {
 }
 
 export function getDirectorMapActionTarget({ item, action, isFinanceRole = () => false } = {}) {
+  const isFinanceUser = typeof isFinanceRole === 'function' ? isFinanceRole() : Boolean(isFinanceRole);
   if (action === 'create_task') return 'ИИ-контроль';
   const signals = item?.signals || [];
   const types = signals.map(signal => signal.type);
@@ -154,7 +155,7 @@ export function getDirectorMapActionTarget({ item, action, isFinanceRole = () =>
   if (types.includes('document')) {
     return signals.some(signal => String(signal.title || '').includes('Входной')) ? 'Входной контроль' : 'АОСР';
   }
-  if (types.includes('money')) return isFinanceRole() ? 'Финансы' : 'Смета';
+  if (types.includes('money')) return isFinanceUser ? 'Финансы' : 'Смета';
   if (types.includes('link_quality')) return 'Производство работ';
   if (action === 'review_link') return 'Производство работ';
   return 'Карта руководителя';

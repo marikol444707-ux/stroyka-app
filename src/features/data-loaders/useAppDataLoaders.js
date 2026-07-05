@@ -468,13 +468,20 @@ export const useAppDataLoaders = (ctx) => {
       const estimatesLoadPath = isWorkerRole ? '/estimates' : ESTIMATES_SUMMARY_PATH;
       if (canLoadEstimates) markEstimatesLoading(true);
       const token = localStorage.getItem('authToken');
+      const LOAD_FAILED = Symbol('LOAD_FAILED');
+      const isLoaded = (value) => value !== LOAD_FAILED;
+      const asArray = (value) => Array.isArray(value) ? value : [];
+      const setLoaded = (setter, value, normalize = asArray) => {
+        if (!isLoaded(value)) return;
+        setter(normalize(value));
+      };
       const get = (path, fallback = []) => fetch(API + path, token ? {headers: {Authorization: 'Bearer ' + token}} : undefined)
         .then(r => {
           if (r.ok) return r.json();
           if (r.status === 401) handleApiUnauthorized();
-          return fallback;
+          return fallback === null ? null : LOAD_FAILED;
         })
-        .catch(() => fallback);
+        .catch(() => fallback === null ? null : LOAD_FAILED);
       const skip = (fallback = []) => Promise.resolve(fallback);
 
       const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,er,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD,scat,stpl,aif,ait,mn,ma,mno,mns,aud] = await Promise.all([
@@ -538,36 +545,51 @@ export const useAppDataLoaders = (ctx) => {
         canSeeProjectDocs ? get('/material-norm-suggestions') : skip([]),
         (isLeadershipRole || isFinanceRole) ? get(pagedPath('/audit-log', {limit: AUDIT_LOG_PAGE_LIMIT})) : skip([]),
       ]);
-      setProjects(p);setClients(c);setMaterials(m);resetMaterialsPage(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setOwnExpenses(Array.isArray(oe)?oe:[]);setManualExpenses(Array.isArray(me)?me:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
-      setHistory(h);setStaff(s);setPiecework(pw);setUsers(u);setPricelists(pl);
-      setInviteCodes(ic);setSuppliers(sup);setSupplyRequests(sr);setSupplierOffers(so);
-      setSupplyHistory(sh);setSupplyDeliveries(Array.isArray(sd)?sd:[]);setSupplyClaims(Array.isArray(sc)?sc:[]);setWorkJournal(wj);resetWorkJournalPage(wj);setMasterProfiles(mp);setContracts(ct);
-      setInterimActs(ia);setRooms(ro);setRoomWorks(rw);setTools(tl);setToolHistory(th);
-      setInventory(inv);setPdConsents(pdc);setWarehouses(Array.isArray(wh)?wh:[]);
-      setCompanyRequisites(cr||{});setCompanyDocuments(Array.isArray(cd)?cd:[]);
-      setProjectStages(Array.isArray(ps)?ps:[]);setChecklists(Array.isArray(pcl)?pcl:[]);
-      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);applyLoadedEstimates(est, canLoadEstimates);setEstimateReconciliations(Array.isArray(er)?er:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);setMaterialNorms(Array.isArray(mn)?mn:[]);resetMaterialNormsPage(mn);setMaterialAliases(Array.isArray(ma)?ma:[]);setMaterialNormOverrides(Array.isArray(mno)?mno:[]);setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);setAuditLog(Array.isArray(aud)?aud:[]);
+      setLoaded(setProjects, p); setLoaded(setClients, c);
+      if (isLoaded(m)) { setMaterials(asArray(m)); resetMaterialsPage(asArray(m)); }
+      setLoaded(setInvoices, winv); setLoaded(setProjectPayments, pp); setLoaded(setAccountablePayments, acp);
+      setLoaded(setOwnExpenses, oe); setLoaded(setManualExpenses, me); setLoaded(setWarehouseMain, wm); setLoaded(setWarehouseMovements, wmov);
+      setLoaded(setHistory, h); setLoaded(setStaff, s); setLoaded(setPiecework, pw); setLoaded(setUsers, u); setLoaded(setPricelists, pl);
+      setLoaded(setInviteCodes, ic); setLoaded(setSuppliers, sup); setLoaded(setSupplyRequests, sr); setLoaded(setSupplierOffers, so);
+      setLoaded(setSupplyHistory, sh); setLoaded(setSupplyDeliveries, sd); setLoaded(setSupplyClaims, sc);
+      if (isLoaded(wj)) { setWorkJournal(asArray(wj)); resetWorkJournalPage(asArray(wj)); }
+      setLoaded(setMasterProfiles, mp); setLoaded(setContracts, ct); setLoaded(setInterimActs, ia);
+      setLoaded(setRooms, ro); setLoaded(setRoomWorks, rw); setLoaded(setTools, tl); setLoaded(setToolHistory, th);
+      setLoaded(setInventory, inv); setLoaded(setPdConsents, pdc); setLoaded(setWarehouses, wh);
+      if (isLoaded(cr)) setCompanyRequisites(cr || {});
+      setLoaded(setCompanyDocuments, cd);
+      setLoaded(setProjectStages, ps); setLoaded(setChecklists, pcl);
+      setLoaded(setPrescriptionsList, pres); setLoaded(setUnexpectedWorksList, uw);
+      if (isLoaded(est)) applyLoadedEstimates(est, canLoadEstimates);
+      setLoaded(setEstimateReconciliations, er); setLoaded(setBrigadeContracts, bc); setLoaded(setHiddenActs, hwa);
+      setLoaded(setMaterialInspections, mij); setLoaded(setCableJournal, cbj); setLoaded(setSupervisorActs, sva);
+      setLoaded(setInspectionOrders, inspO); setLoaded(setExpenseReports, expR); setLoaded(setSupplierInvoices, supI);
+      setLoaded(setWarrantyDefects, warD); setLoaded(setSupplierCatalog, scat); setLoaded(setSupplyTemplates, stpl);
+      setLoaded(setAiFindings, aif); setLoaded(setAiTasks, ait);
+      if (isLoaded(mn)) { setMaterialNorms(asArray(mn)); resetMaterialNormsPage(asArray(mn)); }
+      setLoaded(setMaterialAliases, ma); setLoaded(setMaterialNormOverrides, mno); setLoaded(setMaterialNormSuggestions, mns); setLoaded(setAuditLog, aud);
       if (canSeeProjectDocs) try {
         const [rwin,rdoor] = await Promise.all([
           get('/room-windows'),
           get('/room-doors'),
         ]);
-        setRoomWindows(Array.isArray(rwin)?rwin:[]); setRoomDoors(Array.isArray(rdoor)?rdoor:[]);
+        setLoaded(setRoomWindows, rwin); setLoaded(setRoomDoors, rdoor);
       } catch(e) {}
       if (isInternalRole || isFinanceRole) try {
         const ts = await get('/timesheet');
-        if (Array.isArray(ts)) setTimesheet(Object.fromEntries(ts.map(t=>[t.staffId+'-'+t.day, true])));
+        if (isLoaded(ts) && Array.isArray(ts)) setTimesheet(Object.fromEntries(ts.map(t=>[t.staffId+'-'+t.day, true])));
       } catch(e) {}
       if (isFinanceRole) try {
         const sp = await get('/salary-payments');
-        setSalaryPayments(Array.isArray(sp)?sp:[]);
+        setLoaded(setSalaryPayments, sp);
       } catch(e) {}
       try {
         let ls = await get('/crm/lead-summaries');
-        if (!Array.isArray(ls)) ls = [];
+        if (!isLoaded(ls)) ls = null;
+        else if (!Array.isArray(ls)) ls = [];
         // Одноразовая миграция старых лидов из localStorage в БД
-        const oldRaw = localStorage.getItem('leads');
-        if (ls.length===0 && oldRaw) {
+        const oldRaw = ls !== null ? localStorage.getItem('leads') : null;
+        if (Array.isArray(ls) && ls.length===0 && oldRaw) {
           try {
             const old = JSON.parse(oldRaw);
             if (Array.isArray(old) && old.length>0) {
@@ -576,44 +598,47 @@ export const useAppDataLoaders = (ctx) => {
               }
               localStorage.removeItem('leads');
               ls = await get('/crm/lead-summaries');
+              if (!isLoaded(ls)) ls = null;
             }
           } catch(_){}
         }
-        setLeads(Array.isArray(ls)?ls:[]);
+        if (ls !== null) setLeads(Array.isArray(ls)?ls:[]);
       } catch(e) {}
       try {
         const msgs = await get('/messages');
-        setCompanyMessages(Array.isArray(msgs)?msgs:[]);
+        setLoaded(setCompanyMessages, msgs);
       } catch(e) {}
       if (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) try {
         const mt = await get('/material-transfers');
-        setMaterialTransfers(Array.isArray(mt)?mt:[]);
+        setLoaded(setMaterialTransfers, mt);
       } catch(e) {}
       if (isInternalRole) try {
         const tb = await get('/tb-journal');
-        const tbNorm = (Array.isArray(tb)?tb:[]).map(t=>({...t, project: t.projectName, type: t.instructionType}));
-        setTbJournal(tbNorm);
-        try { localStorage.setItem('tbJournal', JSON.stringify(tbNorm)); } catch(e){}
+        if (isLoaded(tb)) {
+          const tbNorm = (Array.isArray(tb)?tb:[]).map(t=>({...t, project: t.projectName, type: t.instructionType}));
+          setTbJournal(tbNorm);
+          try { localStorage.setItem('tbJournal', JSON.stringify(tbNorm)); } catch(e){}
+        }
       } catch(e) {}
       if (isInternalRole || isFinanceRole || ['мастер','субподрядчик','бригадир'].includes(role)) try {
         const abi = await get('/brigade-contract-items-all');
-        setAllBrigadeItems(Array.isArray(abi)?abi:[]);
+        setLoaded(setAllBrigadeItems, abi);
       } catch(e) {}
       if (isInternalRole || isFinanceRole) try {
         const abp = await get('/brigade-payments');
-        setAllBrigadePayments(Array.isArray(abp)?abp:[]);
+        setLoaded(setAllBrigadePayments, abp);
       } catch(e) {}
       if (isInternalRole || isFinanceRole || role==='заказчик') try {
         const pdocs = await get('/project-documents');
-        setProjectDocuments(Array.isArray(pdocs)?pdocs:[]);
+        setLoaded(setProjectDocuments, pdocs);
         const plet = await get('/project-letters');
-        setProjectLetters(Array.isArray(plet)?plet:[]);
+        setLoaded(setProjectLetters, plet);
       } catch(e) {}
       if (canSeeProjectDocs) try {
         const pmeas = await get('/project-measurements');
-        setProjectMeasurements(Array.isArray(pmeas)?pmeas:[]);
+        setLoaded(setProjectMeasurements, pmeas);
         const mdrafts = await get('/measurement-room-drafts');
-        setMeasurementRoomDrafts(Array.isArray(mdrafts)?mdrafts:[]);
+        setLoaded(setMeasurementRoomDrafts, mdrafts);
       } catch(e) {}
       mobileLoadedScopesRef.current.add('full');
     } catch(e) {

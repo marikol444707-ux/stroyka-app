@@ -50,6 +50,8 @@ export const createSupplyActions = ({
   supplyTemplates,
   user,
 }) => {
+  const currentUser = user || {};
+
   const saveSupplier = async () => {
     if (!newSupplier.name) return;
     const payload = normalizeSupplierPayload(newSupplier);
@@ -110,7 +112,7 @@ export const createSupplyActions = ({
         items: itemsPayload,
         workPackage: requestPackage,
         project: newRequest.project,
-        createdBy: user.name,
+        createdBy: currentUser.name || '',
         date: new Date().toISOString().split('T')[0],
         notes: newRequest.notes,
         selectedSuppliers: newRequest.selectedSuppliers,
@@ -169,13 +171,13 @@ export const createSupplyActions = ({
         items: itemsPayload,
         workPackage: requestPackage,
         project: newSupplyReq.project,
-        createdBy: user.name,
+        createdBy: currentUser.name || '',
         date: new Date().toISOString().split('T')[0],
         notes: newSupplyReq.notes || '',
         category: newSupplyReq.category || '',
         urgency: newSupplyReq.urgency || 'обычная',
-        requestedByRole: user.role,
-        requestedById: user.id,
+        requestedByRole: currentUser.role || '',
+        requestedById: currentUser.id || null,
         selectedSuppliers: [],
       }),
     });
@@ -188,10 +190,10 @@ export const createSupplyActions = ({
     const msg = valid.length > 1
       ? ('Заявка из ' + valid.length + ' позиций — объект ' + newSupplyReq.project)
       : ('Заявка «' + valid[0].materialName + '» — объект ' + newSupplyReq.project);
-    if (['мастер', 'субподрядчик', 'бригадир'].includes(user.role)) {
-      notify('Новая заявка от ' + user.name + ': ' + msg, 'supply');
-    } else if (user.role === 'прораб') {
-      notify('Прораб ' + user.name + ': ' + msg + ' — нужно утвердить', 'supply');
+    if (['мастер', 'субподрядчик', 'бригадир'].includes(currentUser.role)) {
+      notify('Новая заявка от ' + (currentUser.name || 'пользователя') + ': ' + msg, 'supply');
+    } else if (currentUser.role === 'прораб') {
+      notify('Прораб ' + (currentUser.name || 'пользователь') + ': ' + msg + ' — нужно утвердить', 'supply');
     } else {
       notify(msg + ' — утверждена директором', 'supply');
     }
@@ -223,8 +225,8 @@ export const createSupplyActions = ({
         name: name.trim(),
         category: newSupplyReq.category || '',
         items: valid.map(it => ({ materialName: it.materialName, quantity: Number(it.quantity), unit: it.unit || 'шт', workPackage: it.workPackage || '' })),
-        createdBy: user.name,
-        createdById: user.id,
+        createdBy: currentUser.name || '',
+        createdById: currentUser.id || null,
       }),
     });
     if (!r.ok) {
@@ -259,7 +261,7 @@ export const createSupplyActions = ({
     await fetch(API + '/supply-requests/' + id, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'confirm_prorab', userId: user.id, userName: user.name }),
+      body: JSON.stringify({ action: 'confirm_prorab', userId: currentUser.id || null, userName: currentUser.name || '' }),
     });
     notify('Заявка подтверждена прорабом — ждёт директора', 'supply');
     await refreshData();
@@ -269,7 +271,7 @@ export const createSupplyActions = ({
     const r = await fetch(API + '/supply-requests/' + id, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'approve_director', userId: user.id, userName: user.name }),
+      body: JSON.stringify({ action: 'approve_director', userId: currentUser.id || null, userName: currentUser.name || '' }),
     });
     const data = await r.json().catch(() => ({}));
     if (!r.ok || data.detail || data.error) {
@@ -463,7 +465,7 @@ export const createSupplyActions = ({
         qualityNotes: receiveForm.qualityNotes,
         photoUrl: receiveForm.photoUrl,
         claimDescription: receiveForm.claimDescription,
-        receivedBy: user.name,
+        receivedBy: currentUser.name || '',
       }),
     });
     const data = await r.json();

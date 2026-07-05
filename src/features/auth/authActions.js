@@ -1,3 +1,5 @@
+import { normalizeStoredUser } from '../../utils/appRuntimeUtils';
+
 export const createAuthActions = ({
   API,
   consentChecked,
@@ -14,6 +16,8 @@ export const createAuthActions = ({
   setInitialDataLoaded,
   setLoginError,
   setMasterProfile,
+  setEmail,
+  setPage,
   setRegInviteInfo,
   setRegSupplierData,
   setShowProfileForm,
@@ -42,10 +46,12 @@ export const createAuthActions = ({
 
   const persistLogin = (data) => {
     if (!data?.authToken) throw new Error('сервер не вернул токен входа');
+    const publicUser = normalizeStoredUser(data);
+    if (!publicUser?.role) throw new Error('сервер вернул пользователя без роли');
     if (data.authToken) localStorage.setItem('authToken', data.authToken);
-    localStorage.setItem('user', JSON.stringify(data));
+    localStorage.setItem('user', JSON.stringify(publicUser));
     if (typeof setInitialDataLoaded === 'function') setInitialDataLoaded(false);
-    if (typeof setUser === 'function') setUser(data);
+    if (typeof setUser === 'function') setUser(publicUser);
   };
 
   const handleLogout = () => {
@@ -117,7 +123,14 @@ export const createAuthActions = ({
         return;
       }
       const data = await res.json();
+      if (data.twoFactorRequired || data.twoFactorSetupRequired) {
+        if (typeof setEmail === 'function') setEmail((regEmail || '').trim().toLowerCase());
+        if (typeof setPage === 'function') setPage('login');
+        setLoginError('Аккаунт создан. Войдите с этим email и завершите настройку 2FA.');
+        return data;
+      }
       persistLogin(data);
+      return data;
     } catch {
       setLoginError('Ошибка подключения');
     }

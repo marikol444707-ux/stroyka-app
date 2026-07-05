@@ -118,6 +118,7 @@ export default function AppDirectoryPages({ activePage, ui, constants, state, ac
     rejectSupplierOffer,
     toggleUserActive,
   } = actions;
+  const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
 
   return (
     <>
@@ -190,7 +191,7 @@ export default function AppDirectoryPages({ activePage, ui, constants, state, ac
         <PricelistsPage API={API} C={C} PRICELISTS_DATA={PRICELISTS_DATA} UNITS={UNITS} buildPricelistContent={buildPricelistContent} btnB={btnB} btnG={btnG} btnGr={btnGr} btnO={btnO} btnR={btnR} card={card} copyPricelist={copyPricelist} deletePlItem={deletePlItem} deletePricelist={deletePricelist} editingPlItem={editingPlItem} exportToExcel={exportToExcel} inlineEditPl={inlineEditPl} inlineEditPlData={inlineEditPlData} inp={inp} listSearch={listSearch} loadAll={loadAll} loadPricelistItems={loadPricelistItems} matchSearch={matchSearch} newPlItem={newPlItem} newPricelist={newPricelist} pricelistItems={pricelistItems} pricelists={pricelists} saveInlinePlItem={saveInlinePlItem} savePlItem={savePlItem} savePricelist={savePricelist} selectedPricelist={selectedPricelist} setEditingItem={setEditingItem} setEditingPlItem={setEditingPlItem} setFromEstimateForm={setFromEstimateForm} setGeneratePricelistForm={setGeneratePricelistForm} setInlineEditPlData={setInlineEditPlData} setInlineEditPrice={setInlineEditPrice} setListSearch={setListSearch} setNewPlItem={setNewPlItem} setNewPricelist={setNewPricelist} setPricelistItems={setPricelistItems} setSelectedPricelist={setSelectedPricelist} setShowForm={setShowForm} setShowFromEstimate={setShowFromEstimate} setShowGeneratePricelist={setShowGeneratePricelist} showForm={showForm} showPreview={showPreview} startInlinePlEdit={startInlinePlEdit} cancelInlinePlEdit={cancelInlinePlEdit} tbl={tbl} tblC={tblC} tblH={tblH} />
       )}
 
-      {activePage === 'users' && isLeadership() && (
+      {activePage === 'users' && isLeadershipUser && (
         <UsersPage
           C={C}
           card={card}

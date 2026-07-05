@@ -114,17 +114,21 @@ export default function ProjectsPage({ ctx }) {
     };
   };
   const [journalDiagnosticMode, setJournalDiagnosticMode] = React.useState('all');
+  const currentUser = user || {};
+  const currentRole = currentUser.role || '';
+  const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
+  const isFinanceUser = typeof isFinanceRole === 'function' ? isFinanceRole() : Boolean(isFinanceRole);
 
   return (
 <div>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px',flexWrap:'wrap',gap:'10px'}}>
               <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                {isLeadership()&&<button onClick={()=>{setShowForm(showForm===true?false:true);setEditingItem(null);setNewProject(createProjectForm());}} style={btnO}><Plus size={14}/>Новый проект</button>}
+                {isLeadershipUser&&<button onClick={()=>{setShowForm(showForm===true?false:true);setEditingItem(null);setNewProject(createProjectForm());}} style={btnO}><Plus size={14}/>Новый проект</button>}
                 {projects.some(pr=>pr.archived)&&<button onClick={()=>setShowArchive(!showArchive)} style={btnG}><Archive size={14}/>{showArchive?'Активные':'Архив'}</button>}
               </div>
             </div>
             {showArchive&&<div style={{...card,padding:'12px 14px',marginBottom:'14px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{margin:0,color:C.text,fontSize:'12px'}}>📦 <b>Архив закрытых объектов.</b> Здесь хранятся завершённые объекты со всеми документами, перепиской и актами только для просмотра.</p></div>}
-            {showForm===true&&isLeadership()&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}>
+            {showForm===true&&isLeadershipUser&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}>
               <h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>{editingItem?'Редактировать проект':'Новый проект'}</h3>
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:'10px'}}>
                 <input placeholder="Название *" value={newProject.name} onChange={e=>setNewProject({...newProject,name:e.target.value})} style={{...inp,marginBottom:0}}/>
@@ -144,8 +148,8 @@ export default function ProjectsPage({ ctx }) {
               const _bs=projectBudgetSpent(p);const total=_bs.total;
               const isOpen=expandedProject===p.id;
               const shouldRenderProjectOverview=isOpen&&activeProjectTab==='Общее';
-              const cat=shouldRenderProjectOverview&&isFinanceRole()?expByCategory(p.name):{};
-              const economy=shouldRenderProjectOverview&&isFinanceRole()?projectEconomy(p):null;
+              const cat=shouldRenderProjectOverview&&isFinanceUser?expByCategory(p.name):{};
+              const economy=shouldRenderProjectOverview&&isFinanceUser?projectEconomy(p):null;
               const statusColors={'Планирование':[C.info,C.infoLight,C.infoBorder],'В работе':[C.success,C.successLight,C.successBorder],'Завершён':[C.textSec,C.bgGray,C.border],'Заморожен':[C.warning,C.warningLight,C.warningBorder]};
               return(<div key={p.id} style={{...card,marginBottom:'12px',overflow:'visible'}}>
                 <ProjectCardHeader
@@ -156,8 +160,8 @@ export default function ProjectsPage({ ctx }) {
                   statusColors={statusColors}
                   isOpen={isOpen}
                   total={total}
-                  canSeeFinance={isFinanceRole()}
-                  canManage={isLeadership()}
+                  canSeeFinance={isFinanceUser}
+                  canManage={isLeadershipUser}
                   onToggle={async()=>{if(isOpen){setExpandedProject(null);}else{setExpandedProject(p.id);setActiveProjectTab('Общее');if(user&&['директор','зам_директора','бухгалтер','прораб'].includes(user.role)&&!projectAiSummaries[p.name]){try{const r=await fetch(API+'/project-ai-summary/'+encodeURIComponent(p.name));const d=await r.json();if(d&&d.exists)setProjectAiSummaries(prev=>({...prev,[p.name]:d}));}catch(e){}}}}}
                   onEdit={()=>editProject(p)}
                 />
@@ -165,7 +169,7 @@ export default function ProjectsPage({ ctx }) {
                   <div style={{borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,padding:'18px 16px 10px'}}>
                     <ProjectTabsNav
                       C={C}
-                      role={user.role}
+                    role={currentRole}
                       activeProjectTab={activeProjectTab}
                       activeTabGroup={activeTabGroup}
                       setActiveProjectTab={setActiveProjectTab}
@@ -439,16 +443,16 @@ export default function ProjectsPage({ ctx }) {
                         newBrigadeItem={newBrigadeItem}
                         setNewBrigadeItem={setNewBrigadeItem}
                         UNITS={UNITS}
-                        showLeadership={isLeadership()}
+                        showLeadership={isLeadershipUser}
                         brigadeCoef={brigadeCoef}
                         setBrigadeCoef={setBrigadeCoef}
-                        showFinance={isFinanceRole()}
+                        showFinance={isFinanceUser}
                         companyRequisites={companyRequisites}
                         companyName={companyName}
                         normalizeMeasure={normalizeMeasure}
                         toNum={toNum}
                         fmtMeasure={fmtMeasure}
-                        userName={user.name}
+                        userName={currentUser.name || ''}
                         setNewBrigadePayment={setNewBrigadePayment}
                         setShowBrigadePayModal={setShowBrigadePayModal}
                         deleteBrigadePayment={deleteBrigadePayment}
@@ -505,8 +509,8 @@ export default function ProjectsPage({ ctx }) {
                         expByCategory={expByCategory}
                         fileSrc={fileSrc}
                         formatSignedRub={formatSignedRub}
-                        isFinanceRole={isFinanceRole()}
-                        isLeadership={isLeadership()}
+                        isFinanceRole={isFinanceUser}
+                        isLeadership={isLeadershipUser}
                         loadAll={loadAll}
                         manualExpenses={manualExpenses}
                         ownExpenses={ownExpenses}
@@ -580,7 +584,7 @@ export default function ProjectsPage({ ctx }) {
                         setHiddenActs={setHiddenActs}
                         showPreview={showPreview}
                         buildHiddenActContent={buildHiddenActContent}
-                        showDelete={isLeadership()}
+                        showDelete={isLeadershipUser}
                         C={C}
                         card={card}
                         tbl={tbl}

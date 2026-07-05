@@ -112,10 +112,13 @@ export default function SupplyPage({
   buildInvoiceContent,
   uploadPhoto,
 }) {
-  const role = user.role;
+  const currentUser = user || {};
+  const role = currentUser.role || '';
+  const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
+  const isFinanceUser = typeof isFinanceRole === 'function' ? isFinanceRole() : Boolean(isFinanceRole);
   const canCreate = ['мастер', 'субподрядчик', 'бригадир', 'прораб', 'директор', 'зам_директора', 'кладовщик', 'снабженец'].includes(role);
-  const canConfirmProrab = role === 'прораб' || isLeadership();
-  const canApprove = isLeadership();
+  const canConfirmProrab = role === 'прораб' || isLeadershipUser;
+  const canApprove = isLeadershipUser;
   const canViewSuppliers = ['директор', 'зам_директора', 'прораб', 'кладовщик', 'снабженец', 'бухгалтер'].includes(role);
   const canViewDeliveries = ['директор', 'зам_директора', 'прораб', 'кладовщик', 'снабженец', 'бухгалтер'].includes(role);
 
@@ -138,7 +141,7 @@ export default function SupplyPage({
       { id: 'suppliers', label: '🚚 Поставщики' },
       { id: 'catalog', label: '📦 Каталоги' },
     ];
-  } else if (isLeadership()) {
+  } else if (isLeadershipUser) {
     tabs = [
       { id: 'inbox', label: '⏳ На утверждение' },
       { id: 'all', label: '📋 Все заявки' },
@@ -164,10 +167,10 @@ export default function SupplyPage({
   let list = supplyRequests || [];
   const curTab = tabs.find(tab => tab.id === supplyTab) ? supplyTab : tabs[0].id;
   if (['мастер','субподрядчик','бригадир'].includes(role)) {
-    list = list.filter(request => request.createdBy === user.name || request.requestedById === user.id);
+    list = list.filter(request => request.createdBy === currentUser.name || request.requestedById === currentUser.id);
   } else if (role === 'прораб') {
     if (curTab === 'inbox') list = list.filter(request => request.status === 'Новая');
-  } else if (isLeadership()) {
+  } else if (isLeadershipUser) {
     if (curTab === 'inbox') list = list.filter(
       request => request.status === 'Подтверждена прорабом' || request.status === 'Новая'
     );
@@ -194,7 +197,7 @@ export default function SupplyPage({
         btnO={btnO}
         btnG={btnG}
         role={role}
-        isLeadership={isLeadership()}
+        isLeadership={isLeadershipUser}
         canCreate={canCreate}
         curTab={curTab}
         tabs={tabs}
@@ -225,7 +228,7 @@ export default function SupplyPage({
           setListSearch={setListSearch}
           expandedProject={expandedProject}
           setExpandedProject={setExpandedProject}
-          canPay={isFinanceRole()}
+          canPay={isFinanceUser}
           matchSearch={matchSearch}
           loadAll={loadAll}
           toNum={toNum}
@@ -322,7 +325,7 @@ export default function SupplyPage({
           btnG={btnG}
           btnR={btnR}
           role={role}
-          isLeadership={isLeadership()}
+          isLeadership={isLeadershipUser}
           supplyTemplates={supplyTemplates}
           applySupplyTemplate={applySupplyTemplate}
           deleteSupplyTemplate={deleteSupplyTemplate}

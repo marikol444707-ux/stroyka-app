@@ -10,6 +10,14 @@ const clearStroykaCaches = async () => {
   } catch (_e) {}
 };
 
+const unregisterStroykaServiceWorkers = async () => {
+  try {
+    if (!('serviceWorker' in navigator)) return;
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(registrations.map((registration) => registration.unregister().catch(() => false)));
+  } catch (_e) {}
+};
+
 const reloadWithFreshAssets = async () => {
   try {
     const lastReload = Number(sessionStorage.getItem(ASSET_RELOAD_STORAGE_KEY) || 0);
@@ -18,6 +26,7 @@ const reloadWithFreshAssets = async () => {
   } catch (_e) {}
 
   await clearStroykaCaches();
+  await unregisterStroykaServiceWorkers();
   window.location.reload();
 };
 
@@ -53,16 +62,8 @@ export function registerServiceWorker() {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
 
   window.addEventListener('load', () => {
-    let refreshing = false;
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (refreshing) return;
-      refreshing = true;
-      window.location.reload();
-    });
-
-    navigator.serviceWorker.register('/sw.js').catch(error => {
-      // PWA не должна ломать вход в систему, если браузер запретил service worker.
-      console.warn('Service worker registration failed:', error);
-    });
+    // Рабочая ERP важнее офлайн-кэша: старый service worker уже приводил к
+    // смешиванию index.html и JS-чанков разных сборок после деплоя.
+    unregisterStroykaServiceWorkers().then(clearStroykaCaches).catch(() => {});
   });
 }

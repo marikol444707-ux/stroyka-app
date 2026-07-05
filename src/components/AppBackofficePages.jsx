@@ -153,6 +153,7 @@ export default function AppBackofficePages({ activePage, ui, constants, state, a
     warehouseInvoiceEstimateControl,
     workedDays,
   } = actions;
+  const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
 
   return (
     <>
@@ -162,7 +163,7 @@ export default function AppBackofficePages({ activePage, ui, constants, state, a
           accountingTab={accountingTab}
           setAccountingTab={setAccountingTab}
           setShowForm={setShowForm}
-          isLeadership={isLeadership()}
+          isLeadership={isLeadershipUser}
           loadAuditLog={loadAuditLog}
           btnO={btnO}
           btnG={btnG}

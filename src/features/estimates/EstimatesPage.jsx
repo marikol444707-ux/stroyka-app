@@ -26,6 +26,7 @@ export default function EstimatesPage({ ctx }) {
     showEstimateIssuesOnly, showEstimateWorkSummary, showForm, showPreview, user, visibleActiveProjects, visibleEstimatesForCurrentUser, WORK_MATERIAL_NORM_RULES,
     WorkAssignmentStatusPanel,
   } = ctx;
+  const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
 
   return (
 <div>
@@ -53,7 +54,7 @@ export default function EstimatesPage({ ctx }) {
                 projectOptions={estimateProjectOptions}
                 projectFilter={estimateProjectFilter}
                 setProjectFilter={setEstimateProjectFilter}
-                showLeadership={isLeadership()}
+                showLeadership={isLeadershipUser}
               />
               <EstimateSearchResults
                 C={C}
@@ -83,7 +84,7 @@ export default function EstimatesPage({ ctx }) {
                     const tmpl=estimatesList.find(e=>String(e.id)===String(newEstimate.templateId));
                     if(tmpl) sections=enrichEstimateMeasurementBasis((tmpl.sections||[]).map(s=>({...s,id:Date.now()+Math.random(),items:(s.items||[]).map(i=>({...i,id:Date.now()+Math.random()}))})));
                   }
-                  const estimateStatus=isLeadership()?(newEstimate.status||'Активная'):'Черновик';
+                  const estimateStatus=isLeadershipUser?(newEstimate.status||'Активная'):'Черновик';
                   const estimatePayload={...newEstimate,status:estimateStatus,sections};
                   const est=await readApiResult(await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(estimatePayload)}));
                   const newEst={...newEstimate,id:est.id,sections,smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:estimateStatus};

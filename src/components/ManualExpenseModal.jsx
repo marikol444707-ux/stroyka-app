@@ -32,7 +32,8 @@ export default function ManualExpenseModal({
     ? visibleActiveProjects(projects || [])
     : (projects || []).filter(project => !project.archived && project.status !== 'Завершён');
   const selectedProject = isProjectPicker ? (newManualExpense.projectName || '') : addExpenseProject;
-  const allowedCategories = isFinanceRole()
+  const isFinanceUser = typeof isFinanceRole === 'function' ? isFinanceRole() : Boolean(isFinanceRole);
+  const allowedCategories = isFinanceUser
     ? expenseCategories
     : expenseCategories.filter(c => ['materials', 'delivery', 'other'].includes(c.id));
   const attachmentUrls = (newManualExpense.photoUrl || '').split(',').map(url => url.trim()).filter(Boolean);
@@ -88,7 +89,7 @@ export default function ManualExpenseModal({
     if(!selectedProject) { alert('Выберите объект'); return; }
     if(!category) { alert('Введите статью расхода'); return; }
     if(!newManualExpense.amount) return;
-    await fetch(API+'/expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedProject,category,amount:Number(newManualExpense.amount),note:newManualExpense.note||'',date:newManualExpense.date||new Date().toISOString().split('T')[0],addedBy:user.name,photoUrl:newManualExpense.photoUrl||''})});
+    await fetch(API+'/expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedProject,category,amount:Number(newManualExpense.amount),note:newManualExpense.note||'',date:newManualExpense.date||new Date().toISOString().split('T')[0],addedBy:user?.name||'',photoUrl:newManualExpense.photoUrl||''})});
     close();
     await loadAll();
     alert('Расход добавлен!');

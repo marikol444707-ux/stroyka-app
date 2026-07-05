@@ -206,34 +206,12 @@ export const createWarehouseCrudActions = ({
     setNewMovement(createWarehouseMovementForm());
   };
 
-  const deleteMaterial = async (id) => {
-    if (!window.confirm('Удалить материал со склада? Это действие доступно только директору.')) return;
-    const res = await fetch(API + '/materials/' + id, {method: 'DELETE'});
-    if (!res.ok) {
-      let msg = 'Не удалось удалить материал';
-      try {
-        const body = await res.json();
-        msg = body.detail || msg;
-      } catch {}
-      alert(msg);
-      return;
-    }
-    await refreshData();
+  const deleteMaterial = async () => {
+    alert('Физическое удаление материала объекта отключено. Используйте списание, возврат, перемещение или корректировку, чтобы сохранить историю объекта.');
   };
 
-  const deleteMainMaterial = async (id) => {
-    if (!window.confirm('Удалить материал с основного склада? Это действие доступно только директору.')) return;
-    const res = await fetch(API + '/warehouse-main/' + id, {method: 'DELETE'});
-    if (!res.ok) {
-      let msg = 'Не удалось удалить материал';
-      try {
-        const body = await res.json();
-        msg = body.detail || msg;
-      } catch {}
-      alert(msg);
-      return;
-    }
-    await refreshData();
+  const deleteMainMaterial = async () => {
+    alert('Физическое удаление материала основного склада отключено. Используйте корректировку склада, перемещение или инвентаризацию, чтобы сохранить историю движения.');
   };
 
   const saveTool = async () => {

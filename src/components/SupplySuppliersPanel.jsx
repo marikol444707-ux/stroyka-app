@@ -80,7 +80,7 @@ function SupplySuppliersPanel({
   uploadPhoto,
 }) {
   const [openedSupplierId, setOpenedSupplierId] = React.useState(null);
-  const canEditSuppliers = ['директор','зам_директора','кладовщик','снабженец'].includes(user.role);
+  const canEditSuppliers = ['директор','зам_директора','кладовщик','снабженец'].includes(user?.role || '');
   const emptySupplier = createSupplierForm({
     inn:'',kpp:'',ogrn:'',legalAddress:'',actualAddress:'',bank:'',bik:'',account:'',korAccount:'',
     directorName:'',directorPosition:'',contractUrl:'',contractNumber:'',contractDate:'',licenseUrl:'',priceUrl:'',website:'',notes:''

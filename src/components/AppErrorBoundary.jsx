@@ -1,4 +1,5 @@
 import React from 'react';
+import { sendClientError } from '../api';
 
 const clearStroykaClientCaches = async () => {
   try {
@@ -11,7 +12,7 @@ const clearStroykaClientCaches = async () => {
   try {
     if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
       const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map((registration) => registration.update().catch(() => {})));
+      await Promise.all(registrations.map((registration) => registration.unregister().catch(() => false)));
     }
   } catch (_e) {}
 };
@@ -34,6 +35,14 @@ export default class AppErrorBoundary extends React.Component {
 
   componentDidCatch(error, errorInfo) {
     console.error('Stroyka app render error:', error, errorInfo);
+    sendClientError({
+      type: error?.name || 'ReactRenderError',
+      message: error?.message || 'React render error',
+      stack: [
+        error?.stack || '',
+        errorInfo?.componentStack ? `Component stack:${errorInfo.componentStack}` : '',
+      ].filter(Boolean).join('\n'),
+    });
   }
 
   handleRefresh = async () => {

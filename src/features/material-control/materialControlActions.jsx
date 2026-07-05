@@ -47,6 +47,9 @@ export function createMaterialControlActions({
   _normalizeUnit,
   isLeadership,
 }) {
+  const currentUser = user || {};
+  const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
+
   const createMaterialAlias = async (projectName, aliasName, canonicalName, canonicalUnit = '') => {
     if (!aliasName || !canonicalName) return null;
     const res = await fetch(API + '/material-aliases', {
@@ -85,7 +88,7 @@ export function createMaterialControlActions({
   };
 
   const renderMaterialAliasControls = (projectName, row) => {
-    if (!row?.isOutsideEstimate || !(isLeadership() || ['прораб', 'главный_инженер', 'сметчик', 'снабженец', 'кладовщик'].includes(user?.role))) return null;
+    if (!row?.isOutsideEstimate || !(isLeadershipUser || ['прораб', 'главный_инженер', 'сметчик', 'снабженец', 'кладовщик'].includes(currentUser.role))) return null;
     const candidates = materialAliasCandidates(projectName, row);
     if (!candidates.length) return null;
     const aliasName = row.aliases?.[0] || row.name;
@@ -179,13 +182,13 @@ export function createMaterialControlActions({
         workPackage: rowPackage,
         items: [{ materialName: row.name, quantity: qty, unit, workPackage: rowPackage }],
         project: projectName,
-        createdBy: user.name,
+        createdBy: currentUser.name || '',
         date: new Date().toISOString().split('T')[0],
         notes,
         category: '',
         urgency: row.toBuy > toNum(row.controlPlanQty || row.planQty) * 0.25 ? 'срочная' : 'обычная',
-        requestedByRole: user.role,
-        requestedById: user.id,
+        requestedByRole: currentUser.role || '',
+        requestedById: currentUser.id || null,
         selectedSuppliers: [],
       })
     });
@@ -245,13 +248,13 @@ export function createMaterialControlActions({
           workPackage: requestPackage,
           items,
           project: projectName,
-          createdBy: user.name,
+          createdBy: currentUser.name || '',
           date: new Date().toISOString().split('T')[0],
           notes,
           category: 'Материалы по смете',
           urgency: groupRows.some(row => toNum(row.toBuy) > toNum(row.controlPlanQty || row.planQty) * 0.25) ? 'срочная' : 'обычная',
-          requestedByRole: user.role,
-          requestedById: user.id,
+          requestedByRole: currentUser.role || '',
+          requestedById: currentUser.id || null,
           selectedSuppliers: [],
         })
       });
@@ -303,13 +306,13 @@ export function createMaterialControlActions({
         workPackage: rowPackage,
         items: [{ materialName, quantity: qty, unit, workPackage: rowPackage }],
         project: projectName,
-        createdBy: user.name,
+        createdBy: currentUser.name || '',
         date: new Date().toISOString().split('T')[0],
         notes,
         category: '',
         urgency: qty > toNum(ctrl.planQty) * 0.25 ? 'срочная' : 'обычная',
-        requestedByRole: user.role,
-        requestedById: user.id,
+        requestedByRole: currentUser.role || '',
+        requestedById: currentUser.id || null,
         selectedSuppliers: [],
       })
     });

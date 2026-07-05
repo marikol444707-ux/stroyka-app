@@ -22,6 +22,7 @@
     "smoke:s3-readiness": "bash scripts/check-s3-uploads-readiness.sh",
     "smoke:public-api": "bash scripts/check-public-api-proxy.sh",
     "smoke:public-site": "python3 scripts/check-public-site-static.py",
+    "smoke:browser-prod": "node scripts/smoke-browser-prod.js",
     "generate:public-plans": "node scripts/generate-public-project-plan-assets.js",
     "smoke:data-guard": "python3 scripts/smoke-data-guard.py",
     "smoke:telegram-expense": "python3 scripts/smoke-telegram-own-expense.py",

@@ -71,10 +71,12 @@ export default function ProjectOverviewTab({
 
   const p = project;
   const _bs = budgetSpent || {};
+  const isFinanceUser = typeof isFinanceRole === 'function' ? isFinanceRole() : Boolean(isFinanceRole);
+  const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
 
   return (
     <div>
-      {isFinanceRole() && (
+      {isFinanceUser && (
         <div style={{
           display: 'grid',
           gridTemplateColumns: isMobile ? 'repeat(2,minmax(0,1fr))' : '1fr 1fr 1fr',
@@ -90,7 +92,7 @@ export default function ProjectOverviewTab({
         </div>
       )}
 
-      {isFinanceRole() && (
+      {isFinanceUser && (
         <ProjectEconomyPanel
           C={C}
           card={card}
@@ -159,7 +161,7 @@ export default function ProjectOverviewTab({
               <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bgWhite, border: '1.5px solid ' + C.border }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>Подтверждено</p><b style={{ color: C.success, fontSize: '15px' }}>{confirmed.length}</b></div>
               <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bgWhite, border: '1.5px solid ' + C.border }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>На проверке</p><b style={{ color: C.warning, fontSize: '15px' }}>{pending.length}</b></div>
               {rejected.length > 0 && <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bgWhite, border: '1.5px solid ' + C.border }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>Отклонено</p><b style={{ color: C.danger, fontSize: '15px' }}>{rejected.length}</b></div>}
-              {isFinanceRole() && <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bgWhite, border: '1.5px solid ' + C.border, gridColumn: 'span 2' }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>К оплате исполнителям</p><b style={{ color: C.accent, fontSize: '15px' }}>{Math.round(sumConfirmed).toLocaleString('ru-RU') + ' ₽'}</b></div>}
+              {isFinanceUser && <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bgWhite, border: '1.5px solid ' + C.border, gridColumn: 'span 2' }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>К оплате исполнителям</p><b style={{ color: C.accent, fontSize: '15px' }}>{Math.round(sumConfirmed).toLocaleString('ru-RU') + ' ₽'}</b></div>}
             </div>
           </div>
         );
@@ -199,7 +201,7 @@ export default function ProjectOverviewTab({
       </div>
 
       <div style={{ backgroundColor: C.bg, borderRadius: '10px', padding: '14px', border: '1.5px solid ' + C.border, marginBottom: '12px' }}>
-        {isFinanceRole() && (
+        {isFinanceUser && (
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}><b style={{ color: C.text, fontSize: '13px' }}>Прогресс бюджета</b><span style={{ fontSize: '13px', color: total > p.budget ? C.danger : C.success }}>{Math.round(total).toLocaleString('ru-RU') + ' из ' + p.budget.toLocaleString() + ' ₽'}</span></div>
             <div style={{ backgroundColor: C.bgGray, borderRadius: '6px', height: '10px' }}><div style={{ backgroundColor: total > p.budget ? C.danger : total > p.budget * 0.8 ? C.warning : C.success, width: Math.min(100, p.budget > 0 ? total / p.budget * 100 : 0) + '%', height: '100%', borderRadius: '6px', transition: 'width 0.3s' }} /></div>
@@ -224,7 +226,7 @@ export default function ProjectOverviewTab({
 
       <div>
         <b style={{ color: C.text, fontSize: '13px' }}>Задачи:</b>
-        {isLeadership() && (
+        {isLeadershipUser && (
           <div style={{ display: 'flex', gap: '8px', marginTop: '8px', marginBottom: '10px' }}>
             <input placeholder="Новая задача..." value={newTask} onChange={e => setNewTask(e.target.value)} onKeyDown={e => e.key === 'Enter' && addTask(p)} style={{ ...inp, marginBottom: 0, flex: 1, fontSize: '13px' }} />
             <button onClick={() => addTask(p)} style={btnO}><Plus size={14} /></button>
@@ -233,7 +235,7 @@ export default function ProjectOverviewTab({
         {(p.tasks || []).map((t, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', backgroundColor: C.bg, borderRadius: '8px', marginBottom: '6px', border: '1.5px solid ' + C.border }}>
             <span style={{ fontSize: '13px', color: C.text }}>{'• ' + t}</span>
-            {isLeadership() && <button onClick={() => removeTask(p, i)} style={{ ...btnR, padding: '3px 7px', fontSize: '10px' }}><X size={10} /></button>}
+            {isLeadershipUser && <button onClick={() => removeTask(p, i)} style={{ ...btnR, padding: '3px 7px', fontSize: '10px' }}><X size={10} /></button>}
           </div>
         ))}
       </div>

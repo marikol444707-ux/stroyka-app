@@ -13,7 +13,7 @@ const clipClientErrorText = (value, limit = 1000) => {
   return text.length > limit ? text.slice(0, limit - 1) + '…' : text;
 };
 
-const sendClientError = (payload) => {
+export const sendClientError = (payload) => {
   if (!clientErrorLoggingEnabled || typeof window === 'undefined') return;
   const body = JSON.stringify({
     type: clipClientErrorText(payload.type || payload.name || 'ClientError', 120),

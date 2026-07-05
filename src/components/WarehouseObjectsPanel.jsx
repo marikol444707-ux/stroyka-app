@@ -56,7 +56,9 @@ export default function WarehouseObjectsPanel({
   const [objectMaterialSearch, setObjectMaterialSearch] = React.useState('');
   const [manualTransferPackageEdit, setManualTransferPackageEdit] = React.useState(false);
   const useCompactRows = isMobile || (typeof window !== 'undefined' && window.innerWidth <= 1100);
-  const canDeleteProjectMaterial = user?.role === 'директор';
+  const currentUser = user || {};
+  const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
+  const canDeleteProjectMaterial = currentUser.role === 'директор';
   const materialsByProject = React.useMemo(() => {
     const grouped = new Map();
     (materials || []).forEach(material => {
@@ -258,7 +260,7 @@ export default function WarehouseObjectsPanel({
             <h3 style={{ color: C.text, margin: 0, fontSize: '15px', fontWeight: '700', minWidth: 0, overflowWrap: 'anywhere', flex: '1 1 220px' }}>{selectedWarehouseProject}</h3>
           </div>
           <div style={{ display: 'flex', gap: '8px', marginBottom: '15px', flexWrap: 'wrap' }}>
-            {(isLeadership() || user.role === 'прораб' || user.role === 'кладовщик') && (
+            {(isLeadershipUser || currentUser.role === 'прораб' || currentUser.role === 'кладовщик') && (
               <button
                 onClick={async () => {
                   const response = await fetch(API + '/material-transfers?project_name=' + encodeURIComponent(selectedWarehouseProject));
@@ -701,7 +703,7 @@ export default function WarehouseObjectsPanel({
                       invoiceNumber: item.invoiceNumber || newTransfer.invoiceNumber || '',
                       fromLocation: selectedWarehouseProject,
                       projectName: selectedWarehouseProject,
-                      createdBy: user.name
+                      createdBy: currentUser.name || ''
                     };
                     const response = await fetch(API + '/material-transfers', {
                       method: 'POST',

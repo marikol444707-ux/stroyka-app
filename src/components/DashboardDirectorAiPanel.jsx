@@ -16,7 +16,9 @@ export default function DashboardDirectorAiPanel({
   directorAgentError,
   directorAgentSteps,
 }) {
-  if (!isLeadership()) return null;
+  const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
+  const canUseAgent = typeof canUseDirectorAgent === 'function' ? canUseDirectorAgent() : Boolean(canUseDirectorAgent);
+  if (!isLeadershipUser) return null;
 
   return (
     <div style={{marginBottom:'20px'}}>
@@ -39,7 +41,7 @@ export default function DashboardDirectorAiPanel({
           </button>
         ))}
       </div>
-      {canUseDirectorAgent()&&(
+      {canUseAgent&&(
         <div style={{marginTop:'12px',padding:'16px',borderRadius:'18px',background:'rgba(15,23,42,.82)',border:'1px solid rgba(56,189,248,.28)',boxShadow:'0 18px 60px rgba(8,47,73,.22)'}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px',flexWrap:'wrap',marginBottom:'12px'}}>
             <div>

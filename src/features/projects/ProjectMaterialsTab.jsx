@@ -16,13 +16,15 @@ export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagno
     ProjectMaterialsControlPanel, ProjectMaterialsStockPanel, ProjectMaterialsTransferPanel,
     newTransfer,
   } = ctx;
+  const currentUser = user || {};
+  const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
 
   return (
     <div>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
         <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Материалы объекта</b>
             <div style={{display:'flex',gap:'8px'}}>
-              {(isLeadership()||user.role==='прораб'||user.role==='кладовщик')&&(
+              {(isLeadershipUser||currentUser.role==='прораб'||currentUser.role==='кладовщик')&&(
           <button onClick={async()=>{
             const res=await fetch(API+'/material-transfers?project_name='+encodeURIComponent(p.name));
             const data=await res.json();

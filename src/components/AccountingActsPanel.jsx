@@ -53,6 +53,7 @@ export default function AccountingActsPanel({
   brigadeContracts,
   buildBrigadeActContent,
 }) {
+  const isFinanceUser = typeof isFinanceRole === 'function' ? isFinanceRole() : Boolean(isFinanceRole);
   const filteredInterimActs = (interimActs || []).filter(act => matchSearch(listSearch, act.masterName, act.project));
   const workPayTotal = (work) => Number(work.executionTotal ?? work.execution_total ?? 0);
   const parseActWorkIds = (act) => {
@@ -223,7 +224,7 @@ export default function AccountingActsPanel({
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
         <b style={{ color: C.text, fontSize: '15px', fontWeight: '700' }}>📄 Акты к оплате</b>
-        {isFinanceRole() && (
+        {isFinanceUser && (
           <button onClick={() => setShowForm(!showForm)} style={btnO}>
             <Plus size={14} />
             Сформировать акт
@@ -312,7 +313,7 @@ export default function AccountingActsPanel({
                 <button onClick={() => showPreview(buildActContent(act), 'Акт')} style={btnB}>
                   <Eye size={13} />
                 </button>
-                {isFinanceRole() && (
+                {isFinanceUser && (
                   act.scanUrl ? (
                     <a href={fileSrc(act.scanUrl)} target='_blank' rel='noreferrer' style={{ ...btnB, padding: '4px 8px', fontSize: '11px', textDecoration: 'none' }} title='Подписанный акт (скан)'>
                       📎
@@ -339,7 +340,7 @@ export default function AccountingActsPanel({
                     </label>
                   )
                 )}
-                {isFinanceRole() && (
+                {isFinanceUser && (
                   act.scanUrl ? (
                     <button onClick={() => setShowPayActModal(act)} style={btnO}>
                       <DollarSign size={13} />

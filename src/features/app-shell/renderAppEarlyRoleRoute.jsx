@@ -298,7 +298,7 @@ export function renderAppEarlyRoleRoute({
     );
   }
 
-  if (user && ['технадзор', 'заказчик'].includes(user.role)) {
+  if (user && ['технадзор', 'стройконтроль', 'заказчик'].includes(user.role)) {
     return (
       <AppRoleCabinetRoutes
         user={user}

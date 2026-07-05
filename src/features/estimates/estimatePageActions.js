@@ -75,6 +75,8 @@ export function createEstimatePageActions({
   alertFn = window.alert,
   confirmFn = window.confirm,
 }) {
+  const currentUser = user || {};
+  const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
   const sendAiAssistantMessage = async (rawMessage, fallbackText = 'Ошибка соединения с ИИ.') => {
     const msg = String(rawMessage || '').trim();
     if (!msg) return;
@@ -82,7 +84,7 @@ export function createEstimatePageActions({
     setAiMessages(prev => [...prev, {role: 'user', content: msg}]);
     setAiLoading(true);
     try {
-      const context = 'Данные системы: проектов ' + projects.length + ', сотрудников ' + staff.length + ', материалов на складе ' + (materials || []).length + ' позиций, договоров ' + contracts.length + '. Текущий пользователь: ' + user.name + ' (' + ROLE_LABELS[user.role] + ').';
+      const context = 'Данные системы: проектов ' + projects.length + ', сотрудников ' + staff.length + ', материалов на складе ' + (materials || []).length + ' позиций, договоров ' + contracts.length + '. Текущий пользователь: ' + (currentUser.name || '') + ' (' + (ROLE_LABELS[currentUser.role] || currentUser.role || '') + ').';
       const res = await fetchFn(API + '/ai-chat', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({messages: [...aiMessages, {role: 'user', content: context + ' Вопрос: ' + msg}]})});
       const data = await res.json();
       setAiMessages(prev => [...prev, {role: 'assistant', content: data.response || data.error || 'Ошибка ответа'}]);
@@ -183,7 +185,7 @@ export function createEstimatePageActions({
       const projName = newEstimate.projectName || ((projects || []).find(p => p.id === Number(newEstimate.projectId))?.name || '');
       const fileName = file.name.replace('.xlsx', '').replace('.xls', '');
       const resolvedWorkPackage = resolveEstimatePackage(newEstimate.workPackage, fileName, newEstimate.name);
-      const estimateStatus = isLeadership() ? (newEstimate.status || 'Активная') : 'Черновик';
+      const estimateStatus = isLeadershipUser ? (newEstimate.status || 'Активная') : 'Черновик';
       const estDraft = {
         projectId: newEstimate.projectId,
         projectName: projName,

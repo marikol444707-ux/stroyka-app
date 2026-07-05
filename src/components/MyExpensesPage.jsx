@@ -15,12 +15,13 @@ export default function MyExpensesPage({
   setShowPhotoModal,
   user,
 }) {
+  const currentUser = user || {};
   const [projectFilter, setProjectFilter] = useState('');
   const [employeeFilter, setEmployeeFilter] = useState('');
   const [openEmployeeGroups, setOpenEmployeeGroups] = useState({});
   const reviewerRoles = ['директор','зам_директора','бухгалтер'];
-  const canReviewAll = reviewerRoles.includes(user.role);
-  const baseExp = canReviewAll ? (ownExpenses||[]) : (ownExpenses||[]).filter(e=>e.employeeName===user.name||e.employeeId===user.id);
+  const canReviewAll = reviewerRoles.includes(currentUser.role);
+  const baseExp = canReviewAll ? (ownExpenses||[]) : (ownExpenses||[]).filter(e=>e.employeeName===currentUser.name||e.employeeId===currentUser.id);
   const projectNames = useMemo(() => {
     const names = new Set((projectOptions||[]).map(p=>p.name).filter(Boolean));
     (ownExpenses||[]).forEach(e=>{ if(e.projectName) names.add(e.projectName); });
@@ -40,7 +41,7 @@ export default function MyExpensesPage({
   const sumP=pending.reduce((s,e)=>s+Number(e.amount||0),0);
   const sumA=approved.reduce((s,e)=>s+Number(e.amount||0),0);
   const sumR=rejected.reduce((s,e)=>s+Number(e.amount||0),0);
-  const myAcc=(accountablePayments||[]).filter(a=>a.givenTo===user.name&&Number(a.amount||0)>Number(a.spentAmount||0));
+  const myAcc=(accountablePayments||[]).filter(a=>a.givenTo===currentUser.name&&Number(a.amount||0)>Number(a.spentAmount||0));
   const sortExpenseRows = (items) => [...items].sort((a,b)=>{
     const dateA = String(a.date || a.createdAt || '');
     const dateB = String(b.date || b.createdAt || '');

@@ -353,7 +353,7 @@ def _two_factor_challenge_response(user: dict) -> dict:
         "role": user.get("role") or "",
     }
 
-def public_user(row: dict, include_token: bool = False) -> dict:
+def public_user(row: dict, include_token: bool = False, two_factor_passed: bool = False) -> dict:
     assigned_projects = _safe_project_list(row.get("assignedProjects", row.get("assigned_projects", [])))
     assigned_packages = _safe_project_list(row.get("assignedPackages", row.get("assigned_packages", [])))
     active_value = row.get("active")
@@ -381,7 +381,7 @@ def public_user(row: dict, include_token: bool = False) -> dict:
     if row.get("vkId") or row.get("vk_id"):
         user["vkId"] = row.get("vkId") or row.get("vk_id")
     if include_token:
-        user["authToken"] = create_auth_token(dict(row))
+        user["authToken"] = create_auth_token(dict(row), two_factor_passed=two_factor_passed)
     return user
 
 def _b64url(data: bytes) -> str:
@@ -391,12 +391,13 @@ def _b64url_decode(data: str) -> bytes:
     padding = "=" * (-len(data) % 4)
     return base64.urlsafe_b64decode((data + padding).encode("utf-8"))
 
-def create_auth_token(user: dict) -> str:
+def create_auth_token(user: dict, two_factor_passed: bool = False) -> str:
     payload = {
         "id": user.get("id"),
         "email": user.get("email") or "",
         "role": user.get("role") or "",
         "name": user.get("name") or "",
+        "twoFactorPassed": bool(two_factor_passed),
         "exp": int(time.time()) + AUTH_TOKEN_TTL_SECONDS,
     }
     body = _b64url(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
@@ -470,7 +471,7 @@ def _create_auth_session(cur, user: dict, request: Optional[Request], two_factor
     )
     return token
 
-def _public_user_by_id(user_id) -> dict:
+def _public_user_by_id(user_id, two_factor_passed: bool = False) -> dict:
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT * FROM users WHERE id=%s", (user_id,))
@@ -482,13 +483,15 @@ def _public_user_by_id(user_id) -> dict:
         raise HTTPException(status_code=401, detail="Пользователь не найден")
     if user.get("active") is False:
         raise HTTPException(status_code=403, detail="Аккаунт отключён. Обратитесь к администратору.")
-    return public_user(user, include_token=True)
+    if _user_requires_2fa(user) and not two_factor_passed:
+        raise HTTPException(status_code=401, detail="Требуется подтверждение 2FA")
+    return public_user(user, include_token=True, two_factor_passed=two_factor_passed)
 
 def _current_user_from_bearer(authorization: Optional[str]) -> dict:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Требуется вход в систему")
     payload = verify_auth_token(authorization.split(" ", 1)[1].strip())
-    return _public_user_by_id(payload.get("id"))
+    return _public_user_by_id(payload.get("id"), two_factor_passed=bool(payload.get("twoFactorPassed")))
 
 def _current_user_from_session_cookie(request: Optional[Request]) -> dict:
     token = request.cookies.get(AUTH_SESSION_COOKIE_NAME) if request else ""
@@ -518,7 +521,7 @@ def _current_user_from_session_cookie(request: Optional[Request]) -> dict:
         raise HTTPException(status_code=403, detail="Аккаунт отключён. Обратитесь к администратору.")
     if _user_requires_2fa(user) and not user.get("auth_session_two_factor_passed"):
         raise HTTPException(status_code=401, detail="Требуется подтверждение 2FA")
-    return public_user(user, include_token=True)
+    return public_user(user, include_token=True, two_factor_passed=bool(user.get("auth_session_two_factor_passed")))
 
 def get_current_user(request: Request, authorization: Optional[str] = Header(default=None)) -> dict:
     if authorization and authorization.lower().startswith("bearer "):
@@ -2432,6 +2435,20 @@ def init_db():
             sort_order INT DEFAULT 0,
             updated_at TIMESTAMP DEFAULT NOW(),
             UNIQUE(group_key, item_key)
+        );
+        CREATE TABLE IF NOT EXISTS crm_leads (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(255),
+            phone VARCHAR(50),
+            email VARCHAR(255),
+            source VARCHAR(255),
+            budget NUMERIC(14,2) DEFAULT 0,
+            notes TEXT,
+            stage VARCHAR(50) DEFAULT 'Новый',
+            project_id INT,
+            photo_url TEXT,
+            created_by VARCHAR(255),
+            created_at VARCHAR(50)
         );
 	        ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS project_id INT;
 	        ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS photo_url TEXT;
@@ -4828,7 +4845,7 @@ def login(data: LoginModel, response: Response, request: Request):
     log_audit(user_name=user.get("name",""), user_role=user.get("role",""),
               action="login", entity_type="user", entity_id=user['id'],
               description="Успешный вход в систему")
-    return public_user(user, include_token=True)
+    return public_user(user, include_token=True, two_factor_passed=False)
 
 @app.post("/login/2fa/verify")
 def verify_login_2fa(data: TwoFactorVerifyModel, response: Response, request: Request):
@@ -4855,7 +4872,7 @@ def verify_login_2fa(data: TwoFactorVerifyModel, response: Response, request: Re
     log_audit(user_name=user.get("name",""), user_role=user.get("role",""),
               action="login", entity_type="user", entity_id=user['id'],
               description="Успешный вход в систему с 2FA")
-    return public_user(user, include_token=True)
+    return public_user(user, include_token=True, two_factor_passed=True)
 
 @app.post("/login/2fa/setup-confirm")
 def confirm_login_2fa_setup(data: TwoFactorSetupConfirmModel, response: Response, request: Request):
@@ -4887,7 +4904,7 @@ def confirm_login_2fa_setup(data: TwoFactorSetupConfirmModel, response: Response
     log_audit(user_name=user.get("name",""), user_role=user.get("role",""),
               action="2fa_setup", entity_type="user", entity_id=user['id'],
               description="Пользователь включил 2FA")
-    return public_user(user, include_token=True)
+    return public_user(user, include_token=True, two_factor_passed=True)
 
 @app.post("/logout")
 def logout(response: Response, request: Request):
@@ -5231,13 +5248,24 @@ def register(data: dict, response: Response, request: Request):
                     _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite")
         cur.execute("UPDATE invite_codes SET used=TRUE WHERE code=%s", (code,))
         session_token = None
-        if not _user_requires_2fa(user):
+        if _user_requires_2fa(user):
+            secret = user.get("two_factor_secret") or _generate_totp_secret()
+            cur.execute(
+                "UPDATE users SET two_factor_secret=%s, two_factor_enabled=FALSE, two_factor_required=TRUE WHERE id=%s",
+                (secret, user["id"]),
+            )
+            user["two_factor_secret"] = secret
+            user["two_factor_enabled"] = False
+            user["two_factor_required"] = True
+        else:
             session_token = _create_auth_session(cur, user, request, two_factor_passed=False)
         conn.commit()
         conn.close()
+        if _user_requires_2fa(user):
+            return _two_factor_setup_response(user, user.get("two_factor_secret") or secret)
         if session_token:
             _set_auth_session_cookie(response, session_token)
-        return public_user(user, include_token=True)
+        return public_user(user, include_token=True, two_factor_passed=False)
     except HTTPException:
         conn.close()
         raise
@@ -5528,26 +5556,10 @@ def update_material(id: int, m: MaterialModel, _current_user: dict = Depends(req
 
 @app.delete("/materials/{id}")
 def delete_material(id: int, _current_user: dict = Depends(require_roles("директор"))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT COALESCE(project,''), COALESCE(name,''), COALESCE(quantity,0), COALESCE(unit,'') FROM materials WHERE id=%s", (id,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Материал не найден")
-    cur.execute("DELETE FROM materials WHERE id=%s", (id,))
-    conn.commit()
-    conn.close()
-    log_audit(
-        _current_user.get("name", ""),
-        _current_user.get("role", ""),
-        "delete",
-        "material",
-        id,
-        (f"Удален материал со склада: {row[1]} ({row[2]} {row[3]})")[:250],
-        row[0] or "",
+    raise HTTPException(
+        status_code=405,
+        detail="Физическое удаление материалов объекта отключено. Используйте списание, возврат, перемещение или корректировочную операцию, чтобы сохранить историю объекта.",
     )
-    return {"ok": True}
 
 @app.get("/warehouse-main")
 def get_warehouse_main(current_user: dict = Depends(get_current_user)):
@@ -5592,26 +5604,10 @@ def update_warehouse_main(id: int, m: WarehouseMainModel, _current_user: dict = 
 
 @app.delete("/warehouse-main/{id}")
 def delete_warehouse_main(id: int, _current_user: dict = Depends(require_roles("директор"))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT COALESCE(name,''), COALESCE(quantity,0), COALESCE(unit,'') FROM warehouse_main WHERE id=%s", (id,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Материал не найден")
-    cur.execute("DELETE FROM warehouse_main WHERE id=%s", (id,))
-    conn.commit()
-    conn.close()
-    log_audit(
-        _current_user.get("name", ""),
-        _current_user.get("role", ""),
-        "delete",
-        "warehouse_main",
-        id,
-        (f"Удален материал основного склада: {row[0]} ({row[1]} {row[2]})")[:250],
-        "",
+    raise HTTPException(
+        status_code=405,
+        detail="Физическое удаление материалов основного склада отключено. Используйте корректировку склада, перемещение или инвентаризацию, чтобы сохранить историю движения.",
     )
-    return {"ok": True}
 
 @app.get("/warehouse-movements")
 def get_warehouse_movements(current_user: dict = Depends(get_current_user)):
@@ -11414,6 +11410,94 @@ def _sync_contract_item_done(cur, contract_item_id, delta_qty: float):
                    SET done_quantity = GREATEST(0, LEAST(COALESCE(quantity,0), COALESCE(done_quantity,0)+%s))
                    WHERE id=%s""", (_float_or_zero(delta_qty), contract_item_id))
 
+def _recalculate_contract_item_done_from_work_journal(cur, contract_item_id):
+    if not contract_item_id:
+        return
+    cur.execute("""SELECT COALESCE(SUM(COALESCE(quantity,0)),0) AS qty
+                   FROM work_journal
+                   WHERE contract_item_id=%s AND COALESCE(status,'')='Подтверждено'""",
+                (contract_item_id,))
+    row = cur.fetchone()
+    confirmed_qty = _float_or_zero((row.get("qty") if isinstance(row, dict) else row[0]) if row else 0)
+    cur.execute("""UPDATE brigade_contract_items
+                   SET done_quantity = GREATEST(0, LEAST(COALESCE(quantity,0), %s))
+                   WHERE id=%s""", (confirmed_qty, contract_item_id))
+
+def _recalculate_estimate_item_done_from_work_journal(cur, work_row: dict):
+    if not work_row:
+        return False
+    estimate_id = work_row.get("estimate_id") or work_row.get("estimateId")
+    if not estimate_id:
+        return False
+    target_key = str(work_row.get("estimate_item_key") or work_row.get("estimateItemKey") or "").strip()
+    target_section = str(work_row.get("section_name") or work_row.get("sectionName") or "").strip()
+    target_name = str(work_row.get("estimate_item_name") or work_row.get("estimateItemName") or work_row.get("description") or "").strip()
+    cur.execute("SELECT sections_json FROM estimates WHERE id=%s FOR UPDATE", (estimate_id,))
+    est_row = cur.fetchone()
+    if not est_row:
+        return False
+    raw_sections = est_row.get("sections_json") if isinstance(est_row, dict) else est_row[0]
+    try:
+        sections = json.loads(raw_sections) if isinstance(raw_sections, str) else (raw_sections or [])
+    except Exception:
+        return False
+
+    target = None
+    fallback = None
+    section_key = target_section.lower()
+    name_key = target_name.lower()
+    for section_idx, section in enumerate(sections or []):
+        if not isinstance(section, dict):
+            continue
+        section_name = str(section.get("name") or "").strip()
+        for item_idx, item in enumerate(section.get("items") or []):
+            if not isinstance(item, dict):
+                continue
+            item_name = str(item.get("name") or item.get("description") or "").strip()
+            keys = _estimate_item_key_candidates(item, estimate_id, section_idx, item_idx)
+            if target_key and target_key in keys:
+                target = (section, item, section_name, item_name, target_key)
+                break
+            if name_key and item_name.lower() == name_key:
+                if not section_key or section_name.lower() == section_key:
+                    target = (section, item, section_name, item_name, keys[0] if keys else "")
+                    break
+                fallback = fallback or (section, item, section_name, item_name, keys[0] if keys else "")
+        if target:
+            break
+    if not target:
+        target = fallback
+    if not target:
+        return False
+
+    _section, item, section_name, item_name, canonical_key = target
+    if canonical_key:
+        cur.execute("""SELECT COALESCE(SUM(COALESCE(quantity,0)),0) AS qty
+                       FROM work_journal
+                       WHERE estimate_id=%s
+                         AND COALESCE(status,'')='Подтверждено'
+                         AND COALESCE(estimate_item_key,'')=%s""",
+                    (estimate_id, canonical_key))
+    else:
+        cur.execute("""SELECT COALESCE(SUM(COALESCE(quantity,0)),0) AS qty
+                       FROM work_journal
+                       WHERE estimate_id=%s
+                         AND COALESCE(status,'')='Подтверждено'
+                         AND COALESCE(section_name,'')=%s
+                         AND COALESCE(NULLIF(estimate_item_name,''), description, '')=%s""",
+                    (estimate_id, section_name, item_name))
+    row = cur.fetchone()
+    confirmed_qty = _float_or_zero((row.get("qty") if isinstance(row, dict) else row[0]) if row else 0)
+    plan_qty = _safe_float(item.get("quantity"))
+    if plan_qty > 0:
+        confirmed_qty = min(confirmed_qty, plan_qty)
+    if abs(_safe_float(item.get("doneQuantity")) - confirmed_qty) < 0.000001:
+        return False
+    item["doneQuantity"] = confirmed_qty
+    cur.execute("UPDATE estimates SET sections_json=%s WHERE id=%s",
+                (json.dumps(sections, ensure_ascii=False), estimate_id))
+    return True
+
 def _work_material_key(material: dict, cur=None, project: str = ""):
     name = (material.get("name") or "").strip()
     unit = (material.get("unit") or "").strip()
@@ -11679,7 +11763,7 @@ def _work_journal_sync_row(cur, work_journal_id: int):
     cur.execute("""SELECT id, master_id, master_name, project, description, surface, unit, quantity,
                           price_per_unit, total, date, status, photo_url, confirmed_by,
                           room_id, room_name, work_package, estimate_item_key, contract_item_id, estimate_id,
-                          section_name, hidden_work, materials_used, project_docs,
+                          section_name, estimate_item_name, hidden_work, materials_used, project_docs,
                           customer_price_per_unit, customer_total
                    FROM work_journal WHERE id=%s""", (work_journal_id,))
     row = cur.fetchone()
@@ -11884,7 +11968,7 @@ def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(requi
                      journal_work_package,journal_room_id,journal_room_name,w.surface,w.estimateItemName or journal_description,journal_estimate_item_key,
                      contract_item_id,customer_price,customer_total,execution_price,execution_total,execution_mode))
         row = cur.fetchone()
-        _sync_contract_item_done(cur, contract_item_id, w.quantity)
+        _recalculate_contract_item_done_from_work_journal(cur, contract_item_id)
         _sync_room_work_from_journal(cur, row)
         _sync_hidden_work_act_from_journal(cur, row)
         conn.commit()
@@ -11918,8 +12002,8 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
     require_row_project_access(cur, "work_journal", id, _current_user, "project")
     cur.execute("""SELECT project, master_id, master_name, room_id, room_name, description,
                           estimate_item_key, work_package, status, quantity, unit, date, materials_used,
-                          contract_item_id, estimate_id, section_name
-		                   FROM work_journal WHERE id=%s FOR UPDATE""", (id,))
+                          contract_item_id, estimate_id, section_name, estimate_item_name
+				                   FROM work_journal WHERE id=%s FOR UPDATE""", (id,))
     project_row = cur.fetchone()
     project_name = project_row.get("project") if project_row else ""
     role = _current_user.get("role")
@@ -12095,9 +12179,10 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
             return {"ok": True}
         vals.append(id)
         cur.execute("UPDATE work_journal SET " + ", ".join(sets) + " WHERE id=%s", vals)
-        if contract_item_id and "quantity" in data:
-            _sync_contract_item_done(cur, contract_item_id, new_qty - old_qty)
         updated_row = _work_journal_sync_row(cur, id)
+        if contract_item_id:
+            _recalculate_contract_item_done_from_work_journal(cur, contract_item_id)
+        _recalculate_estimate_item_done_from_work_journal(cur, updated_row)
         _sync_room_work_from_journal(cur, updated_row)
         _sync_hidden_work_act_from_journal(cur, updated_row)
         conn.commit()
@@ -12132,7 +12217,10 @@ def delete_work_journal(id: int, _current_user: dict = Depends(require_roles(*LE
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         require_row_project_access(cur, "work_journal", id, _current_user, "project")
-        cur.execute("SELECT project, master_id, master_name, date, status, comment, materials_used, work_package, quantity, contract_item_id, description FROM work_journal WHERE id=%s FOR UPDATE", (id,))
+        cur.execute("""SELECT project, master_id, master_name, date, status, comment, materials_used,
+                              work_package, quantity, contract_item_id, description, estimate_id,
+                              section_name, estimate_item_key, estimate_item_name
+                       FROM work_journal WHERE id=%s FOR UPDATE""", (id,))
         work = cur.fetchone()
         if not work:
             conn.rollback()
@@ -12189,7 +12277,8 @@ def delete_work_journal(id: int, _current_user: dict = Depends(require_roles(*LE
             cancel_note += " (" + actor_name + ")"
         new_comment = (old_comment + "\n" + cancel_note).strip() if old_comment else cancel_note
         cur.execute("UPDATE work_journal SET status=%s, comment=%s WHERE id=%s", ("Отклонено", new_comment, id))
-        _sync_contract_item_done(cur, work.get("contract_item_id"), -_float_or_zero(work.get("quantity")))
+        _recalculate_contract_item_done_from_work_journal(cur, work.get("contract_item_id"))
+        _recalculate_estimate_item_done_from_work_journal(cur, work)
         _mark_room_work_rejected(cur, id, actor_name)
         conn.commit()
         log_audit(
@@ -17320,15 +17409,28 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
     if new_status == "Активная" and new_status != prev_status and _current_user.get("role") not in LEADERSHIP_ROLES:
         cur.close(); conn.close()
         raise HTTPException(status_code=403, detail="Активировать смету может только директор или замдиректора")
-    cur.execute("UPDATE estimates SET name=%s,version=%s,sections_json=%s,smeta_type=%s,work_package=%s,status=%s WHERE id=%s",
-        (new_name,new_version,j.dumps(new_sections,ensure_ascii=False),new_smeta_type,new_work_package,new_status,id))
-
     # Build lookup of old done qty by (section name, item name)
     old_done = {}
     for s in old_sections:
         for it in (s.get("items") or []):
             key = (s.get("name",""), it.get("name",""))
             old_done[key] = float(it.get("doneQuantity") or 0)
+
+    journal_sections = j.loads(j.dumps(new_sections, ensure_ascii=False))
+    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
+        for s in new_sections:
+            for it in (s.get("items") or []):
+                key = (s.get("name",""), it.get("name",""))
+                old_q = old_done.get(key, 0)
+                try:
+                    new_done = float(it.get("doneQuantity") or 0)
+                except Exception:
+                    new_done = 0
+                if new_done > old_q:
+                    it["doneQuantity"] = old_q
+
+    cur.execute("UPDATE estimates SET name=%s,version=%s,sections_json=%s,smeta_type=%s,work_package=%s,status=%s WHERE id=%s",
+        (new_name,new_version,j.dumps(new_sections,ensure_ascii=False),new_smeta_type,new_work_package,new_status,id))
 
     today = _date.today().isoformat()
     journal_added = 0
@@ -17393,7 +17495,7 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                 used.append(row)
         return used
 
-    for section_idx, s in enumerate(new_sections):
+    for section_idx, s in enumerate(journal_sections):
         for item_idx, it in enumerate(s.get("items") or []):
             new_done = float(it.get("doneQuantity") or 0)
             key = (s.get("name",""), it.get("name",""))
@@ -17490,8 +17592,10 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                              estimate_item_key,
                              contract_item_id, customer_price, round(delta*customer_price,2), execution_price, round(delta*execution_price,2), execution_mode))
                 work_journal_id = cur.fetchone()[0]
-                _sync_contract_item_done(cur, contract_item_id, delta)
                 work_row = _work_journal_sync_row(cur, work_journal_id)
+                _recalculate_contract_item_done_from_work_journal(cur, contract_item_id)
+                if auto_journal_status == "Подтверждено":
+                    _recalculate_estimate_item_done_from_work_journal(cur, work_row)
                 _sync_room_work_from_journal(cur, work_row)
                 acts_added += _sync_hidden_work_act_from_journal(cur, work_row)
                 journal_added += 1
@@ -17527,8 +17631,8 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                     print("AUTO-ACT ERROR:", str(e))
 
     # Смета — единый источник «Сделано»: синхронизируем выполнение в позиции бригады.
-    # Позиция сметы привязана к бригаде через brigadeName (колонка «Кому»),
-    # к позиции наряда — по совпадению наименования. Объём капается планом наряда.
+    # Нельзя связывать строки только по названию: одинаковые работы встречаются
+    # в разных разделах и пакетах. Синхронизация допустима только по ключу строки.
     brigade_synced = 0
     try:
         cur.execute("SELECT id, brigade_name FROM brigade_contracts WHERE project_name=%s", (project_name,))
@@ -17537,23 +17641,31 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
         for bc_id, bname in bc_rows:
             bc_by_name.setdefault((bname or "").strip().lower(), []).append(bc_id)
         if bc_by_name:
-            for s in new_sections:
-                for it in (s.get("items") or []):
+            estimate_work_package = (new_work_package or "Основная").strip() or "Основная"
+            for section_idx, s in enumerate(new_sections):
+                for item_idx, it in enumerate(s.get("items") or []):
                     bn = (it.get("brigadeName") or "").strip().lower()
                     if not bn or bn not in bc_by_name:
                         continue
                     done = float(it.get("doneQuantity") or 0)
-                    iname = (it.get("name") or "").strip().lower()
-                    if not iname:
+                    item_keys = _estimate_item_key_candidates(it, id, section_idx, item_idx)
+                    item_key = item_keys[0] if item_keys else ""
+                    if not item_key:
                         continue
                     qty = float(it.get("quantity") or 0)
+                    unit = (it.get("unit") or "").strip()
                     for bc_id in bc_by_name[bn]:
                         cur.execute(
                             "UPDATE brigade_contract_items "
                             "SET quantity = CASE WHEN COALESCE(quantity,0)>0 THEN quantity ELSE %s END, "
                             "done_quantity = LEAST(%s, CASE WHEN COALESCE(quantity,0)>0 THEN quantity ELSE %s END) "
-                            "WHERE contract_id=%s AND LOWER(TRIM(description))=%s",
-                            (qty, done, qty, bc_id, iname))
+                            "WHERE contract_id=%s "
+                            "AND COALESCE(estimate_item_key,'')=%s "
+                            "AND (%s='' OR COALESCE(NULLIF(work_package,''),'Основная')=%s) "
+                            "AND (%s='' OR COALESCE(unit,'')='' OR COALESCE(unit,'')=%s)",
+                            (qty, done, qty, bc_id, item_key,
+                             estimate_work_package, estimate_work_package,
+                             unit, unit))
                         brigade_synced += cur.rowcount or 0
     except Exception as e:
         print("BRIGADE-SYNC ERROR:", str(e))
@@ -17759,6 +17871,13 @@ def include_estimate_changes(id: int, data: dict, current_user: dict = Depends(r
     new_name = data.get("name") or (name or "Смета") + " — ред. " + str(new_version)
     conn.autocommit = False
     try:
+        cur.execute("""UPDATE estimates
+                       SET status='Архив'
+                       WHERE project_name=%s
+                         AND COALESCE(smeta_type,'Заказчик')=%s
+                         AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                         AND status='Активная'""",
+                    (project_name, smeta_type, work_package))
         cur.execute("""INSERT INTO estimates
                        (project_id, project_name, name, version, sections_json, smeta_type, work_package, status)
                        VALUES (%s,%s,%s,%s,%s,%s,%s,'Активная') RETURNING id, created_at""",
@@ -17893,63 +18012,10 @@ def get_estimate_version_detail(version_id: int, _current_user: dict = Depends(r
 
 @app.delete("/estimates/{id}")
 def delete_estimate(id: int, hard: bool = False, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
-    if current_user.get("role") != "директор":
-        raise HTTPException(status_code=403, detail="Безвозвратно удалять смету может только директор. Для работы используйте снятие активности или статус черновика.")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    conn.autocommit = False
-    try:
-        require_row_project_access(cur, "estimates", id, current_user, "project_name")
-    except Exception:
-        conn.rollback()
-        cur.close(); conn.close()
-        raise
-    cur.execute("SELECT id,name,project_name,COALESCE(NULLIF(work_package,''),'Основная') AS work_package FROM estimates WHERE id=%s", (id,))
-    row = cur.fetchone()
-    if not row:
-        conn.rollback()
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Смета не найдена")
-    if not hard:
-        conn.rollback()
-        cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail="Для удаления сметы нужен явный режим hard=true")
-    linked_checks = [
-        ("ЖПР", "SELECT COUNT(*) AS cnt FROM work_journal WHERE estimate_id=%s"),
-        ("АОСР", "SELECT COUNT(*) AS cnt FROM hidden_works_acts WHERE estimate_id=%s"),
-        ("договорные позиции", "SELECT COUNT(*) AS cnt FROM brigade_contract_items WHERE estimate_item_key LIKE %s"),
-    ]
-    blockers = []
-    for label, query in linked_checks:
-        param = (str(id) + ":%",) if "LIKE" in query else (id,)
-        cur.execute(query, param)
-        cnt = int((cur.fetchone() or {}).get("cnt") or 0)
-        if cnt:
-            blockers.append(label + ": " + str(cnt))
-    project_name = row.get("project_name") or ""
-    work_package = row.get("work_package") or "Основная"
-    material_linked_checks = [
-        ("заявки снабжения", "SELECT COUNT(*) AS cnt FROM supply_requests WHERE project=%s AND COALESCE(NULLIF(work_package,''),'Основная')=%s", (project_name, work_package)),
-        ("поставки", "SELECT COUNT(*) AS cnt FROM supply_deliveries WHERE project=%s AND COALESCE(NULLIF(work_package,''),'Основная')=%s", (project_name, work_package)),
-        ("склад объекта", "SELECT COUNT(*) AS cnt FROM materials WHERE project=%s AND COALESCE(NULLIF(work_package,''),'Основная')=%s", (project_name, work_package)),
-        ("история склада", "SELECT COUNT(*) AS cnt FROM warehouse_history WHERE project=%s AND COALESCE(NULLIF(work_package,''),'Основная')=%s", (project_name, work_package)),
-        ("накладные объекта", "SELECT COUNT(*) AS cnt FROM warehouse_invoices WHERE project=%s", (project_name,)),
-    ]
-    for label, query, params in material_linked_checks:
-        cur.execute(query, params)
-        cnt = int((cur.fetchone() or {}).get("cnt") or 0)
-        if cnt:
-            blockers.append(label + ": " + str(cnt))
-    if blockers:
-        conn.rollback()
-        cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail="Смета уже связана с документами (" + "; ".join(blockers) + "). Удаление запрещено, чтобы не потерять историю объекта.")
-    cur.execute("DELETE FROM estimate_versions WHERE estimate_id=%s", (id,))
-    cur.execute("DELETE FROM estimates WHERE id=%s", (id,))
-    conn.commit()
-    cur.close(); conn.close()
-    _run_project_ai_control_safely(row.get("project_name") or "", "estimate:delete")
-    return {"ok": True, "deleted": id}
+    raise HTTPException(
+        status_code=405,
+        detail="Физическое удаление смет отключено. Сметы хранятся как версии объекта; лишнюю редакцию нужно снимать из активных или переводить в черновик отдельным действием без потери истории.",
+    )
 
 @app.get("/brigade-contracts")
 def get_brigade_contracts(project_name: str = None, _current_user: dict = Depends(require_roles(*CONTRACT_ROLES))):

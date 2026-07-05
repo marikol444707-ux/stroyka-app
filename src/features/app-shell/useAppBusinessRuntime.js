@@ -22,6 +22,7 @@ import { _normalizeUnit, fmtMeasure, toNum } from '../../utils/measureUtils';
 import { createAppRoleRuntime } from './appShellSelectors';
 export function useAppBusinessRuntime({
   API,
+  user: authUser,
   constants,
   appMainState,
   coreRuntime,
@@ -153,13 +154,14 @@ export function useAppBusinessRuntime({
     supplyRequests,
     timesheet,
     unexpectedWorksList,
-    user,
+    user: appMainUser,
     users,
     warehouseMain,
     warehouseMovements,
     workJournal,
     estimatesList
   } = appMainState;
+  const user = authUser || appMainUser || null;
   const aiTaskActions = createAiTaskActions({
     API,
     aiFindings,

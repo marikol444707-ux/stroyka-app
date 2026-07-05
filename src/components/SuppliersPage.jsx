@@ -61,6 +61,7 @@ function SuppliersPage({
   supplyDeliveries,
   supplyHistory,
 }) {
+  const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
   const supplierRequestPackages = typeof getProjectWorkPackageOptions === 'function'
     ? getProjectWorkPackageOptions(newRequest.project)
     : [];
@@ -232,7 +233,7 @@ function SuppliersPage({
                               ? <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{'Цена: '+Number(o.pricePerUnit||0).toLocaleString('ru-RU')+' ₽/ед · Итого: '+Number(o.totalPrice||0).toLocaleString('ru-RU')+' ₽'+(o.deliveryDays?' · '+o.deliveryDays+' дней':'')+(o.notes?' · '+o.notes:'')}</p>
                               : <p style={{color:C.textMuted,margin:'2px 0',fontSize:'11px',fontStyle:'italic'}}>⏳ Ждём ответ поставщика</p>}
                           </div>
-                          {o.status==='Ожидает'&&isLeadership()&&hasPrice&&<button onClick={()=>approveOffer(o)} style={{...btnGr,padding:'4px 10px',fontSize:'11px'}}><Check size={11}/>Утвердить</button>}
+                          {o.status==='Ожидает'&&isLeadershipUser&&hasPrice&&<button onClick={()=>approveOffer(o)} style={{...btnGr,padding:'4px 10px',fontSize:'11px'}}><Check size={11}/>Утвердить</button>}
                           {o.status==='Утверждено'&&<span style={badge(C.success,C.successLight,C.successBorder)}>✅ Утверждено</span>}
                         </div>
                       );
@@ -276,7 +277,7 @@ function SuppliersPage({
                       {isMulti && (<ol style={{margin:'4px 0 0',paddingLeft:'18px',color:C.textSec,fontSize:'11px'}}>{items.map((it,i)=>(<li key={i} style={{marginBottom:'1px'}}>{it.materialName} <span>— {it.quantity} {it.unit}</span></li>))}</ol>)}
                       {renderSupplyRequestOrigin(req,{compact:true})}
                     </div>
-                    {receivedOffers.length>=2 && isLeadership() && !winner && (
+                    {receivedOffers.length>=2 && isLeadershipUser && !winner && (
                       <button onClick={()=>runCompareKp(req.id)} disabled={compareLoading} style={{...btnGr,padding:'5px 12px',fontSize:'12px',opacity:compareLoading?0.6:1}}>
                         <Bot size={12}/>{compareLoading?'AI сравнивает...':'🤖 Сравнить через AI'}
                       </button>
@@ -360,7 +361,7 @@ function SuppliersPage({
                           </div>
                           <div style={{display:'flex',gap:'4px',alignItems:'center',flexWrap:'wrap'}}>
                             <span style={badge(stC,stBg,stBd)}>{o.status||'—'}</span>
-                            {o.status==='Получено' && isLeadership() && (<>
+                            {o.status==='Получено' && isLeadershipUser && (<>
                               <button onClick={()=>selectSupplierOffer(o.id)} style={{...btnGr,padding:'3px 8px',fontSize:'11px'}}><Check size={11}/>Выбрать</button>
                               <button onClick={()=>rejectSupplierOffer(o.id)} style={{...btnR,padding:'3px 8px',fontSize:'11px'}}><X size={11}/></button>
                             </>)}

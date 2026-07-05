@@ -1,10 +1,33 @@
+export const normalizeStoredUser = (value) => {
+  const source = value && typeof value === 'object' && value.user && typeof value.user === 'object'
+    ? value.user
+    : value;
+  if (!source || typeof source !== 'object') return null;
+  const role = String(source.role || '').trim();
+  const email = String(source.email || '').trim();
+  const name = String(source.name || '').trim();
+  if (!role || (!email && !name && !source.id)) return null;
+  return {
+    ...source,
+    role,
+    email,
+    name: name || email || 'Пользователь',
+  };
+};
+
 export const loadStoredUser = () => {
   if (typeof window === 'undefined') return null;
   try {
     const token = localStorage.getItem('authToken');
     const rawUser = localStorage.getItem('user');
     if (!token || !rawUser) return null;
-    return JSON.parse(rawUser);
+    const user = normalizeStoredUser(JSON.parse(rawUser));
+    if (!user) {
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+      return null;
+    }
+    return user;
   } catch {
     localStorage.removeItem('authToken');
     localStorage.removeItem('user');

@@ -222,7 +222,12 @@ export const createWorkJournalActions = ({
       body.customerTotal = newCustomerTotal;
     }
     if(comment) body.comment = comment;
-    await fetch(API+'/work-journal/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const res = await fetch(API+'/work-journal/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if (!res.ok) {
+      const er = await res.json().catch(()=>({}));
+      alert('Не удалось подтвердить работу: '+(er.detail||er.error||res.status));
+      return;
+    }
     await refreshData();
     await updateProjectProgress(e.project||"");
     setConfirmingEntry(null); setConfirmAcceptedQty(''); setConfirmComment('');
@@ -231,7 +236,12 @@ export const createWorkJournalActions = ({
   };
 
   const rejectJ = async (e,c) => {
-    await fetch(API+'/work-journal/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено',confirmedBy:user.name,comment:c||''})});
+    const res = await fetch(API+'/work-journal/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено',confirmedBy:user.name,comment:c||''})});
+    if (!res.ok) {
+      const er = await res.json().catch(()=>({}));
+      alert('Не удалось отклонить работу: '+(er.detail||er.error||res.status));
+      return;
+    }
     await refreshData(); setRejectingEntry(null); setRejectComment('');
   };
 
