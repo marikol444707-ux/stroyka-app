@@ -34,6 +34,11 @@ export default function EstimateSectionsEditor({
   setNewEstimateItem,
   estimateIssueFocusKey,
 }) {
+  const latestEstimateRef = React.useRef(selectedEstimate);
+  latestEstimateRef.current = selectedEstimate;
+  const persistLatestEstimate = () => {
+    if (latestEstimateRef.current) persistEstimate(latestEstimateRef.current);
+  };
   const allSections = (selectedEstimate.sections || []).map((section, si) => ({section, si}));
   const sectionListKey = ['estimate-sections', selectedEstimate.id, 'all'].join(':');
   const sectionLimit = isMobile ? 5 : 8;
@@ -75,9 +80,10 @@ export default function EstimateSectionsEditor({
         };
 
         const updateItemPatch = (idx, patch, saveNow = false) => {
+          const baseEstimate = latestEstimateRef.current || selectedEstimate;
           const fields = Object.keys(patch || {});
           const changesAmount = fields.some(f => ['quantity', 'priceWork', 'priceMaterial'].includes(f));
-          const sections = (selectedEstimate.sections || []).map((s, sidx) => sidx === si ? {
+          const sections = (baseEstimate.sections || []).map((s, sidx) => sidx === si ? {
             ...s,
             items: (s.items || []).map((it, i) => {
               if (i !== idx) return it;
@@ -107,7 +113,8 @@ export default function EstimateSectionsEditor({
               return next;
             })
           } : s);
-          const updated = {...selectedEstimate, sections};
+          const updated = {...baseEstimate, sections};
+          latestEstimateRef.current = updated;
           setSelectedEstimate(updated);
           setEstimatesList(prev => prev.map(e => e.id === updated.id ? updated : e));
           if (saveNow) persistEstimate(updated);
@@ -115,7 +122,7 @@ export default function EstimateSectionsEditor({
         };
 
         const updateItem = (idx, field, val, saveNow = false) => updateItemPatch(idx, {[field]: val}, saveNow);
-        const persist = () => persistEstimate(selectedEstimate);
+        const persist = persistLatestEstimate;
         const inpCell = {padding: '3px 5px', border: '1px solid ' + C.border, borderRadius: '5px', fontSize: '11px', width: '100%', minWidth: 0, minHeight: '26px', backgroundColor: C.bgWhite, color: C.text, outline: 'none'};
         const estimateTbl = {...tbl, minWidth: isMobile ? '1040px' : '1088px', tableLayout: 'fixed'};
         const estimateTblH = {...tblH, padding: '4px 5px', fontSize: '10px', lineHeight: 1.1, whiteSpace: 'nowrap'};

@@ -215,7 +215,8 @@ export function buildAppShellProps({
     projectBudgetSpent,
     projectPaymentSignedAmount,
     projectRealProgress,
-    roleColor
+    roleColor,
+    supplyControlIssues
   } = businessRuntime;
   const {
     buildCableJournalContent,
@@ -349,6 +350,7 @@ export function buildAppShellProps({
         setSidebarVisible: safeSetSidebarVisible,
         setUser,
         showPreview,
+        supplyControlIssues,
         toggleNotifications,
         visibleActiveProjects: coreRuntime.visibleActiveProjects || sharedActions.visibleActiveProjects
       }

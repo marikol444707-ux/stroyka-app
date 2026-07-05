@@ -3,6 +3,7 @@ import {
   estimateTotal,
   isArchivedEstimate,
   isGlobalEstimateTemplate,
+  estimateHasLoadedSections,
   estimateSectionsOf,
 } from './estimateUtils';
 import { toNum } from './measureUtils';
@@ -41,7 +42,7 @@ export const buildEstimateControlIssues = ({
   (sourceEstimates || []).filter(estimate => !isGlobalEstimateTemplate(estimate) && !isArchivedEstimate(estimate)).forEach(estimate => {
     const sections = estimateSectionsOf(estimate);
     const projectName = estimate.projectName || projects.find(project => Number(project.id) === Number(estimate.projectId))?.name || '';
-    if (!sections.length) {
+    if (estimateHasLoadedSections(estimate) && !sections.length) {
       issues.push({
         severity: 'Критично',
         project: projectName,

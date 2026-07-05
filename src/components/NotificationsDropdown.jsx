@@ -36,8 +36,9 @@ export default function NotificationsDropdown({
       || (typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || ''))
     );
   const compactDropdown = isMobile || touchCompact;
-  const readMyNotifications = typeof myNotifications === 'function' ? myNotifications : () => [];
-  const fullListRaw = readMyNotifications(notifications);
+  const fullListRaw = typeof myNotifications === 'function'
+    ? myNotifications(notifications)
+    : (Array.isArray(myNotifications) ? myNotifications : []);
   const fullList = Array.isArray(fullListRaw) ? fullListRaw : [];
   const list = fullList.slice(0, compactDropdown ? 20 : 50);
   const width = dropdownWidth || (compactDropdown ? 'calc(100vw - 24px)' : '360px');

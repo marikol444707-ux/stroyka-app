@@ -75,29 +75,30 @@ export default function DashboardPage({
     projectBudgetSpent,
     projectPaymentSignedAmount,
     projectRealProgress,
-  setAccountingTab,
-  setActivePage,
+    setAccountingTab,
+    setActivePage,
     setDailyReportDate,
     setDirectorAgentQuestion,
     setDarkMode,
-  setExpandedProject,
-  setMobileExpandedRenderLists,
-  setNotifications,
-  setShowAiAssistant,
-  setShowChatPanel,
-  setShowForm,
-  setShowNotifications,
-  setShowQuickActions,
-  setShowReimburseModal,
-  setShowSupplyForm,
-  setSidebarVisible,
-  setSupplyTab,
-  setUser,
-  setWarehouseTab,
-  showPreview,
-  toggleNotifications,
-  visibleActiveProjects,
-  workDocDate,
+    setExpandedProject,
+    setMobileExpandedRenderLists,
+    setNotifications,
+    setShowAiAssistant,
+    setShowChatPanel,
+    setShowForm,
+    setShowNotifications,
+    setShowQuickActions,
+    setShowReimburseModal,
+    setShowSupplyForm,
+    setSidebarVisible,
+    setSupplyTab,
+    setUser,
+    setWarehouseTab,
+    showPreview,
+    supplyControlIssues,
+    toggleNotifications,
+    visibleActiveProjects,
+    workDocDate,
   } = actions;
   const noop = () => {};
   const safeSetActivePage = typeof setActivePage === 'function' ? setActivePage : noop;
@@ -152,7 +153,7 @@ export default function DashboardPage({
     getNotifPage: safeGetNotifPage,
     isMobile,
     markMyNotificationsRead: safeMarkMyNotificationsRead,
-    myNotifications: Array.isArray(myNotifications) ? myNotifications : [],
+    myNotifications,
     navigateTo: safeNavigateTo,
     notifications: Array.isArray(notifications) ? notifications : [],
     setDarkMode: safeSetDarkMode,
@@ -213,6 +214,7 @@ export default function DashboardPage({
   const buildDailyObjectReport = typeof buildDailyObjectReportContent === 'function' ? buildDailyObjectReportContent : () => '';
   const buildSupplyControlReport = typeof buildSupplyControlReportContent === 'function' ? buildSupplyControlReportContent : () => '';
   const openEstimateControl = typeof openEstimateControlReport === 'function' ? openEstimateControlReport : () => {};
+  const getSupplyControlIssues = typeof supplyControlIssues === 'function' ? supplyControlIssues : () => [];
 
   const _today = new Date().toISOString().split('T')[0];
   const getVisibleActiveProjects = typeof visibleActiveProjects === 'function'
@@ -223,6 +225,8 @@ export default function DashboardPage({
   lowStockList.slice(0,2).forEach(m=>risks.push({icon:'📦',text:'Мало на объекте: '+m.name,severity:'warn',page:'warehouse'}));
   lowMainStockList.slice(0,2).forEach(m=>risks.push({icon:'🏭',text:'Мало на складе: '+m.name,severity:'warn',page:'warehouse',tab:'main'}));
   dashboardProjects.filter(p=>p.deadline&&p.deadline<_today).slice(0,2).forEach(p=>risks.push({icon:'⏰',text:'Срок истёк: '+p.name+' (до '+p.deadline+')',severity:'danger',page:'projects'}));
+  const pendingWorkReviews = workJournalList.filter(work => !work.status || work.status === 'На проверке' || work.status === 'Автоматически из сметы');
+  if (pendingWorkReviews.length > 0) risks.push({icon:'👷',text:'Работы ждут подтверждения: '+pendingWorkReviews.length,severity:'danger',page:'projects'});
   const _weekAgo = new Date(Date.now()-7*24*3600*1000).toISOString().split('T')[0];
   hiddenActsList.filter(a=>a.status!=='Подписан'&&a.createdAt&&String(a.createdAt).split('T')[0]<_weekAgo).slice(0,2).forEach(a=>risks.push({icon:'🔒',text:'АОСР долго без подписи: '+a.actNumber,severity:'warn',page:'projects'}));
   const openInsp = inspectionOrdersList.filter(o=>o.status!=='Закрыто').length;
@@ -271,18 +275,21 @@ export default function DashboardPage({
   const showSupplyDashboard = showDashboardExtra && ['директор','зам_директора','бухгалтер','прораб','кладовщик','снабженец'].includes(currentUserRole);
   const supplyPendingRequests = showDashboardExtra ? supplyRequestsList.filter(r=>{
     if (currentUserRole==='прораб') return r.status==='Новая';
-    if (isLeadershipUser()) return r.status==='Новая'||r.status==='Подтверждена прорабом';
+    if (isLeadershipUser()) return ['Новая','Подтверждена прорабом','Утверждена','КП запрошены'].includes(r.status || 'Новая');
     return r.status==='Утверждена'||r.status==='КП запрошены';
   }) : [];
   const supplyOffersToReview = showDashboardExtra ? supplierOffersList.filter(o=>o.status==='Получено') : [];
   const supplyInvoicesToPay = showDashboardExtra ? supplierInvoicesList.filter(i=>i.status==='На утверждении'||i.status==='Утверждён'||i.status==='Частично оплачен'||!i.status) : [];
   const supplyInvoiceDebt = showDashboardExtra ? supplyInvoicesToPay.reduce((s,i)=>s+Math.max(0,Number(i.amount||i.totalAmount||0)-Number(i.paidAmount||0)),0) : 0;
+  const supplyControlIssueRowsRaw = showDashboardExtra ? getSupplyControlIssues() : [];
+  const supplyControlIssueRows = Array.isArray(supplyControlIssueRowsRaw) ? supplyControlIssueRowsRaw : [];
+  if (showDashboardExtra && supplyControlIssueRows.length > 0) risks.push({icon:'🛒',text:'Снабжение требует внимания: '+supplyControlIssueRows.length+' замеч.',severity:'danger',page:'supply'});
   const directorSkillDate = showDashboardExtra ? (formatDocDate(dailyReportDate)||_today) : _today;
   const directorSkillDailyWorks = showDashboardExtra ? workJournalList.filter(w=>getWorkDocDate(w)===directorSkillDate) : [];
   const directorSkillEstimateIssues = showDashboardExtra && isLeadershipUser() ? getEstimateControlIssues().length : 0;
-  const directorSkillSupplyIssues = showDashboardExtra ? lowStockList.length+lowMainStockList.length
-    +supplyRequestsList.filter(r=>r.status==='Новая'||r.status==='Подтверждена прорабом').length
-    +supplierInvoicesList.filter(i=>i.status==='На утверждении'||!i.status).length : 0;
+  const directorSkillSupplyIssues = showDashboardExtra
+    ? supplyControlIssueRows.length+supplyPendingRequests.length+supplyOffersToReview.length+supplyInvoicesToPay.length
+    : 0;
   const directorSkillCards = showDashboardExtra ? [
     {label:'Сводка директору',sub:'риски, деньги, задачи',icon:<Bot size={18}/>,color:'#fdba74',bg:'rgba(234,88,12,.14)',border:'rgba(234,88,12,.32)',metric:risks.length+' рисков',onClick:()=>previewDocument(buildDirectorBriefReport(directorSkillDate),'Сводка директора — '+new Date(directorSkillDate+'T00:00:00').toLocaleDateString('ru-RU'))},
     {label:'ИИ-контроль',sub:'обмеры и поручения',icon:<Bot size={18}/>,color:'#fca5a5',bg:'rgba(239,68,68,.12)',border:'rgba(239,68,68,.28)',metric:openAiControl.length+' замеч.',onClick:()=>safeNavigateTo('projects')},
