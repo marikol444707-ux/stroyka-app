@@ -197,9 +197,10 @@ export const useAppDataLoaders = (ctx) => {
     await loadMobileScopeOnce('mobile:init', async () => {
       const {role,isLeadershipRole,isFinanceRole,isSupplyRole,isInternalRole,canSeeProjectDocs} = roleFlags();
       const isWorkerRole = ['мастер','субподрядчик','бригадир'].includes(role);
-      const shouldLoadUsersAtBoot = isLeadershipRole || isFinanceRole;
+      const shouldLoadPeopleAtBoot = isInternalRole || isFinanceRole;
+      const shouldLoadUsersAtBoot = shouldLoadPeopleAtBoot || isLeadershipRole;
       const [
-        p,u,sr,ait,oe,pp,wm,wj
+        p,u,sr,ait,oe,pp,wm,wj,s,pw,ct,ia,mp,bc,abi
       ] = await Promise.all([
         role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
         shouldLoadUsersAtBoot ? getApi('/users') : Promise.resolve([]),
@@ -209,6 +210,13 @@ export const useAppDataLoaders = (ctx) => {
         isFinanceRole ? getApi('/project-payments') : Promise.resolve([]),
         role === 'кладовщик' ? getApi('/warehouse-main') : Promise.resolve([]),
         isWorkerRole ? getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})) : Promise.resolve([]),
+        shouldLoadPeopleAtBoot ? getApi('/staff') : Promise.resolve([]),
+        shouldLoadPeopleAtBoot ? getApi('/piecework') : Promise.resolve([]),
+        shouldLoadPeopleAtBoot ? getApi('/contracts') : Promise.resolve([]),
+        shouldLoadPeopleAtBoot ? getApi('/interim-acts') : Promise.resolve([]),
+        shouldLoadPeopleAtBoot ? getApi('/master-profiles') : Promise.resolve([]),
+        shouldLoadPeopleAtBoot ? getApi('/brigade-contracts') : Promise.resolve([]),
+        shouldLoadPeopleAtBoot || isWorkerRole ? getApi('/brigade-contract-items-all') : Promise.resolve([]),
       ]);
       const safeWorkJournal = Array.isArray(wj) ? wj : [];
       setProjects(Array.isArray(p)?p:[]);
@@ -220,6 +228,13 @@ export const useAppDataLoaders = (ctx) => {
       setWarehouseMain(Array.isArray(wm)?wm:[]);
       setWorkJournal(safeWorkJournal);
       resetWorkJournalPage(safeWorkJournal);
+      setStaff(Array.isArray(s)?s:[]);
+      setPiecework(Array.isArray(pw)?pw:[]);
+      setContracts(Array.isArray(ct)?ct:[]);
+      setInterimActs(Array.isArray(ia)?ia:[]);
+      setMasterProfiles(Array.isArray(mp)?mp:[]);
+      setBrigadeContracts(Array.isArray(bc)?bc:[]);
+      setAllBrigadeItems(Array.isArray(abi)?abi:[]);
     });
     setInitialDataLoaded(true);
   };
@@ -246,7 +261,7 @@ export const useAppDataLoaders = (ctx) => {
     });
     if (['projects','site','works','documents','cable'].includes(page)) return loadMobileScopeOnce('mobile:projects-docs', async () => {
       if (canSeeProjectDocs) markEstimatesLoading(true);
-      const [p,wj,mt,ro,rw,rwin,rdoor,ps,pcl,pres,uw,est,er,bc,abi,hwa,mij,cbj,sva,inspO,warD,pdocs,plet,pmeas,mdrafts] = await Promise.all([
+      const [p,wj,mt,ro,rw,rwin,rdoor,ps,pcl,pres,uw,est,er,bc,abi,hwa,mij,cbj,sva,inspO,warD,pdocs,plet,pmeas,mdrafts,s,u,ct,ia,pw,mp] = await Promise.all([
         role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
         role === 'поставщик' ? Promise.resolve([]) : getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})),
         (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
@@ -272,6 +287,12 @@ export const useAppDataLoaders = (ctx) => {
         (isInternalRole || isFinanceRole || role==='заказчик') ? getApi('/project-letters') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/project-measurements') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/measurement-room-drafts') : Promise.resolve([]),
+        (isInternalRole || isFinanceRole) ? getApi('/staff') : Promise.resolve([]),
+        (isInternalRole || isFinanceRole) ? getApi('/users') : Promise.resolve([]),
+        (isInternalRole || isFinanceRole) ? getApi('/contracts') : Promise.resolve([]),
+        (isInternalRole || isFinanceRole) ? getApi('/interim-acts') : Promise.resolve([]),
+        (isInternalRole || isFinanceRole) ? getApi('/piecework') : Promise.resolve([]),
+        (isInternalRole || isFinanceRole) ? getApi('/master-profiles') : Promise.resolve([]),
       ]);
       const safeWorkJournal = Array.isArray(wj) ? wj : [];
       setProjects(Array.isArray(p)?p:[]);
@@ -290,6 +311,12 @@ export const useAppDataLoaders = (ctx) => {
       setInspectionOrders(Array.isArray(inspO)?inspO:[]); setWarrantyDefects(Array.isArray(warD)?warD:[]);
       setProjectDocuments(Array.isArray(pdocs)?pdocs:[]); setProjectLetters(Array.isArray(plet)?plet:[]);
       setProjectMeasurements(Array.isArray(pmeas)?pmeas:[]); setMeasurementRoomDrafts(Array.isArray(mdrafts)?mdrafts:[]);
+      setStaff(Array.isArray(s)?s:[]);
+      setUsers(Array.isArray(u)?u:[]);
+      setContracts(Array.isArray(ct)?ct:[]);
+      setInterimActs(Array.isArray(ia)?ia:[]);
+      setPiecework(Array.isArray(pw)?pw:[]);
+      setMasterProfiles(Array.isArray(mp)?mp:[]);
     });
     if (page === 'estimates') return loadMobileScopeOnce('mobile:estimates', async () => {
       if (canLoadEstimates) markEstimatesLoading(true);
@@ -396,8 +423,9 @@ export const useAppDataLoaders = (ctx) => {
 	        (isWarehouseRole || isFinanceRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/warehouse-history') : Promise.resolve([]),
 	        (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
       ]);
-      setWorkJournal(Array.isArray(wj)?wj:[]);
-      resetWorkJournalPage(wj);
+      const safeWorkJournal = Array.isArray(wj) ? wj : [];
+      setWorkJournal(safeWorkJournal);
+      resetWorkJournalPage(safeWorkJournal);
       setHistory(Array.isArray(h)?h:[]);
       setMaterialTransfers(Array.isArray(mt)?mt:[]);
     });
@@ -427,9 +455,11 @@ export const useAppDataLoaders = (ctx) => {
       ]);
       setProjectPayments(Array.isArray(pp)?pp:[]);
       setManualExpenses(Array.isArray(me)?me:[]);
-      setWorkJournal(Array.isArray(wj)?wj:[]);
-      resetWorkJournalPage(wj);
+      const safeWorkJournal = Array.isArray(wj) ? wj : [];
+      setWorkJournal(safeWorkJournal);
+      resetWorkJournalPage(safeWorkJournal);
       applyLoadedEstimates(est, canLoadEstimates);
+      if (canLoadEstimates && est === null) mobileLoadedScopesRef.current.delete('mobile:analytics');
     });
     if (page === 'settings') return loadMobileScopeOnce('mobile:settings', async () => {
       const [cr,cd] = await Promise.all([
