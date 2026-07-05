@@ -11,6 +11,7 @@ import {
 } from '../../constants/catalogs';
 import { PD_CONSENT_TEXT, PRICELISTS_DATA } from '../../constants/documentTemplates';
 import { ROLE_GROUPS, ROLE_LABELS, ROLES } from '../../constants/roles';
+import { buildAppShellSharedContext } from './appShellSharedContext';
 
 export function buildAppShellProps({
   API,
@@ -47,8 +48,6 @@ export function buildAppShellProps({
   warehouseActions = {},
   workJournalActions = {}
 }) {
-  const noop = () => {};
-  const safeFn = (fn, fallback = noop) => (typeof fn === 'function' ? fn : fallback);
   const {
     C,
     aiNotice,
@@ -62,7 +61,6 @@ export function buildAppShellProps({
     btnR,
     card,
     darkMode,
-    setDarkMode: uiSetDarkMode,
     inp,
     isCompactHeader,
     isMobile,
@@ -93,20 +91,10 @@ export function buildAppShellProps({
     projects,
     rejectComment,
     rejectingEntry,
-    setActivePage,
     setDailyReportDate,
-    setGlobalSearch,
-    setNotifications,
-    setPreviewContent,
-    setShowAiAssistant,
 
-    setShowChatPanel,
     setShowForm,
     setShowJournalTableModal,
-    setShowNotifications,
-    setShowPhotoModal,
-    setShowQuickActions,
-    setSidebarVisible,
     showAiAssistant,
 
     showJournalTableModal,
@@ -120,8 +108,67 @@ export function buildAppShellProps({
     weatherLog,
     workJournal
   } = appMainState;
-  const user = authUser || authEntryState.user || null;
-  const setUser = safeFn(authEntryState.setUser);
+  const {
+    menuItems,
+    safeAllMenuItems,
+    safeCanAccess,
+    safeFn,
+    safeNavigateTo,
+    safeOpenSystemStatus,
+    safeSendCompanyChatMessage,
+    safeSetActivePage,
+    safeSetCompanyChatInput,
+    safeSetDarkMode,
+    safeSetGlobalSearch,
+    safeSetNotifications,
+    safeSetPreviewContent,
+    safeSetShowAiAssistant,
+    safeSetShowChatPanel,
+    safeSetShowMobileMenu,
+    safeSetShowNotifications,
+    safeSetShowPhotoModal,
+    safeSetShowQuickActions,
+    safeSetShowSystemStatus,
+    safeSetShowWorkAssignment,
+    safeSetSidebarVisible,
+    safeUploadPhoto,
+    setUser,
+    sharedActions,
+    sharedState,
+    showPreview,
+    uiBase,
+    unreadNotifications,
+    user
+  } = buildAppShellSharedContext({
+    API,
+    aiAssistantState,
+    allMenuItems,
+    appMainState,
+    authEntryState,
+    businessRuntime,
+    coreRuntime,
+    dashboardActions,
+    documentActions,
+    estimatePageActions,
+    estimateWorkflowState,
+    materialNormsState,
+    paymentUiState,
+    personnelActions,
+    pricelistActions,
+    projectCrudActions,
+    projectOperationActions,
+    refs,
+    selectors,
+    shellOverlayState,
+    supplyActions,
+    supplyPlanningUi,
+    supplyWorkflowState,
+    ui,
+    user: authUser,
+    userAccessActions,
+    warehouseActions,
+    workJournalActions
+  });
   const {
     aiChat,
     aiLoading,
@@ -136,11 +183,6 @@ export function buildAppShellProps({
   } = aiAssistantState;
   const {
     companyChatInput,
-    setCompanyChatInput,
-
-    setShowMobileMenu,
-
-    setShowSystemStatus,
 
     showChatPanel,
     showMobileMenu,
@@ -152,41 +194,14 @@ export function buildAppShellProps({
   const { setShowReimburseModal } = paymentUiState;
   const {
     closeNotifications,
-    canAccess,
     getNotifPage,
     handleLogout,
     markMyNotificationsRead,
-    myNotifications,
-    navigateTo,
-    openSystemStatus,
     searchResults,
 
-    sendCompanyChatMessage,
     toggleNotifications,
     unreadMessagesCount
   } = coreRuntime;
-  const safeCanAccess = typeof canAccess === 'function' ? canAccess : () => true;
-  const readMyNotifications = typeof myNotifications === 'function' ? myNotifications : () => [];
-  const safeAllMenuItems = Array.isArray(allMenuItems) ? allMenuItems : [];
-  const safeNavigateTo = safeFn(navigateTo, safeFn(setActivePage));
-  const safeSetActivePage = safeFn(setActivePage);
-  const safeSetPreviewContent = safeFn(setPreviewContent);
-  const safeSetShowPhotoModal = safeFn(setShowPhotoModal);
-  const safeSetShowMobileMenu = safeFn(setShowMobileMenu);
-  const safeSetShowQuickActions = safeFn(setShowQuickActions);
-  const safeSetShowChatPanel = safeFn(setShowChatPanel);
-  const safeSetSidebarVisible = safeFn(setSidebarVisible);
-  const safeSetDarkMode = safeFn(uiSetDarkMode);
-  const safeSetGlobalSearch = safeFn(setGlobalSearch);
-  const safeSetShowNotifications = safeFn(setShowNotifications);
-  const safeSetNotifications = safeFn(setNotifications);
-  const safeSetShowAiAssistant = safeFn(setShowAiAssistant);
-  const safeSetCompanyChatInput = safeFn(setCompanyChatInput);
-  const safeSetShowSystemStatus = safeFn(setShowSystemStatus);
-  const safeOpenSystemStatus = safeFn(openSystemStatus);
-  const safeSendCompanyChatMessage = safeFn(sendCompanyChatMessage);
-  const safeUploadPhoto = typeof coreRuntime.uploadPhoto === 'function' ? coreRuntime.uploadPhoto : async () => '';
-  const safeSetShowWorkAssignment = safeFn(estimateWorkflowState.setShowWorkAssignment);
   const {
     buildDirectorBriefReportContent,
     buildSupplyControlReportContent,
@@ -210,46 +225,6 @@ export function buildAppShellProps({
     buildWorkJournalContent
   } = documentActions;
   const { projectSiteDraft: getProjectSiteDraft, saveProjectSitePublication, updateProjectSiteDraft } = projectCrudActions;
-  const sharedState = {
-    ...appMainState,
-    ...aiAssistantState,
-    ...shellOverlayState,
-    ...paymentUiState,
-    ...supplyWorkflowState,
-    ...materialNormsState,
-    ...estimateWorkflowState,
-    ...refs,
-    ...selectors,
-    ...businessRuntime,
-    user
-  };
-  const sharedActions = {
-    ...sharedState,
-    ...coreRuntime,
-    ...businessRuntime,
-    ...documentActions,
-    ...personnelActions,
-    ...projectCrudActions,
-    ...warehouseActions,
-    ...workJournalActions,
-    ...userAccessActions,
-    ...pricelistActions,
-    ...supplyActions,
-    ...projectOperationActions,
-    ...supplyPlanningUi,
-    ...estimatePageActions,
-    ...dashboardActions,
-    ...selectors,
-    canAccess: safeCanAccess,
-    myNotifications: readMyNotifications,
-    setUser
-  };
-  const menuItems = safeAllMenuItems.filter((item) => item && safeCanAccess(item.id));
-  const notificationItems = readMyNotifications(notifications);
-  const unreadNotifications = (Array.isArray(notificationItems) ? notificationItems : []).filter((n) => !n.read).length;
-  const uiBase = { API, C, badge, btnB, btnG, btnGr, btnO, btnR, card, inp, isMobile, tbl, tblC, tblH };
-  const showPreview = safeFn(dashboardActions.showPreview);
-
   return {
     activePage,
     appActionModalsProps: {
