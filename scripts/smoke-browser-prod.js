@@ -6,6 +6,15 @@ const os = require('os');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 
+let WebSocketCtor = globalThis.WebSocket;
+if (typeof WebSocketCtor !== 'function') {
+  try {
+    WebSocketCtor = require('ws');
+  } catch (_error) {
+    WebSocketCtor = null;
+  }
+}
+
 const BASE_URL = (process.env.BASE_URL || 'https://stroyka26.pro').replace(/\/$/, '');
 const WAIT_MS = Number(process.env.BROWSER_SMOKE_WAIT_MS || 9000);
 const START_TIMEOUT_MS = Number(process.env.BROWSER_SMOKE_START_TIMEOUT_MS || 20000);
@@ -168,7 +177,7 @@ class CdpClient {
   }
 
   async connect() {
-    this.ws = new WebSocket(this.wsUrl);
+    this.ws = new WebSocketCtor(this.wsUrl);
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('CDP websocket timeout')), 10000);
       this.ws.addEventListener('open', () => {
@@ -382,8 +391,8 @@ async function inspectAuthenticatedPage(port, url, authData) {
 }
 
 async function main() {
-  if (typeof WebSocket !== 'function') {
-    throw new Error('Node.js WebSocket is not available. Use Node 22+ or set up a browser smoke runner with WebSocket support.');
+  if (typeof WebSocketCtor !== 'function') {
+    throw new Error('WebSocket client is not available. Install dependencies so the ws package is present, or use Node 22+.');
   }
   const chrome = findChrome();
   if (!chrome) {
