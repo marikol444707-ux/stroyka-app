@@ -81,13 +81,17 @@ def max_bot_token():
     return token
 
 
-def cleanup(lead_id=None, outbox_id=None):
+def cleanup(lead_id=None, outbox_id=None, outbox_ids=None):
     conn = None
     try:
         conn = psycopg2.connect(**db_config())
         cur = conn.cursor()
+        cleanup_outbox_ids = []
         if outbox_id:
-            cur.execute("DELETE FROM messenger_outbox WHERE id=%s", (outbox_id,))
+            cleanup_outbox_ids.append(outbox_id)
+        cleanup_outbox_ids.extend(outbox_ids or [])
+        for item_id in cleanup_outbox_ids:
+            cur.execute("DELETE FROM messenger_outbox WHERE id=%s", (item_id,))
         if lead_id:
             cur.execute("DELETE FROM crm_leads WHERE id=%s", (lead_id,))
         if not os.getenv("MAX_BOT_ADAPTER_SMOKE_CHAT_ID"):
@@ -198,6 +202,7 @@ def main():
     headers = {"X-Max-Bot-Api-Secret": token}
     lead_id = None
     outbox_id = None
+    help_outbox_id = None
     try:
         _, linked = api_json(
             "POST",
@@ -219,7 +224,7 @@ def main():
         if channel.get("channelType") != "internal":
             raise RuntimeError(f"MAX bot channel should be internal by default: {channel}")
 
-        _, ignored_message = api_json(
+        _, internal_message = api_json(
             "POST",
             "/max/webhook",
             data={
@@ -229,15 +234,18 @@ def main():
                     "mid": f"codex-internal-message-{RUN_ID}",
                     "recipient": {"chat_id": INTERNAL_CHAT_ID},
                     "sender": {"user_id": f"internal-user-{RUN_ID}", "username": f"codex_{RUN_ID}"},
-                    "body": {"text": "Внутреннее сообщение не должно попадать в CRM."},
+                    "body": {"text": "тест"},
                 },
             },
             headers=headers,
             expected=200,
         )
-        internal_result = (ignored_message.get("results") or [{}])[0]
-        if internal_result.get("action") != "message_ignored":
-            raise RuntimeError(f"Internal MAX message should not create CRM lead: {ignored_message}")
+        internal_result = (internal_message.get("results") or [{}])[0]
+        if internal_result.get("action") != "internal_help_queued":
+            raise RuntimeError(f"Internal MAX test message should queue help response, not CRM lead: {internal_message}")
+        help_outbox_id = internal_result.get("outboxId")
+        if not help_outbox_id:
+            raise RuntimeError(f"Internal MAX help response did not expose outbox id: {internal_message}")
 
         marketing_channel_id = insert_marketing_channel()
         _, message = api_json(
@@ -307,7 +315,7 @@ def main():
             "checked": [
                 "MAX webhook secret header is accepted",
                 "bot_added links MAX bot channel as internal by default",
-                "message_created in internal MAX channel is ignored by CRM",
+                "message_created test in internal MAX channel queues help response without CRM lead",
                 "message_created in explicit marketing MAX channel creates CRM lead",
                 "max bot status exposes channels and outbox through /max route",
                 "outbox dispatch dry-run builds MAX message and inline keyboard",
@@ -316,7 +324,7 @@ def main():
             "timestamp": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
         }, ensure_ascii=False, indent=2))
     finally:
-        cleanup(lead_id, outbox_id)
+        cleanup(lead_id, outbox_id, [help_outbox_id] if help_outbox_id else [])
 
 
 if __name__ == "__main__":

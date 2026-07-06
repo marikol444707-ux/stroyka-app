@@ -1126,6 +1126,92 @@ def register_messenger_module(app, deps):
             }
         ]
 
+    def max_internal_help_actions() -> list:
+        return [
+            {
+                "id": "openMaxApp",
+                "label": "Открыть меню",
+                "kind": "open_app",
+                "path": "/max-app",
+            },
+            {
+                "id": "receiveWarehouse",
+                "label": "Принять накладную",
+                "kind": "open_app",
+                "path": "/app?from=max&quickAction=receive_warehouse",
+            },
+            {
+                "id": "openAssignments",
+                "label": "Поручения",
+                "kind": "open_app",
+                "path": "/app?from=max&quickAction=assignments",
+            },
+        ]
+
+    def should_reply_to_internal_max_text(text: str, chat_id: str) -> bool:
+        normalized = " ".join(str(text or "").strip().lower().split())
+        if not normalized:
+            return False
+        command_texts = {
+            "/start",
+            "start",
+            "старт",
+            "/help",
+            "help",
+            "помощь",
+            "/menu",
+            "menu",
+            "меню",
+            "тест",
+            "test",
+        }
+        if normalized in command_texts or normalized.startswith("/"):
+            return True
+        # Positive chat ids are personal bot dialogs in MAX; group chats and channels are negative.
+        return not str(chat_id or "").startswith("-")
+
+    def enqueue_max_internal_help_once(cur, channel: dict, max_user_id: str, max_chat_id: str, text: str, source_id: str) -> tuple[int, bool]:
+        source_id = _text(source_id, 255)
+        if source_id:
+            cur.execute(
+                """
+                SELECT id
+                  FROM messenger_outbox
+                 WHERE provider='max'
+                   AND chat_id=%s
+                   AND event_type='max_internal_help'
+                   AND payload_json->>'sourceId'=%s
+                 LIMIT 1
+                """,
+                (max_chat_id, source_id),
+            )
+            existing = cur.fetchone()
+            if existing:
+                return int(existing.get("id") if isinstance(existing, dict) else existing[0]), False
+        body = (
+            "Бот на связи. Для накладной отправьте сюда фото или PDF. "
+            "Для ручных действий откройте меню, приемку склада или поручения."
+        )
+        outbox_id = enqueue_max_outbox(
+            cur,
+            {"source": "max_bot"},
+            max_user_id,
+            max_chat_id,
+            "max_internal_help",
+            "messenger_channel",
+            int((channel or {}).get("id") or 0),
+            "Строй-Бот",
+            body,
+            payload={
+                "sourceId": source_id,
+                "incomingText": _text(text, 500),
+                "channelId": (channel or {}).get("id"),
+            },
+            actions=max_internal_help_actions(),
+            priority=3,
+        )
+        return int(outbox_id), True
+
     def max_invoice_message_body(payload: dict) -> str:
         preview = _invoice_preview_from_payload(payload)
         supplier = preview.get("supplierName") or "поставщик не указан"
@@ -1824,6 +1910,25 @@ def register_messenger_module(app, deps):
                         "reason": exc.detail,
                         "files": len(attachments),
                     }
+            if should_reply_to_internal_max_text(text, chat_id):
+                conn = get_db()
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                try:
+                    outbox_id, queued = enqueue_max_internal_help_once(cur, channel, user_id, chat_id, text, source_id)
+                    conn.commit()
+                    return {
+                        "ok": True,
+                        "action": "internal_help_queued" if queued else "internal_help_duplicate",
+                        "updateType": update_type,
+                        "chatId": chat_id,
+                        "outboxId": outbox_id,
+                    }
+                except Exception:
+                    conn.rollback()
+                    raise
+                finally:
+                    cur.close()
+                    conn.close()
             return {"ok": True, "action": "message_ignored", "updateType": update_type, "reason": "not_marketing_channel", "chatId": chat_id}
 
         if update_type == "message_callback":
