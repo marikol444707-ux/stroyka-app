@@ -17,7 +17,9 @@ import time
 import datetime as dt
 import mimetypes
 import re
+import shutil
 import smtplib
+import subprocess
 import tempfile
 import urllib.parse
 import urllib.request
@@ -25505,6 +25507,71 @@ def _extract_invoice_scan_pdf_text(pdf_bytes: bytes) -> str:
     except Exception:
         return ""
 
+def _invoice_scan_pdftoppm_bin() -> str:
+    configured = os.environ.get("PDFTOPPM_BIN", "").strip()
+    candidates = [
+        configured,
+        shutil.which("pdftoppm") or "",
+        "/usr/bin/pdftoppm",
+        "/usr/local/bin/pdftoppm",
+    ]
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return ""
+
+def _render_invoice_scan_pdf_pages(pdf_bytes: bytes, max_pages: int = 6) -> list:
+    pdftoppm_bin = _invoice_scan_pdftoppm_bin()
+    if not pdftoppm_bin:
+        return []
+    tmp_dir = ""
+    try:
+        tmp_dir = tempfile.mkdtemp(prefix="stroyka-invoice-pdf-")
+        pdf_path = os.path.join(tmp_dir, "invoice.pdf")
+        prefix = os.path.join(tmp_dir, "page")
+        with open(pdf_path, "wb") as f:
+            f.write(pdf_bytes)
+        subprocess.run(
+            [
+                pdftoppm_bin,
+                "-png",
+                "-r",
+                "160",
+                "-f",
+                "1",
+                "-l",
+                str(max(1, int(max_pages or 1))),
+                pdf_path,
+                prefix,
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=35,
+        )
+        pages = []
+        for name in sorted(os.listdir(tmp_dir)):
+            if not name.startswith("page-") or not name.endswith(".png"):
+                continue
+            path = os.path.join(tmp_dir, name)
+            with open(path, "rb") as img:
+                pages.append(base64.b64encode(img.read()).decode("utf-8"))
+        return pages
+    except Exception as exc:
+        print("SCAN PDF RENDER ERROR:", str(exc))
+        return []
+    finally:
+        if tmp_dir:
+            try:
+                for name in os.listdir(tmp_dir):
+                    try:
+                        os.unlink(os.path.join(tmp_dir, name))
+                    except Exception:
+                        pass
+                os.rmdir(tmp_dir)
+            except Exception:
+                pass
+
 def _upload_invoice_scan_pdf(client, entry: dict, index: int) -> str:
     pdf_bytes = _invoice_scan_pdf_bytes(entry)
 
@@ -25514,7 +25581,7 @@ def _upload_invoice_scan_pdf(client, entry: dict, index: int) -> str:
             tmp.write(pdf_bytes)
             tmp_path = tmp.name
         last_error = None
-        for purpose in ("user_data", "assistants"):
+        for purpose in ("assistants", "user_data"):
             try:
                 with open(tmp_path, "rb") as pdf_file:
                     uploaded = client.files.create(file=pdf_file, purpose=purpose)
@@ -25556,23 +25623,44 @@ def _invoice_scan_ai_content(entry: dict, index: int, total: int, client=None, u
     if mime_type == "application/pdf":
         if client is None:
             raise HTTPException(status_code=400, detail="PDF счет нельзя распознать без AI-клиента.")
+        pdf_bytes = _invoice_scan_pdf_bytes(entry)
+        pdf_text = _extract_invoice_scan_pdf_text(pdf_bytes)
+        rendered_pages = _render_invoice_scan_pdf_pages(pdf_bytes)
         try:
             file_id = _upload_invoice_scan_pdf(client, entry, index)
             if uploaded_file_ids is not None:
                 uploaded_file_ids.append(file_id)
             content.append({"type": "input_file", "file_id": file_id})
         except HTTPException as exc:
-            pdf_text = _extract_invoice_scan_pdf_text(_invoice_scan_pdf_bytes(entry))
-            if not pdf_text:
+            if not pdf_text and not rendered_pages:
                 raise exc
             content.append({
                 "type": "input_text",
                 "text": (
-                    "PDF не удалось передать как файл, поэтому ниже текст, извлеченный из PDF. "
-                    "Распознай счет по этому тексту, не выдумывай отсутствующие строки.\n\n"
+                    "PDF не удалось передать как файл. Используй резервные данные ниже: "
+                    "извлеченный текст и/или изображения страниц PDF."
+                ),
+            })
+        if pdf_text:
+            content.append({
+                "type": "input_text",
+                "text": (
+                    "Текст, извлеченный из PDF. Используй его для номера, даты, поставщика, покупателя, "
+                    "таблицы товаров, НДС и итогов. Не выдумывай отсутствующие строки.\n\n"
                     f"{pdf_text[:24000]}"
                 ),
             })
+        if rendered_pages:
+            content.append({
+                "type": "input_text",
+                "text": (
+                    "Ниже визуальный рендер страниц PDF. Если input_file не читается, распознай счет "
+                    "по этим изображениям как обычные фото документа."
+                ),
+            })
+            for page_idx, page_base64 in enumerate(rendered_pages, start=1):
+                content.append({"type": "input_text", "text": f"Рендер PDF страницы {page_idx}"})
+                content.append({"type": "input_image", "image_url": f"data:image/png;base64,{page_base64}"})
     else:
         content.append({"type": "input_image", "image_url": f"data:{entry['mimeType']};base64,{entry['data']}"})
     return content
