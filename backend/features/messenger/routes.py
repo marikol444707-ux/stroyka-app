@@ -1126,8 +1126,16 @@ def register_messenger_module(app, deps):
             }
         ]
 
-    def max_internal_help_actions() -> list:
-        return [
+    def max_internal_open_app_action(label: str, path: str, action_id: str) -> dict:
+        return {
+            "id": action_id,
+            "label": label,
+            "kind": "open_app",
+            "path": path,
+        }
+
+    def max_internal_help_actions(intent: str = "help") -> list:
+        base_actions = [
             {
                 "id": "openMaxApp",
                 "label": "Открыть меню",
@@ -1147,12 +1155,70 @@ def register_messenger_module(app, deps):
                 "path": "/app?from=max&quickAction=assignments",
             },
         ]
+        intent_actions = {
+            "identity": [
+                max_internal_open_app_action("Открыть пользователей", "/app?from=max&page=users", "openUsers"),
+                max_internal_open_app_action("Открыть меню", "/max-app", "openMaxApp"),
+            ],
+            "receive_warehouse": [
+                max_internal_open_app_action("Принять накладную", "/app?from=max&quickAction=receive_warehouse", "receiveWarehouse"),
+                max_internal_open_app_action("Склад", "/app?from=max&quickAction=warehouse", "openWarehouse"),
+            ],
+            "warehouse": [
+                max_internal_open_app_action("Склад", "/app?from=max&quickAction=warehouse", "openWarehouse"),
+                max_internal_open_app_action("Принять накладную", "/app?from=max&quickAction=receive_warehouse", "receiveWarehouse"),
+            ],
+            "assignments": [
+                max_internal_open_app_action("Поручения", "/app?from=max&quickAction=assignments", "openAssignments"),
+                max_internal_open_app_action("Открыть меню", "/max-app", "openMaxApp"),
+            ],
+            "own_expense": [
+                max_internal_open_app_action("Мои траты", "/app?from=max&quickAction=own_expense", "openOwnExpense"),
+                max_internal_open_app_action("Открыть меню", "/max-app", "openMaxApp"),
+            ],
+            "projects": [
+                max_internal_open_app_action("Объекты", "/app?from=max&quickAction=projects", "openProjects"),
+                max_internal_open_app_action("Открыть меню", "/max-app", "openMaxApp"),
+            ],
+            "chat": [
+                max_internal_open_app_action("Чат", "/app?from=max&quickAction=chat", "openChat"),
+                max_internal_open_app_action("Открыть меню", "/max-app", "openMaxApp"),
+            ],
+        }
+        return intent_actions.get(intent) or base_actions
 
-    def should_reply_to_internal_max_text(text: str, chat_id: str) -> bool:
+    def max_internal_command_intent(text: str, chat_id: str) -> str:
         normalized = " ".join(str(text or "").strip().lower().split())
         if not normalized:
-            return False
-        command_texts = {
+            return ""
+        identity_texts = {
+            "/id",
+            "id",
+            "мой id",
+            "мой ид",
+            "ид",
+            "айди",
+            "мой max",
+            "мой макс",
+            "привязка",
+            "связать",
+            "связка",
+        }
+        if normalized in identity_texts:
+            return "identity"
+        if any(item in normalized for item in ("наклад", "приемк", "приёмк", "принять")):
+            return "receive_warehouse"
+        if "склад" in normalized or normalized in {"/warehouse", "warehouse"}:
+            return "warehouse"
+        if any(item in normalized for item in ("поруч", "задач")):
+            return "assignments"
+        if any(item in normalized for item in ("траты", "мои траты", "возмещ", "возмещение")):
+            return "own_expense"
+        if any(item in normalized for item in ("объект", "проекты", "проект")):
+            return "projects"
+        if normalized in {"чат", "/chat", "chat"}:
+            return "chat"
+        help_texts = {
             "/start",
             "start",
             "старт",
@@ -1165,33 +1231,69 @@ def register_messenger_module(app, deps):
             "тест",
             "test",
         }
-        if normalized in command_texts or normalized.startswith("/"):
-            return True
+        if normalized in help_texts or normalized.startswith("/"):
+            return "help"
         # Positive chat ids are personal bot dialogs in MAX; group chats and channels are negative.
-        return not str(chat_id or "").startswith("-")
+        return "help" if not str(chat_id or "").startswith("-") else ""
 
-    def enqueue_max_internal_help_once(cur, channel: dict, max_user_id: str, max_chat_id: str, text: str, source_id: str) -> tuple[int, bool]:
+    def max_internal_employee_for_reply(cur, max_user_id: str, max_chat_id: str) -> Optional[dict]:
+        lookup_chat_id = "" if str(max_chat_id or "").startswith("-") else max_chat_id
+        return _find_employee_by_messenger(cur, "max", max_user_id, lookup_chat_id)
+
+    def max_internal_reply_body(intent: str, employee: dict, max_user_id: str, max_chat_id: str) -> tuple[str, str]:
+        employee = employee or {}
+        if intent == "identity":
+            linked = (
+                f"Связка найдена: {employee.get('name') or 'сотрудник'}"
+                + (f", роль: {employee.get('role')}" if employee.get("role") else "")
+                if employee
+                else "Связка с сотрудником пока не найдена."
+            )
+            body = (
+                f"{linked}\n"
+                f"MAX userId: {max_user_id or '-'}\n"
+                f"MAX chatId: {max_chat_id or '-'}\n"
+                "Для привязки директор открывает Пользователи -> MAX и вставляет эти значения у нужного сотрудника."
+            )
+            return "MAX-привязка", body
+        if intent == "receive_warehouse":
+            return "Приемка накладной", "Отправьте сюда фото/PDF накладной или откройте ручную приемку. После распознавания бот даст предпросмотр и кнопки подтверждения."
+        if intent == "warehouse":
+            return "Склад", "Откройте склад или отправьте фото/PDF накладной в этот чат для создания черновика приемки."
+        if intent == "assignments":
+            return "Поручения", "Откройте список поручений: взять в работу, отправить отчет и приложить фото можно из приложения."
+        if intent == "own_expense":
+            return "Мои траты", "Откройте форму личных трат, чтобы приложить чек и отправить заявку на возмещение."
+        if intent == "projects":
+            return "Объекты", "Откройте объекты, чтобы перейти к проекту, складу, работам и связанным документам."
+        if intent == "chat":
+            return "Чат", "Откройте рабочий чат в приложении."
+        return "Строй-Бот", "Я на связи. Команды: id, накладная, склад, поручения, траты, объекты, чат. Для накладной можно сразу отправить фото или PDF."
+
+    def enqueue_max_internal_help_once(cur, channel: dict, max_user_id: str, max_chat_id: str, text: str, source_id: str) -> tuple[int, bool, str]:
         source_id = _text(source_id, 255)
+        intent = max_internal_command_intent(text, max_chat_id)
+        if not intent:
+            return 0, False, ""
         if source_id:
             cur.execute(
                 """
                 SELECT id
                   FROM messenger_outbox
                  WHERE provider='max'
+                   AND external_user_id=%s
                    AND chat_id=%s
                    AND event_type='max_internal_help'
                    AND payload_json->>'sourceId'=%s
                  LIMIT 1
                 """,
-                (max_chat_id, source_id),
+                (max_user_id, max_chat_id, source_id),
             )
             existing = cur.fetchone()
             if existing:
-                return int(existing.get("id") if isinstance(existing, dict) else existing[0]), False
-        body = (
-            "Бот на связи. Для накладной отправьте сюда фото или PDF. "
-            "Для ручных действий откройте меню, приемку склада или поручения."
-        )
+                return int(existing.get("id") if isinstance(existing, dict) else existing[0]), False, intent
+        employee = max_internal_employee_for_reply(cur, max_user_id, max_chat_id)
+        title, body = max_internal_reply_body(intent, employee, max_user_id, max_chat_id)
         outbox_id = enqueue_max_outbox(
             cur,
             {"source": "max_bot"},
@@ -1200,17 +1302,20 @@ def register_messenger_module(app, deps):
             "max_internal_help",
             "messenger_channel",
             int((channel or {}).get("id") or 0),
-            "Строй-Бот",
+            title,
             body,
             payload={
                 "sourceId": source_id,
                 "incomingText": _text(text, 500),
+                "intent": intent,
                 "channelId": (channel or {}).get("id"),
+                "linkedEmployeeId": employee.get("id") if employee else None,
+                "linkedEmployeeSource": employee.get("source") if employee else "",
             },
-            actions=max_internal_help_actions(),
+            actions=max_internal_help_actions(intent),
             priority=3,
         )
-        return int(outbox_id), True
+        return int(outbox_id), True, intent
 
     def max_invoice_message_body(payload: dict) -> str:
         preview = _invoice_preview_from_payload(payload)
@@ -1910,11 +2015,12 @@ def register_messenger_module(app, deps):
                         "reason": exc.detail,
                         "files": len(attachments),
                     }
-            if should_reply_to_internal_max_text(text, chat_id):
+            intent = max_internal_command_intent(text, chat_id)
+            if intent:
                 conn = get_db()
                 cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
                 try:
-                    outbox_id, queued = enqueue_max_internal_help_once(cur, channel, user_id, chat_id, text, source_id)
+                    outbox_id, queued, intent = enqueue_max_internal_help_once(cur, channel, user_id, chat_id, text, source_id)
                     conn.commit()
                     return {
                         "ok": True,
@@ -1922,6 +2028,7 @@ def register_messenger_module(app, deps):
                         "updateType": update_type,
                         "chatId": chat_id,
                         "outboxId": outbox_id,
+                        "intent": intent,
                     }
                 except Exception:
                     conn.rollback()

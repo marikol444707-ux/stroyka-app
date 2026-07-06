@@ -17,6 +17,7 @@ ENV_PATH = ROOT / "backend" / ".env"
 BASE_URL = os.getenv("BASE_URL", "https://stroyka26.pro").rstrip("/")
 RUN_ID = uuid.uuid4().hex[:8]
 INTERNAL_CHAT_ID = os.getenv("MAX_BOT_ADAPTER_SMOKE_CHAT_ID", f"codex-max-internal-{RUN_ID}")
+INTERNAL_GROUP_CHAT_ID = os.getenv("MAX_BOT_ADAPTER_GROUP_CHAT_ID", f"-codex-max-group-{RUN_ID}")
 MARKETING_CHAT_ID = os.getenv("MAX_BOT_ADAPTER_MARKETING_CHAT_ID", f"codex-max-marketing-{RUN_ID}")
 CHANNEL_TITLE = os.getenv("MAX_BOT_ADAPTER_SMOKE_TITLE", f"CODEX MAX bot {RUN_ID}")
 
@@ -96,6 +97,8 @@ def cleanup(lead_id=None, outbox_id=None, outbox_ids=None):
             cur.execute("DELETE FROM crm_leads WHERE id=%s", (lead_id,))
         if not os.getenv("MAX_BOT_ADAPTER_SMOKE_CHAT_ID"):
             cur.execute("DELETE FROM messenger_channels WHERE provider='max' AND chat_id=%s", (INTERNAL_CHAT_ID,))
+        if not os.getenv("MAX_BOT_ADAPTER_GROUP_CHAT_ID"):
+            cur.execute("DELETE FROM messenger_channels WHERE provider='max' AND chat_id=%s", (INTERNAL_GROUP_CHAT_ID,))
         if not os.getenv("MAX_BOT_ADAPTER_MARKETING_CHAT_ID"):
             cur.execute("DELETE FROM messenger_channels WHERE provider='max' AND chat_id=%s", (MARKETING_CHAT_ID,))
         conn.commit()
@@ -203,6 +206,7 @@ def main():
     lead_id = None
     outbox_id = None
     help_outbox_id = None
+    identity_outbox_id = None
     try:
         _, linked = api_json(
             "POST",
@@ -246,6 +250,51 @@ def main():
         help_outbox_id = internal_result.get("outboxId")
         if not help_outbox_id:
             raise RuntimeError(f"Internal MAX help response did not expose outbox id: {internal_message}")
+        if internal_result.get("intent") != "help":
+            raise RuntimeError(f"Internal MAX test message should be handled as help intent: {internal_message}")
+
+        _, identity_message = api_json(
+            "POST",
+            "/max/webhook",
+            data={
+                "update_type": "message_created",
+                "timestamp": int(dt.datetime.now().timestamp()),
+                "message": {
+                    "mid": f"codex-internal-id-{RUN_ID}",
+                    "recipient": {"chat_id": INTERNAL_CHAT_ID},
+                    "sender": {"user_id": f"internal-user-{RUN_ID}", "username": f"codex_{RUN_ID}"},
+                    "body": {"text": "id"},
+                },
+            },
+            headers=headers,
+            expected=200,
+        )
+        identity_result = (identity_message.get("results") or [{}])[0]
+        if identity_result.get("action") != "internal_help_queued" or identity_result.get("intent") != "identity":
+            raise RuntimeError(f"Internal MAX id command should queue identity response: {identity_message}")
+        identity_outbox_id = identity_result.get("outboxId")
+        if not identity_outbox_id:
+            raise RuntimeError(f"Internal MAX identity response did not expose outbox id: {identity_message}")
+
+        _, random_group_message = api_json(
+            "POST",
+            "/max/webhook",
+            data={
+                "update_type": "message_created",
+                "timestamp": int(dt.datetime.now().timestamp()),
+                "message": {
+                    "mid": f"codex-internal-random-{RUN_ID}",
+                    "recipient": {"chat_id": INTERNAL_GROUP_CHAT_ID},
+                    "sender": {"user_id": f"group-user-{RUN_ID}", "username": f"codex_group_{RUN_ID}"},
+                    "body": {"text": "просто рабочий разговор"},
+                },
+            },
+            headers=headers,
+            expected=200,
+        )
+        random_group_result = (random_group_message.get("results") or [{}])[0]
+        if random_group_result.get("action") != "message_ignored":
+            raise RuntimeError(f"Random internal group message should stay silent: {random_group_message}")
 
         marketing_channel_id = insert_marketing_channel()
         _, message = api_json(
@@ -316,6 +365,8 @@ def main():
                 "MAX webhook secret header is accepted",
                 "bot_added links MAX bot channel as internal by default",
                 "message_created test in internal MAX channel queues help response without CRM lead",
+                "message_created id in internal MAX channel queues identity binding response",
+                "random internal MAX group message stays silent",
                 "message_created in explicit marketing MAX channel creates CRM lead",
                 "max bot status exposes channels and outbox through /max route",
                 "outbox dispatch dry-run builds MAX message and inline keyboard",
@@ -324,7 +375,7 @@ def main():
             "timestamp": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
         }, ensure_ascii=False, indent=2))
     finally:
-        cleanup(lead_id, outbox_id, [help_outbox_id] if help_outbox_id else [])
+        cleanup(lead_id, outbox_id, [item for item in (help_outbox_id, identity_outbox_id) if item])
 
 
 if __name__ == "__main__":
