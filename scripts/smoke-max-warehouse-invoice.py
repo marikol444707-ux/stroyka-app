@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -82,6 +83,56 @@ def api_json(method, path, token=None, data=None, headers=None, expected=None):
         return status, json.loads(text)
     except json.JSONDecodeError:
         return status, {"raw": text}
+
+
+def totp_code(secret):
+    secret = re.sub(r"\s+", "", str(secret or "")).upper()
+    if not secret:
+        raise RuntimeError("Нет TOTP secret для 2FA")
+    secret += "=" * (-len(secret) % 8)
+    key = base64.b32decode(secret, casefold=True)
+    counter = int(time.time()) // 30
+    digest = hmac.new(key, counter.to_bytes(8, "big"), hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    code = (int.from_bytes(digest[offset:offset + 4], "big") & 0x7FFFFFFF) % 1000000
+    return str(code).zfill(6)
+
+
+def token_from_login_response(body, email):
+    token = body.get("authToken")
+    if token:
+        return token
+    if body.get("twoFactorSetupRequired"):
+        setup_token = body.get("setupToken")
+        secret = env_value("SMOKE_TOTP_SECRET") or body.get("manualKey") or ""
+        if not setup_token or not secret:
+            raise SystemExit(f"FAIL login {email}: 2FA setup не вернул setupToken/manualKey")
+        _, confirmed = api_json(
+            "POST",
+            "/login/2fa/setup-confirm",
+            data={"setupToken": setup_token, "code": totp_code(secret)},
+            expected=200,
+        )
+        token = confirmed.get("authToken")
+        if token:
+            return token
+        raise SystemExit(f"FAIL login {email}: authToken не получен после 2FA setup")
+    if body.get("twoFactorRequired"):
+        challenge_token = body.get("challengeToken")
+        code = env_value("SMOKE_2FA_CODE") or (totp_code(env_value("SMOKE_TOTP_SECRET")) if env_value("SMOKE_TOTP_SECRET") else "")
+        if not challenge_token or not code:
+            raise SystemExit(f"FAIL login {email}: нужен SMOKE_2FA_CODE или SMOKE_TOTP_SECRET")
+        _, verified = api_json(
+            "POST",
+            "/login/2fa/verify",
+            data={"challengeToken": challenge_token, "code": code},
+            expected=200,
+        )
+        token = verified.get("authToken")
+        if token:
+            return token
+        raise SystemExit(f"FAIL login {email}: authToken не получен после 2FA")
+    raise SystemExit(f"FAIL login {email}: authToken не получен")
 
 
 def require_env(name):
@@ -200,10 +251,7 @@ def validate_max_miniapp_session():
 
 def login(email, password):
     _, body = api_json("POST", "/login", data={"email": email, "password": password}, expected=200)
-    token = body.get("authToken")
-    if not token:
-        raise SystemExit(f"FAIL login {email}: authToken не получен")
-    return token
+    return token_from_login_response(body, email)
 
 
 def select_project():
