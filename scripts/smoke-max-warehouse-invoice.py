@@ -467,6 +467,10 @@ def main():
             expected=200,
         )
         if webhook_result.get("action") != "invoice_preview_created":
+            results = webhook_result.get("results") if isinstance(webhook_result.get("results"), list) else []
+            if results and isinstance(results[0], dict):
+                webhook_result = results[0]
+        if webhook_result.get("action") != "invoice_preview_created":
             raise RuntimeError(f"MAX webhook не создал preview накладной: {webhook_result}")
         preview = webhook_result.get("draft") or {}
         draft_token = preview.get("draftToken")
