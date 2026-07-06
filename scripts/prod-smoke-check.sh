@@ -121,6 +121,7 @@ echo "Smoke-check: $BASE_URL"
 
 check_code "frontend /" "$BASE_URL/"
 check_code "frontend /app" "$BASE_URL/app"
+check_code "frontend /max-app" "$BASE_URL/max-app"
 
 check_health "$BASE_URL/health"
 health_version="$(printf '%s' "$health_body" | json_field version 2>/dev/null || true)"
