@@ -2895,10 +2895,21 @@ def register_messenger_module(app, deps):
             if not payload.get("project") and main_warehouse_write_roles and employee.get("role") not in main_warehouse_write_roles:
                 raise HTTPException(status_code=403, detail="Прораб через MAX принимает накладные только на закрепленный объектный склад")
 
-            existing_invoice = select_existing_warehouse_by_source(cur, payload.get("sourceType"), payload.get("sourceId"))
             accounting_link = None
             already_confirmed = False
-            if existing_invoice:
+            try:
+                result, accounting_link = commit_max_invoice_payload(
+                    payload,
+                    employee,
+                    data,
+                    bool(draft.get("recognized")),
+                )
+            except HTTPException as exc:
+                if exc.status_code != 409:
+                    raise
+                existing_invoice = select_existing_warehouse_by_source(cur, payload.get("sourceType"), payload.get("sourceId"))
+                if not existing_invoice:
+                    raise
                 result = {
                     "id": existing_invoice.get("id"),
                     "ok": True,
@@ -2907,28 +2918,6 @@ def register_messenger_module(app, deps):
                     "accountingStatus": existing_invoice.get("accounting_status") or "",
                 }
                 already_confirmed = True
-            else:
-                try:
-                    result, accounting_link = commit_max_invoice_payload(
-                        payload,
-                        employee,
-                        data,
-                        bool(draft.get("recognized")),
-                    )
-                except HTTPException as exc:
-                    if exc.status_code != 409:
-                        raise
-                    existing_invoice = select_existing_warehouse_by_source(cur, payload.get("sourceType"), payload.get("sourceId"))
-                    if not existing_invoice:
-                        raise
-                    result = {
-                        "id": existing_invoice.get("id"),
-                        "ok": True,
-                        "alreadyExists": True,
-                        "supplierInvoiceId": existing_invoice.get("supplier_invoice_id"),
-                        "accountingStatus": existing_invoice.get("accounting_status") or "",
-                    }
-                    already_confirmed = True
 
             cur.execute(
                 """
