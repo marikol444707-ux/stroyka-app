@@ -81,6 +81,8 @@ export default function MaxQuickActionsPage() {
     sessionCreated:false,
     requiresWebLogin:false,
     sessionNote:'',
+    maxUser:null,
+    maxChat:null,
   });
 
   React.useEffect(() => {
@@ -95,6 +97,8 @@ export default function MaxQuickActionsPage() {
               error:'',
               account: {employeeName: launch.previewName, employeeRole: launch.previewRole},
               source:'local',
+              maxUser:null,
+              maxChat:null,
             });
           }
           return;
@@ -106,6 +110,8 @@ export default function MaxQuickActionsPage() {
             error: localUser ? '' : 'Откройте мини-приложение из MAX или войдите в Stroyka в этом браузере.',
             account: localUser ? {employeeName: localUser.name, employeeRole: localUser.role} : null,
             source:'local',
+            maxUser:null,
+            maxChat:null,
           });
         }
         return;
@@ -163,10 +169,12 @@ export default function MaxQuickActionsPage() {
             sessionCreated,
             requiresWebLogin,
             sessionNote,
+            maxUser:data.maxUser || null,
+            maxChat:data.maxChat || null,
           });
         }
       } catch (error) {
-        if (!cancelled) setState({loading:false, error:error.message || 'MAX-проверка не прошла', account:null, source:'max', sessionCreated:false, requiresWebLogin:false, sessionNote:''});
+        if (!cancelled) setState({loading:false, error:error.message || 'MAX-проверка не прошла', account:null, source:'max', sessionCreated:false, requiresWebLogin:false, sessionNote:'', maxUser:null, maxChat:null});
       }
     };
     run();
@@ -180,6 +188,12 @@ export default function MaxQuickActionsPage() {
     params.set('quickAction', action.id);
     if (action.appPage) params.set('page', action.appPage);
     window.location.href = '/app?' + params.toString();
+  };
+  const maxUserId = String(state.maxUser?.id || '');
+  const maxChatId = String(state.maxChat?.id || maxUserId || '');
+  const copyMaxLinkData = () => {
+    const text = ['MAX userId: ' + (maxUserId || '-'), 'MAX chatId: ' + (maxChatId || '-')].join('\n');
+    navigator.clipboard?.writeText(text).catch(() => {});
   };
 
   return (
@@ -210,6 +224,21 @@ export default function MaxQuickActionsPage() {
             <>
               <b style={{fontSize:'15px'}}>Аккаунт не связан</b>
               <div style={{fontSize:'13px',color:'#fca5a5',marginTop:'4px'}}>{state.error}</div>
+              {(maxUserId || maxChatId) && (
+                <div style={{marginTop:'12px',display:'grid',gap:'8px'}}>
+                  <div style={{border:'1px solid rgba(148,163,184,.24)',borderRadius:'8px',padding:'10px',background:'rgba(15,23,42,.56)'}}>
+                    <span style={{display:'block',fontSize:'11px',color:'#94a3b8',marginBottom:'4px'}}>MAX userId</span>
+                    <code style={{display:'block',fontSize:'13px',color:'#e5e7eb',wordBreak:'break-all'}}>{maxUserId || '-'}</code>
+                  </div>
+                  <div style={{border:'1px solid rgba(148,163,184,.24)',borderRadius:'8px',padding:'10px',background:'rgba(15,23,42,.56)'}}>
+                    <span style={{display:'block',fontSize:'11px',color:'#94a3b8',marginBottom:'4px'}}>MAX chatId</span>
+                    <code style={{display:'block',fontSize:'13px',color:'#e5e7eb',wordBreak:'break-all'}}>{maxChatId || '-'}</code>
+                  </div>
+                  <button onClick={copyMaxLinkData} style={{border:'1px solid rgba(148,163,184,.35)',background:'rgba(15,23,42,.9)',color:'#e5e7eb',borderRadius:'10px',padding:'10px 12px',fontWeight:800}}>
+                    Скопировать данные для привязки
+                  </button>
+                </div>
+              )}
             </>
           )}
         </section>
