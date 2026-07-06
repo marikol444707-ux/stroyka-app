@@ -6,7 +6,9 @@ import json
 import hmac
 import secrets
 import time
+import urllib.error
 import urllib.parse
+import urllib.request
 from typing import Optional
 
 import psycopg2.extras
@@ -654,6 +656,8 @@ def register_messenger_module(app, deps):
     warehouse_roles = deps["warehouse_roles"]
     leadership_roles = deps.get("leadership_roles") or ()
     main_warehouse_write_roles = deps.get("main_warehouse_write_roles") or ()
+    app_public_url = (deps.get("app_public_url") or "https://stroyka26.pro").rstrip("/")
+    max_bot_api_base = (deps.get("max_bot_api_base") or "https://platform-api2.max.ru").rstrip("/")
     max_bot_api_token = deps.get("max_bot_api_token") or ""
     max_webhook_secret = deps.get("max_webhook_secret") or ""
     max_initdata_ttl_seconds = int(deps.get("max_initdata_ttl_seconds") or 3600)
@@ -682,6 +686,7 @@ def register_messenger_module(app, deps):
         authorization: Optional[str] = Header(default=None),
         x_max_bot_token: Optional[str] = Header(default=None),
         x_max_webhook_secret: Optional[str] = Header(default=None),
+        x_max_bot_api_secret: Optional[str] = Header(default=None),
     ):
         expected_tokens = [token for token in (max_webhook_secret, max_bot_api_token) if token]
         if not expected_tokens:
@@ -690,6 +695,7 @@ def register_messenger_module(app, deps):
             _header_token(authorization or ""),
             _text(x_max_bot_token, 500),
             _text(x_max_webhook_secret, 500),
+            _text(x_max_bot_api_secret, 500),
         ]
         if not any(
             candidate and any(_safe_compare(candidate, expected) for expected in expected_tokens)
@@ -1070,6 +1076,376 @@ def register_messenger_module(app, deps):
         )
         row = cur.fetchone()
         return row.get("id") if isinstance(row, dict) else row[0]
+
+    def max_api_request(method: str, path: str, data: dict = None, query: dict = None, timeout: int = 30) -> dict:
+        if not max_bot_api_token:
+            raise HTTPException(status_code=503, detail="MAX_BOT_API_TOKEN не настроен")
+        method = str(method or "GET").upper()
+        path = "/" + str(path or "").lstrip("/")
+        clean_query = {
+            key: value
+            for key, value in (query or {}).items()
+            if value not in (None, "")
+        }
+        url = max_bot_api_base + path
+        if clean_query:
+            url += "?" + urllib.parse.urlencode(clean_query)
+        body = json.dumps(data or {}, ensure_ascii=False).encode("utf-8") if data is not None else None
+        request = urllib.request.Request(
+            url,
+            data=body,
+            method=method,
+            headers={
+                "Authorization": max_bot_api_token,
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                text = response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            text = exc.read().decode("utf-8", errors="replace")
+            status = exc.code if 400 <= int(exc.code or 0) < 600 else 502
+            raise HTTPException(status_code=status, detail=f"MAX API {method} {path}: {text[:900] or exc.reason}")
+        except urllib.error.URLError as exc:
+            raise HTTPException(status_code=502, detail=f"MAX API недоступен: {exc.reason}")
+        if not text:
+            return {}
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return {"raw": text}
+
+    def max_action_button(action: dict) -> dict:
+        action = action if isinstance(action, dict) else {}
+        label = _text(action.get("label") or action.get("text") or action.get("title") or "Открыть", 80)
+        action_id = _text(action.get("id") or action.get("actionId") or action.get("action_id"), 80)
+        kind = _text(action.get("kind") or action.get("type"), 80)
+        url = _text(action.get("url") or action.get("href"), 1000)
+        if not url and kind in ("open_app", "link"):
+            path = _text(action.get("path") or action.get("route") or "/app", 1000)
+            if path.startswith("http://") or path.startswith("https://"):
+                url = path
+            else:
+                if not path.startswith("/"):
+                    path = "/" + path
+                url = app_public_url + path
+            entity_type = _text(action.get("entityType") or action.get("entity_type"), 120)
+            entity_id = action.get("entityId") or action.get("entity_id")
+            if entity_type and entity_id:
+                separator = "&" if "?" in url else "?"
+                url += separator + urllib.parse.urlencode({"entity": entity_type, "id": entity_id})
+        if url:
+            return {"type": "link", "text": label, "url": url}
+
+        payload = action.get("payload") if isinstance(action.get("payload"), dict) else {}
+        callback_payload = {
+            **payload,
+            "actionId": action_id or _text(payload.get("actionId") or payload.get("action_id"), 80),
+            "endpoint": _text(action.get("endpoint") or payload.get("endpoint"), 255),
+            "method": _text(action.get("method") or payload.get("method") or "POST", 20),
+        }
+        callback_payload = {key: value for key, value in callback_payload.items() if value not in (None, "")}
+        return {
+            "type": "callback",
+            "text": label,
+            "payload": json.dumps(callback_payload, ensure_ascii=False, separators=(",", ":"))[:1000],
+        }
+
+    def max_message_payload_from_outbox(row: dict) -> dict:
+        row = row or {}
+        title = _text(row.get("title"), 500)
+        body = _text(row.get("body"), 3500)
+        text = "\n\n".join(item for item in (title, body) if item).strip() or "Уведомление Stroyka"
+        message = {"text": text[:4000], "notify": True}
+        buttons = []
+        for action in _json_array(row.get("actions_json"))[:6]:
+            button = max_action_button(action)
+            if button:
+                buttons.append(button)
+        if buttons:
+            message["attachments"] = [{
+                "type": "inline_keyboard",
+                "payload": {"buttons": [buttons]},
+            }]
+        return message
+
+    def max_provider_message_id(response: dict) -> str:
+        response = response if isinstance(response, dict) else {}
+        sources = [response]
+        if isinstance(response.get("message"), dict):
+            sources.append(response["message"])
+        if isinstance(response.get("result"), dict):
+            sources.append(response["result"])
+        for source in sources:
+            for key in ("message_id", "messageId", "id", "mid"):
+                value = source.get(key)
+                if value not in (None, ""):
+                    return str(value)
+        return ""
+
+    def send_max_outbox_row(row: dict) -> tuple[dict, str, dict]:
+        row = row or {}
+        chat_id = _text(row.get("chat_id"), 120)
+        user_id = _text(row.get("external_user_id"), 120)
+        if not chat_id and not user_id:
+            raise HTTPException(status_code=400, detail="У MAX outbox нет chat_id или external_user_id")
+        query = {"chat_id": chat_id} if chat_id else {"user_id": user_id}
+        payload = max_message_payload_from_outbox(row)
+        response = max_api_request("POST", "/messages", data=payload, query=query)
+        return response, max_provider_message_id(response), payload
+
+    def max_update_list(data) -> list:
+        if isinstance(data, list):
+            return [item for item in data if isinstance(item, dict)]
+        data = data if isinstance(data, dict) else {}
+        if isinstance(data.get("updates"), list):
+            return [item for item in data["updates"] if isinstance(item, dict)]
+        if isinstance(data.get("update"), dict):
+            return [data["update"]]
+        return [data] if data else []
+
+    def max_nested_dict(data: dict, *keys: str) -> dict:
+        for key in keys:
+            value = data.get(key) if isinstance(data, dict) else None
+            if isinstance(value, dict):
+                return value
+        return {}
+
+    def max_user_name(user: dict) -> str:
+        user = user if isinstance(user, dict) else {}
+        return " ".join(
+            item
+            for item in (
+                _text(user.get("first_name") or user.get("firstName"), 80),
+                _text(user.get("last_name") or user.get("lastName"), 80),
+            )
+            if item
+        ) or _text(user.get("username") or user.get("name"), 120)
+
+    def max_update_chat_id(update: dict) -> str:
+        message = max_nested_dict(update, "message")
+        recipient = max_nested_dict(message, "recipient")
+        callback = max_nested_dict(update, "callback")
+        callback_message = max_nested_dict(callback, "message")
+        callback_recipient = max_nested_dict(callback_message, "recipient")
+        chat = max_nested_dict(update, "chat")
+        return _payload_value(
+            update,
+            "chat_id",
+            "chatId",
+            "conversation_id",
+            "conversationId",
+        ) or _payload_value(
+            message,
+            "chat_id",
+            "chatId",
+        ) or _payload_value(
+            recipient,
+            "chat_id",
+            "chatId",
+        ) or _payload_value(
+            callback,
+            "chat_id",
+            "chatId",
+        ) or _payload_value(
+            callback_recipient,
+            "chat_id",
+            "chatId",
+        ) or _payload_value(
+            chat,
+            "id",
+            "chat_id",
+            "chatId",
+        )
+
+    def max_update_user(update: dict) -> dict:
+        message = max_nested_dict(update, "message")
+        callback = max_nested_dict(update, "callback")
+        return (
+            max_nested_dict(update, "user")
+            or max_nested_dict(message, "sender", "user")
+            or max_nested_dict(callback, "user")
+        )
+
+    def max_update_user_id(update: dict) -> str:
+        user = max_update_user(update)
+        message = max_nested_dict(update, "message")
+        sender = max_nested_dict(message, "sender")
+        callback = max_nested_dict(update, "callback")
+        return _payload_value(
+            user,
+            "user_id",
+            "userId",
+            "id",
+        ) or _payload_value(
+            sender,
+            "user_id",
+            "userId",
+            "id",
+        ) or _payload_value(
+            callback,
+            "user_id",
+            "userId",
+        )
+
+    def max_update_message_text(update: dict) -> str:
+        message = max_nested_dict(update, "message")
+        body = max_nested_dict(message, "body")
+        return _text(
+            body.get("text")
+            or message.get("text")
+            or update.get("text")
+            or update.get("message_text")
+            or update.get("messageText"),
+            4000,
+        )
+
+    def max_update_source_id(update: dict) -> str:
+        message = max_nested_dict(update, "message")
+        callback = max_nested_dict(update, "callback")
+        return _payload_value(
+            message,
+            "mid",
+            "id",
+            "message_id",
+            "messageId",
+        ) or _payload_value(
+            callback,
+            "message_id",
+            "messageId",
+            "id",
+        ) or _payload_value(update, "message_id", "messageId", "mid", "id")
+
+    def max_callback_payload(update: dict) -> dict:
+        callback = max_nested_dict(update, "callback")
+        raw_payload = (
+            callback.get("payload")
+            or callback.get("data")
+            or update.get("payload")
+            or update.get("callback_payload")
+        )
+        if isinstance(raw_payload, dict):
+            return raw_payload
+        if isinstance(raw_payload, str) and raw_payload.strip():
+            try:
+                parsed = json.loads(raw_payload)
+                return parsed if isinstance(parsed, dict) else {"value": raw_payload}
+            except Exception:
+                return {"value": raw_payload}
+        return {}
+
+    def upsert_max_channel_from_update(cur, update: dict, chat_id: str) -> dict:
+        update_type = _text(update.get("update_type") or update.get("updateType"), 80)
+        is_channel = bool(update.get("is_channel") or update.get("isChannel"))
+        channel_type = "marketing" if is_channel else "director"
+        chat = max_nested_dict(update, "chat")
+        title = _text(
+            update.get("title")
+            or update.get("chat_title")
+            or update.get("chatTitle")
+            or chat.get("title")
+            or chat.get("name")
+            or ("MAX канал " + chat_id if is_channel else "MAX диалог " + chat_id),
+            255,
+        )
+        metadata = {
+            "linkedByWebhook": True,
+            "lastUpdateType": update_type,
+            "isChannel": is_channel,
+            "lastUserId": max_update_user_id(update),
+            "lastUserName": max_user_name(max_update_user(update)),
+        }
+        cur.execute(
+            """
+            INSERT INTO messenger_channels
+                (provider,chat_id,title,channel_type,source_label,default_stage,enabled,metadata_json)
+            VALUES
+                ('max',%s,%s,%s,%s,'Новый',TRUE,%s::jsonb)
+            ON CONFLICT (provider, chat_id) DO UPDATE SET
+                title=COALESCE(NULLIF(EXCLUDED.title,''), messenger_channels.title),
+                source_label=COALESCE(NULLIF(messenger_channels.source_label,''), EXCLUDED.source_label),
+                metadata_json=COALESCE(messenger_channels.metadata_json,'{}'::jsonb) || EXCLUDED.metadata_json,
+                enabled=COALESCE(messenger_channels.enabled, TRUE),
+                updated_at=NOW()
+            RETURNING *
+            """,
+            (
+                chat_id,
+                title,
+                channel_type,
+                "MAX маркетинг" if is_channel else "MAX диалог",
+                json.dumps(metadata, ensure_ascii=False),
+            ),
+        )
+        return cur.fetchone()
+
+    def handle_max_webhook_update(update: dict) -> dict:
+        update = update if isinstance(update, dict) else {}
+        update_type = _text(update.get("update_type") or update.get("updateType"), 80)
+        chat_id = max_update_chat_id(update)
+        user_id = max_update_user_id(update)
+        source_id = max_update_source_id(update)
+        if update_type in ("bot_added", "bot_started", "chat_title_changed") and chat_id:
+            conn = get_db()
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            try:
+                channel = upsert_max_channel_from_update(cur, update, chat_id)
+                conn.commit()
+                return {"ok": True, "action": "channel_linked", "updateType": update_type, "channel": _public_messenger_channel(channel)}
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                cur.close()
+                conn.close()
+
+        if update_type == "message_created" and chat_id:
+            text = max_update_message_text(update)
+            conn = get_db()
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            try:
+                channel = find_messenger_channel(cur, "max", chat_id)
+            finally:
+                cur.close()
+                conn.close()
+            if channel and bool(channel.get("enabled", True)) and (channel.get("channel_type") or "") == "marketing":
+                lead_result = create_max_marketing_lead(
+                    {
+                        "maxChatId": chat_id,
+                        "maxUserId": user_id,
+                        "name": max_user_name(max_update_user(update)),
+                        "username": _text(max_update_user(update).get("username"), 120),
+                        "message": text,
+                        "sourceId": source_id,
+                        "maxUser": max_update_user(update),
+                        "data": update,
+                    },
+                    _bot={"role": "max_bot", "name": "MAX Bot"},
+                )
+                return {"ok": True, "action": "marketing_lead_created", "updateType": update_type, "lead": lead_result.get("lead")}
+            return {"ok": True, "action": "message_ignored", "updateType": update_type, "reason": "not_marketing_channel", "chatId": chat_id}
+
+        if update_type == "message_callback":
+            payload = max_callback_payload(update)
+            action_id = _text(payload.get("actionId") or payload.get("action_id") or payload.get("id") or payload.get("value"), 80)
+            endpoint = _text(payload.get("endpoint"), 255)
+            draft_token = _text(payload.get("draftToken") or payload.get("draft_token"), 120)
+            actor = {"maxUserId": user_id, "maxChatId": chat_id, "draftToken": draft_token}
+            if action_id == "confirm" or endpoint.endswith("/max/warehouse-invoices/confirm"):
+                if not draft_token:
+                    return {"ok": True, "action": "callback_ignored", "updateType": update_type, "reason": "missing_draft_token"}
+                result = confirm_max_warehouse_invoice(actor, _bot={"role": "max_bot", "name": "MAX Bot"})
+                return {"ok": True, "action": "invoice_confirmed", "updateType": update_type, "result": result}
+            if action_id == "reject" or endpoint.endswith("/max/warehouse-invoices/reject"):
+                if not draft_token:
+                    return {"ok": True, "action": "callback_ignored", "updateType": update_type, "reason": "missing_draft_token"}
+                result = reject_max_warehouse_invoice(actor, _bot={"role": "max_bot", "name": "MAX Bot"})
+                return {"ok": True, "action": "invoice_rejected", "updateType": update_type, "result": result}
+            return {"ok": True, "action": "callback_ignored", "updateType": update_type, "payload": payload}
+
+        return {"ok": True, "action": "ignored", "updateType": update_type or "unknown", "chatId": chat_id}
 
     def append_file_urls_to_payload(payload: dict, files: list) -> dict:
         payload = dict(payload or {})
@@ -1826,6 +2202,100 @@ def register_messenger_module(app, deps):
             cur.close()
             conn.close()
 
+    @app.post("/max/outbox/dispatch")
+    def dispatch_max_outbox(
+        limit: int = Query(default=20, ge=1, le=100),
+        dry_run: bool = Query(default=False),
+        _bot: dict = Depends(require_max_bot_token),
+    ):
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        sent = []
+        failed = []
+        planned = []
+        try:
+            cur.execute(
+                """
+                SELECT *
+                  FROM messenger_outbox
+                 WHERE provider='max'
+                   AND status='queued'
+                   AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
+                 ORDER BY priority ASC, id ASC
+                 LIMIT %s
+                """,
+                (limit,),
+            )
+            rows = cur.fetchall()
+            for row in rows:
+                payload = max_message_payload_from_outbox(row)
+                target = {
+                    "chatId": row.get("chat_id") or "",
+                    "userId": row.get("external_user_id") or "",
+                }
+                if dry_run:
+                    planned.append({
+                        "id": row.get("id"),
+                        "eventType": row.get("event_type") or "",
+                        "target": target,
+                        "message": payload,
+                    })
+                    continue
+                try:
+                    response, provider_message_id, _payload = send_max_outbox_row(row)
+                    cur.execute(
+                        """
+                        UPDATE messenger_outbox
+                           SET status='sent',
+                               provider_message_id=%s,
+                               sent_at=NOW(),
+                               last_error='',
+                               next_attempt_at=NULL,
+                               updated_at=NOW()
+                         WHERE provider='max' AND id=%s
+                     RETURNING *
+                        """,
+                        (provider_message_id, row.get("id")),
+                    )
+                    updated = cur.fetchone()
+                    sent.append({
+                        "id": row.get("id"),
+                        "providerMessageId": provider_message_id,
+                        "response": response,
+                        "item": _public_messenger_outbox_item(updated),
+                    })
+                except Exception as exc:
+                    detail = getattr(exc, "detail", str(exc)) or "MAX delivery failed"
+                    cur.execute(
+                        """
+                        UPDATE messenger_outbox
+                           SET status='failed',
+                               attempts=COALESCE(attempts,0)+1,
+                               last_error=%s,
+                               failed_at=NOW(),
+                               next_attempt_at=NOW() + INTERVAL '5 minutes',
+                               updated_at=NOW()
+                         WHERE provider='max' AND id=%s
+                     RETURNING *
+                        """,
+                        (_text(detail, 1000), row.get("id")),
+                    )
+                    updated = cur.fetchone()
+                    failed.append({
+                        "id": row.get("id"),
+                        "error": _text(detail, 1000),
+                        "item": _public_messenger_outbox_item(updated),
+                    })
+            if not dry_run:
+                conn.commit()
+            return {"ok": True, "dryRun": dry_run, "planned": planned, "sent": sent, "failed": failed}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+
     @app.post("/max/outbox/{message_id}/status")
     def update_max_outbox_status(message_id: int, data: dict, _bot: dict = Depends(require_max_bot_token)):
         data = data or {}
@@ -1904,6 +2374,37 @@ def register_messenger_module(app, deps):
         finally:
             cur.close()
             conn.close()
+
+    @app.get("/max/webhook/subscriptions")
+    def list_max_webhook_subscriptions(_bot: dict = Depends(require_max_bot_token)):
+        result = max_api_request("GET", "/subscriptions")
+        return {"ok": True, "result": result}
+
+    @app.post("/max/webhook/subscribe")
+    def subscribe_max_webhook(data: Optional[dict] = None, _bot: dict = Depends(require_max_bot_token)):
+        data = data or {}
+        url = _text(data.get("url") or data.get("webhookUrl") or data.get("webhook_url"), 1000)
+        if not url:
+            url = app_public_url + "/max/webhook"
+        if not url.startswith("https://"):
+            raise HTTPException(status_code=400, detail="MAX webhook должен быть HTTPS URL")
+        update_types = data.get("updateTypes") or data.get("update_types") or [
+            "bot_added",
+            "bot_started",
+            "chat_title_changed",
+            "message_created",
+            "message_callback",
+        ]
+        if not isinstance(update_types, list):
+            update_types = []
+        body = {
+            "url": url,
+            "update_types": [_text(item, 80) for item in update_types if _text(item, 80)],
+        }
+        if max_webhook_secret:
+            body["secret"] = max_webhook_secret
+        result = max_api_request("POST", "/subscriptions", data=body)
+        return {"ok": True, "subscription": body, "result": result}
 
     @app.get("/messenger-outbox")
     def list_messenger_outbox(
@@ -2394,3 +2895,11 @@ def register_messenger_module(app, deps):
             context["recognized"],
         )
         return result
+
+    @app.post("/max/webhook")
+    def max_webhook(data: dict, _bot: dict = Depends(require_max_bot_token)):
+        updates = max_update_list(data)
+        results = []
+        for update in updates:
+            results.append(handle_max_webhook_update(update))
+        return {"ok": True, "count": len(results), "results": results}
