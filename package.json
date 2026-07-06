@@ -28,6 +28,7 @@
     "smoke:data-guard": "python3 scripts/smoke-data-guard.py",
     "smoke:telegram-expense": "python3 scripts/smoke-telegram-own-expense.py",
     "smoke:max-warehouse": "python3 scripts/smoke-max-warehouse-invoice.py",
+    "smoke:max-marketing": "python3 scripts/smoke-max-marketing-lead.py",
     "smoke:assignments": "python3 scripts/smoke-assignments.py",
     "smoke:own-expense": "python3 scripts/smoke-own-expense-chain.py",
     "smoke:work-doc-chain": "python3 scripts/smoke-work-doc-chain.py",

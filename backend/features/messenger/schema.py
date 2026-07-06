@@ -27,6 +27,26 @@ def ensure_messenger_schema(get_db):
             CREATE INDEX IF NOT EXISTS idx_messenger_accounts_staff
                 ON messenger_accounts(staff_id);
 
+            CREATE TABLE IF NOT EXISTS messenger_channels (
+                id SERIAL PRIMARY KEY,
+                provider VARCHAR(40) NOT NULL,
+                chat_id VARCHAR(120) NOT NULL,
+                title VARCHAR(255),
+                channel_type VARCHAR(80) NOT NULL DEFAULT 'marketing',
+                project_name TEXT,
+                source_label VARCHAR(255),
+                campaign_code VARCHAR(120),
+                default_stage VARCHAR(80) DEFAULT 'Новый',
+                enabled BOOLEAN DEFAULT TRUE,
+                metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_messenger_channels_provider_chat_unique
+                ON messenger_channels(provider, chat_id);
+            CREATE INDEX IF NOT EXISTS idx_messenger_channels_provider_type
+                ON messenger_channels(provider, channel_type, enabled);
+
             CREATE TABLE IF NOT EXISTS max_invoice_drafts (
                 id SERIAL PRIMARY KEY,
                 draft_token VARCHAR(120) UNIQUE NOT NULL,

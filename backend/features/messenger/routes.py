@@ -68,6 +68,13 @@ def _int_or_none(value):
         return None
 
 
+def _num_value(value) -> float:
+    try:
+        return float(str(value if value is not None else 0).replace(" ", "").replace(",", "."))
+    except Exception:
+        return 0.0
+
+
 def _json_dict(value):
     if isinstance(value, dict):
         return value
@@ -237,6 +244,25 @@ def _public_messenger_file(row: dict) -> dict:
         "storageKey": row.get("storage_key") or "",
         "entityType": row.get("entity_type") or "",
         "entityId": row.get("entity_id"),
+        "metadata": _json_dict(row.get("metadata_json")),
+        "createdAt": _iso_value(row.get("created_at")),
+        "updatedAt": _iso_value(row.get("updated_at")),
+    }
+
+
+def _public_messenger_channel(row: dict) -> dict:
+    row = row or {}
+    return {
+        "id": row.get("id"),
+        "provider": row.get("provider") or "",
+        "chatId": row.get("chat_id") or "",
+        "title": row.get("title") or "",
+        "channelType": row.get("channel_type") or "",
+        "projectName": row.get("project_name") or "",
+        "sourceLabel": row.get("source_label") or "",
+        "campaignCode": row.get("campaign_code") or "",
+        "defaultStage": row.get("default_stage") or "Новый",
+        "enabled": bool(row.get("enabled", True)),
         "metadata": _json_dict(row.get("metadata_json")),
         "createdAt": _iso_value(row.get("created_at")),
         "updatedAt": _iso_value(row.get("updated_at")),
@@ -1073,6 +1099,134 @@ def register_messenger_module(app, deps):
         ]
         return payload
 
+    channel_types = {
+        "marketing",
+        "object",
+        "supply",
+        "accounting",
+        "director",
+        "alerts",
+    }
+
+    def normalize_channel_payload(data: dict, existing: dict = None) -> dict:
+        data = data or {}
+        existing = existing or {}
+        provider = _text(data.get("provider") or existing.get("provider") or "max", 40).lower()
+        if provider not in ("max", "telegram"):
+            raise HTTPException(status_code=400, detail="Поддерживаются только provider=max или provider=telegram")
+        chat_id = _text(
+            data.get("chatId")
+            or data.get("chat_id")
+            or data.get("maxChatId")
+            or data.get("telegramChatId")
+            or existing.get("chat_id"),
+            120,
+        )
+        if not chat_id:
+            raise HTTPException(status_code=400, detail="Нужен chatId канала")
+        channel_type = _text(data.get("channelType") or data.get("channel_type") or existing.get("channel_type") or "marketing", 80)
+        if channel_type not in channel_types:
+            raise HTTPException(status_code=400, detail="Недопустимый тип канала")
+        return {
+            "provider": provider,
+            "chatId": chat_id,
+            "title": _text(data.get("title") if "title" in data else existing.get("title"), 255),
+            "channelType": channel_type,
+            "projectName": _text(
+                data.get("projectName") if "projectName" in data else data.get("project_name") if "project_name" in data else existing.get("project_name"),
+                500,
+            ),
+            "sourceLabel": _text(
+                data.get("sourceLabel") if "sourceLabel" in data else data.get("source_label") if "source_label" in data else existing.get("source_label"),
+                255,
+            ),
+            "campaignCode": _text(
+                data.get("campaignCode") if "campaignCode" in data else data.get("campaign_code") if "campaign_code" in data else existing.get("campaign_code"),
+                120,
+            ),
+            "defaultStage": _text(
+                data.get("defaultStage") if "defaultStage" in data else data.get("default_stage") if "default_stage" in data else existing.get("default_stage") or "Новый",
+                80,
+            ) or "Новый",
+            "enabled": _bool_value(data.get("enabled"), bool(existing.get("enabled", True))),
+            "metadata": _json_dict(
+                data.get("metadata")
+                if "metadata" in data
+                else data.get("metadata_json")
+                if "metadata_json" in data
+                else existing.get("metadata_json")
+            ),
+        }
+
+    def fetch_channel(cur, channel_id: int):
+        cur.execute("SELECT * FROM messenger_channels WHERE id=%s", (channel_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Канал мессенджера не найден")
+        return row
+
+    def find_messenger_channel(cur, provider: str, chat_id: str):
+        cur.execute(
+            """
+            SELECT *
+              FROM messenger_channels
+             WHERE provider=%s AND chat_id=%s
+             LIMIT 1
+            """,
+            (_text(provider, 40).lower(), _text(chat_id, 120)),
+        )
+        return cur.fetchone()
+
+    def max_marketing_lead_payload(data: dict) -> dict:
+        data = data or {}
+        source = data.get("data") if isinstance(data.get("data"), dict) else {}
+        merged = dict(source)
+        merged.update({key: value for key, value in data.items() if key != "data"})
+        return merged
+
+    def max_lead_source(channel: dict, data: dict) -> str:
+        campaign = _text(data.get("campaignCode") or data.get("campaign_code") or channel.get("campaign_code"), 120)
+        label = _text(
+            data.get("source")
+            or data.get("sourceLabel")
+            or channel.get("source_label")
+            or channel.get("title")
+            or campaign
+            or channel.get("chat_id")
+            or "MAX",
+            220,
+        )
+        source = "MAX: " + label
+        if campaign and campaign not in source:
+            source += " / " + campaign
+        return source[:255]
+
+    def max_lead_notes(channel: dict, data: dict) -> str:
+        max_user = data.get("maxUser") if isinstance(data.get("maxUser"), dict) else data.get("user") if isinstance(data.get("user"), dict) else {}
+        utm = data.get("utm") if isinstance(data.get("utm"), dict) else {}
+        lines = []
+        message = _text(data.get("message") or data.get("text") or data.get("comment") or data.get("caption"), 2000)
+        if message:
+            lines.append("Сообщение MAX: " + message)
+        lines.append("MAX канал: " + (channel.get("title") or channel.get("chat_id") or "не указан"))
+        lines.append("MAX chatId: " + (channel.get("chat_id") or ""))
+        campaign = _text(data.get("campaignCode") or data.get("campaign_code") or channel.get("campaign_code"), 120)
+        if campaign:
+            lines.append("Кампания: " + campaign)
+        max_user_id = _payload_value(data, "maxUserId", "max_user_id", "userId", "user_id", "fromUserId", "senderId")
+        username = _text(data.get("username") or max_user.get("username"), 120)
+        if max_user_id or username:
+            lines.append("MAX пользователь: " + " ".join(item for item in (max_user_id, username) if item))
+        source_id = _payload_value(data, "sourceId", "source_id", "maxMessageId", "messageId", "mid")
+        if source_id:
+            lines.append("MAX сообщение: " + source_id)
+        if utm:
+            lines.append("UTM: " + json.dumps(utm, ensure_ascii=False, sort_keys=True))
+        extra_notes = _text(data.get("notes"), 1200)
+        if extra_notes:
+            lines.append(extra_notes)
+        return "\n".join(lines)[:4000]
+
     @app.get("/messenger-accounts")
     def list_messenger_accounts(current_user: dict = Depends(require_roles(*leadership_roles))):
         conn = get_db()
@@ -1110,6 +1264,139 @@ def register_messenger_module(app, deps):
                     for row in cur.fetchall()
                 ],
             }
+        finally:
+            cur.close()
+            conn.close()
+
+    @app.get("/messenger-channels")
+    def list_messenger_channels(
+        provider: str = Query(default="max"),
+        channel_type: str = Query(default=""),
+        current_user: dict = Depends(require_roles(*leadership_roles, "менеджер_crm")),
+    ):
+        provider = _text(provider or "max", 40).lower()
+        channel_type = _text(channel_type, 80)
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            if channel_type:
+                cur.execute(
+                    """
+                    SELECT *
+                      FROM messenger_channels
+                     WHERE provider=%s AND channel_type=%s
+                     ORDER BY enabled DESC, id DESC
+                     LIMIT 500
+                    """,
+                    (provider, channel_type),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT *
+                      FROM messenger_channels
+                     WHERE provider=%s
+                     ORDER BY enabled DESC, channel_type, id DESC
+                     LIMIT 500
+                    """,
+                    (provider,),
+                )
+            return {"ok": True, "items": [_public_messenger_channel(row) for row in cur.fetchall()]}
+        finally:
+            cur.close()
+            conn.close()
+
+    @app.post("/messenger-channels")
+    def upsert_messenger_channel(data: dict, current_user: dict = Depends(require_roles(*leadership_roles, "менеджер_crm"))):
+        payload = normalize_channel_payload(data or {})
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            cur.execute(
+                """
+                INSERT INTO messenger_channels
+                    (provider,chat_id,title,channel_type,project_name,source_label,campaign_code,default_stage,enabled,metadata_json)
+                VALUES
+                    (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                ON CONFLICT (provider, chat_id) DO UPDATE SET
+                    title=EXCLUDED.title,
+                    channel_type=EXCLUDED.channel_type,
+                    project_name=EXCLUDED.project_name,
+                    source_label=EXCLUDED.source_label,
+                    campaign_code=EXCLUDED.campaign_code,
+                    default_stage=EXCLUDED.default_stage,
+                    enabled=EXCLUDED.enabled,
+                    metadata_json=EXCLUDED.metadata_json,
+                    updated_at=NOW()
+                RETURNING *
+                """,
+                (
+                    payload["provider"],
+                    payload["chatId"],
+                    payload["title"],
+                    payload["channelType"],
+                    payload["projectName"],
+                    payload["sourceLabel"],
+                    payload["campaignCode"],
+                    payload["defaultStage"],
+                    payload["enabled"],
+                    json.dumps(payload["metadata"], ensure_ascii=False),
+                ),
+            )
+            row = cur.fetchone()
+            conn.commit()
+            return {"ok": True, "channel": _public_messenger_channel(row)}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+
+    @app.patch("/messenger-channels/{channel_id}")
+    def update_messenger_channel(channel_id: int, data: dict, current_user: dict = Depends(require_roles(*leadership_roles, "менеджер_crm"))):
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            existing = fetch_channel(cur, channel_id)
+            payload = normalize_channel_payload(data or {}, existing)
+            cur.execute(
+                """
+                UPDATE messenger_channels
+                   SET provider=%s,
+                       chat_id=%s,
+                       title=%s,
+                       channel_type=%s,
+                       project_name=%s,
+                       source_label=%s,
+                       campaign_code=%s,
+                       default_stage=%s,
+                       enabled=%s,
+                       metadata_json=%s::jsonb,
+                       updated_at=NOW()
+                 WHERE id=%s
+             RETURNING *
+                """,
+                (
+                    payload["provider"],
+                    payload["chatId"],
+                    payload["title"],
+                    payload["channelType"],
+                    payload["projectName"],
+                    payload["sourceLabel"],
+                    payload["campaignCode"],
+                    payload["defaultStage"],
+                    payload["enabled"],
+                    json.dumps(payload["metadata"], ensure_ascii=False),
+                    channel_id,
+                ),
+            )
+            row = cur.fetchone()
+            conn.commit()
+            return {"ok": True, "channel": _public_messenger_channel(row)}
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             cur.close()
             conn.close()
@@ -1375,6 +1662,123 @@ def register_messenger_module(app, deps):
                 "contactVerified": bool(contact.get("valid")),
                 "phoneTail": contact.get("phoneTail") or "",
                 "nextAction": "login",
+            }
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+
+    @app.post("/max/marketing-leads")
+    def create_max_marketing_lead(data: dict, _bot: dict = Depends(require_max_bot_token)):
+        lead_data = max_marketing_lead_payload(data or {})
+        chat_id = _payload_value(
+            lead_data,
+            "maxChatId",
+            "max_chat_id",
+            "chatId",
+            "chat_id",
+            "channelId",
+            "channel_id",
+        )
+        if not chat_id:
+            raise HTTPException(status_code=400, detail="Нужен maxChatId/chatId маркетингового MAX-канала")
+
+        contact = lead_data.get("contact") if isinstance(lead_data.get("contact"), dict) else {}
+        max_user = (
+            lead_data.get("maxUser")
+            if isinstance(lead_data.get("maxUser"), dict)
+            else lead_data.get("user")
+            if isinstance(lead_data.get("user"), dict)
+            else {}
+        )
+        name = _text(
+            lead_data.get("name")
+            or lead_data.get("fullName")
+            or lead_data.get("contactName")
+            or contact.get("name")
+            or " ".join(
+                item
+                for item in (
+                    _text(contact.get("firstName") or max_user.get("first_name"), 80),
+                    _text(contact.get("lastName") or max_user.get("last_name"), 80),
+                )
+                if item
+            )
+            or lead_data.get("username")
+            or max_user.get("username")
+            or "Лид из MAX",
+            255,
+        )
+        phone = _text(lead_data.get("phone") or lead_data.get("phoneNumber") or contact.get("phone"), 80)
+        email = _text(lead_data.get("email") or contact.get("email"), 255)
+        budget = _num_value(lead_data.get("budget") or lead_data.get("amount"))
+        lead_type = _text(lead_data.get("leadType") or lead_data.get("lead_type") or "Клиент", 80)
+        review_status = _text(lead_data.get("reviewStatus") or lead_data.get("review_status") or "Новая", 80)
+
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            channel = find_messenger_channel(cur, "max", chat_id)
+            if not channel:
+                raise HTTPException(status_code=404, detail="MAX-канал не привязан как маркетинговый источник")
+            if not bool(channel.get("enabled", True)):
+                raise HTTPException(status_code=403, detail="MAX-канал отключен")
+            if (channel.get("channel_type") or "") != "marketing":
+                raise HTTPException(status_code=409, detail="Этот MAX-канал не является маркетинговым")
+
+            source = max_lead_source(channel, lead_data)
+            stage = _text(lead_data.get("stage") or channel.get("default_stage") or "Новый", 80) or "Новый"
+            notes = max_lead_notes(channel, lead_data)
+            created_at = dt.datetime.utcnow().strftime("%Y-%m-%d")
+            cur.execute(
+                """
+                INSERT INTO crm_leads
+                    (name,phone,email,source,budget,notes,stage,created_by,created_at,
+                     lead_type,review_status)
+                VALUES
+                    (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                RETURNING id,name,phone,email,source,budget,notes,stage,
+                          created_by,created_at,project_id,photo_url,
+                          COALESCE(lead_type,'Клиент') AS lead_type,
+                          COALESCE(review_status,'Новая') AS review_status
+                """,
+                (
+                    name,
+                    phone,
+                    email,
+                    source,
+                    budget,
+                    notes,
+                    stage,
+                    "MAX",
+                    created_at,
+                    lead_type,
+                    review_status,
+                ),
+            )
+            lead = cur.fetchone()
+            conn.commit()
+            return {
+                "ok": True,
+                "lead": {
+                    "id": lead.get("id"),
+                    "name": lead.get("name") or "",
+                    "phone": lead.get("phone") or "",
+                    "email": lead.get("email") or "",
+                    "source": lead.get("source") or "",
+                    "budget": float(lead.get("budget") or 0),
+                    "notes": lead.get("notes") or "",
+                    "stage": lead.get("stage") or "Новый",
+                    "createdBy": lead.get("created_by") or "",
+                    "createdAt": lead.get("created_at") or "",
+                    "projectId": lead.get("project_id"),
+                    "photoUrl": lead.get("photo_url") or "",
+                    "leadType": lead.get("lead_type") or "Клиент",
+                    "reviewStatus": lead.get("review_status") or "Новая",
+                },
+                "channel": _public_messenger_channel(channel),
             }
         except Exception:
             conn.rollback()
