@@ -2203,6 +2203,81 @@ def register_messenger_module(app, deps):
             cur.close()
             conn.close()
 
+    @app.get("/max/bot/status")
+    def get_max_bot_status(
+        include_subscriptions: bool = Query(default=False),
+        _bot: dict = Depends(require_max_bot_token),
+    ):
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            cur.execute(
+                """
+                SELECT COALESCE(channel_type,'') AS channel_type, COUNT(*) AS count
+                  FROM messenger_channels
+                 WHERE provider='max'
+                 GROUP BY COALESCE(channel_type,'')
+                 ORDER BY channel_type
+                """
+            )
+            channel_summary = {
+                row.get("channel_type") or "unknown": int(row.get("count") or 0)
+                for row in cur.fetchall()
+            }
+            cur.execute(
+                """
+                SELECT *
+                  FROM messenger_channels
+                 WHERE provider='max'
+                 ORDER BY updated_at DESC, id DESC
+                 LIMIT 50
+                """
+            )
+            channels = [_public_messenger_channel(row) for row in cur.fetchall()]
+            cur.execute(
+                """
+                SELECT COALESCE(status,'') AS status, COUNT(*) AS count
+                  FROM messenger_outbox
+                 WHERE provider='max'
+                 GROUP BY COALESCE(status,'')
+                 ORDER BY status
+                """
+            )
+            outbox_summary = {
+                row.get("status") or "unknown": int(row.get("count") or 0)
+                for row in cur.fetchall()
+            }
+            cur.execute(
+                """
+                SELECT COUNT(*) AS count
+                  FROM messenger_accounts
+                 WHERE provider='max' AND COALESCE(enabled,TRUE)=TRUE
+                """
+            )
+            accounts_row = cur.fetchone() or {}
+            response = {
+                "ok": True,
+                "bot": {
+                    "provider": "max",
+                    "webhookConfigured": bool(max_webhook_secret),
+                    "apiTokenConfigured": bool(max_bot_api_token),
+                    "apiBase": max_bot_api_base,
+                },
+                "channelSummary": channel_summary,
+                "channels": channels,
+                "outboxSummary": outbox_summary,
+                "activeMessengerAccountLinks": int(accounts_row.get("count") or 0),
+            }
+            if include_subscriptions:
+                try:
+                    response["subscriptions"] = max_api_request("GET", "/subscriptions")
+                except HTTPException as exc:
+                    response["subscriptionsError"] = exc.detail
+            return response
+        finally:
+            cur.close()
+            conn.close()
+
     @app.post("/max/outbox/dispatch")
     def dispatch_max_outbox(
         limit: int = Query(default=20, ge=1, le=100),

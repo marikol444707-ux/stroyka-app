@@ -244,6 +244,19 @@ def main():
             raise RuntimeError(f"MAX webhook lead payload is wrong: {message}")
 
         outbox_id = insert_outbox()
+        _, status = api_json(
+            "GET",
+            "/max/bot/status",
+            headers=headers,
+            expected=200,
+        )
+        if not any(item.get("chatId") == INTERNAL_CHAT_ID and item.get("channelType") == "internal" for item in status.get("channels") or []):
+            raise RuntimeError(f"MAX bot status does not expose internal channel: {status}")
+        if not any(item.get("chatId") == MARKETING_CHAT_ID and item.get("channelType") == "marketing" for item in status.get("channels") or []):
+            raise RuntimeError(f"MAX bot status does not expose explicit marketing channel: {status}")
+        if int((status.get("outboxSummary") or {}).get("queued") or 0) < 1:
+            raise RuntimeError(f"MAX bot status does not show queued outbox: {status}")
+
         _, dispatch = api_json(
             "POST",
             "/max/outbox/dispatch?dry_run=true&limit=5",
@@ -270,6 +283,7 @@ def main():
                 "bot_added links MAX bot channel as internal by default",
                 "message_created in internal MAX channel is ignored by CRM",
                 "message_created in explicit marketing MAX channel creates CRM lead",
+                "max bot status exposes channels and outbox through /max route",
                 "outbox dispatch dry-run builds MAX message and inline keyboard",
             ],
             "timestamp": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
