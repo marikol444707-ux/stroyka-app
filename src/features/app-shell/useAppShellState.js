@@ -221,7 +221,7 @@ export function useAuthenticatedAppBootstrapEffect({
 
     mobileLoadedScopesRef.current.clear();
     mobileApiRequestsRef.current.clear();
-    const initialLoader = isMobile && typeof loadMobileInitial === 'function' ? loadMobileInitial : refreshData;
+    const initialLoader = typeof loadMobileInitial === 'function' ? loadMobileInitial : refreshData;
     const loadFallbackTimer = typeof setInitialDataLoaded === 'function'
       ? setTimeout(() => setInitialDataLoaded(true), 15000)
       : null;

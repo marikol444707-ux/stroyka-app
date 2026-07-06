@@ -12,7 +12,7 @@ const canLoadAccountingDataForRole = (role) => ACCOUNTING_DATA_ROLES.includes(ro
 export const useAppDataLoaders = (ctx) => {
   const {
     activePage, API, AUDIT_LOG_PAGE_LIMIT, buildPagedPath, canAccessRole, createMaterialNormsPageState,
-    createMaterialsPageState, createWorkJournalPageState, estimatesTab, initialDataLoaded, isMobile, MATERIAL_NORMS_PAGE_LIMIT, materialNormSearch,
+    createMaterialsPageState, createWorkJournalPageState, estimatesTab, initialDataLoaded, MATERIAL_NORMS_PAGE_LIMIT, materialNormSearch,
     MATERIALS_PAGE_LIMIT, mergeRowsByIdValue, mobileApiRequestsRef, mobileLoadedScopesRef, mobileScopeForPage, normalizeEstimateList, roleFlagsForUser,
     ROLES, setAccountablePayments, setAiFindings, setAiTasks, setAllBrigadeItems, setAllBrigadePayments, setAuditLog,
     setBrigadeContracts, setCableJournal, setChecklists, setClients, setCompanyDocuments, setCompanyMessages, setCompanyRequisites,
@@ -270,7 +270,7 @@ export const useAppDataLoaders = (ctx) => {
   };
 
   const loadMobilePageData = async (page = activePage) => {
-    if (!user || !isMobile) return;
+    if (!user) return;
     const {role,isLeadershipRole,isFinanceRole,isWarehouseRole,isSupplyRole,canSeeSupplierInvoices,isInternalRole,canSeeProjectDocs} = roleFlags();
     const isWorkerRole = ['мастер','субподрядчик','бригадир'].includes(role);
     const canLoadPeopleData = canLoadPeopleDataForRole(role);
@@ -524,7 +524,7 @@ export const useAppDataLoaders = (ctx) => {
   };
 
   useEffect(() => {
-    if (!user || !isMobile) return undefined;
+    if (!user) return undefined;
     if (!initialDataLoaded) return undefined;
     const run = () => loadMobilePageData(activePage);
     if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
@@ -534,7 +534,7 @@ export const useAppDataLoaders = (ctx) => {
     const id = setTimeout(run, 250);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, isMobile, activePage, initialDataLoaded]);
+  }, [user, activePage, initialDataLoaded]);
 
   const loadAll = async () => {
     try {
@@ -742,10 +742,6 @@ export const useAppDataLoaders = (ctx) => {
   };
 
   const refreshData = async (page = activePage) => {
-    if (!isMobile) {
-      await loadAll();
-      return;
-    }
     mobileApiRequestsRef.current.clear();
     mobileLoadedScopesRef.current.delete('full');
     const scope = mobileScopeForPage(page);

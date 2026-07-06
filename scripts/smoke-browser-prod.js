@@ -302,6 +302,9 @@ function relevantConsoleErrors(events) {
       if (event.method === 'Runtime.consoleAPICalled') {
         return event.params?.type === 'error' || event.params?.type === 'assert';
       }
+      if (event.method === 'Network.responseReceived') {
+        return Number(event.params?.response?.status || 0) >= 400;
+      }
       return false;
     })
     .map((event) => {
@@ -311,7 +314,14 @@ function relevantConsoleErrors(events) {
       }
       if (event.method === 'Log.entryAdded') {
         const entry = event.params?.entry || {};
-        return entry.text || entry.url || 'Log.entryAdded';
+        const text = entry.text || 'Log.entryAdded';
+        return entry.url ? `${text} (${entry.url})` : text;
+      }
+      if (event.method === 'Network.responseReceived') {
+        const response = event.params?.response || {};
+        const status = Number(response.status || 0);
+        if (status >= 400) return `HTTP ${status} ${response.url || ''}`.trim();
+        return '';
       }
       const args = event.params?.args || [];
       return args.map((arg) => arg.value || arg.description || '').filter(Boolean).join(' ') || 'console.error';
@@ -484,6 +494,7 @@ async function inspectPage(port, url) {
     await client.send('Runtime.enable');
     await client.send('Page.enable');
     await client.send('Log.enable');
+    await client.send('Network.enable');
     await client.send('Page.navigate', { url }, 45000);
     return await waitForRenderedPage(client);
   } finally {
@@ -502,6 +513,7 @@ async function inspectAuthenticatedPage(port, url, authData) {
     await client.send('Runtime.enable');
     await client.send('Page.enable');
     await client.send('Log.enable');
+    await client.send('Network.enable');
     await client.send('Page.addScriptToEvaluateOnNewDocument', {
       source: `
         try {
@@ -539,6 +551,7 @@ async function runAuthenticatedEstimateScenario(port, authData) {
     await client.send('Runtime.enable');
     await client.send('Page.enable');
     await client.send('Log.enable');
+    await client.send('Network.enable');
     await client.send('Emulation.setDeviceMetricsOverride', {
       width: 1440,
       height: 1100,
