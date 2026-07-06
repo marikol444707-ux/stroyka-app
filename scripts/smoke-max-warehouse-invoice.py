@@ -369,8 +369,8 @@ def cleanup(invoice_id, material_name, project_name, account_id, supplier_name="
                 "DELETE FROM warehouse_history WHERE material=%s AND project=%s AND issued_by=%s",
                 (material_name, project_name, TEST_NAME),
             )
-            cur.execute("DELETE FROM material_inspection_journal WHERE material_name=%s AND project=%s", (material_name, project_name))
-            cur.execute("DELETE FROM cable_journal WHERE cable_brand=%s AND project=%s", (material_name, project_name))
+            cur.execute("DELETE FROM material_inspection_journal WHERE material_name=%s AND project_name=%s", (material_name, project_name))
+            cur.execute("DELETE FROM cable_journal WHERE cable_brand=%s AND project_name=%s", (material_name, project_name))
         if account_id:
             cur.execute("DELETE FROM user_sessions WHERE user_id IN (SELECT id FROM users WHERE LOWER(email)=LOWER(%s))", (TEST_EMAIL,))
             cur.execute("DELETE FROM messenger_accounts WHERE id=%s", (account_id,))
