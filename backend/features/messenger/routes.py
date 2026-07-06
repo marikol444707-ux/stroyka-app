@@ -1339,7 +1339,7 @@ def register_messenger_module(app, deps):
     def upsert_max_channel_from_update(cur, update: dict, chat_id: str) -> dict:
         update_type = _text(update.get("update_type") or update.get("updateType"), 80)
         is_channel = bool(update.get("is_channel") or update.get("isChannel"))
-        channel_type = "marketing" if is_channel else "director"
+        channel_type = "internal"
         chat = max_nested_dict(update, "chat")
         title = _text(
             update.get("title")
@@ -1347,7 +1347,7 @@ def register_messenger_module(app, deps):
             or update.get("chatTitle")
             or chat.get("title")
             or chat.get("name")
-            or ("MAX канал " + chat_id if is_channel else "MAX диалог " + chat_id),
+            or ("MAX внутренний канал " + chat_id if is_channel else "MAX внутренний диалог " + chat_id),
             255,
         )
         metadata = {
@@ -1375,7 +1375,7 @@ def register_messenger_module(app, deps):
                 chat_id,
                 title,
                 channel_type,
-                "MAX маркетинг" if is_channel else "MAX диалог",
+                "MAX внутренний бот",
                 json.dumps(metadata, ensure_ascii=False),
             ),
         )
@@ -1482,6 +1482,7 @@ def register_messenger_module(app, deps):
         "accounting",
         "director",
         "alerts",
+        "internal",
     }
 
     def normalize_channel_payload(data: dict, existing: dict = None) -> dict:

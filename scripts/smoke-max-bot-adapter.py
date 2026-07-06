@@ -15,7 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 ENV_PATH = ROOT / "backend" / ".env"
 BASE_URL = os.getenv("BASE_URL", "https://stroyka26.pro").rstrip("/")
 RUN_ID = uuid.uuid4().hex[:8]
-CHAT_ID = os.getenv("MAX_BOT_ADAPTER_SMOKE_CHAT_ID", f"codex-max-bot-{RUN_ID}")
+INTERNAL_CHAT_ID = os.getenv("MAX_BOT_ADAPTER_SMOKE_CHAT_ID", f"codex-max-internal-{RUN_ID}")
+MARKETING_CHAT_ID = os.getenv("MAX_BOT_ADAPTER_MARKETING_CHAT_ID", f"codex-max-marketing-{RUN_ID}")
 CHANNEL_TITLE = os.getenv("MAX_BOT_ADAPTER_SMOKE_TITLE", f"CODEX MAX bot {RUN_ID}")
 
 
@@ -89,7 +90,9 @@ def cleanup(lead_id=None, outbox_id=None):
         if lead_id:
             cur.execute("DELETE FROM crm_leads WHERE id=%s", (lead_id,))
         if not os.getenv("MAX_BOT_ADAPTER_SMOKE_CHAT_ID"):
-            cur.execute("DELETE FROM messenger_channels WHERE provider='max' AND chat_id=%s", (CHAT_ID,))
+            cur.execute("DELETE FROM messenger_channels WHERE provider='max' AND chat_id=%s", (INTERNAL_CHAT_ID,))
+        if not os.getenv("MAX_BOT_ADAPTER_MARKETING_CHAT_ID"):
+            cur.execute("DELETE FROM messenger_channels WHERE provider='max' AND chat_id=%s", (MARKETING_CHAT_ID,))
         conn.commit()
         cur.close()
         print("cleanup: removed MAX bot adapter smoke rows")
@@ -117,7 +120,7 @@ def insert_outbox():
         """,
         (
             f"codex-user-{RUN_ID}",
-            CHAT_ID,
+            INTERNAL_CHAT_ID,
             "CODEX MAX smoke",
             "Проверяем сборку сообщения и inline-кнопки без реальной отправки.",
             json.dumps({"smokeRunId": RUN_ID}, ensure_ascii=False),
@@ -136,6 +139,39 @@ def insert_outbox():
     return outbox_id
 
 
+def insert_marketing_channel():
+    conn = psycopg2.connect(**db_config())
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO messenger_channels
+            (provider,chat_id,title,channel_type,source_label,campaign_code,default_stage,enabled,metadata_json)
+        VALUES
+            ('max',%s,%s,'marketing','MAX маркетинг',%s,'Новый',TRUE,%s::jsonb)
+        ON CONFLICT (provider, chat_id) DO UPDATE SET
+            title=EXCLUDED.title,
+            channel_type='marketing',
+            source_label=EXCLUDED.source_label,
+            campaign_code=EXCLUDED.campaign_code,
+            enabled=TRUE,
+            metadata_json=COALESCE(messenger_channels.metadata_json,'{}'::jsonb) || EXCLUDED.metadata_json,
+            updated_at=NOW()
+        RETURNING id
+        """,
+        (
+            MARKETING_CHAT_ID,
+            f"CODEX MAX marketing {RUN_ID}",
+            f"codex-max-adapter-{RUN_ID}",
+            json.dumps({"smokeRunId": RUN_ID, "purpose": "explicit marketing channel"}, ensure_ascii=False),
+        ),
+    )
+    channel_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close()
+    conn.close()
+    return channel_id
+
+
 def main():
     token = max_bot_token()
     headers = {"X-Max-Bot-Api-Secret": token}
@@ -148,20 +184,41 @@ def main():
             data={
                 "update_type": "bot_added",
                 "timestamp": int(dt.datetime.now().timestamp()),
-                "chat_id": CHAT_ID,
+                "chat_id": INTERNAL_CHAT_ID,
                 "is_channel": True,
-                "chat": {"id": CHAT_ID, "title": CHANNEL_TITLE},
+                "chat": {"id": INTERNAL_CHAT_ID, "title": CHANNEL_TITLE},
                 "user": {"id": f"owner-{RUN_ID}", "first_name": "CODEX", "last_name": "Owner"},
             },
             headers=headers,
             expected=200,
         )
         channel = ((linked.get("results") or [{}])[0]).get("channel") or {}
-        if channel.get("chatId") != CHAT_ID:
+        if channel.get("chatId") != INTERNAL_CHAT_ID:
             raise RuntimeError(f"MAX webhook did not link channel: {linked}")
-        if channel.get("channelType") != "marketing":
-            raise RuntimeError(f"MAX channel should be marketing for is_channel=true: {channel}")
+        if channel.get("channelType") != "internal":
+            raise RuntimeError(f"MAX bot channel should be internal by default: {channel}")
 
+        _, ignored_message = api_json(
+            "POST",
+            "/max/webhook",
+            data={
+                "update_type": "message_created",
+                "timestamp": int(dt.datetime.now().timestamp()),
+                "message": {
+                    "mid": f"codex-internal-message-{RUN_ID}",
+                    "recipient": {"chat_id": INTERNAL_CHAT_ID},
+                    "sender": {"user_id": f"internal-user-{RUN_ID}", "username": f"codex_{RUN_ID}"},
+                    "body": {"text": "Внутреннее сообщение не должно попадать в CRM."},
+                },
+            },
+            headers=headers,
+            expected=200,
+        )
+        internal_result = (ignored_message.get("results") or [{}])[0]
+        if internal_result.get("action") != "message_ignored":
+            raise RuntimeError(f"Internal MAX message should not create CRM lead: {ignored_message}")
+
+        marketing_channel_id = insert_marketing_channel()
         _, message = api_json(
             "POST",
             "/max/webhook",
@@ -169,9 +226,9 @@ def main():
                 "update_type": "message_created",
                 "timestamp": int(dt.datetime.now().timestamp()),
                 "message": {
-                    "mid": f"codex-message-{RUN_ID}",
-                    "recipient": {"chat_id": CHAT_ID},
-                    "sender": {"user_id": f"lead-user-{RUN_ID}", "username": f"codex_{RUN_ID}"},
+                    "mid": f"codex-marketing-message-{RUN_ID}",
+                    "recipient": {"chat_id": MARKETING_CHAT_ID},
+                    "sender": {"user_id": f"lead-user-{RUN_ID}", "username": f"codex_lead_{RUN_ID}"},
                     "body": {"text": "Хочу консультацию по ремонту через MAX."},
                 },
             },
@@ -180,7 +237,7 @@ def main():
         )
         result = (message.get("results") or [{}])[0]
         if result.get("action") != "marketing_lead_created":
-            raise RuntimeError(f"MAX message webhook did not create marketing lead: {message}")
+            raise RuntimeError(f"Explicit marketing MAX channel did not create CRM lead: {message}")
         lead = result.get("lead") or {}
         lead_id = lead.get("id")
         if not lead_id or not str(lead.get("source") or "").startswith("MAX:"):
@@ -202,17 +259,20 @@ def main():
 
         print(json.dumps({
             "ok": True,
-            "chatId": CHAT_ID,
-            "channelId": channel.get("id"),
+            "internalChatId": INTERNAL_CHAT_ID,
+            "internalChannelId": channel.get("id"),
+            "marketingChatId": MARKETING_CHAT_ID,
+            "marketingChannelId": marketing_channel_id,
             "leadId": lead_id,
             "outboxId": outbox_id,
             "checked": [
                 "MAX webhook secret header is accepted",
-                "bot_added links MAX channel as marketing source",
-                "message_created in marketing channel creates CRM lead",
+                "bot_added links MAX bot channel as internal by default",
+                "message_created in internal MAX channel is ignored by CRM",
+                "message_created in explicit marketing MAX channel creates CRM lead",
                 "outbox dispatch dry-run builds MAX message and inline keyboard",
             ],
-            "timestamp": dt.datetime.utcnow().isoformat() + "Z",
+            "timestamp": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
         }, ensure_ascii=False, indent=2))
     finally:
         cleanup(lead_id, outbox_id)
