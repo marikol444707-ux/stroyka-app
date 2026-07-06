@@ -25,6 +25,7 @@ TEST_EMAIL = os.getenv("MAX_SMOKE_FOREMAN_EMAIL", "max-warehouse-foreman-smoke@s
 TEST_NAME = os.getenv("MAX_SMOKE_FOREMAN_NAME", "CODEX QA MAX Прораб")
 TEST_PASSWORD = os.getenv("MAX_SMOKE_FOREMAN_PASSWORD", "MaxWarehouseSmoke123!")
 TEST_MAX_USER_ID = os.getenv("MAX_SMOKE_USER_ID", f"codex-max-{int(dt.datetime.now().timestamp())}")
+TEST_MAX_CHAT_ID = os.getenv("MAX_SMOKE_CHAT_ID", f"{TEST_MAX_USER_ID}-warehouse-chat")
 TEST_QTY = float(os.getenv("MAX_WAREHOUSE_SMOKE_QTY", "0.001"))
 TEST_PRICE = float(os.getenv("MAX_WAREHOUSE_SMOKE_PRICE", "123.45"))
 
@@ -372,6 +373,7 @@ def cleanup(invoice_id, material_name, project_name, account_id, supplier_name="
             cur.execute("DELETE FROM material_inspection_journal WHERE material_name=%s AND project_name=%s", (material_name, project_name))
             cur.execute("DELETE FROM cable_journal WHERE cable_brand=%s AND project_name=%s", (material_name, project_name))
         if account_id:
+            cur.execute("DELETE FROM messenger_channels WHERE provider='max' AND chat_id=%s", (TEST_MAX_CHAT_ID,))
             cur.execute("DELETE FROM user_sessions WHERE user_id IN (SELECT id FROM users WHERE LOWER(email)=LOWER(%s))", (TEST_EMAIL,))
             cur.execute("DELETE FROM messenger_accounts WHERE id=%s", (account_id,))
             cur.execute("DELETE FROM messenger_accounts WHERE user_id IN (SELECT id FROM users WHERE LOWER(email)=LOWER(%s))", (TEST_EMAIL,))
@@ -414,58 +416,59 @@ def main():
     draft_token = None
     stored_file_url = ""
     try:
-        _, uploaded = api_json(
-            "POST",
-            "/max/files",
-            data={
-                "maxUserId": account["maxUserId"],
-                "projectName": project_name,
-                "context": "max-invoices",
-                "fileToken": f"max-file-smoke-{stamp}",
-                "filename": f"max-invoice-{stamp}.txt",
-                "contentType": "text/plain",
-                "contentBase64": base64.b64encode(f"CODEX MAX invoice smoke {stamp}".encode("utf-8")).decode("ascii"),
-            },
-            headers={"X-Max-Bot-Token": bot_token},
-            expected=200,
-        )
-        stored_file = uploaded.get("file") or {}
-        stored_file_url = stored_file.get("url") or ""
-        if not stored_file_url:
-            raise RuntimeError(f"MAX file upload не вернул стабильный url: {uploaded}")
-
-        max_invoice_payload = {
-            "maxUserId": account["maxUserId"],
-            "maxMessageId": f"max-smoke-{stamp}",
-            "projectName": project_name,
-            "photoUrl": stored_file_url,
-            "recognizedInvoice": {
-                "method": "smoke_ocr_stub",
-                "documentType": "warehouse_invoice",
-                "confidence": 0.98,
-                "number": f"MAX-{stamp}",
-                "date": dt.date.today().isoformat(),
-                "supplier": supplier_name,
-                "supplierInn": supplier_inn,
-                "items": [{
-                    "name": material_name,
-                    "quantity": TEST_QTY,
-                    "unit": "шт",
-                    "price": TEST_PRICE,
-                    "workPackage": "Основная",
-                }],
-                "totalBase": round(TEST_QTY * TEST_PRICE, 2),
-                "totalVat": 0,
-                "totalWithVat": round(TEST_QTY * TEST_PRICE, 2),
-            },
+        recognized_invoice = {
+            "method": "smoke_ocr_stub",
+            "documentType": "warehouse_invoice",
+            "confidence": 0.98,
+            "number": f"MAX-{stamp}",
+            "date": dt.date.today().isoformat(),
+            "supplier": supplier_name,
+            "supplierInn": supplier_inn,
+            "items": [{
+                "name": material_name,
+                "quantity": TEST_QTY,
+                "unit": "шт",
+                "price": TEST_PRICE,
+                "workPackage": "Основная",
+            }],
+            "totalBase": round(TEST_QTY * TEST_PRICE, 2),
+            "totalVat": 0,
+            "totalWithVat": round(TEST_QTY * TEST_PRICE, 2),
         }
-        _, preview = api_json(
+        _, webhook_result = api_json(
             "POST",
-            "/max/warehouse-invoices/preview",
-            data=max_invoice_payload,
+            "/max/webhook",
+            data={
+                "update_type": "message_created",
+                "user": {
+                    "id": account["maxUserId"],
+                    "first_name": "CODEX",
+                    "last_name": "MAX",
+                    "username": "codex_max_warehouse_smoke",
+                },
+                "message": {
+                    "mid": f"max-smoke-{stamp}",
+                    "recipient": {"chat_id": TEST_MAX_CHAT_ID},
+                    "sender": {"user_id": account["maxUserId"]},
+                    "body": {"text": f"Накладная по объекту {project_name}"},
+                    "attachments": [{
+                        "type": "file",
+                        "payload": {
+                            "fileToken": f"max-file-smoke-{stamp}",
+                            "filename": f"max-invoice-{stamp}.txt",
+                            "contentType": "text/plain",
+                            "contentBase64": base64.b64encode(f"CODEX MAX invoice smoke {stamp}".encode("utf-8")).decode("ascii"),
+                        },
+                    }],
+                },
+                "recognizedInvoice": recognized_invoice,
+            },
             headers={"X-Max-Bot-Token": bot_token},
             expected=200,
         )
+        if webhook_result.get("action") != "invoice_preview_created":
+            raise RuntimeError(f"MAX webhook не создал preview накладной: {webhook_result}")
+        preview = webhook_result.get("draft") or {}
         draft_token = preview.get("draftToken")
         if not draft_token:
             raise RuntimeError(f"MAX preview не вернул draftToken: {preview}")
@@ -476,6 +479,9 @@ def main():
         if not preview.get("recognized"):
             raise RuntimeError(f"MAX preview не отметил OCR/recognizedInvoice: {preview}")
         invoice_draft = preview.get("invoiceDraft") or {}
+        stored_file_url = invoice_draft.get("photoUrl") or ""
+        if not stored_file_url:
+            raise RuntimeError(f"MAX webhook file intake не вернул внутренний URL файла: {preview}")
         if invoice_draft.get("supplierName") != supplier_name:
             raise RuntimeError(f"MAX preview неверно замапил поставщика: {preview}")
         if invoice_draft.get("photoUrl") != stored_file_url:
@@ -591,7 +597,8 @@ def main():
             "checked": checked + [
                 "MAX recognizedInvoice/OCR draft is mapped to warehouse invoice fields",
                 "MAX mini-app linked foreman session opens without bypassing 2FA roles",
-                "MAX file upload stores attachment in Stroyka storage",
+                "MAX webhook message_created stores attachment in Stroyka storage",
+                "MAX webhook attachment creates warehouse invoice preview draft",
                 "MAX preview returns draft without warehouse write",
                 "MAX preview queues confirm/reject buttons for bot delivery",
                 "MAX outbox status callback marks preview message as sent",

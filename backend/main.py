@@ -46,6 +46,7 @@ try:
         SMTP_USER,
         MAX_BOT_API_BASE,
         MAX_BOT_API_TOKEN,
+        MAX_FILE_DOWNLOAD_PATH_TEMPLATE,
         MAX_INITDATA_TTL_SECONDS,
         MAX_WEBHOOK_SECRET,
         TELEGRAM_BOT_API_TOKEN,
@@ -76,6 +77,7 @@ except ModuleNotFoundError:
         SMTP_USER,
         MAX_BOT_API_BASE,
         MAX_BOT_API_TOKEN,
+        MAX_FILE_DOWNLOAD_PATH_TEMPLATE,
         MAX_INITDATA_TTL_SECONDS,
         MAX_WEBHOOK_SECRET,
         TELEGRAM_BOT_API_TOKEN,
@@ -26175,6 +26177,7 @@ register_messenger_module(app, {
     "app_public_url": APP_PUBLIC_URL,
     "max_bot_api_base": MAX_BOT_API_BASE,
     "max_bot_api_token": MAX_BOT_API_TOKEN,
+    "max_file_download_path_template": MAX_FILE_DOWNLOAD_PATH_TEMPLATE,
     "max_webhook_secret": MAX_WEBHOOK_SECRET,
     "max_initdata_ttl_seconds": MAX_INITDATA_TTL_SECONDS,
 })
