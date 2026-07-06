@@ -374,6 +374,8 @@ def cleanup(invoice_id, material_name, project_name, account_id, supplier_name="
         if account_id:
             cur.execute("DELETE FROM user_sessions WHERE user_id IN (SELECT id FROM users WHERE LOWER(email)=LOWER(%s))", (TEST_EMAIL,))
             cur.execute("DELETE FROM messenger_accounts WHERE id=%s", (account_id,))
+            cur.execute("DELETE FROM messenger_accounts WHERE user_id IN (SELECT id FROM users WHERE LOWER(email)=LOWER(%s))", (TEST_EMAIL,))
+            cur.execute("DELETE FROM users WHERE LOWER(email)=LOWER(%s)", (TEST_EMAIL,))
         if supplier_name:
             cur.execute("DELETE FROM supplier_aliases WHERE supplier_id IN (SELECT id FROM suppliers WHERE name=%s)", (supplier_name,))
             cur.execute("DELETE FROM suppliers WHERE name=%s", (supplier_name,))
