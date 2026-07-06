@@ -1,3 +1,5 @@
+import base64
+import binascii
 import datetime as dt
 import hashlib
 import json
@@ -213,6 +215,62 @@ def _public_messenger_outbox_item(row: dict) -> dict:
         "createdAt": _iso_value(row.get("created_at")),
         "updatedAt": _iso_value(row.get("updated_at")),
     }
+
+
+def _public_messenger_file(row: dict) -> dict:
+    row = row or {}
+    return {
+        "id": row.get("id"),
+        "provider": row.get("provider") or "",
+        "messengerAccountId": row.get("messenger_account_id"),
+        "externalUserId": row.get("external_user_id") or "",
+        "chatId": row.get("chat_id") or "",
+        "fileToken": row.get("file_token") or "",
+        "sourceId": row.get("source_id") or "",
+        "projectName": row.get("project_name") or "",
+        "context": row.get("context") or "",
+        "filename": row.get("original_filename") or "",
+        "contentType": row.get("content_type") or "",
+        "sizeBytes": int(row.get("size_bytes") or 0),
+        "url": row.get("url") or "",
+        "storage": row.get("storage") or "",
+        "storageKey": row.get("storage_key") or "",
+        "entityType": row.get("entity_type") or "",
+        "entityId": row.get("entity_id"),
+        "metadata": _json_dict(row.get("metadata_json")),
+        "createdAt": _iso_value(row.get("created_at")),
+        "updatedAt": _iso_value(row.get("updated_at")),
+    }
+
+
+def _decode_file_base64(value: str) -> bytes:
+    raw = str(value or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Нужен contentBase64 для MAX-файла")
+    if "," in raw and raw.split(",", 1)[0].lower().endswith(";base64"):
+        raw = raw.split(",", 1)[1]
+    try:
+        return base64.b64decode(raw, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=400, detail="MAX-файл передан невалидным base64")
+
+
+def _max_file_items(data: dict) -> list:
+    data = data or {}
+    source = data.get("data") if isinstance(data.get("data"), dict) else {}
+    raw_items = data.get("files") or data.get("attachments") or source.get("files") or source.get("attachments") or []
+    single = data.get("file") or source.get("file")
+    if single:
+        raw_items = [single] + (raw_items if isinstance(raw_items, list) else [])
+    if isinstance(raw_items, dict):
+        raw_items = [raw_items]
+    if not isinstance(raw_items, list):
+        raw_items = []
+    items = []
+    for item in raw_items:
+        if isinstance(item, dict):
+            items.append(item)
+    return items[:8]
 
 
 def _invoice_confirm_patch(data: dict) -> dict:
@@ -566,6 +624,7 @@ def register_messenger_module(app, deps):
     create_warehouse_invoice_record = deps["create_warehouse_invoice_record"]
     scan_invoice = deps.get("scan_invoice")
     sync_supplier_invoice_from_warehouse = deps.get("sync_supplier_invoice_from_warehouse")
+    save_upload_bytes = deps.get("save_upload_bytes")
     warehouse_roles = deps["warehouse_roles"]
     leadership_roles = deps.get("leadership_roles") or ()
     main_warehouse_write_roles = deps.get("main_warehouse_write_roles") or ()
@@ -635,6 +694,154 @@ def register_messenger_module(app, deps):
             raise HTTPException(status_code=403, detail="У сотрудника нет прав принимать складские накладные")
         return employee
 
+    def find_existing_max_file(cur, file_token: str, source_id: str):
+        if not file_token and not source_id:
+            return None
+        cur.execute(
+            """
+            SELECT *
+              FROM messenger_files
+             WHERE provider='max'
+               AND ((%s<>'' AND file_token=%s)
+                 OR (%s<>'' AND source_id=%s))
+             ORDER BY id DESC
+             LIMIT 1
+            """,
+            (file_token, file_token, source_id, source_id),
+        )
+        return cur.fetchone()
+
+    def persist_max_file_item(item: dict, employee: dict, max_user_id: str, max_chat_id: str,
+                              project_name: str, context: str = "max-invoices",
+                              entity_type: str = "", entity_id: int = None) -> dict:
+        if not save_upload_bytes:
+            raise HTTPException(status_code=503, detail="Storage helper для MAX-файлов не настроен")
+        item = item if isinstance(item, dict) else {}
+        file_token = _text(item.get("fileToken") or item.get("file_token") or item.get("token"), 255)
+        source_id = _text(
+            item.get("sourceId")
+            or item.get("source_id")
+            or item.get("maxFileId")
+            or item.get("max_file_id")
+            or file_token,
+            255,
+        )
+
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            existing = find_existing_max_file(cur, file_token, source_id)
+            if existing:
+                return _public_messenger_file(existing)
+
+            content_b64 = (
+                item.get("contentBase64")
+                or item.get("content_base64")
+                or item.get("base64")
+                or item.get("dataUrl")
+                or item.get("data_url")
+                or item.get("content")
+            )
+            content = _decode_file_base64(content_b64)
+            filename = _text(
+                item.get("filename")
+                or item.get("fileName")
+                or item.get("file_name")
+                or item.get("name")
+                or "max-file",
+                255,
+            )
+            content_type = _text(item.get("contentType") or item.get("content_type") or item.get("mimeType"), 120)
+            saved = save_upload_bytes(content, filename, project_name, context, content_type)
+            user_id = employee.get("id") if employee.get("source") == "users" else None
+            staff_id = employee.get("id") if employee.get("source") == "staff" else None
+            metadata = {
+                key: value
+                for key, value in item.items()
+                if key not in {"contentBase64", "content_base64", "base64", "dataUrl", "data_url", "content"}
+            }
+            cur.execute(
+                """
+                INSERT INTO messenger_files
+                    (provider,messenger_account_id,user_id,staff_id,external_user_id,chat_id,
+                     file_token,source_id,project_name,context,original_filename,content_type,size_bytes,
+                     url,storage,storage_key,entity_type,entity_id,metadata_json)
+                VALUES
+                    ('max',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                RETURNING *
+                """,
+                (
+                    employee.get("messengerAccountId"),
+                    user_id,
+                    staff_id,
+                    max_user_id or "",
+                    max_chat_id or max_user_id or "",
+                    file_token or None,
+                    source_id or None,
+                    project_name or "",
+                    context or "max-invoices",
+                    filename,
+                    saved.get("contentType") or content_type,
+                    len(content),
+                    saved.get("url") or "",
+                    saved.get("storage") or "",
+                    saved.get("key") or "",
+                    entity_type or "",
+                    entity_id,
+                    json.dumps(metadata, ensure_ascii=False),
+                ),
+            )
+            row = cur.fetchone()
+            conn.commit()
+            return _public_messenger_file(row)
+        except psycopg2.errors.UniqueViolation:
+            conn.rollback()
+            existing = find_existing_max_file(cur, file_token, source_id)
+            if existing:
+                return _public_messenger_file(existing)
+            raise
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+
+    def persist_max_files_from_payload(data: dict, employee: dict, max_user_id: str, max_chat_id: str,
+                                       project_name: str, context: str = "max-invoices") -> list:
+        files = _max_file_items(data)
+        stored = []
+        for item in files:
+            if not any(
+                item.get(key)
+                for key in ("contentBase64", "content_base64", "base64", "dataUrl", "data_url", "content")
+            ):
+                continue
+            stored.append(persist_max_file_item(item, employee, max_user_id, max_chat_id, project_name, context))
+        if not stored:
+            return []
+        urls = [item.get("url") for item in stored if item.get("url")]
+        if not urls:
+            return stored
+        source = data.get("data") if isinstance(data.get("data"), dict) else None
+        current_photos = data.get("photos") or data.get("photoUrls") or []
+        if isinstance(current_photos, str):
+            current_photos = _json_list(current_photos)
+        if not isinstance(current_photos, list):
+            current_photos = []
+        next_photos = []
+        for url in [*current_photos, *urls]:
+            if url and url not in next_photos:
+                next_photos.append(url)
+        data["photos"] = next_photos
+        data["photoUrls"] = next_photos
+        data["photoUrl"] = data.get("photoUrl") or (next_photos[0] if next_photos else "")
+        if source is not None:
+            source["photos"] = next_photos
+            source["photoUrls"] = next_photos
+            source["photoUrl"] = source.get("photoUrl") or data["photoUrl"]
+        return stored
+
     def build_max_invoice_context(data: dict) -> dict:
         data = data or {}
         max_user_id, max_chat_id = _max_actor_from_data(data)
@@ -657,6 +864,7 @@ def register_messenger_module(app, deps):
                 status_code=403,
                 detail="Прораб через MAX принимает накладные только на закрепленный объектный склад",
             )
+        stored_files = persist_max_files_from_payload(data, employee, max_user_id, max_chat_id, target_project or location, "max-invoices")
 
         payload = _normalize_invoice_payload(data, employee)
         recognized = _recognized_invoice_payload(data)
@@ -700,6 +908,7 @@ def register_messenger_module(app, deps):
             "sourceId": payload.get("sourceId") or "",
             "recognized": bool(recognized),
             "scanResult": scan_result,
+            "storedFiles": stored_files,
         }
 
     def select_existing_warehouse_by_source(cur, source_type: str, source_id: str):
@@ -835,6 +1044,34 @@ def register_messenger_module(app, deps):
         )
         row = cur.fetchone()
         return row.get("id") if isinstance(row, dict) else row[0]
+
+    def append_file_urls_to_payload(payload: dict, files: list) -> dict:
+        payload = dict(payload or {})
+        urls = [item.get("url") for item in files or [] if item.get("url")]
+        if not urls:
+            return payload
+        current = payload.get("photos") or payload.get("photoUrls") or []
+        if isinstance(current, str):
+            current = _json_list(current)
+        if not isinstance(current, list):
+            current = []
+        photos = []
+        for url in [*current, *urls]:
+            if url and url not in photos:
+                photos.append(url)
+        payload["photos"] = photos
+        payload["photoUrls"] = photos
+        payload["photoUrl"] = payload.get("photoUrl") or (photos[0] if photos else "")
+        payload["maxFiles"] = [
+            {
+                "id": item.get("id"),
+                "url": item.get("url"),
+                "fileToken": item.get("fileToken") or "",
+                "filename": item.get("filename") or "",
+            }
+            for item in files or []
+        ]
+        return payload
 
     @app.get("/messenger-accounts")
     def list_messenger_accounts(current_user: dict = Depends(require_roles(*leadership_roles))):
@@ -1303,6 +1540,82 @@ def register_messenger_module(app, deps):
         finally:
             cur.close()
             conn.close()
+
+    @app.post("/max/files")
+    def upload_max_file(data: dict, _bot: dict = Depends(require_max_bot_token)):
+        data = data or {}
+        max_user_id, max_chat_id = _max_actor_from_data(data)
+        employee = resolve_max_employee(max_user_id, max_chat_id)
+        project_name = _text(data.get("projectName") or data.get("project") or data.get("location"), 255)
+        if project_name == "Основной склад" and main_warehouse_write_roles and employee.get("role") not in main_warehouse_write_roles:
+            raise HTTPException(status_code=403, detail="Прораб через MAX принимает файлы накладных только на закрепленный объектный склад")
+        if project_name and project_name != "Основной склад" and not _employee_has_project_access(employee, project_name, deps):
+            raise HTTPException(status_code=403, detail="У сотрудника нет доступа к объекту")
+        context = _text(data.get("context") or "max-invoices", 120)
+        draft_token = _text(data.get("draftToken") or data.get("draft_token"), 120)
+
+        items = _max_file_items(data)
+        if not items and any(
+            data.get(key)
+            for key in ("contentBase64", "content_base64", "base64", "dataUrl", "data_url", "content")
+        ):
+            items = [data]
+        if not items:
+            raise HTTPException(status_code=400, detail="Нужен MAX-файл в files[] или contentBase64")
+
+        saved_files = [
+            persist_max_file_item(item, employee, max_user_id, max_chat_id, project_name, context)
+            for item in items
+        ]
+        draft = None
+        if draft_token:
+            conn = get_db()
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            try:
+                cur.execute("SELECT * FROM max_invoice_drafts WHERE draft_token=%s FOR UPDATE", (draft_token,))
+                draft_row = cur.fetchone()
+                if not draft_row:
+                    raise HTTPException(status_code=404, detail="MAX-черновик накладной не найден")
+                if (
+                    draft_row.get("messenger_account_id")
+                    and employee.get("messengerAccountId")
+                    and draft_row.get("messenger_account_id") != employee.get("messengerAccountId")
+                ):
+                    raise HTTPException(status_code=403, detail="MAX-черновик создан другим сотрудником")
+                payload = append_file_urls_to_payload(_json_dict(draft_row.get("payload_json")), saved_files)
+                cur.execute(
+                    """
+                    UPDATE max_invoice_drafts
+                       SET payload_json=%s::jsonb,
+                           updated_at=NOW()
+                     WHERE id=%s
+                 RETURNING *
+                    """,
+                    (json.dumps(payload, ensure_ascii=False), draft_row["id"]),
+                )
+                draft_row = cur.fetchone()
+                for item in saved_files:
+                    cur.execute(
+                        """
+                        UPDATE messenger_files
+                           SET entity_type='max_invoice_draft',
+                               entity_id=%s,
+                               updated_at=NOW()
+                         WHERE id=%s
+                        """,
+                        (draft_row["id"], item.get("id")),
+                    )
+                conn.commit()
+                draft_row["employee_name"] = employee.get("name") or ""
+                draft_row["employee_role"] = employee.get("role") or ""
+                draft = _public_max_invoice_draft(draft_row, payload=payload)
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                cur.close()
+                conn.close()
+        return {"ok": True, "files": saved_files, "file": saved_files[0] if saved_files else None, "draft": draft}
 
     @app.post("/max/warehouse-invoices/preview")
     def preview_max_warehouse_invoice(data: dict, _bot: dict = Depends(require_max_bot_token)):

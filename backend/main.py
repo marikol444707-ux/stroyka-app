@@ -25975,6 +25975,7 @@ register_messenger_module(app, {
     "role_requires_2fa": _role_requires_2fa,
     "scan_invoice": scan_invoice,
     "sync_supplier_invoice_from_warehouse": _sync_supplier_invoice_from_warehouse,
+    "save_upload_bytes": save_upload_bytes,
     "max_bot_api_token": MAX_BOT_API_TOKEN,
     "max_webhook_secret": MAX_WEBHOOK_SECRET,
     "max_initdata_ttl_seconds": MAX_INITDATA_TTL_SECONDS,

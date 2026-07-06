@@ -97,6 +97,41 @@ def ensure_messenger_schema(get_db):
                 ON messenger_outbox(messenger_account_id);
             CREATE INDEX IF NOT EXISTS idx_messenger_outbox_entity
                 ON messenger_outbox(entity_type, entity_id);
+
+            CREATE TABLE IF NOT EXISTS messenger_files (
+                id SERIAL PRIMARY KEY,
+                provider VARCHAR(40) NOT NULL,
+                messenger_account_id INT,
+                user_id INT,
+                staff_id INT,
+                external_user_id VARCHAR(120),
+                chat_id VARCHAR(120),
+                file_token VARCHAR(255),
+                source_id VARCHAR(255),
+                project_name TEXT,
+                context VARCHAR(120),
+                original_filename TEXT,
+                content_type VARCHAR(120),
+                size_bytes INT DEFAULT 0,
+                url TEXT NOT NULL DEFAULT '',
+                storage VARCHAR(40),
+                storage_key TEXT,
+                entity_type VARCHAR(120),
+                entity_id INT,
+                metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_messenger_files_provider_account
+                ON messenger_files(provider, messenger_account_id);
+            CREATE INDEX IF NOT EXISTS idx_messenger_files_entity
+                ON messenger_files(entity_type, entity_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_messenger_files_provider_file_token_unique
+                ON messenger_files(provider, file_token)
+                WHERE file_token IS NOT NULL AND file_token <> '';
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_messenger_files_provider_source_unique
+                ON messenger_files(provider, source_id)
+                WHERE source_id IS NOT NULL AND source_id <> '';
             """
         )
         conn.commit()

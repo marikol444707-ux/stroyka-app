@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import base64
 import datetime as dt
 import hashlib
 import hmac
@@ -272,11 +273,13 @@ def find_outbox_item(bot_token, *, event_type="", draft_token="", warehouse_invo
     return None
 
 
-def cleanup(invoice_id, material_name, project_name, account_id, supplier_name="", draft_token=""):
+def cleanup(invoice_id, material_name, project_name, account_id, supplier_name="", draft_token="", file_url=""):
     conn = None
     try:
         conn = psycopg2.connect(**db_config())
         cur = conn.cursor()
+        if file_url:
+            cur.execute("DELETE FROM messenger_files WHERE provider='max' AND url=%s", (file_url,))
         if draft_token:
             cur.execute("DELETE FROM messenger_outbox WHERE provider='max' AND payload_json::text LIKE %s", (f"%{draft_token}%",))
         if invoice_id:
@@ -334,12 +337,33 @@ def main():
     supplier_inn = "77" + stamp[-8:]
     invoice_id = None
     draft_token = None
+    stored_file_url = ""
     try:
+        _, uploaded = api_json(
+            "POST",
+            "/max/files",
+            data={
+                "maxUserId": account["maxUserId"],
+                "projectName": project_name,
+                "context": "max-invoices",
+                "fileToken": f"max-file-smoke-{stamp}",
+                "filename": f"max-invoice-{stamp}.txt",
+                "contentType": "text/plain",
+                "contentBase64": base64.b64encode(f"CODEX MAX invoice smoke {stamp}".encode("utf-8")).decode("ascii"),
+            },
+            headers={"X-Max-Bot-Token": bot_token},
+            expected=200,
+        )
+        stored_file = uploaded.get("file") or {}
+        stored_file_url = stored_file.get("url") or ""
+        if not stored_file_url:
+            raise RuntimeError(f"MAX file upload не вернул стабильный url: {uploaded}")
+
         max_invoice_payload = {
             "maxUserId": account["maxUserId"],
             "maxMessageId": f"max-smoke-{stamp}",
             "projectName": project_name,
-            "photoUrl": "/uploads/smoke/max-invoice.jpg",
+            "photoUrl": stored_file_url,
             "recognizedInvoice": {
                 "method": "smoke_ocr_stub",
                 "documentType": "warehouse_invoice",
@@ -379,6 +403,8 @@ def main():
         invoice_draft = preview.get("invoiceDraft") or {}
         if invoice_draft.get("supplierName") != supplier_name:
             raise RuntimeError(f"MAX preview неверно замапил поставщика: {preview}")
+        if invoice_draft.get("photoUrl") != stored_file_url:
+            raise RuntimeError(f"MAX preview не использует внутренний URL файла: {preview}")
         if not any(row.get("name") == material_name for row in invoice_draft.get("items") or []):
             raise RuntimeError(f"MAX preview не вернул позицию накладной: {preview}")
 
@@ -489,6 +515,7 @@ def main():
             "messengerAccountId": account["accountId"],
             "checked": checked + [
                 "MAX recognizedInvoice/OCR draft is mapped to warehouse invoice fields",
+                "MAX file upload stores attachment in Stroyka storage",
                 "MAX preview returns draft without warehouse write",
                 "MAX preview queues confirm/reject buttons for bot delivery",
                 "MAX outbox status callback marks preview message as sent",
@@ -506,7 +533,7 @@ def main():
     except Exception as exc:
         raise SystemExit(f"FAIL smoke:max-warehouse: {exc}")
     finally:
-        cleanup(invoice_id, material_name, project_name, account.get("accountId"), supplier_name, draft_token)
+        cleanup(invoice_id, material_name, project_name, account.get("accountId"), supplier_name, draft_token, stored_file_url)
 
 
 if __name__ == "__main__":
