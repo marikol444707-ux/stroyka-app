@@ -224,6 +224,15 @@ const compactField = {
   outline:'none',
 };
 
+const invisibleFileInput = {
+  position:'absolute',
+  inset:0,
+  width:'100%',
+  height:'100%',
+  opacity:0,
+  cursor:'pointer',
+};
+
 const readStoredUser = () => {
   try {
     const raw = localStorage.getItem('user');
@@ -778,13 +787,29 @@ function MaxWarehouseCompact({account, onBack, onOpenFull}) {
           {destinationOptions.map(option => <option key={option.id} value={option.name}>{option.name}</option>)}
         </select>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
-          <label style={{...compactButton('primary'),minHeight:'48px',cursor:scanning ? 'default' : 'pointer',opacity:scanning ? .72 : 1}}>
+          <label style={{...compactButton('primary'),position:'relative',overflow:'hidden',minHeight:'48px',cursor:scanning ? 'default' : 'pointer',opacity:scanning ? .72 : 1}}>
             <Camera size={15}/>{scanning ? 'Распознаю' : 'Камера'}
-            <input type="file" accept="image/*" capture="environment" multiple disabled={scanning || loading} onChange={event => { scanFiles(event.target.files); event.target.value = ''; }} style={{display:'none'}} />
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              disabled={scanning || loading}
+              onChange={event => { scanFiles(event.target.files); event.target.value = ''; }}
+              style={invisibleFileInput}
+              aria-label="Сделать фото накладной"
+            />
           </label>
-          <label style={{...compactButton(),minHeight:'48px',cursor:scanning ? 'default' : 'pointer',opacity:scanning ? .72 : 1}}>
+          <label style={{...compactButton(),position:'relative',overflow:'hidden',minHeight:'48px',cursor:scanning ? 'default' : 'pointer',opacity:scanning ? .72 : 1}}>
             <FileText size={15}/>PDF/фото
-            <input type="file" accept={invoiceImageAccept} multiple disabled={scanning || loading} onChange={event => { scanFiles(event.target.files); event.target.value = ''; }} style={{display:'none'}} />
+            <input
+              type="file"
+              accept={invoiceImageAccept}
+              multiple
+              disabled={scanning || loading}
+              onChange={event => { scanFiles(event.target.files); event.target.value = ''; }}
+              style={invisibleFileInput}
+              aria-label="Выбрать PDF или фото накладной"
+            />
           </label>
         </div>
         <button onClick={openWarehouse} style={{...compactButton(),minHeight:'44px'}}><Package size={15}/>Открыть полный склад</button>
