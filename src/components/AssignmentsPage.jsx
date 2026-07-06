@@ -31,10 +31,32 @@ const DEFAULT_ROLE_OPTIONS = [
   'бригадир',
   'субподрядчик',
 ];
+const EXTRA_ROLE_OPTIONS = [
+  'директор',
+  'зам_директора',
+  'менеджер_crm',
+  'заказчик',
+  'поставщик',
+  'system_owner',
+  'platform_support',
+];
+const ROLE_OPTIONS = Array.from(new Set([...DEFAULT_ROLE_OPTIONS, ...EXTRA_ROLE_OPTIONS]));
+const ROLE_ORDER = new Map(ROLE_OPTIONS.map((role, index) => [role, index]));
+let assignmentDraftSeq = 0;
 
 const clean = value => String(value || '').trim();
 const lower = value => clean(value).toLowerCase();
 const todayKey = () => new Date().toISOString().slice(0, 10);
+const roleOrder = role => ROLE_ORDER.has(role) ? ROLE_ORDER.get(role) : ROLE_OPTIONS.length + 1;
+const userDisplayName = item => clean(item?.name) || clean(item?.email);
+const createDraftRow = () => ({
+  id: 'assignment-draft-' + Date.now() + '-' + (assignmentDraftSeq += 1),
+  title: '',
+  description: '',
+  assignedRole: '',
+  assignedTo: '',
+  dueDate: '',
+});
 
 const roleLabel = role => ({
   директор: 'Директор',
@@ -50,6 +72,11 @@ const roleLabel = role => ({
   бригадир: 'Бригадир',
   субподрядчик: 'Субподрядчик',
   технадзор: 'Технадзор',
+  менеджер_crm: 'Менеджер CRM',
+  заказчик: 'Заказчик',
+  поставщик: 'Поставщик',
+  system_owner: 'Владелец платформы',
+  platform_support: 'Поддержка платформы',
 }[role] || role || 'Роль');
 
 const statusMeta = (C, status) => {
@@ -341,16 +368,13 @@ export default function AssignmentsPage({
     () => (projects || []).filter(project => !project.archived && project.status !== 'Завершён'),
     [projects],
   );
-  const [filters, setFilters] = React.useState({ scope: 'open', project: '', status: '', search: '' });
+  const [filters, setFilters] = React.useState({ scope: 'open', project: '', status: '', role: '', search: '' });
   const [showCreate, setShowCreate] = React.useState(false);
-  const [draft, setDraft] = React.useState({
+  const [creating, setCreating] = React.useState(false);
+  const [draft, setDraft] = React.useState(() => ({
     projectName: '',
-    title: '',
-    description: '',
-    assignedRole: '',
-    assignedTo: '',
-    dueDate: '',
-  });
+    rows: [createDraftRow()],
+  }));
   const canCreate = ['директор', 'зам_директора', 'главный_инженер', 'прораб', 'сметчик', 'снабженец', 'кладовщик', 'бухгалтер'].includes(user?.role || '');
 
   React.useEffect(() => {
@@ -366,6 +390,14 @@ export default function AssignmentsPage({
   }, [aiTasks, projectOptions]);
 
   const statusOptions = React.useMemo(() => Array.from(new Set((aiTasks || []).map(task => task.status || 'Новое'))), [aiTasks]);
+  const roleOptions = React.useMemo(() => {
+    const roles = new Set(ROLE_OPTIONS);
+    (users || []).forEach(item => item.role && roles.add(item.role));
+    (aiTasks || []).forEach(task => task.assignedRole && roles.add(task.assignedRole));
+    return Array.from(roles).sort((a, b) => (
+      roleOrder(a) - roleOrder(b) || roleLabel(a).localeCompare(roleLabel(b), 'ru')
+    ));
+  }, [aiTasks, users]);
 
   const stats = React.useMemo(() => {
     const rows = Array.isArray(aiTasks) ? aiTasks : [];
@@ -384,6 +416,7 @@ export default function AssignmentsPage({
       .filter(task => {
         if (filters.project && task.projectName !== filters.project) return false;
         if (filters.status && (task.status || 'Новое') !== filters.status) return false;
+        if (filters.role && task.assignedRole !== filters.role) return false;
         if (filters.scope === 'open' && !isOpenTask(task)) return false;
         if (filters.scope === 'mine' && !isTaskAssignedToUser(task, user)) return false;
         if (filters.scope === 'review' && task.status !== REVIEW_STATUS) return false;
@@ -406,31 +439,86 @@ export default function AssignmentsPage({
       });
   }, [aiTasks, filters, user]);
 
-  const assigneeOptions = React.useMemo(() => {
-    const role = draft.assignedRole;
+  const sortedAssignees = React.useMemo(() => {
     return (users || [])
+      .filter(item => userDisplayName(item))
+      .sort((a, b) => (
+        roleOrder(a.role) - roleOrder(b.role)
+        || roleLabel(a.role).localeCompare(roleLabel(b.role), 'ru')
+        || userDisplayName(a).localeCompare(userDisplayName(b), 'ru')
+      ));
+  }, [users]);
+
+  const assigneeGroupsForRole = React.useCallback((role = '') => {
+    const groups = new Map();
+    sortedAssignees
       .filter(item => !role || item.role === role)
-      .filter(item => item.name || item.email)
-      .slice(0, 80);
-  }, [draft.assignedRole, users]);
+      .forEach(item => {
+        const key = item.role || 'no_role';
+        if (!groups.has(key)) groups.set(key, { role: key, label: roleLabel(item.role || 'Без роли'), items: [] });
+        groups.get(key).items.push(item);
+      });
+    return Array.from(groups.values()).sort((a, b) => (
+      roleOrder(a.role) - roleOrder(b.role) || a.label.localeCompare(b.label, 'ru')
+    ));
+  }, [sortedAssignees]);
+
+  const validDraftRows = React.useMemo(
+    () => (draft.rows || []).filter(row => clean(row.title)),
+    [draft.rows],
+  );
+
+  const updateDraftRow = (rowId, patch) => {
+    setDraft(prev => ({
+      ...prev,
+      rows: (prev.rows || []).map(row => row.id === rowId ? { ...row, ...patch } : row),
+    }));
+  };
+
+  const addDraftRow = () => {
+    setDraft(prev => ({ ...prev, rows: [...(prev.rows || []), createDraftRow()] }));
+  };
+
+  const removeDraftRow = rowId => {
+    setDraft(prev => {
+      const rows = (prev.rows || []).filter(row => row.id !== rowId);
+      return { ...prev, rows: rows.length ? rows : [createDraftRow()] };
+    });
+  };
 
   const createTask = async () => {
-    if (!clean(draft.projectName) || !clean(draft.title) || typeof createAiTask !== 'function') return;
-    const payload = {
-      ...draft,
-      actionLabel: 'Открыть объект',
-      actionPayload: JSON.stringify({
-        type: 'manual_assignment',
-        source: 'assignments_page',
-        projectName: draft.projectName,
-      }),
-    };
-    const result = await createAiTask(payload);
-    if (result) {
-      setDraft({ projectName: draft.projectName, title: '', description: '', assignedRole: '', assignedTo: '', dueDate: '' });
+    const projectName = clean(draft.projectName);
+    const rows = (draft.rows || []).filter(row => clean(row.title));
+    if (!projectName || rows.length === 0 || typeof createAiTask !== 'function' || creating) return;
+    setCreating(true);
+    try {
+      for (const row of rows) {
+        const payload = {
+          projectName,
+          title: clean(row.title),
+          description: row.description,
+          assignedRole: row.assignedRole,
+          assignedTo: row.assignedTo,
+          dueDate: row.dueDate,
+          actionLabel: 'Открыть объект',
+          actionPayload: JSON.stringify({
+            type: 'manual_assignment',
+            source: 'assignments_page',
+            projectName,
+          }),
+        };
+        const result = await createAiTask(payload);
+        if (!result) return;
+      }
+      setDraft({ projectName: draft.projectName, rows: [createDraftRow()] });
       setShowCreate(false);
+    } finally {
+      setCreating(false);
     }
   };
+
+  const draftRows = draft.rows || [];
+  const canSubmitDraft = clean(draft.projectName) && validDraftRows.length > 0 && !creating;
 
   const statButton = (id, label, value) => {
     const active = filters.scope === id;
@@ -488,44 +576,97 @@ export default function AssignmentsPage({
       {showCreate && canCreate && (
         <div style={{ ...card, padding: isMobile ? '14px' : '16px', marginBottom: '14px' }}>
           <h3 style={{ margin: '0 0 12px', color: C.text, fontSize: '16px' }}>Новое поручение</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.1fr 1.1fr 1fr 0.8fr', gap: '10px' }}>
-            <select value={draft.projectName} onChange={e => setDraft(prev => ({ ...prev, projectName: e.target.value }))} style={inp}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '10px' }}>
+            <select value={draft.projectName} onChange={e => setDraft(prev => ({ ...prev, projectName: e.target.value }))} style={{ ...inp, width: '100%', boxSizing: 'border-box' }}>
               <option value="">Объект</option>
               {projectOptions.map(project => <option key={project.id || project.name} value={project.name}>{project.name}</option>)}
             </select>
-            <input value={draft.title} onChange={e => setDraft(prev => ({ ...prev, title: e.target.value }))} placeholder="Что нужно сделать" style={inp} />
-            <select value={draft.assignedRole} onChange={e => setDraft(prev => ({ ...prev, assignedRole: e.target.value, assignedTo: '' }))} style={inp}>
-              <option value="">Роль</option>
-              {DEFAULT_ROLE_OPTIONS.map(role => <option key={role} value={role}>{roleLabel(role)}</option>)}
-            </select>
-            <input type="date" value={draft.dueDate} onChange={e => setDraft(prev => ({ ...prev, dueDate: e.target.value }))} style={inp} />
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1.6fr', gap: '10px', marginTop: '10px' }}>
-            <select value={draft.assignedTo} onChange={e => setDraft(prev => ({ ...prev, assignedTo: e.target.value }))} style={inp}>
-              <option value="">Исполнитель не выбран</option>
-              {assigneeOptions.map(item => (
-                <option key={item.id || item.email || item.name} value={item.name || item.email}>
-                  {(item.name || item.email) + (item.role ? ' / ' + roleLabel(item.role) : '')}
-                </option>
-              ))}
-            </select>
-            <textarea
-              value={draft.description}
-              onChange={e => setDraft(prev => ({ ...prev, description: e.target.value }))}
-              placeholder="Детали поручения"
-              style={{ ...inp, minHeight: '70px', resize: 'vertical' }}
-            />
+
+            {draftRows.map((row, index) => {
+              const assigneeGroups = assigneeGroupsForRole(row.assignedRole);
+              return (
+                <div
+                  key={row.id}
+                  style={{
+                    borderTop: index === 0 ? 'none' : '1px solid ' + C.border,
+                    paddingTop: index === 0 ? 0 : '12px',
+                    marginTop: index === 0 ? 0 : '2px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <div style={{ color: C.textSec, fontSize: '12px', fontWeight: 700 }}>Поручение {index + 1}</div>
+                    {draftRows.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeDraftRow(row.id)}
+                        style={{ ...btnG, padding: '7px 9px' }}
+                      >
+                        <XCircle size={14} />Убрать
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.35fr 0.8fr 0.8fr 1fr', gap: '10px' }}>
+                    <input
+                      value={row.title}
+                      onChange={e => updateDraftRow(row.id, { title: e.target.value })}
+                      placeholder="Что нужно сделать"
+                      style={inp}
+                    />
+                    <select
+                      value={row.assignedRole}
+                      onChange={e => updateDraftRow(row.id, { assignedRole: e.target.value, assignedTo: '' })}
+                      style={inp}
+                    >
+                      <option value="">Роль</option>
+                      {roleOptions.map(role => <option key={role} value={role}>{roleLabel(role)}</option>)}
+                    </select>
+                    <input
+                      type="date"
+                      value={row.dueDate}
+                      onChange={e => updateDraftRow(row.id, { dueDate: e.target.value })}
+                      style={inp}
+                    />
+                    <select
+                      value={row.assignedTo}
+                      onChange={e => updateDraftRow(row.id, { assignedTo: e.target.value })}
+                      style={inp}
+                    >
+                      <option value="">Исполнитель не выбран</option>
+                      {assigneeGroups.length === 0 && row.assignedRole && <option value="" disabled>Нет пользователей этой роли</option>}
+                      {assigneeGroups.map(group => (
+                        <optgroup key={group.role} label={group.label}>
+                          {group.items.map(item => (
+                            <option key={item.id || item.email || item.name} value={userDisplayName(item)}>
+                              {userDisplayName(item) + (item.role ? ' / ' + roleLabel(item.role) : '')}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </div>
+                  <textarea
+                    value={row.description}
+                    onChange={e => updateDraftRow(row.id, { description: e.target.value })}
+                    placeholder="Детали поручения"
+                    style={{ ...inp, minHeight: '70px', resize: 'vertical', width: '100%', boxSizing: 'border-box', marginTop: '10px' }}
+                  />
+                </div>
+              );
+            })}
           </div>
           <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
-            <button onClick={createTask} disabled={!clean(draft.projectName) || !clean(draft.title)} style={{ ...btnO, opacity: !clean(draft.projectName) || !clean(draft.title) ? 0.65 : 1 }}>
-              <Plus size={14} />Создать
+            <button type="button" onClick={addDraftRow} style={btnG}>
+              <Plus size={14} />Еще поручение
+            </button>
+            <button onClick={createTask} disabled={!canSubmitDraft} style={{ ...btnO, opacity: !canSubmitDraft ? 0.65 : 1 }}>
+              <Plus size={14} />{creating ? 'Создание' : validDraftRows.length > 1 ? 'Создать ' + validDraftRows.length : 'Создать'}
             </button>
             <button onClick={() => setShowCreate(false)} style={btnG}>Отмена</button>
           </div>
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.1fr 0.8fr 0.8fr', gap: '10px', marginBottom: '14px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.1fr 0.8fr 0.8fr 0.8fr', gap: '10px', marginBottom: '14px' }}>
         <label style={{ position: 'relative' }}>
           <Search size={14} style={{ position: 'absolute', top: '50%', left: '11px', transform: 'translateY(-50%)', color: C.textMuted }} />
           <input
@@ -538,6 +679,10 @@ export default function AssignmentsPage({
         <select value={filters.project} onChange={e => setFilters(prev => ({ ...prev, project: e.target.value }))} style={inp}>
           <option value="">Все объекты</option>
           {uniqueProjects.map(name => <option key={name} value={name}>{name}</option>)}
+        </select>
+        <select value={filters.role} onChange={e => setFilters(prev => ({ ...prev, role: e.target.value }))} style={inp}>
+          <option value="">Все роли</option>
+          {roleOptions.map(role => <option key={role} value={role}>{roleLabel(role)}</option>)}
         </select>
         <select value={filters.status} onChange={e => setFilters(prev => ({ ...prev, status: e.target.value }))} style={inp}>
           <option value="">Все статусы</option>
