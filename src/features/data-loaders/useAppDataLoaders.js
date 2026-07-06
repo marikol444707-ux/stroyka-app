@@ -277,6 +277,7 @@ export const useAppDataLoaders = (ctx) => {
     const canLoadUserDirectory = canLoadUserDirectoryForRole(role) || isLeadershipRole;
     const canLoadAccountingData = canLoadAccountingDataForRole(role) || isFinanceRole;
     const canLoadBrigadeData = canLoadPeopleData || canLoadAccountingData || isWorkerRole;
+    const canLoadBrigadePayments = isFinanceRole || isWorkerRole;
     const canLoadEstimates = canLoadEstimatesForUser();
     const estimatesLoadPath = isWorkerRole ? '/estimates' : ESTIMATES_SUMMARY_PATH;
     if (page === 'dashboard') return loadMobileScopeOnce('mobile:dashboard', async () => {
@@ -374,7 +375,7 @@ export const useAppDataLoaders = (ctx) => {
         canSeeProjectDocs ? getApi('/material-norm-suggestions') : Promise.resolve([]),
         canLoadBrigadeData ? getApi('/brigade-contracts') : Promise.resolve([]),
         canLoadBrigadeData ? getApi('/brigade-contract-items-all') : Promise.resolve([]),
-        canLoadBrigadeData ? getApi('/brigade-payments') : Promise.resolve([]),
+        canLoadBrigadePayments ? getApi('/brigade-payments') : Promise.resolve([]),
       ]);
       applyLoadedEstimates(est, canLoadEstimates);
       if (canLoadEstimates && est === null) mobileLoadedScopesRef.current.delete('mobile:estimates');
@@ -553,6 +554,7 @@ export const useAppDataLoaders = (ctx) => {
       const canLoadUserDirectory = canLoadUserDirectoryForRole(role) || isLeadershipRole;
       const canLoadAccountingData = canLoadAccountingDataForRole(role) || isFinanceRole;
       const canLoadBrigadeData = canLoadPeopleData || canLoadAccountingData || isWorkerRole;
+      const canLoadBrigadePayments = isFinanceRole || isWorkerRole;
       const canLoadEstimates = canLoadEstimatesForUser(user);
       const estimatesLoadPath = isWorkerRole ? '/estimates' : ESTIMATES_SUMMARY_PATH;
       if (canLoadEstimates) markEstimatesLoading(true);
@@ -713,7 +715,7 @@ export const useAppDataLoaders = (ctx) => {
         const abi = await get('/brigade-contract-items-all');
         setLoaded(setAllBrigadeItems, abi);
       } catch(e) {}
-      if (canLoadBrigadeData) try {
+      if (canLoadBrigadePayments) try {
         const abp = await get('/brigade-payments');
         setLoaded(setAllBrigadePayments, abp);
       } catch(e) {}
