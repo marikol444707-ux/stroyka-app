@@ -1,0 +1,10 @@
+[Unit]
+Description=Dispatch Stroyka MAX outbox queue
+Wants=network-online.target
+After=network-online.target stroyka.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/var/www/stroyka-app
+Environment=BASE_URL=https://stroyka26.pro
+ExecStart=/usr/bin/npm run max:dispatch -- --limit 20

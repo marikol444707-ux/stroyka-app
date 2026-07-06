@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Stroyka MAX outbox dispatcher every minute
+
+[Timer]
+OnBootSec=90s
+OnUnitActiveSec=60s
+AccuracySec=10s
+Persistent=true
+Unit=stroyka-max-dispatch.service
+
+[Install]
+WantedBy=timers.target
