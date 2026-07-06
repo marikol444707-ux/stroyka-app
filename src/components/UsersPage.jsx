@@ -49,6 +49,7 @@ function UsersPage({
     setNewUser(createUserForm());
   };
   const [messengerAccounts, setMessengerAccounts] = React.useState([]);
+  const [maxInternalChannels, setMaxInternalChannels] = React.useState([]);
   const [messengerLoading, setMessengerLoading] = React.useState(false);
   const [maxBindingUser, setMaxBindingUser] = React.useState(null);
   const [maxBindingForm, setMaxBindingForm] = React.useState({externalUserId:'',chatId:'',displayName:'',enabled:true});
@@ -56,11 +57,17 @@ function UsersPage({
     if (!API) return;
     setMessengerLoading(true);
     try {
-      const res = await fetch(API + '/messenger-accounts');
-      const data = await res.json().catch(() => ({}));
-      setMessengerAccounts(Array.isArray(data.items) ? data.items : []);
+      const [accountsRes, channelsRes] = await Promise.all([
+        fetch(API + '/messenger-accounts'),
+        fetch(API + '/messenger-channels?provider=max&channel_type=internal'),
+      ]);
+      const accountsData = await accountsRes.json().catch(() => ({}));
+      const channelsData = await channelsRes.json().catch(() => ({}));
+      setMessengerAccounts(Array.isArray(accountsData.items) ? accountsData.items : []);
+      setMaxInternalChannels(Array.isArray(channelsData.items) ? channelsData.items : []);
     } catch (_error) {
       setMessengerAccounts([]);
+      setMaxInternalChannels([]);
     } finally {
       setMessengerLoading(false);
     }
@@ -75,6 +82,44 @@ function UsersPage({
     });
     return map;
   }, [messengerAccounts]);
+  const maxBindingCandidates = React.useMemo(() => {
+    const linkedUserIds = new Set(
+      (messengerAccounts || [])
+        .filter(item => item.provider === 'max' && item.externalUserId)
+        .map(item => String(item.externalUserId))
+    );
+    const seen = new Set();
+    return (maxInternalChannels || [])
+      .map(channel => {
+        const metadata = channel?.metadata || {};
+        const userId = String(metadata.lastUserId || '').trim();
+        if (!userId || seen.has(userId)) return null;
+        seen.add(userId);
+        const rawChatId = String(channel.chatId || '').trim();
+        const safeChatId = rawChatId && !rawChatId.startsWith('-') ? rawChatId : userId;
+        return {
+          userId,
+          chatId: safeChatId,
+          displayName: metadata.lastUserName || channel.title || userId,
+          title: channel.title || rawChatId || userId,
+          source: metadata.isChannel ? 'канал' : rawChatId.startsWith('-') ? 'группа' : 'личный чат',
+          updatedAt: channel.updatedAt || '',
+          linked: linkedUserIds.has(userId),
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 8);
+  }, [maxInternalChannels, messengerAccounts]);
+  const applyMaxBindingCandidate = (candidate) => {
+    if (!candidate) return;
+    setMaxBindingForm({
+      ...maxBindingForm,
+      externalUserId: candidate.userId,
+      chatId: candidate.chatId || candidate.userId,
+      displayName: candidate.displayName || maxBindingUser?.name || '',
+      enabled: true,
+    });
+  };
   const openMaxBinding = (u) => {
     const existing = maxAccountByUserId.get(Number(u.id)) || null;
     setMaxBindingUser(u);
@@ -193,6 +238,23 @@ function UsersPage({
             <div style={{marginTop:'12px',padding:'10px',border:'1.5px solid '+C.border,borderRadius:'10px',backgroundColor:C.bg}}>
               <b style={{display:'block',color:C.text,fontSize:'12px',marginBottom:'4px'}}>Mini-app URL для бота</b>
               <code style={{display:'block',color:C.accent,fontSize:'12px',wordBreak:'break-all'}}>{window.location.origin + '/max-app'}</code>
+            </div>
+            <div style={{marginTop:'12px',padding:'10px',border:'1.5px solid '+C.border,borderRadius:'10px',backgroundColor:C.bg}}>
+              <div style={{display:'flex',justifyContent:'space-between',gap:'10px',alignItems:'center',marginBottom:'8px'}}>
+                <b style={{display:'block',color:C.text,fontSize:'12px'}}>Последние MAX-контакты</b>
+                <button onClick={loadMessengerAccounts} style={{...btnG,padding:'5px 8px',fontSize:'11px'}}><RefreshCw size={11}/>{messengerLoading ? '...' : 'Обновить'}</button>
+              </div>
+              {maxBindingCandidates.length === 0 && <p style={{color:C.textSec,margin:0,fontSize:'12px'}}>Напишите боту команду <b>id</b> или <b>тест</b>, затем обновите список.</p>}
+              {maxBindingCandidates.map(candidate => (
+                <div key={candidate.userId} style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',borderTop:'1px solid '+C.border,padding:'8px 0'}}>
+                  <div style={{minWidth:0}}>
+                    <b style={{display:'block',color:C.text,fontSize:'12px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{candidate.displayName || candidate.userId}</b>
+                    <span style={{display:'block',color:C.textSec,fontSize:'11px',wordBreak:'break-all'}}>userId {candidate.userId} · {candidate.source}</span>
+                    {candidate.linked && <span style={{...badge(C.success,C.successLight,C.successBorder),fontSize:'10px',marginTop:'4px'}}>уже связан</span>}
+                  </div>
+                  <button onClick={()=>applyMaxBindingCandidate(candidate)} disabled={candidate.linked} style={{...btnG,padding:'5px 9px',fontSize:'11px',opacity:candidate.linked?0.55:1}}>Подставить</button>
+                </div>
+              ))}
             </div>
             <div style={{display:'flex',gap:'10px',marginTop:'15px',flexWrap:'wrap'}}>
               <button onClick={()=>saveMaxBinding()} style={btnO}><Check size={14}/>Сохранить</button>
