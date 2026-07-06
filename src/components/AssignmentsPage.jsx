@@ -432,16 +432,20 @@ export default function AssignmentsPage({
     }
   };
 
-  const statButton = (id, label, value) => (
+  const statButton = (id, label, value) => {
+    const active = filters.scope === id;
+    return (
     <button
       onClick={() => setFilters(prev => ({ ...prev, scope: id }))}
       style={{
-        border: '1px solid ' + (filters.scope === id ? C.accent : C.border),
-        backgroundColor: filters.scope === id ? C.accentLight : 'white',
-        color: filters.scope === id ? C.accent : C.text,
+        border: '1.5px solid ' + (active ? (C.accentBorder || C.accent) : C.border),
+        backgroundColor: active ? C.accentLight : C.bgWhite,
+        color: active ? C.accent : C.text,
         borderRadius: '8px',
-        padding: '10px 12px',
-        minWidth: isMobile ? 'calc(50% - 6px)' : '120px',
+        padding: isMobile ? '12px 14px' : '10px 12px',
+        minHeight: isMobile ? '72px' : '64px',
+        minWidth: 0,
+        width: '100%',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'flex-start',
@@ -450,17 +454,18 @@ export default function AssignmentsPage({
       }}
     >
       <span style={{ fontSize: '18px', fontWeight: 800 }}>{value}</span>
-      <span style={{ fontSize: '11px', fontWeight: 700 }}>{label}</span>
+      <span style={{ fontSize: '11px', fontWeight: 700, color: active ? C.accent : C.textSec }}>{label}</span>
     </button>
-  );
+    );
+  };
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap', marginBottom: '18px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap', flexDirection: isMobile ? 'column' : 'row', marginBottom: '18px' }}>
         <div>
           <h2 style={{ margin: 0, color: C.text, fontSize: isMobile ? '22px' : '26px', fontWeight: 800 }}>Поручения</h2>
         </div>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', width: isMobile ? '100%' : 'auto' }}>
           <button onClick={() => typeof refreshData === 'function' && refreshData('assignments')} style={btnG}>
             <RefreshCw size={14} />Обновить
           </button>
@@ -472,7 +477,7 @@ export default function AssignmentsPage({
         </div>
       </div>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '14px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(5, minmax(120px, 1fr))', gap: '10px', marginBottom: '14px' }}>
         {statButton('open', 'Открытые', stats.open)}
         {statButton('mine', 'Мои', stats.mine)}
         {statButton('review', 'На проверке', stats.review)}
