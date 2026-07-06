@@ -29,6 +29,9 @@ def ensure_assignments_schema(get_db):
             );
             CREATE INDEX IF NOT EXISTS idx_ai_task_attachments_report_id ON ai_task_attachments(report_id);
             CREATE INDEX IF NOT EXISTS idx_ai_task_attachments_task_id ON ai_task_attachments(task_id);
+
+            ALTER TABLE ai_tasks ADD COLUMN IF NOT EXISTS created_by TEXT;
+            ALTER TABLE ai_tasks ADD COLUMN IF NOT EXISTS created_by_id INT;
             """
         )
         conn.commit()
