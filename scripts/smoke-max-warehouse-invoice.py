@@ -177,6 +177,27 @@ def validate_max_miniapp_launch():
     return "MAX mini-app initData/contact signature is validated"
 
 
+def validate_max_miniapp_session():
+    token = max_initdata_token()
+    if not token:
+        return None
+    _, body = api_json(
+        "POST",
+        "/max/miniapp/session",
+        data={
+            "initData": signed_max_init_data(token, TEST_MAX_USER_ID, "invite_CODEX"),
+            "contact": signed_max_contact(token, TEST_MAX_USER_ID),
+        },
+        expected=200,
+    )
+    user = body.get("user") or {}
+    if not body.get("sessionCreated") or not user.get("authToken"):
+        raise RuntimeError(f"MAX mini-app session не вернул authToken: {body}")
+    if user.get("role") != "прораб":
+        raise RuntimeError(f"MAX mini-app session вернул неверную роль: {body}")
+    return "MAX mini-app session issues authToken for linked non-2FA foreman"
+
+
 def login(email, password):
     _, body = api_json("POST", "/login", data={"email": email, "password": password}, expected=200)
     token = body.get("authToken")
@@ -303,6 +324,7 @@ def cleanup(invoice_id, material_name, project_name, account_id, supplier_name="
             cur.execute("DELETE FROM material_inspection_journal WHERE material_name=%s AND project=%s", (material_name, project_name))
             cur.execute("DELETE FROM cable_journal WHERE cable_brand=%s AND project=%s", (material_name, project_name))
         if account_id:
+            cur.execute("DELETE FROM user_sessions WHERE user_id IN (SELECT id FROM users WHERE LOWER(email)=LOWER(%s))", (TEST_EMAIL,))
             cur.execute("DELETE FROM messenger_accounts WHERE id=%s", (account_id,))
         if supplier_name:
             cur.execute("DELETE FROM supplier_aliases WHERE supplier_id IN (SELECT id FROM suppliers WHERE name=%s)", (supplier_name,))
@@ -331,6 +353,9 @@ def main():
     project_name = select_project()
     foreman = ensure_foreman(project_name)
     account = link_max_account(director_token, foreman["userId"])
+    miniapp_session_check = validate_max_miniapp_session()
+    if miniapp_session_check:
+        checked.append(miniapp_session_check)
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d%H%M%S")
     material_name = f"CODEX QA MAX накладная {stamp}"
     supplier_name = f"CODEX QA MAX поставщик {stamp}"
@@ -515,6 +540,7 @@ def main():
             "messengerAccountId": account["accountId"],
             "checked": checked + [
                 "MAX recognizedInvoice/OCR draft is mapped to warehouse invoice fields",
+                "MAX mini-app linked foreman session opens without bypassing 2FA roles",
                 "MAX file upload stores attachment in Stroyka storage",
                 "MAX preview returns draft without warehouse write",
                 "MAX preview queues confirm/reject buttons for bot delivery",

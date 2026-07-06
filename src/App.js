@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import './App.css';
 import { API, installAuthFetch } from './api';
 import { AUDIT_LOG_PAGE_LIMIT, MATERIAL_NORMS_PAGE_LIMIT, MATERIALS_PAGE_LIMIT, WORK_JOURNAL_PAGE_LIMIT } from './constants/appConfig';
@@ -22,6 +22,9 @@ import { useEstimateWorkflowState } from './features/estimates/useEstimateWorkfl
 import { useMaterialNormsState } from './features/material-norms/useMaterialNormsState';
 import { usePaymentUiState } from './features/payments/usePaymentUiState';
 import { useSupplierRequisitesSync } from './features/supply/useSupplierRequisitesSync';
+import MaxQuickActionsPage from './features/max/MaxQuickActionsPage';
+import { createQuickActionHandlers } from './features/quick-actions/quickActionHandlers';
+import { getQuickActionById, isQuickActionAllowed } from './features/quick-actions/quickActionRegistry';
 import { useSupplyWorkflowState } from './features/supply/useSupplyWorkflowState';
 import { calcVat, generateQR, readApiResult } from './utils/appRuntimeUtils';
 import { cableTypeOf } from './utils/cableUtils';
@@ -34,12 +37,14 @@ import { isSameSupplyMaterial, parseSupplyItems, supplyRequestOrigin, supplyUnit
 installAuthFetch();
 const GENERAL_WORK_ROOM_NAME = 'Без помещения';
 function App() {
+  const isMaxAppRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/max-app');
   const {
     isMobile,
     isCompactHeader
   } = useResponsiveLayout();
   const mobileLoadedScopesRef = useRef(new Set());
   const mobileApiRequestsRef = useRef(new Map());
+  const pendingQuickActionRef = useRef('');
   const [darkMode, setDarkMode] = useDarkModeState();
   const authEntryState = useAuthEntryState();
   const {
@@ -253,6 +258,51 @@ function App() {
     },
     user
   });
+  useEffect(() => {
+    if (!user || typeof window === 'undefined') return undefined;
+    const params = new URLSearchParams(window.location.search || '');
+    const actionId = params.get('quickAction') || '';
+    if (!actionId) return undefined;
+    const action = getQuickActionById(actionId);
+    if (!action || !isQuickActionAllowed(action, user, 'max')) return undefined;
+    const actionKey = window.location.pathname + window.location.search;
+    if (pendingQuickActionRef.current === actionKey) return undefined;
+    pendingQuickActionRef.current = actionKey;
+
+    const cleanUrl = () => {
+      try {
+        const next = new URL(window.location.href);
+        next.searchParams.delete('quickAction');
+        next.searchParams.delete('page');
+        const search = next.searchParams.toString();
+        window.history.replaceState({}, '', next.pathname + (search ? '?' + search : '') + next.hash);
+      } catch (_) {}
+    };
+    const handlers = createQuickActionHandlers({
+      API,
+      navigateTo,
+      openReceiveInvoice: appActionGroups.warehouseActions?.openReceiveInvoice,
+      projects: appMainState.projects,
+      setActivePage: appMainState.setActivePage,
+      setAddExpenseProject: paymentUiState.setAddExpenseProject,
+      setMaterialTransfers: appMainState.setMaterialTransfers,
+      setNewManualExpense: paymentUiState.setNewManualExpense,
+      setSelectedWarehouseProject: appMainState.setSelectedWarehouseProject,
+      setShowAiAssistant: appMainState.setShowAiAssistant,
+      setShowChatPanel: appCoreRuntime.setShowChatPanel,
+      setShowOwnExpenseForm: paymentUiState.setShowOwnExpenseForm,
+      setShowTransferForm: appMainState.setShowTransferForm,
+      setWarehouseTab: appMainState.setWarehouseTab,
+      visibleActiveProjects,
+    });
+    const handler = handlers[actionId];
+    if (typeof handler !== 'function') {
+      cleanUrl();
+      return undefined;
+    }
+    Promise.resolve(handler()).finally(cleanUrl);
+    return undefined;
+  }, [appActionGroups.warehouseActions, appCoreRuntime.setShowChatPanel, appMainState, navigateTo, paymentUiState, user, visibleActiveProjects]);
   const {
     appShellProps,
     earlyRoleRoute
@@ -307,6 +357,14 @@ function App() {
     user
   });
   const errorBoundaryKey = `${user?.role || 'guest'}:${authEntryState.page || appMainState.activePage || 'app'}`;
+
+  if (isMaxAppRoute) {
+    return (
+      <AppErrorBoundary resetKey="max-app">
+        <MaxQuickActionsPage />
+      </AppErrorBoundary>
+    );
+  }
 
   if (earlyRoleRoute) {
     return (

@@ -5,6 +5,7 @@ import {
   loadStoredUser,
   requestPushPermission,
 } from '../../utils/appRuntimeUtils';
+import { quickActionPageFor } from '../quick-actions/quickActionRegistry';
 
 export function useResponsiveLayout() {
   const [isMobile, setIsMobile] = useState(detectMobileLayout);
@@ -244,6 +245,16 @@ export function useAuthenticatedAppBootstrapEffect({
       if (typeof loadMasterProfile === 'function') loadMasterProfile();
       setActivePage('works');
     }
+
+    try {
+      const params = new URLSearchParams(window.location.search || '');
+      const quickAction = params.get('quickAction') || '';
+      const targetPage = params.get('page') || quickActionPageFor(quickAction);
+      if (targetPage) {
+        setActivePage(targetPage);
+        if (!quickAction) window.history.replaceState({}, '', window.location.pathname);
+      }
+    } catch (_) {}
 
     const savedCompanyName = localStorage.getItem('companyName');
     if (savedCompanyName) setCompanyName(savedCompanyName);

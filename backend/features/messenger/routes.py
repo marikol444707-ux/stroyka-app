@@ -12,7 +12,7 @@ import urllib.request
 from typing import Optional
 
 import psycopg2.extras
-from fastapi import Depends, Header, HTTPException, Query
+from fastapi import Depends, Header, HTTPException, Query, Request, Response
 
 from .schema import ensure_messenger_schema
 
@@ -41,6 +41,15 @@ def _json_list(value):
     except Exception:
         pass
     return []
+
+
+def _row_get(row, key: str, index: int, default=None):
+    if isinstance(row, dict):
+        return row.get(key, default)
+    try:
+        return row[index]
+    except Exception:
+        return default
 
 
 def _header_token(authorization: str) -> str:
@@ -564,7 +573,14 @@ def _find_employee_by_messenger(cur, provider: str, external_user_id: str, chat_
 
     cur.execute(
         """
-        SELECT u.id,u.name,u.role,u.project_name,u.assigned_projects,u.assigned_packages,ma.id,ma.display_name
+        SELECT u.id AS user_id,
+               u.name AS user_name,
+               u.role AS user_role,
+               u.project_name AS project_name,
+               u.assigned_projects AS assigned_projects,
+               u.assigned_packages AS assigned_packages,
+               ma.id AS messenger_account_id,
+               ma.display_name AS messenger_display_name
           FROM messenger_accounts ma
           JOIN users u ON u.id=ma.user_id
          WHERE ma.provider=%s
@@ -581,18 +597,23 @@ def _find_employee_by_messenger(cur, provider: str, external_user_id: str, chat_
     if row:
         return {
             "source": "users",
-            "id": row[0],
-            "name": row[1] or row[7] or "",
-            "role": row[2] or "",
-            "projectName": row[3] or "",
-            "assignedProjects": _json_list(row[4]),
-            "assignedPackages": _json_list(row[5]),
-            "messengerAccountId": row[6],
+            "id": _row_get(row, "user_id", 0),
+            "name": _row_get(row, "user_name", 1) or _row_get(row, "messenger_display_name", 7) or "",
+            "role": _row_get(row, "user_role", 2) or "",
+            "projectName": _row_get(row, "project_name", 3) or "",
+            "assignedProjects": _json_list(_row_get(row, "assigned_projects", 4)),
+            "assignedPackages": _json_list(_row_get(row, "assigned_packages", 5)),
+            "messengerAccountId": _row_get(row, "messenger_account_id", 6),
         }
 
     cur.execute(
         """
-        SELECT s.id,s.name,s.role,s.project,ma.id,ma.display_name
+        SELECT s.id AS staff_id,
+               s.name AS staff_name,
+               s.role AS staff_role,
+               s.project AS project_name,
+               ma.id AS messenger_account_id,
+               ma.display_name AS messenger_display_name
           FROM messenger_accounts ma
           JOIN staff s ON s.id=ma.staff_id
          WHERE ma.provider=%s
@@ -609,13 +630,13 @@ def _find_employee_by_messenger(cur, provider: str, external_user_id: str, chat_
         return None
     return {
         "source": "staff",
-        "id": row[0],
-        "name": row[1] or row[5] or "",
-        "role": row[2] or "",
-        "projectName": row[3] or "",
-        "assignedProjects": [row[3]] if row[3] else [],
+        "id": _row_get(row, "staff_id", 0),
+        "name": _row_get(row, "staff_name", 1) or _row_get(row, "messenger_display_name", 5) or "",
+        "role": _row_get(row, "staff_role", 2) or "",
+        "projectName": _row_get(row, "project_name", 3) or "",
+        "assignedProjects": [_row_get(row, "project_name", 3)] if _row_get(row, "project_name", 3) else [],
         "assignedPackages": [],
-        "messengerAccountId": row[4],
+        "messengerAccountId": _row_get(row, "messenger_account_id", 4),
     }
 
 
@@ -666,6 +687,10 @@ def register_messenger_module(app, deps):
     prepare_user_access_scope = deps["prepare_user_access_scope"]
     safe_project_list = deps["safe_project_list"]
     role_requires_2fa = deps["role_requires_2fa"]
+    public_user = deps.get("public_user")
+    create_auth_session = deps.get("create_auth_session")
+    set_auth_session_cookie = deps.get("set_auth_session_cookie")
+    enrich_worker_project_links = deps.get("enrich_worker_project_links")
     max_registration_roles = deps.get("max_registration_roles") or (
         "прораб",
         "главный_инженер",
@@ -1928,6 +1953,70 @@ def register_messenger_module(app, deps):
                 "linkedAccount": linked,
                 "invite": invite,
             }
+        finally:
+            cur.close()
+            conn.close()
+
+    @app.post("/max/miniapp/session")
+    def create_max_miniapp_session(data: dict, response: Response, request: Request):
+        if not public_user:
+            raise HTTPException(status_code=503, detail="MAX mini-app вход не настроен")
+        data = data or {}
+        launch = validate_max_launch(data or {})
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            employee = _find_employee_by_messenger(cur, "max", launch.get("maxUserId") or "", launch.get("maxChatId") or "")
+            if not employee:
+                raise HTTPException(status_code=404, detail="MAX-аккаунт не связан с сотрудником Stroyka")
+            linked = {
+                "employeeName": employee.get("name") or "",
+                "employeeRole": employee.get("role") or "",
+                "employeeSource": employee.get("source") or "",
+                "messengerAccountId": employee.get("messengerAccountId"),
+                "projectName": employee.get("projectName") or "",
+                "assignedProjects": employee.get("assignedProjects") or [],
+            }
+            if employee.get("source") != "users":
+                return {
+                    "ok": True,
+                    "sessionCreated": False,
+                    "requiresWebLogin": True,
+                    "reason": "staff_account",
+                    "detail": "MAX привязан к карточке сотрудника без учетной записи входа",
+                    "linkedAccount": linked,
+                }
+            cur.execute("SELECT * FROM users WHERE id=%s AND COALESCE(active,TRUE)=TRUE LIMIT 1", (employee.get("id"),))
+            user = cur.fetchone()
+            if not user:
+                raise HTTPException(status_code=404, detail="Пользователь Stroyka не найден или отключен")
+            if callable(enrich_worker_project_links):
+                user = enrich_worker_project_links(cur, user)
+            two_factor_required = bool(user.get("two_factor_required")) or role_requires_2fa(user.get("role") or "")
+            if two_factor_required:
+                return {
+                    "ok": True,
+                    "sessionCreated": False,
+                    "twoFactorRequired": True,
+                    "requiresWebLogin": True,
+                    "detail": "Для этой роли нужен обычный вход с 2FA",
+                    "linkedAccount": linked,
+                }
+            session_token = ""
+            if callable(create_auth_session):
+                session_token = create_auth_session(cur, user, request, two_factor_passed=False)
+            conn.commit()
+            if session_token and callable(set_auth_session_cookie):
+                set_auth_session_cookie(response, session_token)
+            return {
+                "ok": True,
+                "sessionCreated": True,
+                "linkedAccount": linked,
+                "user": public_user(user, include_token=True, two_factor_passed=False),
+            }
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             cur.close()
             conn.close()
