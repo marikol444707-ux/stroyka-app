@@ -13258,8 +13258,9 @@ def _insert_ai_task(cur, data: dict, current_user: dict):
     cur.execute("""
         INSERT INTO ai_tasks (
             finding_id, project_name, title, description, assigned_role, assigned_to,
-            status, due_date, action_label, action_payload, dedupe_key, created_at, updated_at
-        ) VALUES (%s,%s,%s,%s,%s,%s,%s,NULLIF(%s,'')::date,%s,%s,%s,NOW(),NOW())
+            status, due_date, action_label, action_payload, dedupe_key, created_by,
+            created_by_id, created_at, updated_at
+        ) VALUES (%s,%s,%s,%s,%s,%s,%s,NULLIF(%s,'')::date,%s,%s,%s,%s,%s,NOW(),NOW())
         RETURNING id
     """, (
         data.get("findingId") or data.get("finding_id"),
@@ -13273,6 +13274,8 @@ def _insert_ai_task(cur, data: dict, current_user: dict):
         data.get("actionLabel") or data.get("action_label") or "Принять к исполнению",
         data.get("actionPayload") or data.get("action_payload") or "",
         dedupe_key,
+        current_user.get("name") or current_user.get("email") or "",
+        current_user.get("id"),
     ))
     row = cur.fetchone()
     return row["id"] if isinstance(row, dict) else row[0]
@@ -13547,7 +13550,10 @@ def _upsert_ai_task(cur, data: dict, current_user: dict):
             cur.execute("""
                 UPDATE ai_tasks
                 SET title=%s, description=%s, assigned_role=%s, assigned_to=%s,
-                    action_label=%s, action_payload=%s, dedupe_key=%s, updated_at=NOW()
+                    action_label=%s, action_payload=%s, dedupe_key=%s,
+                    created_by=COALESCE(NULLIF(created_by,''),%s),
+                    created_by_id=COALESCE(created_by_id,%s),
+                    updated_at=NOW()
                 WHERE id=%s
             """, (
                 data.get("title") or "",
@@ -13557,6 +13563,8 @@ def _upsert_ai_task(cur, data: dict, current_user: dict):
                 data.get("actionLabel") or data.get("action_label") or "Открыть место",
                 data.get("actionPayload") or data.get("action_payload") or "",
                 dedupe_key,
+                current_user.get("name") or current_user.get("email") or "",
+                current_user.get("id"),
                 task_id,
             ))
             _close_duplicate_ai_tasks(cur, project_name, dedupe_key, task_id, current_user.get("name") or "system")

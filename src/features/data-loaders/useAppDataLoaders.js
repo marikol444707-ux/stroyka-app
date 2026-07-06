@@ -4,10 +4,12 @@ const ESTIMATES_SUMMARY_PATH = '/estimates?summary=true';
 const PEOPLE_DATA_ROLES = ['директор', 'зам_директора', 'бухгалтер', 'прораб', 'главный_инженер', 'сметчик', 'кладовщик', 'снабженец', 'стройконтроль'];
 const USER_DIRECTORY_ROLES = ['директор', 'зам_директора', 'бухгалтер', 'прораб', 'главный_инженер', 'сметчик'];
 const ACCOUNTING_DATA_ROLES = ['директор', 'зам_директора', 'бухгалтер', 'прораб', 'главный_инженер'];
+const SYSTEM_ASSIGNMENT_ROLES = ['директор', 'зам_директора'];
 
 const canLoadPeopleDataForRole = (role) => PEOPLE_DATA_ROLES.includes(role);
 const canLoadUserDirectoryForRole = (role) => USER_DIRECTORY_ROLES.includes(role);
 const canLoadAccountingDataForRole = (role) => ACCOUNTING_DATA_ROLES.includes(role);
+const assignmentsPathForRole = (role) => SYSTEM_ASSIGNMENT_ROLES.includes(role) ? '/assignments?include_system=true' : '/assignments';
 
 export const useAppDataLoaders = (ctx) => {
   const {
@@ -217,7 +219,7 @@ export const useAppDataLoaders = (ctx) => {
           role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
           shouldLoadUsersAtBoot ? getApi('/users') : Promise.resolve([]),
           isSupplyRole ? getApi('/supply-requests') : Promise.resolve([]),
-          canSeeProjectDocs ? getApi('/assignments') : Promise.resolve([]),
+          canSeeProjectDocs ? getApi(assignmentsPathForRole(role)) : Promise.resolve([]),
           isInternalRole ? getApi('/own-expenses') : Promise.resolve([]),
           isFinanceRole ? getApi('/project-payments') : Promise.resolve([]),
           role === 'кладовщик' ? getApi('/warehouse-main') : Promise.resolve([]),
@@ -283,7 +285,7 @@ export const useAppDataLoaders = (ctx) => {
     if (page === 'dashboard') return loadMobileScopeOnce('mobile:dashboard', async () => {
       const [aif,ait,sh,sd,scat] = await Promise.all([
         canSeeProjectDocs ? getApi('/ai-findings') : Promise.resolve([]),
-        canSeeProjectDocs ? getApi('/assignments') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi(assignmentsPathForRole(role)) : Promise.resolve([]),
         (isSupplyRole || isWarehouseRole || isFinanceRole) ? getApi('/supply-history') : Promise.resolve([]),
         isSupplyRole ? getApi('/supply-deliveries') : Promise.resolve([]),
         (isSupplyRole || isWarehouseRole || isFinanceRole || role === 'поставщик') ? getApi('/supplier-catalog') : Promise.resolve([]),
@@ -297,7 +299,7 @@ export const useAppDataLoaders = (ctx) => {
     if (page === 'assignments') return loadMobileScopeOnce('mobile:assignments', async () => {
       const [p, ait, u] = await Promise.all([
         role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
-        canSeeProjectDocs ? getApi('/assignments') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi(assignmentsPathForRole(role)) : Promise.resolve([]),
         canLoadUserDirectory ? getApi('/users') : Promise.resolve([]),
       ]);
       setProjects(Array.isArray(p)?p:[]);
@@ -629,7 +631,7 @@ export const useAppDataLoaders = (ctx) => {
         (isSupplyRole || isWarehouseRole || isFinanceRole || role === 'поставщик') ? get('/supplier-catalog') : skip([]),
         isSupplyRole ? get('/supply-request-templates') : skip([]),
         canSeeProjectDocs ? get('/ai-findings') : skip([]),
-        canSeeProjectDocs ? get('/assignments') : skip([]),
+        canSeeProjectDocs ? get(assignmentsPathForRole(role)) : skip([]),
         canSeeProjectDocs ? get(pagedPath('/material-norms', {limit: MATERIAL_NORMS_PAGE_LIMIT})) : skip([]),
         canSeeProjectDocs ? get('/material-aliases') : skip([]),
         canSeeProjectDocs ? get('/material-norms/overrides') : skip([]),

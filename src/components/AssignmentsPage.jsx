@@ -124,9 +124,9 @@ const isTaskAssignedToUser = (task, user) => {
   if (!task || !user) return false;
   const assignedRole = lower(task.assignedRole);
   const assignedTo = lower(task.assignedTo);
-  if (assignedRole && assignedRole === lower(user.role)) return true;
-  if (!assignedTo) return false;
-  return [user.name, user.email, user.id].some(value => lower(value) && assignedTo === lower(value));
+  const identityMatch = [user.name, user.email, user.id].some(value => lower(value) && assignedTo === lower(value));
+  if (assignedTo) return identityMatch;
+  return assignedRole && assignedRole === lower(user.role);
 };
 
 const isTaskOverdue = task => {
@@ -370,12 +370,24 @@ export default function AssignmentsPage({
   );
   const [filters, setFilters] = React.useState({ scope: 'open', project: '', status: '', role: '', search: '' });
   const [showCreate, setShowCreate] = React.useState(false);
+  const [showSystemTasks, setShowSystemTasks] = React.useState(false);
   const [creating, setCreating] = React.useState(false);
   const [draft, setDraft] = React.useState(() => ({
     projectName: '',
     rows: [createDraftRow()],
   }));
   const canCreate = ['директор', 'зам_директора', 'главный_инженер', 'прораб', 'сметчик', 'снабженец', 'кладовщик', 'бухгалтер'].includes(user?.role || '');
+  const canInspectSystemTasks = ['директор', 'зам_директора'].includes(user?.role || '');
+
+  const systemTasksCount = React.useMemo(
+    () => (aiTasks || []).filter(task => task.systemGenerated).length,
+    [aiTasks],
+  );
+
+  const assignmentTasks = React.useMemo(
+    () => (aiTasks || []).filter(task => showSystemTasks || !task.systemGenerated),
+    [aiTasks, showSystemTasks],
+  );
 
   React.useEffect(() => {
     if (draft.projectName || projectOptions.length === 0) return;
@@ -385,22 +397,22 @@ export default function AssignmentsPage({
   const uniqueProjects = React.useMemo(() => {
     const names = new Set();
     projectOptions.forEach(project => project.name && names.add(project.name));
-    (aiTasks || []).forEach(task => task.projectName && names.add(task.projectName));
+    assignmentTasks.forEach(task => task.projectName && names.add(task.projectName));
     return Array.from(names).sort((a, b) => a.localeCompare(b, 'ru'));
-  }, [aiTasks, projectOptions]);
+  }, [assignmentTasks, projectOptions]);
 
-  const statusOptions = React.useMemo(() => Array.from(new Set((aiTasks || []).map(task => task.status || 'Новое'))), [aiTasks]);
+  const statusOptions = React.useMemo(() => Array.from(new Set(assignmentTasks.map(task => task.status || 'Новое'))), [assignmentTasks]);
   const roleOptions = React.useMemo(() => {
     const roles = new Set(ROLE_OPTIONS);
     (users || []).forEach(item => item.role && roles.add(item.role));
-    (aiTasks || []).forEach(task => task.assignedRole && roles.add(task.assignedRole));
+    assignmentTasks.forEach(task => task.assignedRole && roles.add(task.assignedRole));
     return Array.from(roles).sort((a, b) => (
       roleOrder(a) - roleOrder(b) || roleLabel(a).localeCompare(roleLabel(b), 'ru')
     ));
-  }, [aiTasks, users]);
+  }, [assignmentTasks, users]);
 
   const stats = React.useMemo(() => {
-    const rows = Array.isArray(aiTasks) ? aiTasks : [];
+    const rows = Array.isArray(assignmentTasks) ? assignmentTasks : [];
     return {
       all: rows.length,
       open: rows.filter(isOpenTask).length,
@@ -408,11 +420,11 @@ export default function AssignmentsPage({
       review: rows.filter(task => task.status === REVIEW_STATUS).length,
       overdue: rows.filter(isTaskOverdue).length,
     };
-  }, [aiTasks, user]);
+  }, [assignmentTasks, user]);
 
   const filteredTasks = React.useMemo(() => {
     const term = lower(filters.search);
-    return (aiTasks || [])
+    return assignmentTasks
       .filter(task => {
         if (filters.project && task.projectName !== filters.project) return false;
         if (filters.status && (task.status || 'Новое') !== filters.status) return false;
@@ -437,7 +449,7 @@ export default function AssignmentsPage({
         if (aOverdue !== bOverdue) return bOverdue - aOverdue;
         return String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || ''));
       });
-  }, [aiTasks, filters, user]);
+  }, [assignmentTasks, filters, user]);
 
   const sortedAssignees = React.useMemo(() => {
     return (users || [])
@@ -690,8 +702,22 @@ export default function AssignmentsPage({
         </select>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '7px', color: C.textSec, fontSize: '12px', marginBottom: '10px' }}>
-        <Filter size={14} />Показано {filteredTasks.length} из {(aiTasks || []).length}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: C.textSec, fontSize: '12px', marginBottom: '10px', flexWrap: 'wrap' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '7px' }}>
+          <Filter size={14} />Показано {filteredTasks.length} из {assignmentTasks.length}
+        </span>
+        {!showSystemTasks && systemTasksCount > 0 && (
+          <span>Скрыто ИИ-контроля: {systemTasksCount}</span>
+        )}
+        {canInspectSystemTasks && systemTasksCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowSystemTasks(value => !value)}
+            style={{ ...btnG, padding: '6px 9px', fontSize: '12px' }}
+          >
+            {showSystemTasks ? 'Скрыть ИИ-контроль' : 'Показать ИИ-контроль'}
+          </button>
+        )}
       </div>
 
       {filteredTasks.length === 0 && (

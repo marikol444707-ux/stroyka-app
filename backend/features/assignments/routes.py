@@ -7,7 +7,38 @@ from fastapi import Depends, HTTPException
 from .schema import ensure_assignments_schema
 
 
-ASSIGNMENT_TASK_SELECT = """
+ASSIGNMENT_SYSTEM_CONDITION = """
+(
+    finding_id IS NOT NULL
+    OR LOWER(COALESCE(created_by,'')) IN ('ии-контроль','system','система','ai-control')
+    OR UPPER(COALESCE(dedupe_key,'')) LIKE ANY(ARRAY[
+        'ROOM_CONTROL:%',
+        'WORK_ROOM_LINK:%',
+        'MATERIAL_RULE:%',
+        'ESTIMATE_RULE:%',
+        'MATERIAL_CONTROL:%',
+        'ESTIMATE_NORM_REVIEW:%',
+        'ESTIMATE_DIFF_REVIEW:%',
+        'ESTIMATE_CHANGE_RECONCILE:%'
+    ])
+    OR UPPER(COALESCE(dedupe_key,'')) LIKE 'MATERIAL_NORM_COVERAGE:%'
+    OR COALESCE(action_payload,'') ILIKE ANY(ARRAY[
+        '%system_rules%',
+        '%room_measurement_review%',
+        '%work_room_link_review%',
+        '%material_outside_estimate_review%',
+        '%material_transfer_sign_review%',
+        '%estimate_quality_review%',
+        '%estimate_norm_review%',
+        '%material_norm_coverage%',
+        '%estimate_diff_review%',
+        '%estimate_change_reconcile%'
+    ])
+)
+"""
+
+
+ASSIGNMENT_TASK_SELECT = f"""
 SELECT id,
        finding_id as "findingId",
        project_name as "projectName",
@@ -24,6 +55,9 @@ SELECT id,
        action_label as "actionLabel",
        action_payload as "actionPayload",
        dedupe_key as "dedupeKey",
+       created_by as "createdBy",
+       created_by_id as "createdById",
+       {ASSIGNMENT_SYSTEM_CONDITION} as "systemGenerated",
        created_at as "createdAt",
        updated_at as "updatedAt"
 FROM ai_tasks
@@ -122,6 +156,49 @@ def register_assignments_module(app, deps):
     def assignment_access():
         return require_roles(*assignment_roles)
 
+    def is_leadership_user(user: dict):
+        return (user.get("role") or "") in leadership_roles
+
+    def identity_values(user: dict):
+        return [str(value).strip().lower() for value in (
+            user.get("name"),
+            user.get("email"),
+            user.get("id"),
+        ) if str(value or "").strip()]
+
+    def can_access_task(user: dict, task: dict):
+        if is_leadership_user(user):
+            return True
+        role = (user.get("role") or "").strip()
+        identities = set(identity_values(user))
+        assigned_to = str(task.get("assignedTo") or "").strip().lower()
+        assigned_role = str(task.get("assignedRole") or "").strip()
+        created_by = str(task.get("createdBy") or "").strip().lower()
+        if assigned_to and assigned_to in identities:
+            return True
+        if not assigned_to and assigned_role and assigned_role == role:
+            return True
+        if created_by and created_by in identities:
+            return True
+        return False
+
+    def append_user_task_scope(where: list[str], params: list, user: dict):
+        identities = identity_values(user) or ["__no_identity__"]
+        where.append(
+            """
+            (
+                LOWER(COALESCE(assigned_to,'')) = ANY(%s)
+                OR (
+                    COALESCE(assigned_to,'') = ''
+                    AND COALESCE(assigned_role,'') <> ''
+                    AND assigned_role = %s
+                )
+                OR LOWER(COALESCE(created_by,'')) = ANY(%s)
+            )
+            """
+        )
+        params.extend([identities, user.get("role") or "", identities])
+
     def load_task(cur, task_id: int, user: dict):
         cur.execute(ASSIGNMENT_TASK_SELECT + " WHERE id=%s", (task_id,))
         task = cur.fetchone()
@@ -129,6 +206,10 @@ def register_assignments_module(app, deps):
             raise HTTPException(status_code=404, detail="Поручение не найдено")
         project_name = task.get("projectName") or ""
         require_project_access(user, project_name)
+        if task.get("systemGenerated") and not is_leadership_user(user):
+            raise HTTPException(status_code=403, detail="ИИ-поручение доступно только в контуре ИИ-контроля")
+        if not can_access_task(user, task):
+            raise HTTPException(status_code=403, detail="Поручение назначено другой роли или исполнителю")
         return task
 
     def load_reports(cur, task_ids):
@@ -176,11 +257,13 @@ def register_assignments_module(app, deps):
         project_name: Optional[str] = None,
         status: Optional[str] = None,
         assigned_only: bool = False,
+        include_system: bool = False,
         current_user: dict = Depends(assignment_access()),
     ):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
+            include_system = bool(include_system and is_leadership_user(current_user))
             where = []
             params = []
             if project_name:
@@ -197,16 +280,10 @@ def register_assignments_module(app, deps):
             if status:
                 where.append("status=%s")
                 params.append(status)
-            if assigned_only:
-                where.append(
-                    "(COALESCE(assigned_role,'')='' OR assigned_role=%s OR COALESCE(assigned_to,'') IN (%s,%s,%s))"
-                )
-                params.extend([
-                    current_user.get("role") or "",
-                    str(current_user.get("name") or ""),
-                    str(current_user.get("email") or ""),
-                    str(current_user.get("id") or ""),
-                ])
+            if not include_system:
+                where.append("NOT " + ASSIGNMENT_SYSTEM_CONDITION)
+            if assigned_only or not is_leadership_user(current_user):
+                append_user_task_scope(where, params, current_user)
             sql = ASSIGNMENT_TASK_SELECT
             if where:
                 sql += " WHERE " + " AND ".join(where)

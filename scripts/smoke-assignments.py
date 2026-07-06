@@ -19,6 +19,9 @@ BASE_URL = os.getenv("BASE_URL", "https://stroyka26.pro").rstrip("/")
 TEST_EMAIL = os.getenv("ASSIGNMENT_SMOKE_MASTER_EMAIL", "assignment-master-smoke@stroyka.local")
 TEST_NAME = os.getenv("ASSIGNMENT_SMOKE_MASTER_NAME", "CODEX QA Поручения мастер")
 TEST_PASSWORD = os.getenv("ASSIGNMENT_SMOKE_MASTER_PASSWORD", "AssignmentSmoke123!")
+OTHER_EMAIL = os.getenv("ASSIGNMENT_SMOKE_OTHER_EMAIL", "assignment-other-master-smoke@stroyka.local")
+OTHER_NAME = os.getenv("ASSIGNMENT_SMOKE_OTHER_NAME", "CODEX QA Поручения другой мастер")
+OTHER_PASSWORD = os.getenv("ASSIGNMENT_SMOKE_OTHER_PASSWORD", "AssignmentSmokeOther123!")
 
 
 def load_env():
@@ -104,20 +107,20 @@ def select_project():
     return project["name"]
 
 
-def ensure_master(project_name):
+def ensure_worker(project_name, email, name, password, role="мастер"):
     subprocess.run(
         [
             sys.executable,
             str(ROOT / "scripts" / "manage-temp-user.py"),
             "create",
             "--email",
-            TEST_EMAIL,
+            email,
             "--name",
-            TEST_NAME,
+            name,
             "--password",
-            TEST_PASSWORD,
+            password,
             "--role",
-            "мастер",
+            role,
             "--project",
             project_name,
             "--package",
@@ -128,16 +131,48 @@ def ensure_master(project_name):
     )
 
 
-def cleanup(task_id):
+def insert_system_assignment(project_name, stamp):
+    conn = psycopg2.connect(**db_config())
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO ai_tasks (
+            project_name, title, description, assigned_role, assigned_to, status,
+            action_label, action_payload, dedupe_key, created_by, created_at, updated_at
+        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
+        RETURNING id
+        """,
+        (
+            project_name,
+            f"CODEX QA ИИ-поручение {stamp}",
+            "Smoke: системное поручение должно быть скрыто из рабочего списка",
+            "мастер",
+            "",
+            "Новое",
+            "Открыть ИИ-контроль",
+            json.dumps({"type": "room_measurement_review", "source": "system_rules"}, ensure_ascii=False),
+            f"ROOM_CONTROL:assignment-smoke:{stamp}",
+            "ИИ-контроль",
+        ),
+    )
+    task_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close()
+    conn.close()
+    return task_id
+
+
+def cleanup(task_ids):
     conn = None
     try:
         conn = psycopg2.connect(**db_config())
         cur = conn.cursor()
-        if task_id:
-            cur.execute("DELETE FROM ai_task_attachments WHERE task_id=%s", (task_id,))
-            cur.execute("DELETE FROM ai_task_reports WHERE task_id=%s", (task_id,))
-            cur.execute("DELETE FROM ai_tasks WHERE id=%s", (task_id,))
-        cur.execute("UPDATE users SET active=FALSE WHERE LOWER(email)=LOWER(%s)", (TEST_EMAIL,))
+        ids = [task_id for task_id in (task_ids or []) if task_id]
+        if ids:
+            cur.execute("DELETE FROM ai_task_attachments WHERE task_id=ANY(%s)", (ids,))
+            cur.execute("DELETE FROM ai_task_reports WHERE task_id=ANY(%s)", (ids,))
+            cur.execute("DELETE FROM ai_tasks WHERE id=ANY(%s)", (ids,))
+        cur.execute("UPDATE users SET active=FALSE WHERE LOWER(email)=ANY(%s)", ([TEST_EMAIL.lower(), OTHER_EMAIL.lower()],))
         conn.commit()
         cur.close()
         print("cleanup: removed assignment smoke rows")
@@ -155,10 +190,13 @@ def main():
     admin_password = require_env("SMOKE_PASSWORD")
     director_token = login(admin_email, admin_password)
     project_name = select_project()
-    ensure_master(project_name)
+    ensure_worker(project_name, TEST_EMAIL, TEST_NAME, TEST_PASSWORD)
+    ensure_worker(project_name, OTHER_EMAIL, OTHER_NAME, OTHER_PASSWORD)
     master_token = login(TEST_EMAIL, TEST_PASSWORD)
+    other_token = login(OTHER_EMAIL, OTHER_PASSWORD)
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d%H%M%S")
     task_id = None
+    system_task_id = None
     try:
         _, task = api_json(
             "POST",
@@ -179,6 +217,33 @@ def main():
         task_id = task.get("id")
         if not task_id:
             raise RuntimeError(f"POST /ai-tasks не вернул id: {task}")
+        system_task_id = insert_system_assignment(project_name, stamp)
+
+        encoded_project = urllib.parse.quote(project_name)
+        _, director_default = api_json("GET", f"/assignments?project_name={encoded_project}", token=director_token, expected=200)
+        if any(str(row.get("id")) == str(system_task_id) for row in director_default):
+            raise RuntimeError("/assignments по умолчанию показал ИИ-поручение")
+
+        _, director_with_system = api_json(
+            "GET",
+            f"/assignments?project_name={encoded_project}&include_system=true",
+            token=director_token,
+            expected=200,
+        )
+        system_row = next((row for row in director_with_system if str(row.get("id")) == str(system_task_id)), None)
+        if not system_row or not system_row.get("systemGenerated"):
+            raise RuntimeError("/assignments?include_system=true не вернул системное поручение с признаком systemGenerated")
+
+        _, master_assignments = api_json("GET", f"/assignments?project_name={encoded_project}", token=master_token, expected=200)
+        if not any(str(row.get("id")) == str(task_id) for row in master_assignments):
+            raise RuntimeError("назначенный мастер не видит свое поручение")
+        if any(str(row.get("id")) == str(system_task_id) for row in master_assignments):
+            raise RuntimeError("мастер увидел ИИ-поручение в рабочем списке")
+
+        _, other_assignments = api_json("GET", f"/assignments?project_name={encoded_project}", token=other_token, expected=200)
+        if any(str(row.get("id")) == str(task_id) for row in other_assignments):
+            raise RuntimeError("другой мастер той же роли увидел поручение с точным исполнителем")
+        api_json("POST", f"/ai-tasks/{task_id}/accept", token=other_token, data={}, expected=403)
 
         _, accepted = api_json("POST", f"/ai-tasks/{task_id}/accept", token=master_token, data={}, expected=200)
         if accepted.get("status") != "В работе":
@@ -200,7 +265,7 @@ def main():
         if int(updated_task.get("reportsCount") or 0) < 1:
             raise RuntimeError(f"Отчет не записался в счетчик поручения: {report}")
 
-        _, assignments = api_json("GET", f"/assignments?project_name={urllib.parse.quote(project_name)}", token=director_token, expected=200)
+        _, assignments = api_json("GET", f"/assignments?project_name={encoded_project}", token=director_token, expected=200)
         assignment = next((row for row in assignments if str(row.get("id")) == str(task_id)), None)
         if not assignment:
             raise RuntimeError("/assignments не вернул созданное поручение")
@@ -223,6 +288,10 @@ def main():
             "taskId": task_id,
             "checked": [
                 "director creates assignment in ai_tasks",
+                "default assignments hide AI-generated tasks",
+                "include_system exposes AI-generated tasks for leadership",
+                "assigned user sees exact assignment",
+                "same-role non-assignee cannot see or accept exact assignment",
                 "assigned master can take it into work",
                 "master report with photo attachment is saved",
                 "assignment moves to review after report",
@@ -232,7 +301,7 @@ def main():
     except Exception as exc:
         raise SystemExit(f"FAIL smoke:assignments: {exc}")
     finally:
-        cleanup(task_id)
+        cleanup([task_id, system_task_id])
 
 
 if __name__ == "__main__":

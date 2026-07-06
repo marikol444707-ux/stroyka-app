@@ -356,9 +356,9 @@ export default function MasterCabinetPage(props) {
     if (['Закрыто', 'Отклонено', 'Отменено'].includes(task.status || '')) return false;
     const assignedRole = String(task.assignedRole || '').trim().toLowerCase();
     const assignedTo = String(task.assignedTo || '').trim().toLowerCase();
-    if (assignedRole && assignedRole === String(user.role || '').trim().toLowerCase()) return true;
-    if (!assignedTo) return false;
-    return [user.name, user.email, user.id].some(value => String(value || '').trim().toLowerCase() === assignedTo);
+    const identityMatch = [user.name, user.email, user.id].some(value => String(value || '').trim().toLowerCase() === assignedTo);
+    if (assignedTo) return identityMatch;
+    return assignedRole && assignedRole === String(user.role || '').trim().toLowerCase();
   }).length;
   const categories = [...new Set(pricelistItems.map(item => item.category))];
   const userNameKey = String(user?.name || '').trim().toLowerCase();
