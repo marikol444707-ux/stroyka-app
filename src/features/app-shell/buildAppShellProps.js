@@ -434,6 +434,7 @@ export function buildAppShellProps({
       onPrint: safeFn(selectors.doPrint)
     },
     projectSiteProps: {
+      API,
       C,
       badge,
       btnG,

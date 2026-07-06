@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Check, Globe2, Image, Radio, Save } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Check, Globe2, Image, Megaphone, Plus, Radio, RefreshCw, Save, Send } from 'lucide-react';
 
 const PUBLIC_CATEGORIES = [
   { value: 'house', label: 'Дом' },
@@ -16,6 +16,7 @@ const AI_STATUSES = [
 ];
 
 export default function ProjectSitePublicationPage({
+  API,
   C,
   badge,
   btnG,
@@ -52,6 +53,127 @@ export default function ProjectSitePublicationPage({
   const field = {...inp, marginBottom: 0};
   const textarea = {...field, minHeight: '82px', resize: 'vertical', fontFamily: 'inherit'};
   const patch = patchValue => selectedProject && updateProjectSiteDraft(selectedProject.id, patchValue);
+  const [marketingChannels, setMarketingChannels] = useState([]);
+  const [marketingPublications, setMarketingPublications] = useState([]);
+  const [marketingLoading, setMarketingLoading] = useState(false);
+  const [channelForm, setChannelForm] = useState({ chatId: '', title: '', campaignCode: '' });
+  const [marketingForm, setMarketingForm] = useState({
+    title: '',
+    body: '',
+    projectId: '',
+    publicationUrl: '',
+    channelId: '',
+    targetSite: true,
+    targetMax: true,
+    utmCampaign: '',
+  });
+
+  const loadMarketing = useCallback(async () => {
+    if (!API) return;
+    setMarketingLoading(true);
+    try {
+      const [channelsBody, publicationsBody] = await Promise.all([
+        fetch(API + '/messenger-channels?provider=max&channel_type=marketing').then(r => r.ok ? r.json() : {items: []}).catch(() => ({items: []})),
+        fetch(API + '/marketing-publications?limit=30').then(r => r.ok ? r.json() : {items: []}).catch(() => ({items: []})),
+      ]);
+      const channels = Array.isArray(channelsBody.items) ? channelsBody.items : [];
+      setMarketingChannels(channels);
+      setMarketingPublications(Array.isArray(publicationsBody.items) ? publicationsBody.items : []);
+      setMarketingForm(prev => ({
+        ...prev,
+        channelId: prev.channelId || (channels[0]?.id ? String(channels[0].id) : ''),
+      }));
+    } finally {
+      setMarketingLoading(false);
+    }
+  }, [API]);
+
+  useEffect(() => {
+    loadMarketing();
+  }, [loadMarketing]);
+
+  const fillMarketingFromProject = () => {
+    if (!selectedProject) return;
+    const publicTitle = draft?.publicTitle || selectedProject.name || '';
+    setMarketingForm(prev => ({
+      ...prev,
+      title: publicTitle,
+      body: draft?.publicSummary || draft?.publicResult || '',
+      projectId: String(selectedProject.id || ''),
+      publicationUrl: `https://stroyka26.pro/?project=${selectedProject.id || ''}#projects`,
+      utmCampaign: prev.utmCampaign || `project-${selectedProject.id || 'site'}`,
+    }));
+  };
+
+  const createMarketingChannel = async () => {
+    const chatId = channelForm.chatId.trim();
+    if (!chatId) {
+      alert('Укажите MAX chatId канала');
+      return;
+    }
+    await fetch(API + '/messenger-channels', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        provider: 'max',
+        chatId,
+        title: channelForm.title || chatId,
+        channelType: 'marketing',
+        sourceLabel: 'MAX маркетинг',
+        campaignCode: channelForm.campaignCode || '',
+        enabled: true,
+      }),
+    });
+    setChannelForm({ chatId: '', title: '', campaignCode: '' });
+    await loadMarketing();
+  };
+
+  const createMarketingPublication = async () => {
+    if (!marketingForm.title.trim()) {
+      alert('Укажите заголовок публикации');
+      return;
+    }
+    const channelIds = marketingForm.targetMax && marketingForm.channelId ? [Number(marketingForm.channelId)] : [];
+    await fetch(API + '/marketing-publications', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        title: marketingForm.title,
+        body: marketingForm.body,
+        projectId: marketingForm.projectId || null,
+        publicationUrl: marketingForm.publicationUrl,
+        targetSite: marketingForm.targetSite,
+        targetMax: marketingForm.targetMax,
+        channelIds,
+        utmCampaign: marketingForm.utmCampaign,
+      }),
+    });
+    setMarketingForm(prev => ({ ...prev, title: '', body: '', publicationUrl: '' }));
+    await loadMarketing();
+  };
+
+  const publishMarketingPublication = async (publication) => {
+    const channelIds = publication.channelIds?.length
+      ? publication.channelIds
+      : marketingForm.channelId
+        ? [Number(marketingForm.channelId)]
+        : [];
+    const res = await fetch(API + '/marketing-publications/' + publication.id + '/publish', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        targetSite: publication.targetSite,
+        targetMax: publication.targetMax,
+        channelIds,
+      }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(data.detail || 'Не удалось поставить публикацию');
+      return;
+    }
+    await loadMarketing();
+  };
 
   if (!activeProjects.length) {
     return (
@@ -174,6 +296,83 @@ export default function ProjectSitePublicationPage({
             </div>
           </div>
         )}
+      </div>
+
+      <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1.2fr) minmax(320px, 0.8fr)', gap: '14px', alignItems: 'start', marginTop: '16px'}}>
+        <div style={{...card, padding: isMobile ? '14px' : '18px'}}>
+          <div style={{display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '12px'}}>
+            <div>
+              <b style={{color: C.text, fontSize: '16px'}}><Megaphone size={16} style={{verticalAlign: '-3px'}}/> Маркетинговые публикации</b>
+              <p style={{margin: '5px 0 0', color: C.textSec, fontSize: '12px'}}>Посты для сайта и MAX-каналов с UTM-метками, чтобы заявки возвращались в CRM.</p>
+            </div>
+            <button type="button" onClick={loadMarketing} style={btnG}><RefreshCw size={14}/>{marketingLoading ? 'Обновление' : 'Обновить'}</button>
+          </div>
+
+          <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: '10px'}}>
+            <input placeholder="Заголовок поста" value={marketingForm.title} onChange={event => setMarketingForm(prev => ({...prev, title: event.target.value}))} style={field}/>
+            <select value={marketingForm.projectId} onChange={event => setMarketingForm(prev => ({...prev, projectId: event.target.value}))} style={field}>
+              <option value="">Без привязки к объекту</option>
+              {activeProjects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
+            </select>
+            <input placeholder="Ссылка публикации" value={marketingForm.publicationUrl} onChange={event => setMarketingForm(prev => ({...prev, publicationUrl: event.target.value}))} style={field}/>
+            <input placeholder="UTM кампания" value={marketingForm.utmCampaign} onChange={event => setMarketingForm(prev => ({...prev, utmCampaign: event.target.value}))} style={field}/>
+            <select value={marketingForm.channelId} onChange={event => setMarketingForm(prev => ({...prev, channelId: event.target.value}))} style={field}>
+              <option value="">MAX-канал не выбран</option>
+              {marketingChannels.map(channel => <option key={channel.id} value={channel.id}>{channel.title || channel.chatId}</option>)}
+            </select>
+            <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center'}}>
+              <label style={{...badge(marketingForm.targetSite ? C.success : C.textSec, marketingForm.targetSite ? C.successLight : C.bg, C.border), cursor: 'pointer'}}>
+                <input type="checkbox" checked={marketingForm.targetSite} onChange={event => setMarketingForm(prev => ({...prev, targetSite: event.target.checked}))} style={{margin: 0}}/> Сайт
+              </label>
+              <label style={{...badge(marketingForm.targetMax ? C.info : C.textSec, marketingForm.targetMax ? C.infoLight : C.bg, C.border), cursor: 'pointer'}}>
+                <input type="checkbox" checked={marketingForm.targetMax} onChange={event => setMarketingForm(prev => ({...prev, targetMax: event.target.checked}))} style={{margin: 0}}/> MAX
+              </label>
+            </div>
+            <textarea placeholder="Текст публикации" value={marketingForm.body} onChange={event => setMarketingForm(prev => ({...prev, body: event.target.value}))} style={{...textarea, minHeight: '108px', gridColumn: isMobile ? 'auto' : 'span 2'}}/>
+          </div>
+
+          <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px'}}>
+            <button type="button" onClick={fillMarketingFromProject} style={btnG}><Globe2 size={14}/>Из объекта</button>
+            <button type="button" onClick={createMarketingPublication} style={btnO}><Plus size={14}/>Создать пост</button>
+          </div>
+
+          <div style={{display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '14px'}}>
+            {marketingPublications.length === 0 && <span style={{fontSize: '12px', color: C.textMuted}}>Публикаций пока нет.</span>}
+            {marketingPublications.map(publication => (
+              <div key={publication.id} style={{border: '1px solid ' + C.border, borderRadius: '8px', padding: '10px', backgroundColor: C.bg}}>
+                <div style={{display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap'}}>
+                  <div style={{minWidth: 0}}>
+                    <b style={{display: 'block', color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>{publication.title}</b>
+                    <span style={{display: 'block', color: C.textSec, fontSize: '12px', marginTop: '2px'}}>
+                      {publication.status} · {publication.utmCampaign || 'без UTM'}{publication.projectName ? ' · ' + publication.projectName : ''}
+                    </span>
+                  </div>
+                  <button type="button" onClick={() => publishMarketingPublication(publication)} style={btnO}><Send size={14}/>Опубликовать</button>
+                </div>
+                {publication.body && <p style={{margin: '8px 0 0', color: C.textSec, fontSize: '12px', lineHeight: 1.45}}>{publication.body}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{...card, padding: isMobile ? '14px' : '18px'}}>
+          <b style={{color: C.text, fontSize: '16px'}}>MAX-каналы</b>
+          <div style={{display: 'grid', gap: '8px', marginTop: '10px'}}>
+            <input placeholder="MAX chatId" value={channelForm.chatId} onChange={event => setChannelForm(prev => ({...prev, chatId: event.target.value}))} style={field}/>
+            <input placeholder="Название канала" value={channelForm.title} onChange={event => setChannelForm(prev => ({...prev, title: event.target.value}))} style={field}/>
+            <input placeholder="Кампания по умолчанию" value={channelForm.campaignCode} onChange={event => setChannelForm(prev => ({...prev, campaignCode: event.target.value}))} style={field}/>
+            <button type="button" onClick={createMarketingChannel} style={btnO}><Plus size={14}/>Добавить канал</button>
+          </div>
+          <div style={{display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px'}}>
+            {marketingChannels.length === 0 && <span style={{fontSize: '12px', color: C.textMuted}}>Маркетинговые MAX-каналы не привязаны.</span>}
+            {marketingChannels.map(channel => (
+              <div key={channel.id} style={{border: '1px solid ' + C.border, borderRadius: '8px', padding: '9px', backgroundColor: C.bg}}>
+                <b style={{display: 'block', color: C.text}}>{channel.title || channel.chatId}</b>
+                <span style={{display: 'block', color: C.textSec, fontSize: '12px', marginTop: '2px'}}>{channel.chatId}{channel.campaignCode ? ' · ' + channel.campaignCode : ''}</span>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

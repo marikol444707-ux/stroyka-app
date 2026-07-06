@@ -25982,6 +25982,19 @@ register_messenger_module(app, {
 })
 
 try:
+    from backend.features.marketing import register_marketing_module
+except ModuleNotFoundError:
+    from features.marketing import register_marketing_module
+
+register_marketing_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "leadership_roles": LEADERSHIP_ROLES,
+    "log_audit": log_audit,
+    "app_public_url": APP_PUBLIC_URL,
+})
+
+try:
     from backend.features.assignments import register_assignments_module
 except ModuleNotFoundError:
     from features.assignments import register_assignments_module
