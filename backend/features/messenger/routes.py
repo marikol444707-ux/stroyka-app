@@ -8,7 +8,7 @@ import urllib.parse
 from typing import Optional
 
 import psycopg2.extras
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Query
 
 from .schema import ensure_messenger_schema
 
@@ -76,6 +76,18 @@ def _json_dict(value):
         return parsed if isinstance(parsed, dict) else {}
     except Exception:
         return {}
+
+
+def _json_array(value):
+    if isinstance(value, list):
+        return value
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, list) else []
+    except Exception:
+        return []
 
 
 def _iso_value(value):
@@ -165,10 +177,41 @@ def _public_max_invoice_draft(row: dict, payload: dict = None, duplicate: bool =
         "employeeRole": row.get("employee_role") or "",
         "messengerProvider": row.get("provider") or "max",
         "messengerAccountId": row.get("messenger_account_id"),
+        "outboxId": row.get("outbox_id"),
         "expiresAt": _iso_value(row.get("expires_at")),
         "createdAt": _iso_value(row.get("created_at")),
         "updatedAt": _iso_value(row.get("updated_at")),
         "actions": actions,
+    }
+
+
+def _public_messenger_outbox_item(row: dict) -> dict:
+    row = row or {}
+    return {
+        "id": row.get("id"),
+        "provider": row.get("provider") or "",
+        "messengerAccountId": row.get("messenger_account_id"),
+        "userId": row.get("user_id"),
+        "staffId": row.get("staff_id"),
+        "externalUserId": row.get("external_user_id") or "",
+        "chatId": row.get("chat_id") or "",
+        "eventType": row.get("event_type") or "",
+        "entityType": row.get("entity_type") or "",
+        "entityId": row.get("entity_id"),
+        "title": row.get("title") or "",
+        "body": row.get("body") or "",
+        "payload": _json_dict(row.get("payload_json")),
+        "actions": _json_array(row.get("actions_json")),
+        "status": row.get("status") or "",
+        "priority": int(row.get("priority") or 5),
+        "attempts": int(row.get("attempts") or 0),
+        "providerMessageId": row.get("provider_message_id") or "",
+        "lastError": row.get("last_error") or "",
+        "nextAttemptAt": _iso_value(row.get("next_attempt_at")),
+        "sentAt": _iso_value(row.get("sent_at")),
+        "failedAt": _iso_value(row.get("failed_at")),
+        "createdAt": _iso_value(row.get("created_at")),
+        "updatedAt": _iso_value(row.get("updated_at")),
     }
 
 
@@ -716,6 +759,83 @@ def register_messenger_module(app, deps):
         })
         return result, accounting_link
 
+    def max_invoice_preview_actions(draft_token: str) -> list:
+        return [
+            {
+                "id": "confirm",
+                "label": "Принять на объектный склад",
+                "kind": "callback",
+                "method": "POST",
+                "endpoint": "/max/warehouse-invoices/confirm",
+                "payload": {"draftToken": draft_token},
+            },
+            {
+                "id": "reject",
+                "label": "Отклонить",
+                "kind": "callback",
+                "method": "POST",
+                "endpoint": "/max/warehouse-invoices/reject",
+                "payload": {"draftToken": draft_token},
+            },
+        ]
+
+    def max_invoice_open_actions(invoice_id: int) -> list:
+        return [
+            {
+                "id": "openWarehouseInvoice",
+                "label": "Открыть накладную",
+                "kind": "open_app",
+                "path": "/app",
+                "entityType": "warehouse_invoice",
+                "entityId": invoice_id,
+            }
+        ]
+
+    def max_invoice_message_body(payload: dict) -> str:
+        preview = _invoice_preview_from_payload(payload)
+        supplier = preview.get("supplierName") or "поставщик не указан"
+        number = preview.get("number") or "без номера"
+        project = payload.get("project") or payload.get("location") or "объект не указан"
+        items_count = len(preview.get("items") or [])
+        total = preview.get("totalWithVat") or preview.get("totalBase") or 0
+        return f"{supplier}, № {number}, объект: {project}, позиций: {items_count}, сумма: {total}"
+
+    def enqueue_max_outbox(cur, employee: dict, max_user_id: str, max_chat_id: str, event_type: str,
+                           entity_type: str, entity_id: int, title: str, body: str,
+                           payload: dict = None, actions: list = None, priority: int = 5) -> int:
+        employee = employee or {}
+        payload = payload if isinstance(payload, dict) else {}
+        actions = actions if isinstance(actions, list) else []
+        user_id = employee.get("id") if employee.get("source") == "users" else None
+        staff_id = employee.get("id") if employee.get("source") == "staff" else None
+        cur.execute(
+            """
+            INSERT INTO messenger_outbox
+                (provider,messenger_account_id,user_id,staff_id,external_user_id,chat_id,
+                 event_type,entity_type,entity_id,title,body,payload_json,actions_json,status,priority)
+            VALUES
+                ('max',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,'queued',%s)
+            RETURNING id
+            """,
+            (
+                employee.get("messengerAccountId"),
+                user_id,
+                staff_id,
+                max_user_id or "",
+                max_chat_id or max_user_id or "",
+                event_type,
+                entity_type,
+                entity_id,
+                title,
+                body,
+                json.dumps(payload, ensure_ascii=False),
+                json.dumps(actions, ensure_ascii=False),
+                int(priority or 5),
+            ),
+        )
+        row = cur.fetchone()
+        return row.get("id") if isinstance(row, dict) else row[0]
+
     @app.get("/messenger-accounts")
     def list_messenger_accounts(current_user: dict = Depends(require_roles(*leadership_roles))):
         conn = get_db()
@@ -1026,6 +1146,164 @@ def register_messenger_module(app, deps):
             cur.close()
             conn.close()
 
+    @app.get("/max/outbox")
+    def list_max_outbox(
+        limit: int = Query(default=50, ge=1, le=100),
+        status: str = Query(default="queued"),
+        _bot: dict = Depends(require_max_bot_token),
+    ):
+        status = _text(status, 40).lower()
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            if status and status != "all":
+                cur.execute(
+                    """
+                    SELECT *
+                      FROM messenger_outbox
+                     WHERE provider='max'
+                       AND status=%s
+                       AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
+                     ORDER BY priority ASC, id ASC
+                     LIMIT %s
+                    """,
+                    (status, limit),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT *
+                      FROM messenger_outbox
+                     WHERE provider='max'
+                     ORDER BY id DESC
+                     LIMIT %s
+                    """,
+                    (limit,),
+                )
+            return {"ok": True, "items": [_public_messenger_outbox_item(row) for row in cur.fetchall()]}
+        finally:
+            cur.close()
+            conn.close()
+
+    @app.post("/max/outbox/{message_id}/status")
+    def update_max_outbox_status(message_id: int, data: dict, _bot: dict = Depends(require_max_bot_token)):
+        data = data or {}
+        status = _text(data.get("status"), 40).lower()
+        if status not in ("queued", "sent", "failed", "skipped"):
+            raise HTTPException(status_code=400, detail="Недопустимый статус MAX outbox")
+        provider_message_id = _text(data.get("providerMessageId") or data.get("provider_message_id") or data.get("maxMessageId"), 255)
+        error = _text(data.get("error") or data.get("lastError") or data.get("last_error"), 1000)
+        retry_after = _int_or_none(data.get("retryAfterSeconds") or data.get("retry_after_seconds")) or 300
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            if status == "sent":
+                cur.execute(
+                    """
+                    UPDATE messenger_outbox
+                       SET status='sent',
+                           provider_message_id=%s,
+                           sent_at=NOW(),
+                           last_error='',
+                           next_attempt_at=NULL,
+                           updated_at=NOW()
+                     WHERE provider='max' AND id=%s
+                 RETURNING *
+                    """,
+                    (provider_message_id, message_id),
+                )
+            elif status == "failed":
+                cur.execute(
+                    """
+                    UPDATE messenger_outbox
+                       SET status='failed',
+                           attempts=COALESCE(attempts,0)+1,
+                           last_error=%s,
+                           failed_at=NOW(),
+                           next_attempt_at=NOW() + (%s || ' seconds')::interval,
+                           updated_at=NOW()
+                     WHERE provider='max' AND id=%s
+                 RETURNING *
+                    """,
+                    (error or "MAX delivery failed", retry_after, message_id),
+                )
+            elif status == "queued":
+                cur.execute(
+                    """
+                    UPDATE messenger_outbox
+                       SET status='queued',
+                           last_error='',
+                           next_attempt_at=NULL,
+                           updated_at=NOW()
+                     WHERE provider='max' AND id=%s
+                 RETURNING *
+                    """,
+                    (message_id,),
+                )
+            else:
+                cur.execute(
+                    """
+                    UPDATE messenger_outbox
+                       SET status='skipped',
+                           last_error=%s,
+                           updated_at=NOW()
+                     WHERE provider='max' AND id=%s
+                 RETURNING *
+                    """,
+                    (error, message_id),
+                )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="MAX outbox message not found")
+            conn.commit()
+            return {"ok": True, "item": _public_messenger_outbox_item(row)}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+
+    @app.get("/messenger-outbox")
+    def list_messenger_outbox(
+        provider: str = Query(default="max"),
+        status: str = Query(default="queued"),
+        limit: int = Query(default=100, ge=1, le=500),
+        current_user: dict = Depends(require_roles(*leadership_roles)),
+    ):
+        provider = _text(provider or "max", 40).lower()
+        status = _text(status, 40).lower()
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            if status and status != "all":
+                cur.execute(
+                    """
+                    SELECT *
+                      FROM messenger_outbox
+                     WHERE provider=%s
+                       AND status=%s
+                     ORDER BY id DESC
+                     LIMIT %s
+                    """,
+                    (provider, status, limit),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT *
+                      FROM messenger_outbox
+                     WHERE provider=%s
+                     ORDER BY id DESC
+                     LIMIT %s
+                    """,
+                    (provider, limit),
+                )
+            return {"ok": True, "items": [_public_messenger_outbox_item(row) for row in cur.fetchall()]}
+        finally:
+            cur.close()
+            conn.close()
+
     @app.post("/max/warehouse-invoices/preview")
     def preview_max_warehouse_invoice(data: dict, _bot: dict = Depends(require_max_bot_token)):
         context = build_max_invoice_context(data or {})
@@ -1110,6 +1388,28 @@ def register_messenger_module(app, deps):
                 ),
             )
             row = cur.fetchone()
+            outbox_payload = {
+                "draftToken": row.get("draft_token"),
+                "projectName": payload.get("project") or "",
+                "location": payload.get("location") or "",
+                "sourceType": payload.get("sourceType") or "",
+                "sourceId": payload.get("sourceId") or "",
+                "invoiceDraft": _invoice_preview_from_payload(payload),
+            }
+            row["outbox_id"] = enqueue_max_outbox(
+                cur,
+                context["employee"],
+                context["maxUserId"],
+                context["maxChatId"],
+                "max_invoice_preview",
+                "max_invoice_draft",
+                row.get("id"),
+                "Проверьте накладную",
+                max_invoice_message_body(payload),
+                payload=outbox_payload,
+                actions=max_invoice_preview_actions(row.get("draft_token")),
+                priority=3,
+            )
             conn.commit()
             row["employee_name"] = context["employee"].get("name") or ""
             row["employee_role"] = context["employee"].get("role") or ""
@@ -1271,6 +1571,28 @@ def register_messenger_module(app, deps):
                 ),
             )
             updated_draft = cur.fetchone()
+            if result.get("id"):
+                enqueue_max_outbox(
+                    cur,
+                    employee,
+                    draft.get("max_user_id") or "",
+                    draft.get("max_chat_id") or "",
+                    "max_invoice_confirmed",
+                    "warehouse_invoice",
+                    result.get("id"),
+                    "Накладная принята на склад",
+                    max_invoice_message_body(payload),
+                    payload={
+                        "draftToken": updated_draft.get("draft_token") or draft_token,
+                        "warehouseInvoiceId": result.get("id"),
+                        "supplierInvoiceId": result.get("supplierInvoiceId"),
+                        "accountingStatus": result.get("accountingStatus") or "",
+                        "projectName": payload.get("project") or "",
+                        "location": payload.get("location") or "",
+                    },
+                    actions=max_invoice_open_actions(result.get("id")),
+                    priority=4,
+                )
             conn.commit()
             result.update({
                 "draftToken": updated_draft.get("draft_token") or draft_token,
@@ -1312,6 +1634,30 @@ def register_messenger_module(app, deps):
             row = cur.fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="Активный MAX-черновик накладной не найден")
+            payload = _json_dict(row.get("payload_json"))
+            enqueue_max_outbox(
+                cur,
+                {
+                    "source": row.get("employee_source") or "",
+                    "id": row.get("employee_id"),
+                    "messengerAccountId": row.get("messenger_account_id"),
+                },
+                row.get("max_user_id") or "",
+                row.get("max_chat_id") or "",
+                "max_invoice_rejected",
+                "max_invoice_draft",
+                row.get("id"),
+                "Накладная отклонена",
+                reason or max_invoice_message_body(payload),
+                payload={
+                    "draftToken": row.get("draft_token"),
+                    "reason": reason,
+                    "projectName": row.get("project_name") or payload.get("project") or "",
+                    "location": row.get("location") or payload.get("location") or "",
+                },
+                actions=[],
+                priority=4,
+            )
             conn.commit()
             return _public_max_invoice_draft(row)
         except Exception:

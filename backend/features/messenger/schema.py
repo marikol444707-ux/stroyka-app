@@ -64,6 +64,39 @@ def ensure_messenger_schema(get_db):
             CREATE UNIQUE INDEX IF NOT EXISTS idx_max_invoice_drafts_provider_source_unique
                 ON max_invoice_drafts(provider, source_id)
                 WHERE source_id IS NOT NULL AND source_id <> '';
+
+            CREATE TABLE IF NOT EXISTS messenger_outbox (
+                id SERIAL PRIMARY KEY,
+                provider VARCHAR(40) NOT NULL,
+                messenger_account_id INT,
+                user_id INT,
+                staff_id INT,
+                external_user_id VARCHAR(120),
+                chat_id VARCHAR(120),
+                event_type VARCHAR(120) NOT NULL,
+                entity_type VARCHAR(120),
+                entity_id INT,
+                title TEXT NOT NULL DEFAULT '',
+                body TEXT NOT NULL DEFAULT '',
+                payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                actions_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                status VARCHAR(40) NOT NULL DEFAULT 'queued',
+                priority INT NOT NULL DEFAULT 5,
+                attempts INT NOT NULL DEFAULT 0,
+                provider_message_id VARCHAR(255),
+                last_error TEXT,
+                next_attempt_at TIMESTAMP,
+                sent_at TIMESTAMP,
+                failed_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_messenger_outbox_provider_status
+                ON messenger_outbox(provider, status, priority, id);
+            CREATE INDEX IF NOT EXISTS idx_messenger_outbox_account
+                ON messenger_outbox(messenger_account_id);
+            CREATE INDEX IF NOT EXISTS idx_messenger_outbox_entity
+                ON messenger_outbox(entity_type, entity_id);
             """
         )
         conn.commit()

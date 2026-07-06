@@ -253,11 +253,34 @@ def link_max_account(director_token, user_id):
     return {"accountId": account_id, "maxUserId": TEST_MAX_USER_ID}
 
 
+def find_outbox_item(bot_token, *, event_type="", draft_token="", warehouse_invoice_id=None):
+    _, outbox = api_json(
+        "GET",
+        "/max/outbox?limit=100",
+        headers={"X-Max-Bot-Token": bot_token},
+        expected=200,
+    )
+    for item in outbox.get("items") or []:
+        payload = item.get("payload") or {}
+        if event_type and item.get("eventType") != event_type:
+            continue
+        if draft_token and payload.get("draftToken") != draft_token:
+            continue
+        if warehouse_invoice_id and str(payload.get("warehouseInvoiceId") or item.get("entityId") or "") != str(warehouse_invoice_id):
+            continue
+        return item
+    return None
+
+
 def cleanup(invoice_id, material_name, project_name, account_id, supplier_name="", draft_token=""):
     conn = None
     try:
         conn = psycopg2.connect(**db_config())
         cur = conn.cursor()
+        if draft_token:
+            cur.execute("DELETE FROM messenger_outbox WHERE provider='max' AND payload_json::text LIKE %s", (f"%{draft_token}%",))
+        if invoice_id:
+            cur.execute("DELETE FROM messenger_outbox WHERE provider='max' AND entity_type='warehouse_invoice' AND entity_id=%s", (invoice_id,))
         if draft_token:
             cur.execute("DELETE FROM max_invoice_drafts WHERE draft_token=%s", (draft_token,))
         if invoice_id:
@@ -359,6 +382,22 @@ def main():
         if not any(row.get("name") == material_name for row in invoice_draft.get("items") or []):
             raise RuntimeError(f"MAX preview не вернул позицию накладной: {preview}")
 
+        preview_outbox = find_outbox_item(bot_token, event_type="max_invoice_preview", draft_token=draft_token)
+        if not preview_outbox:
+            raise RuntimeError("MAX preview не поставил сообщение с кнопками в outbox")
+        action_ids = {action.get("id") for action in preview_outbox.get("actions") or []}
+        if not {"confirm", "reject"}.issubset(action_ids):
+            raise RuntimeError(f"MAX preview outbox без кнопок confirm/reject: {preview_outbox}")
+        _, sent_status = api_json(
+            "POST",
+            f"/max/outbox/{preview_outbox['id']}/status",
+            data={"status": "sent", "providerMessageId": f"max-outbox-preview-{stamp}"},
+            headers={"X-Max-Bot-Token": bot_token},
+            expected=200,
+        )
+        if (sent_status.get("item") or {}).get("status") != "sent":
+            raise RuntimeError(f"MAX outbox не отметил preview как sent: {sent_status}")
+
         _, created = api_json(
             "POST",
             "/max/warehouse-invoices/confirm",
@@ -387,6 +426,13 @@ def main():
         repeated_invoice_id = repeated.get("id") or repeated.get("warehouseInvoiceId")
         if str(repeated_invoice_id) != str(invoice_id) or not repeated.get("alreadyConfirmed"):
             raise RuntimeError(f"Повторный MAX confirm не вернул уже принятую накладную: {repeated}")
+
+        confirmed_outbox = find_outbox_item(bot_token, event_type="max_invoice_confirmed", warehouse_invoice_id=invoice_id)
+        if not confirmed_outbox:
+            raise RuntimeError("MAX confirm не поставил итоговое сообщение в outbox")
+        confirmed_action_ids = {action.get("id") for action in confirmed_outbox.get("actions") or []}
+        if "openWarehouseInvoice" not in confirmed_action_ids:
+            raise RuntimeError(f"MAX confirm outbox без кнопки открытия накладной: {confirmed_outbox}")
 
         _, invoices = api_json("GET", "/warehouse-invoices", token=director_token, expected=200)
         invoice = next((row for row in invoices if str(row.get("id")) == str(invoice_id)), None)
@@ -444,7 +490,10 @@ def main():
             "checked": checked + [
                 "MAX recognizedInvoice/OCR draft is mapped to warehouse invoice fields",
                 "MAX preview returns draft without warehouse write",
+                "MAX preview queues confirm/reject buttons for bot delivery",
+                "MAX outbox status callback marks preview message as sent",
                 "MAX confirm writes preview to warehouse and accounting queue",
+                "MAX confirm queues warehouse invoice open action",
                 "repeated MAX confirm is idempotent and does not duplicate stock",
                 "MAX messenger account resolves to foreman",
                 "MAX project invoice is accepted to assigned object warehouse",
