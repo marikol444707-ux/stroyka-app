@@ -32,6 +32,8 @@
     "smoke:max-bot-adapter": "python3 scripts/smoke-max-bot-adapter.py",
     "smoke:max-marketing": "python3 scripts/smoke-max-marketing-lead.py",
     "smoke:marketing-publications": "python3 scripts/smoke-marketing-publications.py",
+    "max:dispatch": "python3 scripts/dispatch-max-outbox.py",
+    "max:dispatch:dry-run": "python3 scripts/dispatch-max-outbox.py --dry-run",
     "smoke:assignments": "python3 scripts/smoke-assignments.py",
     "smoke:own-expense": "python3 scripts/smoke-own-expense-chain.py",
     "smoke:work-doc-chain": "python3 scripts/smoke-work-doc-chain.py",

@@ -2,6 +2,7 @@
 import datetime as dt
 import json
 import os
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -172,6 +173,26 @@ def insert_marketing_channel():
     return channel_id
 
 
+def run_dispatch_cli(token):
+    env = os.environ.copy()
+    env["SMOKE_MAX_BOT_TOKEN"] = token
+    env["BASE_URL"] = BASE_URL
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "dispatch-max-outbox.py"),
+            "--dry-run",
+            "--limit",
+            "5",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    return json.loads(result.stdout or "{}")
+
+
 def main():
     token = max_bot_token()
     headers = {"X-Max-Bot-Api-Secret": token}
@@ -270,6 +291,11 @@ def main():
         if not attachments or attachments[0].get("type") != "inline_keyboard":
             raise RuntimeError(f"MAX dispatch dry-run did not build inline keyboard: {planned}")
 
+        cli_dispatch = run_dispatch_cli(token)
+        cli_planned = next((item for item in cli_dispatch.get("planned") or [] if item.get("id") == outbox_id), None)
+        if not cli_planned:
+            raise RuntimeError(f"MAX dispatch CLI dry-run did not include queued smoke outbox: {cli_dispatch}")
+
         print(json.dumps({
             "ok": True,
             "internalChatId": INTERNAL_CHAT_ID,
@@ -285,6 +311,7 @@ def main():
                 "message_created in explicit marketing MAX channel creates CRM lead",
                 "max bot status exposes channels and outbox through /max route",
                 "outbox dispatch dry-run builds MAX message and inline keyboard",
+                "outbox dispatch CLI dry-run is ready for cron/systemd timer",
             ],
             "timestamp": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
         }, ensure_ascii=False, indent=2))
