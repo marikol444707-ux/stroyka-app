@@ -11,12 +11,14 @@ import hashlib
 import hmac
 import secrets
 import base64
+import io
 import json
 import time
 import datetime as dt
 import mimetypes
 import re
 import smtplib
+import tempfile
 import urllib.parse
 import urllib.request
 from email.message import EmailMessage
@@ -25465,17 +25467,112 @@ def _normalize_invoice_scan_image_entry(entry):
         )
     return {"data": raw, "mimeType": mime_type, "name": filename or "invoice-page.jpg"}
 
-def _invoice_scan_ai_content(entry: dict, index: int, total: int) -> list:
+def _uploaded_file_id(uploaded_file) -> str:
+    if isinstance(uploaded_file, dict):
+        return str(uploaded_file.get("id") or "")
+    return str(getattr(uploaded_file, "id", "") or "")
+
+def _invoice_scan_pdf_bytes(entry: dict) -> bytes:
+    try:
+        pdf_bytes = base64.b64decode(str(entry.get("data") or ""), validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="PDF счета поврежден или не читается как base64.") from exc
+    if not pdf_bytes.startswith(b"%PDF"):
+        raise HTTPException(status_code=400, detail="Файл выбран как PDF, но внутри не похож на PDF-документ.")
+    return pdf_bytes
+
+def _extract_invoice_scan_pdf_text(pdf_bytes: bytes) -> str:
+    reader_cls = None
+    try:
+        from pypdf import PdfReader
+        reader_cls = PdfReader
+    except Exception:
+        try:
+            from PyPDF2 import PdfReader
+            reader_cls = PdfReader
+        except Exception:
+            reader_cls = None
+    if reader_cls is None:
+        return ""
+    try:
+        reader = reader_cls(io.BytesIO(pdf_bytes))
+        texts = []
+        for page_idx, page in enumerate(reader.pages[:8], start=1):
+            text = page.extract_text() or ""
+            if text.strip():
+                texts.append(f"--- Страница {page_idx} ---\n{text.strip()}")
+        return "\n\n".join(texts).strip()
+    except Exception:
+        return ""
+
+def _upload_invoice_scan_pdf(client, entry: dict, index: int) -> str:
+    pdf_bytes = _invoice_scan_pdf_bytes(entry)
+
+    tmp_path = ""
+    try:
+        with tempfile.NamedTemporaryFile("wb", suffix=".pdf", delete=False) as tmp:
+            tmp.write(pdf_bytes)
+            tmp_path = tmp.name
+        last_error = None
+        for purpose in ("user_data", "assistants"):
+            try:
+                with open(tmp_path, "rb") as pdf_file:
+                    uploaded = client.files.create(file=pdf_file, purpose=purpose)
+                file_id = _uploaded_file_id(uploaded)
+                if not file_id:
+                    raise RuntimeError("провайдер AI не вернул file_id")
+                return file_id
+            except Exception as exc:
+                last_error = exc
+        raise RuntimeError(str(last_error or "не удалось загрузить PDF в AI"))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "PDF счет не удалось передать в AI-распознавание. "
+                "Провайдер требует file_id для PDF, но загрузка файла не прошла: " + str(exc)
+            ),
+        ) from exc
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+def _cleanup_invoice_scan_ai_files(client, file_ids: list):
+    for file_id in file_ids or []:
+        try:
+            client.files.delete(file_id)
+        except Exception:
+            pass
+
+def _invoice_scan_ai_content(entry: dict, index: int, total: int, client=None, uploaded_file_ids=None) -> list:
     mime_type = str(entry.get("mimeType") or "image/jpeg").lower()
     label = "PDF-документ" if mime_type == "application/pdf" else "Страница документа"
     content = [{"type": "input_text", "text": f"{label} {index} из {total}"}]
     if mime_type == "application/pdf":
-        filename = entry.get("name") or f"invoice-{index}.pdf"
-        content.append({
-            "type": "input_file",
-            "filename": filename,
-            "file_data": f"data:application/pdf;base64,{entry['data']}",
-        })
+        if client is None:
+            raise HTTPException(status_code=400, detail="PDF счет нельзя распознать без AI-клиента.")
+        try:
+            file_id = _upload_invoice_scan_pdf(client, entry, index)
+            if uploaded_file_ids is not None:
+                uploaded_file_ids.append(file_id)
+            content.append({"type": "input_file", "file_id": file_id})
+        except HTTPException as exc:
+            pdf_text = _extract_invoice_scan_pdf_text(_invoice_scan_pdf_bytes(entry))
+            if not pdf_text:
+                raise exc
+            content.append({
+                "type": "input_text",
+                "text": (
+                    "PDF не удалось передать как файл, поэтому ниже текст, извлеченный из PDF. "
+                    "Распознай счет по этому тексту, не выдумывай отсутствующие строки.\n\n"
+                    f"{pdf_text[:24000]}"
+                ),
+            })
     else:
         content.append({"type": "input_image", "image_url": f"data:{entry['mimeType']};base64,{entry['data']}"})
     return content
@@ -25677,11 +25774,11 @@ def _repair_invoice_scan_json(client, model: str, answer: str, parse_error: str)
         print("SCAN REPAIR ERROR:", str(exc))
         return None, str(exc)
 
-def _retry_invoice_scan_compact_json(client, model: str, images: list):
+def _retry_invoice_scan_compact_json(client, model: str, images: list, uploaded_file_ids=None):
     try:
         compact_content = []
         for idx, image in enumerate(images or [], start=1):
-            compact_content.extend(_invoice_scan_ai_content(image, idx, len(images or [])))
+            compact_content.extend(_invoice_scan_ai_content(image, idx, len(images or []), client=client, uploaded_file_ids=uploaded_file_ids))
         compact_content.append({"type": "input_text", "text": (
             "Повтори распознавание в коротком режиме. Верни только валидный JSON без markdown и без пояснений. "
             "Подходят счет на оплату, счет поставщика, УПД, товарная накладная, приходная накладная и фрагмент товарной таблицы. "
@@ -25744,10 +25841,11 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
         return {"ok": False, "error": "Нет изображения документа"}
     template_hint = _invoice_scan_template_hint()
     client = oa.OpenAI(api_key=API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=FOLDER_ID)
+    uploaded_file_ids = []
     try:
         content = []
         for idx, image in enumerate(images, start=1):
-            content.extend(_invoice_scan_ai_content(image, idx, len(images)))
+            content.extend(_invoice_scan_ai_content(image, idx, len(images), client=client, uploaded_file_ids=uploaded_file_ids))
         model = f"gpt://{FOLDER_ID}/qwen3.6-35b-a3b/latest"
         content.append({"type": "input_text", "text": (
             "Распознай складской или бухгалтерский документ с товарными строками: счет на оплату, счет поставщика, "
@@ -25800,7 +25898,7 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
                 print("SCAN REPAIR OK")
             else:
                 print("SCAN REPAIR FINAL FAILED:", repair_error)
-                parsed, compact_error = _retry_invoice_scan_compact_json(client, model, images)
+                parsed, compact_error = _retry_invoice_scan_compact_json(client, model, images, uploaded_file_ids=uploaded_file_ids)
                 if parsed is not None:
                     print("SCAN COMPACT RETRY OK")
                 else:
@@ -25827,9 +25925,13 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
         parsed = _apply_supplier_invoice_template_metadata(parsed, _current_user)
         print("SCAN OK:", parsed)
         return {"ok": True, "data": parsed}
+    except HTTPException as e:
+        return {"ok": False, "error": str(e.detail or "Ошибка распознавания PDF/фото")}
     except Exception as e:
         print("SCAN ERROR:", str(e))
         return {"ok": False, "error": str(e)}
+    finally:
+        _cleanup_invoice_scan_ai_files(client, uploaded_file_ids)
 
 try:
     from backend.features.platform_admin import register_platform_admin_routes, write_platform_audit
