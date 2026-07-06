@@ -11,17 +11,15 @@ ASSIGNMENT_SYSTEM_CONDITION = """
 (
     finding_id IS NOT NULL
     OR LOWER(COALESCE(created_by,'')) IN ('ии-контроль','system','система','ai-control')
-    OR UPPER(COALESCE(dedupe_key,'')) LIKE ANY(ARRAY[
-        'ROOM_CONTROL:%',
-        'WORK_ROOM_LINK:%',
-        'MATERIAL_RULE:%',
-        'ESTIMATE_RULE:%',
-        'MATERIAL_CONTROL:%',
-        'ESTIMATE_NORM_REVIEW:%',
-        'ESTIMATE_DIFF_REVIEW:%',
-        'ESTIMATE_CHANGE_RECONCILE:%'
-    ])
-    OR UPPER(COALESCE(dedupe_key,'')) LIKE 'MATERIAL_NORM_COVERAGE:%'
+    OR POSITION('ROOM_CONTROL:' IN UPPER(COALESCE(dedupe_key,''))) = 1
+    OR POSITION('WORK_ROOM_LINK:' IN UPPER(COALESCE(dedupe_key,''))) = 1
+    OR POSITION('MATERIAL_RULE:' IN UPPER(COALESCE(dedupe_key,''))) = 1
+    OR POSITION('ESTIMATE_RULE:' IN UPPER(COALESCE(dedupe_key,''))) = 1
+    OR POSITION('MATERIAL_CONTROL:' IN UPPER(COALESCE(dedupe_key,''))) = 1
+    OR POSITION('ESTIMATE_NORM_REVIEW:' IN UPPER(COALESCE(dedupe_key,''))) = 1
+    OR POSITION('ESTIMATE_DIFF_REVIEW:' IN UPPER(COALESCE(dedupe_key,''))) = 1
+    OR POSITION('ESTIMATE_CHANGE_RECONCILE:' IN UPPER(COALESCE(dedupe_key,''))) = 1
+    OR POSITION('MATERIAL_NORM_COVERAGE:' IN UPPER(COALESCE(dedupe_key,''))) = 1
     OR POSITION('system_rules' IN LOWER(COALESCE(action_payload,''))) > 0
     OR POSITION('room_measurement_review' IN LOWER(COALESCE(action_payload,''))) > 0
     OR POSITION('work_room_link_review' IN LOWER(COALESCE(action_payload,''))) > 0
