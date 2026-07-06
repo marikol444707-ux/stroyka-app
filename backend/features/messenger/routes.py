@@ -2,6 +2,7 @@ import datetime as dt
 import hashlib
 import json
 import hmac
+import secrets
 import time
 import urllib.parse
 from typing import Optional
@@ -75,6 +76,138 @@ def _json_dict(value):
         return parsed if isinstance(parsed, dict) else {}
     except Exception:
         return {}
+
+
+def _iso_value(value):
+    if isinstance(value, (dt.datetime, dt.date)):
+        return value.isoformat()
+    return str(value) if value else ""
+
+
+def _max_actor_from_data(data: dict) -> tuple[str, str]:
+    max_user_id = _payload_value(
+        data,
+        "maxUserId",
+        "max_user_id",
+        "userId",
+        "user_id",
+        "fromUserId",
+        "senderId",
+        "sender_id",
+    )
+    max_chat_id = _payload_value(data, "maxChatId", "max_chat_id", "chatId", "chat_id")
+    if not max_user_id and not max_chat_id:
+        raise HTTPException(status_code=400, detail="Нужен max_user_id или max_chat_id")
+    return max_user_id, max_chat_id
+
+
+def _invoice_preview_from_payload(payload: dict) -> dict:
+    payload = payload if isinstance(payload, dict) else {}
+    items = payload.get("items") if isinstance(payload.get("items"), list) else []
+    photos = payload.get("photos") or payload.get("photoUrls") or []
+    if isinstance(photos, str):
+        photos = _json_list(photos)
+    if not isinstance(photos, list):
+        photos = []
+    material_match = payload.get("materialMatch") or payload.get("material_match") or []
+    if not isinstance(material_match, list):
+        material_match = []
+    return {
+        "number": payload.get("number") or "",
+        "date": payload.get("date") or "",
+        "supplierName": payload.get("supplierName") or payload.get("supplier") or "",
+        "supplierInn": payload.get("supplierInn") or payload.get("supplier_inn") or "",
+        "supplierKpp": payload.get("supplierKpp") or payload.get("supplier_kpp") or "",
+        "supplierOgrn": payload.get("supplierOgrn") or payload.get("supplier_ogrn") or "",
+        "vat": payload.get("vat") or "",
+        "totalBase": payload.get("totalBase") or payload.get("total_base") or 0,
+        "totalVat": payload.get("totalVat") or payload.get("total_vat") or 0,
+        "totalWithVat": payload.get("totalWithVat") or payload.get("total_with_vat") or 0,
+        "photoUrl": payload.get("photoUrl") or payload.get("fileUrl") or "",
+        "photos": photos,
+        "pagesCount": payload.get("pagesCount") or payload.get("pages_count") or len(photos) or 1,
+        "workPackage": payload.get("workPackage") or payload.get("work_package") or "",
+        "warehouseTarget": payload.get("warehouseTarget") or payload.get("warehouse_target") or "",
+        "selectedAction": payload.get("selectedAction") or payload.get("selected_action") or "",
+        "materialMatch": material_match,
+        "items": items,
+    }
+
+
+def _public_max_invoice_draft(row: dict, payload: dict = None, duplicate: bool = False) -> dict:
+    row = row or {}
+    payload = payload if isinstance(payload, dict) else _json_dict(row.get("payload_json"))
+    recognition = _json_dict(row.get("recognition_json")) or _json_dict(payload.get("recognition"))
+    status = row.get("status") or "draft"
+    actions = []
+    if status == "draft":
+        actions = ["confirm", "reject"]
+    elif status == "confirmed":
+        actions = ["openWarehouseInvoice"]
+    return {
+        "ok": True,
+        "mode": "preview",
+        "draftToken": row.get("draft_token") or "",
+        "status": status,
+        "warehouseInvoiceId": row.get("warehouse_invoice_id"),
+        "supplierInvoiceId": row.get("supplier_invoice_id"),
+        "accountingStatus": row.get("accounting_status") or "",
+        "accountingWarning": row.get("accounting_warning") or "",
+        "duplicate": bool(duplicate),
+        "projectName": row.get("project_name") or payload.get("project") or "",
+        "location": row.get("location") or payload.get("location") or "",
+        "sourceType": row.get("source_type") or payload.get("sourceType") or "",
+        "sourceId": row.get("source_id") or payload.get("sourceId") or "",
+        "recognized": bool(row.get("recognized")),
+        "recognition": recognition,
+        "invoiceDraft": _invoice_preview_from_payload(payload),
+        "employeeName": row.get("employee_name") or payload.get("acceptedBy") or payload.get("addedBy") or "",
+        "employeeRole": row.get("employee_role") or "",
+        "messengerProvider": row.get("provider") or "max",
+        "messengerAccountId": row.get("messenger_account_id"),
+        "expiresAt": _iso_value(row.get("expires_at")),
+        "createdAt": _iso_value(row.get("created_at")),
+        "updatedAt": _iso_value(row.get("updated_at")),
+        "actions": actions,
+    }
+
+
+def _invoice_confirm_patch(data: dict) -> dict:
+    data = data or {}
+    patch = {}
+    recognized = _recognized_invoice_payload(data)
+    if recognized:
+        patch.update(recognized)
+    for container_key in ("invoiceDraft", "invoice_draft", "payload", "data"):
+        value = data.get(container_key)
+        if isinstance(value, dict):
+            patch.update(value)
+    safe_keys = {
+        "number",
+        "date",
+        "supplierName",
+        "supplier",
+        "supplierInn",
+        "supplierKpp",
+        "supplierOgrn",
+        "vat",
+        "totalBase",
+        "totalVat",
+        "totalWithVat",
+        "photoUrl",
+        "photos",
+        "photoUrls",
+        "pagesCount",
+        "items",
+        "positions",
+        "workPackage",
+        "work_package",
+        "materialMatch",
+    }
+    for key in safe_keys:
+        if key in data:
+            patch[key] = data.get(key)
+    return {key: value for key, value in patch.items() if key in safe_keys and value not in (None, "")}
 
 
 def _max_invite_code_from_start_param(value: str) -> str:
@@ -392,6 +525,7 @@ def register_messenger_module(app, deps):
     sync_supplier_invoice_from_warehouse = deps.get("sync_supplier_invoice_from_warehouse")
     warehouse_roles = deps["warehouse_roles"]
     leadership_roles = deps.get("leadership_roles") or ()
+    main_warehouse_write_roles = deps.get("main_warehouse_write_roles") or ()
     max_bot_api_token = deps.get("max_bot_api_token") or ""
     max_webhook_secret = deps.get("max_webhook_secret") or ""
     max_initdata_ttl_seconds = int(deps.get("max_initdata_ttl_seconds") or 3600)
@@ -443,6 +577,144 @@ def register_messenger_module(app, deps):
         chat = validated.get("chat") or {}
         contact_result = _validate_max_contact(data.get("contact") or {}, str(user.get("id") or ""), max_bot_api_token)
         return {**validated, "contact": contact_result, "maxUserId": str(user.get("id") or ""), "maxChatId": str(chat.get("id") or "")}
+
+    def resolve_max_employee(max_user_id: str, max_chat_id: str) -> dict:
+        conn = get_db()
+        cur = conn.cursor()
+        try:
+            employee = _find_employee_by_messenger(cur, "max", max_user_id, max_chat_id)
+        finally:
+            cur.close()
+            conn.close()
+        if not employee:
+            raise HTTPException(status_code=404, detail="Сотрудник с таким MAX не найден")
+        if employee.get("role") not in warehouse_roles:
+            raise HTTPException(status_code=403, detail="У сотрудника нет прав принимать складские накладные")
+        return employee
+
+    def build_max_invoice_context(data: dict) -> dict:
+        data = data or {}
+        max_user_id, max_chat_id = _max_actor_from_data(data)
+        employee = resolve_max_employee(max_user_id, max_chat_id)
+
+        source = data.get("data") if isinstance(data.get("data"), dict) else data
+        project_name = (
+            source.get("projectName")
+            or source.get("project")
+            or data.get("projectName")
+            or data.get("project")
+            or ""
+        ).strip()
+        location = (source.get("location") or data.get("location") or project_name or "Основной склад").strip()
+        target_project = project_name or (location if location and location != "Основной склад" else "")
+        if target_project and not _employee_has_project_access(employee, target_project, deps):
+            raise HTTPException(status_code=403, detail="У сотрудника нет доступа к объекту")
+        if not target_project and main_warehouse_write_roles and employee.get("role") not in main_warehouse_write_roles:
+            raise HTTPException(
+                status_code=403,
+                detail="Прораб через MAX принимает накладные только на закрепленный объектный склад",
+            )
+
+        payload = _normalize_invoice_payload(data, employee)
+        recognized = _recognized_invoice_payload(data)
+        scan_result = None
+        if not recognized and not payload.get("items"):
+            images = _invoice_scan_images(data)
+            if images and scan_invoice:
+                scan_result = scan_invoice({"images": images, "projectName": target_project}, employee)
+                if not scan_result or not scan_result.get("ok"):
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(scan_result or {}).get("error") or "ИИ не смог распознать MAX-накладную",
+                    )
+                recognized = scan_result.get("data") or {}
+        if recognized:
+            payload = _apply_recognized_invoice_payload(payload, recognized)
+            payload = _normalize_invoice_payload(payload, employee)
+        if not payload.get("items"):
+            raise HTTPException(status_code=400, detail="MAX-накладная без распознанных позиций. Пришлите фото или recognizedInvoice.")
+        payload["location"] = location or "Основной склад"
+        payload["project"] = target_project
+        payload["sourceType"] = payload.get("sourceType") or ("max_project_invoice" if target_project else "max_main_invoice")
+        payload["sourceId"] = payload.get("sourceId") or _source_id(data, source)
+        payload["workPackage"] = supply_work_package(
+            payload.get("workPackage")
+            or payload.get("work_package")
+            or source.get("workPackage")
+            or source.get("work_package")
+        )
+
+        return {
+            "data": data,
+            "source": source,
+            "employee": employee,
+            "maxUserId": max_user_id,
+            "maxChatId": max_chat_id,
+            "payload": payload,
+            "projectName": target_project,
+            "location": payload["location"],
+            "sourceType": payload["sourceType"],
+            "sourceId": payload.get("sourceId") or "",
+            "recognized": bool(recognized),
+            "scanResult": scan_result,
+        }
+
+    def select_existing_warehouse_by_source(cur, source_type: str, source_id: str):
+        if not source_type or not source_id:
+            return None
+        cur.execute(
+            """
+            SELECT id,status,project,location,source_type,source_id,supplier_invoice_id,accounting_status
+              FROM warehouse_invoices
+             WHERE COALESCE(status,'Принята') <> 'Аннулирована'
+               AND source_type=%s
+               AND source_id=%s
+             ORDER BY id DESC
+             LIMIT 1
+            """,
+            (source_type, source_id),
+        )
+        return cur.fetchone()
+
+    def apply_max_invoice_confirm_patch(payload: dict, data: dict, employee: dict) -> dict:
+        patch = _invoice_confirm_patch(data)
+        if not patch:
+            return payload
+        next_payload = dict(payload or {})
+        if patch.get("positions") and not patch.get("items"):
+            patch["items"] = patch.get("positions")
+        next_payload.update({key: value for key, value in patch.items() if key != "positions"})
+        next_payload = _apply_recognized_invoice_payload(next_payload, patch)
+        next_payload = _normalize_invoice_payload(next_payload, employee)
+        for key in ("location", "project", "sourceType", "sourceId", "workPackage"):
+            if payload.get(key) not in (None, ""):
+                next_payload[key] = payload.get(key)
+        return next_payload
+
+    def commit_max_invoice_payload(payload: dict, employee: dict, source_data: dict, recognized: bool) -> tuple[dict, dict]:
+        result = create_warehouse_invoice_record(payload, employee)
+        accounting_link = None
+        if _bool_value((source_data or {}).get("syncAccounting"), True) and sync_supplier_invoice_from_warehouse:
+            try:
+                accounting_link = sync_supplier_invoice_from_warehouse(result.get("id"), payload, employee)
+                result["supplierInvoiceId"] = accounting_link.get("id")
+                result["accountingStatus"] = accounting_link.get("accountingStatus") or "На проверке"
+            except Exception as exc:
+                result["accountingWarning"] = getattr(exc, "detail", str(exc)) or "Не удалось связать бухгалтерскую первичку"
+        result.update({
+            "employeeName": employee.get("name", ""),
+            "employeeSource": employee.get("source", ""),
+            "messengerProvider": "max",
+            "messengerAccountId": employee.get("messengerAccountId"),
+            "projectName": payload.get("project") or "",
+            "location": payload.get("location") or "",
+            "sourceType": payload.get("sourceType") or "",
+            "sourceId": payload.get("sourceId") or "",
+            "recognized": bool(recognized or payload.get("recognition")),
+            "recognition": payload.get("recognition") or {},
+            "accountingLink": accounting_link,
+        })
+        return result, accounting_link
 
     @app.get("/messenger-accounts")
     def list_messenger_accounts(current_user: dict = Depends(require_roles(*leadership_roles))):
@@ -754,96 +1026,308 @@ def register_messenger_module(app, deps):
             cur.close()
             conn.close()
 
-    @app.post("/max/warehouse-invoices")
-    def create_max_warehouse_invoice(data: dict, _bot: dict = Depends(require_max_bot_token)):
-        data = data or {}
-        max_user_id = _payload_value(
-            data,
-            "maxUserId",
-            "max_user_id",
-            "userId",
-            "user_id",
-            "fromUserId",
-            "senderId",
-            "sender_id",
-        )
-        max_chat_id = _payload_value(data, "maxChatId", "max_chat_id", "chatId", "chat_id")
-        if not max_user_id and not max_chat_id:
-            raise HTTPException(status_code=400, detail="Нужен max_user_id или max_chat_id")
+    @app.post("/max/warehouse-invoices/preview")
+    def preview_max_warehouse_invoice(data: dict, _bot: dict = Depends(require_max_bot_token)):
+        context = build_max_invoice_context(data or {})
+        payload = dict(context["payload"])
+        draft_token = secrets.token_urlsafe(24)
+        if not payload.get("sourceId"):
+            payload["sourceId"] = "max-draft:" + draft_token
+            context["sourceId"] = payload["sourceId"]
 
         conn = get_db()
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            employee = _find_employee_by_messenger(cur, "max", max_user_id, max_chat_id)
+            if context["sourceId"]:
+                cur.execute(
+                    """
+                    SELECT *
+                      FROM max_invoice_drafts
+                     WHERE provider='max'
+                       AND source_id=%s
+                     ORDER BY id DESC
+                     LIMIT 1
+                    """,
+                    (context["sourceId"],),
+                )
+                existing_draft = cur.fetchone()
+                if existing_draft:
+                    if (
+                        existing_draft.get("messenger_account_id")
+                        and context["employee"].get("messengerAccountId")
+                        and existing_draft.get("messenger_account_id") != context["employee"].get("messengerAccountId")
+                    ):
+                        raise HTTPException(status_code=409, detail="Этот MAX-источник уже привязан к другому сотруднику")
+                    existing_draft["employee_name"] = context["employee"].get("name") or ""
+                    existing_draft["employee_role"] = context["employee"].get("role") or ""
+                    return _public_max_invoice_draft(existing_draft, duplicate=True)
+
+                existing_invoice = select_existing_warehouse_by_source(cur, payload.get("sourceType"), payload.get("sourceId"))
+                if existing_invoice:
+                    preview_row = {
+                        "draft_token": "",
+                        "provider": "max",
+                        "status": "confirmed",
+                        "warehouse_invoice_id": existing_invoice.get("id"),
+                        "supplier_invoice_id": existing_invoice.get("supplier_invoice_id"),
+                        "accounting_status": existing_invoice.get("accounting_status") or "",
+                        "project_name": existing_invoice.get("project") or payload.get("project") or "",
+                        "location": existing_invoice.get("location") or payload.get("location") or "",
+                        "source_type": payload.get("sourceType") or "",
+                        "source_id": payload.get("sourceId") or "",
+                        "recognized": context["recognized"],
+                        "recognition_json": payload.get("recognition") or {},
+                        "messenger_account_id": context["employee"].get("messengerAccountId"),
+                        "employee_name": context["employee"].get("name") or "",
+                        "employee_role": context["employee"].get("role") or "",
+                    }
+                    return _public_max_invoice_draft(preview_row, payload=payload, duplicate=True)
+
+            cur.execute(
+                """
+                INSERT INTO max_invoice_drafts
+                    (draft_token,provider,messenger_account_id,employee_source,employee_id,
+                     max_user_id,max_chat_id,source_type,source_id,project_name,location,
+                     payload_json,recognized,recognition_json,status,expires_at)
+                VALUES
+                    (%s,'max',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,'draft',NOW() + INTERVAL '7 days')
+                RETURNING *
+                """,
+                (
+                    draft_token,
+                    context["employee"].get("messengerAccountId"),
+                    context["employee"].get("source") or "",
+                    context["employee"].get("id"),
+                    context["maxUserId"],
+                    context["maxChatId"],
+                    payload.get("sourceType") or "",
+                    payload.get("sourceId") or "",
+                    payload.get("project") or "",
+                    payload.get("location") or "",
+                    json.dumps(payload, ensure_ascii=False),
+                    context["recognized"],
+                    json.dumps(payload.get("recognition") or {}, ensure_ascii=False),
+                ),
+            )
+            row = cur.fetchone()
+            conn.commit()
+            row["employee_name"] = context["employee"].get("name") or ""
+            row["employee_role"] = context["employee"].get("role") or ""
+            return _public_max_invoice_draft(row, payload=payload)
+        except psycopg2.errors.UniqueViolation:
+            conn.rollback()
+            cur.execute(
+                """
+                SELECT *
+                  FROM max_invoice_drafts
+                 WHERE provider='max'
+                   AND source_id=%s
+                 ORDER BY id DESC
+                 LIMIT 1
+                """,
+                (payload.get("sourceId") or "",),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise
+            if (
+                row.get("messenger_account_id")
+                and context["employee"].get("messengerAccountId")
+                and row.get("messenger_account_id") != context["employee"].get("messengerAccountId")
+            ):
+                raise HTTPException(status_code=409, detail="Этот MAX-источник уже привязан к другому сотруднику")
+            row["employee_name"] = context["employee"].get("name") or ""
+            row["employee_role"] = context["employee"].get("role") or ""
+            return _public_max_invoice_draft(row, duplicate=True)
         finally:
             cur.close()
             conn.close()
-        if not employee:
-            raise HTTPException(status_code=404, detail="Сотрудник с таким MAX не найден")
-        if employee.get("role") not in warehouse_roles:
-            raise HTTPException(status_code=403, detail="У сотрудника нет прав принимать складские накладные")
 
+    @app.post("/max/warehouse-invoices/confirm")
+    def confirm_max_warehouse_invoice(data: dict, _bot: dict = Depends(require_max_bot_token)):
+        data = data or {}
+        draft_token = _text(data.get("draftToken") or data.get("draft_token"), 120)
         source = data.get("data") if isinstance(data.get("data"), dict) else data
-        project_name = (
-            source.get("projectName")
-            or source.get("project")
-            or data.get("projectName")
-            or data.get("project")
-            or ""
-        ).strip()
-        location = (source.get("location") or data.get("location") or project_name or "Основной склад").strip()
-        target_project = project_name or (location if location and location != "Основной склад" else "")
-        if target_project and not _employee_has_project_access(employee, target_project, deps):
-            raise HTTPException(status_code=403, detail="У сотрудника нет доступа к объекту")
+        source_id = _text(data.get("sourceId") or source.get("sourceId") or _source_id(data, source), 255)
+        if not draft_token and not source_id:
+            raise HTTPException(status_code=400, detail="Нужен draftToken или sourceId MAX-черновика")
 
-        payload = _normalize_invoice_payload(data, employee)
-        recognized = _recognized_invoice_payload(data)
-        scan_result = None
-        if not recognized and not payload.get("items"):
-            images = _invoice_scan_images(data)
-            if images and scan_invoice:
-                scan_result = scan_invoice({"images": images, "projectName": target_project}, employee)
-                if not scan_result or not scan_result.get("ok"):
-                    raise HTTPException(
-                        status_code=422,
-                        detail=(scan_result or {}).get("error") or "ИИ не смог распознать MAX-накладную",
+        conn = get_db()
+        conn.autocommit = False
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            if draft_token:
+                cur.execute("SELECT * FROM max_invoice_drafts WHERE draft_token=%s FOR UPDATE", (draft_token,))
+            else:
+                cur.execute(
+                    """
+                    SELECT *
+                      FROM max_invoice_drafts
+                     WHERE provider='max'
+                       AND source_id=%s
+                     ORDER BY id DESC
+                     LIMIT 1
+                     FOR UPDATE
+                    """,
+                    (source_id,),
+                )
+            draft = cur.fetchone()
+            if not draft:
+                raise HTTPException(status_code=404, detail="MAX-черновик накладной не найден")
+
+            request_user_id = _payload_value(data, "maxUserId", "max_user_id", "userId", "user_id", "fromUserId", "senderId", "sender_id")
+            request_chat_id = _payload_value(data, "maxChatId", "max_chat_id", "chatId", "chat_id")
+            if request_user_id and draft.get("max_user_id") and request_user_id != draft.get("max_user_id"):
+                raise HTTPException(status_code=403, detail="MAX-черновик создан другим пользователем")
+            if request_chat_id and draft.get("max_chat_id") and request_chat_id != draft.get("max_chat_id"):
+                raise HTTPException(status_code=403, detail="MAX-черновик создан в другом чате")
+
+            if draft.get("status") == "confirmed" and draft.get("warehouse_invoice_id"):
+                draft["employee_name"] = ""
+                draft["employee_role"] = ""
+                conn.commit()
+                response = _public_max_invoice_draft(draft, duplicate=True)
+                response["alreadyConfirmed"] = True
+                return response
+            if draft.get("status") == "rejected":
+                raise HTTPException(status_code=409, detail="MAX-черновик уже отклонен")
+            expires_at = draft.get("expires_at")
+            if expires_at and expires_at < dt.datetime.now():
+                cur.execute("UPDATE max_invoice_drafts SET status='expired', updated_at=NOW() WHERE id=%s", (draft["id"],))
+                conn.commit()
+                raise HTTPException(status_code=409, detail="Срок действия MAX-черновика истек")
+
+            employee = _find_employee_by_messenger(cur, "max", draft.get("max_user_id") or "", draft.get("max_chat_id") or "")
+            if not employee:
+                raise HTTPException(status_code=404, detail="Сотрудник MAX для черновика не найден")
+            if employee.get("role") not in warehouse_roles:
+                raise HTTPException(status_code=403, detail="У сотрудника нет прав принимать складские накладные")
+
+            payload = _json_dict(draft.get("payload_json"))
+            payload = apply_max_invoice_confirm_patch(payload, data, employee)
+            if not payload.get("items"):
+                raise HTTPException(status_code=400, detail="MAX-черновик без позиций. Исправьте распознавание перед приемкой.")
+            if payload.get("project") and not _employee_has_project_access(employee, payload.get("project"), deps):
+                raise HTTPException(status_code=403, detail="У сотрудника нет доступа к объекту")
+            if not payload.get("project") and main_warehouse_write_roles and employee.get("role") not in main_warehouse_write_roles:
+                raise HTTPException(status_code=403, detail="Прораб через MAX принимает накладные только на закрепленный объектный склад")
+
+            existing_invoice = select_existing_warehouse_by_source(cur, payload.get("sourceType"), payload.get("sourceId"))
+            accounting_link = None
+            already_confirmed = False
+            if existing_invoice:
+                result = {
+                    "id": existing_invoice.get("id"),
+                    "ok": True,
+                    "alreadyExists": True,
+                    "supplierInvoiceId": existing_invoice.get("supplier_invoice_id"),
+                    "accountingStatus": existing_invoice.get("accounting_status") or "",
+                }
+                already_confirmed = True
+            else:
+                try:
+                    result, accounting_link = commit_max_invoice_payload(
+                        payload,
+                        employee,
+                        data,
+                        bool(draft.get("recognized")),
                     )
-                recognized = scan_result.get("data") or {}
-        if recognized:
-            payload = _apply_recognized_invoice_payload(payload, recognized)
-            payload = _normalize_invoice_payload(payload, employee)
-        if not payload.get("items"):
-            raise HTTPException(status_code=400, detail="MAX-накладная без распознанных позиций. Пришлите фото или recognizedInvoice.")
-        payload["location"] = location or "Основной склад"
-        payload["project"] = target_project
-        payload["sourceType"] = payload.get("sourceType") or ("max_project_invoice" if target_project else "max_main_invoice")
-        payload["sourceId"] = payload.get("sourceId") or _source_id(data, source)
-        payload["workPackage"] = supply_work_package(
-            payload.get("workPackage")
-            or payload.get("work_package")
-            or source.get("workPackage")
-            or source.get("work_package")
-        )
+                except HTTPException as exc:
+                    if exc.status_code != 409:
+                        raise
+                    existing_invoice = select_existing_warehouse_by_source(cur, payload.get("sourceType"), payload.get("sourceId"))
+                    if not existing_invoice:
+                        raise
+                    result = {
+                        "id": existing_invoice.get("id"),
+                        "ok": True,
+                        "alreadyExists": True,
+                        "supplierInvoiceId": existing_invoice.get("supplier_invoice_id"),
+                        "accountingStatus": existing_invoice.get("accounting_status") or "",
+                    }
+                    already_confirmed = True
 
-        result = create_warehouse_invoice_record(payload, employee)
-        accounting_link = None
-        if _bool_value(data.get("syncAccounting"), True) and sync_supplier_invoice_from_warehouse:
-            try:
-                accounting_link = sync_supplier_invoice_from_warehouse(result.get("id"), payload, employee)
-                result["supplierInvoiceId"] = accounting_link.get("id")
-                result["accountingStatus"] = accounting_link.get("accountingStatus") or "На проверке"
-            except Exception as exc:
-                result["accountingWarning"] = getattr(exc, "detail", str(exc)) or "Не удалось связать бухгалтерскую первичку"
-        result.update({
-            "employeeName": employee.get("name", ""),
-            "employeeSource": employee.get("source", ""),
-            "messengerProvider": "max",
-            "messengerAccountId": employee.get("messengerAccountId"),
-            "projectName": target_project,
-            "location": payload["location"],
-            "sourceType": payload["sourceType"],
-            "recognized": bool(recognized),
-            "recognition": payload.get("recognition") or {},
-            "accountingLink": accounting_link,
-        })
+            cur.execute(
+                """
+                UPDATE max_invoice_drafts
+                   SET status='confirmed',
+                       payload_json=%s::jsonb,
+                       warehouse_invoice_id=%s,
+                       supplier_invoice_id=%s,
+                       accounting_status=%s,
+                       accounting_warning=%s,
+                       confirmed_at=COALESCE(confirmed_at,NOW()),
+                       updated_at=NOW()
+                 WHERE id=%s
+             RETURNING *
+                """,
+                (
+                    json.dumps(payload, ensure_ascii=False),
+                    result.get("id"),
+                    result.get("supplierInvoiceId"),
+                    result.get("accountingStatus") or "",
+                    result.get("accountingWarning") or "",
+                    draft["id"],
+                ),
+            )
+            updated_draft = cur.fetchone()
+            conn.commit()
+            result.update({
+                "draftToken": updated_draft.get("draft_token") or draft_token,
+                "status": "confirmed",
+                "alreadyConfirmed": already_confirmed,
+                "accountingLink": accounting_link,
+            })
+            return result
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+
+    @app.post("/max/warehouse-invoices/reject")
+    def reject_max_warehouse_invoice(data: dict, _bot: dict = Depends(require_max_bot_token)):
+        data = data or {}
+        draft_token = _text(data.get("draftToken") or data.get("draft_token"), 120)
+        if not draft_token:
+            raise HTTPException(status_code=400, detail="Нужен draftToken MAX-черновика")
+        reason = _text(data.get("reason") or data.get("rejectReason") or data.get("reject_reason"), 1000)
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            cur.execute(
+                """
+                UPDATE max_invoice_drafts
+                   SET status='rejected',
+                       reject_reason=%s,
+                       rejected_at=NOW(),
+                       updated_at=NOW()
+                 WHERE draft_token=%s
+                   AND status='draft'
+             RETURNING *
+                """,
+                (reason, draft_token),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Активный MAX-черновик накладной не найден")
+            conn.commit()
+            return _public_max_invoice_draft(row)
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+
+    @app.post("/max/warehouse-invoices")
+    def create_max_warehouse_invoice(data: dict, _bot: dict = Depends(require_max_bot_token)):
+        context = build_max_invoice_context(data or {})
+        result, _accounting_link = commit_max_invoice_payload(
+            context["payload"],
+            context["employee"],
+            data or {},
+            context["recognized"],
+        )
         return result

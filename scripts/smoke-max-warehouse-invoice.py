@@ -253,11 +253,15 @@ def link_max_account(director_token, user_id):
     return {"accountId": account_id, "maxUserId": TEST_MAX_USER_ID}
 
 
-def cleanup(invoice_id, material_name, project_name, account_id, supplier_name=""):
+def cleanup(invoice_id, material_name, project_name, account_id, supplier_name="", draft_token=""):
     conn = None
     try:
         conn = psycopg2.connect(**db_config())
         cur = conn.cursor()
+        if draft_token:
+            cur.execute("DELETE FROM max_invoice_drafts WHERE draft_token=%s", (draft_token,))
+        if invoice_id:
+            cur.execute("DELETE FROM max_invoice_drafts WHERE warehouse_invoice_id=%s", (invoice_id,))
         if invoice_id:
             cur.execute("DELETE FROM supplier_invoices WHERE warehouse_invoice_id=%s", (invoice_id,))
         if supplier_name:
@@ -306,35 +310,59 @@ def main():
     supplier_name = f"CODEX QA MAX поставщик {stamp}"
     supplier_inn = "77" + stamp[-8:]
     invoice_id = None
+    draft_token = None
     try:
+        max_invoice_payload = {
+            "maxUserId": account["maxUserId"],
+            "maxMessageId": f"max-smoke-{stamp}",
+            "projectName": project_name,
+            "photoUrl": "/uploads/smoke/max-invoice.jpg",
+            "recognizedInvoice": {
+                "method": "smoke_ocr_stub",
+                "documentType": "warehouse_invoice",
+                "confidence": 0.98,
+                "number": f"MAX-{stamp}",
+                "date": dt.date.today().isoformat(),
+                "supplier": supplier_name,
+                "supplierInn": supplier_inn,
+                "items": [{
+                    "name": material_name,
+                    "quantity": TEST_QTY,
+                    "unit": "шт",
+                    "price": TEST_PRICE,
+                    "workPackage": "Основная",
+                }],
+                "totalBase": round(TEST_QTY * TEST_PRICE, 2),
+                "totalVat": 0,
+                "totalWithVat": round(TEST_QTY * TEST_PRICE, 2),
+            },
+        }
+        _, preview = api_json(
+            "POST",
+            "/max/warehouse-invoices/preview",
+            data=max_invoice_payload,
+            headers={"X-Max-Bot-Token": bot_token},
+            expected=200,
+        )
+        draft_token = preview.get("draftToken")
+        if not draft_token:
+            raise RuntimeError(f"MAX preview не вернул draftToken: {preview}")
+        if preview.get("status") != "draft":
+            raise RuntimeError(f"MAX preview вернул неверный статус: {preview}")
+        if preview.get("warehouseInvoiceId"):
+            raise RuntimeError(f"MAX preview уже записал накладную в склад: {preview}")
+        if not preview.get("recognized"):
+            raise RuntimeError(f"MAX preview не отметил OCR/recognizedInvoice: {preview}")
+        invoice_draft = preview.get("invoiceDraft") or {}
+        if invoice_draft.get("supplierName") != supplier_name:
+            raise RuntimeError(f"MAX preview неверно замапил поставщика: {preview}")
+        if not any(row.get("name") == material_name for row in invoice_draft.get("items") or []):
+            raise RuntimeError(f"MAX preview не вернул позицию накладной: {preview}")
+
         _, created = api_json(
             "POST",
-            "/max/warehouse-invoices",
-            data={
-                "maxUserId": account["maxUserId"],
-                "maxMessageId": f"max-smoke-{stamp}",
-                "projectName": project_name,
-                "photoUrl": "/uploads/smoke/max-invoice.jpg",
-                "recognizedInvoice": {
-                    "method": "smoke_ocr_stub",
-                    "documentType": "warehouse_invoice",
-                    "confidence": 0.98,
-                    "number": f"MAX-{stamp}",
-                    "date": dt.date.today().isoformat(),
-                    "supplier": supplier_name,
-                    "supplierInn": supplier_inn,
-                    "items": [{
-                        "name": material_name,
-                        "quantity": TEST_QTY,
-                        "unit": "шт",
-                        "price": TEST_PRICE,
-                        "workPackage": "Основная",
-                    }],
-                    "totalBase": round(TEST_QTY * TEST_PRICE, 2),
-                    "totalVat": 0,
-                    "totalWithVat": round(TEST_QTY * TEST_PRICE, 2),
-                },
-            },
+            "/max/warehouse-invoices/confirm",
+            data={"draftToken": draft_token, "maxUserId": account["maxUserId"]},
             headers={"X-Max-Bot-Token": bot_token},
             expected=200,
         )
@@ -348,6 +376,17 @@ def main():
         supplier_invoice_id = created.get("supplierInvoiceId")
         if not supplier_invoice_id:
             raise RuntimeError(f"MAX накладная не создала бухгалтерскую первичку: {created}")
+
+        _, repeated = api_json(
+            "POST",
+            "/max/warehouse-invoices/confirm",
+            data={"draftToken": draft_token, "maxUserId": account["maxUserId"]},
+            headers={"X-Max-Bot-Token": bot_token},
+            expected=200,
+        )
+        repeated_invoice_id = repeated.get("id") or repeated.get("warehouseInvoiceId")
+        if str(repeated_invoice_id) != str(invoice_id) or not repeated.get("alreadyConfirmed"):
+            raise RuntimeError(f"Повторный MAX confirm не вернул уже принятую накладную: {repeated}")
 
         _, invoices = api_json("GET", "/warehouse-invoices", token=director_token, expected=200)
         invoice = next((row for row in invoices if str(row.get("id")) == str(invoice_id)), None)
@@ -379,7 +418,7 @@ def main():
 
         blocked_status, _ = api_json(
             "POST",
-            "/max/warehouse-invoices",
+            "/max/warehouse-invoices/preview",
             data={
                 "maxUserId": account["maxUserId"],
                 "maxMessageId": f"max-smoke-main-{stamp}",
@@ -404,6 +443,9 @@ def main():
             "messengerAccountId": account["accountId"],
             "checked": checked + [
                 "MAX recognizedInvoice/OCR draft is mapped to warehouse invoice fields",
+                "MAX preview returns draft without warehouse write",
+                "MAX confirm writes preview to warehouse and accounting queue",
+                "repeated MAX confirm is idempotent and does not duplicate stock",
                 "MAX messenger account resolves to foreman",
                 "MAX project invoice is accepted to assigned object warehouse",
                 "MAX invoice writes material to object stock",
@@ -415,7 +457,7 @@ def main():
     except Exception as exc:
         raise SystemExit(f"FAIL smoke:max-warehouse: {exc}")
     finally:
-        cleanup(invoice_id, material_name, project_name, account.get("accountId"), supplier_name)
+        cleanup(invoice_id, material_name, project_name, account.get("accountId"), supplier_name, draft_token)
 
 
 if __name__ == "__main__":

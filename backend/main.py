@@ -25964,6 +25964,7 @@ register_messenger_module(app, {
     "require_roles": require_roles,
     "create_warehouse_invoice_record": _create_warehouse_invoice_record,
     "warehouse_roles": WAREHOUSE_ROLES,
+    "main_warehouse_write_roles": MAIN_WAREHOUSE_WRITE_ROLES,
     "leadership_roles": LEADERSHIP_ROLES,
     "finance_roles": FINANCE_ROLES,
     "user_project_names": user_project_names,
