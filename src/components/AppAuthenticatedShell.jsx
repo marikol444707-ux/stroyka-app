@@ -19,6 +19,41 @@ import MobileBottomNav from './MobileBottomNav';
 import PreviewModal from './PreviewModal';
 import ProjectSitePublicationPage from './ProjectSitePublicationPage';
 
+function MaxAppReturnBar({visible, onBack, isMobile}) {
+  if (!visible) return null;
+  return (
+    <div style={{
+      display:'flex',
+      alignItems:'center',
+      justifyContent:'space-between',
+      gap:'10px',
+      padding:isMobile ? '8px 12px' : '10px 24px',
+      background:'#111827',
+      borderBottom:'1px solid rgba(148,163,184,.24)',
+      color:'#e5e7eb',
+      flexShrink:0,
+    }}>
+      <span style={{fontSize:isMobile ? '12px' : '13px',color:'#cbd5e1',fontWeight:700}}>MAX · рабочий режим</span>
+      <button
+        type="button"
+        onClick={onBack}
+        style={{
+          border:'1px solid rgba(249,115,22,.5)',
+          background:'#f97316',
+          color:'#fff',
+          borderRadius:'10px',
+          padding:isMobile ? '8px 10px' : '8px 12px',
+          fontWeight:800,
+          fontSize:isMobile ? '12px' : '13px',
+          whiteSpace:'nowrap',
+        }}
+      >
+        ← Строй-Бот
+      </button>
+    </div>
+  );
+}
+
 export default function AppAuthenticatedShell({
   activePage,
   appActionModalsProps,
@@ -35,6 +70,7 @@ export default function AppAuthenticatedShell({
   headerProps,
   isMobile,
   mobileBottomNavProps,
+  maxAppReturnProps,
   overlayProps,
   pageFallback,
   photoPreviewProps,
@@ -67,6 +103,7 @@ export default function AppAuthenticatedShell({
 
       <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',width:'100%',minWidth:0,marginLeft:isMobile?0:'240px'}}>
         <AppHeaderBar {...(headerProps || {})} />
+        <MaxAppReturnBar {...(maxAppReturnProps || {})} isMobile={isMobile} />
         <div style={{flex:1,overflowY:'auto',backgroundColor:activePage==='dashboard'?'#0b1120':theme.bg,padding:activePage==='dashboard'?'0':'24px'}}>
           <React.Suspense fallback={pageFallback}>
             {activePage === 'dashboard' && <DashboardPage {...(dashboardProps || {})} />}

@@ -31,9 +31,11 @@ const readMaxLaunchData = () => {
   const params = new URLSearchParams(window.location.search || '');
   const bridge = window.MAXBridge || window.maxBridge || window.max || window.Max;
   const localPreview = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+  const allowWebSession = params.get('webSession') === '1' || params.get('from') === 'max';
   return {
     initData: params.get('initData') || params.get('init_data') || bridge?.initData || bridge?.init_data || '',
     inviteCode: params.get('invite') || params.get('code') || params.get('startapp') || params.get('start_param') || '',
+    allowWebSession,
     previewRole: localPreview ? (params.get('role') || '') : '',
     previewName: localPreview ? (params.get('name') || 'Локальный предпросмотр') : '',
   };
@@ -81,6 +83,7 @@ export default function MaxQuickActionsPage() {
     sessionCreated:false,
     requiresWebLogin:false,
     sessionNote:'',
+    webSessionAvailable:false,
     maxUser:null,
     maxChat:null,
   });
@@ -97,6 +100,7 @@ export default function MaxQuickActionsPage() {
               error:'',
               account: {employeeName: launch.previewName, employeeRole: launch.previewRole},
               source:'local',
+              webSessionAvailable:false,
               maxUser:null,
               maxChat:null,
             });
@@ -104,12 +108,35 @@ export default function MaxQuickActionsPage() {
           return;
         }
         const localUser = readStoredUser();
+        if (localUser && launch.allowWebSession) {
+          if (!cancelled) {
+            setState({
+              loading:false,
+              error:'',
+              account: {employeeName: localUser.name, employeeRole: localUser.role},
+              source:'web',
+              sessionCreated:false,
+              requiresWebLogin:false,
+              sessionNote:'Работаете через web-вход Stroyka внутри MAX',
+              webSessionAvailable:true,
+              maxUser:null,
+              maxChat:null,
+            });
+          }
+          return;
+        }
         if (!cancelled) {
           setState({
             loading:false,
-            error: localUser ? '' : 'Откройте мини-приложение из MAX или войдите в Stroyka в этом браузере.',
-            account: localUser ? {employeeName: localUser.name, employeeRole: localUser.role} : null,
-            source:'local',
+            error: localUser
+              ? 'MAX не передал подписанные данные. Откройте через web-вход или проверьте настройку mini-app.'
+              : 'Откройте мини-приложение из MAX или войдите в Stroyka в этом браузере.',
+            account:null,
+            source:'max',
+            sessionCreated:false,
+            requiresWebLogin:false,
+            sessionNote:'',
+            webSessionAvailable:Boolean(localUser),
             maxUser:null,
             maxChat:null,
           });
@@ -169,12 +196,13 @@ export default function MaxQuickActionsPage() {
             sessionCreated,
             requiresWebLogin,
             sessionNote,
+            webSessionAvailable:false,
             maxUser:data.maxUser || null,
             maxChat:data.maxChat || null,
           });
         }
       } catch (error) {
-        if (!cancelled) setState({loading:false, error:error.message || 'MAX-проверка не прошла', account:null, source:'max', sessionCreated:false, requiresWebLogin:false, sessionNote:'', maxUser:null, maxChat:null});
+        if (!cancelled) setState({loading:false, error:error.message || 'MAX-проверка не прошла', account:null, source:'max', sessionCreated:false, requiresWebLogin:false, sessionNote:'', webSessionAvailable:false, maxUser:null, maxChat:null});
       }
     };
     run();
@@ -186,6 +214,7 @@ export default function MaxQuickActionsPage() {
   const openAction = (action) => {
     const params = new URLSearchParams();
     params.set('quickAction', action.id);
+    params.set('from', 'max');
     if (action.appPage) params.set('page', action.appPage);
     window.location.href = '/app?' + params.toString();
   };
@@ -195,6 +224,14 @@ export default function MaxQuickActionsPage() {
     const text = ['MAX userId: ' + (maxUserId || '-'), 'MAX chatId: ' + (maxChatId || '-')].join('\n');
     navigator.clipboard?.writeText(text).catch(() => {});
   };
+  const openWebSessionMode = () => {
+    window.location.href = '/max-app?webSession=1';
+  };
+  const sourceLabel = state.source === 'max'
+    ? 'MAX · быстрые действия'
+    : state.source === 'web'
+      ? 'MAX · web-вход'
+      : 'Локальный предпросмотр';
 
   return (
     <div style={{minHeight:'100dvh',background:'#0f172a',color:'#e5e7eb',padding:'16px',boxSizing:'border-box'}}>
@@ -202,9 +239,9 @@ export default function MaxQuickActionsPage() {
         <header style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'10px',marginBottom:'14px'}}>
           <div>
             <h1 style={{margin:0,fontSize:'24px',lineHeight:1.1,fontWeight:800}}>Stroyka</h1>
-            <p style={{margin:'5px 0 0',fontSize:'13px',color:'#94a3b8'}}>{state.source === 'max' ? 'MAX · быстрые действия' : 'Предпросмотр быстрых действий'}</p>
+            <p style={{margin:'5px 0 0',fontSize:'13px',color:'#94a3b8'}}>{sourceLabel}</p>
           </div>
-          <button onClick={() => { window.location.href = '/app'; }} style={{border:'1px solid rgba(148,163,184,.35)',background:'rgba(15,23,42,.9)',color:'#e5e7eb',borderRadius:'10px',padding:'10px 12px',display:'flex',alignItems:'center',gap:'7px',fontWeight:700}}>
+          <button onClick={() => { window.location.href = '/app?from=max'; }} style={{border:'1px solid rgba(148,163,184,.35)',background:'rgba(15,23,42,.9)',color:'#e5e7eb',borderRadius:'10px',padding:'10px 12px',display:'flex',alignItems:'center',gap:'7px',fontWeight:700}}>
             <LogIn size={16}/>Войти
           </button>
         </header>
@@ -224,6 +261,11 @@ export default function MaxQuickActionsPage() {
             <>
               <b style={{fontSize:'15px'}}>Аккаунт не связан</b>
               <div style={{fontSize:'13px',color:'#fca5a5',marginTop:'4px'}}>{state.error}</div>
+              {state.webSessionAvailable && (
+                <button onClick={openWebSessionMode} style={{marginTop:'12px',border:'1px solid rgba(251,146,60,.45)',background:'#f97316',color:'#fff',borderRadius:'10px',padding:'10px 12px',fontWeight:800}}>
+                  Открыть через web-вход
+                </button>
+              )}
               {(maxUserId || maxChatId) && (
                 <div style={{marginTop:'12px',display:'grid',gap:'8px'}}>
                   <div style={{border:'1px solid rgba(148,163,184,.24)',borderRadius:'8px',padding:'10px',background:'rgba(15,23,42,.56)'}}>

@@ -38,6 +38,9 @@ installAuthFetch();
 const GENERAL_WORK_ROOM_NAME = 'Без помещения';
 function App() {
   const isMaxAppRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/max-app');
+  const appSearchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search || '') : new URLSearchParams();
+  const isMaxHost = typeof navigator !== 'undefined' && /MAX\//i.test(navigator.userAgent || '');
+  const isMaxReturnMode = !isMaxAppRoute && (appSearchParams.get('from') === 'max' || isMaxHost);
   const {
     isMobile,
     isCompactHeader
@@ -357,6 +360,12 @@ function App() {
     user
   });
   const errorBoundaryKey = `${user?.role || 'guest'}:${authEntryState.page || appMainState.activePage || 'app'}`;
+  const maxAppReturnProps = {
+    visible: isMaxReturnMode,
+    onBack: () => {
+      window.location.href = '/max-app?webSession=1';
+    },
+  };
 
   if (isMaxAppRoute) {
     return (
@@ -376,7 +385,7 @@ function App() {
 
   return (
     <AppErrorBoundary resetKey={errorBoundaryKey}>
-      <AppAuthenticatedShell {...appShellProps} />
+      <AppAuthenticatedShell {...appShellProps} maxAppReturnProps={maxAppReturnProps} />
     </AppErrorBoundary>
   );
 }
