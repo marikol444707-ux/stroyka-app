@@ -3,6 +3,7 @@ import { Check, ChevronDown, ChevronUp, Copy, Edit2, Plus, RefreshCw, Trash2, X 
 import { createUserForm } from '../features/personnel/personnelInitialForms';
 
 function UsersPage({
+  API,
   C,
   card,
   inp,
@@ -46,6 +47,72 @@ function UsersPage({
     setShowForm(!showForm);
     setEditingItem(null);
     setNewUser(createUserForm());
+  };
+  const [messengerAccounts, setMessengerAccounts] = React.useState([]);
+  const [messengerLoading, setMessengerLoading] = React.useState(false);
+  const [maxBindingUser, setMaxBindingUser] = React.useState(null);
+  const [maxBindingForm, setMaxBindingForm] = React.useState({externalUserId:'',chatId:'',displayName:'',enabled:true});
+  const loadMessengerAccounts = React.useCallback(async () => {
+    if (!API) return;
+    setMessengerLoading(true);
+    try {
+      const res = await fetch(API + '/messenger-accounts');
+      const data = await res.json().catch(() => ({}));
+      setMessengerAccounts(Array.isArray(data.items) ? data.items : []);
+    } catch (_error) {
+      setMessengerAccounts([]);
+    } finally {
+      setMessengerLoading(false);
+    }
+  }, [API]);
+  React.useEffect(() => {
+    loadMessengerAccounts();
+  }, [loadMessengerAccounts]);
+  const maxAccountByUserId = React.useMemo(() => {
+    const map = new Map();
+    (messengerAccounts || []).filter(item => item.provider === 'max' && item.userId).forEach(item => {
+      if (!map.has(Number(item.userId))) map.set(Number(item.userId), item);
+    });
+    return map;
+  }, [messengerAccounts]);
+  const openMaxBinding = (u) => {
+    const existing = maxAccountByUserId.get(Number(u.id)) || null;
+    setMaxBindingUser(u);
+    setMaxBindingForm({
+      externalUserId: existing?.externalUserId || '',
+      chatId: existing?.chatId || existing?.externalUserId || '',
+      displayName: existing?.displayName || u.name || '',
+      enabled: existing ? existing.enabled !== false : true,
+    });
+  };
+  const saveMaxBinding = async (enabledOverride = null) => {
+    if (!maxBindingUser?.id) return;
+    const enabled = enabledOverride === null ? maxBindingForm.enabled !== false : Boolean(enabledOverride);
+    const externalUserId = String(maxBindingForm.externalUserId || '').trim();
+    const chatId = String(maxBindingForm.chatId || '').trim();
+    if (!externalUserId && !chatId) {
+      alert('Укажите MAX userId или chatId');
+      return;
+    }
+    const res = await fetch(API + '/messenger-accounts', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        provider:'max',
+        userId:maxBindingUser.id,
+        externalUserId,
+        chatId,
+        displayName:maxBindingForm.displayName || maxBindingUser.name || '',
+        enabled,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) {
+      alert(data.detail || data.error || 'Не удалось сохранить MAX-связку');
+      return;
+    }
+    await loadMessengerAccounts();
+    setMaxBindingUser(null);
   };
 
   const editUser = (u) => {
@@ -104,6 +171,37 @@ function UsersPage({
 
   return (
     <div>
+      {maxBindingUser&&(
+        <div style={{position:'fixed',inset:0,zIndex:1800,background:'rgba(0,0,0,.55)',display:'flex',alignItems:'center',justifyContent:'center',padding:'18px'}}>
+          <div style={{...card,width:'100%',maxWidth:'520px',padding:'20px',boxShadow:'0 18px 60px rgba(0,0,0,.35)'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px',marginBottom:'14px'}}>
+              <div>
+                <h3 style={{color:C.text,margin:'0 0 4px',fontWeight:'800'}}>Привязка MAX</h3>
+                <p style={{color:C.textSec,margin:0,fontSize:'12px'}}>{maxBindingUser.name} · {ROLE_LABELS[maxBindingUser.role] || maxBindingUser.role}</p>
+              </div>
+              <button onClick={()=>setMaxBindingUser(null)} style={{...btnG,padding:'6px 8px'}}><X size={14}/></button>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+              <input placeholder="MAX userId" value={maxBindingForm.externalUserId} onChange={e=>setMaxBindingForm({...maxBindingForm,externalUserId:e.target.value})} style={{...inp,marginBottom:0}}/>
+              <input placeholder="MAX chatId" value={maxBindingForm.chatId} onChange={e=>setMaxBindingForm({...maxBindingForm,chatId:e.target.value})} style={{...inp,marginBottom:0}}/>
+              <input placeholder="Имя в MAX" value={maxBindingForm.displayName} onChange={e=>setMaxBindingForm({...maxBindingForm,displayName:e.target.value})} style={{...inp,marginBottom:0}}/>
+              <select value={maxBindingForm.enabled?'on':'off'} onChange={e=>setMaxBindingForm({...maxBindingForm,enabled:e.target.value==='on'})} style={{...inp,marginBottom:0}}>
+                <option value="on">Связка активна</option>
+                <option value="off">Связка отключена</option>
+              </select>
+            </div>
+            <div style={{marginTop:'12px',padding:'10px',border:'1.5px solid '+C.border,borderRadius:'10px',backgroundColor:C.bg}}>
+              <b style={{display:'block',color:C.text,fontSize:'12px',marginBottom:'4px'}}>Mini-app URL для бота</b>
+              <code style={{display:'block',color:C.accent,fontSize:'12px',wordBreak:'break-all'}}>{window.location.origin + '/max-app'}</code>
+            </div>
+            <div style={{display:'flex',gap:'10px',marginTop:'15px',flexWrap:'wrap'}}>
+              <button onClick={()=>saveMaxBinding()} style={btnO}><Check size={14}/>Сохранить</button>
+              <button onClick={()=>saveMaxBinding(false)} style={btnG}><X size={14}/>Отключить</button>
+              <button onClick={()=>setMaxBindingUser(null)} style={btnG}>Отмена</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px',flexWrap:'wrap',gap:'10px'}}>
         <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
           <button onClick={openNewUser} style={btnO}><Plus size={14}/>Новый пользователь</button>
@@ -180,12 +278,20 @@ function UsersPage({
                   <b style={{fontSize:'13px',color:C.text}}>{u.name}</b>
                   <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{u.email+' · '+(ROLE_LABELS[u.role]||u.role)}{u.projectName?' · '+u.projectName:''}</p>
                   <div style={{display:'flex',gap:'5px',flexWrap:'wrap'}}>
+                    {(() => {
+                      const maxAccount = maxAccountByUserId.get(Number(u.id));
+                      if (maxAccount) {
+                        return <span style={{...badge(maxAccount.enabled===false?C.warning:C.success,maxAccount.enabled===false?C.warningLight:C.successLight,maxAccount.enabled===false?C.warningBorder:C.successBorder),fontSize:'10px'}}>MAX {maxAccount.enabled===false?'отключён':'связан'}</span>;
+                      }
+                      return <span style={{...badge(C.textMuted,C.bg,C.border),fontSize:'10px'}}>MAX не связан</span>;
+                    })()}
                     {u.active===false&&<span style={{...badge(C.danger,C.dangerLight,C.dangerBorder),fontSize:'10px'}}>Доступ отключён</span>}
                     {u.twoFactorRequired&&<span style={{...badge(u.twoFactorEnabled?C.success:C.warning,u.twoFactorEnabled?C.successLight:C.warningLight,u.twoFactorEnabled?C.successBorder:C.warningBorder),fontSize:'10px'}}>{u.twoFactorEnabled?'2FA включена':'Нужна 2FA'}</span>}
                   </div>
                 </div>
               </div>
               <div style={{display:'flex',gap:'6px'}}>
+                <button onClick={()=>openMaxBinding(u)} title={messengerLoading?'Связки загружаются':'Привязать MAX'} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>MAX</button>
                 <button onClick={()=>editUser(u)} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}><Edit2 size={11}/></button>
                 {u.twoFactorEnabled&&<button onClick={()=>resetUserTwoFactor?.(u)} title="Сбросить 2FA" style={{...btnG,padding:'5px 8px',fontSize:'11px'}}>2FA</button>}
                 {u.active===false?<button onClick={()=>toggleUserActive(u,true)} style={{...btnGr,padding:'5px 8px',fontSize:'11px'}}><Check size={11}/></button>:u.id!==user.id&&<button onClick={()=>deleteUser(u)} style={{...btnR,padding:'5px 8px',fontSize:'11px'}}><X size={11}/></button>}

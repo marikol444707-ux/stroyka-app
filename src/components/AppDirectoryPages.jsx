@@ -193,6 +193,7 @@ export default function AppDirectoryPages({ activePage, ui, constants, state, ac
 
       {activePage === 'users' && isLeadershipUser && (
         <UsersPage
+          API={API}
           C={C}
           card={card}
           inp={inp}
