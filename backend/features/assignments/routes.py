@@ -22,18 +22,16 @@ ASSIGNMENT_SYSTEM_CONDITION = """
         'ESTIMATE_CHANGE_RECONCILE:%'
     ])
     OR UPPER(COALESCE(dedupe_key,'')) LIKE 'MATERIAL_NORM_COVERAGE:%'
-    OR COALESCE(action_payload,'') ILIKE ANY(ARRAY[
-        '%system_rules%',
-        '%room_measurement_review%',
-        '%work_room_link_review%',
-        '%material_outside_estimate_review%',
-        '%material_transfer_sign_review%',
-        '%estimate_quality_review%',
-        '%estimate_norm_review%',
-        '%material_norm_coverage%',
-        '%estimate_diff_review%',
-        '%estimate_change_reconcile%'
-    ])
+    OR POSITION('system_rules' IN LOWER(COALESCE(action_payload,''))) > 0
+    OR POSITION('room_measurement_review' IN LOWER(COALESCE(action_payload,''))) > 0
+    OR POSITION('work_room_link_review' IN LOWER(COALESCE(action_payload,''))) > 0
+    OR POSITION('material_outside_estimate_review' IN LOWER(COALESCE(action_payload,''))) > 0
+    OR POSITION('material_transfer_sign_review' IN LOWER(COALESCE(action_payload,''))) > 0
+    OR POSITION('estimate_quality_review' IN LOWER(COALESCE(action_payload,''))) > 0
+    OR POSITION('estimate_norm_review' IN LOWER(COALESCE(action_payload,''))) > 0
+    OR POSITION('material_norm_coverage' IN LOWER(COALESCE(action_payload,''))) > 0
+    OR POSITION('estimate_diff_review' IN LOWER(COALESCE(action_payload,''))) > 0
+    OR POSITION('estimate_change_reconcile' IN LOWER(COALESCE(action_payload,''))) > 0
 )
 """
 
