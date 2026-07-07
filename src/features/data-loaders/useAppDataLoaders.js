@@ -440,7 +440,7 @@ export const useAppDataLoaders = (ctx) => {
       setInviteCodes(Array.isArray(ic)?ic:[]);
     });
     if (page === 'accounting') return loadMobileScopeOnce('mobile:accounting', async () => {
-      const [pp,acp,oe,me,ct,ia,expR,supI,cd,sp,s,pw,u,bc] = await Promise.all([
+      const [pp,acp,oe,me,ct,ia,expR,supI,winv,sup,cd,sp,s,pw,u,bc] = await Promise.all([
         isFinanceRole ? getApi('/project-payments') : Promise.resolve([]),
         isFinanceRole ? getApi('/accountable-payments') : Promise.resolve([]),
         isInternalRole ? getApi('/own-expenses') : Promise.resolve([]),
@@ -449,6 +449,8 @@ export const useAppDataLoaders = (ctx) => {
         canLoadAccountingData ? getApi('/interim-acts') : Promise.resolve([]),
         isFinanceRole ? getApi('/expense-reports') : Promise.resolve([]),
         canSeeSupplierInvoices ? getApi('/supplier-invoices') : Promise.resolve([]),
+        (isWarehouseRole || isFinanceRole) ? getApi('/warehouse-invoices') : Promise.resolve([]),
+        (isSupplyRole || isWarehouseRole || isFinanceRole) ? getApi('/suppliers') : Promise.resolve([]),
         isFinanceRole ? getApi('/company-documents') : Promise.resolve([]),
         isFinanceRole ? getApi('/salary-payments') : Promise.resolve([]),
         canLoadPeopleData ? getApi('/staff') : Promise.resolve([]),
@@ -460,6 +462,7 @@ export const useAppDataLoaders = (ctx) => {
       setOwnExpenses(Array.isArray(oe)?oe:[]); setManualExpenses(Array.isArray(me)?me:[]);
       setContracts(Array.isArray(ct)?ct:[]); setInterimActs(Array.isArray(ia)?ia:[]);
       setExpenseReports(Array.isArray(expR)?expR:[]); setSupplierInvoices(Array.isArray(supI)?supI:[]);
+      setInvoices(Array.isArray(winv)?winv:[]); setSuppliers(Array.isArray(sup)?sup:[]);
       setCompanyDocuments(Array.isArray(cd)?cd:[]); setSalaryPayments(Array.isArray(sp)?sp:[]);
       setStaff(Array.isArray(s)?s:[]); setPiecework(Array.isArray(pw)?pw:[]); setUsers(Array.isArray(u)?u:[]);
       setBrigadeContracts(Array.isArray(bc)?bc:[]);
