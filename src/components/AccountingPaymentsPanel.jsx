@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, DollarSign, Plus, Search } from 'lucide-react';
 import { API } from '../api';
 
@@ -7,6 +7,7 @@ export default function AccountingPaymentsPanel({
   card,
   inp,
   btnO,
+  btnG,
   btnGr,
   matchSearch,
   listSearch,
@@ -26,35 +27,68 @@ export default function AccountingPaymentsPanel({
   expandedProject,
   setExpandedProject,
 }) {
+  const today = () => new Date().toISOString().split('T')[0];
+  const projectOptions = useMemo(
+    () => (projects || []).map(project => project.name).filter(Boolean).sort(),
+    [projects],
+  );
+  const createIncomingPaymentForm = () => ({
+    projectName: projectOptions[0] || '',
+    amount: '',
+    date: today(),
+    note: '',
+  });
+  const [showIncomingPaymentForm, setShowIncomingPaymentForm] = useState(false);
+  const [incomingPaymentForm, setIncomingPaymentForm] = useState(createIncomingPaymentForm);
+  const [incomingPaymentError, setIncomingPaymentError] = useState('');
+  const [incomingPaymentBusy, setIncomingPaymentBusy] = useState(false);
   const workPackageLabel = (row) => {
     const value = row?.workPackage || row?.work_package || '';
     return value ? ' · ' + value : '';
   };
 
   const addIncomingPayment = async () => {
-    const projectOptions = (projects || []).map(project => project.name);
-    const projectName = window.prompt(
-      'Объект (из списка: ' + projectOptions.slice(0, 5).join(', ') + (projectOptions.length > 5 ? '…' : '') + '):',
-      ''
-    );
-    if (!projectName) return;
-
-    const amount = window.prompt('Сумма поступления (₽):');
-    if (!amount || toNum(amount) <= 0) return;
-
-    const note = window.prompt('Примечание (договор/счёт):', '');
-    await fetch(API + '/project-payments', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        projectName,
-        amount: toNum(amount),
-        note: note || '',
-        date: new Date().toISOString().split('T')[0],
-        paidBy: user.name,
-      }),
-    });
-    await refreshData();
+    const amount = toNum(incomingPaymentForm.amount);
+    setIncomingPaymentError('');
+    if (!incomingPaymentForm.projectName) {
+      setIncomingPaymentError('Выберите объект.');
+      return;
+    }
+    if (!amount || amount <= 0) {
+      setIncomingPaymentError('Укажите сумму поступления больше нуля.');
+      return;
+    }
+    setIncomingPaymentBusy(true);
+    try {
+      const response = await fetch(API + '/project-payments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectName: incomingPaymentForm.projectName,
+          amount,
+          note: incomingPaymentForm.note || '',
+          date: incomingPaymentForm.date || today(),
+          paidBy: user.name,
+        }),
+      });
+      let result = {};
+      try {
+        result = await response.json();
+      } catch (_e) {
+        result = {};
+      }
+      if (!response.ok) {
+        setIncomingPaymentError(result.detail || 'Не удалось добавить поступление.');
+        return;
+      }
+      setIncomingPaymentForm(createIncomingPaymentForm());
+      setShowIncomingPaymentForm(false);
+      await refreshData();
+    } catch (_e) {
+      setIncomingPaymentError('Не удалось связаться с сервером.');
+    } finally {
+      setIncomingPaymentBusy(false);
+    }
   };
 
   const allMovesByProject = {};
@@ -213,7 +247,14 @@ export default function AccountingPaymentsPanel({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', flexWrap: 'wrap', gap: '10px' }}>
         <b style={{ color: C.text, fontSize: '15px', fontWeight: '700' }}>💸 Платежи по объектам</b>
         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-          <button onClick={addIncomingPayment} style={btnO}>
+          <button
+            onClick={() => {
+              setIncomingPaymentForm(createIncomingPaymentForm());
+              setIncomingPaymentError('');
+              setShowIncomingPaymentForm(true);
+            }}
+            style={btnO}
+          >
             <Plus size={14} />
             Поступление
           </button>
@@ -238,6 +279,61 @@ export default function AccountingPaymentsPanel({
           </button>
         </div>
       </div>
+
+      {showIncomingPaymentForm && (
+        <div style={{ ...card, padding: '14px', marginBottom: '14px', border: '1.5px solid ' + C.accentBorder, backgroundColor: C.bgWhite }}>
+          <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '10px' }}>Поступление от заказчика</b>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: '8px' }}>
+            <select
+              value={incomingPaymentForm.projectName}
+              onChange={e => setIncomingPaymentForm({ ...incomingPaymentForm, projectName: e.target.value })}
+              style={{ ...inp, marginBottom: 0 }}
+            >
+              <option value="">Выберите объект</option>
+              {projectOptions.map(projectName => <option key={projectName} value={projectName}>{projectName}</option>)}
+            </select>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="Сумма, ₽"
+              value={incomingPaymentForm.amount}
+              onChange={e => setIncomingPaymentForm({ ...incomingPaymentForm, amount: e.target.value })}
+              style={{ ...inp, marginBottom: 0 }}
+            />
+            <input
+              type="date"
+              value={incomingPaymentForm.date}
+              onChange={e => setIncomingPaymentForm({ ...incomingPaymentForm, date: e.target.value })}
+              style={{ ...inp, marginBottom: 0 }}
+            />
+            <input
+              placeholder="Договор, счёт или комментарий"
+              value={incomingPaymentForm.note}
+              onChange={e => setIncomingPaymentForm({ ...incomingPaymentForm, note: e.target.value })}
+              style={{ ...inp, marginBottom: 0 }}
+            />
+          </div>
+          {incomingPaymentError && (
+            <p style={{ color: C.danger, fontSize: '12px', margin: '8px 0 0' }}>{incomingPaymentError}</p>
+          )}
+          <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
+            <button onClick={addIncomingPayment} disabled={incomingPaymentBusy} style={{ ...btnO, opacity: incomingPaymentBusy ? 0.65 : 1 }}>
+              {incomingPaymentBusy ? 'Сохраняем...' : 'Сохранить поступление'}
+            </button>
+            <button
+              onClick={() => {
+                setShowIncomingPaymentForm(false);
+                setIncomingPaymentError('');
+              }}
+              disabled={incomingPaymentBusy}
+              style={btnG || btnGr}
+            >
+              Отмена
+            </button>
+          </div>
+        </div>
+      )}
 
       {projectNames.length === 0 ? (
         <div style={{ ...card, padding: '40px', textAlign: 'center', color: C.textMuted }}>

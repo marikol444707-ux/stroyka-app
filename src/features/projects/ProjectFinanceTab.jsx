@@ -15,6 +15,7 @@ export default function ProjectFinanceTab({
   formatSignedRub,
   isFinanceRole,
   isLeadership,
+  inp,
   loadAll,
   manualExpenses,
   ownExpenses,
@@ -48,6 +49,7 @@ export default function ProjectFinanceTab({
         expenseCategories={EXPENSE_CATEGORIES}
         fileSrc={fileSrc}
         formatSignedRub={formatSignedRub}
+        inp={inp}
         loadAll={loadAll}
         manualExpenses={manualExpenses}
         ownExpenses={ownExpenses}

@@ -513,6 +513,7 @@ export default function ProjectsPage({ ctx }) {
                         formatSignedRub={formatSignedRub}
                         isFinanceRole={isFinanceUser}
                         isLeadership={isLeadershipUser}
+                        inp={inp}
                         loadAll={loadAll}
                         manualExpenses={manualExpenses}
                         ownExpenses={ownExpenses}

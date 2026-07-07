@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { FileText, Image, Paperclip, Plus } from 'lucide-react';
 import { API } from '../api';
 import { createAccountablePaymentForm, createManualExpenseForm } from '../features/payments/paymentInitialForms';
@@ -21,6 +21,7 @@ export default function ProjectFinancePanel({
   btnB,
   btnG,
   btnR,
+  inp,
   showBalanceDetails,
   setShowBalanceDetails,
   setAddExpenseProject,
@@ -33,6 +34,16 @@ export default function ProjectFinancePanel({
   showProfit,
   canAddExpense,
 }) {
+  const today = () => new Date().toISOString().split('T')[0];
+  const parseAmount = value => Number(String(value || '').replace(/\s+/g, '').replace(',', '.'));
+  const [showCustomerPaymentForm, setShowCustomerPaymentForm] = useState(false);
+  const [customerPaymentForm, setCustomerPaymentForm] = useState({
+    amount: '',
+    date: today(),
+    note: '',
+  });
+  const [customerPaymentError, setCustomerPaymentError] = useState('');
+  const [customerPaymentBusy, setCustomerPaymentBusy] = useState(false);
   const cat = expByCategory(projectName);
   const total = Object.values(cat).reduce((sum, value) => sum + value, 0);
   const projectPays = projectPayments.filter(pay => pay.projectName === projectName);
@@ -74,22 +85,43 @@ export default function ProjectFinancePanel({
     if (typeof window !== 'undefined') window.open(src, '_blank', 'noopener,noreferrer');
   };
 
-  const addCustomerPayment = () => {
-    const amount = prompt('Сумма оплаты от заказчика (₽):');
-    const note = prompt('Примечание:');
-
-    if (amount && Number(amount) > 0) {
-      fetch(API + '/project-payments', {
+  const addCustomerPayment = async () => {
+    const amount = parseAmount(customerPaymentForm.amount);
+    setCustomerPaymentError('');
+    if (!amount || amount <= 0) {
+      setCustomerPaymentError('Укажите сумму оплаты больше нуля.');
+      return;
+    }
+    setCustomerPaymentBusy(true);
+    try {
+      const response = await fetch(API + '/project-payments', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           projectName,
-          amount: Number(amount),
-          note: note || '',
-          date: new Date().toISOString().split('T')[0],
+          amount,
+          note: customerPaymentForm.note || '',
+          date: customerPaymentForm.date || today(),
           addedBy: user.name,
         }),
-      }).then(() => loadAll());
+      });
+      let result = {};
+      try {
+        result = await response.json();
+      } catch (_e) {
+        result = {};
+      }
+      if (!response.ok) {
+        setCustomerPaymentError(result.detail || 'Не удалось добавить оплату от заказчика.');
+        return;
+      }
+      setCustomerPaymentForm({ amount: '', date: today(), note: '' });
+      setShowCustomerPaymentForm(false);
+      await loadAll();
+    } catch (_e) {
+      setCustomerPaymentError('Не удалось связаться с сервером.');
+    } finally {
+      setCustomerPaymentBusy(false);
     }
   };
 
@@ -105,7 +137,14 @@ export default function ProjectFinancePanel({
   return (
     <div>
       <div style={{display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap'}}>
-        <button onClick={addCustomerPayment} style={{...btnO, fontSize: '12px', padding: '7px 14px'}}>
+        <button
+          onClick={() => {
+            setCustomerPaymentForm({ amount: '', date: today(), note: '' });
+            setCustomerPaymentError('');
+            setShowCustomerPaymentForm(true);
+          }}
+          style={{...btnO, fontSize: '12px', padding: '7px 14px'}}
+        >
           <Plus size={13}/>Оплата от заказчика
         </button>
         {canAddExpense && (
@@ -130,6 +169,53 @@ export default function ProjectFinancePanel({
           </div>
         )}
       </div>
+
+      {showCustomerPaymentForm && (
+        <div style={{...card, padding: '14px', marginBottom: '12px', border: '1.5px solid ' + C.accentBorder, backgroundColor: C.bgWhite}}>
+          <b style={{color: C.text, fontSize: '14px', display: 'block', marginBottom: '10px'}}>Оплата от заказчика</b>
+          <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: '8px'}}>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="Сумма, ₽"
+              value={customerPaymentForm.amount}
+              onChange={e => setCustomerPaymentForm({...customerPaymentForm, amount: e.target.value})}
+              style={{...inp, marginBottom: 0}}
+            />
+            <input
+              type="date"
+              value={customerPaymentForm.date}
+              onChange={e => setCustomerPaymentForm({...customerPaymentForm, date: e.target.value})}
+              style={{...inp, marginBottom: 0}}
+            />
+            <input
+              placeholder="Договор, счёт или комментарий"
+              value={customerPaymentForm.note}
+              onChange={e => setCustomerPaymentForm({...customerPaymentForm, note: e.target.value})}
+              style={{...inp, marginBottom: 0}}
+            />
+          </div>
+          {customerPaymentError && (
+            <p style={{color: C.danger, fontSize: '12px', margin: '8px 0 0'}}>{customerPaymentError}</p>
+          )}
+          <div style={{display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap'}}>
+            <button onClick={addCustomerPayment} disabled={customerPaymentBusy} style={{...btnO, opacity: customerPaymentBusy ? 0.65 : 1}}>
+              {customerPaymentBusy ? 'Сохраняем...' : 'Сохранить оплату'}
+            </button>
+            <button
+              onClick={() => {
+                setShowCustomerPaymentForm(false);
+                setCustomerPaymentError('');
+              }}
+              disabled={customerPaymentBusy}
+              style={btnG}
+            >
+              Отмена
+            </button>
+          </div>
+        </div>
+      )}
 
       <div style={{...card, padding: '16px', marginBottom: '12px', backgroundColor: C.accentLight, border: '1.5px solid ' + C.accentBorder}}>
         <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', cursor: 'pointer'}} onClick={() => setShowBalanceDetails(!showBalanceDetails)}>

@@ -208,6 +208,7 @@ export default function AccountingPage(props) {
           card={card}
           inp={inp}
           btnO={btnO}
+          btnG={btnG}
           btnGr={btnGr}
           matchSearch={matchSearch}
           listSearch={listSearch}
