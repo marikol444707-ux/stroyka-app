@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 import datetime as dt
+import base64
+import hashlib
+import hmac
 import json
 import os
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -103,9 +107,41 @@ def require_env(name):
 def login(email, password):
     _, body = api_json("POST", "/login", data={"email": email, "password": password}, expected=200)
     token = body.get("authToken")
-    if not token:
-        raise SystemExit(f"FAIL login {email}: authToken не получен")
+    if token:
+        return token
+    if body.get("twoFactorSetupRequired"):
+        raise SystemExit(f"FAIL login {email}: требуется первичная настройка 2FA. Для smoke используйте аккаунт с уже настроенной 2FA или отдельный smoke-аккаунт.")
+    if body.get("twoFactorRequired") and body.get("challengeToken"):
+        code = os.getenv("SMOKE_2FA_CODE", "").strip()
+        if not code and env_value("SMOKE_TOTP_SECRET", "").strip():
+            code = totp_code_from_secret(env_value("SMOKE_TOTP_SECRET", "").strip())
+        if not code:
+            raise SystemExit(f"FAIL login {email}: требуется 2FA. Передайте SMOKE_2FA_CODE или SMOKE_TOTP_SECRET.")
+        _, verified = api_json(
+            "POST",
+            "/login/2fa/verify",
+            data={"challengeToken": body.get("challengeToken"), "code": code},
+            expected=200,
+        )
+        token = verified.get("authToken")
+        if token:
+            return token
+        raise SystemExit(f"FAIL login {email}: 2FA не вернула authToken")
+    raise SystemExit(f"FAIL login {email}: authToken не получен")
     return token
+
+
+def totp_code_from_secret(secret):
+    clean = re.sub(r"\s+", "", secret or "").upper()
+    if not clean:
+        return ""
+    clean += "=" * (-len(clean) % 8)
+    key = base64.b32decode(clean, casefold=True)
+    counter = int(time.time()) // 30
+    digest = hmac.new(key, counter.to_bytes(8, "big"), hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    code = (int.from_bytes(digest[offset:offset + 4], "big") & 0x7FFFFFFF) % 1000000
+    return str(code).zfill(6)
 
 
 def ensure_foreman_user(project_name):
