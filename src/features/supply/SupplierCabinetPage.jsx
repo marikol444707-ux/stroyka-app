@@ -1,7 +1,7 @@
 import React from 'react';
 import { Check, Download, Edit2, Plus, Trash2, Upload, X } from 'lucide-react';
 import DocumentRecognitionPanel from '../../components/DocumentRecognitionPanel';
-import { groupSuppliers, supplierIdentityKeys } from '../../utils/supplierUtils';
+import { groupSuppliers, normalizeSupplierPayload, supplierIdentityKeys } from '../../utils/supplierUtils';
 import { createSupplierPortalActions } from './supplierPortalActions';
 
 const normalizeSupplierIdentity = value => String(value || '')
@@ -111,6 +111,54 @@ export default function SupplierCabinetPage({
     const myClaims = supplyClaims.filter(belongsToMySupplier);
     const pendingOfferCount = myOffers.filter(o => o.status === 'Ожидает ответа').length;
     const approvedOfferCount = myOffers.filter(o => o.status === 'Утверждено').length;
+    const supplierCardRequisites = React.useMemo(() => {
+      if (!mySupplier) return null;
+      const supplier = normalizeSupplierPayload(mySupplier);
+      return {
+        companyName: supplier.name || '',
+        inn: supplier.inn || '',
+        kpp: supplier.kpp || '',
+        ogrn: supplier.ogrn || '',
+        address: supplier.legalAddress || '',
+        actualAddress: supplier.actualAddress || '',
+        bank: supplier.bank || '',
+        bik: supplier.bik || '',
+        account: supplier.account || '',
+        korAccount: supplier.korAccount || '',
+        directorName: supplier.directorName || '',
+        directorPosition: supplier.directorPosition || '',
+        contractUrl: supplier.contractUrl || '',
+        contractNumber: supplier.contractNumber || '',
+        contractDate: supplier.contractDate || '',
+        licenseUrl: supplier.licenseUrl || '',
+        priceUrl: supplier.priceUrl || '',
+        website: supplier.website || '',
+        notes: supplier.notes || '',
+        phone: supplier.phone || '',
+        email: supplier.email || '',
+        specialization: supplier.specialization || '',
+      };
+    }, [mySupplier]);
+    React.useEffect(() => {
+      if (!mySupplier?.id || !supplierCardRequisites) return;
+      const supplierCardId = String(mySupplier.id);
+      setSupplierRequisites(prev => {
+        if (String(prev?._supplierCardId || '') === supplierCardId) return prev;
+        const next = {...prev};
+        Object.entries(supplierCardRequisites).forEach(([key, value]) => {
+          if ((next[key] === undefined || next[key] === null || next[key] === '') && value) {
+            next[key] = value;
+          }
+        });
+        next._supplierCardId = supplierCardId;
+        return next;
+      });
+    }, [mySupplier?.id, supplierCardRequisites, setSupplierRequisites]);
+    const supplierDisplayName = mySupplier?.name || supplierRequisites.companyName || user?.name || 'Поставщик';
+    const supplierHeaderMeta = [
+      user?.name && user.name !== supplierDisplayName ? user.name : '',
+      mySupplier?._duplicateCount > 1 ? 'связанных карточек: ' + mySupplier._duplicateCount : '',
+    ].filter(Boolean).join(' · ');
     const supplierInvoiceWarehouseId = inv => inv?.warehouseInvoiceId || inv?.warehouse_invoice_id || '';
     const warehouseInvoiceForSupplierInvoice = inv => (invoices || []).find(row => (
       String(row.id || '') === String(supplierInvoiceWarehouseId(inv))
@@ -194,7 +242,11 @@ export default function SupplierCabinetPage({
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}>
             <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
               <span style={{fontSize:'28px'}}>🏭</span>
-              <div><b style={{color:C.text,fontSize:'18px',display:'block'}}>Кабинет поставщика</b><p style={{color:C.textSec,margin:0,fontSize:'13px'}}>{user.name}</p></div>
+              <div>
+                <b style={{color:C.text,fontSize:'18px',display:'block'}}>Кабинет поставщика</b>
+                <p style={{color:C.textSec,margin:0,fontSize:'13px'}}>{supplierDisplayName}</p>
+                {supplierHeaderMeta && <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'11px'}}>{supplierHeaderMeta}</p>}
+              </div>
             </div>
             <button onClick={()=>handleLogout()} style={{...btnG,fontSize:'12px'}}>Выйти</button>
           </div>

@@ -27,6 +27,75 @@ const invoiceItemsTotal = invoice => (invoice?.items || []).reduce((sum, item) =
   return sum + (line > 0 ? line : toNumber(item.quantity) * toNumber(item.price));
 }, 0);
 
+const compactText = value => String(value || '')
+  .toLowerCase()
+  .replace(/ё/g, 'е')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+const itemSignature = item => [
+  compactText(itemName(item)),
+  compactText(item?.unit || item?.unitName || item?.unit_name),
+  toNumber(item?.quantity).toFixed(4),
+  toNumber(item?.price || item?.pricePerUnit || item?.price_per_unit).toFixed(2),
+  toNumber(item?.lineTotal || item?.line_total || item?.total || item?.totalBase).toFixed(2),
+].join('|');
+
+const itemsSignature = items => (items || [])
+  .map(itemSignature)
+  .filter(Boolean)
+  .sort()
+  .join('||');
+
+const dedupeByDocumentKey = (rows, keyFn) => {
+  const seen = new Map();
+  const duplicates = [];
+  (rows || []).forEach(row => {
+    const key = keyFn(row);
+    if (!key || !seen.has(key)) {
+      seen.set(key || 'id:' + (row?.id || seen.size), row);
+      return;
+    }
+    duplicates.push(row);
+  });
+  return { rows: Array.from(seen.values()), duplicates };
+};
+
+const warehouseInvoiceKey = invoice => {
+  const number = compactText(invoice?.number || invoice?.invoiceNumber || invoice?.invoice_number);
+  const date = String(invoice?.date || invoice?.invoiceDate || invoice?.createdAt || '').slice(0, 10);
+  const supplier = normalizeSupplierNameKey(invoice?.supplierName || invoice?.supplier_name || invoice?.supplier || '');
+  const place = compactText(invoice?.project || invoice?.location || invoice?.warehouseTarget || '');
+  if (number) return ['warehouse-number', number, date, supplier, place].join('|');
+  const total = (toNumber(invoice?.totalWithVat || invoice?.total_with_vat) || invoiceItemsTotal(invoice)).toFixed(2);
+  const itemKey = itemsSignature(invoice?.items || []);
+  if (date && supplier && itemKey) return ['warehouse-content', date, supplier, place, total, itemKey].join('|');
+  return invoice?.id ? 'warehouse-id:' + invoice.id : '';
+};
+
+const supplierInvoiceKey = invoice => {
+  const warehouseId = invoice?.warehouseInvoiceId || invoice?.warehouse_invoice_id;
+  if (warehouseId) return 'supplier-warehouse:' + warehouseId;
+  const number = compactText(invoice?.invoiceNumber || invoice?.invoice_number || invoice?.number);
+  const date = String(invoice?.invoiceDate || invoice?.invoice_date || invoice?.createdAt || '').slice(0, 10);
+  const supplier = normalizeSupplierNameKey(invoice?.supplierName || invoice?.supplier_name || invoice?.supplier || '');
+  const project = compactText(invoice?.projectName || invoice?.project_name || '');
+  const amount = toNumber(invoice?.amount || invoice?.totalAmount || invoice?.total_amount).toFixed(2);
+  if (number) return ['supplier-number', number, date, supplier, project, amount].join('|');
+  if (date && supplier && amount !== '0.00') return ['supplier-content', date, supplier, project, amount, compactText(invoice?.materialName || invoice?.description)].join('|');
+  return invoice?.id ? 'supplier-id:' + invoice.id : '';
+};
+
+const deliveryKey = delivery => {
+  const supplier = normalizeSupplierNameKey(delivery?.supplierName || delivery?.supplier_name || delivery?.supplier || '');
+  const project = compactText(delivery?.project || delivery?.projectName || delivery?.project_name || '');
+  const material = compactText(delivery?.materialName || delivery?.material_name || '');
+  const date = String(delivery?.receivedAt || delivery?.shippedAt || delivery?.createdAt || '').slice(0, 10);
+  const qty = toNumber(delivery?.receivedQuantity || delivery?.shippedQuantity || delivery?.plannedQuantity).toFixed(4);
+  if (supplier || project || material) return ['delivery', supplier, project, material, date, qty].join('|');
+  return delivery?.id ? 'delivery-id:' + delivery.id : '';
+};
+
 const SUPPLIER_SOURCE_META = {
   manual: { label: 'Вручную', color: '#64748b' },
   invite_link: { label: 'По ссылке', color: '#2563eb' },
@@ -207,9 +276,15 @@ function SupplySuppliersPanel({
   };
 
   const supplierStats = supplier => {
-    const linkedInvoices = (invoices || []).filter(invoice => supplierMatchesRecord(supplier, invoice));
-    const linkedSupplierInvoices = (supplierInvoices || []).filter(invoice => supplierMatchesRecord(supplier, invoice));
-    const linkedDeliveries = (supplyDeliveries || []).filter(delivery => supplierMatchesRecord(supplier, delivery));
+    const rawLinkedInvoices = (invoices || []).filter(invoice => supplierMatchesRecord(supplier, invoice));
+    const rawLinkedSupplierInvoices = (supplierInvoices || []).filter(invoice => supplierMatchesRecord(supplier, invoice));
+    const rawLinkedDeliveries = (supplyDeliveries || []).filter(delivery => supplierMatchesRecord(supplier, delivery));
+    const invoiceDedupe = dedupeByDocumentKey(rawLinkedInvoices, warehouseInvoiceKey);
+    const supplierInvoiceDedupe = dedupeByDocumentKey(rawLinkedSupplierInvoices, supplierInvoiceKey);
+    const deliveryDedupe = dedupeByDocumentKey(rawLinkedDeliveries, deliveryKey);
+    const linkedInvoices = invoiceDedupe.rows;
+    const linkedSupplierInvoices = supplierInvoiceDedupe.rows;
+    const linkedDeliveries = deliveryDedupe.rows;
     const linkedOffers = (supplierOffers || []).filter(offer => (supplier._supplierIds || []).map(String).includes(String(offer.supplierId || offer.supplier_id || '')));
     const linkedCatalog = (supplierCatalog || []).filter(item => supplierMatchesRecord(supplier, item));
     const materialNames = new Set();
@@ -229,9 +304,15 @@ function SupplySuppliersPanel({
       if (item.materialName) materialNames.add(item.materialName);
     });
 
+    const countedWarehouseIds = new Set(linkedInvoices.map(invoice => String(invoice.id || '')).filter(Boolean));
+    const countedDeliveryIds = new Set(linkedInvoices.map(invoice => String(invoice.supplyDeliveryId || invoice.supply_delivery_id || '')).filter(Boolean));
     const warehouseTotal = linkedInvoices.reduce((sum, invoice) => sum + (toNumber(invoice.totalWithVat) || invoiceItemsTotal(invoice)), 0);
-    const supplierInvoiceTotal = linkedSupplierInvoices.reduce((sum, invoice) => sum + toNumber(invoice.amount || invoice.totalAmount), 0);
-    const deliveriesTotal = linkedDeliveries.reduce((sum, delivery) => sum + toNumber(delivery.totalPrice), 0);
+    const supplierInvoiceTotal = linkedSupplierInvoices
+      .filter(invoice => !countedWarehouseIds.has(String(invoice.warehouseInvoiceId || invoice.warehouse_invoice_id || '')))
+      .reduce((sum, invoice) => sum + toNumber(invoice.amount || invoice.totalAmount), 0);
+    const deliveriesTotal = linkedDeliveries
+      .filter(delivery => !countedDeliveryIds.has(String(delivery.id || '')))
+      .reduce((sum, delivery) => sum + toNumber(delivery.totalPrice), 0);
     const allDates = [
       ...linkedInvoices.map(invoice => invoice.date || invoice.createdAt),
       ...linkedSupplierInvoices.map(invoice => invoice.invoiceDate || invoice.createdAt),
@@ -263,6 +344,8 @@ function SupplySuppliersPanel({
       warehouseInvoices: linkedInvoices,
       supplierInvoices: linkedSupplierInvoices,
       deliveries: linkedDeliveries,
+      documentCount: linkedInvoices.length + linkedSupplierInvoices.length + linkedDeliveries.length,
+      duplicateDocumentsCount: invoiceDedupe.duplicates.length + supplierInvoiceDedupe.duplicates.length + deliveryDedupe.duplicates.length,
       offers: linkedOffers,
       catalog: linkedCatalog,
       materials,
@@ -514,6 +597,7 @@ function SupplySuppliersPanel({
                         <b style={{color:C.text,fontSize:'13px',overflowWrap:'anywhere'}}>{supplier.name}</b>
                         <span title={sourceInfo.detail || sourceInfo.types.map(type => sourceMeta(type).label).join(', ')} style={{fontSize:'11px',fontWeight:'700',color:primarySourceMeta.color,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.bg,border:'1px solid '+primarySourceMeta.color}}>{primarySourceMeta.label}</span>
                         {supplier._duplicateCount > 1 && <span style={{fontSize:'11px',fontWeight:'700',color:C.warning,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder}}>дублей: {supplier._duplicateCount}</span>}
+                        {stats.duplicateDocumentsCount > 0 && <span title="Повторные строки документов скрыты из суммы и счетчиков" style={{fontSize:'11px',fontWeight:'700',color:C.warning,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder}}>дублей документов: {stats.duplicateDocumentsCount}</span>}
                         {isOpen ? <ChevronUp size={14} color={C.textSec}/> : <ChevronDown size={14} color={C.textSec}/>}
                       </div>
                       <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{supplier.phone+(supplier.email?' · '+supplier.email:'')+(supplier.specialization?' · '+supplier.specialization:'')}</p>
@@ -571,7 +655,8 @@ function SupplySuppliersPanel({
                       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:'8px',marginBottom:'10px'}}>
                         <div style={{padding:'10px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 3px'}}>Последняя операция</p><b style={{color:C.text,fontSize:'13px'}}>{formatShortDate(stats.lastDate)}</b></div>
                         <div style={{padding:'10px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 3px'}}>КП</p><b style={{color:C.text,fontSize:'13px'}}>{stats.offers.length}</b></div>
-                        <div style={{padding:'10px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 3px'}}>Связано документов</p><b style={{color:C.text,fontSize:'13px'}}>{stats.recent.length}</b></div>
+                        <div style={{padding:'10px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 3px'}}>Связано документов</p><b style={{color:C.text,fontSize:'13px'}}>{stats.documentCount}</b></div>
+                        {stats.duplicateDocumentsCount > 0 && <div style={{padding:'10px',borderRadius:'8px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 3px'}}>Скрыто дублей</p><b style={{color:C.warning,fontSize:'13px'}}>{stats.duplicateDocumentsCount}</b></div>}
                       </div>
                       <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 10px'}}>Источник: <b style={{color:primarySourceMeta.color}}>{primarySourceMeta.label}</b>{sourceInfo.detail ? ' · ' + sourceInfo.detail : ''}</p>
                       {stats.recent.length > 0 ? stats.recent.map((doc, index)=>(

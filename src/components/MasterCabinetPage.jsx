@@ -31,6 +31,24 @@ import DocumentRecognitionPanel from './DocumentRecognitionPanel';
 
 const GENERAL_WORK_ROOM_NAME = 'Без помещения';
 
+const estimatePackageName = (estimate) => estimate?.workPackage || estimate?.work_package || 'Основная';
+const estimateItemKeyForRow = (estimate, sectionIndex, itemIndex, item) => (
+  item?.estimateItemKey ||
+  item?.estimate_item_key ||
+  item?.workKey ||
+  item?.work_key ||
+  item?.key ||
+  item?.id ||
+  (String(estimate?.id || '') + ':' + sectionIndex + ':' + itemIndex)
+);
+const estimateIsActive = (estimate) => String(estimate?.status || 'Активная').toLowerCase() === 'активная';
+const estimateItemIsMaterial = (item) => {
+  const itemType = String(item?.type || item?.itemType || item?._type || '').toLowerCase();
+  if (itemType.includes('материал') || itemType === 'material' || itemType === 'materials' || itemType === 'resource') return true;
+  return Number(item?.priceMaterial || item?.materialPrice || item?.materialTotal || 0) > 0 &&
+    Number(item?.priceWork || item?.workPrice || item?.workTotal || 0) <= 0;
+};
+
 export default function MasterCabinetPage(props) {
   const [showProjectPicker, setShowProjectPicker] = React.useState(false);
   const [showEstimateChangeForm, setShowEstimateChangeForm] = React.useState(false);
@@ -297,6 +315,98 @@ export default function MasterCabinetPage(props) {
       return { ...prev, [workKey]: value };
     });
   };
+  const userAssignedPackages = React.useMemo(() => (
+    Array.isArray(user?.assignedPackages)
+      ? user.assignedPackages.filter(Boolean)
+      : (Array.isArray(user?.assigned_packages) ? user.assigned_packages.filter(Boolean) : [])
+  ), [user?.assignedPackages, user?.assigned_packages]);
+  const visibleEstimatesList = React.useMemo(() => (
+    typeof visibleEstimatesForCurrentUser === 'function'
+      ? visibleEstimatesForCurrentUser(estimatesList || [])
+      : (estimatesList || [])
+  ), [visibleEstimatesForCurrentUser, estimatesList]);
+  const masterEstimateWorkState = React.useMemo(() => {
+    if (!masterProjectId) {
+      return { projectName: '', myItems: [], hasActiveEstimate: false };
+    }
+    const projectName = projects.find(project => project.id === Number(masterProjectId))?.name || '';
+    const projectEstimates = visibleEstimatesList.filter(estimate => (estimate.projectName || estimate.project_name) === projectName);
+    const assignedContractItems = Array.isArray(brigadeContractItems) ? brigadeContractItems : [];
+    const contractItemsByPackageAndKey = new Map();
+    const contractItemsByPackageAndName = new Map();
+    const addContractIndex = (map, key, contractItem) => {
+      if (!key) return;
+      const list = map.get(key) || [];
+      list.push(contractItem);
+      map.set(key, list);
+    };
+    assignedContractItems.forEach(contractItem => {
+      const contractPackage = String(contractItem.workPackage || contractItem.work_package || '').trim();
+      if (!contractPackage) return;
+      const contractKey = String(contractItem.estimateItemKey || contractItem.estimate_item_key || '').trim();
+      const contractName = String(contractItem.name || contractItem.description || '').trim().toLowerCase();
+      addContractIndex(contractItemsByPackageAndKey, contractPackage + '\n' + contractKey, contractItem);
+      addContractIndex(contractItemsByPackageAndName, contractPackage + '\n' + contractName, contractItem);
+    });
+    const myItems = [];
+    projectEstimates.forEach(estimate => (estimate.sections || []).forEach((section, sectionIndex) => (section.items || []).forEach((item, itemIndex) => {
+      if (!estimateIsActive(estimate) || estimateItemIsMaterial(item)) return;
+      const itemPackage = estimatePackageName(estimate);
+      const packageAllowed = userAssignedPackages.length > 0 && userAssignedPackages.includes(itemPackage);
+      const namedToMe = item.brigadeName && (item.brigadeName === user?.name || (user?.brigade && item.brigadeName === user.brigade));
+      const itemKey = String(estimateItemKeyForRow(estimate, sectionIndex, itemIndex, item) || '').trim();
+      const itemName = String(item.name || '').trim().toLowerCase();
+      const sectionName = String(section.name || '').trim().toLowerCase();
+      const itemUnit = String(item.unit || '').trim().toLowerCase();
+      const contractCandidates = [
+        ...(itemKey ? (contractItemsByPackageAndKey.get(itemPackage + '\n' + itemKey) || []) : []),
+        ...(itemName ? (contractItemsByPackageAndName.get(itemPackage + '\n' + itemName) || []) : []),
+      ];
+      const seenContractCandidates = new Set();
+      const assignedContractItem = contractCandidates.find(contractItem => {
+        if (seenContractCandidates.has(contractItem)) return false;
+        seenContractCandidates.add(contractItem);
+        const contractKey = String(contractItem.estimateItemKey || contractItem.estimate_item_key || '').trim();
+        const contractName = String(contractItem.name || contractItem.description || '').trim().toLowerCase();
+        const contractUnit = String(contractItem.unit || '').trim().toLowerCase();
+        const contractSection = String(contractItem.estimateSection || contractItem.estimate_section || '').trim().toLowerCase();
+        const contractProject = String(contractItem.projectName || contractItem.project_name || '').trim();
+        const sameProject = !contractProject || contractProject === projectName;
+        const sameKey = itemKey && contractKey && contractKey === itemKey;
+        const sameName = contractName && contractName === itemName && (!contractSection || !sectionName || contractSection === sectionName) && (!itemUnit || !contractUnit || contractUnit === itemUnit);
+        return sameProject && (sameKey || sameName);
+      });
+      if ((assignedContractItems.length > 0 && assignedContractItem) || (assignedContractItems.length === 0 && (packageAllowed || namedToMe))) {
+        myItems.push({
+          ...item,
+          estId: estimate.id,
+          estName: estimate.name,
+          workPackage: itemPackage,
+          sectionIdx: sectionIndex,
+          itemIdx: itemIndex,
+          section: section.name,
+          quantity: assignedContractItem?.quantity ?? item.quantity,
+          doneQuantity: assignedContractItem?.doneQuantity ?? assignedContractItem?.done_quantity ?? item.doneQuantity,
+          estimateItemKey: itemKey,
+          contractItemId: assignedContractItem?.id || null,
+          executionPricePerUnit: assignedContractItem?.priceBrigade || item.executionPricePerUnit,
+        });
+      }
+    })));
+    return {
+      projectName,
+      myItems,
+      hasActiveEstimate: projectEstimates.some(estimate => estimateIsActive(estimate)),
+    };
+  }, [
+    brigadeContractItems,
+    masterProjectId,
+    projects,
+    user?.brigade,
+    user?.name,
+    userAssignedPackages,
+    visibleEstimatesList,
+  ]);
 
   const profilePatchFromRecognition = (result) => {
     const extracted = result?.extracted || {};
@@ -444,9 +554,6 @@ export default function MasterCabinetPage(props) {
   const masterProjectOptions = directAssignedProjectOptions.length ? directAssignedProjectOptions : parentProjectOptions;
   const selectedMasterProject = masterProjectOptions.find(project => project.id === Number(masterProjectId)) || projects.find(project => project.id === Number(masterProjectId));
   const projectRooms = masterProjectId ? rooms.filter(room => room.project === (selectedMasterProject?.name || '')) : [];
-  const visibleEstimatesList = typeof visibleEstimatesForCurrentUser === 'function'
-    ? visibleEstimatesForCurrentUser(estimatesList || [])
-    : (estimatesList || []);
   const selectedProjectHasActiveCustomerEstimate = !!selectedMasterProject && visibleEstimatesList.some(estimate =>
     (estimate.projectName || estimate.project_name) === selectedMasterProject.name &&
     String(estimate.status || 'Активная').toLowerCase() === 'активная' &&
@@ -460,10 +567,6 @@ export default function MasterCabinetPage(props) {
     if (project?.pricelistId && typeof loadPricelistItems === 'function') await loadPricelistItems(project.pricelistId);
     else if (typeof loadPricelistItems === 'function') loadPricelistItems(null);
   };
-  const userAssignedPackages = Array.isArray(user?.assignedPackages)
-    ? user.assignedPackages.filter(Boolean)
-    : (Array.isArray(user?.assigned_packages) ? user.assigned_packages.filter(Boolean) : []);
-  const estimatePackageName = (estimate) => estimate?.workPackage || estimate?.work_package || 'Основная';
   const estimateChangePackage = estimateChangeDraft.workPackage || (userAssignedPackages.length === 1 ? userAssignedPackages[0] : 'Основная');
   const authJsonHeaders = () => {
     let token = '';
@@ -814,22 +917,6 @@ export default function MasterCabinetPage(props) {
     } finally {
       setDailyWorkSubmitting(false);
     }
-  };
-  const estimateItemKeyForRow = (estimate, sectionIndex, itemIndex, item) => (
-    item?.estimateItemKey ||
-    item?.estimate_item_key ||
-    item?.workKey ||
-    item?.work_key ||
-    item?.key ||
-    item?.id ||
-    (String(estimate?.id || '') + ':' + sectionIndex + ':' + itemIndex)
-  );
-  const estimateIsActive = (estimate) => String(estimate?.status || 'Активная').toLowerCase() === 'активная';
-  const estimateItemIsMaterial = (item) => {
-    const itemType = String(item?.type || item?.itemType || item?._type || '').toLowerCase();
-    if (itemType.includes('материал') || itemType === 'material' || itemType === 'materials' || itemType === 'resource') return true;
-    return Number(item?.priceMaterial || item?.materialPrice || item?.materialTotal || 0) > 0 &&
-      Number(item?.priceWork || item?.workPrice || item?.workTotal || 0) <= 0;
   };
   const myTools = tools.filter(tool => tool.masterName === (masterProfile?.fullName || user.name) && tool.status.includes('У мастера'));
 
@@ -1273,72 +1360,9 @@ export default function MasterCabinetPage(props) {
                 </>
               )}
               {masterProjectId && (() => {
-                const projectName = projects.find(project => project.id === Number(masterProjectId))?.name || '';
-                const projectEstimates = visibleEstimatesList.filter(estimate => (estimate.projectName || estimate.project_name) === projectName);
-                const assignedContractItems = Array.isArray(brigadeContractItems) ? brigadeContractItems : [];
-                const contractItemsByPackageAndKey = new Map();
-                const contractItemsByPackageAndName = new Map();
-                const addContractIndex = (map, key, contractItem) => {
-                  if (!key) return;
-                  const list = map.get(key) || [];
-                  list.push(contractItem);
-                  map.set(key, list);
-                };
-                assignedContractItems.forEach(contractItem => {
-                  const contractPackage = String(contractItem.workPackage || contractItem.work_package || '').trim();
-                  if (!contractPackage) return;
-                  const contractKey = String(contractItem.estimateItemKey || contractItem.estimate_item_key || '').trim();
-                  const contractName = String(contractItem.name || contractItem.description || '').trim().toLowerCase();
-                  addContractIndex(contractItemsByPackageAndKey, contractPackage + '\n' + contractKey, contractItem);
-                  addContractIndex(contractItemsByPackageAndName, contractPackage + '\n' + contractName, contractItem);
-                });
-                const myItems = [];
-                projectEstimates.forEach(estimate => (estimate.sections || []).forEach((section, sectionIndex) => (section.items || []).forEach((item, itemIndex) => {
-                  if (!estimateIsActive(estimate) || estimateItemIsMaterial(item)) return;
-                  const itemPackage = estimatePackageName(estimate);
-                  const packageAllowed = userAssignedPackages.length > 0 && userAssignedPackages.includes(itemPackage);
-                  const namedToMe = item.brigadeName && (item.brigadeName === user.name || (user.brigade && item.brigadeName === user.brigade));
-                  const itemKey = String(estimateItemKeyForRow(estimate, sectionIndex, itemIndex, item) || '').trim();
-                  const itemName = String(item.name || '').trim().toLowerCase();
-                  const sectionName = String(section.name || '').trim().toLowerCase();
-                  const itemUnit = String(item.unit || '').trim().toLowerCase();
-                  const contractCandidates = [
-                    ...(itemKey ? (contractItemsByPackageAndKey.get(itemPackage + '\n' + itemKey) || []) : []),
-                    ...(itemName ? (contractItemsByPackageAndName.get(itemPackage + '\n' + itemName) || []) : []),
-                  ];
-                  const seenContractCandidates = new Set();
-                  const assignedContractItem = contractCandidates.find(contractItem => {
-                    if (seenContractCandidates.has(contractItem)) return false;
-                    seenContractCandidates.add(contractItem);
-                    const contractKey = String(contractItem.estimateItemKey || contractItem.estimate_item_key || '').trim();
-                    const contractName = String(contractItem.name || contractItem.description || '').trim().toLowerCase();
-                    const contractUnit = String(contractItem.unit || '').trim().toLowerCase();
-                    const contractSection = String(contractItem.estimateSection || contractItem.estimate_section || '').trim().toLowerCase();
-                    const contractProject = String(contractItem.projectName || contractItem.project_name || '').trim();
-                    const sameProject = !contractProject || contractProject === projectName;
-                    const sameKey = itemKey && contractKey && contractKey === itemKey;
-                    const sameName = contractName && contractName === itemName && (!contractSection || !sectionName || contractSection === sectionName) && (!itemUnit || !contractUnit || contractUnit === itemUnit);
-                    return sameProject && (sameKey || sameName);
-                  });
-                  if ((assignedContractItems.length > 0 && assignedContractItem) || (assignedContractItems.length === 0 && (packageAllowed || namedToMe))) {
-                    myItems.push({
-                      ...item,
-                      estId: estimate.id,
-                      estName: estimate.name,
-                      workPackage: itemPackage,
-                      sectionIdx: sectionIndex,
-                      itemIdx: itemIndex,
-                      section: section.name,
-                      quantity: assignedContractItem?.quantity ?? item.quantity,
-                      doneQuantity: assignedContractItem?.doneQuantity ?? assignedContractItem?.done_quantity ?? item.doneQuantity,
-                      estimateItemKey: itemKey,
-                      contractItemId: assignedContractItem?.id || null,
-                      executionPricePerUnit: assignedContractItem?.priceBrigade || item.executionPricePerUnit,
-                    });
-                  }
-                })));
+                const { projectName, myItems, hasActiveEstimate } = masterEstimateWorkState;
                 if (myItems.length === 0) {
-                  if (!projectEstimates.some(estimate => estimateIsActive(estimate))) return null;
+                  if (!hasActiveEstimate) return null;
                   return (
                     <div style={{ ...card, padding: '14px', marginBottom: '15px', backgroundColor: C.warningLight, border: '1.5px solid ' + C.warningBorder }}>
                       <b style={{ color: C.warning, fontSize: '13px' }}>Работы по смете еще не назначены</b>

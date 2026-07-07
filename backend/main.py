@@ -985,6 +985,15 @@ def current_supplier_ids(cur, user: dict):
     supplier_id = current_supplier_id(cur, user)
     if not supplier_id:
         return []
+    return supplier_related_ids(cur, supplier_id)
+
+def supplier_related_ids(cur, supplier_id: int):
+    try:
+        supplier_id = int(supplier_id or 0)
+    except (TypeError, ValueError):
+        return []
+    if not supplier_id:
+        return []
     cur.execute("SELECT id,name,phone,email,inn,kpp,ogrn FROM suppliers WHERE id=%s LIMIT 1", (supplier_id,))
     base = cur.fetchone()
     if not base:
@@ -1039,6 +1048,50 @@ def current_supplier_ids(cur, user: dict):
         ):
             ids.add(alias_supplier_id)
     return sorted(ids)
+
+def supplier_group_scope_ids(cur, supplier_ids) -> list:
+    ids = []
+    seen = set()
+    for supplier_id in _normalize_supplier_ids(supplier_ids):
+        related_ids = supplier_related_ids(cur, supplier_id) or [supplier_id]
+        for related_id in related_ids:
+            try:
+                related_id = int(related_id or 0)
+            except (TypeError, ValueError):
+                continue
+            if related_id > 0 and related_id not in seen:
+                seen.add(related_id)
+                ids.append(related_id)
+    return ids
+
+def supplier_offer_targets_for_groups(cur, supplier_ids, ai_ids=None) -> list:
+    ai_ids = {int(x) for x in (ai_ids or []) if int(x) > 0}
+    targets = []
+    seen = set()
+    for supplier_id in _normalize_supplier_ids(supplier_ids):
+        scope_ids = supplier_related_ids(cur, supplier_id) or [supplier_id]
+        scope_ids = [int(x) for x in scope_ids if int(x or 0) > 0]
+        if not scope_ids or any(sid in seen for sid in scope_ids):
+            continue
+        seen.update(scope_ids)
+        cur.execute("""
+            SELECT id
+              FROM suppliers
+             WHERE id = ANY(%s)
+             ORDER BY
+               CASE WHEN user_id IS NOT NULL THEN 0 ELSE 1 END,
+               CASE WHEN registered_at IS NOT NULL THEN 0 ELSE 1 END,
+               id
+             LIMIT 1
+        """, (scope_ids,))
+        row = cur.fetchone()
+        target_id = int(_row_get(row, "id", 0, supplier_id) or supplier_id)
+        targets.append({
+            "target_id": target_id,
+            "scope_ids": scope_ids,
+            "ai_recommended": bool(ai_ids.intersection(scope_ids) or target_id in ai_ids),
+        })
+    return targets
 
 def supplier_is_selected(selected_suppliers, supplier_id: int) -> bool:
     if not supplier_id:
@@ -7348,27 +7401,29 @@ def _normalize_supplier_ids(value) -> list:
     return ids
 
 def _create_supplier_offer_requests(cur, request_id: int, supplier_ids, ai_ids=None) -> list:
-    ai_ids = {int(x) for x in (ai_ids or []) if int(x) > 0}
     created = []
-    for supplier_id in _normalize_supplier_ids(supplier_ids):
+    for target in supplier_offer_targets_for_groups(cur, supplier_ids, ai_ids):
+        supplier_id = target["target_id"]
+        scope_ids = target["scope_ids"] or [supplier_id]
+        ai_recommended = bool(target.get("ai_recommended"))
         cur.execute(
-            "SELECT id, status FROM supplier_offers WHERE request_id=%s AND supplier_id=%s ORDER BY id DESC LIMIT 1",
-            (request_id, supplier_id))
+            "SELECT id, status FROM supplier_offers WHERE request_id=%s AND supplier_id = ANY(%s) ORDER BY id DESC LIMIT 1",
+            (request_id, scope_ids))
         existing = cur.fetchone()
         if existing:
             if (existing.get("status") or "") in ("Отозвано", "Отклонено"):
                 cur.execute(
-                    "UPDATE supplier_offers SET status=%s, price_per_unit=NULL, total_price=NULL, delivery_days=NULL, "
+                    "UPDATE supplier_offers SET supplier_id=%s, status=%s, price_per_unit=NULL, total_price=NULL, delivery_days=NULL, "
                     "notes=NULL, payment_terms=%s, vat_included=TRUE, pdf_url=NULL, valid_until=NULL, "
                     "supplier_message='', requested_at=NOW(), responded_at=NULL, ai_recommended=%s, "
                     "delivery_status=NULL, items_kp_json=NULL WHERE id=%s RETURNING id",
-                    ('Ожидает ответа', 'Постоплата', supplier_id in ai_ids, existing.get("id")))
+                    (supplier_id, 'Ожидает ответа', 'Постоплата', ai_recommended, existing.get("id")))
                 created.append(cur.fetchone()['id'])
             continue
         cur.execute(
             "INSERT INTO supplier_offers (request_id, supplier_id, status, ai_recommended, requested_at) "
             "VALUES (%s, %s, %s, %s, NOW()) RETURNING id",
-            (request_id, supplier_id, 'Ожидает ответа', supplier_id in ai_ids))
+            (request_id, supplier_id, 'Ожидает ответа', ai_recommended))
         created.append(cur.fetchone()['id'])
     return created
 
@@ -8506,6 +8561,7 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     _ensure_supply_runtime_columns(cur)
     conn.commit()
+    selected_suppliers = supplier_group_scope_ids(cur, selected_suppliers)
     items = _attach_supply_estimate_control(cur, project_name, items)
     if project_name != "Основной склад":
         _enforce_supply_estimate_control(items, source="заявка")
@@ -9386,6 +9442,7 @@ def request_kp_from_suppliers(id: int, data: dict, _current_user: dict = Depends
     if (req.get("status") or "Новая") not in ("Утверждена", "КП запрошены"):
         cur.close(); conn.close()
         raise HTTPException(status_code=400, detail="Запрашивать КП можно только после утверждения заявки директором")
+    selected_scope_ids = supplier_group_scope_ids(cur, supplier_ids)
     created = _create_supplier_offer_requests(cur, id, supplier_ids, ai_ids)
     # Обновляем статус заявки
     cur.execute("""UPDATE supply_requests
@@ -9396,10 +9453,10 @@ def request_kp_from_suppliers(id: int, data: dict, _current_user: dict = Depends
                            )
                        )
                    WHERE id=%s""",
-        ('КП запрошены', supplier_ids, id))
+        ('КП запрошены', selected_scope_ids, id))
     conn.commit()
     conn.close()
-    return {"ok": True, "created": len(created), "ids": created}
+    return {"ok": True, "created": len(created), "ids": created, "supplierIds": selected_scope_ids}
 
 @app.get("/supply-requests/{id}/suggest-suppliers")
 def suggest_suppliers_for_request(id: int, current_user: dict = Depends(require_roles(*SUPPLY_INTERNAL_ROLES))):

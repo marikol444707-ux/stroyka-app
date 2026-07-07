@@ -69,6 +69,17 @@ function SuppliersPage({
     : [];
   const supplierGroups = React.useMemo(() => groupSuppliers(suppliers), [suppliers]);
   const supplierRequestDefaultPackage = supplierRequestPackages.length === 1 ? supplierRequestPackages[0] : '';
+  const selectedSupplierIdSet = new Set((newRequest.selectedSuppliers || []).map(id => String(id)));
+  const supplierGroupIds = supplier => (supplier._supplierIds || [supplier.id]).filter(Boolean);
+  const supplierGroupChecked = supplier => supplierGroupIds(supplier).some(id => selectedSupplierIdSet.has(String(id)));
+  const toggleRequestSupplier = (supplier, checked) => {
+    const groupIds = supplierGroupIds(supplier).map(id => String(id));
+    const current = (newRequest.selectedSuppliers || []).filter(Boolean);
+    const next = checked
+      ? Array.from(new Map([...current, supplier.id].map(id => [String(id), id])).values())
+      : current.filter(id => !groupIds.includes(String(id)));
+    setNewRequest({...newRequest, selectedSuppliers: next});
+  };
   const updateRequestProject = (projectName) => {
     const packages = typeof getProjectWorkPackageOptions === 'function' ? getProjectWorkPackageOptions(projectName) : [];
     const defaultPackage = packages.length === 1 ? packages[0] : '';
@@ -184,13 +195,17 @@ function SuppliersPage({
               <button onClick={()=>setNewRequest({...newRequest,items:[...newRequest.items,{materialName:'',quantity:'',unit:'шт',workPackage:supplierRequestDefaultPackage}]})} style={{...btnG,fontSize:'12px',marginBottom:'12px'}}><Plus size={13}/>Строка</button>
               <textarea placeholder="Примечания" value={newRequest.notes} onChange={e=>setNewRequest({...newRequest,notes:e.target.value})} style={{...inp,height:'60px',resize:'vertical'}}/>
               <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'8px'}}>Отправить поставщикам:</b>
-              {suppliers.filter(s=>!newRequest.category||s.category===newRequest.category).map(s=>(
-                <label key={s.id} style={{display:'flex',alignItems:'center',gap:'8px',padding:'8px',cursor:'pointer',borderRadius:'6px',marginBottom:'4px',backgroundColor:newRequest.selectedSuppliers.includes(s.id)?C.accentLight:'transparent'}}>
-                  <input type="checkbox" checked={newRequest.selectedSuppliers.includes(s.id)} onChange={e=>setNewRequest({...newRequest,selectedSuppliers:e.target.checked?[...newRequest.selectedSuppliers,s.id]:newRequest.selectedSuppliers.filter(id=>id!==s.id)})} style={{accentColor:C.accent}}/>
+              {supplierGroups.filter(s=>!newRequest.category||s.category===newRequest.category).map(s=>{
+                const checked = supplierGroupChecked(s);
+                return (
+                <label key={s.id} style={{display:'flex',alignItems:'center',gap:'8px',padding:'8px',cursor:'pointer',borderRadius:'6px',marginBottom:'4px',backgroundColor:checked?C.accentLight:'transparent'}}>
+                  <input type="checkbox" checked={checked} onChange={e=>toggleRequestSupplier(s, e.target.checked)} style={{accentColor:C.accent}}/>
                   <span style={{fontSize:'13px',color:C.text}}>{s.name}</span>
                   <span style={{fontSize:'11px',color:C.textSec}}>{s.category}</span>
+                  {s._duplicateCount > 1 && <span style={{fontSize:'10px',color:C.warning,marginLeft:'auto'}}>дублей: {s._duplicateCount}</span>}
                 </label>
-              ))}
+                );
+              })}
               {newRequest.selectedSuppliers.length===0&&(
                 <p style={{color:C.warning,fontSize:'12px',margin:'6px 0 0'}}>Поставщики не выбраны: заявка создастся внутри снабжения, но никому не уйдёт.</p>
               )}
