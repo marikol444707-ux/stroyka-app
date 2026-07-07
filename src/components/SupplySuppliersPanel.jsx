@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, ChevronDown, ChevronUp, Edit2, Plus, Search, Trash2, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Edit2, Link2, Plus, Search, Trash2, X } from 'lucide-react';
 import { API } from '../api';
 import { createSupplierForm, createSupplierInviteForm } from '../features/supply/supplyInitialForms';
 import DocumentRecognitionPanel from './DocumentRecognitionPanel';
@@ -27,6 +27,28 @@ const invoiceItemsTotal = invoice => (invoice?.items || []).reduce((sum, item) =
   return sum + (line > 0 ? line : toNumber(item.quantity) * toNumber(item.price));
 }, 0);
 
+const SUPPLIER_SOURCE_META = {
+  manual: { label: 'Вручную', color: '#64748b' },
+  invite_link: { label: 'По ссылке', color: '#2563eb' },
+  linked_account: { label: 'Связан вручную', color: '#7c3aed' },
+  warehouse_invoice: { label: 'Из накладной', color: '#0f766e' },
+  max_invoice: { label: 'MAX-накладная', color: '#0891b2' },
+  site: { label: 'С сайта', color: '#ea580c' },
+  crm: { label: 'CRM', color: '#f97316' },
+  other: { label: 'Другой источник', color: '#475569' },
+};
+
+const SOURCE_FILTERS = [
+  { id: 'all', label: 'Все' },
+  { id: 'invite_link', label: 'Ссылка' },
+  { id: 'site', label: 'Сайт/CRM' },
+  { id: 'warehouse_invoice', label: 'Накладная' },
+  { id: 'manual', label: 'Вручную' },
+  { id: 'linked_account', label: 'Связанные' },
+];
+
+const sourceMeta = type => SUPPLIER_SOURCE_META[type] || SUPPLIER_SOURCE_META.other;
+
 function SupplySuppliersPanel({
   C,
   card,
@@ -37,6 +59,7 @@ function SupplySuppliersPanel({
   btnGr,
   btnR,
   user,
+  users = [],
   suppliers,
   supplierCategories,
   showForm,
@@ -63,7 +86,25 @@ function SupplySuppliersPanel({
   uploadPhoto,
 }) {
   const [openedSupplierId, setOpenedSupplierId] = React.useState(null);
+  const [linkingSupplierId, setLinkingSupplierId] = React.useState(null);
+  const [linkUserId, setLinkUserId] = React.useState('');
+  const [linkUserEmail, setLinkUserEmail] = React.useState('');
+  const [sourceFilter, setSourceFilter] = React.useState('all');
+  const [collapsedCategories, setCollapsedCategories] = React.useState(() => new Set());
   const canEditSuppliers = ['директор','зам_директора','кладовщик','снабженец'].includes(user?.role || '');
+  const canLinkSupplierUsers = ['директор','зам_директора'].includes(user?.role || '');
+  const supplierUsers = React.useMemo(
+    () => (users || []).filter(item => item?.role === 'поставщик'),
+    [users],
+  );
+  const toggleCategory = category => {
+    setCollapsedCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  };
   const emptySupplier = createSupplierForm({
     inn:'',kpp:'',ogrn:'',legalAddress:'',actualAddress:'',bank:'',bik:'',account:'',korAccount:'',
     directorName:'',directorPosition:'',contractUrl:'',contractNumber:'',contractDate:'',licenseUrl:'',priceUrl:'',website:'',notes:''
@@ -82,6 +123,8 @@ function SupplySuppliersPanel({
     contractDate: String(supplierValue(supplier, 'contractDate', 'contract_date') || '').slice(0, 10),
     licenseUrl: supplierValue(supplier, 'licenseUrl', 'license_url'),
     priceUrl: supplierValue(supplier, 'priceUrl', 'price_url'),
+    sourceType: supplierValue(supplier, 'sourceType', 'source_type') || 'manual',
+    sourceDetail: supplierValue(supplier, 'sourceDetail', 'source_detail'),
   });
   const appendSupplierNote = (current, line) => {
     const base = String(current || '').trim();
@@ -236,6 +279,44 @@ function SupplySuppliersPanel({
     };
   };
 
+  const supplierSourceInfo = (supplier, stats = {}) => {
+    const rawTypes = [
+      supplier.sourceType,
+      supplier.source_type,
+      ...(supplier._supplierSourceTypes || []),
+    ].filter(Boolean);
+    const types = Array.from(new Set(rawTypes));
+    const hasLinkedAccount = supplier.userId || supplier.user_id || supplier.registeredAt || supplier.registered_at;
+    if (hasLinkedAccount && !types.includes('invite_link') && !types.includes('linked_account')) {
+      types.push('invite_link');
+    }
+    if ((stats.warehouseInvoices || []).length > 0 && !types.includes('warehouse_invoice')) {
+      types.push('warehouse_invoice');
+    }
+    if (!types.length) types.push('manual');
+    const primary = types.find(type => ['warehouse_invoice','max_invoice','invite_link','site','crm','linked_account','manual'].includes(type)) || types[0];
+    const filterTypes = types.flatMap(type => type === 'crm' ? ['crm', 'site'] : [type]);
+    const details = [
+      supplier.sourceDetail,
+      supplier.source_detail,
+      ...(supplier._supplierSourceDetails || []),
+    ].filter(Boolean);
+    return {
+      primary,
+      types,
+      filterTypes,
+      label: sourceMeta(primary).label,
+      detail: details[0] || '',
+    };
+  };
+
+  const sourceMatches = sourceInfo => (
+    sourceFilter === 'all'
+    || sourceInfo.filterTypes.includes(sourceFilter)
+    || (sourceFilter === 'site' && sourceInfo.filterTypes.includes('crm'))
+    || (sourceFilter === 'warehouse_invoice' && sourceInfo.filterTypes.includes('max_invoice'))
+  );
+
   const openInvite = () => {
     setSupplierInviteForm(createSupplierInviteForm());
     setGeneratedInviteLink(null);
@@ -271,6 +352,40 @@ function SupplySuppliersPanel({
     deleteSupplier(supplier.id);
   };
 
+  const openLinkSupplier = (supplier, event) => {
+    event?.stopPropagation();
+    setLinkingSupplierId(prev => (prev === supplier.id ? null : supplier.id));
+    setLinkUserId('');
+    setLinkUserEmail('');
+  };
+
+  const linkSupplierUser = async (supplier, event) => {
+    event?.stopPropagation();
+    if (!canLinkSupplierUsers) return;
+    const payload = {
+      userId: linkUserId || undefined,
+      email: linkUserEmail.trim() || undefined,
+    };
+    if (!payload.userId && !payload.email) {
+      alert('Выберите пользователя-поставщика или укажите email');
+      return;
+    }
+    const res = await fetch(API + '/suppliers/' + supplier.id + '/link-user', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(data.detail || 'Не удалось связать пользователя с поставщиком');
+      return;
+    }
+    setLinkingSupplierId(null);
+    setLinkUserId('');
+    setLinkUserEmail('');
+    await loadAll();
+  };
+
   return (
     <div>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',gap:'8px',flexWrap:'wrap'}}>
@@ -299,6 +414,10 @@ function SupplySuppliersPanel({
             <select value={newSupplier.status} onChange={e=>setNewSupplier({...newSupplier,status:e.target.value})} style={{...inp,marginBottom:0}}>
               {['Активный','Неактивный','Заблокирован'].map(status=><option key={status}>{status}</option>)}
             </select>
+            <select value={newSupplier.sourceType || 'manual'} onChange={e=>setNewSupplier({...newSupplier,sourceType:e.target.value})} style={{...inp,marginBottom:0}}>
+              {Object.entries(SUPPLIER_SOURCE_META).map(([value, meta])=><option key={value} value={value}>{meta.label}</option>)}
+            </select>
+            <input placeholder="Детали источника" value={newSupplier.sourceDetail || ''} onChange={e=>setNewSupplier({...newSupplier,sourceDetail:e.target.value})} style={{...inp,marginBottom:0}}/>
             <input placeholder="ИНН" value={newSupplier.inn || ''} onChange={e=>setNewSupplier({...newSupplier,inn:e.target.value})} style={{...inp,marginBottom:0}}/>
             <input placeholder="КПП" value={newSupplier.kpp || ''} onChange={e=>setNewSupplier({...newSupplier,kpp:e.target.value})} style={{...inp,marginBottom:0}}/>
             <input placeholder="ОГРН / ОГРНИП" value={newSupplier.ogrn || ''} onChange={e=>setNewSupplier({...newSupplier,ogrn:e.target.value})} style={{...inp,marginBottom:0}}/>
@@ -343,28 +462,57 @@ function SupplySuppliersPanel({
         <input placeholder='🔍 Поиск поставщика, материала, счёта или объекта' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
       </div>
 
+      <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginBottom:'12px'}}>
+        {SOURCE_FILTERS.map(filter=>(
+          <button
+            key={filter.id}
+            onClick={()=>setSourceFilter(filter.id)}
+            style={{
+              border:'1px solid '+(sourceFilter===filter.id?C.accent:C.border),
+              backgroundColor:sourceFilter===filter.id?C.accentLight:C.bg,
+              color:sourceFilter===filter.id?C.accent:C.textSec,
+              borderRadius:'999px',
+              padding:'6px 10px',
+              fontSize:'11px',
+              fontWeight:'700',
+              cursor:'pointer'
+            }}
+          >
+            {filter.label}
+          </button>
+        ))}
+      </div>
+
       {categories.map(category=>{
-        const catSuppliers = supplierGroups.filter(supplier => {
+        const catSuppliers = supplierGroups.map(supplier => {
           const stats = supplierStats(supplier);
-          return (supplier.category || 'Прочее') === category && matchSearch(listSearch, supplier.name, supplier.specialization, supplier.phone, supplier.email, stats.searchText);
-        });
+          const sourceInfo = supplierSourceInfo(supplier, stats);
+          return { supplier, stats, sourceInfo };
+        }).filter(({supplier, stats, sourceInfo}) => (
+          (supplier.category || 'Прочее') === category
+          && sourceMatches(sourceInfo)
+          && matchSearch(listSearch, supplier.name, supplier.specialization, supplier.phone, supplier.email, sourceInfo.label, sourceInfo.detail, stats.searchText)
+        ));
         if (catSuppliers.length===0) return null;
+        const categoryCollapsed = collapsedCategories.has(category);
         return (
           <div key={category} style={{marginBottom:'20px'}}>
-            <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'10px',padding:'8px 12px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border}}>
+            <button onClick={()=>toggleCategory(category)} style={{width:'100%',display:'flex',alignItems:'center',gap:'8px',marginBottom:'10px',padding:'8px 12px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border,cursor:'pointer',textAlign:'left'}}>
+              {categoryCollapsed ? <ChevronDown size={14} color={C.textSec}/> : <ChevronUp size={14} color={C.textSec}/>}
               <b style={{color:C.accent,fontSize:'13px'}}>{'🏭 '+category}</b>
               <span style={{color:C.textSec,fontSize:'12px'}}>{'('+catSuppliers.length+')'}</span>
-            </div>
-            {catSuppliers.map(supplier=>{
-              const stats = supplierStats(supplier);
+            </button>
+            {!categoryCollapsed && catSuppliers.map(({supplier, stats, sourceInfo})=>{
               const isOpen = openedSupplierId === supplier.id;
               const materialPreview = stats.materials.slice(0, 5);
+              const primarySourceMeta = sourceMeta(sourceInfo.primary);
               return (
                 <div key={supplier.id} onClick={()=>setOpenedSupplierId(isOpen ? null : supplier.id)} style={{...card,padding:'14px',marginBottom:'8px',marginLeft:'12px',cursor:'pointer',borderColor:isOpen?C.accent:C.border}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
                     <div style={{flex:'1 1 280px',minWidth:0}}>
                       <div style={{display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
                         <b style={{color:C.text,fontSize:'13px',overflowWrap:'anywhere'}}>{supplier.name}</b>
+                        <span title={sourceInfo.detail || sourceInfo.types.map(type => sourceMeta(type).label).join(', ')} style={{fontSize:'11px',fontWeight:'700',color:primarySourceMeta.color,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.bg,border:'1px solid '+primarySourceMeta.color}}>{primarySourceMeta.label}</span>
                         {supplier._duplicateCount > 1 && <span style={{fontSize:'11px',fontWeight:'700',color:C.warning,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder}}>дублей: {supplier._duplicateCount}</span>}
                         {isOpen ? <ChevronUp size={14} color={C.textSec}/> : <ChevronDown size={14} color={C.textSec}/>}
                       </div>
@@ -384,6 +532,9 @@ function SupplySuppliersPanel({
                       {stats.total > 0 && <span style={{fontSize:'11px',fontWeight:'700',color:C.success,padding:'3px 8px',borderRadius:'999px',backgroundColor:C.successLight,border:'1px solid '+C.successBorder}}>{formatMoney(stats.total)}</span>}
                       {canEditSuppliers&&(
                         <div style={{display:'flex',gap:'6px'}}>
+                          {canLinkSupplierUsers&&(
+                            <button title="Связать кабинет поставщика" onClick={event=>openLinkSupplier(supplier, event)} style={{...btnB,padding:'5px 10px'}}><Link2 size={11}/></button>
+                          )}
                           <button onClick={event=>editSupplier(supplier, event)} style={{...btnG,padding:'5px 10px'}}><Edit2 size={11}/></button>
                           <button onClick={event=>handleDeleteSupplier(supplier, event)} style={{...btnR,padding:'5px 10px'}}><Trash2 size={11}/></button>
                         </div>
@@ -400,11 +551,29 @@ function SupplySuppliersPanel({
 
                   {isOpen && (
                     <div style={{marginTop:'12px',paddingTop:'12px',borderTop:'1px solid '+C.border}}>
+                      {canLinkSupplierUsers && linkingSupplierId === supplier.id && (
+                        <div onClick={event=>event.stopPropagation()} style={{padding:'10px',borderRadius:'8px',backgroundColor:C.infoLight,border:'1px solid '+C.infoBorder,marginBottom:'10px'}}>
+                          <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'6px'}}>🔗 Связать кабинет поставщика</b>
+                          <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 8px'}}>Используйте это, если поставщик уже зарегистрировался, но в кабинете не видит свою компанию, КП или накладные.</p>
+                          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'8px',alignItems:'center'}}>
+                            <select value={linkUserId} onChange={event=>setLinkUserId(event.target.value)} style={{...inp,marginBottom:0}}>
+                              <option value="">Пользователь с ролью поставщик</option>
+                              {supplierUsers.map(item=>(
+                                <option key={item.id} value={item.id}>{(item.name || item.email || 'Поставщик') + (item.email ? ' · ' + item.email : '')}</option>
+                              ))}
+                            </select>
+                            <input placeholder="или email поставщика" value={linkUserEmail} onChange={event=>setLinkUserEmail(event.target.value)} style={{...inp,marginBottom:0}}/>
+                            <button onClick={event=>linkSupplierUser(supplier, event)} style={{...btnB,padding:'9px 12px'}}><Link2 size={13}/>Связать</button>
+                          </div>
+                          {supplierUsers.length===0 && <p style={{color:C.warning,fontSize:'11px',margin:'8px 0 0'}}>Пользователи с ролью поставщик не загружены. Укажите email, под которым поставщик входит в кабинет.</p>}
+                        </div>
+                      )}
                       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:'8px',marginBottom:'10px'}}>
                         <div style={{padding:'10px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 3px'}}>Последняя операция</p><b style={{color:C.text,fontSize:'13px'}}>{formatShortDate(stats.lastDate)}</b></div>
                         <div style={{padding:'10px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 3px'}}>КП</p><b style={{color:C.text,fontSize:'13px'}}>{stats.offers.length}</b></div>
                         <div style={{padding:'10px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 3px'}}>Связано документов</p><b style={{color:C.text,fontSize:'13px'}}>{stats.recent.length}</b></div>
                       </div>
+                      <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 10px'}}>Источник: <b style={{color:primarySourceMeta.color}}>{primarySourceMeta.label}</b>{sourceInfo.detail ? ' · ' + sourceInfo.detail : ''}</p>
                       {stats.recent.length > 0 ? stats.recent.map((doc, index)=>(
                         <div key={doc.type + doc.title + index} style={{padding:'9px 0',borderTop:index===0?'none':'1px solid '+C.border}}>
                           <div style={{display:'flex',justifyContent:'space-between',gap:'8px',flexWrap:'wrap'}}>

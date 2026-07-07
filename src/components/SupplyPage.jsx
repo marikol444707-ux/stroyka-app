@@ -22,6 +22,7 @@ export default function SupplyPage({
   btnR,
   badge,
   user,
+  users = [],
   isLeadership,
   isFinanceRole,
   showSupplyForm,
@@ -220,6 +221,7 @@ export default function SupplyPage({
           btnR={btnR}
           badge={badge}
           user={user}
+          users={users}
           suppliers={suppliers}
           projects={projects}
           supplierInvoices={supplierInvoices}
@@ -243,6 +245,7 @@ export default function SupplyPage({
           inp={inp}
           btnO={btnO}
           btnG={btnG}
+          btnB={btnB}
           btnGr={btnGr}
           btnR={btnR}
           user={user}

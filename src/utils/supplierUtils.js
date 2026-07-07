@@ -24,6 +24,8 @@ export const emptySupplierForm = () => ({
   priceUrl: '',
   website: '',
   notes: '',
+  sourceType: 'manual',
+  sourceDetail: '',
 });
 
 export const normalizeSupplierPayload = (supplier = {}) => ({
@@ -39,6 +41,8 @@ export const normalizeSupplierPayload = (supplier = {}) => ({
   contractDate: String(supplier.contractDate || supplier.contract_date || '').slice(0, 10),
   licenseUrl: supplier.licenseUrl || supplier.license_url || '',
   priceUrl: supplier.priceUrl || supplier.price_url || '',
+  sourceType: supplier.sourceType || supplier.source_type || 'manual',
+  sourceDetail: supplier.sourceDetail || supplier.source_detail || '',
 });
 
 export const normalizeSupplierNameKey = value => String(value || '')
@@ -92,13 +96,19 @@ export const groupSuppliers = suppliers => {
     const groupKey = matchedKey ? keyIndex.get(matchedKey) : (identityKeys[0] || fallbackKey);
 
     if (!groups.has(groupKey)) {
+      const sourceType = supplier.sourceType || supplier.source_type || '';
+      const sourceDetail = supplier.sourceDetail || supplier.source_detail || '';
       groups.set(groupKey, {
         ...supplier,
+        sourceType,
+        sourceDetail,
         category: supplier.category || 'Прочее',
         _supplierIds: [supplier.id],
         _supplierKeys: nameKey ? [nameKey] : [],
         _supplierNames: [supplier.name || supplier.supplierName || ''],
         _supplierIdentityKeys: [...identityKeys],
+        _supplierSourceTypes: sourceType ? [sourceType] : [],
+        _supplierSourceDetails: sourceDetail ? [sourceDetail] : [],
         _duplicateCount: 1,
       });
       identityKeys.forEach(key => keyIndex.set(key, groupKey));
@@ -109,6 +119,10 @@ export const groupSuppliers = suppliers => {
     group._supplierIds.push(supplier.id);
     group._supplierNames.push(supplier.name || supplier.supplierName || '');
     group._duplicateCount += 1;
+    const sourceType = supplier.sourceType || supplier.source_type || '';
+    const sourceDetail = supplier.sourceDetail || supplier.source_detail || '';
+    if (sourceType && !group._supplierSourceTypes.includes(sourceType)) group._supplierSourceTypes.push(sourceType);
+    if (sourceDetail && !group._supplierSourceDetails.includes(sourceDetail)) group._supplierSourceDetails.push(sourceDetail);
     if (nameKey && !group._supplierKeys.includes(nameKey)) group._supplierKeys.push(nameKey);
     identityKeys.forEach(key => {
       if (!group._supplierIdentityKeys.includes(key)) group._supplierIdentityKeys.push(key);
@@ -124,6 +138,8 @@ export const groupSuppliers = suppliers => {
     if (!group.specialization && supplier.specialization) group.specialization = supplier.specialization;
     if ((!group.category || group.category === 'Прочее') && supplier.category) group.category = supplier.category;
     if (!group.status && supplier.status) group.status = supplier.status;
+    if (!group.sourceType && sourceType) group.sourceType = sourceType;
+    if (!group.sourceDetail && sourceDetail) group.sourceDetail = sourceDetail;
     group.rating = Math.max(Number(group.rating || 0), Number(supplier.rating || 0));
   });
 

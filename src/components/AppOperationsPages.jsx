@@ -64,6 +64,7 @@ export default function AppOperationsPages({ activePage, ui, constants, state, a
     tools,
     toolsTab,
     user,
+    users,
     warehouseInvoiceItems,
     warehouseMain,
     warehouseMovements,
@@ -299,6 +300,7 @@ export default function AppOperationsPages({ activePage, ui, constants, state, a
           btnR={btnR}
           badge={badge}
           user={user}
+          users={users}
           isLeadership={isLeadership}
           isFinanceRole={isFinanceRole}
           showSupplyForm={showSupplyForm}

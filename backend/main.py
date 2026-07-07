@@ -908,6 +908,8 @@ def _update_supplier_missing_fields(cur, supplier_id: int, payload: dict, user_i
         "price_url": _supplier_payload_text(payload, "priceUrl", "price_url"),
         "website": _supplier_payload_text(payload, "website"),
         "notes": _supplier_payload_text(payload, "notes"),
+        "source_type": _supplier_payload_text(payload, "sourceType", "source_type"),
+        "source_detail": _supplier_payload_text(payload, "sourceDetail", "source_detail"),
     }
     cur.execute("""
         UPDATE suppliers SET
@@ -933,7 +935,9 @@ def _update_supplier_missing_fields(cur, supplier_id: int, payload: dict, user_i
           license_url=CASE WHEN COALESCE(license_url,'')='' THEN %s ELSE license_url END,
           price_url=CASE WHEN COALESCE(price_url,'')='' THEN %s ELSE price_url END,
           website=CASE WHEN COALESCE(website,'')='' THEN %s ELSE website END,
-          notes=CASE WHEN COALESCE(notes,'')='' THEN %s ELSE notes END
+          notes=CASE WHEN COALESCE(notes,'')='' THEN %s ELSE notes END,
+          source_type=CASE WHEN COALESCE(source_type,'')='' THEN %s ELSE source_type END,
+          source_detail=CASE WHEN COALESCE(source_detail,'')='' THEN %s ELSE source_detail END
           """ + (", user_id=COALESCE(user_id,%s), registered_at=COALESCE(registered_at,NOW())" if user_id else "") + """
         WHERE id=%s
         RETURNING *
@@ -943,7 +947,7 @@ def _update_supplier_missing_fields(cur, supplier_id: int, payload: dict, user_i
         values["legal_address"], values["actual_address"], values["bank"], values["bik"],
         values["account"], values["kor_account"], values["director_name"], values["director_position"],
         values["contract_url"], values["contract_number"], values["license_url"], values["price_url"],
-        values["website"], values["notes"],
+        values["website"], values["notes"], values["source_type"], values["source_detail"],
         *(([user_id] if user_id else [])),
         supplier_id,
     ))
@@ -2687,6 +2691,8 @@ def init_db():
         ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS notes TEXT;
         ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS user_id INT;
         ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS registered_at TIMESTAMP;
+        ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS source_type VARCHAR(100) DEFAULT '';
+        ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS source_detail TEXT DEFAULT '';
         CREATE TABLE IF NOT EXISTS supplier_aliases (
             id SERIAL PRIMARY KEY,
             supplier_id INT,
@@ -4604,6 +4610,8 @@ class SupplierModel(BaseModel):
     priceUrl: Optional[str] = ""
     website: Optional[str] = ""
     notes: Optional[str] = ""
+    sourceType: Optional[str] = ""
+    sourceDetail: Optional[str] = ""
 
 class SupplyRequestModel(BaseModel):
     materialName: str = ""
@@ -5317,6 +5325,8 @@ def register(data: dict, response: Response, request: Request):
                 "email": email,
                 "category": invite.get('preset_category') or data.get("category",""),
                 "status": "Активный",
+                "sourceType": "invite_link",
+                "sourceDetail": "Регистрация поставщика по ссылке приглашения",
             }
             if supplier_id:
                 # Привязываем к существующей компании
@@ -5336,15 +5346,16 @@ def register(data: dict, response: Response, request: Request):
                     cur.execute(
                         "INSERT INTO suppliers (name, phone, email, category, specialization, "
                         "inn, kpp, ogrn, legal_address, bank, bik, account, director_name, "
-                        "status, rating, user_id, registered_at) "
-                        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()) RETURNING id",
+                        "status, rating, user_id, registered_at, source_type, source_detail) "
+                        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),%s,%s) RETURNING id",
                         (company_name, data.get("phone",""), email,
                          invite.get('preset_category') or data.get("category",""),
                          data.get("specialization",""),
                          data.get("inn"), data.get("kpp"), data.get("ogrn"),
                          data.get("legalAddress"), data.get("bank"), data.get("bik"),
                          data.get("account"), data.get("directorName"),
-                         'Активный', 5.0, user['id']))
+                         'Активный', 5.0, user['id'],
+                         "invite_link", "Регистрация поставщика по ссылке приглашения"))
                     new_supplier = cur.fetchone()
                     supplier_id = new_supplier.get("id") if isinstance(new_supplier, dict) else new_supplier[0]
                     _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite")
@@ -7058,6 +7069,8 @@ def create_supplier(s: SupplierModel, _current_user: dict = Depends(require_role
         raise HTTPException(status_code=400, detail="Название поставщика обязательно")
     payload = s.dict()
     payload["name"] = name
+    payload["sourceType"] = payload.get("sourceType") or "manual"
+    payload["sourceDetail"] = payload.get("sourceDetail") or ("Добавил вручную: " + (_current_user.get("name") or _current_user.get("role") or ""))
     existing = _supplier_find_match(cur, payload)
     if existing:
         cur.execute("""
@@ -7085,14 +7098,16 @@ def create_supplier(s: SupplierModel, _current_user: dict = Depends(require_role
               license_url=CASE WHEN COALESCE(license_url,'')='' THEN %s ELSE license_url END,
               price_url=CASE WHEN COALESCE(price_url,'')='' THEN %s ELSE price_url END,
               website=CASE WHEN COALESCE(website,'')='' THEN %s ELSE website END,
-              notes=CASE WHEN COALESCE(notes,'')='' THEN %s ELSE notes END
+              notes=CASE WHEN COALESCE(notes,'')='' THEN %s ELSE notes END,
+              source_type=CASE WHEN COALESCE(source_type,'')='' THEN %s ELSE source_type END,
+              source_detail=CASE WHEN COALESCE(source_detail,'')='' THEN %s ELSE source_detail END
             WHERE id=%s RETURNING *
         """, (
             s.phone, s.email, s.specialization, s.category, s.rating, s.status,
             s.inn, s.kpp, s.ogrn, s.legalAddress, s.actualAddress, s.bank, s.bik,
             s.account, s.korAccount, s.directorName, s.directorPosition,
             s.contractUrl, s.contractNumber, s.contractDate or None, s.licenseUrl,
-            s.priceUrl, s.website, s.notes, existing["id"],
+            s.priceUrl, s.website, s.notes, payload["sourceType"], payload["sourceDetail"], existing["id"],
         ))
         row = cur.fetchone()
         _remember_supplier_alias(cur, existing["id"], payload, source="manual_supplier")
@@ -7103,19 +7118,19 @@ def create_supplier(s: SupplierModel, _current_user: dict = Depends(require_role
             name,phone,email,specialization,category,rating,status,
             inn,kpp,ogrn,legal_address,actual_address,bank,bik,account,kor_account,
             director_name,director_position,contract_url,contract_number,contract_date,
-            license_url,price_url,website,notes
+            license_url,price_url,website,notes,source_type,source_detail
         ) VALUES (
             %s,%s,%s,%s,%s,%s,%s,
             %s,%s,%s,%s,%s,%s,%s,%s,%s,
             %s,%s,%s,%s,%s,
-            %s,%s,%s,%s
+            %s,%s,%s,%s,%s,%s
         ) RETURNING *
     """, (
         name, s.phone, s.email, s.specialization, s.category, s.rating, s.status,
         s.inn, s.kpp, s.ogrn, s.legalAddress, s.actualAddress, s.bank, s.bik,
         s.account, s.korAccount, s.directorName, s.directorPosition,
         s.contractUrl, s.contractNumber, s.contractDate or None,
-        s.licenseUrl, s.priceUrl, s.website, s.notes,
+        s.licenseUrl, s.priceUrl, s.website, s.notes, payload["sourceType"], payload["sourceDetail"],
     ))
     row = cur.fetchone()
     supplier_id = row.get("id") if isinstance(row, dict) else row[0]
@@ -7152,6 +7167,7 @@ def update_supplier(id: int, data: dict, _current_user: dict = Depends(require_r
             account=%s,kor_account=%s,director_name=%s,director_position=%s,
             contract_url=%s,contract_number=%s,contract_date=%s,license_url=%s,
             price_url=%s,website=%s,notes=%s
+            ,source_type=%s,source_detail=%s
         WHERE id=%s
     """, (
         field("name", fallback=existing.get("name")), field("phone", fallback=existing.get("phone")),
@@ -7172,12 +7188,97 @@ def update_supplier(id: int, data: dict, _current_user: dict = Depends(require_r
         field("priceUrl", "price_url", existing.get("price_url")),
         field("website", fallback=existing.get("website")),
         field("notes", fallback=existing.get("notes")),
+        field("sourceType", "source_type", existing.get("source_type")),
+        field("sourceDetail", "source_detail", existing.get("source_detail")),
         id,
     ))
     conn.commit()
     cur.close()
     conn.close()
     return {"ok": True}
+
+@app.post("/suppliers/{id}/link-user")
+def link_supplier_user(id: int, data: dict, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
+    data = data or {}
+    raw_user_id = data.get("userId") or data.get("user_id")
+    email = (str(data.get("email") or "").strip().lower())
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("SELECT * FROM suppliers WHERE id=%s LIMIT 1", (id,))
+        supplier = cur.fetchone()
+        if not supplier:
+            raise HTTPException(status_code=404, detail="Поставщик не найден")
+
+        if raw_user_id:
+            cur.execute(
+                "SELECT id,name,email,role FROM users WHERE id=%s LIMIT 1",
+                (int(raw_user_id),),
+            )
+        elif email:
+            cur.execute(
+                "SELECT id,name,email,role FROM users WHERE LOWER(email)=LOWER(%s) LIMIT 1",
+                (email,),
+            )
+        else:
+            raise HTTPException(status_code=400, detail="Выберите пользователя или укажите email поставщика")
+
+        supplier_user = cur.fetchone()
+        if not supplier_user:
+            raise HTTPException(status_code=404, detail="Пользователь поставщика не найден")
+        if (supplier_user.get("role") or "") != "поставщик":
+            raise HTTPException(status_code=400, detail="К поставщику можно привязать только пользователя с ролью поставщик")
+
+        supplier_user_id = int(supplier_user.get("id"))
+        supplier_email = supplier_user.get("email") or email
+        supplier_name = supplier_user.get("name") or supplier_email or ""
+
+        # Один пользователь должен иметь один явный вход в свою карточку. Дубли подтягиваются
+        # через ИНН/ОГРН/email/name/aliases, но старый неверный user_id не должен перехватывать кабинет.
+        cur.execute("UPDATE suppliers SET user_id=NULL WHERE user_id=%s AND id<>%s", (supplier_user_id, id))
+        cur.execute(
+            """
+            UPDATE suppliers
+               SET user_id=%s,
+                   email=CASE WHEN COALESCE(email,'')='' THEN %s ELSE email END,
+                   status=CASE WHEN COALESCE(status,'')='' THEN 'Активный' ELSE status END,
+                   registered_at=COALESCE(registered_at, NOW()),
+                   source_type=CASE WHEN COALESCE(source_type,'')='' THEN 'linked_account' ELSE source_type END,
+                   source_detail=CASE WHEN COALESCE(source_detail,'')='' THEN %s ELSE source_detail END
+             WHERE id=%s
+             RETURNING *
+            """,
+            (supplier_user_id, supplier_email, "Пользователь привязан директором: " + supplier_name, id),
+        )
+        row = cur.fetchone()
+        _remember_supplier_alias(cur, id, {
+            "name": supplier.get("name") or "",
+            "email": supplier_email,
+            "companyName": supplier.get("name") or "",
+        }, source="manual_supplier_user_link")
+        _remember_supplier_alias(cur, id, {
+            "name": supplier_name,
+            "email": supplier_email,
+        }, source="manual_supplier_user_link")
+        conn.commit()
+        log_audit(
+            user_name=current_user.get("name", ""),
+            user_role=current_user.get("role", ""),
+            action="supplier_link_user",
+            entity_type="supplier",
+            entity_id=id,
+            description=("Привязан пользователь поставщика: " + supplier_name + " <" + supplier_email + ">")[:250],
+        )
+        return dict(row)
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
 
 @app.delete("/suppliers/{id}")
 def delete_supplier(id: int, _current_user: dict = Depends(require_roles("директор", "зам_директора", "снабженец", "кладовщик"))):
@@ -18686,6 +18787,74 @@ def update_crm_lead(id: int, data: dict, _current_user: dict = Depends(require_r
     cur.close(); conn.close()
     return {"ok": True}
 
+@app.post("/crm/leads/{id}/approve-supplier")
+def approve_crm_lead_as_supplier(id: int, data: dict = None, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm"))):
+    data = data or {}
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("SELECT id,name,phone,email,source,notes,stage FROM crm_leads WHERE id=%s", (id,))
+        lead = cur.fetchone()
+        if not lead:
+            raise HTTPException(status_code=404, detail="CRM-заявка не найдена")
+        source_text = lead.get("source") or ""
+        source_type = "site" if "сайт" in source_text.lower() or "site" in source_text.lower() else "crm"
+        supplier_payload = {
+            "name": data.get("name") or lead.get("name") or ("Поставщик из CRM #" + str(id)),
+            "phone": data.get("phone") or lead.get("phone") or "",
+            "email": data.get("email") or lead.get("email") or "",
+            "category": data.get("category") or "Прочее",
+            "status": "На проверке",
+            "notes": data.get("notes") or lead.get("notes") or "",
+            "sourceType": source_type,
+            "sourceDetail": (source_text or "CRM") + " · лид #" + str(id),
+        }
+        existing = _supplier_find_match(cur, supplier_payload)
+        if existing:
+            supplier_id = int(existing.get("id") or 0)
+            row = _update_supplier_missing_fields(cur, supplier_id, supplier_payload)
+        else:
+            cur.execute(
+                """
+                INSERT INTO suppliers
+                    (name,phone,email,specialization,category,rating,status,notes,source_type,source_detail)
+                VALUES (%s,%s,%s,'',%s,5.0,'На проверке',%s,%s,%s)
+                RETURNING *
+                """,
+                (
+                    supplier_payload["name"],
+                    supplier_payload["phone"],
+                    supplier_payload["email"],
+                    supplier_payload["category"],
+                    supplier_payload["notes"],
+                    supplier_payload["sourceType"],
+                    supplier_payload["sourceDetail"],
+                ),
+            )
+            row = cur.fetchone()
+            supplier_id = int(row.get("id") or 0)
+        _remember_supplier_alias(cur, supplier_id, supplier_payload, source="crm_supplier")
+        cur.execute("UPDATE crm_leads SET stage=%s WHERE id=%s", ("Одобрен как поставщик", id))
+        conn.commit()
+        log_audit(
+            user_name=current_user.get("name", ""),
+            user_role=current_user.get("role", ""),
+            action="approve_supplier",
+            entity_type="crm_lead",
+            entity_id=id,
+            description=("CRM-лид одобрен как поставщик: " + str(supplier_payload["name"]))[:250],
+        )
+        return {"ok": True, "supplier": dict(row), "supplierId": supplier_id}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
+
 @app.post("/crm-leads/{id}/create-project")
 def create_project_from_crm_lead(id: int, data: dict = None, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm"))):
     data = data or {}
@@ -20632,6 +20801,8 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
             **payload,
             "supplierName": supplier_name,
             "supplier": payload.get("supplier") or supplier_name,
+            "sourceType": "max_invoice" if str(warehouse_invoice.get("source_type") or "").startswith("max_") else "warehouse_invoice",
+            "sourceDetail": "Создано/обновлено из складской накладной #" + str(warehouse_invoice_id),
         }
 
         supplier_id = warehouse_invoice.get("supplier_id")
@@ -20647,8 +20818,8 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
                 """
                 INSERT INTO suppliers
                     (name,phone,email,specialization,category,rating,status,
-                     inn,kpp,ogrn,notes)
-                VALUES (%s,'','','','Материалы',5.0,'На проверке',%s,%s,%s,%s)
+                     inn,kpp,ogrn,notes,source_type,source_detail)
+                VALUES (%s,'','','','Материалы',5.0,'На проверке',%s,%s,%s,%s,%s,%s)
                 RETURNING id,name
                 """,
                 (
@@ -20657,6 +20828,8 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
                     req.get("kpp") or "",
                     req.get("ogrn") or "",
                     "Создано из складской накладной #" + str(warehouse_invoice_id),
+                    supplier_payload["sourceType"],
+                    supplier_payload["sourceDetail"],
                 ),
             )
             supplier_row = cur.fetchone()

@@ -85,6 +85,7 @@ export default function SupplierCabinetPage({
         || currentUserKeys.some(key => identityKeys.includes(key));
     };
     const mySupplier = supplierGroups.find(matchesCurrentUser) || (supplierGroups.length === 1 ? supplierGroups[0] : null);
+    const supplierAccountUnlinked = (user?.role || '') === 'поставщик' && !mySupplier;
     const mySupplierIds = new Set((mySupplier?._supplierIds || [mySupplier?.id]).filter(Boolean).map(id => String(id)));
     const mySupplierNames = new Set([
       ...(mySupplier?._supplierNames || []),
@@ -211,6 +212,12 @@ export default function SupplierCabinetPage({
               <option value='all' disabled>🚧 Скоро: все клиенты</option>
             </select>
           </div>
+          {supplierAccountUnlinked && (
+            <div style={{...card,padding:'12px 14px',marginBottom:'16px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
+              <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'4px'}}>Кабинет не связан с карточкой поставщика</b>
+              <p style={{color:C.textSec,fontSize:'12px',margin:0}}>Попросите директора открыть карточку поставщика и связать ваш пользовательский аккаунт с компанией. После этого здесь появятся название компании, КП, счета и накладные.</p>
+            </div>
+          )}
           <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'12px',marginBottom:'16px'}}>
             <div style={{...card,padding:'16px',textAlign:'center'}}>
               <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Новых заявок</p>
@@ -778,6 +785,10 @@ export default function SupplierCabinetPage({
               </label>
               {supplierRequisites.licenseUrl && (<a href={fileSrc(supplierRequisites.licenseUrl)} target='_blank' rel='noopener noreferrer' style={{fontSize:'12px',color:C.accent}}>📥 Посмотреть</a>)}
               <button onClick={async()=>{
+                if (!myPrimarySupplierId) {
+                  alert('Кабинет не связан с карточкой поставщика. Попросите директора связать аккаунт с компанией.');
+                  return;
+                }
                 const res = await fetch(API+'/suppliers/'+(myPrimarySupplierId||0)+'/requisites',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({
                   ...supplierRequisites,
                   legalAddress: supplierRequisites.address // alias
