@@ -7166,6 +7166,20 @@ def _normalize_supplier_ids(value) -> list:
             ids.append(supplier_id)
     return ids
 
+def _create_supplier_offer_requests(cur, request_id: int, supplier_ids, ai_ids=None) -> list:
+    ai_ids = {int(x) for x in (ai_ids or []) if int(x) > 0}
+    created = []
+    for supplier_id in _normalize_supplier_ids(supplier_ids):
+        cur.execute("SELECT id FROM supplier_offers WHERE request_id=%s AND supplier_id=%s", (request_id, supplier_id))
+        if cur.fetchone():
+            continue
+        cur.execute(
+            "INSERT INTO supplier_offers (request_id, supplier_id, status, ai_recommended, requested_at) "
+            "VALUES (%s, %s, %s, %s, NOW()) RETURNING id",
+            (request_id, supplier_id, 'Ожидает ответа', supplier_id in ai_ids))
+        created.append(cur.fetchone()['id'])
+    return created
+
 def _supply_item_quantity(item: dict) -> float:
     try:
         return float((item or {}).get("quantity") or 0)
@@ -8316,6 +8330,9 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
          prorab_id, prorab_name, prorab_at,
          director_id, director_name, director_at, items_json))
     new_id = cur.fetchone()['id']
+    if selected_suppliers and initial_status == "Утверждена":
+        _create_supplier_offer_requests(cur, new_id, selected_suppliers)
+        cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", ('КП запрошены', new_id))
     cur.execute(SUPPLY_SELECT + " WHERE id=%s", (new_id,))
     row = cur.fetchone()
     conn.commit()
@@ -9067,18 +9084,7 @@ def request_kp_from_suppliers(id: int, data: dict, _current_user: dict = Depends
     if (req.get("status") or "Новая") not in ("Утверждена", "КП запрошены"):
         cur.close(); conn.close()
         raise HTTPException(status_code=400, detail="Запрашивать КП можно только после утверждения заявки директором")
-    qty = float(req['quantity']) if req else 0
-    created = []
-    for sid in supplier_ids:
-        # Не создаём дубль если уже есть offer
-        cur.execute("SELECT id FROM supplier_offers WHERE request_id=%s AND supplier_id=%s", (id, sid))
-        if cur.fetchone():
-            continue
-        cur.execute(
-            "INSERT INTO supplier_offers (request_id, supplier_id, status, ai_recommended, requested_at) "
-            "VALUES (%s, %s, %s, %s, NOW()) RETURNING id",
-            (id, sid, 'Ожидает ответа', sid in ai_ids))
-        created.append(cur.fetchone()['id'])
+    created = _create_supplier_offer_requests(cur, id, supplier_ids, ai_ids)
     # Обновляем статус заявки
     cur.execute("""UPDATE supply_requests
                    SET status=CASE WHEN status='Утверждена' THEN %s ELSE status END,

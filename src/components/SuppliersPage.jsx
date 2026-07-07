@@ -188,8 +188,11 @@ function SuppliersPage({
                   <span style={{fontSize:'11px',color:C.textSec}}>{s.category}</span>
                 </label>
               ))}
+              {newRequest.selectedSuppliers.length===0&&(
+                <p style={{color:C.warning,fontSize:'12px',margin:'6px 0 0'}}>Поставщики не выбраны: заявка создастся внутри снабжения, но никому не уйдёт.</p>
+              )}
               <div style={{display:'flex',gap:'8px',marginTop:'12px'}}>
-                <button onClick={saveRequest} style={btnO}><Check size={14}/>Отправить заявку</button>
+                <button onClick={saveRequest} style={btnO}><Check size={14}/>Создать и запросить КП</button>
                 <button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button>
               </div>
             </div>

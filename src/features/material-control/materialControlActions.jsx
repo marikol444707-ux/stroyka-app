@@ -197,7 +197,7 @@ export function createMaterialControlActions({
       alert(data.detail || 'Не удалось создать заявку снабжения');
       return;
     }
-    notify('Создана заявка снабжения: ' + row.name + ' — ' + fmtMeasure(qty, unit), 'supply');
+    notify('Создана заявка снабжения: ' + row.name + ' — ' + fmtMeasure(qty, unit) + '. Поставщикам не отправлена: откройте «Снабжение» и нажмите «Запросить КП».', 'supply');
     await refreshData();
   };
 
@@ -265,7 +265,7 @@ export function createMaterialControlActions({
       }
       createdItems += items.length;
     }
-    notify('Создано заявок снабжения: ' + groupNames.length + ' · позиций ' + createdItems, 'supply');
+    notify('Создано заявок снабжения: ' + groupNames.length + ' · позиций ' + createdItems + '. Поставщикам не отправлено: в «Снабжении» выберите поставщиков через «Запросить КП».', 'supply');
     await refreshData();
   };
 
@@ -321,7 +321,7 @@ export function createMaterialControlActions({
       alert(data.detail || 'Не удалось создать заявку снабжения');
       return;
     }
-    notify('Создана заявка из накладной: ' + materialName + ' — ' + fmtMeasure(qty, unit), 'supply');
+    notify('Создана заявка из накладной: ' + materialName + ' — ' + fmtMeasure(qty, unit) + '. Поставщикам не отправлена: откройте «Снабжение» и нажмите «Запросить КП».', 'supply');
     await refreshData();
   };
 

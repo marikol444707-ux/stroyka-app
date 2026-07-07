@@ -346,23 +346,33 @@ def select_working_candidate(token, supplier_id, stamp):
 def create_and_select_offer(token, candidate, supplier_id):
     qty = candidate["quantity"]
     total = round(TEST_PRICE * qty, 2)
-    _, offer = api_json(
-        "POST",
-        "/supplier-offers",
-        token=token,
-        data={
-            "requestId": candidate["requestId"],
-            "supplierId": supplier_id,
-            "pricePerUnit": TEST_PRICE,
-            "totalPrice": total,
-            "deliveryDays": 1,
-            "notes": TEST_NOTE_PREFIX,
-        },
-        expected=200,
+    _, offers = api_json("GET", "/supplier-offers", token=token, expected=200)
+    offer = next(
+        (
+            o for o in offers
+            if int(o.get("requestId") or 0) == int(candidate["requestId"])
+            and int(o.get("supplierId") or 0) == int(supplier_id)
+        ),
+        None,
     )
+    if not offer:
+        _, offer = api_json(
+            "POST",
+            "/supplier-offers",
+            token=token,
+            data={
+                "requestId": candidate["requestId"],
+                "supplierId": supplier_id,
+                "pricePerUnit": TEST_PRICE,
+                "totalPrice": total,
+                "deliveryDays": 1,
+                "notes": TEST_NOTE_PREFIX,
+            },
+            expected=200,
+        )
     offer_id = offer.get("id")
     if not offer_id:
-        raise RuntimeError("POST /supplier-offers не вернул id")
+        raise RuntimeError("Для выбранного поставщика не создан supplier_offer")
     items_kp = [{
         "materialName": candidate["materialName"],
         "quantity": qty,
@@ -967,6 +977,7 @@ def main():
             "checked": [
                 "positive estimate material selected",
                 "supply request passed estimate control",
+                "selected supplier received KP request",
                 "supplier offer responded and selected",
                 "shipment created",
                 "receipt created automatic invoice",

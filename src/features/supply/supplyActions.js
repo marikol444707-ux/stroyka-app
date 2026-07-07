@@ -124,7 +124,22 @@ export const createSupplyActions = ({
       alert('Не удалось создать заявку: ' + (data.detail || data.error || res.status));
       return;
     }
-    notify('Новая заявка на материалы', 'supply');
+    const supplierIds = (newRequest.selectedSuppliers || []).filter(Boolean);
+    if (supplierIds.length > 0 && data.id) {
+      const kpRes = await fetch(API + '/supply-requests/' + data.id + '/request-kp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supplierIds, aiRecommendedIds: [] }),
+      });
+      const kpData = await kpRes.json().catch(() => ({}));
+      if (!kpRes.ok || kpData.detail || kpData.error) {
+        alert('Заявка создана, но поставщикам не отправлена: ' + (kpData.detail || kpData.error || kpRes.status));
+      } else {
+        notify('Заявка отправлена поставщикам: ' + supplierIds.length, 'supply');
+      }
+    } else {
+      notify('Заявка создана внутри снабжения. Поставщикам не отправлена: выберите поставщиков через «Запросить КП».', 'supply');
+    }
     await refreshData();
     setNewRequest(createRequestForm());
     setShowForm(false);
@@ -181,9 +196,10 @@ export const createSupplyActions = ({
         selectedSuppliers: [],
       }),
     });
+    const data = await r.json().catch(() => ({}));
     if (!r.ok) {
       let err = '';
-      try { err = (await r.json()).detail || ''; } catch (_) {}
+      try { err = data.detail || ''; } catch (_) {}
       alert('Не удалось создать заявку' + (err ? ': ' + err : ''));
       return;
     }
@@ -194,8 +210,15 @@ export const createSupplyActions = ({
       notify('Новая заявка от ' + (currentUser.name || 'пользователя') + ': ' + msg, 'supply');
     } else if (currentUser.role === 'прораб') {
       notify('Прораб ' + (currentUser.name || 'пользователь') + ': ' + msg + ' — нужно утвердить', 'supply');
+    } else if (data.id && ['Утверждена', 'КП запрошены'].includes(data.status)) {
+      notify(msg + ' — утверждена директором. Выберите поставщиков для запроса КП.', 'supply');
+      await refreshData();
+      setNewSupplyReq({ items: [{ materialName: '', quantity: '', unit: 'шт', workPackage: '' }], project: '', urgency: 'обычная', notes: '', category: '' });
+      setShowSupplyForm(false);
+      await openRequestKpModal(data.id);
+      return;
     } else {
-      notify(msg + ' — утверждена директором', 'supply');
+      notify(msg + ' — создана. После утверждения директора поставщиков нужно выбрать через «Запросить КП».', 'supply');
     }
     await refreshData();
     setNewSupplyReq({ items: [{ materialName: '', quantity: '', unit: 'шт', workPackage: '' }], project: '', urgency: 'обычная', notes: '', category: '' });

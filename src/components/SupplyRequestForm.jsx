@@ -125,7 +125,8 @@ function SupplyRequestForm({
       <div style={{padding:'10px 12px',backgroundColor:C.infoLight||C.warningLight,border:'1.5px solid '+(C.infoBorder||C.warningBorder),borderRadius:'8px',marginBottom:'12px',fontSize:'12px',color:C.text}}>
         {['мастер','субподрядчик','бригадир'].includes(role)?'ℹ️ После создания заявка попадёт прорабу на подтверждение':
           role==='прораб'?'ℹ️ Заявка сразу пойдёт директору на утверждение':
-          '✅ Заявка будет утверждена автоматически'}
+          isLeadership?'✅ Заявка будет утверждена автоматически. Следующим шагом откроется выбор поставщиков для запроса КП.':
+          'ℹ️ Заявка будет создана внутри снабжения. После утверждения директора выберите поставщиков через «Запросить КП».'}
       </div>
       <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
         <button onClick={createSupplyReq} style={btnO}><Check size={14}/>Создать заявку</button>

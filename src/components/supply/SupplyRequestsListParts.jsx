@@ -403,6 +403,11 @@ export function SupplyRequestCard(props) {
   const urgBg = request.urgency === 'срочная' ? C.dangerLight : request.urgency === 'низкая' ? C.bg : C.warningLight;
   const urgBd = request.urgency === 'срочная' ? C.dangerBorder : request.urgency === 'низкая' ? C.border : C.warningBorder;
   const items = parseSupplyItems(request);
+  const supplierOffersForRequest = (supplierOffers || []).filter(o => o.requestId === request.id);
+  const selectedSupplierCount = Array.isArray(request.selectedSuppliers)
+    ? request.selectedSuppliers.filter(Boolean).length
+    : (String(request.selectedSuppliers || '').match(/\d+/g) || []).length;
+  const needsSupplierDispatch = ['Утверждена', 'КП запрошены'].includes(request.status) && supplierOffersForRequest.length === 0;
 
   return (
     <div style={{ ...card, padding: '14px', marginBottom: '8px' }}>
@@ -427,6 +432,11 @@ export function SupplyRequestCard(props) {
           <p style={{ color: C.textMuted, margin: '0', fontSize: '11px' }}>{(request.date || '') + ' · ' + (request.createdBy || '') + (request.requestedByRole ? ' (' + request.requestedByRole + ')' : '')}</p>
           {renderSupplyRequestOrigin(request)}
           {request.notes && !supplyRequestOrigin(request) && <p style={{ color: C.textSec, margin: '4px 0 0', fontSize: '11px', fontStyle: 'italic' }}>«{request.notes}»</p>}
+          {needsSupplierDispatch && canApprove && (
+            <p style={{ color: C.warning, backgroundColor: C.warningLight, border: '1px solid ' + C.warningBorder, borderRadius: '6px', padding: '6px 8px', margin: '6px 0 0', fontSize: '11px' }}>
+              Поставщикам не отправлено{selectedSupplierCount > 0 ? ': выбрано ' + selectedSupplierCount + ', но КП-запросы не созданы' : ''}. Нажмите «Запросить КП».
+            </p>
+          )}
           {request.status === 'Отклонена' && request.rejectReason && <p style={{ color: C.danger, margin: '4px 0 0', fontSize: '11px' }}>❌ Причина: {request.rejectReason}</p>}
           {request.prorabName && <p style={{ color: C.textMuted, margin: '2px 0 0', fontSize: '10px' }}>👷 Прораб: {request.prorabName}</p>}
           {request.directorName && <p style={{ color: C.textMuted, margin: '2px 0 0', fontSize: '10px' }}>👑 Директор: {request.directorName}</p>}
