@@ -17,6 +17,7 @@ export const createPersonnelActions = ({
   contracts,
   editingItem,
   expandedStaffId,
+  interimActs,
   masterRatings,
   masterProfiles,
   newAct,
@@ -351,16 +352,51 @@ export const createPersonnelActions = ({
   };
 
   const createInterimAct = async () => {
-    if (!newAct.masterId || !newAct.project || !newAct.periodStart || !newAct.periodEnd) return;
+    const allPeriod = Boolean(newAct.allPeriod);
+    if (!newAct.masterId || !newAct.project || (!allPeriod && (!newAct.periodStart || !newAct.periodEnd))) return;
+    const parseActWorkIds = (value) => {
+      if (Array.isArray(value)) return value.map(Number).filter(Boolean);
+      if (!value) return [];
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed.map(Number).filter(Boolean) : [];
+      } catch {
+        return String(value).split(',').map(id => Number(id.trim())).filter(Boolean);
+      }
+    };
     const inActPeriod = (d) => {
       if (!d) return false;
       const day = String(d).split('T')[0];
       return day >= newAct.periodStart && day <= newAct.periodEnd;
     };
+    const workDate = work => String(work.confirmedAt || work.date || '').split('T')[0];
     const selectedPackage = String(newAct.workPackage || '').trim();
-    const mw = workJournal.filter(j => j.masterId === Number(newAct.masterId) && j.project === newAct.project && j.status === 'Подтверждено' && inActPeriod(j.confirmedAt || j.date) && String(j.roomName || j.room_name || '').trim() && Number(j.executionTotal || 0) > 0 && (!selectedPackage || String(j.workPackage || j.work_package || 'Основная').trim() === selectedPackage));
+    const alreadyActedWorkIds = new Set(
+      (interimActs || [])
+        .filter(act => String(act.status || '') !== 'Аннулирован')
+        .filter(act => String(act.sourceType || act.source_type || '') !== 'daily_work')
+        .flatMap(act => parseActWorkIds(act.workJournalIds ?? act.work_journal_ids))
+    );
+    const workAmount = (work) => Number(work.executionTotal ?? work.execution_total ?? work.total ?? 0);
+    const mw = workJournal.filter(j => (
+      Number(j.masterId ?? j.master_id) === Number(newAct.masterId)
+      && j.project === newAct.project
+      && j.status === 'Подтверждено'
+      && (allPeriod || inActPeriod(j.confirmedAt || j.date))
+      && String(j.roomName || j.room_name || '').trim()
+      && workAmount(j) > 0
+      && !alreadyActedWorkIds.has(Number(j.id))
+      && (!selectedPackage || String(j.workPackage || j.work_package || 'Основная').trim() === selectedPackage)
+    ));
+    const workDates = mw.map(workDate).filter(Boolean).sort();
+    const periodStart = allPeriod ? workDates[0] : newAct.periodStart;
+    const periodEnd = allPeriod ? workDates[workDates.length - 1] : newAct.periodEnd;
+    if (!periodStart || !periodEnd) {
+      alert('Нет подтверждённых работ без акта для выбранного подрядчика');
+      return;
+    }
     const contract = contracts.find(c => c.masterId === Number(newAct.masterId) && c.project === newAct.project);
-    const groups = selectedPackage
+    const groupsRaw = selectedPackage
       ? [[selectedPackage, mw]]
       : Object.entries(mw.reduce((acc, work) => {
         const pkg = String(work.workPackage || work.work_package || 'Основная').trim() || 'Основная';
@@ -368,19 +404,21 @@ export const createPersonnelActions = ({
         acc[pkg].push(work);
         return acc;
       }, {}));
+    const groups = groupsRaw.filter(([, works]) => works.length > 0);
     if (!groups.length) {
-      alert('Нет подтверждённых работ для акта за выбранный период');
+      alert('Нет подтверждённых работ без акта за выбранный период');
       return;
     }
     let createdCount = 0;
     for (const [packageName, works] of groups) {
-      const total = works.reduce((s, w) => s + Number(w.executionTotal || 0), 0);
+      const total = works.reduce((s, w) => s + workAmount(w), 0);
       const workJournalIds = works.map(w => w.id).filter(Boolean);
       if (!workJournalIds.length || total <= 0) continue;
+      const { allPeriod: _allPeriod, ...actPayload } = newAct;
       const res = await fetch(API + '/interim-acts', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({...newAct, workPackage: packageName, masterId: Number(newAct.masterId), contractId: contract ? contract.id : null, totalAmount: total, paidAmount: 0, workJournalIds}),
+        body: JSON.stringify({...actPayload, workPackage: packageName, periodStart, periodEnd, masterId: Number(newAct.masterId), contractId: contract ? contract.id : null, totalAmount: total, paidAmount: 0, workJournalIds}),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.detail || data.error) {
@@ -393,7 +431,7 @@ export const createPersonnelActions = ({
       alert('Нет работ с суммой для акта');
       return;
     }
-    notify('Акт создан: ' + newAct.masterName + (createdCount > 1 ? ' · разделов ' + createdCount : ''), 'act');
+    notify('Акт подрядчику создан: ' + newAct.masterName + ' · ' + periodStart + ' — ' + periodEnd + (createdCount > 1 ? ' · разделов ' + createdCount : ''), 'act');
     await refreshData();
     setNewAct(createInterimActForm());
     setShowForm(false);

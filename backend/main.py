@@ -12726,8 +12726,9 @@ def _confirmed_execution_total_for_act(cur, master_id, master_name, project, wor
              AND period_start=%s
              AND period_end=%s
              AND COALESCE(status,'') <> 'Аннулирован'
+             AND COALESCE(source_type,'') <> %s
              AND ((%s::int IS NOT NULL AND master_id=%s) OR (%s::int IS NULL AND LOWER(TRIM(COALESCE(master_name,'')))=%s))""",
-        (project, package, period_start, period_end, master_id, master_id, master_id, name),
+        (project, package, period_start, period_end, DAILY_WORK_ACT_SOURCE_TYPE, master_id, master_id, master_id, name),
     )
     already_acted = float(scalar(cur.fetchone()) or 0)
     return max(0, confirmed_total - already_acted)
@@ -12902,8 +12903,9 @@ def create_interim_act(a: InterimActModel, _current_user: dict = Depends(require
         raise HTTPException(status_code=400, detail="В акт попали работы не этого исполнителя, пакета или периода: " + ", ".join(map(str, missing_ids[:10])))
     cur.execute("""SELECT id FROM interim_acts
                    WHERE COALESCE(status,'') <> 'Аннулирован'
+                     AND COALESCE(source_type,'') <> %s
                      AND COALESCE(NULLIF(work_journal_ids,''),'[]')::jsonb ?| %s
-                   LIMIT 1""", ([str(x) for x in work_journal_ids],))
+                   LIMIT 1""", (DAILY_WORK_ACT_SOURCE_TYPE, [str(x) for x in work_journal_ids]))
     duplicate_act = cur.fetchone()
     if duplicate_act:
         cur.close(); conn.close()
@@ -12929,13 +12931,14 @@ def update_interim_act(id: int, data: dict, _current_user: dict = Depends(requir
     require_row_project_access(cur, "interim_acts", id, _current_user, "project")
     cur.execute("""SELECT master_id, master_name, project, COALESCE(NULLIF(work_package,''),'Основная'),
                           period_start, period_end, total_amount, paid_amount,
-                          COALESCE(status,''), COALESCE(scan_url,''), COALESCE(work_journal_ids,'[]')
+                          COALESCE(status,''), COALESCE(scan_url,''), COALESCE(work_journal_ids,'[]'),
+                          COALESCE(source_type,'')
                    FROM interim_acts WHERE id=%s""", (id,))
     act_row = cur.fetchone()
     if not act_row:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Акт не найден")
-    master_id, master_name, project, work_package, period_start, period_end, total_amount, current_paid, current_status, scan_url, current_work_ids = act_row
+    master_id, master_name, project, work_package, period_start, period_end, total_amount, current_paid, current_status, scan_url, current_work_ids, source_type = act_row
     if not has_package_access(_current_user, work_package or "Основная"):
         cur.close(); conn.close()
         raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы акта")
@@ -12944,7 +12947,12 @@ def update_interim_act(id: int, data: dict, _current_user: dict = Depends(requir
     new_paid = float(data.get("paidAmount", current_paid) or 0)
     new_total = float(data.get("totalAmount", total_amount) or 0)
     finance_update_keys = {"paidAmount", "totalAmount", "workJournalIds"}
-    finance_statuses = {"Оплачен", "Частично оплачен", "Оплачен частично"}
+    finance_statuses = INTERIM_ACT_LOCKED_STATUSES
+    if str(source_type or "") == DAILY_WORK_ACT_SOURCE_TYPE and (
+        any(k in data for k in finance_update_keys) or str(data.get("status") or "") in finance_statuses
+    ):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Дневной акт является контрольным пакетом. Для оплаты сформируйте акт подрядчику за месяц, период или всё время работ.")
     if _current_user.get("role") not in FINANCE_ROLES and (
         any(k in data for k in finance_update_keys) or str(data.get("status") or "") in finance_statuses
     ):
@@ -12978,8 +12986,9 @@ def update_interim_act(id: int, data: dict, _current_user: dict = Depends(requir
         cur.execute("""SELECT id FROM interim_acts
                        WHERE id<>%s
                          AND COALESCE(status,'') <> 'Аннулирован'
+                         AND COALESCE(source_type,'') <> %s
                          AND COALESCE(NULLIF(work_journal_ids,''),'[]')::jsonb ?| %s
-                       LIMIT 1""", (id, [str(x) for x in work_journal_ids]))
+                       LIMIT 1""", (id, DAILY_WORK_ACT_SOURCE_TYPE, [str(x) for x in work_journal_ids]))
         duplicate_act = cur.fetchone()
         if duplicate_act:
             cur.close(); conn.close()
@@ -13023,7 +13032,7 @@ def pay_interim_act(id: int, data: dict, _current_user: dict = Depends(require_r
     cur = conn.cursor()
     try:
         require_row_project_access(cur, "interim_acts", id, _current_user, "project")
-        cur.execute("""SELECT total_amount, paid_amount, project, COALESCE(work_package,''), master_name
+        cur.execute("""SELECT total_amount, paid_amount, project, COALESCE(work_package,''), master_name, COALESCE(source_type,'')
                        FROM interim_acts WHERE id=%s FOR UPDATE""", (id,))
         act = cur.fetchone()
         if not act:
@@ -13031,6 +13040,10 @@ def pay_interim_act(id: int, data: dict, _current_user: dict = Depends(require_r
             raise HTTPException(status_code=404, detail="Акт не найден")
         project = act[2] or ""
         work_package = act[3] or "Основная"
+        source_type = act[5] or ""
+        if source_type == DAILY_WORK_ACT_SOURCE_TYPE:
+            conn.rollback()
+            raise HTTPException(status_code=400, detail="Дневной акт является контрольным пакетом. Для оплаты сформируйте акт подрядчику за месяц, период или всё время работ.")
         if not has_package_access(_current_user, work_package):
             conn.rollback()
             raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы акта")

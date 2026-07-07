@@ -298,6 +298,7 @@ export function buildAppActionGroups({
     contracts,
     editingItem,
     expandedStaffId,
+    interimActs,
     masterProfiles,
     masterRatings,
     newAct,

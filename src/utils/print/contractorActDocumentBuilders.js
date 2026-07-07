@@ -11,7 +11,17 @@ export const buildMasterActDocContent = (act = {}, context = {}) => {
     ownExpenses = [],
     accountablePayments = [],
   } = context;
-  const profile = masterProfiles.find((item) => item.userId === act.masterId);
+  const profile = masterProfiles.find((item) => Number(item.userId ?? item.user_id) === Number(act.masterId ?? act.master_id));
+  const parseActWorkIds = (value) => {
+    if (Array.isArray(value)) return value.map(Number).filter(Boolean);
+    if (!value) return [];
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.map(Number).filter(Boolean) : [];
+    } catch {
+      return String(value).split(',').map((id) => Number(id.trim())).filter(Boolean);
+    }
+  };
   const req = companyRequisites || {};
   const companyNameDoc = req.fullName || req.shortName || companyName || '_____';
   const inPeriod = (value) => {
@@ -19,29 +29,34 @@ export const buildMasterActDocContent = (act = {}, context = {}) => {
     const day = String(value).split('T')[0];
     return day >= (act.periodStart || '0000-01-01') && day <= (act.periodEnd || '9999-12-31');
   };
-  const workPayUnitPrice = (work) => Number(work.executionPricePerUnit || 0) || (Number(work.executionTotal || 0) / Math.max(1, Number(work.quantity || 0)));
-  const workPayTotal = (work) => Number(work.executionTotal || 0);
+  const workPayUnitPrice = (work) => Number(work.executionPricePerUnit ?? work.execution_price_per_unit ?? 0) || (Number(work.executionTotal ?? work.execution_total ?? 0) / Math.max(1, Number(work.quantity || 0)));
+  const workPayTotal = (work) => Number(work.executionTotal ?? work.execution_total ?? 0);
   const actPackage = String(act.workPackage || '').trim();
-  const works = workJournal.filter((item) => (
-    item.masterId === act.masterId
-    && item.project === act.project
-    && item.status === 'Подтверждено'
-    && inPeriod(item.confirmedAt || item.date)
-    && (!actPackage || String(item.workPackage || item.work_package || 'Основная').trim() === actPackage)
-  ));
-  const payments = actPayments.filter((item) => item.actId === act.id);
+  const actWorkIds = parseActWorkIds(act.workJournalIds ?? act.work_journal_ids);
+  const actWorkIdSet = new Set(actWorkIds);
+  const works = workJournal.filter((item) => {
+    if (actWorkIdSet.size) return actWorkIdSet.has(Number(item.id));
+    return (
+      Number(item.masterId ?? item.master_id) === Number(act.masterId ?? act.master_id)
+      && item.project === act.project
+      && item.status === 'Подтверждено'
+      && inPeriod(item.confirmedAt || item.confirmed_at || item.date)
+      && (!actPackage || String(item.workPackage || item.work_package || 'Основная').trim() === actPackage)
+    );
+  });
+  const payments = actPayments.filter((item) => Number(item.actId ?? item.act_id) === Number(act.id));
   const toolDeductions = tools
     .filter((item) => item.masterName === act.masterName && item.issueType === 'В счёт зарплаты')
     .reduce((sum, item) => sum + item.cost, 0);
   const ownExpsReimbursed = (ownExpenses || []).filter((item) => (
-    (item.employeeId === act.masterId || item.employeeName === act.masterName)
+    (Number(item.employeeId ?? item.employee_id) === Number(act.masterId ?? act.master_id) || item.employeeName === act.masterName)
     && item.projectName === act.project
     && item.status === 'Возмещено'
     && inPeriod(item.date)
   ));
   const ownExpReimbSum = ownExpsReimbursed.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const advancesGiven = (accountablePayments || []).filter((item) => (
-    (item.recipientId === act.masterId || item.recipientName === act.masterName)
+    (Number(item.recipientId ?? item.recipient_id) === Number(act.masterId ?? act.master_id) || item.recipientName === act.masterName)
     && item.projectName === act.project
     && inPeriod(item.date)
   ));
@@ -52,10 +67,10 @@ export const buildMasterActDocContent = (act = {}, context = {}) => {
   if (profile) html += '<p>ИНН: ' + profile.inn + ' | ' + profile.bankName + ' | Р/с: ' + profile.bankAccount + '</p>';
   html += '<table><tr><th>N</th><th>Работа</th><th>Помещение</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>';
   works.forEach((work, index) => {
-    html += '<tr><td>' + (index + 1) + '</td><td>' + work.description + '</td><td>' + (work.roomName || '—') + '</td><td>' + work.unit + '</td><td>' + work.quantity + '</td><td>' + workPayUnitPrice(work).toLocaleString() + '</td><td>' + workPayTotal(work).toLocaleString() + '</td></tr>';
+    html += '<tr><td>' + (index + 1) + '</td><td>' + work.description + '</td><td>' + (work.roomName || work.room_name || '—') + '</td><td>' + work.unit + '</td><td>' + work.quantity + '</td><td>' + workPayUnitPrice(work).toLocaleString() + '</td><td>' + workPayTotal(work).toLocaleString() + '</td></tr>';
   });
-  const totalAmt = act.totalAmount || 0;
-  const paidAmt = act.paidAmount || 0;
+  const totalAmt = Number(act.totalAmount ?? act.total_amount ?? 0);
+  const paidAmt = Number(act.paidAmount ?? act.paid_amount ?? 0);
   html += '<tr><td colspan="6"><b>ИТОГО начислено:</b></td><td><b>' + totalAmt.toLocaleString() + ' руб.</b></td></tr>';
   if (toolDeductions > 0) html += '<tr><td colspan="6">Удержания (инструмент):</td><td style="color:red">-' + toolDeductions.toLocaleString() + ' руб.</td></tr>';
   html += '<tr><td colspan="6"><b>К выплате по работам:</b></td><td><b>' + (totalAmt - toolDeductions).toLocaleString() + ' руб.</b></td></tr>';

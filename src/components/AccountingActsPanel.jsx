@@ -273,9 +273,20 @@ export default function AccountingActsPanel({
               <option value="">Все разделы</option>
               {actPackageOptions.map(pkg => <option key={pkg} value={pkg}>{pkg}</option>)}
             </select>
-            <input type="date" step="any" inputMode="decimal" placeholder="Период с *" value={newAct.periodStart} onChange={event => setNewAct({ ...newAct, periodStart: event.target.value })} style={{ ...inp, marginBottom: 0 }} />
-            <input type="date" step="any" inputMode="decimal" placeholder="Период по *" value={newAct.periodEnd} onChange={event => setNewAct({ ...newAct, periodEnd: event.target.value })} style={{ ...inp, marginBottom: 0 }} />
+            <input type="date" step="any" inputMode="decimal" placeholder="Период с *" value={newAct.periodStart} disabled={Boolean(newAct.allPeriod)} onChange={event => setNewAct({ ...newAct, periodStart: event.target.value })} style={{ ...inp, marginBottom: 0, opacity: newAct.allPeriod ? 0.55 : 1 }} />
+            <input type="date" step="any" inputMode="decimal" placeholder="Период по *" value={newAct.periodEnd} disabled={Boolean(newAct.allPeriod)} onChange={event => setNewAct({ ...newAct, periodEnd: event.target.value })} style={{ ...inp, marginBottom: 0, opacity: newAct.allPeriod ? 0.55 : 1 }} />
           </div>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginTop: '12px', color: C.text, fontSize: '12px', fontWeight: 700 }}>
+            <input
+              type="checkbox"
+              checked={Boolean(newAct.allPeriod)}
+              onChange={event => setNewAct({ ...newAct, allPeriod: event.target.checked, periodStart: event.target.checked ? '' : newAct.periodStart, periodEnd: event.target.checked ? '' : newAct.periodEnd })}
+            />
+            За всё время работ подрядчика по объекту
+          </label>
+          <p style={{ color: C.textSec, margin: '8px 0 0', fontSize: '11px' }}>
+            В акт попадут подтверждённые ЖПР выбранного подрядчика, которые ещё не включены в печатный акт за период.
+          </p>
           <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
             <button onClick={createInterimAct} style={btnO}>
               <Check size={14} />
@@ -293,6 +304,7 @@ export default function AccountingActsPanel({
         const totalAmount = Number(act.totalAmount || 0);
         const remaining = totalAmount - paidAmount;
         const actWorkCount = parseActWorkIds(act).length;
+        const isDailyAct = String(act.sourceType || act.source_type || '') === 'daily_work';
         return (
           <div key={act.id} style={{ ...card, padding: '14px', marginBottom: '8px', borderLeft: '3px solid ' + (act.status === 'Оплачен' ? C.success : remaining > 0 && paidAmount > 0 ? C.warning : C.textSec) }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
@@ -302,6 +314,7 @@ export default function AccountingActsPanel({
                 <div style={{ display: 'flex', gap: '12px', marginTop: '4px', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: '12px', color: C.text }}>{'Начислено: ' + totalAmount.toLocaleString() + ' ₽'}</span>
                   <span style={{ fontSize: '12px', color: C.success }}>{'Оплачено: ' + paidAmount.toLocaleString() + ' ₽'}</span>
+                  {isDailyAct && <span style={{ fontSize: '12px', color: C.info }}>Дневной акт</span>}
                   {actWorkCount > 0 && <span style={{ fontSize: '12px', color: C.accent }}>{'ЖПР: ' + actWorkCount}</span>}
                   {remaining > 0 && <span style={{ fontSize: '12px', color: C.danger, fontWeight: '700', padding: '2px 8px', borderRadius: '6px', backgroundColor: C.dangerLight }}>{'⚠️ Недоплата: ' + remaining.toLocaleString() + ' ₽'}</span>}
                 </div>
@@ -313,7 +326,7 @@ export default function AccountingActsPanel({
                 <button onClick={() => showPreview(buildActContent(act), 'Акт')} style={btnB}>
                   <Eye size={13} />
                 </button>
-                {isFinanceUser && (
+                {isFinanceUser && !isDailyAct && (
                   act.scanUrl ? (
                     <a href={fileSrc(act.scanUrl)} target='_blank' rel='noreferrer' style={{ ...btnB, padding: '4px 8px', fontSize: '11px', textDecoration: 'none' }} title='Подписанный акт (скан)'>
                       📎
@@ -340,7 +353,12 @@ export default function AccountingActsPanel({
                     </label>
                   )
                 )}
-                {isFinanceUser && (
+                {isFinanceUser && isDailyAct && (
+                  <button onClick={() => window.alert('Это контрольный дневной пакет. Для оплаты сформируйте акт подрядчику за месяц, период или всё время работ.')} style={{ ...btnG, opacity: 0.65 }} title='Контрольный дневной пакет'>
+                    Контроль
+                  </button>
+                )}
+                {isFinanceUser && !isDailyAct && (
                   act.scanUrl ? (
                     <button onClick={() => setShowPayActModal(act)} style={btnO}>
                       <DollarSign size={13} />

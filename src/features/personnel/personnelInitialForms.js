@@ -47,6 +47,7 @@ export const createInterimActForm = (overrides = {}) => ({
   masterName: '',
   project: '',
   workPackage: '',
+  allPeriod: false,
   periodStart: '',
   periodEnd: '',
   ...overrides,

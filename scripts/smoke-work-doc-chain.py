@@ -187,15 +187,22 @@ def cleanup(created):
         conn.autocommit = False
         cur = conn.cursor()
         payment_id = created.get("projectPaymentId")
-        interim_act_id = created.get("interimActId")
+        interim_act_ids = [
+            value for value in (
+                created.get("finalInterimActId"),
+                created.get("dailyInterimActId"),
+                created.get("interimActId"),
+            )
+            if value
+        ]
         work_journal_id = created.get("workJournalId")
         contract_id = created.get("contractId")
         contract_item_id = created.get("contractItemId")
 
         if payment_id:
             cur.execute("DELETE FROM project_payments WHERE id=%s", (payment_id,))
-        if interim_act_id:
-            cur.execute("DELETE FROM interim_acts WHERE id=%s", (interim_act_id,))
+        if interim_act_ids:
+            cur.execute("DELETE FROM interim_acts WHERE id = ANY(%s)", (interim_act_ids,))
         if work_journal_id:
             cur.execute("DELETE FROM hidden_works_acts WHERE work_journal_id=%s", (work_journal_id,))
             cur.execute("DELETE FROM room_works WHERE work_journal_id=%s", (work_journal_id,))
@@ -402,8 +409,8 @@ def main():
         )
         if not interim:
             raise SystemExit(f"FAIL daily interim act auto-create: dailyActId={expected_daily_id}, rows={interim_rows[:3]}")
-        created["interimActId"] = interim.get("id")
-        if not created["interimActId"]:
+        created["dailyInterimActId"] = interim.get("id")
+        if not created["dailyInterimActId"]:
             raise SystemExit(f"FAIL daily interim act id: {interim}")
         if interim.get("sourceType") != "daily_work":
             raise SystemExit(f"FAIL daily interim act sourceType: {interim}")
@@ -414,9 +421,51 @@ def main():
         if photo_url not in str(interim.get("photoUrls") or ""):
             raise SystemExit(f"FAIL daily interim act photoUrls: {interim}")
 
+        daily_pay_status, daily_pay_body = api_json(
+            "POST",
+            f"/interim-acts/{created['dailyInterimActId']}/pay",
+            token=director_token,
+            data={"amount": total, "paidBy": "Codex smoke", "paidDate": today, "note": f"CODEX QA payment {stamp}"},
+        )
+        if daily_pay_status != 400:
+            raise SystemExit(f"FAIL daily interim act payment guard: got {daily_pay_status}, expected 400. Body: {daily_pay_body}")
+
+        daily_update_status, daily_update_body = api_json(
+            "PUT",
+            f"/interim-acts/{created['dailyInterimActId']}",
+            token=director_token,
+            data={"status": "Оплачен", "paidAmount": total},
+        )
+        if daily_update_status != 400:
+            raise SystemExit(f"FAIL daily interim act update guard: got {daily_update_status}, expected 400. Body: {daily_update_body}")
+
+        _, final_act = api_json(
+            "POST",
+            "/interim-acts",
+            token=director_token,
+            data={
+                "masterId": worker["id"],
+                "masterName": worker["name"],
+                "project": worker["projectName"],
+                "workPackage": TEST_PACKAGE,
+                "periodStart": today,
+                "periodEnd": today,
+                "totalAmount": total,
+                "paidAmount": 0,
+                "contractId": created["contractId"],
+                "workJournalIds": [created["workJournalId"]],
+            },
+            expected=200,
+        )
+        created["finalInterimActId"] = final_act.get("id")
+        if not created["finalInterimActId"]:
+            raise SystemExit(f"FAIL final interim act create: {final_act}")
+        if str(created["workJournalId"]) not in str(final_act.get("workJournalIds") or ""):
+            raise SystemExit(f"FAIL final interim act workJournalIds: {final_act}")
+
         _, pay = api_json(
             "POST",
-            f"/interim-acts/{created['interimActId']}/pay",
+            f"/interim-acts/{created['finalInterimActId']}/pay",
             token=director_token,
             data={"amount": total, "paidBy": "Codex smoke", "paidDate": today, "note": f"CODEX QA payment {stamp}"},
             expected=200,
@@ -439,7 +488,8 @@ def main():
             "workPackage": TEST_PACKAGE,
             "workJournalId": created["workJournalId"],
             "hiddenWorksActId": created.get("hiddenWorksActId"),
-            "interimActId": created["interimActId"],
+            "dailyInterimActId": created["dailyInterimActId"],
+            "finalInterimActId": created["finalInterimActId"],
             "projectPaymentId": created["projectPaymentId"],
             "checked": [
                 "temporary worker access",
@@ -450,7 +500,10 @@ def main():
                 "director confirms work_journal",
                 "hidden_works_act auto-created from hidden work",
                 "daily interim_act auto-created from confirmed work_journal with photo",
-                "interim_act payment creates project payment",
+                "daily interim_act payment is blocked as control package",
+                "daily interim_act paid status update is blocked as control package",
+                "final contractor interim_act can include daily work_journal",
+                "final interim_act payment creates project payment",
             ],
         }, ensure_ascii=False, indent=2))
     finally:
