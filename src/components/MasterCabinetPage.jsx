@@ -732,6 +732,15 @@ export default function MasterCabinetPage(props) {
             const row = (itemKey && rowByKey.get(itemKey)) || rowByName.get(nameKey) || null;
             if (!row) return item;
             matchedRows.add(row.workKey);
+            const freshDone = safeToNum(item.doneQuantity);
+            const freshPlan = safeToNum(item.quantity);
+            const nextDone = freshDone + safeToNum(row.delta);
+            if (freshPlan > 0 && nextDone > freshPlan + 0.000001) {
+              throw new Error(
+                'По работе "' + row.name + '" уже закрыто ' + safeFmtMeasure(freshDone, row.unit) +
+                ', осталось ' + safeFmtMeasure(Math.max(0, freshPlan - freshDone), row.unit) + '.',
+              );
+            }
             const freshWorkKey = estimateWorkKey(est.id, sectionIdx, itemIdx);
             const nameParamKey = [String(section.name || ''), String(item.name || '')].join('|');
             const comment = groupComment
@@ -749,7 +758,7 @@ export default function MasterCabinetPage(props) {
               workJournalMaterials[key] = materialPayload;
               workJournalParams[key] = journalPayload;
             });
-            return { ...item, doneQuantity: row.target };
+            return { ...item, doneQuantity: nextDone };
           }),
         }));
         const missingRows = rows.filter(row => !matchedRows.has(row.workKey));
