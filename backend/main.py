@@ -950,8 +950,18 @@ def _update_supplier_missing_fields(cur, supplier_id: int, payload: dict, user_i
     return cur.fetchone()
 
 def current_supplier_id(cur, user: dict):
-    cur.execute("SELECT id FROM suppliers WHERE user_id=%s OR LOWER(email)=LOWER(%s) OR name=%s LIMIT 1",
-                (user.get("id"), user.get("email") or "", user.get("name") or ""))
+    cur.execute("""SELECT id FROM suppliers
+                   WHERE user_id=%s
+                      OR (%s<>'' AND LOWER(email)=LOWER(%s))
+                      OR (%s<>'' AND name=%s)
+                   ORDER BY CASE WHEN user_id=%s THEN 0 ELSE 1 END, id
+                   LIMIT 1""",
+                (
+                    user.get("id"),
+                    user.get("email") or "", user.get("email") or "",
+                    user.get("name") or "", user.get("name") or "",
+                    user.get("id"),
+                ))
     row = cur.fetchone()
     if not row:
         supplier = _supplier_find_match(cur, {
@@ -966,6 +976,65 @@ def current_supplier_id(cur, user: dict):
         return row["id"]
     except Exception:
         return row[0]
+
+def current_supplier_ids(cur, user: dict):
+    supplier_id = current_supplier_id(cur, user)
+    if not supplier_id:
+        return []
+    cur.execute("SELECT id,name,phone,email,inn,kpp,ogrn FROM suppliers WHERE id=%s LIMIT 1", (supplier_id,))
+    base = cur.fetchone()
+    if not base:
+        return [supplier_id]
+    base_payload = {
+        "name": _row_get(base, "name", 1, ""),
+        "phone": _row_get(base, "phone", 2, ""),
+        "email": _row_get(base, "email", 3, ""),
+        "inn": _row_get(base, "inn", 4, ""),
+        "kpp": _row_get(base, "kpp", 5, ""),
+        "ogrn": _row_get(base, "ogrn", 6, ""),
+    }
+    base_req = _supplier_extract_requisites(base_payload)
+    ids = {int(supplier_id)}
+
+    cur.execute("SELECT id,name,phone,email,inn,kpp,ogrn FROM suppliers ORDER BY id")
+    for row in cur.fetchall() or []:
+        row_id = int(_row_get(row, "id", 0, 0) or 0)
+        if not row_id:
+            continue
+        req = _supplier_extract_requisites({
+            "name": _row_get(row, "name", 1, ""),
+            "phone": _row_get(row, "phone", 2, ""),
+            "email": _row_get(row, "email", 3, ""),
+            "inn": _row_get(row, "inn", 4, ""),
+            "kpp": _row_get(row, "kpp", 5, ""),
+            "ogrn": _row_get(row, "ogrn", 6, ""),
+        })
+        strong_match = (
+            (base_req["inn"] and req["inn"] and base_req["inn"] == req["inn"]) or
+            (base_req["ogrn"] and req["ogrn"] and base_req["ogrn"] == req["ogrn"]) or
+            (base_req["email"] and req["email"] and base_req["email"] == req["email"]) or
+            (base_req["phone"] and req["phone"] and len(base_req["phone"]) >= 7 and base_req["phone"] == req["phone"])
+        )
+        name_match = base_req["nameKey"] and req["nameKey"] and base_req["nameKey"] == req["nameKey"]
+        if strong_match or name_match:
+            ids.add(row_id)
+
+    cur.execute("SELECT supplier_id,alias_key,inn,ogrn FROM supplier_aliases ORDER BY id")
+    for alias in cur.fetchall() or []:
+        alias_supplier_id = int(_row_get(alias, "supplier_id", 0, 0) or 0)
+        if not alias_supplier_id:
+            continue
+        alias_key = _row_get(alias, "alias_key", 1, "") or ""
+        alias_inn = _supplier_digits(_row_get(alias, "inn", 2, ""))
+        alias_ogrn = _supplier_digits(_row_get(alias, "ogrn", 3, ""))
+        if (
+            (base_req["inn"] and alias_inn and base_req["inn"] == alias_inn) or
+            (base_req["ogrn"] and alias_ogrn and base_req["ogrn"] == alias_ogrn) or
+            (base_req["nameKey"] and alias_key and base_req["nameKey"] == alias_key) or
+            alias_supplier_id in ids
+        ):
+            ids.add(alias_supplier_id)
+    return sorted(ids)
 
 def supplier_is_selected(selected_suppliers, supplier_id: int) -> bool:
     if not supplier_id:
@@ -6961,9 +7030,9 @@ def get_suppliers(current_user: dict = Depends(get_current_user)):
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     role = current_user.get("role")
     if role == "поставщик":
-        supplier_id = current_supplier_id(cur, current_user)
-        if supplier_id:
-            cur.execute("SELECT * FROM suppliers WHERE id=%s ORDER BY name", (supplier_id,))
+        supplier_ids = current_supplier_ids(cur, current_user)
+        if supplier_ids:
+            cur.execute("SELECT * FROM suppliers WHERE id = ANY(%s) ORDER BY name", (supplier_ids,))
         else:
             cur.close(); conn.close()
             return []
@@ -8265,12 +8334,12 @@ def get_supply_requests(limit: Optional[int] = None, offset: int = 0, current_us
         project_sql, project_params = scoped_project_where(current_user, "project")
         cur.execute(SUPPLY_SELECT + project_sql + " ORDER BY id DESC" + page_sql, project_params + page_params)
     elif role == "поставщик":
-        supplier_id = current_supplier_id(cur, current_user)
-        if not supplier_id:
+        supplier_ids = current_supplier_ids(cur, current_user)
+        if not supplier_ids:
             cur.close(); conn.close()
             return []
-        cur.execute(SUPPLY_SELECT + " WHERE %s = ANY(COALESCE(selected_suppliers, '{}'::int[])) ORDER BY id DESC" + page_sql,
-                    [int(supplier_id)] + page_params)
+        cur.execute(SUPPLY_SELECT + " WHERE COALESCE(selected_suppliers, '{}'::int[]) && %s::int[] ORDER BY id DESC" + page_sql,
+                    [supplier_ids] + page_params)
     elif role == "прораб":
         projects = user_project_names(current_user)
         clauses = ["requested_by_id=%s", "created_by=%s"]
@@ -8843,11 +8912,11 @@ def get_supplier_offers(current_user: dict = Depends(get_current_user)):
     if role in ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер"):
         cur.execute(OFFERS_SELECT + " ORDER BY id DESC")
     elif role == "поставщик":
-        supplier_id = current_supplier_id(cur, current_user)
-        if not supplier_id:
+        supplier_ids = current_supplier_ids(cur, current_user)
+        if not supplier_ids:
             cur.close(); conn.close()
             return []
-        cur.execute(OFFERS_SELECT + " WHERE supplier_id=%s ORDER BY id DESC", (supplier_id,))
+        cur.execute(OFFERS_SELECT + " WHERE supplier_id = ANY(%s) ORDER BY id DESC", (supplier_ids,))
     elif role == "прораб":
         projects = user_project_names(current_user)
         if not projects:
@@ -8882,8 +8951,8 @@ def get_supplier_offer_history(id: int, current_user: dict = Depends(get_current
         raise HTTPException(status_code=404, detail="КП не найдено")
     role = current_user.get("role")
     if role == "поставщик":
-        supplier_id = current_supplier_id(cur, current_user)
-        if not supplier_id or int(supplier_id) != int(offer.get("supplier_id") or 0):
+        supplier_ids = current_supplier_ids(cur, current_user)
+        if int(offer.get("supplier_id") or 0) not in supplier_ids:
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Нет доступа к истории КП")
     elif role in SUPPLY_INTERNAL_ROLES:
@@ -8920,14 +8989,15 @@ def create_supplier_offer(o: SupplierOfferModel, _current_user: dict = Depends(r
     supplier_id = o.supplierId
     role = _current_user.get("role")
     if role == "поставщик":
-        own_supplier_id = current_supplier_id(cur, _current_user)
-        if not own_supplier_id:
+        own_supplier_ids = current_supplier_ids(cur, _current_user)
+        if not own_supplier_ids:
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Поставщик не найден")
-        if not supplier_is_selected(req.get("selected_suppliers"), own_supplier_id):
+        selected_supplier_id = next((sid for sid in own_supplier_ids if supplier_is_selected(req.get("selected_suppliers"), sid)), None)
+        if not selected_supplier_id:
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Нет доступа к заявке")
-        supplier_id = own_supplier_id
+        supplier_id = selected_supplier_id
     else:
         if role not in SUPPLY_INTERNAL_ROLES:
             cur.close(); conn.close()
@@ -8962,8 +9032,8 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
         raise HTTPException(status_code=404, detail="КП не найдено")
     role = _current_user.get("role")
     if role == "поставщик":
-        supplier_id = current_supplier_id(cur, _current_user)
-        if not supplier_id or supplier_id != offer_access.get("supplier_id"):
+        supplier_ids = current_supplier_ids(cur, _current_user)
+        if offer_access.get("supplier_id") not in supplier_ids:
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Нет доступа к КП")
         if action not in ('respond', 'withdraw'):
@@ -9416,8 +9486,8 @@ def create_invoice_from_offer(id: int, data: dict, _current_user: dict = Depends
         cur.close(); conn.close()
         return {"error": "Утверждённое КП не найдено"}
     if _current_user.get("role") == "поставщик":
-        supplier_id = current_supplier_id(cur, _current_user)
-        if not supplier_id or supplier_id != offer['supplier_id']:
+        supplier_ids = current_supplier_ids(cur, _current_user)
+        if offer['supplier_id'] not in supplier_ids:
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="нет доступа к КП")
     else:
@@ -10477,11 +10547,11 @@ def list_supply_deliveries(limit: Optional[int] = None, offset: int = 0, current
         project_sql, project_params = scoped_project_where(current_user, "d.project")
         cur.execute(DELIVERY_SELECT + project_sql + " ORDER BY d.id DESC" + page_sql, project_params + page_params)
     elif role == "поставщик":
-        supplier_id = current_supplier_id(cur, current_user)
-        if not supplier_id:
+        supplier_ids = current_supplier_ids(cur, current_user)
+        if not supplier_ids:
             cur.close(); conn.close()
             return []
-        cur.execute(DELIVERY_SELECT + " WHERE d.supplier_id=%s ORDER BY d.id DESC" + page_sql, [supplier_id] + page_params)
+        cur.execute(DELIVERY_SELECT + " WHERE d.supplier_id = ANY(%s) ORDER BY d.id DESC" + page_sql, [supplier_ids] + page_params)
     elif role == "прораб":
         projects = user_project_names(current_user)
         if not projects:
@@ -10507,11 +10577,11 @@ def list_supply_claims(current_user: dict = Depends(get_current_user)):
     if role in ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер"):
         cur.execute(CLAIM_SELECT + " ORDER BY id DESC")
     elif role == "поставщик":
-        supplier_id = current_supplier_id(cur, current_user)
-        if not supplier_id:
+        supplier_ids = current_supplier_ids(cur, current_user)
+        if not supplier_ids:
             cur.close(); conn.close()
             return []
-        cur.execute(CLAIM_SELECT + " WHERE supplier_id=%s ORDER BY id DESC", (supplier_id,))
+        cur.execute(CLAIM_SELECT + " WHERE supplier_id = ANY(%s) ORDER BY id DESC", (supplier_ids,))
     elif role == "прораб":
         projects = user_project_names(current_user)
         if not projects:
@@ -10552,8 +10622,8 @@ def ship_supplier_offer(id: int, data: dict, _current_user: dict = Depends(requi
         raise HTTPException(status_code=404, detail="Утверждённое КП не найдено")
     role = _current_user.get("role")
     if role == "поставщик":
-        supplier_id = current_supplier_id(cur, _current_user)
-        if not supplier_id or supplier_id != offer.get('supplier_id'):
+        supplier_ids = current_supplier_ids(cur, _current_user)
+        if offer.get('supplier_id') not in supplier_ids:
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Нет доступа к КП")
     else:
@@ -10886,8 +10956,8 @@ def update_supply_claim(id: int, data: dict, _current_user: dict = Depends(requi
         raise HTTPException(status_code=404, detail="Претензия не найдена")
     role = _current_user.get("role")
     if role == "поставщик":
-        supplier_id = current_supplier_id(cur, _current_user)
-        if not supplier_id or supplier_id != claim.get("supplier_id"):
+        supplier_ids = current_supplier_ids(cur, _current_user)
+        if claim.get("supplier_id") not in supplier_ids:
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Нет доступа к претензии")
         protected_keys = {"status", "resolvedAt"}
@@ -10937,11 +11007,11 @@ def get_supply_history(limit: Optional[int] = None, offset: int = 0, current_use
         project_sql, project_params = scoped_project_where(current_user, "project")
         cur.execute(select_sql + project_sql + " ORDER BY id DESC" + page_sql, project_params + page_params)
     elif role == "поставщик":
-        supplier_id = current_supplier_id(cur, current_user)
-        if not supplier_id:
+        supplier_ids = current_supplier_ids(cur, current_user)
+        if not supplier_ids:
             cur.close(); conn.close()
             return []
-        cur.execute(select_sql + " WHERE supplier_id=%s ORDER BY id DESC" + page_sql, [supplier_id] + page_params)
+        cur.execute(select_sql + " WHERE supplier_id = ANY(%s) ORDER BY id DESC" + page_sql, [supplier_ids] + page_params)
     elif role == "прораб":
         projects = user_project_names(current_user)
         if not projects:
@@ -19535,14 +19605,14 @@ def get_supplier_catalog(supplier_id: int = None, current_user: dict = Depends(g
     cur = conn.cursor()
     role = current_user.get("role")
     if role == "поставщик":
-        own_supplier_id = current_supplier_id(cur, current_user)
-        if not own_supplier_id:
+        own_supplier_ids = current_supplier_ids(cur, current_user)
+        if not own_supplier_ids:
             cur.close(); conn.close()
             return []
-        if supplier_id and supplier_id != own_supplier_id:
+        if supplier_id and supplier_id not in own_supplier_ids:
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Нет доступа к каталогу этого поставщика")
-        cur.execute("SELECT id,supplier_id,supplier_name,material_name,unit,price,min_quantity,delivery_days,in_stock,notes FROM supplier_catalog WHERE supplier_id=%s ORDER BY material_name", (own_supplier_id,))
+        cur.execute("SELECT id,supplier_id,supplier_name,material_name,unit,price,min_quantity,delivery_days,in_stock,notes FROM supplier_catalog WHERE supplier_id = ANY(%s) ORDER BY material_name", (own_supplier_ids,))
     elif role in WORKER_EXECUTION_ROLES:
         cur.close(); conn.close()
         return []
@@ -19565,8 +19635,8 @@ def create_supplier_catalog(data: dict, current_user: dict = Depends(get_current
     supplier_id = int(data.get("supplierId") or 0)
     role = current_user.get("role")
     if role == "поставщик":
-        own_supplier_id = current_supplier_id(cur, current_user)
-        if not own_supplier_id or supplier_id != own_supplier_id:
+        own_supplier_ids = current_supplier_ids(cur, current_user)
+        if not own_supplier_ids or supplier_id not in own_supplier_ids:
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Нет доступа к каталогу этого поставщика")
     elif role not in ("директор", "зам_директора", "снабженец", "кладовщик"):
@@ -19585,10 +19655,10 @@ def update_supplier_catalog(id: int, data: dict, current_user: dict = Depends(ge
     cur = conn.cursor()
     role = current_user.get("role")
     if role == "поставщик":
-        own_supplier_id = current_supplier_id(cur, current_user)
+        own_supplier_ids = current_supplier_ids(cur, current_user)
         cur.execute("SELECT supplier_id FROM supplier_catalog WHERE id=%s", (id,))
         row = cur.fetchone()
-        if not row or row[0] != own_supplier_id:
+        if not row or row[0] not in own_supplier_ids:
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Нет доступа к каталогу этого поставщика")
     elif role not in ("директор", "зам_директора", "снабженец", "кладовщик"):
@@ -19606,10 +19676,10 @@ def delete_supplier_catalog(id: int, current_user: dict = Depends(get_current_us
     cur = conn.cursor()
     role = current_user.get("role")
     if role == "поставщик":
-        own_supplier_id = current_supplier_id(cur, current_user)
+        own_supplier_ids = current_supplier_ids(cur, current_user)
         cur.execute("SELECT supplier_id FROM supplier_catalog WHERE id=%s", (id,))
         row = cur.fetchone()
-        if not row or row[0] != own_supplier_id:
+        if not row or row[0] not in own_supplier_ids:
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Нет доступа к каталогу этого поставщика")
     elif role not in ("директор", "зам_директора", "снабженец", "кладовщик"):
@@ -19715,8 +19785,8 @@ def update_supplier_requisites(id: int, data: dict, current_user: dict = Depends
     cur = conn.cursor()
     role = current_user.get("role")
     if role == "поставщик":
-        supplier_id = current_supplier_id(cur, current_user)
-        if supplier_id != id:
+        supplier_ids = current_supplier_ids(cur, current_user)
+        if id not in supplier_ids:
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Нет доступа к этому поставщику")
     elif role not in ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер"):
@@ -19765,15 +19835,15 @@ def list_supplier_documents(supplier_id: int = None, current_user: dict = Depend
     params = []
     role = current_user.get("role")
     if role == "поставщик":
-        own_supplier_id = current_supplier_id(cur, current_user)
-        if not own_supplier_id:
+        own_supplier_ids = current_supplier_ids(cur, current_user)
+        if not own_supplier_ids:
             cur.close(); conn.close()
             return []
-        if supplier_id and supplier_id != own_supplier_id:
+        if supplier_id and supplier_id not in own_supplier_ids:
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Нет доступа к документам этого поставщика")
-        where = " WHERE supplier_id=%s"
-        params = [own_supplier_id]
+        where = " WHERE supplier_id = ANY(%s)"
+        params = [own_supplier_ids]
     elif role in ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер"):
         if supplier_id:
             where = " WHERE supplier_id=%s"
@@ -19796,8 +19866,8 @@ def create_supplier_document(data: dict, current_user: dict = Depends(get_curren
     role = current_user.get("role")
     supplier_id = int(data.get('supplierId') or 0)
     if role == "поставщик":
-        own_supplier_id = current_supplier_id(cur, current_user)
-        if not own_supplier_id or supplier_id != own_supplier_id:
+        own_supplier_ids = current_supplier_ids(cur, current_user)
+        if not own_supplier_ids or supplier_id not in own_supplier_ids:
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Нет доступа к документам этого поставщика")
     elif role not in ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер"):
@@ -19821,10 +19891,10 @@ def delete_supplier_document(id: int, current_user: dict = Depends(get_current_u
     cur = conn.cursor()
     role = current_user.get("role")
     if role == "поставщик":
-        own_supplier_id = current_supplier_id(cur, current_user)
+        own_supplier_ids = current_supplier_ids(cur, current_user)
         cur.execute("SELECT supplier_id FROM supplier_documents WHERE id=%s", (id,))
         row = cur.fetchone()
-        if not row or row[0] != own_supplier_id:
+        if not row or row[0] not in own_supplier_ids:
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Нет доступа к документам этого поставщика")
     elif role not in ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер"):
@@ -23799,11 +23869,11 @@ def list_supplier_invoices(project_name: str = None, status: str = None, limit: 
         where.append("si.project_name=%s"); params.append(project_name)
     if status: where.append("si.status=%s"); params.append(status)
     if role == "поставщик":
-        supplier_id = current_supplier_id(cur, current_user)
-        if not supplier_id:
+        supplier_ids = current_supplier_ids(cur, current_user)
+        if not supplier_ids:
             cur.close(); conn.close()
             return []
-        where.append("si.supplier_id=%s"); params.append(supplier_id)
+        where.append("si.supplier_id = ANY(%s)"); params.append(supplier_ids)
     elif role not in FINANCE_ROLES:
         projects = user_project_names(current_user)
         if not projects:
@@ -23914,14 +23984,15 @@ def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_ro
     offer_id = int(data.get("offerId") or data.get("offer_id") or 0)
     request_id = int(data.get("requestId") or data.get("request_id") or 0)
     if _current_user.get("role") == "поставщик":
-        supplier_id = current_supplier_id(cur, _current_user)
-        if not supplier_id:
+        supplier_ids = current_supplier_ids(cur, _current_user)
+        if not supplier_ids:
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="поставщик не найден")
         if not project_name:
             cur.close(); conn.close()
             raise HTTPException(status_code=400, detail="объект обязателен")
-        data["supplierId"] = supplier_id
+        data["supplierId"] = supplier_ids[0]
+        data["_supplierAccessIds"] = supplier_ids
     else:
         if project_name:
             require_project_access(_current_user, project_name)
@@ -23953,7 +24024,12 @@ def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_ro
         if request_id and request_id != offer_request_id:
             cur.close(); conn.close()
             raise HTTPException(status_code=400, detail="КП не относится к указанной заявке")
-        if data.get("supplierId") and int(data.get("supplierId") or 0) != int(offer_supplier_id or 0):
+        if _current_user.get("role") == "поставщик":
+            if int(offer_supplier_id or 0) not in (data.get("_supplierAccessIds") or []):
+                cur.close(); conn.close()
+                raise HTTPException(status_code=403, detail="Нет доступа к КП")
+            data["supplierId"] = offer_supplier_id
+        elif data.get("supplierId") and int(data.get("supplierId") or 0) != int(offer_supplier_id or 0):
             cur.close(); conn.close()
             raise HTTPException(status_code=400, detail="Поставщик счёта не совпадает с поставщиком КП")
         if invoice_work_package and offer_package and invoice_work_package != offer_package:

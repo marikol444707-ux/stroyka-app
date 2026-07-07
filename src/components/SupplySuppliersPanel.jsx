@@ -3,24 +3,7 @@ import { Check, ChevronDown, ChevronUp, Edit2, Plus, Search, Trash2, X } from 'l
 import { API } from '../api';
 import { createSupplierForm, createSupplierInviteForm } from '../features/supply/supplyInitialForms';
 import DocumentRecognitionPanel from './DocumentRecognitionPanel';
-
-const normalizeSupplierKey = value => String(value || '')
-  .toLowerCase()
-  .replace(/ё/g, 'е')
-  .replace(/(?:,|\s)\s*(инн|кпп|огрн|огрнип|тел\.?|телефон|р\/с|расч[её]тн|адрес)\b.*$/g, ' ')
-  .replace(/\b(инн|кпп|огрн|огрнип)\s*[:№#-]?\s*\d+\b/g, ' ')
-  .replace(/\b(ооо|оао|ао|пао|зао|ип|индивидуальный предприниматель)\b/g, ' ')
-  .replace(/[.,;:()«»"'`/\\]+/g, ' ')
-  .replace(/\s+/g, ' ')
-  .trim();
-
-const supplierKeysMatch = (left, right) => {
-  if (!left || !right) return false;
-  if (left === right) return true;
-  const short = left.length < right.length ? left : right;
-  const long = left.length < right.length ? right : left;
-  return short.length >= 6 && long.includes(short);
-};
+import { groupSuppliers, normalizeSupplierNameKey, supplierKeysMatch } from '../utils/supplierUtils';
 
 const toNumber = value => {
   const num = Number(value || 0);
@@ -159,34 +142,7 @@ function SupplySuppliersPanel({
     await loadAll();
   };
 
-  const supplierGroups = React.useMemo(() => {
-    const groups = new Map();
-    (suppliers || []).forEach(supplier => {
-      const key = normalizeSupplierKey(supplier.name) || ('id:' + supplier.id);
-      if (!groups.has(key)) {
-        groups.set(key, {
-          ...supplier,
-          category: supplier.category || 'Прочее',
-          _supplierIds: [supplier.id],
-          _supplierKeys: [key],
-          _supplierNames: [supplier.name || ''],
-          _duplicateCount: 1,
-        });
-        return;
-      }
-      const group = groups.get(key);
-      group._supplierIds.push(supplier.id);
-      group._supplierNames.push(supplier.name || '');
-      group._duplicateCount += 1;
-      if (!group.phone && supplier.phone) group.phone = supplier.phone;
-      if (!group.email && supplier.email) group.email = supplier.email;
-      if (!group.specialization && supplier.specialization) group.specialization = supplier.specialization;
-      if ((!group.category || group.category === 'Прочее') && supplier.category) group.category = supplier.category;
-      if (!group.status && supplier.status) group.status = supplier.status;
-      group.rating = Math.max(toNumber(group.rating), toNumber(supplier.rating));
-    });
-    return Array.from(groups.values()).sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ru'));
-  }, [suppliers]);
+  const supplierGroups = React.useMemo(() => groupSuppliers(suppliers), [suppliers]);
 
   const categories = React.useMemo(() => {
     const seen = new Set();
@@ -203,7 +159,7 @@ function SupplySuppliersPanel({
     const ids = new Set((supplier._supplierIds || []).map(id => Number(id)).filter(Boolean));
     const recordId = Number(record?.supplierId || record?.supplier_id || 0);
     if (recordId && ids.has(recordId)) return true;
-    const key = normalizeSupplierKey(record?.supplierName || record?.supplier_name || record?.supplier || '');
+    const key = normalizeSupplierNameKey(record?.supplierName || record?.supplier_name || record?.supplier || '');
     return key && (supplier._supplierKeys || []).some(supplierKey => supplierKeysMatch(supplierKey, key));
   };
 

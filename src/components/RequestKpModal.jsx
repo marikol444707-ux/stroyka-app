@@ -1,5 +1,6 @@
 import React from 'react';
 import { Check, X } from 'lucide-react';
+import { groupSuppliers } from '../utils/supplierUtils';
 
 export default function RequestKpModal({
   showRequestKpModal,
@@ -18,6 +19,22 @@ export default function RequestKpModal({
   setSelectedSupplierIds,
   sendKpRequest,
 }) {
+  const suggestedSupplierGroups = React.useMemo(
+    () => groupSuppliers(suggestedSuppliers?.suppliers || []),
+    [suggestedSuppliers]
+  );
+  React.useEffect(() => {
+    if (!showRequestKpModal || suggestedSupplierGroups.length === 0) return;
+    setSelectedSupplierIds(prev => {
+      const prevIds = new Set((prev || []).map(String));
+      const next = suggestedSupplierGroups
+        .filter(supplier => (supplier._supplierIds || [supplier.id]).some(id => prevIds.has(String(id))))
+        .map(supplier => supplier.id);
+      const same = next.length === (prev || []).length && next.every((id, index) => String(id) === String(prev[index]));
+      return same ? prev : next;
+    });
+  }, [showRequestKpModal, suggestedSupplierGroups, setSelectedSupplierIds]);
+
   if (!showRequestKpModal) return null;
 
   const req = supplyRequests.find(r=>r.id===showRequestKpModal);
@@ -57,14 +74,14 @@ export default function RequestKpModal({
         )}
         {!requestKpLoading && suggestedSuppliers && !suggestedSuppliers.error && (<>
           <div style={{padding:'10px 12px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,borderRadius:'8px',marginBottom:'12px',fontSize:'12px',color:C.text}}>
-            🤖 AI нашёл {suggestedSuppliers.suppliers.length} поставщиков по категории «{suggestedSuppliers.category||'не указана'}». Из них рекомендует {suggestedSuppliers.aiRecommendedCount} — отметил их ⭐ галочкой автоматически. Можно добавить или убрать.
+            🤖 AI нашёл {suggestedSupplierGroups.length} поставщиков по категории «{suggestedSuppliers.category||'не указана'}». Из них рекомендует {suggestedSuppliers.aiRecommendedCount} — отметил их ⭐ галочкой автоматически. Можно добавить или убрать.
           </div>
-          {suggestedSuppliers.suppliers.length===0 && (
+          {suggestedSupplierGroups.length===0 && (
             <div style={{padding:'30px',textAlign:'center',color:C.textMuted,fontSize:'13px'}}>
               Поставщиков по этой категории нет.<br/>Добавьте поставщиков в разделе «Снабжение → Поставщики».
             </div>
           )}
-          {suggestedSuppliers.suppliers.map(s=>{
+          {suggestedSupplierGroups.map(s=>{
             const checked = selectedSupplierIds.includes(s.id);
             return (
               <div key={s.id} onClick={()=>{

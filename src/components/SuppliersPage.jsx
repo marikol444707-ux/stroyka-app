@@ -2,6 +2,7 @@ import React from 'react';
 import { Bot, Check, Edit2, Plus, Search, Trash2, X } from 'lucide-react';
 import { API } from '../api';
 import { createRequestForm, createSupplierForm, createSupplierInviteForm } from '../features/supply/supplyInitialForms';
+import { groupSuppliers } from '../utils/supplierUtils';
 
 function SuppliersPage({
   C,
@@ -66,6 +67,7 @@ function SuppliersPage({
   const supplierRequestPackages = typeof getProjectWorkPackageOptions === 'function'
     ? getProjectWorkPackageOptions(newRequest.project)
     : [];
+  const supplierGroups = React.useMemo(() => groupSuppliers(suppliers), [suppliers]);
   const supplierRequestDefaultPackage = supplierRequestPackages.length === 1 ? supplierRequestPackages[0] : '';
   const updateRequestProject = (projectName) => {
     const packages = typeof getProjectWorkPackageOptions === 'function' ? getProjectWorkPackageOptions(projectName) : [];
@@ -121,7 +123,7 @@ function SuppliersPage({
           </div>
 
           {supplierCategories.map(cat=>{
-            const catSuppliers=suppliers.filter(s=>s.category===cat&&matchSearch(listSearch,s.name,s.specialization,s.phone,s.email));
+            const catSuppliers=supplierGroups.filter(s=>s.category===cat&&matchSearch(listSearch,s.name,s.specialization,s.phone,s.email));
             if(catSuppliers.length===0) return null;
             return (
               <div key={cat} style={{marginBottom:'20px'}}>
@@ -152,7 +154,7 @@ function SuppliersPage({
             );
           })}
 
-          {suppliers.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Поставщиков нет</p>}
+          {supplierGroups.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Поставщиков нет</p>}
         </div>
       )}
 
@@ -221,7 +223,7 @@ function SuppliersPage({
                   <div style={{borderTop:'1.5px solid '+C.border,paddingTop:'12px',marginTop:'10px'}}>
                     <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'10px'}}>Добавить КП:</b>
                     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px',marginBottom:'10px'}}>
-                      <select value={newOffer.supplierId} onChange={e=>setNewOffer({...newOffer,supplierId:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}><option value="">Поставщик</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>
+                      <select value={newOffer.supplierId} onChange={e=>setNewOffer({...newOffer,supplierId:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}><option value="">Поставщик</option>{supplierGroups.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>
                       <input placeholder="Цена за ед. *" type="number" step="any" inputMode="decimal" value={newOffer.pricePerUnit} onChange={e=>setNewOffer({...newOffer,pricePerUnit:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
                       <input placeholder="Срок поставки (дней) *" type="number" step="any" inputMode="decimal" value={newOffer.deliveryDays} onChange={e=>setNewOffer({...newOffer,deliveryDays:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
                     </div>

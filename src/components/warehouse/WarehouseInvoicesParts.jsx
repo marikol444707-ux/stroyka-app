@@ -2,6 +2,7 @@ import React from 'react';
 import { Check, Eye, Plus, QrCode, Truck, Upload, X } from 'lucide-react';
 import { invoiceImageAccept, normalizeInvoiceImageFiles } from '../../utils/invoiceImages';
 import { createWarehouseInvoiceItemForm } from '../../features/warehouse/warehouseInitialForms';
+import { groupSuppliers } from '../../utils/supplierUtils';
 
 export function WarehouseInvoiceForm({
   newInvoice,
@@ -57,6 +58,7 @@ export function WarehouseInvoiceForm({
   const itemGridStyle = isMobile
     ? {display:'grid',gridTemplateColumns:'1fr',gap:'8px',marginBottom:'10px',padding:'10px',borderRadius:'12px',border:'1.5px solid '+C.border,backgroundColor:C.bg,minWidth:0}
     : {display:'grid',gridTemplateColumns:'minmax(180px,2.5fr) 0.8fr 0.8fr 0.9fr minmax(120px,1.2fr) minmax(130px,1.4fr) minmax(180px,1.8fr) auto',gap:'6px',marginBottom:'8px',alignItems:'center'};
+  const supplierOptions = React.useMemo(() => groupSuppliers(suppliers), [suppliers]);
 
   const setItem = (idx, patch) => {
     const items = [...invoiceItems];
@@ -153,7 +155,7 @@ export function WarehouseInvoiceForm({
           ) : (
             <select value={newInvoice.supplierId} onChange={event => setNewInvoice({...newInvoice, supplierId: event.target.value})} style={{...inp,width:'100%',minWidth:0,boxSizing:'border-box'}}>
               <option value="">Выберите поставщика</option>
-              {(suppliers || []).map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
+              {supplierOptions.map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
             </select>
           )}
         </div>

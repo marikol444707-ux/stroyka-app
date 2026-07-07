@@ -2,6 +2,7 @@ import React from 'react';
 import { Check, ChevronDown, ChevronUp, FileCheck2, Plus, Search, Trash2 } from 'lucide-react';
 import { API } from '../api';
 import { createSupplierInvoiceForm } from '../features/supply/supplyInitialForms';
+import { groupSuppliers } from '../utils/supplierUtils';
 
 function SupplySupplierInvoicesPanel({
   C,
@@ -37,6 +38,7 @@ function SupplySupplierInvoicesPanel({
   const paid = filtered.filter(invoice=>invoice.status==='Оплачен');
   const totalPending = pending.reduce((sum, invoice)=>sum+Number(invoice.amount||0),0);
   const totalDebt = approved.reduce((sum, invoice)=>sum+(Number(invoice.amount||0)-Number(invoice.paidAmount||0)),0);
+  const supplierOptions = React.useMemo(() => groupSuppliers(suppliers), [suppliers]);
 
   const byProject = {};
   filtered.forEach(invoice=>{
@@ -159,9 +161,9 @@ function SupplySupplierInvoicesPanel({
             </div>
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
-            <select value={newSupplierInvoice.supplierName} onChange={e=>{const supplier=suppliers.find(s=>s.name===e.target.value);setNewSupplierInvoice({...newSupplierInvoice,supplierName:e.target.value,supplierId:supplier?supplier.id:null});}} style={{...inp,marginBottom:0}}>
+            <select value={newSupplierInvoice.supplierId ? String(newSupplierInvoice.supplierId) : ''} onChange={e=>{const supplier=supplierOptions.find(s=>String(s.id)===e.target.value);setNewSupplierInvoice({...newSupplierInvoice,supplierName:supplier?supplier.name:'',supplierId:supplier?supplier.id:null});}} style={{...inp,marginBottom:0}}>
               <option value=''>Поставщик *</option>
-              {(suppliers||[]).map(supplier=><option key={supplier.id} value={supplier.name}>{supplier.name}</option>)}
+              {supplierOptions.map(supplier=><option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
             </select>
             <input placeholder='№ счёта *' value={newSupplierInvoice.invoiceNumber} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,invoiceNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
             <input type='date' value={newSupplierInvoice.invoiceDate} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,invoiceDate:e.target.value})} style={{...inp,marginBottom:0}}/>
