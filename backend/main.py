@@ -17726,6 +17726,16 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                         estimate_item_key,
                         s.get("name", ""),
                     )
+                    assigned_plan_qty = _float_or_zero(assigned_item.get("quantity"))
+                    estimate_plan_qty = _float_or_zero(it.get("quantity"))
+                    if assigned_plan_qty <= 0 and estimate_plan_qty > 0 and assigned_item.get("id"):
+                        cur.execute(
+                            """UPDATE brigade_contract_items
+                               SET quantity=%s
+                               WHERE id=%s AND COALESCE(quantity,0)<=0""",
+                            (estimate_plan_qty, assigned_item.get("id")),
+                        )
+                        assigned_item["quantity"] = estimate_plan_qty
                     _validate_contract_item_capacity(assigned_item, delta)
                     contract_item_id = assigned_item.get("id")
                     execution_price = _float_or_zero(assigned_item.get("price_brigade"))
