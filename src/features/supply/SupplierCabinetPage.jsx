@@ -1,6 +1,7 @@
 import React from 'react';
 import { Check, Download, Edit2, Plus, Trash2, Upload, X } from 'lucide-react';
 import DocumentRecognitionPanel from '../../components/DocumentRecognitionPanel';
+import { groupSuppliers, supplierIdentityKeys } from '../../utils/supplierUtils';
 import { createSupplierPortalActions } from './supplierPortalActions';
 
 const normalizeSupplierIdentity = value => String(value || '')
@@ -68,18 +69,47 @@ export default function SupplierCabinetPage({
     const currentUserId = user?.id || user?.userId || user?.user_id || '';
     const currentUserEmail = String(user?.email || '').toLowerCase();
     const currentUserName = normalizeSupplierIdentity(user?.name);
-    const mySupplier = suppliers.find(s => {
-      const supplierUserId = s.userId || s.user_id || '';
-      const supplierEmail = String(s.email || '').toLowerCase();
+    const currentUserKeys = supplierIdentityKeys({
+      name: user?.name || '',
+      email: user?.email || '',
+      phone: user?.phone || '',
+    });
+    const supplierGroups = groupSuppliers(suppliers || []);
+    const matchesCurrentUser = supplier => {
+      const supplierUserId = supplier.userId || supplier.user_id || '';
+      const supplierEmail = String(supplier.email || supplier.supplierEmail || supplier.supplier_email || '').toLowerCase();
+      const identityKeys = supplier._supplierIdentityKeys || supplierIdentityKeys(supplier);
       return (supplierUserId && currentUserId && String(supplierUserId) === String(currentUserId))
         || (supplierEmail && currentUserEmail && supplierEmail === currentUserEmail)
-        || (normalizeSupplierIdentity(s.name) && normalizeSupplierIdentity(s.name) === currentUserName);
-    });
-    const myCatalog = supplierCatalog.filter(c => c.supplierId === mySupplier?.id);
-    const myOffers = supplierOffers.filter(o => o.supplierId === mySupplier?.id);
-    const mySupplierInvoices = supplierInvoices.filter(inv => inv.supplierId===mySupplier?.id || inv.supplierName===mySupplier?.name || inv.supplierName===user.name);
-    const myDeliveries = supplyDeliveries.filter(d => d.supplierId===mySupplier?.id || d.supplierName===mySupplier?.name || d.supplierName===user.name);
-    const myClaims = supplyClaims.filter(c => c.supplierId===mySupplier?.id);
+        || (normalizeSupplierIdentity(supplier.name) && normalizeSupplierIdentity(supplier.name) === currentUserName)
+        || currentUserKeys.some(key => identityKeys.includes(key));
+    };
+    const mySupplier = supplierGroups.find(matchesCurrentUser) || (supplierGroups.length === 1 ? supplierGroups[0] : null);
+    const mySupplierIds = new Set((mySupplier?._supplierIds || [mySupplier?.id]).filter(Boolean).map(id => String(id)));
+    const mySupplierNames = new Set([
+      ...(mySupplier?._supplierNames || []),
+      mySupplier?.name || '',
+      user?.name || '',
+    ].map(normalizeSupplierIdentity).filter(Boolean));
+    const isMySupplierId = value => value !== undefined && value !== null && value !== '' && mySupplierIds.has(String(value));
+    const isMySupplierName = value => {
+      const key = normalizeSupplierIdentity(value);
+      if (!key) return false;
+      if (mySupplierNames.has(key)) return true;
+      return Array.from(mySupplierNames).some(nameKey => nameKey.length >= 4 && (nameKey.includes(key) || key.includes(nameKey)));
+    };
+    const belongsToMySupplier = row => (
+      isMySupplierId(row?.supplierId || row?.supplier_id)
+      || isMySupplierName(row?.supplierName || row?.supplier_name || row?.supplier || row?.name)
+    );
+    const myPrimarySupplierId = mySupplier?._supplierIds?.[0] || mySupplier?.id || 0;
+    const myCatalog = supplierCatalog.filter(belongsToMySupplier);
+    const myOffers = supplierOffers.filter(belongsToMySupplier);
+    const mySupplierInvoices = supplierInvoices.filter(inv => belongsToMySupplier(inv) || isMySupplierName(inv.supplierName || user.name));
+    const myDeliveries = supplyDeliveries.filter(d => belongsToMySupplier(d) || isMySupplierName(d.supplierName || user.name));
+    const myClaims = supplyClaims.filter(belongsToMySupplier);
+    const pendingOfferCount = myOffers.filter(o => o.status === 'Ожидает ответа').length;
+    const approvedOfferCount = myOffers.filter(o => o.status === 'Утверждено').length;
     const supplierInvoiceWarehouseId = inv => inv?.warehouseInvoiceId || inv?.warehouse_invoice_id || '';
     const warehouseInvoiceForSupplierInvoice = inv => (invoices || []).find(row => (
       String(row.id || '') === String(supplierInvoiceWarehouseId(inv))
@@ -184,7 +214,7 @@ export default function SupplierCabinetPage({
           <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'12px',marginBottom:'16px'}}>
             <div style={{...card,padding:'16px',textAlign:'center'}}>
               <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Новых заявок</p>
-              <b style={{color:C.danger,fontSize:'24px'}}>{supplyRequests.filter(r=>r.status==='Новая').length}</b>
+              <b style={{color:C.danger,fontSize:'24px'}}>{pendingOfferCount}</b>
             </div>
             <div style={{...card,padding:'16px',textAlign:'center'}}>
               <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Моих предложений</p>
@@ -192,7 +222,7 @@ export default function SupplierCabinetPage({
             </div>
             <div style={{...card,padding:'16px',textAlign:'center'}}>
               <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Утверждено</p>
-              <b style={{color:C.success,fontSize:'24px'}}>{myOffers.filter(o=>o.status==='Утверждено').length}</b>
+              <b style={{color:C.success,fontSize:'24px'}}>{approvedOfferCount}</b>
             </div>
           </div>
 
@@ -204,7 +234,7 @@ export default function SupplierCabinetPage({
             <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📋 Запросы КП</b>
             {(()=>{
               // Берём supplier_offers где я — поставщик, и группируем по статусу
-              const myOffersForMe = (supplierOffers||[]).filter(o=>o.supplierId===(mySupplier?.id||0));
+              const myOffersForMe = myOffers;
               if (myOffersForMe.length===0) return (<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>
                 Запросов нет. Когда директор запросит у вас КП по своей заявке — он появится здесь.
               </p>);
@@ -506,7 +536,7 @@ export default function SupplierCabinetPage({
               <div style={{display:'flex',gap:'8px'}}>
                 <label style={{...btnG,padding:'6px 12px',fontSize:'12px',cursor:'pointer',display:'flex',alignItems:'center',gap:'4px'}}>
                   📥 Excel
-                  <input type='file' accept='.xlsx,.xls,.csv' style={{display:'none'}} onChange={e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=async ev=>{try{const XLSX=await import('xlsx');const wb=XLSX.read(ev.target.result,{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});let count=0;for(let i=1;i<rows.length;i++){const r=rows[i];if(!r[0])continue;const item={materialName:String(r[0]),unit:String(r[1]||'шт'),price:Number(r[2]||0),minQuantity:Number(r[3]||1),deliveryDays:Number(r[4]||3),notes:String(r[5]||''),supplierId:mySupplier?.id||0,supplierName:user.name};const res=await fetch(API+'/supplier-catalog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)});const saved=await res.json();setSupplierCatalog(prev=>[...prev,{...item,id:saved.id}]);count++;}alert('Импортировано '+count+' позиций!');}catch(err){alert('Ошибка: '+err.message);}};reader.readAsArrayBuffer(file);e.target.value='';}} />
+                  <input type='file' accept='.xlsx,.xls,.csv' style={{display:'none'}} onChange={e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=async ev=>{try{const XLSX=await import('xlsx');const wb=XLSX.read(ev.target.result,{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});let count=0;for(let i=1;i<rows.length;i++){const r=rows[i];if(!r[0])continue;const item={materialName:String(r[0]),unit:String(r[1]||'шт'),price:Number(r[2]||0),minQuantity:Number(r[3]||1),deliveryDays:Number(r[4]||3),notes:String(r[5]||''),supplierId:myPrimarySupplierId||0,supplierName:user.name};const res=await fetch(API+'/supplier-catalog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)});const saved=await res.json();setSupplierCatalog(prev=>[...prev,{...item,id:saved.id}]);count++;}alert('Импортировано '+count+' позиций!');}catch(err){alert('Ошибка: '+err.message);}};reader.readAsArrayBuffer(file);e.target.value='';}} />
                 </label>
                 {supplierRequisites.priceUrl&&(<button onClick={async()=>{
                   try{
@@ -521,7 +551,7 @@ export default function SupplierCabinetPage({
                     for(let i=1;i<rows.length;i++){
                       const r=rows[i];
                       if(!r[0]) continue;
-                      const item={materialName:String(r[0]),unit:String(r[1]||'шт'),price:Number(r[2]||0),minQuantity:Number(r[3]||1),deliveryDays:Number(r[4]||3),notes:String(r[5]||''),supplierId:mySupplier?.id||0,supplierName:user.name};
+                      const item={materialName:String(r[0]),unit:String(r[1]||'шт'),price:Number(r[2]||0),minQuantity:Number(r[3]||1),deliveryDays:Number(r[4]||3),notes:String(r[5]||''),supplierId:myPrimarySupplierId||0,supplierName:user.name};
                       const res2=await fetch(API+'/supplier-catalog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)});
                       const saved=await res2.json();
                       setSupplierCatalog(prev=>[...prev,{...item,id:saved.id}]);
@@ -545,9 +575,9 @@ export default function SupplierCabinetPage({
               <div style={{display:'flex',gap:'8px',marginTop:'10px'}}>
                 <button onClick={async()=>{
                   if(!newCatalogItem.materialName) return;
-                  const res=await fetch(API+'/supplier-catalog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newCatalogItem,supplierId:mySupplier?.id||0,supplierName:user.name})});
+                  const res=await fetch(API+'/supplier-catalog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newCatalogItem,supplierId:myPrimarySupplierId||0,supplierName:user.name})});
                   const saved=await res.json();
-                  setSupplierCatalog(prev=>[...prev,{...newCatalogItem,id:saved.id,supplierId:mySupplier?.id||0}]);
+                  setSupplierCatalog(prev=>[...prev,{...newCatalogItem,id:saved.id,supplierId:myPrimarySupplierId||0}]);
                   setNewCatalogItem({materialName:'',unit:'шт',price:'',minQuantity:'1',deliveryDays:'3',notes:''});
                   setShowCatalogForm(false);
                 }} style={btnO}><Check size={14}/>Сохранить</button>
@@ -737,7 +767,7 @@ export default function SupplierCabinetPage({
                 currentFields={supplierRequisites}
                 onApplyExtracted={result => setSupplierRequisites(prev => ({...prev, ...supplierRequisitesPatchFromRecognition(result, prev)}))}
                 applyExtractedLabel="Заполнить реквизиты"
-                onCreateRecognizedDocument={mySupplier?.id ? createOwnSupplierDocumentFromRecognition : null}
+                onCreateRecognizedDocument={myPrimarySupplierId ? createOwnSupplierDocumentFromRecognition : null}
                 createRecognizedDocumentLabel="Добавить в документы"
               />
               <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'8px',marginTop:'12px'}}>📦 Прайс-лист (опц.)</b>
@@ -748,7 +778,7 @@ export default function SupplierCabinetPage({
               </label>
               {supplierRequisites.licenseUrl && (<a href={fileSrc(supplierRequisites.licenseUrl)} target='_blank' rel='noopener noreferrer' style={{fontSize:'12px',color:C.accent}}>📥 Посмотреть</a>)}
               <button onClick={async()=>{
-                const res = await fetch(API+'/suppliers/'+(mySupplier?.id||0)+'/requisites',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+                const res = await fetch(API+'/suppliers/'+(myPrimarySupplierId||0)+'/requisites',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({
                   ...supplierRequisites,
                   legalAddress: supplierRequisites.address // alias
                 })});
