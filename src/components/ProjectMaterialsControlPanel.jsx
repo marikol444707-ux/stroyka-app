@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, ShoppingCart } from 'lucide-react';
 import {
   MaterialsControlHeader,
   MaterialsFilterBar,
@@ -73,6 +73,12 @@ export default function ProjectMaterialsControlPanel({
   );
   const planRows = rows.filter(r => r.planQty > 0);
   const toBuyRows = rows.filter(r => r.toBuy > 0);
+  const toBuyPreviewRows = toBuyRows.slice(0, isMobile ? 5 : 8);
+  const toBuyUnitsText = Object.entries(toBuyRows.reduce((acc, r) => {
+    const unit = r.unit || 'шт';
+    acc[unit] = (acc[unit] || 0) + Number(r.toBuy || 0);
+    return acc;
+  }, {})).slice(0, 4).map(([unit, qty]) => qty.toLocaleString('ru-RU', {maximumFractionDigits: 3}) + ' ' + unit).join(' · ');
   const pipelineRows = rows.filter(r => r.requested > 0 || r.inTransit > 0);
   const outsideRows = rows.filter(r => r.isOutsideEstimate);
   const suppliedRows = rows.filter(r => r.supplied > 0);
@@ -180,6 +186,97 @@ export default function ProjectMaterialsControlPanel({
       />
 
       <MaterialsMetricsGrid C={C} metrics={metrics}/>
+
+      <div style={{
+        marginBottom: '12px',
+        padding: '12px',
+        borderRadius: '10px',
+        border: '1.5px solid ' + (toBuyRows.length ? C.warningBorder : C.successBorder),
+        backgroundColor: toBuyRows.length ? C.warningLight : C.successLight
+      }}>
+        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px', flexWrap: 'wrap'}}>
+          <div style={{minWidth: 0, flex: '1 1 260px'}}>
+            <b style={{color: toBuyRows.length ? C.warning : C.success, fontSize: '14px'}}>
+              Материалы к закупке по смете
+            </b>
+            <p style={{color: C.textSec, fontSize: '11px', margin: '3px 0 0', lineHeight: 1.35}}>
+              Это не текущий остаток на объекте. Здесь показана расчетная нехватка: план сметы минус получено, заявки и поставки в пути.
+            </p>
+            <p style={{color: C.text, fontSize: '12px', margin: '7px 0 0', fontWeight: '700'}}>
+              {toBuyRows.length ? ('Купить: ' + toBuyRows.length + ' поз.' + (toBuyUnitsText ? ' · ' + toBuyUnitsText : '')) : 'К закупке по смете сейчас ничего нет'}
+            </p>
+          </div>
+          <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end'}}>
+            {toBuyRows.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setFilter('toBuy')}
+                style={{
+                  padding: '8px 10px',
+                  borderRadius: '8px',
+                  border: '1.5px solid ' + C.warningBorder,
+                  backgroundColor: C.bgWhite,
+                  color: C.warning,
+                  cursor: 'pointer',
+                  fontSize: '11px',
+                  fontWeight: '800'
+                }}
+              >
+                Показать все
+              </button>
+            )}
+            {toBuyRows.length > 0 && onCreateSupplyForRows && (
+              <button
+                type="button"
+                onClick={() => onCreateSupplyForRows(toBuyRows)}
+                style={{
+                  padding: '8px 10px',
+                  borderRadius: '8px',
+                  border: '1.5px solid ' + C.accentBorder,
+                  backgroundColor: C.accent,
+                  color: 'white',
+                  cursor: 'pointer',
+                  fontSize: '11px',
+                  fontWeight: '800',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <ShoppingCart size={13}/>Создать заявки
+              </button>
+            )}
+          </div>
+        </div>
+        {toBuyPreviewRows.length > 0 && (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit,minmax(240px,1fr))',
+            gap: '8px',
+            marginTop: '10px'
+          }}>
+            {toBuyPreviewRows.map(row => (
+              <div key={row.key || row.name} style={{
+                padding: '9px 10px',
+                borderRadius: '8px',
+                border: '1px solid ' + C.warningBorder,
+                backgroundColor: C.bgWhite
+              }}>
+                <b style={{color: C.text, fontSize: '12px', display: 'block'}}>{row.name}</b>
+                <p style={{color: C.textSec, fontSize: '10px', margin: '3px 0 0'}}>
+                  {(row.workPackage || row.packageName || 'Основная') + (row.sections?.length ? ' · ' + row.sections.slice(0, 2).join(', ') : '')}
+                </p>
+                <p style={{color: C.text, fontSize: '11px', margin: '6px 0 0'}}>
+                  План {fmtMeasure(row.planQty, row.unit)} · закрыто {fmtMeasure(row.coveredWithPipeline || 0, row.unit)}
+                </p>
+                <b style={{color: C.warning, fontSize: '12px', display: 'block', marginTop: '3px'}}>
+                  Докупить {fmtMeasure(row.toBuy, row.unit)}
+                </b>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {packageOptions.length > 0 && (
         <div style={{
