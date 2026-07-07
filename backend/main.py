@@ -6426,7 +6426,7 @@ def create_piecework(p: PieceworkModel, _current_user: dict = Depends(require_ro
     return dict(row)
 
 @app.delete("/piecework/{id}")
-def delete_piecework(id: int, _current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES, "прораб", "главный_инженер"))):
+def delete_piecework(id: int, _current_user: dict = Depends(require_roles("директор"))):
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "piecework", id, _current_user, "project")
@@ -12254,7 +12254,7 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
         conn.close()
 
 @app.delete("/work-journal/{id}")
-def delete_work_journal(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер"))):
+def delete_work_journal(id: int, _current_user: dict = Depends(require_roles("директор"))):
     import json as _json
     from datetime import datetime
     conn = get_db()
