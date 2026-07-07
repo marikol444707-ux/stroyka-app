@@ -157,6 +157,7 @@ export default function MasterSupplyPage({
           parseOfferItems={() => []}
           selectSupplierOffer={() => {}}
           rejectSupplierOffer={() => {}}
+          withdrawSupplierOffer={() => {}}
         />
       )}
     </div>

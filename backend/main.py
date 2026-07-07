@@ -7170,8 +7170,19 @@ def _create_supplier_offer_requests(cur, request_id: int, supplier_ids, ai_ids=N
     ai_ids = {int(x) for x in (ai_ids or []) if int(x) > 0}
     created = []
     for supplier_id in _normalize_supplier_ids(supplier_ids):
-        cur.execute("SELECT id FROM supplier_offers WHERE request_id=%s AND supplier_id=%s", (request_id, supplier_id))
-        if cur.fetchone():
+        cur.execute(
+            "SELECT id, status FROM supplier_offers WHERE request_id=%s AND supplier_id=%s ORDER BY id DESC LIMIT 1",
+            (request_id, supplier_id))
+        existing = cur.fetchone()
+        if existing:
+            if (existing.get("status") or "") in ("Отозвано", "Отклонено"):
+                cur.execute(
+                    "UPDATE supplier_offers SET status=%s, price_per_unit=NULL, total_price=NULL, delivery_days=NULL, "
+                    "notes=NULL, payment_terms=%s, vat_included=TRUE, pdf_url=NULL, valid_until=NULL, "
+                    "supplier_message='', requested_at=NOW(), responded_at=NULL, ai_recommended=%s, "
+                    "delivery_status=NULL, items_kp_json=NULL WHERE id=%s RETURNING id",
+                    ('Ожидает ответа', 'Постоплата', supplier_id in ai_ids, existing.get("id")))
+                created.append(cur.fetchone()['id'])
             continue
         cur.execute(
             "INSERT INTO supplier_offers (request_id, supplier_id, status, ai_recommended, requested_at) "
@@ -8843,7 +8854,7 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     action = data.get('action')
     cur.execute("""
-        SELECT o.id, o.supplier_id, o.request_id, r.project
+        SELECT o.id, o.supplier_id, o.request_id, o.status, o.delivery_status, r.project
         FROM supplier_offers o
         LEFT JOIN supply_requests r ON r.id=o.request_id
         WHERE o.id=%s
@@ -8858,9 +8869,9 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
         if not supplier_id or supplier_id != offer_access.get("supplier_id"):
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Нет доступа к КП")
-        if action != 'respond':
+        if action not in ('respond', 'withdraw'):
             cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Поставщик может только ответить на своё КП")
+            raise HTTPException(status_code=403, detail="Поставщик может только ответить на своё КП или отозвать его")
     else:
         if role not in SUPPLY_INTERNAL_ROLES:
             cur.close(); conn.close()
@@ -9031,6 +9042,22 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
         if r and r['request_id']:
             cur.execute("UPDATE supplier_offers SET status=%s WHERE request_id=%s AND id<>%s AND status<>%s",
                 ('Отклонено', r['request_id'], id, 'Отклонено'))
+    elif action == 'withdraw':
+        current_status = offer_access.get("status") or ""
+        if current_status == "Утверждено":
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="Выигранное КП нельзя отозвать. Сначала отмените счёт/поставку через снабжение.")
+        if current_status in ("Отозвано", "Отклонено"):
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="КП уже закрыто")
+        cur.execute("SELECT id FROM supplier_invoices WHERE offer_id=%s LIMIT 1", (id,))
+        has_invoice = cur.fetchone()
+        cur.execute("SELECT id FROM supply_deliveries WHERE offer_id=%s LIMIT 1", (id,))
+        has_delivery = cur.fetchone()
+        if has_invoice or has_delivery or offer_access.get("delivery_status"):
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="КП уже связано со счётом или поставкой, отзыв заблокирован")
+        cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", ('Отозвано', id))
     elif action == 'reject':
         cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", ('Отклонено', id))
     else:
@@ -9129,7 +9156,7 @@ def suggest_suppliers_for_request(id: int, current_user: dict = Depends(require_
     cur.execute("SELECT supplier_id, COUNT(*) as deliveries FROM supply_history WHERE status='Доставлено' GROUP BY supplier_id")
     deliveries_map = {r['supplier_id']: r['deliveries'] for r in cur.fetchall()}
     # Считаем уже отправленные КП этой заявке
-    cur.execute("SELECT supplier_id FROM supplier_offers WHERE request_id=%s", (id,))
+    cur.execute("SELECT supplier_id FROM supplier_offers WHERE request_id=%s AND COALESCE(status,'') NOT IN ('Отклонено','Отозвано')", (id,))
     already_requested = {r['supplier_id'] for r in cur.fetchall()}
     conn.close()
     for s in suppliers:

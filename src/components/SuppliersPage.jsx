@@ -58,6 +58,7 @@ function SuppliersPage({
   parseOfferItems,
   selectSupplierOffer,
   rejectSupplierOffer,
+  withdrawSupplierOffer,
   supplyDeliveries,
   supplyHistory,
 }) {
@@ -324,9 +325,9 @@ function SuppliersPage({
                   {offers.map(o => {
                     const sup = suppliers.find(s => s.id === o.supplierId);
                     const hasPrice = Number(o.pricePerUnit||0) > 0;
-                    const stC = o.status==='Утверждено'?C.success:o.status==='Отклонено'?C.danger:o.status==='Получено'?C.info:C.warning;
-                    const stBg = o.status==='Утверждено'?C.successLight:o.status==='Отклонено'?C.dangerLight:o.status==='Получено'?C.infoLight:C.warningLight;
-                    const stBd = o.status==='Утверждено'?C.successBorder:o.status==='Отклонено'?C.dangerBorder:o.status==='Получено'?C.infoBorder:C.warningBorder;
+                    const stC = o.status==='Утверждено'?C.success:o.status==='Отклонено'?C.danger:o.status==='Отозвано'?C.textMuted:o.status==='Получено'?C.info:C.warning;
+                    const stBg = o.status==='Утверждено'?C.successLight:o.status==='Отклонено'?C.dangerLight:o.status==='Отозвано'?C.bg:o.status==='Получено'?C.infoLight:C.warningLight;
+                    const stBd = o.status==='Утверждено'?C.successBorder:o.status==='Отклонено'?C.dangerBorder:o.status==='Отозвано'?C.border:o.status==='Получено'?C.infoBorder:C.warningBorder;
                     return (
                       <div key={o.id} style={{padding:'10px 12px',backgroundColor:stBg,borderRadius:'6px',marginBottom:'6px',border:'1.5px solid '+stBd}}>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px',flexWrap:'wrap'}}>
@@ -368,6 +369,9 @@ function SuppliersPage({
                               <button onClick={()=>selectSupplierOffer(o.id)} style={{...btnGr,padding:'3px 8px',fontSize:'11px'}}><Check size={11}/>Выбрать</button>
                               <button onClick={()=>rejectSupplierOffer(o.id)} style={{...btnR,padding:'3px 8px',fontSize:'11px'}}><X size={11}/></button>
                             </>)}
+                            {o.status==='Ожидает ответа' && isLeadershipUser && (
+                              <button onClick={()=>withdrawSupplierOffer(o.id,'Отозвать запрос КП у поставщика?')} style={{...btnG,padding:'3px 8px',fontSize:'11px'}}><X size={11}/>Отозвать</button>
+                            )}
                           </div>
                         </div>
                       </div>

@@ -250,6 +250,7 @@ function CompareResultBlock({ C, compareResult }) {
 
 function OffersBlock({
   C,
+  btnG,
   btnGr,
   btnR,
   badge,
@@ -263,6 +264,7 @@ function OffersBlock({
   parseOfferItems,
   selectSupplierOffer,
   rejectSupplierOffer,
+  withdrawSupplierOffer,
   canApprove,
 }) {
   const offers = (supplierOffers || []).filter(o => o.requestId === request.id);
@@ -289,9 +291,10 @@ function OffersBlock({
         const isWin = o.status === 'Утверждено';
         const isWait = o.status === 'Ожидает ответа';
         const isRej = o.status === 'Отклонено';
-        const stC = isWin ? C.success : isRej ? C.danger : isWait ? C.warning : C.info;
-        const stBg = isWin ? C.successLight : isRej ? C.dangerLight : isWait ? C.warningLight : C.infoLight;
-        const stBd = isWin ? C.successBorder : isRej ? C.dangerBorder : isWait ? C.warningBorder : C.infoBorder;
+        const isWithdrawn = o.status === 'Отозвано';
+        const stC = isWin ? C.success : isRej ? C.danger : isWithdrawn ? C.textMuted : isWait ? C.warning : C.info;
+        const stBg = isWin ? C.successLight : isRej ? C.dangerLight : isWithdrawn ? C.bg : isWait ? C.warningLight : C.infoLight;
+        const stBd = isWin ? C.successBorder : isRej ? C.dangerBorder : isWithdrawn ? C.border : isWait ? C.warningBorder : C.infoBorder;
 
         return (
           <div key={o.id} style={{ padding: '10px', backgroundColor: stBg, borderRadius: '6px', marginBottom: '6px', border: '1.5px solid ' + stBd }}>
@@ -317,6 +320,9 @@ function OffersBlock({
                     <button onClick={() => selectSupplierOffer(o.id)} style={{ ...btnGr, padding: '3px 8px', fontSize: '11px' }}><Check size={11} />Выбрать</button>
                     <button onClick={() => rejectSupplierOffer(o.id)} style={{ ...btnR, padding: '3px 8px', fontSize: '11px' }}><X size={11} /></button>
                   </>
+                )}
+                {o.status === 'Ожидает ответа' && canApprove && (
+                  <button onClick={() => withdrawSupplierOffer(o.id, 'Отозвать запрос КП у поставщика?')} style={{ ...btnG, padding: '3px 8px', fontSize: '11px' }}><X size={11} />Отозвать</button>
                 )}
               </div>
             </div>
@@ -394,6 +400,7 @@ export function SupplyRequestCard(props) {
     parseOfferItems,
     selectSupplierOffer,
     rejectSupplierOffer,
+    withdrawSupplierOffer,
   } = props;
 
   const [stC, stBg, stBd] = statusColors(request.status);
@@ -403,7 +410,9 @@ export function SupplyRequestCard(props) {
   const urgBg = request.urgency === 'срочная' ? C.dangerLight : request.urgency === 'низкая' ? C.bg : C.warningLight;
   const urgBd = request.urgency === 'срочная' ? C.dangerBorder : request.urgency === 'низкая' ? C.border : C.warningBorder;
   const items = parseSupplyItems(request);
-  const supplierOffersForRequest = (supplierOffers || []).filter(o => o.requestId === request.id);
+  const supplierOffersForRequest = (supplierOffers || []).filter(o =>
+    o.requestId === request.id && !['Отклонено', 'Отозвано'].includes(o.status)
+  );
   const selectedSupplierCount = Array.isArray(request.selectedSuppliers)
     ? request.selectedSuppliers.filter(Boolean).length
     : (String(request.selectedSuppliers || '').match(/\d+/g) || []).length;
@@ -502,6 +511,7 @@ export function SupplyRequestCard(props) {
       )}
       <OffersBlock
         C={C}
+        btnG={btnG}
         btnGr={btnGr}
         btnR={btnR}
         badge={badge}
@@ -515,6 +525,7 @@ export function SupplyRequestCard(props) {
         parseOfferItems={parseOfferItems}
         selectSupplierOffer={selectSupplierOffer}
         rejectSupplierOffer={rejectSupplierOffer}
+        withdrawSupplierOffer={withdrawSupplierOffer}
         canApprove={canApprove}
       />
     </div>

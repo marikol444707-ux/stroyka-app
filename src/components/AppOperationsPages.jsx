@@ -124,6 +124,7 @@ export default function AppOperationsPages({ activePage, ui, constants, state, a
     saveTool,
     saveWarehouse,
     selectSupplierOffer,
+    withdrawSupplierOffer,
     setDeliveryAiLoadingId,
     setDeliveryAiResultById,
     setEditingItem,
@@ -353,6 +354,7 @@ export default function AppOperationsPages({ activePage, ui, constants, state, a
           parseOfferItems={parseOfferItems}
           selectSupplierOffer={selectSupplierOffer}
           rejectSupplierOffer={rejectSupplierOffer}
+          withdrawSupplierOffer={withdrawSupplierOffer}
           supplierInvoices={supplierInvoices}
           newSupplierInvoice={newSupplierInvoice}
           setNewSupplierInvoice={setNewSupplierInvoice}

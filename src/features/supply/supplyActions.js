@@ -418,6 +418,22 @@ export const createSupplyActions = ({
     await refreshData();
   };
 
+  const withdrawSupplierOffer = async (offerId, label = 'Отозвать КП?') => {
+    if (!window.confirm(label)) return;
+    const r = await fetch(API + '/supplier-offers/' + offerId, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'withdraw' }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || data.detail || data.error) {
+      alert('Не удалось отозвать КП: ' + (data.detail || data.error || r.status));
+      return;
+    }
+    notify('КП отозвано', 'supply');
+    await refreshData();
+  };
+
   const runCompareKp = async (reqId) => {
     setCompareLoadingReqId(reqId);
     try {
@@ -579,5 +595,6 @@ export const createSupplyActions = ({
     selectSupplierOffer,
     sendKpRequest,
     applySupplyTemplate,
+    withdrawSupplierOffer,
   };
 };

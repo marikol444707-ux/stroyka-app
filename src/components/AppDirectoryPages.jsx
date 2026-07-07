@@ -117,6 +117,7 @@ export default function AppDirectoryPages({ activePage, ui, constants, state, ac
     startInlinePlEdit,
     rejectSupplierOffer,
     toggleUserActive,
+    withdrawSupplierOffer,
   } = actions;
   const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
 
@@ -182,6 +183,7 @@ export default function AppDirectoryPages({ activePage, ui, constants, state, ac
           parseOfferItems={parseOfferItems}
           selectSupplierOffer={selectSupplierOffer}
           rejectSupplierOffer={rejectSupplierOffer}
+          withdrawSupplierOffer={withdrawSupplierOffer}
           supplyDeliveries={supplyDeliveries}
           supplyHistory={supplyHistory}
         />

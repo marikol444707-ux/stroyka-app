@@ -72,6 +72,21 @@ export default function SupplierCabinetPage({
       refreshData,
       user,
     });
+    const withdrawOwnOffer = async (offer, label) => {
+      if (!window.confirm(label)) return;
+      const res = await fetch(API + '/supplier-offers/' + offer.id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'withdraw' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.detail || data.error) {
+        alert('Не удалось отозвать КП: ' + (data.detail || data.error || res.status));
+        return;
+      }
+      notify('КП отозвано', 'supply');
+      await refreshData();
+    };
     return (
       <div style={{minHeight:'100vh',backgroundColor:C.bg,padding:'20px'}}>
         <div style={{maxWidth:'900px',margin:'0 auto'}}>
@@ -127,11 +142,13 @@ export default function SupplierCabinetPage({
               const responded = myOffersForMe.filter(o=>o.status==='Получено');
               const won = myOffersForMe.filter(o=>o.status==='Утверждено');
               const lost = myOffersForMe.filter(o=>o.status==='Отклонено');
+              const withdrawn = myOffersForMe.filter(o=>o.status==='Отозвано');
               const groups = [
                 {key:'wait', title:'⏳ Ждут ответа', items:waiting, color:C.warning, bg:C.warningLight, bd:C.warningBorder},
                 {key:'resp', title:'📤 КП отправлено, ждёт решения', items:responded, color:C.info, bg:C.infoLight, bd:C.infoBorder},
                 {key:'won',  title:'✅ Выиграно', items:won, color:C.success, bg:C.successLight, bd:C.successBorder},
                 {key:'lost', title:'❌ Отклонено', items:lost, color:C.danger, bg:C.dangerLight, bd:C.dangerBorder},
+                {key:'withdrawn', title:'Отозвано', items:withdrawn, color:C.textMuted, bg:C.bg, bd:C.border},
               ];
               return groups.filter(g=>g.items.length>0).map(g=>(<div key={g.key} style={{marginBottom:'16px'}}>
                 <b style={{color:g.color,fontSize:'12px',display:'block',marginBottom:'8px'}}>{g.title} ({g.items.length})</b>
@@ -159,10 +176,16 @@ export default function SupplierCabinetPage({
                       </div>
                       <div>
                         {g.key==='wait' && !isResponding && (
-                          <button onClick={()=>{setRespondingOfferId(o.id);setNewKpResponse({pricePerUnit:o.pricePerUnit||'',deliveryDays:o.deliveryDays||'',paymentTerms:o.paymentTerms||'Постоплата',vatIncluded:o.vatIncluded!==false,validUntil:o.validUntil||'',supplierMessage:o.supplierMessage||'',pdfUrl:o.pdfUrl||''});}} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}>💰 Отправить КП</button>
+                          <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                            <button onClick={()=>{setRespondingOfferId(o.id);setNewKpResponse({pricePerUnit:o.pricePerUnit||'',deliveryDays:o.deliveryDays||'',paymentTerms:o.paymentTerms||'Постоплата',vatIncluded:o.vatIncluded!==false,validUntil:o.validUntil||'',supplierMessage:o.supplierMessage||'',pdfUrl:o.pdfUrl||''});}} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}>💰 Отправить КП</button>
+                            <button onClick={()=>withdrawOwnOffer(o,'Отказаться от запроса КП?')} style={{...btnG,padding:'5px 10px',fontSize:'12px'}}><X size={12}/>Отказаться</button>
+                          </div>
                         )}
                         {g.key==='resp' && (
-                          <button onClick={()=>{setRespondingOfferId(o.id);setNewKpResponse({pricePerUnit:o.pricePerUnit||'',deliveryDays:o.deliveryDays||'',paymentTerms:o.paymentTerms||'Постоплата',vatIncluded:o.vatIncluded!==false,validUntil:o.validUntil||'',supplierMessage:o.supplierMessage||'',pdfUrl:o.pdfUrl||''});}} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}><Edit2 size={11}/>Изменить</button>
+                          <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                            <button onClick={()=>{setRespondingOfferId(o.id);setNewKpResponse({pricePerUnit:o.pricePerUnit||'',deliveryDays:o.deliveryDays||'',paymentTerms:o.paymentTerms||'Постоплата',vatIncluded:o.vatIncluded!==false,validUntil:o.validUntil||'',supplierMessage:o.supplierMessage||'',pdfUrl:o.pdfUrl||''});}} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}><Edit2 size={11}/>Изменить</button>
+                            <button onClick={()=>withdrawOwnOffer(o,'Отозвать отправленное КП?')} style={{...btnR,padding:'4px 10px',fontSize:'11px'}}><X size={11}/>Отозвать</button>
+                          </div>
                         )}
                         {g.key==='won' && (
                           (()=>{

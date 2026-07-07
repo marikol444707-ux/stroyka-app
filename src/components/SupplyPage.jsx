@@ -77,6 +77,7 @@ export default function SupplyPage({
   parseOfferItems,
   selectSupplierOffer,
   rejectSupplierOffer,
+  withdrawSupplierOffer,
   supplierInvoices,
   newSupplierInvoice,
   setNewSupplierInvoice,
@@ -402,6 +403,7 @@ export default function SupplyPage({
           parseOfferItems={parseOfferItems}
           selectSupplierOffer={selectSupplierOffer}
           rejectSupplierOffer={rejectSupplierOffer}
+          withdrawSupplierOffer={withdrawSupplierOffer}
         />
       )}
     </div>
