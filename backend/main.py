@@ -20394,7 +20394,24 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
     finally:
         cur.close(); conn.close()
     _run_project_ai_control_safely(target_project, "warehouse_invoice:create")
-    return {"id": invoice_id, "ok": True, "stockRowsAdded": stock_rows_added, "historyAdded": history_added, "inspectionsAdded": inspections_added, "cablesAdded": cables_added}
+    result = {
+        "id": invoice_id,
+        "ok": True,
+        "stockRowsAdded": stock_rows_added,
+        "historyAdded": history_added,
+        "inspectionsAdded": inspections_added,
+        "cablesAdded": cables_added,
+    }
+    if (data or {}).get("syncSupplierInvoice") is not False and (data or {}).get("sync_supplier_invoice") is not False:
+        try:
+            accounting_link = _sync_supplier_invoice_from_warehouse(invoice_id, data, current_user)
+            result["supplierInvoiceId"] = accounting_link.get("id")
+            result["accountingStatus"] = accounting_link.get("accountingStatus") or "На проверке"
+            result["supplierId"] = accounting_link.get("supplierId")
+            result["supplierName"] = accounting_link.get("supplierName")
+        except Exception as exc:
+            result["accountingWarning"] = getattr(exc, "detail", str(exc)) or "Не удалось связать бухгалтерскую первичку"
+    return result
 
 def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: dict = None, actor: dict = None):
     payload = payload or {}
@@ -20600,6 +20617,79 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
 @app.post("/warehouse-invoices")
 def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     return _create_warehouse_invoice_record(data, _current_user)
+
+@app.post("/supplier-documents/backfill")
+def backfill_supplier_documents(data: dict = None, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
+    """Сверяет старые складские накладные с первичкой поставщиков без повторного склада/оплат."""
+    data = data or {}
+    apply_changes = bool(data.get("apply") or data.get("commit"))
+    try:
+        limit = int(data.get("limit") or 200)
+    except Exception:
+        limit = 200
+    limit = max(1, min(limit, 500))
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    _ensure_invoice_document_link_columns(cur)
+    _ensure_warehouse_invoice_accounting_columns(cur)
+    conn.commit()
+    cur.execute(
+        """
+        SELECT id, number, date, supplier_id, supplier_name, location, project,
+               total_with_vat, total_base, supplier_invoice_id
+          FROM warehouse_invoices
+         WHERE COALESCE(status,'Принята') <> 'Аннулирована'
+           AND supplier_invoice_id IS NULL
+           AND (supplier_id IS NOT NULL OR COALESCE(supplier_name,'') <> '')
+         ORDER BY id
+         LIMIT %s
+        """,
+        (limit,),
+    )
+    candidates = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    conn.close()
+
+    checked = []
+    linked = 0
+    errors = []
+    for row in candidates:
+        item = {
+            "warehouseInvoiceId": row.get("id"),
+            "number": row.get("number") or "",
+            "date": str(row.get("date")) if row.get("date") else "",
+            "supplierId": row.get("supplier_id"),
+            "supplierName": row.get("supplier_name") or "",
+            "projectName": row.get("project") or row.get("location") or "",
+            "amount": float(row.get("total_with_vat") or row.get("total_base") or 0),
+            "action": "preview" if not apply_changes else "sync",
+        }
+        if not apply_changes:
+            checked.append(item)
+            continue
+        try:
+            result = _sync_supplier_invoice_from_warehouse(row.get("id"), {}, _current_user)
+            item.update({
+                "supplierInvoiceId": result.get("id"),
+                "supplierId": result.get("supplierId"),
+                "supplierName": result.get("supplierName") or item["supplierName"],
+                "accountingStatus": result.get("accountingStatus") or "На проверке",
+                "ok": True,
+            })
+            linked += 1
+        except Exception as exc:
+            item["ok"] = False
+            item["error"] = getattr(exc, "detail", str(exc)) or "Не удалось связать документ"
+            errors.append(item)
+        checked.append(item)
+    return {
+        "ok": True,
+        "dryRun": not apply_changes,
+        "checked": len(checked),
+        "linked": linked,
+        "errors": errors,
+        "items": checked,
+    }
 
 @app.put("/warehouse-invoices/{id}/accounting")
 def update_warehouse_invoice_accounting(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):

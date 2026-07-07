@@ -6,6 +6,7 @@ import AccountingExpenseReportsPanel from './AccountingExpenseReportsPanel';
 import AccountingAuditPanel from './AccountingAuditPanel';
 import AccountingDocumentsPanel from './AccountingDocumentsPanel';
 import AccountingIncomingDocumentsPanel from './AccountingIncomingDocumentsPanel';
+import AccountingSupplierDocumentsPanel from './AccountingSupplierDocumentsPanel';
 import AccountingSalaryPanel from './AccountingSalaryPanel';
 import AccountingActsPanel from './AccountingActsPanel';
 import AccountingContractsPanel from './AccountingContractsPanel';
@@ -178,6 +179,26 @@ export default function AccountingPage(props) {
           refreshData={refreshData}
           badge={badge}
           toNum={toNum}
+        />
+      )}
+
+      {accountingTab === 'supplierDocs' && (
+        <AccountingSupplierDocumentsPanel
+          C={C}
+          card={card}
+          btnG={btnG}
+          btnB={btnB}
+          inp={inp}
+          invoices={invoices}
+          supplierInvoices={supplierInvoices}
+          suppliers={suppliers}
+          warehouseInvoiceEstimateControl={warehouseInvoiceEstimateControl}
+          fileSrc={fileSrc}
+          setShowPhotoModal={setShowPhotoModal}
+          refreshData={refreshData}
+          matchSearch={matchSearch}
+          listSearch={listSearch}
+          setListSearch={setListSearch}
         />
       )}
 

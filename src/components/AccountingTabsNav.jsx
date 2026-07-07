@@ -3,6 +3,7 @@ import React from 'react';
 const ACCOUNTING_TAB_LABELS = {
   summary: '📊 Сводка',
   incoming: '📥 Входящие',
+  supplierDocs: '📦 Документы поставщиков',
   contracts: '🧾 Договоры',
   acts: '📄 Акты',
   performerClosing: '📘 Закрытие',
@@ -22,7 +23,7 @@ export default function AccountingTabsNav({
   btnO,
   btnG,
 }) {
-  const tabs = ['summary', 'incoming', 'contracts', 'acts', 'performerClosing', 'payments', 'documents', 'salary', 'expenses', 'audit']
+  const tabs = ['summary', 'incoming', 'supplierDocs', 'contracts', 'acts', 'performerClosing', 'payments', 'documents', 'salary', 'expenses', 'audit']
     .filter(tab => tab !== 'audit' || isLeadership);
 
   return (

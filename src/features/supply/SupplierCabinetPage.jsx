@@ -3,6 +3,14 @@ import { Check, Download, Edit2, Plus, Trash2, Upload, X } from 'lucide-react';
 import DocumentRecognitionPanel from '../../components/DocumentRecognitionPanel';
 import { createSupplierPortalActions } from './supplierPortalActions';
 
+const normalizeSupplierIdentity = value => String(value || '')
+  .toLowerCase()
+  .replace(/["'«»„“”]/g, '')
+  .replace(/\b(ооо|оао|ао|ип|зао|пао|общество|с ограниченной|ответственностью)\b/g, ' ')
+  .replace(/[^а-яa-z0-9]+/gi, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+
 export default function SupplierCabinetPage({
   API,
   C,
@@ -56,7 +64,16 @@ export default function SupplierCabinetPage({
   uploadPhoto,
   user,
 }) {
-    const mySupplier = suppliers.find(s => s.name === user.name || s.email === user.email);
+    const currentUserId = user?.id || user?.userId || user?.user_id || '';
+    const currentUserEmail = String(user?.email || '').toLowerCase();
+    const currentUserName = normalizeSupplierIdentity(user?.name);
+    const mySupplier = suppliers.find(s => {
+      const supplierUserId = s.userId || s.user_id || '';
+      const supplierEmail = String(s.email || '').toLowerCase();
+      return (supplierUserId && currentUserId && String(supplierUserId) === String(currentUserId))
+        || (supplierEmail && currentUserEmail && supplierEmail === currentUserEmail)
+        || (normalizeSupplierIdentity(s.name) && normalizeSupplierIdentity(s.name) === currentUserName);
+    });
     const myCatalog = supplierCatalog.filter(c => c.supplierId === mySupplier?.id);
     const myOffers = supplierOffers.filter(o => o.supplierId === mySupplier?.id);
     const mySupplierInvoices = supplierInvoices.filter(inv => inv.supplierId===mySupplier?.id || inv.supplierName===mySupplier?.name || inv.supplierName===user.name);
