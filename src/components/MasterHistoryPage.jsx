@@ -18,13 +18,28 @@ export default function MasterHistoryPage({
   sumConfirmed,
   user,
 }) {
+  const toNumber = (value) => {
+    const parsed = Number(String(value ?? 0).replace(',', '.').replace(/\s+/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const workAmount = (work) => {
+    const executionTotal = toNumber(work.executionTotal ?? work.execution_total);
+    if (executionTotal > 0) return executionTotal;
+    return toNumber(work.total);
+  };
+  const workStatus = (work) => work.status || 'На проверке';
+  const confirmedTotal = (myJournal || [])
+    .filter((work) => workStatus(work) === 'Подтверждено')
+    .reduce((sum, work) => sum + workAmount(work), 0);
+  const acceptedTotal = confirmedTotal || toNumber(sumConfirmed);
+
   return (
     <div>
       <h3 style={{ color: C.text, marginBottom: '14px', fontSize: '18px', fontWeight: '700' }}>📅 История работ по дням</h3>
       <div style={{ background: 'linear-gradient(135deg,#f97316,#ea580c)', padding: '16px 20px', borderRadius: '12px', marginBottom: '14px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
         <div>
           <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '11px', margin: 0 }}>Принято всего</p>
-          <b style={{ color: 'white', fontSize: '18px' }}>{Math.round(sumConfirmed).toLocaleString('ru-RU') + ' ₽'}</b>
+          <b style={{ color: 'white', fontSize: '18px' }}>{Math.round(acceptedTotal).toLocaleString('ru-RU') + ' ₽'}</b>
         </div>
         <div style={{ textAlign: 'right' }}>
           <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '11px', margin: 0 }}>Зачислено к выплате</p>
@@ -54,9 +69,16 @@ export default function MasterHistoryPage({
         const byDate = {};
         filtered.forEach((work) => {
           const date = String(work.date || work.confirmedAt || '').split('T')[0] || 'Без даты';
-          if (!byDate[date]) byDate[date] = { works: [], total: 0 };
+          if (!byDate[date]) byDate[date] = { works: [], total: 0, confirmedTotal: 0, pendingTotal: 0 };
           byDate[date].works.push(work);
-          if (work.status === 'Подтверждено') byDate[date].total += Number(work.total || 0);
+          const amount = workAmount(work);
+          if (workStatus(work) === 'Подтверждено') {
+            byDate[date].confirmedTotal += amount;
+            byDate[date].total += amount;
+          } else if (workStatus(work) !== 'Отклонено') {
+            byDate[date].pendingTotal += amount;
+            byDate[date].total += amount;
+          }
         });
 
         const dates = Object.keys(byDate).sort((a, b) => b.localeCompare(a));
@@ -90,7 +112,16 @@ export default function MasterHistoryPage({
                   </p>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <b style={{ color: C.success, fontSize: '15px' }}>{Math.round(group.total).toLocaleString('ru-RU') + ' ₽'}</b>
+                  <div style={{ textAlign: 'right' }}>
+                    <b style={{ color: group.confirmedTotal > 0 ? C.success : C.warning, fontSize: '15px' }}>{Math.round(group.total).toLocaleString('ru-RU') + ' ₽'}</b>
+                    <p style={{ color: C.textSec, margin: '2px 0 0', fontSize: '10px' }}>
+                      {group.pendingTotal > 0 && group.confirmedTotal > 0
+                        ? 'принято + проверка'
+                        : group.pendingTotal > 0
+                          ? 'к проверке'
+                          : 'принято'}
+                    </p>
+                  </div>
                   {isOpen ? <ChevronUp size={16} color={C.textMuted} /> : <ChevronDown size={16} color={C.textMuted} />}
                 </div>
               </div>
@@ -101,11 +132,12 @@ export default function MasterHistoryPage({
                     <div key={projectName} style={{ padding: '10px 16px', borderBottom: '1px solid ' + C.border }}>
                       <b style={{ color: C.accent, fontSize: '12px', display: 'block', marginBottom: '6px' }}>🏗 {projectName}</b>
                       {byProject[projectName].map((work) => {
-                        const status = work.status || 'На проверке';
+                        const status = workStatus(work);
                         const statusColor = status === 'Подтверждено' ? C.success : status === 'Отклонено' ? C.danger : C.warning;
                         const statusBackground = status === 'Подтверждено' ? C.successLight : status === 'Отклонено' ? C.dangerLight : C.warningLight;
                         const statusIcon = status === 'Подтверждено' ? '✅' : status === 'Отклонено' ? '❌' : '⏳';
                         const isPaid = paidWorkJournalIds.has(Number(work.id));
+                        const amount = workAmount(work);
 
                         return (
                           <div key={work.id} style={{ padding: '8px 0', borderBottom: '1px solid ' + C.border, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
@@ -131,8 +163,8 @@ export default function MasterHistoryPage({
                               {work.comment && status === 'Отклонено' && <p style={{ color: C.danger, fontSize: '10px', margin: '4px 0 0' }}>Причина: {work.comment}</p>}
                             </div>
                             <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                              <b style={{ color: status === 'Подтверждено' ? C.success : C.textMuted, fontSize: '13px' }}>
-                                {Math.round(Number(work.total || 0)).toLocaleString('ru-RU') + ' ₽'}
+                              <b style={{ color: status === 'Подтверждено' ? C.success : status === 'Отклонено' ? C.textMuted : C.warning, fontSize: '13px' }}>
+                                {Math.round(amount).toLocaleString('ru-RU') + ' ₽'}
                               </b>
                               {work.photoUrl && (
                                 <button onClick={() => setShowPhotoModal(fileSrc(work.photoUrl))} style={{ ...btnG, padding: '2px 6px', fontSize: '10px', marginLeft: '4px', marginTop: '2px' }}>
