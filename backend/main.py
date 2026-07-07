@@ -2902,6 +2902,8 @@ def init_db():
         ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS scan_url TEXT;
         ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT '';
         ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS work_journal_ids TEXT DEFAULT '[]';
+        ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS source_type VARCHAR(100) DEFAULT '';
+        ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS photo_urls TEXT DEFAULT '[]';
         ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS act_scan_url TEXT;
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT FALSE;
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP;
@@ -3536,7 +3538,9 @@ def init_db():
             total_amount FLOAT DEFAULT 0,
             paid_amount FLOAT DEFAULT 0,
             contract_id INT,
-            status VARCHAR(100) DEFAULT 'Новый'
+            status VARCHAR(100) DEFAULT 'Новый',
+            source_type VARCHAR(100) DEFAULT '',
+            photo_urls TEXT DEFAULT '[]'
         );
         CREATE TABLE IF NOT EXISTS timesheet (
             id SERIAL PRIMARY KEY,
@@ -4713,6 +4717,9 @@ class RoomWorkModel(BaseModel):
     workJournalId: Optional[int] = None
     workPackage: str = ""
     estimateItemKey: str = ""
+
+DAILY_WORK_ACT_SOURCE_TYPE = "daily_work"
+INTERIM_ACT_LOCKED_STATUSES = {"Подписан", "Оплачен", "Частично оплачен", "Оплачен частично"}
 
 class AiFindingModel(BaseModel):
     projectName: str = ""
@@ -7694,7 +7701,14 @@ def _material_name_match_score(left: str, right: str) -> float:
     common = left_tokens.intersection(right_tokens)
     family_score = _material_family_match_score(left_tokens, right_tokens)
     if not common:
-        return 0.0
+        safe_family_only = {
+            "tile", "plaster", "putty", "primer", "cement", "concrete",
+            "gkl", "gvl", "metal_profile", "fastener", "cable", "pipe",
+            "roofing", "paint", "sealant", "adhesive", "light", "heating",
+            "electrical_device",
+        }
+        common_families = _material_family_tags(left_tokens).intersection(_material_family_tags(right_tokens))
+        return family_score if common_families.intersection(safe_family_only) else 0.0
     # Типовые накладные часто называют один и тот же материал иначе, чем ГРАНД:
     # "керамогранит" против "гранит керамический", "ГКЛ" против "лист гипсокартонный".
     strong_families = {
@@ -12201,6 +12215,7 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
         _recalculate_estimate_item_done_from_work_journal(cur, updated_row)
         _sync_room_work_from_journal(cur, updated_row)
         _sync_hidden_work_act_from_journal(cur, updated_row)
+        daily_act_id = _sync_daily_interim_act_from_work_journal(cur, updated_row)
         conn.commit()
         audit_action = str(data.get("status") or "update").strip() or "update"
         log_audit(
@@ -12213,7 +12228,7 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
             project_name,
         )
         _run_project_ai_control_safely(project_name, "work_journal:update")
-        return {"ok": True}
+        return {"ok": True, "dailyActId": daily_act_id}
     except HTTPException:
         conn.rollback()
         raise
@@ -12296,6 +12311,14 @@ def delete_work_journal(id: int, _current_user: dict = Depends(require_roles(*LE
         _recalculate_contract_item_done_from_work_journal(cur, work.get("contract_item_id"))
         _recalculate_estimate_item_done_from_work_journal(cur, work)
         _mark_room_work_rejected(cur, id, actor_name)
+        _sync_daily_interim_act_group(
+            cur,
+            project=work.get("project") or "",
+            master_id=work.get("master_id"),
+            master_name=work.get("master_name") or "",
+            work_package=work.get("work_package") or "Основная",
+            work_date=work.get("date") or "",
+        )
         conn.commit()
         log_audit(
             _current_user.get("name", ""),
@@ -12652,7 +12675,7 @@ def get_interim_acts(_current_user: dict = Depends(require_roles(*CONTRACT_ROLES
     if package_sql:
         where.append("1=1" + package_sql)
         params.extend(package_params)
-    q = "SELECT id,master_id as \"masterId\",master_name as \"masterName\",project,COALESCE(work_package,'') as \"workPackage\",period_start as \"periodStart\",period_end as \"periodEnd\",total_amount as \"totalAmount\",paid_amount as \"paidAmount\",contract_id as \"contractId\",status,scan_url as \"scanUrl\",COALESCE(work_journal_ids,'[]') as \"workJournalIds\" FROM interim_acts"
+    q = "SELECT id,master_id as \"masterId\",master_name as \"masterName\",project,COALESCE(work_package,'') as \"workPackage\",period_start as \"periodStart\",period_end as \"periodEnd\",total_amount as \"totalAmount\",paid_amount as \"paidAmount\",contract_id as \"contractId\",status,scan_url as \"scanUrl\",COALESCE(work_journal_ids,'[]') as \"workJournalIds\",COALESCE(source_type,'') as \"sourceType\",COALESCE(photo_urls,'[]') as \"photoUrls\" FROM interim_acts"
     if where:
         q += " WHERE " + " AND ".join(where)
     q += " ORDER BY id DESC"
@@ -12694,6 +12717,129 @@ def _confirmed_execution_total_for_act(cur, master_id, master_name, project, wor
     )
     already_acted = float(scalar(cur.fetchone()) or 0)
     return max(0, confirmed_total - already_acted)
+
+def _sync_daily_interim_act_group(cur, *, project, master_id=None, master_name="", work_package="", work_date=""):
+    project = (project or "").strip()
+    work_date = str(work_date or "").strip()
+    package = (work_package or "Основная").strip() or "Основная"
+    master_name_key = (master_name or "").strip().lower()
+    try:
+        master_id_value = int(master_id) if master_id not in (None, "", 0, "0") else None
+    except Exception:
+        master_id_value = None
+    if not project or not work_date or (not master_id_value and not master_name_key):
+        return None
+
+    master_filter = "master_id=%s" if master_id_value else "LOWER(TRIM(COALESCE(master_name,'')))=%s"
+    master_param = master_id_value if master_id_value else master_name_key
+    cur.execute(
+        f"""SELECT id, COALESCE(status,'Новый') AS status
+            FROM interim_acts
+            WHERE project=%s
+              AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+              AND period_start=%s
+              AND period_end=%s
+              AND COALESCE(source_type,'')=%s
+              AND {master_filter}
+            ORDER BY id DESC LIMIT 1""",
+        (project, package, work_date, work_date, DAILY_WORK_ACT_SOURCE_TYPE, master_param),
+    )
+    daily_act = cur.fetchone()
+    daily_act_id = _row_get(daily_act, "id", 0) if daily_act else None
+    daily_act_status = _row_get(daily_act, "status", 1, "") if daily_act else ""
+    if daily_act_id and daily_act_status in INTERIM_ACT_LOCKED_STATUSES:
+        return daily_act_id
+
+    cur.execute(
+        f"""SELECT id, COALESCE(execution_total,0) AS execution_total, COALESCE(photo_url,'') AS photo_url
+            FROM work_journal
+            WHERE project=%s
+              AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+              AND date=%s
+              AND status='Подтверждено'
+              AND (room_id IS NOT NULL OR COALESCE(NULLIF(room_name,''),'') <> '')
+              AND {master_filter}
+            ORDER BY id""",
+        (project, package, work_date, master_param),
+    )
+    rows = cur.fetchall() or []
+    work_ids = []
+    photo_urls = []
+    total_amount = 0.0
+    for row in rows:
+        work_id = int(_row_get(row, "id", 0) or 0)
+        if not work_id:
+            continue
+        cur.execute(
+            """SELECT id FROM interim_acts
+               WHERE COALESCE(status,'') <> 'Аннулирован'
+                 AND id <> COALESCE(%s,0)
+                 AND COALESCE(NULLIF(work_journal_ids,''),'[]')::jsonb ? %s
+               LIMIT 1""",
+            (daily_act_id or 0, str(work_id)),
+        )
+        if cur.fetchone():
+            continue
+        work_ids.append(work_id)
+        total_amount += float(_row_get(row, "execution_total", 1, 0) or 0)
+        photo_url = str(_row_get(row, "photo_url", 2, "") or "").strip()
+        if photo_url and photo_url not in photo_urls:
+            photo_urls.append(photo_url)
+
+    if not work_ids:
+        if daily_act_id:
+            cur.execute(
+                "UPDATE interim_acts SET status='Аннулирован', total_amount=0, work_journal_ids='[]', photo_urls='[]' WHERE id=%s",
+                (daily_act_id,),
+            )
+        return daily_act_id
+
+    work_ids_json = json.dumps(work_ids, ensure_ascii=False)
+    photos_json = json.dumps(photo_urls, ensure_ascii=False)
+    if daily_act_id:
+        cur.execute(
+            """UPDATE interim_acts
+               SET total_amount=%s, work_journal_ids=%s, photo_urls=%s
+               WHERE id=%s""",
+            (round(total_amount, 2), work_ids_json, photos_json, daily_act_id),
+        )
+        return daily_act_id
+
+    cur.execute(
+        """INSERT INTO interim_acts
+           (master_id, master_name, project, work_package, period_start, period_end,
+            total_amount, paid_amount, status, work_journal_ids, source_type, photo_urls)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+           RETURNING id""",
+        (
+            master_id_value,
+            master_name or "",
+            project,
+            package,
+            work_date,
+            work_date,
+            round(total_amount, 2),
+            0,
+            "Новый",
+            work_ids_json,
+            DAILY_WORK_ACT_SOURCE_TYPE,
+            photos_json,
+        ),
+    )
+    row = cur.fetchone()
+    return _row_get(row, "id", 0)
+
+def _sync_daily_interim_act_from_work_journal(cur, work_row: dict):
+    if not work_row or str(work_row.get("status") or "").strip() != "Подтверждено":
+        return None
+    return _sync_daily_interim_act_group(
+        cur,
+        project=work_row.get("project") or "",
+        master_id=work_row.get("master_id"),
+        master_name=work_row.get("master_name") or "",
+        work_package=work_row.get("work_package") or "Основная",
+        work_date=work_row.get("date") or "",
+    )
 
 @app.post("/interim-acts")
 def create_interim_act(a: InterimActModel, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
@@ -17542,6 +17688,10 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
             if _num(journal_params.get("executionPricePerUnit")) > 0:
                 execution_price = _num(journal_params.get("executionPricePerUnit"))
                 execution_mode = journal_params.get("executionPriceMode") or "fixed"
+            journal_date = str(journal_params.get("date") or today)[:10]
+            journal_comment = (journal_params.get("comment") or "").strip()
+            if not journal_comment:
+                journal_comment = "Авто-запись при изменении doneQuantity по позиции сметы №" + str(id)
             try:
                 room_id = int(journal_params.get("roomId") or 0) or None
             except Exception:
@@ -17598,7 +17748,7 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                     actor_role=_current_user.get("role") or "",
                 )
                 for m in used_materials:
-                    _apply_material_work_writeoff(cur, project_name, m, _current_user, today, brigade)
+                    _apply_material_work_writeoff(cur, project_name, m, _current_user, journal_date, brigade)
                 materials_json = j.dumps(used_materials, ensure_ascii=False) if used_materials else None
                 cur.execute("""INSERT INTO work_journal
                                (master_id, master_name, project, description, unit, quantity, price_per_unit, total, date, status, comment,
@@ -17607,9 +17757,9 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                                 contract_item_id, customer_price_per_unit, customer_total, execution_price_per_unit, execution_total, execution_price_mode)
                                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                                RETURNING id""",
-                            (_current_user.get("id"), _current_user.get("name") or brigade or "(из сметы)", project_name, it.get("name",""), unit, delta, execution_price, round(delta*execution_price,2), today,
+                            (_current_user.get("id"), _current_user.get("name") or brigade or "(из сметы)", project_name, it.get("name",""), unit, delta, execution_price, round(delta*execution_price,2), journal_date,
                              auto_journal_status,
-                             "Авто-запись при изменении doneQuantity по позиции сметы №"+str(id),
+                             journal_comment,
                              journal_params.get("photoUrl") or "",
                              materials_json, id, s.get("name",""), bool(it.get("hiddenWork")), auto_confirmed_by, auto_confirmed_at,
                              work_package_for_journal,
@@ -17624,6 +17774,7 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                 _recalculate_contract_item_done_from_work_journal(cur, contract_item_id)
                 if auto_journal_status == "Подтверждено":
                     _recalculate_estimate_item_done_from_work_journal(cur, work_row)
+                    _sync_daily_interim_act_from_work_journal(cur, work_row)
                 _sync_room_work_from_journal(cur, work_row)
                 acts_added += _sync_hidden_work_act_from_journal(cur, work_row)
                 journal_added += 1
@@ -17653,7 +17804,7 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                                         quantity, unit, price_per_unit, total, work_date, status)
                                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                             (project_name, id, act_number, it.get("name",""), s.get("name",""), act_work_package,
-                             brigade or "", delta, unit, customer_price, round(delta*customer_price,2), today, "Черновик"))
+                             brigade or "", delta, unit, customer_price, round(delta*customer_price,2), journal_date, "Черновик"))
                         acts_added += 1
                 except Exception as e:
                     print("AUTO-ACT ERROR:", str(e))
@@ -21209,8 +21360,14 @@ def _estimate_item_type_backend(item: dict, section_name: str = "") -> str:
     strong_work_markers = ("монтаж", "установка", "устройство", "демонтаж", "разбор", "разборка", "прокладка", "замена", "подключение", "снятие", "очистка", "ремонт", "облицовка", "окраска", "кладка", "стяжка", "отбивка", "отбивк", "грунтование")
     source_looks_work = bool(re.match(r"^(ГЭСН|ФЕР|ТЕР)", source_code, re.I))
     source_looks_resource = bool(re.match(r"^\d{2,}[-/]\d+", source_code) or re.match(r"^\d{3,}$", source_code) or re.match(r"^(ТЦ_|ФСБЦ|ФССЦ)", source_code, re.I))
+    total_work = _float_or_zero(item.get("totalWork") or item.get("workTotal") or item.get("workSum"))
+    total_material = _float_or_zero(item.get("totalMaterial") or item.get("materialTotal") or item.get("materialSum"))
+    line_total = _estimate_import_line_total_backend(item)
+    imported_work_money_only = bool(item.get("isImported")) and raw in ("work", "работа", "works", "работы") and total_work > 0 and total_material <= 0 and line_total >= 0
     if raw in ("adjustment", "корректировка", "note", "примечание"):
         return "other"
+    if imported_work_money_only and not source_looks_resource:
+        return "work"
     if raw in ("work", "работа", "works", "работы") and item.get("isImported") and source_looks_work:
         return "work"
     if raw in ("work", "работа", "works", "работы") and item.get("isImported"):

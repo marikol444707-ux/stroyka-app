@@ -59,11 +59,15 @@ export const normalizeEstimateItemType = (it={}, sectionName='') => {
   const nameMaterialShouldWin = nameLooksMaterial && !nameStartsWithWork;
   const nameEquipmentShouldWin = nameLooksEquipment && !nameStartsWithWork;
   const nameTransportShouldWin = nameLooksTransport && !nameStartsWithWork;
+  const totalWorkLike = toNum(it.totalWork ?? it.workTotal ?? it.workSum);
+  const totalMaterialLike = toNum(it.totalMaterial ?? it.materialTotal ?? it.materialSum);
+  const importedWorkMoneyOnly = Boolean(it.isImported) && explicitKnown === 'work' && totalWorkLike > 0 && totalMaterialLike <= 0 && lineTotalLike >= 0;
   const weakExplicitMaterial = explicitKnown === 'material' && (codeLooksWork || nameLooksStrongWork);
   const weakExplicitWork = explicitKnown === 'work' && !nameLooksStrongWork && (codeLooksResource || nameMaterialShouldWin || nameEquipmentShouldWin || nameTransportShouldWin || toNum(it.quantity) < 0 || lineTotalLike < 0);
   if (estimateItemLooksResourceAdjustment(it, sectionName)) return 'adjustment';
   if ((toNum(it.quantity) < 0 || lineTotalLike < 0) && ['material','equipment','transport'].includes(explicitKnown)) return 'adjustment';
   if ((toNum(it.quantity) < 0 || lineTotalLike < 0) && (codeLooksResource || nameLooksMaterial || nameLooksEquipment || nameLooksTransport) && !nameLooksStrongWork) return 'adjustment';
+  if (importedWorkMoneyOnly && !codeLooksResource) return 'work';
   if (explicitKnown && !weakExplicitWork && !weakExplicitMaterial) return explicitKnown;
   if (weakExplicitMaterial) return 'work';
   if (explicit.includes('коррект') || explicit.includes('adjust')) return 'adjustment';

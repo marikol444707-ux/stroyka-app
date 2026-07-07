@@ -33,6 +33,24 @@ const GENERAL_WORK_ROOM_NAME = 'Без помещения';
 
 export default function MasterCabinetPage(props) {
   const [showProjectPicker, setShowProjectPicker] = React.useState(false);
+  const [showEstimateChangeForm, setShowEstimateChangeForm] = React.useState(false);
+  const [dailyWorkReview, setDailyWorkReview] = React.useState(null);
+  const [dailyWorkSubmitting, setDailyWorkSubmitting] = React.useState(false);
+  const [dailyWorkActDraft, setDailyWorkActDraft] = React.useState({
+    date: new Date().toISOString().split('T')[0],
+    comment: '',
+    photoUrl: '',
+  });
+  const [estimateChangeDraft, setEstimateChangeDraft] = React.useState({
+    changeType: 'Работа вне сметы',
+    description: '',
+    quantity: '',
+    unit: 'шт',
+    workPackage: '',
+    reason: '',
+    notes: '',
+    photoUrl: '',
+  });
   const estimateDraftValueRef = React.useRef({});
   const {
     API,
@@ -48,6 +66,7 @@ export default function MasterCabinetPage(props) {
     acceptAiTask,
     addMasterWorks,
     appendPhotos,
+    applyMaterialOverNormReason,
     applySupplyTemplate,
     badge,
     brigadeContracts = [],
@@ -106,9 +125,11 @@ export default function MasterCabinetPage(props) {
     materialHintForProject,
     materialNameKey,
     materialNormForWork,
+    materialNormOverrunReason,
     materialNormStatus,
     materialRowsAvailableForWork,
     materialSuggestionsForWork,
+    materialWriteoffBlockMessage,
     materialTransfers,
     myNotifications,
     navigateTo,
@@ -178,6 +199,7 @@ export default function MasterCabinetPage(props) {
     toggleNotifications,
     tools,
     unreadNotifications,
+    unexpectedWorksList = [],
     updateEstimateWorkMaterialQty,
     updateSelectedWorkMaterialQty,
     uploadPhoto,
@@ -226,6 +248,46 @@ export default function MasterCabinetPage(props) {
       ...prev,
       [workKey]: fillNormMaterialsForWork(project.name, item.name, item.section, nextDelta, item.unit, prev[workKey] || [], currentParams),
     }));
+  };
+  const workMaterialRowsCache = new Map();
+  const workMaterialAvailabilityCache = new Map();
+  const workMaterialSuggestionsCache = new Map();
+  const workMaterialCacheKey = (...parts) => parts.map(part => String(part || '').trim().toLowerCase()).join('\n');
+  const getWorkMaterialRows = (projectName, workPackage) => {
+    const key = workMaterialCacheKey(projectName, workPackage);
+    if (!workMaterialRowsCache.has(key)) {
+      workMaterialRowsCache.set(
+        key,
+        typeof materialRowsAvailableForWork === 'function'
+          ? materialRowsAvailableForWork(projectName, workPackage)
+          : [],
+      );
+    }
+    return workMaterialRowsCache.get(key);
+  };
+  const getWorkMaterialAvailability = (projectName, workPackage) => {
+    const key = workMaterialCacheKey(projectName, workPackage);
+    if (!workMaterialAvailabilityCache.has(key)) {
+      workMaterialAvailabilityCache.set(
+        key,
+        typeof materialAvailabilityMapForWork === 'function'
+          ? materialAvailabilityMapForWork(projectName, workPackage)
+          : {},
+      );
+    }
+    return workMaterialAvailabilityCache.get(key);
+  };
+  const getWorkMaterialSuggestions = (projectName, workName, sectionName, workPackage) => {
+    const key = workMaterialCacheKey(projectName, workName, sectionName, workPackage);
+    if (!workMaterialSuggestionsCache.has(key)) {
+      workMaterialSuggestionsCache.set(
+        key,
+        typeof materialSuggestionsForWork === 'function'
+          ? materialSuggestionsForWork(projectName, workName, sectionName, workPackage)
+          : [],
+      );
+    }
+    return workMaterialSuggestionsCache.get(key);
   };
   const commitEstimateDoneDraft = (workKey, value) => {
     estimateDraftValueRef.current[workKey] = value;
@@ -401,6 +463,306 @@ export default function MasterCabinetPage(props) {
     ? user.assignedPackages.filter(Boolean)
     : (Array.isArray(user?.assigned_packages) ? user.assigned_packages.filter(Boolean) : []);
   const estimatePackageName = (estimate) => estimate?.workPackage || estimate?.work_package || 'Основная';
+  const estimateChangePackage = estimateChangeDraft.workPackage || (userAssignedPackages.length === 1 ? userAssignedPackages[0] : 'Основная');
+  const authJsonHeaders = () => {
+    let token = '';
+    try {
+      token = localStorage.getItem('authToken') || '';
+    } catch (_e) {
+      token = '';
+    }
+    return token
+      ? { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }
+      : { 'Content-Type': 'application/json' };
+  };
+  const submitEstimateChangeDraft = async () => {
+    if (!selectedMasterProject?.name) {
+      alert('Сначала выберите объект');
+      return;
+    }
+    const description = String(estimateChangeDraft.description || '').trim();
+    if (!description) {
+      alert('Опишите работу или изменение к смете');
+      return;
+    }
+    const quantity = safeToNum(estimateChangeDraft.quantity);
+    if (quantity <= 0) {
+      alert('Укажите количество больше нуля');
+      return;
+    }
+    const payload = {
+      projectName: selectedMasterProject.name,
+      description,
+      unit: estimateChangeDraft.unit || 'шт',
+      quantity,
+      changeType: estimateChangeDraft.changeType || 'Работа вне сметы',
+      price: 0,
+      total: 0,
+      addedBy: user.name || '',
+      addedByRole: user.role || '',
+      status: 'Ожидает согласования',
+      workPackage: estimateChangePackage,
+      sectionName: estimateChangePackage,
+      reason: estimateChangeDraft.reason || '',
+      notes: estimateChangeDraft.notes || estimateChangeDraft.reason || '',
+      photoUrl: estimateChangeDraft.photoUrl || '',
+    };
+    const res = await fetch(API + '/unexpected-works', {
+      method: 'POST',
+      headers: authJsonHeaders(),
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      alert('Не удалось отправить изменение: ' + (error.detail || res.status));
+      return;
+    }
+    setEstimateChangeDraft({
+      changeType: 'Работа вне сметы',
+      description: '',
+      quantity: '',
+      unit: 'шт',
+      workPackage: '',
+      reason: '',
+      notes: '',
+      photoUrl: '',
+    });
+    setShowEstimateChangeForm(false);
+    if (typeof refreshData === 'function') await refreshData();
+    notify('Изменение к смете отправлено на согласование: ' + description, 'unexpected');
+  };
+  const buildDailyEstimateWorkRows = (items = []) => {
+    const project = selectedMasterProject || projects.find(projectRow => projectRow.id === Number(masterProjectId));
+    const rows = [];
+    const errors = [];
+    if (!project) {
+      return { project: null, rows, total: 0, errors: ['Сначала выберите объект'] };
+    }
+    for (const item of items) {
+      const quantity = safeToNum(item.quantity);
+      const done = safeToNum(item.doneQuantity);
+      const workKey = estimateWorkKey(item.estId, item.sectionIdx, item.itemIdx);
+      const draftDisplay = estimateDraftValueRef.current[workKey] !== undefined
+        ? estimateDraftValueRef.current[workKey]
+        : (estimateDoneDrafts[workKey] !== undefined ? estimateDoneDrafts[workKey] : '');
+      if (draftDisplay === '' || draftDisplay === null || draftDisplay === undefined) continue;
+      const delta = safeDenormalizeMeasure(draftDisplay, item.unit);
+      const target = done + delta;
+      if (delta <= 0) continue;
+      if (quantity > 0 && target > quantity) {
+        errors.push('По работе "' + item.name + '" план ' + safeFmtMeasure(quantity, item.unit) + '. Нельзя закрыть больше.');
+        continue;
+      }
+      const params = { ...(estimateWorkParams[workKey] || {}) };
+      if (!params.roomId && !String(params.roomName || '').trim()) {
+        if (projectRooms.length > 0 && typeof isPersonalMaterialRole === 'function' && isPersonalMaterialRole()) {
+          errors.push('Выберите помещение для работы "' + item.name + '".');
+          continue;
+        }
+        params.roomName = GENERAL_WORK_ROOM_NAME;
+      }
+      const roomCheck = params.roomId ? roomMeasurementCheck(project.name, params.roomId, params.surface || 'Стены', delta, item.unit, item.name) : null;
+      if (roomCheck?.over > 0) {
+        errors.push(roomMeasurementMessage(roomCheck));
+        continue;
+      }
+      const customerPricePerUnit = safeToNum(item.pricePerUnit || item.price || 0) || (safeToNum(item.priceWork || 0) + safeToNum(item.priceMaterial || 0));
+      const executionPricePerUnit = safeToNum(item.executionPricePerUnit || item.internalPricePerUnit || item.masterPricePerUnit || item.contractorPricePerUnit || item.executorPricePerUnit);
+      if (executionPricePerUnit <= 0) {
+        errors.push('По работе "' + item.name + '" не назначена цена исполнителя.');
+        continue;
+      }
+      const currentMaterials = fillNormMaterialsForWork(
+        project.name,
+        item.name,
+        item.section,
+        delta,
+        item.unit,
+        estimateWorkMaterials[workKey] || [],
+        { ...params, workPackage: item.workPackage },
+      );
+      let usedMaterials = currentMaterials
+        .filter(material => material.name)
+        .map(material => {
+          const normQuantity = safeToNum(material.normQuantity);
+          const materialQuantity = safeToNum(material.quantity);
+          return {
+            name: material.name,
+            quantity: materialQuantity,
+            unit: material.unit || 'шт',
+            workPackage: material.workPackage || item.workPackage || '',
+            normQuantity,
+            normSource: material.normSource || '',
+            normRuleId: material.normRuleId || material.ruleId || '',
+            normThicknessMm: material.normThicknessMm || material.thicknessMm || '',
+            autoNorm: !!material.autoNorm,
+            overNorm: normQuantity > 0 && materialQuantity > normQuantity * 1.1,
+          };
+        });
+      for (const material of usedMaterials) {
+        if (safeToNum(material.quantity) <= 0) {
+          errors.push('Укажите количество материала "' + material.name + '" для работы "' + item.name + '" или снимите материал.');
+        }
+      }
+      const blockMessage = typeof materialWriteoffBlockMessage === 'function'
+        ? materialWriteoffBlockMessage(project.name, usedMaterials)
+        : '';
+      if (blockMessage) {
+        errors.push(blockMessage);
+        continue;
+      }
+      if (usedMaterials.some(material => material.overNorm) && typeof materialNormOverrunReason === 'function') {
+        const overReason = materialNormOverrunReason(project.name, item.name, usedMaterials);
+        if (overReason === null) return { project, rows, total: 0, errors: ['Укажите причину перерасхода материала или снимите перерасход.'] };
+        if (overReason && typeof applyMaterialOverNormReason === 'function') {
+          usedMaterials = applyMaterialOverNormReason(project.name, usedMaterials, overReason);
+        }
+      }
+      rows.push({
+        workKey,
+        estId: item.estId,
+        sectionIdx: item.sectionIdx,
+        itemIdx: item.itemIdx,
+        name: item.name,
+        section: item.section,
+        unit: item.unit,
+        done,
+        target,
+        delta,
+        plan: quantity,
+        workPackage: item.workPackage,
+        estimateItemKey: item.estimateItemKey || workKey,
+        contractItemId: item.contractItemId || null,
+        customerPricePerUnit,
+        customerTotal: delta * customerPricePerUnit,
+        executionPricePerUnit,
+        executionTotal: delta * executionPricePerUnit,
+        executionPriceMode: 'fixed',
+        params: {
+          ...params,
+          roomId: params.roomId ? Number(params.roomId) : null,
+          roomName: params.roomName || '',
+          surface: params.surface || 'Стены',
+          workPackage: item.workPackage || '',
+          estimateItemName: item.name,
+          estimateItemKey: item.estimateItemKey || workKey,
+          contractItemId: item.contractItemId || null,
+          customerPricePerUnit,
+          customerTotal: delta * customerPricePerUnit,
+          executionPricePerUnit,
+          executionTotal: delta * executionPricePerUnit,
+          executionPriceMode: 'fixed',
+          photoUrl: params.photoUrl || '',
+        },
+        materialsUsed: usedMaterials,
+      });
+    }
+    const total = rows.reduce((sum, row) => sum + safeToNum(row.executionTotal), 0);
+    return { project, rows, total, errors };
+  };
+  const openDailyEstimateWorkReview = (items = []) => {
+    const result = buildDailyEstimateWorkRows(items);
+    if (result.errors.length) {
+      alert(result.errors[0]);
+      return;
+    }
+    if (!result.rows.length) {
+      alert('Введите выполненный объём хотя бы по одной позиции сметы.');
+      return;
+    }
+    setDailyWorkActDraft(prev => ({
+      ...prev,
+      date: prev.date || new Date().toISOString().split('T')[0],
+      comment: prev.comment || '',
+      photoUrl: prev.photoUrl || '',
+    }));
+    setDailyWorkReview({
+      projectName: result.project.name,
+      rows: result.rows,
+      total: result.total,
+      count: result.rows.length,
+    });
+  };
+  const submitDailyEstimateWorkReview = async () => {
+    if (!dailyWorkReview?.rows?.length) return;
+    const workDate = dailyWorkActDraft.date || new Date().toISOString().split('T')[0];
+    const groupComment = String(dailyWorkActDraft.comment || '').trim();
+    const groupPhotoUrl = dailyWorkActDraft.photoUrl || '';
+    setDailyWorkSubmitting(true);
+    try {
+      const rowsByEstimate = dailyWorkReview.rows.reduce((map, row) => {
+        const key = String(row.estId);
+        map[key] = map[key] || [];
+        map[key].push(row);
+        return map;
+      }, {});
+      for (const [estimateId, rows] of Object.entries(rowsByEstimate)) {
+        const est = estimatesList.find(estimate => Number(estimate.id) === Number(estimateId));
+        if (!est) throw new Error('Смета не найдена: ' + estimateId);
+        const rowByPosition = new Map(rows.map(row => [row.sectionIdx + ':' + row.itemIdx, row]));
+        const newSections = (est.sections || []).map((section, sectionIdx) => ({
+          ...section,
+          items: (section.items || []).map((item, itemIdx) => {
+            const row = rowByPosition.get(sectionIdx + ':' + itemIdx);
+            return row ? { ...item, doneQuantity: row.target } : item;
+          }),
+        }));
+        const workJournalMaterials = {};
+        const workJournalParams = {};
+        rows.forEach(row => {
+          const comment = groupComment
+            ? 'Дневной акт за ' + workDate + '. ' + groupComment
+            : 'Дневной акт за ' + workDate;
+          workJournalMaterials[row.workKey] = row.materialsUsed;
+          workJournalParams[row.workKey] = {
+            ...row.params,
+            date: workDate,
+            comment,
+            photoUrl: row.params.photoUrl || groupPhotoUrl || '',
+          };
+        });
+        const res = await fetch(API + '/estimates/' + est.id, {
+          method: 'PUT',
+          headers: authJsonHeaders(),
+          body: JSON.stringify({
+            ...est,
+            sections: newSections,
+            _workJournalMaterials: workJournalMaterials,
+            _workJournalParams: workJournalParams,
+          }),
+        });
+        if (!res.ok) {
+          const error = await res.json().catch(() => ({}));
+          throw new Error(error.detail || ('HTTP ' + res.status));
+        }
+      }
+      const submittedKeys = dailyWorkReview.rows.map(row => row.workKey);
+      setEstimateDoneDrafts(prev => {
+        const next = { ...prev };
+        submittedKeys.forEach(key => { delete next[key]; delete estimateDraftValueRef.current[key]; });
+        return next;
+      });
+      setEstimateWorkMaterials(prev => {
+        const next = { ...prev };
+        submittedKeys.forEach(key => { delete next[key]; });
+        return next;
+      });
+      setEstimateWorkParams(prev => {
+        const next = { ...prev };
+        submittedKeys.forEach(key => { delete next[key]; });
+        return next;
+      });
+      setDailyWorkReview(null);
+      setDailyWorkActDraft({ date: new Date().toISOString().split('T')[0], comment: '', photoUrl: '' });
+      if (typeof refreshData === 'function') await refreshData();
+      notify('Дневной пакет работ отправлен на проверку: ' + dailyWorkReview.count + ' поз.', 'work');
+      alert('Работы за день отправлены на проверку одним пакетом.');
+    } catch (error) {
+      alert('Не удалось отправить дневной пакет: ' + (error?.message || error));
+    } finally {
+      setDailyWorkSubmitting(false);
+    }
+  };
   const estimateItemKeyForRow = (estimate, sectionIndex, itemIndex, item) => (
     item?.estimateItemKey ||
     item?.estimate_item_key ||
@@ -444,6 +806,78 @@ export default function MasterCabinetPage(props) {
         showInfo
         validationAlert
       />
+      {dailyWorkReview && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1200, backgroundColor: 'rgba(15,23,42,.62)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '14px' }}>
+          <div style={{ ...card, width: '720px', maxWidth: '100%', maxHeight: '92vh', overflowY: 'auto', padding: '18px', backgroundColor: C.bgWhite }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', marginBottom: '14px' }}>
+              <div>
+                <h3 style={{ margin: 0, color: C.text, fontSize: '18px', fontWeight: 800 }}>Работы за день</h3>
+                <p style={{ margin: '4px 0 0', color: C.textSec, fontSize: '12px' }}>{dailyWorkReview.projectName + ' · ' + dailyWorkReview.count + ' поз.'}</p>
+              </div>
+              <button onClick={() => setDailyWorkReview(null)} disabled={dailyWorkSubmitting} style={{ ...btnG, padding: '6px 10px' }}>Закрыть</button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(140px,.35fr)', gap: '10px', alignItems: 'start', marginBottom: '12px' }}>
+              <div style={{ padding: '12px', borderRadius: '10px', backgroundColor: C.accentLight, border: '1.5px solid ' + C.accentBorder }}>
+                <b style={{ display: 'block', color: C.accent, fontSize: '12px', marginBottom: '4px' }}>Сумма к проверке</b>
+                <span style={{ color: C.text, fontSize: '24px', fontWeight: 800 }}>{Math.round(dailyWorkReview.total).toLocaleString('ru-RU') + ' ₽'}</span>
+              </div>
+              <input
+                type="date"
+                value={dailyWorkActDraft.date}
+                onChange={e => setDailyWorkActDraft(prev => ({ ...prev, date: e.target.value }))}
+                style={{ ...inp, marginBottom: 0 }}
+              />
+            </div>
+            <div style={{ display: 'grid', gap: '8px', marginBottom: '12px' }}>
+              {dailyWorkReview.rows.map(row => (
+                <div key={row.workKey} style={{ padding: '10px', borderRadius: '10px', backgroundColor: C.bg, border: '1px solid ' + C.border }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'flex-start' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <b style={{ color: C.text, fontSize: '13px' }}>{row.name}</b>
+                      <p style={{ margin: '3px 0 0', color: C.textSec, fontSize: '11px' }}>{row.section + ' · ' + row.workPackage}</p>
+                    </div>
+                    <b style={{ color: C.success, fontSize: '13px', whiteSpace: 'nowrap' }}>{Math.round(row.executionTotal).toLocaleString('ru-RU') + ' ₽'}</b>
+                  </div>
+                  <p style={{ margin: '6px 0 0', color: C.textSec, fontSize: '12px' }}>
+                    {'Было ' + safeFmtMeasure(row.done, row.unit) + ' · стало ' + safeFmtMeasure(row.target, row.unit) + ' · за день +' + safeFmtMeasure(row.delta, row.unit)}
+                  </p>
+                  {(row.params.roomName || row.params.roomId || row.params.photoUrl || row.materialsUsed.length > 0) && (
+                    <p style={{ margin: '4px 0 0', color: C.textMuted, fontSize: '11px' }}>
+                      {(row.params.roomName ? 'Помещение: ' + row.params.roomName + '. ' : '') +
+                        (row.materialsUsed.length > 0 ? 'Материалы: ' + row.materialsUsed.length + ' поз. ' : '') +
+                        (row.params.photoUrl ? 'Есть фото по строке.' : '')}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+            <PhotoAttachmentField
+              C={C}
+              btnG={btnG}
+              value={dailyWorkActDraft.photoUrl}
+              onChange={photoUrl => setDailyWorkActDraft(prev => ({ ...prev, photoUrl }))}
+              appendPhotos={appendPhotos}
+              fileSrc={fileSrc}
+              setShowPhotoModal={setShowPhotoModal}
+              projectName={dailyWorkReview.projectName || ''}
+              context="daily-work-act"
+              title="Общий фотоотчет"
+            />
+            <textarea
+              placeholder="Комментарий прорабу или директору"
+              value={dailyWorkActDraft.comment}
+              onChange={e => setDailyWorkActDraft(prev => ({ ...prev, comment: e.target.value }))}
+              style={{ ...inp, minHeight: '82px', marginTop: '10px' }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', flexWrap: 'wrap' }}>
+              <button onClick={() => setDailyWorkReview(null)} disabled={dailyWorkSubmitting} style={btnG}>Отмена</button>
+              <button onClick={submitDailyEstimateWorkReview} disabled={dailyWorkSubmitting} style={{ ...btnO, opacity: dailyWorkSubmitting ? 0.7 : 1 }}>
+                {dailyWorkSubmitting ? 'Отправляем...' : 'Отправить на проверку'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div style={{ flex: 1, padding: '15px', paddingBottom: isMobile ? '90px' : '15px', overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', gap: '8px' }}>
@@ -610,6 +1044,123 @@ export default function MasterCabinetPage(props) {
               );
             })()}
 
+            {(() => {
+              const myEstimateChanges = (unexpectedWorksList || [])
+                .filter(item => {
+                  const sameAuthor = String(item.addedBy || '').trim().toLowerCase() === String(user.name || '').trim().toLowerCase();
+                  const sameProject = !selectedMasterProject?.name || item.projectName === selectedMasterProject.name;
+                  return sameAuthor && sameProject && item.status !== 'Аннулировано';
+                })
+                .slice(0, 4);
+              const packageOptions = Array.from(new Set(['Основная', ...userAssignedPackages].filter(Boolean)));
+              return (
+                <div style={{ ...card, padding: '14px', marginBottom: '14px', backgroundColor: C.bg, border: '1.5px solid ' + C.border }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <div>
+                      <b style={{ color: C.text, fontSize: '13px' }}>Изменение к смете / работа вне сметы</b>
+                      <p style={{ color: C.textSec, margin: '2px 0 0', fontSize: '11px' }}>Черновик уйдет директору и сметчику на согласование</p>
+                    </div>
+                    <button onClick={() => setShowEstimateChangeForm(value => !value)} style={{ ...btnB, padding: '6px 10px', fontSize: '12px' }}>
+                      {showEstimateChangeForm ? 'Скрыть' : '+ Допработа'}
+                    </button>
+                  </div>
+                  {showEstimateChangeForm && (
+                    <div style={{ marginTop: '12px', display: 'grid', gap: '8px' }}>
+                      {!selectedMasterProject?.name && (
+                        <div style={{ padding: '10px', borderRadius: '8px', backgroundColor: C.warningLight, border: '1px solid ' + C.warningBorder, color: C.warning, fontSize: '12px', fontWeight: 700 }}>
+                          Сначала выберите объект выше
+                        </div>
+                      )}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.2fr) minmax(0,.8fr)', gap: '8px' }}>
+                        <select
+                          value={estimateChangeDraft.changeType}
+                          onChange={e => setEstimateChangeDraft(prev => ({ ...prev, changeType: e.target.value }))}
+                          style={{ ...inp, marginBottom: 0 }}
+                        >
+                          <option>Работа вне сметы</option>
+                          <option>Дополнительный объём к строке сметы</option>
+                          <option>Замена решения</option>
+                          <option>Исключение объёма</option>
+                        </select>
+                        <select
+                          value={estimateChangePackage}
+                          onChange={e => setEstimateChangeDraft(prev => ({ ...prev, workPackage: e.target.value }))}
+                          style={{ ...inp, marginBottom: 0 }}
+                        >
+                          {packageOptions.map(option => <option key={option}>{option}</option>)}
+                        </select>
+                      </div>
+                      <input
+                        placeholder="Что нужно выполнить"
+                        value={estimateChangeDraft.description}
+                        onChange={e => setEstimateChangeDraft(prev => ({ ...prev, description: e.target.value }))}
+                        style={{ ...inp, marginBottom: 0 }}
+                      />
+                      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,.8fr) minmax(0,.6fr) minmax(0,1.6fr)', gap: '8px' }}>
+                        <input
+                          type="number"
+                          step="any"
+                          inputMode="decimal"
+                          placeholder="Кол-во"
+                          value={estimateChangeDraft.quantity}
+                          onChange={e => setEstimateChangeDraft(prev => ({ ...prev, quantity: e.target.value }))}
+                          style={{ ...inp, marginBottom: 0 }}
+                        />
+                        <select
+                          value={estimateChangeDraft.unit}
+                          onChange={e => setEstimateChangeDraft(prev => ({ ...prev, unit: e.target.value }))}
+                          style={{ ...inp, marginBottom: 0 }}
+                        >
+                          {(UNITS || ['шт', 'м2', 'м3', 'м.п.', 'кг']).map(unit => <option key={unit}>{unit}</option>)}
+                        </select>
+                        <input
+                          placeholder="Причина"
+                          value={estimateChangeDraft.reason}
+                          onChange={e => setEstimateChangeDraft(prev => ({ ...prev, reason: e.target.value }))}
+                          style={{ ...inp, marginBottom: 0 }}
+                        />
+                      </div>
+                      <textarea
+                        placeholder="Комментарий"
+                        value={estimateChangeDraft.notes}
+                        onChange={e => setEstimateChangeDraft(prev => ({ ...prev, notes: e.target.value }))}
+                        style={{ ...inp, minHeight: '72px', marginBottom: 0 }}
+                      />
+                      <PhotoAttachmentField
+                        C={C}
+                        value={estimateChangeDraft.photoUrl}
+                        onChange={photoUrl => setEstimateChangeDraft(prev => ({ ...prev, photoUrl }))}
+                        appendPhotos={appendPhotos}
+                        fileSrc={fileSrc}
+                        setShowPhotoModal={setShowPhotoModal}
+                        projectName={selectedMasterProject?.name || ''}
+                        context="estimate-change"
+                        title="Фото основания"
+                      />
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <button onClick={submitEstimateChangeDraft} disabled={!selectedMasterProject?.name} style={{ ...btnO, opacity: selectedMasterProject?.name ? 1 : 0.65 }}>
+                          Отправить на согласование
+                        </button>
+                        <button onClick={() => setShowEstimateChangeForm(false)} style={btnG}>Отмена</button>
+                      </div>
+                    </div>
+                  )}
+                  {myEstimateChanges.length > 0 && (
+                    <div style={{ marginTop: '10px', display: 'grid', gap: '6px' }}>
+                      {myEstimateChanges.map(item => (
+                        <div key={item.id} style={{ padding: '8px 10px', borderRadius: '8px', backgroundColor: C.bgWhite, border: '1px solid ' + C.border }}>
+                          <b style={{ color: C.text, fontSize: '12px' }}>{item.description}</b>
+                          <p style={{ color: C.textSec, margin: '2px 0 0', fontSize: '11px' }}>
+                            {(item.changeType || 'Работа вне сметы') + ' · ' + (item.status || 'Ожидает согласования') + ' · ' + safeFmtMeasure(item.deltaQuantity || item.quantity, item.unit)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             <div style={{ ...card, padding: '20px', marginBottom: '15px' }}>
               <h4 style={{ marginBottom: '15px', color: C.text, fontSize: '14px', fontWeight: '600' }}>Добавить работы</h4>
               {masterProjectOptions.length === 0 && <div style={{ padding: '12px', backgroundColor: C.warningLight, border: '1.5px solid ' + C.warningBorder, borderRadius: '10px', color: C.text, fontSize: '12px', marginBottom: '10px' }}>Нет доступных объектов. Назначьте мастера на объект или привяжите его к договору бригады.</div>}
@@ -673,34 +1224,56 @@ export default function MasterCabinetPage(props) {
                 const projectName = projects.find(project => project.id === Number(masterProjectId))?.name || '';
                 const projectEstimates = visibleEstimatesList.filter(estimate => (estimate.projectName || estimate.project_name) === projectName);
                 const assignedContractItems = Array.isArray(brigadeContractItems) ? brigadeContractItems : [];
+                const contractItemsByPackageAndKey = new Map();
+                const contractItemsByPackageAndName = new Map();
+                const addContractIndex = (map, key, contractItem) => {
+                  if (!key) return;
+                  const list = map.get(key) || [];
+                  list.push(contractItem);
+                  map.set(key, list);
+                };
+                assignedContractItems.forEach(contractItem => {
+                  const contractPackage = String(contractItem.workPackage || contractItem.work_package || '').trim();
+                  if (!contractPackage) return;
+                  const contractKey = String(contractItem.estimateItemKey || contractItem.estimate_item_key || '').trim();
+                  const contractName = String(contractItem.name || contractItem.description || '').trim().toLowerCase();
+                  addContractIndex(contractItemsByPackageAndKey, contractPackage + '\n' + contractKey, contractItem);
+                  addContractIndex(contractItemsByPackageAndName, contractPackage + '\n' + contractName, contractItem);
+                });
                 const myItems = [];
                 projectEstimates.forEach(estimate => (estimate.sections || []).forEach((section, sectionIndex) => (section.items || []).forEach((item, itemIndex) => {
                   if (!estimateIsActive(estimate) || estimateItemIsMaterial(item)) return;
-                  const packageAllowed = userAssignedPackages.length > 0 && userAssignedPackages.includes(estimatePackageName(estimate));
+                  const itemPackage = estimatePackageName(estimate);
+                  const packageAllowed = userAssignedPackages.length > 0 && userAssignedPackages.includes(itemPackage);
                   const namedToMe = item.brigadeName && (item.brigadeName === user.name || (user.brigade && item.brigadeName === user.brigade));
                   const itemKey = String(estimateItemKeyForRow(estimate, sectionIndex, itemIndex, item) || '').trim();
                   const itemName = String(item.name || '').trim().toLowerCase();
                   const sectionName = String(section.name || '').trim().toLowerCase();
                   const itemUnit = String(item.unit || '').trim().toLowerCase();
-                  const assignedContractItem = assignedContractItems.find(contractItem => {
+                  const contractCandidates = [
+                    ...(itemKey ? (contractItemsByPackageAndKey.get(itemPackage + '\n' + itemKey) || []) : []),
+                    ...(itemName ? (contractItemsByPackageAndName.get(itemPackage + '\n' + itemName) || []) : []),
+                  ];
+                  const seenContractCandidates = new Set();
+                  const assignedContractItem = contractCandidates.find(contractItem => {
+                    if (seenContractCandidates.has(contractItem)) return false;
+                    seenContractCandidates.add(contractItem);
                     const contractKey = String(contractItem.estimateItemKey || contractItem.estimate_item_key || '').trim();
                     const contractName = String(contractItem.name || contractItem.description || '').trim().toLowerCase();
                     const contractUnit = String(contractItem.unit || '').trim().toLowerCase();
                     const contractSection = String(contractItem.estimateSection || contractItem.estimate_section || '').trim().toLowerCase();
                     const contractProject = String(contractItem.projectName || contractItem.project_name || '').trim();
-                    const contractPackage = String(contractItem.workPackage || contractItem.work_package || '').trim();
                     const sameProject = !contractProject || contractProject === projectName;
-                    const samePackage = contractPackage && contractPackage === estimatePackageName(estimate);
                     const sameKey = itemKey && contractKey && contractKey === itemKey;
                     const sameName = contractName && contractName === itemName && (!contractSection || !sectionName || contractSection === sectionName) && (!itemUnit || !contractUnit || contractUnit === itemUnit);
-                    return sameProject && samePackage && (sameKey || sameName);
+                    return sameProject && (sameKey || sameName);
                   });
                   if ((assignedContractItems.length > 0 && assignedContractItem) || (assignedContractItems.length === 0 && (packageAllowed || namedToMe))) {
                     myItems.push({
                       ...item,
                       estId: estimate.id,
                       estName: estimate.name,
-                      workPackage: estimatePackageName(estimate),
+                      workPackage: itemPackage,
                       sectionIdx: sectionIndex,
                       itemIdx: itemIndex,
                       section: section.name,
@@ -723,7 +1296,12 @@ export default function MasterCabinetPage(props) {
                 }
                 return (
                   <div style={{ ...card, padding: '14px', marginBottom: '15px', backgroundColor: C.accentLight, border: '1.5px solid ' + C.accentBorder }}>
-                    <b style={{ color: C.accent, fontSize: '13px', display: 'block', marginBottom: '10px' }}>🎯 Мои работы по смете ({myItems.length})</b>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                      <b style={{ color: C.accent, fontSize: '13px' }}>🎯 Мои работы по смете ({myItems.length})</b>
+                      <button onClick={() => openDailyEstimateWorkReview(myItems)} style={{ ...btnO, padding: '7px 11px', fontSize: '12px' }}>
+                        Рассчитать день
+                      </button>
+                    </div>
                     {myItems.map((item, index) => {
                       const quantity = Number(item.quantity) || 0;
                       const done = Number(item.doneQuantity) || 0;
@@ -733,17 +1311,16 @@ export default function MasterCabinetPage(props) {
                       const params = estimateWorkParams[workKey] || {};
                       const draft = estimateDoneDrafts[workKey] !== undefined
                         ? estimateDoneDrafts[workKey]
-                        : (estimateDraftValueRef.current[workKey] !== undefined ? estimateDraftValueRef.current[workKey] : (doneNorm.qty || ''));
-                      const rawDraft = safeDenormalizeMeasure(draft, item.unit);
-                      const delta = Math.max(0, rawDraft - done);
+                        : (estimateDraftValueRef.current[workKey] !== undefined ? estimateDraftValueRef.current[workKey] : '');
+                      const delta = Math.max(0, safeDenormalizeMeasure(draft, item.unit));
                       const project = projects.find(projectRow => projectRow.id === Number(masterProjectId));
                       const roomCheck = project && params.roomId ? roomMeasurementCheck(project.name, params.roomId, params.surface || 'Стены', delta, item.unit, item.name) : null;
-                      const projectMaterials = project ? materialRowsAvailableForWork(project.name, item.workPackage) : [];
-                      const availableMap = project ? materialAvailabilityMapForWork(project.name, item.workPackage) : {};
+                      const projectMaterials = project ? getWorkMaterialRows(project.name, item.workPackage) : [];
+                      const availableMap = project ? getWorkMaterialAvailability(project.name, item.workPackage) : {};
                       const usedMaterials = estimateWorkMaterials[workKey] || [];
                       const usedMap = {};
                       usedMaterials.forEach(material => { usedMap[materialNameKey(material.name)] = material; });
-                      const suggestions = project ? materialSuggestionsForWork(project.name, item.name, item.section, item.workPackage) : [];
+                      const suggestions = project ? getWorkMaterialSuggestions(project.name, item.name, item.section, item.workPackage) : [];
                       const executionUnitPrice = Number(item.executionPricePerUnit || item.internalPricePerUnit || item.masterPricePerUnit || item.contractorPricePerUnit || 0);
                       const deltaEarning = Math.round(delta * executionUnitPrice);
                       const missingExecutionPrice = executionUnitPrice <= 0;
@@ -769,12 +1346,12 @@ export default function MasterCabinetPage(props) {
                               type="number"
                               step="any"
                               inputMode="decimal"
-                              placeholder={'+' + (safeNormalizeMeasure(1, item.unit).unit || item.unit)}
+                              placeholder={'сегодня, ' + (doneNorm.unit || item.unit)}
                               defaultValue={draft}
                               onChange={e => { estimateDraftValueRef.current[workKey] = e.target.value; }}
                               onBlur={e => {
                                 commitEstimateDoneDraft(workKey, e.target.value);
-                                syncEstimateNormMaterials(workKey, project, item, e.target.value, done);
+                                syncEstimateNormMaterials(workKey, project, item, e.target.value, 0);
                               }}
                               style={{ ...inp, marginBottom: 0, width: '80px', fontSize: '12px', padding: '4px 6px' }}
                             />
@@ -798,7 +1375,7 @@ export default function MasterCabinetPage(props) {
                                   project,
                                   item,
                                   draft,
-                                  done,
+                                  0,
                                   { ...(estimateWorkParams[workKey] || {}), thicknessMm: e.target.value },
                                 )}
                                 style={{ ...inp, marginBottom: 0, width: '78px', fontSize: '12px', padding: '4px 6px' }}
@@ -809,7 +1386,8 @@ export default function MasterCabinetPage(props) {
                               onClick={() => {
                                 const liveDraft = estimateDraftValueRef.current[workKey] !== undefined ? estimateDraftValueRef.current[workKey] : draft;
                                 commitEstimateDoneDraft(workKey, liveDraft);
-                                submitEstimateWorkDone(item, liveDraft);
+                                const targetDisplay = safeNormalizeMeasure(done + safeDenormalizeMeasure(liveDraft, item.unit), item.unit).qty;
+                                submitEstimateWorkDone(item, targetDisplay);
                               }}
                               disabled={missingExecutionPrice}
                               style={{ ...(!missingExecutionPrice ? btnO : btnG), padding: '5px 9px', fontSize: '11px', opacity: !missingExecutionPrice ? 1 : 0.65 }}
@@ -901,6 +1479,9 @@ export default function MasterCabinetPage(props) {
                         </div>
                       );
                     })}
+                    <button onClick={() => openDailyEstimateWorkReview(myItems)} style={{ ...btnO, width: '100%', padding: '12px', justifyContent: 'center', marginTop: '10px' }}>
+                      Сформировать работы в один акт
+                    </button>
                   </div>
                 );
               })()}
@@ -1016,13 +1597,13 @@ export default function MasterCabinetPage(props) {
                                 />
                                 {(() => {
                                   const scopedPackage = userAssignedPackages.length === 1 ? userAssignedPackages[0] : '';
-                                  const projectMaterials = project ? materialRowsAvailableForWork(project.name, scopedPackage) : [];
-                                  const availableMap = project ? materialAvailabilityMapForWork(project.name, scopedPackage) : {};
+                                  const projectMaterials = project ? getWorkMaterialRows(project.name, scopedPackage) : [];
+                                  const availableMap = project ? getWorkMaterialAvailability(project.name, scopedPackage) : {};
                                   const usedMaterials = selectedWorks[item.id]?.materials || [];
                                   const usedMap = {};
                                   usedMaterials.forEach(material => { usedMap[materialNameKey(material.name)] = material; });
                                   if (!project) return null;
-                                  const suggestions = materialSuggestionsForWork(project.name, item.name, category, scopedPackage);
+                                  const suggestions = getWorkMaterialSuggestions(project.name, item.name, category, scopedPackage);
                                   if (!projectMaterials.length && !suggestions.length) {
                                     return (
                                       <div style={{ marginTop: '8px', padding: '10px', backgroundColor: C.warningLight, borderRadius: '8px', border: '1px solid ' + C.warningBorder, fontSize: '11px', color: C.warning }}>

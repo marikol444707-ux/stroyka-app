@@ -5,6 +5,8 @@ const MATERIAL_MATCH_STOPWORDS = new Set([
   'мм', 'см', 'м', 'шт', 'кг', 'л', 'т', 'для', 'при', 'под', 'над', 'без',
   'основная', 'объект', 'материал', 'материалы', 'позиция', 'работы', 'работа',
   'комплект', 'комплекта', 'комплектов', 'изделие', 'изделия', 'серия',
+  'упак', 'упаковка', 'пач', 'пачка', 'пар', 'рул', 'рулон', 'бухта',
+  'белый', 'белая', 'белое', 'черный', 'черная', 'черное', 'серый', 'серая',
 ]);
 
 const materialMatchTokens = (name) => {
@@ -15,7 +17,13 @@ const materialMatchTokens = (name) => {
     if (token.length < 2 || MATERIAL_MATCH_STOPWORDS.has(token)) return;
     if (/^\d$/.test(token)) return;
     if (/^\d{4,}$/.test(token) && /^(13|20)/.test(token)) return;
+    const dimensionToken = token.replace(/х/g, 'x').replace(/\*/g, 'x');
+    if (/^\d+(?:x\d+){1,3}$/.test(dimensionToken)) {
+      tokens.add(dimensionToken);
+      return;
+    }
     if (token.startsWith('керамогран')) add('керамогранит', 'гранит', 'керамическ');
+    else if (token.startsWith('gres') || token.startsWith('porcelain')) add('керамическ', 'плитка');
     else if (token.startsWith('livorno') || token.startsWith('ливорн')) add('livorno', 'керамогранит', 'плитка');
     else if (token.startsWith('axima') || token.startsWith('аксима')) add('axima', 'керамогранит', 'плитка');
     else if (token.startsWith('керамич')) tokens.add('керамическ');
@@ -23,9 +31,15 @@ const materialMatchTokens = (name) => {
     else if (token.startsWith('металлочереп') || token.startsWith('черепиц')) add('металлочерепица', 'черепица', 'кровля');
     else if (token.startsWith('монтер') || token.startsWith('monter')) add('монтеррей', 'металлочерепица', 'черепица', 'кровля');
     else if (token.startsWith('гкл') || token.startsWith('гипсокарт')) add('гкл', 'гипсокартон');
+    else if (token.startsWith('гипрок')) add('гкл', 'гипсокартон');
     else if (token.startsWith('гвл') || token.startsWith('гипсовол')) add('гвл', 'гипсоволокно');
+    else if (token.startsWith('аквапан')) add('аквапанель', 'лист');
     else if (token.includes('цемент')) tokens.add('цемент');
     else if (token.startsWith('смес')) tokens.add('смесь');
+    else if (token.startsWith('пескобетон')) add('пескобетон', 'бетон', 'смесь');
+    else if (token.startsWith('наливн')) add('наливной', 'смесь');
+    else if (token.startsWith('ровнител')) add('ровнитель', 'смесь');
+    else if (token.startsWith('затир')) add('затирка', 'смесь');
     else if (token.startsWith('ротб')) add('ротбанд', 'штукатурка', 'смесь');
     else if (token.startsWith('хабез')) add('хабез', 'штукатурка', 'смесь');
     else if (token.startsWith('старт')) add('старт', 'штукатурка', 'шпатлевка', 'смесь');
@@ -41,47 +55,64 @@ const materialMatchTokens = (name) => {
     else if (token.startsWith('штукатур')) tokens.add('штукатурка');
     else if (token.startsWith('шпатлев') || token.startsWith('шпаклев')) tokens.add('шпатлевка');
     else if (token.startsWith('профил')) tokens.add('профиль');
-    else if (token.startsWith('угол')) tokens.add('уголок');
-    else if (token.startsWith('подвес')) tokens.add('подвес');
-    else if (token.startsWith('маяк') || token.startsWith('маяч')) tokens.add('маяк');
+    else if (['пн', 'пп', 'пс', 'псу', 'cd', 'ud', 'cw', 'uw'].includes(token)) add('профиль', token);
+    else if (token.startsWith('угол')) add('уголок', 'профиль');
+    else if (token.startsWith('подвес')) add('подвес', 'профиль');
+    else if (token.startsWith('маяк') || token.startsWith('маяч')) add('маяк', 'профиль');
     else if (token.startsWith('рейк')) tokens.add('рейка');
     else if (token.startsWith('лент')) tokens.add('лента');
     else if (token.startsWith('серпян')) tokens.add('серпянка');
-    else if (token.startsWith('саморез') || token.startsWith('шуруп')) tokens.add('саморез');
-    else if (token.startsWith('анкер')) tokens.add('анкер');
-    else if (token.startsWith('болт')) tokens.add('болт');
-    else if (token.startsWith('гайк')) tokens.add('гайка');
-    else if (token.startsWith('шайб')) tokens.add('шайба');
+    else if (token.startsWith('саморез') || token.startsWith('самонар')) add('саморез', 'крепеж');
+    else if (token.startsWith('шуруп')) add('саморез', 'крепеж');
+    else if (token.startsWith('прессшайб')) add('прессшайба', 'саморез', 'крепеж');
+    else if (token.startsWith('анкер')) add('анкер', 'крепеж');
+    else if (token.startsWith('болт')) add('болт', 'крепеж');
+    else if (token.startsWith('гайк')) add('гайка', 'крепеж');
+    else if (token.startsWith('шайб')) add('шайба', 'крепеж');
     else if (token.startsWith('кабел')) tokens.add('кабель');
     else if (token.startsWith('провод')) tokens.add('провод');
-    else if (token.startsWith('светиль') || token.startsWith('табло')) tokens.add('светильник');
-    else if (token.startsWith('ламп')) tokens.add('лампа');
+    else if (token.startsWith('светиль') || token.startsWith('табло')) add('светильник', 'свет');
+    else if (token.startsWith('светодиод') || ['led', 'лед'].includes(token)) add('светильник', 'светодиод', 'свет');
+    else if (token.startsWith('ламп')) add('лампа', 'свет');
+    else if (token.startsWith('прожектор')) add('прожектор', 'светильник', 'свет');
     else if (token.startsWith('розет')) tokens.add('розетка');
     else if (token.startsWith('выключ')) tokens.add('выключатель');
+    else if (token.startsWith('автомат') || token.startsWith('узо') || token.startsWith('дифавтомат')) add('автомат', 'электрика');
+    else if (token.startsWith('щит')) add('щит', 'электрика');
+    else if (token.startsWith('гофр')) add('гофра', 'труба', 'электрика');
     else if (token.startsWith('втул')) tokens.add('втулка');
-    else if (token.startsWith('хомут')) tokens.add('хомут');
-    else if (token.startsWith('скоб')) tokens.add('скоба');
+    else if (token.startsWith('хомут')) add('хомут', 'крепеж');
+    else if (token.startsWith('скоб')) add('скоба', 'крепеж');
     else if (token.startsWith('труб')) tokens.add('труба');
+    else if (token.startsWith('ппр') || token.startsWith('ppr') || token.startsWith('полипроп')) add('труба', 'полипропилен');
+    else if (token.startsWith('канализ')) add('труба', 'канализация');
     else if (token.startsWith('радиатор')) tokens.add('радиатор');
-    else if (token.startsWith('фитинг')) tokens.add('фитинг');
-    else if (token.startsWith('муфт')) tokens.add('муфта');
-    else if (token.startsWith('клапан')) tokens.add('клапан');
-    else if (token.startsWith('американ')) tokens.add('американка');
-    else if (token.startsWith('воздухоотв')) tokens.add('воздухоотводчик');
-    else if (token.startsWith('кран')) tokens.add('кран');
+    else if (token.startsWith('бимет')) add('радиатор', 'биметалл');
+    else if (token.startsWith('фитинг')) add('фитинг', 'инженерия');
+    else if (token.startsWith('муфт')) add('муфта', 'фитинг', 'инженерия');
+    else if (token.startsWith('тройник')) add('тройник', 'фитинг', 'инженерия');
+    else if (token.startsWith('отвод')) add('отвод', 'фитинг', 'инженерия');
+    else if (token.startsWith('нипп')) add('ниппель', 'фитинг', 'инженерия');
+    else if (token.startsWith('переход')) add('переход', 'фитинг', 'инженерия');
+    else if (token.startsWith('заглуш')) add('заглушка', 'фитинг', 'инженерия');
+    else if (token.startsWith('коллект')) add('коллектор', 'инженерия');
+    else if (token.startsWith('клапан')) add('клапан', 'инженерия');
+    else if (token.startsWith('американ')) add('американка', 'фитинг', 'инженерия');
+    else if (token.startsWith('воздухоотв')) add('воздухоотводчик', 'радиатор', 'инженерия');
+    else if (token.startsWith('кран')) add('кран', 'инженерия');
     else if (token.startsWith('креп')) tokens.add('крепеж');
-    else if (token.startsWith('скреп')) tokens.add('скрепа');
-    else if (token.startsWith('дюб')) tokens.add('дюбель');
-    else if (token.startsWith('клин')) tokens.add('клин');
-    else if (token.startsWith('кроншт')) tokens.add('кронштейн');
-    else if (token.startsWith('направл')) tokens.add('направляющая');
+    else if (token.startsWith('скреп')) add('скрепа', 'крепеж');
+    else if (token.startsWith('дюб') || token.includes('дюб')) add('дюбель', 'крепеж');
+    else if (token.startsWith('клин')) add('клин', 'крепеж');
+    else if (token.startsWith('кроншт')) add('кронштейн', 'крепеж');
+    else if (token.startsWith('направл')) add('направляющая', 'профиль');
     else if (token.startsWith('доск')) tokens.add('доска');
     else if (token.startsWith('брус')) tokens.add('брус');
     else if (token.startsWith('фанер')) tokens.add('фанера');
     else if (token.startsWith('осп') || token.startsWith('osb')) tokens.add('осп');
     else if (token.startsWith('армат')) tokens.add('арматура');
-    else if (token.startsWith('гвозд')) tokens.add('гвоздь');
-    else if (token.startsWith('шпил')) tokens.add('шпилька');
+    else if (token.startsWith('гвозд')) add('гвоздь', 'крепеж');
+    else if (token.startsWith('шпил')) add('шпилька', 'крепеж');
     else if (token.startsWith('перф')) tokens.add('перфолента');
     else if (token.startsWith('краск') || token.startsWith('окрас')) tokens.add('краска');
     else if (token.startsWith('эмал')) tokens.add('эмаль');
@@ -111,13 +142,13 @@ const materialFamilyTags = (tokens) => {
   if (!t.has('клей') && ['керамогранит', 'плитка', 'гранит', 'керамическ'].some(x => t.has(x))) families.add('tile');
   if (t.has('гкл') || t.has('гипсокартон')) families.add('gkl');
   if (t.has('гвл') || t.has('гипсоволокно')) families.add('gvl');
-  if (['профиль', 'уголок', 'подвес', 'маяк', 'рейка', 'направляющая'].some(x => t.has(x))) families.add('metal_profile');
-  if (['саморез', 'анкер', 'болт', 'гайка', 'шайба', 'дюбель', 'крепеж', 'гвоздь', 'шпилька', 'скрепа'].some(x => t.has(x))) families.add('fastener');
+  if (['профиль', 'уголок', 'подвес', 'маяк', 'рейка', 'направляющая', 'пн', 'пп', 'пс', 'псу', 'cd', 'ud', 'cw', 'uw'].some(x => t.has(x))) families.add('metal_profile');
+  if (['саморез', 'анкер', 'болт', 'гайка', 'шайба', 'дюбель', 'крепеж', 'гвоздь', 'шпилька', 'скрепа', 'прессшайба', 'скоба', 'хомут', 'клин', 'кронштейн'].some(x => t.has(x))) families.add('fastener');
   if (t.has('кабель') || t.has('провод')) families.add('cable');
-  if (['труба', 'фитинг', 'муфта', 'клапан', 'американка', 'хомут', 'кран'].some(x => t.has(x))) families.add('pipe');
-  if (t.has('светильник') || t.has('лампа')) families.add('light');
-  if (t.has('розетка') || t.has('выключатель')) families.add('electrical_device');
-  if (['радиатор', 'кронштейн', 'воздухоотводчик'].some(x => t.has(x))) families.add('heating');
+  if (['труба', 'фитинг', 'муфта', 'клапан', 'американка', 'хомут', 'кран', 'полипропилен', 'канализация', 'тройник', 'отвод', 'ниппель', 'переход', 'заглушка', 'коллектор', 'инженерия'].some(x => t.has(x))) families.add('pipe');
+  if (['светильник', 'лампа', 'свет', 'светодиод', 'прожектор'].some(x => t.has(x))) families.add('light');
+  if (['розетка', 'выключатель', 'автомат', 'щит', 'электрика'].some(x => t.has(x))) families.add('electrical_device');
+  if (['радиатор', 'биметалл', 'воздухоотводчик'].some(x => t.has(x))) families.add('heating');
   if (['металлочерепица', 'черепица', 'кровля', 'монтеррей'].some(x => t.has(x))) families.add('roofing');
   if (['доска', 'брус', 'фанера', 'осп'].some(x => t.has(x))) families.add('wood_sheet');
   if (t.has('арматура')) families.add('rebar');
@@ -140,7 +171,7 @@ export const materialNameMatchScore = (left, right) => {
   if (!leftTokens.size || !rightTokens.size) return 0;
   const common = materialSetIntersection(leftTokens, rightTokens);
   const commonFamilies = materialSetIntersection(materialFamilyTags(leftTokens), materialFamilyTags(rightTokens));
-  const familyScore = commonFamilies.size ? (['tile', 'plaster', 'putty', 'primer', 'cement', 'gkl', 'gvl', 'metal_profile', 'fastener', 'cable', 'pipe', 'roofing', 'paint', 'sealant', 'adhesive'].some(f => commonFamilies.has(f)) ? 0.82 : 0.76) : 0;
+  const familyScore = commonFamilies.size ? (['tile', 'plaster', 'putty', 'primer', 'cement', 'gkl', 'gvl', 'metal_profile', 'fastener', 'cable', 'pipe', 'roofing', 'paint', 'sealant', 'adhesive', 'light', 'heating', 'electrical_device'].some(f => commonFamilies.has(f)) ? 0.82 : 0.76) : 0;
   if (!common.size) return familyScore;
   if ((leftTokens.has('металлочерепица') || leftTokens.has('черепица')) && (rightTokens.has('металлочерепица') || rightTokens.has('черепица'))) return 0.84;
   if (['керамогранит', 'плитка'].some(x => leftTokens.has(x)) && ['керамогранит', 'плитка'].some(x => rightTokens.has(x)) && ['livorno', 'axima', 'гранит', 'керамическ', 'матов', 'глазур'].some(x => common.has(x))) return 0.86;
@@ -169,8 +200,14 @@ export const materialAutoMatchSafe = (left, right, score) => {
   const common = materialSetIntersection(leftTokens, rightTokens);
   const commonFamilies = materialSetIntersection(materialFamilyTags(leftTokens), materialFamilyTags(rightTokens));
   if (score >= 0.86 && (common.size >= 2 || commonFamilies.size > 0)) return true;
-  const broadSafeFamilies = new Set(['tile', 'plaster', 'putty', 'primer', 'gkl', 'gvl', 'metal_profile', 'fastener', 'roofing', 'wood_sheet', 'rebar', 'sealant', 'binder_mix']);
-  if (score >= 0.84 && common.size >= 1 && [...commonFamilies].some(f => broadSafeFamilies.has(f))) return true;
+  const broadSafeFamilies = new Set([
+    'tile', 'plaster', 'putty', 'primer', 'cement', 'concrete', 'sand',
+    'gkl', 'gvl', 'metal_profile', 'fastener', 'cable', 'pipe', 'roofing',
+    'wood_sheet', 'rebar', 'sealant', 'binder_mix', 'adhesive', 'paint',
+    'light', 'heating', 'electrical_device',
+  ]);
+  if (score >= 0.82 && common.size === 0 && [...commonFamilies].some(f => broadSafeFamilies.has(f))) return true;
+  if (score >= 0.82 && common.size >= 1 && [...commonFamilies].some(f => broadSafeFamilies.has(f))) return true;
   if (score >= 0.82 && common.size >= 2) return true;
   return false;
 };

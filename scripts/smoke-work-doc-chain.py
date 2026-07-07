@@ -237,6 +237,7 @@ def main():
     stamp = now.strftime("%Y%m%d%H%M%S")
     description = f"{TEST_DESCRIPTION_PREFIX} {stamp}"
     room_name = f"CODEX QA помещение {stamp}"
+    photo_url = f"/uploads/codex-work-doc-{stamp}.jpg"
     qty = 2.0
     price_brigade = 111.0
     total = qty * price_brigade
@@ -321,6 +322,7 @@ def main():
                 "quantity": qty,
                 "date": today,
                 "comment": f"CODEX QA smoke {stamp}",
+                "photoUrl": photo_url,
                 "hiddenWork": True,
                 "qualityStatus": "На проверке",
                 "workPackage": TEST_PACKAGE,
@@ -360,7 +362,7 @@ def main():
         if duplicate_status != 409:
             raise SystemExit(f"FAIL work journal duplicate guard: got {duplicate_status}, expected 409. Body: {duplicate_body}")
 
-        api_json(
+        _, confirm_body = api_json(
             "PUT",
             f"/work-journal/{created['workJournalId']}",
             token=director_token,
@@ -381,26 +383,36 @@ def main():
             raise SystemExit(f"FAIL hidden works package: {hidden_row}")
         created["hiddenWorksActId"] = hidden_row.get("id")
 
-        _, interim = api_json(
-            "POST",
-            "/interim-acts",
-            token=director_token,
-            data={
-                "masterId": worker["id"],
-                "masterName": worker["name"],
-                "project": worker["projectName"],
-                "workPackage": TEST_PACKAGE,
-                "periodStart": today,
-                "periodEnd": today,
-                "totalAmount": total,
-                "paidAmount": 0,
-                "workJournalIds": [created["workJournalId"]],
-            },
-            expected=200,
+        _, interim_rows = api_json("GET", "/interim-acts", token=director_token, expected=200)
+        expected_daily_id = confirm_body.get("dailyActId")
+        interim = find_row(
+            interim_rows,
+            lambda row: (
+                str(row.get("id")) == str(expected_daily_id)
+                or (
+                    row.get("sourceType") == "daily_work"
+                    and row.get("project") == worker["projectName"]
+                    and row.get("workPackage") == TEST_PACKAGE
+                    and row.get("periodStart") == today
+                    and row.get("periodEnd") == today
+                    and str(row.get("masterId")) == str(worker["id"])
+                    and str(created["workJournalId"]) in str(row.get("workJournalIds") or "")
+                )
+            ),
         )
+        if not interim:
+            raise SystemExit(f"FAIL daily interim act auto-create: dailyActId={expected_daily_id}, rows={interim_rows[:3]}")
         created["interimActId"] = interim.get("id")
         if not created["interimActId"]:
-            raise SystemExit(f"FAIL interim act create: {interim}")
+            raise SystemExit(f"FAIL daily interim act id: {interim}")
+        if interim.get("sourceType") != "daily_work":
+            raise SystemExit(f"FAIL daily interim act sourceType: {interim}")
+        if abs(float(interim.get("totalAmount") or 0) - total) > 0.01:
+            raise SystemExit(f"FAIL daily interim act total: {interim}")
+        if str(created["workJournalId"]) not in str(interim.get("workJournalIds") or ""):
+            raise SystemExit(f"FAIL daily interim act workJournalIds: {interim}")
+        if photo_url not in str(interim.get("photoUrls") or ""):
+            raise SystemExit(f"FAIL daily interim act photoUrls: {interim}")
 
         _, pay = api_json(
             "POST",
@@ -437,7 +449,7 @@ def main():
                 "worker cannot duplicate same work in same room",
                 "director confirms work_journal",
                 "hidden_works_act auto-created from hidden work",
-                "interim_act created only from confirmed work_journal",
+                "daily interim_act auto-created from confirmed work_journal with photo",
                 "interim_act payment creates project payment",
             ],
         }, ensure_ascii=False, indent=2))
