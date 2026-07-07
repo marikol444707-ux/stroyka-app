@@ -30,6 +30,8 @@ import PreviewModal from './PreviewModal';
 import DocumentRecognitionPanel from './DocumentRecognitionPanel';
 
 const GENERAL_WORK_ROOM_NAME = 'Без помещения';
+const MASTER_WORKS_INITIAL_VISIBLE = 35;
+const MASTER_WORKS_VISIBLE_STEP = 35;
 
 const estimatePackageName = (estimate) => estimate?.workPackage || estimate?.work_package || 'Основная';
 const estimateItemKeyForRow = (estimate, sectionIndex, itemIndex, item) => (
@@ -53,7 +55,9 @@ export default function MasterCabinetPage(props) {
   const [showProjectPicker, setShowProjectPicker] = React.useState(false);
   const [showEstimateChangeForm, setShowEstimateChangeForm] = React.useState(false);
   const [dailyWorkReview, setDailyWorkReview] = React.useState(null);
+  const [dailyWorkError, setDailyWorkError] = React.useState('');
   const [dailyWorkSubmitting, setDailyWorkSubmitting] = React.useState(false);
+  const [estimateWorkVisibleLimit, setEstimateWorkVisibleLimit] = React.useState(MASTER_WORKS_INITIAL_VISIBLE);
   const [dailyWorkActDraft, setDailyWorkActDraft] = React.useState({
     date: new Date().toISOString().split('T')[0],
     comment: '',
@@ -238,6 +242,11 @@ export default function MasterCabinetPage(props) {
     setEditingAct,
     setHiddenActs,
   } = props;
+
+  React.useEffect(() => {
+    setEstimateWorkVisibleLimit(MASTER_WORKS_INITIAL_VISIBLE);
+    setDailyWorkError('');
+  }, [masterProjectId]);
 
   const safeToNum = typeof toNum === 'function' ? toNum : (value) => {
     if (value === null || value === undefined || value === '') return 0;
@@ -774,13 +783,14 @@ export default function MasterCabinetPage(props) {
     });
     const result = buildDailyEstimateWorkRows(itemsWithDraft);
     if (result.errors.length) {
-      alert(result.errors[0]);
+      setDailyWorkError(result.errors[0]);
       return;
     }
     if (!result.rows.length) {
-      alert('Введите выполненный объём хотя бы по одной позиции сметы.');
+      setDailyWorkError('Введите выполненный объём хотя бы по одной позиции сметы.');
       return;
     }
+    setDailyWorkError('');
     setDailyWorkActDraft(prev => ({
       ...prev,
       date: prev.date || new Date().toISOString().split('T')[0],
@@ -913,7 +923,7 @@ export default function MasterCabinetPage(props) {
       if (typeof refreshData === 'function') await refreshData();
       notify('Дневной пакет работ отправлен на проверку: ' + dailyWorkReview.count + ' поз.', 'work');
     } catch (error) {
-      alert('Не удалось отправить дневной пакет: ' + (error?.message || error));
+      setDailyWorkError('Не удалось отправить дневной пакет: ' + (error?.message || error));
     } finally {
       setDailyWorkSubmitting(false);
     }
@@ -948,14 +958,19 @@ export default function MasterCabinetPage(props) {
       {dailyWorkReview && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1200, backgroundColor: 'rgba(15,23,42,.62)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '14px' }}>
           <div style={{ ...card, width: '720px', maxWidth: '100%', maxHeight: '92vh', overflowY: 'auto', padding: '18px', backgroundColor: C.bgWhite }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', marginBottom: '14px' }}>
-              <div>
-                <h3 style={{ margin: 0, color: C.text, fontSize: '18px', fontWeight: 800 }}>Работы за день</h3>
-                <p style={{ margin: '4px 0 0', color: C.textSec, fontSize: '12px' }}>{dailyWorkReview.projectName + ' · ' + dailyWorkReview.count + ' поз.'}</p>
-              </div>
-              <button onClick={() => setDailyWorkReview(null)} disabled={dailyWorkSubmitting} style={{ ...btnG, padding: '6px 10px' }}>Закрыть</button>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(140px,.35fr)', gap: '10px', alignItems: 'start', marginBottom: '12px' }}>
+	            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', marginBottom: '14px' }}>
+	              <div>
+	                <h3 style={{ margin: 0, color: C.text, fontSize: '18px', fontWeight: 800 }}>Работы за день</h3>
+	                <p style={{ margin: '4px 0 0', color: C.textSec, fontSize: '12px' }}>{dailyWorkReview.projectName + ' · ' + dailyWorkReview.count + ' поз.'}</p>
+	              </div>
+	              <button onClick={() => setDailyWorkReview(null)} disabled={dailyWorkSubmitting} style={{ ...btnG, padding: '6px 10px' }}>Закрыть</button>
+	            </div>
+	            {dailyWorkError && (
+	              <div style={{ padding: '10px 12px', borderRadius: '10px', backgroundColor: C.dangerLight, border: '1.5px solid ' + C.dangerBorder, color: C.danger, fontSize: '12px', fontWeight: 700, marginBottom: '12px' }}>
+	                {dailyWorkError}
+	              </div>
+	            )}
+	            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(140px,.35fr)', gap: '10px', alignItems: 'start', marginBottom: '12px' }}>
               <div style={{ padding: '12px', borderRadius: '10px', backgroundColor: C.accentLight, border: '1.5px solid ' + C.accentBorder }}>
                 <b style={{ display: 'block', color: C.accent, fontSize: '12px', marginBottom: '4px' }}>Сумма к проверке</b>
                 <span style={{ color: C.text, fontSize: '24px', fontWeight: 800 }}>{Math.round(dailyWorkReview.total).toLocaleString('ru-RU') + ' ₽'}</span>
@@ -1369,28 +1384,42 @@ export default function MasterCabinetPage(props) {
                       <p style={{ color: C.textSec, margin: '5px 0 0', fontSize: '12px' }}>После выдачи работ мастеру здесь появятся объемы, цены исполнителя и кнопка отправки в ЖПР.</p>
                     </div>
                   );
-                }
-                return (
-                  <div style={{ ...card, padding: '14px', marginBottom: '15px', backgroundColor: C.accentLight, border: '1.5px solid ' + C.accentBorder }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
-                      <b style={{ color: C.accent, fontSize: '13px' }}>🎯 Мои работы по смете ({myItems.length})</b>
-                      <button onClick={() => openDailyEstimateWorkReview(myItems)} style={{ ...btnO, padding: '7px 11px', fontSize: '12px' }}>
-                        Рассчитать день
-                      </button>
-                    </div>
-                    {myItems.map((item, index) => {
-                      const quantity = Number(item.quantity) || 0;
-                      const done = Number(item.doneQuantity) || 0;
-                      const remain = Math.max(0, quantity - done);
+	                }
+	                const currentProject = projects.find(projectRow => projectRow.id === Number(masterProjectId));
+	                const visibleLimit = Math.min(estimateWorkVisibleLimit, myItems.length);
+	                const visibleMyItems = myItems.slice(0, visibleLimit);
+	                const hiddenMyItemsCount = Math.max(0, myItems.length - visibleMyItems.length);
+	                return (
+	                  <div style={{ ...card, padding: '14px', marginBottom: '15px', backgroundColor: C.accentLight, border: '1.5px solid ' + C.accentBorder }}>
+	                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
+	                      <div>
+	                        <b style={{ color: C.accent, fontSize: '13px', display: 'block' }}>🎯 Мои работы по смете ({myItems.length})</b>
+	                        {myItems.length > visibleMyItems.length && (
+	                          <span style={{ color: C.textSec, fontSize: '11px' }}>Показано {visibleMyItems.length} из {myItems.length}. Остальные строки не рисуются, чтобы ввод не подвисал.</span>
+	                        )}
+	                      </div>
+	                      <button onClick={() => openDailyEstimateWorkReview(myItems)} style={{ ...btnO, padding: '7px 11px', fontSize: '12px' }}>
+	                        Рассчитать день
+	                      </button>
+	                    </div>
+	                    {dailyWorkError && (
+	                      <div style={{ padding: '9px 10px', borderRadius: '9px', backgroundColor: C.dangerLight, border: '1px solid ' + C.dangerBorder, color: C.danger, fontSize: '12px', fontWeight: 700, marginBottom: '8px' }}>
+	                        {dailyWorkError}
+	                      </div>
+	                    )}
+	                    {visibleMyItems.map((item, index) => {
+	                      const quantity = Number(item.quantity) || 0;
+	                      const done = Number(item.doneQuantity) || 0;
+	                      const remain = Math.max(0, quantity - done);
                       const doneNorm = safeNormalizeMeasure(done, item.unit);
                       const workKey = estimateWorkKey(item.estId, item.sectionIdx, item.itemIdx);
                       const params = estimateWorkParams[workKey] || {};
-                      const draft = estimateDoneDrafts[workKey] !== undefined
-                        ? estimateDoneDrafts[workKey]
-                        : (estimateDraftValueRef.current[workKey] !== undefined ? estimateDraftValueRef.current[workKey] : '');
-                      const delta = Math.max(0, safeDenormalizeMeasure(draft, item.unit));
-                      const project = projects.find(projectRow => projectRow.id === Number(masterProjectId));
-                      const roomCheck = project && params.roomId ? roomMeasurementCheck(project.name, params.roomId, params.surface || 'Стены', delta, item.unit, item.name) : null;
+	                      const draft = estimateDoneDrafts[workKey] !== undefined
+	                        ? estimateDoneDrafts[workKey]
+	                        : (estimateDraftValueRef.current[workKey] !== undefined ? estimateDraftValueRef.current[workKey] : '');
+	                      const delta = Math.max(0, safeDenormalizeMeasure(draft, item.unit));
+	                      const project = currentProject;
+	                      const roomCheck = project && params.roomId ? roomMeasurementCheck(project.name, params.roomId, params.surface || 'Стены', delta, item.unit, item.name) : null;
                       const usedMaterials = estimateWorkMaterials[workKey] || [];
                       const materialPanelOpen = activeEstimateMaterialKey === workKey;
                       const projectMaterials = materialPanelOpen && project ? getWorkMaterialRows(project.name, item.workPackage) : [];
@@ -1426,8 +1455,11 @@ export default function MasterCabinetPage(props) {
                               step="any"
                               inputMode="decimal"
                               placeholder={'сегодня, ' + (doneNorm.unit || item.unit)}
-                              defaultValue={draft}
-                              onChange={e => { estimateDraftValueRef.current[workKey] = e.target.value; }}
+	                              defaultValue={draft}
+	                              onChange={e => {
+	                                estimateDraftValueRef.current[workKey] = e.target.value;
+	                                if (dailyWorkError) setDailyWorkError('');
+	                              }}
                               onBlur={e => {
                                 const nextValue = e.target.value;
                                 commitEstimateDoneDraft(workKey, nextValue);
@@ -1575,10 +1607,29 @@ export default function MasterCabinetPage(props) {
                             </div>
                           )}
                         </div>
-                      );
-                    })}
-                    <button onClick={() => openDailyEstimateWorkReview(myItems)} style={{ ...btnO, width: '100%', padding: '12px', justifyContent: 'center', marginTop: '10px' }}>
-                      Сформировать работы в один акт
+	                      );
+	                    })}
+	                    {hiddenMyItemsCount > 0 && (
+	                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', marginTop: '10px' }}>
+	                        <button
+	                          type="button"
+	                          onClick={() => setEstimateWorkVisibleLimit(prev => Math.min(myItems.length, prev + MASTER_WORKS_VISIBLE_STEP))}
+	                          style={{ ...btnG, padding: '8px 12px', fontSize: '12px' }}
+	                        >
+	                          Показать ещё {Math.min(MASTER_WORKS_VISIBLE_STEP, hiddenMyItemsCount)}
+	                        </button>
+	                        <button
+	                          type="button"
+	                          onClick={() => setEstimateWorkVisibleLimit(myItems.length)}
+	                          style={{ ...btnG, padding: '8px 12px', fontSize: '12px' }}
+	                        >
+	                          Показать все
+	                        </button>
+	                        <span style={{ color: C.textSec, fontSize: '11px' }}>Скрыто: {hiddenMyItemsCount}</span>
+	                      </div>
+	                    )}
+	                    <button onClick={() => openDailyEstimateWorkReview(myItems)} style={{ ...btnO, width: '100%', padding: '12px', justifyContent: 'center', marginTop: '10px' }}>
+	                      Сформировать работы в один акт
                     </button>
                   </div>
                 );
