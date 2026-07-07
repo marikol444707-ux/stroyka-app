@@ -11649,7 +11649,7 @@ def _work_journal_duplicate(cur, project, room_id=None, room_name="", estimate_i
     target_value = estimate_item_key if estimate_item_key else description
 
     if room_id:
-        cur.execute(f"""SELECT id, master_name, status, room_name, work_package FROM work_journal
+        cur.execute(f"""SELECT id, master_name, status, room_name, work_package, master_id FROM work_journal
                        WHERE project=%s AND room_id=%s AND {target_sql}
                          AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано'){package_sql}{exclude_sql}
                        LIMIT 1""", [project, room_id, target_value] + package_params + exclude_params)
@@ -11658,7 +11658,7 @@ def _work_journal_duplicate(cur, project, room_id=None, room_name="", estimate_i
             return duplicate
 
     if room_name:
-        cur.execute(f"""SELECT id, master_name, status, room_name, work_package FROM work_journal
+        cur.execute(f"""SELECT id, master_name, status, room_name, work_package, master_id FROM work_journal
                        WHERE project=%s AND LOWER(TRIM(COALESCE(room_name,'')))=LOWER(TRIM(%s)) AND {target_sql}
                          AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано'){package_sql}{exclude_sql}
                        LIMIT 1""", [project, room_name, target_value] + package_params + exclude_params)
@@ -11667,6 +11667,20 @@ def _work_journal_duplicate(cur, project, room_id=None, room_name="", estimate_i
             return duplicate
 
     return None
+
+def _work_journal_duplicate_is_pending_for_actor(duplicate, current_user: dict) -> bool:
+    if not duplicate or not current_user:
+        return False
+    status = str(_row_get(duplicate, "status", 2, "") or "").strip()
+    if status not in ("", "Новый", "Черновик", "На проверке"):
+        return False
+    duplicate_master_id = _row_get(duplicate, "master_id", 5, None)
+    user_id = current_user.get("id")
+    if duplicate_master_id not in (None, "", 0, "0") and user_id not in (None, "", 0, "0"):
+        return str(duplicate_master_id) == str(user_id)
+    duplicate_master_name = str(_row_get(duplicate, "master_name", 1, "") or "").strip()
+    user_name = str(current_user.get("name") or "").strip()
+    return bool(duplicate_master_name and user_name and duplicate_master_name == user_name)
 
 def _project_has_rooms(cur, project_name: str) -> bool:
     cur.execute("SELECT COUNT(*) FROM rooms WHERE project=%s", (project_name or "",))
@@ -17742,7 +17756,7 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                     if execution_price <= 0:
                         raise HTTPException(status_code=400, detail="Для работы не задана цена исполнителя в договорной позиции")
                     execution_mode = "brigade_contract"
-                _raise_work_journal_duplicate(_work_journal_duplicate(
+                duplicate_work = _work_journal_duplicate(
                     cur,
                     project_name,
                     room_id=room_id,
@@ -17750,7 +17764,11 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                     estimate_item_key=estimate_item_key,
                     description=it.get("name",""),
                     work_package=work_package_for_journal,
-                ))
+                )
+                if duplicate_work:
+                    if _current_user.get("role") in WORKER_EXECUTION_ROLES and _work_journal_duplicate_is_pending_for_actor(duplicate_work, _current_user):
+                        continue
+                    _raise_work_journal_duplicate(duplicate_work)
                 used_materials = _force_work_material_package(used_materials, work_package_for_journal)
                 _validate_work_material_norm_reasons(
                     used_materials,
