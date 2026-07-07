@@ -17615,12 +17615,15 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
     work_journal_materials = data.get("_workJournalMaterials") or {}
     work_journal_params = data.get("_workJournalParams") or {}
 
-    def _journal_params_for_delta(section_idx, item_idx, section_name, item_name):
+    def _journal_params_for_delta(section_idx, item_idx, section_name, item_name, item=None):
         keys = [
             str(id) + ":" + str(section_idx) + ":" + str(item_idx),
             str(section_idx) + ":" + str(item_idx),
             str(section_name or "") + "|" + str(item_name or ""),
         ]
+        item_key = str((item or {}).get("estimateItemKey") or (item or {}).get("estimate_item_key") or "").strip()
+        if item_key:
+            keys.insert(0, item_key)
         for k in keys:
             if k in work_journal_params and isinstance(work_journal_params.get(k), dict):
                 params = dict(work_journal_params.get(k) or {})
@@ -17628,12 +17631,15 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                 return params
         return {"_estimateItemKey": str(id) + ":" + str(section_idx) + ":" + str(item_idx)}
 
-    def _materials_for_delta(section_idx, item_idx, section_name, item_name):
+    def _materials_for_delta(section_idx, item_idx, section_name, item_name, item=None):
         keys = [
             str(id) + ":" + str(section_idx) + ":" + str(item_idx),
             str(section_idx) + ":" + str(item_idx),
             str(section_name or "") + "|" + str(item_name or ""),
         ]
+        item_key = str((item or {}).get("estimateItemKey") or (item or {}).get("estimate_item_key") or "").strip()
+        if item_key:
+            keys.insert(0, item_key)
         raw = []
         for k in keys:
             if k in work_journal_materials:
@@ -17681,8 +17687,8 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
             unit = it.get("unit") or "шт"
             customer_price = _estimate_item_unit_price(it)
             execution_price, execution_mode = _estimate_item_execution_price(it, customer_price)
-            used_materials = _materials_for_delta(section_idx, item_idx, s.get("name",""), it.get("name",""))
-            journal_params = _journal_params_for_delta(section_idx, item_idx, s.get("name",""), it.get("name",""))
+            used_materials = _materials_for_delta(section_idx, item_idx, s.get("name",""), it.get("name",""), it)
+            journal_params = _journal_params_for_delta(section_idx, item_idx, s.get("name",""), it.get("name",""), it)
             if _num(journal_params.get("customerPricePerUnit")) > 0:
                 customer_price = _num(journal_params.get("customerPricePerUnit"))
             if _num(journal_params.get("executionPricePerUnit")) > 0:

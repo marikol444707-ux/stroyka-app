@@ -697,30 +697,65 @@ export default function MasterCabinetPage(props) {
         return map;
       }, {});
       for (const [estimateId, rows] of Object.entries(rowsByEstimate)) {
-        const est = estimatesList.find(estimate => Number(estimate.id) === Number(estimateId));
-        if (!est) throw new Error('Смета не найдена: ' + estimateId);
-        const rowByPosition = new Map(rows.map(row => [row.sectionIdx + ':' + row.itemIdx, row]));
+        const listEstimate = estimatesList.find(estimate => Number(estimate.id) === Number(estimateId));
+        if (!listEstimate) throw new Error('Смета не найдена: ' + estimateId);
+        const freshRes = await fetch(API + '/estimates/' + encodeURIComponent(estimateId), {
+          headers: authJsonHeaders(),
+        });
+        if (!freshRes.ok) {
+          const error = await freshRes.json().catch(() => ({}));
+          throw new Error(error.detail || ('Не удалось обновить смету перед отправкой: HTTP ' + freshRes.status));
+        }
+        const freshEstimate = await freshRes.json();
+        const est = { ...listEstimate, ...freshEstimate };
+        const rowByKey = new Map();
+        const rowByName = new Map();
+        rows.forEach(row => {
+          const rowKey = String(row.estimateItemKey || '').trim();
+          if (rowKey) rowByKey.set(rowKey, row);
+          rowByName.set(
+            [String(row.section || '').trim().toLowerCase(), String(row.name || '').trim().toLowerCase()].join('|'),
+            row,
+          );
+        });
+        const matchedRows = new Set();
+        const workJournalMaterials = {};
+        const workJournalParams = {};
         const newSections = (est.sections || []).map((section, sectionIdx) => ({
           ...section,
           items: (section.items || []).map((item, itemIdx) => {
-            const row = rowByPosition.get(sectionIdx + ':' + itemIdx);
-            return row ? { ...item, doneQuantity: row.target } : item;
+            const itemKey = String(estimateItemKeyForRow(est, sectionIdx, itemIdx, item) || '').trim();
+            const nameKey = [
+              String(section.name || '').trim().toLowerCase(),
+              String(item.name || '').trim().toLowerCase(),
+            ].join('|');
+            const row = (itemKey && rowByKey.get(itemKey)) || rowByName.get(nameKey) || null;
+            if (!row) return item;
+            matchedRows.add(row.workKey);
+            const freshWorkKey = estimateWorkKey(est.id, sectionIdx, itemIdx);
+            const nameParamKey = [String(section.name || ''), String(item.name || '')].join('|');
+            const comment = groupComment
+              ? 'Дневной акт за ' + workDate + '. ' + groupComment
+              : 'Дневной акт за ' + workDate;
+            const journalPayload = {
+              ...row.params,
+              estimateItemKey: itemKey || row.estimateItemKey || freshWorkKey,
+              date: workDate,
+              comment,
+              photoUrl: row.params.photoUrl || groupPhotoUrl || '',
+            };
+            const materialPayload = row.materialsUsed;
+            [freshWorkKey, itemKey, nameParamKey].filter(Boolean).forEach(key => {
+              workJournalMaterials[key] = materialPayload;
+              workJournalParams[key] = journalPayload;
+            });
+            return { ...item, doneQuantity: row.target };
           }),
         }));
-        const workJournalMaterials = {};
-        const workJournalParams = {};
-        rows.forEach(row => {
-          const comment = groupComment
-            ? 'Дневной акт за ' + workDate + '. ' + groupComment
-            : 'Дневной акт за ' + workDate;
-          workJournalMaterials[row.workKey] = row.materialsUsed;
-          workJournalParams[row.workKey] = {
-            ...row.params,
-            date: workDate,
-            comment,
-            photoUrl: row.params.photoUrl || groupPhotoUrl || '',
-          };
-        });
+        const missingRows = rows.filter(row => !matchedRows.has(row.workKey));
+        if (missingRows.length) {
+          throw new Error('Не удалось найти в свежей смете строку: ' + missingRows[0].name);
+        }
         const res = await fetch(API + '/estimates/' + est.id, {
           method: 'PUT',
           headers: authJsonHeaders(),
