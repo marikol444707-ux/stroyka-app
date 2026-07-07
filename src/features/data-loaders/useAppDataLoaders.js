@@ -388,7 +388,7 @@ export const useAppDataLoaders = (ctx) => {
       setAllBrigadePayments(Array.isArray(abp)?abp:[]);
     });
     if (['warehouse','materials'].includes(page)) return loadMobileScopeOnce('mobile:warehouse', async () => {
-      const [m,winv,wm,wmov,h,wh,mt,mij,cbj] = await Promise.all([
+      const [m,winv,wm,wmov,h,wh,mt,mij,cbj,sr,sh,sd] = await Promise.all([
         role === 'поставщик' ? Promise.resolve([]) : getApi(pagedPath('/materials', {limit: MATERIALS_PAGE_LIMIT})),
         (isWarehouseRole || isFinanceRole) ? getApi('/warehouse-invoices') : Promise.resolve([]),
         (isWarehouseRole || isFinanceRole) ? getApi('/warehouse-main') : Promise.resolve([]),
@@ -398,15 +398,21 @@ export const useAppDataLoaders = (ctx) => {
 	        (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
         (canSeeProjectDocs || isWarehouseRole) ? getApi('/material-inspection') : Promise.resolve([]),
         (canSeeProjectDocs || isWarehouseRole) ? getApi('/cable-journal') : Promise.resolve([]),
+        isSupplyRole ? getApi('/supply-requests') : Promise.resolve([]),
+        (isSupplyRole || isWarehouseRole || isFinanceRole) ? getApi('/supply-history') : Promise.resolve([]),
+        isSupplyRole ? getApi('/supply-deliveries') : Promise.resolve([]),
       ]);
       setMaterials(Array.isArray(m)?m:[]); resetMaterialsPage(m); setInvoices(Array.isArray(winv)?winv:[]);
       setWarehouseMain(Array.isArray(wm)?wm:[]); setWarehouseMovements(Array.isArray(wmov)?wmov:[]);
       setHistory(Array.isArray(h)?h:[]); setWarehouses(Array.isArray(wh)?wh:[]);
       setMaterialTransfers(Array.isArray(mt)?mt:[]); setMaterialInspections(Array.isArray(mij)?mij:[]);
       setCableJournal(Array.isArray(cbj)?cbj:[]);
+      setSupplyRequests(Array.isArray(sr)?sr:[]);
+      setSupplyHistory(Array.isArray(sh)?sh:[]);
+      setSupplyDeliveries(Array.isArray(sd)?sd:[]);
     });
     if (['supply','suppliers'].includes(page)) return loadMobileScopeOnce('mobile:supply', async () => {
-      const [sup,sr,so,sh,sd,sc,supI,scat,stpl] = await Promise.all([
+      const [sup,sr,so,sh,sd,sc,supI,scat,stpl,winv] = await Promise.all([
         (isSupplyRole || isWarehouseRole || isFinanceRole) ? getApi('/suppliers') : Promise.resolve([]),
         isSupplyRole ? getApi('/supply-requests') : Promise.resolve([]),
         isSupplyRole ? getApi('/supplier-offers') : Promise.resolve([]),
@@ -416,12 +422,14 @@ export const useAppDataLoaders = (ctx) => {
         canSeeSupplierInvoices ? getApi('/supplier-invoices') : Promise.resolve([]),
         (isSupplyRole || isWarehouseRole || isFinanceRole || role === 'поставщик') ? getApi('/supplier-catalog') : Promise.resolve([]),
         isSupplyRole ? getApi('/supply-request-templates') : Promise.resolve([]),
+        (isWarehouseRole || isFinanceRole) ? getApi('/warehouse-invoices') : Promise.resolve([]),
       ]);
       setSuppliers(Array.isArray(sup)?sup:[]); setSupplyRequests(Array.isArray(sr)?sr:[]);
       setSupplierOffers(Array.isArray(so)?so:[]); setSupplyHistory(Array.isArray(sh)?sh:[]);
       setSupplyDeliveries(Array.isArray(sd)?sd:[]); setSupplyClaims(Array.isArray(sc)?sc:[]);
       setSupplierInvoices(Array.isArray(supI)?supI:[]); setSupplierCatalog(Array.isArray(scat)?scat:[]);
       setSupplyTemplates(Array.isArray(stpl)?stpl:[]);
+      setInvoices(Array.isArray(winv)?winv:[]);
     });
     if (['personnel','users'].includes(page)) return loadMobileScopeOnce('mobile:people', async () => {
       const [s,pw,u,mp,ts,pdc,ic] = await Promise.all([

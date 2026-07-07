@@ -27,6 +27,7 @@ export default function SupplierCabinetPage({
   fileSrc,
   handleLogout,
   inp,
+  invoices = [],
   invoicingOfferId,
   newCatalogItem,
   newKpResponse,
@@ -79,7 +80,22 @@ export default function SupplierCabinetPage({
     const mySupplierInvoices = supplierInvoices.filter(inv => inv.supplierId===mySupplier?.id || inv.supplierName===mySupplier?.name || inv.supplierName===user.name);
     const myDeliveries = supplyDeliveries.filter(d => d.supplierId===mySupplier?.id || d.supplierName===mySupplier?.name || d.supplierName===user.name);
     const myClaims = supplyClaims.filter(c => c.supplierId===mySupplier?.id);
-    const SUPPLIER_TABS = [{id:'requests',label:'📋 Заявки'},{id:'catalog',label:'📦 Мой каталог'},{id:'offers',label:'💰 Предложения'},{id:'deliveries',label:'🚚 Отгрузки'},{id:'documents',label:'📄 Счета'},{id:'claims',label:'⚠️ Претензии'},{id:'profile',label:'⚙️ Профиль'}];
+    const supplierInvoiceWarehouseId = inv => inv?.warehouseInvoiceId || inv?.warehouse_invoice_id || '';
+    const warehouseInvoiceForSupplierInvoice = inv => (invoices || []).find(row => (
+      String(row.id || '') === String(supplierInvoiceWarehouseId(inv))
+      || String(row.supplierInvoiceId || row.supplier_invoice_id || '') === String(inv?.id || '')
+    ));
+    const deliveryForSupplierInvoice = (inv, warehouseInvoice = null) => {
+      const invoiceOfferId = inv?.offerId || inv?.offer_id || '';
+      const invoiceRequestId = inv?.requestId || inv?.request_id || '';
+      const warehouseDeliveryId = warehouseInvoice?.supplyDeliveryId || warehouseInvoice?.supply_delivery_id || '';
+      return myDeliveries.find(delivery => (
+        (warehouseDeliveryId && String(delivery.id || '') === String(warehouseDeliveryId))
+        || (invoiceOfferId && String(delivery.offerId || delivery.offer_id || '') === String(invoiceOfferId))
+        || (invoiceRequestId && String(delivery.requestId || delivery.request_id || '') === String(invoiceRequestId))
+      ));
+    };
+    const SUPPLIER_TABS = [{id:'requests',label:'📋 Заявки'},{id:'catalog',label:'📦 Мой каталог'},{id:'offers',label:'💰 Предложения'},{id:'deliveries',label:'🚚 Отгрузки'},{id:'documents',label:'📄 Счета и накладные'},{id:'claims',label:'⚠️ Претензии'},{id:'profile',label:'⚙️ Профиль'}];
     const {
       createOwnSupplierDocumentFromRecognition,
       supplierRequisitesPatchFromRecognition,
@@ -554,17 +570,44 @@ export default function SupplierCabinetPage({
           </div>)}
 
           {supplierTab==='documents'&&(<div>
-            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📄 Мои счета</b>
-            {mySupplierInvoices.map(inv=>(
-              <div key={inv.id} style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <div>
-                  <b style={{fontSize:'12px',color:C.text}}>Счёт № {inv.invoiceNumber||'—'}</b>
-                  <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{(inv.invoiceDate||'')+' · '+Number(inv.amount||0).toLocaleString('ru-RU')+' ₽ · '+(inv.projectName||'—')}</p>
-                  {inv.paidAmount>0&&<p style={{color:C.success,margin:0,fontSize:'11px'}}>Оплачено: {Number(inv.paidAmount||0).toLocaleString('ru-RU')} ₽</p>}
+            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📄 Мои счета и накладные</b>
+            {mySupplierInvoices.map(inv=>{
+              const linkedWarehouseId = supplierInvoiceWarehouseId(inv);
+              const linkedWarehouseInvoice = warehouseInvoiceForSupplierInvoice(inv);
+              const delivery = deliveryForSupplierInvoice(inv, linkedWarehouseInvoice);
+              const deliveryAccepted = delivery?.status === 'Принято';
+              const deliveryProblem = delivery?.status === 'Проблема';
+              return (
+                <div key={inv.id} style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                    <div>
+                      <b style={{fontSize:'12px',color:C.text}}>Счёт № {inv.invoiceNumber||'—'}</b>
+                      <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{(inv.invoiceDate||'')+' · '+Number(inv.amount||0).toLocaleString('ru-RU')+' ₽ · '+(inv.projectName||'—')}</p>
+                      {inv.materialName&&<p style={{color:C.textMuted,margin:'2px 0',fontSize:'11px'}}>Материал: {inv.materialName}</p>}
+                      {inv.paidAmount>0&&<p style={{color:C.success,margin:0,fontSize:'11px'}}>Оплачено: {Number(inv.paidAmount||0).toLocaleString('ru-RU')} ₽</p>}
+                    </div>
+                    <span style={badge(inv.status==='Оплачен'?C.success:inv.status==='Частично оплачен'?C.warning:C.info,inv.status==='Оплачен'?C.successLight:inv.status==='Частично оплачен'?C.warningLight:C.infoLight,inv.status==='Оплачен'?C.successBorder:inv.status==='Частично оплачен'?C.warningBorder:C.infoBorder)}>{inv.status}</span>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'8px',marginTop:'8px'}}>
+                    <div style={{padding:'8px',borderRadius:'8px',border:'1px solid '+C.border,backgroundColor:linkedWarehouseId?C.successLight:C.bgCard}}>
+                      <p style={{color:linkedWarehouseId?C.success:C.textSec,margin:'0 0 3px',fontSize:'10px',fontWeight:800}}>Складская накладная</p>
+                      <b style={{color:C.text,fontSize:'12px'}}>{linkedWarehouseInvoice?.number || (linkedWarehouseId ? 'запись #' + linkedWarehouseId : 'не связана')}</b>
+                    </div>
+                    <div style={{padding:'8px',borderRadius:'8px',border:'1px solid '+(deliveryProblem?C.dangerBorder:deliveryAccepted?C.successBorder:C.border),backgroundColor:deliveryProblem?C.dangerLight:deliveryAccepted?C.successLight:C.bgCard}}>
+                      <p style={{color:deliveryProblem?C.danger:deliveryAccepted?C.success:C.textSec,margin:'0 0 3px',fontSize:'10px',fontWeight:800}}>Приёмка</p>
+                      <b style={{color:C.text,fontSize:'12px'}}>{delivery ? delivery.status : 'отгрузка не найдена'}</b>
+                      {delivery?.receivedQuantity>0&&<p style={{color:C.textSec,margin:'3px 0 0',fontSize:'10px'}}>Принято: {delivery.receivedQuantity} {delivery.unit}</p>}
+                    </div>
+                  </div>
+                  {(inv.fileUrl||inv.photoUrl)&&(
+                    <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginTop:'8px'}}>
+                      {inv.fileUrl&&<a href={fileSrc(inv.fileUrl)} target='_blank' rel='noopener noreferrer' style={{fontSize:'11px',color:C.accent}}>Файл счёта</a>}
+                      {inv.photoUrl&&<a href={fileSrc(inv.photoUrl)} target='_blank' rel='noopener noreferrer' style={{fontSize:'11px',color:C.accent}}>Фото</a>}
+                    </div>
+                  )}
                 </div>
-                <span style={badge(inv.status==='Оплачен'?C.success:inv.status==='Частично оплачен'?C.warning:C.info,inv.status==='Оплачен'?C.successLight:inv.status==='Частично оплачен'?C.warningLight:C.infoLight,inv.status==='Оплачен'?C.successBorder:inv.status==='Частично оплачен'?C.warningBorder:C.infoBorder)}>{inv.status}</span>
-              </div>
-            ))}
+              );
+            })}
             {mySupplierInvoices.length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Счетов пока нет</p>}
           </div>)}
 
