@@ -2953,6 +2953,17 @@ def init_db():
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS ai_recommended BOOLEAN DEFAULT FALSE;
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS delivery_status VARCHAR(100);
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS items_kp_json TEXT;
+        CREATE TABLE IF NOT EXISTS supplier_offer_events (
+            id SERIAL PRIMARY KEY,
+            offer_id INT,
+            event_type VARCHAR(100),
+            status_from VARCHAR(100),
+            status_to VARCHAR(100),
+            actor_name VARCHAR(255),
+            actor_role VARCHAR(100),
+            payload_json TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
         ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS delivery_allowed BOOLEAN DEFAULT FALSE;
         CREATE TABLE IF NOT EXISTS supply_deliveries (
             id SERIAL PRIMARY KEY,
@@ -8779,6 +8790,51 @@ OFFERS_SELECT = ("SELECT id, request_id as \"requestId\", supplier_id as \"suppl
                  "items_kp_json as \"itemsKpJson\" "
                  "FROM supplier_offers")
 
+def _ensure_supplier_offer_events_table(cur):
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS supplier_offer_events (
+            id SERIAL PRIMARY KEY,
+            offer_id INT,
+            event_type VARCHAR(100),
+            status_from VARCHAR(100),
+            status_to VARCHAR(100),
+            actor_name VARCHAR(255),
+            actor_role VARCHAR(100),
+            payload_json TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
+
+def _supplier_offer_event_payload(data: dict) -> str:
+    if not isinstance(data, dict):
+        return "{}"
+    allowed = {
+        "action", "pricePerUnit", "totalPrice", "deliveryDays", "paymentTerms",
+        "vatIncluded", "validUntil", "supplierMessage", "pdfUrl", "itemsKp",
+        "status", "deliveryStatus",
+    }
+    payload = {k: data.get(k) for k in allowed if k in data}
+    return json.dumps(payload, ensure_ascii=False, default=str)
+
+def _log_supplier_offer_event(cur, offer_id: int, event_type: str, status_from: str, status_to: str, actor: dict, data: dict = None):
+    _ensure_supplier_offer_events_table(cur)
+    cur.execute(
+        """
+        INSERT INTO supplier_offer_events
+            (offer_id, event_type, status_from, status_to, actor_name, actor_role, payload_json)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)
+        """,
+        (
+            offer_id,
+            event_type,
+            status_from or "",
+            status_to or "",
+            actor.get("name") or actor.get("email") or "",
+            actor.get("role") or "",
+            _supplier_offer_event_payload(data or {}),
+        ),
+    )
+
 @app.get("/supplier-offers")
 def get_supplier_offers(current_user: dict = Depends(get_current_user)):
     conn = get_db()
@@ -8808,6 +8864,46 @@ def get_supplier_offers(current_user: dict = Depends(get_current_user)):
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+@app.get("/supplier-offers/{id}/history")
+def get_supplier_offer_history(id: int, current_user: dict = Depends(get_current_user)):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    _ensure_supplier_offer_events_table(cur)
+    cur.execute("""
+        SELECT o.id, o.supplier_id, r.project
+          FROM supplier_offers o
+          LEFT JOIN supply_requests r ON r.id=o.request_id
+         WHERE o.id=%s
+    """, (id,))
+    offer = cur.fetchone()
+    if not offer:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="КП не найдено")
+    role = current_user.get("role")
+    if role == "поставщик":
+        supplier_id = current_supplier_id(cur, current_user)
+        if not supplier_id or int(supplier_id) != int(offer.get("supplier_id") or 0):
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Нет доступа к истории КП")
+    elif role in SUPPLY_INTERNAL_ROLES:
+        if offer.get("project"):
+            require_project_or_warehouse_access(current_user, offer.get("project") or "")
+    else:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+    cur.execute("""
+        SELECT id, offer_id as "offerId", event_type as "eventType",
+               status_from as "statusFrom", status_to as "statusTo",
+               actor_name as "actorName", actor_role as "actorRole",
+               payload_json as "payloadJson", created_at as "createdAt"
+          FROM supplier_offer_events
+         WHERE offer_id=%s
+         ORDER BY id
+    """, (id,))
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close(); conn.close()
+    return rows
 
 @app.post("/supplier-offers")
 def create_supplier_offer(o: SupplierOfferModel, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
@@ -8841,6 +8937,7 @@ def create_supplier_offer(o: SupplierOfferModel, _current_user: dict = Depends(r
     cur.execute("INSERT INTO supplier_offers (request_id,supplier_id,price_per_unit,total_price,delivery_days,notes) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
                 (o.requestId,supplier_id,o.pricePerUnit,o.totalPrice,o.deliveryDays,o.notes))
     new_id = cur.fetchone()['id']
+    _log_supplier_offer_event(cur, new_id, "created", "", "Ожидает", _current_user, {"action": "created"})
     cur.execute(OFFERS_SELECT + " WHERE id=%s", (new_id,))
     row = cur.fetchone()
     conn.commit()
@@ -8957,6 +9054,7 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
     if action == 'respond':
         # Поставщик отвечает на КП: цена, срок, условия, НДС, PDF, комментарий
         import json as _json
+        current_status = offer_access.get("status") or ""
         items_kp = data.get('itemsKp') or []
         # Если пришёл массив постатейного КП — считаем итог автоматически
         items_kp_json = None
@@ -9025,6 +9123,7 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
              data.get('supplierMessage') or '',
              items_kp_json,
              datetime.now(), id))
+        _log_supplier_offer_event(cur, id, "responded", current_status, "Получено", _current_user, data)
     elif action == 'select':
         # Директор выбрал это КП
         if role not in LEADERSHIP_ROLES:
@@ -9036,6 +9135,7 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
             cur.close(); conn.close()
             raise
         cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", ('Утверждено', id))
+        _log_supplier_offer_event(cur, id, "selected", offer_access.get("status") or "", "Утверждено", _current_user, data)
         # Остальные КП по этой заявке — отклонены
         cur.execute("SELECT request_id FROM supplier_offers WHERE id=%s", (id,))
         r = cur.fetchone()
@@ -9058,8 +9158,10 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
             cur.close(); conn.close()
             raise HTTPException(status_code=400, detail="КП уже связано со счётом или поставкой, отзыв заблокирован")
         cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", ('Отозвано', id))
+        _log_supplier_offer_event(cur, id, "withdrawn", current_status, "Отозвано", _current_user, data)
     elif action == 'reject':
         cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", ('Отклонено', id))
+        _log_supplier_offer_event(cur, id, "rejected", offer_access.get("status") or "", "Отклонено", _current_user, data)
     else:
         if 'status' in data:
             new_status = str(data.get('status') or '').strip()
@@ -9079,8 +9181,10 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
                 if r and r['request_id']:
                     cur.execute("UPDATE supplier_offers SET status=%s WHERE request_id=%s AND id<>%s AND status<>%s",
                         ('Отклонено', r['request_id'], id, 'Отклонено'))
+            _log_supplier_offer_event(cur, id, "status_changed", offer_access.get("status") or "", data.get('status'), _current_user, data)
         if 'deliveryStatus' in data:
             cur.execute("UPDATE supplier_offers SET delivery_status=%s WHERE id=%s", (data['deliveryStatus'], id))
+            _log_supplier_offer_event(cur, id, "delivery_status_changed", offer_access.get("delivery_status") or "", data.get('deliveryStatus'), _current_user, data)
     cur.execute(OFFERS_SELECT + " WHERE id=%s", (id,))
     row = cur.fetchone()
     conn.commit()
@@ -23653,59 +23757,151 @@ def list_supplier_invoices(project_name: str = None, status: str = None, limit: 
     if role not in SUPPLIER_INVOICE_VIEW_ROLES:
         return []
     conn = get_db()
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     _ensure_invoice_document_link_columns(cur)
+    _ensure_warehouse_invoice_accounting_columns(cur)
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_delivery_id INT")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_request_id INT")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS photo_urls TEXT")
     conn.commit()
-    cols = "id, supplier_id, supplier_name, project_name, invoice_number, invoice_date, amount, vat_amount, description, file_url, photo_url, status, approved_by, approved_at, paid_at, paid_by, paid_note, created_at, paid_amount, offer_id, request_id, payment_terms, material_name, COALESCE(work_package,''), warehouse_invoice_id"
+    cols = """
+        si.id, si.supplier_id, si.supplier_name, si.project_name, si.invoice_number,
+        si.invoice_date, si.amount, si.vat_amount, si.description, si.file_url,
+        si.photo_url, si.status, si.approved_by, si.approved_at, si.paid_at,
+        si.paid_by, si.paid_note, si.created_at, si.paid_amount, si.offer_id,
+        si.request_id, si.payment_terms, si.material_name, COALESCE(si.work_package,'') AS work_package,
+        si.warehouse_invoice_id,
+        wi.id AS linked_warehouse_invoice_id,
+        wi.number AS warehouse_invoice_number,
+        wi.date AS warehouse_invoice_date,
+        wi.photo_url AS warehouse_invoice_photo_url,
+        wi.photo_urls AS warehouse_invoice_photo_urls,
+        wi.items AS warehouse_invoice_items,
+        wi.status AS warehouse_invoice_status,
+        COALESCE(NULLIF(wi.project,''), NULLIF(wi.location,''), si.project_name) AS warehouse_invoice_project,
+        sd.id AS delivery_id,
+        sd.status AS delivery_status,
+        sd.received_quantity AS delivery_received_quantity,
+        sd.unit AS delivery_unit,
+        sd.received_at AS delivery_received_at,
+        sd.received_by AS delivery_received_by,
+        sd.waybill_number AS delivery_waybill_number,
+        sd.waybill_date AS delivery_waybill_date,
+        sd.document_url AS delivery_document_url,
+        sd.photo_url AS delivery_photo_url
+    """
     where, params = [], []
     if project_name:
         allowed_projects = visible_project_names(current_user)
         if allowed_projects is not None and project_name not in allowed_projects:
             cur.close(); conn.close()
             return []
-        where.append("project_name=%s"); params.append(project_name)
-    if status: where.append("status=%s"); params.append(status)
+        where.append("si.project_name=%s"); params.append(project_name)
+    if status: where.append("si.status=%s"); params.append(status)
     if role == "поставщик":
         supplier_id = current_supplier_id(cur, current_user)
         if not supplier_id:
             cur.close(); conn.close()
             return []
-        where.append("supplier_id=%s"); params.append(supplier_id)
+        where.append("si.supplier_id=%s"); params.append(supplier_id)
     elif role not in FINANCE_ROLES:
         projects = user_project_names(current_user)
         if not projects:
             cur.close(); conn.close()
             return []
-        where.append("project_name = ANY(%s)"); params.append(projects)
+        where.append("si.project_name = ANY(%s)"); params.append(projects)
         packages = user_package_names(current_user) if role in PACKAGE_LIMIT_ROLES else []
         if role in PACKAGE_LIMIT_ROLES and role != "прораб" and not packages:
             cur.close(); conn.close()
             return []
         if packages:
-            where.append("COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)")
+            where.append("COALESCE(NULLIF(si.work_package,''),'Основная') = ANY(%s)")
             params.append(packages)
-    q = f"SELECT {cols} FROM supplier_invoices"
+    q = f"""
+        SELECT {cols}
+          FROM supplier_invoices si
+          LEFT JOIN LATERAL (
+              SELECT d.*
+                FROM supply_deliveries d
+               WHERE (
+                    (si.offer_id IS NOT NULL AND d.offer_id=si.offer_id)
+                 OR (si.request_id IS NOT NULL AND d.request_id=si.request_id
+                     AND (si.supplier_id IS NULL OR d.supplier_id=si.supplier_id))
+               )
+               ORDER BY CASE WHEN d.status IN ('Принято','Проблема') THEN 0 ELSE 1 END, d.id DESC
+               LIMIT 1
+          ) sd ON TRUE
+          LEFT JOIN LATERAL (
+              SELECT w.*
+                FROM warehouse_invoices w
+               WHERE COALESCE(w.status,'Принята') <> 'Аннулирована'
+                 AND (
+                    (si.warehouse_invoice_id IS NOT NULL AND w.id=si.warehouse_invoice_id)
+                 OR (w.supplier_invoice_id IS NOT NULL AND w.supplier_invoice_id=si.id)
+                 OR (sd.id IS NOT NULL AND w.supply_delivery_id=sd.id)
+                 OR (si.request_id IS NOT NULL AND w.supply_request_id=si.request_id
+                     AND (si.supplier_id IS NULL OR w.supplier_id IS NULL OR w.supplier_id=si.supplier_id))
+                 )
+               ORDER BY
+                 CASE
+                   WHEN si.warehouse_invoice_id IS NOT NULL AND w.id=si.warehouse_invoice_id THEN 0
+                   WHEN w.supplier_invoice_id=si.id THEN 1
+                   WHEN sd.id IS NOT NULL AND w.supply_delivery_id=sd.id THEN 2
+                   ELSE 3
+                 END,
+                 w.id DESC
+               LIMIT 1
+          ) wi ON TRUE
+    """
     if where: q += " WHERE " + " AND ".join(where)
-    q += " ORDER BY id DESC"
+    q += " ORDER BY si.id DESC"
     page_sql, page_params = limit_offset_sql(limit, offset)
     q += page_sql
     params += page_params
     cur.execute(q, params)
     rows = cur.fetchall()
     cur.close(); conn.close()
-    return [{"id":r[0],"supplierId":r[1],"supplierName":r[2] or "",
-             "projectName":r[3] or "","invoiceNumber":r[4] or "",
-             "invoiceDate":str(r[5]) if r[5] else "","amount":float(r[6] or 0),
-             "totalAmount":float(r[6] or 0),
-             "vatAmount":float(r[7] or 0),"description":r[8] or "",
-             "fileUrl":r[9] or "","photoUrl":r[10] or "",
-             "status":r[11] or "На утверждении","approvedBy":r[12] or "",
-             "approvedAt":str(r[13]) if r[13] else "","paidAt":str(r[14]) if r[14] else "",
-             "paidBy":r[15] or "","paidNote":r[16] or "",
-             "createdAt":str(r[17]),"paidAmount":float(r[18] or 0),
-             "offerId":r[19],"requestId":r[20],
-             "paymentTerms":r[21] or "","materialName":r[22] or "",
-             "workPackage":r[23] or "","warehouseInvoiceId":r[24]} for r in rows]
+    result = []
+    for r in rows:
+        warehouse_items = _json_list_or_empty(r.get("warehouse_invoice_items"))
+        photo_urls = _json_list_or_empty(r.get("warehouse_invoice_photo_urls"))
+        warehouse_photo_url = r.get("warehouse_invoice_photo_url") or (photo_urls[0] if photo_urls else "")
+        warehouse_invoice_id = r.get("warehouse_invoice_id") or r.get("linked_warehouse_invoice_id")
+        result.append({
+            "id": r.get("id"), "supplierId": r.get("supplier_id"), "supplierName": r.get("supplier_name") or "",
+            "projectName": r.get("project_name") or "", "invoiceNumber": r.get("invoice_number") or "",
+            "invoiceDate": str(r.get("invoice_date")) if r.get("invoice_date") else "",
+            "amount": float(r.get("amount") or 0), "totalAmount": float(r.get("amount") or 0),
+            "vatAmount": float(r.get("vat_amount") or 0), "description": r.get("description") or "",
+            "fileUrl": r.get("file_url") or "", "photoUrl": r.get("photo_url") or "",
+            "status": r.get("status") or "На утверждении", "approvedBy": r.get("approved_by") or "",
+            "approvedAt": str(r.get("approved_at")) if r.get("approved_at") else "",
+            "paidAt": str(r.get("paid_at")) if r.get("paid_at") else "",
+            "paidBy": r.get("paid_by") or "", "paidNote": r.get("paid_note") or "",
+            "createdAt": str(r.get("created_at")) if r.get("created_at") else "",
+            "paidAmount": float(r.get("paid_amount") or 0),
+            "offerId": r.get("offer_id"), "requestId": r.get("request_id"),
+            "paymentTerms": r.get("payment_terms") or "", "materialName": r.get("material_name") or "",
+            "workPackage": r.get("work_package") or "", "warehouseInvoiceId": warehouse_invoice_id,
+            "warehouseInvoiceNumber": r.get("warehouse_invoice_number") or "",
+            "warehouseInvoiceDate": str(r.get("warehouse_invoice_date")) if r.get("warehouse_invoice_date") else "",
+            "warehouseInvoicePhotoUrl": warehouse_photo_url or "",
+            "warehouseInvoicePhotoUrls": photo_urls,
+            "warehouseInvoiceItems": warehouse_items,
+            "warehouseInvoiceStatus": r.get("warehouse_invoice_status") or "",
+            "warehouseInvoiceProject": r.get("warehouse_invoice_project") or "",
+            "deliveryId": r.get("delivery_id"),
+            "deliveryStatus": r.get("delivery_status") or "",
+            "receivedQuantity": float(r.get("delivery_received_quantity") or 0),
+            "deliveryUnit": r.get("delivery_unit") or "",
+            "receivedAt": str(r.get("delivery_received_at")) if r.get("delivery_received_at") else "",
+            "receivedBy": r.get("delivery_received_by") or "",
+            "waybillNumber": r.get("delivery_waybill_number") or "",
+            "waybillDate": str(r.get("delivery_waybill_date")) if r.get("delivery_waybill_date") else "",
+            "deliveryDocumentUrl": r.get("delivery_document_url") or "",
+            "deliveryPhotoUrl": r.get("delivery_photo_url") or "",
+        })
+    return result
 
 @app.post("/supplier-invoices")
 def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "поставщик"))):

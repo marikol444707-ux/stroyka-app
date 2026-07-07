@@ -85,7 +85,37 @@ export default function SupplierCabinetPage({
       String(row.id || '') === String(supplierInvoiceWarehouseId(inv))
       || String(row.supplierInvoiceId || row.supplier_invoice_id || '') === String(inv?.id || '')
     ));
+    const warehouseInvoiceNumberForSupplierInvoice = (inv, linkedWarehouseInvoice = null) => (
+      inv?.warehouseInvoiceNumber
+      || inv?.warehouse_invoice_number
+      || linkedWarehouseInvoice?.number
+      || ''
+    );
+    const warehouseInvoiceDateForSupplierInvoice = (inv, linkedWarehouseInvoice = null) => (
+      inv?.warehouseInvoiceDate
+      || inv?.warehouse_invoice_date
+      || linkedWarehouseInvoice?.date
+      || ''
+    );
+    const warehouseInvoicePhotoForSupplierInvoice = (inv, linkedWarehouseInvoice = null) => (
+      inv?.warehouseInvoicePhotoUrl
+      || inv?.warehouse_invoice_photo_url
+      || linkedWarehouseInvoice?.photoUrl
+      || linkedWarehouseInvoice?.photo_url
+      || ''
+    );
     const deliveryForSupplierInvoice = (inv, warehouseInvoice = null) => {
+      if (inv?.deliveryId || inv?.deliveryStatus || inv?.receivedQuantity) {
+        return {
+          id: inv.deliveryId,
+          status: inv.deliveryStatus || '—',
+          receivedQuantity: inv.receivedQuantity || 0,
+          unit: inv.deliveryUnit || '',
+          receivedAt: inv.receivedAt || '',
+          receivedBy: inv.receivedBy || '',
+          waybillNumber: inv.waybillNumber || '',
+        };
+      }
       const invoiceOfferId = inv?.offerId || inv?.offer_id || '';
       const invoiceRequestId = inv?.requestId || inv?.request_id || '';
       const warehouseDeliveryId = warehouseInvoice?.supplyDeliveryId || warehouseInvoice?.supply_delivery_id || '';
@@ -96,6 +126,13 @@ export default function SupplierCabinetPage({
       ));
     };
     const SUPPLIER_TABS = [{id:'requests',label:'📋 Заявки'},{id:'catalog',label:'📦 Мой каталог'},{id:'offers',label:'💰 Предложения'},{id:'deliveries',label:'🚚 Отгрузки'},{id:'documents',label:'📄 Счета и накладные'},{id:'claims',label:'⚠️ Претензии'},{id:'profile',label:'⚙️ Профиль'}];
+    const supplierOfferStatusStyle = (status) => {
+      if (status === 'Утверждено') return {label:'Утверждено', color:C.success, bg:C.successLight};
+      if (status === 'Получено') return {label:'Отправлено', color:C.info, bg:C.infoLight};
+      if (status === 'Отозвано') return {label:'Отозвано', color:C.textMuted, bg:C.bgCard};
+      if (status === 'Отклонено') return {label:'Отклонено', color:C.danger, bg:C.dangerLight};
+      return {label:status || 'Ожидает', color:C.warning, bg:C.warningLight};
+    };
     const {
       createOwnSupplierDocumentFromRecognition,
       supplierRequisitesPatchFromRecognition,
@@ -219,6 +256,9 @@ export default function SupplierCabinetPage({
                             <button onClick={()=>{setRespondingOfferId(o.id);setNewKpResponse({pricePerUnit:o.pricePerUnit||'',deliveryDays:o.deliveryDays||'',paymentTerms:o.paymentTerms||'Постоплата',vatIncluded:o.vatIncluded!==false,validUntil:o.validUntil||'',supplierMessage:o.supplierMessage||'',pdfUrl:o.pdfUrl||''});}} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}><Edit2 size={11}/>Изменить</button>
                             <button onClick={()=>withdrawOwnOffer(o,'Отозвать отправленное КП?')} style={{...btnR,padding:'4px 10px',fontSize:'11px'}}><X size={11}/>Отозвать</button>
                           </div>
+                        )}
+                        {g.key==='withdrawn' && (
+                          <button onClick={()=>{setRespondingOfferId(o.id);setNewKpResponse({pricePerUnit:o.pricePerUnit||'',deliveryDays:o.deliveryDays||'',paymentTerms:o.paymentTerms||'Постоплата',vatIncluded:o.vatIncluded!==false,validUntil:o.validUntil||'',supplierMessage:o.supplierMessage||'',pdfUrl:o.pdfUrl||''});}} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}>Подать заново</button>
                         )}
                         {g.key==='won' && (
                           (()=>{
@@ -546,7 +586,7 @@ export default function SupplierCabinetPage({
                     ? <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{Number(o.pricePerUnit||0).toLocaleString('ru-RU')+' руб/ед · '+Number(o.totalPrice||0).toLocaleString('ru-RU')+' руб'+(o.deliveryDays?' · '+o.deliveryDays+' дн.':'')}</p>
                     : <p style={{color:C.textMuted,margin:'2px 0',fontSize:'11px',fontStyle:'italic'}}>⏳ Не отправлено ещё</p>}
                 </div>
-                <span style={{padding:'3px 8px',borderRadius:'6px',fontSize:'11px',backgroundColor:o.status==='Утверждено'?C.successLight:C.warningLight,color:o.status==='Утверждено'?C.success:C.warning}}>{o.status==='Утверждено'?'Утверждено':'Ожидает'}</span>
+                {(()=>{const st=supplierOfferStatusStyle(o.status);return <span style={{padding:'3px 8px',borderRadius:'6px',fontSize:'11px',backgroundColor:st.bg,color:st.color}}>{st.label}</span>;})()}
               </div>
               {o.status==='Утверждено'&&(<p style={{fontSize:'11px',color:C.textSec,margin:'6px 0 0'}}>Отгрузка теперь оформляется из вкладки «📋 Заявки» по выигранному КП, чтобы не обходить счёт и приёмку.</p>)}
             </div>))}
@@ -577,6 +617,10 @@ export default function SupplierCabinetPage({
               const delivery = deliveryForSupplierInvoice(inv, linkedWarehouseInvoice);
               const deliveryAccepted = delivery?.status === 'Принято';
               const deliveryProblem = delivery?.status === 'Проблема';
+              const warehouseInvoiceNumber = warehouseInvoiceNumberForSupplierInvoice(inv, linkedWarehouseInvoice);
+              const warehouseInvoiceDate = warehouseInvoiceDateForSupplierInvoice(inv, linkedWarehouseInvoice);
+              const warehouseInvoicePhoto = warehouseInvoicePhotoForSupplierInvoice(inv, linkedWarehouseInvoice);
+              const warehouseItems = Array.isArray(inv.warehouseInvoiceItems) ? inv.warehouseInvoiceItems : (linkedWarehouseInvoice?.items || []);
               return (
                 <div key={inv.id} style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
@@ -591,18 +635,34 @@ export default function SupplierCabinetPage({
                   <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'8px',marginTop:'8px'}}>
                     <div style={{padding:'8px',borderRadius:'8px',border:'1px solid '+C.border,backgroundColor:linkedWarehouseId?C.successLight:C.bgCard}}>
                       <p style={{color:linkedWarehouseId?C.success:C.textSec,margin:'0 0 3px',fontSize:'10px',fontWeight:800}}>Складская накладная</p>
-                      <b style={{color:C.text,fontSize:'12px'}}>{linkedWarehouseInvoice?.number || (linkedWarehouseId ? 'запись #' + linkedWarehouseId : 'не связана')}</b>
+                      <b style={{color:C.text,fontSize:'12px'}}>{warehouseInvoiceNumber || (linkedWarehouseId ? 'запись #' + linkedWarehouseId : 'не связана')}</b>
+                      {warehouseInvoiceDate&&<p style={{color:C.textSec,margin:'3px 0 0',fontSize:'10px'}}>Дата: {warehouseInvoiceDate}</p>}
                     </div>
                     <div style={{padding:'8px',borderRadius:'8px',border:'1px solid '+(deliveryProblem?C.dangerBorder:deliveryAccepted?C.successBorder:C.border),backgroundColor:deliveryProblem?C.dangerLight:deliveryAccepted?C.successLight:C.bgCard}}>
                       <p style={{color:deliveryProblem?C.danger:deliveryAccepted?C.success:C.textSec,margin:'0 0 3px',fontSize:'10px',fontWeight:800}}>Приёмка</p>
                       <b style={{color:C.text,fontSize:'12px'}}>{delivery ? delivery.status : 'отгрузка не найдена'}</b>
                       {delivery?.receivedQuantity>0&&<p style={{color:C.textSec,margin:'3px 0 0',fontSize:'10px'}}>Принято: {delivery.receivedQuantity} {delivery.unit}</p>}
+                      {delivery?.receivedBy&&<p style={{color:C.textSec,margin:'3px 0 0',fontSize:'10px'}}>Принял: {delivery.receivedBy}</p>}
                     </div>
                   </div>
-                  {(inv.fileUrl||inv.photoUrl)&&(
+                  {warehouseItems.length>0&&(
+                    <div style={{marginTop:'8px',padding:'8px',borderRadius:'8px',backgroundColor:C.bgCard,border:'1px solid '+C.border}}>
+                      <p style={{color:C.textSec,margin:'0 0 4px',fontSize:'10px',fontWeight:800}}>Материалы по накладной</p>
+                      {warehouseItems.slice(0,5).map((item,index)=>(
+                        <p key={index} style={{color:C.text,margin:'2px 0',fontSize:'11px'}}>
+                          {item.name || item.materialName || 'Материал'} · {item.quantity || item.qty || '—'} {item.unit || ''}
+                        </p>
+                      ))}
+                      {warehouseItems.length>5&&<p style={{color:C.textMuted,margin:'4px 0 0',fontSize:'10px'}}>Еще позиций: {warehouseItems.length-5}</p>}
+                    </div>
+                  )}
+                  {(inv.fileUrl||inv.photoUrl||warehouseInvoicePhoto||inv.deliveryDocumentUrl||inv.deliveryPhotoUrl)&&(
                     <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginTop:'8px'}}>
                       {inv.fileUrl&&<a href={fileSrc(inv.fileUrl)} target='_blank' rel='noopener noreferrer' style={{fontSize:'11px',color:C.accent}}>Файл счёта</a>}
                       {inv.photoUrl&&<a href={fileSrc(inv.photoUrl)} target='_blank' rel='noopener noreferrer' style={{fontSize:'11px',color:C.accent}}>Фото</a>}
+                      {warehouseInvoicePhoto&&<a href={fileSrc(warehouseInvoicePhoto)} target='_blank' rel='noopener noreferrer' style={{fontSize:'11px',color:C.accent}}>Фото складской накладной</a>}
+                      {inv.deliveryDocumentUrl&&<a href={fileSrc(inv.deliveryDocumentUrl)} target='_blank' rel='noopener noreferrer' style={{fontSize:'11px',color:C.accent}}>Документ отгрузки</a>}
+                      {inv.deliveryPhotoUrl&&<a href={fileSrc(inv.deliveryPhotoUrl)} target='_blank' rel='noopener noreferrer' style={{fontSize:'11px',color:C.accent}}>Фото отгрузки</a>}
                     </div>
                   )}
                 </div>

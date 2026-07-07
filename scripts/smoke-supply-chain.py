@@ -24,6 +24,15 @@ TEST_PRICE = float(os.getenv("SUPPLY_SMOKE_PRICE", "123.45"))
 TEST_FOREMAN_EMAIL = os.getenv("SUPPLY_SMOKE_FOREMAN_EMAIL", "supply-foreman-smoke@stroyka.local")
 TEST_FOREMAN_NAME = "CODEX QA Прораб накладная"
 TEST_FOREMAN_PASSWORD = os.getenv("SUPPLY_SMOKE_FOREMAN_PASSWORD", "SupplyForemanSmoke123!")
+TEST_SUPPLIER_PASSWORD = os.getenv("SUPPLY_SMOKE_SUPPLIER_PASSWORD", "SupplySupplierSmoke123!")
+
+
+def test_supplier_name(stamp):
+    return f"{TEST_SUPPLIER_PREFIX} {stamp}"
+
+
+def test_supplier_email(stamp):
+    return f"supply-smoke-{stamp}@stroyka.local"
 
 
 def load_env():
@@ -120,6 +129,27 @@ def ensure_foreman_user(project_name):
         stdout=subprocess.DEVNULL,
     )
     return login(TEST_FOREMAN_EMAIL, TEST_FOREMAN_PASSWORD)
+
+
+def ensure_supplier_user(email, name):
+    subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "manage-temp-user.py"),
+            "create",
+            "--email",
+            email,
+            "--name",
+            name,
+            "--password",
+            TEST_SUPPLIER_PASSWORD,
+            "--role",
+            "поставщик",
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+    return login(email, TEST_SUPPLIER_PASSWORD)
 
 
 def norm_text(value):
@@ -283,14 +313,16 @@ def iter_candidate_materials():
 
 
 def create_supplier(token, stamp):
+    supplier_name = test_supplier_name(stamp)
+    supplier_email = test_supplier_email(stamp)
     _, body = api_json(
         "POST",
         "/suppliers",
         token=token,
         data={
-            "name": f"{TEST_SUPPLIER_PREFIX} {stamp}",
+            "name": supplier_name,
             "phone": "+70000000000",
-            "email": f"supply-smoke-{stamp}@stroyka.local",
+            "email": supplier_email,
             "specialization": "CODEX QA",
             "category": "Материалы",
             "rating": 5,
@@ -343,7 +375,7 @@ def select_working_candidate(token, supplier_id, stamp):
     raise RuntimeError("Не удалось создать заявку по положительному материалу сметы. Последние ошибки: " + " | ".join(errors[-5:]))
 
 
-def create_and_select_offer(token, candidate, supplier_id):
+def create_and_select_offer(token, candidate, supplier_id, supplier_token=None):
     qty = candidate["quantity"]
     total = round(TEST_PRICE * qty, 2)
     _, offers = api_json("GET", "/supplier-offers", token=token, expected=200)
@@ -386,7 +418,7 @@ def create_and_select_offer(token, candidate, supplier_id):
     api_json(
         "PUT",
         f"/supplier-offers/{offer_id}",
-        token=token,
+        token=supplier_token or token,
         data={
             "action": "respond",
             "pricePerUnit": TEST_PRICE,
@@ -403,12 +435,32 @@ def create_and_select_offer(token, candidate, supplier_id):
     return offer_id
 
 
-def ship_and_receive(token, candidate, offer_id, stamp):
+def create_supplier_invoice_for_offer(supplier_token, offer_id, candidate, stamp):
+    _, body = api_json(
+        "POST",
+        f"/supplier-offers/{offer_id}/create-invoice",
+        token=supplier_token,
+        data={
+            "invoiceNumber": f"CODEX-SUPINV-{stamp}",
+            "invoiceDate": dt.date.today().isoformat(),
+            "amount": round(TEST_PRICE * candidate["quantity"], 2),
+            "vatAmount": 0,
+            "description": f"{TEST_NOTE_PREFIX} invoice",
+        },
+        expected=200,
+    )
+    invoice_id = body.get("id")
+    if not invoice_id:
+        raise RuntimeError("Создание счета поставщика не вернуло id")
+    return invoice_id
+
+
+def ship_and_receive(ship_token, receive_token, candidate, offer_id, stamp):
     qty = candidate["quantity"]
     _, shipped = api_json(
         "POST",
         f"/supplier-offers/{offer_id}/ship",
-        token=token,
+        token=ship_token,
         data={
             "waybillNumber": f"CODEX-SUPPLY-{stamp}",
             "waybillDate": dt.date.today().isoformat(),
@@ -433,7 +485,7 @@ def ship_and_receive(token, candidate, offer_id, stamp):
     _, received = api_json(
         "PUT",
         f"/supply-deliveries/{delivery_id}/receive",
-        token=token,
+        token=receive_token,
         data={
             "receivedQuantity": qty,
             "receivedBy": "CODEX QA",
@@ -446,6 +498,100 @@ def ship_and_receive(token, candidate, offer_id, stamp):
     if not invoice_id:
         raise RuntimeError("Приемка не создала автоматическую накладную")
     return delivery_id, invoice_id
+
+
+def assert_supplier_invoice_scope(supplier_token, candidate, offer_id, supplier_invoice_id, warehouse_invoice_id):
+    _, supplier_invoices = api_json("GET", "/supplier-invoices", token=supplier_token, expected=200)
+    invoice = next((r for r in supplier_invoices if int(r.get("id") or 0) == int(supplier_invoice_id)), None)
+    if not invoice:
+        raise RuntimeError("Поставщик не видит свой счет в /supplier-invoices")
+    if int(invoice.get("offerId") or 0) != int(offer_id):
+        raise RuntimeError("Счет поставщика не связан с выбранным КП")
+    if int(invoice.get("warehouseInvoiceId") or 0) != int(warehouse_invoice_id):
+        raise RuntimeError("Поставщик не видит связь счета со складской накладной")
+    if not invoice.get("warehouseInvoiceNumber"):
+        raise RuntimeError("Поставщик не видит номер складской накладной")
+    if not invoice.get("warehouseInvoiceDate"):
+        raise RuntimeError("Поставщик не видит дату складской накладной")
+    if invoice.get("deliveryStatus") != "Принято":
+        raise RuntimeError("Поставщик не видит статус приемки Принято")
+    if as_float(invoice.get("receivedQuantity")) < candidate["quantity"] - 0.000001:
+        raise RuntimeError("Поставщик видит неверное принятое количество")
+    items = invoice.get("warehouseInvoiceItems") or []
+    if not any(norm_text(i.get("name") or i.get("materialName")) == norm_text(candidate["materialName"]) for i in items if isinstance(i, dict)):
+        raise RuntimeError("Поставщик не видит список материалов складской накладной")
+    return invoice
+
+
+def assert_supplier_offer_withdraw_and_resubmit(admin_token, supplier_token, supplier_id, candidate, stamp, created):
+    extra = dict(candidate)
+    request, error = create_supply_request_for_candidate(admin_token, supplier_id, extra, stamp + "-withdraw")
+    if not request:
+        raise RuntimeError("Не удалось создать заявку для проверки отзыва КП: " + str(error))
+    request_id = request["id"]
+    created["withdrawRequestId"] = request_id
+    _, offer = api_json(
+        "POST",
+        "/supplier-offers",
+        token=admin_token,
+        data={
+            "requestId": request_id,
+            "supplierId": supplier_id,
+            "pricePerUnit": 0,
+            "totalPrice": 0,
+            "deliveryDays": 0,
+            "notes": TEST_NOTE_PREFIX,
+        },
+        expected=200,
+    )
+    offer_id = offer.get("id")
+    if not offer_id:
+        raise RuntimeError("КП для проверки отзыва не создано")
+    created["withdrawOfferId"] = offer_id
+    qty = extra["quantity"]
+    api_json(
+        "PUT",
+        f"/supplier-offers/{offer_id}",
+        token=supplier_token,
+        data={
+            "action": "respond",
+            "pricePerUnit": TEST_PRICE,
+            "quantity": qty,
+            "totalPrice": round(TEST_PRICE * qty, 2),
+            "deliveryDays": 1,
+            "paymentTerms": "Постоплата",
+        },
+        expected=200,
+    )
+    _, withdrawn = api_json(
+        "PUT",
+        f"/supplier-offers/{offer_id}",
+        token=supplier_token,
+        data={"action": "withdraw"},
+        expected=200,
+    )
+    if withdrawn.get("status") != "Отозвано":
+        raise RuntimeError("КП не перешло в статус Отозвано")
+    _, resubmitted = api_json(
+        "PUT",
+        f"/supplier-offers/{offer_id}",
+        token=supplier_token,
+        data={
+            "action": "respond",
+            "pricePerUnit": TEST_PRICE + 1,
+            "quantity": qty,
+            "totalPrice": round((TEST_PRICE + 1) * qty, 2),
+            "deliveryDays": 2,
+            "paymentTerms": "Постоплата",
+        },
+        expected=200,
+    )
+    if resubmitted.get("status") != "Получено":
+        raise RuntimeError("Отозванное КП нельзя подать заново")
+    _, history = api_json("GET", f"/supplier-offers/{offer_id}/history", token=supplier_token, expected=200)
+    events = [row.get("eventType") for row in history]
+    if "withdrawn" not in events or events.count("responded") < 2:
+        raise RuntimeError("История КП не сохранила отзыв и повторную подачу")
 
 
 def assert_visible_chain(token, candidate, delivery_id, invoice_id):
@@ -844,6 +990,9 @@ def cleanup(created):
             "deliveryId": created.get("deliveryId"),
             "offerId": created.get("offerId"),
             "requestId": created.get("requestId"),
+            "supplierInvoiceId": created.get("supplierInvoiceId"),
+            "withdrawOfferId": created.get("withdrawOfferId"),
+            "withdrawRequestId": created.get("withdrawRequestId"),
             "supplierId": created.get("supplierId"),
         }
         for invoice_key in ["invoiceId", "manualInvoiceId", "foremanManualInvoiceId", "aliasInvoiceId", "cableInvoiceId"]:
@@ -869,10 +1018,17 @@ def cleanup(created):
         if ids["requestId"]:
             cur.execute("DELETE FROM supply_history WHERE request_id=%s", (ids["requestId"],))
         if ids["offerId"]:
+            cur.execute("DELETE FROM supplier_offer_events WHERE offer_id=%s", (ids["offerId"],))
             cur.execute("DELETE FROM supplier_invoices WHERE offer_id=%s", (ids["offerId"],))
             cur.execute("DELETE FROM supplier_offers WHERE id=%s", (ids["offerId"],))
+        if ids["withdrawOfferId"]:
+            cur.execute("DELETE FROM supplier_offer_events WHERE offer_id=%s", (ids["withdrawOfferId"],))
+            cur.execute("DELETE FROM supplier_invoices WHERE offer_id=%s", (ids["withdrawOfferId"],))
+            cur.execute("DELETE FROM supplier_offers WHERE id=%s", (ids["withdrawOfferId"],))
         if ids["requestId"]:
             cur.execute("DELETE FROM supply_requests WHERE id=%s", (ids["requestId"],))
+        if ids["withdrawRequestId"]:
+            cur.execute("DELETE FROM supply_requests WHERE id=%s", (ids["withdrawRequestId"],))
         for material_name in [n for n in material_names if n]:
             if material_name and project_name:
                 cur.execute(
@@ -899,6 +1055,8 @@ def cleanup(created):
                 )
         if ids["supplierId"]:
             cur.execute("DELETE FROM suppliers WHERE id=%s AND name LIKE %s", (ids["supplierId"], TEST_SUPPLIER_PREFIX + "%"))
+        if created.get("supplierEmail"):
+            cur.execute("UPDATE users SET active=FALSE WHERE LOWER(email)=LOWER(%s)", (created["supplierEmail"],))
         if created.get("aliasId"):
             cur.execute("UPDATE material_aliases SET active=FALSE, updated_at=NOW() WHERE id=%s", (created["aliasId"],))
         conn.commit()
@@ -921,7 +1079,10 @@ def main():
     created = {}
     try:
         supplier_id = create_supplier(token, stamp)
+        supplier_name = test_supplier_name(stamp)
+        supplier_email = test_supplier_email(stamp)
         created["supplierId"] = supplier_id
+        created["supplierEmail"] = supplier_email
         candidate = select_working_candidate(token, supplier_id, stamp)
         created.update({
             "projectName": candidate["projectName"],
@@ -931,11 +1092,16 @@ def main():
             "quantity": candidate["quantity"],
             "requestId": candidate["requestId"],
         })
-        offer_id = create_and_select_offer(token, candidate, supplier_id)
+        supplier_token = ensure_supplier_user(supplier_email, supplier_name)
+        offer_id = create_and_select_offer(token, candidate, supplier_id, supplier_token=supplier_token)
         created["offerId"] = offer_id
-        delivery_id, invoice_id = ship_and_receive(token, candidate, offer_id, stamp)
+        supplier_invoice_id = create_supplier_invoice_for_offer(supplier_token, offer_id, candidate, stamp)
+        created["supplierInvoiceId"] = supplier_invoice_id
+        delivery_id, invoice_id = ship_and_receive(supplier_token, token, candidate, offer_id, stamp)
         created["deliveryId"] = delivery_id
         created["invoiceId"] = invoice_id
+        supplier_invoice_view = assert_supplier_invoice_scope(supplier_token, candidate, offer_id, supplier_invoice_id, invoice_id)
+        assert_supplier_offer_withdraw_and_resubmit(token, supplier_token, supplier_id, candidate, stamp, created)
         manual_invoice_id, manual_material_name = assert_visible_chain(token, candidate, delivery_id, invoice_id)
         created["manualInvoiceId"] = manual_invoice_id
         created["manualMaterialName"] = manual_material_name
@@ -964,8 +1130,10 @@ def main():
             "unit": candidate["unit"],
             "requestId": candidate["requestId"],
             "offerId": offer_id,
+            "supplierInvoiceId": supplier_invoice_id,
             "deliveryId": delivery_id,
             "invoiceId": invoice_id,
+            "supplierWarehouseInvoiceNumber": supplier_invoice_view.get("warehouseInvoiceNumber"),
             "manualInvoiceId": manual_invoice_id,
             "manualMaterial": manual_material_name,
             "cableInvoiceId": cable_invoice_id,
@@ -978,9 +1146,12 @@ def main():
                 "positive estimate material selected",
                 "supply request passed estimate control",
                 "selected supplier received KP request",
-                "supplier offer responded and selected",
-                "shipment created",
+                "supplier account responded to KP and director selected it",
+                "supplier invoice created from selected KP",
+                "supplier shipment created",
                 "receipt created automatic invoice",
+                "supplier cabinet sees linked invoice, warehouse receipt, received quantity and receipt items",
+                "supplier offer can be withdrawn and resubmitted with history",
                 "receipt updated project materials",
                 "receipt wrote supply history",
                 "manual director object invoice is allowed, controlled and written to object warehouse",
