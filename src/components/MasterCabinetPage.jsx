@@ -809,7 +809,6 @@ export default function MasterCabinetPage(props) {
       setDailyWorkActDraft({ date: new Date().toISOString().split('T')[0], comment: '', photoUrl: '' });
       if (typeof refreshData === 'function') await refreshData();
       notify('Дневной пакет работ отправлен на проверку: ' + dailyWorkReview.count + ' поз.', 'work');
-      alert('Работы за день отправлены на проверку одним пакетом.');
     } catch (error) {
       alert('Не удалось отправить дневной пакет: ' + (error?.message || error));
     } finally {
