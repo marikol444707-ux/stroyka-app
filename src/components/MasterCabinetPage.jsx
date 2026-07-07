@@ -41,6 +41,7 @@ export default function MasterCabinetPage(props) {
     comment: '',
     photoUrl: '',
   });
+  const [activeEstimateMaterialKey, setActiveEstimateMaterialKey] = React.useState('');
   const [estimateChangeDraft, setEstimateChangeDraft] = React.useState({
     changeType: 'Работа вне сметы',
     description: '',
@@ -661,7 +662,14 @@ export default function MasterCabinetPage(props) {
     return { project, rows, total, errors };
   };
   const openDailyEstimateWorkReview = (items = []) => {
-    const result = buildDailyEstimateWorkRows(items);
+    const itemsWithDraft = items.filter(item => {
+      const workKey = estimateWorkKey(item.estId, item.sectionIdx, item.itemIdx);
+      const draftDisplay = estimateDraftValueRef.current[workKey] !== undefined
+        ? estimateDraftValueRef.current[workKey]
+        : (estimateDoneDrafts[workKey] !== undefined ? estimateDoneDrafts[workKey] : '');
+      return draftDisplay !== '' && draftDisplay !== null && draftDisplay !== undefined && safeDenormalizeMeasure(draftDisplay, item.unit) > 0;
+    });
+    const result = buildDailyEstimateWorkRows(itemsWithDraft);
     if (result.errors.length) {
       alert(result.errors[0]);
       return;
@@ -796,6 +804,7 @@ export default function MasterCabinetPage(props) {
         submittedKeys.forEach(key => { delete next[key]; });
         return next;
       });
+      setActiveEstimateMaterialKey(prev => submittedKeys.includes(prev) ? '' : prev);
       setDailyWorkReview(null);
       setDailyWorkActDraft({ date: new Date().toISOString().split('T')[0], comment: '', photoUrl: '' });
       if (typeof refreshData === 'function') await refreshData();
@@ -1359,17 +1368,20 @@ export default function MasterCabinetPage(props) {
                       const delta = Math.max(0, safeDenormalizeMeasure(draft, item.unit));
                       const project = projects.find(projectRow => projectRow.id === Number(masterProjectId));
                       const roomCheck = project && params.roomId ? roomMeasurementCheck(project.name, params.roomId, params.surface || 'Стены', delta, item.unit, item.name) : null;
-                      const projectMaterials = project ? getWorkMaterialRows(project.name, item.workPackage) : [];
-                      const availableMap = project ? getWorkMaterialAvailability(project.name, item.workPackage) : {};
                       const usedMaterials = estimateWorkMaterials[workKey] || [];
+                      const materialPanelOpen = activeEstimateMaterialKey === workKey;
+                      const projectMaterials = materialPanelOpen && project ? getWorkMaterialRows(project.name, item.workPackage) : [];
+                      const availableMap = materialPanelOpen && project ? getWorkMaterialAvailability(project.name, item.workPackage) : {};
                       const usedMap = {};
-                      usedMaterials.forEach(material => { usedMap[materialNameKey(material.name)] = material; });
-                      const suggestions = project ? getWorkMaterialSuggestions(project.name, item.name, item.section, item.workPackage) : [];
+                      if (materialPanelOpen) {
+                        usedMaterials.forEach(material => { usedMap[materialNameKey(material.name)] = material; });
+                      }
+                      const suggestions = materialPanelOpen && project ? getWorkMaterialSuggestions(project.name, item.name, item.section, item.workPackage) : [];
                       const executionUnitPrice = Number(item.executionPricePerUnit || item.internalPricePerUnit || item.masterPricePerUnit || item.contractorPricePerUnit || 0);
                       const deltaEarning = Math.round(delta * executionUnitPrice);
                       const missingExecutionPrice = executionUnitPrice <= 0;
                       return (
-                        <div key={workKey} style={{ padding: '10px', marginBottom: '6px', backgroundColor: C.bgWhite, borderRadius: '8px', border: '1px solid ' + C.border }}>
+                        <div key={workKey} style={{ padding: '10px', marginBottom: '6px', backgroundColor: C.bgWhite, borderRadius: '8px', border: '1px solid ' + C.border, contentVisibility: 'auto', containIntrinsicSize: '118px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                             <div style={{ flex: '1 1 260px', minWidth: '220px' }}>
                               <b style={{ fontSize: '12px', color: C.text }}>{item.name}</b>
@@ -1394,8 +1406,11 @@ export default function MasterCabinetPage(props) {
                               defaultValue={draft}
                               onChange={e => { estimateDraftValueRef.current[workKey] = e.target.value; }}
                               onBlur={e => {
-                                commitEstimateDoneDraft(workKey, e.target.value);
-                                syncEstimateNormMaterials(workKey, project, item, e.target.value, 0);
+                                const nextValue = e.target.value;
+                                commitEstimateDoneDraft(workKey, nextValue);
+                                if (safeDenormalizeMeasure(nextValue, item.unit) > 0) {
+                                  syncEstimateNormMaterials(workKey, project, item, nextValue, 0);
+                                }
                               }}
                               style={{ ...inp, marginBottom: 0, width: '80px', fontSize: '12px', padding: '4px 6px' }}
                             />
@@ -1456,7 +1471,21 @@ export default function MasterCabinetPage(props) {
                             />
                           </div>
                           {project && (
-                            <div style={{ marginTop: '8px', padding: '8px', backgroundColor: C.bg, borderRadius: '8px', border: '1px solid ' + C.border }}>
+                            <div style={{ marginTop: '8px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveEstimateMaterialKey(prev => prev === workKey ? '' : workKey)}
+                                  style={{ ...btnG, padding: '5px 9px', fontSize: '11px' }}
+                                >
+                                  {materialPanelOpen ? 'Скрыть материалы' : (usedMaterials.length ? 'Материалы: ' + usedMaterials.length : 'Материалы')}
+                                </button>
+                                {!materialPanelOpen && usedMaterials.length > 0 && (
+                                  <span style={{ color: C.textSec, fontSize: '11px' }}>Выбрано материалов: {usedMaterials.length}</span>
+                                )}
+                              </div>
+                              {materialPanelOpen && (
+                                <div style={{ marginTop: '6px', padding: '8px', backgroundColor: C.bg, borderRadius: '8px', border: '1px solid ' + C.border }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginBottom: '6px' }}>
                                 <b style={{ fontSize: '11px', color: C.text }}>📦 Материалы к списанию</b>
                                 <span style={{ fontSize: '10px', color: C.textSec }}>{delta > 0 ? 'новый объём: ' + safeFmtMeasure(delta, item.unit) : 'сначала укажите новый объём'}</span>
@@ -1517,6 +1546,8 @@ export default function MasterCabinetPage(props) {
                                 </div>
                               ) : (
                                 <p style={{ margin: 0, color: C.textMuted, fontSize: '11px' }}>{isPersonalMaterialRole() ? 'Нет подтверждённых материалов, выданных вам для списания.' : 'На складе объекта нет остатков для списания.'}</p>
+                              )}
+                                </div>
                               )}
                             </div>
                           )}
