@@ -16443,14 +16443,24 @@ def delete_unexpected_work(id: int, current_user: dict = Depends(require_roles(*
     return {"ok": True}
 
 @app.post("/parse-smeta")
-async def parse_smeta(file: UploadFile = File(...)):
+async def parse_smeta(file: UploadFile = File(...), _current_user: dict = Depends(get_current_user)):
     import tempfile, os, re
     try:
         import openpyxl
     except ImportError:
         return {"error": "openpyxl not installed"}
 
+    SMETA_PARSE_ALLOWED_EXTENSIONS = {".xlsx", ".xlsm", ".xltx", ".xltm"}
+    SMETA_PARSE_MAX_BYTES = 15 * 1024 * 1024
+    filename = os.path.basename(getattr(file, "filename", "") or "")
+    ext = os.path.splitext(filename.lower())[1]
+    if ext not in SMETA_PARSE_ALLOWED_EXTENSIONS:
+        return {"error": "Поддерживаются только Excel-файлы .xlsx/.xlsm. Старый .xls сначала сохраните как .xlsx."}
+
     contents = await file.read()
+    if len(contents) > SMETA_PARSE_MAX_BYTES:
+        return {"error": "Файл сметы превышает лимит 15 МБ. Разделите смету или загрузите документом без импорта."}
+
     with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
         tmp.write(contents)
         tmp_path = tmp.name

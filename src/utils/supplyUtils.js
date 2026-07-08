@@ -112,3 +112,20 @@ export const isActiveSupplyRequestStatus = (status) => (
   ['Новая', 'Подтверждена прорабом', 'Утверждена', 'КП запрошены', 'В пути', 'Частично поставлено', 'Проблема поставки', 'Утверждено']
     .includes(status || 'Новая')
 );
+
+export const isHistoricalSupplierOfferStatus = (status) => ['Отклонено', 'Отозвано'].includes(status || '');
+
+export const splitSupplierOffersByStatus = (offers = []) => {
+  const active = [];
+  const history = [];
+
+  (offers || []).forEach(offer => {
+    if (isHistoricalSupplierOfferStatus(offer?.status)) {
+      history.push(offer);
+    } else {
+      active.push(offer);
+    }
+  });
+
+  return { active, history };
+};

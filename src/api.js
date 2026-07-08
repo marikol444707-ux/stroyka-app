@@ -81,25 +81,33 @@ export const installAuthFetch = () => {
     }
   };
   const isAuthPublicPath = (path) => authPublicPaths.some(publicPath => path === publicPath || path.startsWith(publicPath + '/'));
-  window.fetch = async (input, init = {}) => {
-    const path = getRequestPath(input);
-    const isPublicAuthRequest = isAuthPublicPath(path);
-    if (isPublicAuthRequest) return nativeFetch(input, init);
-    let token = '';
+  const getStoredAuthToken = () => {
     try {
-      token = localStorage.getItem('authToken') || '';
+      return localStorage.getItem('authToken') || '';
     } catch (_e) {
-      token = '';
+      return '';
     }
-    const nextInit = {...init, credentials: init.credentials || 'include'};
-    if (!token) return nativeFetch(input, nextInit);
+  };
+  const hasAuthorizationHeader = (input, init) => {
+    const headers = new Headers(init.headers || {});
+    if (headers.has('Authorization')) return true;
+    try {
+      if (typeof Request !== 'undefined' && input instanceof Request) {
+        return input.headers.has('Authorization');
+      }
+    } catch (_e) {}
+    return false;
+  };
+  const withBearerFallback = (init, token) => {
     const headers = new Headers(init.headers || {});
     if (!headers.has('Authorization')) headers.set('Authorization', 'Bearer ' + token);
-    const response = await nativeFetch(input, {...nextInit, headers});
-    // Токен истёк или стал недействителен — сервер отвечает 401.
+    return {...init, headers};
+  };
+  const expireFrontendSession = (response) => {
+    // Токен/сессия истекли или стали недействительны — сервер отвечает 401.
     // Чистим сессию и возвращаем на экран входа, чтобы приложение не показывало
     // пустые данные (нули, «Проектов нет»), как будто всё удалено.
-    if (response.status === 401 && !isPublicAuthRequest && !window.__stroykaSessionExpiring) {
+    if (!window.__stroykaSessionExpiring) {
       window.__stroykaSessionExpiring = true;
       try {
         localStorage.removeItem('authToken');
@@ -109,6 +117,23 @@ export const installAuthFetch = () => {
       window.location.reload();
     }
     return response;
+  };
+  window.fetch = async (input, init = {}) => {
+    const path = getRequestPath(input);
+    const isPublicAuthRequest = isAuthPublicPath(path);
+    if (isPublicAuthRequest) return nativeFetch(input, {...init, credentials: init.credentials || 'include'});
+    const nextInit = {...init, credentials: init.credentials || 'include'};
+    const response = await nativeFetch(input, nextInit);
+    if (response.status !== 401) return response;
+
+    const token = getStoredAuthToken();
+    if (token && !hasAuthorizationHeader(input, init)) {
+      const fallbackResponse = await nativeFetch(input, withBearerFallback(nextInit, token));
+      if (fallbackResponse.status !== 401) return fallbackResponse;
+      return expireFrontendSession(fallbackResponse);
+    }
+
+    return expireFrontendSession(response);
   };
   window.__stroykaAuthFetchInstalled = true;
 };

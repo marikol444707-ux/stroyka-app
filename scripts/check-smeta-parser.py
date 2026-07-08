@@ -10,8 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MAIN = ROOT / "backend" / "main.py"
 
 
-def _load_parse_smeta():
-    src = MAIN.read_text()
+def _parse_smeta_route_block(src):
     match = re.search(
         r'@app\.post\("/parse-smeta"\)\n(.*?)\n\n@app\.get\("/estimates"\)',
         src,
@@ -19,6 +18,27 @@ def _load_parse_smeta():
     )
     if not match:
         raise RuntimeError("parse_smeta block not found")
+    return match.group(1)
+
+
+def _assert_parse_smeta_route_hardened(src, block):
+    route_header = block.split("\n", 1)[0]
+    if "Depends(get_current_user)" not in route_header:
+        raise RuntimeError("parse_smeta route must require get_current_user")
+    required_guards = (
+        "SMETA_PARSE_MAX_BYTES",
+        "SMETA_PARSE_ALLOWED_EXTENSIONS",
+        "filename",
+    )
+    missing = [name for name in required_guards if name not in block]
+    if missing:
+        raise RuntimeError("parse_smeta upload guard missing: " + ", ".join(missing))
+
+
+def _load_parse_smeta():
+    src = MAIN.read_text()
+    block = _parse_smeta_route_block(src)
+    _assert_parse_smeta_route_hardened(src, block)
     shim = """
 class HTTPException(Exception):
     def __init__(self, status_code=None, detail=None):
@@ -28,13 +48,19 @@ class HTTPException(Exception):
 def File(*args, **kwargs):
     return None
 
+def Depends(*args, **kwargs):
+    return None
+
+def get_current_user(*args, **kwargs):
+    return {"id": 1, "role": "директор", "name": "Parser Test"}
+
 class UploadFile:
     pass
 
 app = type("A", (), {"post": lambda self, *a, **k: (lambda f: f)})()
 """
     namespace = {}
-    exec(shim + match.group(1), namespace)
+    exec(shim + block, namespace)
     return namespace["parse_smeta"]
 
 

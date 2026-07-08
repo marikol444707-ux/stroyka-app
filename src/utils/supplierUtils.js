@@ -102,6 +102,9 @@ export const groupSuppliers = suppliers => {
         ...supplier,
         sourceType,
         sourceDetail,
+        alreadyRequested: Boolean(supplier.alreadyRequested),
+        aiRecommend: Boolean(supplier.aiRecommend),
+        deliveriesCount: Number(supplier.deliveriesCount || 0),
         category: supplier.category || 'Прочее',
         _supplierIds: [supplier.id],
         _supplierKeys: nameKey ? [nameKey] : [],
@@ -141,6 +144,9 @@ export const groupSuppliers = suppliers => {
     if (!group.sourceType && sourceType) group.sourceType = sourceType;
     if (!group.sourceDetail && sourceDetail) group.sourceDetail = sourceDetail;
     group.rating = Math.max(Number(group.rating || 0), Number(supplier.rating || 0));
+    group.deliveriesCount = Math.max(Number(group.deliveriesCount || 0), Number(supplier.deliveriesCount || 0));
+    group.alreadyRequested = Boolean(group.alreadyRequested || supplier.alreadyRequested);
+    group.aiRecommend = Boolean(group.aiRecommend || supplier.aiRecommend);
   });
 
   return Array.from(groups.values()).sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ru'));

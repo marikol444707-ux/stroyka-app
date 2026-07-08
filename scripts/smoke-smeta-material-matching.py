@@ -25,6 +25,15 @@ class FakeUpload:
         return self.path.read_bytes()
 
 
+class FakeBytesUpload:
+    def __init__(self, filename, payload):
+        self.filename = filename
+        self._payload = payload
+
+    async def read(self):
+        return self._payload
+
+
 def _norm(value):
     return str(value or "").lower().replace("ё", "е")
 
@@ -66,6 +75,14 @@ def _build_test_smeta(path: Path):
 
 async def main():
     parse_smeta = _load_parse_smeta()
+    bad_extension = await parse_smeta(FakeBytesUpload("not-smeta.txt", b"not an xlsx"))
+    if "xlsx" not in str(bad_extension.get("error", "")).lower():
+        raise SystemExit("parse_smeta must reject non-xlsx uploads before parsing")
+
+    too_large = await parse_smeta(FakeBytesUpload("too-large.xlsx", b"0" * (15 * 1024 * 1024 + 1)))
+    if "превышает" not in str(too_large.get("error", "")).lower():
+        raise SystemExit("parse_smeta must reject oversized uploads before parsing")
+
     with tempfile.TemporaryDirectory(prefix="stroyka-smeta-smoke-") as tmp:
       path = Path(tmp) / "codex-smeta-parser-material-matching.xlsx"
       _build_test_smeta(path)

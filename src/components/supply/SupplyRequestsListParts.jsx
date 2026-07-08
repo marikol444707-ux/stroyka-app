@@ -1,5 +1,6 @@
 import React from 'react';
 import { Bot, Check, X } from 'lucide-react';
+import { splitSupplierOffersByStatus } from '../../utils/supplyUtils';
 
 export function SupplyRequestsEmpty({ C, card }) {
   return <div style={{ ...card, padding: '40px', textAlign: 'center', color: C.textMuted }}>Заявок нет</div>;
@@ -285,6 +286,11 @@ function RecipientDiagnosticsPanel({ C, badge, rows }) {
               {statusSummary && (
                 <p style={{ color: C.textMuted, margin: '2px 0 0', fontSize: '10px' }}>КП: {statusSummary}</p>
               )}
+              {!visible && (
+                <p style={{ color: C.warning, margin: '3px 0 0', fontSize: '10px', lineHeight: 1.35 }}>
+                  Нужно связать карточку поставщика #{row.targetSupplierId || row.supplierId} с пользователем роли поставщик в разделе «Поставщики».
+                </p>
+              )}
             </div>
             <span style={badge(visible ? C.success : C.danger, visible ? C.successLight : C.dangerLight, visible ? C.successBorder : C.dangerBorder)}>
               {visible ? 'видит' : 'не видит'}
@@ -318,6 +324,7 @@ function OffersBlock({
 }) {
   const [recipientCheck, setRecipientCheck] = React.useState({ loading: false, rows: null, error: '' });
   const offers = (supplierOffers || []).filter(o => o.requestId === request.id);
+  const { active: activeOffers, history: historyOffers } = splitSupplierOffersByStatus(offers);
   if (offers.length === 0) return null;
 
   const loadRecipientCheck = async () => {
@@ -332,15 +339,60 @@ function OffersBlock({
     }
   };
 
-  const winner = offers.find(o => o.status === 'Утверждено');
-  const receivedOffers = offers.filter(o => o.status === 'Получено' || o.status === 'Утверждено');
+  const winner = activeOffers.find(o => o.status === 'Утверждено');
+  const receivedOffers = activeOffers.filter(o => o.status === 'Получено' || o.status === 'Утверждено');
   const compareResult = compareResultByReq[request.id];
   const compareLoading = compareLoadingReqId === request.id;
+  const offerCounterText = activeOffers.length + ' активн.' + (historyOffers.length ? ' · история ' + historyOffers.length : '');
+
+  const renderOffer = (o, compact = false) => {
+    const sup = suppliers.find(s => s.id === o.supplierId);
+    const isWin = o.status === 'Утверждено';
+    const isWait = o.status === 'Ожидает ответа';
+    const isRej = o.status === 'Отклонено';
+    const isWithdrawn = o.status === 'Отозвано';
+    const stC = isWin ? C.success : isRej ? C.danger : isWithdrawn ? C.textMuted : isWait ? C.warning : C.info;
+    const stBg = isWin ? C.successLight : isRej ? C.dangerLight : isWithdrawn ? C.bg : isWait ? C.warningLight : C.infoLight;
+    const stBd = isWin ? C.successBorder : isRej ? C.dangerBorder : isWithdrawn ? C.border : isWait ? C.warningBorder : C.infoBorder;
+
+    return (
+      <div key={o.id} style={{ padding: compact ? '8px' : '10px', backgroundColor: stBg, borderRadius: '6px', marginBottom: '6px', border: '1.5px solid ' + stBd, opacity: compact ? 0.92 : 1 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: '200px' }}>
+            <b style={{ fontSize: compact ? '12px' : '13px', color: C.text }}>{sup ? sup.name : 'Поставщик #' + o.supplierId}{o.aiRecommended && <span style={{ marginLeft: '6px', fontSize: '10px', color: C.accent }}>🤖 AI рек.</span>}</b>
+            {o.pricePerUnit ? (
+              <p style={{ color: C.textSec, margin: '2px 0', fontSize: '12px' }}>
+                {Number(o.pricePerUnit).toLocaleString('ru-RU') + ' ₽/ед'}
+                {o.totalPrice ? ' · итого ' + Number(o.totalPrice).toLocaleString('ru-RU') + ' ₽' : ''}
+                {o.deliveryDays ? ' · ' + o.deliveryDays + ' дн.' : ''}
+              </p>
+            ) : <p style={{ color: C.textMuted, margin: '2px 0', fontSize: '12px', fontStyle: 'italic' }}>Поставщик ещё не ответил...</p>}
+            {o.paymentTerms && <p style={{ color: C.textMuted, margin: 0, fontSize: '11px' }}>💳 {o.paymentTerms}{o.vatIncluded === false ? ' · без НДС' : ' · с НДС'}{o.validUntil ? ' · до ' + o.validUntil : ''}</p>}
+            {o.supplierMessage && <p style={{ color: C.textSec, margin: '4px 0 0', fontSize: '11px', fontStyle: 'italic' }}>💬 «{o.supplierMessage}»</p>}
+            {o.pdfUrl && <a href={fileSrc(o.pdfUrl)} target='_blank' rel='noopener noreferrer' style={{ fontSize: '11px', color: C.accent, display: 'inline-block', marginTop: '4px' }}>📄 PDF</a>}
+            <OfferItemsDetails C={C} offer={o} parseOfferItems={parseOfferItems} />
+          </div>
+          <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={badge(stC, stBg, stBd)}>{o.status}</span>
+            {o.status === 'Получено' && canApprove && !compact && (
+              <>
+                <button onClick={() => selectSupplierOffer(o.id)} style={{ ...btnGr, padding: '3px 8px', fontSize: '11px' }}><Check size={11} />Выбрать</button>
+                <button onClick={() => rejectSupplierOffer(o.id)} style={{ ...btnR, padding: '3px 8px', fontSize: '11px' }}><X size={11} /></button>
+              </>
+            )}
+            {o.status === 'Ожидает ответа' && canApprove && !compact && (
+              <button onClick={() => withdrawSupplierOffer(o.id, 'Отозвать запрос КП у поставщика?')} style={{ ...btnG, padding: '3px 8px', fontSize: '11px' }}><X size={11} />Отозвать</button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div style={{ borderTop: '1.5px dashed ' + C.border, paddingTop: '10px', marginTop: '10px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', gap: '8px', flexWrap: 'wrap' }}>
-        <b style={{ color: C.text, fontSize: '12px' }}>📊 КП от поставщиков ({offers.length}){winner ? ' · ✅ выбрано' : ''}</b>
+        <b style={{ color: C.text, fontSize: '12px' }}>📊 КП от поставщиков ({offerCounterText}){winner ? ' · ✅ выбрано' : ''}</b>
         {receivedOffers.length >= 2 && canApprove && !winner && (
           <button onClick={() => runCompareKp(request.id)} disabled={compareLoading} style={{ ...btnGr, padding: '4px 10px', fontSize: '11px', opacity: compareLoading ? 0.6 : 1 }}>
             <Bot size={11} />{compareLoading ? 'AI сравнивает...' : '🤖 Сравнить через AI'}
@@ -359,49 +411,22 @@ function OffersBlock({
         </div>
       )}
       <RecipientDiagnosticsPanel C={C} badge={badge} rows={recipientCheck.rows} />
-      {offers.map(o => {
-        const sup = suppliers.find(s => s.id === o.supplierId);
-        const isWin = o.status === 'Утверждено';
-        const isWait = o.status === 'Ожидает ответа';
-        const isRej = o.status === 'Отклонено';
-        const isWithdrawn = o.status === 'Отозвано';
-        const stC = isWin ? C.success : isRej ? C.danger : isWithdrawn ? C.textMuted : isWait ? C.warning : C.info;
-        const stBg = isWin ? C.successLight : isRej ? C.dangerLight : isWithdrawn ? C.bg : isWait ? C.warningLight : C.infoLight;
-        const stBd = isWin ? C.successBorder : isRej ? C.dangerBorder : isWithdrawn ? C.border : isWait ? C.warningBorder : C.infoBorder;
-
-        return (
-          <div key={o.id} style={{ padding: '10px', backgroundColor: stBg, borderRadius: '6px', marginBottom: '6px', border: '1.5px solid ' + stBd }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' }}>
-              <div style={{ flex: 1, minWidth: '200px' }}>
-                <b style={{ fontSize: '13px', color: C.text }}>{sup ? sup.name : 'Поставщик #' + o.supplierId}{o.aiRecommended && <span style={{ marginLeft: '6px', fontSize: '10px', color: C.accent }}>🤖 AI рек.</span>}</b>
-                {o.pricePerUnit ? (
-                  <p style={{ color: C.textSec, margin: '2px 0', fontSize: '12px' }}>
-                    {Number(o.pricePerUnit).toLocaleString('ru-RU') + ' ₽/ед'}
-                    {o.totalPrice ? ' · итого ' + Number(o.totalPrice).toLocaleString('ru-RU') + ' ₽' : ''}
-                    {o.deliveryDays ? ' · ' + o.deliveryDays + ' дн.' : ''}
-                  </p>
-                ) : <p style={{ color: C.textMuted, margin: '2px 0', fontSize: '12px', fontStyle: 'italic' }}>Поставщик ещё не ответил...</p>}
-                {o.paymentTerms && <p style={{ color: C.textMuted, margin: 0, fontSize: '11px' }}>💳 {o.paymentTerms}{o.vatIncluded === false ? ' · без НДС' : ' · с НДС'}{o.validUntil ? ' · до ' + o.validUntil : ''}</p>}
-                {o.supplierMessage && <p style={{ color: C.textSec, margin: '4px 0 0', fontSize: '11px', fontStyle: 'italic' }}>💬 «{o.supplierMessage}»</p>}
-                {o.pdfUrl && <a href={fileSrc(o.pdfUrl)} target='_blank' rel='noopener noreferrer' style={{ fontSize: '11px', color: C.accent, display: 'inline-block', marginTop: '4px' }}>📄 PDF</a>}
-                <OfferItemsDetails C={C} offer={o} parseOfferItems={parseOfferItems} />
-              </div>
-              <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <span style={badge(stC, stBg, stBd)}>{o.status}</span>
-                {o.status === 'Получено' && canApprove && (
-                  <>
-                    <button onClick={() => selectSupplierOffer(o.id)} style={{ ...btnGr, padding: '3px 8px', fontSize: '11px' }}><Check size={11} />Выбрать</button>
-                    <button onClick={() => rejectSupplierOffer(o.id)} style={{ ...btnR, padding: '3px 8px', fontSize: '11px' }}><X size={11} /></button>
-                  </>
-                )}
-                {o.status === 'Ожидает ответа' && canApprove && (
-                  <button onClick={() => withdrawSupplierOffer(o.id, 'Отозвать запрос КП у поставщика?')} style={{ ...btnG, padding: '3px 8px', fontSize: '11px' }}><X size={11} />Отозвать</button>
-                )}
-              </div>
-            </div>
+      {activeOffers.length === 0 && historyOffers.length > 0 && (
+        <div style={{ padding: '8px 10px', backgroundColor: C.warningLight, borderRadius: '6px', border: '1px solid ' + C.warningBorder, marginBottom: '8px', fontSize: '11px', color: C.text }}>
+          Активных КП нет. Последние отозванные и отклоненные предложения сохранены ниже в истории.
+        </div>
+      )}
+      {activeOffers.map(o => renderOffer(o))}
+      {historyOffers.length > 0 && (
+        <details style={{ marginTop: activeOffers.length ? '6px' : '0' }}>
+          <summary style={{ cursor: 'pointer', color: C.textSec, fontSize: '11px', fontWeight: 700, padding: '6px 0' }}>
+            История КП: отозванные и отклоненные ({historyOffers.length})
+          </summary>
+          <div style={{ marginTop: '4px' }}>
+            {historyOffers.map(o => renderOffer(o, true))}
           </div>
-        );
-      })}
+        </details>
+      )}
     </div>
   );
 }
