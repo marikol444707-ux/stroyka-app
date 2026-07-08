@@ -44,11 +44,25 @@ export default function AccountingIncomingDocumentsPanel({
   const [activeStatus, setActiveStatus] = React.useState('Нет фото');
   const [openedId, setOpenedId] = React.useState(null);
   const [busyId, setBusyId] = React.useState(null);
+  const [visibleRows, setVisibleRows] = React.useState(30);
+  const rowsStep = 30;
 
   const rows = React.useMemo(
-    () => buildAccountingInvoiceRows(invoices, warehouseInvoiceEstimateControl),
+    () => buildAccountingInvoiceRows(invoices, warehouseInvoiceEstimateControl, { includeControls: false }),
     [invoices, warehouseInvoiceEstimateControl]
   );
+
+  const enrichRow = React.useCallback((row) => {
+    if (!row) return row;
+    const controls = typeof warehouseInvoiceEstimateControl === 'function'
+      ? (warehouseInvoiceEstimateControl(row.invoice) || []).filter(control => control && control.name)
+      : [];
+    return {
+      ...row,
+      controls,
+      issueRows: controls.filter(control => ['danger', 'warning'].includes(control.severity)),
+    };
+  }, [warehouseInvoiceEstimateControl]);
 
   const supplierInvoiceById = React.useMemo(() => {
     const map = new Map();
@@ -243,7 +257,18 @@ export default function AccountingIncomingDocumentsPanel({
   };
 
   const filteredRows = activeStatus === 'Все' ? rows : rows.filter(row => row.status === activeStatus);
-  const openedRow = rows.find(row => String(row.invoice.id) === String(openedId));
+  const visibleBaseRows = filteredRows.slice(0, visibleRows);
+  const hiddenRows = Math.max(0, filteredRows.length - visibleBaseRows.length);
+  const displayedRows = React.useMemo(
+    () => visibleBaseRows.map(enrichRow),
+    [visibleBaseRows, enrichRow],
+  );
+  const openedBaseRow = rows.find(row => String(row.invoice.id) === String(openedId));
+  const openedRow = React.useMemo(() => enrichRow(openedBaseRow), [openedBaseRow, enrichRow]);
+
+  React.useEffect(() => {
+    setVisibleRows(30);
+  }, [activeStatus, invoices?.length]);
 
   const renderStatusBadge = (status) => {
     const tone = statusTone(status, C);
@@ -409,7 +434,7 @@ export default function AccountingIncomingDocumentsPanel({
         <div style={{ ...card, padding: '28px', textAlign: 'center', color: C.textMuted }}>Документов нет</div>
       ) : (
         <div style={{ display: 'grid', gap: '10px' }}>
-          {filteredRows.map(row => {
+          {displayedRows.map(row => {
             const inv = row.invoice;
             const tone = statusTone(row.status, C);
             const linkedSupplierInvoice = getLinkedSupplierInvoice(row);
@@ -438,6 +463,15 @@ export default function AccountingIncomingDocumentsPanel({
               </div>
             );
           })}
+          {hiddenRows > 0 && (
+            <button
+              type="button"
+              onClick={() => setVisibleRows(limit => Math.min(filteredRows.length, limit + rowsStep))}
+              style={{ ...btnG, width: '100%', justifyContent: 'center', marginTop: '4px' }}
+            >
+              Показать ещё {Math.min(hiddenRows, rowsStep)} документов
+            </button>
+          )}
         </div>
       )}
     </div>
