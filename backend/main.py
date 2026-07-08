@@ -9856,7 +9856,7 @@ def get_supply_request_recipients(id: int, _current_user: dict = Depends(require
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     _ensure_supply_request_recipients_table(cur)
-    cur.execute("SELECT id, project FROM supply_requests WHERE id=%s", (id,))
+    cur.execute("SELECT id, project, company_id FROM supply_requests WHERE id=%s", (id,))
     req = cur.fetchone()
     if not req:
         cur.close(); conn.close()
@@ -9881,6 +9881,47 @@ def get_supply_request_recipients(id: int, _current_user: dict = Depends(require
          ORDER BY r.id
     """, (id,))
     rows = [dict(row) for row in cur.fetchall()]
+    if not rows:
+        cur.execute("""
+            SELECT o.id AS offer_id, o.request_id, o.company_id, o.supplier_id,
+                   o.status, o.requested_at, o.responded_at, s.name AS supplier_name
+              FROM supplier_offers o
+              LEFT JOIN suppliers s ON s.id=o.supplier_id
+             WHERE o.request_id=%s
+             ORDER BY o.id
+        """, (id,))
+        offer_rows = cur.fetchall() or []
+        target_names = {}
+        for offer in offer_rows:
+            supplier_id = int(_row_get(offer, "supplier_id", 3, 0) or 0)
+            if not supplier_id:
+                continue
+            targets = supplier_offer_targets_for_groups(cur, [supplier_id])
+            target = targets[0] if targets else {"requested_id": supplier_id, "target_id": supplier_id, "scope_ids": [supplier_id]}
+            target_id = int(target.get("target_id") or supplier_id)
+            scope_ids = _normalize_supplier_ids(target.get("scope_ids") or [supplier_id])
+            visibility = _supplier_visibility_for_scope(cur, scope_ids)
+            if target_id not in target_names:
+                cur.execute("SELECT name FROM suppliers WHERE id=%s LIMIT 1", (target_id,))
+                target_row = cur.fetchone()
+                target_names[target_id] = _row_get(target_row, "name", 0, "") if target_row else ""
+            rows.append({
+                "id": -int(_row_get(offer, "offer_id", 0, 0) or 0),
+                "companyId": _row_get(offer, "company_id", 2, None) or req.get("company_id"),
+                "requestId": id,
+                "supplierId": supplier_id,
+                "supplierName": _row_get(offer, "supplier_name", 7, "") or ("Поставщик #" + str(supplier_id)),
+                "targetSupplierId": target_id,
+                "targetSupplierName": target_names.get(target_id) or _row_get(offer, "supplier_name", 7, "") or ("Поставщик #" + str(target_id)),
+                "supplierUserId": visibility.get("user_id"),
+                "supplierGroupIds": scope_ids,
+                "visibleToSupplier": bool(visibility.get("visible")),
+                "problemReason": visibility.get("reason") or "",
+                "status": _row_get(offer, "status", 4, "") or "Ожидает ответа",
+                "requestedAt": _row_get(offer, "requested_at", 5, None),
+                "respondedAt": _row_get(offer, "responded_at", 6, None),
+                "source": "supplier_offers",
+            })
     cur.close(); conn.close()
     return rows
 
