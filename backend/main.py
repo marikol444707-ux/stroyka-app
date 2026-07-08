@@ -9892,6 +9892,7 @@ def get_supply_request_recipients(id: int, _current_user: dict = Depends(require
         """, (id,))
         offer_rows = cur.fetchall() or []
         target_names = {}
+        recipient_map = {}
         for offer in offer_rows:
             supplier_id = int(_row_get(offer, "supplier_id", 3, 0) or 0)
             if not supplier_id:
@@ -9905,7 +9906,20 @@ def get_supply_request_recipients(id: int, _current_user: dict = Depends(require
                 cur.execute("SELECT name FROM suppliers WHERE id=%s LIMIT 1", (target_id,))
                 target_row = cur.fetchone()
                 target_names[target_id] = _row_get(target_row, "name", 0, "") if target_row else ""
-            rows.append({
+            group_key = tuple(sorted(scope_ids)) or (target_id,)
+            offer_status = _row_get(offer, "status", 4, "") or "Ожидает ответа"
+            offer_status_row = {
+                "offerId": _row_get(offer, "offer_id", 0, None),
+                "supplierId": supplier_id,
+                "supplierName": _row_get(offer, "supplier_name", 7, "") or ("Поставщик #" + str(supplier_id)),
+                "status": offer_status,
+            }
+            if group_key in recipient_map:
+                recipient_map[group_key]["offerStatuses"].append(offer_status_row)
+                if recipient_map[group_key].get("status") in ("Отозвано", "Отклонено") and offer_status not in ("Отозвано", "Отклонено"):
+                    recipient_map[group_key]["status"] = offer_status
+                continue
+            recipient_map[group_key] = {
                 "id": -int(_row_get(offer, "offer_id", 0, 0) or 0),
                 "companyId": _row_get(offer, "company_id", 2, None) or req.get("company_id"),
                 "requestId": id,
@@ -9921,7 +9935,9 @@ def get_supply_request_recipients(id: int, _current_user: dict = Depends(require
                 "requestedAt": _row_get(offer, "requested_at", 5, None),
                 "respondedAt": _row_get(offer, "responded_at", 6, None),
                 "source": "supplier_offers",
-            })
+                "offerStatuses": [offer_status_row],
+            }
+        rows = list(recipient_map.values())
     cur.close(); conn.close()
     return rows
 
@@ -16433,7 +16449,7 @@ async def parse_smeta(file: UploadFile = File(...)):
         import openpyxl
     except ImportError:
         return {"error": "openpyxl not installed"}
-    
+
     contents = await file.read()
     with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
         tmp.write(contents)

@@ -265,6 +265,13 @@ function RecipientDiagnosticsPanel({ C, badge, rows }) {
         const visible = Boolean(row.visibleToSupplier);
         const supplierName = row.targetSupplierName || row.supplierName || ('Поставщик #' + (row.targetSupplierId || row.supplierId || ''));
         const groupIds = Array.isArray(row.supplierGroupIds) ? row.supplierGroupIds.filter(Boolean) : [];
+        const offerStatuses = Array.isArray(row.offerStatuses) ? row.offerStatuses : [];
+        const statusCounts = offerStatuses.reduce((acc, item) => {
+          const status = item.status || 'Ожидает ответа';
+          acc[status] = (acc[status] || 0) + 1;
+          return acc;
+        }, {});
+        const statusSummary = Object.entries(statusCounts).map(([status, count]) => status + ': ' + count).join(' · ');
         return (
           <div key={row.id || supplierName} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', padding: '5px 0', borderTop: '1px solid ' + C.border }}>
             <div style={{ minWidth: 0 }}>
@@ -275,6 +282,9 @@ function RecipientDiagnosticsPanel({ C, badge, rows }) {
                   : (row.problemReason || 'Кабинет поставщика не связан')}
                 {groupIds.length > 1 ? ' · группа карточек: ' + groupIds.join(', ') : ''}
               </p>
+              {statusSummary && (
+                <p style={{ color: C.textMuted, margin: '2px 0 0', fontSize: '10px' }}>КП: {statusSummary}</p>
+              )}
             </div>
             <span style={badge(visible ? C.success : C.danger, visible ? C.successLight : C.dangerLight, visible ? C.successBorder : C.dangerBorder)}>
               {visible ? 'видит' : 'не видит'}
