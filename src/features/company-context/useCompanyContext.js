@@ -1,0 +1,129 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+
+const storageKeyForUser = (user) => `stroyka.companyContext.v1.${user?.id || user?.email || 'guest'}`;
+
+const asCompanyId = (value) => {
+  const id = Number(value);
+  return Number.isFinite(id) && id > 0 ? id : null;
+};
+
+const readStoredSelection = (user) => {
+  if (typeof window === 'undefined' || !user) return null;
+  try {
+    const raw = localStorage.getItem(storageKeyForUser(user));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch (_e) {
+    return null;
+  }
+};
+
+const writeStoredSelection = (user, selection) => {
+  if (typeof window === 'undefined' || !user) return;
+  try {
+    localStorage.setItem(storageKeyForUser(user), JSON.stringify(selection || {}));
+  } catch (_e) {}
+};
+
+const normalizeSelection = (context, storedSelection) => {
+  const companies = Array.isArray(context?.companies) ? context.companies : [];
+  const canUseAll = Boolean(context?.canUseAllCompanies);
+  const storedMode = storedSelection?.mode === 'all_companies' ? 'all_companies' : 'company';
+  const storedCompanyId = asCompanyId(storedSelection?.companyId);
+  if (storedMode === 'all_companies' && canUseAll) {
+    return { mode: 'all_companies', companyId: null };
+  }
+  if (storedCompanyId && companies.some((company) => asCompanyId(company.companyId) === storedCompanyId)) {
+    return { mode: 'company', companyId: storedCompanyId };
+  }
+  const defaultCompanyId = asCompanyId(context?.defaultCompanyId);
+  if (defaultCompanyId && companies.some((company) => asCompanyId(company.companyId) === defaultCompanyId)) {
+    return { mode: 'company', companyId: defaultCompanyId };
+  }
+  if (companies.length === 1) {
+    return { mode: 'company', companyId: asCompanyId(companies[0].companyId) };
+  }
+  if (canUseAll) {
+    return { mode: 'all_companies', companyId: null };
+  }
+  return { mode: 'company', companyId: asCompanyId(companies[0]?.companyId) };
+};
+
+export function useCompanyContext({ API, user }) {
+  const [context, setContext] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [selection, setSelection] = useState({ mode: 'company', companyId: null });
+
+  const refresh = useCallback(async () => {
+    if (!user) {
+      setContext(null);
+      setSelection({ mode: 'company', companyId: null });
+      setError('');
+      setLoading(false);
+      return null;
+    }
+    const controller = new AbortController();
+    setLoading(true);
+    setError('');
+    try {
+      const response = await fetch((API || '') + '/company-context', { signal: controller.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      setContext(data);
+      setSelection((prev) => {
+        const next = normalizeSelection(data, readStoredSelection(user) || prev);
+        writeStoredSelection(user, next);
+        return next;
+      });
+      return data;
+    } catch (err) {
+      if (err?.name !== 'AbortError') {
+        setError('Не удалось загрузить компании');
+      }
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, [API, user]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const companies = useMemo(() => (
+    Array.isArray(context?.companies) ? context.companies : []
+  ), [context]);
+
+  const selectedCompany = useMemo(() => {
+    if (selection.mode === 'all_companies') return null;
+    const selectedId = asCompanyId(selection.companyId);
+    return companies.find((company) => asCompanyId(company.companyId) === selectedId) || null;
+  }, [companies, selection]);
+
+  const setSelectedCompanyId = useCallback((value) => {
+    if (!context) return;
+    const next = value === 'all'
+      ? { mode: 'all_companies', companyId: null }
+      : { mode: 'company', companyId: asCompanyId(value) };
+    const normalized = normalizeSelection(context, next);
+    setSelection(normalized);
+    writeStoredSelection(user, normalized);
+  }, [context, user]);
+
+  return {
+    canUseAllCompanies: Boolean(context?.canUseAllCompanies),
+    companies,
+    context,
+    defaultCompanyId: context?.defaultCompanyId || null,
+    error,
+    loading,
+    mode: selection.mode,
+    refresh,
+    selectedCompany,
+    selectedCompanyId: selection.companyId,
+    setSelectedCompanyId,
+  };
+}
+

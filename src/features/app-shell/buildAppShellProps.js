@@ -21,6 +21,7 @@ export function buildAppShellProps({
   appMainState = {},
   authEntryState = {},
   businessRuntime = {},
+  companyContext = {},
   coreRuntime = {},
   dashboardActions = {},
   documentActions = {},
@@ -315,6 +316,7 @@ export function buildAppShellProps({
       data: {
         ...sharedState,
         canUseDirectorAgent,
+        companyContext,
         directorAgentAnswer,
         directorAgentError,
         directorAgentLoading,
@@ -365,6 +367,7 @@ export function buildAppShellProps({
       allMenuItems: safeAllMenuItems,
       btnG,
       btnO,
+      companyContext,
       darkMode,
       globalSearch,
       inp,

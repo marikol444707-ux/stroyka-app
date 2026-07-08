@@ -924,10 +924,39 @@ def _system_user_filter_int(value):
         return None
 
 
+def _system_json_list(value):
+    if isinstance(value, list):
+        return value
+    if value in (None, ""):
+        return []
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, list) else []
+        except Exception:
+            return []
+    return []
+
+
 def _system_client_user_row(row: dict) -> dict:
     item = dict(row or {})
     role = item.get("role") or ""
     platform_account_id = item.get("user_platform_account_id") or item.get("platform_account_id")
+    memberships = []
+    for membership in _system_json_list(item.get("company_memberships")):
+        if not isinstance(membership, dict):
+            continue
+        membership_role = membership.get("role") or role
+        memberships.append({
+            "membershipId": membership.get("membershipId") or membership.get("membership_id"),
+            "companyId": membership.get("companyId") or membership.get("company_id"),
+            "companyName": membership.get("companyName") or membership.get("company_name") or "",
+            "platformAccountId": membership.get("platformAccountId") or membership.get("platform_account_id"),
+            "role": membership_role,
+            "roleLabel": _client_user_role_label(membership_role),
+            "active": membership.get("active") is not False,
+            "isDefault": bool(membership.get("isDefault") or membership.get("is_default")),
+        })
     return {
         "id": item.get("id"),
         "name": item.get("name") or "",
@@ -945,6 +974,10 @@ def _system_client_user_row(row: dict) -> dict:
         "twoFactorRequired": bool(item.get("two_factor_required")),
         "twoFactorEnabled": bool(item.get("two_factor_enabled")),
         "createdAt": str(item.get("created_at") or "")[:19],
+        "companyMemberships": memberships,
+        "userCompanyRoles": memberships,
+        "hasMultipleCompanies": len([m for m in memberships if m.get("active")]) > 1,
+        "companyContextSource": "membership" if memberships else "legacy",
     }
 
 
@@ -1667,11 +1700,29 @@ def register_platform_admin_routes(app, deps):
         where = ["NOT (COALESCE(u.role,'') = ANY(%s))"]
         values = [list(CLIENT_USER_EXCLUDED_ROLES)]
         if platform_account_id:
-            where.append("COALESCE(u.platform_account_id,c.platform_account_id)=%s")
-            values.append(platform_account_id)
+            where.append("""(
+                COALESCE(u.platform_account_id,c.platform_account_id)=%s
+                OR EXISTS (
+                    SELECT 1
+                    FROM user_company_roles ucr
+                    LEFT JOIN companies ucrc ON ucrc.id=ucr.company_id
+                    WHERE ucr.user_id=u.id
+                      AND COALESCE(ucr.platform_account_id,ucrc.platform_account_id)=%s
+                )
+            )""")
+            values.extend([platform_account_id, platform_account_id])
         if company_id:
-            where.append("u.company_id=%s")
-            values.append(company_id)
+            where.append("""(
+                u.company_id=%s
+                OR EXISTS (
+                    SELECT 1
+                    FROM user_company_roles ucr
+                    WHERE ucr.user_id=u.id
+                      AND ucr.company_id=%s
+                      AND COALESCE(ucr.active,TRUE)=TRUE
+                )
+            )""")
+            values.extend([company_id, company_id])
         if role:
             if role in CLIENT_USER_EXCLUDED_ROLES:
                 return []
@@ -1691,10 +1742,25 @@ def register_platform_admin_routes(app, deps):
                               u.company_id, u.project_name, u.two_factor_required, u.two_factor_enabled, u.created_at,
                               u.platform_account_id AS user_platform_account_id,
                               c.name AS company_name, c.active AS company_active,
-                              c.platform_account_id, pa.name AS platform_account_name
+                              c.platform_account_id, pa.name AS platform_account_name,
+                              COALESCE(ucrm.company_memberships,'[]'::json) AS company_memberships
                        FROM users u
                        LEFT JOIN companies c ON c.id=u.company_id
                        LEFT JOIN platform_accounts pa ON pa.id=COALESCE(u.platform_account_id,c.platform_account_id)
+                       LEFT JOIN LATERAL (
+                           SELECT json_agg(json_build_object(
+                                      'membershipId', ucr.id,
+                                      'companyId', ucr.company_id,
+                                      'companyName', mc.name,
+                                      'platformAccountId', COALESCE(ucr.platform_account_id,mc.platform_account_id),
+                                      'role', ucr.role,
+                                      'active', COALESCE(ucr.active,TRUE),
+                                      'isDefault', COALESCE(ucr.is_default,FALSE)
+                                  ) ORDER BY COALESCE(ucr.is_default,FALSE) DESC, mc.name NULLS LAST, ucr.company_id) AS company_memberships
+                           FROM user_company_roles ucr
+                           LEFT JOIN companies mc ON mc.id=ucr.company_id
+                           WHERE ucr.user_id=u.id
+                       ) ucrm ON TRUE
                        WHERE {' AND '.join(where)}
                        ORDER BY pa.name NULLS LAST, c.name NULLS LAST, u.active DESC, u.name NULLS LAST, u.email
                        LIMIT %s""", tuple(values + [limit]))
@@ -1714,10 +1780,25 @@ def register_platform_admin_routes(app, deps):
                               u.company_id, u.project_name, u.two_factor_required, u.two_factor_enabled, u.created_at,
                               u.platform_account_id AS user_platform_account_id,
                               c.name AS company_name, c.active AS company_active,
-                              c.platform_account_id, pa.name AS platform_account_name
+                              c.platform_account_id, pa.name AS platform_account_name,
+                              COALESCE(ucrm.company_memberships,'[]'::json) AS company_memberships
                        FROM users u
                        LEFT JOIN companies c ON c.id=u.company_id
                        LEFT JOIN platform_accounts pa ON pa.id=COALESCE(u.platform_account_id,c.platform_account_id)
+                       LEFT JOIN LATERAL (
+                           SELECT json_agg(json_build_object(
+                                      'membershipId', ucr.id,
+                                      'companyId', ucr.company_id,
+                                      'companyName', mc.name,
+                                      'platformAccountId', COALESCE(ucr.platform_account_id,mc.platform_account_id),
+                                      'role', ucr.role,
+                                      'active', COALESCE(ucr.active,TRUE),
+                                      'isDefault', COALESCE(ucr.is_default,FALSE)
+                                  ) ORDER BY COALESCE(ucr.is_default,FALSE) DESC, mc.name NULLS LAST, ucr.company_id) AS company_memberships
+                           FROM user_company_roles ucr
+                           LEFT JOIN companies mc ON mc.id=ucr.company_id
+                           WHERE ucr.user_id=u.id
+                       ) ucrm ON TRUE
                        WHERE u.id=%s
                        FOR UPDATE""", (id,))
         before = cur.fetchone()
@@ -1766,14 +1847,48 @@ def register_platform_admin_routes(app, deps):
             raise HTTPException(status_code=400, detail="Нет изменений")
         values.append(id)
         cur.execute("UPDATE users SET " + ", ".join(sets) + " WHERE id=%s", tuple(values))
+        if target_company:
+            cur.execute("""UPDATE user_company_roles
+                           SET active=FALSE, is_default=FALSE, updated_at=NOW()
+                           WHERE user_id=%s AND role=%s AND company_id<>%s""",
+                (id, before.get("role") or "", target_company.get("id")))
+            cur.execute("""UPDATE user_company_roles
+                           SET is_default=FALSE, updated_at=NOW()
+                           WHERE user_id=%s AND id NOT IN (
+                               SELECT id FROM user_company_roles WHERE user_id=%s AND company_id=%s AND role=%s
+                           )""", (id, id, target_company.get("id"), before.get("role") or ""))
+            cur.execute("""INSERT INTO user_company_roles
+                              (user_id, platform_account_id, company_id, role, assigned_projects, assigned_packages, active, is_default)
+                           VALUES (%s,%s,%s,%s,'[]'::jsonb,'[]'::jsonb,TRUE,TRUE)
+                           ON CONFLICT (user_id, company_id, role) DO UPDATE SET
+                              platform_account_id=EXCLUDED.platform_account_id,
+                              active=TRUE,
+                              is_default=TRUE,
+                              updated_at=NOW()""",
+                (id, target_company.get("platform_account_id"), target_company.get("id"), before.get("role") or ""))
         cur.execute("""SELECT u.id, u.name, u.email, u.role, COALESCE(u.active,TRUE) AS active,
                               u.company_id, u.project_name, u.two_factor_required, u.two_factor_enabled, u.created_at,
                               u.platform_account_id AS user_platform_account_id,
                               c.name AS company_name, c.active AS company_active,
-                              c.platform_account_id, pa.name AS platform_account_name
+                              c.platform_account_id, pa.name AS platform_account_name,
+                              COALESCE(ucrm.company_memberships,'[]'::json) AS company_memberships
                        FROM users u
                        LEFT JOIN companies c ON c.id=u.company_id
                        LEFT JOIN platform_accounts pa ON pa.id=COALESCE(u.platform_account_id,c.platform_account_id)
+                       LEFT JOIN LATERAL (
+                           SELECT json_agg(json_build_object(
+                                      'membershipId', ucr.id,
+                                      'companyId', ucr.company_id,
+                                      'companyName', mc.name,
+                                      'platformAccountId', COALESCE(ucr.platform_account_id,mc.platform_account_id),
+                                      'role', ucr.role,
+                                      'active', COALESCE(ucr.active,TRUE),
+                                      'isDefault', COALESCE(ucr.is_default,FALSE)
+                                  ) ORDER BY COALESCE(ucr.is_default,FALSE) DESC, mc.name NULLS LAST, ucr.company_id) AS company_memberships
+                           FROM user_company_roles ucr
+                           LEFT JOIN companies mc ON mc.id=ucr.company_id
+                           WHERE ucr.user_id=u.id
+                       ) ucrm ON TRUE
                        WHERE u.id=%s""", (id,))
         after = cur.fetchone()
         if "transferred" in action_parts:

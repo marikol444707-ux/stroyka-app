@@ -16,6 +16,7 @@ import { useAppCoreRuntime } from './features/app-shell/useAppCoreRuntime';
 import { useAppMainState } from './features/app-shell/useAppMainState';
 import { useAuthEntryState, useDarkModeState, useResponsiveLayout, useShellOverlayState } from './features/app-shell/useAppShellState';
 import { useAiAssistantState } from './features/ai-assistant/useAiAssistantState';
+import { useCompanyContext } from './features/company-context';
 import { persistEstimateAction } from './features/estimates/estimatePersistenceActions';
 import { useEstimateExecutionFillPercentSync } from './features/estimates/useEstimateExecutionPricingState';
 import { useEstimateWorkflowState } from './features/estimates/useEstimateWorkflowState';
@@ -53,6 +54,10 @@ function App() {
   const {
     user
   } = authEntryState;
+  const companyContext = useCompanyContext({
+    API,
+    user
+  });
   const appMainState = useAppMainState();
   const {
     allBrigadeItems,
@@ -218,6 +223,7 @@ function App() {
     API,
     appMainState,
     businessRuntime: appBusinessRuntime,
+    companyContext,
     constants: {
       CHECKLIST_TEMPLATES,
       EMPTY_ESTIMATE_CHANGE,
@@ -317,6 +323,7 @@ function App() {
     appCoreRuntime,
     appMainState,
     authEntryState,
+    companyContext,
     estimateWorkflowState,
     layout: {
       isCompactHeader,

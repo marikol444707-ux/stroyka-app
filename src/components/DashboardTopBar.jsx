@@ -1,6 +1,7 @@
 import React from 'react';
 import { Bot, Menu, MessageSquare } from 'lucide-react';
 import { C as DEFAULT_C } from '../constants/uiTheme';
+import { CompanyContextSwitcher } from '../features/company-context';
 import NotificationsDropdown from './NotificationsDropdown';
 
 export default function DashboardTopBar({
@@ -17,6 +18,7 @@ export default function DashboardTopBar({
   unreadNotifications,
   btnG,
   btnO,
+  companyContext,
   myNotifications,
   notifications,
   markMyNotificationsRead,
@@ -66,6 +68,7 @@ export default function DashboardTopBar({
         <p style={{color:'#94a3b8',margin:'6px 0 0',fontSize:phoneLike?'13px':'14px',lineHeight:1.35,overflowWrap:'anywhere'}}>Контроль объектов, финансов, склада и рисков</p>
       </div>
       <div style={{display:'flex',gap:phoneLike?'8px':'10px',alignItems:'center',justifyContent:phoneLike?'flex-start':'flex-end',flexWrap:'wrap',width:phoneLike?'100%':'auto',minWidth:0}}>
+        <CompanyContextSwitcher C={theme} companyContext={companyContext} dashboard isMobile={phoneLike}/>
         <button onClick={toggleSidebar} title="Открыть меню" style={iconButtonStyle}><Menu size={18}/></button>
         <button onClick={toggleTheme} title={darkMode?'Светлая тема':'Тёмная тема'} style={{...iconButtonStyle,fontSize:'16px'}}>{darkMode?'☀️':'🌙'}</button>
         <button onClick={toggleChat} style={{...iconButtonStyle,position:'relative'}}><MessageSquare size={18} color='#94a3b8'/>{unreadMessagesCount>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700',minWidth:'16px',textAlign:'center'}}>{unreadMessagesCount>99?'99+':unreadMessagesCount}</span>}</button>

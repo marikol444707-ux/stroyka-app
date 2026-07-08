@@ -569,6 +569,8 @@ def require_workflow_token(x_workflow_token: Optional[str] = Header(default=None
 LEADERSHIP_ROLES = ("директор", "зам_директора")
 SYSTEM_PROJECT_NAME = "Система"
 FINANCE_ROLES = ("директор", "зам_директора", "бухгалтер")
+PLATFORM_STAFF_ROLES = ("system_owner", "platform_admin", "platform_support", "billing_admin")
+CLIENT_ACCOUNT_ROLES = ("account_owner", "account_admin")
 ESTIMATE_WRITE_ROLES = ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик")
 WAREHOUSE_ROLES = ("директор", "зам_директора", "кладовщик", "снабженец", "прораб")
 MAIN_WAREHOUSE_WRITE_ROLES = ("директор", "зам_директора", "кладовщик", "снабженец")
@@ -1087,11 +1089,153 @@ def supplier_offer_targets_for_groups(cur, supplier_ids, ai_ids=None) -> list:
         row = cur.fetchone()
         target_id = int(_row_get(row, "id", 0, supplier_id) or supplier_id)
         targets.append({
+            "requested_id": supplier_id,
             "target_id": target_id,
             "scope_ids": scope_ids,
             "ai_recommended": bool(ai_ids.intersection(scope_ids) or target_id in ai_ids),
         })
     return targets
+
+def _ensure_supply_request_recipients_table(cur):
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS supply_request_recipients (
+            id SERIAL PRIMARY KEY,
+            company_id INT,
+            request_id INT NOT NULL,
+            supplier_id INT NOT NULL,
+            target_supplier_id INT NOT NULL,
+            supplier_user_id INT,
+            supplier_group_ids INT[] DEFAULT '{}',
+            visible_to_supplier BOOLEAN DEFAULT FALSE,
+            problem_reason TEXT DEFAULT '',
+            status VARCHAR(100) DEFAULT 'Ожидает ответа',
+            requested_at TIMESTAMP DEFAULT NOW(),
+            responded_at TIMESTAMP
+        )
+    """)
+    cur.execute("ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS company_id INT")
+    cur.execute("ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS request_id INT")
+    cur.execute("ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS supplier_id INT")
+    cur.execute("ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS target_supplier_id INT")
+    cur.execute("ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS supplier_user_id INT")
+    cur.execute("ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS supplier_group_ids INT[] DEFAULT '{}'")
+    cur.execute("ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS visible_to_supplier BOOLEAN DEFAULT FALSE")
+    cur.execute("ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS problem_reason TEXT DEFAULT ''")
+    cur.execute("ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS status VARCHAR(100) DEFAULT 'Ожидает ответа'")
+    cur.execute("ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS requested_at TIMESTAMP DEFAULT NOW()")
+    cur.execute("ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS responded_at TIMESTAMP")
+    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_supply_request_recipients_request_target ON supply_request_recipients(request_id, target_supplier_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_supply_request_recipients_company ON supply_request_recipients(company_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_supply_request_recipients_supplier ON supply_request_recipients(target_supplier_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_supply_request_recipients_visible ON supply_request_recipients(visible_to_supplier)")
+
+def _supplier_visibility_for_scope(cur, scope_ids) -> dict:
+    ids = _normalize_supplier_ids(scope_ids)
+    if not ids:
+        return {"visible": False, "user_id": None, "reason": "Поставщик не найден"}
+    cur.execute("""
+        SELECT id, name, email, phone, user_id
+          FROM suppliers
+         WHERE id = ANY(%s)
+         ORDER BY CASE WHEN user_id IS NOT NULL THEN 0 ELSE 1 END, id
+    """, (ids,))
+    suppliers = cur.fetchall() or []
+    for supplier in suppliers:
+        user_id = _row_get(supplier, "user_id", 4, None)
+        if user_id:
+            cur.execute("SELECT id FROM users WHERE id=%s AND COALESCE(role,'')=%s LIMIT 1", (user_id, "поставщик"))
+            supplier_user = cur.fetchone()
+            if supplier_user:
+                return {"visible": True, "user_id": _row_get(supplier_user, "id", 0, user_id), "reason": ""}
+    emails = [
+        str(_row_get(supplier, "email", 2, "") or "").strip().lower()
+        for supplier in suppliers
+        if str(_row_get(supplier, "email", 2, "") or "").strip()
+    ]
+    for email in emails:
+        cur.execute("SELECT id FROM users WHERE LOWER(COALESCE(email,''))=LOWER(%s) AND COALESCE(role,'')=%s ORDER BY id LIMIT 1", (email, "поставщик"))
+        user_row = cur.fetchone()
+        if user_row:
+            return {"visible": True, "user_id": _row_get(user_row, "id", 0, None), "reason": ""}
+    return {
+        "visible": False,
+        "user_id": None,
+        "reason": "Карточка поставщика не связана с пользователем: поставщик не увидит запрос в кабинете",
+    }
+
+def _upsert_supply_request_recipients(cur, request_id: int, company_id: int, supplier_ids, status: str = "Ожидает ответа") -> list:
+    _ensure_supply_request_recipients_table(cur)
+    rows = []
+    for target in supplier_offer_targets_for_groups(cur, supplier_ids):
+        supplier_id = int(target.get("requested_id") or target.get("target_id") or 0)
+        target_id = int(target.get("target_id") or supplier_id or 0)
+        scope_ids = _normalize_supplier_ids(target.get("scope_ids") or [target_id])
+        if not supplier_id or not target_id:
+            continue
+        visibility = _supplier_visibility_for_scope(cur, scope_ids)
+        row = {
+            "companyId": company_id,
+            "requestId": request_id,
+            "supplierId": supplier_id,
+            "targetSupplierId": target_id,
+            "supplierUserId": visibility.get("user_id"),
+            "supplierGroupIds": scope_ids,
+            "visibleToSupplier": bool(visibility.get("visible")),
+            "problemReason": visibility.get("reason") or "",
+            "status": status,
+        }
+        cur.execute("""
+            INSERT INTO supply_request_recipients
+                (company_id, request_id, supplier_id, target_supplier_id, supplier_user_id,
+                 supplier_group_ids, visible_to_supplier, problem_reason, status, requested_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+            ON CONFLICT (request_id, target_supplier_id) DO UPDATE SET
+                company_id=EXCLUDED.company_id,
+                supplier_id=EXCLUDED.supplier_id,
+                supplier_user_id=EXCLUDED.supplier_user_id,
+                supplier_group_ids=EXCLUDED.supplier_group_ids,
+                visible_to_supplier=EXCLUDED.visible_to_supplier,
+                problem_reason=EXCLUDED.problem_reason,
+                status=EXCLUDED.status,
+                requested_at=NOW()
+        """, (
+            company_id, request_id, supplier_id, target_id, row["supplierUserId"],
+            scope_ids, row["visibleToSupplier"], row["problemReason"], status,
+        ))
+        rows.append(row)
+    return rows
+
+def _recipient_visibility_error(rows: list) -> str:
+    invisible = [row for row in rows if not row.get("visibleToSupplier")]
+    if not invisible:
+        return ""
+    labels = []
+    for row in invisible[:5]:
+        labels.append("поставщик #" + str(row.get("targetSupplierId") or row.get("supplierId")))
+    suffix = "" if len(invisible) <= 5 else " и ещё " + str(len(invisible) - 5)
+    return "КП не отправлено: " + ", ".join(labels) + suffix + " не привязаны к пользовательскому аккаунту. Свяжите карточку поставщика с пользователем или отправьте инвайт."
+
+def _resolve_work_company_context(cur, user: dict, requested_company_id=None, action_mode: str = "write") -> dict:
+    try:
+        from backend.features.company_context.service import resolve_company_context
+    except ModuleNotFoundError:
+        from features.company_context.service import resolve_company_context
+    return resolve_company_context(
+        cur,
+        user,
+        requested_company_id,
+        action_mode,
+        platform_staff_roles=PLATFORM_STAFF_ROLES,
+        client_account_roles=CLIENT_ACCOUNT_ROLES,
+    )
+
+def _project_company_id(cur, project_name: str):
+    project_name = (project_name or "").strip()
+    if not project_name or project_name == "Основной склад":
+        return None
+    cur.execute("SELECT company_id FROM projects WHERE name=%s ORDER BY id DESC LIMIT 1", (project_name,))
+    row = cur.fetchone()
+    return _row_get(row, "company_id", 0, None) if row else None
 
 def supplier_is_selected(selected_suppliers, supplier_id: int) -> bool:
     if not supplier_id:
@@ -3015,7 +3159,6 @@ def init_db():
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
-        ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE materials ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
@@ -3036,12 +3179,60 @@ def init_db():
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT FALSE;
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP;
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        -- Рабочие роли пользователя в нескольких компаниях одного SaaS-аккаунта.
+        -- users.company_id остается default/legacy-привязкой до полной миграции рабочих цепочек.
+        CREATE TABLE IF NOT EXISTS user_company_roles (
+            id SERIAL PRIMARY KEY,
+            user_id INT NOT NULL,
+            platform_account_id INT,
+            company_id INT NOT NULL,
+            role VARCHAR(100) NOT NULL,
+            assigned_projects JSONB DEFAULT '[]'::jsonb,
+            assigned_packages JSONB DEFAULT '[]'::jsonb,
+            active BOOLEAN DEFAULT TRUE,
+            is_default BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        );
+        ALTER TABLE user_company_roles ADD COLUMN IF NOT EXISTS platform_account_id INT;
+        ALTER TABLE user_company_roles ADD COLUMN IF NOT EXISTS assigned_projects JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE user_company_roles ADD COLUMN IF NOT EXISTS assigned_packages JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE user_company_roles ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE;
+        ALTER TABLE user_company_roles ADD COLUMN IF NOT EXISTS is_default BOOLEAN DEFAULT FALSE;
+        ALTER TABLE user_company_roles ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
+        ALTER TABLE user_company_roles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_user_company_roles_unique_role ON user_company_roles (user_id, company_id, role);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_user_company_roles_one_default ON user_company_roles (user_id) WHERE active IS TRUE AND is_default IS TRUE;
+        CREATE INDEX IF NOT EXISTS idx_user_company_roles_user ON user_company_roles (user_id);
+        CREATE INDEX IF NOT EXISTS idx_user_company_roles_company ON user_company_roles (company_id);
+        CREATE INDEX IF NOT EXISTS idx_user_company_roles_account ON user_company_roles (platform_account_id);
+        CREATE INDEX IF NOT EXISTS idx_user_company_roles_active ON user_company_roles (active);
+        INSERT INTO user_company_roles
+            (user_id, platform_account_id, company_id, role, assigned_projects, assigned_packages, active, is_default)
+        SELECT u.id,
+               COALESCE(u.platform_account_id,c.platform_account_id,1),
+               u.company_id,
+               u.role,
+               COALESCE(u.assigned_projects,'[]'::jsonb),
+               COALESCE(u.assigned_packages,'[]'::jsonb),
+               COALESCE(u.active,TRUE),
+               TRUE
+        FROM users u
+        LEFT JOIN companies c ON c.id=u.company_id
+        WHERE u.company_id IS NOT NULL
+          AND COALESCE(u.role,'') <> ''
+          AND COALESCE(u.role,'') NOT IN ('system_owner','platform_admin','platform_support','billing_admin','account_owner','account_admin')
+        ON CONFLICT (user_id, company_id, role) DO NOTHING;
         -- Поставщики — глобальные. company_id у них означает «первичный клиент» (необязательно)
         -- Связи компания-поставщик через company_supplier_links (договор и рейтинг свой у каждой пары)
         CREATE TABLE IF NOT EXISTS company_supplier_links (
             id SERIAL PRIMARY KEY,
             company_id INT NOT NULL,
             supplier_id INT NOT NULL,
+            platform_account_id INT,
+            local_category VARCHAR(100),
+            source_type VARCHAR(100),
+            source_detail TEXT,
             contract_url VARCHAR(500),
             contract_number VARCHAR(100),
             contract_date DATE,
@@ -3050,6 +3241,43 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW(),
             UNIQUE(company_id, supplier_id)
         );
+        ALTER TABLE company_supplier_links ADD COLUMN IF NOT EXISTS platform_account_id INT;
+        ALTER TABLE company_supplier_links ADD COLUMN IF NOT EXISTS local_category VARCHAR(100);
+        ALTER TABLE company_supplier_links ADD COLUMN IF NOT EXISTS source_type VARCHAR(100);
+        ALTER TABLE company_supplier_links ADD COLUMN IF NOT EXISTS source_detail TEXT;
+        CREATE INDEX IF NOT EXISTS idx_company_supplier_links_account ON company_supplier_links(platform_account_id);
+        CREATE INDEX IF NOT EXISTS idx_company_supplier_links_company ON company_supplier_links(company_id);
+        CREATE INDEX IF NOT EXISTS idx_company_supplier_links_supplier ON company_supplier_links(supplier_id);
+        CREATE TABLE IF NOT EXISTS supply_request_recipients (
+            id SERIAL PRIMARY KEY,
+            company_id INT,
+            request_id INT NOT NULL,
+            supplier_id INT NOT NULL,
+            target_supplier_id INT NOT NULL,
+            supplier_user_id INT,
+            supplier_group_ids INT[] DEFAULT '{}',
+            visible_to_supplier BOOLEAN DEFAULT FALSE,
+            problem_reason TEXT DEFAULT '',
+            status VARCHAR(100) DEFAULT 'Ожидает ответа',
+            requested_at TIMESTAMP DEFAULT NOW(),
+            responded_at TIMESTAMP
+        );
+        ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS request_id INT;
+        ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS supplier_id INT;
+        ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS target_supplier_id INT;
+        ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS supplier_user_id INT;
+        ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS supplier_group_ids INT[] DEFAULT '{}';
+        ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS visible_to_supplier BOOLEAN DEFAULT FALSE;
+        ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS problem_reason TEXT DEFAULT '';
+        ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS status VARCHAR(100) DEFAULT 'Ожидает ответа';
+        ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS requested_at TIMESTAMP DEFAULT NOW();
+        ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS responded_at TIMESTAMP;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_supply_request_recipients_request_target
+            ON supply_request_recipients(request_id, target_supplier_id);
+        CREATE INDEX IF NOT EXISTS idx_supply_request_recipients_company ON supply_request_recipients(company_id);
+        CREATE INDEX IF NOT EXISTS idx_supply_request_recipients_supplier ON supply_request_recipients(target_supplier_id);
+        CREATE INDEX IF NOT EXISTS idx_supply_request_recipients_visible ON supply_request_recipients(visible_to_supplier);
         -- Подписки поставщиков (биллинг — пока заготовка)
         CREATE TABLE IF NOT EXISTS supplier_subscriptions (
             id SERIAL PRIMARY KEY,
@@ -3071,6 +3299,7 @@ def init_db():
             notes TEXT,
             status VARCHAR(100) DEFAULT 'Ожидает'
         );
+        ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS payment_terms VARCHAR(100) DEFAULT 'Постоплата';
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS vat_included BOOLEAN DEFAULT TRUE;
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS pdf_url VARCHAR(500);
@@ -4671,6 +4900,7 @@ class SupplyRequestModel(BaseModel):
     quantity: float = 0
     unit: str = "шт"
     project: str = ""
+    companyId: Optional[int] = None
     workPackage: str = ""
     createdBy: str = ""
     date: str = ""
@@ -7342,6 +7572,7 @@ def delete_supplier(id: int, _current_user: dict = Depends(require_roles("дир
     return {"ok": True}
 
 SUPPLY_SELECT = ("SELECT id,material_name as \"materialName\",quantity,unit,project,"
+                 "company_id as \"companyId\","
                  "COALESCE(work_package,'') as \"workPackage\","
                  "created_by as \"createdBy\",date,status,notes,"
                  "selected_suppliers as \"selectedSuppliers\","
@@ -7379,12 +7610,15 @@ def _supply_response_for_role(row, user: dict):
 
 def _ensure_supply_runtime_columns(cur):
     """Поднимает колонки снабжения для старых баз, где миграция могла не пройти."""
+    cur.execute("ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
+    cur.execute("ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
     cur.execute("ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS work_package VARCHAR(100)")
     cur.execute("ALTER TABLE supply_deliveries ADD COLUMN IF NOT EXISTS work_package VARCHAR(100)")
     cur.execute("ALTER TABLE supply_claims ADD COLUMN IF NOT EXISTS work_package VARCHAR(100)")
     cur.execute("ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT ''")
     cur.execute("ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS request_id INT")
     cur.execute("ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS delivery_id INT")
+    _ensure_supply_request_recipients_table(cur)
 
 def _normalize_supplier_ids(value) -> list:
     if value is None:
@@ -7400,8 +7634,11 @@ def _normalize_supplier_ids(value) -> list:
             ids.append(supplier_id)
     return ids
 
-def _create_supplier_offer_requests(cur, request_id: int, supplier_ids, ai_ids=None) -> list:
+def _create_supplier_offer_requests(cur, request_id: int, supplier_ids, ai_ids=None, company_id=None) -> list:
     created = []
+    if company_id is None:
+        cur.execute("SELECT company_id FROM supply_requests WHERE id=%s LIMIT 1", (request_id,))
+        company_id = _row_get(cur.fetchone(), "company_id", 0, None)
     for target in supplier_offer_targets_for_groups(cur, supplier_ids, ai_ids):
         supplier_id = target["target_id"]
         scope_ids = target["scope_ids"] or [supplier_id]
@@ -7413,17 +7650,17 @@ def _create_supplier_offer_requests(cur, request_id: int, supplier_ids, ai_ids=N
         if existing:
             if (existing.get("status") or "") in ("Отозвано", "Отклонено"):
                 cur.execute(
-                    "UPDATE supplier_offers SET supplier_id=%s, status=%s, price_per_unit=NULL, total_price=NULL, delivery_days=NULL, "
+                    "UPDATE supplier_offers SET supplier_id=%s, company_id=%s, status=%s, price_per_unit=NULL, total_price=NULL, delivery_days=NULL, "
                     "notes=NULL, payment_terms=%s, vat_included=TRUE, pdf_url=NULL, valid_until=NULL, "
                     "supplier_message='', requested_at=NOW(), responded_at=NULL, ai_recommended=%s, "
                     "delivery_status=NULL, items_kp_json=NULL WHERE id=%s RETURNING id",
-                    (supplier_id, 'Ожидает ответа', 'Постоплата', ai_recommended, existing.get("id")))
+                    (supplier_id, company_id, 'Ожидает ответа', 'Постоплата', ai_recommended, existing.get("id")))
                 created.append(cur.fetchone()['id'])
             continue
         cur.execute(
-            "INSERT INTO supplier_offers (request_id, supplier_id, status, ai_recommended, requested_at) "
-            "VALUES (%s, %s, %s, %s, NOW()) RETURNING id",
-            (request_id, supplier_id, 'Ожидает ответа', ai_recommended))
+            "INSERT INTO supplier_offers (request_id, supplier_id, company_id, status, ai_recommended, requested_at) "
+            "VALUES (%s, %s, %s, %s, %s, NOW()) RETURNING id",
+            (request_id, supplier_id, company_id, 'Ожидает ответа', ai_recommended))
         created.append(cur.fetchone()['id'])
     return created
 
@@ -8494,8 +8731,21 @@ def get_supply_requests(limit: Optional[int] = None, offset: int = 0, current_us
         if not supplier_ids:
             cur.close(); conn.close()
             return []
-        cur.execute(SUPPLY_SELECT + " WHERE COALESCE(selected_suppliers, '{}'::int[]) && %s::int[] ORDER BY id DESC" + page_sql,
-                    [supplier_ids] + page_params)
+        _ensure_supply_request_recipients_table(cur)
+        cur.execute(SUPPLY_SELECT + """
+            WHERE COALESCE(selected_suppliers, '{}'::int[]) && %s::int[]
+               OR id IN (
+                    SELECT request_id
+                      FROM supply_request_recipients
+                     WHERE visible_to_supplier=TRUE
+                       AND (
+                            target_supplier_id = ANY(%s)
+                         OR supplier_id = ANY(%s)
+                         OR COALESCE(supplier_group_ids, '{}'::int[]) && %s::int[]
+                       )
+               )
+            ORDER BY id DESC
+        """ + page_sql, [supplier_ids, supplier_ids, supplier_ids, supplier_ids] + page_params)
     elif role == "прораб":
         projects = user_project_names(current_user)
         clauses = ["requested_by_id=%s", "created_by=%s"]
@@ -8561,6 +8811,13 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     _ensure_supply_runtime_columns(cur)
     conn.commit()
+    project_company_id = _project_company_id(cur, project_name)
+    requested_company_id = r.companyId or project_company_id or _current_user.get("companyId") or _current_user.get("company_id")
+    company_context = _resolve_work_company_context(cur, _current_user, requested_company_id, "create")
+    company_id = int(company_context.get("companyId") or requested_company_id or 1)
+    if project_company_id and int(project_company_id) != company_id:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Выбранная компания не совпадает с компанией объекта. Переключите компанию в шапке или выберите другой объект.")
     selected_suppliers = supplier_group_scope_ids(cur, selected_suppliers)
     items = _attach_supply_estimate_control(cur, project_name, items)
     if project_name != "Основной склад":
@@ -8568,18 +8825,23 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
     items_json = _json.dumps(items, ensure_ascii=False)
     cur.execute(
         "INSERT INTO supply_requests "
-        "(material_name,quantity,unit,project,work_package,created_by,date,notes,selected_suppliers,"
+        "(material_name,quantity,unit,project,company_id,work_package,created_by,date,notes,selected_suppliers,"
         "status,requested_by_role,requested_by_id,urgency,category,"
         "prorab_id,prorab_name,prorab_confirmed_at,"
         "director_id,director_name,director_approved_at,items_json) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (agg_name, agg_qty, agg_unit, project_name, request_package, created_by, r.date, r.notes,
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (agg_name, agg_qty, agg_unit, project_name, company_id, request_package, created_by, r.date, r.notes,
          selected_suppliers, initial_status, role, requested_by_id, r.urgency, r.category,
          prorab_id, prorab_name, prorab_at,
          director_id, director_name, director_at, items_json))
     new_id = cur.fetchone()['id']
     if selected_suppliers and initial_status == "Утверждена":
-        _create_supplier_offer_requests(cur, new_id, selected_suppliers)
+        recipient_rows = _upsert_supply_request_recipients(cur, new_id, company_id, selected_suppliers)
+        visibility_error = _recipient_visibility_error(recipient_rows)
+        if visibility_error:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail=visibility_error)
+        _create_supplier_offer_requests(cur, new_id, selected_suppliers, company_id=company_id)
         cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", ('КП запрошены', new_id))
     cur.execute(SUPPLY_SELECT + " WHERE id=%s", (new_id,))
     row = cur.fetchone()
@@ -9005,6 +9267,7 @@ def supply_request_stock_check(id: int, current_user: dict = Depends(require_rol
             except Exception: pass
 
 OFFERS_SELECT = ("SELECT id, request_id as \"requestId\", supplier_id as \"supplierId\","
+                 "company_id as \"companyId\","
                  "price_per_unit as \"pricePerUnit\", total_price as \"totalPrice\","
                  "delivery_days as \"deliveryDays\", notes, status,"
                  "delivery_status as \"deliveryStatus\","
@@ -9135,7 +9398,7 @@ def get_supplier_offer_history(id: int, current_user: dict = Depends(get_current
 def create_supplier_offer(o: SupplierOfferModel, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id, project, selected_suppliers, status FROM supply_requests WHERE id=%s", (o.requestId,))
+    cur.execute("SELECT id, project, selected_suppliers, status, company_id FROM supply_requests WHERE id=%s", (o.requestId,))
     req = cur.fetchone()
     if not req:
         cur.close(); conn.close()
@@ -9161,8 +9424,8 @@ def create_supplier_offer(o: SupplierOfferModel, _current_user: dict = Depends(r
             raise HTTPException(status_code=403, detail="Недостаточно прав для создания КП")
         if req.get("project"):
             require_project_or_warehouse_access(_current_user, req.get("project") or "")
-    cur.execute("INSERT INTO supplier_offers (request_id,supplier_id,price_per_unit,total_price,delivery_days,notes) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
-                (o.requestId,supplier_id,o.pricePerUnit,o.totalPrice,o.deliveryDays,o.notes))
+    cur.execute("INSERT INTO supplier_offers (request_id,supplier_id,company_id,price_per_unit,total_price,delivery_days,notes) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+                (o.requestId,supplier_id,req.get("company_id") or 1,o.pricePerUnit,o.totalPrice,o.deliveryDays,o.notes))
     new_id = cur.fetchone()['id']
     _log_supplier_offer_event(cur, new_id, "created", "", "Ожидает", _current_user, {"action": "created"})
     cur.execute(OFFERS_SELECT + " WHERE id=%s", (new_id,))
@@ -9350,6 +9613,23 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
              data.get('supplierMessage') or '',
              items_kp_json,
              datetime.now(), id))
+        _ensure_supply_request_recipients_table(cur)
+        cur.execute("""
+            UPDATE supply_request_recipients
+               SET status=%s, responded_at=NOW()
+             WHERE request_id=%s
+               AND (
+                    target_supplier_id=%s
+                 OR supplier_id=%s
+                 OR COALESCE(supplier_group_ids, '{}'::int[]) && %s::int[]
+               )
+        """, (
+            "КП получено",
+            offer_access.get("request_id"),
+            offer_access.get("supplier_id"),
+            offer_access.get("supplier_id"),
+            [offer_access.get("supplier_id")],
+        ))
         _log_supplier_offer_event(cur, id, "responded", current_status, "Получено", _current_user, data)
     elif action == 'select':
         # Директор выбрал это КП
@@ -9362,6 +9642,23 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
             cur.close(); conn.close()
             raise
         cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", ('Утверждено', id))
+        _ensure_supply_request_recipients_table(cur)
+        cur.execute("""
+            UPDATE supply_request_recipients
+               SET status=%s
+             WHERE request_id=%s
+               AND (
+                    target_supplier_id=%s
+                 OR supplier_id=%s
+                 OR COALESCE(supplier_group_ids, '{}'::int[]) && %s::int[]
+               )
+        """, (
+            "КП выбрано",
+            offer_access.get("request_id"),
+            offer_access.get("supplier_id"),
+            offer_access.get("supplier_id"),
+            [offer_access.get("supplier_id")],
+        ))
         _log_supplier_offer_event(cur, id, "selected", offer_access.get("status") or "", "Утверждено", _current_user, data)
         # Остальные КП по этой заявке — отклонены
         cur.execute("SELECT request_id FROM supplier_offers WHERE id=%s", (id,))
@@ -9369,6 +9666,12 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
         if r and r['request_id']:
             cur.execute("UPDATE supplier_offers SET status=%s WHERE request_id=%s AND id<>%s AND status<>%s",
                 ('Отклонено', r['request_id'], id, 'Отклонено'))
+            cur.execute("""
+                UPDATE supply_request_recipients
+                   SET status=%s
+                 WHERE request_id=%s
+                   AND status NOT IN (%s)
+            """, ("КП отклонено", r['request_id'], "КП выбрано"))
     elif action == 'withdraw':
         current_status = offer_access.get("status") or ""
         if current_status == "Утверждено":
@@ -9385,9 +9688,43 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
             cur.close(); conn.close()
             raise HTTPException(status_code=400, detail="КП уже связано со счётом или поставкой, отзыв заблокирован")
         cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", ('Отозвано', id))
+        _ensure_supply_request_recipients_table(cur)
+        cur.execute("""
+            UPDATE supply_request_recipients
+               SET status=%s
+             WHERE request_id=%s
+               AND (
+                    target_supplier_id=%s
+                 OR supplier_id=%s
+                 OR COALESCE(supplier_group_ids, '{}'::int[]) && %s::int[]
+               )
+        """, (
+            "КП отозвано",
+            offer_access.get("request_id"),
+            offer_access.get("supplier_id"),
+            offer_access.get("supplier_id"),
+            [offer_access.get("supplier_id")],
+        ))
         _log_supplier_offer_event(cur, id, "withdrawn", current_status, "Отозвано", _current_user, data)
     elif action == 'reject':
         cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", ('Отклонено', id))
+        _ensure_supply_request_recipients_table(cur)
+        cur.execute("""
+            UPDATE supply_request_recipients
+               SET status=%s
+             WHERE request_id=%s
+               AND (
+                    target_supplier_id=%s
+                 OR supplier_id=%s
+                 OR COALESCE(supplier_group_ids, '{}'::int[]) && %s::int[]
+               )
+        """, (
+            "КП отклонено",
+            offer_access.get("request_id"),
+            offer_access.get("supplier_id"),
+            offer_access.get("supplier_id"),
+            [offer_access.get("supplier_id")],
+        ))
         _log_supplier_offer_event(cur, id, "rejected", offer_access.get("status") or "", "Отклонено", _current_user, data)
     else:
         if 'status' in data:
@@ -9431,32 +9768,86 @@ def request_kp_from_suppliers(id: int, data: dict, _current_user: dict = Depends
         return {"error": "Не выбраны поставщики"}
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    _ensure_supply_runtime_columns(cur)
     # Получаем количество из заявки для preview total
-    cur.execute("SELECT quantity, project, status FROM supply_requests WHERE id=%s", (id,))
+    cur.execute("SELECT quantity, project, status, company_id FROM supply_requests WHERE id=%s", (id,))
     req = cur.fetchone()
     if not req:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Заявка не найдена")
+    request_company_id = data.get("companyId") or req.get("company_id") or req.get("companyId")
+    company_context = _resolve_work_company_context(cur, _current_user, request_company_id, "update")
+    company_id = int(company_context.get("companyId") or request_company_id or 1)
     if req.get('project'):
         require_project_or_warehouse_access(_current_user, req.get('project') or "")
+        project_company_id = _project_company_id(cur, req.get('project') or "")
+        if project_company_id and int(project_company_id) != company_id:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="Выбранная компания не совпадает с компанией объекта. Переключите компанию в шапке или выберите другой объект.")
     if (req.get("status") or "Новая") not in ("Утверждена", "КП запрошены"):
         cur.close(); conn.close()
         raise HTTPException(status_code=400, detail="Запрашивать КП можно только после утверждения заявки директором")
     selected_scope_ids = supplier_group_scope_ids(cur, supplier_ids)
-    created = _create_supplier_offer_requests(cur, id, supplier_ids, ai_ids)
+    recipient_rows = _upsert_supply_request_recipients(cur, id, company_id, selected_scope_ids)
+    visibility_error = _recipient_visibility_error(recipient_rows)
+    if visibility_error:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail=visibility_error)
+    created = _create_supplier_offer_requests(cur, id, selected_scope_ids, ai_ids, company_id=company_id)
     # Обновляем статус заявки
     cur.execute("""UPDATE supply_requests
                    SET status=CASE WHEN status='Утверждена' THEN %s ELSE status END,
+                       company_id=%s,
                        selected_suppliers=(
                            SELECT ARRAY(
                                SELECT DISTINCT unnest(COALESCE(selected_suppliers, '{}'::int[]) || %s::int[])
                            )
                        )
                    WHERE id=%s""",
-        ('КП запрошены', selected_scope_ids, id))
+        ('КП запрошены', company_id, selected_scope_ids, id))
     conn.commit()
     conn.close()
-    return {"ok": True, "created": len(created), "ids": created, "supplierIds": selected_scope_ids}
+    return {
+        "ok": True,
+        "created": len(created),
+        "ids": created,
+        "supplierIds": selected_scope_ids,
+        "companyId": company_id,
+        "recipients": recipient_rows,
+    }
+
+@app.get("/supply-requests/{id}/recipients")
+def get_supply_request_recipients(id: int, _current_user: dict = Depends(require_roles(*SUPPLY_INTERNAL_ROLES))):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    _ensure_supply_request_recipients_table(cur)
+    cur.execute("SELECT id, project FROM supply_requests WHERE id=%s", (id,))
+    req = cur.fetchone()
+    if not req:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Заявка не найдена")
+    if req.get("project"):
+        require_project_or_warehouse_access(_current_user, req.get("project") or "")
+    cur.execute("""
+        SELECT r.id, r.company_id AS "companyId", r.request_id AS "requestId",
+               r.supplier_id AS "supplierId", s0.name AS "supplierName",
+               r.target_supplier_id AS "targetSupplierId", s.name AS "targetSupplierName",
+               r.supplier_user_id AS "supplierUserId",
+               r.supplier_group_ids AS "supplierGroupIds",
+               r.visible_to_supplier AS "visibleToSupplier",
+               r.problem_reason AS "problemReason",
+               r.status,
+               r.requested_at AS "requestedAt",
+               r.responded_at AS "respondedAt"
+          FROM supply_request_recipients r
+          LEFT JOIN suppliers s0 ON s0.id=r.supplier_id
+          LEFT JOIN suppliers s ON s.id=r.target_supplier_id
+         WHERE r.request_id=%s
+         ORDER BY r.id
+    """, (id,))
+    rows = [dict(row) for row in cur.fetchall()]
+    cur.close(); conn.close()
+    return rows
 
 @app.get("/supply-requests/{id}/suggest-suppliers")
 def suggest_suppliers_for_request(id: int, current_user: dict = Depends(require_roles(*SUPPLY_INTERNAL_ROLES))):
@@ -26882,6 +27273,18 @@ except ModuleNotFoundError:
 register_client_account_routes(app, {
     "get_db": get_db,
     "require_roles": require_roles,
+})
+
+try:
+    from backend.features.company_context import register_company_context_module
+except ModuleNotFoundError:
+    from features.company_context import register_company_context_module
+
+register_company_context_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "platform_staff_roles": PLATFORM_STAFF_ROLES,
+    "client_account_roles": CLIENT_ACCOUNT_ROLES,
 })
 
 try:

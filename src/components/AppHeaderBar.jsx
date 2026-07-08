@@ -1,6 +1,7 @@
 import React from 'react';
 import { Menu, MessageSquare, Search, Settings, Zap } from 'lucide-react';
 import { C as DEFAULT_C } from '../constants/uiTheme';
+import { CompanyContextSwitcher } from '../features/company-context';
 import NotificationsDropdown from './NotificationsDropdown';
 
 export default function AppHeaderBar({
@@ -29,6 +30,7 @@ export default function AppHeaderBar({
   unreadNotifications,
   btnG,
   btnO,
+  companyContext,
   myNotifications,
   notifications,
   markMyNotificationsRead,
@@ -86,6 +88,7 @@ export default function AppHeaderBar({
         {showSearch&&resultList.length>0&&(<div style={{position:'absolute',top:'100%',left:0,right:0,backgroundColor:theme.bgWhite,border:'1.5px solid '+theme.border,borderRadius:'10px',boxShadow:'0 8px 25px rgba(0,0,0,0.1)',zIndex:1000,maxHeight:'280px',overflowY:'auto',marginTop:'4px'}}>{resultList.map((r,i)=>(<div key={i} onClick={()=>{openPage(r.page);changeGlobalSearch('');toggleSearch(false);}} style={{padding:'10px 15px',cursor:'pointer',borderBottom:'1px solid '+theme.border,display:'flex',gap:'10px',alignItems:'center'}}><span style={{fontSize:'16px'}}>{r.icon}</span><div><b style={{fontSize:'13px',color:theme.text}}>{r.title}</b><p style={{color:theme.textSec,margin:0,fontSize:'11px'}}>{r.subtitle}</p></div></div>))}</div>)}
       </div>
       <div style={{position:'relative',display:'flex',gap:'8px',alignItems:'center',justifyContent:phoneLike?'flex-start':'flex-end',flexWrap:'wrap',marginLeft:phoneLike?0:'auto',width:phoneLike?'100%':'auto',maxWidth:'100%',minWidth:0,overflowX:'hidden'}}>
+        <CompanyContextSwitcher C={theme} companyContext={companyContext} isMobile={phoneLike}/>
         <button onClick={()=>toggleTheme(d=>!d)} title={darkMode?'Светлая тема':'Тёмная тема'} style={{...headerButtonStyle,fontSize:'16px'}}>{darkMode?'☀️':'🌙'}</button>
         <button onClick={()=>openQuickActions(true)} title='Быстрые действия' style={{...headerButtonStyle,background:'linear-gradient(135deg,#f97316,#ea580c)',border:'none',color:'white',fontWeight:'700',fontSize:'13px',gap:'4px'}}><Zap size={17}/><span style={{fontSize:'13px',display:phoneLike?'none':'inline'}}>Быстро</span></button>
         {['директор','зам_директора','system_owner'].includes(currentRole)&&<button onClick={openStatus} title='Статус системы' style={{...headerButtonStyle,gap:'5px',fontSize:phoneLike?'0':'12px',fontWeight:'700'}}><Settings size={17}/><span style={{display:phoneLike?'none':'inline'}}>Статус</span></button>}

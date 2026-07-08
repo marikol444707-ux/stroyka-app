@@ -1,0 +1,274 @@
+import json
+from typing import List
+
+from fastapi import HTTPException
+
+
+def _as_int(value):
+    try:
+        return int(value) if value not in (None, "") else None
+    except Exception:
+        return None
+
+
+def _json_list(value):
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item or "").strip()]
+    if value in (None, ""):
+        return []
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return [str(item) for item in parsed if str(item or "").strip()]
+        except Exception:
+            return []
+    return []
+
+
+def _company_context_row(
+    row: dict,
+    *,
+    client_account_roles=(),
+    source: str = "membership",
+    read_only: bool = False,
+) -> dict:
+    item = dict(row or {})
+    role = item.get("role") or ""
+    company_id = item.get("company_id") or item.get("id")
+    platform_account_id = item.get("platform_account_id")
+    return {
+        "membershipId": item.get("membership_id"),
+        "companyId": company_id,
+        "company_id": company_id,
+        "companyName": item.get("company_name") or item.get("name") or "",
+        "company_name": item.get("company_name") or item.get("name") or "",
+        "shortName": item.get("short_name") or item.get("shortName") or "",
+        "platformAccountId": platform_account_id,
+        "platform_account_id": platform_account_id,
+        "role": role,
+        "active": item.get("active") is not False,
+        "companyActive": item.get("company_active") is not False,
+        "isDefault": bool(item.get("is_default")),
+        "assignedProjects": _json_list(item.get("assigned_projects")),
+        "assignedPackages": _json_list(item.get("assigned_packages")),
+        "accountLevel": role in client_account_roles,
+        "readOnly": bool(read_only),
+        "source": source,
+    }
+
+
+def user_company_memberships(
+    cur,
+    user: dict,
+    *,
+    include_inactive: bool = False,
+    platform_staff_roles=(),
+    client_account_roles=(),
+) -> List[dict]:
+    user_id = _as_int(user.get("id"))
+    if not user_id:
+        return []
+    where = ["m.user_id=%s"]
+    values = [user_id]
+    if not include_inactive:
+        where.append("COALESCE(m.active,TRUE)=TRUE")
+        where.append("COALESCE(c.active,TRUE)=TRUE")
+    cur.execute(f"""
+        SELECT m.id AS membership_id, m.user_id, m.company_id,
+               COALESCE(m.platform_account_id,c.platform_account_id) AS platform_account_id,
+               m.role, m.assigned_projects, m.assigned_packages,
+               COALESCE(m.active,TRUE) AS active, COALESCE(m.is_default,FALSE) AS is_default,
+               c.name AS company_name, c.short_name, COALESCE(c.active,TRUE) AS company_active
+        FROM user_company_roles m
+        LEFT JOIN companies c ON c.id=m.company_id
+        WHERE {' AND '.join(where)}
+        ORDER BY COALESCE(m.is_default,FALSE) DESC, c.name NULLS LAST, m.company_id
+    """, tuple(values))
+    rows = [
+        _company_context_row(row, client_account_roles=client_account_roles)
+        for row in cur.fetchall()
+    ]
+    if rows:
+        return rows
+    legacy_company_id = _as_int(user.get("companyId") or user.get("company_id"))
+    if not legacy_company_id or user.get("role") in platform_staff_roles:
+        return []
+    cur.execute("""SELECT c.id AS company_id, c.platform_account_id, c.name AS company_name,
+                          c.short_name, COALESCE(c.active,TRUE) AS company_active
+                   FROM companies c
+                   WHERE c.id=%s""", (legacy_company_id,))
+    company = cur.fetchone()
+    if not company:
+        return []
+    legacy = dict(company)
+    legacy.update({
+        "membership_id": None,
+        "role": user.get("role") or "",
+        "assigned_projects": user.get("assignedProjects") or user.get("assigned_projects") or [],
+        "assigned_packages": user.get("assignedPackages") or user.get("assigned_packages") or [],
+        "active": True,
+        "is_default": True,
+    })
+    return [_company_context_row(legacy, client_account_roles=client_account_roles, source="legacy")]
+
+
+def account_company_contexts(cur, user: dict, *, client_account_roles=()) -> List[dict]:
+    account_id = _as_int(user.get("platformAccountId") or user.get("platform_account_id"))
+    company_id = _as_int(user.get("companyId") or user.get("company_id"))
+    if not account_id and company_id:
+        cur.execute("SELECT platform_account_id FROM companies WHERE id=%s", (company_id,))
+        company = cur.fetchone()
+        account_id = _as_int((company or {}).get("platform_account_id"))
+    if not account_id:
+        return []
+    cur.execute("""SELECT c.id AS company_id, c.platform_account_id, c.name AS company_name,
+                          c.short_name, COALESCE(c.active,TRUE) AS company_active
+                   FROM companies c
+                   WHERE c.platform_account_id=%s AND COALESCE(c.active,TRUE)=TRUE
+                   ORDER BY c.name NULLS LAST, c.id""", (account_id,))
+    rows = []
+    for row in cur.fetchall():
+        item = dict(row)
+        item.update({
+            "membership_id": None,
+            "role": user.get("role") or "",
+            "assigned_projects": [],
+            "assigned_packages": [],
+            "active": True,
+            "is_default": _as_int(row.get("company_id")) == company_id,
+        })
+        rows.append(_company_context_row(
+            item,
+            client_account_roles=client_account_roles,
+            source="account",
+            read_only=True,
+        ))
+    return rows
+
+
+def resolve_company_context(
+    cur,
+    user: dict,
+    requested_company_id=None,
+    action_mode: str = "read",
+    *,
+    platform_staff_roles=(),
+    client_account_roles=(),
+) -> dict:
+    """Resolve SaaS company context without mutating legacy user.company_id flows."""
+    mode = (action_mode or "read").strip().lower()
+    requested_id = _as_int(requested_company_id)
+    role = user.get("role") or ""
+    if role in platform_staff_roles:
+        if mode == "summary":
+            return {"mode": "all_companies", "companyId": None, "role": role, "readOnly": True}
+        raise HTTPException(status_code=403, detail="Платформенная роль не может выполнять рабочее действие без support-сессии компании")
+    memberships = user_company_memberships(
+        cur,
+        user,
+        platform_staff_roles=platform_staff_roles,
+        client_account_roles=client_account_roles,
+    )
+    if role in client_account_roles and not memberships:
+        account_companies = account_company_contexts(cur, user, client_account_roles=client_account_roles)
+        if requested_id:
+            selected = next((row for row in account_companies if _as_int(row.get("companyId")) == requested_id), None)
+            if selected:
+                if mode in ("write", "mutate", "create", "update", "delete"):
+                    raise HTTPException(status_code=403, detail="Роль уровня аккаунта пока имеет только обзор. Для рабочих действий назначьте роль в компании.")
+                return {**selected, "mode": "company"}
+        if mode == "summary":
+            return {"mode": "all_companies", "companyId": None, "role": role, "readOnly": True, "companies": account_companies}
+        raise HTTPException(status_code=400, detail="Выберите компанию и рабочую роль для действия")
+    if requested_id:
+        selected = next((row for row in memberships if _as_int(row.get("companyId")) == requested_id), None)
+        if not selected:
+            raise HTTPException(status_code=403, detail="Нет доступа к выбранной компании")
+        return {**selected, "mode": "company"}
+    default_company = next((row for row in memberships if row.get("isDefault")), None)
+    if default_company:
+        return {**default_company, "mode": "company"}
+    if len(memberships) == 1:
+        return {**memberships[0], "mode": "company"}
+    if memberships and mode == "summary":
+        return {"mode": "all_companies", "companyId": None, "role": role, "readOnly": True, "companies": memberships}
+    if memberships:
+        raise HTTPException(status_code=400, detail="Выберите компанию для рабочего действия")
+    raise HTTPException(status_code=403, detail="Компания пользователя не назначена")
+
+
+def build_company_context_response(
+    cur,
+    current_user: dict,
+    *,
+    platform_staff_roles=(),
+    client_account_roles=(),
+) -> dict:
+    role = current_user.get("role") or ""
+    companies = []
+    if role in platform_staff_roles:
+        cur.execute("""SELECT c.id AS company_id, c.platform_account_id, c.name AS company_name,
+                              c.short_name, COALESCE(c.active,TRUE) AS company_active
+                       FROM companies c
+                       WHERE COALESCE(c.active,TRUE)=TRUE
+                       ORDER BY c.platform_account_id NULLS LAST, c.name NULLS LAST, c.id""")
+        for row in cur.fetchall():
+            item = dict(row)
+            item.update({
+                "membership_id": None,
+                "role": role,
+                "assigned_projects": [],
+                "assigned_packages": [],
+                "active": True,
+                "is_default": False,
+            })
+            companies.append(_company_context_row(
+                item,
+                client_account_roles=client_account_roles,
+                source="platform",
+                read_only=True,
+            ))
+    else:
+        companies = user_company_memberships(
+            cur,
+            current_user,
+            platform_staff_roles=platform_staff_roles,
+            client_account_roles=client_account_roles,
+        )
+        if role in client_account_roles:
+            known_ids = {_as_int(item.get("companyId")) for item in companies}
+            for item in account_company_contexts(cur, current_user, client_account_roles=client_account_roles):
+                if _as_int(item.get("companyId")) not in known_ids:
+                    companies.append(item)
+    default_company = next((item for item in companies if item.get("isDefault")), None)
+    if not default_company and len(companies) == 1:
+        default_company = companies[0]
+    platform_account_id = (
+        current_user.get("platformAccountId")
+        or current_user.get("platform_account_id")
+        or (default_company or {}).get("platformAccountId")
+    )
+    if not platform_account_id and companies:
+        platform_account_id = companies[0].get("platformAccountId")
+    return {
+        "ok": True,
+        "user": {
+            "id": current_user.get("id"),
+            "name": current_user.get("name") or "",
+            "email": current_user.get("email") or "",
+            "role": role,
+            "companyId": current_user.get("companyId") or current_user.get("company_id"),
+            "platformAccountId": platform_account_id,
+        },
+        "platformAccountId": platform_account_id,
+        "defaultCompanyId": (default_company or {}).get("companyId"),
+        "companies": companies,
+        "canUseAllCompanies": len(companies) > 1 or role in platform_staff_roles or role in client_account_roles,
+        "modeRules": {
+            "allCompaniesReadOnly": True,
+            "writeRequiresConcreteCompany": True,
+            "legacyCompanyIdStillSupported": True,
+        },
+    }
+

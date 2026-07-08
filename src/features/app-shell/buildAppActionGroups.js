@@ -13,6 +13,7 @@ export function buildAppActionGroups({
   API,
   appMainState = {},
   businessRuntime = {},
+  companyContext = {},
   constants = {},
   coreRuntime = {},
   documentSelectors = {},
@@ -569,7 +570,8 @@ export function buildAppActionGroups({
     supplyRejectReason,
     supplyRequests,
     supplyTemplates,
-    user
+    user,
+    companyContext
   });
 
   const projectOperationActions = createProjectOperationActions({

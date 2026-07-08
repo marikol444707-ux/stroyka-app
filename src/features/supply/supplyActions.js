@@ -49,8 +49,21 @@ export const createSupplyActions = ({
   supplyRequests,
   supplyTemplates,
   user,
+  companyContext = {},
 }) => {
   const currentUser = user || {};
+  const selectedCompanyId = Number(companyContext?.selectedCompanyId || companyContext?.selectedCompany?.companyId || 0) || null;
+  const requireSelectedCompanyForWrite = () => {
+    if (companyContext?.loading) {
+      alert('Компании ещё загружаются. Повторите действие через пару секунд.');
+      return null;
+    }
+    if (companyContext?.mode === 'all_companies' || !selectedCompanyId) {
+      alert('Для создания заявки выберите конкретную компанию в шапке. Режим «Все компании» доступен только для просмотра.');
+      return null;
+    }
+    return selectedCompanyId;
+  };
 
   const saveSupplier = async () => {
     if (!newSupplier.name) return;
@@ -82,6 +95,8 @@ export const createSupplyActions = ({
   };
 
   const saveRequest = async () => {
+    const companyId = requireSelectedCompanyForWrite();
+    if (!companyId) return;
     const requestPackages = getProjectWorkPackageOptions(newRequest.project);
     const defaultWorkPackage = newRequest.workPackage || (requestPackages.length === 1 ? requestPackages[0] : '');
     const validItems = newRequest.items
@@ -111,6 +126,7 @@ export const createSupplyActions = ({
         unit: itemsPayload[0].unit,
         items: itemsPayload,
         workPackage: requestPackage,
+        companyId,
         project: newRequest.project,
         createdBy: currentUser.name || '',
         date: new Date().toISOString().split('T')[0],
@@ -129,7 +145,7 @@ export const createSupplyActions = ({
       const kpRes = await fetch(API + '/supply-requests/' + data.id + '/request-kp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ supplierIds, aiRecommendedIds: [] }),
+        body: JSON.stringify({ supplierIds, aiRecommendedIds: [], companyId }),
       });
       const kpData = await kpRes.json().catch(() => ({}));
       if (!kpRes.ok || kpData.detail || kpData.error) {
@@ -382,11 +398,13 @@ export const createSupplyActions = ({
 
   const sendKpRequest = async () => {
     if (!showRequestKpModal || selectedSupplierIds.length === 0) { alert('Выберите хотя бы одного поставщика'); return; }
+    const companyId = requireSelectedCompanyForWrite();
+    if (!companyId) return;
     const aiIds = (suggestedSuppliers?.suppliers || []).filter(s => s.aiRecommend).map(s => s.id);
     const r = await fetch(API + '/supply-requests/' + showRequestKpModal + '/request-kp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ supplierIds: selectedSupplierIds, aiRecommendedIds: aiIds }),
+      body: JSON.stringify({ supplierIds: selectedSupplierIds, aiRecommendedIds: aiIds, companyId }),
     });
     const data = await r.json().catch(() => ({}));
     if (!r.ok || data.detail || data.error) { alert('Ошибка: ' + (data.detail || data.error || r.status)); return; }
