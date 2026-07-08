@@ -54,7 +54,10 @@ export default function WarehouseObjectsPanel({
   const [visibleObjectRows, setVisibleObjectRows] = React.useState(60);
   const [visibleTransferRows, setVisibleTransferRows] = React.useState(40);
   const [objectMaterialSearch, setObjectMaterialSearch] = React.useState('');
+  const [transferMaterialSearch, setTransferMaterialSearch] = React.useState('');
   const [manualTransferPackageEdit, setManualTransferPackageEdit] = React.useState(false);
+  const deferredObjectMaterialSearch = React.useDeferredValue(objectMaterialSearch);
+  const deferredTransferMaterialSearch = React.useDeferredValue(transferMaterialSearch);
   const useCompactRows = isMobile || (typeof window !== 'undefined' && window.innerWidth <= 1100);
   const currentUser = user || {};
   const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
@@ -195,27 +198,47 @@ export default function WarehouseObjectsPanel({
   }, [selectedWarehouseProject, objectMaterialSearch, loadMaterialsPage, useCompactRows]);
   React.useEffect(() => {
     setVisibleTransferRows(useCompactRows ? 40 : 100);
-  }, [useCompactRows, selectedWarehouseProject, showTransferForm]);
+  }, [useCompactRows, selectedWarehouseProject, showTransferForm, transferMaterialSearch]);
   React.useEffect(() => {
-    if (!showTransferForm) setManualTransferPackageEdit(false);
+    if (!showTransferForm) {
+      setManualTransferPackageEdit(false);
+      setTransferMaterialSearch('');
+    }
   }, [showTransferForm]);
-  const selectedProjectMaterials = projectMaterials(selectedWarehouseProject);
-  const normalizedObjectSearch = objectMaterialSearch.trim().toLowerCase();
-  const filteredProjectMaterials = normalizedObjectSearch
-    ? selectedProjectMaterials.filter(material => [
-      material.name,
-      material.category,
-      material.unit,
-      material.workPackage,
-      material.work_package,
-    ].some(value => String(value || '').toLowerCase().includes(normalizedObjectSearch)))
-    : selectedProjectMaterials;
+  const selectedProjectMaterials = React.useMemo(
+    () => projectMaterials(selectedWarehouseProject),
+    [projectMaterials, selectedWarehouseProject],
+  );
+  const normalizedObjectSearch = deferredObjectMaterialSearch.trim().toLowerCase();
+  const filteredProjectMaterials = React.useMemo(() => (
+    normalizedObjectSearch
+      ? selectedProjectMaterials.filter(material => [
+        material.name,
+        material.category,
+        material.unit,
+        material.workPackage,
+        material.work_package,
+      ].some(value => String(value || '').toLowerCase().includes(normalizedObjectSearch)))
+      : selectedProjectMaterials
+  ), [normalizedObjectSearch, selectedProjectMaterials]);
   const displayedProjectMaterials = filteredProjectMaterials.slice(0, visibleObjectRows);
   const hiddenProjectMaterials = Math.max(0, filteredProjectMaterials.length - displayedProjectMaterials.length);
   const objectRowsStep = useCompactRows ? 60 : 180;
   const transferRowsStep = useCompactRows ? 40 : 100;
-  const displayedTransferSourceMaterials = transferSourceMaterials.slice(0, visibleTransferRows);
-  const hiddenTransferMaterials = Math.max(0, transferSourceMaterials.length - displayedTransferSourceMaterials.length);
+  const normalizedTransferSearch = deferredTransferMaterialSearch.trim().toLowerCase();
+  const filteredTransferSourceMaterials = React.useMemo(() => (
+    normalizedTransferSearch
+      ? transferSourceMaterials.filter(material => [
+        material.name,
+        material.category,
+        material.unit,
+        material.workPackage,
+        material.work_package,
+      ].some(value => String(value || '').toLowerCase().includes(normalizedTransferSearch)))
+      : transferSourceMaterials
+  ), [normalizedTransferSearch, transferSourceMaterials]);
+  const displayedTransferSourceMaterials = filteredTransferSourceMaterials.slice(0, visibleTransferRows);
+  const hiddenTransferMaterials = Math.max(0, filteredTransferSourceMaterials.length - displayedTransferSourceMaterials.length);
   const materialsQueryMatches = materialsPage.projectName === (selectedWarehouseProject || '') && (materialsPage.search || '') === objectMaterialSearch.trim();
   const canLoadMoreFromServer = !!selectedWarehouseProject && typeof loadMaterialsPage === 'function' && materialsQueryMatches && materialsPage.hasMore;
   const loadNextProjectMaterials = () => {
@@ -458,6 +481,15 @@ export default function WarehouseObjectsPanel({
               <option value={selectedWarehouseProject}>Склад объекта «{selectedWarehouseProject}»</option>
             </select>
             <p style={{ fontSize: '12px', color: C.textSec, marginBottom: '6px' }}>Выберите материал:</p>
+            <div style={{ position: 'relative', marginBottom: '8px' }}>
+              <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.textMuted }} />
+              <input
+                value={transferMaterialSearch}
+                onChange={event => setTransferMaterialSearch(event.target.value)}
+                placeholder="Поиск для передачи: материал, пакет, категория"
+                style={{ ...inp, marginBottom: 0, paddingLeft: 32, width: '100%', boxSizing: 'border-box' }}
+              />
+            </div>
             <div style={{ maxHeight: '180px', overflowY: 'auto', border: '1.5px solid ' + C.border, borderRadius: '8px', padding: '8px', marginBottom: '10px' }}>
               {displayedTransferSourceMaterials.map((material, index) => (
                 <div key={index} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0', borderBottom: '1px solid ' + C.border, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
@@ -485,11 +517,16 @@ export default function WarehouseObjectsPanel({
                   <span style={{ fontSize: '11px', color: C.textSec, flex: isMobile ? '0 0 100%' : '0 0 auto', paddingLeft: isMobile ? '24px' : 0 }}>Остаток: {material.quantity} {material.unit}</span>
                 </div>
               ))}
+              {filteredTransferSourceMaterials.length === 0 && (
+                <div style={{ padding: '14px 8px', color: C.textMuted, fontSize: '12px', textAlign: 'center' }}>
+                  Материал не найден по текущему поиску
+                </div>
+              )}
             </div>
             {hiddenTransferMaterials > 0 && (
               <button
                 type="button"
-                onClick={() => setVisibleTransferRows(limit => Math.min(transferSourceMaterials.length, limit + transferRowsStep))}
+                onClick={() => setVisibleTransferRows(limit => Math.min(filteredTransferSourceMaterials.length, limit + transferRowsStep))}
                 style={{ ...btnG, width: '100%', justifyContent: 'center', marginBottom: '10px' }}
               >
                 Показать ещё {Math.min(hiddenTransferMaterials, transferRowsStep)} материалов
