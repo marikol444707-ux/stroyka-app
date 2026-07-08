@@ -9,6 +9,7 @@ import SupplySuppliersPanel from './SupplySuppliersPanel';
 import SupplySupplierInvoicesPanel from './SupplySupplierInvoicesPanel';
 
 export default function SupplyPage({
+  API,
   C,
   card,
   inp,
@@ -361,6 +362,7 @@ export default function SupplyPage({
 
       {curTab !== 'catalog' && curTab !== 'invoices' && curTab !== 'suppliers' && curTab !== 'deliveries' && (
         <SupplyRequestsList
+          API={API}
           C={C}
           card={card}
           inp={inp}

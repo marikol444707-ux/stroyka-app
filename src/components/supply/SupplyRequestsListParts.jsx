@@ -248,7 +248,46 @@ function CompareResultBlock({ C, compareResult }) {
   );
 }
 
+function RecipientDiagnosticsPanel({ C, badge, rows }) {
+  if (!rows) return null;
+  if (rows.length === 0) {
+    return (
+      <div style={{ padding: '8px 10px', backgroundColor: C.warningLight, borderRadius: '6px', border: '1px solid ' + C.warningBorder, marginBottom: '8px', fontSize: '11px', color: C.text }}>
+        Получатели КП не зафиксированы. Запрос мог быть создан до диагностики или КП ещё не отправлялось.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: '8px 10px', backgroundColor: C.bg, borderRadius: '6px', border: '1px solid ' + C.border, marginBottom: '8px' }}>
+      <b style={{ color: C.text, fontSize: '11px', display: 'block', marginBottom: '6px' }}>Доставка до кабинета поставщика</b>
+      {rows.map(row => {
+        const visible = Boolean(row.visibleToSupplier);
+        const supplierName = row.targetSupplierName || row.supplierName || ('Поставщик #' + (row.targetSupplierId || row.supplierId || ''));
+        const groupIds = Array.isArray(row.supplierGroupIds) ? row.supplierGroupIds.filter(Boolean) : [];
+        return (
+          <div key={row.id || supplierName} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', padding: '5px 0', borderTop: '1px solid ' + C.border }}>
+            <div style={{ minWidth: 0 }}>
+              <p style={{ color: C.text, margin: 0, fontSize: '11px', fontWeight: 700 }}>{supplierName}</p>
+              <p style={{ color: visible ? C.textMuted : C.danger, margin: '2px 0 0', fontSize: '10px' }}>
+                {visible
+                  ? 'Кабинет найден' + (row.supplierUserId ? ' · пользователь #' + row.supplierUserId : '')
+                  : (row.problemReason || 'Кабинет поставщика не связан')}
+                {groupIds.length > 1 ? ' · группа карточек: ' + groupIds.join(', ') : ''}
+              </p>
+            </div>
+            <span style={badge(visible ? C.success : C.danger, visible ? C.successLight : C.dangerLight, visible ? C.successBorder : C.dangerBorder)}>
+              {visible ? 'видит' : 'не видит'}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function OffersBlock({
+  API,
   C,
   btnG,
   btnGr,
@@ -267,8 +306,21 @@ function OffersBlock({
   withdrawSupplierOffer,
   canApprove,
 }) {
+  const [recipientCheck, setRecipientCheck] = React.useState({ loading: false, rows: null, error: '' });
   const offers = (supplierOffers || []).filter(o => o.requestId === request.id);
   if (offers.length === 0) return null;
+
+  const loadRecipientCheck = async () => {
+    setRecipientCheck(prev => ({ ...prev, loading: true, error: '' }));
+    try {
+      const res = await fetch((API || '') + '/supply-requests/' + request.id + '/recipients');
+      const data = await res.json().catch(() => []);
+      if (!res.ok) throw new Error(data.detail || data.error || ('HTTP ' + res.status));
+      setRecipientCheck({ loading: false, rows: Array.isArray(data) ? data : [], error: '' });
+    } catch (err) {
+      setRecipientCheck({ loading: false, rows: null, error: err.message || 'Не удалось проверить доставку КП' });
+    }
+  };
 
   const winner = offers.find(o => o.status === 'Утверждено');
   const receivedOffers = offers.filter(o => o.status === 'Получено' || o.status === 'Утверждено');
@@ -284,8 +336,19 @@ function OffersBlock({
             <Bot size={11} />{compareLoading ? 'AI сравнивает...' : '🤖 Сравнить через AI'}
           </button>
         )}
+        {canApprove && (
+          <button onClick={loadRecipientCheck} disabled={recipientCheck.loading} style={{ ...btnG, padding: '4px 10px', fontSize: '11px', opacity: recipientCheck.loading ? 0.6 : 1 }}>
+            {recipientCheck.loading ? 'Проверяю...' : 'Проверить доставку'}
+          </button>
+        )}
       </div>
       <CompareResultBlock C={C} compareResult={compareResult} />
+      {recipientCheck.error && (
+        <div style={{ padding: '8px 10px', backgroundColor: C.dangerLight, borderRadius: '6px', border: '1px solid ' + C.dangerBorder, marginBottom: '8px', fontSize: '11px', color: C.danger }}>
+          {recipientCheck.error}
+        </div>
+      )}
+      <RecipientDiagnosticsPanel C={C} badge={badge} rows={recipientCheck.rows} />
       {offers.map(o => {
         const sup = suppliers.find(s => s.id === o.supplierId);
         const isWin = o.status === 'Утверждено';
@@ -358,6 +421,7 @@ function RejectReasonBlock({
 
 export function SupplyRequestCard(props) {
   const {
+    API,
     C,
     card,
     inp,
@@ -510,6 +574,7 @@ export function SupplyRequestCard(props) {
         />
       )}
       <OffersBlock
+        API={API}
         C={C}
         btnG={btnG}
         btnGr={btnGr}

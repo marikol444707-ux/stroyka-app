@@ -69,6 +69,17 @@ export default function SupplierCabinetPage({
     const currentUserId = user?.id || user?.userId || user?.user_id || '';
     const currentUserEmail = String(user?.email || '').toLowerCase();
     const currentUserName = normalizeSupplierIdentity(user?.name);
+    const isSupplierRole = (user?.role || '') === 'поставщик';
+    const supplierOffersList = Array.isArray(supplierOffers) ? supplierOffers : [];
+    const supplierOfferFallback = supplierOffersList.find(offer => (
+      offer?.supplierName || offer?.supplier_name || offer?.supplier || offer?.supplierId || offer?.supplier_id
+    )) || null;
+    const supplierOfferFallbackName = supplierOfferFallback
+      ? (supplierOfferFallback.supplierName || supplierOfferFallback.supplier_name || supplierOfferFallback.supplier || '')
+      : '';
+    const supplierOfferFallbackId = supplierOfferFallback
+      ? (supplierOfferFallback.supplierId || supplierOfferFallback.supplier_id || 0)
+      : 0;
     const currentUserKeys = supplierIdentityKeys({
       name: user?.name || '',
       email: user?.email || '',
@@ -85,11 +96,12 @@ export default function SupplierCabinetPage({
         || currentUserKeys.some(key => identityKeys.includes(key));
     };
     const mySupplier = supplierGroups.find(matchesCurrentUser) || (supplierGroups.length === 1 ? supplierGroups[0] : null);
-    const supplierAccountUnlinked = (user?.role || '') === 'поставщик' && !mySupplier;
+    const supplierAccountUnlinked = isSupplierRole && !mySupplier;
     const mySupplierIds = new Set((mySupplier?._supplierIds || [mySupplier?.id]).filter(Boolean).map(id => String(id)));
     const mySupplierNames = new Set([
       ...(mySupplier?._supplierNames || []),
       mySupplier?.name || '',
+      supplierOfferFallbackName || '',
       user?.name || '',
     ].map(normalizeSupplierIdentity).filter(Boolean));
     const isMySupplierId = value => value !== undefined && value !== null && value !== '' && mySupplierIds.has(String(value));
@@ -103,12 +115,12 @@ export default function SupplierCabinetPage({
       isMySupplierId(row?.supplierId || row?.supplier_id)
       || isMySupplierName(row?.supplierName || row?.supplier_name || row?.supplier || row?.name)
     );
-    const myPrimarySupplierId = mySupplier?._supplierIds?.[0] || mySupplier?.id || 0;
-    const myCatalog = supplierCatalog.filter(belongsToMySupplier);
-    const myOffers = supplierOffers.filter(belongsToMySupplier);
-    const mySupplierInvoices = supplierInvoices.filter(inv => belongsToMySupplier(inv) || isMySupplierName(inv.supplierName || user.name));
-    const myDeliveries = supplyDeliveries.filter(d => belongsToMySupplier(d) || isMySupplierName(d.supplierName || user.name));
-    const myClaims = supplyClaims.filter(belongsToMySupplier);
+    const myPrimarySupplierId = mySupplier?._supplierIds?.[0] || mySupplier?.id || supplierOfferFallbackId || 0;
+    const myCatalog = isSupplierRole ? (supplierCatalog || []) : (supplierCatalog || []).filter(belongsToMySupplier);
+    const myOffers = isSupplierRole ? supplierOffersList : supplierOffersList.filter(belongsToMySupplier);
+    const mySupplierInvoices = isSupplierRole ? (supplierInvoices || []) : (supplierInvoices || []).filter(inv => belongsToMySupplier(inv) || isMySupplierName(inv.supplierName || user.name));
+    const myDeliveries = isSupplierRole ? (supplyDeliveries || []) : (supplyDeliveries || []).filter(d => belongsToMySupplier(d) || isMySupplierName(d.supplierName || user.name));
+    const myClaims = isSupplierRole ? (supplyClaims || []) : (supplyClaims || []).filter(belongsToMySupplier);
     const pendingOfferCount = myOffers.filter(o => o.status === 'Ожидает ответа').length;
     const approvedOfferCount = myOffers.filter(o => o.status === 'Утверждено').length;
     const supplierCardRequisites = React.useMemo(() => {
@@ -154,10 +166,11 @@ export default function SupplierCabinetPage({
         return next;
       });
     }, [mySupplier?.id, supplierCardRequisites, setSupplierRequisites]);
-    const supplierDisplayName = mySupplier?.name || supplierRequisites.companyName || user?.name || 'Поставщик';
+    const supplierDisplayName = mySupplier?.name || supplierRequisites.companyName || supplierOfferFallbackName || user?.name || 'Поставщик';
     const supplierHeaderMeta = [
       user?.name && user.name !== supplierDisplayName ? user.name : '',
       mySupplier?._duplicateCount > 1 ? 'связанных карточек: ' + mySupplier._duplicateCount : '',
+      !mySupplier && supplierOffersList.length > 0 ? 'КП получены, карточку нужно связать' : '',
     ].filter(Boolean).join(' · ');
     const supplierInvoiceWarehouseId = inv => inv?.warehouseInvoiceId || inv?.warehouse_invoice_id || '';
     const warehouseInvoiceForSupplierInvoice = inv => (invoices || []).find(row => (
@@ -267,7 +280,11 @@ export default function SupplierCabinetPage({
           {supplierAccountUnlinked && (
             <div style={{...card,padding:'12px 14px',marginBottom:'16px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
               <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'4px'}}>Кабинет не связан с карточкой поставщика</b>
-              <p style={{color:C.textSec,fontSize:'12px',margin:0}}>Попросите директора открыть карточку поставщика и связать ваш пользовательский аккаунт с компанией. После этого здесь появятся название компании, КП, счета и накладные.</p>
+              <p style={{color:C.textSec,fontSize:'12px',margin:0}}>
+                {myOffers.length > 0
+                  ? 'КП уже показаны по backend-доступу, но директору нужно связать карточку поставщика с вашим аккаунтом, чтобы корректно подтягивались название компании, реквизиты, счета и накладные.'
+                  : 'Попросите директора открыть карточку поставщика и связать ваш пользовательский аккаунт с компанией. После этого здесь появятся название компании, КП, счета и накладные.'}
+              </p>
             </div>
           )}
           <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'12px',marginBottom:'16px'}}>

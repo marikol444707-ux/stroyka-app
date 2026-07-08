@@ -5,7 +5,7 @@ import {
 } from '../app/lazyComponents';
 
 export default function AppOperationsPages({ activePage, ui, constants, state, actions }) {
-  const { C, badge, btnB, btnG, btnGr, btnO, btnR, card, inp, isMobile, tbl, tblC, tblH } = ui;
+  const { API, C, badge, btnB, btnG, btnGr, btnO, btnR, card, inp, isMobile, tbl, tblC, tblH } = ui;
   const { MATERIAL_CATEGORIES, SUPPLIER_CATEGORIES, TOOL_STATUSES, UNITS, VAT_OPTIONS } = constants;
   const {
     compareLoadingReqId,
@@ -287,6 +287,7 @@ export default function AppOperationsPages({ activePage, ui, constants, state, a
 
       {activePage === 'supply' && (
         <SupplyPage
+          API={API}
           C={C}
           card={card}
           inp={inp}
