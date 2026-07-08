@@ -3,6 +3,9 @@ import { Plus, Search } from 'lucide-react';
 import { WarehouseInvoiceCard, WarehouseInvoiceForm } from './warehouse/WarehouseInvoicesParts';
 import { createMaterialTransferForm } from '../features/warehouse/warehouseInitialForms';
 
+const INVOICE_VISIBLE_DESKTOP = 30;
+const INVOICE_VISIBLE_MOBILE = 12;
+
 export default function WarehouseInvoicesPanel({
   showForm,
   setShowForm,
@@ -49,6 +52,9 @@ export default function WarehouseInvoicesPanel({
   isMobile = false,
 }) {
   const [invoiceSearch, setInvoiceSearch] = React.useState('');
+  const [visibleInvoices, setVisibleInvoices] = React.useState(isMobile ? INVOICE_VISIBLE_MOBILE : INVOICE_VISIBLE_DESKTOP);
+  const invoiceStep = isMobile ? INVOICE_VISIBLE_MOBILE : INVOICE_VISIBLE_DESKTOP;
+  const deferredInvoiceSearch = React.useDeferredValue(invoiceSearch);
   const invoiceItems = newInvoice.items || [];
   const invoiceTotal = invoiceItems.reduce((sum, item) => sum + (Number(item.lineTotal || 0) || Number(item.quantity || 0) * Number(item.price || 0)), 0);
   const materialEstimates = (estimatesList || []).filter(est => est.projectName === newInvoice.location && est.smetaType === 'Материалы');
@@ -61,11 +67,11 @@ export default function WarehouseInvoicesPanel({
     return Number.isFinite(parsed) ? parsed : 0;
   };
 
-  const normalizeText = value => String(value || '')
+  const normalizeText = React.useCallback(value => String(value || '')
     .toLowerCase()
     .replace(/[.,;:()«»"']/g, ' ')
     .replace(/\s+/g, ' ')
-    .trim();
+    .trim(), []);
 
   const invoiceProjectName = (inv = {}) => (
     inv.location === 'Основной склад' ? '' : (inv.project || inv.location || '')
@@ -203,35 +209,64 @@ export default function WarehouseInvoicesPanel({
     );
   };
 
-  const preparedInvoices = (invoices || []).map(inv => {
-    const invoiceRows = warehouseInvoiceItems(inv);
-    const estimateControl = warehouseInvoiceEstimateControl ? warehouseInvoiceEstimateControl(inv) : [];
-    const estimateIssues = estimateControl.filter(row => ['danger', 'warning'].includes(row.severity));
-    const projectName = invoiceProjectName(inv);
-    const materialSummary = projectName && typeof materialControlSummaryForProject === 'function'
-      ? materialControlSummaryForProject(projectName)
-      : null;
-    return { inv, invoiceRows, estimateControl, estimateIssues, projectName, materialSummary };
-  });
+  const invoiceQuickItems = React.useCallback((inv = {}) => (
+    Array.isArray(inv.items) ? inv.items.filter(item => (item?.name || '').trim()) : []
+  ), []);
 
-  const normalizedInvoiceSearch = normalizeText(invoiceSearch);
-  const filteredInvoices = normalizedInvoiceSearch
-    ? preparedInvoices.filter(row => {
-      const itemText = (row.invoiceRows.items || []).map(item => item.name).join(' ');
-      return normalizeText([
-        row.inv.number,
-        row.inv.date,
-        row.inv.supplierName,
-        row.inv.acceptedBy,
-        row.inv.location,
-        row.inv.project,
-        row.inv.status,
-        itemText,
-      ].join(' ')).includes(normalizedInvoiceSearch);
+  const invoiceQuickSearchText = React.useCallback((inv = {}) => {
+    const directItems = invoiceQuickItems(inv);
+    return [
+      inv.number,
+      inv.date,
+      inv.supplierName,
+      inv.acceptedBy,
+      inv.location,
+      inv.project,
+      inv.status,
+      directItems.map(item => item.name).join(' '),
+    ].join(' ');
+  }, [invoiceQuickItems]);
+
+  const invoiceSearchMatches = React.useCallback((inv, normalizedSearch) => {
+    if (!normalizedSearch) return true;
+    if (normalizeText(invoiceQuickSearchText(inv)).includes(normalizedSearch)) return true;
+    if (invoiceQuickItems(inv).length) return false;
+    const reconstructedText = (warehouseInvoiceItems(inv).items || []).map(item => item.name).join(' ');
+    return normalizeText(reconstructedText).includes(normalizedSearch);
+  }, [invoiceQuickItems, invoiceQuickSearchText, normalizeText, warehouseInvoiceItems]);
+
+  const normalizedInvoiceSearch = normalizeText(deferredInvoiceSearch);
+  const filteredInvoiceRows = React.useMemo(() => (
+    (invoices || [])
+      .filter(inv => invoiceSearchMatches(inv, normalizedInvoiceSearch))
+      .map(inv => ({ inv, quickPositionCount: invoiceQuickItems(inv).length }))
+  ), [invoices, normalizedInvoiceSearch, invoiceSearchMatches, invoiceQuickItems]);
+  const displayedInvoiceRows = React.useMemo(
+    () => filteredInvoiceRows.slice(0, visibleInvoices),
+    [filteredInvoiceRows, visibleInvoices],
+  );
+  const hiddenInvoices = Math.max(0, filteredInvoiceRows.length - displayedInvoiceRows.length);
+  const preparedInvoices = React.useMemo(() => (
+    displayedInvoiceRows.map(({ inv }) => {
+      const invoiceRows = warehouseInvoiceItems(inv);
+      const estimateControl = warehouseInvoiceEstimateControl ? warehouseInvoiceEstimateControl(inv) : [];
+      const estimateIssues = estimateControl.filter(row => ['danger', 'warning'].includes(row.severity));
+      const projectName = invoiceProjectName(inv);
+      const materialSummary = projectName && typeof materialControlSummaryForProject === 'function'
+        ? materialControlSummaryForProject(projectName)
+        : null;
+      return { inv, invoiceRows, estimateControl, estimateIssues, projectName, materialSummary };
     })
-    : preparedInvoices;
-  const totalPositions = preparedInvoices.reduce((sum, row) => sum + (row.invoiceRows.items || []).length, 0);
-  const filteredPositions = filteredInvoices.reduce((sum, row) => sum + (row.invoiceRows.items || []).length, 0);
+  ), [displayedInvoiceRows, warehouseInvoiceItems, warehouseInvoiceEstimateControl, materialControlSummaryForProject]);
+  const totalPositions = React.useMemo(
+    () => (invoices || []).reduce((sum, inv) => sum + invoiceQuickItems(inv).length, 0),
+    [invoices, invoiceQuickItems],
+  );
+  const filteredPositions = filteredInvoiceRows.reduce((sum, row) => sum + row.quickPositionCount, 0);
+
+  React.useEffect(() => {
+    setVisibleInvoices(isMobile ? INVOICE_VISIBLE_MOBILE : INVOICE_VISIBLE_DESKTOP);
+  }, [isMobile, invoiceSearch, invoices?.length]);
 
   const buildEstimateReconciliationReport = (estimate) => {
     const smetaItems = (estimate.sections || []).flatMap(section => section.items || []);
@@ -273,21 +308,26 @@ export default function WarehouseInvoicesPanel({
       <div style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,minmax(0,1fr))':'repeat(4,minmax(0,1fr))',gap:'8px',marginBottom:'12px'}}>
         <div style={{padding:'10px',border:'1px solid '+C.border,borderRadius:'10px',backgroundColor:C.bg}}>
           <p style={{margin:'0 0 3px',fontSize:'10px',color:C.textSec}}>Накладных</p>
-          <b style={{color:C.text,fontSize:'15px'}}>{filteredInvoices.length}</b>
+          <b style={{color:C.text,fontSize:'15px'}}>{filteredInvoiceRows.length}</b>
         </div>
         <div style={{padding:'10px',border:'1px solid '+C.border,borderRadius:'10px',backgroundColor:C.bg}}>
-          <p style={{margin:'0 0 3px',fontSize:'10px',color:C.textSec}}>Позиций</p>
+          <p style={{margin:'0 0 3px',fontSize:'10px',color:C.textSec}}>Сохранённых позиций</p>
           <b style={{color:C.text,fontSize:'15px'}}>{filteredPositions}</b>
         </div>
         <div style={{padding:'10px',border:'1px solid '+C.border,borderRadius:'10px',backgroundColor:C.bg}}>
           <p style={{margin:'0 0 3px',fontSize:'10px',color:C.textSec}}>Всего накладных</p>
-          <b style={{color:C.text,fontSize:'15px'}}>{preparedInvoices.length}</b>
+          <b style={{color:C.text,fontSize:'15px'}}>{(invoices || []).length}</b>
         </div>
         <div style={{padding:'10px',border:'1px solid '+C.border,borderRadius:'10px',backgroundColor:C.bg}}>
-          <p style={{margin:'0 0 3px',fontSize:'10px',color:C.textSec}}>Всего позиций</p>
-          <b style={{color:C.text,fontSize:'15px'}}>{totalPositions}</b>
+          <p style={{margin:'0 0 3px',fontSize:'10px',color:C.textSec}}>Показано</p>
+          <b style={{color:C.text,fontSize:'15px'}}>{preparedInvoices.length}/{filteredInvoiceRows.length}</b>
         </div>
       </div>
+      {totalPositions > 0 && (
+        <p style={{color:C.textMuted,fontSize:'11px',margin:'-6px 0 10px'}}>
+          Всего сохранённых строк по накладным: {totalPositions}. Детальная сверка считается только для показанных карточек.
+        </p>
+      )}
 
       <div style={{position:'relative',marginBottom:'12px'}}>
         <Search size={14} style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',color:C.textMuted}} />
@@ -334,7 +374,7 @@ export default function WarehouseInvoicesPanel({
         />
       )}
 
-      {filteredInvoices.map(({ inv, invoiceRows, estimateControl, estimateIssues, projectName, materialSummary }) => {
+      {preparedInvoices.map(({ inv, invoiceRows, estimateControl, estimateIssues, projectName, materialSummary }) => {
         return (
           <WarehouseInvoiceCard
             key={inv.id}
@@ -367,8 +407,18 @@ export default function WarehouseInvoicesPanel({
         );
       })}
 
+      {hiddenInvoices > 0 && (
+        <button
+          type="button"
+          onClick={() => setVisibleInvoices(limit => Math.min(filteredInvoiceRows.length, limit + invoiceStep))}
+          style={{...btnG,width:'100%',justifyContent:'center',marginTop:'10px'}}
+        >
+          Показать ещё {Math.min(hiddenInvoices, invoiceStep)} накладных
+        </button>
+      )}
+
       {(invoices || []).length === 0 && <p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Накладных нет</p>}
-      {(invoices || []).length > 0 && filteredInvoices.length === 0 && <p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Поиск ничего не нашёл</p>}
+      {(invoices || []).length > 0 && filteredInvoiceRows.length === 0 && <p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Поиск ничего не нашёл</p>}
     </div>
   );
 }
