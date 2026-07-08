@@ -68,7 +68,7 @@ export function useCompanyContext({ API, user }) {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch((API || '') + '/company-context', { signal: controller.signal });
+      const response = await fetch((API || '') + '/users/company-context', { signal: controller.signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       setContext(data);
@@ -126,4 +126,3 @@ export function useCompanyContext({ API, user }) {
     setSelectedCompanyId,
   };
 }
-
