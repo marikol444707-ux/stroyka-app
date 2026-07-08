@@ -69,7 +69,7 @@ export default function AccountingSummaryPanel({
   const totalExpenses = totalAccountable + totalProjectPaymentsOut + directObjectExpenses;
   const netProfit = totalPayIn - totalExpenses;
   const accountingInvoiceRows = React.useMemo(
-    () => buildAccountingInvoiceRows(invoices, warehouseInvoiceEstimateControl),
+    () => buildAccountingInvoiceRows(invoices, warehouseInvoiceEstimateControl, { includeControls: false }),
     [invoices, warehouseInvoiceEstimateControl]
   );
   const checkedPrimaryRows = accountingInvoiceRows.filter(row => row.status !== 'Нет фото');

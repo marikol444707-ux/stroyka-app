@@ -100,27 +100,30 @@ export const invoiceAccountingStatus = (invoice = {}, controls = []) => {
   return issueRows.length ? 'На проверке' : 'На проверке';
 };
 
-export const buildAccountingInvoiceRows = (invoices = [], controlFn) => (
-  (invoices || [])
-    .filter(invoice => String(invoice.status || '') !== 'Аннулирована')
-    .map(invoice => {
-      const controls = typeof controlFn === 'function'
-        ? (controlFn(invoice) || []).filter(row => row && row.name)
-        : [];
-      const issueRows = controls.filter(row => ['danger', 'warning'].includes(row.severity));
-      const photos = invoicePhotos(invoice);
-      const amount = invoiceAmount(invoice);
-      const paidAmount = invoicePaidAmount(invoice);
-      const debt = invoiceDebtAmount(invoice);
-      return {
-        invoice,
-        controls,
-        issueRows,
-        photos,
-        amount,
-        paidAmount,
-        debt,
-        status: invoiceAccountingStatus(invoice, controls),
-      };
-    })
-);
+export const buildAccountingInvoiceRows = (invoices = [], controlFn, options = {}) => {
+  const includeControls = options.includeControls !== false;
+  return (
+    (invoices || [])
+      .filter(invoice => String(invoice.status || '') !== 'Аннулирована')
+      .map(invoice => {
+        const controls = includeControls && typeof controlFn === 'function'
+          ? (controlFn(invoice) || []).filter(row => row && row.name)
+          : [];
+        const issueRows = controls.filter(row => ['danger', 'warning'].includes(row.severity));
+        const photos = invoicePhotos(invoice);
+        const amount = invoiceAmount(invoice);
+        const paidAmount = invoicePaidAmount(invoice);
+        const debt = invoiceDebtAmount(invoice);
+        return {
+          invoice,
+          controls,
+          issueRows,
+          photos,
+          amount,
+          paidAmount,
+          debt,
+          status: invoiceAccountingStatus(invoice, controls),
+        };
+      })
+  );
+};

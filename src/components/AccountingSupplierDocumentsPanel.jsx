@@ -35,7 +35,7 @@ export default function AccountingSupplierDocumentsPanel({
   const [busy, setBusy] = React.useState(false);
 
   const rows = React.useMemo(
-    () => buildAccountingInvoiceRows(invoices, warehouseInvoiceEstimateControl),
+    () => buildAccountingInvoiceRows(invoices, warehouseInvoiceEstimateControl, { includeControls: false }),
     [invoices, warehouseInvoiceEstimateControl]
   );
 
