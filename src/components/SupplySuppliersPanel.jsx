@@ -267,15 +267,15 @@ function SupplySuppliersPanel({
       });
   }, [supplierCategories, supplierGroups]);
 
-  const supplierMatchesRecord = (supplier, record) => {
+  const supplierMatchesRecord = React.useCallback((supplier, record) => {
     const ids = new Set((supplier._supplierIds || []).map(id => Number(id)).filter(Boolean));
     const recordId = Number(record?.supplierId || record?.supplier_id || 0);
     if (recordId && ids.has(recordId)) return true;
     const key = normalizeSupplierNameKey(record?.supplierName || record?.supplier_name || record?.supplier || '');
     return key && (supplier._supplierKeys || []).some(supplierKey => supplierKeysMatch(supplierKey, key));
-  };
+  }, []);
 
-  const supplierStats = supplier => {
+  const supplierStats = React.useCallback(supplier => {
     const rawLinkedInvoices = (invoices || []).filter(invoice => supplierMatchesRecord(supplier, invoice));
     const rawLinkedSupplierInvoices = (supplierInvoices || []).filter(invoice => supplierMatchesRecord(supplier, invoice));
     const rawLinkedDeliveries = (supplyDeliveries || []).filter(delivery => supplierMatchesRecord(supplier, delivery));
@@ -360,9 +360,9 @@ function SupplySuppliersPanel({
         ...linkedCatalog.map(item => item.materialName),
       ].join(' '),
     };
-  };
+  }, [invoices, supplierInvoices, supplyDeliveries, supplierOffers, supplierCatalog, supplierMatchesRecord]);
 
-  const supplierSourceInfo = (supplier, stats = {}) => {
+  const supplierSourceInfo = React.useCallback((supplier, stats = {}) => {
     const rawTypes = [
       supplier.sourceType,
       supplier.source_type,
@@ -391,14 +391,46 @@ function SupplySuppliersPanel({
       label: sourceMeta(primary).label,
       detail: details[0] || '',
     };
-  };
+  }, []);
 
-  const sourceMatches = sourceInfo => (
+  const sourceMatches = React.useCallback(sourceInfo => (
     sourceFilter === 'all'
     || sourceInfo.filterTypes.includes(sourceFilter)
     || (sourceFilter === 'site' && sourceInfo.filterTypes.includes('crm'))
     || (sourceFilter === 'warehouse_invoice' && sourceInfo.filterTypes.includes('max_invoice'))
-  );
+  ), [sourceFilter]);
+
+  const supplierStatsById = React.useMemo(() => {
+    const statsById = new Map();
+    supplierGroups.forEach(supplier => {
+      statsById.set(supplier.id, supplierStats(supplier));
+    });
+    return statsById;
+  }, [supplierGroups, supplierStats]);
+
+  const supplierRows = React.useMemo(() => (
+    supplierGroups.map(supplier => {
+      const stats = supplierStatsById.get(supplier.id) || {};
+      return {
+        supplier,
+        stats,
+        sourceInfo: supplierSourceInfo(supplier, stats),
+      };
+    })
+  ), [supplierGroups, supplierStatsById, supplierSourceInfo]);
+
+  const supplierRowsByCategory = React.useMemo(() => {
+    const byCategory = new Map(categories.map(category => [category, []]));
+    supplierRows.forEach(row => {
+      const { supplier, stats, sourceInfo } = row;
+      const category = supplier.category || 'Прочее';
+      if (!sourceMatches(sourceInfo)) return;
+      if (!matchSearch(listSearch, supplier.name, supplier.specialization, supplier.phone, supplier.email, sourceInfo.label, sourceInfo.detail, stats.searchText)) return;
+      if (!byCategory.has(category)) byCategory.set(category, []);
+      byCategory.get(category).push(row);
+    });
+    return byCategory;
+  }, [categories, supplierRows, sourceMatches, listSearch, matchSearch]);
 
   const openInvite = () => {
     setSupplierInviteForm(createSupplierInviteForm());
@@ -567,15 +599,7 @@ function SupplySuppliersPanel({
       </div>
 
       {categories.map(category=>{
-        const catSuppliers = supplierGroups.map(supplier => {
-          const stats = supplierStats(supplier);
-          const sourceInfo = supplierSourceInfo(supplier, stats);
-          return { supplier, stats, sourceInfo };
-        }).filter(({supplier, stats, sourceInfo}) => (
-          (supplier.category || 'Прочее') === category
-          && sourceMatches(sourceInfo)
-          && matchSearch(listSearch, supplier.name, supplier.specialization, supplier.phone, supplier.email, sourceInfo.label, sourceInfo.detail, stats.searchText)
-        ));
+        const catSuppliers = supplierRowsByCategory.get(category) || [];
         if (catSuppliers.length===0) return null;
         const categoryCollapsed = collapsedCategories.has(category);
         return (
