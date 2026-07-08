@@ -124,6 +124,7 @@ export default function SupplyPage({
   const canApprove = isLeadershipUser;
   const canViewSuppliers = ['директор', 'зам_директора', 'прораб', 'кладовщик', 'снабженец', 'бухгалтер'].includes(role);
   const canViewDeliveries = ['директор', 'зам_директора', 'прораб', 'кладовщик', 'снабженец', 'бухгалтер'].includes(role);
+  const [supplierLinkFocus, setSupplierLinkFocus] = React.useState(null);
 
   let tabs = [];
   if (['мастер','субподрядчик','бригадир'].includes(role)) {
@@ -166,6 +167,18 @@ export default function SupplyPage({
 
   if (!canViewSuppliers) tabs = tabs.filter(tab => tab.id !== 'suppliers');
   if (!canViewDeliveries) tabs = tabs.filter(tab => tab.id !== 'deliveries');
+
+  const openSupplierLinkFromDiagnostics = React.useCallback((action = {}) => {
+    if (!canViewSuppliers) return;
+    setSupplyTab('suppliers');
+    setShowForm(false);
+    const searchHint = action.supplierName || action.email || '';
+    if (searchHint) setListSearch(searchHint);
+    setSupplierLinkFocus({
+      ...action,
+      nonce: Date.now(),
+    });
+  }, [canViewSuppliers, setListSearch, setShowForm, setSupplyTab]);
 
   let list = supplyRequests || [];
   const curTab = tabs.find(tab => tab.id === supplyTab) ? supplyTab : tabs[0].id;
@@ -274,6 +287,7 @@ export default function SupplyPage({
           supplierCatalog={supplierCatalog}
           fileSrc={fileSrc}
           uploadPhoto={uploadPhoto}
+          supplierLinkFocus={supplierLinkFocus}
         />
       )}
 
@@ -409,6 +423,7 @@ export default function SupplyPage({
           selectSupplierOffer={selectSupplierOffer}
           rejectSupplierOffer={rejectSupplierOffer}
           withdrawSupplierOffer={withdrawSupplierOffer}
+          onOpenSupplierLink={openSupplierLinkFromDiagnostics}
         />
       )}
     </div>

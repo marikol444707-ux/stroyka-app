@@ -129,3 +129,25 @@ export const splitSupplierOffersByStatus = (offers = []) => {
 
   return { active, history };
 };
+
+export const supplierRecipientStatusSummary = (offerStatuses = []) => {
+  const counts = (offerStatuses || []).reduce((acc, item) => {
+    const status = item?.status || 'Ожидает ответа';
+    acc[status] = (acc[status] || 0) + 1;
+    return acc;
+  }, {});
+  return Object.entries(counts).map(([status, count]) => status + ': ' + count).join(' · ');
+};
+
+export const supplierRecipientLinkAction = (row = {}) => {
+  if (!row || row.visibleToSupplier) return null;
+  const supplierId = Number(row.linkSupplierId || row.targetSupplierId || row.supplierId || 0);
+  if (!Number.isFinite(supplierId) || supplierId <= 0) return null;
+  return {
+    type: row.linkAction || 'link_supplier_user',
+    supplierId,
+    supplierName: row.linkSupplierName || row.targetSupplierName || row.supplierName || '',
+    email: row.linkUserEmail || row.targetSupplierEmail || row.supplierEmail || '',
+    reason: row.problemReason || '',
+  };
+};

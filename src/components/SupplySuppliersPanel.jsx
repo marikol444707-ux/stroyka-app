@@ -153,6 +153,7 @@ function SupplySuppliersPanel({
   supplierCatalog = [],
   fileSrc,
   uploadPhoto,
+  supplierLinkFocus = null,
 }) {
   const [openedSupplierId, setOpenedSupplierId] = React.useState(null);
   const [linkingSupplierId, setLinkingSupplierId] = React.useState(null);
@@ -255,6 +256,26 @@ function SupplySuppliersPanel({
   };
 
   const supplierGroups = React.useMemo(() => groupSuppliers(suppliers), [suppliers]);
+
+  React.useEffect(() => {
+    const focusedSupplierId = Number(supplierLinkFocus?.supplierId || 0);
+    if (!focusedSupplierId) return;
+    const focusedGroup = supplierGroups.find(supplier => (
+      Number(supplier.id || 0) === focusedSupplierId
+      || (supplier._supplierIds || []).some(id => Number(id || 0) === focusedSupplierId)
+    ));
+    if (!focusedGroup) return;
+    setSourceFilter('all');
+    setOpenedSupplierId(focusedGroup.id);
+    setLinkingSupplierId(focusedGroup.id);
+    setLinkUserId('');
+    setLinkUserEmail(supplierLinkFocus.email || '');
+    setCollapsedCategories(prev => {
+      const next = new Set(prev);
+      next.delete(focusedGroup.category || 'Прочее');
+      return next;
+    });
+  }, [supplierLinkFocus, supplierGroups]);
 
   const categories = React.useMemo(() => {
     const seen = new Set();

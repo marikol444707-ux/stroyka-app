@@ -1215,6 +1215,16 @@ def _recipient_visibility_error(rows: list) -> str:
     suffix = "" if len(invisible) <= 5 else " и ещё " + str(len(invisible) - 5)
     return "КП не отправлено: " + ", ".join(labels) + suffix + " не привязаны к пользовательскому аккаунту. Свяжите карточку поставщика с пользователем или отправьте инвайт."
 
+def _add_supply_recipient_link_hint(row: dict) -> dict:
+    if not row:
+        return row
+    target_id = row.get("targetSupplierId") or row.get("supplierId")
+    row["linkSupplierId"] = target_id
+    row["linkSupplierName"] = row.get("targetSupplierName") or row.get("supplierName") or ""
+    row["linkUserEmail"] = row.get("targetSupplierEmail") or row.get("supplierEmail") or ""
+    row["linkAction"] = "" if row.get("visibleToSupplier") else "link_supplier_user"
+    return row
+
 def _resolve_work_company_context(cur, user: dict, requested_company_id=None, action_mode: str = "write") -> dict:
     try:
         from backend.features.company_context.service import resolve_company_context
@@ -9865,8 +9875,8 @@ def get_supply_request_recipients(id: int, _current_user: dict = Depends(require
         require_project_or_warehouse_access(_current_user, req.get("project") or "")
     cur.execute("""
         SELECT r.id, r.company_id AS "companyId", r.request_id AS "requestId",
-               r.supplier_id AS "supplierId", s0.name AS "supplierName",
-               r.target_supplier_id AS "targetSupplierId", s.name AS "targetSupplierName",
+               r.supplier_id AS "supplierId", s0.name AS "supplierName", s0.email AS "supplierEmail",
+               r.target_supplier_id AS "targetSupplierId", s.name AS "targetSupplierName", s.email AS "targetSupplierEmail",
                r.supplier_user_id AS "supplierUserId",
                r.supplier_group_ids AS "supplierGroupIds",
                r.visible_to_supplier AS "visibleToSupplier",
@@ -9880,11 +9890,11 @@ def get_supply_request_recipients(id: int, _current_user: dict = Depends(require
          WHERE r.request_id=%s
          ORDER BY r.id
     """, (id,))
-    rows = [dict(row) for row in cur.fetchall()]
+    rows = [_add_supply_recipient_link_hint(dict(row)) for row in cur.fetchall()]
     if not rows:
         cur.execute("""
             SELECT o.id AS offer_id, o.request_id, o.company_id, o.supplier_id,
-                   o.status, o.requested_at, o.responded_at, s.name AS supplier_name
+                   o.status, o.requested_at, o.responded_at, s.name AS supplier_name, s.email AS supplier_email
               FROM supplier_offers o
               LEFT JOIN suppliers s ON s.id=o.supplier_id
              WHERE o.request_id=%s
@@ -9927,6 +9937,8 @@ def get_supply_request_recipients(id: int, _current_user: dict = Depends(require
                 "supplierName": _row_get(offer, "supplier_name", 7, "") or ("Поставщик #" + str(supplier_id)),
                 "targetSupplierId": target_id,
                 "targetSupplierName": target_names.get(target_id) or _row_get(offer, "supplier_name", 7, "") or ("Поставщик #" + str(target_id)),
+                "targetSupplierEmail": _row_get(offer, "supplier_email", 8, ""),
+                "supplierEmail": _row_get(offer, "supplier_email", 8, ""),
                 "supplierUserId": visibility.get("user_id"),
                 "supplierGroupIds": scope_ids,
                 "visibleToSupplier": bool(visibility.get("visible")),
@@ -9937,7 +9949,7 @@ def get_supply_request_recipients(id: int, _current_user: dict = Depends(require
                 "source": "supplier_offers",
                 "offerStatuses": [offer_status_row],
             }
-        rows = list(recipient_map.values())
+        rows = [_add_supply_recipient_link_hint(row) for row in recipient_map.values()]
     cur.close(); conn.close()
     return rows
 

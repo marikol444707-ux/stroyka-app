@@ -1,6 +1,10 @@
 import React from 'react';
 import { Bot, Check, X } from 'lucide-react';
-import { splitSupplierOffersByStatus } from '../../utils/supplyUtils';
+import {
+  splitSupplierOffersByStatus,
+  supplierRecipientLinkAction,
+  supplierRecipientStatusSummary,
+} from '../../utils/supplyUtils';
 
 export function SupplyRequestsEmpty({ C, card }) {
   return <div style={{ ...card, padding: '40px', textAlign: 'center', color: C.textMuted }}>Заявок нет</div>;
@@ -249,7 +253,7 @@ function CompareResultBlock({ C, compareResult }) {
   );
 }
 
-function RecipientDiagnosticsPanel({ C, badge, rows }) {
+function RecipientDiagnosticsPanel({ C, badge, btnB, rows, onOpenSupplierLink }) {
   if (!rows) return null;
   if (rows.length === 0) {
     return (
@@ -267,12 +271,8 @@ function RecipientDiagnosticsPanel({ C, badge, rows }) {
         const supplierName = row.targetSupplierName || row.supplierName || ('Поставщик #' + (row.targetSupplierId || row.supplierId || ''));
         const groupIds = Array.isArray(row.supplierGroupIds) ? row.supplierGroupIds.filter(Boolean) : [];
         const offerStatuses = Array.isArray(row.offerStatuses) ? row.offerStatuses : [];
-        const statusCounts = offerStatuses.reduce((acc, item) => {
-          const status = item.status || 'Ожидает ответа';
-          acc[status] = (acc[status] || 0) + 1;
-          return acc;
-        }, {});
-        const statusSummary = Object.entries(statusCounts).map(([status, count]) => status + ': ' + count).join(' · ');
+        const statusSummary = supplierRecipientStatusSummary(offerStatuses);
+        const linkAction = supplierRecipientLinkAction(row);
         return (
           <div key={row.id || supplierName} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', padding: '5px 0', borderTop: '1px solid ' + C.border }}>
             <div style={{ minWidth: 0 }}>
@@ -291,6 +291,17 @@ function RecipientDiagnosticsPanel({ C, badge, rows }) {
                   Нужно связать карточку поставщика #{row.targetSupplierId || row.supplierId} с пользователем роли поставщик в разделе «Поставщики».
                 </p>
               )}
+              {!visible && linkAction && typeof onOpenSupplierLink === 'function' && (
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenSupplierLink(linkAction);
+                  }}
+                  style={{ ...btnB, padding: '4px 8px', fontSize: '10px', marginTop: '5px' }}
+                >
+                  Связать кабинет
+                </button>
+              )}
             </div>
             <span style={badge(visible ? C.success : C.danger, visible ? C.successLight : C.dangerLight, visible ? C.successBorder : C.dangerBorder)}>
               {visible ? 'видит' : 'не видит'}
@@ -306,6 +317,7 @@ function OffersBlock({
   API,
   C,
   btnG,
+  btnB,
   btnGr,
   btnR,
   badge,
@@ -321,6 +333,7 @@ function OffersBlock({
   rejectSupplierOffer,
   withdrawSupplierOffer,
   canApprove,
+  onOpenSupplierLink,
 }) {
   const [recipientCheck, setRecipientCheck] = React.useState({ loading: false, rows: null, error: '' });
   const offers = (supplierOffers || []).filter(o => o.requestId === request.id);
@@ -410,7 +423,7 @@ function OffersBlock({
           {recipientCheck.error}
         </div>
       )}
-      <RecipientDiagnosticsPanel C={C} badge={badge} rows={recipientCheck.rows} />
+      <RecipientDiagnosticsPanel C={C} badge={badge} btnB={btnB} rows={recipientCheck.rows} onOpenSupplierLink={onOpenSupplierLink} />
       {activeOffers.length === 0 && historyOffers.length > 0 && (
         <div style={{ padding: '8px 10px', backgroundColor: C.warningLight, borderRadius: '6px', border: '1px solid ' + C.warningBorder, marginBottom: '8px', fontSize: '11px', color: C.text }}>
           Активных КП нет. Последние отозванные и отклоненные предложения сохранены ниже в истории.
@@ -500,6 +513,7 @@ export function SupplyRequestCard(props) {
     selectSupplierOffer,
     rejectSupplierOffer,
     withdrawSupplierOffer,
+    onOpenSupplierLink,
   } = props;
 
   const [stC, stBg, stBd] = statusColors(request.status);
@@ -612,6 +626,7 @@ export function SupplyRequestCard(props) {
         API={API}
         C={C}
         btnG={btnG}
+        btnB={btnB}
         btnGr={btnGr}
         btnR={btnR}
         badge={badge}
@@ -627,6 +642,7 @@ export function SupplyRequestCard(props) {
         rejectSupplierOffer={rejectSupplierOffer}
         withdrawSupplierOffer={withdrawSupplierOffer}
         canApprove={canApprove}
+        onOpenSupplierLink={onOpenSupplierLink}
       />
     </div>
   );
