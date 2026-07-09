@@ -121,6 +121,22 @@ class ResolveRequestCompanyContextTests(unittest.TestCase):
         self.assertEqual(error.exception.status_code, 400)
         self.assertEqual(cur.execute_count, 0)
 
+    def test_rejects_resource_actor_when_membership_role_is_not_allowed(self):
+        cur = MembershipCursor([membership(role="поставщик")])
+
+        with self.assertRaises(HTTPException) as error:
+            resolve_resource_company_actor(
+                cur,
+                user(),
+                resource_company_id=7,
+                action_mode="update",
+                allowed_roles=("директор", "снабженец"),
+                forbidden_detail="Роль в выбранной компании не позволяет запрашивать КП",
+            )
+
+        self.assertEqual(error.exception.status_code, 403)
+        self.assertIn("не позволяет запрашивать КП", error.exception.detail)
+
     def test_builds_effective_user_from_selected_company_membership(self):
         actor = effective_company_user(
             {"id": 42, "role": "директор", "assignedProjects": ["Чужой объект"]},
@@ -155,6 +171,7 @@ class ResolveRequestCompanyContextTests(unittest.TestCase):
             action_mode="update",
             x_company_mode="company",
             x_company_id="7",
+            allowed_roles=("директор", "снабженец"),
         )
 
         self.assertEqual(context["companyId"], 7)

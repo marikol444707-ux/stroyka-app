@@ -10611,7 +10611,13 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
     return dict(row) if row else {"ok": True}
 
 @app.post("/supply-requests/{id}/request-kp")
-def request_kp_from_suppliers(id: int, data: dict, _current_user: dict = Depends(require_roles(*SUPPLY_INTERNAL_ROLES))):
+def request_kp_from_suppliers(
+    id: int,
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     """Директор отправляет запрос КП нескольким поставщикам.
        data: {supplierIds: [1,2,3], aiRecommendedIds: [1,2]}"""
     try:
@@ -10627,15 +10633,27 @@ def request_kp_from_suppliers(id: int, data: dict, _current_user: dict = Depends
     try:
         _ensure_supply_runtime_columns(cur)
         # Получаем количество из заявки для preview total
-        cur.execute("SELECT quantity, project, status, company_id FROM supply_requests WHERE id=%s", (id,))
+        cur.execute("SELECT quantity, project, status, company_id FROM supply_requests WHERE id=%s FOR UPDATE", (id,))
         req = cur.fetchone()
         if not req:
             raise HTTPException(status_code=404, detail="Заявка не найдена")
-        request_company_id = data.get("companyId") or req.get("company_id") or req.get("companyId")
-        company_context = _resolve_work_company_context(cur, _current_user, request_company_id, "update")
-        company_id = int(company_context.get("companyId") or request_company_id or 1)
+        claimed_company_id = data.get("companyId") if "companyId" in data else data.get("company_id")
+        company_context, effective_user = resolve_resource_company_actor(
+            cur,
+            _current_user,
+            req.get("company_id"),
+            "update",
+            claimed_company_id=claimed_company_id,
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            allowed_roles=SUPPLY_INTERNAL_ROLES,
+            forbidden_detail="Роль в выбранной компании не позволяет запрашивать КП",
+            platform_staff_roles=PLATFORM_STAFF_ROLES,
+            client_account_roles=CLIENT_ACCOUNT_ROLES,
+        )
+        company_id = int(company_context.get("companyId"))
         if req.get('project'):
-            require_project_or_warehouse_access(_current_user, req.get('project') or "")
+            require_project_or_warehouse_access(effective_user, req.get('project') or "")
             project_company_id = _project_company_id(cur, req.get('project') or "")
             if project_company_id and int(project_company_id) != company_id:
                 raise HTTPException(status_code=400, detail="Выбранная компания не совпадает с компанией объекта. Переключите компанию в шапке или выберите другой объект.")
@@ -10643,22 +10661,24 @@ def request_kp_from_suppliers(id: int, data: dict, _current_user: dict = Depends
             raise HTTPException(status_code=400, detail="Запрашивать КП можно только после утверждения заявки директором")
         selected_scope_ids = supplier_group_scope_ids(cur, supplier_ids)
         recipient_rows = _upsert_supply_request_recipients(cur, id, company_id, selected_scope_ids)
+        assert_rows_company_scope(recipient_rows, company_id, "Получатели КП")
         visibility_error = _recipient_visibility_error(recipient_rows)
         if visibility_error:
             raise HTTPException(status_code=400, detail=visibility_error)
         created = _create_supplier_offer_requests(cur, id, selected_scope_ids, ai_ids, company_id=company_id)
-        notification_rows = _notify_supply_request_recipients(cur, id)
         # Обновляем статус заявки
         cur.execute("""UPDATE supply_requests
                        SET status=CASE WHEN status='Утверждена' THEN %s ELSE status END,
-                           company_id=%s,
                            selected_suppliers=(
                                SELECT ARRAY(
                                    SELECT DISTINCT unnest(COALESCE(selected_suppliers, '{}'::int[]) || %s::int[])
                                )
                            )
-                       WHERE id=%s""",
-            ('КП запрошены', company_id, selected_scope_ids, id))
+                       WHERE id=%s AND company_id=%s""",
+            ('КП запрошены', selected_scope_ids, id, company_id))
+        if cur.rowcount != 1:
+            raise HTTPException(status_code=409, detail="Компания заявки изменилась во время запроса КП")
+        notification_rows = _notify_supply_request_recipients(cur, id)
         conn.commit()
         return {
             "ok": True,

@@ -355,6 +355,8 @@ def resolve_resource_company_actor(
     claimed_company_id=None,
     x_company_id=None,
     x_company_mode=None,
+    allowed_roles=(),
+    forbidden_detail="Роль в выбранной компании не позволяет выполнить действие",
     platform_staff_roles=(),
     client_account_roles=(),
 ):
@@ -384,7 +386,11 @@ def resolve_resource_company_actor(
     resolved_company_id = _as_int(context.get("companyId") or context.get("company_id"))
     if context.get("mode") != "company" or resolved_company_id != company_id:
         raise HTTPException(status_code=409, detail="Выбранная компания не совпадает с компанией документа")
-    return context, effective_company_user(user, context)
+    actor = effective_company_user(user, context)
+    normalized_roles = {str(role or "").strip() for role in allowed_roles or [] if str(role or "").strip()}
+    if normalized_roles and (actor.get("role") or "") not in normalized_roles:
+        raise HTTPException(status_code=403, detail=forbidden_detail)
+    return context, actor
 
 
 def build_company_context_response(

@@ -396,11 +396,45 @@
 **Verification:**
 - [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.company_context.test_service` (26 tests passed)
 - [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py backend/features/company_context/service.py`
-- [x] Frontend test suite (15 suites / 71 tests passed).
+- [x] Tracked frontend test suite (14 suites / 66 tests passed); local untracked tests are outside the release snapshot.
 - [x] `npm run build`
 - [x] Production health reported version `01360f075407`, service active, no warning-level log entries, HTTP and browser smoke passed.
 
 **Dependencies:** Task M2.2
+
+**Files touched:**
+- `backend/features/company_context/service.py`
+- `backend/features/company_context/test_service.py`
+- `backend/main.py`
+- `ONBOARDING.md`
+- `tasks/plan.md`
+- `tasks/todo.md`
+
+**Estimated scope:** S
+
+## Task M2.4: Supply Request KP Mutation Isolation
+
+**Description:** Apply Tenant Context Kernel to `POST /supply-requests/{id}/request-kp`. Use the request's stored `company_id` as the immutable source of truth, authorize with the selected membership role, and keep recipients, offers, request status, and notifications in that company.
+
+**Status:** Implemented and verified locally on 2026-07-10; push and production release are pending.
+
+**Acceptance criteria:**
+- [x] The stored request `company_id` is authoritative; body `companyId` cannot reassign the request.
+- [x] Conflicting company header/body, `Все компании`, foreign membership, or missing request company fails before mutation.
+- [x] KP authorization and project access use the selected company's effective membership role and assignments.
+- [x] The request row is locked while recipients, offers, status, and notifications are prepared.
+- [x] Recipient rows are checked against the request company before commit.
+- [x] The final status update includes `WHERE id AND company_id`, does not rewrite `company_id`, and fails if the target changed.
+- [x] Existing supplier grouping, visibility diagnostics, approved-status guard, offer creation, and notification behavior remain unchanged.
+- [x] Recipient diagnostics, supplier suggestions/comparison, supplier offer lifecycle, invoices, and deliveries remain outside this slice.
+
+**Verification:**
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.company_context.test_service` (27 tests passed)
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py backend/features/company_context/service.py`
+- [x] Tracked frontend test suite (14 suites / 66 tests passed).
+- [x] `npm run build`
+
+**Dependencies:** Task M2.3
 
 **Files touched:**
 - `backend/features/company_context/service.py`
