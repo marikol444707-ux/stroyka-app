@@ -169,7 +169,8 @@ export default function AccountingSupplierDocumentsPanel({
         alert('Сверка не выполнена: ' + (data.detail || data.error || res.status));
         return;
       }
-      alert('Сверка завершена. Связано: ' + (data.linked || 0) + '. Проверено: ' + (data.checked || 0));
+      const reviewCount = (data.items || []).filter(item => item.needsReview).length;
+      alert('Сверка завершена. Связано: ' + (data.linked || 0) + '. Проверено: ' + (data.checked || 0) + (reviewCount ? '. Нужно уточнить: ' + reviewCount : ''));
       if (typeof refreshData === 'function') await refreshData();
     } finally {
       setBusy(false);

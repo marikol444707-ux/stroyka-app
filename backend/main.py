@@ -899,6 +899,75 @@ def _supplier_find_match(cur, payload: dict):
             return _supplier_match_dict(row)
     return None
 
+def _supplier_has_strong_identity_match(cur, supplier_id: int, payload: dict, supplier_row: dict = None) -> bool:
+    req = _supplier_extract_requisites(payload)
+    supplier_req = _supplier_extract_requisites(supplier_row or {})
+    if req["inn"] and supplier_req["inn"] and req["inn"] == supplier_req["inn"]:
+        return True
+    if req["ogrn"] and supplier_req["ogrn"] and req["ogrn"] == supplier_req["ogrn"]:
+        return True
+    if req["email"] and supplier_req["email"] and req["email"].lower() == supplier_req["email"].lower():
+        return True
+    if req["phone"] and supplier_req["phone"] and len(req["phone"]) >= 7 and req["phone"] == supplier_req["phone"]:
+        return True
+    if not supplier_id or not (req["inn"] or req["ogrn"]):
+        return False
+    cur.execute(
+        """
+        SELECT id
+          FROM supplier_aliases
+         WHERE supplier_id=%s
+           AND (
+             (%s<>'' AND regexp_replace(COALESCE(inn,''), '\\D', '', 'g')=%s)
+             OR (%s<>'' AND regexp_replace(COALESCE(ogrn,''), '\\D', '', 'g')=%s)
+           )
+         LIMIT 1
+        """,
+        (supplier_id, req["inn"], req["inn"], req["ogrn"], req["ogrn"]),
+    )
+    return bool(cur.fetchone())
+
+def _supplier_backfill_review_state(cur, warehouse_invoice: dict, supplier_payload: dict, supplier_id=None, matched_supplier: dict = None, created_supplier: bool = False) -> dict:
+    reasons = []
+    amount = _float_or_zero(
+        (warehouse_invoice or {}).get("total_with_vat")
+        or (warehouse_invoice or {}).get("total_base")
+        or (supplier_payload or {}).get("amount")
+        or 0
+    )
+    if amount <= 0:
+        reasons.append("в накладной нет суммы для сверки")
+    explicit_supplier_id = _positive_int_or_none((warehouse_invoice or {}).get("supplier_id")) or _positive_int_or_none((supplier_payload or {}).get("supplierId") or (supplier_payload or {}).get("supplier_id"))
+    if created_supplier:
+        reasons.append("поставщик создан из старой накладной и не подтвержден")
+    elif not supplier_id:
+        reasons.append("поставщик не определен")
+    elif explicit_supplier_id and not matched_supplier:
+        reasons.append("явная карточка поставщика из накладной не найдена")
+    elif not explicit_supplier_id and not _supplier_has_strong_identity_match(cur, supplier_id, supplier_payload, matched_supplier):
+        reasons.append("поставщик сопоставлен только по названию, без ИНН/ОГРН/email/телефона")
+    needs_review = bool(reasons)
+    return {
+        "needsReview": needs_review,
+        "reviewReason": "; ".join(reasons),
+        "accountingStatus": "Нужно уточнение" if needs_review else "На проверке",
+        "supplierInvoiceStatus": "Нужно уточнение" if needs_review else "На утверждении",
+    }
+
+def _supplier_backfill_preview_review_state(row: dict) -> dict:
+    reasons = []
+    amount = _float_or_zero((row or {}).get("total_with_vat") or (row or {}).get("total_base") or 0)
+    if amount <= 0:
+        reasons.append("в накладной нет суммы для сверки")
+    if not _positive_int_or_none((row or {}).get("supplier_id")):
+        reasons.append("поставщик будет сопоставляться без явной supplier_id")
+    needs_review = bool(reasons)
+    return {
+        "needsReview": needs_review,
+        "reviewReason": "; ".join(reasons),
+        "accountingStatus": "Нужно уточнение" if needs_review else "На проверке",
+    }
+
 def _remember_supplier_alias(cur, supplier_id: int, payload: dict, source: str = "", confidence: float = 1.0):
     if not supplier_id:
         return
@@ -21414,6 +21483,12 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
 def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: dict = None, actor: dict = None):
     payload = payload or {}
     actor = actor or {}
+    review_uncertain_supplier_match = bool(
+        payload.get("reviewUncertainSupplierMatch")
+        or payload.get("review_uncertain_supplier_match")
+        or payload.get("backfillReview")
+        or payload.get("backfill_review")
+    )
     conn = get_db()
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -21464,9 +21539,12 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
             "sourceType": "max_invoice" if str(warehouse_invoice.get("source_type") or "").startswith("max_") else "warehouse_invoice",
             "sourceDetail": "Создано/обновлено из складской накладной #" + str(warehouse_invoice_id),
         }
+        if warehouse_invoice.get("supplier_id") and not (supplier_payload.get("supplierId") or supplier_payload.get("supplier_id")):
+            supplier_payload["supplierId"] = warehouse_invoice.get("supplier_id")
 
         supplier_id = warehouse_invoice.get("supplier_id")
         matched_supplier = _supplier_find_match(cur, supplier_payload)
+        created_supplier = False
         if matched_supplier:
             supplier_id = matched_supplier["id"]
             supplier_name = matched_supplier["name"] or supplier_name
@@ -21495,7 +21573,26 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
             supplier_row = cur.fetchone()
             supplier_id = supplier_row.get("id")
             supplier_name = supplier_row.get("name") or supplier_name
+            created_supplier = True
             _remember_supplier_alias(cur, supplier_id, supplier_payload, source="warehouse_accounting")
+
+        review_state = {"needsReview": False, "reviewReason": "", "accountingStatus": "На проверке", "supplierInvoiceStatus": "На утверждении"}
+        if review_uncertain_supplier_match:
+            review_state = _supplier_backfill_review_state(
+                cur,
+                warehouse_invoice,
+                supplier_payload,
+                supplier_id=supplier_id,
+                matched_supplier=matched_supplier,
+                created_supplier=created_supplier,
+            )
+        supplier_invoice_status = review_state.get("supplierInvoiceStatus") or "На утверждении"
+        accounting_status = review_state.get("accountingStatus") or "На проверке"
+        accounting_comment = (
+            "Нужно уточнение: " + review_state.get("reviewReason")
+            if review_state.get("needsReview") and review_state.get("reviewReason")
+            else "Первичка создана автоматически из складской накладной. Проверить реквизиты, сумму и фото перед оплатой."
+        )
 
         invoice_number = str(payload.get("invoiceNumber") or payload.get("number") or warehouse_invoice.get("number") or "").strip()
         invoice_date = payload.get("invoiceDate") or payload.get("date") or warehouse_invoice.get("date") or None
@@ -21551,8 +21648,14 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
 
         if supplier_invoice_id:
             cur.execute(
-                "UPDATE supplier_invoices SET company_id=%s, warehouse_invoice_id=%s WHERE id=%s",
-                (company_id, warehouse_invoice_id, supplier_invoice_id),
+                """
+                UPDATE supplier_invoices
+                   SET company_id=%s,
+                       warehouse_invoice_id=%s,
+                       status=CASE WHEN %s THEN %s ELSE status END
+                 WHERE id=%s
+                """,
+                (company_id, warehouse_invoice_id, bool(review_state.get("needsReview")), supplier_invoice_status, supplier_invoice_id),
             )
         else:
             cur.execute(
@@ -21561,7 +21664,7 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
                     (company_id,supplier_id,supplier_name,project_name,invoice_number,invoice_date,
                      amount,vat_amount,description,file_url,photo_url,status,
                      offer_id,request_id,payment_terms,material_name,work_package,warehouse_invoice_id)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'На утверждении',
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                         NULL,NULL,%s,%s,%s,%s)
                 RETURNING id
                 """,
@@ -21577,6 +21680,7 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
                     description,
                     file_url,
                     photo_url,
+                    supplier_invoice_status,
                     payload.get("paymentTerms") or payload.get("payment_terms") or "",
                     material_name,
                     work_package,
@@ -21593,7 +21697,7 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
                    supplier_invoice_id=%s,
                    supplier_id=COALESCE(supplier_id,%s),
                    supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
-                   accounting_status=COALESCE(NULLIF(accounting_status,''),'На проверке'),
+                   accounting_status=CASE WHEN %s THEN %s ELSE COALESCE(NULLIF(accounting_status,''),'На проверке') END,
                    accounting_comment=COALESCE(NULLIF(accounting_comment,''),%s),
                    accounting_updated_by=%s,
                    accounting_updated_at=NOW()
@@ -21604,7 +21708,9 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
                 supplier_invoice_id,
                 supplier_id,
                 supplier_name,
-                "Первичка создана автоматически из складской накладной. Проверить реквизиты, сумму и фото перед оплатой.",
+                bool(review_state.get("needsReview")),
+                accounting_status,
+                accounting_comment,
                 actor_name,
                 warehouse_invoice_id,
             ),
@@ -21616,7 +21722,9 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
             "supplierId": supplier_id,
             "supplierName": supplier_name,
             "warehouseInvoiceId": warehouse_invoice_id,
-            "accountingStatus": "На проверке",
+            "accountingStatus": accounting_status,
+            "needsReview": bool(review_state.get("needsReview")),
+            "reviewReason": review_state.get("reviewReason") or "",
         }
     except Exception:
         conn.rollback()
@@ -21634,6 +21742,17 @@ def backfill_supplier_documents(data: dict = None, _current_user: dict = Depends
     """Сверяет старые складские накладные с первичкой поставщиков без повторного склада/оплат."""
     data = data or {}
     apply_changes = bool(data.get("apply") or data.get("commit"))
+    target_ids = []
+    raw_ids = data.get("warehouseInvoiceIds") or data.get("warehouse_invoice_ids") or []
+    if not isinstance(raw_ids, list):
+        raw_ids = [raw_ids]
+    raw_single_id = data.get("warehouseInvoiceId") or data.get("warehouse_invoice_id")
+    if raw_single_id:
+        raw_ids.append(raw_single_id)
+    for raw_id in raw_ids:
+        value = _positive_int_or_none(raw_id)
+        if value and value not in target_ids:
+            target_ids.append(value)
     try:
         limit = int(data.get("limit") or 200)
     except Exception:
@@ -21644,18 +21763,27 @@ def backfill_supplier_documents(data: dict = None, _current_user: dict = Depends
     _ensure_invoice_document_link_columns(cur)
     _ensure_warehouse_invoice_accounting_columns(cur)
     conn.commit()
+    where = [
+        "COALESCE(status,'Принята') <> 'Аннулирована'",
+        "supplier_invoice_id IS NULL",
+        "(supplier_id IS NOT NULL OR COALESCE(supplier_name,'') <> '')",
+    ]
+    params = []
+    if target_ids:
+        where.append("id = ANY(%s)")
+        params.append(target_ids)
+        limit = min(limit, max(len(target_ids), 1))
+    params.append(limit)
     cur.execute(
-        """
+        f"""
         SELECT id, number, date, supplier_id, supplier_name, location, project,
                total_with_vat, total_base, supplier_invoice_id
           FROM warehouse_invoices
-         WHERE COALESCE(status,'Принята') <> 'Аннулирована'
-           AND supplier_invoice_id IS NULL
-           AND (supplier_id IS NOT NULL OR COALESCE(supplier_name,'') <> '')
+         WHERE {" AND ".join(where)}
          ORDER BY id
          LIMIT %s
         """,
-        (limit,),
+        tuple(params),
     )
     candidates = [dict(r) for r in cur.fetchall()]
     cur.close()
@@ -21675,16 +21803,28 @@ def backfill_supplier_documents(data: dict = None, _current_user: dict = Depends
             "amount": float(row.get("total_with_vat") or row.get("total_base") or 0),
             "action": "preview" if not apply_changes else "sync",
         }
+        preview_review = _supplier_backfill_preview_review_state(row)
+        item.update({
+            "needsReview": preview_review.get("needsReview"),
+            "reviewReason": preview_review.get("reviewReason") or "",
+            "accountingStatus": preview_review.get("accountingStatus") or "На проверке",
+        })
         if not apply_changes:
             checked.append(item)
             continue
         try:
-            result = _sync_supplier_invoice_from_warehouse(row.get("id"), {}, _current_user)
+            result = _sync_supplier_invoice_from_warehouse(
+                row.get("id"),
+                {"reviewUncertainSupplierMatch": True},
+                _current_user,
+            )
             item.update({
                 "supplierInvoiceId": result.get("id"),
                 "supplierId": result.get("supplierId"),
                 "supplierName": result.get("supplierName") or item["supplierName"],
                 "accountingStatus": result.get("accountingStatus") or "На проверке",
+                "needsReview": bool(result.get("needsReview")),
+                "reviewReason": result.get("reviewReason") or "",
                 "ok": True,
             })
             linked += 1

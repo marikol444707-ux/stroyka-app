@@ -1081,6 +1081,108 @@ def assert_alias_invoice_chain(token, candidate, delivery_id):
     return alias_invoice_id, alias_id, alias_name
 
 
+def assert_backfill_uncertain_supplier_review(token, candidate, stamp, created):
+    supplier_name = f"{TEST_SUPPLIER_PREFIX} backfill спорный {stamp}"
+    invoice_number = f"CODEX-BACKFILL-{stamp}"
+    conn = db_conn()
+    try:
+        conn.autocommit = False
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO suppliers
+                (name, phone, email, specialization, category, rating, status, source_type, source_detail)
+            VALUES (%s,'','','CODEX QA','Материалы',5,'Активный','smoke_backfill_supplier',%s)
+            RETURNING id
+            """,
+            (supplier_name, TEST_NOTE_PREFIX),
+        )
+        supplier_id = cur.fetchone()[0]
+        items = [{
+            "name": candidate["materialName"],
+            "quantity": candidate["quantity"],
+            "unit": candidate["unit"],
+            "price": TEST_PRICE,
+            "workPackage": candidate["workPackage"],
+        }]
+        total = round(TEST_PRICE * candidate["quantity"], 2)
+        cur.execute(
+            """
+            INSERT INTO warehouse_invoices
+                (company_id, number, date, supplier_id, supplier_name, accepted_by,
+                 location, project, items, total_base, total_vat, total_with_vat,
+                 status, added_by, source_type)
+            VALUES (1,%s,%s,NULL,%s,'CODEX QA',%s,%s,%s,%s,0,%s,'Принято','CODEX QA','legacy_smoke_backfill')
+            RETURNING id
+            """,
+            (
+                invoice_number,
+                dt.date.today().isoformat(),
+                supplier_name,
+                candidate["projectName"],
+                candidate["projectName"],
+                json.dumps(items, ensure_ascii=False),
+                total,
+                total,
+            ),
+        )
+        invoice_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+    finally:
+        conn.close()
+
+    created["backfillInvoiceId"] = invoice_id
+    created["backfillSupplierId"] = supplier_id
+
+    _, preview = api_json(
+        "POST",
+        "/supplier-documents/backfill",
+        token=token,
+        data={"warehouseInvoiceId": invoice_id, "limit": 1},
+        expected=200,
+    )
+    preview_items = preview.get("items") or []
+    if preview.get("dryRun") is not True or not preview_items:
+        raise RuntimeError(f"Backfill preview не показал тестовую накладную: {preview}")
+    if not preview_items[0].get("needsReview"):
+        raise RuntimeError(f"Backfill preview не пометил name-only связь как needsReview: {preview_items[0]}")
+
+    _, result = api_json(
+        "POST",
+        "/supplier-documents/backfill",
+        token=token,
+        data={"warehouseInvoiceId": invoice_id, "apply": True, "limit": 1},
+        expected=200,
+    )
+    result_items = result.get("items") or []
+    result_item = result_items[0] if result_items else {}
+    supplier_invoice_id = result_item.get("supplierInvoiceId")
+    if result.get("linked") != 1 or not supplier_invoice_id:
+        raise RuntimeError(f"Backfill не создал первичку поставщика по тестовой накладной: {result}")
+    if not result_item.get("needsReview") or result_item.get("accountingStatus") != "Нужно уточнение":
+        raise RuntimeError(f"Backfill не перевел спорную связь в Нужно уточнение: {result_item}")
+    if "назв" not in str(result_item.get("reviewReason") or "").lower():
+        raise RuntimeError(f"Backfill не объяснил причину уточнения: {result_item}")
+
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT accounting_status, supplier_invoice_id FROM warehouse_invoices WHERE id=%s", (invoice_id,))
+        invoice_row = cur.fetchone()
+        if not invoice_row or invoice_row[0] != "Нужно уточнение" or int(invoice_row[1] or 0) != int(supplier_invoice_id):
+            raise RuntimeError("Складская накладная после backfill не получила статус Нужно уточнение")
+        cur.execute("SELECT status, supplier_id FROM supplier_invoices WHERE id=%s", (supplier_invoice_id,))
+        supplier_invoice_row = cur.fetchone()
+        if not supplier_invoice_row or supplier_invoice_row[0] != "Нужно уточнение" or int(supplier_invoice_row[1] or 0) != int(supplier_id):
+            raise RuntimeError("Первичка поставщика после спорного backfill не получила статус Нужно уточнение")
+        cur.close()
+    finally:
+        conn.close()
+    created["backfillSupplierInvoiceId"] = supplier_invoice_id
+    return invoice_id, supplier_invoice_id, supplier_id
+
+
 def cleanup(created):
     conn = None
     try:
@@ -1146,8 +1248,16 @@ def cleanup(created):
             "diagnosticOfferId": created.get("diagnosticOfferId"),
             "diagnosticRequestId": created.get("diagnosticRequestId"),
             "diagnosticSupplierId": created.get("diagnosticSupplierId"),
+            "backfillInvoiceId": created.get("backfillInvoiceId"),
+            "backfillSupplierInvoiceId": created.get("backfillSupplierInvoiceId"),
+            "backfillSupplierId": created.get("backfillSupplierId"),
             "supplierId": created.get("supplierId"),
         }
+        if ids["backfillSupplierInvoiceId"]:
+            cur.execute("DELETE FROM supplier_invoices WHERE id=%s", (ids["backfillSupplierInvoiceId"],))
+        if ids["backfillInvoiceId"]:
+            cur.execute("DELETE FROM supplier_invoices WHERE warehouse_invoice_id=%s", (ids["backfillInvoiceId"],))
+            cur.execute("DELETE FROM warehouse_invoices WHERE id=%s", (ids["backfillInvoiceId"],))
         for invoice_key in ["invoiceId", "manualInvoiceId", "foremanManualInvoiceId", "aliasInvoiceId", "cableInvoiceId"]:
             if ids.get(invoice_key):
                 cur.execute("DELETE FROM material_inspection_journal WHERE invoice_id=%s", (ids[invoice_key],))
@@ -1216,6 +1326,9 @@ def cleanup(created):
             cur.execute("DELETE FROM suppliers WHERE id=%s AND name LIKE %s", (ids["supplierId"], TEST_SUPPLIER_PREFIX + "%"))
         if ids["diagnosticSupplierId"]:
             cur.execute("DELETE FROM suppliers WHERE id=%s AND name LIKE %s", (ids["diagnosticSupplierId"], TEST_SUPPLIER_PREFIX + "%"))
+        if ids["backfillSupplierId"]:
+            cur.execute("DELETE FROM supplier_aliases WHERE supplier_id=%s", (ids["backfillSupplierId"],))
+            cur.execute("DELETE FROM suppliers WHERE id=%s AND name LIKE %s", (ids["backfillSupplierId"], TEST_SUPPLIER_PREFIX + "%"))
         if created.get("supplierEmail"):
             cur.execute("UPDATE users SET active=FALSE WHERE LOWER(email)=LOWER(%s)", (created["supplierEmail"],))
         if created.get("aliasId"):
@@ -1283,6 +1396,7 @@ def main():
         created["aliasName"] = alias_name
         created["aliasCanonicalMaterialName"] = candidate["materialName"]
         created["aliasQuantity"] = candidate["quantity"]
+        backfill_invoice_id, backfill_supplier_invoice_id, _ = assert_backfill_uncertain_supplier_review(token, candidate, stamp, created)
         print(json.dumps({
             "ok": True,
             "projectName": candidate["projectName"],
@@ -1304,6 +1418,8 @@ def main():
             "foremanManualMaterial": foreman_material_name,
             "aliasInvoiceId": alias_invoice_id,
             "aliasName": alias_name,
+            "backfillInvoiceId": backfill_invoice_id,
+            "backfillSupplierInvoiceId": backfill_supplier_invoice_id,
             "diagnosticRequestId": created.get("diagnosticRequestId"),
             "diagnosticOfferId": created.get("diagnosticOfferId"),
             "diagnosticSupplierId": created.get("diagnosticSupplierId"),
@@ -1327,6 +1443,7 @@ def main():
                 "foreman object invoice is allowed for assigned project warehouse",
                 "foreman main warehouse invoice is blocked",
                 "invoice alias rewrites raw supplier material to estimate material",
+                "targeted supplier document backfill marks name-only legacy links as needs_review",
             ],
         }, ensure_ascii=False, indent=2))
     except Exception as exc:
