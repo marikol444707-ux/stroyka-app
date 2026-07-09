@@ -89,9 +89,9 @@ except ModuleNotFoundError:
     from db import get_db, limit_offset_sql
 
 try:
-    from backend.features.company_context.service import company_id_scope_filter
+    from backend.features.company_context.service import company_id_scope_filter, resolve_resource_company_actor
 except ModuleNotFoundError:
-    from features.company_context.service import company_id_scope_filter
+    from features.company_context.service import company_id_scope_filter, resolve_resource_company_actor
 
 def _startup_num(v) -> float:
     try:
@@ -9657,31 +9657,58 @@ def create_supply_request(
     return response
 
 @app.put("/supply-requests/{id}")
-def update_supply_request(id: int, data: dict, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
+def update_supply_request(
+    id: int,
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     from datetime import datetime
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     action = data.get('action')
     now = datetime.now()
-    role = _current_user.get("role") or ""
-    user_id = _current_user.get("id")
-    user_name = _current_user.get("name") or ""
     cur.execute("""SELECT project, COALESCE(work_package,'') as work_package, items_json,
-                          requested_by_id, created_by, status
+                          requested_by_id, created_by, status, company_id
                    FROM supply_requests WHERE id=%s""", (id,))
     req = cur.fetchone()
     if not req:
         conn.close()
         raise HTTPException(status_code=404, detail="Заявка не найдена")
+    claimed_company_id = data.get("companyId") if "companyId" in data else data.get("company_id")
+    try:
+        _company_context, effective_user = resolve_resource_company_actor(
+            cur,
+            _current_user,
+            req.get("company_id"),
+            "update",
+            claimed_company_id=claimed_company_id,
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            platform_staff_roles=PLATFORM_STAFF_ROLES,
+            client_account_roles=CLIENT_ACCOUNT_ROLES,
+        )
+    except Exception:
+        cur.close()
+        conn.close()
+        raise
+    role = effective_user.get("role") or ""
+    if role not in SUPPLY_ROLES:
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=403, detail="Роль в выбранной компании не позволяет менять заявки снабжения")
+    user_id = effective_user.get("id")
+    user_name = effective_user.get("name") or ""
     if req.get("project"):
-        require_project_or_warehouse_access(_current_user, req.get("project"))
+        require_project_or_warehouse_access(effective_user, req.get("project"))
     request_items = _json_list_or_empty(req.get("items_json"))
     request_packages = sorted(set([
         _supply_work_package(item.get("workPackage") or item.get("work_package") or req.get("work_package"))
         for item in request_items
     ] or [_supply_work_package(req.get("work_package"))]))
     for package_name in request_packages:
-        if not has_package_access(_current_user, package_name or "Основная"):
+        if not has_package_access(effective_user, package_name or "Основная"):
             conn.close()
             raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы заявки: " + (package_name or "Основная"))
     if role in WORKER_EXECUTION_ROLES:
@@ -9750,15 +9777,15 @@ def update_supply_request(id: int, data: dict, _current_user: dict = Depends(req
     conn.close()
     audit_action = str(action or data.get("status") or "update")
     log_audit(
-        _current_user.get("name", ""),
-        _current_user.get("role", ""),
+        effective_user.get("name", ""),
+        effective_user.get("role", ""),
         audit_action,
         "supply_request",
         id,
         ("Заявка снабжения обновлена: " + str((row or {}).get("materialName") or (row or {}).get("material_name") or "") + ", статус " + str((row or {}).get("status") or ""))[:250],
         ((row or {}).get("project") or req.get("project") or ""),
     )
-    return _supply_response_for_role(row, _current_user) if row else {"ok": True}
+    return _supply_response_for_role(row, effective_user) if row else {"ok": True}
 
 @app.delete("/supply-requests/{id}")
 def delete_supply_request(id: int, rollback_received: bool = False, _current_user: dict = Depends(require_roles("директор", "зам_директора", "снабженец", "кладовщик", "прораб"))):

@@ -342,6 +342,40 @@
 
 **Estimated scope:** S
 
+## Task M2.2: Supply Request Update Isolation
+
+**Description:** Apply Tenant Context Kernel to `PUT /supply-requests/{id}` as the first mutation of an existing supply document. Resolve access from the request's stored `company_id`, then run the existing action rules with the selected company's effective membership role and project/package assignments.
+
+**Status:** Implemented and verified locally on 2026-07-10; push and production release are pending.
+
+**Acceptance criteria:**
+- [x] The stored request `company_id` is the source of truth for update authorization.
+- [x] Conflicting `X-Company-Id` or body `companyId` is rejected before membership queries or mutation.
+- [x] `Все компании` remains read-only and cannot update a request.
+- [x] Action authorization, project access, package access, audit role, and response shaping use the selected membership's effective role.
+- [x] Legacy users without tenant headers keep the default membership/`users.company_id` fallback.
+- [x] A request without `company_id` fails closed and requires an explicit safe data migration.
+- [x] Existing confirm, approve, reject, cancel, estimate-control, and status-transition rules are not changed.
+- [x] Delete, KP, offers, recipients, deliveries, and warehouse mutations remain outside this slice.
+
+**Verification:**
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.company_context.test_service` (21 tests passed)
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py backend/features/company_context/service.py`
+- [x] Tracked frontend test suite (56 tests passed).
+- [x] `npm run build`
+
+**Dependencies:** Task M2.1
+
+**Files touched:**
+- `backend/features/company_context/service.py`
+- `backend/features/company_context/test_service.py`
+- `backend/main.py`
+- `ONBOARDING.md`
+- `tasks/plan.md`
+- `tasks/todo.md`
+
+**Estimated scope:** S
+
 ## Task M3: Supplier And Procurement Isolation
 
 **Description:** Make `company_supplier_links` and `supply_request_recipients` the source of truth for company-specific supplier relationships, KP visibility, offers, invoices, and deliveries.

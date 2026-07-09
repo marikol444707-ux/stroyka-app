@@ -5,7 +5,9 @@ from fastapi import HTTPException
 from backend.features.company_context.service import (
     company_id_scope_filter,
     company_ids_for_context,
+    effective_company_user,
     resolve_request_company_context,
+    resolve_resource_company_actor,
 )
 
 
@@ -36,15 +38,22 @@ class MembershipCursor:
         return self.row
 
 
-def membership(*, account_id=5, company_id=7, role="снабженец"):
+def membership(
+    *,
+    account_id=5,
+    company_id=7,
+    role="снабженец",
+    assigned_projects=None,
+    assigned_packages=None,
+):
     return {
         "membership_id": 101,
         "user_id": 42,
         "company_id": company_id,
         "platform_account_id": account_id,
         "role": role,
-        "assigned_projects": [],
-        "assigned_packages": [],
+        "assigned_projects": assigned_projects or [],
+        "assigned_packages": assigned_packages or [],
         "active": True,
         "is_default": True,
         "company_name": "Тестовая компания",
@@ -63,6 +72,92 @@ def user(*, account_id=5):
 
 
 class ResolveRequestCompanyContextTests(unittest.TestCase):
+    def test_builds_effective_user_from_selected_company_membership(self):
+        actor = effective_company_user(
+            {"id": 42, "role": "директор", "assignedProjects": ["Чужой объект"]},
+            {
+                "companyId": 7,
+                "platformAccountId": 5,
+                "effectiveRole": "снабженец",
+                "assignedProjects": ["Объект 7"],
+                "assignedPackages": ["Электрика"],
+            },
+        )
+
+        self.assertEqual(actor["id"], 42)
+        self.assertEqual(actor["role"], "снабженец")
+        self.assertEqual(actor["companyId"], 7)
+        self.assertEqual(actor["company_id"], 7)
+        self.assertEqual(actor["platformAccountId"], 5)
+        self.assertEqual(actor["assignedProjects"], ["Объект 7"])
+        self.assertEqual(actor["assignedPackages"], ["Электрика"])
+
+    def test_resolves_resource_actor_with_effective_company_role(self):
+        cur = MembershipCursor([membership(
+            role="снабженец",
+            assigned_projects=["Объект 7"],
+            assigned_packages=["Электрика"],
+        )])
+
+        context, actor = resolve_resource_company_actor(
+            cur,
+            user(),
+            resource_company_id=7,
+            action_mode="update",
+            x_company_mode="company",
+            x_company_id="7",
+        )
+
+        self.assertEqual(context["companyId"], 7)
+        self.assertEqual(actor["role"], "снабженец")
+        self.assertEqual(actor["assignedProjects"], ["Объект 7"])
+        self.assertEqual(actor["assignedPackages"], ["Электрика"])
+
+    def test_rejects_resource_without_company_before_querying_database(self):
+        cur = MembershipCursor([])
+
+        with self.assertRaises(HTTPException) as error:
+            resolve_resource_company_actor(
+                cur,
+                user(),
+                resource_company_id=None,
+                action_mode="update",
+            )
+
+        self.assertEqual(error.exception.status_code, 409)
+        self.assertEqual(cur.execute_count, 0)
+
+    def test_rejects_resource_company_header_conflict_before_querying_database(self):
+        cur = MembershipCursor([])
+
+        with self.assertRaises(HTTPException) as error:
+            resolve_resource_company_actor(
+                cur,
+                user(),
+                resource_company_id=7,
+                action_mode="update",
+                x_company_mode="company",
+                x_company_id="8",
+            )
+
+        self.assertEqual(error.exception.status_code, 409)
+        self.assertEqual(cur.execute_count, 0)
+
+    def test_rejects_resource_company_body_conflict_before_querying_database(self):
+        cur = MembershipCursor([])
+
+        with self.assertRaises(HTTPException) as error:
+            resolve_resource_company_actor(
+                cur,
+                user(),
+                resource_company_id=7,
+                claimed_company_id=8,
+                action_mode="update",
+            )
+
+        self.assertEqual(error.exception.status_code, 409)
+        self.assertEqual(cur.execute_count, 0)
+
     def test_extracts_one_company_id_from_selected_context(self):
         self.assertEqual(company_ids_for_context({"mode": "company", "companyId": 7}), [7])
 

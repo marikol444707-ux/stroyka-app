@@ -83,6 +83,32 @@ def company_id_scope_filter(context: dict):
     return " AND FALSE", []
 
 
+def effective_company_user(user: dict, context: dict) -> dict:
+    """Overlay the authenticated identity with the selected membership scope."""
+    actor = dict(user or {})
+    company_id = _as_int((context or {}).get("companyId") or (context or {}).get("company_id"))
+    platform_account_id = _as_int(
+        (context or {}).get("platformAccountId")
+        or (context or {}).get("platform_account_id")
+        or actor.get("platformAccountId")
+        or actor.get("platform_account_id")
+    )
+    assigned_projects = _json_list((context or {}).get("assignedProjects"))
+    assigned_packages = _json_list((context or {}).get("assignedPackages"))
+    actor.update({
+        "role": (context or {}).get("effectiveRole") or (context or {}).get("role") or actor.get("role") or "",
+        "companyId": company_id,
+        "company_id": company_id,
+        "platformAccountId": platform_account_id,
+        "platform_account_id": platform_account_id,
+        "assignedProjects": assigned_projects,
+        "assigned_projects": assigned_projects,
+        "assignedPackages": assigned_packages,
+        "assigned_packages": assigned_packages,
+    })
+    return actor
+
+
 def _company_context_row(
     row: dict,
     *,
@@ -304,6 +330,47 @@ def resolve_request_company_context(
         "effectiveRole": context.get("role") or user.get("role") or "",
         "requestedMode": requested_mode,
     }
+
+
+def resolve_resource_company_actor(
+    cur,
+    user: dict,
+    resource_company_id,
+    action_mode: str = "update",
+    *,
+    claimed_company_id=None,
+    x_company_id=None,
+    x_company_mode=None,
+    platform_staff_roles=(),
+    client_account_roles=(),
+):
+    """Resolve a mutation actor against the company already stored on a resource."""
+    company_id = _as_int(resource_company_id)
+    if not company_id or company_id <= 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Документ не привязан к компании. Сначала назначьте компанию безопасным переносом данных.",
+        )
+    if claimed_company_id not in (None, ""):
+        claimed_id = _as_int(claimed_company_id)
+        if not claimed_id or claimed_id <= 0:
+            raise HTTPException(status_code=400, detail="companyId должен быть положительным целым числом")
+        if claimed_id != company_id:
+            raise HTTPException(status_code=409, detail="companyId не совпадает с компанией документа")
+    context = resolve_request_company_context(
+        cur,
+        user,
+        company_id,
+        action_mode,
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
+        platform_staff_roles=platform_staff_roles,
+        client_account_roles=client_account_roles,
+    )
+    resolved_company_id = _as_int(context.get("companyId") or context.get("company_id"))
+    if context.get("mode") != "company" or resolved_company_id != company_id:
+        raise HTTPException(status_code=409, detail="Выбранная компания не совпадает с компанией документа")
+    return context, effective_company_user(user, context)
 
 
 def build_company_context_response(
