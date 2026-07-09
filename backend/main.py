@@ -513,6 +513,17 @@ def _create_auth_session(cur, user: dict, request: Optional[Request], two_factor
     )
     return token
 
+def _revoke_user_sessions(cur, user_id) -> int:
+    if not user_id:
+        return 0
+    cur.execute(
+        """UPDATE user_sessions
+           SET revoked_at=NOW()
+           WHERE user_id=%s AND revoked_at IS NULL""",
+        (user_id,),
+    )
+    return int(cur.rowcount or 0)
+
 def _public_user_by_id(user_id, two_factor_passed: bool = False) -> dict:
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -7106,6 +7117,8 @@ def update_user(id: int, u: UserModel, _current_user: dict = Depends(require_rol
         if cur.rowcount == 0:
             conn.rollback()
             raise HTTPException(status_code=404, detail="Пользователь не найден")
+        if u.active is False:
+            _revoke_user_sessions(cur, id)
         conn.commit()
         log_audit(
             _current_user.get("name", ""),

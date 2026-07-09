@@ -138,6 +138,29 @@
 
 **Estimated scope:** M
 
+## Task 6.1: Revoke Sessions When User Is Disabled
+
+**Description:** When an admin disables a user through `PUT /users/{id}` with `active:false`, revoke that user's active cookie sessions without changing the broader auth flow.
+
+**Acceptance criteria:**
+- [x] Disabling a user revokes active `user_sessions` rows for that user.
+- [x] Existing cookie login/logout and Bearer fallback remain compatible.
+- [x] Password, role, 2FA, and staff-card revocation remain separate follow-up steps.
+
+**Verification:**
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py`
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile scripts/smoke-auth-session.py`
+- [ ] `npm run smoke:auth-session` on production after deploy.
+
+**Dependencies:** Task 6
+
+**Files likely touched:**
+- `backend/main.py`
+- `scripts/smoke-auth-session.py`
+- `ONBOARDING.md`
+
+**Estimated scope:** S
+
 ## Task 7: Supply Request Company Context
 
 **Description:** Ensure new supply request reads and writes use resolved company context and reject write actions from `Все компании`.
