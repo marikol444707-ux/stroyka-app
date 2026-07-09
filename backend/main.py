@@ -1233,6 +1233,11 @@ def _ensure_supply_request_recipients_table(cur):
             visible_to_supplier BOOLEAN DEFAULT FALSE,
             problem_reason TEXT DEFAULT '',
             status VARCHAR(100) DEFAULT 'Ожидает ответа',
+            email_notification_status VARCHAR(100) DEFAULT '',
+            email_sent_at TIMESTAMP,
+            max_notification_status VARCHAR(100) DEFAULT '',
+            max_outbox_id INT,
+            max_queued_at TIMESTAMP,
             requested_at TIMESTAMP DEFAULT NOW(),
             responded_at TIMESTAMP
         )
@@ -1246,6 +1251,11 @@ def _ensure_supply_request_recipients_table(cur):
     cur.execute("ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS visible_to_supplier BOOLEAN DEFAULT FALSE")
     cur.execute("ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS problem_reason TEXT DEFAULT ''")
     cur.execute("ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS status VARCHAR(100) DEFAULT 'Ожидает ответа'")
+    cur.execute("ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS email_notification_status VARCHAR(100) DEFAULT ''")
+    cur.execute("ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS email_sent_at TIMESTAMP")
+    cur.execute("ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS max_notification_status VARCHAR(100) DEFAULT ''")
+    cur.execute("ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS max_outbox_id INT")
+    cur.execute("ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS max_queued_at TIMESTAMP")
     cur.execute("ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS requested_at TIMESTAMP DEFAULT NOW()")
     cur.execute("ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS responded_at TIMESTAMP")
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_supply_request_recipients_request_target ON supply_request_recipients(request_id, target_supplier_id)")
@@ -1348,6 +1358,306 @@ def _add_supply_recipient_link_hint(row: dict) -> dict:
     row["linkUserEmail"] = row.get("targetSupplierEmail") or row.get("supplierEmail") or ""
     row["linkAction"] = "" if row.get("visibleToSupplier") else "link_supplier_user"
     return row
+
+def _should_skip_supplier_notification_email(email: str) -> bool:
+    normalized = (email or "").strip().lower()
+    return not normalized or normalized.endswith(".local") or normalized.endswith("@stroyka.local")
+
+def _supply_kp_public_url(request_id: int) -> str:
+    base_url = (APP_PUBLIC_URL or "https://stroyka26.pro").rstrip("/")
+    return base_url + "/app?from=supply-notification&supplyRequestId=" + str(request_id)
+
+def _ensure_supply_notification_messenger_tables(cur):
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS messenger_accounts (
+            id SERIAL PRIMARY KEY,
+            provider VARCHAR(40) NOT NULL,
+            user_id INT,
+            staff_id INT,
+            external_user_id VARCHAR(120),
+            chat_id VARCHAR(120),
+            display_name VARCHAR(255),
+            phone_hash VARCHAR(255),
+            verified_at TIMESTAMP DEFAULT NOW(),
+            enabled BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    cur.execute("ALTER TABLE messenger_accounts ADD COLUMN IF NOT EXISTS provider VARCHAR(40)")
+    cur.execute("ALTER TABLE messenger_accounts ADD COLUMN IF NOT EXISTS user_id INT")
+    cur.execute("ALTER TABLE messenger_accounts ADD COLUMN IF NOT EXISTS external_user_id VARCHAR(120)")
+    cur.execute("ALTER TABLE messenger_accounts ADD COLUMN IF NOT EXISTS chat_id VARCHAR(120)")
+    cur.execute("ALTER TABLE messenger_accounts ADD COLUMN IF NOT EXISTS display_name VARCHAR(255)")
+    cur.execute("ALTER TABLE messenger_accounts ADD COLUMN IF NOT EXISTS enabled BOOLEAN DEFAULT TRUE")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_messenger_accounts_user ON messenger_accounts(user_id)")
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS messenger_outbox (
+            id SERIAL PRIMARY KEY,
+            provider VARCHAR(40) NOT NULL,
+            messenger_account_id INT,
+            user_id INT,
+            staff_id INT,
+            external_user_id VARCHAR(120),
+            chat_id VARCHAR(120),
+            event_type VARCHAR(120) NOT NULL,
+            entity_type VARCHAR(120),
+            entity_id INT,
+            title TEXT NOT NULL DEFAULT '',
+            body TEXT NOT NULL DEFAULT '',
+            payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+            actions_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+            status VARCHAR(40) NOT NULL DEFAULT 'queued',
+            priority INT NOT NULL DEFAULT 5,
+            attempts INT NOT NULL DEFAULT 0,
+            provider_message_id VARCHAR(255),
+            last_error TEXT,
+            next_attempt_at TIMESTAMP,
+            sent_at TIMESTAMP,
+            failed_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    cur.execute("ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS provider VARCHAR(40)")
+    cur.execute("ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS messenger_account_id INT")
+    cur.execute("ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS user_id INT")
+    cur.execute("ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS external_user_id VARCHAR(120)")
+    cur.execute("ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS chat_id VARCHAR(120)")
+    cur.execute("ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS event_type VARCHAR(120)")
+    cur.execute("ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS entity_type VARCHAR(120)")
+    cur.execute("ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS entity_id INT")
+    cur.execute("ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS title TEXT DEFAULT ''")
+    cur.execute("ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS body TEXT DEFAULT ''")
+    cur.execute("ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS payload_json JSONB DEFAULT '{}'::jsonb")
+    cur.execute("ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS actions_json JSONB DEFAULT '[]'::jsonb")
+    cur.execute("ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS status VARCHAR(40) DEFAULT 'queued'")
+    cur.execute("ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS priority INT DEFAULT 5")
+    cur.execute("ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()")
+    cur.execute("ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_messenger_outbox_provider_status ON messenger_outbox(provider, status, priority, id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_messenger_outbox_account ON messenger_outbox(messenger_account_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_messenger_outbox_entity ON messenger_outbox(entity_type, entity_id)")
+
+def _supply_request_notification_context(cur, request_id: int) -> dict:
+    cur.execute("""
+        SELECT id, material_name, quantity, unit, project, work_package, notes, items_json
+          FROM supply_requests
+         WHERE id=%s
+         LIMIT 1
+    """, (request_id,))
+    row = cur.fetchone()
+    if not row:
+        return {}
+    items = _json_list_or_empty(_row_get(row, "items_json", 7, None))
+    item_lines = []
+    for item in items[:5]:
+        if not isinstance(item, dict):
+            continue
+        name = (item.get("materialName") or item.get("material_name") or item.get("name") or "").strip()
+        qty = item.get("quantity") or item.get("qty") or ""
+        unit = (item.get("unit") or "").strip()
+        if name:
+            item_lines.append(f"- {name}: {qty} {unit}".strip())
+    if len(items) > 5:
+        item_lines.append("- и ещё " + str(len(items) - 5) + " поз.")
+    material = _row_get(row, "material_name", 1, "") or ""
+    quantity = _row_get(row, "quantity", 2, "") or ""
+    unit = _row_get(row, "unit", 3, "") or ""
+    if not item_lines and material:
+        item_lines.append(f"- {material}: {quantity} {unit}".strip())
+    return {
+        "id": int(_row_get(row, "id", 0, request_id) or request_id),
+        "project": _row_get(row, "project", 4, "") or "",
+        "workPackage": _row_get(row, "work_package", 5, "") or "",
+        "materialName": material,
+        "quantity": quantity,
+        "unit": unit,
+        "notes": _row_get(row, "notes", 6, "") or "",
+        "itemLines": item_lines,
+    }
+
+def _supply_request_notification_text(request_context: dict, supplier_name: str = "") -> tuple:
+    request_id = int((request_context or {}).get("id") or 0)
+    project = (request_context or {}).get("project") or "объект не указан"
+    package = (request_context or {}).get("workPackage") or "Основная"
+    title = "Запрос КП №" + str(request_id)
+    greeting = "Здравствуйте."
+    if supplier_name:
+        greeting = "Здравствуйте, " + supplier_name + "."
+    lines = [
+        greeting,
+        "",
+        "Вам отправлен запрос коммерческого предложения в СтройКа.",
+        "Объект: " + project,
+        "Раздел: " + package,
+    ]
+    item_lines = (request_context or {}).get("itemLines") or []
+    if item_lines:
+        lines.append("")
+        lines.append("Позиции:")
+        lines.extend(item_lines)
+    notes = ((request_context or {}).get("notes") or "").strip()
+    if notes:
+        lines.extend(["", "Комментарий: " + notes])
+    lines.extend(["", "Открыть запрос: " + _supply_kp_public_url(request_id)])
+    return title, "\n".join(lines)
+
+def _queue_supply_request_max_notification(cur, recipient: dict, request_context: dict, offer_id=None) -> tuple:
+    supplier_user_id = recipient.get("supplier_user_id") or recipient.get("supplierUserId")
+    if not supplier_user_id:
+        return None, "MAX не привязан"
+    _ensure_supply_notification_messenger_tables(cur)
+    cur.execute("""
+        SELECT id, external_user_id, chat_id
+          FROM messenger_accounts
+         WHERE provider='max'
+           AND user_id=%s
+           AND COALESCE(enabled, TRUE)=TRUE
+         ORDER BY id DESC
+         LIMIT 1
+    """, (supplier_user_id,))
+    account = cur.fetchone()
+    if not account:
+        return None, "MAX не привязан"
+    account_id = int(_row_get(account, "id", 0, 0) or 0)
+    request_id = int((request_context or {}).get("id") or 0)
+    cur.execute("""
+        SELECT id, status
+          FROM messenger_outbox
+         WHERE provider='max'
+           AND messenger_account_id=%s
+           AND event_type='supplier_kp_requested'
+           AND entity_type='supply_request'
+           AND entity_id=%s
+           AND COALESCE(status,'') NOT IN ('cancelled','failed')
+         ORDER BY id DESC
+         LIMIT 1
+    """, (account_id, request_id))
+    existing = cur.fetchone()
+    if existing:
+        return int(_row_get(existing, "id", 0, 0) or 0), "В очереди MAX"
+    title, body = _supply_request_notification_text(request_context, recipient.get("supplier_name") or "")
+    payload = {
+        "requestId": request_id,
+        "offerId": offer_id,
+        "supplierId": recipient.get("target_supplier_id") or recipient.get("supplier_id"),
+        "projectName": (request_context or {}).get("project") or "",
+        "workPackage": (request_context or {}).get("workPackage") or "",
+    }
+    actions = [{
+        "id": "openSupplyRequest",
+        "label": "Открыть КП",
+        "kind": "open_app",
+        "path": "/app?from=max&page=supply",
+        "entityType": "supply_request",
+        "entityId": request_id,
+    }]
+    cur.execute("""
+        INSERT INTO messenger_outbox
+            (provider, messenger_account_id, user_id, external_user_id, chat_id, event_type,
+             entity_type, entity_id, title, body, payload_json, actions_json, status, priority,
+             created_at, updated_at)
+        VALUES ('max',%s,%s,%s,%s,'supplier_kp_requested',
+                'supply_request',%s,%s,%s,%s::jsonb,%s::jsonb,'queued',4,NOW(),NOW())
+        RETURNING id
+    """, (
+        account_id,
+        supplier_user_id,
+        _row_get(account, "external_user_id", 1, "") or "",
+        _row_get(account, "chat_id", 2, "") or "",
+        request_id,
+        title,
+        body,
+        json.dumps(payload, ensure_ascii=False),
+        json.dumps(actions, ensure_ascii=False),
+    ))
+    row = cur.fetchone()
+    return int(_row_get(row, "id", 0, 0) or 0), "В очереди MAX"
+
+def _notify_supply_request_recipients(cur, request_id: int) -> list:
+    _ensure_supply_request_recipients_table(cur)
+    request_context = _supply_request_notification_context(cur, request_id)
+    if not request_context:
+        return []
+    cur.execute("""
+        SELECT r.id, r.request_id, r.target_supplier_id, r.supplier_id, r.supplier_user_id,
+               r.email_notification_status, r.max_notification_status, r.max_outbox_id,
+               COALESCE(s.name,'') AS supplier_name,
+               COALESCE(NULLIF(s.email,''), NULLIF(u.email,''), '') AS email
+          FROM supply_request_recipients r
+          LEFT JOIN suppliers s ON s.id=r.target_supplier_id
+          LEFT JOIN users u ON u.id=r.supplier_user_id
+         WHERE r.request_id=%s
+           AND COALESCE(r.visible_to_supplier,FALSE)=TRUE
+         ORDER BY r.id
+    """, (request_id,))
+    recipients = [dict(row) for row in (cur.fetchall() or [])]
+    if not recipients:
+        return []
+    scope_ids = _normalize_supplier_ids([row.get("target_supplier_id") or row.get("supplier_id") for row in recipients])
+    offer_by_supplier = {}
+    if scope_ids:
+        cur.execute("""
+            SELECT id, supplier_id
+              FROM supplier_offers
+             WHERE request_id=%s
+               AND supplier_id = ANY(%s)
+               AND COALESCE(status,'') NOT IN ('Отклонено','Отозвано')
+             ORDER BY id DESC
+        """, (request_id, scope_ids))
+        for offer in cur.fetchall() or []:
+            supplier_id = int(_row_get(offer, "supplier_id", 1, 0) or 0)
+            offer_by_supplier.setdefault(supplier_id, int(_row_get(offer, "id", 0, 0) or 0))
+    notifications = []
+    for recipient in recipients:
+        recipient_id = int(recipient.get("id") or 0)
+        supplier_id = int(recipient.get("target_supplier_id") or recipient.get("supplier_id") or 0)
+        email = (recipient.get("email") or "").strip()
+        current_email_status = (recipient.get("email_notification_status") or "").strip()
+        email_sent = False
+        if current_email_status == "Отправлено":
+            email_status = current_email_status
+        elif not email:
+            email_status = "Нет email"
+        elif _should_skip_supplier_notification_email(email):
+            email_status = "Пропущено: тестовый email"
+        elif not _smtp_configured():
+            email_status = "SMTP не настроен"
+        else:
+            subject, body = _supply_request_notification_text(request_context, recipient.get("supplier_name") or "")
+            email_sent = _send_email(email, subject, body)
+            email_status = "Отправлено" if email_sent else "Ошибка отправки"
+
+        offer_id = offer_by_supplier.get(supplier_id)
+        current_max_status = (recipient.get("max_notification_status") or "").strip()
+        current_outbox_id = recipient.get("max_outbox_id")
+        if current_outbox_id and current_max_status in ("В очереди MAX", "Отправлено MAX"):
+            max_outbox_id = int(current_outbox_id)
+            max_status = current_max_status
+            max_queued = False
+        else:
+            max_outbox_id, max_status = _queue_supply_request_max_notification(cur, recipient, request_context, offer_id)
+            max_queued = bool(max_outbox_id and max_status == "В очереди MAX")
+        cur.execute("""
+            UPDATE supply_request_recipients
+               SET email_notification_status=%s,
+                   email_sent_at=CASE WHEN %s THEN COALESCE(email_sent_at,NOW()) ELSE email_sent_at END,
+                   max_notification_status=%s,
+                   max_outbox_id=COALESCE(%s, max_outbox_id),
+                   max_queued_at=CASE WHEN %s THEN COALESCE(max_queued_at,NOW()) ELSE max_queued_at END
+             WHERE id=%s
+        """, (email_status, email_sent, max_status, max_outbox_id, max_queued, recipient_id))
+        notifications.append({
+            "recipientId": recipient_id,
+            "supplierId": supplier_id,
+            "offerId": offer_id,
+            "email": email,
+            "emailStatus": email_status,
+            "maxStatus": max_status,
+            "maxOutboxId": max_outbox_id,
+        })
+    return notifications
 
 def _resolve_work_company_context(cur, user: dict, requested_company_id=None, action_mode: str = "write") -> dict:
     try:
@@ -3417,6 +3727,11 @@ def init_db():
             visible_to_supplier BOOLEAN DEFAULT FALSE,
             problem_reason TEXT DEFAULT '',
             status VARCHAR(100) DEFAULT 'Ожидает ответа',
+            email_notification_status VARCHAR(100) DEFAULT '',
+            email_sent_at TIMESTAMP,
+            max_notification_status VARCHAR(100) DEFAULT '',
+            max_outbox_id INT,
+            max_queued_at TIMESTAMP,
             requested_at TIMESTAMP DEFAULT NOW(),
             responded_at TIMESTAMP
         );
@@ -3429,6 +3744,11 @@ def init_db():
         ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS visible_to_supplier BOOLEAN DEFAULT FALSE;
         ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS problem_reason TEXT DEFAULT '';
         ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS status VARCHAR(100) DEFAULT 'Ожидает ответа';
+        ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS email_notification_status VARCHAR(100) DEFAULT '';
+        ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS email_sent_at TIMESTAMP;
+        ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS max_notification_status VARCHAR(100) DEFAULT '';
+        ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS max_outbox_id INT;
+        ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS max_queued_at TIMESTAMP;
         ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS requested_at TIMESTAMP DEFAULT NOW();
         ALTER TABLE supply_request_recipients ADD COLUMN IF NOT EXISTS responded_at TIMESTAMP;
         CREATE UNIQUE INDEX IF NOT EXISTS idx_supply_request_recipients_request_target
@@ -9016,6 +9336,7 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
          prorab_id, prorab_name, prorab_at,
          director_id, director_name, director_at, items_json))
     new_id = cur.fetchone()['id']
+    notification_rows = []
     if selected_suppliers and initial_status == "Утверждена":
         recipient_rows = _upsert_supply_request_recipients(cur, new_id, company_id, selected_suppliers)
         visibility_error = _recipient_visibility_error(recipient_rows)
@@ -9023,6 +9344,7 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
             cur.close(); conn.close()
             raise HTTPException(status_code=400, detail=visibility_error)
         _create_supplier_offer_requests(cur, new_id, selected_suppliers, company_id=company_id)
+        notification_rows = _notify_supply_request_recipients(cur, new_id)
         cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", ('КП запрошены', new_id))
     cur.execute(SUPPLY_SELECT + " WHERE id=%s", (new_id,))
     row = cur.fetchone()
@@ -9037,7 +9359,10 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
         ("Заявка снабжения: " + str(agg_name or "") + ", " + str(agg_qty) + " " + str(agg_unit or "") + ", статус " + str(initial_status or ""))[:250],
         project_name,
     )
-    return _supply_response_for_role(row, _current_user)
+    response = _supply_response_for_role(row, _current_user)
+    if notification_rows:
+        response["notifications"] = notification_rows
+    return response
 
 @app.put("/supply-requests/{id}")
 def update_supply_request(id: int, data: dict, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
@@ -9975,6 +10300,7 @@ def request_kp_from_suppliers(id: int, data: dict, _current_user: dict = Depends
         cur.close(); conn.close()
         raise HTTPException(status_code=400, detail=visibility_error)
     created = _create_supplier_offer_requests(cur, id, selected_scope_ids, ai_ids, company_id=company_id)
+    notification_rows = _notify_supply_request_recipients(cur, id)
     # Обновляем статус заявки
     cur.execute("""UPDATE supply_requests
                    SET status=CASE WHEN status='Утверждена' THEN %s ELSE status END,
@@ -9995,6 +10321,7 @@ def request_kp_from_suppliers(id: int, data: dict, _current_user: dict = Depends
         "supplierIds": selected_scope_ids,
         "companyId": company_id,
         "recipients": recipient_rows,
+        "notifications": notification_rows,
     }
 
 @app.get("/supply-requests/{id}/recipients")
@@ -10017,6 +10344,11 @@ def get_supply_request_recipients(id: int, _current_user: dict = Depends(require
                r.supplier_group_ids AS "supplierGroupIds",
                r.visible_to_supplier AS "visibleToSupplier",
                r.problem_reason AS "problemReason",
+               r.email_notification_status AS "emailNotificationStatus",
+               r.email_sent_at AS "emailSentAt",
+               r.max_notification_status AS "maxNotificationStatus",
+               r.max_outbox_id AS "maxOutboxId",
+               r.max_queued_at AS "maxQueuedAt",
                r.status,
                r.requested_at AS "requestedAt",
                r.responded_at AS "respondedAt"
@@ -10079,6 +10411,11 @@ def get_supply_request_recipients(id: int, _current_user: dict = Depends(require
                 "supplierGroupIds": scope_ids,
                 "visibleToSupplier": bool(visibility.get("visible")),
                 "problemReason": visibility.get("reason") or "",
+                "emailNotificationStatus": "",
+                "emailSentAt": None,
+                "maxNotificationStatus": "",
+                "maxOutboxId": None,
+                "maxQueuedAt": None,
                 "status": _row_get(offer, "status", 4, "") or "Ожидает ответа",
                 "requestedAt": _row_get(offer, "requested_at", 5, None),
                 "respondedAt": _row_get(offer, "responded_at", 6, None),

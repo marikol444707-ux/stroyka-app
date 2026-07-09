@@ -744,6 +744,139 @@ def assert_unlinked_supplier_recipient_diagnostics(admin_token, candidate, stamp
         raise RuntimeError("Диагностика получателей КП не показала статус legacy КП")
 
 
+def ensure_supplier_max_account(email, stamp, created):
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS messenger_accounts (
+                id SERIAL PRIMARY KEY,
+                provider VARCHAR(40) NOT NULL,
+                user_id INT,
+                staff_id INT,
+                external_user_id VARCHAR(120),
+                chat_id VARCHAR(120),
+                display_name VARCHAR(255),
+                phone_hash VARCHAR(255),
+                verified_at TIMESTAMP DEFAULT NOW(),
+                enabled BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+            """
+        )
+        cur.execute(
+            "SELECT id, name FROM users WHERE LOWER(email)=LOWER(%s) ORDER BY id DESC LIMIT 1",
+            (email,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise RuntimeError("Не найден пользователь поставщика для MAX smoke")
+        user_id, user_name = row
+        external_user_id = f"codex-max-supplier-{stamp}"
+        chat_id = f"codex-max-supplier-chat-{stamp}"
+        cur.execute(
+            """
+            INSERT INTO messenger_accounts
+                (provider, user_id, external_user_id, chat_id, display_name, enabled, verified_at, created_at, updated_at)
+            VALUES ('max',%s,%s,%s,%s,TRUE,NOW(),NOW(),NOW())
+            RETURNING id
+            """,
+            (user_id, external_user_id, chat_id, user_name or email),
+        )
+        account_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        created["notificationMessengerAccountId"] = account_id
+        return account_id
+    finally:
+        conn.close()
+
+
+def assert_supply_request_notifications(admin_token, supplier_id, supplier_email, candidate, stamp, created):
+    account_id = ensure_supplier_max_account(supplier_email, stamp, created)
+    extra = dict(candidate)
+    request, error = create_supply_request_for_candidate(admin_token, supplier_id, extra, stamp + "-notify")
+    if not request:
+        raise RuntimeError("Не удалось создать заявку для проверки уведомлений КП: " + str(error))
+    request_id = request["id"]
+    created["notificationRequestId"] = request_id
+
+    notifications = request.get("notifications") or []
+    if not notifications:
+        raise RuntimeError("Создание КП не вернуло статусы уведомлений")
+
+    _, recipients = api_json("GET", f"/supply-requests/{request_id}/recipients", token=admin_token, expected=200)
+    row = next(
+        (
+            r for r in recipients
+            if int(r.get("targetSupplierId") or r.get("supplierId") or 0) == int(supplier_id)
+        ),
+        None,
+    )
+    if not row:
+        raise RuntimeError("Диагностика получателей не показала поставщика для проверки уведомлений")
+    if not row.get("visibleToSupplier"):
+        raise RuntimeError("Связанный поставщик ошибочно не видит КП в диагностике")
+    email_status = row.get("emailNotificationStatus") or ""
+    if email_status not in ("Пропущено: тестовый email", "SMTP не настроен", "Отправлено", "Ошибка отправки"):
+        raise RuntimeError("Диагностика получателей КП не записала понятный email-статус: " + str(email_status))
+    if row.get("maxNotificationStatus") != "В очереди MAX":
+        raise RuntimeError("MAX-уведомление по КП не поставлено в очередь: " + str(row.get("maxNotificationStatus")))
+    outbox_id = row.get("maxOutboxId")
+    if not outbox_id:
+        raise RuntimeError("Диагностика получателей КП не вернула maxOutboxId")
+
+    conn = db_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            """
+            SELECT id, provider, messenger_account_id, event_type, entity_type, entity_id, status, actions_json
+              FROM messenger_outbox
+             WHERE id=%s
+            """,
+            (outbox_id,),
+        )
+        outbox = cur.fetchone()
+        cur.close()
+        if not outbox:
+            raise RuntimeError("MAX outbox-запись по КП не найдена в базе")
+        if outbox.get("provider") != "max" or int(outbox.get("messenger_account_id") or 0) != int(account_id):
+            raise RuntimeError("MAX outbox-запись по КП привязана не к аккаунту поставщика")
+        if outbox.get("event_type") != "supplier_kp_requested" or outbox.get("entity_type") != "supply_request":
+            raise RuntimeError("MAX outbox-запись по КП имеет неверный тип события")
+        if int(outbox.get("entity_id") or 0) != int(request_id):
+            raise RuntimeError("MAX outbox-запись по КП указывает не на заявку")
+        if outbox.get("status") != "queued":
+            raise RuntimeError("MAX outbox-запись по КП не в статусе queued")
+        actions = outbox.get("actions_json") or []
+        if isinstance(actions, str):
+            actions = json.loads(actions)
+        if not any(isinstance(action, dict) and action.get("kind") == "open_app" for action in actions):
+            raise RuntimeError("MAX outbox-запись по КП не содержит open_app кнопку")
+    finally:
+        conn.close()
+
+    created["notificationOutboxId"] = outbox_id
+    offer_id = next((n.get("offerId") for n in notifications if isinstance(n, dict) and n.get("offerId")), None)
+    if not offer_id:
+        _, offers = api_json("GET", "/supplier-offers", token=admin_token, expected=200)
+        offer = next(
+            (
+                o for o in offers
+                if int(o.get("requestId") or 0) == int(request_id)
+                and int(o.get("supplierId") or 0) == int(supplier_id)
+            ),
+            None,
+        )
+        offer_id = offer.get("id") if offer else None
+    if offer_id:
+        created["notificationOfferId"] = offer_id
+    return request_id, outbox_id
+
+
 def assert_visible_chain(token, candidate, delivery_id, invoice_id):
     _, invoices = api_json("GET", "/warehouse-invoices", token=token, expected=200)
     invoice = next((r for r in invoices if int(r.get("id") or 0) == int(invoice_id)), None)
@@ -1251,6 +1384,10 @@ def cleanup(created):
             "backfillInvoiceId": created.get("backfillInvoiceId"),
             "backfillSupplierInvoiceId": created.get("backfillSupplierInvoiceId"),
             "backfillSupplierId": created.get("backfillSupplierId"),
+            "notificationRequestId": created.get("notificationRequestId"),
+            "notificationOfferId": created.get("notificationOfferId"),
+            "notificationOutboxId": created.get("notificationOutboxId"),
+            "notificationMessengerAccountId": created.get("notificationMessengerAccountId"),
             "supplierId": created.get("supplierId"),
         }
         if ids["backfillSupplierInvoiceId"]:
@@ -1292,12 +1429,26 @@ def cleanup(created):
             cur.execute("DELETE FROM supplier_offer_events WHERE offer_id=%s", (ids["diagnosticOfferId"],))
             cur.execute("DELETE FROM supplier_invoices WHERE offer_id=%s", (ids["diagnosticOfferId"],))
             cur.execute("DELETE FROM supplier_offers WHERE id=%s", (ids["diagnosticOfferId"],))
+        if ids["notificationOutboxId"]:
+            cur.execute("DELETE FROM messenger_outbox WHERE id=%s", (ids["notificationOutboxId"],))
+        if ids["notificationOfferId"]:
+            cur.execute("DELETE FROM supplier_offer_events WHERE offer_id=%s", (ids["notificationOfferId"],))
+            cur.execute("DELETE FROM supplier_invoices WHERE offer_id=%s", (ids["notificationOfferId"],))
+            cur.execute("DELETE FROM supplier_offers WHERE id=%s", (ids["notificationOfferId"],))
+        if ids["notificationRequestId"]:
+            cur.execute("DELETE FROM supplier_offer_events WHERE offer_id IN (SELECT id FROM supplier_offers WHERE request_id=%s)", (ids["notificationRequestId"],))
+            cur.execute("DELETE FROM supplier_invoices WHERE offer_id IN (SELECT id FROM supplier_offers WHERE request_id=%s)", (ids["notificationRequestId"],))
+            cur.execute("DELETE FROM supplier_offers WHERE request_id=%s", (ids["notificationRequestId"],))
+            cur.execute("DELETE FROM supply_request_recipients WHERE request_id=%s", (ids["notificationRequestId"],))
+            cur.execute("DELETE FROM supply_history WHERE request_id=%s", (ids["notificationRequestId"],))
         if ids["requestId"]:
             cur.execute("DELETE FROM supply_requests WHERE id=%s", (ids["requestId"],))
         if ids["withdrawRequestId"]:
             cur.execute("DELETE FROM supply_requests WHERE id=%s", (ids["withdrawRequestId"],))
         if ids["diagnosticRequestId"]:
             cur.execute("DELETE FROM supply_requests WHERE id=%s", (ids["diagnosticRequestId"],))
+        if ids["notificationRequestId"]:
+            cur.execute("DELETE FROM supply_requests WHERE id=%s", (ids["notificationRequestId"],))
         for material_name in [n for n in material_names if n]:
             if material_name and project_name:
                 cur.execute(
@@ -1329,6 +1480,8 @@ def cleanup(created):
         if ids["backfillSupplierId"]:
             cur.execute("DELETE FROM supplier_aliases WHERE supplier_id=%s", (ids["backfillSupplierId"],))
             cur.execute("DELETE FROM suppliers WHERE id=%s AND name LIKE %s", (ids["backfillSupplierId"], TEST_SUPPLIER_PREFIX + "%"))
+        if ids["notificationMessengerAccountId"]:
+            cur.execute("DELETE FROM messenger_accounts WHERE id=%s", (ids["notificationMessengerAccountId"],))
         if created.get("supplierEmail"):
             cur.execute("UPDATE users SET active=FALSE WHERE LOWER(email)=LOWER(%s)", (created["supplierEmail"],))
         if created.get("aliasId"):
@@ -1367,6 +1520,7 @@ def main():
             "requestId": candidate["requestId"],
         })
         supplier_token = ensure_supplier_user(supplier_email, supplier_name)
+        notification_request_id, notification_outbox_id = assert_supply_request_notifications(token, supplier_id, supplier_email, candidate, stamp, created)
         offer_id = create_and_select_offer(token, candidate, supplier_id, supplier_token=supplier_token)
         created["offerId"] = offer_id
         supplier_invoice_id = create_supplier_invoice_for_offer(supplier_token, offer_id, candidate, stamp)
@@ -1420,6 +1574,8 @@ def main():
             "aliasName": alias_name,
             "backfillInvoiceId": backfill_invoice_id,
             "backfillSupplierInvoiceId": backfill_supplier_invoice_id,
+            "notificationRequestId": notification_request_id,
+            "notificationOutboxId": notification_outbox_id,
             "diagnosticRequestId": created.get("diagnosticRequestId"),
             "diagnosticOfferId": created.get("diagnosticOfferId"),
             "diagnosticSupplierId": created.get("diagnosticSupplierId"),
@@ -1427,6 +1583,7 @@ def main():
                 "positive estimate material selected",
                 "supply request passed estimate control",
                 "selected supplier received KP request",
+                "selected supplier KP request records email status and queues MAX notification",
                 "supplier account responded to KP and director selected it",
                 "supplier invoice created from selected KP",
                 "supplier shipment created",
