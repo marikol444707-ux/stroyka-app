@@ -48,8 +48,8 @@ export const normalizeSupplierPayload = (supplier = {}) => ({
 export const normalizeSupplierNameKey = value => String(value || '')
   .toLowerCase()
   .replace(/ё/g, 'е')
-  .replace(/(?:,|\s)\s*(инн|кпп|огрн|огрнип|тел\.?|телефон|р\/с|расч[её]тн|адрес)\b.*$/g, ' ')
-  .replace(/\b(инн|кпп|огрн|огрнип)\s*[:№#-]?\s*\d+\b/g, ' ')
+  .replace(/(?:,|\s)\s*(инн|кпп|огрн|огрнип|тел\.?|телефон|р\/с|расч[её]тн|адрес)(?=$|[^а-яa-z]).*$/g, ' ')
+  .replace(/(^|[^а-яa-z])(инн|кпп|огрн|огрнип)\s*[:№#-]?\s*\d+(?=$|[^а-яa-z])/g, ' ')
   .replace(/\b(ооо|оао|ао|пао|зао|ип|индивидуальный предприниматель)\b/g, ' ')
   .replace(/[.,;:()«»"'`/\\]+/g, ' ')
   .replace(/\s+/g, ' ')
@@ -75,16 +75,30 @@ const supplierNameNoiseTokens = new Set([
 const supplierNameTokens = value => (
   normalizeSupplierNameKey(value)
     .split(' ')
-    .filter(token => token.length >= 2 && !supplierNameNoiseTokens.has(token))
+    .filter(token => token.length >= 1 && !supplierNameNoiseTokens.has(token))
 );
+
+const supplierPersonInitialMatch = (leftTokens, rightTokens) => {
+  const hasInitials = leftTokens.length >= 3 && leftTokens[1]?.length === 1 && leftTokens[2]?.length === 1;
+  const hasFullName = rightTokens.length >= 3 && rightTokens[1]?.length > 1 && rightTokens[2]?.length > 1;
+  if (!hasInitials || !hasFullName) return false;
+  return (
+    leftTokens[0] === rightTokens[0]
+    && rightTokens[1].startsWith(leftTokens[1])
+    && rightTokens[2].startsWith(leftTokens[2])
+  );
+};
 
 export const supplierNameDuplicateReason = (left, right) => {
   const leftTokens = supplierNameTokens(left?.name || left?.supplierName || left?.supplier_name || left?.supplier || '');
   const rightTokens = supplierNameTokens(right?.name || right?.supplierName || right?.supplier_name || right?.supplier || '');
-  const leftKey = leftTokens.join(' ');
-  const rightKey = rightTokens.join(' ');
+  const leftNameTokens = leftTokens.filter(token => token.length >= 2);
+  const rightNameTokens = rightTokens.filter(token => token.length >= 2);
+  const leftKey = leftNameTokens.join(' ');
+  const rightKey = rightNameTokens.join(' ');
   if (!leftKey || !rightKey) return '';
   if (leftKey === rightKey) return 'совпадает название';
+  if (supplierPersonInitialMatch(leftTokens, rightTokens) || supplierPersonInitialMatch(rightTokens, leftTokens)) return 'похожее ФИО';
   if (supplierKeysMatch(leftKey, rightKey)) return 'похожее название';
   const leftSet = new Set(leftTokens);
   const rightSet = new Set(rightTokens);

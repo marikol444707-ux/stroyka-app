@@ -64,6 +64,33 @@ describe('groupSuppliers', () => {
     expect(reason).toBe('совпадает название');
   });
 
+  it('strips OCR requisites before comparing supplier names', () => {
+    const reason = supplierNameDuplicateReason(
+      { id: 41, name: 'ИП Литашов Д. В., ИНН 261908121534, 357906, Ставропольский край, м.о. Советский, с Нины, ул Комсомольская, д. 82а, тел.: +7-988-114-32-26' },
+      { id: 42, name: 'ООО ПКФ "ЭВЕРЕСТ", ИНН 2635045921, КПП 263501001, 355014, Ставропольский край, г Ставрополь, пр-д 4 Юго-Западный, дом 5' },
+    );
+
+    expect(reason).toBe('');
+  });
+
+  it('flags contractor initials and full person name as possible duplicate', () => {
+    const reason = supplierNameDuplicateReason(
+      { id: 41, name: 'ИП Литашов Д. В., ИНН 261908121534, 357906, Ставропольский край, м.о. Советский, с Нины, ул Комсомольская, д. 82а, тел.: +7-988-114-32-26' },
+      { id: 42, name: 'ИП Литашов Денис Владимирович' },
+    );
+
+    expect(reason).toBe('похожее ФИО');
+  });
+
+  it('does not flag different electro suppliers by a shared root only', () => {
+    const reason = supplierNameDuplicateReason(
+      { id: 51, name: 'АО ТД Электромонтаж' },
+      { id: 52, name: 'АО "ТД "Электротехмонтаж"' },
+    );
+
+    expect(reason).toBe('');
+  });
+
   it('summarizes supplier source using linked account and warehouse evidence', () => {
     const [group] = groupSuppliers([
       { id: 17, name: 'АО «САТУРН ЮГ»', inn: '2635000000', sourceType: 'manual', sourceDetail: 'добавил директор' },
