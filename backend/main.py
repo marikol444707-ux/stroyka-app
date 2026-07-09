@@ -10783,6 +10783,52 @@ def create_invoice_from_offer(id: int, data: dict, _current_user: dict = Depends
     }
     item_packages = {p for p in item_packages if p}
     invoice_package = data.get('workPackage') or (next(iter(item_packages)) if len(item_packages) == 1 else (offer.get("work_package") or ""))
+    duplicate_invoice = _find_existing_supplier_invoice_duplicate(
+        cur,
+        company_id=offer.get('company_id') or 1,
+        invoice_number=invoice_number,
+        invoice_date=invoice_date,
+        project_name=offer['project_name'],
+        supplier_id=offer['supplier_id'],
+        supplier_name=offer['supplier_name'],
+        amount=amount,
+        request_id=offer['request_id'],
+        offer_id=offer['id'],
+    )
+    if duplicate_invoice:
+        existing_id = duplicate_invoice.get("id")
+        cur.execute(
+            """
+            UPDATE supplier_invoices
+               SET company_id=%s,
+                   offer_id=COALESCE(offer_id,%s),
+                   request_id=COALESCE(request_id,%s),
+                   supplier_id=COALESCE(supplier_id,%s),
+                   supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
+                   payment_terms=COALESCE(NULLIF(payment_terms,''),%s),
+                   material_name=COALESCE(NULLIF(material_name,''),%s),
+                   work_package=COALESCE(NULLIF(work_package,''),%s),
+                   description=COALESCE(NULLIF(description,''),%s),
+                   file_url=COALESCE(NULLIF(file_url,''),%s)
+             WHERE id=%s
+            """,
+            (
+                offer.get('company_id') or 1,
+                offer['id'],
+                offer['request_id'],
+                offer['supplier_id'],
+                offer['supplier_name'],
+                offer['payment_terms'],
+                offer['material_name'],
+                invoice_package,
+                description,
+                file_url,
+                existing_id,
+            ),
+        )
+        conn.commit()
+        cur.close(); conn.close()
+        return {"ok": True, "id": existing_id, "alreadyExists": True, "duplicateDocument": True}
     cur.execute(
         "INSERT INTO supplier_invoices "
         "(company_id, supplier_id, supplier_name, project_name, invoice_number, invoice_date, "
@@ -11094,6 +11140,82 @@ def _find_existing_warehouse_invoice_duplicate(cur, *, company_id, invoice_numbe
                 "id": _row_get(candidate, "id", 0),
                 "supplierName": _row_get(candidate, "supplier_name", 2, "") or "",
                 "totalWithVat": candidate_total,
+            }
+    return None
+
+def _find_existing_supplier_invoice_duplicate(cur, *, company_id, invoice_number, invoice_date, project_name, supplier_id=None, supplier_name="", amount=0, warehouse_invoice_id=None, request_id=None, offer_id=None):
+    warehouse_invoice_id = _positive_int_or_none(warehouse_invoice_id)
+    if warehouse_invoice_id:
+        cur.execute(
+            """
+            SELECT id, warehouse_invoice_id, supplier_id, supplier_name, amount
+              FROM supplier_invoices
+             WHERE COALESCE(status,'') <> 'Аннулирован'
+               AND warehouse_invoice_id=%s
+             ORDER BY id DESC
+             LIMIT 1
+            """,
+            (warehouse_invoice_id,),
+        )
+        row = cur.fetchone()
+        if row:
+            return {
+                "id": _row_get(row, "id", 0),
+                "warehouseInvoiceId": _row_get(row, "warehouse_invoice_id", 1),
+                "supplierName": _row_get(row, "supplier_name", 3, "") or "",
+                "amount": _float_or_zero(_row_get(row, "amount", 4)),
+                "match": "warehouse_invoice_id",
+            }
+
+    invoice_number = str(invoice_number or "").strip()
+    if not invoice_number:
+        return None
+    company_id = _positive_int_or_none(company_id) or 1
+    supplier_id = _positive_int_or_none(supplier_id)
+    supplier_name_key = _normalize_supplier_name_key(supplier_name or "")
+    supplier_scope_ids = set(supplier_related_ids(cur, supplier_id)) if supplier_id else set()
+    amount = _float_or_zero(amount)
+    request_id = _positive_int_or_none(request_id)
+    offer_id = _positive_int_or_none(offer_id)
+
+    cur.execute(
+        """
+        SELECT id, warehouse_invoice_id, supplier_id, supplier_name, amount, request_id, offer_id
+          FROM supplier_invoices
+         WHERE COALESCE(status,'') <> 'Аннулирован'
+           AND COALESCE(company_id,1)=%s
+           AND COALESCE(invoice_number,'')=%s
+           AND COALESCE(invoice_date::text,'')=COALESCE(%s::text,'')
+           AND COALESCE(project_name,'')=%s
+         ORDER BY id DESC
+        """,
+        (company_id, invoice_number, invoice_date, project_name or ""),
+    )
+    for candidate in cur.fetchall() or []:
+        candidate_id = _row_get(candidate, "id", 0)
+        candidate_warehouse_id = _positive_int_or_none(_row_get(candidate, "warehouse_invoice_id", 1))
+        candidate_supplier_id = _positive_int_or_none(_row_get(candidate, "supplier_id", 2))
+        candidate_supplier_key = _normalize_supplier_name_key(_row_get(candidate, "supplier_name", 3, "") or "")
+        candidate_amount = _float_or_zero(_row_get(candidate, "amount", 4))
+        candidate_request_id = _positive_int_or_none(_row_get(candidate, "request_id", 5))
+        candidate_offer_id = _positive_int_or_none(_row_get(candidate, "offer_id", 6))
+        same_supplier = bool(
+            (supplier_scope_ids and candidate_supplier_id in supplier_scope_ids)
+            or (supplier_name_key and candidate_supplier_key and supplier_name_key == candidate_supplier_key)
+        )
+        same_chain = bool(
+            (request_id and candidate_request_id and request_id == candidate_request_id)
+            or (offer_id and candidate_offer_id and offer_id == candidate_offer_id)
+            or (warehouse_invoice_id and candidate_warehouse_id and warehouse_invoice_id == candidate_warehouse_id)
+        )
+        amount_matches = amount > 0 and candidate_amount > 0 and abs(amount - candidate_amount) < 0.01
+        if same_chain or same_supplier or amount_matches:
+            return {
+                "id": candidate_id,
+                "warehouseInvoiceId": candidate_warehouse_id,
+                "supplierName": _row_get(candidate, "supplier_name", 3, "") or "",
+                "amount": candidate_amount,
+                "match": "document",
             }
     return None
 
@@ -22189,6 +22311,84 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
             + (" из MAX" if str(warehouse_invoice.get("source_type") or "").startswith("max_") else "")
         )
 
+        duplicate_invoice = _find_existing_supplier_invoice_duplicate(
+            cur,
+            company_id=company_id,
+            invoice_number=invoice_number,
+            invoice_date=invoice_date,
+            project_name=project_name,
+            supplier_id=supplier_id,
+            supplier_name=supplier_name,
+            amount=amount,
+            warehouse_invoice_id=warehouse_invoice_id,
+        )
+        if duplicate_invoice:
+            supplier_invoice_id = duplicate_invoice.get("id")
+            linked_warehouse_id = _positive_int_or_none(duplicate_invoice.get("warehouseInvoiceId"))
+            if not linked_warehouse_id:
+                cur.execute(
+                    """
+                    UPDATE supplier_invoices
+                       SET company_id=%s,
+                           warehouse_invoice_id=%s,
+                           supplier_id=COALESCE(supplier_id,%s),
+                           supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
+                           status=CASE WHEN %s THEN %s ELSE status END
+                     WHERE id=%s
+                    """,
+                    (company_id, warehouse_invoice_id, supplier_id, supplier_name, bool(review_state.get("needsReview")), supplier_invoice_status, supplier_invoice_id),
+                )
+            else:
+                cur.execute(
+                    """
+                    UPDATE supplier_invoices
+                       SET company_id=%s,
+                           supplier_id=COALESCE(supplier_id,%s),
+                           supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
+                           status=CASE WHEN %s THEN %s ELSE status END
+                     WHERE id=%s
+                    """,
+                    (company_id, supplier_id, supplier_name, bool(review_state.get("needsReview")), supplier_invoice_status, supplier_invoice_id),
+                )
+            actor_name = actor.get("name") or actor.get("email") or "MAX"
+            cur.execute(
+                """
+                UPDATE warehouse_invoices
+                   SET company_id=%s,
+                       supplier_invoice_id=%s,
+                       supplier_id=COALESCE(supplier_id,%s),
+                       supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
+                       accounting_status=CASE WHEN %s THEN %s ELSE COALESCE(NULLIF(accounting_status,''),'На проверке') END,
+                       accounting_comment=COALESCE(NULLIF(accounting_comment,''),'Первичка связана с уже существующим счетом поставщика без создания дубля.'),
+                       accounting_updated_by=%s,
+                       accounting_updated_at=NOW()
+                 WHERE id=%s
+                """,
+                (
+                    company_id,
+                    supplier_invoice_id,
+                    supplier_id,
+                    supplier_name,
+                    bool(review_state.get("needsReview")),
+                    accounting_status,
+                    actor_name,
+                    warehouse_invoice_id,
+                ),
+            )
+            conn.commit()
+            return {
+                "id": supplier_invoice_id,
+                "ok": True,
+                "alreadyExists": True,
+                "duplicateDocument": True,
+                "supplierId": supplier_id,
+                "supplierName": supplier_name,
+                "warehouseInvoiceId": warehouse_invoice_id,
+                "accountingStatus": accounting_status,
+                "needsReview": bool(review_state.get("needsReview")),
+                "reviewReason": review_state.get("reviewReason") or "",
+            }
+
         supplier_invoice_id = None
         if invoice_number and (supplier_id or supplier_name):
             supplier_match_sql = []
@@ -25640,8 +25840,9 @@ def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_ro
             cur.close(); conn.close()
             raise HTTPException(status_code=400, detail="Складская накладная относится к другому объекту")
         if existing_supplier_invoice_id:
+            conn.commit()
             cur.close(); conn.close()
-            raise HTTPException(status_code=409, detail="Складская накладная уже связана с другим счётом поставщика")
+            return {"id": existing_supplier_invoice_id, "ok": True, "alreadyExists": True}
     supplier_lookup_payload = {
         **(data or {}),
         "supplierName": data.get("supplierName") or data.get("supplier") or "",
@@ -25657,6 +25858,50 @@ def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_ro
         cur.execute("SELECT company_id FROM supply_requests WHERE id=%s", (data.get("requestId"),))
         company_id = _positive_int_or_none(_row_get(cur.fetchone(), "company_id", 0))
     company_id = company_id or _company_id_for_project_or_user(cur, project_name, _current_user)
+    duplicate_invoice = _find_existing_supplier_invoice_duplicate(
+        cur,
+        company_id=company_id,
+        invoice_number=data.get("invoiceNumber", ""),
+        invoice_date=data.get("invoiceDate") or None,
+        project_name=project_name,
+        supplier_id=data.get("supplierId"),
+        supplier_name=data.get("supplierName", ""),
+        amount=data.get("amount", 0),
+        warehouse_invoice_id=warehouse_invoice_id,
+        request_id=data.get("requestId"),
+        offer_id=offer_id,
+    )
+    if duplicate_invoice:
+        existing_id = duplicate_invoice.get("id")
+        linked_warehouse_id = _positive_int_or_none(duplicate_invoice.get("warehouseInvoiceId"))
+        cur.execute(
+            """
+            UPDATE supplier_invoices
+               SET company_id=%s,
+                   offer_id=COALESCE(offer_id,%s),
+                   request_id=COALESCE(request_id,%s),
+                   supplier_id=COALESCE(supplier_id,%s),
+                   supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
+                   work_package=COALESCE(NULLIF(work_package,''),%s)
+             WHERE id=%s
+            """,
+            (
+                company_id,
+                offer_id or None,
+                data.get("requestId") or None,
+                data.get("supplierId"),
+                data.get("supplierName", ""),
+                invoice_work_package,
+                existing_id,
+            ),
+        )
+        if warehouse_invoice_id:
+            cur.execute("UPDATE warehouse_invoices SET company_id=%s, supplier_invoice_id=%s WHERE id=%s", (company_id, existing_id, warehouse_invoice_id))
+            if not linked_warehouse_id:
+                cur.execute("UPDATE supplier_invoices SET warehouse_invoice_id=%s WHERE id=%s", (warehouse_invoice_id, existing_id))
+        conn.commit()
+        cur.close(); conn.close()
+        return {"id": existing_id, "ok": True, "alreadyExists": True, "duplicateDocument": True}
     cur.execute("""INSERT INTO supplier_invoices
                    (company_id, supplier_id, supplier_name, project_name, invoice_number, invoice_date,
                     amount, vat_amount, description, file_url, photo_url, status,
