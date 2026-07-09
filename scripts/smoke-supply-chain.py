@@ -670,6 +670,21 @@ def assert_supplier_offer_withdraw_and_resubmit(admin_token, supplier_token, sup
     if not offer_id:
         raise RuntimeError("КП для проверки отзыва не создано")
     created["withdrawOfferId"] = offer_id
+    _, request_offers = api_json("GET", "/supplier-offers", token=admin_token, expected=200)
+    same_request_offers = [
+        row for row in request_offers
+        if int(row.get("requestId") or 0) == int(request_id)
+    ]
+    if len(same_request_offers) != 1 or int(same_request_offers[0].get("id") or 0) != int(offer_id):
+        raise RuntimeError("Повторный POST supplier-offer создал дубль вместо обновления адресованного КП")
+    _, repeated_offer_history = api_json(
+        "GET",
+        f"/supplier-offers/{offer_id}/history",
+        token=admin_token,
+        expected=200,
+    )
+    if not any(row.get("eventType") == "draft_updated" for row in repeated_offer_history):
+        raise RuntimeError("Обновление адресованного КП через POST не записано в аудит")
     qty = extra["quantity"]
     api_json(
         "PUT",
@@ -1923,6 +1938,7 @@ def main():
                 "receipt created automatic invoice",
                 "supplier cabinet sees linked invoice, warehouse receipt, received quantity and receipt items",
                 "supplier offer can be withdrawn and resubmitted with history",
+                "supplier offer POST reuses and audits the addressed pending offer without creating a duplicate",
                 "unlinked supplier is blocked before KP send",
                 "legacy invisible supplier recipient exposes link action diagnostics",
                 "receipt updated project materials",

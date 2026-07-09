@@ -15,12 +15,29 @@ def _supplier_ids(values):
     })
 
 
+def supplier_recipient_identity_filter(supplier_ids, supplier_user_id=None):
+    normalized_ids = _supplier_ids(supplier_ids)
+    user_id = _positive_int(supplier_user_id) or 0
+    if not normalized_ids and not user_id:
+        return "FALSE", []
+    return """(
+        recipient.supplier_user_id=%s
+        OR recipient.target_supplier_id = ANY(%s::int[])
+        OR recipient.supplier_id = ANY(%s::int[])
+        OR COALESCE(recipient.supplier_group_ids, '{}'::int[]) && %s::int[]
+    )""", [user_id, normalized_ids, normalized_ids, normalized_ids]
+
+
 def supplier_offer_visibility_filter(supplier_ids, supplier_user_id=None):
     """Build a fail-closed SQL filter for supplier-facing offer reads."""
     normalized_ids = _supplier_ids(supplier_ids)
     user_id = _positive_int(supplier_user_id) or 0
     if not normalized_ids and not user_id:
         return " AND FALSE", []
+    recipient_identity_sql, recipient_identity_params = supplier_recipient_identity_filter(
+        normalized_ids,
+        user_id,
+    )
 
     sql = """
       AND EXISTS (
@@ -46,12 +63,7 @@ def supplier_offer_visibility_filter(supplier_ids, supplier_user_id=None):
                      OR recipient.supplier_id=supplier_offers.supplier_id
                      OR supplier_offers.supplier_id = ANY(COALESCE(recipient.supplier_group_ids, '{}'::int[]))
                    )
-                   AND (
-                        recipient.supplier_user_id=%s
-                     OR recipient.target_supplier_id = ANY(%s::int[])
-                     OR recipient.supplier_id = ANY(%s::int[])
-                     OR COALESCE(recipient.supplier_group_ids, '{}'::int[]) && %s::int[]
-                   )
+                   AND """ + recipient_identity_sql + """
             )
          OR (
                 NOT EXISTS (
@@ -70,11 +82,7 @@ def supplier_offer_visibility_filter(supplier_ids, supplier_user_id=None):
          )
       )
     """
-    params = [
-        user_id,
-        normalized_ids,
-        normalized_ids,
-        normalized_ids,
+    params = recipient_identity_params + [
         normalized_ids,
         normalized_ids,
     ]

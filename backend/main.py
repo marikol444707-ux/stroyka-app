@@ -102,9 +102,15 @@ except ModuleNotFoundError:
     )
 
 try:
-    from backend.features.supplier_access.service import supplier_offer_visibility_filter
+    from backend.features.supplier_access.service import (
+        supplier_offer_visibility_filter,
+        supplier_recipient_identity_filter,
+    )
 except ModuleNotFoundError:
-    from features.supplier_access.service import supplier_offer_visibility_filter
+    from features.supplier_access.service import (
+        supplier_offer_visibility_filter,
+        supplier_recipient_identity_filter,
+    )
 
 def _startup_num(v) -> float:
     try:
@@ -10159,6 +10165,28 @@ def _require_supplier_offer_visibility(cur, offer_id: int, user: dict, detail: s
     if not cur.fetchone():
         raise HTTPException(status_code=403, detail=detail)
 
+def _find_supply_request_recipient(cur, request_id: int, company_id: int, supplier_ids, supplier_user_id=None):
+    identity_sql, identity_params = supplier_recipient_identity_filter(
+        supplier_ids,
+        supplier_user_id,
+    )
+    cur.execute(
+        """
+        SELECT recipient.id, recipient.supplier_id, recipient.target_supplier_id,
+               recipient.supplier_user_id, recipient.supplier_group_ids
+          FROM supply_request_recipients recipient
+         WHERE recipient.request_id=%s
+           AND recipient.company_id=%s
+           AND """ + identity_sql + """
+         ORDER BY
+           CASE WHEN recipient.supplier_user_id=%s THEN 0 ELSE 1 END,
+           recipient.id
+         LIMIT 1
+        """,
+        [request_id, company_id] + identity_params + [int(supplier_user_id or 0)],
+    )
+    return cur.fetchone()
+
 def _ensure_supplier_offer_events_table(cur):
     cur.execute("""
         CREATE TABLE IF NOT EXISTS supplier_offer_events (
@@ -10338,44 +10366,165 @@ def get_supplier_offer_history(
     return rows
 
 @app.post("/supplier-offers")
-def create_supplier_offer(o: SupplierOfferModel, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
+def create_supplier_offer(
+    o: SupplierOfferModel,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(require_roles(*SUPPLY_ROLES)),
+):
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id, project, selected_suppliers, status, company_id FROM supply_requests WHERE id=%s", (o.requestId,))
-    req = cur.fetchone()
-    if not req:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Заявка не найдена")
-    if (req.get("status") or "Новая") not in ("Утверждена", "КП запрошены"):
-        cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail="КП можно создать только после утверждения заявки директором")
-    supplier_id = o.supplierId
-    role = _current_user.get("role")
-    if role == "поставщик":
-        own_supplier_ids = current_supplier_ids(cur, _current_user)
-        if not own_supplier_ids:
-            cur.close(); conn.close()
+    try:
+        _ensure_supply_request_recipients_table(cur)
+        cur.execute(
+            """
+            SELECT id, project, selected_suppliers, status, company_id
+              FROM supply_requests
+             WHERE id=%s
+             FOR UPDATE
+            """,
+            (o.requestId,),
+        )
+        req = cur.fetchone()
+        if not req:
+            raise HTTPException(status_code=404, detail="Заявка не найдена")
+        if (req.get("status") or "Новая") not in ("Утверждена", "КП запрошены"):
+            raise HTTPException(status_code=400, detail="КП можно создать только после утверждения заявки директором")
+
+        company_id = int(req.get("company_id") or 0)
+        if company_id <= 0:
+            raise HTTPException(status_code=409, detail="Заявка не привязана к компании")
+        role = _current_user.get("role") or ""
+        actor_user = _current_user
+        supplier_user_id = None
+        if role == "поставщик":
+            supplier_scope_ids = current_supplier_ids(cur, _current_user)
+            supplier_user_id = _current_user.get("id")
+        else:
+            company_context, actor_user = resolve_resource_company_actor(
+                cur,
+                _current_user,
+                company_id,
+                "update",
+                x_company_id=x_company_id,
+                x_company_mode=x_company_mode,
+                allowed_roles=SUPPLY_INTERNAL_ROLES,
+                forbidden_detail="Роль в выбранной компании не позволяет создавать КП",
+                platform_staff_roles=PLATFORM_STAFF_ROLES,
+                client_account_roles=CLIENT_ACCOUNT_ROLES,
+            )
+            company_id = int(company_context.get("companyId"))
+            supplier_scope_ids = supplier_group_scope_ids(cur, [o.supplierId])
+            if req.get("project"):
+                require_project_or_warehouse_access(actor_user, req.get("project") or "")
+        if not supplier_scope_ids and not supplier_user_id:
             raise HTTPException(status_code=403, detail="Поставщик не найден")
-        selected_supplier_id = next((sid for sid in own_supplier_ids if supplier_is_selected(req.get("selected_suppliers"), sid)), None)
-        if not selected_supplier_id:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Нет доступа к заявке")
-        supplier_id = selected_supplier_id
-    else:
-        if role not in SUPPLY_INTERNAL_ROLES:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Недостаточно прав для создания КП")
-        if req.get("project"):
-            require_project_or_warehouse_access(_current_user, req.get("project") or "")
-    cur.execute("INSERT INTO supplier_offers (request_id,supplier_id,company_id,price_per_unit,total_price,delivery_days,notes) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-                (o.requestId,supplier_id,req.get("company_id") or 1,o.pricePerUnit,o.totalPrice,o.deliveryDays,o.notes))
-    new_id = cur.fetchone()['id']
-    _log_supplier_offer_event(cur, new_id, "created", "", "Ожидает", _current_user, {"action": "created"})
-    cur.execute(OFFERS_SELECT + " WHERE id=%s", (new_id,))
-    row = cur.fetchone()
-    conn.commit()
-    conn.close()
-    return dict(row)
+
+        cur.execute(
+            "SELECT company_id FROM supply_request_recipients WHERE request_id=%s FOR UPDATE",
+            (o.requestId,),
+        )
+        recipient_company_rows = cur.fetchall()
+        assert_rows_company_scope(recipient_company_rows, company_id, "Получатели КП")
+        cur.execute(
+            "SELECT company_id FROM supplier_offers WHERE request_id=%s FOR UPDATE",
+            (o.requestId,),
+        )
+        assert_rows_company_scope(cur.fetchall(), company_id, "Коммерческие предложения заявки")
+
+        recipient = _find_supply_request_recipient(
+            cur,
+            o.requestId,
+            company_id,
+            supplier_scope_ids,
+            supplier_user_id,
+        )
+        selected_supplier_ids = _normalize_supplier_ids(req.get("selected_suppliers") or [])
+        if recipient:
+            supplier_id = int(recipient.get("target_supplier_id") or recipient.get("supplier_id") or 0)
+            recipient_scope_ids = _normalize_supplier_ids(recipient.get("supplier_group_ids") or [])
+            supplier_scope_ids = sorted(set(supplier_scope_ids + recipient_scope_ids + [supplier_id]))
+        else:
+            if recipient_company_rows:
+                raise HTTPException(status_code=403, detail="Поставщик не является получателем этой заявки")
+            legacy_matches = [sid for sid in supplier_scope_ids if sid in selected_supplier_ids]
+            if not legacy_matches:
+                raise HTTPException(status_code=403, detail="Поставщик не выбран в заявке")
+            supplier_id = int(legacy_matches[0])
+        if supplier_id <= 0:
+            raise HTTPException(status_code=403, detail="Поставщик для КП не определен")
+
+        cur.execute(
+            """
+            SELECT id, status
+              FROM supplier_offers
+             WHERE request_id=%s
+               AND company_id=%s
+               AND supplier_id = ANY(%s::int[])
+             ORDER BY id DESC
+             LIMIT 1
+            """,
+            (o.requestId, company_id, supplier_scope_ids),
+        )
+        existing_offer = cur.fetchone()
+        if existing_offer:
+            existing_status = (existing_offer.get("status") or "").strip()
+            if existing_status not in ("", "Ожидает", "Ожидает ответа"):
+                raise HTTPException(status_code=409, detail="КП уже существует. Измените существующее предложение вместо создания дубля")
+            offer_id = int(existing_offer.get("id"))
+            cur.execute(
+                """
+                UPDATE supplier_offers
+                   SET supplier_id=%s,
+                       price_per_unit=%s,
+                       total_price=%s,
+                       delivery_days=%s,
+                       notes=%s
+                 WHERE id=%s
+                   AND company_id=%s
+                """,
+                (supplier_id, o.pricePerUnit, o.totalPrice, o.deliveryDays, o.notes, offer_id, company_id),
+            )
+            _log_supplier_offer_event(
+                cur,
+                offer_id,
+                "draft_updated",
+                existing_status or "Ожидает",
+                existing_status or "Ожидает",
+                actor_user,
+                {
+                    "action": "draft_updated",
+                    "pricePerUnit": o.pricePerUnit,
+                    "totalPrice": o.totalPrice,
+                    "deliveryDays": o.deliveryDays,
+                },
+            )
+        else:
+            cur.execute(
+                """
+                INSERT INTO supplier_offers
+                    (request_id, supplier_id, company_id, price_per_unit, total_price, delivery_days, notes)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)
+                RETURNING id
+                """,
+                (o.requestId, supplier_id, company_id, o.pricePerUnit, o.totalPrice, o.deliveryDays, o.notes),
+            )
+            offer_id = int(cur.fetchone()["id"])
+            _log_supplier_offer_event(cur, offer_id, "created", "", "Ожидает", actor_user, {"action": "created"})
+        cur.execute(OFFERS_SELECT + " WHERE id=%s AND company_id=%s", (offer_id, company_id))
+        row = cur.fetchone()
+        conn.commit()
+        return dict(row)
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as exc:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(exc))
+    finally:
+        cur.close()
+        conn.close()
 
 @app.put("/supplier-offers/{id}")
 def update_supplier_offer(

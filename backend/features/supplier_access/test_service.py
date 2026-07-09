@@ -1,9 +1,19 @@
 import unittest
 
-from backend.features.supplier_access.service import supplier_offer_visibility_filter
+from backend.features.supplier_access.service import (
+    supplier_offer_visibility_filter,
+    supplier_recipient_identity_filter,
+)
 
 
 class SupplierOfferVisibilityFilterTests(unittest.TestCase):
+    def test_builds_recipient_identity_filter_for_user_and_duplicate_group(self):
+        sql, params = supplier_recipient_identity_filter([7, "3", 7], 42)
+
+        self.assertIn("recipient.supplier_user_id=%s", sql)
+        self.assertIn("recipient.supplier_group_ids", sql)
+        self.assertEqual(params, [42, [3, 7], [3, 7], [3, 7]])
+
     def test_denies_missing_supplier_identity(self):
         self.assertEqual(supplier_offer_visibility_filter([], None), (" AND FALSE", []))
 
