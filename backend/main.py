@@ -101,6 +101,11 @@ except ModuleNotFoundError:
         resolve_resource_company_actor,
     )
 
+try:
+    from backend.features.supplier_access.service import supplier_offer_visibility_filter
+except ModuleNotFoundError:
+    from features.supplier_access.service import supplier_offer_visibility_filter
+
 def _startup_num(v) -> float:
     try:
         return float(str(v if v is not None else 0).replace(" ", "").replace(",", "."))
@@ -10186,25 +10191,59 @@ def _log_supplier_offer_event(cur, offer_id: int, event_type: str, status_from: 
     )
 
 @app.get("/supplier-offers")
-def get_supplier_offers(current_user: dict = Depends(get_current_user)):
+def get_supplier_offers(
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     role = current_user.get("role")
-    if role in ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер"):
-        cur.execute(OFFERS_SELECT + " ORDER BY id DESC")
+    if role in SUPPLY_INTERNAL_ROLES:
+        try:
+            company_context = _resolve_work_company_context(
+                cur,
+                current_user,
+                None,
+                "read",
+                x_company_id=x_company_id,
+                x_company_mode=x_company_mode,
+            )
+            company_filter_sql, company_filter_params = company_id_scope_filter(company_context)
+        except Exception:
+            cur.close(); conn.close()
+            raise
+        if role == "прораб":
+            projects = user_project_names(current_user)
+            if not projects:
+                cur.close(); conn.close()
+                return []
+            package_sql, package_params = package_access_filter(current_user)
+            cur.execute(
+                OFFERS_SELECT
+                + " WHERE request_id IN (SELECT id FROM supply_requests WHERE project = ANY(%s)"
+                + package_sql
+                + ")"
+                + company_filter_sql
+                + " ORDER BY id DESC",
+                [projects] + package_params + company_filter_params,
+            )
+        else:
+            cur.execute(
+                OFFERS_SELECT + " WHERE TRUE" + company_filter_sql + " ORDER BY id DESC",
+                company_filter_params,
+            )
     elif role == "поставщик":
+        _ensure_supply_request_recipients_table(cur)
         supplier_ids = current_supplier_ids(cur, current_user)
-        if not supplier_ids:
-            cur.close(); conn.close()
-            return []
-        cur.execute(OFFERS_SELECT + " WHERE supplier_id = ANY(%s) ORDER BY id DESC", (supplier_ids,))
-    elif role == "прораб":
-        projects = user_project_names(current_user)
-        if not projects:
-            cur.close(); conn.close()
-            return []
-        package_sql, package_params = package_access_filter(current_user)
-        cur.execute(OFFERS_SELECT + " WHERE request_id IN (SELECT id FROM supply_requests WHERE project = ANY(%s)" + package_sql + ") ORDER BY id DESC", [projects] + package_params)
+        visibility_sql, visibility_params = supplier_offer_visibility_filter(
+            supplier_ids,
+            current_user.get("id"),
+        )
+        cur.execute(
+            OFFERS_SELECT + " WHERE TRUE" + visibility_sql + " ORDER BY id DESC",
+            visibility_params,
+        )
     elif role in WORKER_EXECUTION_ROLES:
         cur.close(); conn.close()
         return []

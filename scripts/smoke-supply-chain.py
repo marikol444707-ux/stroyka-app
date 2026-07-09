@@ -523,6 +523,10 @@ def create_and_select_offer(token, candidate, supplier_id, supplier_token=None):
     offer_id = offer.get("id")
     if not offer_id:
         raise RuntimeError("Для выбранного поставщика не создан supplier_offer")
+    if supplier_token:
+        _, supplier_offers = api_json("GET", "/supplier-offers", token=supplier_token, expected=200)
+        if not any(int(row.get("id") or 0) == int(offer_id) for row in supplier_offers):
+            raise RuntimeError("Поставщик не видит адресованное ему КП через recipient/company scope")
     items_kp = [{
         "materialName": candidate["materialName"],
         "quantity": qty,
@@ -1911,6 +1915,7 @@ def main():
                 "positive estimate material selected",
                 "supply request passed estimate control",
                 "selected supplier received KP request",
+                "supplier offer list exposes the addressed offer through recipient and company scope",
                 "selected supplier KP request records email status and queues MAX notification",
                 "supplier account responded to KP and director selected it",
                 "supplier invoice created from selected KP",

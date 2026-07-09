@@ -451,7 +451,7 @@
 
 **Description:** Apply Tenant Context Kernel to `GET /supply-requests/{id}/recipients`. Resolve access from the request's stored company, authorize with the effective membership role, and fail closed when recipient or legacy offer rows belong to another company.
 
-**Status:** Implemented and verified locally on 2026-07-10; production release is pending.
+**Status:** Completed, verified, and released as production commit `7052491b` on 2026-07-10.
 
 **Acceptance criteria:**
 - [x] Stored request `company_id` is authoritative for recipient diagnostics.
@@ -466,7 +466,7 @@
 - [x] Python compile.
 - [x] Tracked frontend tests (14 suites / 66 tests passed).
 - [x] `npm run build`.
-- [ ] Independent production release and smoke.
+- [x] Production version `7052491bc2d4`; HTTP smoke, active service check, fresh warning log check, and browser rendering of `/` and `/app` passed.
 
 **Dependencies:** Task M2.4
 
@@ -489,6 +489,31 @@
 **Dependencies:** Task M2
 
 **Estimated scope:** M
+
+## Task M3.1: Supplier Offer Read Isolation
+
+**Description:** Make `GET /supplier-offers` respect the selected internal company context and require explicit recipient evidence for supplier-facing reads. This slice is read-only and does not migrate or rewrite existing offers, invoices, deliveries, or warehouse documents.
+
+**Status:** Implemented and verified locally on 2026-07-10; independent production release is pending.
+
+**Acceptance criteria:**
+- [x] Internal supply roles receive offers only from the selected company or companies available in their account summary.
+- [x] Supplier-facing offers require the offer and request to have the same `company_id`.
+- [x] A recipient must match both the authenticated supplier identity and the concrete offer supplier group, so one supplier cannot see another supplier's offer for the same request.
+- [x] Mixed-company recipient rows fail closed for supplier-facing offer reads.
+- [x] Legacy fallback is available only when the request has no recipient rows and `selected_suppliers` explicitly contains the authenticated supplier identity.
+- [x] Existing data and write endpoints are unchanged in this slice.
+
+**Verification:**
+- [x] Supplier access and company-context unit tests (31 passed).
+- [x] Python compile.
+- [x] Tracked frontend tests (14 suites / 66 tests passed).
+- [x] `npm run build`.
+- [x] `smoke:supply-chain` now requires the supplier account to see its addressed offer through `/supplier-offers`; production run remains pending until release.
+
+**Dependencies:** Task M2.5
+
+**Estimated scope:** S
 
 ## Task M4: Warehouse Isolation And Transfers
 
