@@ -127,9 +127,9 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 
 ### Phase P2: Traceability And Review
 
-- [ ] Show estimate, package, section, work, source quantity, unit conversion, norm, and formula for every calculated row.
-- [ ] Route uncertain aliases, units, and norm matches to `Проверить`, never directly to `Докупить`.
-- [ ] Separate explicit estimate plan from normative hints in totals and filters.
+- [x] Show estimate, package, section, work, source quantity, unit conversion, norm, and formula for every calculated row.
+- [x] Route uncertain aliases, units, and norm matches to `Проверить`, never directly to `Докупить`.
+- [x] Separate explicit estimate plan from normative hints in totals and filters.
 
 ### Phase P3: Production Dry-Run
 

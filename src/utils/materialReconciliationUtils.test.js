@@ -1,4 +1,4 @@
-import { buildMaterialReconciliationRows } from './materialReconciliationUtils';
+import { buildMaterialControlSummary, buildMaterialReconciliationRows } from './materialReconciliationUtils';
 
 const materialItem = (name, quantity, unit = 'шт') => ({
   itemType: 'material',
@@ -27,7 +27,7 @@ const buildRows = (items, canonicalMaterialMeta = (_projectName, name, unit) => 
   canonicalMaterialMeta,
   warehouseInvoiceItems: invoice => ({ items: invoice.items || [] }),
   isSupplyDeliveryInvoice: () => false,
-  estimateWorkNormRequirementRows: () => [],
+  estimateWorkNormRequirementRows: options.estimateWorkNormRequirementRows || (() => []),
   parseSupplyItems: () => [],
 });
 
@@ -87,8 +87,8 @@ describe('buildMaterialReconciliationRows material identity', () => {
       ? { name: 'Лист гипсокартонный влагостойкий 12,5 мм', unit, alias: { id: 7 } }
       : { name, unit, alias: null };
     const rows = buildRows([
-      materialItem('Лист гипсокартонный влагостойкий 12,5 мм', 10),
-      materialItem('Гипрок влагостойкий 12,5 мм', 5),
+      materialItem('Лист гипсокартонный влагостойкий 12,5 мм', 10, 'м2'),
+      materialItem('Гипрок влагостойкий 12,5 мм', 5, 'м2'),
     ], canonicalMaterialMeta);
 
     expect(rows).toHaveLength(1);
@@ -98,6 +98,11 @@ describe('buildMaterialReconciliationRows material identity', () => {
       planSourceCount: 2,
     });
     expect(rows[0].aliasIds).toContain(7);
+    expect(rows[0]).toMatchObject({
+      identityStatus: 'confirmed_alias',
+      procurementEligible: true,
+      reviewRequired: false,
+    });
   });
 
   test('links an unassigned warehouse invoice to one exact estimate material', () => {
@@ -117,6 +122,68 @@ describe('buildMaterialReconciliationRows material identity', () => {
       planQty: 10,
       received: 4,
       toBuy: 6,
+    });
+  });
+
+  test('keeps a structured trace of estimate quantity conversion', () => {
+    const [row] = buildRows([
+      materialItem('Смесь сухая строительная', 1, '1000 кг'),
+    ]);
+
+    expect(row.planDetails[0]).toMatchObject({
+      sourceType: 'estimate_material',
+      includedInProcurement: true,
+      sourceQty: 1,
+      sourceUnit: '1000 кг',
+      normalizedQty: 1000,
+      normalizedUnit: 'кг',
+      conversionApplied: true,
+    });
+  });
+
+  test('routes unit conflicts to review and blocks procurement', () => {
+    const rows = buildRows([
+      materialItem('Смесь штукатурная Ротбанд', 10, 'кг'),
+    ], undefined, {
+      invoices: [{
+        id: 21,
+        project: 'Тестовый объект',
+        number: 'ТЕСТ-21',
+        items: [materialItem('Смесь штукатурная Ротбанд', 4, 'шт')],
+      }],
+    });
+    const summary = buildMaterialControlSummary(rows);
+
+    expect(rows[0]).toMatchObject({
+      unitMismatch: true,
+      reviewRequired: true,
+      procurementEligible: false,
+      toBuy: 0,
+    });
+    expect(rows[0].reviewReasons).toContain('Конфликт единиц измерения');
+    expect(summary.reviewRows).toEqual([rows[0]]);
+  });
+
+  test('keeps norm-only demand as a non-procurement hint', () => {
+    const [row] = buildRows([], undefined, {
+      estimateWorkNormRequirementRows: () => [{
+        key: 'plaster_mix|штукатурная смесь|кг',
+        name: 'Штукатурная смесь',
+        unit: 'кг',
+        planQty: 85,
+        works: [],
+        sections: ['Общестрой / Стены'],
+        normSources: ['8.5 кг/м2'],
+        packageNames: ['Общестрой'],
+      }],
+    });
+
+    expect(row).toMatchObject({
+      estimatePlanQty: 0,
+      normPlanQty: 85,
+      planningSource: 'norm_hint',
+      procurementEligible: false,
+      toBuy: 0,
     });
   });
 });

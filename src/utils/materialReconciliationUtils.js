@@ -81,6 +81,25 @@ export const buildMaterialAliasCandidates = ({
     .slice(0, 4);
 };
 
+export const buildMaterialPlanningReviewIssues = (row = {}) => {
+  const issues = [];
+  const invalidPlanCount = Number(row.invalidPlanCount ?? row.invalidPlanDetails?.length ?? 0);
+  if (invalidPlanCount > 0) {
+    issues.push({
+      code: 'invalid_estimate_rows',
+      label: 'Некорректные строки сметы: ' + invalidPlanCount,
+      count: invalidPlanCount,
+    });
+  }
+  if (row.unitMismatch) {
+    issues.push({ code: 'unit_mismatch', label: 'Конфликт единиц измерения' });
+  }
+  if ((row.aliases || []).length > 0 && !(row.aliasIds || []).length) {
+    issues.push({ code: 'unconfirmed_alias', label: 'Наименование не подтверждено алиасом' });
+  }
+  return issues;
+};
+
 export const buildMaterialReconciliationRows = ({
   projectName,
   workPackage = '',
@@ -118,11 +137,9 @@ export const buildMaterialReconciliationRows = ({
     const clean = String(pkg || '').trim();
     return requiredPackage ? '' : (clean ? '|' + clean.toLowerCase() : '|__no_package__');
   };
-  const exactMatchedRow = (materialKey, unit, sourcePackage = '') => {
-    const cleanUnit = materialUnit(unit);
+  const exactMatchedRow = (materialKey, sourcePackage = '') => {
     const cleanPackage = String(sourcePackage || '').trim();
     const candidates = (rowsByMaterialKey[materialKey] || []).filter(row => {
-      if (cleanUnit && row.unit && cleanUnit !== row.unit) return false;
       if (requiredPackage || !cleanPackage) return true;
       const rowPackage = String(row.workPackage || '').trim();
       return !rowPackage || rowPackage === cleanPackage;
@@ -137,7 +154,7 @@ export const buildMaterialReconciliationRows = ({
     const cleanPackage = String(sourcePackage || '').trim();
     const key = baseKey + packageKeyPart(cleanPackage);
     const cleanUnit = materialUnit(meta.unit || unit);
-    let row = rows[key] || exactMatchedRow(baseKey, cleanUnit, cleanPackage);
+    let row = rows[key] || exactMatchedRow(baseKey, cleanPackage);
     if (!row) {
       row = {
         key,
@@ -225,8 +242,27 @@ export const buildMaterialReconciliationRows = ({
       if (sectionLabel && !r.sections.includes(sectionLabel)) r.sections.push(sectionLabel);
       if (it.parentWorkName && !r.workRefs.includes(it.parentWorkName)) r.workRefs.push(it.parentWorkName);
       const planIssue = estimateMaterialPlanIssue(it, s.name);
+      const sourceQty = Number(it.quantity || 0);
+      const sourceUnit = it.unit || '';
+      const hasRawQty = it.rawQuantity !== undefined && it.rawQuantity !== null && it.rawQuantity !== '';
+      const traceSourceQty = hasRawQty ? Number(it.rawQuantity || 0) : sourceQty;
+      const traceSourceUnit = it.rawUnit || sourceUnit;
+      const normalizedUnit = converted.unit || it.unit || r.unit;
+      const trace = {
+        sourceType: 'estimate_material',
+        sourceQty,
+        sourceUnit,
+        normalizedQty: converted.qty,
+        normalizedUnit,
+        normalizationFactor: Number(planMeasure.factor || 1),
+        conversionApplied: Number(planMeasure.factor || 1) !== 1
+          || Math.abs(converted.qty - traceSourceQty) > 0.000001
+          || _normalizeUnit(normalizedUnit) !== _normalizeUnit(traceSourceUnit),
+      };
       if (planIssue) {
         r.invalidPlanDetails.push({
+          ...trace,
+          includedInProcurement: false,
           estimateId: est.id,
           estimateName: est.name || '',
           packageName: estimatePackage(est),
@@ -235,8 +271,6 @@ export const buildMaterialReconciliationRows = ({
           workName: it.parentWorkName || '',
           qty: converted.qty,
           unit: converted.unit || it.unit || r.unit,
-          sourceQty: Number(it.quantity || 0),
-          sourceUnit: it.unit || '',
           rawQty: it.rawQuantity,
           rawUnit: it.rawUnit,
           sum: planSum,
@@ -247,6 +281,8 @@ export const buildMaterialReconciliationRows = ({
       addQty(r, 'planQty', planMeasure.qty, planMeasure.unit || it.unit);
       r.planSum += planSum;
       r.planDetails.push({
+        ...trace,
+        includedInProcurement: true,
         estimateId: est.id,
         estimateName: est.name || '',
         packageName: estimatePackage(est),
@@ -255,8 +291,6 @@ export const buildMaterialReconciliationRows = ({
         workName: it.parentWorkName || '',
         qty: converted.qty,
         unit: converted.unit || it.unit || r.unit,
-        sourceQty: Number(it.quantity || 0),
-        sourceUnit: it.unit || '',
         rawQty: it.rawQuantity,
         rawUnit: it.rawUnit,
         sum: planSum,
@@ -466,7 +500,10 @@ export const buildMaterialReconciliationRows = ({
     const estimateOverNormQty = normPlanQty > 0 ? Math.max(0, estimatePlanQty - normPlanQty) : 0;
     const usedOverEstimateQty = estimatePlanQty > 0 ? Math.max(0, (r.used || 0) - estimatePlanQty) : 0;
     const invalidPlanCount = (r.invalidPlanDetails || []).length;
-    const toBuy = hasEstimatePlan && invalidPlanCount <= 0 ? Math.max(0, estimatePlanQty - supplied - (r.requested || 0) - (r.inTransit || 0)) : 0;
+    const reviewIssues = buildMaterialPlanningReviewIssues({...r, invalidPlanCount});
+    const reviewRequired = reviewIssues.length > 0;
+    const procurementEligible = hasEstimatePlan && !reviewRequired;
+    const toBuy = procurementEligible ? Math.max(0, estimatePlanQty - supplied - (r.requested || 0) - (r.inTransit || 0)) : 0;
     const coveredWithPipeline = supplied + (r.requested || 0) + (r.inTransit || 0);
     const hasMaterialActivity = coveredWithPipeline > 0 || (r.stock || 0) > 0 || (r.issued || 0) > 0 || (r.used || 0) > 0;
     const holders = Object.values(r.holders || {}).map(h => ({
@@ -485,6 +522,13 @@ export const buildMaterialReconciliationRows = ({
       packageName: rowPackage,
       planSourceCount: (r.planDetails || []).length,
       invalidPlanCount,
+      reviewIssues,
+      reviewReasons: reviewIssues.map(issue => issue.label),
+      reviewRequired,
+      procurementEligible,
+      procurementBlockedReason: reviewRequired ? reviewIssues.map(issue => issue.label).join('; ') : '',
+      identityStatus: (r.aliasIds || []).length > 0 ? 'confirmed_alias' : (r.aliases || []).length > 0 ? 'unconfirmed_alias' : 'exact',
+      planningSource: hasEstimatePlan ? 'estimate' : normPlanQty > 0 ? 'norm_hint' : 'activity',
       movedNet,
       supplied,
       holders,
@@ -498,6 +542,7 @@ export const buildMaterialReconciliationRows = ({
       normPlanQty,
       controlPlanQty,
       procurementPlanQty: hasEstimatePlan ? estimatePlanQty : 0,
+      eligibleProcurementPlanQty: procurementEligible ? estimatePlanQty : 0,
       normWithoutEstimateQty,
       normSourceCount: (r.normDetails || []).length,
       normOverEstimateQty,
@@ -530,6 +575,7 @@ export const buildMaterialControlSummary = (rows = []) => {
   const masterBalanceRows = rows.filter(r => r.masterBalance > 0);
   const usedWithoutIssueRows = rows.filter(r => r.issued > 0 && r.usedWithoutIssue > 0);
   const invalidPlanRows = rows.filter(r => r.invalidPlanCount > 0);
+  const reviewRows = rows.filter(r => r.reviewRequired);
   const normRows = rows.filter(r => r.normPlanQty > 0);
   const normOverEstimateRows = rows.filter(r => r.normOverEstimateQty > 0);
   const normWithoutEstimateRows = rows.filter(r => r.normWithoutEstimateQty > 0);
@@ -552,6 +598,7 @@ export const buildMaterialControlSummary = (rows = []) => {
     masterBalanceRows,
     usedWithoutIssueRows,
     invalidPlanRows,
+    reviewRows,
     normRows,
     normOverEstimateRows,
     normWithoutEstimateRows,

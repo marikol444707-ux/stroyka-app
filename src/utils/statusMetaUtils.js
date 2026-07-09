@@ -53,7 +53,7 @@ export const materialNormStatus = (material) => {
 };
 
 export const materialControlStatus = (row = {}) => {
-  if (row.invalidPlanCount > 0) return {label:'Проверить смету', color:C.warning, bg:C.warningLight, border:C.warningBorder};
+  if (row.reviewRequired || row.invalidPlanCount > 0 || row.unitMismatch) return {label:'Проверить', color:C.warning, bg:C.warningLight, border:C.warningBorder};
   if (row.stockMismatch) return {label:'Расхождение склада', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
   if (row.issued > 0 && row.usedWithoutIssue > 0) return {label:'Списано сверх выдачи', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
   if (row.usedOverControlQty > 0) return {label:'Расход сверх нормы', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};

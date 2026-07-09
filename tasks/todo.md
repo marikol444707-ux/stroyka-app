@@ -645,6 +645,23 @@
 
 **Description:** Expose the full calculation source and move uncertain matches out of operational procurement totals.
 
+**Status:** Implemented and verified locally on 2026-07-10; production release pending.
+
+**Acceptance criteria:**
+- [x] Every explicit estimate material can be expanded to its estimate, package, section, work, source quantity, normalized quantity, conversion, and procurement decision.
+- [x] Every norm hint can be expanded to its source work, rule, scope, formula, and result.
+- [x] Estimate plan and norm hints have separate columns, filters, and totals.
+- [x] Invalid estimate rows, unit conflicts, and unconfirmed identities are placed in `Проверить` and excluded from `Докупить`.
+- [x] Single and batch supply-request actions enforce the same review guard outside the UI.
+- [x] The printed material requirement report contains the same conversion, review reason, and norm formula trace.
+
+**Verification:**
+- [x] Focused material trace, review, action-guard, and print tests pass.
+- [x] Full frontend test suite: 15 suites / 71 tests passed.
+- [x] `npm run check:smeta`
+- [x] `npm run build`
+- [ ] Production smoke after independent release.
+
 **Dependencies:** Task P1
 
 **Estimated scope:** M

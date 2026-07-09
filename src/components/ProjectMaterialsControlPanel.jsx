@@ -1,9 +1,11 @@
 import React from 'react';
 import { ChevronDown, ChevronRight, ShoppingCart } from 'lucide-react';
 import {
+  EstimateSourceTrace,
   MaterialsControlHeader,
   MaterialsFilterBar,
   MaterialsMetricsGrid,
+  NormSourceTrace,
   ShowMoreButton,
   SourceLine
 } from './materials/ProjectMaterialsControlParts';
@@ -40,8 +42,10 @@ export default function ProjectMaterialsControlPanel({
   const [showAllNormProblemRows, setShowAllNormProblemRows] = React.useState(false);
   const [rowDisplayLimit, setRowDisplayLimit] = React.useState(null);
   const [expandedRows, setExpandedRows] = React.useState({});
+  const [expandedNormRows, setExpandedNormRows] = React.useState({});
   const [workPackage, setWorkPackage] = React.useState('');
   const toggleExpandedRow = (key) => setExpandedRows(prev => ({...prev, [key]: !prev[key]}));
+  const toggleExpandedNormRow = (key) => setExpandedNormRows(prev => ({...prev, [key]: !prev[key]}));
   const packageOptions = React.useMemo(() => {
     const names = new Set();
     const add = (value) => {
@@ -72,7 +76,7 @@ export default function ProjectMaterialsControlPanel({
     [workPackage, buildNormCtrlForPackage, initialNormCtrl]
   );
   const planRows = rows.filter(r => r.planQty > 0);
-  const toBuyRows = rows.filter(r => r.toBuy > 0);
+  const toBuyRows = rows.filter(r => r.toBuy > 0 && r.procurementEligible !== false);
   const toBuyPreviewRows = toBuyRows.slice(0, isMobile ? 5 : 8);
   const toBuyUnitsText = Object.entries(toBuyRows.reduce((acc, r) => {
     const unit = r.unit || 'шт';
@@ -87,7 +91,7 @@ export default function ProjectMaterialsControlPanel({
   const movedRows = rows.filter(r => r.movedNet !== 0);
   const masterBalanceRows = rows.filter(r => r.masterBalance > 0);
   const stockMismatchRows = rows.filter(r => r.stockMismatch);
-  const invalidPlanRows = rows.filter(r => r.invalidPlanCount > 0);
+  const reviewRows = rows.filter(r => r.reviewRequired || r.invalidPlanCount > 0 || r.unitMismatch);
   const rowNormRows = rows.filter(r => r.normPlanQty > 0);
   const normOverEstimateRows = rows.filter(r => r.normOverEstimateQty > 0);
   const usedOverControlRows = rows.filter(r => r.usedOverControlQty > 0);
@@ -101,9 +105,10 @@ export default function ProjectMaterialsControlPanel({
   const queryKey = String(query || '').toLowerCase().trim();
   const filterOptions = [
     {id: 'all', label: 'Все', rows},
+    {id: 'estimate', label: 'Смета', rows: planRows},
     {id: 'toBuy', label: 'Докупить', rows: toBuyRows},
-    {id: 'normGap', label: 'Нормы/расход', rows: rows.filter(r => r.normWithoutEstimateQty > 0 || r.normOverEstimateQty > 0 || r.usedOverEstimateQty > 0 || r.usedOverControlQty > 0 || (r.normPlanQty > 0 && r.planQty <= 0))},
-    {id: 'invalid', label: 'Проверить смету', rows: invalidPlanRows},
+    {id: 'review', label: 'Проверить', rows: reviewRows},
+    {id: 'normGap', label: 'Нормы', rows: rows.filter(r => r.normPlanQty > 0 || r.normWithoutEstimateQty > 0 || r.normOverEstimateQty > 0 || r.usedOverEstimateQty > 0 || r.usedOverControlQty > 0)},
     {id: 'pipeline', label: 'В заявках/пути', rows: pipelineRows},
     {id: 'outside', label: 'Вне сметы', rows: outsideRows},
     {id: 'stock', label: 'Остатки/расх.', rows: rows.filter(r => r.stock > 0 || r.stockMismatch || r.masterBalance > 0)}
@@ -131,7 +136,7 @@ export default function ProjectMaterialsControlPanel({
   const activeRowLimit = showAllRows ? visibleRows.length : (rowDisplayLimit || rowLimit);
   const displayedRows = visibleRows.slice(0, activeRowLimit);
   const hiddenRows = Math.max(0, visibleRows.length - displayedRows.length);
-  const visibleToBuyRows = visibleRows.filter(r => Number(r.toBuy || 0) > 0 && Number(r.invalidPlanCount || 0) <= 0);
+  const visibleToBuyRows = visibleRows.filter(r => Number(r.toBuy || 0) > 0 && r.procurementEligible !== false && !r.reviewRequired);
   const visibleToBuyUnits = Object.entries(visibleToBuyRows.reduce((acc, r) => {
     const unit = r.unit || 'шт';
     acc[unit] = (acc[unit] || 0) + Number(r.toBuy || 0);
@@ -158,12 +163,12 @@ export default function ProjectMaterialsControlPanel({
     {label: 'У мастеров', value: masterBalanceRows.length, active: masterBalanceRows.length > 0, color: C.info, bg: C.infoLight, border: C.infoBorder},
     {label: 'В заявках/пути', value: pipelineRows.length, active: pipelineRows.length > 0, color: C.info, bg: C.infoLight, border: C.infoBorder},
     {label: 'Докупить', value: toBuyRows.length, active: true, color: toBuyRows.length ? C.warning : C.success, bg: toBuyRows.length ? C.warningLight : C.successLight, border: toBuyRows.length ? C.warningBorder : C.successBorder},
-    {label: 'Проверить смету', value: invalidPlanRows.length, active: invalidPlanRows.length > 0, color: C.warning, bg: C.warningLight, border: C.warningBorder},
+    {label: 'Проверить', value: reviewRows.length, active: reviewRows.length > 0, color: C.warning, bg: C.warningLight, border: C.warningBorder},
     {label: 'Норма выше сметы', value: normOverEstimateRows.length, active: normOverEstimateRows.length > 0, color: C.warning, bg: C.warningLight, border: C.warningBorder},
     {label: 'Списано сверх сметы', value: usedOverEstimateRows.length, active: usedOverEstimateRows.length > 0, color: C.warning, bg: C.warningLight, border: C.warningBorder},
     {label: 'Расход сверх', value: usedOverControlRows.length, active: usedOverControlRows.length > 0, color: C.danger, bg: C.dangerLight, border: C.dangerBorder},
     {label: 'Вне сметы', value: outsideRows.length, active: outsideRows.length > 0, color: C.danger, bg: C.dangerLight, border: C.dangerBorder},
-    {label: 'По нормам работ', value: rowNormRows.length || normRows.length, active: (rowNormRows.length || normRows.length) > 0, color: C.info, bg: C.infoLight, border: C.infoBorder},
+    {label: 'Нормативные подсказки', value: rowNormRows.length || normRows.length, active: (rowNormRows.length || normRows.length) > 0, color: C.info, bg: C.infoLight, border: C.infoBorder},
     {label: 'Перерасход норм', value: overRows.length, active: overRows.length > 0, color: C.danger, bg: C.dangerLight, border: C.dangerBorder},
     {label: 'Списано без нормы', value: withoutNormRows.length, active: withoutNormRows.length > 0, color: C.warning, bg: C.warningLight, border: C.warningBorder},
     {label: 'Расхождения', value: stockMismatchRows.length, active: stockMismatchRows.length > 0, color: C.danger, bg: C.dangerLight, border: C.dangerBorder}
@@ -205,6 +210,15 @@ export default function ProjectMaterialsControlPanel({
             <p style={{color: C.text, fontSize: '12px', margin: '7px 0 0', fontWeight: '700'}}>
               {toBuyRows.length ? ('Купить: ' + toBuyRows.length + ' поз.' + (toBuyUnitsText ? ' · ' + toBuyUnitsText : '')) : 'К закупке по смете сейчас ничего нет'}
             </p>
+            {reviewRows.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setFilter('review')}
+                style={{border: 0, padding: 0, marginTop: '5px', background: 'transparent', color: C.warning, fontSize: '11px', fontWeight: '700', cursor: 'pointer'}}
+              >
+                Не включено до проверки: {reviewRows.length} поз.
+              </button>
+            )}
           </div>
           <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end'}}>
             {toBuyRows.length > 0 && (
@@ -267,7 +281,7 @@ export default function ProjectMaterialsControlPanel({
                   {(row.workPackage || row.packageName || 'Основная') + (row.sections?.length ? ' · ' + row.sections.slice(0, 2).join(', ') : '')}
                 </p>
                 <p style={{color: C.text, fontSize: '11px', margin: '6px 0 0'}}>
-                  План {fmtMeasure(row.planQty, row.unit)} · закрыто {fmtMeasure(row.coveredWithPipeline || 0, row.unit)}
+                  По смете {fmtMeasure(row.planQty, row.unit)} · закрыто {fmtMeasure(row.coveredWithPipeline || 0, row.unit)}
                 </p>
                 <b style={{color: C.warning, fontSize: '12px', display: 'block', marginTop: '3px'}}>
                   Докупить {fmtMeasure(row.toBuy, row.unit)}
@@ -380,11 +394,12 @@ export default function ProjectMaterialsControlPanel({
           )}
         </div>
         <div style={{overflow: 'auto', maxHeight: isMobile ? '58vh' : '68vh', maxWidth: '100%', WebkitOverflowScrolling: 'touch', border: '1px solid ' + C.border, borderRadius: '10px'}}>
-          <table style={{...tbl, fontSize: isMobile ? '10px' : '11px', minWidth: isMobile ? '980px' : '1420px'}}>
+          <table style={{...tbl, fontSize: isMobile ? '10px' : '11px', minWidth: isMobile ? '1060px' : '1510px'}}>
             <thead>
               <tr>
                 <th style={headCell}>Материал</th>
-                <th style={headCell}>План</th>
+                <th style={headCell}>По смете</th>
+                <th style={headCell}>По норме</th>
                 <th style={headCell}>В заявках</th>
                 <th style={headCell}>В пути</th>
                 <th style={headCell}>Накладные</th>
@@ -438,12 +453,13 @@ export default function ProjectMaterialsControlPanel({
                           {sourceDetails.length} строк сметы
                         </button>
                       )}
-                      {invalidPlanDetails.length > 0 && <p style={{color: C.warning, fontSize: '10px', margin: '3px 0 0'}}>⚠️ {invalidPlanDetails.length} строк не участвуют в закупке до проверки сметы</p>}
-                      {r.aliases?.length > 0 && <p style={{color: C.info, fontSize: '10px', margin: '2px 0 0'}}>Синонимы: {r.aliases.slice(0, 2).join(', ')}{r.aliases.length > 2 ? '…' : ''}</p>}
+                      {r.reviewRequired && (r.reviewReasons || []).slice(0, 2).map(reason => (
+                        <p key={reason} style={{color: C.warning, fontSize: '10px', margin: '3px 0 0'}}>⚠️ {reason}</p>
+                      ))}
+                      {r.aliases?.length > 0 && <p style={{color: r.identityStatus === 'confirmed_alias' ? C.success : C.warning, fontSize: '10px', margin: '2px 0 0'}}>{r.identityStatus === 'confirmed_alias' ? 'Алиас подтвержден: ' : 'Нужно подтвердить: '}{r.aliases.slice(0, 2).join(', ')}{r.aliases.length > 2 ? '…' : ''}</p>}
                       <SourceLine label="Накладные" details={r.invoiceDetails} color={C.success} fmtMeasure={fmtMeasure}/>
                       <SourceLine label="Поставки" details={r.supplyDetails} color={C.info} fmtMeasure={fmtMeasure}/>
                       <SourceLine label="Перемещения" details={r.movementDetails} color={C.textSec} fmtMeasure={fmtMeasure}/>
-                      {r.unitMismatch && <p style={{color: C.warning, fontSize: '10px', margin: '2px 0 0'}}>⚠️ Разные единицы измерения</p>}
                       {renderMaterialAliasControls(projectName, r)}
                     </td>
                     <td style={tblC}>
@@ -452,16 +468,9 @@ export default function ProjectMaterialsControlPanel({
                       ) : (
                         <span style={{color: C.textMuted}}>—</span>
                       )}
-                      {r.normPlanQty > 0 && (
-                        <p style={{margin: '3px 0 0', color: C.info, fontSize: '10px'}}>
-                          Норма: {fmtMeasure(r.normPlanQty, r.unit)}
-                        </p>
-                      )}
-                      {r.controlPlanQty > 0 && r.controlPlanQty !== r.planQty && (
-                        <p style={{margin: '3px 0 0', color: r.normOverEstimateQty > 0 ? C.warning : C.textMuted, fontSize: '10px'}}>
-                          Контроль: {fmtMeasure(r.controlPlanQty, r.unit)}
-                        </p>
-                      )}
+                    </td>
+                    <td style={tblC}>
+                      {r.normPlanQty > 0 ? <b style={{color: C.info}}>{fmtMeasure(r.normPlanQty, r.unit)}</b> : <span style={{color: C.textMuted}}>—</span>}
                       {r.normOverEstimateQty > 0 && (
                         <p style={{margin: '3px 0 0', color: C.warning, fontSize: '10px'}}>
                           +{fmtMeasure(r.normOverEstimateQty, r.unit)} к смете
@@ -534,66 +543,15 @@ export default function ProjectMaterialsControlPanel({
 	                    </td>
                   </tr>
                   {isExpanded && sourceDetails.length > 0 && (
-                    <tr>
-                      <td colSpan={16} style={{...tblC, padding: '10px 14px', backgroundColor: C.bg}}>
-                        <div style={{
-                          border: '1px solid ' + C.border,
-                          borderRadius: '10px',
-                          overflow: 'hidden',
-                          backgroundColor: C.bgWhite
-                        }}>
-                          <div style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            gap: '8px',
-                            flexWrap: 'wrap',
-                            padding: '8px 10px',
-                            borderBottom: '1px solid ' + C.border
-                          }}>
-                            <b style={{color: C.text, fontSize: '12px'}}>Расшифровка общего количества</b>
-                            <span style={{color: C.textSec, fontSize: '11px'}}>
-                              {fmtMeasure(r.planQty, r.unit)} · {Math.round(r.planSum || 0).toLocaleString('ru-RU')} ₽
-                            </span>
-                          </div>
-                          <div style={{overflowX: 'auto'}}>
-                            <table style={{...tbl, fontSize: '10px', minWidth: '900px'}}>
-                              <thead>
-                                <tr>
-                                  <th style={tblH}>Пакет</th>
-                                  <th style={tblH}>Раздел</th>
-                                  <th style={tblH}>Работа-основание</th>
-                                  <th style={tblH}>Строка материала</th>
-                                  <th style={tblH}>Количество</th>
-                                  <th style={tblH}>Сумма</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-	                              {sourceDetails.map((d, idx) => {
-                                    const invalid = !!d.reason;
-                                    return (
-	                                  <tr key={(d.estimateId || 'e') + '-' + idx} style={invalid ? {backgroundColor: C.warningLight} : undefined}>
-	                                    <td style={tblC}>{d.packageName || 'Основная'}</td>
-	                                    <td style={tblC}>{d.sectionName || '—'}</td>
-	                                    <td style={tblC}>{d.workName || '—'}</td>
-	                                    <td style={tblC}>{d.materialName || r.name}{invalid && <p style={{color: C.warning, fontSize: '10px', margin: '3px 0 0'}}>⚠️ {d.reason}</p>}</td>
-	                                    <td style={{...tblC, fontWeight: '700'}}>
-                                        {fmtMeasure(d.qty || 0, d.unit || r.unit)}
-                                        {(d.rawQty !== undefined && d.rawQty !== null && d.rawQty !== '') || d.rawUnit ? (
-                                          <p style={{color: C.textMuted, fontSize: '10px', margin: '3px 0 0'}}>
-                                            исходник: {d.rawQty !== undefined && d.rawQty !== null && d.rawQty !== '' ? Number(d.rawQty || 0).toLocaleString('ru-RU', {maximumFractionDigits: 6}) : '—'} {d.rawUnit || ''}
-                                          </p>
-                                        ) : null}
-                                      </td>
-	                                    <td style={tblC}>{Math.round(d.sum || 0).toLocaleString('ru-RU')} ₽</td>
-	                                  </tr>
-	                                );})}
-                              </tbody>
-                            </table>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
+                    <EstimateSourceTrace
+                      row={r}
+                      details={sourceDetails}
+                      C={C}
+                      tbl={tbl}
+                      tblH={tblH}
+                      tblC={tblC}
+                      fmtMeasure={fmtMeasure}
+                    />
                   )}
                   </React.Fragment>
                 );
@@ -633,14 +591,34 @@ export default function ProjectMaterialsControlPanel({
             <table style={{...tbl, fontSize: '11px'}}>
               <thead><tr><th style={tblH}>Материал по норме</th><th style={tblH}>Потребность</th><th style={tblH}>Работы-источники</th><th style={tblH}>Норма</th></tr></thead>
               <tbody>
-                {displayedNormRows.map(r => (
-                  <tr key={r.key}>
-                    <td style={tblC}><b style={{fontSize: '12px'}}>{r.name}</b>{r.sections.length > 0 && <p style={{color: C.textMuted, fontSize: '10px', margin: '2px 0 0'}}>{r.sections.slice(0, 2).join(', ')}{r.sections.length > 2 ? '…' : ''}</p>}</td>
-                    <td style={{...tblC, fontWeight: '700', color: C.info}}>{fmtMeasure(r.planQty, r.unit)}</td>
-                    <td style={tblC}>{r.works.slice(0, 3).map(w => w.name).join('; ')}{r.works.length > 3 ? ' …' : ''}</td>
-                    <td style={{...tblC, color: C.textSec, fontSize: '10px'}}>{r.normSources.slice(0, 2).join('; ')}</td>
-                  </tr>
-                ))}
+                {displayedNormRows.map(r => {
+                  const isExpanded = !!expandedNormRows[r.key];
+                  return (
+                    <React.Fragment key={r.key}>
+                      <tr>
+                        <td style={tblC}>
+                          <b style={{fontSize: '12px'}}>{r.name}</b>
+                          {r.sections.length > 0 && <p style={{color: C.textMuted, fontSize: '10px', margin: '2px 0 0'}}>{r.sections.slice(0, 2).join(', ')}{r.sections.length > 2 ? '…' : ''}</p>}
+                        </td>
+                        <td style={{...tblC, fontWeight: '700', color: C.info}}>{fmtMeasure(r.planQty, r.unit)}</td>
+                        <td style={tblC}>
+                          {r.works.slice(0, 3).map(w => w.name).join('; ')}{r.works.length > 3 ? ' …' : ''}
+                          {r.works.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => toggleExpandedNormRow(r.key)}
+                              style={{display: 'flex', alignItems: 'center', gap: '4px', marginTop: '5px', padding: '3px 7px', borderRadius: '999px', border: '1px solid ' + C.infoBorder, backgroundColor: C.infoLight, color: C.info, fontSize: '10px', fontWeight: '700', cursor: 'pointer'}}
+                            >
+                              {isExpanded ? <ChevronDown size={12}/> : <ChevronRight size={12}/>} {r.works.length} расчетов
+                            </button>
+                          )}
+                        </td>
+                        <td style={{...tblC, color: C.textSec, fontSize: '10px'}}>{r.normSources.slice(0, 2).join('; ')}</td>
+                      </tr>
+                      {isExpanded && <NormSourceTrace row={r} C={C} tbl={tbl} tblH={tblH} tblC={tblC} fmtMeasure={fmtMeasure}/>}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
             <ShowMoreButton hiddenRows={hiddenNormRows} onClick={() => setShowAllNormRows(true)} btnB={btnB}>

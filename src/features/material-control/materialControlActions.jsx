@@ -20,6 +20,14 @@ import {
   materialControlRequestItems,
 } from '../../utils/supplyUtils';
 
+export const materialControlRowCanCreateSupply = (row, toNumber = Number) => (
+  !!row?.name
+  && toNumber(row.toBuy) > 0
+  && toNumber(row.invalidPlanCount) <= 0
+  && !row.reviewRequired
+  && row.procurementEligible !== false
+);
+
 export function createMaterialControlActions({
   API,
   C,
@@ -145,7 +153,7 @@ export function createMaterialControlActions({
   };
 
   const createSupplyRequestFromMaterialControl = async (projectName, row) => {
-    if (!projectName || !row?.name || toNum(row.toBuy) <= 0) return;
+    if (!projectName || !materialControlRowCanCreateSupply(row, toNum)) return;
     if (!canCreateSupplyRequestFromControl()) { alert('У вашей роли нет права создать заявку снабжения'); return; }
     if (materialControlSupplyRequestExists(projectName, row) && !window.confirm('По этой позиции уже есть активная заявка. Создать ещё одну?')) return;
     const qtyRaw = window.prompt('Количество к заявке:', String(Math.round(toNum(row.toBuy) * 1000) / 1000));
@@ -205,7 +213,7 @@ export function createMaterialControlActions({
     if (!projectName) return;
     if (!canCreateSupplyRequestFromControl()) { alert('У вашей роли нет права создать заявку снабжения'); return; }
     const candidates = (rows || [])
-      .filter(row => row?.name && toNum(row.toBuy) > 0 && toNum(row.invalidPlanCount) <= 0)
+      .filter(row => materialControlRowCanCreateSupply(row, toNum))
       .filter(row => !materialControlSupplyRequestExists(projectName, row))
       .slice(0, 120);
     if (!candidates.length) { notify('По выбранному фильтру нет новых позиций к закупке', 'supply'); return; }
@@ -456,7 +464,7 @@ export function createMaterialControlActions({
   };
 
   const renderMaterialSupplyAction = (projectName, row) => {
-    if (!row || toNum(row.toBuy) <= 0 || toNum(row.invalidPlanCount) > 0 || !canCreateSupplyRequestFromControl()) return null;
+    if (!materialControlRowCanCreateSupply(row, toNum) || !canCreateSupplyRequestFromControl()) return null;
     const exists = materialControlSupplyRequestExists(projectName, row);
     return (
       <button

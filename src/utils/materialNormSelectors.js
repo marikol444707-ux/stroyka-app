@@ -244,14 +244,51 @@ export const buildEstimateWorkNormRequirementRows = ({
       if (!isEstimateWorkItem(it, s.name)) return;
       normRequirementsForWork(it.name, s.name, it.quantity, it.unit, { projectName, estimateId: est.id }).forEach(req => {
         const key = req.ruleId + '|' + materialNameKey(req.name) + '|' + _normalizeUnit(req.unit);
-        if (!rows[key]) rows[key] = { key, name: req.name, unit: req.unit, planQty: 0, works: [], sections: [], normSources: [], packageNames: [] };
+        if (!rows[key]) rows[key] = {
+          key,
+          name: req.name,
+          unit: req.unit,
+          planQty: 0,
+          works: [],
+          sections: [],
+          normSources: [],
+          packageNames: [],
+          sourceType: 'norm_hint',
+          procurementEligible: false,
+        };
         rows[key].planQty += toNum(req.quantity);
         const packageName = estimatePackage(est);
         const sectionLabel = (estimatePackage(est) !== 'Основная' ? estimatePackage(est) + ' / ' : '') + (s.name || '');
         if (sectionLabel && !rows[key].sections.includes(sectionLabel)) rows[key].sections.push(sectionLabel);
         if (packageName && !rows[key].packageNames.includes(packageName)) rows[key].packageNames.push(packageName);
         if (req.normSource && !rows[key].normSources.includes(req.normSource)) rows[key].normSources.push(req.normSource);
-        rows[key].works.push({ name: it.name, section: s.name, quantity: it.quantity, unit: it.unit, source: req.normSource, packageName });
+        const thicknessBaseMm = toNum(req.rule?.thicknessBaseMm);
+        const thicknessMm = thicknessBaseMm ? (toNum(req.rule?.defaultThicknessMm) || thicknessBaseMm) : 0;
+        rows[key].works.push({
+          estimateId: est.id,
+          estimateName: est.name || '',
+          itemId: it.id,
+          name: it.name,
+          section: s.name,
+          quantity: it.quantity,
+          unit: it.unit,
+          source: req.normSource,
+          packageName,
+          requiredQty: toNum(req.quantity),
+          requiredUnit: req.unit,
+          ruleId: req.ruleId,
+          ruleScope: req.scope || req.rule?.scope || 'base',
+          formula: {
+            workQty: toNum(it.quantity),
+            workUnit: it.unit || '',
+            qtyPerUnit: toNum(req.rule?.qtyPerUnit),
+            materialUnit: req.rule?.materialUnit || req.unit || '',
+            thicknessBaseMm,
+            thicknessMm,
+            requiredQty: toNum(req.quantity),
+            requiredUnit: req.unit || '',
+          },
+        });
       });
     })));
   return Object.values(rows)
