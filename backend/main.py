@@ -10145,6 +10145,20 @@ OFFERS_SELECT = ("SELECT id, request_id as \"requestId\", supplier_id as \"suppl
                  "items_kp_json as \"itemsKpJson\" "
                  "FROM supplier_offers")
 
+def _require_supplier_offer_visibility(cur, offer_id: int, user: dict, detail: str = "Нет доступа к КП"):
+    _ensure_supply_request_recipients_table(cur)
+    supplier_ids = current_supplier_ids(cur, user)
+    visibility_sql, visibility_params = supplier_offer_visibility_filter(
+        supplier_ids,
+        user.get("id"),
+    )
+    cur.execute(
+        "SELECT id FROM supplier_offers WHERE id=%s" + visibility_sql,
+        [offer_id] + visibility_params,
+    )
+    if not cur.fetchone():
+        raise HTTPException(status_code=403, detail=detail)
+
 def _ensure_supplier_offer_events_table(cur):
     cur.execute("""
         CREATE TABLE IF NOT EXISTS supplier_offer_events (
@@ -10255,12 +10269,18 @@ def get_supplier_offers(
     return [dict(r) for r in rows]
 
 @app.get("/supplier-offers/{id}/history")
-def get_supplier_offer_history(id: int, current_user: dict = Depends(get_current_user)):
+def get_supplier_offer_history(
+    id: int,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     _ensure_supplier_offer_events_table(cur)
     cur.execute("""
-        SELECT o.id, o.supplier_id, r.project
+        SELECT o.id, o.supplier_id, o.company_id, o.request_id,
+               r.company_id AS request_company_id, r.project
           FROM supplier_offers o
           LEFT JOIN supply_requests r ON r.id=o.request_id
          WHERE o.id=%s
@@ -10271,13 +10291,36 @@ def get_supplier_offer_history(id: int, current_user: dict = Depends(get_current
         raise HTTPException(status_code=404, detail="КП не найдено")
     role = current_user.get("role")
     if role == "поставщик":
-        supplier_ids = current_supplier_ids(cur, current_user)
-        if int(offer.get("supplier_id") or 0) not in supplier_ids:
+        try:
+            _require_supplier_offer_visibility(cur, id, current_user, "Нет доступа к истории КП")
+        except Exception:
             cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Нет доступа к истории КП")
+            raise
     elif role in SUPPLY_INTERNAL_ROLES:
-        if offer.get("project"):
-            require_project_or_warehouse_access(current_user, offer.get("project") or "")
+        try:
+            company_context, effective_user = resolve_resource_company_actor(
+                cur,
+                current_user,
+                offer.get("company_id"),
+                "read",
+                x_company_id=x_company_id,
+                x_company_mode=x_company_mode,
+                allowed_roles=SUPPLY_INTERNAL_ROLES,
+                forbidden_detail="Роль в выбранной компании не позволяет смотреть историю КП",
+                platform_staff_roles=PLATFORM_STAFF_ROLES,
+                client_account_roles=CLIENT_ACCOUNT_ROLES,
+            )
+            company_id = int(company_context.get("companyId"))
+            assert_rows_company_scope(
+                [{"company_id": offer.get("request_company_id")}],
+                company_id,
+                "Заявка КП",
+            )
+            if offer.get("project"):
+                require_project_or_warehouse_access(effective_user, offer.get("project") or "")
+        except Exception:
+            cur.close(); conn.close()
+            raise
     else:
         cur.close(); conn.close()
         raise HTTPException(status_code=403, detail="Недостаточно прав")
@@ -10335,13 +10378,20 @@ def create_supplier_offer(o: SupplierOfferModel, _current_user: dict = Depends(r
     return dict(row)
 
 @app.put("/supplier-offers/{id}")
-def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
+def update_supplier_offer(
+    id: int,
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(require_roles(*SUPPLY_ROLES)),
+):
     from datetime import datetime
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     action = data.get('action')
     cur.execute("""
-        SELECT o.id, o.supplier_id, o.request_id, o.status, o.delivery_status, r.project
+        SELECT o.id, o.supplier_id, o.request_id, o.company_id,
+               o.status, o.delivery_status, r.company_id AS request_company_id, r.project
         FROM supplier_offers o
         LEFT JOIN supply_requests r ON r.id=o.request_id
         WHERE o.id=%s
@@ -10351,20 +10401,58 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="КП не найдено")
     role = _current_user.get("role")
+    actor_user = _current_user
     if role == "поставщик":
-        supplier_ids = current_supplier_ids(cur, _current_user)
-        if offer_access.get("supplier_id") not in supplier_ids:
+        try:
+            _require_supplier_offer_visibility(cur, id, _current_user)
+        except Exception:
             cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Нет доступа к КП")
+            raise
         if action not in ('respond', 'withdraw'):
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Поставщик может только ответить на своё КП или отозвать его")
     else:
-        if role not in SUPPLY_INTERNAL_ROLES:
+        try:
+            company_context, actor_user = resolve_resource_company_actor(
+                cur,
+                _current_user,
+                offer_access.get("company_id"),
+                "update",
+                x_company_id=x_company_id,
+                x_company_mode=x_company_mode,
+                allowed_roles=SUPPLY_INTERNAL_ROLES,
+                forbidden_detail="Роль в выбранной компании не позволяет изменять КП",
+                platform_staff_roles=PLATFORM_STAFF_ROLES,
+                client_account_roles=CLIENT_ACCOUNT_ROLES,
+            )
+            role = actor_user.get("role") or ""
+            if offer_access.get("project"):
+                require_project_or_warehouse_access(actor_user, offer_access.get("project") or "")
+        except Exception:
             cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Недостаточно прав для изменения КП")
-        if offer_access.get("project"):
-            require_project_or_warehouse_access(_current_user, offer_access.get("project") or "")
+            raise
+
+    company_id = int(offer_access.get("company_id") or 0)
+    try:
+        assert_rows_company_scope(
+            [{"company_id": offer_access.get("request_company_id")}],
+            company_id,
+            "Заявка КП",
+        )
+        _ensure_supply_request_recipients_table(cur)
+        cur.execute(
+            "SELECT company_id FROM supplier_offers WHERE request_id=%s FOR UPDATE",
+            (offer_access.get("request_id"),),
+        )
+        assert_rows_company_scope(cur.fetchall(), company_id, "Коммерческие предложения заявки")
+        cur.execute(
+            "SELECT company_id FROM supply_request_recipients WHERE request_id=%s FOR UPDATE",
+            (offer_access.get("request_id"),),
+        )
+        assert_rows_company_scope(cur.fetchall(), company_id, "Получатели КП")
+    except Exception:
+        cur.close(); conn.close()
+        raise
 
     def _offer_line_key(item):
         return (
@@ -10518,6 +10606,7 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
             UPDATE supply_request_recipients
                SET status=%s, responded_at=NOW()
              WHERE request_id=%s
+               AND company_id=%s
                AND (
                     target_supplier_id=%s
                  OR supplier_id=%s
@@ -10526,11 +10615,12 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
         """, (
             "КП получено",
             offer_access.get("request_id"),
+            company_id,
             offer_access.get("supplier_id"),
             offer_access.get("supplier_id"),
             [offer_access.get("supplier_id")],
         ))
-        _log_supplier_offer_event(cur, id, "responded", current_status, "Получено", _current_user, data)
+        _log_supplier_offer_event(cur, id, "responded", current_status, "Получено", actor_user, data)
     elif action == 'select':
         # Директор выбрал это КП
         if role not in LEADERSHIP_ROLES:
@@ -10547,6 +10637,7 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
             UPDATE supply_request_recipients
                SET status=%s
              WHERE request_id=%s
+               AND company_id=%s
                AND (
                     target_supplier_id=%s
                  OR supplier_id=%s
@@ -10555,23 +10646,25 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
         """, (
             "КП выбрано",
             offer_access.get("request_id"),
+            company_id,
             offer_access.get("supplier_id"),
             offer_access.get("supplier_id"),
             [offer_access.get("supplier_id")],
         ))
-        _log_supplier_offer_event(cur, id, "selected", offer_access.get("status") or "", "Утверждено", _current_user, data)
+        _log_supplier_offer_event(cur, id, "selected", offer_access.get("status") or "", "Утверждено", actor_user, data)
         # Остальные КП по этой заявке — отклонены
         cur.execute("SELECT request_id FROM supplier_offers WHERE id=%s", (id,))
         r = cur.fetchone()
         if r and r['request_id']:
-            cur.execute("UPDATE supplier_offers SET status=%s WHERE request_id=%s AND id<>%s AND status<>%s",
-                ('Отклонено', r['request_id'], id, 'Отклонено'))
+            cur.execute("UPDATE supplier_offers SET status=%s WHERE request_id=%s AND company_id=%s AND id<>%s AND status<>%s",
+                ('Отклонено', r['request_id'], company_id, id, 'Отклонено'))
             cur.execute("""
                 UPDATE supply_request_recipients
                    SET status=%s
                  WHERE request_id=%s
+                   AND company_id=%s
                    AND status NOT IN (%s)
-            """, ("КП отклонено", r['request_id'], "КП выбрано"))
+            """, ("КП отклонено", r['request_id'], company_id, "КП выбрано"))
     elif action == 'withdraw':
         current_status = offer_access.get("status") or ""
         if current_status == "Утверждено":
@@ -10593,6 +10686,7 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
             UPDATE supply_request_recipients
                SET status=%s
              WHERE request_id=%s
+               AND company_id=%s
                AND (
                     target_supplier_id=%s
                  OR supplier_id=%s
@@ -10601,11 +10695,12 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
         """, (
             "КП отозвано",
             offer_access.get("request_id"),
+            company_id,
             offer_access.get("supplier_id"),
             offer_access.get("supplier_id"),
             [offer_access.get("supplier_id")],
         ))
-        _log_supplier_offer_event(cur, id, "withdrawn", current_status, "Отозвано", _current_user, data)
+        _log_supplier_offer_event(cur, id, "withdrawn", current_status, "Отозвано", actor_user, data)
     elif action == 'reject':
         cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", ('Отклонено', id))
         _ensure_supply_request_recipients_table(cur)
@@ -10613,6 +10708,7 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
             UPDATE supply_request_recipients
                SET status=%s
              WHERE request_id=%s
+               AND company_id=%s
                AND (
                     target_supplier_id=%s
                  OR supplier_id=%s
@@ -10621,11 +10717,12 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
         """, (
             "КП отклонено",
             offer_access.get("request_id"),
+            company_id,
             offer_access.get("supplier_id"),
             offer_access.get("supplier_id"),
             [offer_access.get("supplier_id")],
         ))
-        _log_supplier_offer_event(cur, id, "rejected", offer_access.get("status") or "", "Отклонено", _current_user, data)
+        _log_supplier_offer_event(cur, id, "rejected", offer_access.get("status") or "", "Отклонено", actor_user, data)
     else:
         if 'status' in data:
             new_status = str(data.get('status') or '').strip()
@@ -10643,12 +10740,12 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
                 cur.execute("SELECT request_id FROM supplier_offers WHERE id=%s", (id,))
                 r = cur.fetchone()
                 if r and r['request_id']:
-                    cur.execute("UPDATE supplier_offers SET status=%s WHERE request_id=%s AND id<>%s AND status<>%s",
-                        ('Отклонено', r['request_id'], id, 'Отклонено'))
-            _log_supplier_offer_event(cur, id, "status_changed", offer_access.get("status") or "", data.get('status'), _current_user, data)
+                    cur.execute("UPDATE supplier_offers SET status=%s WHERE request_id=%s AND company_id=%s AND id<>%s AND status<>%s",
+                        ('Отклонено', r['request_id'], company_id, id, 'Отклонено'))
+            _log_supplier_offer_event(cur, id, "status_changed", offer_access.get("status") or "", data.get('status'), actor_user, data)
         if 'deliveryStatus' in data:
             cur.execute("UPDATE supplier_offers SET delivery_status=%s WHERE id=%s", (data['deliveryStatus'], id))
-            _log_supplier_offer_event(cur, id, "delivery_status_changed", offer_access.get("delivery_status") or "", data.get('deliveryStatus'), _current_user, data)
+            _log_supplier_offer_event(cur, id, "delivery_status_changed", offer_access.get("delivery_status") or "", data.get('deliveryStatus'), actor_user, data)
     cur.execute(OFFERS_SELECT + " WHERE id=%s", (id,))
     row = cur.fetchone()
     conn.commit()

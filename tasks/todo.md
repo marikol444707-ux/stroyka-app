@@ -494,7 +494,7 @@
 
 **Description:** Make `GET /supplier-offers` respect the selected internal company context and require explicit recipient evidence for supplier-facing reads. This slice is read-only and does not migrate or rewrite existing offers, invoices, deliveries, or warehouse documents.
 
-**Status:** Implemented and verified locally on 2026-07-10; independent production release is pending.
+**Status:** Completed, verified, and released as production commit `13e84bb5` on 2026-07-10.
 
 **Acceptance criteria:**
 - [x] Internal supply roles receive offers only from the selected company or companies available in their account summary.
@@ -509,9 +509,36 @@
 - [x] Python compile.
 - [x] Tracked frontend tests (14 suites / 66 tests passed).
 - [x] `npm run build`.
-- [x] `smoke:supply-chain` now requires the supplier account to see its addressed offer through `/supplier-offers`; production run remains pending until release.
+- [x] Production version `13e84bb5522c`; HTTP smoke, active service check, fresh warning log check, and browser rendering of `/` and `/app` passed.
+- [ ] Protected `smoke:supply-chain` is blocked because production has no `SMOKE_EMAIL`, `SMOKE_PASSWORD`, or `SMOKE_TOTP_SECRET` configured.
 
 **Dependencies:** Task M2.5
+
+**Estimated scope:** S
+
+## Task M3.2: Supplier Offer History And Mutation Isolation
+
+**Description:** Protect the history and update routes for one supplier offer with the same verified chain used by the offer list. Supplier actions require explicit recipient visibility; internal actions require the offer's stored company and effective membership role. Before any mutation, all offers and recipients for the request are locked and checked against one company.
+
+**Status:** Implemented and verified locally on 2026-07-10; independent production release is pending.
+
+**Acceptance criteria:**
+- [x] Supplier history and updates require explicit visibility to the concrete offer, not only a matching global supplier id.
+- [x] Internal history and updates resolve access from the offer's stored company and effective membership role.
+- [x] Offer and request `company_id` must match.
+- [x] Every offer and recipient row for the request is locked and validated before mutation.
+- [x] Recipient status updates and competing-offer rejection include `company_id`.
+- [x] Event history records the effective company actor for internal actions.
+- [x] Existing offer data, invoices, deliveries, and supplier identities are not migrated or rewritten by the release.
+
+**Verification:**
+- [x] Supplier access and company-context unit tests (31 passed).
+- [x] Python compile.
+- [x] Tracked frontend tests (14 suites / 66 tests passed).
+- [x] `npm run build`.
+- [ ] Existing `smoke:supply-chain` covers supplier respond/withdraw/history and internal offer selection after release.
+
+**Dependencies:** Task M3.1
 
 **Estimated scope:** S
 
