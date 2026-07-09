@@ -89,9 +89,17 @@ except ModuleNotFoundError:
     from db import get_db, limit_offset_sql
 
 try:
-    from backend.features.company_context.service import company_id_scope_filter, resolve_resource_company_actor
+    from backend.features.company_context.service import (
+        assert_rows_company_scope,
+        company_id_scope_filter,
+        resolve_resource_company_actor,
+    )
 except ModuleNotFoundError:
-    from features.company_context.service import company_id_scope_filter, resolve_resource_company_actor
+    from features.company_context.service import (
+        assert_rows_company_scope,
+        company_id_scope_filter,
+        resolve_resource_company_actor,
+    )
 
 def _startup_num(v) -> float:
     try:
@@ -9788,26 +9796,46 @@ def update_supply_request(
     return _supply_response_for_role(row, effective_user) if row else {"ok": True}
 
 @app.delete("/supply-requests/{id}")
-def delete_supply_request(id: int, rollback_received: bool = False, _current_user: dict = Depends(require_roles("директор", "зам_директора", "снабженец", "кладовщик", "прораб"))):
+def delete_supply_request(
+    id: int,
+    rollback_received: bool = False,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     from datetime import datetime
     conn = get_db()
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute("SELECT id, project, material_name, status, COALESCE(work_package,'') as work_package, items_json FROM supply_requests WHERE id=%s FOR UPDATE", (id,))
+        cur.execute("SELECT id, project, material_name, status, COALESCE(work_package,'') as work_package, items_json, company_id FROM supply_requests WHERE id=%s FOR UPDATE", (id,))
         req = cur.fetchone()
         if not req:
             conn.rollback()
             raise HTTPException(status_code=404, detail="Заявка не найдена")
+        company_context, effective_user = resolve_resource_company_actor(
+            cur,
+            _current_user,
+            req.get("company_id"),
+            "delete",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            platform_staff_roles=PLATFORM_STAFF_ROLES,
+            client_account_roles=CLIENT_ACCOUNT_ROLES,
+        )
+        company_id = int(company_context.get("companyId"))
+        allowed_roles = (*LEADERSHIP_ROLES, "снабженец", "кладовщик", "прораб")
+        if effective_user.get("role") not in allowed_roles:
+            raise HTTPException(status_code=403, detail="Роль в выбранной компании не позволяет отменять заявки снабжения")
         if req.get("project"):
-            require_project_access(_current_user, req.get("project"))
+            require_project_access(effective_user, req.get("project"))
         request_items = _json_list_or_empty(req.get("items_json"))
         request_packages = sorted(set([
             _supply_work_package(item.get("workPackage") or item.get("work_package") or req.get("work_package"))
             for item in request_items
         ] or [_supply_work_package(req.get("work_package"))]))
         for package_name in request_packages:
-            if not has_package_access(_current_user, package_name or "Основная"):
+            if not has_package_access(effective_user, package_name or "Основная"):
                 conn.rollback()
                 raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы заявки: " + (package_name or "Основная"))
         current_status = req.get("status") or ""
@@ -9820,8 +9848,9 @@ def delete_supply_request(id: int, rollback_received: bool = False, _current_use
 
         cur.execute("SELECT * FROM supply_deliveries WHERE request_id=%s FOR UPDATE", (id,))
         deliveries = cur.fetchall()
+        assert_rows_company_scope(deliveries, company_id, "Поставки заявки")
         received_deliveries = [d for d in deliveries if float(d.get("received_quantity") or 0) > 0]
-        if rollback_received and (_current_user.get("role") not in LEADERSHIP_ROLES):
+        if rollback_received and (effective_user.get("role") not in LEADERSHIP_ROLES):
             conn.rollback()
             raise HTTPException(status_code=403, detail="Откат принятой поставки доступен только директору или замдиректора")
         if received_deliveries and not rollback_received:
@@ -9830,15 +9859,16 @@ def delete_supply_request(id: int, rollback_received: bool = False, _current_use
         if rollback_received and received_deliveries:
             delivery_ids = [int(d.get("id") or 0) for d in received_deliveries if int(d.get("id") or 0) > 0]
             cur.execute("""SELECT
-                              (SELECT COUNT(*) FROM warehouse_invoices
-                               WHERE supply_request_id=%s
-                                  OR (supply_delivery_id = ANY(%s))) AS invoice_count,
-                              (SELECT COUNT(*) FROM supply_history
-                               WHERE request_id=%s
-                                  OR (delivery_id = ANY(%s))) AS history_count""",
+                              company_id, 'warehouse_invoice' AS link_type
+                              FROM warehouse_invoices
+                              WHERE supply_request_id=%s OR (supply_delivery_id = ANY(%s))
+                            UNION ALL
+                            SELECT company_id, 'supply_history' AS link_type
+                              FROM supply_history
+                              WHERE request_id=%s OR (delivery_id = ANY(%s))""",
                         (id, delivery_ids, id, delivery_ids))
-            doc_links = cur.fetchone() or {}
-            linked_docs = int(doc_links.get("invoice_count") or 0) + int(doc_links.get("history_count") or 0)
+            linked_docs = cur.fetchall()
+            assert_rows_company_scope(linked_docs, company_id, "Документы поставки")
             if linked_docs:
                 conn.rollback()
                 raise HTTPException(
@@ -9850,8 +9880,8 @@ def delete_supply_request(id: int, rollback_received: bool = False, _current_use
             cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", ("Отменена", id))
             conn.commit()
             log_audit(
-                _current_user.get("name", ""),
-                _current_user.get("role", ""),
+                effective_user.get("name", ""),
+                effective_user.get("role", ""),
                 "cancel",
                 "supply_request",
                 id,
@@ -9871,9 +9901,9 @@ def delete_supply_request(id: int, rollback_received: bool = False, _current_use
                 if not name or not project or qty <= 0:
                     continue
                 cur.execute("""SELECT id, quantity FROM materials
-                               WHERE name=%s AND project=%s AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                               WHERE company_id=%s AND name=%s AND project=%s AND COALESCE(NULLIF(work_package,''),'Основная')=%s
                                  AND """ + _sql_norm_unit("unit") + """=%s
-                               ORDER BY id LIMIT 1 FOR UPDATE""", (name, project, work_package, unit))
+                               ORDER BY id LIMIT 1 FOR UPDATE""", (company_id, name, project, work_package, unit))
                 mat = cur.fetchone()
                 if not mat:
                     conn.rollback()
@@ -9887,15 +9917,15 @@ def delete_supply_request(id: int, rollback_received: bool = False, _current_use
                     cur.execute("DELETE FROM materials WHERE id=%s", (mat.get("id"),))
                 else:
                     cur.execute("UPDATE materials SET quantity=%s WHERE id=%s", (remaining_qty, mat.get("id")))
-                cur.execute("INSERT INTO warehouse_history (material,type,quantity,unit,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                            (name, "откат поставки (удаление заявки)", qty, unit, datetime.now().date().isoformat(), project, _current_user.get("name") or "", work_package, datetime.now().strftime("%d.%m.%Y, %H:%M")))
+                cur.execute("INSERT INTO warehouse_history (company_id,material,type,quantity,unit,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                            (company_id, name, "откат поставки (удаление заявки)", qty, unit, datetime.now().date().isoformat(), project, effective_user.get("name") or "", work_package, datetime.now().strftime("%d.%m.%Y, %H:%M")))
                 restored += 1
 
         cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", ("Отменена с откатом", id))
         conn.commit()
         log_audit(
-            _current_user.get("name", ""),
-            _current_user.get("role", ""),
+            effective_user.get("name", ""),
+            effective_user.get("role", ""),
             "rollback",
             "supply_request",
             id,

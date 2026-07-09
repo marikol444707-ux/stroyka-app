@@ -83,6 +83,20 @@ def company_id_scope_filter(context: dict):
     return " AND FALSE", []
 
 
+def assert_rows_company_scope(rows, expected_company_id, resource_label="связанные данные"):
+    expected_id = _as_int(expected_company_id)
+    if not expected_id or expected_id <= 0:
+        raise HTTPException(status_code=409, detail="Компания документа не определена")
+    for row in rows or []:
+        actual_id = _as_int((row or {}).get("company_id") or (row or {}).get("companyId"))
+        if actual_id != expected_id:
+            raise HTTPException(
+                status_code=409,
+                detail=str(resource_label or "Связанные данные") + " относятся к другой компании",
+            )
+    return rows
+
+
 def effective_company_user(user: dict, context: dict) -> dict:
     """Overlay the authenticated identity with the selected membership scope."""
     actor = dict(user or {})

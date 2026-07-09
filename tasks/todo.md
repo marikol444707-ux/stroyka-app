@@ -346,7 +346,7 @@
 
 **Description:** Apply Tenant Context Kernel to `PUT /supply-requests/{id}` as the first mutation of an existing supply document. Resolve access from the request's stored `company_id`, then run the existing action rules with the selected company's effective membership role and project/package assignments.
 
-**Status:** Implemented and verified locally on 2026-07-10; push and production release are pending.
+**Status:** Completed, verified, and released as production commit `a69b4af5` on 2026-07-10.
 
 **Acceptance criteria:**
 - [x] The stored request `company_id` is the source of truth for update authorization.
@@ -363,8 +363,43 @@
 - [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py backend/features/company_context/service.py`
 - [x] Tracked frontend test suite (56 tests passed).
 - [x] `npm run build`
+- [x] Production health reported version `a69b4af503eb`, database OK, service active, and no warning-level log entries after deploy.
 
 **Dependencies:** Task M2.1
+
+**Files touched:**
+- `backend/features/company_context/service.py`
+- `backend/features/company_context/test_service.py`
+- `backend/main.py`
+- `ONBOARDING.md`
+- `tasks/plan.md`
+- `tasks/todo.md`
+
+**Estimated scope:** S
+
+## Task M2.3: Supply Request Delete And Rollback Isolation
+
+**Description:** Apply Tenant Context Kernel to `DELETE /supply-requests/{id}`. Keep the existing cancel/rollback behavior, but authorize it from the request's stored `company_id` and prevent the optional received-stock rollback from touching deliveries, documents, materials, or warehouse history of another company.
+
+**Status:** Implemented and verified locally on 2026-07-10; push and production release are pending.
+
+**Acceptance criteria:**
+- [x] The stored request `company_id` is the source of truth for delete/cancel authorization.
+- [x] Conflicting `X-Company-Id`, `Все компании`, a foreign membership, or a request without `company_id` fails before mutation.
+- [x] Delete roles, project/package access, rollback leadership check, and audit role use the selected company's effective membership.
+- [x] Deliveries linked to the request must have the same `company_id`; inconsistent rows fail closed.
+- [x] Linked warehouse invoices and supply history must have the same `company_id` before rollback evaluation.
+- [x] Received-stock rollback looks up materials by company and writes `warehouse_history.company_id` explicitly.
+- [x] Existing idempotent cancel responses, received-delivery guard, document guard, stock-balance checks, and status names remain unchanged.
+- [x] KP, offers, recipients, delivery endpoints, and general warehouse reads/writes remain outside this slice.
+
+**Verification:**
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.company_context.test_service` (24 tests passed)
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py backend/features/company_context/service.py`
+- [x] Tracked frontend test suite (66 tests passed).
+- [x] `npm run build`
+
+**Dependencies:** Task M2.2
 
 **Files touched:**
 - `backend/features/company_context/service.py`

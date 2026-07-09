@@ -3,6 +3,7 @@ import unittest
 from fastapi import HTTPException
 
 from backend.features.company_context.service import (
+    assert_rows_company_scope,
     company_id_scope_filter,
     company_ids_for_context,
     effective_company_user,
@@ -72,6 +73,38 @@ def user(*, account_id=5):
 
 
 class ResolveRequestCompanyContextTests(unittest.TestCase):
+    def test_accepts_linked_rows_from_resource_company(self):
+        assert_rows_company_scope(
+            [{"company_id": 7}, {"companyId": 7}],
+            expected_company_id=7,
+            resource_label="поставки заявки",
+        )
+
+    def test_rejects_linked_row_from_another_company(self):
+        with self.assertRaises(HTTPException) as error:
+            assert_rows_company_scope(
+                [{"company_id": 7}, {"company_id": 8}],
+                expected_company_id=7,
+                resource_label="поставки заявки",
+            )
+
+        self.assertEqual(error.exception.status_code, 409)
+
+    def test_rejects_all_companies_for_resource_delete_before_querying_database(self):
+        cur = MembershipCursor([])
+
+        with self.assertRaises(HTTPException) as error:
+            resolve_resource_company_actor(
+                cur,
+                user(),
+                resource_company_id=7,
+                action_mode="delete",
+                x_company_mode="all_companies",
+            )
+
+        self.assertEqual(error.exception.status_code, 400)
+        self.assertEqual(cur.execute_count, 0)
+
     def test_builds_effective_user_from_selected_company_membership(self):
         actor = effective_company_user(
             {"id": 42, "role": "директор", "assignedProjects": ["Чужой объект"]},
