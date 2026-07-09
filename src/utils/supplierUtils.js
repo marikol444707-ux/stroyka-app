@@ -194,6 +194,9 @@ export const supplierReviewInfo = (supplier, stats = {}, possibleDuplicates = []
   if ((possibleDuplicates || []).length > 0) {
     reasons.push('есть похожие карточки');
   }
+  if (Number(supplier?._duplicateCount || 0) > 1) {
+    reasons.push('есть объединённые дубли карточек');
+  }
   if (Number(stats?.duplicateDocumentsCount || 0) > 0) {
     reasons.push('есть скрытые дубли документов');
   }

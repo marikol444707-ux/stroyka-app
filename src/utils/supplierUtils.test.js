@@ -101,6 +101,21 @@ describe('groupSuppliers', () => {
     expect(review.needsReview).toBe(false);
     expect(review.reasons).toEqual([]);
   });
+
+  it('marks merged duplicate supplier cards for manual review', () => {
+    const [group] = groupSuppliers([
+      { id: 17, name: 'АО «САТУРН ЮГ»', inn: '2635000000', sourceType: 'warehouse_invoice' },
+      { id: 25, name: 'САТУРН ЮГ', inn: '2635000000', sourceType: 'warehouse_invoice' },
+    ]);
+
+    const review = supplierReviewInfo(group, { warehouseInvoices: [{ id: 3 }] });
+
+    expect(group._duplicateCount).toBe(2);
+    expect(review.needsReview).toBe(true);
+    expect(review.reasons).toEqual(expect.arrayContaining([
+      'есть объединённые дубли карточек',
+    ]));
+  });
 });
 
 describe('warehouseInvoiceDocumentKey', () => {
