@@ -767,8 +767,16 @@ def ensure_supplier_max_account(email, stamp, created):
             """
         )
         cur.execute(
-            "SELECT id, name FROM users WHERE LOWER(email)=LOWER(%s) ORDER BY id DESC LIMIT 1",
-            (email,),
+            """
+            SELECT id, name
+              FROM users
+             WHERE LOWER(email)=LOWER(%s)
+               AND COALESCE(role,'')=%s
+               AND COALESCE(active, TRUE)=TRUE
+             ORDER BY id
+             LIMIT 1
+            """,
+            (email, "поставщик"),
         )
         row = cur.fetchone()
         if not row:

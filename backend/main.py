@@ -1277,7 +1277,17 @@ def _supplier_visibility_for_scope(cur, scope_ids) -> dict:
     for supplier in suppliers:
         user_id = _row_get(supplier, "user_id", 4, None)
         if user_id:
-            cur.execute("SELECT id FROM users WHERE id=%s AND COALESCE(role,'')=%s LIMIT 1", (user_id, "поставщик"))
+            cur.execute(
+                """
+                SELECT id
+                  FROM users
+                 WHERE id=%s
+                   AND COALESCE(role,'')=%s
+                   AND COALESCE(active, TRUE)=TRUE
+                 LIMIT 1
+                """,
+                (user_id, "поставщик"),
+            )
             supplier_user = cur.fetchone()
             if supplier_user:
                 return {"visible": True, "user_id": _row_get(supplier_user, "id", 0, user_id), "reason": ""}
@@ -1287,7 +1297,18 @@ def _supplier_visibility_for_scope(cur, scope_ids) -> dict:
         if str(_row_get(supplier, "email", 2, "") or "").strip()
     ]
     for email in emails:
-        cur.execute("SELECT id FROM users WHERE LOWER(COALESCE(email,''))=LOWER(%s) AND COALESCE(role,'')=%s ORDER BY id LIMIT 1", (email, "поставщик"))
+        cur.execute(
+            """
+            SELECT id
+              FROM users
+             WHERE LOWER(COALESCE(email,''))=LOWER(%s)
+               AND COALESCE(role,'')=%s
+               AND COALESCE(active, TRUE)=TRUE
+             ORDER BY id
+             LIMIT 1
+            """,
+            (email, "поставщик"),
+        )
         user_row = cur.fetchone()
         if user_row:
             return {"visible": True, "user_id": _row_get(user_row, "id", 0, None), "reason": ""}
@@ -8001,7 +8022,14 @@ def link_supplier_user(id: int, data: dict, current_user: dict = Depends(require
             )
         elif email:
             cur.execute(
-                "SELECT id,name,email,role FROM users WHERE LOWER(email)=LOWER(%s) LIMIT 1",
+                """
+                SELECT id,name,email,role
+                  FROM users
+                 WHERE LOWER(email)=LOWER(%s)
+                   AND COALESCE(active, TRUE)=TRUE
+                 ORDER BY id
+                 LIMIT 1
+                """,
                 (email,),
             )
         else:
