@@ -185,6 +185,30 @@
 
 **Estimated scope:** S
 
+## Task 6.3: Revoke Sessions When User Role Changes
+
+**Description:** When an admin changes a user's role through `PUT /users/{id}`, revoke that user's active cookie sessions without changing the broader Bearer compatibility path.
+
+**Acceptance criteria:**
+- [x] Changing a user's role revokes active `user_sessions` rows for that user.
+- [x] The old cookie session stops opening protected endpoints.
+- [x] The unchanged password can still log in normally after the role change.
+- [x] 2FA and staff-card revocation remain separate follow-up steps.
+
+**Verification:**
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py`
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile scripts/smoke-auth-session.py`
+- [ ] `npm run smoke:auth-session` on production after deploy.
+
+**Dependencies:** Task 6.2
+
+**Files likely touched:**
+- `backend/main.py`
+- `scripts/smoke-auth-session.py`
+- `ONBOARDING.md`
+
+**Estimated scope:** S
+
 ## Task 7: Supply Request Company Context
 
 **Description:** Ensure new supply request reads and writes use resolved company context and reject write actions from `Все компании`.

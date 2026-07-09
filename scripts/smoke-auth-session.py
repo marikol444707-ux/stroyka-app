@@ -30,6 +30,10 @@ PASSWORD_CHANGE_EMAIL = f"auth-session-password-{RUN_ID}@stroyka.local"
 PASSWORD_CHANGE_PASSWORD = secrets.token_urlsafe(14)
 PASSWORD_CHANGE_NEW_PASSWORD = secrets.token_urlsafe(14)
 PASSWORD_CHANGE_ROLE = "снабженец"
+ROLE_CHANGE_EMAIL = f"auth-session-role-{RUN_ID}@stroyka.local"
+ROLE_CHANGE_PASSWORD = secrets.token_urlsafe(14)
+ROLE_CHANGE_FROM_ROLE = "снабженец"
+ROLE_CHANGE_TO_ROLE = "кладовщик"
 ADMIN_EMAIL = f"auth-session-admin-{RUN_ID}@stroyka.local"
 ADMIN_PASSWORD = secrets.token_urlsafe(14)
 COOKIE_NAME = os.getenv("AUTH_SESSION_COOKIE_NAME", "stroyka_session")
@@ -97,7 +101,7 @@ def prepare_user(email=EMAIL, password=PASSWORD, name=None, role="прораб")
 def cleanup():
     conn = db_conn()
     cur = conn.cursor()
-    emails = (EMAIL, DISABLE_EMAIL, PASSWORD_CHANGE_EMAIL, ADMIN_EMAIL)
+    emails = (EMAIL, DISABLE_EMAIL, PASSWORD_CHANGE_EMAIL, ROLE_CHANGE_EMAIL, ADMIN_EMAIL)
     cur.execute("DELETE FROM user_sessions WHERE user_id IN (SELECT id FROM users WHERE LOWER(email)=ANY(%s))", ([email.lower() for email in emails],))
     cur.execute("DELETE FROM users WHERE LOWER(email)=ANY(%s)", ([email.lower() for email in emails],))
     conn.commit()
@@ -253,6 +257,56 @@ def assert_password_change_revokes_cookie_sessions(admin_token):
     )
 
 
+def assert_role_change_revokes_cookie_sessions(admin_token):
+    user_id = prepare_user(
+        ROLE_CHANGE_EMAIL,
+        ROLE_CHANGE_PASSWORD,
+        name=f"Auth Session Role {RUN_ID}",
+        role=ROLE_CHANGE_FROM_ROLE,
+    )
+    jar = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+    request_json(
+        opener,
+        "POST",
+        "/login",
+        data={"email": ROLE_CHANGE_EMAIL, "password": ROLE_CHANGE_PASSWORD},
+        expected=200,
+    )
+    request_json(opener, "GET", "/users", expected=200)
+    if active_session_count(user_id) < 1:
+        raise RuntimeError("role-change scenario did not create an active cookie session")
+    request_json(
+        urllib.request.build_opener(),
+        "PUT",
+        f"/users/{user_id}",
+        token=admin_token,
+        data={
+            "name": f"Auth Session Role {RUN_ID}",
+            "email": ROLE_CHANGE_EMAIL,
+            "password": "",
+            "role": ROLE_CHANGE_TO_ROLE,
+            "projectId": "",
+            "projectName": "",
+            "assignedProjects": [],
+            "assignedPackages": [],
+            "active": True,
+        },
+        expected=200,
+    )
+    remaining = active_session_count(user_id)
+    if remaining != 0:
+        raise RuntimeError(f"role change left {remaining} active cookie session(s)")
+    request_json(opener, "GET", "/users", expected=401)
+    request_json(
+        urllib.request.build_opener(),
+        "POST",
+        "/login",
+        data={"email": ROLE_CHANGE_EMAIL, "password": ROLE_CHANGE_PASSWORD},
+        expected=200,
+    )
+
+
 def main():
     cleanup()
     user_id = prepare_user()
@@ -303,6 +357,7 @@ def main():
         if BASE_URL.startswith("https://"):
             assert_disabling_user_revokes_cookie_sessions(admin_token)
             assert_password_change_revokes_cookie_sessions(admin_token)
+            assert_role_change_revokes_cookie_sessions(admin_token)
         print(json.dumps({
             "ok": True,
             "baseUrl": BASE_URL,
@@ -317,6 +372,7 @@ def main():
                 "Bearer fallback remains compatible",
                 "disabling user revokes active cookie sessions" if BASE_URL.startswith("https://") else "disable-user session revocation skipped on non-https BASE_URL",
                 "password change revokes active cookie sessions" if BASE_URL.startswith("https://") else "password-change session revocation skipped on non-https BASE_URL",
+                "role change revokes active cookie sessions" if BASE_URL.startswith("https://") else "role-change session revocation skipped on non-https BASE_URL",
             ],
         }, ensure_ascii=False, indent=2))
     finally:

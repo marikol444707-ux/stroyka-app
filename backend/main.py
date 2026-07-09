@@ -7422,6 +7422,10 @@ def update_user(id: int, u: UserModel, _current_user: dict = Depends(require_rol
     conn = get_db()
     cur = conn.cursor()
     try:
+        cur.execute("SELECT role FROM users WHERE id=%s", (id,))
+        previous_user_row = cur.fetchone()
+        previous_role = previous_user_row[0] if previous_user_row else None
+        role_changed = previous_user_row is not None and (previous_role or "") != (u.role or "")
         assigned_projects, assigned_packages = _prepare_user_access_scope(cur, u.role, u.projectName or "", u.assignedProjects or [], u.assignedPackages or [])
         active_sql = ""
         params_tail = []
@@ -7438,7 +7442,7 @@ def update_user(id: int, u: UserModel, _current_user: dict = Depends(require_rol
         if cur.rowcount == 0:
             conn.rollback()
             raise HTTPException(status_code=404, detail="Пользователь не найден")
-        if u.active is False or password_changed:
+        if u.active is False or password_changed or role_changed:
             _revoke_user_sessions(cur, id)
         conn.commit()
         log_audit(
