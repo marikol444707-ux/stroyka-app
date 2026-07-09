@@ -39,6 +39,11 @@ def test_supplier_email(stamp):
     return f"supply-smoke-{stamp}@stroyka.local"
 
 
+def test_supplier_phone(stamp):
+    digits = re.sub(r"\D", "", str(stamp or ""))[-10:].rjust(10, "0")
+    return "+7" + digits
+
+
 def test_unlinked_supplier_name(stamp):
     return f"{TEST_SUPPLIER_PREFIX} без кабинета {stamp}"
 
@@ -365,7 +370,7 @@ def create_supplier(token, stamp):
         token=token,
         data={
             "name": supplier_name,
-            "phone": "+70000000000",
+            "phone": test_supplier_phone(stamp),
             "email": supplier_email,
             "specialization": "CODEX QA",
             "category": "Материалы",
@@ -377,6 +382,20 @@ def create_supplier(token, stamp):
     supplier_id = body.get("id")
     if not supplier_id:
         raise RuntimeError("POST /suppliers не вернул id")
+    if (body.get("name") or "").strip() != supplier_name or (body.get("email") or "").strip().lower() != supplier_email.lower():
+        raise RuntimeError(
+            "POST /suppliers вернул не тестовую карточку поставщика: "
+            + json.dumps(
+                {
+                    "id": supplier_id,
+                    "name": body.get("name"),
+                    "email": body.get("email"),
+                    "expectedName": supplier_name,
+                    "expectedEmail": supplier_email,
+                },
+                ensure_ascii=False,
+            )
+        )
     return supplier_id
 
 
