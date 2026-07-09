@@ -41,6 +41,7 @@ export default function AccountingSupplierDocumentsPanel({
   const [openedDoc, setOpenedDoc] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [backfillPreview, setBackfillPreview] = React.useState(null);
+  const [bulkBackfillPreview, setBulkBackfillPreview] = React.useState(null);
 
   const rows = React.useMemo(
     () => buildAccountingInvoiceRows(invoices, warehouseInvoiceEstimateControl, { includeControls: false }),
@@ -196,20 +197,53 @@ export default function AccountingSupplierDocumentsPanel({
   }, { suppliers: 0, docs: 0, amount: 0, unlinked: 0, noPhotos: 0, mismatches: 0 }), [groups]);
 
   const runBackfill = async () => {
-    if (!window.confirm('Сверить старые накладные и связать первичку поставщиков? Оплаты и складской приход повторно не создаются.')) return;
     setBusy(true);
     try {
       const res = await fetch(API + '/supplier-documents/backfill', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apply: true, limit: 200 }),
+        body: JSON.stringify({ limit: 200 }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.detail || data.error) {
-        alert('Сверка не выполнена: ' + (data.detail || data.error || res.status));
+        alert('Предпросмотр сверки не выполнен: ' + (data.detail || data.error || res.status));
+        return;
+      }
+      setBulkBackfillPreview({
+        items: data.items || [],
+        checked: data.checked || 0,
+        linked: data.linked || 0,
+        createdAt: new Date().toISOString(),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const applyBulkBackfillPreview = async event => {
+    event?.stopPropagation?.();
+    const warehouseInvoiceIds = (bulkBackfillPreview?.items || [])
+      .map(item => Number(item.warehouseInvoiceId))
+      .filter(Boolean);
+    if (!warehouseInvoiceIds.length) {
+      alert('Нет накладных для применения сверки');
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch(API + '/supplier-documents/backfill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apply: true, warehouseInvoiceIds, limit: warehouseInvoiceIds.length }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.detail || data.error || (data.errors || []).length) {
+        const firstError = (data.errors || [])[0] || {};
+        alert('Сверка не выполнена: ' + (data.detail || data.error || firstError.error || res.status));
         return;
       }
       const reviewCount = (data.items || []).filter(item => item.needsReview).length;
+      setBulkBackfillPreview(null);
       alert('Сверка завершена. Связано: ' + (data.linked || 0) + '. Проверено: ' + (data.checked || 0) + (reviewCount ? '. Нужно уточнить: ' + reviewCount : ''));
       if (typeof refreshData === 'function') await refreshData();
     } finally {
@@ -285,9 +319,62 @@ export default function AccountingSupplierDocumentsPanel({
           <p style={{color:C.textSec,fontSize:'12px',margin:'4px 0 0'}}>Сверка счетов, УПД, складских накладных, фото и оплат по каждому поставщику.</p>
         </div>
         <button disabled={busy} onClick={runBackfill} style={{...btnG,opacity:busy?0.6:1}}>
-          <RefreshCw size={14}/>Сверить старые
+          <RefreshCw size={14}/>Предпросмотр старых
         </button>
       </div>
+
+      {bulkBackfillPreview && (
+        <div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder}}>
+          {(() => {
+            const items = bulkBackfillPreview.items || [];
+            const reviewItems = items.filter(item => item.needsReview);
+            const readyItems = items.filter(item => !item.needsReview);
+            return (
+              <>
+                <div style={{display:'flex',justifyContent:'space-between',gap:'10px',alignItems:'flex-start',flexWrap:'wrap'}}>
+                  <div>
+                    <b style={{color:C.text,fontSize:'14px'}}>Предпросмотр массовой сверки</b>
+                    <p style={{color:C.textSec,fontSize:'12px',margin:'4px 0 0'}}>
+                      Найдено {items.length} накладных: готово {readyItems.length}, нужно уточнить {reviewItems.length}. Склад и оплаты повторно не создаются.
+                    </p>
+                  </div>
+                  <div style={{display:'flex',gap:'8px',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                    <button disabled={busy || !items.length} onClick={applyBulkBackfillPreview} style={{...btnG,padding:'7px 10px',fontSize:'12px',opacity:(busy || !items.length)?0.6:1}}>
+                      Применить показанные
+                    </button>
+                    <button disabled={busy} onClick={()=>setBulkBackfillPreview(null)} style={{...btnB,padding:'7px 10px',fontSize:'12px',opacity:busy?0.6:1}}>
+                      Отмена
+                    </button>
+                  </div>
+                </div>
+                {items.length ? (
+                  <div style={{marginTop:'10px',display:'grid',gap:'6px'}}>
+                    {items.slice(0, 12).map(item => (
+                      <div key={item.warehouseInvoiceId} style={{display:'grid',gridTemplateColumns:'minmax(120px,1fr) minmax(120px,1fr) minmax(110px,auto)',gap:'8px',alignItems:'center',padding:'8px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}>
+                        <span style={{color:C.text,fontSize:'12px',fontWeight:700}}>№ {item.number || item.warehouseInvoiceId}</span>
+                        <span style={{color:C.textSec,fontSize:'12px'}}>{item.supplierName || 'Поставщик не указан'} · {item.projectName || 'без объекта'} · {money(item.amount)}</span>
+                        <span style={{color:item.needsReview?C.warning:C.success,fontSize:'11px',fontWeight:800,textAlign:'right'}}>
+                          {item.needsReview ? 'Нужно уточнить' : 'Готово'}
+                        </span>
+                        {item.needsReview && (
+                          <span style={{gridColumn:'1 / -1',color:C.warning,fontSize:'11px'}}>
+                            {item.reviewReason || 'проверьте поставщика/документ'}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                    {items.length > 12 && (
+                      <p style={{color:C.textMuted,fontSize:'11px',margin:'2px 0 0'}}>Показано 12 из {items.length}. При применении будут обработаны только накладные из этого предпросмотра.</p>
+                    )}
+                  </div>
+                ) : (
+                  <p style={{color:C.textMuted,fontSize:'12px',margin:'10px 0 0'}}>Несвязанных старых накладных для сверки не найдено.</p>
+                )}
+              </>
+            );
+          })()}
+        </div>
+      )}
 
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:'10px',marginBottom:'14px'}}>
         <div style={{...card,padding:'12px'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Поставщики</p><b style={{color:C.text,fontSize:'18px'}}>{totals.suppliers}</b></div>
