@@ -1324,6 +1324,83 @@ def assert_backfill_uncertain_supplier_review(token, candidate, stamp, created):
     return invoice_id, supplier_invoice_id, supplier_id
 
 
+def assert_supplier_invoice_dedupe(token, supplier_invoice_id, created):
+    conn = db_conn()
+    try:
+        conn.autocommit = False
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO supplier_invoices
+                (company_id,supplier_id,supplier_name,project_name,invoice_number,invoice_date,
+                 amount,vat_amount,description,file_url,photo_url,status,
+                 offer_id,request_id,payment_terms,material_name,work_package,warehouse_invoice_id)
+            SELECT company_id,supplier_id,supplier_name,project_name,invoice_number,invoice_date,
+                   amount,vat_amount,description,file_url,photo_url,status,
+                   offer_id,request_id,payment_terms,material_name,work_package,NULL
+              FROM supplier_invoices
+             WHERE id=%s
+            RETURNING id
+            """,
+            (supplier_invoice_id,),
+        )
+        duplicate_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+    finally:
+        conn.close()
+
+    created["dedupeSupplierInvoiceDuplicateId"] = duplicate_id
+
+    _, preview = api_json(
+        "POST",
+        "/supplier-documents/dedupe",
+        token=token,
+        data={"projectName": created.get("projectName"), "limit": 50},
+        expected=200,
+    )
+    groups = preview.get("groups") or []
+    target_group = next((g for g in groups if duplicate_id in (g.get("duplicateIds") or [])), None)
+    if preview.get("dryRun") is not True or not target_group:
+        raise RuntimeError(f"Дедупликация первички не показала тестовый дубль: {preview}")
+    if target_group.get("canonicalId") != supplier_invoice_id:
+        raise RuntimeError(f"Дедупликация выбрала неверный основной счет: {target_group}")
+    if target_group.get("needsManualReview"):
+        raise RuntimeError(f"Очевидный дубль первички ошибочно ушел в ручную проверку: {target_group}")
+
+    _, result = api_json(
+        "POST",
+        "/supplier-documents/dedupe",
+        token=token,
+        data={"projectName": created.get("projectName"), "apply": True, "limit": 50},
+        expected=200,
+    )
+    applied_groups = result.get("groups") or []
+    applied_group = next((g for g in applied_groups if duplicate_id in (g.get("duplicateIds") or [])), None)
+    if result.get("dryRun") is not False or not applied_group or not applied_group.get("applied"):
+        raise RuntimeError(f"Дедупликация первички не применила тестовый дубль: {result}")
+
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT status FROM supplier_invoices WHERE id=%s", (duplicate_id,))
+        duplicate_status = (cur.fetchone() or [""])[0]
+        if duplicate_status != "Аннулирован":
+            raise RuntimeError(f"Дубль первички не аннулирован: {duplicate_status}")
+        cur.execute("SELECT warehouse_invoice_id FROM supplier_invoices WHERE id=%s", (supplier_invoice_id,))
+        canonical_warehouse_id = (cur.fetchone() or [None])[0]
+        if not canonical_warehouse_id:
+            raise RuntimeError("Основная первичка после дедупликации потеряла складскую накладную")
+        cur.execute("SELECT supplier_invoice_id FROM warehouse_invoices WHERE id=%s", (canonical_warehouse_id,))
+        linked_supplier_invoice_id = (cur.fetchone() or [None])[0]
+        if int(linked_supplier_invoice_id or 0) != int(supplier_invoice_id):
+            raise RuntimeError("Складская накладная после дедупликации не указывает на основной счет")
+        cur.close()
+    finally:
+        conn.close()
+    return duplicate_id
+
+
 def cleanup(created):
     conn = None
     try:
@@ -1392,12 +1469,15 @@ def cleanup(created):
             "backfillInvoiceId": created.get("backfillInvoiceId"),
             "backfillSupplierInvoiceId": created.get("backfillSupplierInvoiceId"),
             "backfillSupplierId": created.get("backfillSupplierId"),
+            "dedupeSupplierInvoiceDuplicateId": created.get("dedupeSupplierInvoiceDuplicateId"),
             "notificationRequestId": created.get("notificationRequestId"),
             "notificationOfferId": created.get("notificationOfferId"),
             "notificationOutboxId": created.get("notificationOutboxId"),
             "notificationMessengerAccountId": created.get("notificationMessengerAccountId"),
             "supplierId": created.get("supplierId"),
         }
+        if ids["dedupeSupplierInvoiceDuplicateId"]:
+            cur.execute("DELETE FROM supplier_invoices WHERE id=%s", (ids["dedupeSupplierInvoiceDuplicateId"],))
         if ids["backfillSupplierInvoiceId"]:
             cur.execute("DELETE FROM supplier_invoices WHERE id=%s", (ids["backfillSupplierInvoiceId"],))
         if ids["backfillInvoiceId"]:
@@ -1559,6 +1639,7 @@ def main():
         created["aliasCanonicalMaterialName"] = candidate["materialName"]
         created["aliasQuantity"] = candidate["quantity"]
         backfill_invoice_id, backfill_supplier_invoice_id, _ = assert_backfill_uncertain_supplier_review(token, candidate, stamp, created)
+        dedupe_supplier_invoice_duplicate_id = assert_supplier_invoice_dedupe(token, backfill_supplier_invoice_id, created)
         print(json.dumps({
             "ok": True,
             "projectName": candidate["projectName"],
@@ -1582,6 +1663,7 @@ def main():
             "aliasName": alias_name,
             "backfillInvoiceId": backfill_invoice_id,
             "backfillSupplierInvoiceId": backfill_supplier_invoice_id,
+            "dedupeSupplierInvoiceDuplicateId": dedupe_supplier_invoice_duplicate_id,
             "notificationRequestId": notification_request_id,
             "notificationOutboxId": notification_outbox_id,
             "diagnosticRequestId": created.get("diagnosticRequestId"),
@@ -1609,6 +1691,7 @@ def main():
                 "foreman main warehouse invoice is blocked",
                 "invoice alias rewrites raw supplier material to estimate material",
                 "targeted supplier document backfill marks name-only legacy links as needs_review",
+                "supplier accounting dedupe annuls repeated primary document without losing warehouse link",
             ],
         }, ensure_ascii=False, indent=2))
     except Exception as exc:
