@@ -39,6 +39,9 @@ TWO_FACTOR_EMAIL = f"auth-session-2fa-{RUN_ID}@stroyka.local"
 TWO_FACTOR_PASSWORD = secrets.token_urlsafe(14)
 TWO_FACTOR_ROLE = "бухгалтер"
 TWO_FACTOR_SECRET = "JBSWY3DPEHPK3PXP"
+STAFF_CARD_EMAIL = f"auth-session-staff-{RUN_ID}@stroyka.local"
+STAFF_CARD_PASSWORD = secrets.token_urlsafe(14)
+STAFF_CARD_ROLE = "снабженец"
 ADMIN_EMAIL = f"auth-session-admin-{RUN_ID}@stroyka.local"
 ADMIN_PASSWORD = secrets.token_urlsafe(14)
 COOKIE_NAME = os.getenv("AUTH_SESSION_COOKIE_NAME", "stroyka_session")
@@ -117,7 +120,14 @@ def prepare_user(email=EMAIL, password=PASSWORD, name=None, role="прораб")
 def cleanup():
     conn = db_conn()
     cur = conn.cursor()
-    emails = (EMAIL, DISABLE_EMAIL, PASSWORD_CHANGE_EMAIL, ROLE_CHANGE_EMAIL, TWO_FACTOR_EMAIL, ADMIN_EMAIL)
+    emails = (EMAIL, DISABLE_EMAIL, PASSWORD_CHANGE_EMAIL, ROLE_CHANGE_EMAIL, TWO_FACTOR_EMAIL, STAFF_CARD_EMAIL, ADMIN_EMAIL)
+    email_list = [email.lower() for email in emails]
+    cur.execute(
+        """DELETE FROM staff
+           WHERE LOWER(COALESCE(email_work,''))=ANY(%s)
+              OR LOWER(COALESCE(email_personal,''))=ANY(%s)""",
+        (email_list, email_list),
+    )
     cur.execute("DELETE FROM user_sessions WHERE user_id IN (SELECT id FROM users WHERE LOWER(email)=ANY(%s))", ([email.lower() for email in emails],))
     cur.execute("DELETE FROM users WHERE LOWER(email)=ANY(%s)", ([email.lower() for email in emails],))
     conn.commit()
@@ -199,6 +209,25 @@ def enable_2fa_for_user(user_id, secret=TWO_FACTOR_SECRET):
     conn.commit()
     cur.close()
     conn.close()
+
+
+def staff_card_payload():
+    return {
+        "name": f"Auth Session Staff {RUN_ID}",
+        "role": "Снабженец",
+        "phone": "+70000000000",
+        "salary": 0,
+        "project": "",
+        "payType": "оклад",
+        "status": "Активен",
+        "emailWork": STAFF_CARD_EMAIL,
+        "email": STAFF_CARD_EMAIL,
+        "password": STAFF_CARD_PASSWORD,
+        "systemRole": STAFF_CARD_ROLE,
+        "assignedProjects": [],
+        "assignedPackages": [],
+        "notes": "Автотест отзыва сессии при отключении staff-карточки.",
+    }
 
 
 def assert_disabling_user_revokes_cookie_sessions(admin_token):
@@ -387,6 +416,47 @@ def assert_2fa_reset_revokes_cookie_sessions(admin_token):
     request_json(opener, "GET", "/users", expected=401)
 
 
+def assert_staff_card_disable_revokes_cookie_sessions(admin_token):
+    _, staff_body, _ = request_json(
+        urllib.request.build_opener(),
+        "POST",
+        "/staff",
+        token=admin_token,
+        data=staff_card_payload(),
+        expected=200,
+    )
+    staff_id = staff_body.get("id")
+    access = staff_body.get("access") or {}
+    user_id = access.get("id")
+    if not staff_id or not user_id:
+        raise RuntimeError(f"staff card did not create linked user access: {staff_body}")
+    jar = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+    request_json(
+        opener,
+        "POST",
+        "/login",
+        data={"email": STAFF_CARD_EMAIL, "password": STAFF_CARD_PASSWORD},
+        expected=200,
+    )
+    request_json(opener, "GET", "/users", expected=200)
+    if active_session_count(user_id) < 1:
+        raise RuntimeError("staff-card disable scenario did not create an active cookie session")
+    _, delete_body, _ = request_json(
+        urllib.request.build_opener(),
+        "DELETE",
+        f"/staff/{staff_id}",
+        token=admin_token,
+        expected=200,
+    )
+    if int(delete_body.get("disabledUsers") or 0) < 1:
+        raise RuntimeError(f"staff-card disable did not disable linked user: {delete_body}")
+    remaining = active_session_count(user_id)
+    if remaining != 0:
+        raise RuntimeError(f"staff-card disable left {remaining} active cookie session(s)")
+    request_json(opener, "GET", "/users", expected=401)
+
+
 def main():
     cleanup()
     user_id = prepare_user()
@@ -439,6 +509,7 @@ def main():
             assert_password_change_revokes_cookie_sessions(admin_token)
             assert_role_change_revokes_cookie_sessions(admin_token)
             assert_2fa_reset_revokes_cookie_sessions(admin_token)
+            assert_staff_card_disable_revokes_cookie_sessions(admin_token)
         print(json.dumps({
             "ok": True,
             "baseUrl": BASE_URL,
@@ -455,6 +526,7 @@ def main():
                 "password change revokes active cookie sessions" if BASE_URL.startswith("https://") else "password-change session revocation skipped on non-https BASE_URL",
                 "role change revokes active cookie sessions" if BASE_URL.startswith("https://") else "role-change session revocation skipped on non-https BASE_URL",
                 "2FA reset revokes active cookie sessions" if BASE_URL.startswith("https://") else "2FA-reset session revocation skipped on non-https BASE_URL",
+                "staff-card disable revokes active cookie sessions" if BASE_URL.startswith("https://") else "staff-card disable session revocation skipped on non-https BASE_URL",
             ],
         }, ensure_ascii=False, indent=2))
     finally:

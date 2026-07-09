@@ -233,6 +233,30 @@
 
 **Estimated scope:** S
 
+## Task 6.5: Revoke Sessions When Staff Card Is Disabled
+
+**Description:** When an admin disables a staff card through `DELETE /staff/{id}`, revoke active cookie sessions for the linked user access without changing the Bearer compatibility path.
+
+**Acceptance criteria:**
+- [x] Disabling a staff card disables the linked user access by email.
+- [x] Active `user_sessions` rows for that linked user are revoked.
+- [x] The old cookie session stops opening protected endpoints.
+- [x] Existing user disable, password change, role change, 2FA reset, logout, and Bearer fallback checks remain covered.
+
+**Verification:**
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py`
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile scripts/smoke-auth-session.py`
+- [ ] `npm run smoke:auth-session` on production after deploy.
+
+**Dependencies:** Task 6.4
+
+**Files likely touched:**
+- `backend/main.py`
+- `scripts/smoke-auth-session.py`
+- `ONBOARDING.md`
+
+**Estimated scope:** S
+
 ## Task 7: Supply Request Company Context
 
 **Description:** Ensure new supply request reads and writes use resolved company context and reject write actions from `Все компании`.

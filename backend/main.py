@@ -7116,8 +7116,12 @@ def delete_staff(id: int, _current_user: dict = Depends(require_roles(*STAFF_MAN
                        assigned_packages='[]'::jsonb,
                        locked_until=NULL
                  WHERE LOWER(COALESCE(email,'')) = ANY(%s)
+                 RETURNING id
             """, (emails,))
-            disabled_users = cur.rowcount
+            disabled_user_ids = [row.get("id") for row in cur.fetchall()]
+            disabled_users = len(disabled_user_ids)
+            for user_id in disabled_user_ids:
+                _revoke_user_sessions(cur, user_id)
         conn.commit()
         log_audit(
             _current_user.get("name", ""),
