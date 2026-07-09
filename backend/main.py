@@ -7425,10 +7425,11 @@ def update_user(id: int, u: UserModel, _current_user: dict = Depends(require_rol
         assigned_projects, assigned_packages = _prepare_user_access_scope(cur, u.role, u.projectName or "", u.assignedProjects or [], u.assignedPackages or [])
         active_sql = ""
         params_tail = []
+        password_changed = bool(u.password)
         if u.active is not None:
             active_sql = ", active=%s"
             params_tail.append(u.active is not False)
-        if u.password:
+        if password_changed:
             cur.execute("UPDATE users SET name=%s,email=%s,password=%s,role=%s,project_id=%s,project_name=%s,assigned_projects=%s::jsonb,assigned_packages=%s::jsonb,two_factor_required=%s,failed_login_count=0,locked_until=NULL"+active_sql+" WHERE id=%s",
                         ((u.name or "").strip(),email,hash_password(u.password.strip()),u.role,int(u.projectId) if u.projectId else None,u.projectName or "",json.dumps(assigned_projects),json.dumps(assigned_packages),_role_requires_2fa(u.role),*params_tail,id))
         else:
@@ -7437,7 +7438,7 @@ def update_user(id: int, u: UserModel, _current_user: dict = Depends(require_rol
         if cur.rowcount == 0:
             conn.rollback()
             raise HTTPException(status_code=404, detail="Пользователь не найден")
-        if u.active is False:
+        if u.active is False or password_changed:
             _revoke_user_sessions(cur, id)
         conn.commit()
         log_audit(

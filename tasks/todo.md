@@ -161,6 +161,30 @@
 
 **Estimated scope:** S
 
+## Task 6.2: Revoke Sessions When User Password Changes
+
+**Description:** When an admin changes a user's password through `PUT /users/{id}`, revoke that user's active cookie sessions without removing the Bearer compatibility path.
+
+**Acceptance criteria:**
+- [x] Changing a user's password revokes active `user_sessions` rows for that user.
+- [x] The old cookie session stops opening protected endpoints.
+- [x] The new password can still log in normally after the change.
+- [x] 2FA, role, and staff-card revocation remain separate follow-up steps.
+
+**Verification:**
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py`
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile scripts/smoke-auth-session.py`
+- [ ] `npm run smoke:auth-session` on production after deploy.
+
+**Dependencies:** Task 6.1
+
+**Files likely touched:**
+- `backend/main.py`
+- `scripts/smoke-auth-session.py`
+- `ONBOARDING.md`
+
+**Estimated scope:** S
+
 ## Task 7: Supply Request Company Context
 
 **Description:** Ensure new supply request reads and writes use resolved company context and reject write actions from `Все компании`.
