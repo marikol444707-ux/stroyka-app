@@ -348,8 +348,8 @@ export default function AccountingSupplierDocumentsPanel({
                   </div>
                 </div>
                 {items.length ? (
-                  <div style={{marginTop:'10px',display:'grid',gap:'6px'}}>
-                    {items.slice(0, 12).map(item => (
+                  <div style={{marginTop:'10px',display:'grid',gap:'6px',maxHeight:'360px',overflowY:'auto',paddingRight:'4px'}}>
+                    {items.map(item => (
                       <div key={item.warehouseInvoiceId} style={{display:'grid',gridTemplateColumns:'minmax(120px,1fr) minmax(120px,1fr) minmax(110px,auto)',gap:'8px',alignItems:'center',padding:'8px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}>
                         <span style={{color:C.text,fontSize:'12px',fontWeight:700}}>№ {item.number || item.warehouseInvoiceId}</span>
                         <span style={{color:C.textSec,fontSize:'12px'}}>{item.supplierName || 'Поставщик не указан'} · {item.projectName || 'без объекта'} · {money(item.amount)}</span>
@@ -363,9 +363,6 @@ export default function AccountingSupplierDocumentsPanel({
                         )}
                       </div>
                     ))}
-                    {items.length > 12 && (
-                      <p style={{color:C.textMuted,fontSize:'11px',margin:'2px 0 0'}}>Показано 12 из {items.length}. При применении будут обработаны только накладные из этого предпросмотра.</p>
-                    )}
                   </div>
                 ) : (
                   <p style={{color:C.textMuted,fontSize:'12px',margin:'10px 0 0'}}>Несвязанных старых накладных для сверки не найдено.</p>
