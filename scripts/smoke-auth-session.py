@@ -25,6 +25,7 @@ EMAIL = f"auth-session-smoke-{RUN_ID}@stroyka.local"
 PASSWORD = secrets.token_urlsafe(14)
 DISABLE_EMAIL = f"auth-session-disabled-{RUN_ID}@stroyka.local"
 DISABLE_PASSWORD = secrets.token_urlsafe(14)
+DISABLE_ROLE = "снабженец"
 ADMIN_EMAIL = f"auth-session-admin-{RUN_ID}@stroyka.local"
 ADMIN_PASSWORD = secrets.token_urlsafe(14)
 COOKIE_NAME = os.getenv("AUTH_SESSION_COOKIE_NAME", "stroyka_session")
@@ -160,7 +161,7 @@ def assert_disabling_user_revokes_cookie_sessions(admin_token):
         DISABLE_EMAIL,
         DISABLE_PASSWORD,
         name=f"Auth Session Disabled {RUN_ID}",
-        role="прораб",
+        role=DISABLE_ROLE,
     )
     jar = http.cookiejar.CookieJar()
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
@@ -183,7 +184,7 @@ def assert_disabling_user_revokes_cookie_sessions(admin_token):
             "name": f"Auth Session Disabled {RUN_ID}",
             "email": DISABLE_EMAIL,
             "password": "",
-            "role": "прораб",
+            "role": DISABLE_ROLE,
             "projectId": "",
             "projectName": "",
             "assignedProjects": [],
