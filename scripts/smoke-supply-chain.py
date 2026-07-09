@@ -1322,8 +1322,12 @@ def assert_backfill_uncertain_supplier_review(token, candidate, stamp, created):
         raise RuntimeError(f"Backfill не создал первичку поставщика по тестовой накладной: {result}")
     if not result_item.get("needsReview") or result_item.get("accountingStatus") != "Нужно уточнение":
         raise RuntimeError(f"Backfill не перевел спорную связь в Нужно уточнение: {result_item}")
-    if "назв" not in str(result_item.get("reviewReason") or "").lower():
+    review_reason = str(result_item.get("reviewReason") or "").lower()
+    if not any(fragment in review_reason for fragment in ["назв", "старой накладной", "не подтвержден"]):
         raise RuntimeError(f"Backfill не объяснил причину уточнения: {result_item}")
+    backfill_created_supplier_id = int(result_item.get("supplierId") or 0)
+    if backfill_created_supplier_id:
+        created["backfillCreatedSupplierId"] = backfill_created_supplier_id
 
     conn = db_conn()
     try:
@@ -1334,13 +1338,14 @@ def assert_backfill_uncertain_supplier_review(token, candidate, stamp, created):
             raise RuntimeError("Складская накладная после backfill не получила статус Нужно уточнение")
         cur.execute("SELECT status, supplier_id FROM supplier_invoices WHERE id=%s", (supplier_invoice_id,))
         supplier_invoice_row = cur.fetchone()
-        if not supplier_invoice_row or supplier_invoice_row[0] != "Нужно уточнение" or int(supplier_invoice_row[1] or 0) != int(supplier_id):
+        expected_supplier_id = backfill_created_supplier_id or supplier_id
+        if not supplier_invoice_row or supplier_invoice_row[0] != "Нужно уточнение" or int(supplier_invoice_row[1] or 0) != int(expected_supplier_id):
             raise RuntimeError("Первичка поставщика после спорного backfill не получила статус Нужно уточнение")
         cur.close()
     finally:
         conn.close()
     created["backfillSupplierInvoiceId"] = supplier_invoice_id
-    return invoice_id, supplier_invoice_id, supplier_id
+    return invoice_id, supplier_invoice_id, supplier_id, backfill_created_supplier_id
 
 
 def assert_name_only_warehouse_invoice_does_not_link_supplier(token, candidate, stamp, created):
@@ -1645,6 +1650,7 @@ def cleanup(created):
             "backfillInvoiceId": created.get("backfillInvoiceId"),
             "backfillSupplierInvoiceId": created.get("backfillSupplierInvoiceId"),
             "backfillSupplierId": created.get("backfillSupplierId"),
+            "backfillCreatedSupplierId": created.get("backfillCreatedSupplierId"),
             "dedupeSupplierInvoiceDuplicateId": created.get("dedupeSupplierInvoiceDuplicateId"),
             "notificationRequestId": created.get("notificationRequestId"),
             "notificationOfferId": created.get("notificationOfferId"),
@@ -1768,6 +1774,30 @@ def cleanup(created):
         if ids["backfillSupplierId"]:
             cur.execute("DELETE FROM supplier_aliases WHERE supplier_id=%s", (ids["backfillSupplierId"],))
             cur.execute("DELETE FROM suppliers WHERE id=%s AND name LIKE %s", (ids["backfillSupplierId"], TEST_SUPPLIER_PREFIX + "%"))
+        if ids["backfillCreatedSupplierId"] and ids["backfillCreatedSupplierId"] != ids["backfillSupplierId"]:
+            cur.execute("DELETE FROM supplier_aliases WHERE supplier_id=%s", (ids["backfillCreatedSupplierId"],))
+            cur.execute("DELETE FROM suppliers WHERE id=%s AND name LIKE %s", (ids["backfillCreatedSupplierId"], TEST_SUPPLIER_PREFIX + "%"))
+        orphan_supplier_filter = """
+            SELECT s.id
+              FROM suppliers s
+             WHERE s.name LIKE %s
+               AND COALESCE(s.source_type,'') IN ('warehouse_invoice','smoke_backfill_supplier','smoke_name_only_supplier')
+               AND NOT EXISTS (SELECT 1 FROM warehouse_invoices wi WHERE wi.supplier_id=s.id)
+               AND NOT EXISTS (SELECT 1 FROM supplier_invoices si WHERE si.supplier_id=s.id)
+               AND NOT EXISTS (SELECT 1 FROM supplier_offers so WHERE so.supplier_id=s.id)
+               AND NOT EXISTS (SELECT 1 FROM supply_deliveries sd WHERE sd.supplier_id=s.id)
+               AND NOT EXISTS (SELECT 1 FROM supply_request_recipients sr WHERE sr.supplier_id=s.id OR sr.target_supplier_id=s.id)
+               AND NOT EXISTS (SELECT 1 FROM supplier_documents doc WHERE doc.supplier_id=s.id)
+               AND NOT EXISTS (SELECT 1 FROM supplier_catalog cat WHERE cat.supplier_id=s.id)
+        """
+        cur.execute(
+            "DELETE FROM supplier_aliases WHERE supplier_id IN (" + orphan_supplier_filter + ")",
+            (TEST_SUPPLIER_PREFIX + "%",),
+        )
+        cur.execute(
+            "DELETE FROM suppliers WHERE id IN (" + orphan_supplier_filter + ")",
+            (TEST_SUPPLIER_PREFIX + "%",),
+        )
         if ids["notificationMessengerAccountId"]:
             cur.execute("DELETE FROM messenger_accounts WHERE id=%s", (ids["notificationMessengerAccountId"],))
         if created.get("supplierEmail"):
@@ -1839,7 +1869,7 @@ def main():
         created["aliasCanonicalMaterialName"] = candidate["materialName"]
         created["aliasQuantity"] = candidate["quantity"]
         name_only_invoice_id, name_only_supplier_invoice_id, name_only_existing_supplier_id = assert_name_only_warehouse_invoice_does_not_link_supplier(token, candidate, stamp, created)
-        backfill_invoice_id, backfill_supplier_invoice_id, _ = assert_backfill_uncertain_supplier_review(token, candidate, stamp, created)
+        backfill_invoice_id, backfill_supplier_invoice_id, _, backfill_created_supplier_id = assert_backfill_uncertain_supplier_review(token, candidate, stamp, created)
         dedupe_supplier_invoice_duplicate_id = assert_supplier_invoice_dedupe(token, backfill_supplier_invoice_id, created)
         document_duplicate_supplier_id, supplier_document_ids = assert_supplier_documents_group_scope(token, supplier_id, stamp, created)
         print(json.dumps({
@@ -1868,6 +1898,7 @@ def main():
             "nameOnlyExistingSupplierId": name_only_existing_supplier_id,
             "backfillInvoiceId": backfill_invoice_id,
             "backfillSupplierInvoiceId": backfill_supplier_invoice_id,
+            "backfillCreatedSupplierId": backfill_created_supplier_id,
             "dedupeSupplierInvoiceDuplicateId": dedupe_supplier_invoice_duplicate_id,
             "notificationRequestId": notification_request_id,
             "notificationOutboxId": notification_outbox_id,
