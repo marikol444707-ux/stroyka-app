@@ -89,7 +89,12 @@ export const createSupplyActions = ({
 
   const deleteSupplier = async (id) => {
     if (window.confirm('Удалить?')) {
-      await fetch(API + '/suppliers/' + id, { method: 'DELETE' });
+      const res = await fetch(API + '/suppliers/' + id, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.detail || 'Поставщика нельзя удалить: есть связанные документы. Используйте привязку или объединение дублей.');
+        return;
+      }
       await refreshData();
     }
   };

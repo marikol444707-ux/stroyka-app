@@ -8097,13 +8097,106 @@ def link_supplier_user(id: int, data: dict, current_user: dict = Depends(require
         cur.close()
         conn.close()
 
+def _db_column_exists(cur, table_name: str, column_name: str) -> bool:
+    cur.execute(
+        """
+        SELECT 1
+          FROM information_schema.columns
+         WHERE table_schema='public'
+           AND table_name=%s
+           AND column_name=%s
+         LIMIT 1
+        """,
+        (table_name, column_name),
+    )
+    return bool(cur.fetchone())
+
+def _supplier_delete_reference_summary(cur, supplier_id: int) -> list[dict]:
+    supplier_id = int(supplier_id or 0)
+    references = []
+    direct_refs = [
+        ("warehouse_invoices", "supplier_id", "складские накладные"),
+        ("supplier_invoices", "supplier_id", "счета/первичка поставщика"),
+        ("supplier_offers", "supplier_id", "КП поставщика"),
+        ("supply_deliveries", "supplier_id", "поставки"),
+        ("supply_claims", "supplier_id", "претензии"),
+        ("supply_history", "supplier_id", "история снабжения"),
+        ("supplier_catalog", "supplier_id", "каталог поставщика"),
+        ("supplier_documents", "supplier_id", "документы поставщика"),
+        ("supplier_subscriptions", "supplier_id", "подписки поставщика"),
+        ("supplier_invoice_templates", "supplier_id", "шаблоны распознавания"),
+        ("company_supplier_links", "supplier_id", "связи с компаниями"),
+        ("invite_codes", "supplier_id", "инвайты поставщика"),
+        ("supply_request_recipients", "supplier_id", "получатели КП"),
+        ("supply_request_recipients", "target_supplier_id", "целевые получатели КП"),
+    ]
+    for table_name, column_name, label in direct_refs:
+        if not _db_column_exists(cur, table_name, column_name):
+            continue
+        cur.execute(f"SELECT COUNT(*) FROM {table_name} WHERE {column_name}=%s", (supplier_id,))
+        count = int(_row_get(cur.fetchone(), "count", 0, 0) or 0)
+        if count:
+            references.append({"table": table_name, "column": column_name, "label": label, "count": count})
+
+    if _db_column_exists(cur, "supply_requests", "selected_suppliers"):
+        cur.execute(
+            """
+            SELECT COUNT(*)
+              FROM supply_requests
+             WHERE selected_suppliers IS NOT NULL
+               AND selected_suppliers && ARRAY[%s]::int[]
+            """,
+            (supplier_id,),
+        )
+        count = int(_row_get(cur.fetchone(), "count", 0, 0) or 0)
+        if count:
+            references.append({"table": "supply_requests", "column": "selected_suppliers", "label": "выбранные поставщики заявок", "count": count})
+
+    if _db_column_exists(cur, "supply_request_recipients", "supplier_group_ids"):
+        cur.execute(
+            """
+            SELECT COUNT(*)
+              FROM supply_request_recipients
+             WHERE supplier_group_ids IS NOT NULL
+               AND supplier_group_ids && ARRAY[%s]::int[]
+            """,
+            (supplier_id,),
+        )
+        count = int(_row_get(cur.fetchone(), "count", 0, 0) or 0)
+        if count:
+            references.append({"table": "supply_request_recipients", "column": "supplier_group_ids", "label": "группы дублей получателей КП", "count": count})
+    return references
+
 @app.delete("/suppliers/{id}")
 def delete_supplier(id: int, _current_user: dict = Depends(require_roles("директор", "зам_директора", "снабженец", "кладовщик"))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("DELETE FROM suppliers WHERE id=%s", (id,))
-    conn.close()
-    return {"ok": True}
+    conn.autocommit = False
+    try:
+        cur.execute("SELECT id FROM suppliers WHERE id=%s FOR UPDATE", (id,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Поставщик не найден")
+        references = _supplier_delete_reference_summary(cur, id)
+        if references:
+            total = sum(ref["count"] for ref in references)
+            detail = (
+                "Поставщика нельзя удалить физически: есть связанные документы (" + str(total) + "). "
+                "Используйте привязку кабинета или объединение дублей, чтобы накладные, КП и счета не потеряли связь."
+            )
+            raise HTTPException(status_code=409, detail=detail)
+        cur.execute("DELETE FROM supplier_aliases WHERE supplier_id=%s", (id,))
+        cur.execute("DELETE FROM suppliers WHERE id=%s", (id,))
+        conn.commit()
+        return {"ok": True, "deleted": True}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as exc:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(exc))
+    finally:
+        cur.close()
+        conn.close()
 
 SUPPLY_SELECT = ("SELECT id,material_name as \"materialName\",quantity,unit,project,"
                  "company_id as \"companyId\","
@@ -10938,6 +11031,71 @@ def _json_list_or_empty(value):
     if isinstance(parsed, dict):
         return [parsed]
     return []
+
+def _warehouse_invoice_item_signature(item: dict) -> str:
+    item = item or {}
+    name = _norm_key_text(item.get("name") or item.get("materialName") or item.get("material_name") or "")
+    unit = _norm_key_text(item.get("unit") or item.get("unitName") or item.get("unit_name") or "")
+    qty = _float_or_zero(item.get("quantity"))
+    price = _float_or_zero(item.get("price") or item.get("pricePerUnit") or item.get("price_per_unit"))
+    line_total = _float_or_zero(item.get("lineTotal") or item.get("line_total") or item.get("total") or item.get("totalBase"))
+    if line_total <= 0 and qty and price:
+        line_total = qty * price
+    return "|".join([name, unit, f"{qty:.4f}", f"{price:.2f}", f"{line_total:.2f}"])
+
+def _warehouse_invoice_items_signature(items) -> str:
+    signatures = [
+        _warehouse_invoice_item_signature(item)
+        for item in (items or [])
+        if isinstance(item, dict)
+    ]
+    return "||".join(sorted(sig for sig in signatures if sig.strip("|")))
+
+def _find_existing_warehouse_invoice_duplicate(cur, *, company_id, invoice_number, invoice_date, target_location, target_project, supplier_id, supplier_name, total_with_vat, items):
+    invoice_number = str(invoice_number or "").strip()
+    if not invoice_number:
+        return None
+    company_id = _positive_int_or_none(company_id) or 1
+    target_scope = (target_project or target_location or "").strip()
+    supplier_id = _positive_int_or_none(supplier_id)
+    supplier_name_key = _normalize_supplier_name_key(supplier_name or "")
+    input_total = _float_or_zero(total_with_vat)
+    input_signature = _warehouse_invoice_items_signature(items)
+    supplier_scope_ids = set(supplier_related_ids(cur, supplier_id)) if supplier_id else set()
+
+    cur.execute(
+        """
+        SELECT id,supplier_id,supplier_name,total_with_vat,total_base,items,location,project
+          FROM warehouse_invoices
+         WHERE COALESCE(status,'Принята') <> 'Аннулирована'
+           AND COALESCE(company_id,1)=%s
+           AND COALESCE(number,'')=%s
+           AND COALESCE(date::text,'')=COALESCE(%s::text,'')
+           AND COALESCE(NULLIF(project,''), NULLIF(location,''), '')=%s
+         ORDER BY id DESC
+        """,
+        (company_id, invoice_number, invoice_date, target_scope),
+    )
+    candidates = cur.fetchall() or []
+    for candidate in candidates:
+        candidate_supplier_id = _positive_int_or_none(_row_get(candidate, "supplier_id", 1))
+        candidate_supplier_key = _normalize_supplier_name_key(_row_get(candidate, "supplier_name", 2, "") or "")
+        same_supplier = bool(
+            (supplier_scope_ids and candidate_supplier_id in supplier_scope_ids)
+            or (supplier_name_key and candidate_supplier_key and supplier_name_key == candidate_supplier_key)
+        )
+        candidate_total = _float_or_zero(_row_get(candidate, "total_with_vat", 3) or _row_get(candidate, "total_base", 4))
+        candidate_signature = _warehouse_invoice_items_signature(_json_list_or_empty(_row_get(candidate, "items", 5)))
+        total_matches = input_total > 0 and candidate_total > 0 and abs(input_total - candidate_total) < 0.01
+        items_match = bool(input_signature and candidate_signature and input_signature == candidate_signature)
+        has_strong_content = input_total > 0 or bool(input_signature)
+        if (has_strong_content and (total_matches or items_match or same_supplier)) or (not has_strong_content and same_supplier):
+            return {
+                "id": _row_get(candidate, "id", 0),
+                "supplierName": _row_get(candidate, "supplier_name", 2, "") or "",
+                "totalWithVat": candidate_total,
+            }
+    return None
 
 WAREHOUSE_INVOICE_ACCOUNTING_STATUSES = {
     "Нет фото",
@@ -21723,6 +21881,30 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
         total_base = normalized_invoice.get("totalBase", 0)
         total_vat = normalized_invoice.get("totalVat", 0)
         total_with_vat = normalized_invoice.get("totalWithVat", 0)
+        broad_duplicate = _find_existing_warehouse_invoice_duplicate(
+            cur,
+            company_id=company_id,
+            invoice_number=invoice_number,
+            invoice_date=invoice_date,
+            target_location=target_location,
+            target_project=target_project,
+            supplier_id=data.get("supplierId") or data.get("supplier_id"),
+            supplier_name=data.get("supplierName") or supplier_name,
+            total_with_vat=total_with_vat,
+            items=items_list,
+        )
+        if broad_duplicate:
+            duplicate_supplier = (broad_duplicate.get("supplierName") or "поставщик не указан").strip()
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Похоже, эта накладная уже принята: "
+                    + "№" + str(invoice_number)
+                    + (" от " + str(invoice_date) if invoice_date else "")
+                    + (" · " + duplicate_supplier if duplicate_supplier else "")
+                    + ". Если это исправление OCR или поставщика, сначала аннулируйте старую накладную или свяжите карточки поставщика, а не проводите второй приход."
+                ),
+            )
         cur.execute("""INSERT INTO warehouse_invoices
                        (company_id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,
                         total_base,total_vat,total_with_vat,status,added_by,photo_url,
@@ -21940,20 +22122,25 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
             _remember_supplier_alias(cur, supplier_id, supplier_payload, source="warehouse_accounting")
         elif supplier_name:
             req = _supplier_extract_requisites(supplier_payload)
+            supplier_review_status = "На проверке" if (req.get("inn") or req.get("ogrn") or req.get("email") or req.get("phone")) else "Нужно уточнение"
             cur.execute(
                 """
                 INSERT INTO suppliers
                     (name,phone,email,specialization,category,rating,status,
                      inn,kpp,ogrn,notes,source_type,source_detail)
-                VALUES (%s,'','','','Материалы',5.0,'На проверке',%s,%s,%s,%s,%s,%s)
+                VALUES (%s,'','','','Материалы',5.0,%s,%s,%s,%s,%s,%s,%s)
                 RETURNING id,name
                 """,
                 (
                     supplier_name,
+                    supplier_review_status,
                     req.get("inn") or "",
                     req.get("kpp") or "",
                     req.get("ogrn") or "",
-                    "Создано из складской накладной #" + str(warehouse_invoice_id),
+                    (
+                        "Создано из складской накладной #" + str(warehouse_invoice_id)
+                        + ("; нет ИНН/ОГРН/email/телефона, требуется ручная проверка" if supplier_review_status == "Нужно уточнение" else "")
+                    ),
                     supplier_payload["sourceType"],
                     supplier_payload["sourceDetail"],
                 ),

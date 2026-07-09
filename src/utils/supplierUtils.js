@@ -84,6 +84,61 @@ export const supplierIdentityKeys = supplier => {
   ].filter(Boolean);
 };
 
+const supplierDocumentNumberKey = value => String(value || '')
+  .toLowerCase()
+  .replace(/\s+/g, '')
+  .trim();
+
+const supplierDocumentTextKey = value => String(value || '')
+  .toLowerCase()
+  .replace(/ё/g, 'е')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+const supplierDocumentNumber = value => {
+  const num = Number(String(value || 0).replace(/\s+/g, '').replace(',', '.'));
+  return Number.isFinite(num) ? num : 0;
+};
+
+const supplierDocumentItemName = item => item?.materialName || item?.material_name || item?.name || '';
+
+const supplierDocumentItemTotal = item => {
+  const line = supplierDocumentNumber(item?.lineTotal || item?.line_total);
+  return line > 0
+    ? line
+    : supplierDocumentNumber(item?.quantity) * supplierDocumentNumber(item?.price || item?.pricePerUnit || item?.price_per_unit);
+};
+
+const supplierDocumentItemsTotal = invoice => (invoice?.items || []).reduce((sum, item) => sum + supplierDocumentItemTotal(item), 0);
+
+const supplierDocumentItemSignature = item => [
+  supplierDocumentTextKey(supplierDocumentItemName(item)),
+  supplierDocumentTextKey(item?.unit || item?.unitName || item?.unit_name),
+  supplierDocumentNumber(item?.quantity).toFixed(4),
+  supplierDocumentNumber(item?.price || item?.pricePerUnit || item?.price_per_unit).toFixed(2),
+  supplierDocumentItemTotal(item).toFixed(2),
+].join('|');
+
+export const supplierDocumentItemsSignature = items => (items || [])
+  .map(supplierDocumentItemSignature)
+  .filter(Boolean)
+  .sort()
+  .join('||');
+
+export const warehouseInvoiceDocumentKey = invoice => {
+  const number = supplierDocumentNumberKey(invoice?.number || invoice?.invoiceNumber || invoice?.invoice_number);
+  const date = String(invoice?.date || invoice?.invoiceDate || invoice?.createdAt || '').slice(0, 10);
+  const supplier = normalizeSupplierNameKey(invoice?.supplierName || invoice?.supplier_name || invoice?.supplier || '');
+  const place = supplierDocumentTextKey(invoice?.project || invoice?.location || invoice?.warehouseTarget || '');
+  const totalValue = supplierDocumentNumber(invoice?.totalWithVat || invoice?.total_with_vat) || supplierDocumentItemsTotal(invoice);
+  const total = totalValue.toFixed(2);
+  const itemKey = supplierDocumentItemsSignature(invoice?.items || []);
+  if (number && (totalValue > 0 || itemKey)) return ['warehouse-number', number, date, place, total, itemKey].join('|');
+  if (number) return ['warehouse-number-supplier', number, date, supplier, place].join('|');
+  if (date && supplier && itemKey) return ['warehouse-content', date, supplier, place, total, itemKey].join('|');
+  return invoice?.id ? 'warehouse-id:' + invoice.id : '';
+};
+
 export const groupSuppliers = suppliers => {
   const groups = new Map();
   const keyIndex = new Map();

@@ -3,7 +3,7 @@ import { Check, ChevronDown, ChevronUp, Edit2, Link2, Plus, Search, Trash2, X } 
 import { API } from '../api';
 import { createSupplierForm, createSupplierInviteForm } from '../features/supply/supplyInitialForms';
 import DocumentRecognitionPanel from './DocumentRecognitionPanel';
-import { groupSuppliers, normalizeSupplierNameKey, supplierKeysMatch } from '../utils/supplierUtils';
+import { groupSuppliers, normalizeSupplierNameKey, supplierKeysMatch, warehouseInvoiceDocumentKey } from '../utils/supplierUtils';
 
 const toNumber = value => {
   const num = Number(value || 0);
@@ -33,20 +33,6 @@ const compactText = value => String(value || '')
   .replace(/\s+/g, ' ')
   .trim();
 
-const itemSignature = item => [
-  compactText(itemName(item)),
-  compactText(item?.unit || item?.unitName || item?.unit_name),
-  toNumber(item?.quantity).toFixed(4),
-  toNumber(item?.price || item?.pricePerUnit || item?.price_per_unit).toFixed(2),
-  toNumber(item?.lineTotal || item?.line_total || item?.total || item?.totalBase).toFixed(2),
-].join('|');
-
-const itemsSignature = items => (items || [])
-  .map(itemSignature)
-  .filter(Boolean)
-  .sort()
-  .join('||');
-
 const dedupeByDocumentKey = (rows, keyFn) => {
   const seen = new Map();
   const duplicates = [];
@@ -59,18 +45,6 @@ const dedupeByDocumentKey = (rows, keyFn) => {
     duplicates.push(row);
   });
   return { rows: Array.from(seen.values()), duplicates };
-};
-
-const warehouseInvoiceKey = invoice => {
-  const number = compactText(invoice?.number || invoice?.invoiceNumber || invoice?.invoice_number);
-  const date = String(invoice?.date || invoice?.invoiceDate || invoice?.createdAt || '').slice(0, 10);
-  const supplier = normalizeSupplierNameKey(invoice?.supplierName || invoice?.supplier_name || invoice?.supplier || '');
-  const place = compactText(invoice?.project || invoice?.location || invoice?.warehouseTarget || '');
-  if (number) return ['warehouse-number', number, date, supplier, place].join('|');
-  const total = (toNumber(invoice?.totalWithVat || invoice?.total_with_vat) || invoiceItemsTotal(invoice)).toFixed(2);
-  const itemKey = itemsSignature(invoice?.items || []);
-  if (date && supplier && itemKey) return ['warehouse-content', date, supplier, place, total, itemKey].join('|');
-  return invoice?.id ? 'warehouse-id:' + invoice.id : '';
 };
 
 const supplierInvoiceKey = invoice => {
@@ -300,7 +274,7 @@ function SupplySuppliersPanel({
     const rawLinkedInvoices = (invoices || []).filter(invoice => supplierMatchesRecord(supplier, invoice));
     const rawLinkedSupplierInvoices = (supplierInvoices || []).filter(invoice => supplierMatchesRecord(supplier, invoice));
     const rawLinkedDeliveries = (supplyDeliveries || []).filter(delivery => supplierMatchesRecord(supplier, delivery));
-    const invoiceDedupe = dedupeByDocumentKey(rawLinkedInvoices, warehouseInvoiceKey);
+    const invoiceDedupe = dedupeByDocumentKey(rawLinkedInvoices, warehouseInvoiceDocumentKey);
     const supplierInvoiceDedupe = dedupeByDocumentKey(rawLinkedSupplierInvoices, supplierInvoiceKey);
     const deliveryDedupe = dedupeByDocumentKey(rawLinkedDeliveries, deliveryKey);
     const linkedInvoices = invoiceDedupe.rows;
