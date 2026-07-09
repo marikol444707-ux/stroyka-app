@@ -40,6 +40,7 @@ export default function AccountingSupplierDocumentsPanel({
   const [openedSupplier, setOpenedSupplier] = React.useState('');
   const [openedDoc, setOpenedDoc] = React.useState('');
   const [busy, setBusy] = React.useState(false);
+  const [backfillPreview, setBackfillPreview] = React.useState(null);
 
   const rows = React.useMemo(
     () => buildAccountingInvoiceRows(invoices, warehouseInvoiceEstimateControl, { includeControls: false }),
@@ -235,22 +236,27 @@ export default function AccountingSupplierDocumentsPanel({
         alert('Предпросмотр сверки не выполнен: ' + (preview.detail || preview.error || previewRes.status));
         return;
       }
-      const item = (preview.items || [])[0] || {};
-      const reviewLine = item.needsReview
-        ? '\nСтатус после сверки: нужно уточнение. Причина: ' + (item.reviewReason || 'проверьте поставщика/документ')
-        : '';
-      const message = [
-        'Связать первичку только по этой накладной?',
-        '',
-        'Накладная № ' + (item.number || doc.number || warehouseInvoiceId),
-        item.date ? 'Дата: ' + item.date : '',
-        item.projectName ? 'Объект: ' + item.projectName : '',
-        'Сумма: ' + money(item.amount || doc.amount),
-        reviewLine,
-        '',
-        'Склад и оплаты повторно не создаются.',
-      ].filter(Boolean).join('\n');
-      if (!window.confirm(message)) return;
+      setBackfillPreview({
+        docId: doc.id,
+        warehouseInvoiceId,
+        item: (preview.items || [])[0] || {},
+        fallbackNumber: doc.number,
+        fallbackAmount: doc.amount,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const applyBackfillPreview = async (preview, event) => {
+    event?.stopPropagation?.();
+    const warehouseInvoiceId = preview?.warehouseInvoiceId;
+    if (!warehouseInvoiceId) {
+      alert('Не найден ID складской накладной для сверки');
+      return;
+    }
+    setBusy(true);
+    try {
       const res = await fetch(API + '/supplier-documents/backfill', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -263,6 +269,7 @@ export default function AccountingSupplierDocumentsPanel({
         return;
       }
       const resultItem = (data.items || [])[0] || {};
+      setBackfillPreview(null);
       alert('Первичка связана. ' + (resultItem.needsReview ? 'Документ оставлен на ручную проверку: ' + (resultItem.reviewReason || '') : 'Документ готов к сверке.'));
       if (typeof refreshData === 'function') await refreshData();
     } finally {
@@ -335,6 +342,8 @@ export default function AccountingSupplierDocumentsPanel({
                   const docOpen = openedDoc === doc.id;
                   const linkedInvoice = doc.supplierInvoice;
                   const supplierAmount = Number(linkedInvoice?.amount || linkedInvoice?.totalAmount || 0);
+                  const docBackfillPreview = backfillPreview?.docId === doc.id ? backfillPreview : null;
+                  const previewItem = docBackfillPreview?.item || {};
                   return (
                     <div key={doc.id} style={{padding:'12px 14px',borderBottom:'1px solid '+C.border}}>
                       <div style={{display:'flex',justifyContent:'space-between',gap:'10px',alignItems:'flex-start',flexWrap:'wrap'}}>
@@ -361,6 +370,27 @@ export default function AccountingSupplierDocumentsPanel({
                           </button>
                         </div>
                       </div>
+                      {docBackfillPreview && (
+                        <div onClick={event=>event.stopPropagation()} style={{marginTop:'10px',padding:'10px',borderRadius:'8px',backgroundColor:previewItem.needsReview?C.warningLight:C.successLight,border:'1px solid '+(previewItem.needsReview?C.warningBorder:C.successBorder)}}>
+                          <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'6px'}}>Предпросмотр точечной сверки</b>
+                          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'8px',marginBottom:'8px'}}>
+                            <span style={{color:C.textSec,fontSize:'11px'}}>Накладная<br/><b style={{color:C.text}}>{previewItem.number || docBackfillPreview.fallbackNumber || docBackfillPreview.warehouseInvoiceId}</b></span>
+                            <span style={{color:C.textSec,fontSize:'11px'}}>Дата<br/><b style={{color:C.text}}>{previewItem.date || doc.date || 'без даты'}</b></span>
+                            <span style={{color:C.textSec,fontSize:'11px'}}>Объект<br/><b style={{color:C.text}}>{previewItem.projectName || doc.projectName || 'без объекта'}</b></span>
+                            <span style={{color:C.textSec,fontSize:'11px'}}>Сумма<br/><b style={{color:C.text}}>{money(previewItem.amount || docBackfillPreview.fallbackAmount)}</b></span>
+                          </div>
+                          {previewItem.needsReview && (
+                            <p style={{color:C.warning,fontSize:'12px',margin:'0 0 8px'}}>
+                              После связи документ останется на ручной проверке: {previewItem.reviewReason || 'проверьте поставщика/документ'}
+                            </p>
+                          )}
+                          <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 10px'}}>Склад и оплаты повторно не создаются. Apply будет выполнен только по этой накладной.</p>
+                          <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
+                            <button disabled={busy} onClick={event=>applyBackfillPreview(docBackfillPreview, event)} style={{...btnG,padding:'7px 10px',fontSize:'12px',opacity:busy?0.6:1}}>Применить только эту</button>
+                            <button disabled={busy} onClick={event=>{event.stopPropagation();setBackfillPreview(null);}} style={{...btnB,padding:'7px 10px',fontSize:'12px',opacity:busy?0.6:1}}>Отмена</button>
+                          </div>
+                        </div>
+                      )}
                       {docOpen && (
                         <div style={{marginTop:'10px',paddingTop:'10px',borderTop:'1px dashed '+C.border}}>
                           <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'10px'}}>
