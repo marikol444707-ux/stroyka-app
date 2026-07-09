@@ -10404,56 +10404,62 @@ def request_kp_from_suppliers(id: int, data: dict, _current_user: dict = Depends
     if not supplier_ids:
         return {"error": "Не выбраны поставщики"}
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    _ensure_supply_runtime_columns(cur)
-    # Получаем количество из заявки для preview total
-    cur.execute("SELECT quantity, project, status, company_id FROM supply_requests WHERE id=%s", (id,))
-    req = cur.fetchone()
-    if not req:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Заявка не найдена")
-    request_company_id = data.get("companyId") or req.get("company_id") or req.get("companyId")
-    company_context = _resolve_work_company_context(cur, _current_user, request_company_id, "update")
-    company_id = int(company_context.get("companyId") or request_company_id or 1)
-    if req.get('project'):
-        require_project_or_warehouse_access(_current_user, req.get('project') or "")
-        project_company_id = _project_company_id(cur, req.get('project') or "")
-        if project_company_id and int(project_company_id) != company_id:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Выбранная компания не совпадает с компанией объекта. Переключите компанию в шапке или выберите другой объект.")
-    if (req.get("status") or "Новая") not in ("Утверждена", "КП запрошены"):
-        cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail="Запрашивать КП можно только после утверждения заявки директором")
-    selected_scope_ids = supplier_group_scope_ids(cur, supplier_ids)
-    recipient_rows = _upsert_supply_request_recipients(cur, id, company_id, selected_scope_ids)
-    visibility_error = _recipient_visibility_error(recipient_rows)
-    if visibility_error:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail=visibility_error)
-    created = _create_supplier_offer_requests(cur, id, selected_scope_ids, ai_ids, company_id=company_id)
-    notification_rows = _notify_supply_request_recipients(cur, id)
-    # Обновляем статус заявки
-    cur.execute("""UPDATE supply_requests
-                   SET status=CASE WHEN status='Утверждена' THEN %s ELSE status END,
-                       company_id=%s,
-                       selected_suppliers=(
-                           SELECT ARRAY(
-                               SELECT DISTINCT unnest(COALESCE(selected_suppliers, '{}'::int[]) || %s::int[])
+    try:
+        _ensure_supply_runtime_columns(cur)
+        # Получаем количество из заявки для preview total
+        cur.execute("SELECT quantity, project, status, company_id FROM supply_requests WHERE id=%s", (id,))
+        req = cur.fetchone()
+        if not req:
+            raise HTTPException(status_code=404, detail="Заявка не найдена")
+        request_company_id = data.get("companyId") or req.get("company_id") or req.get("companyId")
+        company_context = _resolve_work_company_context(cur, _current_user, request_company_id, "update")
+        company_id = int(company_context.get("companyId") or request_company_id or 1)
+        if req.get('project'):
+            require_project_or_warehouse_access(_current_user, req.get('project') or "")
+            project_company_id = _project_company_id(cur, req.get('project') or "")
+            if project_company_id and int(project_company_id) != company_id:
+                raise HTTPException(status_code=400, detail="Выбранная компания не совпадает с компанией объекта. Переключите компанию в шапке или выберите другой объект.")
+        if (req.get("status") or "Новая") not in ("Утверждена", "КП запрошены"):
+            raise HTTPException(status_code=400, detail="Запрашивать КП можно только после утверждения заявки директором")
+        selected_scope_ids = supplier_group_scope_ids(cur, supplier_ids)
+        recipient_rows = _upsert_supply_request_recipients(cur, id, company_id, selected_scope_ids)
+        visibility_error = _recipient_visibility_error(recipient_rows)
+        if visibility_error:
+            raise HTTPException(status_code=400, detail=visibility_error)
+        created = _create_supplier_offer_requests(cur, id, selected_scope_ids, ai_ids, company_id=company_id)
+        notification_rows = _notify_supply_request_recipients(cur, id)
+        # Обновляем статус заявки
+        cur.execute("""UPDATE supply_requests
+                       SET status=CASE WHEN status='Утверждена' THEN %s ELSE status END,
+                           company_id=%s,
+                           selected_suppliers=(
+                               SELECT ARRAY(
+                                   SELECT DISTINCT unnest(COALESCE(selected_suppliers, '{}'::int[]) || %s::int[])
+                               )
                            )
-                       )
-                   WHERE id=%s""",
-        ('КП запрошены', company_id, selected_scope_ids, id))
-    conn.commit()
-    conn.close()
-    return {
-        "ok": True,
-        "created": len(created),
-        "ids": created,
-        "supplierIds": selected_scope_ids,
-        "companyId": company_id,
-        "recipients": recipient_rows,
-        "notifications": notification_rows,
-    }
+                       WHERE id=%s""",
+            ('КП запрошены', company_id, selected_scope_ids, id))
+        conn.commit()
+        return {
+            "ok": True,
+            "created": len(created),
+            "ids": created,
+            "supplierIds": selected_scope_ids,
+            "companyId": company_id,
+            "recipients": recipient_rows,
+            "notifications": notification_rows,
+        }
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
 
 @app.get("/supply-requests/{id}/recipients")
 def get_supply_request_recipients(id: int, _current_user: dict = Depends(require_roles(*SUPPLY_INTERNAL_ROLES))):
