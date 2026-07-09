@@ -57,7 +57,8 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M2.1: Scope `GET /supply-requests` by selected company or current-account summary. Verified and released as an independent production slice.
 - [x] Task M2.2: Protect `PUT /supply-requests/{id}` with the stored request company and its effective membership role. Verified and released as an independent production slice.
 - [x] Task M2.3: Protect `DELETE /supply-requests/{id}` and its optional stock rollback by request company. Verified and released as an independent production slice.
-- [ ] Task M2.4: Protect `POST /supply-requests/{id}/request-kp` by the stored request company and effective membership role. Implemented locally; release pending.
+- [x] Task M2.4: Protect `POST /supply-requests/{id}/request-kp` by the stored request company and effective membership role. Verified and released as an independent production slice.
+- [ ] Task M2.5: Protect `GET /supply-requests/{id}/recipients` by stored request company and effective membership role. Implemented locally; release pending.
 - [ ] Task M3: Scope supplier visibility, recipients, offers, invoices, and company-supplier terms.
 - [ ] Task M4: Scope warehouse balances, invoices, history, and explicit cross-company transfers.
 - [ ] Task M5: Scope payments, accounting, contracts, and financial reports.

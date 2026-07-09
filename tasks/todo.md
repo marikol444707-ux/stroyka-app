@@ -416,7 +416,7 @@
 
 **Description:** Apply Tenant Context Kernel to `POST /supply-requests/{id}/request-kp`. Use the request's stored `company_id` as the immutable source of truth, authorize with the selected membership role, and keep recipients, offers, request status, and notifications in that company.
 
-**Status:** Implemented and verified locally on 2026-07-10; push and production release are pending.
+**Status:** Completed, verified, and released as production commits `44827df7` and `777bcca7` on 2026-07-10.
 
 **Acceptance criteria:**
 - [x] The stored request `company_id` is authoritative; body `companyId` cannot reassign the request.
@@ -433,6 +433,7 @@
 - [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py backend/features/company_context/service.py`
 - [x] Tracked frontend test suite (14 suites / 66 tests passed).
 - [x] `npm run build`
+- [x] Production health reported version `777bcca7b422`, service active, no warning-level log entries, HTTP and browser smoke passed.
 
 **Dependencies:** Task M2.3
 
@@ -443,6 +444,31 @@
 - `ONBOARDING.md`
 - `tasks/plan.md`
 - `tasks/todo.md`
+
+**Estimated scope:** S
+
+## Task M2.5: Supply Request Recipient Read Isolation
+
+**Description:** Apply Tenant Context Kernel to `GET /supply-requests/{id}/recipients`. Resolve access from the request's stored company, authorize with the effective membership role, and fail closed when recipient or legacy offer rows belong to another company.
+
+**Status:** Implemented and verified locally on 2026-07-10; production release is pending.
+
+**Acceptance criteria:**
+- [x] Stored request `company_id` is authoritative for recipient diagnostics.
+- [x] Conflicting header, foreign membership, missing request company, or disallowed effective role fails; `Все компании` safely resolves the concrete company stored on the requested document.
+- [x] Project access uses the effective membership assignments.
+- [x] Recipient rows are validated as one company chain and filtered by that company.
+- [x] Legacy fallback from `supplier_offers` validates every offer row before building diagnostics.
+- [x] Supplier cabinet reads and recipient/offer mutations remain outside this slice.
+
+**Verification:**
+- [x] Company-context unit tests (28 passed).
+- [x] Python compile.
+- [x] Tracked frontend tests (14 suites / 66 tests passed).
+- [x] `npm run build`.
+- [ ] Independent production release and smoke.
+
+**Dependencies:** Task M2.4
 
 **Estimated scope:** S
 

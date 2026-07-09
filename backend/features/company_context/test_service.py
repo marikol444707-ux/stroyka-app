@@ -121,6 +121,26 @@ class ResolveRequestCompanyContextTests(unittest.TestCase):
         self.assertEqual(error.exception.status_code, 400)
         self.assertEqual(cur.execute_count, 0)
 
+    def test_resolves_all_companies_resource_read_to_stored_company(self):
+        cur = MembershipCursor([
+            membership(company_id=7, role="снабженец"),
+            membership(company_id=8, role="снабженец"),
+        ])
+
+        context, actor = resolve_resource_company_actor(
+            cur,
+            user(),
+            resource_company_id=7,
+            action_mode="read",
+            x_company_mode="all_companies",
+            allowed_roles=("снабженец",),
+        )
+
+        self.assertEqual(context["mode"], "company")
+        self.assertEqual(context["companyId"], 7)
+        self.assertEqual(context["requestedMode"], "all_companies")
+        self.assertEqual(actor["companyId"], 7)
+
     def test_rejects_resource_actor_when_membership_role_is_not_allowed(self):
         cur = MembershipCursor([membership(role="поставщик")])
 

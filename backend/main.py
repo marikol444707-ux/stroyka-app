@@ -10716,7 +10716,12 @@ def request_kp_from_suppliers(
         conn.close()
 
 @app.get("/supply-requests/{id}/recipients")
-def get_supply_request_recipients(id: int, _current_user: dict = Depends(require_roles(*SUPPLY_INTERNAL_ROLES))):
+def get_supply_request_recipients(
+    id: int,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     _ensure_supply_request_recipients_table(cur)
@@ -10725,8 +10730,31 @@ def get_supply_request_recipients(id: int, _current_user: dict = Depends(require
     if not req:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Заявка не найдена")
+    try:
+        company_context, effective_user = resolve_resource_company_actor(
+            cur,
+            _current_user,
+            req.get("company_id"),
+            "read",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            allowed_roles=SUPPLY_INTERNAL_ROLES,
+            forbidden_detail="Роль в выбранной компании не позволяет смотреть получателей КП",
+            platform_staff_roles=PLATFORM_STAFF_ROLES,
+            client_account_roles=CLIENT_ACCOUNT_ROLES,
+        )
+        company_id = int(company_context.get("companyId"))
+    except Exception:
+        cur.close(); conn.close()
+        raise
     if req.get("project"):
-        require_project_or_warehouse_access(_current_user, req.get("project") or "")
+        require_project_or_warehouse_access(effective_user, req.get("project") or "")
+    cur.execute("SELECT company_id FROM supply_request_recipients WHERE request_id=%s", (id,))
+    try:
+        assert_rows_company_scope(cur.fetchall(), company_id, "Получатели КП")
+    except Exception:
+        cur.close(); conn.close()
+        raise
     cur.execute("""
         SELECT r.id, r.company_id AS "companyId", r.request_id AS "requestId",
                r.supplier_id AS "supplierId", s0.name AS "supplierName", s0.email AS "supplierEmail",
@@ -10746,9 +10774,9 @@ def get_supply_request_recipients(id: int, _current_user: dict = Depends(require
           FROM supply_request_recipients r
           LEFT JOIN suppliers s0 ON s0.id=r.supplier_id
           LEFT JOIN suppliers s ON s.id=r.target_supplier_id
-         WHERE r.request_id=%s
+         WHERE r.request_id=%s AND r.company_id=%s
          ORDER BY r.id
-    """, (id,))
+    """, (id, company_id))
     rows = [_add_supply_recipient_link_hint(dict(row)) for row in cur.fetchall()]
     if not rows:
         cur.execute("""
@@ -10760,6 +10788,11 @@ def get_supply_request_recipients(id: int, _current_user: dict = Depends(require
              ORDER BY o.id
         """, (id,))
         offer_rows = cur.fetchall() or []
+        try:
+            assert_rows_company_scope(offer_rows, company_id, "Коммерческие предложения")
+        except Exception:
+            cur.close(); conn.close()
+            raise
         target_names = {}
         recipient_map = {}
         for offer in offer_rows:
@@ -10790,7 +10823,7 @@ def get_supply_request_recipients(id: int, _current_user: dict = Depends(require
                 continue
             recipient_map[group_key] = {
                 "id": -int(_row_get(offer, "offer_id", 0, 0) or 0),
-                "companyId": _row_get(offer, "company_id", 2, None) or req.get("company_id"),
+                "companyId": company_id,
                 "requestId": id,
                 "supplierId": supplier_id,
                 "supplierName": _row_get(offer, "supplier_name", 7, "") or ("Поставщик #" + str(supplier_id)),
