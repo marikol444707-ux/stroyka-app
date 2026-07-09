@@ -72,15 +72,11 @@ export const supplierIdentityKeys = supplier => {
   const ogrn = normalizeSupplierDigits(supplier?.ogrn || supplier?.supplierOgrn || supplier?.supplier_ogrn);
   const email = normalizeSupplierEmail(supplier?.email || supplier?.supplierEmail || supplier?.supplier_email);
   const phone = normalizeSupplierDigits(supplier?.phone || supplier?.supplierPhone || supplier?.supplier_phone);
-  const nameKey = normalizeSupplierNameKey(
-    supplier?.name || supplier?.supplierName || supplier?.supplier_name || supplier?.supplier || ''
-  );
   return [
     inn.length >= 10 ? 'inn:' + inn : '',
     ogrn.length >= 13 ? 'ogrn:' + ogrn : '',
     email && email.includes('@') ? 'email:' + email : '',
     phone.length >= 7 ? 'phone:' + phone : '',
-    nameKey ? 'name:' + nameKey : '',
   ].filter(Boolean);
 };
 

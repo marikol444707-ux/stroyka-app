@@ -43,6 +43,16 @@ describe('groupSuppliers', () => {
     expect(supplierMatchesRecord(group, { supplierId: 99, supplierName: 'Другой поставщик' })).toBe(false);
   });
 
+  it('does not merge supplier cards by name alone', () => {
+    const groups = groupSuppliers([
+      { id: 17, name: 'АО «САТУРН ЮГ»', sourceType: 'manual' },
+      { id: 25, name: 'ООО Сатурн Юг', sourceType: 'warehouse_invoice' },
+    ]);
+
+    expect(groups).toHaveLength(2);
+    expect(groups.map(group => group._supplierIds)).toEqual([[17], [25]]);
+  });
+
   it('summarizes supplier source using linked account and warehouse evidence', () => {
     const [group] = groupSuppliers([
       { id: 17, name: 'АО «САТУРН ЮГ»', inn: '2635000000', sourceType: 'manual', sourceDetail: 'добавил директор' },
