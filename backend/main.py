@@ -7507,6 +7507,7 @@ def reset_user_2fa(id: int, _current_user: dict = Depends(require_roles(*LEADERS
            WHERE id=%s""",
         (_role_requires_2fa(row.get("role") or ""), id),
     )
+    _revoke_user_sessions(cur, id)
     conn.commit()
     log_audit(
         _current_user.get("name", ""),

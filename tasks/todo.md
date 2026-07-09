@@ -209,6 +209,30 @@
 
 **Estimated scope:** S
 
+## Task 6.4: Revoke Sessions When User 2FA Is Reset
+
+**Description:** When an admin resets a user's 2FA through `POST /users/{id}/2fa-reset`, revoke that user's active cookie sessions without changing the Bearer compatibility path.
+
+**Acceptance criteria:**
+- [x] Resetting a user's 2FA revokes active `user_sessions` rows for that user.
+- [x] The old cookie session stops opening protected endpoints.
+- [x] The smoke test covers a real 2FA login before reset.
+- [x] Staff-card revocation remains a separate follow-up step.
+
+**Verification:**
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py`
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile scripts/smoke-auth-session.py`
+- [ ] `npm run smoke:auth-session` on production after deploy.
+
+**Dependencies:** Task 6.3
+
+**Files likely touched:**
+- `backend/main.py`
+- `scripts/smoke-auth-session.py`
+- `ONBOARDING.md`
+
+**Estimated scope:** S
+
 ## Task 7: Supply Request Company Context
 
 **Description:** Ensure new supply request reads and writes use resolved company context and reject write actions from `Все компании`.

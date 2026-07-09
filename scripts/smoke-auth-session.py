@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import base64
+import binascii
 import hashlib
 import hmac
 import http.cookiejar
@@ -34,6 +35,10 @@ ROLE_CHANGE_EMAIL = f"auth-session-role-{RUN_ID}@stroyka.local"
 ROLE_CHANGE_PASSWORD = secrets.token_urlsafe(14)
 ROLE_CHANGE_FROM_ROLE = "снабженец"
 ROLE_CHANGE_TO_ROLE = "кладовщик"
+TWO_FACTOR_EMAIL = f"auth-session-2fa-{RUN_ID}@stroyka.local"
+TWO_FACTOR_PASSWORD = secrets.token_urlsafe(14)
+TWO_FACTOR_ROLE = "бухгалтер"
+TWO_FACTOR_SECRET = "JBSWY3DPEHPK3PXP"
 ADMIN_EMAIL = f"auth-session-admin-{RUN_ID}@stroyka.local"
 ADMIN_PASSWORD = secrets.token_urlsafe(14)
 COOKIE_NAME = os.getenv("AUTH_SESSION_COOKIE_NAME", "stroyka_session")
@@ -78,6 +83,17 @@ def hash_password(password):
     return f"pbkdf2_sha256$260000${salt}${digest}"
 
 
+def totp_code(secret, timestamp=None, step=30):
+    value = "".join(str(secret or "").split()).upper()
+    value += "=" * (-len(value) % 8)
+    key = base64.b32decode(value, casefold=True)
+    counter = int((timestamp or int(time.time())) // step)
+    digest = hmac.new(key, counter.to_bytes(8, "big"), hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    token = int.from_bytes(digest[offset:offset + 4], "big") & 0x7FFFFFFF
+    return str(token % 1000000).zfill(6)
+
+
 def prepare_user(email=EMAIL, password=PASSWORD, name=None, role="прораб"):
     conn = db_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -101,7 +117,7 @@ def prepare_user(email=EMAIL, password=PASSWORD, name=None, role="прораб")
 def cleanup():
     conn = db_conn()
     cur = conn.cursor()
-    emails = (EMAIL, DISABLE_EMAIL, PASSWORD_CHANGE_EMAIL, ROLE_CHANGE_EMAIL, ADMIN_EMAIL)
+    emails = (EMAIL, DISABLE_EMAIL, PASSWORD_CHANGE_EMAIL, ROLE_CHANGE_EMAIL, TWO_FACTOR_EMAIL, ADMIN_EMAIL)
     cur.execute("DELETE FROM user_sessions WHERE user_id IN (SELECT id FROM users WHERE LOWER(email)=ANY(%s))", ([email.lower() for email in emails],))
     cur.execute("DELETE FROM users WHERE LOWER(email)=ANY(%s)", ([email.lower() for email in emails],))
     conn.commit()
@@ -162,6 +178,27 @@ def auth_token_for(user_id, email=EMAIL, role="прораб", name=None, two_fac
     secret = env_value("AUTH_SECRET") or (env_value("DB_PASSWORD", "password") + "|stroyka-auth")
     sig = hmac.new(secret.encode("utf-8"), body.encode("utf-8"), hashlib.sha256).digest()
     return body + "." + b64url(sig)
+
+
+def enable_2fa_for_user(user_id, secret=TWO_FACTOR_SECRET):
+    try:
+        totp_code(secret)
+    except (binascii.Error, ValueError) as exc:
+        raise RuntimeError("invalid smoke 2FA secret") from exc
+    conn = db_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """UPDATE users
+           SET two_factor_required=TRUE,
+               two_factor_enabled=TRUE,
+               two_factor_secret=%s,
+               two_factor_confirmed_at=NOW()
+           WHERE id=%s""",
+        (secret, user_id),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
 
 
 def assert_disabling_user_revokes_cookie_sessions(admin_token):
@@ -307,6 +344,49 @@ def assert_role_change_revokes_cookie_sessions(admin_token):
     )
 
 
+def assert_2fa_reset_revokes_cookie_sessions(admin_token):
+    user_id = prepare_user(
+        TWO_FACTOR_EMAIL,
+        TWO_FACTOR_PASSWORD,
+        name=f"Auth Session 2FA {RUN_ID}",
+        role=TWO_FACTOR_ROLE,
+    )
+    enable_2fa_for_user(user_id)
+    jar = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+    _, login_body, _ = request_json(
+        opener,
+        "POST",
+        "/login",
+        data={"email": TWO_FACTOR_EMAIL, "password": TWO_FACTOR_PASSWORD},
+        expected=200,
+    )
+    challenge_token = login_body.get("challengeToken")
+    if not challenge_token:
+        raise RuntimeError(f"2FA login did not return challengeToken: {login_body}")
+    request_json(
+        opener,
+        "POST",
+        "/login/2fa/verify",
+        data={"challengeToken": challenge_token, "code": totp_code(TWO_FACTOR_SECRET)},
+        expected=200,
+    )
+    request_json(opener, "GET", "/users", expected=200)
+    if active_session_count(user_id) < 1:
+        raise RuntimeError("2FA reset scenario did not create an active cookie session")
+    request_json(
+        urllib.request.build_opener(),
+        "POST",
+        f"/users/{user_id}/2fa-reset",
+        token=admin_token,
+        expected=200,
+    )
+    remaining = active_session_count(user_id)
+    if remaining != 0:
+        raise RuntimeError(f"2FA reset left {remaining} active cookie session(s)")
+    request_json(opener, "GET", "/users", expected=401)
+
+
 def main():
     cleanup()
     user_id = prepare_user()
@@ -358,6 +438,7 @@ def main():
             assert_disabling_user_revokes_cookie_sessions(admin_token)
             assert_password_change_revokes_cookie_sessions(admin_token)
             assert_role_change_revokes_cookie_sessions(admin_token)
+            assert_2fa_reset_revokes_cookie_sessions(admin_token)
         print(json.dumps({
             "ok": True,
             "baseUrl": BASE_URL,
@@ -373,6 +454,7 @@ def main():
                 "disabling user revokes active cookie sessions" if BASE_URL.startswith("https://") else "disable-user session revocation skipped on non-https BASE_URL",
                 "password change revokes active cookie sessions" if BASE_URL.startswith("https://") else "password-change session revocation skipped on non-https BASE_URL",
                 "role change revokes active cookie sessions" if BASE_URL.startswith("https://") else "role-change session revocation skipped on non-https BASE_URL",
+                "2FA reset revokes active cookie sessions" if BASE_URL.startswith("https://") else "2FA-reset session revocation skipped on non-https BASE_URL",
             ],
         }, ensure_ascii=False, indent=2))
     finally:
