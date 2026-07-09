@@ -1427,11 +1427,11 @@ def assert_supplier_documents_group_scope(token, supplier_id, stamp, created):
     try:
         conn.autocommit = False
         cur = conn.cursor()
-        cur.execute("SELECT name, phone FROM suppliers WHERE id=%s", (supplier_id,))
+        cur.execute("SELECT name FROM suppliers WHERE id=%s", (supplier_id,))
         supplier_row = cur.fetchone()
         if not supplier_row:
             raise RuntimeError("Не найден тестовый поставщик для проверки документов группы")
-        supplier_name, supplier_phone = supplier_row
+        supplier_name = supplier_row[0]
         cur.execute(
             """
             INSERT INTO suppliers
@@ -1439,7 +1439,7 @@ def assert_supplier_documents_group_scope(token, supplier_id, stamp, created):
             VALUES (%s,%s,'','CODEX QA','Материалы',5,'Активный','smoke_supplier_duplicate',%s)
             RETURNING id
             """,
-            ("ООО " + supplier_name, supplier_phone, TEST_NOTE_PREFIX),
+            ("CODEX QA ручной дубль поставщика " + stamp, "+7999000" + str(stamp)[-4:], TEST_NOTE_PREFIX),
         )
         duplicate_supplier_id = cur.fetchone()[0]
         for sid, title in [
@@ -1463,6 +1463,17 @@ def assert_supplier_documents_group_scope(token, supplier_id, stamp, created):
 
     created["supplierDocumentDuplicateSupplierId"] = duplicate_supplier_id
     created["supplierDocumentIds"] = document_ids
+
+    _, linked = api_json(
+        "POST",
+        f"/suppliers/{supplier_id}/link-duplicate",
+        token=token,
+        data={"duplicateSupplierId": duplicate_supplier_id},
+        expected=200,
+    )
+    related_ids = [int(x) for x in (linked.get("relatedSupplierIds") or [])]
+    if int(duplicate_supplier_id) not in related_ids:
+        raise RuntimeError(f"Связка дубля поставщика не вернула общий supplier scope: {linked}")
 
     _, documents = api_json(
         "GET",
@@ -1644,9 +1655,11 @@ def cleanup(created):
                     (material_name, project_name, package or "", TEST_FOREMAN_NAME),
                 )
         if ids["supplierId"]:
+            cur.execute("DELETE FROM supplier_aliases WHERE supplier_id=%s", (ids["supplierId"],))
             cur.execute("DELETE FROM suppliers WHERE id=%s AND name LIKE %s", (ids["supplierId"], TEST_SUPPLIER_PREFIX + "%"))
         if ids["supplierDocumentDuplicateSupplierId"]:
-            cur.execute("DELETE FROM suppliers WHERE id=%s AND name LIKE %s", (ids["supplierDocumentDuplicateSupplierId"], "ООО " + TEST_SUPPLIER_PREFIX + "%"))
+            cur.execute("DELETE FROM supplier_aliases WHERE supplier_id=%s", (ids["supplierDocumentDuplicateSupplierId"],))
+            cur.execute("DELETE FROM suppliers WHERE id=%s AND name LIKE %s", (ids["supplierDocumentDuplicateSupplierId"], "CODEX QA ручной дубль поставщика%"))
         if ids["diagnosticSupplierId"]:
             cur.execute("DELETE FROM suppliers WHERE id=%s AND name LIKE %s", (ids["diagnosticSupplierId"], TEST_SUPPLIER_PREFIX + "%"))
         if ids["backfillSupplierId"]:

@@ -820,6 +820,19 @@ def _supplier_extract_requisites(payload: dict) -> dict:
         "email": email if "@" in email else "",
     }
 
+def _supplier_identity_keys(payload: dict) -> set:
+    req = _supplier_extract_requisites(payload or {})
+    keys = set()
+    if req["inn"] and len(req["inn"]) >= 10:
+        keys.add("inn:" + req["inn"])
+    if req["ogrn"] and len(req["ogrn"]) >= 13:
+        keys.add("ogrn:" + req["ogrn"])
+    if req["email"]:
+        keys.add("email:" + req["email"].lower())
+    if req["phone"] and len(req["phone"]) >= 7:
+        keys.add("phone:" + req["phone"])
+    return keys
+
 SUPPLIER_MATCH_SELECT = "id,name,phone,email,inn,kpp,ogrn,status"
 
 def _supplier_match_dict(row):
@@ -1120,59 +1133,82 @@ def supplier_related_ids(cur, supplier_id: int):
         return []
     if not supplier_id:
         return []
-    cur.execute("SELECT id,name,phone,email,inn,kpp,ogrn FROM suppliers WHERE id=%s LIMIT 1", (supplier_id,))
-    base = cur.fetchone()
-    if not base:
-        return [supplier_id]
-    base_payload = {
-        "name": _row_get(base, "name", 1, ""),
-        "phone": _row_get(base, "phone", 2, ""),
-        "email": _row_get(base, "email", 3, ""),
-        "inn": _row_get(base, "inn", 4, ""),
-        "kpp": _row_get(base, "kpp", 5, ""),
-        "ogrn": _row_get(base, "ogrn", 6, ""),
-    }
-    base_req = _supplier_extract_requisites(base_payload)
-    ids = {int(supplier_id)}
 
-    cur.execute("SELECT id,name,phone,email,inn,kpp,ogrn FROM suppliers ORDER BY id")
-    for row in cur.fetchall() or []:
-        row_id = int(_row_get(row, "id", 0, 0) or 0)
-        if not row_id:
-            continue
-        req = _supplier_extract_requisites({
+    def row_payload(row):
+        return {
             "name": _row_get(row, "name", 1, ""),
             "phone": _row_get(row, "phone", 2, ""),
             "email": _row_get(row, "email", 3, ""),
             "inn": _row_get(row, "inn", 4, ""),
             "kpp": _row_get(row, "kpp", 5, ""),
             "ogrn": _row_get(row, "ogrn", 6, ""),
-        })
-        strong_match = (
-            (base_req["inn"] and req["inn"] and base_req["inn"] == req["inn"]) or
-            (base_req["ogrn"] and req["ogrn"] and base_req["ogrn"] == req["ogrn"]) or
-            (base_req["email"] and req["email"] and base_req["email"] == req["email"]) or
-            (base_req["phone"] and req["phone"] and len(base_req["phone"]) >= 7 and base_req["phone"] == req["phone"])
-        )
-        name_match = base_req["nameKey"] and req["nameKey"] and base_req["nameKey"] == req["nameKey"]
-        if strong_match or name_match:
-            ids.add(row_id)
+        }
 
-    cur.execute("SELECT supplier_id,alias_key,inn,ogrn FROM supplier_aliases ORDER BY id")
-    for alias in cur.fetchall() or []:
-        alias_supplier_id = int(_row_get(alias, "supplier_id", 0, 0) or 0)
-        if not alias_supplier_id:
-            continue
+    def alias_keys(alias):
+        keys = set()
         alias_key = _row_get(alias, "alias_key", 1, "") or ""
         alias_inn = _supplier_digits(_row_get(alias, "inn", 2, ""))
         alias_ogrn = _supplier_digits(_row_get(alias, "ogrn", 3, ""))
-        if (
-            (base_req["inn"] and alias_inn and base_req["inn"] == alias_inn) or
-            (base_req["ogrn"] and alias_ogrn and base_req["ogrn"] == alias_ogrn) or
-            (base_req["nameKey"] and alias_key and base_req["nameKey"] == alias_key) or
-            alias_supplier_id in ids
-        ):
-            ids.add(alias_supplier_id)
+        if alias_inn and len(alias_inn) >= 10:
+            keys.add("inn:" + alias_inn)
+        if alias_ogrn and len(alias_ogrn) >= 13:
+            keys.add("ogrn:" + alias_ogrn)
+        return keys
+
+    def alias_manual_name_key(alias):
+        source = (_row_get(alias, "source", 4, "") or "").strip()
+        alias_key = _row_get(alias, "alias_key", 1, "") or ""
+        if source == "manual_supplier_duplicate_link" and alias_key:
+            return alias_key
+        return ""
+
+    cur.execute("SELECT id,name,phone,email,inn,kpp,ogrn FROM suppliers ORDER BY id")
+    supplier_rows = cur.fetchall() or []
+    supplier_by_id = {int(_row_get(row, "id", 0, 0) or 0): row for row in supplier_rows}
+    base = supplier_by_id.get(supplier_id)
+    if not base:
+        return [supplier_id]
+    ids = {int(supplier_id)}
+    known_keys = set(_supplier_identity_keys(row_payload(base)))
+    known_manual_name_keys = set()
+
+    cur.execute("SELECT supplier_id,alias_key,inn,ogrn,source FROM supplier_aliases ORDER BY id")
+    aliases = cur.fetchall() or []
+
+    changed = True
+    while changed:
+        changed = False
+        for row in supplier_rows:
+            row_id = int(_row_get(row, "id", 0, 0) or 0)
+            if not row_id:
+                continue
+            row_keys = _supplier_identity_keys(row_payload(row))
+            row_name_key = _normalize_supplier_name_key(_row_get(row, "name", 1, "") or "")
+            if row_id in ids:
+                before = len(known_keys)
+                known_keys.update(row_keys)
+                changed = changed or len(known_keys) != before
+            elif known_keys.intersection(row_keys) or (row_name_key and row_name_key in known_manual_name_keys):
+                ids.add(row_id)
+                known_keys.update(row_keys)
+                changed = True
+        for alias in aliases:
+            alias_supplier_id = int(_row_get(alias, "supplier_id", 0, 0) or 0)
+            if not alias_supplier_id:
+                continue
+            keys = alias_keys(alias)
+            if alias_supplier_id in ids:
+                before = len(known_keys)
+                known_keys.update(keys)
+                changed = changed or len(known_keys) != before
+                manual_name_key = alias_manual_name_key(alias)
+                if manual_name_key and manual_name_key not in known_manual_name_keys:
+                    known_manual_name_keys.add(manual_name_key)
+                    changed = True
+            elif known_keys.intersection(keys):
+                ids.add(alias_supplier_id)
+                known_keys.update(keys)
+                changed = True
     return sorted(ids)
 
 def supplier_group_scope_ids(cur, supplier_ids) -> list:
@@ -8093,6 +8129,58 @@ def link_supplier_user(id: int, data: dict, current_user: dict = Depends(require
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
+
+@app.post("/suppliers/{id}/link-duplicate")
+def link_supplier_duplicate(id: int, data: dict, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
+    data = data or {}
+    try:
+        duplicate_id = int(data.get("duplicateSupplierId") or data.get("duplicate_supplier_id") or data.get("supplierId") or 0)
+    except (TypeError, ValueError):
+        duplicate_id = 0
+    if duplicate_id <= 0:
+        raise HTTPException(status_code=400, detail="Выберите карточку-дубль поставщика")
+    if int(id) == duplicate_id:
+        raise HTTPException(status_code=400, detail="Нельзя связать карточку саму с собой")
+    conn = get_db()
+    conn.autocommit = False
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("SELECT * FROM suppliers WHERE id=%s FOR UPDATE", (id,))
+        canonical = cur.fetchone()
+        cur.execute("SELECT * FROM suppliers WHERE id=%s FOR UPDATE", (duplicate_id,))
+        duplicate = cur.fetchone()
+        if not canonical:
+            raise HTTPException(status_code=404, detail="Основная карточка поставщика не найдена")
+        if not duplicate:
+            raise HTTPException(status_code=404, detail="Карточка-дубль поставщика не найдена")
+
+        _remember_supplier_alias(cur, id, duplicate, source="manual_supplier_duplicate_link", confidence=0.99)
+        _remember_supplier_alias(cur, duplicate_id, canonical, source="manual_supplier_duplicate_link", confidence=0.99)
+        conn.commit()
+        related_ids = supplier_related_ids(cur, id)
+        log_audit(
+            current_user.get("name", ""),
+            current_user.get("role", ""),
+            "supplier_link_duplicate",
+            "supplier",
+            id,
+            ("Связан дубль поставщика #" + str(duplicate_id) + " с " + str(canonical.get("name") or ""))[:250],
+        )
+        return {
+            "ok": True,
+            "supplierId": id,
+            "duplicateSupplierId": duplicate_id,
+            "relatedSupplierIds": related_ids,
+        }
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as exc:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(exc))
     finally:
         cur.close()
         conn.close()
