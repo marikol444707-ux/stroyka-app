@@ -283,6 +283,7 @@ export const createEstimateWorkflowActions = ({
   };
 
   return {
+    loadEstimateDetail,
     openEstimateDetail,
     estimateDiffBaseFor,
     buildEstimateDiffContent,

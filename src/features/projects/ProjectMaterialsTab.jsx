@@ -1,5 +1,6 @@
 import React from 'react';
 import { createMaterialTransferForm } from '../warehouse/warehouseInitialForms';
+import { projectMaterialEstimateDetailsToLoad } from './projectMaterialsUtils';
 
 export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagnostics }) {
   const p = project;
@@ -9,7 +10,7 @@ export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagno
     buildMaterialRequirementContent, card, convertUnits, createBatchSupplyRequestFromMaterialControl,
     estimatePackage, estimateWorkNormRequirementRows, fmtMeasure, history, inp, isLeadership,
     isMobile, materialControlStatus, materialNormControlSummaryForProject,
-    materialReconciliationRows, materialTransfers, materials, renderMaterialAliasControls,
+    loadEstimateDetail, materialReconciliationRows, materialTransfers, materials, renderMaterialAliasControls,
     renderMaterialSupplyAction, setMaterialTransfers, setMaterials, setNewTransfer,
     setShowTransferForm, setWarehouseMain, showPreview, showTransferForm, staff, supplyRequests,
     tbl, tblC, tblH, user, visibleActiveProjects, warehouseMain, workJournal, projects,
@@ -18,20 +19,36 @@ export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagno
   } = ctx;
   const currentUser = user || {};
   const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
+  const [estimateLoadError, setEstimateLoadError] = React.useState('');
+  const [estimateLoadRetry, setEstimateLoadRetry] = React.useState(0);
+  const loadEstimateDetailRef = React.useRef(loadEstimateDetail);
+  loadEstimateDetailRef.current = loadEstimateDetail;
+  const estimatesToLoad = projectMaterialEstimateDetailsToLoad({
+    project: p,
+    activeEstimatesForProject,
+  });
+  const estimatesToLoadKey = estimatesToLoad.map(estimate => estimate.id).sort().join(',');
+  const isEstimatePlanLoading = estimatesToLoad.length > 0 && !estimateLoadError;
+
+  React.useEffect(() => {
+    if (!estimatesToLoadKey || typeof loadEstimateDetailRef.current !== 'function') return undefined;
+    let active = true;
+    setEstimateLoadError('');
+    Promise.all(estimatesToLoad.map(estimate => loadEstimateDetailRef.current(estimate)))
+      .catch(() => {
+        if (active) setEstimateLoadError('Не удалось загрузить материалы активных смет.');
+      });
+    return () => { active = false; };
+    // IDs change after detail rows are merged into estimatesList.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.name, estimatesToLoadKey, estimateLoadRetry]);
 
   return (
     <div>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-        <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Материалы объекта</b>
-            <div style={{display:'flex',gap:'8px'}}>
-              {(isLeadershipUser||currentUser.role==='прораб'||currentUser.role==='кладовщик')&&(
-          <button onClick={async()=>{
-            const res=await fetch(API+'/material-transfers?project_name='+encodeURIComponent(p.name));
-            const data=await res.json();
-            setMaterialTransfers(Array.isArray(data)?data:[]);
-            setNewTransfer(createMaterialTransferForm({ fromLocation: p.name }));
-            setShowTransferForm(!showTransferForm);
-          }} style={btnO}><Plus size={14}/>Передать материал</button>)}
+        <div>
+          <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Материалы по смете</b>
+          <p style={{color:C.textSec,fontSize:'11px',margin:'3px 0 0'}}>Плановая потребность активных смет, заявки, поставки и фактический остаток объекта.</p>
         </div>
       </div>
       {(()=>{
@@ -45,7 +62,18 @@ export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagno
           </div>
         </div>);
       })()}
-      <ProjectMaterialsControlPanel
+      {isEstimatePlanLoading && (
+        <div role="status" style={{padding:'14px 0',marginBottom:'12px',borderTop:'1px solid '+C.border,borderBottom:'1px solid '+C.border,color:C.textSec,fontSize:'12px'}}>
+          Загружаем материалы активных смет объекта...
+        </div>
+      )}
+      {estimateLoadError && (
+        <div role="alert" style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',padding:'12px 0',marginBottom:'12px',borderTop:'1px solid '+C.warningBorder,borderBottom:'1px solid '+C.warningBorder}}>
+          <span style={{color:C.warning,fontSize:'12px'}}>{estimateLoadError}</span>
+          <button type="button" onClick={()=>setEstimateLoadRetry(value=>value+1)} style={{...btnB,padding:'6px 10px',fontSize:'11px'}}>Повторить</button>
+        </div>
+      )}
+      {!isEstimatePlanLoading && !estimateLoadError && <ProjectMaterialsControlPanel
         projectName={p.name}
         rows={materialReconciliationRows(p.name)}
         normRows={estimateWorkNormRequirementRows(p.name)}
@@ -78,7 +106,22 @@ export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagno
               }));
               setShowTransferForm(true);
             }}
-          />
+          />}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',margin:'20px 0 10px'}}>
+        <div>
+          <b style={{color:C.text,fontSize:'14px',fontWeight:'700'}}>Фактический склад объекта</b>
+          <p style={{color:C.textSec,fontSize:'11px',margin:'3px 0 0'}}>Только принятые и перемещённые материалы, которые уже числятся на объекте.</p>
+        </div>
+        {(isLeadershipUser||currentUser.role==='прораб'||currentUser.role==='кладовщик')&&(
+          <button onClick={async()=>{
+            const res=await fetch(API+'/material-transfers?project_name='+encodeURIComponent(p.name));
+            const data=await res.json();
+            setMaterialTransfers(Array.isArray(data)?data:[]);
+            setNewTransfer(createMaterialTransferForm({ fromLocation: p.name }));
+            setShowTransferForm(!showTransferForm);
+          }} style={btnO}><Plus size={14}/>Передать материал</button>
+        )}
+      </div>
       <ProjectMaterialsStockPanel
         projectName={p.name}
         materials={materials}
