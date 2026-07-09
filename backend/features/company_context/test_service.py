@@ -2,7 +2,11 @@ import unittest
 
 from fastapi import HTTPException
 
-from backend.features.company_context.service import resolve_request_company_context
+from backend.features.company_context.service import (
+    company_id_scope_filter,
+    company_ids_for_context,
+    resolve_request_company_context,
+)
 
 
 class MembershipCursor:
@@ -59,6 +63,38 @@ def user(*, account_id=5):
 
 
 class ResolveRequestCompanyContextTests(unittest.TestCase):
+    def test_extracts_one_company_id_from_selected_context(self):
+        self.assertEqual(company_ids_for_context({"mode": "company", "companyId": 7}), [7])
+
+    def test_extracts_unique_company_ids_from_account_summary(self):
+        self.assertEqual(company_ids_for_context({
+            "mode": "all_companies",
+            "companies": [
+                {"companyId": 8},
+                {"company_id": 7},
+                {"companyId": 8},
+                {"companyId": None},
+            ],
+        }), [7, 8])
+
+    def test_builds_selected_company_filter(self):
+        self.assertEqual(
+            company_id_scope_filter({"mode": "company", "companyIds": [7]}),
+            (" AND company_id=%s", [7]),
+        )
+
+    def test_builds_account_summary_filter(self):
+        self.assertEqual(
+            company_id_scope_filter({"mode": "all_companies", "companyIds": [7, 8]}),
+            (" AND company_id = ANY(%s)", [[7, 8]]),
+        )
+
+    def test_denies_empty_company_scope(self):
+        self.assertEqual(
+            company_id_scope_filter({"mode": "all_companies", "companyIds": []}),
+            (" AND FALSE", []),
+        )
+
     def test_rejects_all_companies_for_mutation_without_querying_database(self):
         cur = MembershipCursor([])
 
@@ -135,6 +171,24 @@ class ResolveRequestCompanyContextTests(unittest.TestCase):
         self.assertEqual(context["platformAccountId"], 5)
         self.assertEqual(context["effectiveRole"], "снабженец")
         self.assertEqual(context["requestedMode"], "company")
+        self.assertEqual(context["companyIds"], [7])
+
+    def test_resolves_all_companies_to_memberships_inside_the_account(self):
+        cur = MembershipCursor([
+            membership(company_id=7, role="директор"),
+            membership(company_id=8, role="директор"),
+        ])
+
+        context = resolve_request_company_context(
+            cur,
+            user(),
+            action_mode="read",
+            x_company_mode="all_companies",
+        )
+
+        self.assertEqual(context["mode"], "all_companies")
+        self.assertTrue(context["readOnly"])
+        self.assertEqual(context["companyIds"], [7, 8])
 
     def test_keeps_legacy_requests_without_headers_compatible(self):
         cur = MembershipCursor([membership(role="директор")])
@@ -149,6 +203,7 @@ class ResolveRequestCompanyContextTests(unittest.TestCase):
         self.assertEqual(context["companyId"], 7)
         self.assertEqual(context["effectiveRole"], "директор")
         self.assertEqual(context["requestedMode"], "legacy")
+        self.assertEqual(context["companyIds"], [7])
 
     def test_keeps_users_company_id_fallback_compatible(self):
         cur = MembershipCursor([], companies=[{
@@ -169,6 +224,7 @@ class ResolveRequestCompanyContextTests(unittest.TestCase):
         self.assertEqual(context["source"], "legacy")
         self.assertEqual(context["effectiveRole"], "директор")
         self.assertEqual(context["requestedMode"], "legacy")
+        self.assertEqual(context["companyIds"], [7])
 
     def test_rejects_company_without_membership(self):
         cur = MembershipCursor([membership(company_id=7)])
@@ -195,6 +251,18 @@ class ResolveRequestCompanyContextTests(unittest.TestCase):
                 action_mode="create",
                 x_company_mode="company",
                 x_company_id="7",
+            )
+
+        self.assertEqual(error.exception.status_code, 403)
+
+    def test_rejects_cross_account_default_membership_without_headers(self):
+        cur = MembershipCursor([membership(account_id=6)])
+
+        with self.assertRaises(HTTPException) as error:
+            resolve_request_company_context(
+                cur,
+                user(account_id=5),
+                action_mode="read",
             )
 
         self.assertEqual(error.exception.status_code, 403)

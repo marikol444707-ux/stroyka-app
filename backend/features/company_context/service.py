@@ -53,6 +53,36 @@ def _assert_platform_account_boundary(user: dict, context: dict):
             raise HTTPException(status_code=403, detail="Компания относится к другому клиентскому аккаунту")
 
 
+def company_ids_for_context(context: dict) -> List[int]:
+    if (context or {}).get("mode") == "company":
+        company_id = _as_int((context or {}).get("companyId") or (context or {}).get("company_id"))
+        return [company_id] if company_id and company_id > 0 else []
+    if (context or {}).get("mode") != "all_companies":
+        return []
+    company_ids = {
+        company_id
+        for item in (context or {}).get("companies") or []
+        for company_id in [_as_int((item or {}).get("companyId") or (item or {}).get("company_id"))]
+        if company_id and company_id > 0
+    }
+    return sorted(company_ids)
+
+
+def company_id_scope_filter(context: dict):
+    company_ids = {
+        company_id
+        for value in (context or {}).get("companyIds") or company_ids_for_context(context or {})
+        for company_id in [_as_int(value)]
+        if company_id and company_id > 0
+    }
+    normalized_ids = sorted(company_ids)
+    if (context or {}).get("mode") == "company":
+        return (" AND company_id=%s", [normalized_ids[0]]) if normalized_ids else (" AND FALSE", [])
+    if (context or {}).get("mode") == "all_companies":
+        return (" AND company_id = ANY(%s)", [normalized_ids]) if normalized_ids else (" AND FALSE", [])
+    return " AND FALSE", []
+
+
 def _company_context_row(
     row: dict,
     *,
@@ -270,6 +300,7 @@ def resolve_request_company_context(
     _assert_platform_account_boundary(user, context)
     return {
         **context,
+        "companyIds": company_ids_for_context(context),
         "effectiveRole": context.get("role") or user.get("role") or "",
         "requestedMode": requested_mode,
     }

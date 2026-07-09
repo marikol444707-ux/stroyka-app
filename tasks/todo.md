@@ -309,6 +309,39 @@
 
 **Estimated scope:** M
 
+## Task M2.1: Supply Request Read Isolation
+
+**Description:** Apply Tenant Context Kernel to `GET /supply-requests` without changing write actions or supplier recipient visibility. Legacy clients without tenant headers resolve through default membership or `users.company_id`, never through an unscoped query.
+
+**Status:** Completed, verified, and released as an independent production slice on 2026-07-10.
+
+**Acceptance criteria:**
+- [x] Concrete company mode filters internal supply rows by one verified `company_id`.
+- [x] `Все компании` filters rows by company memberships inside the authenticated `platform_account`.
+- [x] Existing project, author, and work-package restrictions remain active together with company scope.
+- [x] Empty or invalid resolved scope fails closed and cannot become a broad query.
+- [x] Supplier users keep the existing recipient-based cross-client view.
+- [x] Requests without tenant headers use default membership/legacy company and cannot bypass filtering by omitting headers.
+- [x] No schema, backfill, supply mutations, or effective-role authorization is included.
+
+**Verification:**
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.company_context.test_service` (16 tests passed)
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py backend/features/company_context/service.py`
+- [x] Tracked frontend test suite (43 tests passed); untracked P-track tests are excluded from this release.
+- [x] `npm run build`
+
+**Dependencies:** Task M1
+
+**Files touched:**
+- `backend/features/company_context/service.py`
+- `backend/features/company_context/test_service.py`
+- `backend/main.py`
+- `ONBOARDING.md`
+- `tasks/plan.md`
+- `tasks/todo.md`
+
+**Estimated scope:** S
+
 ## Task M3: Supplier And Procurement Isolation
 
 **Description:** Make `company_supplier_links` and `supply_request_recipients` the source of truth for company-specific supplier relationships, KP visibility, offers, invoices, and deliveries.

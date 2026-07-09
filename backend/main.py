@@ -88,6 +88,11 @@ except ModuleNotFoundError:
     )
     from db import get_db, limit_offset_sql
 
+try:
+    from backend.features.company_context.service import company_id_scope_filter
+except ModuleNotFoundError:
+    from features.company_context.service import company_id_scope_filter
+
 def _startup_num(v) -> float:
     try:
         return float(str(v if v is not None else 0).replace(" ", "").replace(",", "."))
@@ -9448,16 +9453,50 @@ def _copy_approved_supply_request_control(cur, request_id, project: str, items: 
     return True
 
 @app.get("/supply-requests")
-def get_supply_requests(limit: Optional[int] = None, offset: int = 0, current_user: dict = Depends(get_current_user)):
+def get_supply_requests(
+    limit: Optional[int] = None,
+    offset: int = 0,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     role = current_user.get("role")
     page_sql, page_params = limit_offset_sql(limit, offset)
+    company_filter_sql = ""
+    company_filter_params = []
+    is_internal_supply_reader = (
+        can_see_all_company_data(current_user)
+        or role in ("снабженец", "кладовщик", "прораб")
+        or role in WORKER_EXECUTION_ROLES
+    )
+    if is_internal_supply_reader:
+        try:
+            company_context = _resolve_work_company_context(
+                cur,
+                current_user,
+                None,
+                "read",
+                x_company_id=x_company_id,
+                x_company_mode=x_company_mode,
+            )
+            company_filter_sql, company_filter_params = company_id_scope_filter(company_context)
+        except Exception:
+            cur.close()
+            conn.close()
+            raise
     if can_see_all_company_data(current_user):
-        cur.execute(SUPPLY_SELECT + " ORDER BY id DESC" + page_sql, page_params)
+        cur.execute(
+            SUPPLY_SELECT + " WHERE TRUE" + company_filter_sql + " ORDER BY id DESC" + page_sql,
+            company_filter_params + page_params,
+        )
     elif role in ("снабженец", "кладовщик"):
-        project_sql, project_params = scoped_project_where(current_user, "project")
-        cur.execute(SUPPLY_SELECT + project_sql + " ORDER BY id DESC" + page_sql, project_params + page_params)
+        project_filter_sql, project_params = scoped_project_filter(current_user, "project")
+        cur.execute(
+            SUPPLY_SELECT + " WHERE TRUE" + project_filter_sql + company_filter_sql + " ORDER BY id DESC" + page_sql,
+            project_params + company_filter_params + page_params,
+        )
     elif role == "поставщик":
         supplier_ids = current_supplier_ids(cur, current_user)
         if not supplier_ids:
@@ -9486,11 +9525,16 @@ def get_supply_requests(limit: Optional[int] = None, offset: int = 0, current_us
             clauses.append("project = ANY(%s)")
             params.append(projects)
         package_sql, package_params = package_access_filter(current_user)
-        cur.execute(SUPPLY_SELECT + " WHERE (" + " OR ".join(clauses) + ")" + package_sql + " ORDER BY id DESC" + page_sql, params + package_params + page_params)
+        cur.execute(
+            SUPPLY_SELECT + " WHERE (" + " OR ".join(clauses) + ")" + package_sql + company_filter_sql + " ORDER BY id DESC" + page_sql,
+            params + package_params + company_filter_params + page_params,
+        )
     elif role in WORKER_EXECUTION_ROLES:
         package_sql, package_params = package_access_filter(current_user)
-        cur.execute(SUPPLY_SELECT + " WHERE (requested_by_id=%s OR created_by=%s)" + package_sql + " ORDER BY id DESC" + page_sql,
-                    [current_user.get("id"), current_user.get("name") or ""] + package_params + page_params)
+        cur.execute(
+            SUPPLY_SELECT + " WHERE (requested_by_id=%s OR created_by=%s)" + package_sql + company_filter_sql + " ORDER BY id DESC" + page_sql,
+            [current_user.get("id"), current_user.get("name") or ""] + package_params + company_filter_params + page_params,
+        )
     else:
         cur.close(); conn.close()
         return []
