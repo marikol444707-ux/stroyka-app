@@ -1,4 +1,9 @@
-import { groupSuppliers, warehouseInvoiceDocumentKey } from './supplierUtils';
+import {
+  groupSuppliers,
+  supplierMatchesRecord,
+  supplierSourceInfo,
+  warehouseInvoiceDocumentKey,
+} from './supplierUtils';
 
 describe('groupSuppliers', () => {
   it('keeps request and recommendation flags when linked supplier cards are merged', () => {
@@ -25,6 +30,30 @@ describe('groupSuppliers', () => {
     expect(group.alreadyRequested).toBe(true);
     expect(group.aiRecommend).toBe(true);
     expect(group.deliveriesCount).toBe(4);
+  });
+
+  it('matches documents to any supplier id in a duplicate group', () => {
+    const [group] = groupSuppliers([
+      { id: 17, name: 'АО «САТУРН ЮГ»', inn: '2635000000' },
+      { id: 25, name: 'САТУРН ЮГ из накладной', inn: '2635000000' },
+    ]);
+
+    expect(supplierMatchesRecord(group, { supplierId: 25 })).toBe(true);
+    expect(supplierMatchesRecord(group, { supplierName: 'АО Сатурн Юг' })).toBe(true);
+    expect(supplierMatchesRecord(group, { supplierId: 99, supplierName: 'Другой поставщик' })).toBe(false);
+  });
+
+  it('summarizes supplier source using linked account and warehouse evidence', () => {
+    const [group] = groupSuppliers([
+      { id: 17, name: 'АО «САТУРН ЮГ»', inn: '2635000000', sourceType: 'manual', sourceDetail: 'добавил директор' },
+      { id: 25, name: 'САТУРН ЮГ', inn: '2635000000', user_id: 44, source_type: 'linked_account' },
+    ]);
+
+    const info = supplierSourceInfo(group, { warehouseInvoices: [{ id: 3 }] });
+
+    expect(info.primary).toBe('warehouse_invoice');
+    expect(info.types).toEqual(expect.arrayContaining(['manual', 'linked_account', 'warehouse_invoice']));
+    expect(info.filterTypes).toEqual(expect.arrayContaining(['warehouse_invoice', 'linked_account']));
   });
 });
 

@@ -84,6 +84,68 @@ export const supplierIdentityKeys = supplier => {
   ].filter(Boolean);
 };
 
+export const SUPPLIER_SOURCE_META = {
+  manual: { label: 'Вручную', color: '#64748b' },
+  invite_link: { label: 'По ссылке', color: '#2563eb' },
+  linked_account: { label: 'Связан вручную', color: '#7c3aed' },
+  warehouse_invoice: { label: 'Из накладной', color: '#0f766e' },
+  max_invoice: { label: 'MAX-накладная', color: '#0891b2' },
+  site: { label: 'С сайта', color: '#ea580c' },
+  crm: { label: 'CRM', color: '#f97316' },
+  other: { label: 'Другой источник', color: '#475569' },
+};
+
+export const SOURCE_FILTERS = [
+  { id: 'all', label: 'Все' },
+  { id: 'invite_link', label: 'Ссылка' },
+  { id: 'site', label: 'Сайт/CRM' },
+  { id: 'warehouse_invoice', label: 'Накладная' },
+  { id: 'manual', label: 'Вручную' },
+  { id: 'linked_account', label: 'Связанные' },
+];
+
+export const sourceMeta = type => SUPPLIER_SOURCE_META[type] || SUPPLIER_SOURCE_META.other;
+
+export const supplierMatchesRecord = (supplier, record) => {
+  const ids = new Set((supplier?._supplierIds || [supplier?.id]).map(id => Number(id)).filter(Boolean));
+  const recordId = Number(record?.supplierId || record?.supplier_id || 0);
+  if (recordId && ids.has(recordId)) return true;
+  const key = normalizeSupplierNameKey(record?.supplierName || record?.supplier_name || record?.supplier || '');
+  return key && (supplier?._supplierKeys || []).some(supplierKey => supplierKeysMatch(supplierKey, key));
+};
+
+export const supplierSourceInfo = (supplier, stats = {}) => {
+  const rawTypes = [
+    supplier?.sourceType,
+    supplier?.source_type,
+    ...(supplier?._supplierSourceTypes || []),
+  ].filter(Boolean);
+  const types = Array.from(new Set(rawTypes));
+  const hasLinkedAccount = supplier?.userId || supplier?.user_id || supplier?.registeredAt || supplier?.registered_at;
+  if (hasLinkedAccount && !types.includes('invite_link') && !types.includes('linked_account')) {
+    types.push('invite_link');
+  }
+  if ((stats.warehouseInvoices || []).length > 0 && !types.includes('warehouse_invoice')) {
+    types.push('warehouse_invoice');
+  }
+  if (!types.length) types.push('manual');
+  const sourcePriority = ['warehouse_invoice', 'max_invoice', 'invite_link', 'site', 'crm', 'linked_account', 'manual'];
+  const primary = sourcePriority.find(type => types.includes(type)) || types[0];
+  const filterTypes = types.flatMap(type => type === 'crm' ? ['crm', 'site'] : [type]);
+  const details = [
+    supplier?.sourceDetail,
+    supplier?.source_detail,
+    ...(supplier?._supplierSourceDetails || []),
+  ].filter(Boolean);
+  return {
+    primary,
+    types,
+    filterTypes,
+    label: sourceMeta(primary).label,
+    detail: details[0] || '',
+  };
+};
+
 const supplierDocumentNumberKey = value => String(value || '')
   .toLowerCase()
   .replace(/\s+/g, '')

@@ -2,6 +2,13 @@ import React from 'react';
 import { AlertTriangle, ChevronDown, ChevronUp, Eye, FileText, Link2, RefreshCw, Search } from 'lucide-react';
 import { API } from '../api';
 import { buildAccountingInvoiceRows } from '../utils/accountingInvoices';
+import {
+  groupSuppliers,
+  normalizeSupplierNameKey,
+  sourceMeta,
+  supplierMatchesRecord,
+  supplierSourceInfo,
+} from '../utils/supplierUtils';
 
 const money = value => Math.round(Number(value || 0)).toLocaleString('ru-RU') + ' ₽';
 
@@ -51,17 +58,39 @@ export default function AccountingSupplierDocumentsPanel({
     return map;
   }, [suppliers]);
 
+  const supplierGroups = React.useMemo(() => groupSuppliers(suppliers), [suppliers]);
+
   const groups = React.useMemo(() => {
     const map = new Map();
-    const ensureGroup = ({ supplierId, supplierName }) => {
-      const supplier = supplierId ? supplierById.get(String(supplierId)) : null;
+    const supplierGroupById = new Map();
+    supplierGroups.forEach(group => {
+      (group._supplierIds || [group.id]).forEach(id => {
+        if (id) supplierGroupById.set(String(id), group);
+      });
+    });
+    const findSupplierGroup = ({ supplierId, supplierName, record }) => {
+      if (supplierId && supplierGroupById.has(String(supplierId))) return supplierGroupById.get(String(supplierId));
+      const matchRecord = record || { supplierId, supplierName };
+      return supplierGroups.find(group => supplierMatchesRecord(group, matchRecord));
+    };
+    const ensureGroup = ({ supplierId, supplierName, record }) => {
+      const supplierGroup = findSupplierGroup({ supplierId, supplierName, record });
+      const supplier = supplierGroup || (supplierId ? supplierById.get(String(supplierId)) : null);
       const name = supplier?.name || supplierName || 'Поставщик не указан';
-      const key = supplierId ? `id:${supplierId}` : `name:${normalizeKey(name) || 'unknown'}`;
+      const key = supplierGroup
+        ? `group:${supplierGroup.id}`
+        : supplierId
+          ? `id:${supplierId}`
+          : `name:${normalizeSupplierNameKey(name) || normalizeKey(name) || 'unknown'}`;
       if (!map.has(key)) {
         map.set(key, {
           key,
           supplierId: supplierId || supplier?.id || null,
           supplierName: name,
+          supplier,
+          supplierIds: supplier?._supplierIds || (supplier?.id ? [supplier.id] : []),
+          duplicateCount: supplier?._duplicateCount || 1,
+          sourceInfo: supplierSourceInfo(supplier || {}, {}),
           docs: [],
           amount: 0,
           paid: 0,
@@ -83,7 +112,11 @@ export default function AccountingSupplierDocumentsPanel({
       ));
       const supplierId = invoice.supplierId || invoice.supplier_id || linkedSupplierInvoice?.supplierId || linkedSupplierInvoice?.supplier_id;
       const supplierName = invoice.supplierName || invoice.supplier_name || linkedSupplierInvoice?.supplierName;
-      const group = ensureGroup({ supplierId, supplierName });
+      const group = ensureGroup({ supplierId, supplierName, record: {
+        supplierId,
+        supplierName,
+        supplier: supplierName,
+      } });
       const supplierAmount = Number(linkedSupplierInvoice?.amount || linkedSupplierInvoice?.totalAmount || 0);
       const amountMismatch = supplierAmount > 0 && row.amount > 0 && Math.abs(supplierAmount - row.amount) > Math.max(1, row.amount * 0.05);
       const doc = {
@@ -114,7 +147,7 @@ export default function AccountingSupplierDocumentsPanel({
     (supplierInvoices || []).forEach(invoice => {
       const alreadyLinked = invoice.warehouseInvoiceId || invoice.warehouse_invoice_id;
       if (alreadyLinked) return;
-      const group = ensureGroup({ supplierId: invoice.supplierId || invoice.supplier_id, supplierName: invoice.supplierName });
+      const group = ensureGroup({ supplierId: invoice.supplierId || invoice.supplier_id, supplierName: invoice.supplierName, record: invoice });
       const amount = Number(invoice.amount || invoice.totalAmount || 0);
       group.docs.push({
         type: 'supplier',
@@ -139,11 +172,17 @@ export default function AccountingSupplierDocumentsPanel({
     });
 
     return Array.from(map.values())
+      .map(group => ({
+        ...group,
+        sourceInfo: supplierSourceInfo(group.supplier || {}, {
+          warehouseInvoices: group.docs.filter(doc => doc.type === 'warehouse').map(doc => doc.warehouseInvoice).filter(Boolean),
+        }),
+      }))
       .filter(group => !listSearch || (typeof matchSearch === 'function'
         ? matchSearch(listSearch, group.supplierName, ...group.docs.map(doc => `${doc.number} ${doc.projectName}`))
         : normalizeKey(group.supplierName).includes(normalizeKey(listSearch))))
       .sort((a, b) => b.amount - a.amount || a.supplierName.localeCompare(b.supplierName, 'ru'));
-  }, [rows, supplierInvoices, supplierById, supplierInvoiceById, listSearch, matchSearch]);
+  }, [rows, supplierInvoices, supplierById, supplierGroups, supplierInvoiceById, listSearch, matchSearch]);
 
   const totals = React.useMemo(() => groups.reduce((acc, group) => {
     acc.suppliers += 1;
@@ -206,14 +245,28 @@ export default function AccountingSupplierDocumentsPanel({
       ) : groups.map(group => {
         const isOpen = openedSupplier === group.key;
         const debt = Math.max(0, group.amount - group.paid);
+        const primarySourceMeta = sourceMeta(group.sourceInfo?.primary);
         return (
           <div key={group.key} style={{...card,marginBottom:'10px',overflow:'hidden'}}>
             <button onClick={()=>setOpenedSupplier(isOpen ? '' : group.key)} style={{width:'100%',border:'none',background:'transparent',padding:'14px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',cursor:'pointer',textAlign:'left'}}>
               <div>
-                <b style={{color:C.text,fontSize:'14px'}}>{group.supplierName}</b>
+                <div style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}>
+                  <b style={{color:C.text,fontSize:'14px'}}>{group.supplierName}</b>
+                  <span title={group.sourceInfo?.detail || ''} style={{fontSize:'11px',fontWeight:800,color:primarySourceMeta.color,padding:'2px 7px',borderRadius:'999px',background:C.bg,border:'1px solid '+primarySourceMeta.color}}>
+                    {primarySourceMeta.label}
+                  </span>
+                  {group.duplicateCount > 1 && (
+                    <span title={'Связанные карточки: ' + (group.supplierIds || []).join(', ')} style={{fontSize:'11px',fontWeight:800,color:C.warning,padding:'2px 7px',borderRadius:'999px',background:C.warningLight,border:'1px solid '+C.warningBorder}}>
+                      дублей: {group.duplicateCount}
+                    </span>
+                  )}
+                </div>
                 <p style={{color:C.textSec,fontSize:'12px',margin:'3px 0 0'}}>
                   {group.docs.length} док. · {money(group.amount)}{group.paid ? ' · оплачено ' + money(group.paid) : ''}{debt ? ' · долг ' + money(debt) : ''}
                 </p>
+                {isOpen && group.supplierIds?.length > 1 && (
+                  <p style={{color:C.textMuted,fontSize:'11px',margin:'3px 0 0'}}>Связанные ID: {group.supplierIds.join(', ')}</p>
+                )}
               </div>
               <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}>
                 {group.unlinked > 0 && <span style={{color:C.warning,fontSize:'11px',fontWeight:800}}>не связано {group.unlinked}</span>}
