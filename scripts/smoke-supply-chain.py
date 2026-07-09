@@ -39,6 +39,14 @@ def test_supplier_email(stamp):
     return f"supply-smoke-{stamp}@stroyka.local"
 
 
+def test_unlinked_supplier_name(stamp):
+    return f"{TEST_SUPPLIER_PREFIX} без кабинета {stamp}"
+
+
+def test_unlinked_supplier_email(stamp):
+    return f"supply-unlinked-{stamp}@stroyka.local"
+
+
 def load_env():
     values = {}
     if ENV_PATH.exists():
@@ -372,6 +380,61 @@ def create_supplier(token, stamp):
     return supplier_id
 
 
+def create_unlinked_supplier_record(stamp):
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO suppliers
+                (name, phone, email, specialization, category, rating, status, source_type, source_detail)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            RETURNING id
+            """,
+            (
+                test_unlinked_supplier_name(stamp),
+                "",
+                test_unlinked_supplier_email(stamp),
+                "CODEX QA",
+                "Материалы",
+                5,
+                "Активный",
+                "smoke_unlinked_supplier",
+                TEST_NOTE_PREFIX,
+            ),
+        )
+        supplier_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        return supplier_id
+    finally:
+        conn.close()
+
+
+def create_legacy_supplier_offer_record(request_id, supplier_id):
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT COALESCE(company_id,1) FROM supply_requests WHERE id=%s", (request_id,))
+        row = cur.fetchone()
+        company_id = row[0] if row else 1
+        cur.execute(
+            """
+            INSERT INTO supplier_offers
+                (request_id, supplier_id, company_id, status, notes, requested_at)
+            VALUES (%s,%s,%s,%s,%s,NOW())
+            RETURNING id
+            """,
+            (request_id, supplier_id, company_id, "Ожидает ответа", TEST_NOTE_PREFIX),
+        )
+        offer_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        return offer_id
+    finally:
+        conn.close()
+
+
 def create_supply_request_for_candidate(token, supplier_id, candidate, stamp):
     item = {
         "materialName": candidate["materialName"],
@@ -385,7 +448,7 @@ def create_supply_request_for_candidate(token, supplier_id, candidate, stamp):
         "createdBy": "CODEX QA",
         "date": dt.date.today().isoformat(),
         "notes": f"{TEST_NOTE_PREFIX} {stamp}",
-        "selectedSuppliers": [supplier_id],
+        "selectedSuppliers": [supplier_id] if supplier_id else [],
         "urgency": "обычная",
         "category": "Материалы",
         "items": [item],
@@ -628,6 +691,57 @@ def assert_supplier_offer_withdraw_and_resubmit(admin_token, supplier_token, sup
     events = [row.get("eventType") for row in history]
     if "withdrawn" not in events or events.count("responded") < 2:
         raise RuntimeError("История КП не сохранила отзыв и повторную подачу")
+
+
+def assert_unlinked_supplier_recipient_diagnostics(admin_token, candidate, stamp, created):
+    extra = dict(candidate)
+    request, error = create_supply_request_for_candidate(admin_token, None, extra, stamp + "-unlinked")
+    if not request:
+        raise RuntimeError("Не удалось создать заявку для проверки несвязанного поставщика: " + str(error))
+    request_id = request["id"]
+    created["diagnosticRequestId"] = request_id
+
+    supplier_id = create_unlinked_supplier_record(stamp)
+    created["diagnosticSupplierId"] = supplier_id
+
+    status, body = api_json(
+        "POST",
+        f"/supply-requests/{request_id}/request-kp",
+        token=admin_token,
+        data={"supplierIds": [supplier_id]},
+    )
+    detail = str(body.get("detail") or body.get("error") or body)
+    if status != 400 or "не привязан" not in detail:
+        raise RuntimeError(f"Несвязанный поставщик не был заблокирован перед КП: HTTP {status}, {detail[:300]}")
+
+    offer_id = create_legacy_supplier_offer_record(request_id, supplier_id)
+    created["diagnosticOfferId"] = offer_id
+
+    _, recipients = api_json("GET", f"/supply-requests/{request_id}/recipients", token=admin_token, expected=200)
+    if not isinstance(recipients, list):
+        raise RuntimeError("Диагностика получателей КП вернула не список")
+    row = next(
+        (
+            r for r in recipients
+            if int(r.get("targetSupplierId") or r.get("supplierId") or 0) == int(supplier_id)
+        ),
+        None,
+    )
+    if not row:
+        raise RuntimeError("Диагностика получателей КП не восстановила legacy supplier_offer")
+    if row.get("visibleToSupplier"):
+        raise RuntimeError("Несвязанный legacy-поставщик ошибочно отмечен как видимый")
+    if row.get("linkAction") != "link_supplier_user":
+        raise RuntimeError("Диагностика несвязанного поставщика не дала действие link_supplier_user")
+    if int(row.get("linkSupplierId") or 0) != int(supplier_id):
+        raise RuntimeError("Диагностика несвязанного поставщика ведет не к той supplier-карточке")
+    if not row.get("problemReason"):
+        raise RuntimeError("Диагностика несвязанного поставщика не объясняет причину невидимости")
+    if row.get("source") != "supplier_offers":
+        raise RuntimeError("Legacy-диагностика получателей КП не помечена source=supplier_offers")
+    offer_statuses = row.get("offerStatuses") or []
+    if not any(int(item.get("offerId") or 0) == int(offer_id) for item in offer_statuses if isinstance(item, dict)):
+        raise RuntimeError("Диагностика получателей КП не показала статус legacy КП")
 
 
 def assert_visible_chain(token, candidate, delivery_id, invoice_id):
@@ -1029,6 +1143,9 @@ def cleanup(created):
             "supplierInvoiceId": created.get("supplierInvoiceId"),
             "withdrawOfferId": created.get("withdrawOfferId"),
             "withdrawRequestId": created.get("withdrawRequestId"),
+            "diagnosticOfferId": created.get("diagnosticOfferId"),
+            "diagnosticRequestId": created.get("diagnosticRequestId"),
+            "diagnosticSupplierId": created.get("diagnosticSupplierId"),
             "supplierId": created.get("supplierId"),
         }
         for invoice_key in ["invoiceId", "manualInvoiceId", "foremanManualInvoiceId", "aliasInvoiceId", "cableInvoiceId"]:
@@ -1061,10 +1178,16 @@ def cleanup(created):
             cur.execute("DELETE FROM supplier_offer_events WHERE offer_id=%s", (ids["withdrawOfferId"],))
             cur.execute("DELETE FROM supplier_invoices WHERE offer_id=%s", (ids["withdrawOfferId"],))
             cur.execute("DELETE FROM supplier_offers WHERE id=%s", (ids["withdrawOfferId"],))
+        if ids["diagnosticOfferId"]:
+            cur.execute("DELETE FROM supplier_offer_events WHERE offer_id=%s", (ids["diagnosticOfferId"],))
+            cur.execute("DELETE FROM supplier_invoices WHERE offer_id=%s", (ids["diagnosticOfferId"],))
+            cur.execute("DELETE FROM supplier_offers WHERE id=%s", (ids["diagnosticOfferId"],))
         if ids["requestId"]:
             cur.execute("DELETE FROM supply_requests WHERE id=%s", (ids["requestId"],))
         if ids["withdrawRequestId"]:
             cur.execute("DELETE FROM supply_requests WHERE id=%s", (ids["withdrawRequestId"],))
+        if ids["diagnosticRequestId"]:
+            cur.execute("DELETE FROM supply_requests WHERE id=%s", (ids["diagnosticRequestId"],))
         for material_name in [n for n in material_names if n]:
             if material_name and project_name:
                 cur.execute(
@@ -1091,6 +1214,8 @@ def cleanup(created):
                 )
         if ids["supplierId"]:
             cur.execute("DELETE FROM suppliers WHERE id=%s AND name LIKE %s", (ids["supplierId"], TEST_SUPPLIER_PREFIX + "%"))
+        if ids["diagnosticSupplierId"]:
+            cur.execute("DELETE FROM suppliers WHERE id=%s AND name LIKE %s", (ids["diagnosticSupplierId"], TEST_SUPPLIER_PREFIX + "%"))
         if created.get("supplierEmail"):
             cur.execute("UPDATE users SET active=FALSE WHERE LOWER(email)=LOWER(%s)", (created["supplierEmail"],))
         if created.get("aliasId"):
@@ -1138,6 +1263,7 @@ def main():
         created["invoiceId"] = invoice_id
         supplier_invoice_view = assert_supplier_invoice_scope(supplier_token, candidate, offer_id, supplier_invoice_id, invoice_id)
         assert_supplier_offer_withdraw_and_resubmit(token, supplier_token, supplier_id, candidate, stamp, created)
+        assert_unlinked_supplier_recipient_diagnostics(token, candidate, stamp, created)
         manual_invoice_id, manual_material_name = assert_visible_chain(token, candidate, delivery_id, invoice_id)
         created["manualInvoiceId"] = manual_invoice_id
         created["manualMaterialName"] = manual_material_name
@@ -1178,6 +1304,9 @@ def main():
             "foremanManualMaterial": foreman_material_name,
             "aliasInvoiceId": alias_invoice_id,
             "aliasName": alias_name,
+            "diagnosticRequestId": created.get("diagnosticRequestId"),
+            "diagnosticOfferId": created.get("diagnosticOfferId"),
+            "diagnosticSupplierId": created.get("diagnosticSupplierId"),
             "checked": [
                 "positive estimate material selected",
                 "supply request passed estimate control",
@@ -1188,6 +1317,8 @@ def main():
                 "receipt created automatic invoice",
                 "supplier cabinet sees linked invoice, warehouse receipt, received quantity and receipt items",
                 "supplier offer can be withdrawn and resubmitted with history",
+                "unlinked supplier is blocked before KP send",
+                "legacy invisible supplier recipient exposes link action diagnostics",
                 "receipt updated project materials",
                 "receipt wrote supply history",
                 "manual director object invoice is allowed, controlled and written to object warehouse",
