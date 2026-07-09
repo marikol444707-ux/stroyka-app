@@ -21498,8 +21498,9 @@ def list_supplier_documents(supplier_id: int = None, current_user: dict = Depend
         params = [own_supplier_ids]
     elif role in ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер"):
         if supplier_id:
-            where = " WHERE supplier_id=%s"
-            params = [supplier_id]
+            supplier_ids = supplier_related_ids(cur, supplier_id) or [supplier_id]
+            where = " WHERE supplier_id = ANY(%s)"
+            params = [supplier_ids]
     else:
         cur.close(); conn.close()
         return []

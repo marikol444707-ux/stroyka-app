@@ -1420,6 +1420,66 @@ def assert_supplier_invoice_dedupe(token, supplier_invoice_id, created):
     return duplicate_id
 
 
+def assert_supplier_documents_group_scope(token, supplier_id, stamp, created):
+    duplicate_supplier_id = None
+    document_ids = []
+    conn = db_conn()
+    try:
+        conn.autocommit = False
+        cur = conn.cursor()
+        cur.execute("SELECT name, phone FROM suppliers WHERE id=%s", (supplier_id,))
+        supplier_row = cur.fetchone()
+        if not supplier_row:
+            raise RuntimeError("Не найден тестовый поставщик для проверки документов группы")
+        supplier_name, supplier_phone = supplier_row
+        cur.execute(
+            """
+            INSERT INTO suppliers
+                (name, phone, email, specialization, category, rating, status, source_type, source_detail)
+            VALUES (%s,%s,'','CODEX QA','Материалы',5,'Активный','smoke_supplier_duplicate',%s)
+            RETURNING id
+            """,
+            ("ООО " + supplier_name, supplier_phone, TEST_NOTE_PREFIX),
+        )
+        duplicate_supplier_id = cur.fetchone()[0]
+        for sid, title in [
+            (supplier_id, "CODEX QA основной документ поставщика"),
+            (duplicate_supplier_id, "CODEX QA документ дубля поставщика"),
+        ]:
+            cur.execute(
+                """
+                INSERT INTO supplier_documents
+                    (supplier_id, doc_type, title, file_url, status, notes, uploaded_by)
+                VALUES (%s,'Реквизиты',%s,'','Загружен',%s,'CODEX QA')
+                RETURNING id
+                """,
+                (sid, title + " " + stamp, TEST_NOTE_PREFIX),
+            )
+            document_ids.append(cur.fetchone()[0])
+        conn.commit()
+        cur.close()
+    finally:
+        conn.close()
+
+    created["supplierDocumentDuplicateSupplierId"] = duplicate_supplier_id
+    created["supplierDocumentIds"] = document_ids
+
+    _, documents = api_json(
+        "GET",
+        f"/supplier-documents?supplier_id={supplier_id}",
+        token=token,
+        expected=200,
+    )
+    returned_ids = {int(doc.get("id") or 0) for doc in documents if doc.get("id")}
+    missing_ids = [doc_id for doc_id in document_ids if int(doc_id) not in returned_ids]
+    if missing_ids:
+        raise RuntimeError(
+            "Документы дубля поставщика не попали в /supplier-documents по основной карточке: "
+            + json.dumps({"missing": missing_ids, "returned": sorted(returned_ids)}, ensure_ascii=False)
+        )
+    return duplicate_supplier_id, document_ids
+
+
 def cleanup(created):
     conn = None
     try:
@@ -1493,8 +1553,11 @@ def cleanup(created):
             "notificationOfferId": created.get("notificationOfferId"),
             "notificationOutboxId": created.get("notificationOutboxId"),
             "notificationMessengerAccountId": created.get("notificationMessengerAccountId"),
+            "supplierDocumentDuplicateSupplierId": created.get("supplierDocumentDuplicateSupplierId"),
             "supplierId": created.get("supplierId"),
         }
+        for document_id in created.get("supplierDocumentIds") or []:
+            cur.execute("DELETE FROM supplier_documents WHERE id=%s", (document_id,))
         if ids["dedupeSupplierInvoiceDuplicateId"]:
             cur.execute("DELETE FROM supplier_invoices WHERE id=%s", (ids["dedupeSupplierInvoiceDuplicateId"],))
         if ids["backfillSupplierInvoiceId"]:
@@ -1582,6 +1645,8 @@ def cleanup(created):
                 )
         if ids["supplierId"]:
             cur.execute("DELETE FROM suppliers WHERE id=%s AND name LIKE %s", (ids["supplierId"], TEST_SUPPLIER_PREFIX + "%"))
+        if ids["supplierDocumentDuplicateSupplierId"]:
+            cur.execute("DELETE FROM suppliers WHERE id=%s AND name LIKE %s", (ids["supplierDocumentDuplicateSupplierId"], "ООО " + TEST_SUPPLIER_PREFIX + "%"))
         if ids["diagnosticSupplierId"]:
             cur.execute("DELETE FROM suppliers WHERE id=%s AND name LIKE %s", (ids["diagnosticSupplierId"], TEST_SUPPLIER_PREFIX + "%"))
         if ids["backfillSupplierId"]:
@@ -1659,6 +1724,7 @@ def main():
         created["aliasQuantity"] = candidate["quantity"]
         backfill_invoice_id, backfill_supplier_invoice_id, _ = assert_backfill_uncertain_supplier_review(token, candidate, stamp, created)
         dedupe_supplier_invoice_duplicate_id = assert_supplier_invoice_dedupe(token, backfill_supplier_invoice_id, created)
+        document_duplicate_supplier_id, supplier_document_ids = assert_supplier_documents_group_scope(token, supplier_id, stamp, created)
         print(json.dumps({
             "ok": True,
             "projectName": candidate["projectName"],
@@ -1688,6 +1754,8 @@ def main():
             "diagnosticRequestId": created.get("diagnosticRequestId"),
             "diagnosticOfferId": created.get("diagnosticOfferId"),
             "diagnosticSupplierId": created.get("diagnosticSupplierId"),
+            "supplierDocumentDuplicateSupplierId": document_duplicate_supplier_id,
+            "supplierDocumentIds": supplier_document_ids,
             "checked": [
                 "positive estimate material selected",
                 "supply request passed estimate control",
@@ -1711,6 +1779,7 @@ def main():
                 "invoice alias rewrites raw supplier material to estimate material",
                 "targeted supplier document backfill marks name-only legacy links as needs_review",
                 "supplier accounting dedupe annuls repeated primary document without losing warehouse link",
+                "supplier documents endpoint returns documents from the whole duplicate supplier group",
             ],
         }, ensure_ascii=False, indent=2))
     except Exception as exc:
