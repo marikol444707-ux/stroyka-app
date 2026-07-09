@@ -216,6 +216,60 @@ export default function AccountingSupplierDocumentsPanel({
     }
   };
 
+  const runBackfillForDoc = async (doc, event) => {
+    event?.stopPropagation?.();
+    const warehouseInvoiceId = doc?.warehouseInvoice?.id;
+    if (!warehouseInvoiceId) {
+      alert('Не найден ID складской накладной для точечной сверки');
+      return;
+    }
+    setBusy(true);
+    try {
+      const previewRes = await fetch(API + '/supplier-documents/backfill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ warehouseInvoiceId, limit: 1 }),
+      });
+      const preview = await previewRes.json().catch(() => ({}));
+      if (!previewRes.ok || preview.detail || preview.error) {
+        alert('Предпросмотр сверки не выполнен: ' + (preview.detail || preview.error || previewRes.status));
+        return;
+      }
+      const item = (preview.items || [])[0] || {};
+      const reviewLine = item.needsReview
+        ? '\nСтатус после сверки: нужно уточнение. Причина: ' + (item.reviewReason || 'проверьте поставщика/документ')
+        : '';
+      const message = [
+        'Связать первичку только по этой накладной?',
+        '',
+        'Накладная № ' + (item.number || doc.number || warehouseInvoiceId),
+        item.date ? 'Дата: ' + item.date : '',
+        item.projectName ? 'Объект: ' + item.projectName : '',
+        'Сумма: ' + money(item.amount || doc.amount),
+        reviewLine,
+        '',
+        'Склад и оплаты повторно не создаются.',
+      ].filter(Boolean).join('\n');
+      if (!window.confirm(message)) return;
+      const res = await fetch(API + '/supplier-documents/backfill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apply: true, warehouseInvoiceId, limit: 1 }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.detail || data.error || (data.errors || []).length) {
+        const firstError = (data.errors || [])[0] || {};
+        alert('Сверка не выполнена: ' + (data.detail || data.error || firstError.error || res.status));
+        return;
+      }
+      const resultItem = (data.items || [])[0] || {};
+      alert('Первичка связана. ' + (resultItem.needsReview ? 'Документ оставлен на ручную проверку: ' + (resultItem.reviewReason || '') : 'Документ готов к сверке.'));
+      if (typeof refreshData === 'function') await refreshData();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'14px'}}>
@@ -297,6 +351,11 @@ export default function AccountingSupplierDocumentsPanel({
                         </div>
                         <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}>
                           <span style={{color:C.textSec,fontSize:'11px'}}>{doc.status}</span>
+                          {doc.type === 'warehouse' && !doc.linked && (
+                            <button disabled={busy} onClick={event=>runBackfillForDoc(doc, event)} style={{...btnG,padding:'5px 9px',fontSize:'11px',opacity:busy?0.6:1}}>
+                              <RefreshCw size={12}/>Связать первичку
+                            </button>
+                          )}
                           <button onClick={()=>setOpenedDoc(docOpen ? '' : doc.id)} style={{...btnB,padding:'5px 9px',fontSize:'11px'}}>
                             {docOpen ? <ChevronUp size={12}/> : <Eye size={12}/>}Открыть
                           </button>
