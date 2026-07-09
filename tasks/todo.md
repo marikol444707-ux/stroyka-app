@@ -423,7 +423,7 @@
 - [x] Conflicting company header/body, `Все компании`, foreign membership, or missing request company fails before mutation.
 - [x] KP authorization and project access use the selected company's effective membership role and assignments.
 - [x] The request row is locked while recipients, offers, status, and notifications are prepared.
-- [x] Recipient rows are checked against the request company before commit.
+- [x] All recipient and offer rows for the request are locked and checked against the request company before any email/MAX notification.
 - [x] The final status update includes `WHERE id AND company_id`, does not rewrite `company_id`, and fails if the target changed.
 - [x] Existing supplier grouping, visibility diagnostics, approved-status guard, offer creation, and notification behavior remain unchanged.
 - [x] Recipient diagnostics, supplier suggestions/comparison, supplier offer lifecycle, invoices, and deliveries remain outside this slice.

@@ -1647,11 +1647,13 @@ def _queue_supply_request_max_notification(cur, recipient: dict, request_context
     row = cur.fetchone()
     return int(_row_get(row, "id", 0, 0) or 0), "В очереди MAX"
 
-def _notify_supply_request_recipients(cur, request_id: int) -> list:
+def _notify_supply_request_recipients(cur, request_id: int, company_id: int = None) -> list:
     _ensure_supply_request_recipients_table(cur)
     request_context = _supply_request_notification_context(cur, request_id)
     if not request_context:
         return []
+    recipient_company_sql = " AND r.company_id=%s" if company_id else ""
+    recipient_params = [request_id] + ([company_id] if company_id else [])
     cur.execute("""
         SELECT r.id, r.request_id, r.target_supplier_id, r.supplier_id, r.supplier_user_id,
                r.email_notification_status, r.max_notification_status, r.max_outbox_id,
@@ -1662,22 +1664,26 @@ def _notify_supply_request_recipients(cur, request_id: int) -> list:
           LEFT JOIN users u ON u.id=r.supplier_user_id
          WHERE r.request_id=%s
            AND COALESCE(r.visible_to_supplier,FALSE)=TRUE
+    """ + recipient_company_sql + """
          ORDER BY r.id
-    """, (request_id,))
+    """, recipient_params)
     recipients = [dict(row) for row in (cur.fetchall() or [])]
     if not recipients:
         return []
     scope_ids = _normalize_supplier_ids([row.get("target_supplier_id") or row.get("supplier_id") for row in recipients])
     offer_by_supplier = {}
     if scope_ids:
+        offer_company_sql = " AND company_id=%s" if company_id else ""
+        offer_params = [request_id, scope_ids] + ([company_id] if company_id else [])
         cur.execute("""
             SELECT id, supplier_id
               FROM supplier_offers
              WHERE request_id=%s
                AND supplier_id = ANY(%s)
                AND COALESCE(status,'') NOT IN ('Отклонено','Отозвано')
+        """ + offer_company_sql + """
              ORDER BY id DESC
-        """, (request_id, scope_ids))
+        """, offer_params)
         for offer in cur.fetchall() or []:
             supplier_id = int(_row_get(offer, "supplier_id", 1, 0) or 0)
             offer_by_supplier.setdefault(supplier_id, int(_row_get(offer, "id", 0, 0) or 0))
@@ -10666,6 +10672,16 @@ def request_kp_from_suppliers(
         if visibility_error:
             raise HTTPException(status_code=400, detail=visibility_error)
         created = _create_supplier_offer_requests(cur, id, selected_scope_ids, ai_ids, company_id=company_id)
+        cur.execute(
+            "SELECT company_id FROM supply_request_recipients WHERE request_id=%s FOR UPDATE",
+            (id,),
+        )
+        assert_rows_company_scope(cur.fetchall(), company_id, "Получатели КП")
+        cur.execute(
+            "SELECT company_id FROM supplier_offers WHERE request_id=%s FOR UPDATE",
+            (id,),
+        )
+        assert_rows_company_scope(cur.fetchall(), company_id, "Коммерческие предложения")
         # Обновляем статус заявки
         cur.execute("""UPDATE supply_requests
                        SET status=CASE WHEN status='Утверждена' THEN %s ELSE status END,
@@ -10678,7 +10694,7 @@ def request_kp_from_suppliers(
             ('КП запрошены', selected_scope_ids, id, company_id))
         if cur.rowcount != 1:
             raise HTTPException(status_code=409, detail="Компания заявки изменилась во время запроса КП")
-        notification_rows = _notify_supply_request_recipients(cur, id)
+        notification_rows = _notify_supply_request_recipients(cur, id, company_id=company_id)
         conn.commit()
         return {
             "ok": True,
