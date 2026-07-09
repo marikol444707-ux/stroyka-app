@@ -2,6 +2,7 @@ import {
   groupSuppliers,
   supplierNameDuplicateReason,
   supplierMatchesRecord,
+  supplierReviewInfo,
   supplierSourceInfo,
   warehouseInvoiceDocumentKey,
 } from './supplierUtils';
@@ -74,6 +75,31 @@ describe('groupSuppliers', () => {
     expect(info.primary).toBe('warehouse_invoice');
     expect(info.types).toEqual(expect.arrayContaining(['manual', 'linked_account', 'warehouse_invoice']));
     expect(info.filterTypes).toEqual(expect.arrayContaining(['warehouse_invoice', 'linked_account']));
+  });
+
+  it('marks invoice-only supplier without strong identity for manual review', () => {
+    const [group] = groupSuppliers([
+      { id: 25, name: 'САТУРН ЮГ из накладной', sourceType: 'warehouse_invoice', status: 'Нужно уточнение' },
+    ]);
+
+    const review = supplierReviewInfo(group, { warehouseInvoices: [{ id: 3 }] });
+
+    expect(review.needsReview).toBe(true);
+    expect(review.reasons).toEqual(expect.arrayContaining([
+      'карточка в статусе "Нужно уточнение"',
+      'создан из накладной без ИНН/ОГРН/email/телефона',
+    ]));
+  });
+
+  it('does not mark linked supplier with strong identity as review-only', () => {
+    const [group] = groupSuppliers([
+      { id: 17, name: 'АО «САТУРН ЮГ»', inn: '2635000000', sourceType: 'invite_link', user_id: 44, status: 'Активный' },
+    ]);
+
+    const review = supplierReviewInfo(group, {});
+
+    expect(review.needsReview).toBe(false);
+    expect(review.reasons).toEqual([]);
   });
 });
 

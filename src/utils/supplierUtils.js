@@ -121,6 +121,7 @@ export const SUPPLIER_SOURCE_META = {
 
 export const SOURCE_FILTERS = [
   { id: 'all', label: 'Все' },
+  { id: 'needs_review', label: 'Проверка' },
   { id: 'invite_link', label: 'Ссылка' },
   { id: 'site', label: 'Сайт/CRM' },
   { id: 'warehouse_invoice', label: 'Накладная' },
@@ -129,6 +130,10 @@ export const SOURCE_FILTERS = [
 ];
 
 export const sourceMeta = type => SUPPLIER_SOURCE_META[type] || SUPPLIER_SOURCE_META.other;
+
+export const supplierHasStrongIdentity = supplier => (
+  (supplier?._supplierIdentityKeys || supplierIdentityKeys(supplier)).length > 0
+);
 
 export const supplierMatchesRecord = (supplier, record) => {
   const ids = new Set((supplier?._supplierIds || [supplier?.id]).map(id => Number(id)).filter(Boolean));
@@ -167,6 +172,36 @@ export const supplierSourceInfo = (supplier, stats = {}) => {
     filterTypes,
     label: sourceMeta(primary).label,
     detail: details[0] || '',
+  };
+};
+
+export const supplierReviewInfo = (supplier, stats = {}, possibleDuplicates = []) => {
+  const sourceInfo = supplierSourceInfo(supplier, stats);
+  const reasons = [];
+  const status = String(supplier?.status || '').trim().toLowerCase();
+  const fromInvoice = sourceInfo.types.some(type => ['warehouse_invoice', 'max_invoice'].includes(type));
+  const linkedAccount = Boolean(supplier?.userId || supplier?.user_id || supplier?.registeredAt || supplier?.registered_at);
+
+  if (status === 'нужно уточнение') {
+    reasons.push('карточка в статусе "Нужно уточнение"');
+  }
+  if (fromInvoice && !supplierHasStrongIdentity(supplier)) {
+    reasons.push('создан из накладной без ИНН/ОГРН/email/телефона');
+  }
+  if (fromInvoice && !linkedAccount && !supplierHasStrongIdentity(supplier)) {
+    reasons.push('нет живого кабинета поставщика');
+  }
+  if ((possibleDuplicates || []).length > 0) {
+    reasons.push('есть похожие карточки');
+  }
+  if (Number(stats?.duplicateDocumentsCount || 0) > 0) {
+    reasons.push('есть скрытые дубли документов');
+  }
+
+  return {
+    needsReview: reasons.length > 0,
+    reasons,
+    label: reasons[0] || '',
   };
 };
 

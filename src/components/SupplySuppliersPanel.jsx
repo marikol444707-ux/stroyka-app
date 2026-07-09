@@ -11,6 +11,7 @@ import {
   sourceMeta,
   supplierNameDuplicateReason,
   supplierMatchesRecord,
+  supplierReviewInfo,
   supplierSourceInfo,
   warehouseInvoiceDocumentKey,
 } from '../utils/supplierUtils';
@@ -339,13 +340,6 @@ function SupplySuppliersPanel({
     };
   }, [invoices, supplierInvoices, supplyDeliveries, supplierOffers, supplierCatalog]);
 
-  const sourceMatches = React.useCallback(sourceInfo => (
-    sourceFilter === 'all'
-    || sourceInfo.filterTypes.includes(sourceFilter)
-    || (sourceFilter === 'site' && sourceInfo.filterTypes.includes('crm'))
-    || (sourceFilter === 'warehouse_invoice' && sourceInfo.filterTypes.includes('max_invoice'))
-  ), [sourceFilter]);
-
   const supplierStatsById = React.useMemo(() => {
     const statsById = new Map();
     supplierGroups.forEach(supplier => {
@@ -388,14 +382,39 @@ function SupplySuppliersPanel({
     const byCategory = new Map(categories.map(category => [category, []]));
     supplierRows.forEach(row => {
       const { supplier, stats, sourceInfo } = row;
+      const possibleDuplicates = possibleDuplicateRowsById.get(supplier.id) || [];
+      const reviewInfo = supplierReviewInfo(supplier, stats, possibleDuplicates);
       const category = supplier.category || 'Прочее';
-      if (!sourceMatches(sourceInfo)) return;
+      const sourceOk = (
+        sourceFilter === 'all'
+        || (sourceFilter === 'needs_review' && reviewInfo.needsReview)
+        || sourceInfo.filterTypes.includes(sourceFilter)
+        || (sourceFilter === 'site' && sourceInfo.filterTypes.includes('crm'))
+        || (sourceFilter === 'warehouse_invoice' && sourceInfo.filterTypes.includes('max_invoice'))
+      );
+      if (!sourceOk) return;
       if (!matchSearch(listSearch, supplier.name, supplier.specialization, supplier.phone, supplier.email, sourceInfo.label, sourceInfo.detail, stats.searchText)) return;
       if (!byCategory.has(category)) byCategory.set(category, []);
       byCategory.get(category).push(row);
     });
     return byCategory;
-  }, [categories, supplierRows, sourceMatches, listSearch, matchSearch]);
+  }, [categories, supplierRows, possibleDuplicateRowsById, sourceFilter, listSearch, matchSearch]);
+
+  const sourceSummary = React.useMemo(() => {
+    const initial = Object.fromEntries(SOURCE_FILTERS.map(filter => [filter.id, 0]));
+    supplierRows.forEach(({supplier, stats, sourceInfo}) => {
+      initial.all += 1;
+      new Set(sourceInfo.filterTypes).forEach(type => {
+        if (initial[type] !== undefined) initial[type] += 1;
+        if (type === 'max_invoice' && initial.warehouse_invoice !== undefined) initial.warehouse_invoice += 1;
+      });
+      const possibleDuplicates = possibleDuplicateRowsById.get(supplier.id) || [];
+      if (supplierReviewInfo(supplier, stats, possibleDuplicates).needsReview) {
+        initial.needs_review += 1;
+      }
+    });
+    return initial;
+  }, [supplierRows, possibleDuplicateRowsById]);
 
   const openInvite = () => {
     setSupplierInviteForm(createSupplierInviteForm());
@@ -587,6 +606,7 @@ function SupplySuppliersPanel({
             }}
           >
             {filter.label}
+            {sourceSummary[filter.id] ? ' · ' + sourceSummary[filter.id] : ''}
           </button>
         ))}
       </div>
@@ -607,6 +627,7 @@ function SupplySuppliersPanel({
               const materialPreview = stats.materials.slice(0, 5);
               const primarySourceMeta = sourceMeta(sourceInfo.primary);
               const possibleDuplicates = possibleDuplicateRowsById.get(supplier.id) || [];
+              const reviewInfo = supplierReviewInfo(supplier, stats, possibleDuplicates);
               return (
                 <div key={supplier.id} onClick={()=>setOpenedSupplierId(isOpen ? null : supplier.id)} style={{...card,padding:'14px',marginBottom:'8px',marginLeft:'12px',cursor:'pointer',borderColor:isOpen?C.accent:C.border}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
@@ -614,6 +635,7 @@ function SupplySuppliersPanel({
                       <div style={{display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
                         <b style={{color:C.text,fontSize:'13px',overflowWrap:'anywhere'}}>{supplier.name}</b>
                         <span title={sourceInfo.detail || sourceInfo.types.map(type => sourceMeta(type).label).join(', ')} style={{fontSize:'11px',fontWeight:'700',color:primarySourceMeta.color,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.bg,border:'1px solid '+primarySourceMeta.color}}>{primarySourceMeta.label}</span>
+                        {reviewInfo.needsReview && <span title={reviewInfo.reasons.join('; ')} style={{fontSize:'11px',fontWeight:'700',color:C.warning,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder}}>проверить</span>}
                         {supplier._duplicateCount > 1 && <span style={{fontSize:'11px',fontWeight:'700',color:C.warning,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder}}>дублей: {supplier._duplicateCount}</span>}
                         {possibleDuplicates.length > 0 && <span title="Похожие названия не объединяются автоматически. Проверьте и свяжите вручную, если это один поставщик." style={{fontSize:'11px',fontWeight:'700',color:C.warning,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder}}>возможных дублей: {possibleDuplicates.length}</span>}
                         {stats.duplicateDocumentsCount > 0 && <span title="Повторные строки документов скрыты из суммы и счетчиков" style={{fontSize:'11px',fontWeight:'700',color:C.warning,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder}}>дублей документов: {stats.duplicateDocumentsCount}</span>}
@@ -657,6 +679,16 @@ function SupplySuppliersPanel({
 
                   {isOpen && (
                     <div style={{marginTop:'12px',paddingTop:'12px',borderTop:'1px solid '+C.border}}>
+                      {reviewInfo.needsReview && (
+                        <div onClick={event=>event.stopPropagation()} style={{padding:'10px',borderRadius:'8px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder,marginBottom:'10px'}}>
+                          <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'6px'}}>⚠️ Требует ручной проверки</b>
+                          <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
+                            {reviewInfo.reasons.map(reason => (
+                              <span key={reason} style={{fontSize:'11px',color:C.warning,padding:'3px 8px',borderRadius:'999px',backgroundColor:C.bg,border:'1px solid '+C.warningBorder}}>{reason}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       {canLinkSupplierUsers && possibleDuplicates.length > 0 && (
                         <div onClick={event=>event.stopPropagation()} style={{padding:'10px',borderRadius:'8px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder,marginBottom:'10px'}}>
                           <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'6px'}}>⚠️ Возможные дубли</b>
