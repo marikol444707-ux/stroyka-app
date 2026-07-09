@@ -1617,6 +1617,7 @@ def main():
         supplier_email = test_supplier_email(stamp)
         created["supplierId"] = supplier_id
         created["supplierEmail"] = supplier_email
+        supplier_token = ensure_supplier_user(supplier_email, supplier_name)
         candidate = select_working_candidate(token, supplier_id, stamp)
         created.update({
             "projectName": candidate["projectName"],
@@ -1626,7 +1627,6 @@ def main():
             "quantity": candidate["quantity"],
             "requestId": candidate["requestId"],
         })
-        supplier_token = ensure_supplier_user(supplier_email, supplier_name)
         notification_request_id, notification_outbox_id = assert_supply_request_notifications(token, supplier_id, supplier_email, candidate, stamp, created)
         offer_id = create_and_select_offer(token, candidate, supplier_id, supplier_token=supplier_token)
         created["offerId"] = offer_id
