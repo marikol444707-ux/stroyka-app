@@ -71,6 +71,10 @@ export const installAuthFetch = () => {
     '/password-reset/request',
     '/password-reset/confirm',
   ];
+  const csrfMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+  const csrfHeaderName = 'X-CSRF-Token';
+  let csrfToken = '';
+  let csrfTokenPromise = null;
   const getRequestPath = (input) => {
     try {
       const url = typeof input === 'string' ? input : input?.url;
@@ -81,6 +85,10 @@ export const installAuthFetch = () => {
     }
   };
   const isAuthPublicPath = (path) => authPublicPaths.some(publicPath => path === publicPath || path.startsWith(publicPath + '/'));
+  const getRequestMethod = (input, init = {}) => {
+    const method = init.method || (typeof Request !== 'undefined' && input instanceof Request ? input.method : '') || 'GET';
+    return String(method).toUpperCase();
+  };
   const getStoredAuthToken = () => {
     try {
       return localStorage.getItem('authToken') || '';
@@ -97,6 +105,39 @@ export const installAuthFetch = () => {
       }
     } catch (_e) {}
     return false;
+  };
+  const hasCsrfHeader = (input, init) => {
+    const headers = new Headers(init.headers || {});
+    if (headers.has(csrfHeaderName)) return true;
+    try {
+      if (typeof Request !== 'undefined' && input instanceof Request) {
+        return input.headers.has(csrfHeaderName);
+      }
+    } catch (_e) {}
+    return false;
+  };
+  const fetchCsrfToken = async () => {
+    if (csrfToken) return csrfToken;
+    if (!csrfTokenPromise) {
+      csrfTokenPromise = nativeFetch(API + '/csrf-token', { credentials: 'include' })
+        .then(async (response) => {
+          if (!response.ok) return '';
+          const data = await response.json().catch(() => ({}));
+          csrfToken = typeof data.csrfToken === 'string' ? data.csrfToken : '';
+          return csrfToken;
+        })
+        .catch(() => '')
+        .finally(() => {
+          csrfTokenPromise = null;
+        });
+    }
+    return csrfTokenPromise;
+  };
+  const withCsrfToken = (init, token) => {
+    if (!token) return init;
+    const headers = new Headers(init.headers || {});
+    if (!headers.has(csrfHeaderName)) headers.set(csrfHeaderName, token);
+    return {...init, headers};
   };
   const withBearerFallback = (init, token) => {
     const headers = new Headers(init.headers || {});
@@ -122,7 +163,11 @@ export const installAuthFetch = () => {
     const path = getRequestPath(input);
     const isPublicAuthRequest = isAuthPublicPath(path);
     if (isPublicAuthRequest) return nativeFetch(input, {...init, credentials: init.credentials || 'include'});
-    const nextInit = {...init, credentials: init.credentials || 'include'};
+    const method = getRequestMethod(input, init);
+    let nextInit = {...init, credentials: init.credentials || 'include'};
+    if (csrfMethods.has(method) && !hasCsrfHeader(input, init)) {
+      nextInit = withCsrfToken(nextInit, await fetchCsrfToken());
+    }
     const response = await nativeFetch(input, nextInit);
     if (response.status !== 401) return response;
 

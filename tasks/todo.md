@@ -114,13 +114,17 @@
 **Description:** Add a minimal CSRF design and first compatible server/client path for mutating requests without breaking current sessions.
 
 **Acceptance criteria:**
-- [ ] CSRF requirement is documented before broad enforcement.
-- [ ] One safe mutating endpoint proves the pattern.
-- [ ] Public endpoints remain intentionally public.
+- [x] CSRF requirement is documented before broad enforcement.
+- [x] One safe mutating endpoint proves the pattern: `/logout` has flag-gated CSRF checks for cookie sessions.
+- [x] Public endpoints remain intentionally public.
 
 **Verification:**
-- [ ] Auth/session smoke passes.
-- [ ] Target endpoint accepts valid CSRF and rejects missing/invalid CSRF only when enforcement is enabled.
+- [x] `CI=true npm test -- --watchAll=false`
+- [x] `npm run build`
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py`
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile scripts/smoke-auth-session.py`
+- [ ] `npm run smoke:auth-session` (blocked locally: PostgreSQL password authentication failed for user `stroyka`)
+- [ ] Target endpoint accepts valid CSRF and rejects missing/invalid CSRF in the live auth/session smoke with `EXPECT_CSRF_LOGOUT_ENFORCED=true`.
 
 **Dependencies:** Task 5
 

@@ -24,6 +24,10 @@ RUN_ID = uuid.uuid4().hex[:8]
 EMAIL = f"auth-session-smoke-{RUN_ID}@stroyka.local"
 PASSWORD = secrets.token_urlsafe(14)
 COOKIE_NAME = os.getenv("AUTH_SESSION_COOKIE_NAME", "stroyka_session")
+EXPECT_CSRF_LOGOUT_ENFORCED = os.getenv(
+    "EXPECT_CSRF_LOGOUT_ENFORCED",
+    os.getenv("CSRF_LOGOUT_ENFORCED", "false"),
+).strip().lower() in ("1", "true", "yes")
 
 
 def load_env():
@@ -91,10 +95,12 @@ def cleanup():
     conn.close()
 
 
-def request_json(opener, method, path, data=None, token=None, expected=None):
+def request_json(opener, method, path, data=None, token=None, headers_extra=None, expected=None):
     headers = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = "Bearer " + token
+    if headers_extra:
+        headers.update(headers_extra)
     body = json.dumps(data, ensure_ascii=False).encode("utf-8") if data is not None else None
     req = urllib.request.Request(BASE_URL + path, data=body, headers=headers, method=method)
     try:
@@ -151,7 +157,15 @@ def main():
 
         if BASE_URL.startswith("https://"):
             request_json(opener, "GET", "/users", expected=200)
-            request_json(opener, "POST", "/logout", expected=200)
+            _, csrf_body, _ = request_json(opener, "GET", "/csrf-token", expected=200)
+            csrf_token = csrf_body.get("csrfToken")
+            if not csrf_token:
+                raise RuntimeError(f"/csrf-token did not return csrfToken: {csrf_body}")
+            if EXPECT_CSRF_LOGOUT_ENFORCED:
+                request_json(opener, "POST", "/logout", expected=403)
+                request_json(opener, "POST", "/logout", headers_extra={"X-CSRF-Token": "bad-token"}, expected=403)
+                request_json(opener, "GET", "/users", expected=200)
+            request_json(opener, "POST", "/logout", headers_extra={"X-CSRF-Token": csrf_token}, expected=200)
             request_json(opener, "GET", "/users", expected=401)
 
         bearer_token = auth_token_for(user_id)
@@ -163,6 +177,9 @@ def main():
                 "login returns transition Bearer token",
                 "login sets HttpOnly session cookie",
                 "cookie opens protected endpoint" if BASE_URL.startswith("https://") else "cookie endpoint skipped on non-https BASE_URL",
+                "csrf token endpoint returns token" if BASE_URL.startswith("https://") else "csrf token endpoint skipped on non-https BASE_URL",
+                "missing/invalid csrf rejected for cookie logout" if BASE_URL.startswith("https://") and EXPECT_CSRF_LOGOUT_ENFORCED else "csrf logout rejection not expected in compatibility mode",
+                "valid csrf logout succeeds" if BASE_URL.startswith("https://") else "valid csrf logout skipped on non-https BASE_URL",
                 "logout revokes cookie session" if BASE_URL.startswith("https://") else "logout cookie revocation skipped on non-https BASE_URL",
                 "Bearer fallback remains compatible",
             ],

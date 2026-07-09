@@ -259,6 +259,8 @@ AUTH_SESSION_COOKIE_SECURE = os.getenv(
 AUTH_SESSION_COOKIE_SAMESITE = os.getenv("AUTH_SESSION_COOKIE_SAMESITE", "lax").strip().lower()
 if AUTH_SESSION_COOKIE_SAMESITE not in ("lax", "strict", "none"):
     AUTH_SESSION_COOKIE_SAMESITE = "lax"
+CSRF_TOKEN_TTL_SECONDS = int(os.getenv("CSRF_TOKEN_TTL_SECONDS", str(2 * 60 * 60)))
+CSRF_LOGOUT_ENFORCED = os.getenv("CSRF_LOGOUT_ENFORCED", "false").strip().lower() in ("1", "true", "yes")
 
 def hash_password(password: str) -> str:
     salt = secrets.token_hex(16)
@@ -434,6 +436,32 @@ def verify_auth_token(token: str) -> dict:
 def _session_token_hash(token: str) -> str:
     return hmac.new(AUTH_SECRET.encode("utf-8"), str(token or "").encode("utf-8"), hashlib.sha256).hexdigest()
 
+def _create_csrf_token(session_token: str) -> str:
+    payload = {
+        "purpose": "csrf",
+        "session": _session_token_hash(session_token),
+        "nonce": secrets.token_urlsafe(16),
+        "exp": int(time.time()) + CSRF_TOKEN_TTL_SECONDS,
+    }
+    body = _b64url(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    sig = hmac.new(AUTH_SECRET.encode("utf-8"), ("csrf:" + body).encode("utf-8"), hashlib.sha256).digest()
+    return body + "." + _b64url(sig)
+
+def _valid_csrf_token(token: str, session_token: str) -> bool:
+    try:
+        body, sig = str(token or "").split(".", 1)
+        expected = _b64url(hmac.new(AUTH_SECRET.encode("utf-8"), ("csrf:" + body).encode("utf-8"), hashlib.sha256).digest())
+        if not hmac.compare_digest(sig, expected):
+            return False
+        payload = json.loads(_b64url_decode(body).decode("utf-8"))
+        if payload.get("purpose") != "csrf":
+            return False
+        if int(payload.get("exp") or 0) < int(time.time()):
+            return False
+        return hmac.compare_digest(payload.get("session") or "", _session_token_hash(session_token))
+    except Exception:
+        return False
+
 def _request_ip(request: Optional[Request]) -> str:
     if not request:
         return ""
@@ -541,6 +569,22 @@ def get_current_user(request: Request, authorization: Optional[str] = Header(def
     if authorization and authorization.lower().startswith("bearer "):
         return _current_user_from_bearer(authorization)
     return _current_user_from_session_cookie(request)
+
+def require_csrf_for_cookie_mutation(
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+    x_csrf_token: Optional[str] = Header(default=None, alias="X-CSRF-Token"),
+) -> None:
+    if not CSRF_LOGOUT_ENFORCED:
+        return None
+    if authorization and authorization.lower().startswith("bearer "):
+        return None
+    session_token = request.cookies.get(AUTH_SESSION_COOKIE_NAME)
+    if not session_token:
+        return None
+    if not _valid_csrf_token(x_csrf_token or "", session_token):
+        raise HTTPException(status_code=403, detail="CSRF token missing or invalid")
+    return None
 
 def require_roles(*roles: str):
     allowed = set(roles)
@@ -5339,8 +5383,18 @@ def confirm_login_2fa_setup(data: TwoFactorSetupConfirmModel, response: Response
               description="Пользователь включил 2FA")
     return public_user(user, include_token=True, two_factor_passed=True)
 
+@app.get("/csrf-token")
+def csrf_token(request: Request, _current_user: dict = Depends(get_current_user)):
+    session_token = request.cookies.get(AUTH_SESSION_COOKIE_NAME)
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Требуется cookie-сессия")
+    return {
+        "csrfToken": _create_csrf_token(session_token),
+        "expiresIn": CSRF_TOKEN_TTL_SECONDS,
+    }
+
 @app.post("/logout")
-def logout(response: Response, request: Request):
+def logout(response: Response, request: Request, _csrf: None = Depends(require_csrf_for_cookie_mutation)):
     token = request.cookies.get(AUTH_SESSION_COOKIE_NAME)
     user_id = None
     if token:
