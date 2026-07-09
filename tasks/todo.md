@@ -246,7 +246,7 @@
 **Verification:**
 - [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py`
 - [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile scripts/smoke-auth-session.py`
-- [ ] `npm run smoke:auth-session` on production after deploy.
+- [x] `npm run smoke:auth-session` on production after deploy.
 
 **Dependencies:** Task 6.4
 
