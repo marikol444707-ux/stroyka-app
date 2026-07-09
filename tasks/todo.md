@@ -381,7 +381,7 @@
 
 **Description:** Apply Tenant Context Kernel to `DELETE /supply-requests/{id}`. Keep the existing cancel/rollback behavior, but authorize it from the request's stored `company_id` and prevent the optional received-stock rollback from touching deliveries, documents, materials, or warehouse history of another company.
 
-**Status:** Implemented and verified locally on 2026-07-10; push and production release are pending.
+**Status:** Completed, verified, and released as production commits `a3345b9b` and `01360f07` on 2026-07-10.
 
 **Acceptance criteria:**
 - [x] The stored request `company_id` is the source of truth for delete/cancel authorization.
@@ -398,6 +398,7 @@
 - [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py backend/features/company_context/service.py`
 - [x] Frontend test suite (15 suites / 71 tests passed).
 - [x] `npm run build`
+- [x] Production health reported version `01360f075407`, service active, no warning-level log entries, HTTP and browser smoke passed.
 
 **Dependencies:** Task M2.2
 
