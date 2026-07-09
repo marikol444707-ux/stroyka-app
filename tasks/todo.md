@@ -123,8 +123,10 @@
 - [x] `npm run build`
 - [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py`
 - [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile scripts/smoke-auth-session.py`
-- [ ] `npm run smoke:auth-session` (blocked locally: PostgreSQL password authentication failed for user `stroyka`)
-- [ ] Target endpoint accepts valid CSRF and rejects missing/invalid CSRF in the live auth/session smoke with `EXPECT_CSRF_LOGOUT_ENFORCED=true`.
+- [x] Production deploy passed `bash deploy.sh` at `340a91a` and production moved forward to `05e6354`.
+- [x] `/csrf-token` is proxied by production nginx and returns `401` without a cookie session.
+- [x] `EXPECT_CSRF_LOGOUT_ENFORCED=true npm run smoke:auth-session` passes on production.
+- [x] Target endpoint accepts valid CSRF and rejects missing/invalid CSRF in live auth/session smoke.
 
 **Dependencies:** Task 5
 
