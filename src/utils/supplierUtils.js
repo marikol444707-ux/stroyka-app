@@ -67,6 +67,34 @@ export const supplierKeysMatch = (left, right) => {
   return short.length >= 6 && long.includes(short);
 };
 
+const supplierNameNoiseTokens = new Set([
+  'ооо', 'оао', 'ао', 'пао', 'зао', 'ип',
+  'из', 'по', 'для', 'накладной', 'накладная', 'счет', 'счета',
+]);
+
+const supplierNameTokens = value => (
+  normalizeSupplierNameKey(value)
+    .split(' ')
+    .filter(token => token.length >= 2 && !supplierNameNoiseTokens.has(token))
+);
+
+export const supplierNameDuplicateReason = (left, right) => {
+  const leftTokens = supplierNameTokens(left?.name || left?.supplierName || left?.supplier_name || left?.supplier || '');
+  const rightTokens = supplierNameTokens(right?.name || right?.supplierName || right?.supplier_name || right?.supplier || '');
+  const leftKey = leftTokens.join(' ');
+  const rightKey = rightTokens.join(' ');
+  if (!leftKey || !rightKey) return '';
+  if (leftKey === rightKey) return 'совпадает название';
+  if (supplierKeysMatch(leftKey, rightKey)) return 'похожее название';
+  const leftSet = new Set(leftTokens);
+  const rightSet = new Set(rightTokens);
+  const common = [...leftSet].filter(token => rightSet.has(token));
+  if (common.length >= 2 && common.length >= Math.min(leftSet.size, rightSet.size, 3)) {
+    return 'похожее название';
+  }
+  return '';
+};
+
 export const supplierIdentityKeys = supplier => {
   const inn = normalizeSupplierDigits(supplier?.inn || supplier?.supplierInn || supplier?.supplier_inn);
   const ogrn = normalizeSupplierDigits(supplier?.ogrn || supplier?.supplierOgrn || supplier?.supplier_ogrn);

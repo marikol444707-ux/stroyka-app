@@ -9,6 +9,7 @@ import {
   groupSuppliers,
   normalizeSupplierNameKey,
   sourceMeta,
+  supplierNameDuplicateReason,
   supplierMatchesRecord,
   supplierSourceInfo,
   warehouseInvoiceDocumentKey,
@@ -364,6 +365,25 @@ function SupplySuppliersPanel({
     })
   ), [supplierGroups, supplierStatsById]);
 
+  const possibleDuplicateRowsById = React.useMemo(() => {
+    const map = new Map();
+    supplierRows.forEach(row => {
+      const ownIds = new Set((row.supplier._supplierIds || [row.supplier.id]).map(id => String(id)));
+      const candidates = supplierRows
+        .filter(candidate => {
+          if ((candidate.supplier._supplierIds || [candidate.supplier.id]).some(id => ownIds.has(String(id)))) return false;
+          return Boolean(supplierNameDuplicateReason(row.supplier, candidate.supplier));
+        })
+        .slice(0, 5)
+        .map(candidate => ({
+          ...candidate,
+          reason: supplierNameDuplicateReason(row.supplier, candidate.supplier),
+        }));
+      if (candidates.length > 0) map.set(row.supplier.id, candidates);
+    });
+    return map;
+  }, [supplierRows]);
+
   const supplierRowsByCategory = React.useMemo(() => {
     const byCategory = new Map(categories.map(category => [category, []]));
     supplierRows.forEach(row => {
@@ -586,6 +606,7 @@ function SupplySuppliersPanel({
               const isOpen = openedSupplierId === supplier.id;
               const materialPreview = stats.materials.slice(0, 5);
               const primarySourceMeta = sourceMeta(sourceInfo.primary);
+              const possibleDuplicates = possibleDuplicateRowsById.get(supplier.id) || [];
               return (
                 <div key={supplier.id} onClick={()=>setOpenedSupplierId(isOpen ? null : supplier.id)} style={{...card,padding:'14px',marginBottom:'8px',marginLeft:'12px',cursor:'pointer',borderColor:isOpen?C.accent:C.border}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
@@ -594,6 +615,7 @@ function SupplySuppliersPanel({
                         <b style={{color:C.text,fontSize:'13px',overflowWrap:'anywhere'}}>{supplier.name}</b>
                         <span title={sourceInfo.detail || sourceInfo.types.map(type => sourceMeta(type).label).join(', ')} style={{fontSize:'11px',fontWeight:'700',color:primarySourceMeta.color,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.bg,border:'1px solid '+primarySourceMeta.color}}>{primarySourceMeta.label}</span>
                         {supplier._duplicateCount > 1 && <span style={{fontSize:'11px',fontWeight:'700',color:C.warning,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder}}>дублей: {supplier._duplicateCount}</span>}
+                        {possibleDuplicates.length > 0 && <span title="Похожие названия не объединяются автоматически. Проверьте и свяжите вручную, если это один поставщик." style={{fontSize:'11px',fontWeight:'700',color:C.warning,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder}}>возможных дублей: {possibleDuplicates.length}</span>}
                         {stats.duplicateDocumentsCount > 0 && <span title="Повторные строки документов скрыты из суммы и счетчиков" style={{fontSize:'11px',fontWeight:'700',color:C.warning,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder}}>дублей документов: {stats.duplicateDocumentsCount}</span>}
                         {isOpen ? <ChevronUp size={14} color={C.textSec}/> : <ChevronDown size={14} color={C.textSec}/>}
                       </div>
@@ -635,6 +657,32 @@ function SupplySuppliersPanel({
 
                   {isOpen && (
                     <div style={{marginTop:'12px',paddingTop:'12px',borderTop:'1px solid '+C.border}}>
+                      {canLinkSupplierUsers && possibleDuplicates.length > 0 && (
+                        <div onClick={event=>event.stopPropagation()} style={{padding:'10px',borderRadius:'8px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder,marginBottom:'10px'}}>
+                          <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'6px'}}>⚠️ Возможные дубли</b>
+                          <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 8px'}}>
+                            Эти карточки похожи по названию, но не объединены автоматически. Если это один поставщик, подставьте карточку и подтвердите ручную связку.
+                          </p>
+                          <div style={{display:'grid',gap:'6px'}}>
+                            {possibleDuplicates.map(({supplier: candidate, reason}) => (
+                              <button
+                                key={candidate.id}
+                                onClick={event=>{
+                                  event.stopPropagation();
+                                  setDuplicateLinkingSupplierId(supplier.id);
+                                  setDuplicateSupplierId(String(candidate.id));
+                                }}
+                                style={{...btnG,justifyContent:'space-between',padding:'8px 10px',fontSize:'11px'}}
+                              >
+                                <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                                  {candidate.name || 'Без названия'}{candidate.inn ? ' · ИНН ' + candidate.inn : ''}
+                                </span>
+                                <span style={{color:C.textMuted}}>{reason}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       {canLinkSupplierUsers && linkingSupplierId === supplier.id && (
                         <div onClick={event=>event.stopPropagation()} style={{padding:'10px',borderRadius:'8px',backgroundColor:C.infoLight,border:'1px solid '+C.infoBorder,marginBottom:'10px'}}>
                           <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'6px'}}>🔗 Связать кабинет поставщика</b>

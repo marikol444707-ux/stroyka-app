@@ -1,5 +1,6 @@
 import {
   groupSuppliers,
+  supplierNameDuplicateReason,
   supplierMatchesRecord,
   supplierSourceInfo,
   warehouseInvoiceDocumentKey,
@@ -51,6 +52,15 @@ describe('groupSuppliers', () => {
 
     expect(groups).toHaveLength(2);
     expect(groups.map(group => group._supplierIds)).toEqual([[17], [25]]);
+  });
+
+  it('flags name-only supplier cards as possible duplicates for manual review', () => {
+    const reason = supplierNameDuplicateReason(
+      { id: 17, name: 'АО «САТУРН ЮГ»' },
+      { id: 25, name: 'ООО Сатурн Юг из накладной' },
+    );
+
+    expect(reason).toBe('совпадает название');
   });
 
   it('summarizes supplier source using linked account and warehouse evidence', () => {
