@@ -15,12 +15,29 @@ export function SupplyRequestsProjectHeader({
   card,
   badge,
   project,
+  groupLabel,
+  groupBucket,
   requests,
   collapsed,
   onToggle,
 }) {
   const pendingCount = requests.filter(r => r.status === 'Новая' || r.status === 'Подтверждена прорабом').length;
   const urgentCount = requests.filter(r => r.urgency === 'срочная').length;
+  const groupColor = groupBucket === 'estimate'
+    ? (C.info || C.accent)
+    : groupBucket === 'review'
+      ? C.warning
+      : C.textSec;
+  const groupBg = groupBucket === 'estimate'
+    ? (C.infoLight || C.accentLight || C.bg)
+    : groupBucket === 'review'
+      ? C.warningLight
+      : C.bg;
+  const groupBorder = groupBucket === 'estimate'
+    ? (C.infoBorder || C.accentBorder || C.border)
+    : groupBucket === 'review'
+      ? C.warningBorder
+      : C.border;
 
   return (
     <div
@@ -40,6 +57,12 @@ export function SupplyRequestsProjectHeader({
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
         <span style={{ fontSize: '14px' }}>{collapsed ? '▶' : '▼'}</span>
         <b style={{ color: C.text, fontSize: '14px' }}>🏗 {project}</b>
+        {groupLabel && (
+          <span style={badge(groupColor, groupBg, groupBorder)}>
+            {groupBucket === 'estimate' ? '📁 ' : groupBucket === 'review' ? '⚠️ ' : '✍️ '}
+            {groupLabel}
+          </span>
+        )}
         <span style={{ fontSize: '12px', color: C.textSec }}>{requests.length + ' заявок'}</span>
         {pendingCount > 0 && <span style={badge(C.warning, C.warningLight, C.warningBorder)}>⏳ {pendingCount}</span>}
         {urgentCount > 0 && <span style={badge(C.danger, C.dangerLight, C.dangerBorder)}>🔴 {urgentCount}</span>}

@@ -59,7 +59,11 @@ export const supplyRequestOrigin = (req) => {
   if (!lines.length) return null;
   const notes = lines.join('\n');
   const materialControl = lines.some(l => l.startsWith('MATERIAL_CONTROL_REQUEST:')) || notes.includes('Создано из контроля материалов');
-  const normCoverage = notes.includes('Создано из ведомости') || (notes.includes('Норма:') && notes.includes('Расчётная потребность'));
+  const normCoverage = notes.includes('Создано из ведомости') ||
+    notes.includes('NORM_COVERAGE_REQUEST:') ||
+    notes.includes('NORM_ESTIMATE_REQUEST:') ||
+    notes.includes('Пакетная заявка из черновика сметы') ||
+    (notes.includes('Норма:') && notes.includes('Расчётная потребность'));
   if (!materialControl && !normCoverage) return null;
   const projectName = supplyNoteValue(lines, 'Объект') || req.project || '';
   const materialName = supplyNoteValue(lines, 'Материал') || req.materialName || '';
@@ -85,6 +89,55 @@ export const supplyRequestOrigin = (req) => {
     projectName,
     materialName,
     facts: facts.filter(([, value]) => value),
+  };
+};
+
+export const supplyRequestHasReviewIssue = (req) => {
+  const items = parseSupplyItems(req);
+  return items.some(item => {
+    const control = item?.estimateControl || item?.estimate_control || null;
+    return ['no_active_estimate', 'no_estimate_material', 'over_estimate_need'].includes(control?.status || '');
+  });
+};
+
+export const supplyRequestSourceBucket = (req) => {
+  if (supplyRequestHasReviewIssue(req)) return 'review';
+  return supplyRequestOrigin(req) ? 'estimate' : 'manual';
+};
+
+export const supplyRequestEstimateGroupLabel = (req) => {
+  const lines = supplyNoteLines(req);
+  const notePackage = supplyNoteValue(lines, 'Пакет работ') || supplyNoteValue(lines, 'Раздел сметы');
+  const itemPackage = parseSupplyItems(req).map(item => item.workPackage || item.work_package || '').find(Boolean);
+  const raw = req?.workPackage || req?.work_package || notePackage || itemPackage || 'Основная';
+  return String(raw || 'Основная').trim() || 'Основная';
+};
+
+export const supplyRequestListGroup = (req) => {
+  const bucket = supplyRequestSourceBucket(req);
+  const project = req?.project || '— Без объекта —';
+  if (bucket === 'estimate') {
+    const estimateGroup = supplyRequestEstimateGroupLabel(req);
+    return {
+      key: project + '|estimate|' + estimateGroup,
+      project,
+      label: estimateGroup,
+      bucket,
+    };
+  }
+  if (bucket === 'review') {
+    return {
+      key: project + '|review',
+      project,
+      label: 'Требуют проверки',
+      bucket,
+    };
+  }
+  return {
+    key: project + '|manual',
+    project,
+    label: 'Вручную',
+    bucket,
   };
 };
 

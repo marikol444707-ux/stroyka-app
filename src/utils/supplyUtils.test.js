@@ -1,5 +1,8 @@
 import {
   splitSupplierOffersByStatus,
+  supplyRequestEstimateGroupLabel,
+  supplyRequestListGroup,
+  supplyRequestSourceBucket,
   supplierRecipientLinkAction,
   supplierRecipientStatusSummary,
 } from './supplyUtils';
@@ -57,5 +60,78 @@ describe('supplierRecipient diagnostics helpers', () => {
       { status: 'Ожидает ответа' },
       { status: 'Отозвано' },
     ])).toBe('Отозвано: 2 · Ожидает ответа: 1');
+  });
+});
+
+describe('supply request source grouping', () => {
+  it('groups material-control requests by estimate package', () => {
+    const request = {
+      project: 'Тестовый объект',
+      workPackage: 'Электрика',
+      notes: [
+        'Создано из контроля материалов: строка `Докупить`.',
+        'MATERIAL_CONTROL_REQUEST:1|2|3',
+        'Объект: Тестовый объект',
+        'Пакет работ: Электрика',
+      ].join('\n'),
+    };
+
+    expect(supplyRequestSourceBucket(request)).toBe('estimate');
+    expect(supplyRequestEstimateGroupLabel(request)).toBe('Электрика');
+    expect(supplyRequestListGroup(request)).toMatchObject({
+      project: 'Тестовый объект',
+      label: 'Электрика',
+      bucket: 'estimate',
+    });
+  });
+
+  it('groups estimate-norm batch requests by their work package', () => {
+    const request = {
+      project: 'Тестовый объект',
+      workPackage: 'Общестрой',
+      notes: [
+        'Пакетная заявка из черновика сметы по нормам.',
+        'NORM_ESTIMATE_REQUEST:42:Общестрой',
+        'Раздел сметы: Общестрой',
+      ].join('\n'),
+    };
+
+    expect(supplyRequestSourceBucket(request)).toBe('estimate');
+    expect(supplyRequestEstimateGroupLabel(request)).toBe('Общестрой');
+  });
+
+  it('keeps plain user-created requests in the manual group', () => {
+    const request = {
+      project: 'Тестовый объект',
+      materialName: 'Саморезы',
+      notes: 'Купить на завтра',
+    };
+
+    expect(supplyRequestSourceBucket(request)).toBe('manual');
+    expect(supplyRequestListGroup(request)).toMatchObject({
+      label: 'Вручную',
+      bucket: 'manual',
+    });
+  });
+
+  it('moves estimate-control problems into the review group', () => {
+    const request = {
+      project: 'Тестовый объект',
+      itemsJson: JSON.stringify([
+        {
+          materialName: 'Кабель',
+          quantity: 10,
+          unit: 'м',
+          workPackage: 'Электрика',
+          estimateControl: { status: 'over_estimate_need' },
+        },
+      ]),
+    };
+
+    expect(supplyRequestSourceBucket(request)).toBe('review');
+    expect(supplyRequestListGroup(request)).toMatchObject({
+      label: 'Требуют проверки',
+      bucket: 'review',
+    });
   });
 });

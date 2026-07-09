@@ -4,6 +4,7 @@ import {
   SupplyRequestsEmpty,
   SupplyRequestsProjectHeader,
 } from './supply/SupplyRequestsListParts';
+import { supplyRequestListGroup } from '../utils/supplyUtils';
 
 function SupplyRequestsList(props) {
   const {
@@ -22,28 +23,30 @@ function SupplyRequestsList(props) {
 
   const byProject = new Map();
   (list || []).forEach(request => {
-    const key = request.project || '— Без объекта —';
-    if (!byProject.has(key)) byProject.set(key, []);
-    byProject.get(key).push(request);
+    const group = supplyRequestListGroup(request);
+    if (!byProject.has(group.key)) byProject.set(group.key, { group, requests: [] });
+    byProject.get(group.key).requests.push(request);
   });
 
   return (
     <>
-      {Array.from(byProject.entries()).map(([project, requests]) => {
-        const collapsed = supplyCollapsedProjects[project];
+      {Array.from(byProject.values()).map(({ group, requests }) => {
+        const collapsed = supplyCollapsedProjects[group.key];
         const visibleRequests = isMobile ? requests.slice(0, 20) : requests;
         return (
-          <div key={project} style={{ marginBottom: '12px' }}>
+          <div key={group.key} style={{ marginBottom: '12px' }}>
             <SupplyRequestsProjectHeader
               C={C}
               card={card}
               badge={badge}
-              project={project}
+              project={group.project}
+              groupLabel={group.label}
+              groupBucket={group.bucket}
               requests={requests}
               collapsed={collapsed}
               onToggle={() => setSupplyCollapsedProjects({
                 ...supplyCollapsedProjects,
-                [project]: !collapsed,
+                [group.key]: !collapsed,
               })}
             />
             {!collapsed && (

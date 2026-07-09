@@ -7,6 +7,7 @@ import SupplyDeliveriesPanel from './SupplyDeliveriesPanel';
 import SupplyCatalogPanel from './SupplyCatalogPanel';
 import SupplySuppliersPanel from './SupplySuppliersPanel';
 import SupplySupplierInvoicesPanel from './SupplySupplierInvoicesPanel';
+import { supplyRequestSourceBucket } from '../utils/supplyUtils';
 
 export default function SupplyPage({
   API,
@@ -125,6 +126,7 @@ export default function SupplyPage({
   const canViewSuppliers = ['директор', 'зам_директора', 'прораб', 'кладовщик', 'снабженец', 'бухгалтер'].includes(role);
   const canViewDeliveries = ['директор', 'зам_директора', 'прораб', 'кладовщик', 'снабженец', 'бухгалтер'].includes(role);
   const [supplierLinkFocus, setSupplierLinkFocus] = React.useState(null);
+  const [supplySourceFilter, setSupplySourceFilter] = React.useState('all');
 
   let tabs = [];
   if (['мастер','субподрядчик','бригадир'].includes(role)) {
@@ -194,6 +196,22 @@ export default function SupplyPage({
     list = list.filter(request => request.status === 'Утверждена');
   }
 
+  const roleScopedList = list;
+  const sourceCounts = roleScopedList.reduce((acc, request) => {
+    const bucket = supplyRequestSourceBucket(request);
+    acc[bucket] = (acc[bucket] || 0) + 1;
+    acc.all += 1;
+    return acc;
+  }, { all: 0, estimate: 0, manual: 0, review: 0 });
+  const sourceOptions = [
+    { id: 'all', label: 'Все' },
+    { id: 'estimate', label: 'Из сметы' },
+    { id: 'manual', label: 'Вручную' },
+    { id: 'review', label: 'Проверка' },
+  ];
+  if (supplySourceFilter !== 'all') {
+    list = list.filter(request => supplyRequestSourceBucket(request) === supplySourceFilter);
+  }
   list = list.filter(request => matchSearch(listSearch, request.materialName, request.project, request.createdBy));
 
   const statusColors = (status) => {
@@ -360,6 +378,34 @@ export default function SupplyPage({
           saveSupplyTemplate={saveSupplyTemplate}
           setShowSupplyForm={setShowSupplyForm}
         />
+      )}
+
+      {curTab !== 'catalog' && curTab !== 'invoices' && curTab !== 'suppliers' && curTab !== 'deliveries' && (
+        <div style={{ display: 'flex', gap: '7px', flexWrap: 'wrap', marginBottom: '10px' }}>
+          {sourceOptions.map(option => {
+            const active = supplySourceFilter === option.id;
+            const count = sourceCounts[option.id] || 0;
+            return (
+              <button
+                key={option.id}
+                onClick={() => setSupplySourceFilter(option.id)}
+                aria-pressed={active}
+                style={{
+                  padding: '7px 11px',
+                  borderRadius: '8px',
+                  border: '1.5px solid ' + (active ? C.accent : C.border),
+                  backgroundColor: active ? C.accentLight : C.bg,
+                  color: active ? C.accent : C.textSec,
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                {option.label} <span style={{ color: active ? C.accent : C.textMuted }}>{count}</span>
+              </button>
+            );
+          })}
+        </div>
       )}
 
       {curTab !== 'catalog' && curTab !== 'invoices' && curTab !== 'suppliers' && curTab !== 'deliveries' && (
