@@ -645,7 +645,7 @@
 
 **Description:** Expose the full calculation source and move uncertain matches out of operational procurement totals.
 
-**Status:** Implemented and verified locally on 2026-07-10; production release pending.
+**Status:** Released to production on 2026-07-10 in `e1f317ef`.
 
 **Acceptance criteria:**
 - [x] Every explicit estimate material can be expanded to its estimate, package, section, work, source quantity, normalized quantity, conversion, and procurement decision.
@@ -660,7 +660,7 @@
 - [x] Full frontend test suite: 15 suites / 71 tests passed.
 - [x] `npm run check:smeta`
 - [x] `npm run build`
-- [ ] Production smoke after independent release.
+- [x] Production deploy, HTTP smoke, and browser smoke for `/` and `/app` passed on version `e1f317ef3397`.
 
 **Dependencies:** Task P1
 
