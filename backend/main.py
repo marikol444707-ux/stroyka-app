@@ -849,7 +849,7 @@ def _supplier_match_dict(row):
         "status": _row_get(row, "status", 7, ""),
     }
 
-def _supplier_find_match(cur, payload: dict):
+def _supplier_find_match(cur, payload: dict, allow_name_match: bool = False, allow_alias_name_match: bool = True):
     req = _supplier_extract_requisites(payload)
     try:
         explicit_id = int(_supplier_payload_text(payload, "supplierId", "supplier_id", "id") or 0)
@@ -908,15 +908,17 @@ def _supplier_find_match(cur, payload: dict):
         row = cur.fetchone()
         if row:
             return _supplier_match_dict(row)
-    if req["nameKey"]:
+    if req["nameKey"] and allow_name_match:
         cur.execute(f"SELECT {SUPPLIER_MATCH_SELECT} FROM suppliers ORDER BY id")
         for row in cur.fetchall() or []:
             if _normalize_supplier_name_key(_row_get(row, "name", 1, "")) == req["nameKey"]:
                 return _supplier_match_dict(row)
+    if req["nameKey"] and allow_alias_name_match:
         cur.execute(f"""SELECT s.{SUPPLIER_MATCH_SELECT.replace(',', ',s.')}
                         FROM supplier_aliases a
                         JOIN suppliers s ON s.id=a.supplier_id
                         WHERE a.alias_key=%s
+                          AND COALESCE(a.source,'') IN ('manual_supplier_duplicate_link','manual_supplier_user_link')
                         ORDER BY s.id LIMIT 1""", (req["nameKey"],))
         row = cur.fetchone()
         if row:
@@ -7917,7 +7919,7 @@ def create_supplier(s: SupplierModel, _current_user: dict = Depends(require_role
     payload["name"] = name
     payload["sourceType"] = payload.get("sourceType") or "manual"
     payload["sourceDetail"] = payload.get("sourceDetail") or ("Добавил вручную: " + (_current_user.get("name") or _current_user.get("role") or ""))
-    existing = _supplier_find_match(cur, payload)
+    existing = _supplier_find_match(cur, payload, allow_name_match=True)
     if existing:
         cur.execute("""
             UPDATE suppliers SET

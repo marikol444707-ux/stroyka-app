@@ -1343,6 +1343,92 @@ def assert_backfill_uncertain_supplier_review(token, candidate, stamp, created):
     return invoice_id, supplier_invoice_id, supplier_id
 
 
+def assert_name_only_warehouse_invoice_does_not_link_supplier(token, candidate, stamp, created):
+    supplier_name = f"{TEST_SUPPLIER_PREFIX} name-only {stamp}"
+    invoice_number = f"CODEX-NAMEONLY-{stamp}"
+    material_name = f"{TEST_SUPPLIER_PREFIX} name-only material {stamp}"
+    conn = db_conn()
+    try:
+        conn.autocommit = False
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO suppliers
+                (name, phone, email, specialization, category, rating, status, source_type, source_detail)
+            VALUES (%s,'','','CODEX QA','Материалы',5,'Активный','smoke_name_only_supplier',%s)
+            RETURNING id
+            """,
+            (supplier_name, TEST_NOTE_PREFIX),
+        )
+        existing_supplier_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+    finally:
+        conn.close()
+
+    created["nameOnlyExistingSupplierId"] = existing_supplier_id
+    created["nameOnlyMaterialName"] = material_name
+
+    _, invoice = api_json(
+        "POST",
+        "/warehouse-invoices",
+        token=token,
+        data={
+            "number": invoice_number,
+            "date": dt.date.today().isoformat(),
+            "supplierName": supplier_name,
+            "acceptedBy": "CODEX QA",
+            "location": "Основной склад",
+            "warehouseTarget": "main",
+            "sourceType": "manual_main_invoice",
+            "reviewUncertainSupplierMatch": True,
+            "items": [{
+                "name": material_name,
+                "quantity": candidate["quantity"],
+                "unit": candidate["unit"],
+                "price": TEST_PRICE,
+                "workPackage": candidate["workPackage"],
+            }],
+            "totalBase": round(TEST_PRICE * candidate["quantity"], 2),
+            "totalVat": 0,
+            "totalWithVat": round(TEST_PRICE * candidate["quantity"], 2),
+        },
+        expected=200,
+    )
+    invoice_id = invoice.get("id")
+    supplier_invoice_id = invoice.get("supplierInvoiceId")
+    if not invoice_id:
+        raise RuntimeError(f"Name-only складская накладная не вернула id: {invoice}")
+    created["nameOnlyInvoiceId"] = invoice_id
+    created["nameOnlySupplierInvoiceId"] = supplier_invoice_id
+
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT supplier_id, supplier_invoice_id, accounting_status FROM warehouse_invoices WHERE id=%s", (invoice_id,))
+        warehouse_row = cur.fetchone()
+        if not warehouse_row:
+            raise RuntimeError("Name-only складская накладная не найдена после создания")
+        warehouse_supplier_id = int(warehouse_row[0] or 0)
+        linked_supplier_invoice_id = int(warehouse_row[1] or 0)
+        if warehouse_supplier_id == int(existing_supplier_id):
+            raise RuntimeError("Складская накладная привязалась к существующему поставщику только по названию")
+        if linked_supplier_invoice_id:
+            created["nameOnlySupplierInvoiceId"] = linked_supplier_invoice_id
+            cur.execute("SELECT supplier_id, status FROM supplier_invoices WHERE id=%s", (linked_supplier_invoice_id,))
+            invoice_row = cur.fetchone()
+            if invoice_row and int(invoice_row[0] or 0) == int(existing_supplier_id):
+                raise RuntimeError("Первичка поставщика привязалась к существующему поставщику только по названию")
+            if invoice_row and invoice_row[1] != "Нужно уточнение":
+                raise RuntimeError(f"Name-only первичка не получила статус Нужно уточнение: {invoice_row[1]}")
+            if invoice_row and int(invoice_row[0] or 0):
+                created["nameOnlyCreatedSupplierId"] = int(invoice_row[0] or 0)
+        cur.close()
+    finally:
+        conn.close()
+    return invoice_id, supplier_invoice_id, existing_supplier_id
+
+
 def assert_supplier_invoice_dedupe(token, supplier_invoice_id, created):
     conn = db_conn()
     try:
@@ -1565,17 +1651,28 @@ def cleanup(created):
             "notificationOutboxId": created.get("notificationOutboxId"),
             "notificationMessengerAccountId": created.get("notificationMessengerAccountId"),
             "supplierDocumentDuplicateSupplierId": created.get("supplierDocumentDuplicateSupplierId"),
+            "nameOnlyInvoiceId": created.get("nameOnlyInvoiceId"),
+            "nameOnlySupplierInvoiceId": created.get("nameOnlySupplierInvoiceId"),
+            "nameOnlyExistingSupplierId": created.get("nameOnlyExistingSupplierId"),
+            "nameOnlyCreatedSupplierId": created.get("nameOnlyCreatedSupplierId"),
             "supplierId": created.get("supplierId"),
         }
         for document_id in created.get("supplierDocumentIds") or []:
             cur.execute("DELETE FROM supplier_documents WHERE id=%s", (document_id,))
         if ids["dedupeSupplierInvoiceDuplicateId"]:
             cur.execute("DELETE FROM supplier_invoices WHERE id=%s", (ids["dedupeSupplierInvoiceDuplicateId"],))
+        if ids["nameOnlySupplierInvoiceId"]:
+            cur.execute("DELETE FROM supplier_invoices WHERE id=%s", (ids["nameOnlySupplierInvoiceId"],))
         if ids["backfillSupplierInvoiceId"]:
             cur.execute("DELETE FROM supplier_invoices WHERE id=%s", (ids["backfillSupplierInvoiceId"],))
         if ids["backfillInvoiceId"]:
             cur.execute("DELETE FROM supplier_invoices WHERE warehouse_invoice_id=%s", (ids["backfillInvoiceId"],))
             cur.execute("DELETE FROM warehouse_invoices WHERE id=%s", (ids["backfillInvoiceId"],))
+        if ids["nameOnlyInvoiceId"]:
+            cur.execute("DELETE FROM warehouse_history WHERE project='Основной склад' AND material=%s", (created.get("nameOnlyMaterialName") or "",))
+            cur.execute("DELETE FROM warehouse_main WHERE LOWER(name)=LOWER(%s)", (created.get("nameOnlyMaterialName") or "",))
+            cur.execute("DELETE FROM supplier_invoices WHERE warehouse_invoice_id=%s", (ids["nameOnlyInvoiceId"],))
+            cur.execute("DELETE FROM warehouse_invoices WHERE id=%s", (ids["nameOnlyInvoiceId"],))
         for invoice_key in ["invoiceId", "manualInvoiceId", "foremanManualInvoiceId", "aliasInvoiceId", "cableInvoiceId"]:
             if ids.get(invoice_key):
                 cur.execute("DELETE FROM material_inspection_journal WHERE invoice_id=%s", (ids[invoice_key],))
@@ -1660,6 +1757,12 @@ def cleanup(created):
         if ids["supplierDocumentDuplicateSupplierId"]:
             cur.execute("DELETE FROM supplier_aliases WHERE supplier_id=%s", (ids["supplierDocumentDuplicateSupplierId"],))
             cur.execute("DELETE FROM suppliers WHERE id=%s AND name LIKE %s", (ids["supplierDocumentDuplicateSupplierId"], "CODEX QA ручной дубль поставщика%"))
+        if ids["nameOnlyExistingSupplierId"]:
+            cur.execute("DELETE FROM supplier_aliases WHERE supplier_id=%s", (ids["nameOnlyExistingSupplierId"],))
+            cur.execute("DELETE FROM suppliers WHERE id=%s AND name LIKE %s", (ids["nameOnlyExistingSupplierId"], TEST_SUPPLIER_PREFIX + "%"))
+        if ids["nameOnlyCreatedSupplierId"] and ids["nameOnlyCreatedSupplierId"] != ids["nameOnlyExistingSupplierId"]:
+            cur.execute("DELETE FROM supplier_aliases WHERE supplier_id=%s", (ids["nameOnlyCreatedSupplierId"],))
+            cur.execute("DELETE FROM suppliers WHERE id=%s AND name LIKE %s", (ids["nameOnlyCreatedSupplierId"], TEST_SUPPLIER_PREFIX + "%"))
         if ids["diagnosticSupplierId"]:
             cur.execute("DELETE FROM suppliers WHERE id=%s AND name LIKE %s", (ids["diagnosticSupplierId"], TEST_SUPPLIER_PREFIX + "%"))
         if ids["backfillSupplierId"]:
@@ -1735,6 +1838,7 @@ def main():
         created["aliasName"] = alias_name
         created["aliasCanonicalMaterialName"] = candidate["materialName"]
         created["aliasQuantity"] = candidate["quantity"]
+        name_only_invoice_id, name_only_supplier_invoice_id, name_only_existing_supplier_id = assert_name_only_warehouse_invoice_does_not_link_supplier(token, candidate, stamp, created)
         backfill_invoice_id, backfill_supplier_invoice_id, _ = assert_backfill_uncertain_supplier_review(token, candidate, stamp, created)
         dedupe_supplier_invoice_duplicate_id = assert_supplier_invoice_dedupe(token, backfill_supplier_invoice_id, created)
         document_duplicate_supplier_id, supplier_document_ids = assert_supplier_documents_group_scope(token, supplier_id, stamp, created)
@@ -1759,6 +1863,9 @@ def main():
             "foremanManualMaterial": foreman_material_name,
             "aliasInvoiceId": alias_invoice_id,
             "aliasName": alias_name,
+            "nameOnlyInvoiceId": name_only_invoice_id,
+            "nameOnlySupplierInvoiceId": name_only_supplier_invoice_id,
+            "nameOnlyExistingSupplierId": name_only_existing_supplier_id,
             "backfillInvoiceId": backfill_invoice_id,
             "backfillSupplierInvoiceId": backfill_supplier_invoice_id,
             "dedupeSupplierInvoiceDuplicateId": dedupe_supplier_invoice_duplicate_id,
@@ -1790,6 +1897,7 @@ def main():
                 "foreman object invoice is allowed for assigned project warehouse",
                 "foreman main warehouse invoice is blocked",
                 "invoice alias rewrites raw supplier material to estimate material",
+                "name-only warehouse invoice does not link to existing supplier without strong identity",
                 "targeted supplier document backfill marks name-only legacy links as needs_review",
                 "supplier accounting dedupe annuls repeated primary document without losing warehouse link",
                 "supplier documents endpoint returns documents from the whole duplicate supplier group",
