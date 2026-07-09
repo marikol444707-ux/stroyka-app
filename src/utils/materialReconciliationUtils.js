@@ -1,5 +1,5 @@
 import { estimateImportedPlanMeasure, estimateItemMaterialSum, estimateMaterialPlanIssue, estimatePackage, estimateSectionsOf, isEstimateMaterialItem, normalizeEstimateWorkingItem } from './estimateUtils';
-import { materialAutoMatchSafe, materialLookupText, materialNameMatchScore } from './materialMatchUtils';
+import { materialLookupText, materialNameMatchScore } from './materialMatchUtils';
 import { normalizeMeasure, toNum, _normalizeUnit } from './measureUtils';
 import { packageMatches } from './materialDocumentUtils';
 
@@ -105,6 +105,7 @@ export const buildMaterialReconciliationRows = ({
   const project = projects.find(pr => pr.name === projectName) || { name: projectName };
   const keyOf = materialNameLookupKey;
   const rows = {};
+  const rowsByMaterialKey = {};
   const requiredPackage = String(workPackage || '').trim();
   const sourcePackageMatches = (value) => !requiredPackage || String(value || '').trim() === requiredPackage;
   const sourcePackageOf = (item = {}, parent = {}) => item.workPackage || item.work_package || parent.workPackage || parent.work_package || '';
@@ -117,27 +118,16 @@ export const buildMaterialReconciliationRows = ({
     const clean = String(pkg || '').trim();
     return requiredPackage ? '' : (clean ? '|' + clean.toLowerCase() : '|__no_package__');
   };
-  const rowPackageCompatible = (rowPackage = '', sourcePackage = '') => {
-    if (requiredPackage) return true;
-    const rowPkg = String(rowPackage || '').trim();
-    const sourcePkg = String(sourcePackage || '').trim();
-    return !rowPkg || !sourcePkg || rowPkg === sourcePkg;
-  };
-  const autoMatchedRow = (rawName, unit, sourcePackage = '') => {
-    const cleanName = String(rawName || '').trim();
-    if (!cleanName) return null;
+  const exactMatchedRow = (materialKey, unit, sourcePackage = '') => {
     const cleanUnit = materialUnit(unit);
-    let best = null;
-    Object.values(rows).forEach(row => {
-      if (!row || !rowPackageCompatible(row.workPackage, sourcePackage)) return;
-      if (cleanUnit && row.unit && cleanUnit !== row.unit) return;
-      const names = [row.name, ...(row.aliases || [])].filter(Boolean);
-      const score = Math.max(...names.map(name => materialNameMatchScore(cleanName, name)), 0);
-      if (!materialAutoMatchSafe(cleanName, names.join(' '), score)) return;
-      const boosted = score + (cleanUnit && row.unit === cleanUnit ? 0.01 : 0);
-      if (!best || boosted > best.score) best = { row, score: boosted };
+    const cleanPackage = String(sourcePackage || '').trim();
+    const candidates = (rowsByMaterialKey[materialKey] || []).filter(row => {
+      if (cleanUnit && row.unit && cleanUnit !== row.unit) return false;
+      if (requiredPackage || !cleanPackage) return true;
+      const rowPackage = String(row.workPackage || '').trim();
+      return !rowPackage || rowPackage === cleanPackage;
     });
-    return best?.row || null;
+    return candidates.length === 1 ? candidates[0] : null;
   };
   const ensure = (name, unit, sourcePackage = '') => {
     const rawName = name || '';
@@ -145,62 +135,60 @@ export const buildMaterialReconciliationRows = ({
     const baseKey = keyOf(meta.name);
     if (!baseKey) return null;
     const cleanPackage = String(sourcePackage || '').trim();
-    const matched = meta.alias ? null : autoMatchedRow(rawName, meta.unit || unit, cleanPackage);
-    if (matched) {
-      const cleanUnit = materialUnit(meta.unit || unit);
-      if (rawName && keyOf(rawName) !== matched.materialKey && !matched.aliases.includes(rawName)) matched.aliases.push(rawName);
-      if (cleanUnit && matched.unit && matched.unit !== cleanUnit) matched.unitMismatch = true;
-      if (!matched.unit && cleanUnit) matched.unit = cleanUnit;
-      return matched;
-    }
     const key = baseKey + packageKeyPart(cleanPackage);
     const cleanUnit = materialUnit(meta.unit || unit);
-    if (!rows[key]) rows[key] = {
-      key,
-      materialKey: baseKey,
-      name: meta.name || '',
-      unit: cleanUnit,
-      workPackage: cleanPackage,
-      sections: [],
-      workRefs: [],
-      aliases: [],
-      aliasIds: [],
-      holders: {},
-      invoiceDetails: [],
-      supplyDetails: [],
-      movementDetails: [],
-      planDetails: [],
-      invalidPlanDetails: [],
-      normDetails: [],
-      normSections: [],
-      normWorks: [],
-      normSources: [],
-      planQty: 0,
-      normPlanQty: 0,
-      planSum: 0,
-      invoiceReceived: 0,
-      supplyReceived: 0,
-      received: 0,
-      receivedSum: 0,
-      movedIn: 0,
-      movedOut: 0,
-      issuedFromMain: 0,
-      issued: 0,
-      issuedSigned: 0,
-      issuedPending: 0,
-      returnedFromMasters: 0,
-      used: 0,
-      stock: 0,
-      requested: 0,
-      inTransit: 0,
-      unitMismatch: false,
-    };
-    if (cleanPackage && !rows[key].workPackage) rows[key].workPackage = cleanPackage;
-    if (rawName && keyOf(rawName) !== baseKey && !rows[key].aliases.includes(rawName)) rows[key].aliases.push(rawName);
-    if (meta.alias?.id && !rows[key].aliasIds.includes(meta.alias.id)) rows[key].aliasIds.push(meta.alias.id);
-    if (cleanUnit && rows[key].unit && rows[key].unit !== cleanUnit) rows[key].unitMismatch = true;
-    if (!rows[key].unit && cleanUnit) rows[key].unit = cleanUnit;
-    return rows[key];
+    let row = rows[key] || exactMatchedRow(baseKey, cleanUnit, cleanPackage);
+    if (!row) {
+      row = {
+        key,
+        materialKey: baseKey,
+        name: meta.name || '',
+        unit: cleanUnit,
+        workPackage: cleanPackage,
+        sections: [],
+        workRefs: [],
+        aliases: [],
+        aliasIds: [],
+        holders: {},
+        invoiceDetails: [],
+        supplyDetails: [],
+        movementDetails: [],
+        planDetails: [],
+        invalidPlanDetails: [],
+        normDetails: [],
+        normSections: [],
+        normWorks: [],
+        normSources: [],
+        planQty: 0,
+        normPlanQty: 0,
+        planSum: 0,
+        invoiceReceived: 0,
+        supplyReceived: 0,
+        received: 0,
+        receivedSum: 0,
+        movedIn: 0,
+        movedOut: 0,
+        issuedFromMain: 0,
+        issued: 0,
+        issuedSigned: 0,
+        issuedPending: 0,
+        returnedFromMasters: 0,
+        used: 0,
+        stock: 0,
+        requested: 0,
+        inTransit: 0,
+        unitMismatch: false,
+      };
+      rows[key] = row;
+      if (!rowsByMaterialKey[baseKey]) rowsByMaterialKey[baseKey] = [];
+      rowsByMaterialKey[baseKey].push(row);
+    }
+    if (cleanPackage && !row.workPackage) row.workPackage = cleanPackage;
+    if (rawName && keyOf(rawName) !== baseKey && !row.aliases.includes(rawName)) row.aliases.push(rawName);
+    if (meta.alias?.id && !row.aliasIds.includes(meta.alias.id)) row.aliasIds.push(meta.alias.id);
+    if (cleanUnit && row.unit && row.unit !== cleanUnit) row.unitMismatch = true;
+    if (!row.unit && cleanUnit) row.unit = cleanUnit;
+    return row;
   };
   const addQty = (row, field, qty, unit) => {
     if (!row) return;

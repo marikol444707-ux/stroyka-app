@@ -578,3 +578,63 @@
 - `README_LOCAL_RUN.md`
 
 **Estimated scope:** S
+
+## Task P1: Protect Material Calculation From False Matches
+
+**Description:** Make the existing project material-control calculation conservative before it can feed new supply requests. Keep warehouse receipt matching and stored business data unchanged.
+
+**Status:** Completed and verified locally on 2026-07-10; production deployment is a separate step.
+
+**Acceptance criteria:**
+- [x] Different materials from one broad family are separate procurement rows unless an explicit alias resolves them to one canonical material.
+- [x] AI/override norms do not apply from a single generic substring; known false positives (`прокладка`/`кладка`, `по штукатурке`, screed adjustment rows) are rejected.
+- [x] An applicable override with `baseNormId` replaces that base rule instead of doubling the requirement.
+
+**Verification:**
+- [x] Full frontend suite passes: 61 tests, including 13 new material identity/norm regression tests.
+- [x] `npm run check:smeta` passes for all 13 repository estimate files.
+- [x] `npm run build` passes.
+- [x] `git diff --check` passes.
+
+**Dependencies:** None
+
+**Files likely touched:**
+- `src/utils/materialReconciliationUtils.js`
+- `src/utils/materialNormUtils.js`
+- `src/utils/materialReconciliationUtils.test.js`
+- `src/utils/materialNormUtils.test.js`
+- `ONBOARDING.md`
+
+**Estimated scope:** M
+
+## Task P2: Add Material Calculation Trace And Review States
+
+**Description:** Expose the full calculation source and move uncertain matches out of operational procurement totals.
+
+**Dependencies:** Task P1
+
+**Estimated scope:** M
+
+## Task P3: Run Production Material Dry-Run
+
+**Description:** Compare old and corrected projections and prepare review-only cleanup candidates for existing requests.
+
+**Dependencies:** Task P2
+
+**Estimated scope:** M
+
+## Task P4: Reconnect Confirmed Material Rows To Supply
+
+**Description:** Restore batch request creation with lineage and idempotency, then verify the complete supplier chain.
+
+**Dependencies:** Task P3
+
+**Estimated scope:** M
+
+## Task P5: Cache And Cut Over Material Projection
+
+**Description:** Move repeated heavy calculation out of React renders, add package-level loading, shadow verification, and staged rollout.
+
+**Dependencies:** Task P4
+
+**Estimated scope:** M

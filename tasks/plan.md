@@ -110,3 +110,47 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - Do we have a stable production smoke user with 2FA/TOTP support for protected production smoke?
 - Should CI run only local build/tests first, or also selected smoke scripts against a disposable local DB?
 - Which five or six pilot companies should be modeled as independent accounts, and which belong to one holding with shared summary access?
+
+## Focused Track: Safe Estimate Material Calculation
+
+### Goal
+
+Replace unsafe family-level aggregation and broad substring norms with a traceable material plan. Existing estimates, warehouse receipts, movements, and supply requests remain unchanged until a separate dry-run proves how they should be relinked.
+
+### Phase P1: Calculation Safety
+
+- [x] Stop family-only auto-merging inside procurement/material reconciliation; keep exact canonical identity and confirmed aliases.
+- [x] Match AI/override norms to their source work and reject known false-positive work patterns.
+- [x] Make scoped overrides replace their linked base norm.
+- [x] Add regression tests for distinct fasteners/profiles/cables, brick vs air-duct installation, plaster finishing, and screed adjustment rows.
+
+### Phase P2: Traceability And Review
+
+- [ ] Show estimate, package, section, work, source quantity, unit conversion, norm, and formula for every calculated row.
+- [ ] Route uncertain aliases, units, and norm matches to `Проверить`, never directly to `Докупить`.
+- [ ] Separate explicit estimate plan from normative hints in totals and filters.
+
+### Phase P3: Production Dry-Run
+
+- [ ] Compare old/new quantities and row identities for every active project without changing business records.
+- [ ] Produce a review list for existing requests created from obsolete or ambiguous calculation rows.
+- [ ] Keep all cleanup actions preview-only until director confirmation.
+
+### Phase P4: Supply Reconnection
+
+- [ ] Create requests only from confirmed material identities with project, package, estimate, and source-row lineage.
+- [ ] Add an idempotency key for batch creation and prevent repeated requests for the same uncovered quantity.
+- [ ] Verify supplier, KP, delivery, invoice, warehouse, and accounting linkage end to end.
+
+### Phase P5: Performance And Cutover
+
+- [ ] Calculate the projection once per estimate/material/norm revision and cache it outside React render paths.
+- [ ] Load large projects by work package and paginate detail rows.
+- [ ] Run shadow comparison, profile browser responsiveness, deploy incrementally, and switch only after smoke checks pass.
+
+### Safety Rules
+
+- No destructive migration or request deletion in P1-P2.
+- Incoming warehouse documents remain receivable when matching is uncertain; uncertainty becomes review state.
+- Raw estimate resource rows remain immutable and available as the audit source.
+- Each phase is an independent commit and rollback point.

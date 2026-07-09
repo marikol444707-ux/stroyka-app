@@ -68,6 +68,18 @@ export const normHasAny = (text, words = []) => {
   return words.some(w => t.includes(materialLookupText(w)));
 };
 
+export const normWorkRuleMatches = (rule, workText = '') => {
+  const text = materialLookupText(workText);
+  const sourceWork = materialLookupText(rule?.workName || '');
+  if (sourceWork && ['project', 'estimate'].includes(rule?.scope)) {
+    return text.includes(sourceWork);
+  }
+  const keywords = (rule?.work || []).map(materialLookupText).filter(Boolean);
+  const ruleKey = materialLookupText(rule?.ruleKey || rule?.id || '');
+  if (ruleKey.startsWith('ai_')) return keywords.length > 0 && keywords.every(word => text.includes(word));
+  return keywords.some(word => text.includes(word));
+};
+
 export const workNoMaterialNormReason = (workName = '', sectionName = '') => {
   const t = materialLookupText(workName + ' ' + sectionName);
   if (['демонтаж', 'разбор', 'разборка', 'снятие', 'отбивка'].some(w => t.includes(w))) {
@@ -169,15 +181,38 @@ export const materialNormSpecCompatible = (rule, workText = '', materialName = '
 export const normRuleSpecificEnough = (rule, workText = '') => {
   const t = materialLookupText(workText);
   const words = t.split(' ');
-  const hasCableWord = words.some(w => w.startsWith('кабел') || w.startsWith('гофр') || (w.startsWith('провод') && !w.startsWith('трубопровод')));
+  const hasWordStem = (stem) => words.some(word => word.startsWith(stem));
+  const hasCableWord = words.some(w => (
+    w.startsWith('кабел')
+    || w.startsWith('гофр')
+    || w.startsWith('короб')
+    || w.startsWith('лоток')
+    || w.startsWith('металлорукав')
+    || (w.startsWith('провод') && !w.startsWith('трубопровод'))
+  ));
   const ruleKey = materialLookupText(rule.ruleKey || rule.id || '');
   const mat = materialLookupText([ruleKey, rule.name, ...(rule.material || [])].join(' '));
   const matWords = mat.split(' ');
+  const plasterWordIndex = words.findIndex(word => word.startsWith('штукатур'));
+  const plasterPrefix = plasterWordIndex > 0 ? words.slice(Math.max(0, plasterWordIndex - 2), plasterWordIndex) : [];
+  const plasterIsFinishReference = plasterPrefix.includes('по')
+    || plasterPrefix.includes('под')
+    || normHasAny(t, ['окраск', 'покраск', 'шпаклев', 'шпатлев', 'грунтов']);
+  const isPlasterOperation = words.some(word => word.startsWith('оштукатурив'))
+    || (plasterWordIndex >= 0 && !plasterIsFinishReference);
   const isCableRule = ['cable', 'кабел', 'utp', 'ftp', 'гофр', 'кабель канал'].some(w => mat.includes(w))
     || matWords.some(w => w.startsWith('провод') && !w.startsWith('трубопровод'));
-  if (isCableRule && t.includes('проклад') && !hasCableWord) return false;
+  if (ruleKey.includes('brick_masonry') && !hasWordStem('кладк')) return false;
+  if (ruleKey.includes('plaster_mix') && !isPlasterOperation) return false;
+  if (ruleKey.includes('plaster_mesh')) {
+    if (!isPlasterOperation && !normHasAny(t, ['сетка', 'армир'])) return false;
+  }
+  if (ruleKey.includes('screed_mix') && normHasAny(t, ['на каждые', 'добавлять или исключать', 'изменения толщины'])) return false;
+  if (isCableRule && !hasCableWord) return false;
   if (ruleKey.includes('cable_line') && normHasAny(t, ['труба гофр', 'гофрирован', 'кабель-канал', 'кабель канал', 'короб', 'лоток', 'металлорукав']) && !normHasAny(t, ['затягивание', 'прокладка кабел', 'прокладка провод', 'провод в короб', 'кабель в короб'])) return false;
   if (ruleKey.includes('pipe_insulation') && !normHasAny(t, ['изоляц', 'теплоизоляц', 'утепл', 'энергофлекс'])) return false;
+  if ((ruleKey.includes('thermal_insulation_board') || ruleKey.includes('thermal_insulation_fasteners'))
+    && normHasAny(t, ['пароизоляц', 'гидроизоляц', 'обертывание'])) return false;
   return true;
 };
 
@@ -347,7 +382,9 @@ export const buildMaterialNormRulesForCalculation = ({
       scope: r.estimateId ? 'estimate' : 'project',
     }))
     .filter(r => r.qtyPerUnit > 0 && r.work?.length && r.material?.length);
-  return [...overrides, ...normalizedBaseRules];
+  const replacedBaseIds = new Set(overrides.map(rule => Number(rule.baseNormId)).filter(id => id > 0));
+  const activeBaseRules = normalizedBaseRules.filter(rule => !replacedBaseIds.has(Number(rule.dbId)));
+  return [...overrides, ...activeBaseRules];
 };
 
 export const workNormRulesForCalculation = ({
@@ -368,7 +405,7 @@ export const workNormRulesForCalculation = ({
     materialNormOverrides,
     baseRules,
   }).filter(rule => (
-    normTextIncludes(text, rule.work)
+    normWorkRuleMatches(rule, text)
     && !normTextIncludes(text, rule.blockWork || [])
     && normRuleSpecificEnough(rule, text)
   ));
