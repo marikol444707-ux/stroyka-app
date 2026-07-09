@@ -31,6 +31,36 @@ describe('installAuthFetch', () => {
     const firstInit = nativeFetch.mock.calls[0][1];
     expect(firstInit.credentials).toBe('include');
     expect(new Headers(firstInit.headers || {}).has('Authorization')).toBe(false);
+    expect(new Headers(firstInit.headers || {}).has('X-Company-Mode')).toBe(false);
+    expect(new Headers(firstInit.headers || {}).has('X-Company-Id')).toBe(false);
+  });
+
+  it('adds the selected company context to protected requests', async () => {
+    localStorage.setItem('user', JSON.stringify({ id: 42, email: 'director@example.test' }));
+    localStorage.setItem('stroyka.companyContext.v1.42', JSON.stringify({ mode: 'company', companyId: 7 }));
+    const nativeFetch = jest.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    window.fetch = nativeFetch;
+
+    installAuthFetch();
+    await window.fetch('/supply-requests');
+
+    const headers = new Headers(nativeFetch.mock.calls[0][1].headers || {});
+    expect(headers.get('X-Company-Mode')).toBe('company');
+    expect(headers.get('X-Company-Id')).toBe('7');
+  });
+
+  it('sends all-companies mode without inventing a company id', async () => {
+    localStorage.setItem('user', JSON.stringify({ id: 42, email: 'director@example.test' }));
+    localStorage.setItem('stroyka.companyContext.v1.42', JSON.stringify({ mode: 'all_companies', companyId: null }));
+    const nativeFetch = jest.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    window.fetch = nativeFetch;
+
+    installAuthFetch();
+    await window.fetch('/supply-requests');
+
+    const headers = new Headers(nativeFetch.mock.calls[0][1].headers || {});
+    expect(headers.get('X-Company-Mode')).toBe('all_companies');
+    expect(headers.has('X-Company-Id')).toBe(false);
   });
 
   it('retries with the legacy Bearer token only after cookie auth is rejected', async () => {
@@ -75,21 +105,29 @@ describe('installAuthFetch', () => {
     expect(requestHeaders.has('Authorization')).toBe(false);
   });
 
-  it('does not fetch a CSRF token for public auth requests', async () => {
-    const nativeFetch = jest.fn().mockResolvedValue(new Response('{"ok":true}', { status: 200 }));
-    window.fetch = nativeFetch;
+  it.each(['/login', '/password-reset-request'])(
+    'does not add protected-request headers to public auth path %s',
+    async (path) => {
+      localStorage.setItem('user', JSON.stringify({ id: 42, email: 'director@example.test' }));
+      localStorage.setItem('stroyka.companyContext.v1.42', JSON.stringify({ mode: 'company', companyId: 7 }));
+      const nativeFetch = jest.fn().mockResolvedValue(new Response('{"ok":true}', { status: 200 }));
+      window.fetch = nativeFetch;
 
-    installAuthFetch();
-    const response = await window.fetch('/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'test@example.test', password: 'secret' }),
-    });
+      installAuthFetch();
+      const response = await window.fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'test@example.test', password: 'secret' }),
+      });
 
-    expect(response.status).toBe(200);
-    expect(nativeFetch).toHaveBeenCalledTimes(1);
-    expect(nativeFetch.mock.calls[0][0]).toBe('/login');
-    expect(nativeFetch.mock.calls[0][1].credentials).toBe('include');
-    expect(new Headers(nativeFetch.mock.calls[0][1].headers || {}).has('X-CSRF-Token')).toBe(false);
-  });
+      expect(response.status).toBe(200);
+      expect(nativeFetch).toHaveBeenCalledTimes(1);
+      expect(nativeFetch.mock.calls[0][0]).toBe(path);
+      expect(nativeFetch.mock.calls[0][1].credentials).toBe('include');
+      const headers = new Headers(nativeFetch.mock.calls[0][1].headers || {});
+      expect(headers.has('X-CSRF-Token')).toBe(false);
+      expect(headers.has('X-Company-Mode')).toBe(false);
+      expect(headers.has('X-Company-Id')).toBe(false);
+    },
+  );
 });

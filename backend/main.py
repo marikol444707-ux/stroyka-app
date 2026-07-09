@@ -1718,16 +1718,26 @@ def _notify_supply_request_recipients(cur, request_id: int) -> list:
         })
     return notifications
 
-def _resolve_work_company_context(cur, user: dict, requested_company_id=None, action_mode: str = "write") -> dict:
+def _resolve_work_company_context(
+    cur,
+    user: dict,
+    requested_company_id=None,
+    action_mode: str = "write",
+    *,
+    x_company_id=None,
+    x_company_mode=None,
+) -> dict:
     try:
-        from backend.features.company_context.service import resolve_company_context
+        from backend.features.company_context.service import resolve_request_company_context
     except ModuleNotFoundError:
-        from features.company_context.service import resolve_company_context
-    return resolve_company_context(
+        from features.company_context.service import resolve_request_company_context
+    return resolve_request_company_context(
         cur,
         user,
         requested_company_id,
         action_mode,
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
         platform_staff_roles=PLATFORM_STAFF_ROLES,
         client_account_roles=CLIENT_ACCOUNT_ROLES,
     )
@@ -9489,7 +9499,12 @@ def get_supply_requests(limit: Optional[int] = None, offset: int = 0, current_us
     return [_supply_response_for_role(r, current_user) for r in rows]
 
 @app.post("/supply-requests")
-def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
+def create_supply_request(
+    r: SupplyRequestModel,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(require_roles(*SUPPLY_ROLES)),
+):
     import json as _json
     from datetime import datetime
     role = (_current_user.get("role") or "").strip()
@@ -9534,8 +9549,20 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
     _ensure_supply_runtime_columns(cur)
     conn.commit()
     project_company_id = _project_company_id(cur, project_name)
-    requested_company_id = r.companyId or project_company_id or _current_user.get("companyId") or _current_user.get("company_id")
-    company_context = _resolve_work_company_context(cur, _current_user, requested_company_id, "create")
+    requested_company_id = r.companyId or project_company_id
+    try:
+        company_context = _resolve_work_company_context(
+            cur,
+            _current_user,
+            requested_company_id,
+            "create",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+    except Exception:
+        cur.close()
+        conn.close()
+        raise
     company_id = int(company_context.get("companyId") or requested_company_id or 1)
     if project_company_id and int(project_company_id) != company_id:
         cur.close(); conn.close()

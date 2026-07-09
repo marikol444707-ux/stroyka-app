@@ -1,3 +1,5 @@
+import { withStoredCompanyContextHeaders } from './features/company-context/companyContextStorage';
+
 const isLocalHost = typeof window !== 'undefined'
   && ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
 
@@ -67,6 +69,7 @@ export const installAuthFetch = () => {
     '/login/2fa/setup-confirm',
     '/login/2fa/verify',
     '/register',
+    '/password-reset-request',
     '/password-reset',
     '/password-reset/request',
     '/password-reset/confirm',
@@ -164,7 +167,7 @@ export const installAuthFetch = () => {
     const isPublicAuthRequest = isAuthPublicPath(path);
     if (isPublicAuthRequest) return nativeFetch(input, {...init, credentials: init.credentials || 'include'});
     const method = getRequestMethod(input, init);
-    let nextInit = {...init, credentials: init.credentials || 'include'};
+    let nextInit = withStoredCompanyContextHeaders({...init, credentials: init.credentials || 'include'});
     if (csrfMethods.has(method) && !hasCsrfHeader(input, init)) {
       nextInit = withCsrfToken(nextInit, await fetchCsrfToken());
     }

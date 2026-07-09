@@ -257,115 +257,144 @@
 
 **Estimated scope:** S
 
-## Task 7: Supply Request Company Context
+## Task M1: Tenant Context Kernel
 
-**Description:** Ensure new supply request reads and writes use resolved company context and reject write actions from `Все компании`.
+**Description:** Add one compatible request-context path from the selected frontend company to a backend membership check. Use supply-request creation as the first real consumer without changing the database schema or filtering all existing screens.
+
+**Status:** Completed, verified, and released as an independent production slice on 2026-07-09.
 
 **Acceptance criteria:**
-- [ ] New supply requests persist `company_id`.
-- [ ] Write actions fail clearly in `all_companies` mode.
-- [ ] Legacy records remain readable.
+- [x] Protected frontend requests send `X-Company-Mode` and, for a concrete company, `X-Company-Id` from the current user's saved selection.
+- [x] Public auth requests do not receive tenant headers.
+- [x] The kernel rejects malformed headers, `all_companies` mutations, cross-source company conflicts, inaccessible companies, and cross-account membership mismatches.
+- [x] Backend returns the effective membership role in the resolved context.
+- [x] `POST /supply-requests` resolves its company through the kernel and still supports clients that send no tenant headers.
+- [x] No schema migration, backfill, broad read filtering, or role rewrite is included.
 
 **Verification:**
-- [ ] `npm run smoke:supply-chain`
-- [ ] Targeted manual/API check with selected company and all-companies mode.
+- [x] `CI=true npm test -- --watchAll=false src/api.test.js`
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.company_context.test_service`
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py backend/features/company_context/service.py`
+- [x] `CI=true npm test -- --watchAll=false` (48 tests passed)
+- [x] `npm run build`
 
-**Dependencies:** Task 2
+**Dependencies:** Tasks 2 and 6
 
 **Files likely touched:**
-- `backend/main.py`
-- `src/components/SupplyPage.jsx`
+- `src/api.js`
+- `src/api.test.js`
 - `src/features/company-context/`
+- `backend/features/company_context/service.py`
+- `backend/features/company_context/test_service.py`
+- `backend/main.py`
 - `ONBOARDING.md`
 
-**Estimated scope:** M
+**Estimated scope:** S
 
-## Task 8: Supplier Recipient Visibility Contract
+## Task M2: Supply Isolation And Effective Roles
 
-**Description:** Make supplier recipient diagnostics backend-first so the director can see whether a supplier cabinet will receive a KP.
+**Description:** Apply the kernel to supply request lists, details, updates, approvals, KP creation, and recipient diagnostics. Authorize each action by the effective role of the selected company.
 
 **Acceptance criteria:**
-- [ ] Endpoint returns visible/not visible and reason.
-- [ ] UI displays the diagnostic without guessing ownership on the client.
-- [ ] Missing supplier link is shown as an actionable warning.
+- [ ] Supply reads are filtered by resolved `company_id` or an allowed account summary.
+- [ ] Every supply mutation checks the selected company's effective role.
+- [ ] A request cannot cross into another account through project name, request ID, supplier ID, or body `companyId`.
+- [ ] Legacy rows use an explicit, logged compatibility rule instead of silent global visibility.
 
 **Verification:**
-- [ ] `npm run smoke:supply-chain`
-- [ ] Manual check: supply request with linked and unlinked suppliers.
+- [ ] Focused backend tests cover two companies and two independent accounts.
+- [ ] `npm run smoke:supply-chain` against a safe test database.
 
-**Dependencies:** Task 7
-
-**Files likely touched:**
-- `backend/main.py`
-- `src/components/supply/SupplyRequestsListParts.jsx`
-- `src/features/supply/SupplierCabinetPage.jsx`
+**Dependencies:** Task M1
 
 **Estimated scope:** M
 
-## Task 9: Company ID For Supplier Invoices And Deliveries
+## Task M3: Supplier And Procurement Isolation
 
-**Description:** Ensure new supplier invoices and deliveries inherit `company_id` from the request, offer, delivery, or selected company context.
+**Description:** Make `company_supplier_links` and `supply_request_recipients` the source of truth for company-specific supplier relationships, KP visibility, offers, invoices, and deliveries.
 
 **Acceptance criteria:**
-- [ ] New supplier invoices persist company.
-- [ ] New deliveries persist company.
-- [ ] Old invoices/deliveries keep legacy fallback.
+- [ ] A global supplier sees only documents explicitly addressed to its linked supplier identities for the correct client company.
+- [ ] Contract terms, ratings, categories, and payment conditions belong to the company-supplier link.
+- [ ] Supplier invoices and deliveries inherit the verified request/offer company.
 
 **Verification:**
+- [ ] Linked and unlinked supplier scenarios are covered.
 - [ ] `npm run smoke:supply-chain`
 - [ ] `npm run smoke:workflow-invoice`
 
-**Dependencies:** Task 7
-
-**Files likely touched:**
-- `backend/main.py`
-- `scripts/smoke-supply-chain.py`
-- `scripts/smoke-workflow-invoice-preview.py`
+**Dependencies:** Task M2
 
 **Estimated scope:** M
 
-## Task 10: Company ID For Warehouse Invoices And History
+## Task M4: Warehouse Isolation And Transfers
 
-**Description:** Propagate company context from supplier/supply/object sources into new warehouse invoices and warehouse history records.
+**Description:** Scope warehouse balances, invoices, receipts, write-offs, and history by company. Model cross-company movement as an explicit transfer rather than a normal warehouse edit.
 
 **Acceptance criteria:**
-- [ ] Warehouse invoices persist company.
-- [ ] Warehouse history persists company.
-- [ ] Duplicate invoice checks include company where needed.
+- [ ] Warehouse reads and writes require verified company context.
+- [ ] Duplicate invoice checks include company.
+- [ ] A cross-company transfer records source, destination, both sides, documents, and audit events.
 
 **Verification:**
 - [ ] `npm run smoke:max-warehouse`
-- [ ] `npm run smoke:supply-chain`
+- [ ] Company-isolation smoke covers balance and history.
 
-**Dependencies:** Task 9
-
-**Files likely touched:**
-- `backend/main.py`
-- `scripts/smoke-max-warehouse-invoice.py`
-- `scripts/smoke-supply-chain.py`
+**Dependencies:** Task M3
 
 **Estimated scope:** M
 
-## Task 11: Company Isolation Smoke
+## Task M5: Finance And Accounting Isolation
 
-**Description:** Add a read-only smoke that proves two companies do not leak write visibility across supply and warehouse flows.
+**Description:** Scope project payments, supplier payments, accounting records, contracts, and reports by verified company and legal entity.
 
 **Acceptance criteria:**
-- [ ] Smoke creates or uses two company contexts safely.
-- [ ] It proves write actions require a selected company.
-- [ ] It proves supplier/warehouse rows keep expected company.
+- [ ] Money movement cannot be created or read across client accounts.
+- [ ] Account summaries aggregate only companies inside one `platform_account`.
+- [ ] Legal-entity details do not replace the working `company_id` boundary.
 
 **Verification:**
-- [ ] New smoke passes locally against a safe test database or safe production test mode.
+- [ ] Finance role matrix covers company membership roles.
+- [ ] Accounting and payment smoke scripts pass against safe test data.
 
-**Dependencies:** Tasks 7-10
-
-**Files likely touched:**
-- `scripts/smoke-company-context.py`
-- `package.json`
-- `TESTING.md`
+**Dependencies:** Task M4
 
 **Estimated scope:** M
+
+## Task M6: Remaining Tenant-Owned Domains
+
+**Description:** Apply the same kernel to projects, estimates, materials, journals, acts, staff, files, notifications, exports, audit records, and AI/OCR jobs.
+
+**Acceptance criteria:**
+- [ ] Every new tenant-owned row has a traceable company source.
+- [ ] Files and background jobs cannot be fetched or executed from another tenant.
+- [ ] Platform support uses expiring, audited support sessions.
+
+**Verification:**
+- [ ] Domain-focused tests and the role matrix pass.
+- [ ] Browser smoke covers one complete director workflow.
+
+**Dependencies:** Tasks M2-M5
+
+**Estimated scope:** L, delivered as separate domain slices
+
+## Task M7: Backfill, Constraints, And Pilot Matrix
+
+**Description:** After all live write paths are tenant-aware, inspect old rows, perform dry-run mapping, backfill only unambiguous records, and add database constraints/indexes in reversible migrations.
+
+**Acceptance criteria:**
+- [ ] Dry-run reports unmapped and conflicting rows without changing data.
+- [ ] Ambiguous records move to `needs_review`; no guessed tenant links are written.
+- [ ] Database indexes and constraints are added only after clean evidence.
+- [ ] Pilot matrix covers the owner's company, five or six independent client accounts, and at least one holding with multiple companies/sites.
+
+**Verification:**
+- [ ] Read-only cross-account isolation smoke passes before and after backfill.
+- [ ] Alembic upgrade and rollback are tested on a database copy.
+
+**Dependencies:** Tasks M2-M6
+
+**Estimated scope:** L, delivered as separate migration slices
 
 ## Task 12: Extract Auth Helpers
 
@@ -466,7 +495,7 @@
 - [ ] Browser/manual check on supply page and supplier cabinet.
 - [ ] `npm run build`
 
-**Dependencies:** Tasks 8-11
+**Dependencies:** Tasks M3-M7
 
 **Files likely touched:**
 - `src/components/SupplyPage.jsx`
@@ -487,7 +516,7 @@
 **Verification:**
 - [ ] `npm run smoke:browser-prod` or new targeted browser smoke passes in the intended environment.
 
-**Dependencies:** Tasks 5 and 11
+**Dependencies:** Tasks 5 and M7
 
 **Files likely touched:**
 - `scripts/smoke-browser-prod.js`

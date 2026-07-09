@@ -1,30 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-const storageKeyForUser = (user) => `stroyka.companyContext.v1.${user?.id || user?.email || 'guest'}`;
-
-const asCompanyId = (value) => {
-  const id = Number(value);
-  return Number.isFinite(id) && id > 0 ? id : null;
-};
-
-const readStoredSelection = (user) => {
-  if (typeof window === 'undefined' || !user) return null;
-  try {
-    const raw = localStorage.getItem(storageKeyForUser(user));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : null;
-  } catch (_e) {
-    return null;
-  }
-};
-
-const writeStoredSelection = (user, selection) => {
-  if (typeof window === 'undefined' || !user) return;
-  try {
-    localStorage.setItem(storageKeyForUser(user), JSON.stringify(selection || {}));
-  } catch (_e) {}
-};
+import {
+  asCompanyId,
+  readStoredCompanySelection,
+  writeStoredCompanySelection,
+} from './companyContextStorage';
 
 const normalizeSelection = (context, storedSelection) => {
   const companies = Array.isArray(context?.companies) ? context.companies : [];
@@ -73,8 +53,8 @@ export function useCompanyContext({ API, user }) {
       const data = await response.json();
       setContext(data);
       setSelection((prev) => {
-        const next = normalizeSelection(data, readStoredSelection(user) || prev);
-        writeStoredSelection(user, next);
+        const next = normalizeSelection(data, readStoredCompanySelection(user) || prev);
+        writeStoredCompanySelection(user, next);
         return next;
       });
       return data;
@@ -109,7 +89,7 @@ export function useCompanyContext({ API, user }) {
       : { mode: 'company', companyId: asCompanyId(value) };
     const normalized = normalizeSelection(context, next);
     setSelection(normalized);
-    writeStoredSelection(user, normalized);
+    writeStoredCompanySelection(user, normalized);
   }, [context, user]);
 
   return {

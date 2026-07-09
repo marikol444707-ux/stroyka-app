@@ -15,7 +15,10 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 ## Architecture Decisions
 
 - Use vertical slices: API policy, tests/smoke, frontend behavior, and docs move together only when the slice requires it.
-- Keep SaaS isolation compatible: add `company_id` enforcement for new paths first, then backfill/strict filtering only after dry-run evidence.
+- Treat `platform_account` as the hard customer boundary and `company_id` as the required working context inside that account.
+- Keep SaaS isolation compatible: add a central tenant-context kernel and enforce one domain at a time, then backfill/strict filtering only after dry-run evidence.
+- Keep `Все компании` read-only. Every mutation must resolve one concrete company and verify membership on the backend.
+- Treat client company headers as untrusted routing hints, never as authorization proof.
 - Prefer small auth hardening over a big auth rewrite: cookie-first frontend, then CSRF, then shorter Bearer fallback.
 - Move schema ownership from `init_db()` into Alembic one small table/column group at a time.
 - Keep UI changes inside existing modules and screens; do not add parallel screens for the same workflow.
@@ -47,17 +50,20 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [ ] Smeta parser access behavior is covered.
 - [ ] Existing login, 2FA, public site, and MAX paths are not broken.
 
-### Phase 2: Company Boundary Slices
+### Phase 2: Multi-Company Kernel And Domain Isolation
 
-- [ ] Task 7: Add company-context enforcement to new supply request reads/writes.
-- [ ] Task 8: Add supplier recipient visibility diagnostics as a backend-first contract.
-- [ ] Task 9: Propagate `company_id` into new supplier invoices and deliveries.
-- [ ] Task 10: Propagate `company_id` into new warehouse invoices and warehouse history.
-- [ ] Task 11: Add a read-only company isolation smoke covering two companies and one supplier.
+- [x] Task M1: Add the compatible Tenant Context Kernel and connect supply-request creation as the first consumer. Verified and released as an independent production slice.
+- [ ] Task M2: Enforce company-scoped supply reads/writes and effective membership roles.
+- [ ] Task M3: Scope supplier visibility, recipients, offers, invoices, and company-supplier terms.
+- [ ] Task M4: Scope warehouse balances, invoices, history, and explicit cross-company transfers.
+- [ ] Task M5: Scope payments, accounting, contracts, and financial reports.
+- [ ] Task M6: Scope remaining projects, estimates, journals, acts, files, notifications, audit, and AI jobs.
+- [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary
 
 - [ ] One user with two companies cannot mutate in `Все компании`.
+- [ ] Two independent `platform_account` tenants cannot see or address each other's companies.
 - [ ] Supply request, KP recipient, supplier invoice, delivery, warehouse invoice, and warehouse history keep the same `company_id`.
 - [ ] Old records remain readable under legacy fallback.
 
@@ -100,7 +106,6 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 
 ## Open Questions
 
-- Should `/parse-smeta` be authenticated only, or public with rate/size limits for public-site estimation?
-- Which company-boundary flow should be first: supply requests, supplier cabinet, or warehouse invoices?
 - Do we have a stable production smoke user with 2FA/TOTP support for protected production smoke?
 - Should CI run only local build/tests first, or also selected smoke scripts against a disposable local DB?
+- Which five or six pilot companies should be modeled as independent accounts, and which belong to one holding with shared summary access?

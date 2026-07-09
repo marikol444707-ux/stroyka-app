@@ -4,6 +4,10 @@ from typing import List
 from fastapi import HTTPException
 
 
+_REQUEST_COMPANY_MODES = {"company", "all_companies"}
+_WRITE_ACTION_MODES = {"write", "mutate", "create", "update", "delete"}
+
+
 def _as_int(value):
     try:
         return int(value) if value not in (None, "") else None
@@ -24,6 +28,29 @@ def _json_list(value):
         except Exception:
             return []
     return []
+
+
+def _strict_header_company_id(value):
+    if value in (None, ""):
+        return None
+    try:
+        result = int(str(value).strip())
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="X-Company-Id должен быть положительным целым числом")
+    if result <= 0:
+        raise HTTPException(status_code=400, detail="X-Company-Id должен быть положительным целым числом")
+    return result
+
+
+def _assert_platform_account_boundary(user: dict, context: dict):
+    expected_account_id = _as_int(user.get("platformAccountId") or user.get("platform_account_id"))
+    if not expected_account_id:
+        return
+    contexts = context.get("companies") if context.get("mode") == "all_companies" else [context]
+    for item in contexts or []:
+        actual_account_id = _as_int(item.get("platformAccountId") or item.get("platform_account_id"))
+        if actual_account_id and actual_account_id != expected_account_id:
+            raise HTTPException(status_code=403, detail="Компания относится к другому клиентскому аккаунту")
 
 
 def _company_context_row(
@@ -186,16 +213,66 @@ def resolve_company_context(
         if not selected:
             raise HTTPException(status_code=403, detail="Нет доступа к выбранной компании")
         return {**selected, "mode": "company"}
+    if memberships and mode == "summary":
+        return {"mode": "all_companies", "companyId": None, "role": role, "readOnly": True, "companies": memberships}
     default_company = next((row for row in memberships if row.get("isDefault")), None)
     if default_company:
         return {**default_company, "mode": "company"}
     if len(memberships) == 1:
         return {**memberships[0], "mode": "company"}
-    if memberships and mode == "summary":
-        return {"mode": "all_companies", "companyId": None, "role": role, "readOnly": True, "companies": memberships}
     if memberships:
         raise HTTPException(status_code=400, detail="Выберите компанию для рабочего действия")
     raise HTTPException(status_code=403, detail="Компания пользователя не назначена")
+
+
+def resolve_request_company_context(
+    cur,
+    user: dict,
+    requested_company_id=None,
+    action_mode: str = "read",
+    *,
+    x_company_id=None,
+    x_company_mode=None,
+    platform_staff_roles=(),
+    client_account_roles=(),
+) -> dict:
+    """Resolve untrusted request headers through the existing membership rules."""
+    action = (action_mode or "read").strip().lower()
+    raw_mode = str(x_company_mode or "").strip().lower()
+    if raw_mode and raw_mode not in _REQUEST_COMPANY_MODES:
+        raise HTTPException(status_code=400, detail="X-Company-Mode должен быть company или all_companies")
+
+    header_company_id = _strict_header_company_id(x_company_id)
+    if not raw_mode and header_company_id:
+        raw_mode = "company"
+    if raw_mode == "company" and not header_company_id:
+        raise HTTPException(status_code=400, detail="Для режима company требуется X-Company-Id")
+    if raw_mode == "all_companies" and header_company_id:
+        raise HTTPException(status_code=400, detail="В режиме all_companies нельзя передавать X-Company-Id")
+    if raw_mode == "all_companies" and action in _WRITE_ACTION_MODES:
+        raise HTTPException(status_code=400, detail="Для изменения данных выберите конкретную компанию")
+
+    resource_company_id = _as_int(requested_company_id)
+    if header_company_id and resource_company_id and header_company_id != resource_company_id:
+        raise HTTPException(status_code=409, detail="Выбранная компания не совпадает с компанией объекта или документа")
+
+    requested_mode = raw_mode or "legacy"
+    resolved_company_id = header_company_id or resource_company_id
+    resolved_action = "summary" if raw_mode == "all_companies" else action
+    context = resolve_company_context(
+        cur,
+        user,
+        resolved_company_id,
+        resolved_action,
+        platform_staff_roles=platform_staff_roles,
+        client_account_roles=client_account_roles,
+    )
+    _assert_platform_account_boundary(user, context)
+    return {
+        **context,
+        "effectiveRole": context.get("role") or user.get("role") or "",
+        "requestedMode": requested_mode,
+    }
 
 
 def build_company_context_response(
@@ -271,4 +348,3 @@ def build_company_context_response(
             "legacyCompanyIdStillSupported": True,
         },
     }
-
