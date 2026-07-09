@@ -394,9 +394,9 @@
 - [x] KP, offers, recipients, delivery endpoints, and general warehouse reads/writes remain outside this slice.
 
 **Verification:**
-- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.company_context.test_service` (24 tests passed)
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.company_context.test_service` (26 tests passed)
 - [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py backend/features/company_context/service.py`
-- [x] Tracked frontend test suite (66 tests passed).
+- [x] Frontend test suite (15 suites / 71 tests passed).
 - [x] `npm run build`
 
 **Dependencies:** Task M2.2

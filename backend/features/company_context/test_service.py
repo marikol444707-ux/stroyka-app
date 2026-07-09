@@ -90,6 +90,22 @@ class ResolveRequestCompanyContextTests(unittest.TestCase):
 
         self.assertEqual(error.exception.status_code, 409)
 
+    def test_rejects_linked_row_without_company(self):
+        with self.assertRaises(HTTPException) as error:
+            assert_rows_company_scope(
+                [{"company_id": 7}, {}],
+                expected_company_id=7,
+                resource_label="документы поставки",
+            )
+
+        self.assertEqual(error.exception.status_code, 409)
+
+    def test_rejects_missing_resource_company(self):
+        with self.assertRaises(HTTPException) as error:
+            assert_rows_company_scope([], expected_company_id=None)
+
+        self.assertEqual(error.exception.status_code, 409)
+
     def test_rejects_all_companies_for_resource_delete_before_querying_database(self):
         cur = MembershipCursor([])
 
