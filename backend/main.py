@@ -6398,6 +6398,55 @@ def _project_access_helpers():
     return project_visibility_filter, require_project_row_company, require_project_write_actor
 
 
+def _resolve_estimate_mutation_actor(
+    conn,
+    current_user,
+    estimate_id,
+    allowed_roles,
+    *,
+    x_company_id=None,
+    x_company_mode=None,
+):
+    try:
+        from backend.features.estimate_access.service import resolve_estimate_parent
+        from backend.features.project_access.service import require_project_write_actor
+    except ModuleNotFoundError:
+        from features.estimate_access.service import resolve_estimate_parent
+        from features.project_access.service import require_project_write_actor
+    access_cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        company_context = _resolve_work_company_context(
+            access_cur,
+            current_user,
+            None,
+            "write",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        actor = require_project_write_actor(
+            effective_company_actors(current_user, company_context),
+            allowed_roles,
+        )
+        estimate = resolve_estimate_parent(
+            access_cur,
+            actor,
+            estimate_id,
+            for_update=True,
+            allow_template=True,
+            allow_unbound=True,
+        )
+        if estimate.get("projectName"):
+            require_project_access(actor, estimate["projectName"])
+        if actor.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(
+            actor,
+            estimate.get("workPackage") or "Основная",
+        ):
+            raise HTTPException(status_code=403, detail="Нет доступа к пакету сметы")
+        return actor, estimate
+    finally:
+        access_cur.close()
+
+
 @app.get("/projects")
 def get_projects(
     x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
@@ -20515,19 +20564,35 @@ def create_estimate(
     return {"id":row.get("id"),"ok":True}
 
 @app.put("/estimates/{id}")
-def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_roles(*ESTIMATE_WRITE_ROLES, *WORKER_EXECUTION_ROLES))):
+def update_estimate(
+    id: int,
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
     import json as j
     from datetime import date as _date
     conn = get_db()
     conn.autocommit = False
+    _current_user, estimate_scope = _resolve_estimate_mutation_actor(
+        conn,
+        current_user,
+        id,
+        (*ESTIMATE_WRITE_ROLES, *WORKER_EXECUTION_ROLES),
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
+    )
     cur = conn.cursor()
-    cur.execute("SELECT sections_json, name, version, project_name, COALESCE(smeta_type,'Заказчик'), status, COALESCE(work_package,'Основная') FROM estimates WHERE id=%s", (id,))
+    cur.execute("""SELECT sections_json, name, version, project_name, COALESCE(smeta_type,'Заказчик'), status,
+                          COALESCE(work_package,'Основная')
+                     FROM estimates WHERE id=%s AND company_id=%s""",
+                (id, estimate_scope["companyId"]))
     prev = cur.fetchone()
     if not prev:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Смета не найдена")
-    project_name = (prev[3] or "") if prev else ""
-    require_project_access(_current_user, project_name)
+    project_name = estimate_scope.get("projectName") or ((prev[3] or "") if prev else "")
 
     def _num(v):
         try:
@@ -20760,8 +20825,11 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                 if new_done > old_q:
                     it["doneQuantity"] = old_q
 
-    cur.execute("UPDATE estimates SET name=%s,version=%s,sections_json=%s,smeta_type=%s,work_package=%s,status=%s WHERE id=%s",
-        (new_name,new_version,j.dumps(new_sections,ensure_ascii=False),new_smeta_type,new_work_package,new_status,id))
+    cur.execute("""UPDATE estimates
+                      SET name=%s,version=%s,sections_json=%s,smeta_type=%s,work_package=%s,status=%s
+                    WHERE id=%s AND company_id=%s""",
+        (new_name,new_version,j.dumps(new_sections,ensure_ascii=False),new_smeta_type,new_work_package,new_status,
+         id,estimate_scope["companyId"]))
 
     today = _date.today().isoformat()
     journal_added = 0
@@ -21032,34 +21100,48 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
     return {"ok": True, "journalEntries": journal_added, "hiddenWorkActs": acts_added, "brigadeItemsSynced": brigade_synced}
 
 @app.put("/estimates/{id}/status")
-def update_estimate_status(id: int, data: dict, _current_user: dict = Depends(require_roles(*ESTIMATE_WRITE_ROLES))):
+def update_estimate_status(
+    id: int,
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
     status = data.get("status") or "Черновик"
     if status not in ("Активная", "Черновик"):
         raise HTTPException(status_code=400, detail="Недопустимый статус сметы")
-    if status == "Активная" and _current_user.get("role") not in LEADERSHIP_ROLES:
-        raise HTTPException(status_code=403, detail="Активировать смету может только директор или замдиректора")
     conn = get_db()
+    conn.autocommit = False
+    actor, estimate = _resolve_estimate_mutation_actor(
+        conn,
+        current_user,
+        id,
+        ESTIMATE_WRITE_ROLES,
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
+    )
+    if status == "Активная" and actor.get("role") not in LEADERSHIP_ROLES:
+        conn.rollback(); conn.close()
+        raise HTTPException(status_code=403, detail="Активировать смету может только директор или замдиректора")
     cur = conn.cursor()
-    cur.execute("SELECT project_name, COALESCE(smeta_type,'Заказчик'), COALESCE(work_package,'Основная') FROM estimates WHERE id=%s", (id,))
+    cur.execute("""SELECT project_name, COALESCE(smeta_type,'Заказчик'), COALESCE(work_package,'Основная')
+                     FROM estimates WHERE id=%s AND company_id=%s""", (id, estimate["companyId"]))
     row = cur.fetchone()
     if not row:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Смета не найдена")
     project_name, smeta_type, work_package = row[0] or "", row[1] or "Заказчик", row[2] or "Основная"
-    require_project_access(_current_user, project_name)
-    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, work_package):
-        cur.close(); conn.close()
-        raise HTTPException(status_code=403, detail="Нет доступа к пакету сметы")
     if status == "Активная":
         cur.execute("""UPDATE estimates
                        SET status='Черновик'
                        WHERE id<>%s
+                         AND company_id=%s
                          AND project_name=%s
                          AND COALESCE(smeta_type,'Заказчик')=%s
                          AND COALESCE(NULLIF(work_package,''),'Основная')=%s
                          AND status='Активная'""",
-                    (id, project_name, smeta_type, work_package))
-    cur.execute("UPDATE estimates SET status=%s WHERE id=%s", (status, id))
+                    (id, estimate["companyId"], project_name, smeta_type, work_package))
+    cur.execute("UPDATE estimates SET status=%s WHERE id=%s AND company_id=%s", (status, id, estimate["companyId"]))
     conn.commit()
     cur.close(); conn.close()
     _run_project_ai_control_safely(project_name, "estimate:status")
@@ -21306,11 +21388,26 @@ def reconcile_estimate_changes(id: int, data: dict, current_user: dict = Depends
     return {"ok": True, "includedChangeIds": allowed_ids}
 
 @app.put("/estimates/{id}/toggle-template")
-def toggle_estimate_template(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "сметчик", "главный_инженер"))):
+def toggle_estimate_template(
+    id: int,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
+    conn.autocommit = False
+    _, estimate = _resolve_estimate_mutation_actor(
+        conn,
+        current_user,
+        id,
+        (*LEADERSHIP_ROLES, "сметчик", "главный_инженер"),
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
+    )
     cur = conn.cursor()
-    require_estimate_access(cur, id, _current_user)
-    cur.execute("UPDATE estimates SET is_template = NOT COALESCE(is_template,FALSE) WHERE id=%s RETURNING is_template", (id,))
+    cur.execute("""UPDATE estimates SET is_template = NOT COALESCE(is_template,FALSE)
+                    WHERE id=%s AND company_id=%s RETURNING is_template""",
+                (id, estimate["companyId"]))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
