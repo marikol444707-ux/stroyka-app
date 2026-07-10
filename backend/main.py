@@ -20395,43 +20395,84 @@ def update_estimate_reconciliation_item(id: int, data: dict, current_user: dict 
 
 
 @app.post("/estimates")
-def create_estimate(data: dict, _current_user: dict = Depends(require_roles(*ESTIMATE_WRITE_ROLES))):
+def create_estimate(
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
     import json as j
-    require_project_access(_current_user, data.get("projectName", ""))
+    try:
+        from backend.features.project_access.service import (
+            require_project_write_actor,
+            resolve_project_parent,
+        )
+    except ModuleNotFoundError:
+        from features.project_access.service import (
+            require_project_write_actor,
+            resolve_project_parent,
+        )
     conn = get_db()
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    company_context = _resolve_work_company_context(
+        cur,
+        current_user,
+        data.get("companyId") if "companyId" in data else data.get("company_id"),
+        "write",
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
+    )
+    actor = require_project_write_actor(
+        effective_company_actors(current_user, company_context),
+        ESTIMATE_WRITE_ROLES,
+    )
+    company_id = int(actor.get("companyId"))
     status = data.get("status") or "Активная"
     smeta_type = data.get("smetaType") or "Заказчик"
     work_package = (data.get("workPackage") or data.get("work_package") or "Основная").strip() or "Основная"
-    project_name = data.get("projectName","")
+    requested_project_id = data.get("projectId") or data.get("project_id")
+    requested_project_name = data.get("projectName") or data.get("project_name") or ""
+    if requested_project_id or requested_project_name:
+        project = resolve_project_parent(
+            cur,
+            actor,
+            project_id=requested_project_id,
+            project_name=requested_project_name,
+        )
+        project_id = project["id"]
+        project_name = project["name"]
+        require_project_access(actor, project_name)
+    else:
+        project_id = None
+        project_name = ""
     if status not in ("Активная", "Черновик"):
         cur.close(); conn.close()
         raise HTTPException(status_code=400, detail="Недопустимый статус сметы")
-    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, work_package):
+    if actor.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(actor, work_package):
         cur.close(); conn.close()
         raise HTTPException(status_code=403, detail="Нет доступа к пакету сметы")
-    if status not in ("Активная", "Черновик"):
-        cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail="Недопустимый статус сметы")
-    if status == "Активная" and _current_user.get("role") not in LEADERSHIP_ROLES:
+    if status == "Активная" and actor.get("role") not in LEADERSHIP_ROLES:
         cur.close(); conn.close()
         raise HTTPException(status_code=403, detail="Активировать смету может только директор или замдиректора. Сохраните смету черновиком.")
     if status == "Активная":
         cur.execute("""UPDATE estimates
                        SET status='Черновик'
-                       WHERE project_name=%s
+                       WHERE company_id=%s
+                         AND project_name=%s
                          AND COALESCE(smeta_type,'Заказчик')=%s
                          AND COALESCE(NULLIF(work_package,''),'Основная')=%s
                          AND status='Активная'""",
-                    (project_name, smeta_type, work_package))
+                    (company_id, project_name, smeta_type, work_package))
     sections, _ = _normalize_estimate_adjustment_rows(data.get("sections", []))
-    cur.execute("INSERT INTO estimates (project_id,project_name,name,version,sections_json,smeta_type,work_package,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("projectId"),project_name,data.get("name",""),data.get("version","1.0"),j.dumps(sections,ensure_ascii=False),smeta_type,work_package,status))
+    cur.execute("""INSERT INTO estimates
+                   (company_id,project_id,project_name,name,version,sections_json,smeta_type,work_package,status)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+        (company_id,project_id,project_name,data.get("name",""),data.get("version","1.0"),j.dumps(sections,ensure_ascii=False),smeta_type,work_package,status))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
     _run_project_ai_control_safely(project_name, "estimate:create")
-    return {"id":row[0],"ok":True}
+    return {"id":row.get("id"),"ok":True}
 
 @app.put("/estimates/{id}")
 def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_roles(*ESTIMATE_WRITE_ROLES, *WORKER_EXECUTION_ROLES))):
