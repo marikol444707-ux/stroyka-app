@@ -749,6 +749,27 @@
 
 **Estimated scope:** S
 
+## Task M4.5: Manual Warehouse History Write Isolation
+
+**Description:** Bind manual warehouse history corrections to one selected company and authorize the action through the user's effective role in that company.
+
+**Status:** Implemented locally; release pending.
+
+**Acceptance criteria:**
+- [x] `all_companies` mode cannot create a manual correction.
+- [x] A project correction must match the project's stored company.
+- [x] Only a director or deputy director in the selected company can create the row.
+- [x] Project and package checks use the selected company membership.
+- [x] The new history row stores `company_id` and commits transactionally.
+
+**Verification:**
+- [ ] Backend compile and company-context tests pass.
+- [ ] Frontend tests and production build pass.
+
+**Dependencies:** Task M4.4
+
+**Estimated scope:** S
+
 ## Task M5: Finance And Accounting Isolation
 
 **Description:** Scope project payments, supplier payments, accounting records, contracts, and reports by verified company and legal entity.

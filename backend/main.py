@@ -6897,10 +6897,12 @@ def get_warehouse_history(
     return [dict(r) for r in rows]
 
 @app.post("/warehouse-history")
-def create_warehouse_history(h: WarehouseHistoryModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
-    role = _current_user.get("role") or ""
-    if role not in LEADERSHIP_ROLES:
-        raise HTTPException(status_code=403, detail="Ручную запись истории склада может добавить только директор или замдиректора")
+def create_warehouse_history(
+    h: WarehouseHistoryModel,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     movement_type = (h.type or "").strip()
     if not movement_type.startswith("ручная корректировка"):
         raise HTTPException(
@@ -6909,18 +6911,40 @@ def create_warehouse_history(h: WarehouseHistoryModel, _current_user: dict = Dep
         )
     if not h.material or float(h.quantity or 0) <= 0:
         raise HTTPException(status_code=400, detail="Укажите материал и положительное количество")
-    if h.project:
-        require_project_or_warehouse_access(_current_user, h.project)
     work_package = (h.workPackage or "").strip()
-    if not has_package_access(_current_user, work_package or "Основная"):
-        raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы движения: " + (work_package or "Основная"))
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    unit = (h.unit or "шт").strip() or "шт"
-    cur.execute("INSERT INTO warehouse_history (material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-        (h.material,movement_type,h.quantity,unit,h.date,h.project,h.issuedTo,h.issuedBy,work_package,h.dateTime))
-    row = cur.fetchone()
-    conn.close()
+    try:
+        project_company_id = _project_company_id(cur, h.project)
+        company_context = _resolve_work_company_context(
+            cur,
+            _current_user,
+            project_company_id,
+            "write",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        company_id = int(company_context.get("companyId") or 0)
+        actors = effective_company_actors(_current_user, company_context)
+        actor = actors[0] if len(actors) == 1 else {}
+        if company_id <= 0 or not actor:
+            raise HTTPException(status_code=409, detail="Компания складской корректировки не определена")
+        if (actor.get("role") or "") not in LEADERSHIP_ROLES:
+            raise HTTPException(status_code=403, detail="Ручную запись истории склада может добавить только директор или замдиректора выбранной компании")
+        if h.project:
+            require_project_or_warehouse_access(actor, h.project)
+        if not has_package_access(actor, work_package or "Основная"):
+            raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы движения: " + (work_package or "Основная"))
+        unit = (h.unit or "шт").strip() or "шт"
+        cur.execute("INSERT INTO warehouse_history (material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time,company_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+            (h.material,movement_type,h.quantity,unit,h.date,h.project,h.issuedTo,h.issuedBy,work_package,h.dateTime,company_id))
+        row = cur.fetchone()
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close(); conn.close()
     return dict(row)
 
 @app.delete("/warehouse-history/{id}")
