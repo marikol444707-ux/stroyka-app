@@ -23,6 +23,7 @@ class SupplierOfferVisibilityFilterTests(unittest.TestCase):
 
         self.assertTrue(sql.startswith(" AND "))
         self.assertIn("si.company_id > 0", sql)
+        self.assertIn("invoice_company.id=si.company_id", sql)
         self.assertIn("supplier_offers.company_id=si.company_id", sql)
         self.assertIn("si.offer_id IS NULL", sql)
         self.assertEqual(params[:2], [[3, 7], [3, 7]])

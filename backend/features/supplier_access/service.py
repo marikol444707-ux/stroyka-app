@@ -98,6 +98,11 @@ def supplier_invoice_visibility_filter(supplier_ids, supplier_user_id=None):
     offer_sql, offer_params = supplier_offer_visibility_filter(normalized_ids, user_id)
     sql = """ AND si.company_id IS NOT NULL
       AND si.company_id > 0
+      AND EXISTS (
+            SELECT 1
+              FROM companies invoice_company
+             WHERE invoice_company.id=si.company_id
+      )
       AND si.supplier_id = ANY(%s::int[])
       AND (
             si.offer_id IS NULL
