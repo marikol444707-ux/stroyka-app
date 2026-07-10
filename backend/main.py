@@ -4597,6 +4597,8 @@ def init_db():
             notes TEXT
         );
         ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS work_package VARCHAR(255);
+        ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        UPDATE warehouse_movements SET company_id=1 WHERE company_id IS NULL;
         ALTER TABLE warehouse_movements ALTER COLUMN material_name TYPE TEXT;
         CREATE TABLE IF NOT EXISTS inventory (
             id SERIAL PRIMARY KEY,
@@ -6625,19 +6627,37 @@ def delete_warehouse_main(id: int, _current_user: dict = Depends(require_roles("
     )
 
 @app.get("/warehouse-movements")
-def get_warehouse_movements(current_user: dict = Depends(get_current_user)):
+def get_warehouse_movements(
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        company_context = _resolve_work_company_context(
+            cur,
+            current_user,
+            None,
+            "read",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        company_filter_sql, company_filter_params = company_id_scope_filter(company_context, "wm.company_id")
+    except Exception:
+        cur.close(); conn.close()
+        raise
+    select_sql = "SELECT wm.id,wm.material_name as \"materialName\",wm.from_location as \"fromLocation\",wm.to_location as \"toLocation\",wm.quantity,wm.unit,wm.work_package as \"workPackage\",wm.date,wm.created_by as \"createdBy\",wm.notes FROM warehouse_movements wm WHERE TRUE"
     if current_user.get("role") == "прораб":
         projects = user_project_names(current_user)
         if not projects:
             cur.close(); conn.close()
             return []
         package_names = user_package_names(current_user)
-        query = "SELECT id,material_name as \"materialName\",from_location as \"fromLocation\",to_location as \"toLocation\",quantity,unit,work_package as \"workPackage\",date,created_by as \"createdBy\",notes FROM warehouse_movements WHERE (from_location = ANY(%s) OR to_location = ANY(%s))"
-        params = [projects, projects]
+        query = select_sql + company_filter_sql + " AND (wm.from_location = ANY(%s) OR wm.to_location = ANY(%s))"
+        params = company_filter_params + [projects, projects]
         if package_names:
-            query += " AND COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)"
+            query += " AND COALESCE(NULLIF(wm.work_package,''),'Основная') = ANY(%s)"
             params.append(package_names)
         cur.execute(query + " ORDER BY id DESC", tuple(params))
     elif current_user.get("role") in ("снабженец", "кладовщик"):
@@ -6645,9 +6665,9 @@ def get_warehouse_movements(current_user: dict = Depends(get_current_user)):
         if not projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,material_name as \"materialName\",from_location as \"fromLocation\",to_location as \"toLocation\",quantity,unit,work_package as \"workPackage\",date,created_by as \"createdBy\",notes FROM warehouse_movements WHERE (from_location = ANY(%s) OR to_location = ANY(%s)) ORDER BY id DESC", (projects, projects))
+        cur.execute(select_sql + company_filter_sql + " AND (wm.from_location = ANY(%s) OR wm.to_location = ANY(%s)) ORDER BY wm.id DESC", tuple(company_filter_params + [projects, projects]))
     elif current_user.get("role") in WAREHOUSE_ROLES or current_user.get("role") in FINANCE_ROLES:
-        cur.execute("SELECT id,material_name as \"materialName\",from_location as \"fromLocation\",to_location as \"toLocation\",quantity,unit,work_package as \"workPackage\",date,created_by as \"createdBy\",notes FROM warehouse_movements ORDER BY id DESC")
+        cur.execute(select_sql + company_filter_sql + " ORDER BY wm.id DESC", company_filter_params)
     else:
         cur.close(); conn.close()
         return []
@@ -26670,12 +26690,13 @@ def _supplier_invoice_internal_visibility_filter(company_actors):
                 continue
             actor_clauses.append("si.project_name = ANY(%s)")
             actor_params.append(projects)
-            if role in PACKAGE_LIMIT_ROLES and role != "прораб":
+            if role in PACKAGE_LIMIT_ROLES:
                 packages = user_package_names(actor)
-                if not packages:
+                if role != "прораб" and not packages:
                     continue
-                actor_clauses.append("COALESCE(NULLIF(si.work_package,''),'Основная') = ANY(%s)")
-                actor_params.append(packages)
+                if packages:
+                    actor_clauses.append("COALESCE(NULLIF(si.work_package,''),'Основная') = ANY(%s)")
+                    actor_params.append(packages)
 
         clauses.append("(" + " AND ".join(actor_clauses) + ")")
         params.extend(actor_params)
@@ -26824,7 +26845,7 @@ def list_supplier_invoices(
         warehouse_items = _json_list_or_empty(r.get("warehouse_invoice_items"))
         photo_urls = _json_list_or_empty(r.get("warehouse_invoice_photo_urls"))
         warehouse_photo_url = r.get("warehouse_invoice_photo_url") or (photo_urls[0] if photo_urls else "")
-        warehouse_invoice_id = r.get("warehouse_invoice_id") or r.get("linked_warehouse_invoice_id")
+        warehouse_invoice_id = r.get("linked_warehouse_invoice_id")
         result.append({
             "id": r.get("id"), "companyId": r.get("company_id"), "supplierId": r.get("supplier_id"), "supplierName": r.get("supplier_name") or "",
             "projectName": r.get("project_name") or "", "invoiceNumber": r.get("invoice_number") or "",

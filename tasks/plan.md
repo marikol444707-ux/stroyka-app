@@ -67,6 +67,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [ ] Task M3.5: Protect `GET /supplier-invoices` with internal company context, supplier identity scope, and same-company document joins. Implemented locally; release pending.
 - [ ] Task M4: Scope warehouse balances, invoices, history, and explicit cross-company transfers.
 - [ ] Task M4.1: Scope `GET /warehouse-main` by the selected company context. Implemented locally; release pending.
+- [ ] Task M4.2: Add company identity and read isolation to warehouse movements. Implemented locally; release pending.
 - [ ] Task M5: Scope payments, accounting, contracts, and financial reports.
 - [ ] Task M6: Scope remaining projects, estimates, journals, acts, files, notifications, audit, and AI jobs.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.

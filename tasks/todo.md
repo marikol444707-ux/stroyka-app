@@ -623,7 +623,7 @@
 - [x] A selected company uses the effective membership role, project access, and package access.
 - [x] `all_companies` reads are limited to available company ids and evaluate each company's own membership role, projects, and packages independently.
 - [x] A legacy `users.project_name` fallback is kept only for the default membership without explicit project assignments and cannot leak into another company.
-- [x] Supplier reads require a positive invoice company and the authenticated duplicate supplier group.
+- [x] Supplier reads require an existing positive invoice company and the authenticated duplicate supplier group.
 - [x] An invoice linked to an offer requires the same invoice/offer company and explicit supplier offer visibility; direct legacy documents remain visible only by strong supplier identity.
 - [x] Joined delivery and warehouse invoice rows require the same `company_id` as the supplier invoice.
 - [x] SQL company column aliases are validated before interpolation.
@@ -687,6 +687,26 @@
 **Dependencies:** Task M3.5
 
 **Estimated scope:** XS
+
+## Task M4.2: Warehouse Movement Read Isolation
+
+**Description:** Add a compatible `company_id` to warehouse movements and scope movement reads by the selected tenant context. Existing rows use the legacy company `1` until a later audited backfill.
+
+**Status:** Implemented locally; release pending.
+
+**Acceptance criteria:**
+- [x] Existing movement rows receive a non-null legacy company value.
+- [x] `GET /warehouse-movements` resolves `X-Company-Id` and `X-Company-Mode`.
+- [x] Movement reads apply the company scope for project, warehouse, and finance roles.
+- [x] Movement creation and balances remain unchanged in this slice.
+
+**Verification:**
+- [ ] Backend compile and focused tests pass.
+- [ ] Production smoke confirms selected-company movement visibility.
+
+**Dependencies:** Task M4.1
+
+**Estimated scope:** S
 
 ## Task M5: Finance And Accounting Isolation
 
