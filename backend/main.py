@@ -6275,24 +6275,67 @@ def register(data: dict, response: Response, request: Request):
         conn.close()
         raise HTTPException(status_code=400, detail=str(e))
 
+def _project_access_helpers():
+    try:
+        from backend.features.project_access.service import (
+            project_visibility_filter,
+            require_project_row_company,
+            require_project_write_actor,
+        )
+    except ModuleNotFoundError:
+        from features.project_access.service import (
+            project_visibility_filter,
+            require_project_row_company,
+            require_project_write_actor,
+        )
+    return project_visibility_filter, require_project_row_company, require_project_write_actor
+
+
 @app.get("/projects")
-def get_projects(current_user: dict = Depends(get_current_user)):
+def get_projects(
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
+    project_visibility_filter, _, _ = _project_access_helpers()
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    allowed_projects = visible_project_names(current_user)
-    if allowed_projects is None:
-        cur.execute(f"""SELECT id,name,client,status,budget,deadline,progress,tasks,pricelist_id as "pricelistId",floors,liters,warranty_start_date as "warrantyStartDate",warranty_end_date as "warrantyEndDate",warranty_contact as "warrantyContact",COALESCE(archived,false) as archived,archived_at as "archivedAt",{PROJECT_PUBLIC_SELECT} FROM projects""")
-    elif not allowed_projects:
-        cur.close(); conn.close()
-        return []
-    else:
-        cur.execute(f"""SELECT id,name,client,status,budget,deadline,progress,tasks,pricelist_id as "pricelistId",floors,liters,warranty_start_date as "warrantyStartDate",warranty_end_date as "warrantyEndDate",warranty_contact as "warrantyContact",COALESCE(archived,false) as archived,archived_at as "archivedAt",{PROJECT_PUBLIC_SELECT} FROM projects WHERE name = ANY(%s)""", (allowed_projects,))
+    company_context = _resolve_work_company_context(
+        cur,
+        current_user,
+        None,
+        "read",
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
+    )
+    company_actors = effective_company_actors(current_user, company_context)
+    visibility_sql, visibility_params = project_visibility_filter(
+        company_actors,
+        ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик"),
+    )
+    cur.execute(
+        f"""SELECT p.id,p.company_id as "companyId",p.name,p.client,p.status,p.budget,p.deadline,p.progress,p.tasks,
+                   p.pricelist_id as "pricelistId",p.floors,p.liters,
+                   p.warranty_start_date as "warrantyStartDate",p.warranty_end_date as "warrantyEndDate",
+                   p.warranty_contact as "warrantyContact",COALESCE(p.archived,false) as archived,
+                   p.archived_at as "archivedAt",{PROJECT_PUBLIC_SELECT}
+              FROM projects p
+             WHERE {visibility_sql}
+             ORDER BY p.id""",
+        visibility_params,
+    )
     rows = cur.fetchall()
-    conn.close()
+    cur.close(); conn.close()
+    actors_by_company = {
+        int(actor.get("companyId") or actor.get("company_id")): actor
+        for actor in company_actors
+        if actor.get("companyId") or actor.get("company_id")
+    }
     out = []
     for r in rows:
         d = dict(r)
-        if current_user.get("role") in WORKER_EXECUTION_ROLES:
+        row_actor = actors_by_company.get(int(d.get("companyId") or 0), current_user)
+        if row_actor.get("role") in WORKER_EXECUTION_ROLES:
             d["budget"] = 0
             d["pricelistId"] = None
             d["warrantyStartDate"] = ""
@@ -6302,19 +6345,50 @@ def get_projects(current_user: dict = Depends(get_current_user)):
     return out
 
 @app.post("/projects")
-def create_project(p: ProjectModel, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
+def create_project(
+    p: ProjectModel,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
+    _, _, require_project_write_actor = _project_access_helpers()
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute(f"""INSERT INTO projects (name,client,status,budget,deadline,progress,tasks,pricelist_id,floors,liters) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id,name,client,status,budget,deadline,progress,tasks,pricelist_id as "pricelistId",floors,liters,COALESCE(archived,false) as archived,archived_at as "archivedAt",{PROJECT_PUBLIC_SELECT}""",
-                (p.name,p.client,p.status,p.budget,p.deadline,p.progress,p.tasks,p.pricelistId,p.floors,p.liters))
+    company_context = _resolve_work_company_context(
+        cur,
+        current_user,
+        None,
+        "create",
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
+    )
+    actor = require_project_write_actor(
+        effective_company_actors(current_user, company_context),
+        PROJECT_CARD_WRITE_ROLES,
+    )
+    company_id = int(actor.get("companyId") or actor.get("company_id"))
+    cur.execute(f"""INSERT INTO projects (company_id,name,client,status,budget,deadline,progress,tasks,pricelist_id,floors,liters)
+                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                     RETURNING id,company_id as "companyId",name,client,status,budget,deadline,progress,tasks,
+                               pricelist_id as "pricelistId",floors,liters,COALESCE(archived,false) as archived,
+                               archived_at as "archivedAt",{PROJECT_PUBLIC_SELECT}""",
+                (company_id,p.name,p.client,p.status,p.budget,p.deadline,p.progress,p.tasks,p.pricelistId,p.floors,p.liters))
     row = cur.fetchone()
-    log_audit(user_name=current_user.get("name",""), user_role=current_user.get("role",""),
+    conn.commit()
+    cur.close(); conn.close()
+    log_audit(user_name=actor.get("name",""), user_role=actor.get("role",""),
               action="create", entity_type="project", entity_id=row["id"], description="Создан объект", project_name=row["name"])
-    conn.close()
     return dict(row)
 
 @app.put("/projects/{id}")
-def update_project(id: int, data: dict, current_user: dict = Depends(require_roles(*PROJECT_CARD_WRITE_ROLES))):
+def update_project(
+    id: int,
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
+    _, require_project_row_company, require_project_write_actor = _project_access_helpers()
     archived_value = data.pop("archived", None) if "archived" in data else None
     archived_at_value = data.pop("archivedAt", None) if "archivedAt" in data else None
     archived_at_snake = data.pop("archived_at", None) if "archived_at" in data else None
@@ -6340,23 +6414,37 @@ def update_project(id: int, data: dict, current_user: dict = Depends(require_rol
             vals.append(v)
     if not sets:
         return {"ok": True}
-    vals.append(id)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT name FROM projects WHERE id=%s", (id,))
+    cur.execute("SELECT company_id,name FROM projects WHERE id=%s", (id,))
     project_row = cur.fetchone()
     if not project_row:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Объект не найден")
-    require_project_access(current_user, project_row.get("name") or "")
-    cur.execute("UPDATE projects SET " + ", ".join(sets) + " WHERE id=%s", vals)
-    cur.execute("SELECT id,name,COALESCE(archived,false) as archived FROM projects WHERE id=%s", (id,))
+    project_company_id = project_row.get("company_id")
+    company_context = _resolve_work_company_context(
+        cur,
+        current_user,
+        project_company_id,
+        "update",
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
+    )
+    actor = require_project_write_actor(
+        effective_company_actors(current_user, company_context),
+        PROJECT_CARD_WRITE_ROLES,
+    )
+    require_project_row_company(actor, project_company_id)
+    require_project_access(actor, project_row.get("name") or "")
+    vals.extend([id, project_company_id])
+    cur.execute("UPDATE projects SET " + ", ".join(sets) + " WHERE id=%s AND company_id=%s", vals)
+    cur.execute("SELECT id,company_id as \"companyId\",name,COALESCE(archived,false) as archived FROM projects WHERE id=%s AND company_id=%s", (id, project_company_id))
     row = cur.fetchone()
     conn.commit()
     cur.close(); conn.close()
     if row:
         action = "archive" if "archived" in data and data.get("archived") else ("restore" if "archived" in data else "update")
-        log_audit(user_name=current_user.get("name",""), user_role=current_user.get("role",""),
+        log_audit(user_name=actor.get("name",""), user_role=actor.get("role",""),
                   action=action, entity_type="project", entity_id=id, description="Обновлён объект", project_name=row["name"])
     return {"ok": True}
 
