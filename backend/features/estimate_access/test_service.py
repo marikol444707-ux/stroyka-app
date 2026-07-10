@@ -148,6 +148,20 @@ class EstimateAccessTests(unittest.TestCase):
             )["isTemplate"]
         )
 
+    def test_unbound_draft_requires_explicit_permission(self):
+        draft = (9, 2, None, "", "Основная", False)
+        with self.assertRaises(HTTPException) as error:
+            resolve_estimate_parent(FakeCursor([draft]), {"companyId": 2}, 9)
+        self.assertEqual(error.exception.status_code, 409)
+        self.assertFalse(
+            resolve_estimate_parent(
+                FakeCursor([draft]),
+                {"companyId": 2},
+                9,
+                allow_unbound=True,
+            )["isTemplate"]
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

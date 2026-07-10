@@ -19772,29 +19772,69 @@ def get_estimates_summary(
 
 
 @app.get("/estimates/{id}")
-def get_estimate_detail(id: int, current_user: dict = Depends(get_current_user)):
+def get_estimate_detail(
+    id: int,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
+    try:
+        from backend.features.estimate_access.service import (
+            estimate_visibility_filter,
+            resolve_estimate_parent,
+        )
+    except ModuleNotFoundError:
+        from features.estimate_access.service import (
+            estimate_visibility_filter,
+            resolve_estimate_parent,
+        )
     conn = get_db()
+    context_cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    company_context = _resolve_work_company_context(
+        context_cur,
+        current_user,
+        None,
+        "read",
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
+    )
+    company_actors = effective_company_actors(current_user, company_context)
+    context_cur.close()
     cur = conn.cursor()
-    require_estimate_access(cur, id, current_user)
+    visibility_sql, visibility_params = estimate_visibility_filter(
+        company_actors,
+        ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик"),
+        PACKAGE_LIMIT_ROLES,
+        (*WORKER_EXECUTION_ROLES, "прораб"),
+        ("заказчик",),
+        ("прораб",),
+    )
     base_cols = """e.id,e.project_id,e.project_name,e.name,e.version,e.sections_json,
                    COALESCE(e.smeta_type,'Заказчик'),COALESCE(e.work_package,'Основная'),COALESCE(e.is_template,FALSE),e.status,e.created_at,
                    (SELECT COUNT(*) FROM estimate_versions ev WHERE ev.estimate_id=e.id) as version_count,
-                   (SELECT MAX(ev.created_at) FROM estimate_versions ev WHERE ev.estimate_id=e.id) as latest_version_at"""
-    cur.execute(f"SELECT {base_cols} FROM estimates e WHERE e.id=%s", (id,))
+                   (SELECT MAX(ev.created_at) FROM estimate_versions ev WHERE ev.estimate_id=e.id) as latest_version_at,
+                   e.company_id"""
+    cur.execute(
+        f"SELECT {base_cols} FROM estimates e WHERE e.id=%s AND {visibility_sql}",
+        (id, *visibility_params),
+    )
     r = cur.fetchone()
     if not r:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Смета не найдена")
 
-    role = current_user.get("role")
-    status = r[9] or "Черновик"
-    smeta_type = r[6] or "Заказчик"
-    if role == "заказчик" and (status != "Активная" or smeta_type != "Заказчик"):
+    actors_by_company = {
+        int(actor.get("companyId") or actor.get("company_id")): actor
+        for actor in company_actors
+        if actor.get("companyId") or actor.get("company_id")
+    }
+    row_company_id = int(r[13] or 0)
+    row_actor = actors_by_company.get(row_company_id)
+    if not row_actor:
         cur.close(); conn.close()
-        raise HTTPException(status_code=403, detail="Нет доступа к смете")
-    if (role in WORKER_EXECUTION_ROLES or role == "прораб") and status != "Активная":
-        cur.close(); conn.close()
-        raise HTTPException(status_code=403, detail="Нет доступа к неактивной смете")
+        raise HTTPException(status_code=404, detail="Смета не найдена")
+    resolve_estimate_parent(cur, row_actor, id, allow_template=True, allow_unbound=True)
+    role = row_actor.get("role") or ""
 
     import json as j
     try:
@@ -19805,7 +19845,7 @@ def get_estimate_detail(id: int, current_user: dict = Depends(get_current_user))
     if role in WORKER_EXECUTION_ROLES:
         allowed_by_scope = _worker_allowed_estimate_items_for_scopes(
             cur,
-            current_user,
+            row_actor,
             [((r[2] or ""), (r[7] or "Основная"))],
         )
         allowed_items = allowed_by_scope.get((r[2] or "", r[7] or "Основная"))

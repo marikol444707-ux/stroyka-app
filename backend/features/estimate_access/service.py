@@ -102,7 +102,15 @@ def _row_value(row, key, index):
     return None
 
 
-def resolve_estimate_parent(cur, actor, estimate_id, *, for_update=False, allow_template=False):
+def resolve_estimate_parent(
+    cur,
+    actor,
+    estimate_id,
+    *,
+    for_update=False,
+    allow_template=False,
+    allow_unbound=False,
+):
     """Resolve an estimate and verify its project inside the selected company."""
     company_id = _positive_int((actor or {}).get("companyId") or (actor or {}).get("company_id"))
     normalized_estimate_id = _positive_int(estimate_id)
@@ -130,10 +138,10 @@ def resolve_estimate_parent(cur, actor, estimate_id, *, for_update=False, allow_
         "workPackage": str(_row_value(row, "work_package", 4) or "Основная").strip() or "Основная",
         "isTemplate": bool(_row_value(row, "is_template", 5)),
     }
-    if estimate["isTemplate"] and not estimate["projectId"] and not estimate["projectName"]:
-        if allow_template:
+    if not estimate["projectId"] and not estimate["projectName"]:
+        if (estimate["isTemplate"] and allow_template) or allow_unbound:
             return estimate
-        raise HTTPException(status_code=409, detail="Шаблон сметы не привязан к объекту")
+        raise HTTPException(status_code=409, detail="Смета не привязана к объекту")
     project = resolve_project_parent(
         cur,
         actor,
