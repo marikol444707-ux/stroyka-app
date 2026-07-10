@@ -959,6 +959,20 @@
 
 **Estimated scope:** L, delivered as separate domain slices
 
+### Approved M6 Delivery Order
+
+- [ ] `M6.0` Build a read-only registry of tenant-owned tables, routes, parent relations, file surfaces, jobs, and the authoritative source of `company_id`.
+- [ ] `M6.1` Make projects the tenant root: selected-company reads/writes, immutable company ownership, and ID-based access instead of `project_name` security.
+- [ ] `M6.2` Protect files and document versions with parent ownership; keep legacy `/uploads` compatible while new protected documents use authorized downloads or short signed URLs.
+- [ ] `M6.3` Scope staff, memberships, personal documents, consents, and dismissal so one company membership can be disabled without disabling the global account.
+- [ ] `M6.4` Scope estimates, versions, changes, templates, and estimate chat by stored company and project ID.
+- [ ] `M6.5` Scope work journal, rooms/measurements, contract items, journals, acts, and their cascading material/document writes.
+- [ ] `M6.6` Scope assignments, reports, attachments, AI/OCR tasks, summaries, dedupe keys, and background execution.
+- [ ] `M6.7` Scope MAX files, notifications, deep links, and outbox dispatch by company and verified recipient membership.
+- [ ] `M6.8` Add company-aware audit/export contracts and negative read/write tests for every migrated domain.
+
+**M6 safety gate:** do not backfill ambiguous legacy rows, do not use project names as authorization identifiers, do not allow mutation in `all_companies`, and do not start the two-company production E2E until M6.0-M6.8 and the preceding M4/M5 gaps are closed.
+
 ## Task M7: Backfill, Constraints, And Pilot Matrix
 
 **Description:** After all live write paths are tenant-aware, inspect old rows, perform dry-run mapping, backfill only unambiguous records, and add database constraints/indexes in reversible migrations.
