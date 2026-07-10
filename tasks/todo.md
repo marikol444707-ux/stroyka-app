@@ -923,7 +923,7 @@
 
 **Description:** Store and load legal/bank requisites for one selected company. Replace the global delete-and-insert behavior with a company-scoped upsert while preserving the existing frontend object contract.
 
-**Status:** Implemented locally; release pending.
+**Status:** Deployed in `69f55f4b`; production health/version verified. Authenticated selected-company smoke remains pending because the smoke account requires initial 2FA setup.
 
 **Acceptance criteria:**
 - [x] Existing requisites receive legacy `company_id=1` without changing their values.
@@ -941,6 +941,35 @@
 **Dependencies:** Task M4
 
 **Estimated scope:** S
+
+## Task M5.2: Project Payments Isolation
+
+**Description:** Make `project_payments` a company-owned money ledger. Scope direct and automatic payment paths by verified tenant context without changing the existing amount/sign semantics yet.
+
+**Status:** Implemented locally; release pending.
+
+**Acceptance criteria:**
+- [x] Existing payment rows first inherit an unambiguous project company; rows that cannot be proven remain in the accepted legacy company `1`. New rows require non-null `company_id` and use company indexes.
+- [x] `GET /project-payments` filters by effective role in every allowed company; customers only see positive payments for assigned projects.
+- [x] Direct payment creation requires one selected company, an effective finance role, and a project belonging to that company.
+- [x] Payment reversal authorizes from the payment row's stored company and writes the reversal to the same company.
+- [x] Deleting a linked brigade payment creates an idempotent reversal instead of physically deleting the central money-ledger row.
+- [x] Payments created from interim acts, brigade payments, and warehouse invoice accounting carry the verified company.
+- [x] Legacy act/brigade sources with a project name shared by several companies fail closed with `409` until their own tables receive `company_id`.
+- [x] General AI chat and the director finance tool cannot read `project_payments` outside the resolved company context.
+- [x] The director finance tool omits unscoped manual `expenses` until that table receives `company_id`.
+- [x] `all_companies` remains read-only for payment mutations.
+
+**Verification:**
+- [x] Payment-access, company-context, and supplier-access unit tests pass.
+- [x] Frontend tests and production build pass.
+- [ ] Production health/version and authenticated selected-company payment reads pass after deploy.
+
+**Known follow-up:** M5.3 must add stored `company_id` to `brigade_contracts` and `brigade_payments` and close their current global list reads. Also add ownership to `interim_acts` and `expenses`; then remove the temporary duplicate-project-name guard and restore scoped manual expenses in the director tool.
+
+**Dependencies:** Task M5.1
+
+**Estimated scope:** M
 
 ## Task M6: Remaining Tenant-Owned Domains
 

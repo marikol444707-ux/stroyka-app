@@ -117,6 +117,11 @@ except ModuleNotFoundError:
         supplier_recipient_identity_filter,
     )
 
+try:
+    from backend.features.project_payment_access.service import project_payment_visibility_filter
+except ModuleNotFoundError:
+    from features.project_payment_access.service import project_payment_visibility_filter
+
 def _startup_num(v) -> float:
     try:
         return float(str(v if v is not None else 0).replace(" ", "").replace(",", "."))
@@ -1805,6 +1810,59 @@ def _company_id_for_project_or_user(cur, project_name: str = "", user: dict = No
             return user_company_id
     return 1
 
+def _resolve_project_payment_actor(
+    cur,
+    user: dict,
+    project_name: str,
+    work_package: str = "",
+    *,
+    claimed_company_id=None,
+    x_company_id=None,
+    x_company_mode=None,
+    require_unambiguous_project: bool = False,
+):
+    project_name = str(project_name or "").strip()
+    if not project_name:
+        raise HTTPException(status_code=400, detail="Не указан объект платежа")
+    requested_company_id = None
+    if claimed_company_id not in (None, ""):
+        requested_company_id = _positive_int_or_none(claimed_company_id)
+        if not requested_company_id:
+            raise HTTPException(status_code=400, detail="companyId должен быть положительным целым числом")
+    company_context = _resolve_work_company_context(
+        cur,
+        user,
+        requested_company_id,
+        "write",
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
+    )
+    actors = effective_company_actors(user, company_context)
+    actor = actors[0] if len(actors) == 1 else {}
+    company_id = _positive_int_or_none(company_context.get("companyId"))
+    if not company_id or not actor:
+        raise HTTPException(status_code=409, detail="Компания платежа не определена")
+    if (actor.get("role") or "") not in FINANCE_ROLES:
+        raise HTTPException(status_code=403, detail="Роль в выбранной компании не позволяет менять платежи")
+    try:
+        from backend.features.project_access.service import resolve_project_parent
+    except ModuleNotFoundError:
+        from features.project_access.service import resolve_project_parent
+    parent = resolve_project_parent(cur, actor, project_name=project_name)
+    project_name = parent.get("name") or project_name
+    if require_unambiguous_project:
+        cur.execute("SELECT COUNT(DISTINCT COALESCE(company_id,1)) FROM projects WHERE name=%s", (project_name,))
+        company_count = int(_row_get(cur.fetchone(), "count", 0, 0) or 0)
+        if company_count > 1:
+            raise HTTPException(
+                status_code=409,
+                detail="Источник платежа не привязан к компании, а название объекта встречается в нескольких компаниях",
+            )
+    require_project_access(actor, project_name)
+    if not has_package_access(actor, work_package or "Основная"):
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету платежа")
+    return company_id, actor
+
 def supplier_is_selected(selected_suppliers, supplier_id: int) -> bool:
     if not supplier_id:
         return False
@@ -2730,43 +2788,51 @@ def _director_agent_tool_estimates(args):
         })
     return out
 
-def _director_agent_tool_finances(args):
+def _director_agent_tool_finances(args, company_ids=None):
+    company_ids = sorted({
+        company_id
+        for value in company_ids or []
+        for company_id in [_positive_int_or_none(value)]
+        if company_id
+    })
+    if not company_ids:
+        return []
     project = str((args or {}).get("project") or "").strip()
-    params = []
-    where_project = ""
+    where = ["company_id = ANY(%s)"]
+    params = [company_ids]
     if project:
-        where_project = "WHERE name=%s"
+        where.append("name=%s")
         params.append(project)
     projects = _director_agent_query(
-        f"SELECT name, budget, status FROM projects {where_project} ORDER BY id DESC LIMIT 40",
+        f"""SELECT company_id, name, budget, status
+            FROM projects
+            WHERE {' AND '.join(where)}
+            ORDER BY id DESC LIMIT 40""",
         tuple(params),
     )
     names = [p.get("name") for p in projects if p.get("name")]
     if not names:
         return []
     payments = _director_agent_query(
-        """SELECT project_name, COALESCE(SUM(amount),0) AS total
+        """SELECT company_id, project_name, COALESCE(SUM(amount),0) AS total
            FROM project_payments
-           WHERE project_name = ANY(%s)
-           GROUP BY project_name""",
-        (names,),
+           WHERE company_id = ANY(%s) AND project_name = ANY(%s)
+           GROUP BY company_id, project_name""",
+        (company_ids, names),
     )
-    expenses = _director_agent_query(
-        """SELECT project, COALESCE(SUM(amount),0) AS total
-           FROM expenses
-           WHERE project = ANY(%s)
-           GROUP BY project""",
-        (names,),
-    )
-    pay_by_project = {r.get("project_name"): _director_agent_num(r.get("total")) for r in payments}
-    exp_by_project = {r.get("project"): _director_agent_num(r.get("total")) for r in expenses}
+    pay_by_project = {
+        (_positive_int_or_none(row.get("company_id")), row.get("project_name")): _director_agent_num(row.get("total"))
+        for row in payments
+    }
     return [
         {
+            "companyId": p.get("company_id"),
             "project": p.get("name") or "",
             "status": p.get("status") or "",
             "budget": round(_director_agent_num(p.get("budget")), 2),
-            "paymentsNet": round(pay_by_project.get(p.get("name"), 0), 2),
-            "manualExpenses": round(exp_by_project.get(p.get("name"), 0), 2),
+            "paymentsNet": round(pay_by_project.get((_positive_int_or_none(p.get("company_id")), p.get("name")), 0), 2),
+            "manualExpenses": None,
+            "manualExpensesScoped": False,
         }
         for p in projects
     ]
@@ -2874,12 +2940,32 @@ def director_agent_tools(_current_user: dict = Depends(require_roles(*DIRECTOR_A
     return [{"name": k, "desc": v["desc"]} for k, v in DIRECTOR_AGENT_TOOLS.items()]
 
 @app.post("/director-agent/ask")
-def director_agent_ask(data: dict, current_user: dict = Depends(require_roles(*DIRECTOR_AGENT_ROLES))):
+def director_agent_ask(
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(require_roles(*DIRECTOR_AGENT_ROLES)),
+):
     question = str((data or {}).get("question") or "").strip()
     if not question:
         raise HTTPException(status_code=400, detail="Пустой вопрос")
     if len(question) > 1000:
         raise HTTPException(status_code=400, detail="Вопрос слишком длинный")
+    context_conn = get_db()
+    context_cur = context_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        company_context = _resolve_work_company_context(
+            context_cur,
+            current_user,
+            None,
+            "read",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        request_company_ids = company_context.get("companyIds") or []
+    finally:
+        context_cur.close()
+        context_conn.close()
     tools_desc = "\n".join([f"- {name}: {meta['desc']}" for name, meta in DIRECTOR_AGENT_TOOLS.items()])
     system = (
         "Ты — директорский помощник ERP СтройКа. Отвечай по-русски, кратко и управленчески.\n"
@@ -2924,7 +3010,10 @@ def director_agent_ask(data: dict, current_user: dict = Depends(require_roles(*D
             return {"answer": "Неизвестный инструмент: " + str(tool), "steps": steps, "model": "yandexgpt-lite"}
         args = parsed.get("args") or {}
         try:
-            result = DIRECTOR_AGENT_TOOLS[tool]["fn"](args)
+            if tool == "finances":
+                result = DIRECTOR_AGENT_TOOLS[tool]["fn"](args, request_company_ids)
+            else:
+                result = DIRECTOR_AGENT_TOOLS[tool]["fn"](args)
         except Exception as e:
             result = {"error": str(e)}
         steps.append({"tool": tool, "args": args})
@@ -4161,6 +4250,7 @@ def init_db():
         );
         CREATE TABLE IF NOT EXISTS project_payments (
             id SERIAL PRIMARY KEY,
+            company_id INT NOT NULL DEFAULT 1,
             project_name VARCHAR(255),
             work_package VARCHAR(100) DEFAULT '',
             amount NUMERIC(14,2) DEFAULT 0,
@@ -4170,7 +4260,24 @@ def init_db():
             paid_by VARCHAR(255),
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE project_payments ADD COLUMN IF NOT EXISTS company_id INT;
+        UPDATE project_payments pp
+           SET company_id=project_scope.company_id
+          FROM (
+              SELECT name, MIN(company_id) AS company_id
+                FROM projects
+               WHERE company_id IS NOT NULL
+               GROUP BY name
+              HAVING COUNT(DISTINCT company_id)=1
+          ) project_scope
+         WHERE pp.company_id IS NULL
+           AND pp.project_name=project_scope.name;
+        UPDATE project_payments SET company_id=1 WHERE company_id IS NULL;
+        ALTER TABLE project_payments ALTER COLUMN company_id SET DEFAULT 1;
+        ALTER TABLE project_payments ALTER COLUMN company_id SET NOT NULL;
         ALTER TABLE project_payments ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT '';
+        CREATE INDEX IF NOT EXISTS idx_project_payments_company_id ON project_payments(company_id,id DESC);
+        CREATE INDEX IF NOT EXISTS idx_project_payments_company_project ON project_payments(company_id,project_name);
         CREATE TABLE IF NOT EXISTS accountable_payments (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -15822,12 +15929,17 @@ def update_interim_act(id: int, data: dict, _current_user: dict = Depends(requir
     return {"ok": True}
 
 @app.post("/interim-acts/{id}/pay")
-def pay_interim_act(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
+def pay_interim_act(
+    id: int,
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
     conn.autocommit = False
     cur = conn.cursor()
     try:
-        require_row_project_access(cur, "interim_acts", id, _current_user, "project")
         cur.execute("""SELECT total_amount, paid_amount, project, COALESCE(work_package,''), master_name, COALESCE(source_type,'')
                        FROM interim_acts WHERE id=%s FOR UPDATE""", (id,))
         act = cur.fetchone()
@@ -15840,9 +15952,18 @@ def pay_interim_act(id: int, data: dict, _current_user: dict = Depends(require_r
         if source_type == DAILY_WORK_ACT_SOURCE_TYPE:
             conn.rollback()
             raise HTTPException(status_code=400, detail="Дневной акт является контрольным пакетом. Для оплаты сформируйте акт подрядчику за месяц, период или всё время работ.")
-        if not has_package_access(_current_user, work_package):
-            conn.rollback()
-            raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы акта")
+        claimed_company_id = data.get("companyId") if "companyId" in data else data.get("company_id")
+        company_id, actor = _resolve_project_payment_actor(
+            cur,
+            _current_user,
+            project,
+            work_package,
+            claimed_company_id=claimed_company_id,
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            require_unambiguous_project=True,
+        )
+        _current_user = actor
         total_amount = float(act[0] or 0)
         current_paid = float(act[1] or 0)
         amount = float(data.get("amount") or 0)
@@ -15858,9 +15979,10 @@ def pay_interim_act(id: int, data: dict, _current_user: dict = Depends(require_r
         paid_by = data.get("paidBy") or _current_user.get("name") or ""
         paid_date = data.get("paidDate") or None
         note = data.get("note") or ("Оплата исполнителю " + (act[4] or "") + " · акт #" + str(id))
-        cur.execute("""INSERT INTO project_payments (project_name,amount,note,date,added_by,work_package)
-                       VALUES (%s,%s,%s,%s,%s,%s) RETURNING id""",
-                    (project, -amount, note, paid_date, paid_by, work_package))
+        cur.execute("""INSERT INTO project_payments
+                           (company_id,project_name,amount,note,date,added_by,work_package)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                    (company_id, project, -amount, note, paid_date, paid_by, work_package))
         payment_id = cur.fetchone()[0]
         conn.commit()
         log_audit(
@@ -17820,7 +17942,12 @@ import urllib.request
 import json as json_lib
 
 @app.post("/ai-chat")
-def ai_chat(data: dict, current_user: dict = Depends(get_current_user)):
+def ai_chat(
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
     from openai import OpenAI
     FOLDER_ID = YANDEX_FOLDER_ID
     API_KEY = YANDEX_API_KEY
@@ -17834,6 +17961,29 @@ def ai_chat(data: dict, current_user: dict = Depends(get_current_user)):
         context = ""
     else:
         conn = get_db()
+        scope_cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            company_context = _resolve_work_company_context(
+                scope_cur,
+                current_user,
+                None,
+                "read",
+                x_company_id=x_company_id,
+                x_company_mode=x_company_mode,
+            )
+            finance_actors = [
+                actor for actor in effective_company_actors(current_user, company_context)
+                if (actor.get("role") or "") in FINANCE_ROLES
+            ]
+            payment_visibility_sql, payment_visibility_params = project_payment_visibility_filter(
+                finance_actors,
+                FINANCE_ROLES,
+            )
+        except Exception:
+            scope_cur.close()
+            conn.close()
+            raise
+        scope_cur.close()
         cur = conn.cursor()
         allowed_projects = visible_project_names(current_user)
         if allowed_projects is None:
@@ -17869,12 +18019,19 @@ def ai_chat(data: dict, current_user: dict = Depends(get_current_user)):
         else:
             cur2.execute("SELECT project_name, brigade_name, status FROM brigade_contracts WHERE FALSE")
         brigades = cur2.fetchall()
-        if current_user.get("role") in FINANCE_ROLES:
-            cur2.execute("SELECT project_name, amount, note FROM project_payments ORDER BY id DESC LIMIT 10")
+        if payment_visibility_sql != "FALSE":
+            cur2.execute(
+                f"""SELECT pp.project_name, pp.amount, pp.note
+                    FROM project_payments pp
+                    WHERE {payment_visibility_sql}
+                    ORDER BY pp.id DESC LIMIT 10""",
+                tuple(payment_visibility_params),
+            )
             payments = cur2.fetchall()
         else:
             payments = []
         cur2.close()
+        conn.close()
         context = "Ты ИИ помощник строительной компании СтройКа. Отвечай кратко на русском.\n"
         context += "ПРОЕКТЫ ("+str(len(projects))+"): "+", ".join([p[0]+" ("+p[1]+")" for p in projects])+"\n"
         context += "СОТРУДНИКИ: "+", ".join([s[0]+" - "+s[1] for s in staff[:15]])+"\n"
@@ -21222,7 +21379,12 @@ def get_brigade_payments(contract_id: int = None, _current_user: dict = Depends(
     return [{"id":r[0],"contractId":r[1],"amount":float(r[2] or 0),"paidBy":r[3] or "","paidDate":str(r[4]) if r[4] else "","note":r[5] or "","createdAt":str(r[6])} for r in rows]
 
 @app.post("/brigade-payments")
-def create_brigade_payment(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
+def create_brigade_payment(
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""SELECT COALESCE(act_scan_url,''), project_name, brigade_name,
@@ -21246,54 +21408,120 @@ def create_brigade_payment(data: dict, _current_user: dict = Depends(require_rol
     if amount > available_to_pay + 0.01:
         cur.close(); conn.close()
         raise HTTPException(status_code=400, detail=f"Оплата превышает выполненный неоплаченный объём. Доступно к оплате: {available_to_pay:.2f} ₽")
+    project_name = contract[1] or ""
+    claimed_company_id = data.get("companyId") if "companyId" in data else data.get("company_id")
+    try:
+        company_id, actor = _resolve_project_payment_actor(
+            cur,
+            _current_user,
+            project_name,
+            claimed_company_id=claimed_company_id,
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            require_unambiguous_project=True,
+        )
+    except Exception:
+        conn.rollback()
+        cur.close(); conn.close()
+        raise
+    _current_user = actor
     paid_by = data.get("paidBy","")
     paid_date = data.get("paidDate") or None
     cur.execute("INSERT INTO brigade_payments (contract_id,amount,paid_by,paid_date,note) VALUES (%s,%s,%s,%s,%s) RETURNING id",
         (data.get("contractId"), amount, paid_by, paid_date, data.get("note","")))
     new_id = cur.fetchone()[0]
     project_payment_id = None
-    project_name = contract[1] or ""
     brigade_name = contract[2] or ""
     if project_name and amount:
         payment_note = "Оплата бригаде " + brigade_name
         cur.execute("""SELECT id FROM project_payments
-                       WHERE project_name=%s AND amount=%s AND COALESCE(note,'')=%s
+                       WHERE company_id=%s AND project_name=%s
+                         AND amount=%s AND COALESCE(note,'')=%s
                          AND date IS NOT DISTINCT FROM %s AND COALESCE(added_by,'')=%s
                        ORDER BY id DESC LIMIT 1""",
-                    (project_name, amount, payment_note, paid_date, paid_by))
+                    (company_id, project_name, amount, payment_note, paid_date, paid_by))
         existing = cur.fetchone()
         if existing:
             project_payment_id = existing[0]
         else:
-            cur.execute("INSERT INTO project_payments (project_name,amount,note,date,added_by) VALUES (%s,%s,%s,%s,%s) RETURNING id",
-                        (project_name, amount, payment_note, paid_date, paid_by))
+            cur.execute("""INSERT INTO project_payments
+                               (company_id,project_name,amount,note,date,added_by)
+                           VALUES (%s,%s,%s,%s,%s,%s) RETURNING id""",
+                        (company_id, project_name, amount, payment_note, paid_date, paid_by))
             project_payment_id = cur.fetchone()[0]
     conn.commit()
     cur.close(); conn.close()
-    return {"ok": True, "id": new_id, "projectPaymentId": project_payment_id}
+    return {"ok": True, "id": new_id, "companyId": company_id, "projectPaymentId": project_payment_id}
 
 @app.delete("/brigade-payments/{id}")
-def delete_brigade_payment(id: int, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
+def delete_brigade_payment(
+    id: int,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""SELECT bp.amount, bp.paid_by, bp.paid_date, bc.project_name, bc.brigade_name
                    FROM brigade_payments bp
                    LEFT JOIN brigade_contracts bc ON bc.id=bp.contract_id
-                   WHERE bp.id=%s""", (id,))
+                   WHERE bp.id=%s
+                   FOR UPDATE OF bp""", (id,))
     payment = cur.fetchone()
+    if not payment:
+        cur.close(); conn.close()
+        return {"ok": True}
+    try:
+        company_id, actor = _resolve_project_payment_actor(
+            cur,
+            _current_user,
+            payment[3] or "",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            require_unambiguous_project=True,
+        )
+    except Exception:
+        conn.rollback()
+        cur.close(); conn.close()
+        raise
+    _current_user = actor
     cur.execute("DELETE FROM brigade_payments WHERE id=%s",(id,))
-    if payment and payment[3]:
-        cur.execute("""DELETE FROM project_payments
-                       WHERE id = (
-                         SELECT id FROM project_payments
-                         WHERE project_name=%s AND amount=%s AND COALESCE(note,'')=%s
-                           AND date IS NOT DISTINCT FROM %s AND COALESCE(added_by,'')=%s
-                         ORDER BY id DESC LIMIT 1
-                       )""",
-                    (payment[3], payment[0], "Оплата бригаде " + (payment[4] or ""), payment[2], payment[1] or ""))
+    project_payment_reversal_id = None
+    if payment[3]:
+        payment_note = "Оплата бригаде " + (payment[4] or "")
+        cur.execute("""SELECT id,COALESCE(work_package,''),amount,note,date,added_by
+                       FROM project_payments
+                       WHERE company_id=%s AND project_name=%s
+                         AND amount=%s AND COALESCE(note,'')=%s
+                         AND date IS NOT DISTINCT FROM %s AND COALESCE(added_by,'')=%s
+                       ORDER BY id DESC LIMIT 1""",
+                    (company_id, payment[3], payment[0], "Оплата бригаде " + (payment[4] or ""), payment[2], payment[1] or ""))
+        project_payment = cur.fetchone()
+        if project_payment:
+            reversal_note = "Сторно платежа #" + str(project_payment[0]) + ": " + payment_note
+            cur.execute("""SELECT id FROM project_payments
+                           WHERE company_id=%s AND project_name=%s
+                             AND amount=%s AND COALESCE(note,'')=%s
+                           ORDER BY id DESC LIMIT 1""",
+                        (company_id, payment[3], -(project_payment[2] or 0), reversal_note))
+            existing_reversal = cur.fetchone()
+            if existing_reversal:
+                project_payment_reversal_id = existing_reversal[0]
+            else:
+                cur.execute("""INSERT INTO project_payments
+                                   (company_id,project_name,work_package,amount,note,date,added_by)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                            (company_id, payment[3], project_payment[1] or "",
+                             -(project_payment[2] or 0), reversal_note,
+                             dt.date.today().isoformat(), actor.get("name") or payment[1] or ""))
+                project_payment_reversal_id = cur.fetchone()[0]
     conn.commit()
     cur.close(); conn.close()
-    return {"ok": True}
+    return {
+        "ok": True,
+        "companyId": company_id,
+        "projectPaymentReversalId": project_payment_reversal_id,
+    }
 
 @app.get("/salary-payments")
 def get_salary_payments(_current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
@@ -24222,11 +24450,13 @@ def update_warehouse_invoice_accounting(
             if work_package:
                 note += " · " + work_package
             cur.execute("""SELECT id FROM project_payments
-                           WHERE project_name=%s AND COALESCE(work_package,'')=%s AND amount=%s
+                           WHERE company_id=%s AND project_name=%s
+                             AND COALESCE(work_package,'')=%s AND amount=%s
                              AND COALESCE(note,'')=%s AND date IS NOT DISTINCT FROM %s
                              AND COALESCE(added_by,'')=%s
                            ORDER BY id DESC LIMIT 1""",
-                        (target_project, work_package, payment_amount, note, paid_at, actor_name))
+                        (row.get("company_id"), target_project, work_package,
+                         payment_amount, note, paid_at, actor_name))
             existing_payment = cur.fetchone()
             if existing_payment:
                 payment_id = existing_payment["id"]
@@ -24238,9 +24468,10 @@ def update_warehouse_invoice_accounting(
                     if payment_amount > remaining_to_pay + 0.01:
                         raise HTTPException(status_code=400, detail=f"Оплата превышает долг по накладной. Остаток к оплате: {round(remaining_to_pay, 2)} ₽")
                 cur.execute("""INSERT INTO project_payments
-                                  (project_name, work_package, amount, note, date, added_by)
-                               VALUES (%s,%s,%s,%s,%s,%s) RETURNING id""",
-                            (target_project, work_package, payment_amount, note, paid_at, actor_name))
+                                  (company_id, project_name, work_package, amount, note, date, added_by)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                            (row.get("company_id"), target_project, work_package,
+                             payment_amount, note, paid_at, actor_name))
                 payment_id = cur.fetchone()["id"]
                 paid_amount_after = round(paid_amount_before + payment_amount, 2)
             if invoice_total > 0 and paid_amount_after + 0.01 >= invoice_total:
@@ -27935,133 +28166,187 @@ def get_online(_current_user: dict = Depends(get_current_user)):
     return list(online_users.values())
 
 @app.get("/project-payments")
-def get_project_payments(project_name: str = "", current_user: dict = Depends(get_current_user)):
-    role = current_user.get("role")
-    if role not in FINANCE_ROLES and role != "заказчик":
-        return []
+def get_project_payments(
+    project_name: str = "",
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
-    cur = conn.cursor()
-    if project_name:
-        try:
-            require_project_access(current_user, project_name)
-        except HTTPException:
-            cur.close(); conn.close()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        company_context = _resolve_work_company_context(
+            cur,
+            current_user,
+            None,
+            "read",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        visibility_sql, params = project_payment_visibility_filter(
+            effective_company_actors(current_user, company_context),
+            FINANCE_ROLES,
+        )
+        if visibility_sql == "FALSE":
             return []
-    customer_projects = user_project_names(current_user) if role == "заказчик" else None
-    if role == "заказчик" and project_name and project_name not in customer_projects:
+        where = [visibility_sql]
+        if project_name:
+            where.append("pp.project_name=%s")
+            params.append(project_name)
+        cur.execute(f"""SELECT id,company_id,project_name,amount,note,date,added_by,
+                               COALESCE(work_package,'') AS work_package
+                        FROM (
+                            SELECT DISTINCT ON (
+                                pp.company_id, pp.project_name, COALESCE(pp.work_package,''),
+                                pp.amount, COALESCE(pp.note,''), pp.date, COALESCE(pp.added_by,'')
+                            )
+                                pp.id,pp.company_id,pp.project_name,pp.amount,pp.note,pp.date,
+                                pp.added_by,pp.work_package
+                            FROM project_payments pp
+                            WHERE {' AND '.join(where)}
+                            ORDER BY pp.company_id, pp.project_name, COALESCE(pp.work_package,''),
+                                     pp.amount, COALESCE(pp.note,''), pp.date,
+                                     COALESCE(pp.added_by,''), pp.id DESC
+                        ) p
+                        ORDER BY id DESC""", tuple(params))
+        rows = cur.fetchall()
+        return [{
+            "id": row.get("id"),
+            "companyId": row.get("company_id"),
+            "projectName": row.get("project_name") or "",
+            "amount": float(row.get("amount") or 0),
+            "note": row.get("note") or "",
+            "date": str(row.get("date")) if row.get("date") else "",
+            "addedBy": row.get("added_by") or "",
+            "workPackage": row.get("work_package") or "",
+        } for row in rows]
+    finally:
         cur.close(); conn.close()
-        return []
-    if role == "заказчик" and not customer_projects:
-        cur.close(); conn.close()
-        return []
-    if role == "заказчик":
-        visible_pay_projects = [project_name] if project_name else customer_projects
-        cur.execute("""SELECT id,project_name,amount,note,date,added_by,COALESCE(work_package,'') as work_package
-                       FROM (
-                           SELECT DISTINCT ON (project_name, COALESCE(work_package,''), amount, COALESCE(note,''), date, COALESCE(added_by,''))
-                                  id,project_name,amount,note,date,added_by,work_package
-                           FROM project_payments
-                           WHERE project_name = ANY(%s) AND amount > 0
-                           ORDER BY project_name, COALESCE(work_package,''), amount, COALESCE(note,''), date, COALESCE(added_by,''), id DESC
-                       ) p
-                       ORDER BY id DESC""", (visible_pay_projects,))
-    elif project_name:
-        cur.execute("""SELECT id,project_name,amount,note,date,added_by,COALESCE(work_package,'') as work_package
-                       FROM (
-                           SELECT DISTINCT ON (project_name, COALESCE(work_package,''), amount, COALESCE(note,''), date, COALESCE(added_by,''))
-                                  id,project_name,amount,note,date,added_by,work_package
-                           FROM project_payments
-                           WHERE project_name=%s
-                           ORDER BY project_name, COALESCE(work_package,''), amount, COALESCE(note,''), date, COALESCE(added_by,''), id DESC
-                       ) p
-                       ORDER BY id DESC""", (project_name,))
-    else:
-        cur.execute("""SELECT id,project_name,amount,note,date,added_by,COALESCE(work_package,'') as work_package
-                       FROM (
-                           SELECT DISTINCT ON (project_name, COALESCE(work_package,''), amount, COALESCE(note,''), date, COALESCE(added_by,''))
-                                  id,project_name,amount,note,date,added_by,work_package
-                           FROM project_payments
-                           ORDER BY project_name, COALESCE(work_package,''), amount, COALESCE(note,''), date, COALESCE(added_by,''), id DESC
-                       ) p
-                       ORDER BY id DESC""")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [{"id":r[0],"projectName":r[1],"amount":float(r[2] or 0),"note":r[3] or "","date":str(r[4]) if r[4] else "","addedBy":r[5] or "","workPackage":r[6] or ""} for r in rows]
 
 @app.post("/project-payments")
-def create_project_payment(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
+def create_project_payment(
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
-    cur = conn.cursor()
-    project_name = data.get("projectName","")
-    amount = data.get("amount",0)
-    note = data.get("note","")
-    work_package = (data.get("workPackage") or data.get("work_package") or "").strip()
-    pay_date = data.get("date") or None
-    added_by = data.get("addedBy") or data.get("paidBy") or ""
-    if not project_name:
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        project_name = str(data.get("projectName") or data.get("project_name") or "").strip()
+        amount = data.get("amount", 0)
+        note = data.get("note", "")
+        work_package = (data.get("workPackage") or data.get("work_package") or "").strip()
+        pay_date = data.get("date") or None
+        added_by = data.get("addedBy") or data.get("paidBy") or ""
+        claimed_company_id = data.get("companyId") if "companyId" in data else data.get("company_id")
+        company_id, _actor = _resolve_project_payment_actor(
+            cur,
+            _current_user,
+            project_name,
+            work_package,
+            claimed_company_id=claimed_company_id,
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        if note:
+            cur.execute("""SELECT id FROM project_payments
+                           WHERE company_id=%s AND project_name=%s
+                             AND COALESCE(work_package,'')=%s AND amount=%s
+                             AND COALESCE(note,'')=%s AND date IS NOT DISTINCT FROM %s
+                             AND COALESCE(added_by,'')=%s
+                           ORDER BY id DESC LIMIT 1""",
+                        (company_id, project_name, work_package, amount, note, pay_date, added_by))
+            existing = cur.fetchone()
+            if existing:
+                return {"id": existing.get("id"), "companyId": company_id, "ok": True, "duplicate": True}
+        cur.execute("""INSERT INTO project_payments
+                           (company_id,project_name,work_package,amount,note,date,added_by)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                    (company_id, project_name, work_package, amount, note, pay_date, added_by))
+        row = cur.fetchone()
+        conn.commit()
+        return {"id": row.get("id"), "companyId": company_id, "ok": True}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
         cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail="Не указан объект платежа")
-    require_project_access(_current_user, project_name)
-    if not has_package_access(_current_user, work_package or "Основная"):
-        cur.close(); conn.close()
-        raise HTTPException(status_code=403, detail="Нет доступа к пакету платежа")
-    if note:
-        cur.execute("""SELECT id FROM project_payments
-                       WHERE project_name=%s AND COALESCE(work_package,'')=%s AND amount=%s AND COALESCE(note,'')=%s
-                         AND date IS NOT DISTINCT FROM %s AND COALESCE(added_by,'')=%s
-                       ORDER BY id DESC LIMIT 1""",
-                    (project_name, work_package, amount, note, pay_date, added_by))
-        existing = cur.fetchone()
-        if existing:
-            cur.close(); conn.close()
-            return {"id": existing[0], "ok": True, "duplicate": True}
-    cur.execute("INSERT INTO project_payments (project_name,work_package,amount,note,date,added_by) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
-        (project_name, work_package, amount, note, pay_date, added_by))
-    conn.commit()
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return {"id":row[0],"ok":True}
 
 @app.delete("/project-payments/{id}")
-def delete_project_payment(id: int, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
+def delete_project_payment(
+    id: int,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     from datetime import date
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT project_name, COALESCE(work_package,''), amount, note, date, added_by FROM project_payments WHERE id=%s FOR UPDATE", (id,))
-    row = cur.fetchone()
-    if not row:
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("""SELECT company_id,project_name,COALESCE(work_package,'') AS work_package,
+                              amount,note,date,added_by
+                       FROM project_payments WHERE id=%s FOR UPDATE""", (id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Платеж по объекту не найден")
+        _company_context, actor = resolve_resource_company_actor(
+            cur,
+            _current_user,
+            row.get("company_id"),
+            "delete",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            allowed_roles=FINANCE_ROLES,
+            forbidden_detail="Роль в выбранной компании не позволяет сторнировать платеж",
+            platform_staff_roles=PLATFORM_STAFF_ROLES,
+            client_account_roles=CLIENT_ACCOUNT_ROLES,
+        )
+        company_id = _positive_int_or_none(row.get("company_id"))
+        project_name = row.get("project_name") or ""
+        work_package = row.get("work_package") or ""
+        require_project_access(actor, project_name)
+        if not has_package_access(actor, work_package or "Основная"):
+            raise HTTPException(status_code=403, detail="Нет доступа к пакету платежа")
+        amount = row.get("amount") or 0
+        note = row.get("note") or ""
+        reversal_note = "Сторно платежа #" + str(id)
+        if note:
+            reversal_note += ": " + str(note)
+        cur.execute("""SELECT id FROM project_payments
+                       WHERE company_id=%s AND project_name=%s
+                         AND COALESCE(work_package,'')=%s AND amount=%s
+                         AND COALESCE(note,'')=%s
+                       ORDER BY id DESC LIMIT 1""",
+                    (company_id, project_name, work_package, -amount, reversal_note))
+        existing = cur.fetchone()
+        if existing:
+            conn.rollback()
+            return {
+                "ok": True,
+                "reversed": True,
+                "alreadyReversed": True,
+                "reversalId": existing.get("id"),
+            }
+        actor_name = actor.get("name") or row.get("added_by") or ""
+        cur.execute("""INSERT INTO project_payments
+                           (company_id,project_name,work_package,amount,note,date,added_by)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                    (company_id, project_name, work_package, -amount, reversal_note,
+                     date.today().isoformat(), actor_name))
+        reversal = cur.fetchone()
+        conn.commit()
+        return {
+            "ok": True,
+            "companyId": company_id,
+            "reversed": True,
+            "reversalId": reversal.get("id"),
+        }
+    except Exception:
         conn.rollback()
+        raise
+    finally:
         cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Платеж по объекту не найден")
-    project_name, work_package, amount, note, pay_date, added_by = row
-    if project_name:
-        require_project_access(_current_user, project_name)
-    if not has_package_access(_current_user, work_package or "Основная"):
-        conn.rollback()
-        cur.close(); conn.close()
-        raise HTTPException(status_code=403, detail="Нет доступа к пакету платежа")
-    amount = amount or 0
-    reversal_note = "Сторно платежа #" + str(id)
-    if note:
-        reversal_note += ": " + str(note)
-    cur.execute("""SELECT id FROM project_payments
-                   WHERE project_name=%s AND COALESCE(work_package,'')=%s AND amount=%s AND COALESCE(note,'')=%s
-                   ORDER BY id DESC LIMIT 1""",
-                (project_name, work_package or "", -amount, reversal_note))
-    existing = cur.fetchone()
-    if existing:
-        conn.rollback()
-        cur.close(); conn.close()
-        existing_id = existing[0] if not isinstance(existing, dict) else existing.get("id")
-        return {"ok": True, "reversed": True, "alreadyReversed": True, "reversalId": existing_id}
-    actor_name = _current_user.get("name") or added_by or ""
-    cur.execute("""INSERT INTO project_payments (project_name,work_package,amount,note,date,added_by)
-                   VALUES (%s,%s,%s,%s,%s,%s) RETURNING id""",
-                (project_name, work_package or "", -amount, reversal_note, date.today().isoformat(), actor_name))
-    reversal_id = cur.fetchone()[0]
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True, "reversed": True, "reversalId": reversal_id}
 
 def send_vk_notification(vk_user_id: int, message: str):
     import requests
