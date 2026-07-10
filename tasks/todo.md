@@ -790,6 +790,27 @@
 
 **Estimated scope:** XS
 
+## Task M4.7: Warehouse Invoice Read Isolation
+
+**Description:** Scope `GET /warehouse-invoices` by the selected company context while preserving existing role, project, package, and price behavior.
+
+**Status:** Implemented locally; release pending.
+
+**Acceptance criteria:**
+- [x] The endpoint resolves `X-Company-Id` and `X-Company-Mode`.
+- [x] Every invoice query includes the stored `company_id` boundary.
+- [x] Existing project and item-package filtering remains active.
+- [x] The response exposes `companyId` for smoke verification.
+- [x] Invoice creation, accounting, and cancellation remain unchanged.
+
+**Verification:**
+- [ ] Backend compile and focused tests pass.
+- [ ] Frontend tests and production build pass.
+
+**Dependencies:** Task M4.6
+
+**Estimated scope:** S
+
 ## Task M5: Finance And Accounting Isolation
 
 **Description:** Scope project payments, supplier payments, accounting records, contracts, and reports by verified company and legal entity.

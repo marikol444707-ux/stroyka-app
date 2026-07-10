@@ -72,6 +72,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [ ] Task M4.4: Scope warehouse history reads by company context. Implemented locally; release pending.
 - [ ] Task M4.5: Require selected-company leadership for manual warehouse history corrections. Implemented locally; release pending.
 - [ ] Task M4.6: Protect access to individual warehouse history records by stored company. Implemented locally; release pending.
+- [ ] Task M4.7: Scope warehouse invoice list reads by company context. Implemented locally; release pending.
 - [ ] Task M5: Scope payments, accounting, contracts, and financial reports.
 - [ ] Task M6: Scope remaining projects, estimates, journals, acts, files, notifications, audit, and AI jobs.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.

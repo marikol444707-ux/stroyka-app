@@ -22755,7 +22755,11 @@ def learn_supplier_invoice_template(data: dict, current_user: dict = Depends(req
     }
 
 @app.get("/warehouse-invoices")
-def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
+def get_warehouse_invoices(
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
     if not can_see_warehouse_data(current_user):
         return []
     conn = get_db()
@@ -22763,12 +22767,28 @@ def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
     _ensure_warehouse_invoice_accounting_columns(cur)
     _ensure_invoice_document_link_columns(cur)
     conn.commit()
+    scope_cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        company_context = _resolve_work_company_context(
+            scope_cur,
+            current_user,
+            None,
+            "read",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        company_filter_sql, company_filter_params = company_id_scope_filter(company_context, "company_id")
+    except Exception:
+        scope_cur.close()
+        cur.close(); conn.close()
+        raise
+    scope_cur.close()
     invoice_cols = (
         "id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,"
         "total_base,total_vat,total_with_vat,status,added_by,photo_url,source_type,source_id,"
         "supply_delivery_id,supply_request_id,photo_urls,pages_count,warehouse_target,selected_action,"
         "material_match_json,accounting_status,accounting_comment,accounting_updated_by,accounting_updated_at,"
-        "paid_amount,paid_at,paid_by,supplier_invoice_id"
+        "paid_amount,paid_at,paid_by,supplier_invoice_id,company_id"
     )
     package_names = user_package_names(current_user) if current_user.get("role") in PACKAGE_LIMIT_ROLES else []
     if current_user.get("role") == "прораб":
@@ -22776,15 +22796,15 @@ def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
         if not allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute(f"SELECT {invoice_cols} FROM warehouse_invoices WHERE project = ANY(%s) OR location = ANY(%s) ORDER BY id DESC", (allowed_projects, allowed_projects))
+        cur.execute(f"SELECT {invoice_cols} FROM warehouse_invoices WHERE TRUE{company_filter_sql} AND (project = ANY(%s) OR location = ANY(%s)) ORDER BY id DESC", tuple(company_filter_params + [allowed_projects, allowed_projects]))
     elif current_user.get("role") in ("снабженец", "кладовщик"):
         allowed_projects = user_project_names(current_user)
         if not allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute(f"SELECT {invoice_cols} FROM warehouse_invoices WHERE project = ANY(%s) OR location = ANY(%s) ORDER BY id DESC", (allowed_projects, allowed_projects))
+        cur.execute(f"SELECT {invoice_cols} FROM warehouse_invoices WHERE TRUE{company_filter_sql} AND (project = ANY(%s) OR location = ANY(%s)) ORDER BY id DESC", tuple(company_filter_params + [allowed_projects, allowed_projects]))
     else:
-        cur.execute(f"SELECT {invoice_cols} FROM warehouse_invoices ORDER BY id DESC")
+        cur.execute(f"SELECT {invoice_cols} FROM warehouse_invoices WHERE TRUE{company_filter_sql} ORDER BY id DESC", company_filter_params)
     rows = cur.fetchall()
     cur.close(); conn.close()
     result = []
@@ -22814,7 +22834,7 @@ def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
         if not photo_urls and r[15]:
             photo_urls = [r[15]]
         material_match = _json_list_or_empty(r[24]) if len(r) > 24 else []
-        result.append({"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":total_base,"totalVat":total_vat,"totalWithVat":total_with_vat,"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or "","photos":photo_urls,"pagesCount":r[21] or len(photo_urls) or 1,"sourceType":r[16] or "","sourceId":r[17],"supplyDeliveryId":r[18],"supplyRequestId":r[19],"warehouseTarget":(r[22] if len(r) > 22 else "") or ("object" if r[7] else "main"),"selectedAction":(r[23] if len(r) > 23 else "") or "","materialMatch":material_match,"accountingStatus":(r[25] if len(r) > 25 else "") or "","accountingComment":(r[26] if len(r) > 26 else "") or "","accountingUpdatedBy":(r[27] if len(r) > 27 else "") or "","accountingUpdatedAt":str(r[28]) if len(r) > 28 and r[28] else "","paidAmount":float(r[29] or 0) if len(r) > 29 else 0,"paidAt":(r[30] if len(r) > 30 else "") or "","paidBy":(r[31] if len(r) > 31 else "") or "","supplierInvoiceId":r[32] if len(r) > 32 else None})
+        result.append({"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":total_base,"totalVat":total_vat,"totalWithVat":total_with_vat,"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or "","photos":photo_urls,"pagesCount":r[21] or len(photo_urls) or 1,"sourceType":r[16] or "","sourceId":r[17],"supplyDeliveryId":r[18],"supplyRequestId":r[19],"warehouseTarget":(r[22] if len(r) > 22 else "") or ("object" if r[7] else "main"),"selectedAction":(r[23] if len(r) > 23 else "") or "","materialMatch":material_match,"accountingStatus":(r[25] if len(r) > 25 else "") or "","accountingComment":(r[26] if len(r) > 26 else "") or "","accountingUpdatedBy":(r[27] if len(r) > 27 else "") or "","accountingUpdatedAt":str(r[28]) if len(r) > 28 and r[28] else "","paidAmount":float(r[29] or 0) if len(r) > 29 else 0,"paidAt":(r[30] if len(r) > 30 else "") or "","paidBy":(r[31] if len(r) > 31 else "") or "","supplierInvoiceId":r[32] if len(r) > 32 else None,"companyId":r[33] if len(r) > 33 else None})
     return result
 
 def _create_warehouse_invoice_record(data: dict, current_user: dict):
