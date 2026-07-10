@@ -919,6 +919,29 @@
 
 **Estimated scope:** M
 
+## Task M5.1: Company Requisites Isolation
+
+**Description:** Store and load legal/bank requisites for one selected company. Replace the global delete-and-insert behavior with a company-scoped upsert while preserving the existing frontend object contract.
+
+**Status:** Implemented locally; release pending.
+
+**Acceptance criteria:**
+- [x] Existing requisites receive legacy `company_id=1` without changing their values.
+- [x] `GET /company-requisites` resolves the tenant context and returns only the selected company's row.
+- [x] `all_companies` returns no arbitrary legal entity and asks the UI to select a company.
+- [x] `POST /company-requisites` requires a concrete company and an effective finance role in that company.
+- [x] Saving one company no longer deletes or changes another company's requisites.
+- [x] One requisites row per company is enforced by a unique index.
+
+**Verification:**
+- [x] Backend compile and company-context tests pass.
+- [x] Frontend tests and production build pass.
+- [ ] Production smoke verifies selected-company reads after deploy.
+
+**Dependencies:** Task M4
+
+**Estimated scope:** S
+
 ## Task M6: Remaining Tenant-Owned Domains
 
 **Description:** Apply the same kernel to projects, estimates, materials, journals, acts, staff, files, notifications, exports, audit records, and AI/OCR jobs.

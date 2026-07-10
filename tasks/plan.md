@@ -78,6 +78,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [ ] Task M4.10: Protect warehouse invoice annulment and stock reversal by stored company. Implemented locally; release pending.
 - [ ] Task M4.11: Protect main-warehouse card creation and updates by selected company. Implemented locally; release pending.
 - [ ] Task M5: Scope payments, accounting, contracts, and financial reports.
+- [ ] Task M5.1: Isolate company requisites by selected company and remove the global destructive replace. Implemented locally; release pending.
 - [ ] Task M6: Scope remaining projects, estimates, journals, acts, files, notifications, audit, and AI jobs.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 

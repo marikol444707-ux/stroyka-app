@@ -3124,7 +3124,7 @@ def init_db():
         ALTER TABLE materials ALTER COLUMN name TYPE TEXT;
         CREATE TABLE IF NOT EXISTS warehouse_history (
             id SERIAL PRIMARY KEY,
-            company_id INT DEFAULT 1,
+            company_id INT NOT NULL DEFAULT 1,
             material VARCHAR(255),
             type VARCHAR(50),
             quantity FLOAT,
@@ -4309,6 +4309,7 @@ def init_db():
         ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS order_num INT DEFAULT 0;
         CREATE TABLE IF NOT EXISTS company_requisites (
             id SERIAL PRIMARY KEY,
+            company_id INT DEFAULT 1,
             full_name VARCHAR(255),
             short_name VARCHAR(255),
             inn VARCHAR(20),
@@ -4326,6 +4327,11 @@ def init_db():
             rs VARCHAR(40),
             ks VARCHAR(40)
         );
+        ALTER TABLE company_requisites ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        UPDATE company_requisites SET company_id=1 WHERE company_id IS NULL;
+        ALTER TABLE company_requisites ALTER COLUMN company_id SET DEFAULT 1;
+        ALTER TABLE company_requisites ALTER COLUMN company_id SET NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_company_requisites_company ON company_requisites(company_id);
         CREATE TABLE IF NOT EXISTS company_documents (
             id SERIAL PRIMARY KEY,
             company_id INT,
@@ -17862,26 +17868,95 @@ def delete_warehouse(id: int, _current_user: dict = Depends(require_roles(*WAREH
     return {"ok":True}
 
 @app.get("/company-requisites")
-def get_company_requisites(_current_user: dict = Depends(get_current_user)):
+def get_company_requisites(
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id,full_name,short_name,inn,kpp,ogrn,legal_address,actual_address,phone,email,director_name,director_position,basis,bank_name,bik,rs,ks FROM company_requisites ORDER BY id LIMIT 1")
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    if not row: return {}
-    return {"id":row[0],"fullName":row[1],"shortName":row[2],"inn":row[3],"kpp":row[4],"ogrn":row[5],"legalAddress":row[6],"actualAddress":row[7],"phone":row[8],"email":row[9],"directorName":row[10],"directorPosition":row[11],"basis":row[12],"bankName":row[13],"bik":row[14],"rs":row[15],"ks":row[16]}
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        company_context = _resolve_work_company_context(
+            cur,
+            _current_user,
+            None,
+            "read",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        if company_context.get("mode") != "company":
+            return {"companyId": None, "requiresCompanySelection": True}
+        company_id = _positive_int_or_none(company_context.get("companyId"))
+        if not company_id:
+            raise HTTPException(status_code=409, detail="Компания для реквизитов не определена")
+        cur.execute("""SELECT id,company_id,full_name,short_name,inn,kpp,ogrn,legal_address,
+                              actual_address,phone,email,director_name,director_position,basis,
+                              bank_name,bik,rs,ks
+                       FROM company_requisites WHERE company_id=%s ORDER BY id LIMIT 1""", (company_id,))
+        row = cur.fetchone()
+        if not row:
+            return {"companyId": company_id}
+        return {
+            "id": row.get("id"), "companyId": row.get("company_id"),
+            "fullName": row.get("full_name") or "", "shortName": row.get("short_name") or "",
+            "inn": row.get("inn") or "", "kpp": row.get("kpp") or "", "ogrn": row.get("ogrn") or "",
+            "legalAddress": row.get("legal_address") or "", "actualAddress": row.get("actual_address") or "",
+            "phone": row.get("phone") or "", "email": row.get("email") or "",
+            "directorName": row.get("director_name") or "", "directorPosition": row.get("director_position") or "",
+            "basis": row.get("basis") or "", "bankName": row.get("bank_name") or "",
+            "bik": row.get("bik") or "", "rs": row.get("rs") or "", "ks": row.get("ks") or "",
+        }
+    finally:
+        cur.close(); conn.close()
 
 @app.post("/company-requisites")
-def save_company_requisites(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
+def save_company_requisites(
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM company_requisites")
-    cur.execute("INSERT INTO company_requisites (full_name,short_name,inn,kpp,ogrn,legal_address,actual_address,phone,email,director_name,director_position,basis,bank_name,bik,rs,ks) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("fullName",""),data.get("shortName",""),data.get("inn",""),data.get("kpp",""),data.get("ogrn",""),data.get("legalAddress",""),data.get("actualAddress",""),data.get("phone",""),data.get("email",""),data.get("directorName",""),data.get("directorPosition",""),data.get("basis",""),data.get("bankName",""),data.get("bik",""),data.get("rs",""),data.get("ks","")))
-    conn.commit()
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return {"id":row[0],"ok":True}
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        claimed_company_id = data.get("companyId") if "companyId" in data else data.get("company_id")
+        company_context = _resolve_work_company_context(
+            cur,
+            _current_user,
+            claimed_company_id,
+            "write",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        company_id = _positive_int_or_none(company_context.get("companyId"))
+        actors = effective_company_actors(_current_user, company_context)
+        actor = actors[0] if len(actors) == 1 else {}
+        if not company_id or not actor:
+            raise HTTPException(status_code=409, detail="Компания для реквизитов не определена")
+        if (actor.get("role") or "") not in FINANCE_ROLES:
+            raise HTTPException(status_code=403, detail="Роль в выбранной компании не позволяет менять реквизиты")
+        cur.execute("""INSERT INTO company_requisites
+                           (company_id,full_name,short_name,inn,kpp,ogrn,legal_address,actual_address,
+                            phone,email,director_name,director_position,basis,bank_name,bik,rs,ks)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       ON CONFLICT (company_id) DO UPDATE SET
+                           full_name=EXCLUDED.full_name, short_name=EXCLUDED.short_name,
+                           inn=EXCLUDED.inn, kpp=EXCLUDED.kpp, ogrn=EXCLUDED.ogrn,
+                           legal_address=EXCLUDED.legal_address, actual_address=EXCLUDED.actual_address,
+                           phone=EXCLUDED.phone, email=EXCLUDED.email,
+                           director_name=EXCLUDED.director_name, director_position=EXCLUDED.director_position,
+                           basis=EXCLUDED.basis, bank_name=EXCLUDED.bank_name,
+                           bik=EXCLUDED.bik, rs=EXCLUDED.rs, ks=EXCLUDED.ks
+                       RETURNING id,company_id""",
+                    (company_id,data.get("fullName",""),data.get("shortName",""),data.get("inn",""),data.get("kpp",""),data.get("ogrn",""),data.get("legalAddress",""),data.get("actualAddress",""),data.get("phone",""),data.get("email",""),data.get("directorName",""),data.get("directorPosition",""),data.get("basis",""),data.get("bankName",""),data.get("bik",""),data.get("rs",""),data.get("ks","")))
+        row = cur.fetchone()
+        conn.commit()
+        return {"id": row.get("id"), "companyId": row.get("company_id"), "ok": True}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close(); conn.close()
 
 @app.get("/company-documents")
 def get_company_documents(current_user: dict = Depends(get_current_user)):
