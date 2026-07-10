@@ -4131,6 +4131,8 @@ def init_db():
         );
         CREATE TABLE IF NOT EXISTS material_transfers (
             id SERIAL PRIMARY KEY,
+            company_id INT,
+            project_id INT,
             project_name VARCHAR(255),
             from_location VARCHAR(255),
             to_person VARCHAR(255),
@@ -4156,6 +4158,24 @@ def init_db():
         ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS invoice_line_key VARCHAR(255);
         ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS invoice_line_index INT;
         ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS invoice_number VARCHAR(100);
+        ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS project_id INT;
+        UPDATE material_transfers mt
+           SET company_id=project_scope.company_id,
+               project_id=project_scope.project_id
+          FROM (
+              SELECT name, MIN(id) AS project_id, MIN(company_id) AS company_id
+                FROM projects
+               WHERE company_id IS NOT NULL
+               GROUP BY name
+              HAVING COUNT(*)=1
+          ) project_scope
+         WHERE (mt.company_id IS NULL OR mt.project_id IS NULL)
+           AND mt.project_name=project_scope.name;
+        CREATE INDEX IF NOT EXISTS idx_material_transfers_company_id
+            ON material_transfers(company_id,id DESC);
+        CREATE INDEX IF NOT EXISTS idx_material_transfers_company_project
+            ON material_transfers(company_id,project_id,id DESC);
         CREATE TABLE IF NOT EXISTS brigade_contracts (
             id SERIAL PRIMARY KEY,
             project_id INT,
