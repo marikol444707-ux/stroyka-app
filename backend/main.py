@@ -14025,10 +14025,21 @@ def _row_value(row, index: int, key: str, default=None):
     except Exception:
         return default
 
-def _stock_row_by_material_key(cur, *, project: str, material_name: str, unit: str = "", work_package: str = "", main_warehouse: bool = False):
+def _stock_row_by_material_key(
+    cur,
+    *,
+    project: str,
+    material_name: str,
+    unit: str = "",
+    work_package: str = "",
+    main_warehouse: bool = False,
+    company_id=None,
+):
     target_key = _material_control_key_resolved(cur, project, material_name, unit)
     unit_key = _norm_base_unit(unit or "").strip().lower()
     unit_filter = f" AND {_sql_norm_unit('unit')}=%s" if unit_key else ""
+    normalized_company_id = _positive_int_or_none(company_id)
+    company_filter = " AND company_id=%s" if normalized_company_id else ""
     def _row_matches(row):
         row_name = _row_value(row, 1, "name", "")
         row_unit = _row_value(row, 3, "unit", unit)
@@ -14038,9 +14049,9 @@ def _stock_row_by_material_key(cur, *, project: str, material_name: str, unit: s
     if main_warehouse:
         cur.execute(f"""SELECT id, name, quantity, unit
                         FROM warehouse_main
-                        WHERE TRUE {unit_filter}
+                        WHERE TRUE {company_filter} {unit_filter}
                         ORDER BY id DESC
-                        FOR UPDATE""", tuple([unit_key] if unit_key else []))
+                        FOR UPDATE""", tuple(([normalized_company_id] if normalized_company_id else []) + ([unit_key] if unit_key else [])))
         for row in cur.fetchall() or []:
             if _row_matches(row):
                 return row
@@ -14050,9 +14061,10 @@ def _stock_row_by_material_key(cur, *, project: str, material_name: str, unit: s
                         FROM materials
                         WHERE project=%s
                           AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                          {company_filter}
                           {unit_filter}
                         ORDER BY id DESC
-                        FOR UPDATE""", tuple([project, package_name] + ([unit_key] if unit_key else [])))
+                        FOR UPDATE""", tuple([project, package_name] + ([normalized_company_id] if normalized_company_id else []) + ([unit_key] if unit_key else [])))
         for row in cur.fetchall() or []:
             if _row_matches(row):
                 return row
@@ -14060,15 +14072,25 @@ def _stock_row_by_material_key(cur, *, project: str, material_name: str, unit: s
             cur.execute(f"""SELECT id, name, quantity, unit
                             FROM materials
                             WHERE project=%s
+                              {company_filter}
                               {unit_filter}
                             ORDER BY CASE WHEN COALESCE(NULLIF(work_package,''),'Основная')='Основная' THEN 0 ELSE 1 END, id DESC
-                            FOR UPDATE""", tuple([project] + ([unit_key] if unit_key else [])))
+                            FOR UPDATE""", tuple([project] + ([normalized_company_id] if normalized_company_id else []) + ([unit_key] if unit_key else [])))
             for row in cur.fetchall() or []:
                 if _row_matches(row):
                     return row
     return None
 
-def _personal_material_balance(cur, project: str, person_id, person_name: str, material_name: str, work_package: str = "", unit: str = ""):
+def _personal_material_balance(
+    cur,
+    project: str,
+    person_id,
+    person_name: str,
+    material_name: str,
+    work_package: str = "",
+    unit: str = "",
+    company_id=None,
+):
     if not (material_name or "").strip():
         return {"issued": 0, "used": 0, "available": 0}
     target_key = _material_control_key_resolved(cur, project, material_name, unit)
@@ -14076,24 +14098,28 @@ def _personal_material_balance(cur, project: str, person_id, person_name: str, m
     package_name = (work_package or "Основная").strip() or "Основная"
     package_filter = " AND COALESCE(NULLIF(work_package,''),'Основная')=%s"
     unit_filter = f" AND {_sql_norm_unit('unit')}=%s" if unit_key else ""
+    normalized_company_id = _positive_int_or_none(company_id)
+    company_filter = " AND company_id=%s" if normalized_company_id else ""
     if person_id:
         cur.execute("""SELECT material_name, quantity, unit
                        FROM material_transfers
                        WHERE project_name=%s
+                         """ + company_filter + """
                          AND (to_user_id=%s OR (to_user_id IS NULL AND LOWER(TRIM(to_person))=LOWER(TRIM(%s))))
                          AND signed=TRUE
                          AND COALESCE(status,'Активна') <> 'Аннулирована'
                          """ + package_filter + unit_filter,
-                    tuple([project, person_id, person_name or "", package_name] + ([unit_key] if unit_key else [])))
+                    tuple([project] + ([normalized_company_id] if normalized_company_id else []) + [person_id, person_name or "", package_name] + ([unit_key] if unit_key else [])))
     else:
         cur.execute("""SELECT material_name, quantity, unit
                        FROM material_transfers
                        WHERE project_name=%s
+                         """ + company_filter + """
                          AND LOWER(TRIM(to_person))=LOWER(TRIM(%s))
                          AND signed=TRUE
                          AND COALESCE(status,'Активна') <> 'Аннулирована'
                          """ + package_filter + unit_filter,
-                    tuple([project, person_name or "", package_name] + ([unit_key] if unit_key else [])))
+                    tuple([project] + ([normalized_company_id] if normalized_company_id else []) + [person_name or "", package_name] + ([unit_key] if unit_key else [])))
     issued = 0
     for row in cur.fetchall() or []:
         row_name = _row_value(row, 0, "material_name", "")
@@ -14104,15 +14130,17 @@ def _personal_material_balance(cur, project: str, person_id, person_name: str, m
     if person_id:
         cur.execute("""SELECT materials_used FROM work_journal
                        WHERE project=%s
+                         """ + company_filter + """
                          AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано')
                          AND (COALESCE(master_id,0)=%s OR (COALESCE(master_id,0)=0 AND master_name=%s))""" + package_journal_filter,
-                    (project, person_id, person_name or "", package_name))
+                    tuple([project] + ([normalized_company_id] if normalized_company_id else []) + [person_id, person_name or "", package_name]))
     else:
         cur.execute("""SELECT materials_used FROM work_journal
                        WHERE project=%s
+                         """ + company_filter + """
                          AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано')
                          AND master_name=%s""" + package_journal_filter,
-                    (project, person_name or "", package_name))
+                    tuple([project] + ([normalized_company_id] if normalized_company_id else []) + [person_name or "", package_name]))
     used = 0
     for row in cur.fetchall() or []:
         raw = row.get("materials_used") if isinstance(row, dict) else row[0]
@@ -14127,10 +14155,11 @@ def _personal_material_balance(cur, project: str, person_id, person_name: str, m
     cur.execute("""SELECT material, quantity, unit
                    FROM warehouse_history
                    WHERE project=%s
+                     """ + company_filter + """
                      AND issued_by=%s
                      AND type=%s
                      """ + package_filter + unit_filter,
-                tuple([project, person_name or "", "возврат от мастера", package_name] + ([unit_key] if unit_key else [])))
+                tuple([project] + ([normalized_company_id] if normalized_company_id else []) + [person_name or "", "возврат от мастера", package_name] + ([unit_key] if unit_key else [])))
     returned = 0
     for row in cur.fetchall() or []:
         row_name = _row_value(row, 0, "material", "")
@@ -14147,18 +14176,26 @@ def _apply_material_work_writeoff(cur, project: str, material: dict, actor: dict
     role = actor.get("role") or ""
     actor_id = actor.get("id")
     actor_name = actor.get("name") or fallback_master_name or ""
+    company_id = _positive_int_or_none(actor.get("companyId") or actor.get("company_id"))
     if not name or qty <= 0:
         return
     if role not in WORKER_EXECUTION_ROLES:
         raise HTTPException(status_code=400, detail="Списание материалов через ЖПР выполняет мастер, субподрядчик или бригадир после выдачи материала. Прораб/директор подтверждают работу, но не списывают материал напрямую со склада объекта.")
-    balance = _personal_material_balance(cur, project, actor_id, actor_name, name, work_package, unit)
+    if not company_id:
+        raise HTTPException(status_code=409, detail="Компания списания материала не определена")
+    balance = _personal_material_balance(
+        cur, project, actor_id, actor_name, name, work_package, unit, company_id=company_id
+    )
     package_part = (" по пакету «" + work_package + "»") if work_package else ""
     if balance["issued"] <= 0:
         raise HTTPException(status_code=400, detail="Материал «"+name+"» не выдан мастеру «"+actor_name+"»"+package_part+" или получение не подтверждено")
     if balance["available"] < qty:
         raise HTTPException(status_code=400, detail="У мастера «"+actor_name+"»"+package_part+" доступно "+str(round(balance["available"], 3))+" "+unit+" «"+name+"», запрошено "+str(qty)+". Лишний материал нужно выдать или вернуть/уточнить списание")
-    cur.execute("INSERT INTO warehouse_history (material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-        (name, "расход (работа мастера)", qty, unit, date_value or None, project, actor_name, actor_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+    cur.execute("""INSERT INTO warehouse_history
+                   (company_id,material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+        (company_id, name, "расход (работа мастера)", qty, unit, date_value or None, project,
+         actor_name, actor_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
 
 def _work_material_items(raw, fallback_package: str = ""):
     items = []
@@ -22642,7 +22679,12 @@ def get_material_transfers(
     return [{"id":r[0],"projectName":r[1],"fromLocation":r[2],"toPerson":r[3],"toPersonRole":r[4],"workPackage":r[5] or "","materialName":r[6],"quantity":float(r[7] or 0),"unit":r[8],"transferDate":str(r[9]) if r[9] else "","signed":r[10],"signedAt":str(r[11]) if r[11] else "","notes":r[12] or "","createdBy":r[13] or "","createdAt":str(r[14]),"toUserId":r[15],"invoiceId":r[16],"invoiceLineKey":r[17] or "","invoiceLineIndex":r[18],"invoiceNumber":r[19] or "","companyId":r[20],"projectId":r[21]} for r in rows]
 
 @app.post("/material-transfers")
-def create_material_transfer(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
+def create_material_transfer(
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
     from_location = (data.get("fromLocation") or "").strip() or "Основной склад"
     material_name = data.get("materialName", "")
     qty = float(data.get("quantity", 0) or 0)
@@ -22666,17 +22708,42 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
         raise HTTPException(status_code=400, detail="Для выдачи материала исполнителю укажите объект")
     if not work_package:
         raise HTTPException(status_code=400, detail="Для выдачи материала исполнителю укажите пакет работ")
-    if project_name:
-        require_project_or_warehouse_access(_current_user, project_name)
-    if from_location and from_location != "Основной склад":
-        require_project_or_warehouse_access(_current_user, from_location)
-    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, work_package or "Основная"):
-        raise HTTPException(status_code=403, detail="Нет доступа к пакету материалов")
-
     conn = get_db()
     conn.autocommit = False
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
+        try:
+            from backend.features.project_access.service import require_project_write_actor, resolve_project_parent
+        except ModuleNotFoundError:
+            from features.project_access.service import require_project_write_actor, resolve_project_parent
+        company_context = _resolve_work_company_context(
+            cur,
+            current_user,
+            data.get("companyId") if "companyId" in data else data.get("company_id"),
+            "write",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        actor = require_project_write_actor(effective_company_actors(current_user, company_context), WAREHOUSE_ROLES)
+        company_id = int(actor.get("companyId"))
+        project = resolve_project_parent(
+            cur,
+            actor,
+            project_id=data.get("projectId") or data.get("project_id"),
+            project_name=project_name,
+        )
+        project_id = project["id"]
+        project_name = project["name"]
+        from_location = project_name
+        require_project_or_warehouse_access(actor, project_name)
+        if actor.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(actor, work_package or "Основная"):
+            raise HTTPException(status_code=403, detail="Нет доступа к пакету материалов")
+        cur.execute("SELECT COUNT(DISTINCT company_id) AS count FROM projects WHERE name=%s", (project_name,))
+        if int((cur.fetchone() or {}).get("count") or 0) > 1:
+            raise HTTPException(
+                status_code=409,
+                detail="Сметный контроль выдачи ещё не поддерживает одноимённые объекты разных компаний",
+            )
         to_person = (data.get("toPerson") or "").strip()
         to_user_id = data.get("toUserId") or data.get("to_user_id")
         invoice_id = data.get("invoiceId") or data.get("invoice_id")
@@ -22702,32 +22769,40 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
         if invoice_id:
             cur.execute("""SELECT number, project, location
                            FROM warehouse_invoices
-                           WHERE id=%s AND COALESCE(status,'Принята') <> 'Аннулирована'""", (invoice_id,))
+                           WHERE id=%s AND company_id=%s
+                             AND COALESCE(status,'Принята') <> 'Аннулирована'""", (invoice_id, company_id))
             invoice_row = cur.fetchone()
             if not invoice_row:
                 raise HTTPException(status_code=400, detail="Накладная для выдачи не найдена или аннулирована")
-            invoice_project = (invoice_row[1] or "").strip() or ((invoice_row[2] or "").strip() if (invoice_row[2] or "") != "Основной склад" else "")
+            invoice_project = (invoice_row.get("project") or "").strip() or (
+                (invoice_row.get("location") or "").strip()
+                if (invoice_row.get("location") or "") != "Основной склад"
+                else ""
+            )
             if invoice_project and invoice_project != project_name:
                 raise HTTPException(status_code=400, detail="Накладная относится к другому объекту: " + invoice_project)
-            invoice_number = invoice_number or (invoice_row[0] or "")
+            invoice_number = invoice_number or (invoice_row.get("number") or "")
         if to_person_role in ("мастер", "субподрядчик", "бригадир"):
             to_user_id = _resolve_staff_or_user_id(cur, to_user_id, to_person)
         if to_person_role in ("мастер", "субподрядчик", "бригадир"):
-            cur.execute("""SELECT id,name,role,COALESCE(project_name,''),assigned_projects,assigned_packages
-                           FROM users
-                           WHERE ((%s IS NOT NULL AND id=%s) OR (%s IS NULL AND LOWER(TRIM(name))=LOWER(TRIM(%s))))
-                             AND role IN ('мастер','субподрядчик','бригадир')
-                             AND COALESCE(active, TRUE)=TRUE
-                           ORDER BY CASE WHEN id=%s THEN 0 ELSE 1 END, id LIMIT 1""", (to_user_id, to_user_id, to_user_id, to_person, to_user_id))
+            cur.execute("""SELECT u.id,u.name,m.role,'' AS project_name,m.assigned_projects,m.assigned_packages
+                           FROM users u
+                           JOIN user_company_roles m ON m.user_id=u.id
+                           WHERE m.company_id=%s
+                             AND ((%s IS NOT NULL AND u.id=%s) OR (%s IS NULL AND LOWER(TRIM(u.name))=LOWER(TRIM(%s))))
+                             AND m.role IN ('мастер','субподрядчик','бригадир')
+                             AND COALESCE(u.active,TRUE)=TRUE AND COALESCE(m.active,TRUE)=TRUE
+                           ORDER BY CASE WHEN u.id=%s THEN 0 ELSE 1 END, u.id LIMIT 1""",
+                        (company_id, to_user_id, to_user_id, to_user_id, to_person, to_user_id))
             receiver = cur.fetchone()
             if not receiver:
                 raise HTTPException(status_code=400, detail="Получатель материала должен быть активным пользователем с ролью мастер, субподрядчик или бригадир")
-            to_user_id = receiver[0]
-            to_person = receiver[1] or to_person
-            to_person_role = receiver[2] or to_person_role
-            receiver_projects = set(_safe_project_list(receiver[4]))
-            if receiver[3]:
-                receiver_projects.add(receiver[3])
+            to_user_id = receiver.get("id")
+            to_person = receiver.get("name") or to_person
+            to_person_role = receiver.get("role") or to_person_role
+            receiver_projects = set(_safe_project_list(receiver.get("assigned_projects")))
+            if receiver.get("project_name"):
+                receiver_projects.add(receiver.get("project_name"))
             if project_name not in receiver_projects:
                 raise HTTPException(status_code=403, detail="Получатель материала не привязан к объекту «" + project_name + "»")
             if work_package == "Основная":
@@ -22739,11 +22814,11 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
                 }]
                 _attach_supply_estimate_control(cur, project_name, preview_control_items)
                 work_package = _supply_work_package(preview_control_items[0].get("workPackage") or work_package)
-            receiver_packages = set(_safe_project_list(receiver[5]))
+            receiver_packages = set(_safe_project_list(receiver.get("assigned_packages")))
             if not receiver_packages or (work_package or "Основная") not in receiver_packages:
                 raise HTTPException(status_code=403, detail="Получатель материала не имеет доступа к пакету «" + (work_package or "Основная") + "»")
         if from_location == "Основной склад":
-            row = _stock_row_by_material_key(cur, project=project_name, material_name=material_name, unit=unit, main_warehouse=True)
+            row = _stock_row_by_material_key(cur, project=project_name, material_name=material_name, unit=unit, main_warehouse=True, company_id=company_id)
             if not row:
                 raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на основном складе")
             stock_id = _row_value(row, 0, "id")
@@ -22754,7 +22829,7 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
             cur.execute("UPDATE warehouse_main SET quantity=quantity-%s WHERE id=%s", (qty, stock_id))
             material_name = stock_name or material_name
         else:
-            row = _stock_row_by_material_key(cur, project=from_location, material_name=material_name, unit=unit, work_package=work_package)
+            row = _stock_row_by_material_key(cur, project=from_location, material_name=material_name, unit=unit, work_package=work_package, company_id=company_id)
             if not row:
                 raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на складе объекта «"+from_location+"»" + (" по пакету «" + work_package + "»" if work_package else ""))
             stock_id = _row_value(row, 0, "id")
@@ -22780,13 +22855,22 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
             cur.execute("UPDATE materials SET quantity=quantity-%s WHERE id=%s", (qty, stock_id))
             material_name = stock_name or material_name
 
-        created_by = _current_user.get("name", "") or data.get("createdBy", "")
-        cur.execute("INSERT INTO material_transfers (project_name,from_location,to_user_id,to_person,to_person_role,work_package,material_name,quantity,unit,transfer_date,notes,created_by,invoice_id,invoice_line_key,invoice_line_index,invoice_number) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (project_name, from_location, to_user_id, to_person, to_person_role, work_package, material_name, qty, unit, data.get("transferDate") or None, data.get("notes",""), created_by, invoice_id, invoice_line_key, invoice_line_index, invoice_number))
-        new_id = cur.fetchone()[0]
+        created_by = actor.get("name", "") or data.get("createdBy", "")
+        cur.execute("""INSERT INTO material_transfers
+                       (company_id,project_id,project_name,from_location,to_user_id,to_person,to_person_role,
+                        work_package,material_name,quantity,unit,transfer_date,notes,created_by,
+                        invoice_id,invoice_line_key,invoice_line_index,invoice_number)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+            (company_id, project_id, project_name, from_location, to_user_id, to_person, to_person_role,
+             work_package, material_name, qty, unit, data.get("transferDate") or None, data.get("notes",""),
+             created_by, invoice_id, invoice_line_key, invoice_line_index, invoice_number))
+        new_id = cur.fetchone().get("id")
 
-        cur.execute("INSERT INTO warehouse_history (material,type,quantity,unit,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-            (material_name, "расход", qty, unit, data.get("transferDate") or None, from_location, created_by, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+        cur.execute("""INSERT INTO warehouse_history
+                       (company_id,material,type,quantity,unit,date,project,issued_by,work_package,date_time)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (company_id, material_name, "расход", qty, unit, data.get("transferDate") or None,
+             from_location, created_by, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
 
         conn.commit()
         _run_project_ai_control_safely(project_name, "material_transfer:create")
@@ -22802,38 +22886,62 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
         conn.close()
 
 @app.put("/material-transfers/{id}/sign")
-def sign_material_transfer(id: int, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
+def sign_material_transfer(
+    id: int,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
+    try:
+        from backend.features.material_transfer_access.service import resolve_material_transfer_parent
+        from backend.features.project_access.service import require_project_write_actor
+    except ModuleNotFoundError:
+        from features.material_transfer_access.service import resolve_material_transfer_parent
+        from features.project_access.service import require_project_write_actor
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT project_name,to_person,signed,COALESCE(status,'Активна'),COALESCE(NULLIF(work_package,''),'Основная'),to_user_id FROM material_transfers WHERE id=%s", (id,))
-    row = cur.fetchone()
-    if not row:
-        cur.close(); conn.close()
+    conn.autocommit = False
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        company_context = _resolve_work_company_context(
+            cur, current_user, None, "write", x_company_id=x_company_id, x_company_mode=x_company_mode
+        )
+        actor = require_project_write_actor(
+            effective_company_actors(current_user, company_context),
+            (*SUPPLY_INTERNAL_ROLES, *WORKER_EXECUTION_ROLES),
+        )
+        transfer = resolve_material_transfer_parent(cur, actor, id, for_update=True)
+        if actor.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(actor, transfer["workPackage"]):
+            raise HTTPException(status_code=403, detail="Нет доступа к пакету материалов")
+        if transfer["status"] == "Аннулирована":
+            raise HTTPException(status_code=400, detail="Аннулированную передачу нельзя подписать")
+        is_target_receiver = (
+            transfer["toUserId"] and str(transfer["toUserId"]) == str(actor.get("id"))
+        ) or (
+            not transfer["toUserId"] and transfer["toPerson"] == (actor.get("name") or "")
+        )
+        if not is_target_receiver:
+            raise HTTPException(status_code=403, detail="Подписать передачу материала может только получатель")
+        if not transfer["signed"]:
+            cur.execute("""UPDATE material_transfers SET signed=TRUE,signed_at=NOW()
+                            WHERE id=%s AND company_id=%s""", (id, transfer["companyId"]))
+            conn.commit()
+        else:
+            conn.rollback()
+        _run_project_ai_control_safely(transfer["projectName"], "material_transfer:sign")
         return {"ok": True}
-    project_name, to_person, signed, status, work_package, to_user_id = row
-    require_project_or_warehouse_access(_current_user, project_name)
-    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, work_package or "Основная"):
+    except HTTPException:
+        conn.rollback()
+        raise
+    finally:
         cur.close(); conn.close()
-        raise HTTPException(status_code=403, detail="Нет доступа к пакету материалов")
-    if status == "Аннулирована":
-        cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail="Аннулированную передачу нельзя подписать")
-    current_id = _current_user.get("id")
-    is_target_receiver = (to_user_id and str(to_user_id) == str(current_id)) or (not to_user_id and (to_person or "") == (_current_user.get("name") or ""))
-    if not is_target_receiver:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=403, detail="Подписать передачу материала может только получатель")
-    if signed:
-        cur.close(); conn.close()
-        return {"ok": True}
-    cur.execute("UPDATE material_transfers SET signed=TRUE,signed_at=NOW() WHERE id=%s",(id,))
-    conn.commit()
-    cur.close(); conn.close()
-    _run_project_ai_control_safely(project_name, "material_transfer:sign")
-    return {"ok":True}
 
 @app.post("/material-transfers/return")
-def return_material_from_master(data: dict, current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
+def return_material_from_master(
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
     project_name = data.get("projectName", "")
     material_name = data.get("materialName", "")
     qty = float(data.get("quantity", 0) or 0)
@@ -22841,41 +22949,66 @@ def return_material_from_master(data: dict, current_user: dict = Depends(require
     work_package = (data.get("workPackage") or data.get("work_package") or "Основная").strip() or "Основная"
     if not project_name or not material_name or qty <= 0:
         raise HTTPException(status_code=400, detail="Укажите объект, материал и количество больше 0")
-    require_project_or_warehouse_access(current_user, project_name)
-
-    role = current_user.get("role") or ""
-    if role in PACKAGE_LIMIT_ROLES and not has_package_access(current_user, work_package):
-        raise HTTPException(status_code=403, detail="Нет доступа к пакету материалов")
-    if role in WORKER_EXECUTION_ROLES:
-        person_name = current_user.get("name", "")
-        person_id = current_user.get("id")
-    else:
-        person_name = data.get("fromPerson") or current_user.get("name", "")
-        person_id = data.get("fromPersonId")
-
     conn = get_db()
     conn.autocommit = False
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        balance = _personal_material_balance(cur, project_name, person_id, person_name, material_name, work_package, unit)
+        try:
+            from backend.features.project_access.service import require_project_write_actor, resolve_project_parent
+        except ModuleNotFoundError:
+            from features.project_access.service import require_project_write_actor, resolve_project_parent
+        company_context = _resolve_work_company_context(
+            cur, current_user, None, "write", x_company_id=x_company_id, x_company_mode=x_company_mode
+        )
+        actor = require_project_write_actor(
+            effective_company_actors(current_user, company_context),
+            (*SUPPLY_INTERNAL_ROLES, *WORKER_EXECUTION_ROLES),
+        )
+        project = resolve_project_parent(
+            cur,
+            actor,
+            project_id=data.get("projectId") or data.get("project_id"),
+            project_name=project_name,
+        )
+        company_id = int(actor.get("companyId"))
+        project_name = project["name"]
+        role = actor.get("role") or ""
+        if role in PACKAGE_LIMIT_ROLES and not has_package_access(actor, work_package):
+            raise HTTPException(status_code=403, detail="Нет доступа к пакету материалов")
+        if role in WORKER_EXECUTION_ROLES:
+            person_name = actor.get("name", "")
+            person_id = actor.get("id")
+        else:
+            person_name = data.get("fromPerson") or actor.get("name", "")
+            person_id = data.get("fromPersonId")
+        balance = _personal_material_balance(
+            cur, project_name, person_id, person_name, material_name, work_package, unit, company_id=company_id
+        )
         if balance["available"] < qty:
             raise HTTPException(status_code=400, detail="У мастера «"+person_name+"» доступно к возврату "+str(round(balance["available"], 3))+" "+unit+" «"+material_name+"», запрошено "+str(qty))
 
-        stock_row = _stock_row_by_material_key(cur, project=project_name, material_name=material_name, unit=unit, work_package=work_package)
+        stock_row = _stock_row_by_material_key(
+            cur, project=project_name, material_name=material_name, unit=unit,
+            work_package=work_package, company_id=company_id
+        )
         if stock_row:
             stock_id = _row_value(stock_row, 0, "id")
             stock_name = _row_value(stock_row, 1, "name", material_name)
             cur.execute("UPDATE materials SET quantity=quantity+%s WHERE id=%s", (qty, stock_id))
             material_name = stock_name or material_name
         else:
-            cur.execute("""INSERT INTO materials (name,unit,quantity,price,min_quantity,project,category,work_package)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                (material_name, unit or "шт", qty, 0, 0, project_name, "Возврат от мастера", work_package))
+            cur.execute("""INSERT INTO materials
+                           (company_id,name,unit,quantity,price,min_quantity,project,category,work_package)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (company_id, material_name, unit or "шт", qty, 0, 0, project_name, "Возврат от мастера", work_package))
 
         return_date = data.get("date") or None
-        cur.execute("INSERT INTO warehouse_history (material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (material_name, "возврат от мастера", qty, unit, return_date, project_name, "Склад объекта", person_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
-        history_id = cur.fetchone()[0]
+        cur.execute("""INSERT INTO warehouse_history
+                       (company_id,material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+            (company_id, material_name, "возврат от мастера", qty, unit, return_date, project_name,
+             "Склад объекта", person_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+        history_id = cur.fetchone().get("id")
         conn.commit()
         _run_project_ai_control_safely(project_name, "material_transfer:return")
         return {"ok": True, "id": history_id}
@@ -22889,22 +23022,39 @@ def return_material_from_master(data: dict, current_user: dict = Depends(require
         cur.close(); conn.close()
 
 @app.delete("/material-transfers/{id}")
-def delete_material_transfer(id: int, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
+def delete_material_transfer(
+    id: int,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
+    try:
+        from backend.features.material_transfer_access.service import resolve_material_transfer_parent
+        from backend.features.project_access.service import require_project_write_actor
+    except ModuleNotFoundError:
+        from features.material_transfer_access.service import resolve_material_transfer_parent
+        from features.project_access.service import require_project_write_actor
     conn = get_db()
     conn.autocommit = False
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute("""SELECT project_name,from_location,to_person,material_name,quantity,unit,signed,COALESCE(status,'Активна'),work_package
-                       FROM material_transfers WHERE id=%s FOR UPDATE""", (id,))
+        company_context = _resolve_work_company_context(
+            cur, current_user, None, "write", x_company_id=x_company_id, x_company_mode=x_company_mode
+        )
+        actor = require_project_write_actor(effective_company_actors(current_user, company_context), WAREHOUSE_ROLES)
+        transfer = resolve_material_transfer_parent(cur, actor, id, for_update=True)
+        cur.execute("""SELECT project_name,from_location,to_person,material_name,quantity,unit,signed,
+                              COALESCE(status,'Активна') AS status,work_package
+                       FROM material_transfers WHERE id=%s AND company_id=%s FOR UPDATE""", (id, transfer["companyId"]))
         row = cur.fetchone()
         if not row:
-            conn.rollback()
-            return {"ok": True}
+            raise HTTPException(status_code=404, detail="Передача материала не найдена")
 
-        project_name, from_location, to_person, material_name, qty, unit, signed, status, work_package = row
+        project_name, from_location, to_person, material_name, qty, unit, signed, status, work_package = [
+            row.get(key) for key in ("project_name","from_location","to_person","material_name","quantity","unit","signed","status","work_package")
+        ]
         work_package = (work_package or "Основная").strip() or "Основная"
-        require_project_or_warehouse_access(_current_user, project_name or from_location or "")
-        if not has_package_access(_current_user, work_package):
+        if not has_package_access(actor, work_package):
             raise HTTPException(status_code=403, detail="Нет доступа к пакету передачи материала")
         qty = float(qty or 0)
         if status == "Аннулирована":
@@ -22914,23 +23064,39 @@ def delete_material_transfer(id: int, _current_user: dict = Depends(require_role
             raise HTTPException(status_code=400, detail="Подписанную передачу нельзя удалить. Оформите возврат материала отдельной операцией.")
 
         if (from_location or "") == "Основной склад":
-            cur.execute(f"UPDATE warehouse_main SET quantity=quantity+%s WHERE name=%s AND {_sql_norm_unit('unit')}=%s", (qty, material_name, _norm_base_unit(unit or "шт") or "шт"))
+            cur.execute(f"""UPDATE warehouse_main SET quantity=quantity+%s
+                            WHERE company_id=%s AND name=%s AND {_sql_norm_unit('unit')}=%s""",
+                        (qty, transfer["companyId"], material_name, _norm_base_unit(unit or "шт") or "шт"))
             if cur.rowcount == 0:
-                cur.execute("INSERT INTO warehouse_main (name,unit,quantity,price,min_quantity,category) VALUES (%s,%s,%s,%s,%s,%s)",
-                    (material_name, unit or "шт", qty, 0, 0, "Возврат передачи"))
+                cur.execute("""INSERT INTO warehouse_main
+                               (company_id,name,unit,quantity,price,min_quantity,category)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                    (transfer["companyId"], material_name, unit or "шт", qty, 0, 0, "Возврат передачи"))
         else:
-            cur.execute(f"UPDATE materials SET quantity=quantity+%s WHERE name=%s AND project=%s AND COALESCE(NULLIF(work_package,''),'Основная')=%s AND {_sql_norm_unit('unit')}=%s", (qty, material_name, from_location, work_package, _norm_base_unit(unit or "шт") or "шт"))
+            cur.execute(f"""UPDATE materials SET quantity=quantity+%s
+                            WHERE company_id=%s AND name=%s AND project=%s
+                              AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                              AND {_sql_norm_unit('unit')}=%s""",
+                        (qty, transfer["companyId"], material_name, from_location, work_package,
+                         _norm_base_unit(unit or "шт") or "шт"))
             if cur.rowcount == 0:
-                cur.execute("""INSERT INTO materials (name,unit,quantity,price,min_quantity,project,category,work_package)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (material_name, unit or "шт", qty, 0, 0, from_location or project_name or "", "Возврат передачи", work_package))
+                cur.execute("""INSERT INTO materials
+                               (company_id,name,unit,quantity,price,min_quantity,project,category,work_package)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (transfer["companyId"], material_name, unit or "шт", qty, 0, 0,
+                     from_location or project_name or "", "Возврат передачи", work_package))
 
         cur.execute(
-            "UPDATE material_transfers SET status=%s,cancelled_at=NOW(),cancelled_by=%s,cancel_reason=%s WHERE id=%s",
-            ("Аннулирована", _current_user.get("name",""), "Отмена неподписанной передачи", id),
+            """UPDATE material_transfers SET status=%s,cancelled_at=NOW(),cancelled_by=%s,cancel_reason=%s
+                WHERE id=%s AND company_id=%s""",
+            ("Аннулирована", actor.get("name",""), "Отмена неподписанной передачи", id, transfer["companyId"]),
         )
-        cur.execute("INSERT INTO warehouse_history (material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-            (material_name, "отмена передачи", qty, unit or "шт", None, from_location or project_name or "", to_person or "", _current_user.get("name",""), work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+        cur.execute("""INSERT INTO warehouse_history
+                       (company_id,material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (transfer["companyId"], material_name, "отмена передачи", qty, unit or "шт", None,
+             from_location or project_name or "", to_person or "", actor.get("name",""), work_package,
+             __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
         conn.commit()
         _run_project_ai_control_safely(project_name or "", "material_transfer:delete")
         return {"ok": True}
