@@ -668,6 +668,26 @@
 
 **Estimated scope:** M
 
+## Task M4.1: Main Warehouse Read Isolation
+
+**Description:** Make `GET /warehouse-main` resolve the selected company context and return only main-warehouse rows belonging to the selected company or the allowed account summary.
+
+**Status:** Implemented locally; release pending.
+
+**Acceptance criteria:**
+- [x] The endpoint accepts `X-Company-Id` and `X-Company-Mode` using the tenant context kernel.
+- [x] Warehouse rows are filtered by `warehouse_main.company_id`.
+- [x] Existing role and price visibility rules remain unchanged.
+- [x] No warehouse data is rewritten.
+
+**Verification:**
+- [ ] Backend compile and focused tests pass.
+- [ ] Production smoke confirms selected-company warehouse rows.
+
+**Dependencies:** Task M3.5
+
+**Estimated scope:** XS
+
 ## Task M5: Finance And Accounting Isolation
 
 **Description:** Scope project payments, supplier payments, accounting records, contracts, and reports by verified company and legal entity.

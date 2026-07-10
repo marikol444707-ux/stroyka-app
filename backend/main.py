@@ -6556,12 +6556,33 @@ def delete_material(id: int, _current_user: dict = Depends(require_roles("дир
     )
 
 @app.get("/warehouse-main")
-def get_warehouse_main(current_user: dict = Depends(get_current_user)):
+def get_warehouse_main(
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
     if not can_see_warehouse_data(current_user):
         return []
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,name,unit,quantity,price,min_quantity as \"minQuantity\",category FROM warehouse_main")
+    try:
+        company_context = _resolve_work_company_context(
+            cur,
+            current_user,
+            None,
+            "read",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        company_filter_sql, company_filter_params = company_id_scope_filter(company_context, "wm.company_id")
+        cur.execute(
+            "SELECT wm.id,wm.name,wm.unit,wm.quantity,wm.price,wm.min_quantity as \"minQuantity\",wm.category "
+            "FROM warehouse_main wm WHERE TRUE" + company_filter_sql,
+            company_filter_params,
+        )
+    except Exception:
+        cur.close(); conn.close()
+        raise
     rows = cur.fetchall()
     conn.close()
     can_see_prices = current_user.get("role") in MATERIAL_PRICE_HISTORY_ROLES or current_user.get("role") in FINANCE_ROLES
