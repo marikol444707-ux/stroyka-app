@@ -770,6 +770,26 @@
 
 **Estimated scope:** S
 
+## Task M4.6: Warehouse History Resource Isolation
+
+**Description:** Verify the stored history-row company and the user's effective company role before returning the existing non-destructive deletion response.
+
+**Status:** Implemented locally; release pending.
+
+**Acceptance criteria:**
+- [x] The endpoint resolves access from the row's stored `company_id`.
+- [x] A caller cannot use another company's row id with a mismatched company header.
+- [x] Project access is evaluated through the selected company membership.
+- [x] Physical deletion remains prohibited and no data is changed.
+
+**Verification:**
+- [ ] Backend compile and company-context tests pass.
+- [ ] Frontend tests and production build pass.
+
+**Dependencies:** Task M4.5
+
+**Estimated scope:** XS
+
 ## Task M5: Finance And Accounting Isolation
 
 **Description:** Scope project payments, supplier payments, accounting records, contracts, and reports by verified company and legal entity.

@@ -6948,17 +6948,36 @@ def create_warehouse_history(
     return dict(row)
 
 @app.delete("/warehouse-history/{id}")
-def delete_warehouse_history(id: int, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
+def delete_warehouse_history(
+    id: int,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT project FROM warehouse_history WHERE id=%s", (id,))
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    if not row:
-        raise HTTPException(status_code=404, detail="Запись движения склада не найдена")
-    project_name = row[0] if not isinstance(row, dict) else row.get("project")
-    if project_name:
-        require_project_or_warehouse_access(_current_user, project_name)
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("SELECT project,company_id FROM warehouse_history WHERE id=%s", (id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Запись движения склада не найдена")
+        _context, actor = resolve_resource_company_actor(
+            cur,
+            _current_user,
+            row.get("company_id"),
+            "delete",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            allowed_roles=WAREHOUSE_ROLES,
+            forbidden_detail="Роль в выбранной компании не позволяет работать с историей склада",
+            platform_staff_roles=PLATFORM_STAFF_ROLES,
+            client_account_roles=CLIENT_ACCOUNT_ROLES,
+        )
+        project_name = row.get("project") or ""
+        if project_name:
+            require_project_or_warehouse_access(actor, project_name)
+    finally:
+        cur.close(); conn.close()
     raise HTTPException(
         status_code=409,
         detail="Удаление записей движения склада запрещено: в warehouse_history нет полей статуса/сторно, физическое удаление нарушает аудит склада",
