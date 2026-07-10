@@ -946,7 +946,7 @@
 
 **Description:** Make `project_payments` a company-owned money ledger. Scope direct and automatic payment paths by verified tenant context without changing the existing amount/sign semantics yet.
 
-**Status:** Implemented locally; release pending.
+**Status:** Deployed in `5db2e496`; production health, database availability, public routes, and unauthenticated route protection verified. Authenticated tenant-data smoke remains pending because the smoke account requires initial 2FA setup.
 
 **Acceptance criteria:**
 - [x] Existing payment rows first inherit an unambiguous project company; rows that cannot be proven remain in the accepted legacy company `1`. New rows require non-null `company_id` and use company indexes.
@@ -963,7 +963,8 @@
 **Verification:**
 - [x] Payment-access, company-context, and supplier-access unit tests pass.
 - [x] Frontend tests and production build pass.
-- [ ] Production health/version and authenticated selected-company payment reads pass after deploy.
+- [x] Production health/version, database availability, public smoke, and unauthenticated `/project-payments` protection pass after deploy.
+- [ ] Authenticated selected-company payment reads pass after smoke-account 2FA setup.
 
 **Known follow-up:** M5.3 must add stored `company_id` to `brigade_contracts` and `brigade_payments` and close their current global list reads. Also add ownership to `interim_acts` and `expenses`; then remove the temporary duplicate-project-name guard and restore scoped manual expenses in the director tool.
 
