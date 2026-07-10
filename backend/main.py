@@ -23871,7 +23871,13 @@ def dedupe_supplier_accounting_documents(data: dict = None, _current_user: dict 
         conn.close()
 
 @app.put("/warehouse-invoices/{id}/accounting")
-def update_warehouse_invoice_accounting(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
+def update_warehouse_invoice_accounting(
+    id: int,
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -23880,11 +23886,26 @@ def update_warehouse_invoice_accounting(id: int, data: dict, _current_user: dict
         _ensure_invoice_document_link_columns(cur)
         cur.execute("""SELECT id, number, date, supplier_name, location, project, items,
                               total_base, total_vat, total_with_vat, status, photo_url, photo_urls,
-                              accounting_status, accounting_comment, paid_amount, supplier_invoice_id
+                              accounting_status, accounting_comment, paid_amount, supplier_invoice_id,
+                              company_id
                        FROM warehouse_invoices WHERE id=%s FOR UPDATE""", (id,))
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Накладная не найдена")
+        _company_context, actor = resolve_resource_company_actor(
+            cur,
+            _current_user,
+            row.get("company_id"),
+            "update",
+            claimed_company_id=data.get("companyId") if "companyId" in data else data.get("company_id"),
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            allowed_roles=FINANCE_ROLES,
+            forbidden_detail="Роль в выбранной компании не позволяет менять бухгалтерский статус накладной",
+            platform_staff_roles=PLATFORM_STAFF_ROLES,
+            client_account_roles=CLIENT_ACCOUNT_ROLES,
+        )
+        _current_user = actor
         if row.get("status") == "Аннулирована":
             raise HTTPException(status_code=409, detail="Аннулированную накладную нельзя отправить в оплату")
 
@@ -23903,13 +23924,15 @@ def update_warehouse_invoice_accounting(id: int, data: dict, _current_user: dict
             linked_supplier_invoice_id = int(raw_supplier_invoice_id or 0) or None
         if linked_supplier_invoice_id:
             cur.execute("""SELECT id, project_name, supplier_name, amount, paid_amount,
-                                  status, warehouse_invoice_id
+                                  status, warehouse_invoice_id, company_id
                            FROM supplier_invoices
                            WHERE id=%s AND COALESCE(status,'') <> 'Аннулирован'
                            FOR UPDATE""", (linked_supplier_invoice_id,))
             supplier_invoice_row = cur.fetchone()
             if not supplier_invoice_row:
                 raise HTTPException(status_code=404, detail="Счёт поставщика для связи не найден")
+            if _positive_int_or_none(supplier_invoice_row.get("company_id")) != _positive_int_or_none(row.get("company_id")):
+                raise HTTPException(status_code=409, detail="Счёт поставщика относится к другой компании")
             supplier_project = (supplier_invoice_row.get("project_name") or "").strip()
             if supplier_project and target_project and supplier_project != target_project:
                 raise HTTPException(status_code=400, detail="Счёт поставщика относится к другому объекту")

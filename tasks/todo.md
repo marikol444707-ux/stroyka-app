@@ -835,6 +835,29 @@
 
 **Estimated scope:** M
 
+## Task M4.9: Warehouse Invoice Accounting Isolation
+
+**Description:** Authorize accounting changes through the warehouse invoice's stored company and prevent linking a supplier invoice from another company.
+
+**Status:** Implemented locally; release pending.
+
+**Acceptance criteria:**
+- [x] The stored warehouse-invoice company is the authorization source.
+- [x] `X-Company-Id`, `X-Company-Mode`, and an optional payload company are validated.
+- [x] Finance role and project/package access use the selected company membership.
+- [x] A linked supplier invoice must have the same `company_id`.
+- [x] Existing accounting statuses, photo rules, payment calculations, and idempotency remain unchanged.
+- [x] Adding `company_id` to project payments remains explicitly deferred to Task M5.
+
+**Verification:**
+- [ ] Backend compile and focused tests pass.
+- [ ] Frontend tests and production build pass.
+- [ ] Production smoke verifies the deployed version before protected mutation testing.
+
+**Dependencies:** Task M4.8
+
+**Estimated scope:** S
+
 ## Task M5: Finance And Accounting Isolation
 
 **Description:** Scope project payments, supplier payments, accounting records, contracts, and reports by verified company and legal entity.
