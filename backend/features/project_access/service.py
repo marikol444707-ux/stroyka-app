@@ -91,3 +91,73 @@ def require_project_row_company(actor, project_company_id):
     if actor_company_id != stored_company_id:
         raise HTTPException(status_code=403, detail="Объект относится к другой компании")
     return stored_company_id
+
+
+def _row_value(row, key, index):
+    if isinstance(row, dict):
+        return row.get(key)
+    if isinstance(row, (list, tuple)) and len(row) > index:
+        return row[index]
+    return None
+
+
+def _project_parent(row):
+    if not row:
+        return None
+    return {
+        "id": _positive_int(_row_value(row, "id", 0)),
+        "companyId": _positive_int(_row_value(row, "company_id", 1)),
+        "name": str(_row_value(row, "name", 2) or "").strip(),
+    }
+
+
+def resolve_project_parent(cur, actor, *, project_id=None, project_name="", for_update=False):
+    """Resolve a child record parent inside one company; names are a legacy fallback only."""
+    company_id = _company_id(actor)
+    if not company_id:
+        raise HTTPException(status_code=409, detail="Компания объекта не определена")
+    normalized_project_id = _positive_int(project_id)
+    normalized_name = str(project_name or "").strip()
+    lock_sql = " FOR UPDATE" if for_update else ""
+
+    if normalized_project_id:
+        cur.execute(
+            "SELECT id,company_id,name FROM projects WHERE id=%s AND company_id=%s" + lock_sql,
+            (normalized_project_id, company_id),
+        )
+        parent = _project_parent(cur.fetchone())
+        if not parent:
+            raise HTTPException(status_code=404, detail="Объект не найден в выбранной компании")
+        if normalized_name and parent["name"] != normalized_name:
+            raise HTTPException(status_code=409, detail="projectId и название объекта указывают на разные записи")
+        return parent
+
+    if not normalized_name:
+        raise HTTPException(status_code=400, detail="Укажите projectId или название объекта")
+    cur.execute(
+        "SELECT id,company_id,name FROM projects WHERE company_id=%s AND name=%s ORDER BY id" + lock_sql,
+        (company_id, normalized_name),
+    )
+    rows = cur.fetchall() or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Объект не найден в выбранной компании")
+    if len(rows) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail="В выбранной компании найдено несколько объектов с таким названием. Используйте projectId",
+        )
+    return _project_parent(rows[0])
+
+
+def require_child_project_identity(child, parent, *, child_label="Документ"):
+    """Verify a stored child row against an already resolved project parent."""
+    child_company_id = _positive_int((child or {}).get("companyId") or (child or {}).get("company_id"))
+    child_project_id = _positive_int((child or {}).get("projectId") or (child or {}).get("project_id"))
+    child_project_name = str((child or {}).get("projectName") or (child or {}).get("project_name") or "").strip()
+    if child_company_id and child_company_id != _positive_int((parent or {}).get("companyId")):
+        raise HTTPException(status_code=409, detail=child_label + " относится к другой компании")
+    if child_project_id and child_project_id != _positive_int((parent or {}).get("id")):
+        raise HTTPException(status_code=409, detail=child_label + " относится к другому объекту")
+    if child_project_name and child_project_name != str((parent or {}).get("name") or "").strip():
+        raise HTTPException(status_code=409, detail=child_label + " содержит другое название объекта")
+    return parent
