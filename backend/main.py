@@ -22837,13 +22837,10 @@ def get_warehouse_invoices(
         result.append({"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":total_base,"totalVat":total_vat,"totalWithVat":total_with_vat,"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or "","photos":photo_urls,"pagesCount":r[21] or len(photo_urls) or 1,"sourceType":r[16] or "","sourceId":r[17],"supplyDeliveryId":r[18],"supplyRequestId":r[19],"warehouseTarget":(r[22] if len(r) > 22 else "") or ("object" if r[7] else "main"),"selectedAction":(r[23] if len(r) > 23 else "") or "","materialMatch":material_match,"accountingStatus":(r[25] if len(r) > 25 else "") or "","accountingComment":(r[26] if len(r) > 26 else "") or "","accountingUpdatedBy":(r[27] if len(r) > 27 else "") or "","accountingUpdatedAt":str(r[28]) if len(r) > 28 and r[28] else "","paidAmount":float(r[29] or 0) if len(r) > 29 else 0,"paidAt":(r[30] if len(r) > 30 else "") or "","paidBy":(r[31] if len(r) > 31 else "") or "","supplierInvoiceId":r[32] if len(r) > 32 else None,"companyId":r[33] if len(r) > 33 else None})
     return result
 
-def _create_warehouse_invoice_record(data: dict, current_user: dict):
+def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_company_id=None, x_company_mode=None):
     import json as j
     target_location = (data.get("location") or "").strip()
     target_project = (data.get("project") or "").strip() or (target_location if target_location and target_location != "Основной склад" else "")
-    if target_project:
-        require_project_or_warehouse_access(current_user, target_project)
-
     def _invoice_float(value, default=0.0):
         try:
             return float(str(value).replace(" ", "").replace(",", "."))
@@ -22862,8 +22859,6 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
         supplier_invoice_id = int(data.get("supplierInvoiceId") or data.get("supplier_invoice_id") or 0) or None
         supplier_invoice_company_id = None
         if supplier_invoice_id:
-            if current_user.get("role") not in FINANCE_ROLES:
-                raise HTTPException(status_code=403, detail="Связать накладную со счётом поставщика может только бухгалтерия или руководство")
             cur.execute("""SELECT project_name, warehouse_invoice_id, company_id
                            FROM supplier_invoices
                            WHERE id=%s AND COALESCE(status,'') <> 'Аннулирован'""", (supplier_invoice_id,))
@@ -22883,6 +22878,48 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
             source_type = source_type or "manual_project_invoice"
         else:
             source_type = source_type or "manual_main_invoice"
+        claimed_company_id = _positive_int_or_none(data.get("companyId") or data.get("company_id"))
+        project_company_id = _positive_int_or_none(_project_company_id(cur, target_project or target_location))
+        request_company_id = None
+        if supply_request_id:
+            cur.execute("SELECT company_id FROM supply_requests WHERE id=%s", (supply_request_id,))
+            request_company_id = _positive_int_or_none(_row_get(cur.fetchone(), "company_id", 0))
+        resource_company_ids = {
+            value for value in (
+                _positive_int_or_none(supplier_invoice_company_id),
+                request_company_id,
+                project_company_id,
+            ) if value
+        }
+        if len(resource_company_ids) > 1:
+            raise HTTPException(status_code=409, detail="Связанные документы накладной относятся к разным компаниям")
+        resource_company_id = next(iter(resource_company_ids), None)
+        if claimed_company_id and resource_company_id and claimed_company_id != resource_company_id:
+            raise HTTPException(status_code=409, detail="companyId не совпадает с компанией объекта или связанного документа")
+        scope_cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            company_context = _resolve_work_company_context(
+                scope_cur,
+                current_user,
+                resource_company_id or claimed_company_id,
+                "write",
+                x_company_id=x_company_id,
+                x_company_mode=x_company_mode,
+            )
+        finally:
+            scope_cur.close()
+        company_id = int(company_context.get("companyId") or 0)
+        actors = effective_company_actors(current_user, company_context)
+        actor = actors[0] if len(actors) == 1 else {}
+        if company_id <= 0 or not actor:
+            raise HTTPException(status_code=409, detail="Компания складской накладной не определена")
+        if (actor.get("role") or "") not in WAREHOUSE_ROLES:
+            raise HTTPException(status_code=403, detail="Роль в выбранной компании не позволяет принимать складские накладные")
+        current_user = actor
+        if target_project:
+            require_project_or_warehouse_access(current_user, target_project)
+        if supplier_invoice_id and current_user.get("role") not in FINANCE_ROLES:
+            raise HTTPException(status_code=403, detail="Связать накладную со счётом поставщика может только бухгалтерия или руководство выбранной компании")
         if not target_project and current_user.get("role") not in MAIN_WAREHOUSE_WRITE_ROLES:
             raise HTTPException(
                 status_code=403,
@@ -22898,8 +22935,9 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
         if source_type and source_id:
             cur.execute("""SELECT id FROM warehouse_invoices
                            WHERE COALESCE(status,'Принята') <> 'Аннулирована'
+                             AND company_id=%s
                              AND source_type=%s AND source_id=%s
-                           LIMIT 1""", (source_type, source_id))
+                           LIMIT 1""", (company_id, source_type, source_id))
             if cur.fetchone():
                 raise HTTPException(status_code=409, detail="По этому источнику накладная уже принята")
         invoice_number = (data.get("number") or "").strip()
@@ -22917,12 +22955,6 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
             supplier_name = data["supplierName"]
             _update_supplier_missing_fields(cur, matched_supplier["id"], supplier_lookup_payload)
             _remember_supplier_alias(cur, matched_supplier["id"], supplier_lookup_payload, source="warehouse_invoice")
-        company_id = _positive_int_or_none(data.get("companyId") or data.get("company_id"))
-        company_id = company_id or _positive_int_or_none(supplier_invoice_company_id)
-        if not company_id and supply_request_id:
-            cur.execute("SELECT company_id FROM supply_requests WHERE id=%s", (supply_request_id,))
-            company_id = _positive_int_or_none(_row_get(cur.fetchone(), "company_id", 0))
-        company_id = company_id or _company_id_for_project_or_user(cur, target_project or target_location, current_user)
         if invoice_number:
             cur.execute("""SELECT id FROM warehouse_invoices
                            WHERE COALESCE(status,'Принята') <> 'Аннулирована'
@@ -23057,10 +23089,11 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
                 cur.execute(f"""SELECT id FROM materials
                                WHERE LOWER(name)=LOWER(%s)
                                  AND project=%s
+                                 AND company_id=%s
                                  AND COALESCE(NULLIF(work_package,''),'Основная')=%s
                                  AND {_sql_norm_unit('unit')}=%s
                                ORDER BY id LIMIT 1 FOR UPDATE""",
-                            (name, target_project, work_package, unit))
+                            (name, target_project, company_id, work_package, unit))
                 row = cur.fetchone()
                 if row:
                     cur.execute("""UPDATE materials
@@ -23072,15 +23105,16 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
                                 (qty, unit, price, price, category, row[0]))
                 else:
                     cur.execute("""INSERT INTO materials
-                                      (name,unit,quantity,price,min_quantity,project,category,work_package)
-                                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                                (name, unit, qty, price, 0, target_project, category, work_package))
+                                      (name,unit,quantity,price,min_quantity,project,category,work_package,company_id)
+                                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                                (name, unit, qty, price, 0, target_project, category, work_package, company_id))
                 history_project = target_project
             else:
                 cur.execute(f"""SELECT id FROM warehouse_main
                                WHERE LOWER(name)=LOWER(%s)
+                                 AND company_id=%s
                                  AND {_sql_norm_unit('unit')}=%s
-                               ORDER BY id LIMIT 1 FOR UPDATE""", (name, unit))
+                               ORDER BY id LIMIT 1 FOR UPDATE""", (name, company_id, unit))
                 row = cur.fetchone()
                 if row:
                     cur.execute("""UPDATE warehouse_main
@@ -23092,9 +23126,9 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
                                 (qty, unit, price, price, category, row[0]))
                 else:
                     cur.execute("""INSERT INTO warehouse_main
-                                      (name,unit,quantity,price,min_quantity,category)
-                                   VALUES (%s,%s,%s,%s,%s,%s)""",
-                                (name, unit, qty, price, 0, category))
+                                      (name,unit,quantity,price,min_quantity,category,company_id)
+                                   VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                                (name, unit, qty, price, 0, category, company_id))
                 history_project = "Основной склад"
 
             stock_rows_added += 1
@@ -23499,8 +23533,18 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
         conn.close()
 
 @app.post("/warehouse-invoices")
-def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
-    return _create_warehouse_invoice_record(data, _current_user)
+def create_warehouse_invoice(
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
+    return _create_warehouse_invoice_record(
+        data,
+        _current_user,
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
+    )
 
 @app.post("/supplier-documents/backfill")
 def backfill_supplier_documents(data: dict = None, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):

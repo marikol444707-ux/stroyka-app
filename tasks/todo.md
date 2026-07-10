@@ -811,6 +811,30 @@
 
 **Estimated scope:** S
 
+## Task M4.8: Warehouse Invoice Creation Isolation
+
+**Description:** Resolve one verified company for manual warehouse invoice creation and keep the invoice, linked documents, stock rows, and history inside that company.
+
+**Status:** Implemented locally; release pending.
+
+**Acceptance criteria:**
+- [x] `all_companies` mode cannot create an invoice.
+- [x] Project, supply request, supplier invoice, claimed company, and selected company must agree.
+- [x] The effective role in the selected company authorizes warehouse receipt and supplier-invoice linking.
+- [x] Duplicate source checks include `company_id`.
+- [x] Material and main-warehouse lookups/inserts include `company_id`.
+- [x] Invoice and warehouse-history rows use the same verified company.
+- [x] Existing automatic Telegram/MAX path remains compatible through resource-derived company context.
+
+**Verification:**
+- [ ] Backend compile and focused tests pass.
+- [ ] Frontend tests and production build pass.
+- [ ] Supply/MAX smoke verifies one complete receipt chain after deploy.
+
+**Dependencies:** Task M4.7
+
+**Estimated scope:** M
+
 ## Task M5: Finance And Accounting Isolation
 
 **Description:** Scope project payments, supplier payments, accounting records, contracts, and reports by verified company and legal entity.
