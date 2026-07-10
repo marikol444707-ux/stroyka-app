@@ -186,4 +186,30 @@ describe('buildMaterialReconciliationRows material identity', () => {
       toBuy: 0,
     });
   });
+
+  test('does not turn imported work rows into procurement materials', () => {
+    const rows = buildRows([
+      {
+        isImported: true,
+        itemType: 'material',
+        name: 'Установка сплит-систем с внутренним блоком напольного типа',
+        unit: 'компл.',
+        quantity: 8,
+        totalWork: 120000,
+        totalMaterial: 0,
+        lineTotal: 120000,
+      },
+      materialItem('Труба медная для кондиционера 1/4', 30, 'м'),
+    ]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      name: 'Труба медная для кондиционера 1/4',
+      planningSource: 'estimate',
+      procurementEligible: true,
+    });
+    expect(rows[0].planDetails).toEqual(expect.arrayContaining([
+      expect.objectContaining({sourceType: 'estimate_material', includedInProcurement: true}),
+    ]));
+  });
 });

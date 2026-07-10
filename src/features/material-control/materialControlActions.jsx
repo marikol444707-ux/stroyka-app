@@ -26,6 +26,11 @@ export const materialControlRowCanCreateSupply = (row, toNumber = Number) => (
   && toNumber(row.invalidPlanCount) <= 0
   && !row.reviewRequired
   && row.procurementEligible !== false
+  && row.planningSource === 'estimate'
+  && (row.planDetails || []).some(detail => (
+    detail?.sourceType === 'estimate_material'
+    && detail?.includedInProcurement !== false
+  ))
 );
 
 export function createMaterialControlActions({
