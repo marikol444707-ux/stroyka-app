@@ -575,7 +575,7 @@
 
 **Description:** Protect `POST /supplier-offers/{id}/create-invoice`. The invoice inherits the stored offer/request company. Supplier users require explicit visibility to the concrete offer; internal users authorize through the effective company membership. Existing and duplicate invoices are locked and must remain in the same company.
 
-**Status:** Implemented and verified locally on 2026-07-10; push and production release are pending.
+**Status:** Completed, verified, and released as production commit `df174fe3` on 2026-07-10.
 
 **Acceptance criteria:**
 - [x] The approved offer and its request are locked and must have the same non-empty `company_id`.
@@ -598,6 +598,7 @@
 - [x] Tracked frontend tests (14 suites / 66 tests passed).
 - [x] `npm run build`.
 - [x] Supply smoke asserts that repeated invoice creation returns the same invoice with `alreadyExists=true` and verifies the `invoice_created` audit event.
+- [x] Production version `df174fe33380`; HTTP smoke, active service, clean warning log, and live in-app browser rendering of `/` and `/app` passed. The standalone headless profile was flaky, while the connected browser showed populated DOM and no console errors.
 
 **Dependencies:** Task M3.3
 
@@ -605,6 +606,45 @@
 - `backend/main.py`
 - `scripts/smoke-supply-chain.py`
 - `src/features/supply/supplyActions.js`
+- `ONBOARDING.md`
+- `tasks/plan.md`
+- `tasks/todo.md`
+
+**Estimated scope:** S
+
+## Task M3.5: Supplier Invoice Read Isolation
+
+**Description:** Protect `GET /supplier-invoices`. Internal users read only the selected company or the companies available in their account context. The external supplier cabinet remains unified across client companies, but only for the authenticated supplier group and explicit offer-recipient chain. Joined delivery and warehouse data must remain in the invoice company.
+
+**Status:** Implemented and verified locally on 2026-07-10; independent production release is pending.
+
+**Acceptance criteria:**
+- [x] Internal invoice reads resolve `X-Company-Id` / `X-Company-Mode` through the company-context kernel.
+- [x] A selected company uses the effective membership role, project access, and package access.
+- [x] `all_companies` reads are limited to available company ids and evaluate each company's own membership role, projects, and packages independently.
+- [x] A legacy `users.project_name` fallback is kept only for the default membership without explicit project assignments and cannot leak into another company.
+- [x] Supplier reads require a positive invoice company and the authenticated duplicate supplier group.
+- [x] An invoice linked to an offer requires the same invoice/offer company and explicit supplier offer visibility; direct legacy documents remain visible only by strong supplier identity.
+- [x] Joined delivery and warehouse invoice rows require the same `company_id` as the supplier invoice.
+- [x] SQL company column aliases are validated before interpolation.
+- [x] Existing invoices, deliveries, warehouse documents, and payments are not rewritten.
+
+**Verification:**
+- [x] Company-context and supplier-access unit tests (38 passed).
+- [x] Python compile and `git diff --check`.
+- [x] Tracked frontend tests (14 suites / 66 tests passed).
+- [x] `npm run build`.
+- [x] Supply smoke selects the internal company explicitly, rejects any foreign-company row, compares supplier/internal invoice company, and verifies linked document visibility.
+
+**Dependencies:** Task M3.4
+
+**Files touched:**
+- `backend/features/company_context/service.py`
+- `backend/features/company_context/test_service.py`
+- `backend/features/supplier_access/service.py`
+- `backend/features/supplier_access/test_service.py`
+- `backend/main.py`
+- `scripts/smoke-supply-chain.py`
 - `ONBOARDING.md`
 - `tasks/plan.md`
 - `tasks/todo.md`

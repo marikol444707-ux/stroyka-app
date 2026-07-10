@@ -6,6 +6,7 @@ from backend.features.company_context.service import (
     assert_rows_company_scope,
     company_id_scope_filter,
     company_ids_for_context,
+    effective_company_actors,
     effective_company_user,
     resolve_request_company_context,
     resolve_resource_company_actor,
@@ -159,7 +160,12 @@ class ResolveRequestCompanyContextTests(unittest.TestCase):
 
     def test_builds_effective_user_from_selected_company_membership(self):
         actor = effective_company_user(
-            {"id": 42, "role": "директор", "assignedProjects": ["Чужой объект"]},
+            {
+                "id": 42,
+                "role": "директор",
+                "projectName": "Старый объект",
+                "assignedProjects": ["Чужой объект"],
+            },
             {
                 "companyId": 7,
                 "platformAccountId": 5,
@@ -176,6 +182,65 @@ class ResolveRequestCompanyContextTests(unittest.TestCase):
         self.assertEqual(actor["platformAccountId"], 5)
         self.assertEqual(actor["assignedProjects"], ["Объект 7"])
         self.assertEqual(actor["assignedPackages"], ["Электрика"])
+        self.assertEqual(actor["projectName"], "")
+        self.assertEqual(actor["project_name"], "")
+
+    def test_keeps_legacy_project_only_for_default_membership_without_assignments(self):
+        actor = effective_company_user(
+            {"id": 42, "role": "прораб", "projectName": "Старый объект"},
+            {
+                "companyId": 7,
+                "effectiveRole": "прораб",
+                "assignedProjects": [],
+                "assignedPackages": [],
+                "isDefault": True,
+            },
+        )
+
+        self.assertEqual(actor["projectName"], "Старый объект")
+        self.assertEqual(actor["project_name"], "Старый объект")
+
+    def test_builds_separate_effective_actors_for_all_company_memberships(self):
+        actors = effective_company_actors(
+            {"id": 42, "role": "директор", "projectName": "Старый объект"},
+            {
+                "mode": "all_companies",
+                "companyIds": [7, 8],
+                "companies": [
+                    {
+                        "companyId": 7,
+                        "role": "директор",
+                        "assignedProjects": [],
+                        "assignedPackages": [],
+                        "isDefault": True,
+                    },
+                    {
+                        "companyId": 8,
+                        "role": "прораб",
+                        "assignedProjects": ["Объект 8"],
+                        "assignedPackages": ["Электрика"],
+                        "isDefault": False,
+                    },
+                    {
+                        "companyId": 9,
+                        "role": "бухгалтер",
+                        "assignedProjects": [],
+                        "assignedPackages": [],
+                    },
+                ],
+            },
+        )
+
+        self.assertEqual(
+            [
+                (actor["companyId"], actor["role"], actor["assignedProjects"], actor["projectName"])
+                for actor in actors
+            ],
+            [
+                (7, "директор", [], "Старый объект"),
+                (8, "прораб", ["Объект 8"], ""),
+            ],
+        )
 
     def test_resolves_resource_actor_with_effective_company_role(self):
         cur = MembershipCursor([membership(
@@ -269,6 +334,16 @@ class ResolveRequestCompanyContextTests(unittest.TestCase):
             company_id_scope_filter({"mode": "all_companies", "companyIds": [7, 8]}),
             (" AND company_id = ANY(%s)", [[7, 8]]),
         )
+
+    def test_builds_filter_for_qualified_company_column(self):
+        self.assertEqual(
+            company_id_scope_filter({"mode": "company", "companyIds": [7]}, "si.company_id"),
+            (" AND si.company_id=%s", [7]),
+        )
+
+    def test_rejects_unsafe_company_column(self):
+        with self.assertRaises(ValueError):
+            company_id_scope_filter({"mode": "company", "companyIds": [7]}, "company_id OR TRUE")
 
     def test_denies_empty_company_scope(self):
         self.assertEqual(

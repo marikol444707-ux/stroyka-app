@@ -1,6 +1,7 @@
 import unittest
 
 from backend.features.supplier_access.service import (
+    supplier_invoice_visibility_filter,
     supplier_offer_visibility_filter,
     supplier_recipient_identity_filter,
 )
@@ -16,6 +17,21 @@ class SupplierOfferVisibilityFilterTests(unittest.TestCase):
 
     def test_denies_missing_supplier_identity(self):
         self.assertEqual(supplier_offer_visibility_filter([], None), (" AND FALSE", []))
+
+    def test_supplier_invoice_filter_keeps_company_and_offer_chain_aligned(self):
+        sql, params = supplier_invoice_visibility_filter([7, "3", 7], 42)
+
+        self.assertTrue(sql.startswith(" AND "))
+        self.assertIn("si.company_id > 0", sql)
+        self.assertIn("supplier_offers.company_id=si.company_id", sql)
+        self.assertIn("si.offer_id IS NULL", sql)
+        self.assertEqual(params[:2], [[3, 7], [3, 7]])
+        self.assertIn(42, params)
+        self.assertEqual(sql.count("%s"), len(params))
+
+    def test_supplier_invoice_filter_denies_missing_identity(self):
+        self.assertEqual(supplier_invoice_visibility_filter([], None), (" AND FALSE", []))
+        self.assertEqual(supplier_invoice_visibility_filter([], 42), (" AND FALSE", []))
 
     def test_builds_explicit_recipient_and_company_chain_filter(self):
         sql, params = supplier_offer_visibility_filter([7, "3", 7, 0, "bad"], 42)

@@ -85,14 +85,15 @@ def db_conn():
     return psycopg2.connect(**db_config())
 
 
-def api_json(method, path, token=None, data=None, expected=None):
+def api_json(method, path, token=None, data=None, expected=None, headers=None):
     body = None
-    headers = {"Content-Type": "application/json"}
+    request_headers = {"Content-Type": "application/json"}
+    request_headers.update(headers or {})
     if token:
-        headers["Authorization"] = f"Bearer {token}"
+        request_headers["Authorization"] = f"Bearer {token}"
     if data is not None:
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(BASE_URL + path, data=body, headers=headers, method=method)
+    req = urllib.request.Request(BASE_URL + path, data=body, headers=request_headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
             status = resp.status
@@ -650,7 +651,7 @@ def ship_and_receive(ship_token, receive_token, candidate, offer_id, stamp):
     return delivery_id, invoice_id
 
 
-def assert_supplier_invoice_scope(supplier_token, candidate, offer_id, supplier_invoice_id, warehouse_invoice_id):
+def assert_supplier_invoice_scope(admin_token, supplier_token, candidate, offer_id, supplier_invoice_id, warehouse_invoice_id):
     _, supplier_invoices = api_json("GET", "/supplier-invoices", token=supplier_token, expected=200)
     invoice = next((r for r in supplier_invoices if int(r.get("id") or 0) == int(supplier_invoice_id)), None)
     if not invoice:
@@ -670,6 +671,42 @@ def assert_supplier_invoice_scope(supplier_token, candidate, offer_id, supplier_
     items = invoice.get("warehouseInvoiceItems") or []
     if not any(norm_text(i.get("name") or i.get("materialName")) == norm_text(candidate["materialName"]) for i in items if isinstance(i, dict)):
         raise RuntimeError("Поставщик не видит список материалов складской накладной")
+    request_company_id = int(
+        (candidate.get("request") or {}).get("companyId")
+        or (candidate.get("request") or {}).get("company_id")
+        or 0
+    )
+    invoice_company_id = int(invoice.get("companyId") or 0)
+    if request_company_id and invoice_company_id != request_company_id:
+        raise RuntimeError("Кабинет поставщика получил счёт из неверной компании")
+    expected_company_id = request_company_id or invoice_company_id
+    if expected_company_id <= 0:
+        raise RuntimeError("У счёта поставщика не определена компания")
+    _, internal_invoices = api_json(
+        "GET",
+        "/supplier-invoices",
+        token=admin_token,
+        expected=200,
+        headers={
+            "X-Company-Mode": "company",
+            "X-Company-Id": str(expected_company_id),
+        },
+    )
+    foreign_company_rows = [
+        row
+        for row in internal_invoices
+        if int(row.get("companyId") or 0) != expected_company_id
+    ]
+    if foreign_company_rows:
+        raise RuntimeError("Внутренний список счетов смешал несколько компаний")
+    internal_invoice = next(
+        (row for row in internal_invoices if int(row.get("id") or 0) == int(supplier_invoice_id)),
+        None,
+    )
+    if not internal_invoice:
+        raise RuntimeError("Внутренний кабинет выбранной компании не видит счёт поставщика")
+    if int(internal_invoice.get("companyId") or 0) != int(invoice.get("companyId") or 0):
+        raise RuntimeError("Внутренний кабинет и поставщик получили разные компании счёта")
     return invoice
 
 
@@ -1893,7 +1930,7 @@ def main():
         delivery_id, invoice_id = ship_and_receive(supplier_token, token, candidate, offer_id, stamp)
         created["deliveryId"] = delivery_id
         created["invoiceId"] = invoice_id
-        supplier_invoice_view = assert_supplier_invoice_scope(supplier_token, candidate, offer_id, supplier_invoice_id, invoice_id)
+        supplier_invoice_view = assert_supplier_invoice_scope(token, supplier_token, candidate, offer_id, supplier_invoice_id, invoice_id)
         assert_supplier_offer_withdraw_and_resubmit(token, supplier_token, supplier_id, candidate, stamp, created)
         assert_unlinked_supplier_recipient_diagnostics(token, candidate, stamp, created)
         manual_invoice_id, manual_material_name = assert_visible_chain(token, candidate, delivery_id, invoice_id)
@@ -1962,6 +1999,8 @@ def main():
                 "selected supplier KP request records email status and queues MAX notification",
                 "supplier account responded to KP and director selected it",
                 "supplier invoice creation is tenant-scoped, idempotent and recorded in offer history",
+                "supplier invoice list keeps internal company scope and supplier cross-client identity scope",
+                "linked delivery and warehouse document stay in the supplier invoice company",
                 "supplier shipment created",
                 "receipt created automatic invoice",
                 "supplier cabinet sees linked invoice, warehouse receipt, received quantity and receipt items",

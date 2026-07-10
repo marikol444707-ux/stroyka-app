@@ -93,22 +93,26 @@ try:
     from backend.features.company_context.service import (
         assert_rows_company_scope,
         company_id_scope_filter,
+        effective_company_actors,
         resolve_resource_company_actor,
     )
 except ModuleNotFoundError:
     from features.company_context.service import (
         assert_rows_company_scope,
         company_id_scope_filter,
+        effective_company_actors,
         resolve_resource_company_actor,
     )
 
 try:
     from backend.features.supplier_access.service import (
+        supplier_invoice_visibility_filter,
         supplier_offer_visibility_filter,
         supplier_recipient_identity_filter,
     )
 except ModuleNotFoundError:
     from features.supplier_access.service import (
+        supplier_invoice_visibility_filter,
         supplier_offer_visibility_filter,
         supplier_recipient_identity_filter,
     )
@@ -26626,13 +26630,74 @@ def delete_expense_report(id: int, _current_user: dict = Depends(require_roles(*
     cur.close(); conn.close()
     return {"ok": True, "cancelled": True}
 
+
+def _supplier_invoice_internal_visibility_filter(company_actors):
+    allowed_roles = {value for value in SUPPLIER_INVOICE_VIEW_ROLES if value != "поставщик"}
+    clauses = []
+    params = []
+    for actor in company_actors or []:
+        company_id = _positive_int_or_none(actor.get("companyId") or actor.get("company_id"))
+        role = actor.get("role") or ""
+        if not company_id or role not in allowed_roles:
+            continue
+
+        actor_clauses = ["si.company_id=%s"]
+        actor_params = [company_id]
+        if role not in FINANCE_ROLES:
+            projects = user_project_names(actor)
+            if not projects:
+                continue
+            actor_clauses.append("si.project_name = ANY(%s)")
+            actor_params.append(projects)
+            if role in PACKAGE_LIMIT_ROLES and role != "прораб":
+                packages = user_package_names(actor)
+                if not packages:
+                    continue
+                actor_clauses.append("COALESCE(NULLIF(si.work_package,''),'Основная') = ANY(%s)")
+                actor_params.append(packages)
+
+        clauses.append("(" + " AND ".join(actor_clauses) + ")")
+        params.extend(actor_params)
+    if not clauses:
+        return "FALSE", []
+    return "(" + " OR ".join(clauses) + ")", params
+
+
 @app.get("/supplier-invoices")
-def list_supplier_invoices(project_name: str = None, status: str = None, limit: Optional[int] = None, offset: int = 0, current_user: dict = Depends(get_current_user)):
+def list_supplier_invoices(
+    project_name: str = None,
+    status: str = None,
+    limit: Optional[int] = None,
+    offset: int = 0,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
     role = current_user.get("role")
-    if role not in SUPPLIER_INVOICE_VIEW_ROLES:
-        return []
+    is_supplier = role == "поставщик"
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    internal_scope_sql = ""
+    internal_scope_params = []
+    if not is_supplier:
+        try:
+            company_context = _resolve_work_company_context(
+                cur,
+                current_user,
+                None,
+                "read",
+                x_company_id=x_company_id,
+                x_company_mode=x_company_mode,
+            )
+            internal_scope_sql, internal_scope_params = _supplier_invoice_internal_visibility_filter(
+                effective_company_actors(current_user, company_context),
+            )
+        except Exception:
+            cur.close(); conn.close()
+            raise
+        if internal_scope_sql == "FALSE":
+            cur.close(); conn.close()
+            return []
     _ensure_invoice_document_link_columns(cur)
     _ensure_warehouse_invoice_accounting_columns(cur)
     cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_delivery_id INT")
@@ -26666,39 +26731,35 @@ def list_supplier_invoices(project_name: str = None, status: str = None, limit: 
         sd.photo_url AS delivery_photo_url
     """
     where, params = [], []
+    if internal_scope_sql:
+        where.append(internal_scope_sql)
+        params.extend(internal_scope_params)
     if project_name:
-        allowed_projects = visible_project_names(current_user)
-        if allowed_projects is not None and project_name not in allowed_projects:
+        allowed_projects = visible_project_names(current_user) if is_supplier else None
+        if is_supplier and allowed_projects is not None and project_name not in allowed_projects:
             cur.close(); conn.close()
             return []
         where.append("si.project_name=%s"); params.append(project_name)
     if status: where.append("si.status=%s"); params.append(status)
-    if role == "поставщик":
+    if is_supplier:
         supplier_ids = current_supplier_ids(cur, current_user)
         if not supplier_ids:
             cur.close(); conn.close()
             return []
-        where.append("si.supplier_id = ANY(%s)"); params.append(supplier_ids)
-    elif role not in FINANCE_ROLES:
-        projects = user_project_names(current_user)
-        if not projects:
-            cur.close(); conn.close()
-            return []
-        where.append("si.project_name = ANY(%s)"); params.append(projects)
-        packages = user_package_names(current_user) if role in PACKAGE_LIMIT_ROLES else []
-        if role in PACKAGE_LIMIT_ROLES and role != "прораб" and not packages:
-            cur.close(); conn.close()
-            return []
-        if packages:
-            where.append("COALESCE(NULLIF(si.work_package,''),'Основная') = ANY(%s)")
-            params.append(packages)
+        supplier_scope_sql, supplier_scope_params = supplier_invoice_visibility_filter(
+            supplier_ids,
+            current_user.get("id"),
+        )
+        where.append(supplier_scope_sql[5:] if supplier_scope_sql.startswith(" AND ") else supplier_scope_sql)
+        params.extend(supplier_scope_params)
     q = f"""
         SELECT {cols}
           FROM supplier_invoices si
           LEFT JOIN LATERAL (
               SELECT d.*
                 FROM supply_deliveries d
-               WHERE (
+               WHERE d.company_id=si.company_id
+                 AND (
                     (si.offer_id IS NOT NULL AND d.offer_id=si.offer_id)
                  OR (si.request_id IS NOT NULL AND d.request_id=si.request_id
                      AND (si.supplier_id IS NULL OR d.supplier_id=si.supplier_id))
@@ -26710,6 +26771,7 @@ def list_supplier_invoices(project_name: str = None, status: str = None, limit: 
               SELECT w.*
                 FROM warehouse_invoices w
                WHERE COALESCE(w.status,'Принята') <> 'Аннулирована'
+                 AND w.company_id=si.company_id
                  AND (
                     (si.warehouse_invoice_id IS NOT NULL AND w.id=si.warehouse_invoice_id)
                  OR (w.supplier_invoice_id IS NOT NULL AND w.supplier_invoice_id=si.id)

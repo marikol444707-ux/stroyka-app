@@ -1,4 +1,5 @@
 import json
+import re
 from typing import List
 
 from fastapi import HTTPException
@@ -68,7 +69,10 @@ def company_ids_for_context(context: dict) -> List[int]:
     return sorted(company_ids)
 
 
-def company_id_scope_filter(context: dict):
+def company_id_scope_filter(context: dict, column: str = "company_id"):
+    column = str(column or "").strip()
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?", column):
+        raise ValueError("Invalid company scope column")
     company_ids = {
         company_id
         for value in (context or {}).get("companyIds") or company_ids_for_context(context or {})
@@ -77,9 +81,9 @@ def company_id_scope_filter(context: dict):
     }
     normalized_ids = sorted(company_ids)
     if (context or {}).get("mode") == "company":
-        return (" AND company_id=%s", [normalized_ids[0]]) if normalized_ids else (" AND FALSE", [])
+        return (f" AND {column}=%s", [normalized_ids[0]]) if normalized_ids else (" AND FALSE", [])
     if (context or {}).get("mode") == "all_companies":
-        return (" AND company_id = ANY(%s)", [normalized_ids]) if normalized_ids else (" AND FALSE", [])
+        return (f" AND {column} = ANY(%s)", [normalized_ids]) if normalized_ids else (" AND FALSE", [])
     return " AND FALSE", []
 
 
@@ -109,18 +113,53 @@ def effective_company_user(user: dict, context: dict) -> dict:
     )
     assigned_projects = _json_list((context or {}).get("assignedProjects"))
     assigned_packages = _json_list((context or {}).get("assignedPackages"))
+    legacy_project_name = str(actor.get("projectName") or actor.get("project_name") or "").strip()
+    default_legacy_project = (
+        legacy_project_name
+        if (context or {}).get("isDefault") and not assigned_projects
+        else ""
+    )
     actor.update({
         "role": (context or {}).get("effectiveRole") or (context or {}).get("role") or actor.get("role") or "",
         "companyId": company_id,
         "company_id": company_id,
         "platformAccountId": platform_account_id,
         "platform_account_id": platform_account_id,
+        "projectName": default_legacy_project,
+        "project_name": default_legacy_project,
         "assignedProjects": assigned_projects,
         "assigned_projects": assigned_projects,
         "assignedPackages": assigned_packages,
         "assigned_packages": assigned_packages,
     })
     return actor
+
+
+def effective_company_actors(user: dict, context: dict) -> List[dict]:
+    """Return one effective actor per company allowed by a resolved read context."""
+    context = context or {}
+    company_ids = {
+        company_id
+        for value in context.get("companyIds") or company_ids_for_context(context)
+        for company_id in [_as_int(value)]
+        if company_id and company_id > 0
+    }
+    if context.get("mode") == "company":
+        candidates = [context]
+    elif context.get("mode") == "all_companies":
+        candidates = context.get("companies") or []
+    else:
+        candidates = []
+
+    actors = []
+    seen_company_ids = set()
+    for candidate in candidates:
+        company_id = _as_int((candidate or {}).get("companyId") or (candidate or {}).get("company_id"))
+        if not company_id or company_id not in company_ids or company_id in seen_company_ids:
+            continue
+        actors.append(effective_company_user(user, candidate or {}))
+        seen_company_ids.add(company_id)
+    return actors
 
 
 def _company_context_row(

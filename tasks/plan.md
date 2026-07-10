@@ -63,7 +63,8 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M3.1: Scope `GET /supplier-offers` by internal company context and explicit supplier-recipient evidence. Verified and released as an independent production slice.
 - [x] Task M3.2: Protect `GET /supplier-offers/{id}/history` and `PUT /supplier-offers/{id}` with the verified offer/request company and supplier recipient scope. Verified and released as an independent production slice.
 - [x] Task M3.3: Protect `POST /supplier-offers` with stored request company, explicit recipient scope, and idempotent pending-offer reuse. Verified and released as an independent production slice.
-- [ ] Task M3.4: Protect `POST /supplier-offers/{id}/create-invoice` with verified offer/request company and supplier recipient scope. Implemented locally; release pending.
+- [x] Task M3.4: Protect `POST /supplier-offers/{id}/create-invoice` with verified offer/request company and supplier recipient scope. Verified and released as an independent production slice.
+- [ ] Task M3.5: Protect `GET /supplier-invoices` with internal company context, supplier identity scope, and same-company document joins. Implemented locally; release pending.
 - [ ] Task M4: Scope warehouse balances, invoices, history, and explicit cross-company transfers.
 - [ ] Task M5: Scope payments, accounting, contracts, and financial reports.
 - [ ] Task M6: Scope remaining projects, estimates, journals, acts, files, notifications, audit, and AI jobs.
