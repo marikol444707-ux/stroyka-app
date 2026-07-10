@@ -22596,39 +22596,50 @@ def create_brigade_act(data: dict, current_user: dict = Depends(require_roles(*F
     return {"id":row[0],"ok":True}
 
 @app.get("/material-transfers")
-def get_material_transfers(project_name: str = None, current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
+def get_material_transfers(
+    project_name: str = None,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
+    try:
+        from backend.features.material_transfer_access.service import material_transfer_visibility_filter
+    except ModuleNotFoundError:
+        from features.material_transfer_access.service import material_transfer_visibility_filter
     conn = get_db()
+    context_cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    company_context = _resolve_work_company_context(
+        context_cur,
+        current_user,
+        None,
+        "read",
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
+    )
+    company_actors = effective_company_actors(current_user, company_context)
+    context_cur.close()
     cur = conn.cursor()
     active_filter = "COALESCE(status,'Активна') <> 'Аннулирована'"
-    role = current_user.get("role")
-    package_names = user_package_names(current_user) if role in PACKAGE_LIMIT_ROLES else []
-    base_select = "SELECT id,project_name,from_location,to_person,to_person_role,work_package,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at,to_user_id,invoice_id,invoice_line_key,invoice_line_index,invoice_number FROM material_transfers"
-    conditions = [active_filter]
-    params = []
+    visibility_sql, visibility_params = material_transfer_visibility_filter(
+        company_actors,
+        SUPPLY_INTERNAL_ROLES,
+        WORKER_EXECUTION_ROLES,
+        PACKAGE_LIMIT_ROLES,
+        ("прораб",),
+    )
+    base_select = """SELECT id,project_name,from_location,to_person,to_person_role,work_package,
+                            material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at,
+                            to_user_id,invoice_id,invoice_line_key,invoice_line_index,invoice_number,company_id,project_id
+                       FROM material_transfers mt"""
+    conditions = [active_filter, visibility_sql]
+    params = list(visibility_params)
     if project_name:
-        require_project_access(current_user, project_name)
-        conditions.append("project_name=%s")
+        conditions.append("mt.project_name=%s")
         params.append(project_name)
-    elif visible_project_names(current_user) is not None:
-        projects = user_project_names(current_user)
-        if not projects:
-            cur.close(); conn.close()
-            return []
-        conditions.append("project_name = ANY(%s)")
-        params.append(projects)
-    if role in ("мастер", "субподрядчик", "бригадир"):
-        conditions.append("(to_user_id=%s OR (to_user_id IS NULL AND LOWER(TRIM(to_person))=LOWER(TRIM(%s))))")
-        params.extend([current_user.get("id"), current_user.get("name") or ""])
-    if role in WORKER_EXECUTION_ROLES and not package_names:
-        cur.close(); conn.close()
-        return []
-    if package_names:
-        conditions.append("COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)")
-        params.append(package_names)
-    cur.execute(base_select + " WHERE " + " AND ".join(conditions) + " ORDER BY id DESC", tuple(params))
+    cur.execute(base_select + " WHERE " + " AND ".join(conditions) + " ORDER BY mt.id DESC", tuple(params))
     rows = cur.fetchall()
     cur.close(); conn.close()
-    return [{"id":r[0],"projectName":r[1],"fromLocation":r[2],"toPerson":r[3],"toPersonRole":r[4],"workPackage":r[5] or "","materialName":r[6],"quantity":float(r[7] or 0),"unit":r[8],"transferDate":str(r[9]) if r[9] else "","signed":r[10],"signedAt":str(r[11]) if r[11] else "","notes":r[12] or "","createdBy":r[13] or "","createdAt":str(r[14]),"toUserId":r[15],"invoiceId":r[16],"invoiceLineKey":r[17] or "","invoiceLineIndex":r[18],"invoiceNumber":r[19] or ""} for r in rows]
+    return [{"id":r[0],"projectName":r[1],"fromLocation":r[2],"toPerson":r[3],"toPersonRole":r[4],"workPackage":r[5] or "","materialName":r[6],"quantity":float(r[7] or 0),"unit":r[8],"transferDate":str(r[9]) if r[9] else "","signed":r[10],"signedAt":str(r[11]) if r[11] else "","notes":r[12] or "","createdBy":r[13] or "","createdAt":str(r[14]),"toUserId":r[15],"invoiceId":r[16],"invoiceLineKey":r[17] or "","invoiceLineIndex":r[18],"invoiceNumber":r[19] or "","companyId":r[20],"projectId":r[21]} for r in rows]
 
 @app.post("/material-transfers")
 def create_material_transfer(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
