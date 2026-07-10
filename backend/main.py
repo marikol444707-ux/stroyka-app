@@ -122,6 +122,11 @@ try:
 except ModuleNotFoundError:
     from features.project_payment_access.service import project_payment_visibility_filter
 
+try:
+    from backend.features.brigade_access.service import brigade_contract_visibility_filter
+except ModuleNotFoundError:
+    from features.brigade_access.service import brigade_contract_visibility_filter
+
 def _startup_num(v) -> float:
     try:
         return float(str(v if v is not None else 0).replace(" ", "").replace(",", "."))
@@ -673,6 +678,7 @@ PROJECT_DOCUMENT_ROLES = ("директор", "зам_директора", "бу
 PROJECT_DOCUMENT_WRITE_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "главный_инженер", "сметчик", "технадзор", "стройконтроль")
 PROJECT_DOCUMENT_CONTENT_WRITE_ROLES = ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик", "технадзор", "стройконтроль")
 CONTRACT_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "главный_инженер", "сметчик", "мастер", "субподрядчик", "бригадир")
+BRIGADE_FULL_VIEW_ROLES = ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик")
 JOURNAL_WRITE_ROLES = ("директор", "зам_директора", "прораб", "главный_инженер", "мастер", "субподрядчик", "бригадир")
 STAFF_MANAGE_ROLES = ("директор", "зам_директора")
 STAFF_FULL_VIEW_ROLES = (*STAFF_MANAGE_ROLES, "бухгалтер")
@@ -1862,6 +1868,39 @@ def _resolve_project_payment_actor(
     if not has_package_access(actor, work_package or "Основная"):
         raise HTTPException(status_code=403, detail="Нет доступа к пакету платежа")
     return company_id, actor
+
+def _brigade_contract_read_scope(
+    conn,
+    user: dict,
+    allowed_roles,
+    *,
+    x_company_id=None,
+    x_company_mode=None,
+    item_alias="",
+):
+    scope_cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        company_context = _resolve_work_company_context(
+            scope_cur,
+            user,
+            None,
+            "read",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        actors = effective_company_actors(user, company_context)
+        visibility_sql, visibility_params = brigade_contract_visibility_filter(
+            actors,
+            allowed_roles=allowed_roles,
+            full_view_roles=BRIGADE_FULL_VIEW_ROLES,
+            worker_roles=WORKER_EXECUTION_ROLES,
+            package_limit_roles=PACKAGE_LIMIT_ROLES,
+            package_optional_roles=("прораб",),
+            item_alias=item_alias,
+        )
+        return visibility_sql, visibility_params, actors
+    finally:
+        scope_cur.close()
 
 def supplier_is_selected(selected_suppliers, supplier_id: int) -> bool:
     if not supplier_id:
@@ -14321,19 +14360,23 @@ def _worker_contract_item_for_work(
     work_package = (work_package or "").strip() or "Основная"
     user_id = user.get("id")
     user_name = (user.get("name") or "").strip().lower()
+    company_id = _positive_int_or_none(user.get("companyId") or user.get("company_id"))
     if not project or not description:
         raise HTTPException(status_code=400, detail="Для закрытия сметной работы нужен объект и наименование работы")
+    if not company_id:
+        raise HTTPException(status_code=409, detail="Компания договорной позиции не определена")
 
     base_sql = """SELECT bci.id, bci.contract_id, bci.description, bci.unit, bci.quantity,
                          bci.price_brigade, bci.done_quantity, bc.project_name, bc.brigade_name,
                          COALESCE(bci.work_package,'')
                   FROM brigade_contract_items bci
                   JOIN brigade_contracts bc ON bc.id=bci.contract_id
-                  WHERE bc.project_name=%s
+                  WHERE bc.company_id=%s
+                    AND bc.project_name=%s
                     AND COALESCE(NULLIF(bci.work_package,''),'Основная')=%s
                     AND COALESCE(bc.status,'') NOT IN ('Аннулирован','Удалён','Удален')
                     AND (COALESCE(bc.contractor_id,0)=%s OR (COALESCE(bc.contractor_id,0)=0 AND LOWER(TRIM(COALESCE(bc.brigade_name,'')))=%s))"""
-    params = [project, work_package, user_id, user_name]
+    params = [company_id, project, work_package, user_id, user_name]
     if contract_item_id:
         base_sql += " AND bci.id=%s"
         params.append(contract_item_id)
@@ -14760,7 +14803,7 @@ def _work_journal_sync_row(cur, work_journal_id: int):
                           price_per_unit, total, date, status, photo_url, confirmed_by,
                           room_id, room_name, work_package, estimate_item_key, contract_item_id, estimate_id,
                           section_name, estimate_item_name, hidden_work, materials_used, project_docs,
-                          customer_price_per_unit, customer_total
+                          customer_price_per_unit, customer_total, company_id
                    FROM work_journal WHERE id=%s""", (work_journal_id,))
     row = cur.fetchone()
     if not row:
@@ -14774,24 +14817,27 @@ def _sync_hidden_work_act_from_journal(cur, work_row: dict):
     if not work_row or not work_row.get("hidden_work"):
         return 0
     work_journal_id = work_row.get("id")
+    company_id = _positive_int_or_none(work_row.get("company_id") or work_row.get("companyId"))
     project_name = (work_row.get("project") or "").strip()
     work_name = (work_row.get("description") or "").strip()
-    if not project_name or not work_name:
+    if not company_id or not project_name or not work_name:
         return 0
 
     existing = None
     if work_journal_id:
-        cur.execute("SELECT id, COALESCE(status,'Черновик') FROM hidden_works_acts WHERE work_journal_id=%s LIMIT 1", (work_journal_id,))
+        cur.execute("""SELECT id, COALESCE(status,'Черновик') FROM hidden_works_acts
+                        WHERE company_id=%s AND work_journal_id=%s LIMIT 1""", (company_id, work_journal_id))
         existing = cur.fetchone()
     if not existing and work_row.get("estimate_id"):
         cur.execute("""SELECT id, COALESCE(status,'Черновик') FROM hidden_works_acts
-                       WHERE estimate_id=%s AND work_name=%s LIMIT 1""", (work_row.get("estimate_id"), work_name))
+                       WHERE company_id=%s AND estimate_id=%s AND work_name=%s LIMIT 1""",
+                    (company_id, work_row.get("estimate_id"), work_name))
         existing = cur.fetchone()
     if not existing:
         cur.execute("""SELECT id, COALESCE(status,'Черновик') FROM hidden_works_acts
-                       WHERE project_name=%s AND work_name=%s AND COALESCE(brigade,'')=%s
+                       WHERE company_id=%s AND project_name=%s AND work_name=%s AND COALESCE(brigade,'')=%s
                          AND work_date IS NOT DISTINCT FROM %s LIMIT 1""",
-                    (project_name, work_name, work_row.get("master_name") or "", work_row.get("date") or None))
+                    (company_id, project_name, work_name, work_row.get("master_name") or "", work_row.get("date") or None))
         existing = cur.fetchone()
     quantity = work_row.get("quantity") or 0
     unit = work_row.get("unit") or ""
@@ -14813,22 +14859,22 @@ def _sync_hidden_work_act_from_journal(cur, work_row: dict):
                            SET project_name=%s, estimate_id=%s, work_name=%s, section_name=%s, work_package=%s,
                                brigade=%s, quantity=%s, unit=%s, price_per_unit=%s, total=%s,
                                work_date=%s, materials_used=%s, project_docs=%s, work_journal_id=%s
-                           WHERE id=%s""",
+                           WHERE id=%s AND company_id=%s""",
                         (project_name, estimate_id, work_name, section_name, work_package, brigade, quantity, unit,
-                         price_per_unit, total, work_date, materials_used, project_docs, work_journal_id, act_id))
+                         price_per_unit, total, work_date, materials_used, project_docs, work_journal_id, act_id, company_id))
         return 0
 
-    cur.execute("SELECT COUNT(*) AS count FROM hidden_works_acts WHERE project_name=%s", (project_name,))
+    cur.execute("SELECT COUNT(*) AS count FROM hidden_works_acts WHERE company_id=%s AND project_name=%s", (company_id, project_name))
     count_row = cur.fetchone()
     existing_count = count_row.get("count") if isinstance(count_row, dict) else count_row[0]
     next_num = (existing_count or 0) + 1
     act_number = "АОСР-" + str(next_num) + (("/" + str(estimate_id)) if estimate_id else "")
     cur.execute("""INSERT INTO hidden_works_acts
-                   (project_name, estimate_id, act_number, work_name, section_name, brigade,
+                   (company_id, project_name, estimate_id, act_number, work_name, section_name, brigade,
                     work_package, quantity, unit, price_per_unit, total, work_date, materials_used, project_docs,
                     status, work_journal_id)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                (project_name, estimate_id, act_number, work_name, section_name, brigade,
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (company_id, project_name, estimate_id, act_number, work_name, section_name, brigade,
                  work_package, quantity, unit, price_per_unit, total, work_date, materials_used, project_docs,
                  "Черновик", work_journal_id))
     return 1
@@ -20981,6 +21027,14 @@ def update_estimate(
                         continue
                     _raise_work_journal_duplicate(duplicate_work)
                 used_materials = _force_work_material_package(used_materials, work_package_for_journal)
+                if used_materials and estimate_scope["companyId"] != 1:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "Списание материалов для этой компании временно закрыто: "
+                            "сначала нужно перенести выдачу материалов на company_id"
+                        ),
+                    )
                 _validate_work_material_norm_reasons(
                     used_materials,
                     cur,
@@ -20996,13 +21050,13 @@ def update_estimate(
                     _apply_material_work_writeoff(cur, project_name, m, _current_user, journal_date, brigade)
                 materials_json = j.dumps(used_materials, ensure_ascii=False) if used_materials else None
                 cur.execute("""INSERT INTO work_journal
-                               (master_id, master_name, project, description, unit, quantity, price_per_unit, total, date, status, comment,
+                               (company_id, master_id, master_name, project, description, unit, quantity, price_per_unit, total, date, status, comment,
                                 photo_url, materials_used, estimate_id, section_name, hidden_work, confirmed_by, confirmed_at,
                                 work_package, room_id, room_name, surface, estimate_item_name, estimate_item_key,
                                 contract_item_id, customer_price_per_unit, customer_total, execution_price_per_unit, execution_total, execution_price_mode)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                                RETURNING id""",
-                            (_current_user.get("id"), _current_user.get("name") or brigade or "(из сметы)", project_name, it.get("name",""), unit, delta, execution_price, round(delta*execution_price,2), journal_date,
+                            (estimate_scope["companyId"], _current_user.get("id"), _current_user.get("name") or brigade or "(из сметы)", project_name, it.get("name",""), unit, delta, execution_price, round(delta*execution_price,2), journal_date,
                              auto_journal_status,
                              journal_comment,
                              journal_params.get("photoUrl") or "",
@@ -21036,19 +21090,22 @@ def update_estimate(
             if it.get("hiddenWork"):
                 try:
                     # Не плодим дубли: один АОСР на позицию сметы (estimate_id + наименование работы)
-                    cur.execute("SELECT COUNT(*) FROM hidden_works_acts WHERE estimate_id=%s AND work_name=%s",
-                                (id, it.get("name","")))
+                    cur.execute("""SELECT COUNT(*) FROM hidden_works_acts
+                                    WHERE company_id=%s AND estimate_id=%s AND work_name=%s""",
+                                (estimate_scope["companyId"], id, it.get("name","")))
                     already = (cur.fetchone()[0] or 0) > 0
                     if not already:
-                        cur.execute("SELECT COUNT(*) FROM hidden_works_acts WHERE project_name=%s", (project_name,))
+                        cur.execute("""SELECT COUNT(*) FROM hidden_works_acts
+                                        WHERE company_id=%s AND project_name=%s""",
+                                    (estimate_scope["companyId"], project_name))
                         next_num = (cur.fetchone()[0] or 0) + 1
                         act_number = "АОСР-"+str(next_num)+"/"+str(id)
                         act_work_package = (work_package_for_journal if 'work_package_for_journal' in locals() else new_work_package) or "Основная"
                         cur.execute("""INSERT INTO hidden_works_acts
-                                       (project_name, estimate_id, act_number, work_name, section_name, work_package, brigade,
+                                       (company_id, project_name, estimate_id, act_number, work_name, section_name, work_package, brigade,
                                         quantity, unit, price_per_unit, total, work_date, status)
-                                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                            (project_name, id, act_number, it.get("name",""), s.get("name",""), act_work_package,
+                                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                            (estimate_scope["companyId"], project_name, id, act_number, it.get("name",""), s.get("name",""), act_work_package,
                              brigade or "", delta, unit, customer_price, round(delta*customer_price,2), journal_date, "Черновик"))
                         acts_added += 1
                 except Exception as e:
@@ -21059,7 +21116,9 @@ def update_estimate(
     # в разных разделах и пакетах. Синхронизация допустима только по ключу строки.
     brigade_synced = 0
     try:
-        cur.execute("SELECT id, brigade_name FROM brigade_contracts WHERE project_name=%s", (project_name,))
+        cur.execute("""SELECT id, brigade_name FROM brigade_contracts
+                        WHERE company_id=%s AND project_name=%s""",
+                    (estimate_scope["companyId"], project_name))
         bc_rows = cur.fetchall() or []
         bc_by_name = {}
         for bc_id, bname in bc_rows:
@@ -21471,107 +21530,134 @@ def delete_estimate(id: int, hard: bool = False, current_user: dict = Depends(re
     )
 
 @app.get("/brigade-contracts")
-def get_brigade_contracts(project_name: str = None, _current_user: dict = Depends(require_roles(*CONTRACT_ROLES))):
+def get_brigade_contracts(
+    project_name: str = None,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
-    cur = conn.cursor()
-    # plan_amount = сумма договора из позиций; done_amount = выполненное к оплате; paid_amount = зафиксированные оплаты
-    base = ("SELECT bc.id,bc.project_id,bc.project_name,bc.brigade_name,bc.contractor_type,bc.contractor_id,"
+    try:
+        visibility_sql, params, actors = _brigade_contract_read_scope(
+            conn,
+            _current_user,
+            CONTRACT_ROLES,
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        if visibility_sql == "FALSE":
+            return []
+        where = [visibility_sql]
+        if project_name:
+            where.append("bc.project_name=%s")
+            params.append(project_name)
+        base = (
+            "SELECT bc.id,bc.project_id,bc.project_name,bc.brigade_name,bc.contractor_type,bc.contractor_id,"
             "bc.total_amount,bc.status,bc.signed_at,bc.notes,bc.created_at,bc.pricelist_id,COALESCE(bc.work_package,''),"
             "COALESCE((SELECT SUM(COALESCE(bci.quantity,0)*COALESCE(bci.price_brigade,0)) FROM brigade_contract_items bci WHERE bci.contract_id=bc.id),0) AS plan_amount,"
             "COALESCE((SELECT SUM(CASE WHEN COALESCE(bci.quantity,0)>0 THEN GREATEST(0, LEAST(COALESCE(bci.done_quantity,0), COALESCE(bci.quantity,0))) * COALESCE(bci.price_brigade,0) ELSE 0 END) FROM brigade_contract_items bci WHERE bci.contract_id=bc.id),0) AS done_amount,"
             "COALESCE((SELECT SUM(COALESCE(bp.amount,0)) FROM brigade_payments bp WHERE bp.contract_id=bc.id),0) AS paid_amount,"
-            "bc.act_scan_url "
-            "FROM brigade_contracts bc")
-    allowed_projects = visible_project_names(_current_user)
-    where, params = [], []
-    if project_name:
-        if allowed_projects is not None and project_name not in allowed_projects:
-            cur.close(); conn.close()
-            return []
-        where.append("bc.project_name=%s")
-        params.append(project_name)
-    elif allowed_projects is not None:
-        if not allowed_projects:
-            cur.close(); conn.close()
-            return []
-        where.append("bc.project_name = ANY(%s)")
-        params.append(allowed_projects)
-    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
-        where.append("(COALESCE(bc.contractor_id,0)=%s OR (COALESCE(bc.contractor_id,0)=0 AND LOWER(COALESCE(bc.brigade_name,''))=LOWER(%s)))")
-        params.extend([_current_user.get("id"), _current_user.get("name") or ""])
-    package_names = user_package_names(_current_user) if _current_user.get("role") in PACKAGE_LIMIT_ROLES else []
-    if _current_user.get("role") in WORKER_EXECUTION_ROLES and not package_names:
-        cur.close(); conn.close()
-        return []
-    if package_names:
-        where.append("""EXISTS (
-            SELECT 1 FROM brigade_contract_items bci_scope
-            WHERE bci_scope.contract_id=bc.id
-              AND COALESCE(NULLIF(bci_scope.work_package,''),'Основная') = ANY(%s)
-        )""")
-        params.append(package_names)
-    q = base
-    if where:
-        q += " WHERE " + " AND ".join(where)
-    q += " ORDER BY bc.id DESC"
-    cur.execute(q, tuple(params))
-    rows = cur.fetchall()
-    scoped_item_amounts = {}
-    if rows and package_names:
-        contract_ids = [r[0] for r in rows]
-        cur.execute("""SELECT contract_id,
-                              COALESCE(SUM(COALESCE(quantity,0)*COALESCE(price_brigade,0)),0) AS plan_amount,
-                              COALESCE(SUM(CASE WHEN COALESCE(quantity,0)>0 THEN GREATEST(0, LEAST(COALESCE(done_quantity,0), COALESCE(quantity,0))) * COALESCE(price_brigade,0) ELSE 0 END),0) AS done_amount
-                       FROM brigade_contract_items
-                       WHERE contract_id = ANY(%s)
-                         AND COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)
-                       GROUP BY contract_id""", (contract_ids, package_names))
-        scoped_item_amounts = {r[0]: {"plan": float(r[1] or 0), "done": float(r[2] or 0)} for r in cur.fetchall()}
-    cur.close(); conn.close()
-    result = []
-    for r in rows:
-        plan_amount = float(r[13] or 0)
-        done_amount = float(r[14] or 0)
-        if scoped_item_amounts.get(r[0]):
-            plan_amount = scoped_item_amounts[r[0]]["plan"]
-            done_amount = scoped_item_amounts[r[0]]["done"]
-        paid_amount = float(r[15] or 0)
-        total_amount = float((plan_amount if plan_amount > 0 else r[6]) or 0)
-        result.append({"id":r[0],"projectId":r[1],"projectName":r[2],"brigadeName":r[3],"contractorType":r[4],"contractorId":r[5],
-             "totalAmount":total_amount,
-             "status":r[7],"signedAt":str(r[8]) if r[8] else "","notes":r[9] or "","createdAt":str(r[10]),
-             "pricelistId":r[11],"planAmount":plan_amount,"doneAmount":done_amount,
-             "paidAmount":paid_amount,"workPackage":r[12] or "","actScanUrl":r[16] or ""})
-    return result
+            "bc.act_scan_url,bc.company_id FROM brigade_contracts bc WHERE "
+        )
+        cur = conn.cursor()
+        try:
+            cur.execute(base + " AND ".join(where) + " ORDER BY bc.id DESC", tuple(params))
+            rows = cur.fetchall()
+            actor_by_company = {
+                _positive_int_or_none(actor.get("companyId") or actor.get("company_id")): actor
+                for actor in actors
+                if _positive_int_or_none(actor.get("companyId") or actor.get("company_id"))
+            }
+            scoped_groups = {}
+            package_scoped_contract_ids = set()
+            for row in rows:
+                actor = actor_by_company.get(_positive_int_or_none(row[17])) or {}
+                if (actor.get("role") or "") not in PACKAGE_LIMIT_ROLES:
+                    continue
+                packages = user_package_names(actor)
+                if not packages:
+                    continue
+                scoped_groups.setdefault(tuple(packages), []).append(row[0])
+                package_scoped_contract_ids.add(row[0])
+            scoped_item_amounts = {}
+            for packages, contract_ids in scoped_groups.items():
+                cur.execute("""SELECT contract_id,
+                                      COALESCE(SUM(COALESCE(quantity,0)*COALESCE(price_brigade,0)),0),
+                                      COALESCE(SUM(CASE WHEN COALESCE(quantity,0)>0 THEN GREATEST(0, LEAST(COALESCE(done_quantity,0), COALESCE(quantity,0))) * COALESCE(price_brigade,0) ELSE 0 END),0)
+                               FROM brigade_contract_items
+                               WHERE contract_id = ANY(%s)
+                                 AND COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)
+                               GROUP BY contract_id""", (contract_ids, list(packages)))
+                for amount_row in cur.fetchall():
+                    scoped_item_amounts[amount_row[0]] = {
+                        "plan": float(amount_row[1] or 0),
+                        "done": float(amount_row[2] or 0),
+                    }
+        finally:
+            cur.close()
+        result = []
+        for row in rows:
+            plan_amount = float(row[13] or 0)
+            done_amount = float(row[14] or 0)
+            package_scoped = row[0] in package_scoped_contract_ids
+            if package_scoped:
+                scoped_amounts = scoped_item_amounts.get(row[0]) or {"plan": 0, "done": 0}
+                plan_amount = scoped_amounts["plan"]
+                done_amount = scoped_amounts["done"]
+            total_amount = plan_amount if package_scoped else float((plan_amount if plan_amount > 0 else row[6]) or 0)
+            result.append({
+                "id": row[0], "projectId": row[1], "projectName": row[2],
+                "brigadeName": row[3], "contractorType": row[4], "contractorId": row[5],
+                "totalAmount": total_amount, "status": row[7],
+                "signedAt": str(row[8]) if row[8] else "", "notes": row[9] or "",
+                "createdAt": str(row[10]), "pricelistId": row[11],
+                "planAmount": plan_amount, "doneAmount": done_amount,
+                "paidAmount": float(row[15] or 0), "workPackage": row[12] or "",
+                "actScanUrl": row[16] or "", "companyId": row[17],
+            })
+        return result
+    finally:
+        conn.close()
 
 @app.get("/brigade-payments")
-def get_brigade_payments(contract_id: int = None, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, *WORKER_EXECUTION_ROLES))):
+def get_brigade_payments(
+    contract_id: int = None,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
-    cur = conn.cursor()
-    role = _current_user.get("role") or ""
-    if role in WORKER_EXECUTION_ROLES:
-        worker_where = "(COALESCE(bc.contractor_id,0)=%s OR (COALESCE(bc.contractor_id,0)=0 AND LOWER(COALESCE(bc.brigade_name,''))=LOWER(%s)))"
-        worker_params = [_current_user.get("id"), _current_user.get("name") or ""]
+    try:
+        visibility_sql, params, _actors = _brigade_contract_read_scope(
+            conn,
+            _current_user,
+            (*FINANCE_ROLES, *WORKER_EXECUTION_ROLES),
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        if visibility_sql == "FALSE":
+            return []
+        where = [visibility_sql]
         if contract_id:
-            cur.execute("SELECT id FROM brigade_contracts bc WHERE bc.id=%s AND " + worker_where + " LIMIT 1",
-                        tuple([contract_id] + worker_params))
-            if not cur.fetchone():
-                cur.close(); conn.close()
-                raise HTTPException(status_code=403, detail="Нет доступа к оплатам этого договора")
-            cur.execute("SELECT id,contract_id,amount,paid_by,paid_date,note,created_at FROM brigade_payments WHERE contract_id=%s ORDER BY id DESC", (contract_id,))
-        else:
-            cur.execute("""SELECT bp.id,bp.contract_id,bp.amount,bp.paid_by,bp.paid_date,bp.note,bp.created_at
+            where.append("bc.id=%s")
+            params.append(contract_id)
+        cur = conn.cursor()
+        try:
+            cur.execute("""SELECT bp.id,bp.contract_id,bp.amount,bp.paid_by,bp.paid_date,
+                                  bp.note,bp.created_at,bc.company_id
                            FROM brigade_payments bp
                            JOIN brigade_contracts bc ON bc.id=bp.contract_id
-                           WHERE """ + worker_where + """
-                           ORDER BY bp.id DESC""", tuple(worker_params))
-    elif contract_id:
-        cur.execute("SELECT id,contract_id,amount,paid_by,paid_date,note,created_at FROM brigade_payments WHERE contract_id=%s ORDER BY id DESC", (contract_id,))
-    else:
-        cur.execute("SELECT id,contract_id,amount,paid_by,paid_date,note,created_at FROM brigade_payments ORDER BY id DESC")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [{"id":r[0],"contractId":r[1],"amount":float(r[2] or 0),"paidBy":r[3] or "","paidDate":str(r[4]) if r[4] else "","note":r[5] or "","createdAt":str(r[6])} for r in rows]
+                           WHERE """ + " AND ".join(where) + " ORDER BY bp.id DESC", tuple(params))
+            rows = cur.fetchall()
+        finally:
+            cur.close()
+        return [{
+            "id": row[0], "contractId": row[1], "amount": float(row[2] or 0),
+            "paidBy": row[3] or "", "paidDate": str(row[4]) if row[4] else "",
+            "note": row[5] or "", "createdAt": str(row[6]), "companyId": row[7],
+        } for row in rows]
+    finally:
+        conn.close()
 
 @app.post("/brigade-payments")
 def create_brigade_payment(
@@ -22031,54 +22117,67 @@ def delete_brigade_contract(id: int, _current_user: dict = Depends(require_roles
     return {"ok":True}
 
 @app.get("/brigade-contract-items-all")
-def list_all_brigade_contract_items(project_name: str = None, _current_user: dict = Depends(require_roles(*CONTRACT_ROLES))):
+def list_all_brigade_contract_items(
+    project_name: str = None,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     """Все позиции нарядов сразу — для подсчёта прогресса по бюджету."""
     conn = get_db()
-    cur = conn.cursor()
-    hide_customer_money = _current_user.get("role") in WORKER_EXECUTION_ROLES
-    allowed_projects = visible_project_names(_current_user)
-    where, params = [], []
-    if project_name:
-        if allowed_projects is not None and project_name not in allowed_projects:
-            cur.close(); conn.close()
+    try:
+        visibility_sql, params, actors = _brigade_contract_read_scope(
+            conn,
+            _current_user,
+            CONTRACT_ROLES,
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            item_alias="bci",
+        )
+        if visibility_sql == "FALSE":
             return []
-        where.append("bc.project_name=%s")
-        params.append(project_name)
-    elif allowed_projects is not None:
-        if not allowed_projects:
-            cur.close(); conn.close()
-            return []
-        where.append("bc.project_name = ANY(%s)")
-        params.append(allowed_projects)
-    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
-        where.append("(COALESCE(bc.contractor_id,0)=%s OR (COALESCE(bc.contractor_id,0)=0 AND LOWER(COALESCE(bc.brigade_name,''))=LOWER(%s)))")
-        params.extend([_current_user.get("id"), _current_user.get("name") or ""])
-    package_names = user_package_names(_current_user) if _current_user.get("role") in PACKAGE_LIMIT_ROLES else []
-    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and _current_user.get("role") != "прораб" and not package_names:
-        cur.close(); conn.close()
-        return []
-    if package_names:
-        where.append("COALESCE(NULLIF(bci.work_package,''), NULLIF(bc.work_package,''), 'Основная') = ANY(%s)")
-        params.append(package_names)
-    q = """SELECT bci.id, bci.contract_id, bci.description, bci.unit, bci.quantity,
-                  bci.price_smeta, bci.price_brigade, bci.done_quantity, bci.estimate_section,
-                  COALESCE(bci.work_package,''), COALESCE(bci.estimate_item_key,''),
-                  bc.project_name
-           FROM brigade_contract_items bci
-           JOIN brigade_contracts bc ON bc.id = bci.contract_id"""
-    if where:
-        q += " WHERE " + " AND ".join(where)
-    q += " ORDER BY bci.id DESC"
-    cur.execute(q, tuple(params))
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [{"id":r[0],"contractId":r[1],"name":r[2] or "","unit":r[3] or "",
-             "quantity":float(r[4] or 0),"priceSmeta":0 if hide_customer_money else float(r[5] or 0),
-             "priceBrigade":float(r[6] or 0),
-             "doneQuantity":max(0, min(float(r[7] or 0), float(r[4] or 0))) if float(r[4] or 0) > 0 else 0,
-             "rawDoneQuantity":float(r[7] or 0),
-             "hasInvalidDoneQuantity":(float(r[4] or 0) <= 0 and float(r[7] or 0) > 0) or float(r[7] or 0) < 0 or (float(r[4] or 0) > 0 and float(r[7] or 0) > float(r[4] or 0)),
-             "estimateSection":r[8] or "","workPackage":r[9] or "","estimateItemKey":r[10] or "","projectName":r[11] or ""} for r in rows]
+        where = [visibility_sql]
+        if project_name:
+            where.append("bc.project_name=%s")
+            params.append(project_name)
+        cur = conn.cursor()
+        try:
+            cur.execute("""SELECT bci.id,bci.contract_id,bci.description,bci.unit,bci.quantity,
+                                  bci.price_smeta,bci.price_brigade,bci.done_quantity,bci.estimate_section,
+                                  COALESCE(bci.work_package,''),COALESCE(bci.estimate_item_key,''),
+                                  bc.project_name,bc.company_id
+                           FROM brigade_contract_items bci
+                           JOIN brigade_contracts bc ON bc.id=bci.contract_id
+                           WHERE """ + " AND ".join(where) + " ORDER BY bci.id DESC", tuple(params))
+            rows = cur.fetchall()
+        finally:
+            cur.close()
+        actor_by_company = {
+            _positive_int_or_none(actor.get("companyId") or actor.get("company_id")): actor
+            for actor in actors
+            if _positive_int_or_none(actor.get("companyId") or actor.get("company_id"))
+        }
+        result = []
+        for row in rows:
+            actor = actor_by_company.get(_positive_int_or_none(row[12])) or {}
+            hide_customer_money = (actor.get("role") or "") in WORKER_EXECUTION_ROLES
+            quantity = float(row[4] or 0)
+            done_quantity = float(row[7] or 0)
+            result.append({
+                "id": row[0], "contractId": row[1], "name": row[2] or "", "unit": row[3] or "",
+                "quantity": quantity, "priceSmeta": 0 if hide_customer_money else float(row[5] or 0),
+                "priceBrigade": float(row[6] or 0),
+                "doneQuantity": max(0, min(done_quantity, quantity)) if quantity > 0 else 0,
+                "rawDoneQuantity": done_quantity,
+                "hasInvalidDoneQuantity": (quantity <= 0 and done_quantity > 0)
+                    or done_quantity < 0 or (quantity > 0 and done_quantity > quantity),
+                "estimateSection": row[8] or "", "workPackage": row[9] or "",
+                "estimateItemKey": row[10] or "", "projectName": row[11] or "",
+                "companyId": row[12],
+            })
+        return result
+    finally:
+        conn.close()
 
 @app.post("/estimates/{estimate_id}/distribute")
 def distribute_estimate_to_brigades(estimate_id: int, data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
@@ -22271,51 +22370,82 @@ def ai_suggest_distribution(estimate_id: int, data: dict, _current_user: dict = 
     return {"ok": True, "assignments": result, "items": items}
 
 @app.get("/brigade-contract-items/{contract_id}")
-def get_brigade_contract_items(contract_id: int, _current_user: dict = Depends(require_roles(*CONTRACT_ROLES))):
+def get_brigade_contract_items(
+    contract_id: int,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
-    cur = conn.cursor()
-    require_row_project_access(cur, "brigade_contracts", contract_id, _current_user)
-    require_worker_brigade_contract_access(cur, contract_id, _current_user)
-    package_names = user_package_names(_current_user) if _current_user.get("role") in PACKAGE_LIMIT_ROLES else []
-    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and _current_user.get("role") != "прораб" and not package_names:
-        cur.close(); conn.close()
-        return []
-    package_sql = ""
-    params = [contract_id]
-    if package_names:
-        package_sql = """ AND COALESCE(NULLIF(bci.work_package,''), NULLIF(bc.work_package,''), 'Основная') = ANY(%s)"""
-        params.append(package_names)
-    cur.execute("""SELECT bci.id,bci.contract_id,bci.estimate_section,bci.description,bci.unit,bci.quantity,
-                          bci.price_smeta,bci.price_brigade,bci.done_quantity,COALESCE(bci.work_package,''),
-                          COALESCE(bci.estimate_item_key,'')
-                   FROM brigade_contract_items bci
-                   JOIN brigade_contracts bc ON bc.id=bci.contract_id
-                   WHERE bci.contract_id=%s""" + package_sql + " ORDER BY bci.id", tuple(params))
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    hide_customer_money = _current_user.get("role") in WORKER_EXECUTION_ROLES
-    def _status(q, done):
+    try:
+        visibility_sql, visibility_params, actors = _brigade_contract_read_scope(
+            conn,
+            _current_user,
+            CONTRACT_ROLES,
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            item_alias="bci",
+        )
+        if visibility_sql == "FALSE":
+            return []
+        cur = conn.cursor()
         try:
-            q = float(q or 0); done = float(done or 0)
-        except Exception:
+            cur.execute("""SELECT bci.id,bci.contract_id,bci.estimate_section,bci.description,bci.unit,
+                                  bci.quantity,bci.price_smeta,bci.price_brigade,bci.done_quantity,
+                                  COALESCE(bci.work_package,''),COALESCE(bci.estimate_item_key,''),
+                                  bc.company_id
+                           FROM brigade_contract_items bci
+                           JOIN brigade_contracts bc ON bc.id=bci.contract_id
+                           WHERE bci.contract_id=%s AND """ + visibility_sql + " ORDER BY bci.id",
+                        tuple([contract_id] + visibility_params))
+            rows = cur.fetchall()
+        finally:
+            cur.close()
+        actor_by_company = {
+            _positive_int_or_none(actor.get("companyId") or actor.get("company_id")): actor
+            for actor in actors
+            if _positive_int_or_none(actor.get("companyId") or actor.get("company_id"))
+        }
+
+        def _status(quantity, done):
+            try:
+                quantity = float(quantity or 0)
+                done = float(done or 0)
+            except Exception:
+                return "Не начато"
+            if done < 0:
+                return "Ошибка объёма"
+            if quantity <= 0 and done > 0:
+                return "Нет плана"
+            if quantity > 0 and done > quantity:
+                return "Сверх плана"
+            if quantity > 0 and done >= quantity:
+                return "Выполнено"
+            if done > 0:
+                return "В работе"
             return "Не начато"
-        if done < 0:
-            return "Ошибка объёма"
-        if q <= 0 and done > 0:
-            return "Нет плана"
-        if q > 0 and done > q:
-            return "Сверх плана"
-        if q > 0 and done >= q:
-            return "Выполнено"
-        if done > 0:
-            return "В работе"
-        return "Не начато"
-    return [{"id":r[0],"contractId":r[1],"estimateSection":r[2],"name":r[3],"unit":r[4],
-             "quantity":float(r[5] or 0),"priceSmeta":0 if hide_customer_money else float(r[6] or 0),"priceBrigade":float(r[7] or 0),
-             "doneQuantity":max(0, min(float(r[8] or 0), float(r[5] or 0))) if float(r[5] or 0) > 0 else 0,
-             "rawDoneQuantity":float(r[8] or 0),
-             "hasInvalidDoneQuantity":(float(r[5] or 0) <= 0 and float(r[8] or 0) > 0) or float(r[8] or 0) < 0 or (float(r[5] or 0) > 0 and float(r[8] or 0) > float(r[5] or 0)),
-             "workPackage":r[9] or "", "estimateItemKey":r[10] or "", "status":_status(r[5], r[8])} for r in rows]
+
+        result = []
+        for row in rows:
+            actor = actor_by_company.get(_positive_int_or_none(row[11])) or {}
+            hide_customer_money = (actor.get("role") or "") in WORKER_EXECUTION_ROLES
+            quantity = float(row[5] or 0)
+            done_quantity = float(row[8] or 0)
+            result.append({
+                "id": row[0], "contractId": row[1], "estimateSection": row[2],
+                "name": row[3], "unit": row[4], "quantity": quantity,
+                "priceSmeta": 0 if hide_customer_money else float(row[6] or 0),
+                "priceBrigade": float(row[7] or 0),
+                "doneQuantity": max(0, min(done_quantity, quantity)) if quantity > 0 else 0,
+                "rawDoneQuantity": done_quantity,
+                "hasInvalidDoneQuantity": (quantity <= 0 and done_quantity > 0)
+                    or done_quantity < 0 or (quantity > 0 and done_quantity > quantity),
+                "workPackage": row[9] or "", "estimateItemKey": row[10] or "",
+                "status": _status(quantity, done_quantity), "companyId": row[11],
+            })
+        return result
+    finally:
+        conn.close()
 
 @app.post("/brigade-contract-items")
 def create_brigade_contract_item(data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
@@ -22370,23 +22500,47 @@ def delete_brigade_contract_item(id: int, _current_user: dict = Depends(require_
     return {"ok":True}
 
 @app.get("/brigade-acts")
-def get_brigade_acts(contract_id: int = None, current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+def get_brigade_acts(
+    contract_id: int = None,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
-    cur = conn.cursor()
-    if contract_id:
-        require_row_project_access(cur, "brigade_contracts", contract_id, current_user, "project_name")
-        cur.execute("SELECT id,contract_id,project_name,brigade_name,period_from,period_to,total_amount,status,created_at FROM brigade_acts WHERE contract_id=%s ORDER BY id DESC", (contract_id,))
-    elif visible_project_names(current_user) is not None:
-        projects = user_project_names(current_user)
-        if not projects:
-            cur.close(); conn.close()
+    try:
+        allowed_roles = (*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик")
+        visibility_sql, params, _actors = _brigade_contract_read_scope(
+            conn,
+            current_user,
+            allowed_roles,
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        if visibility_sql == "FALSE":
             return []
-        cur.execute("SELECT id,contract_id,project_name,brigade_name,period_from,period_to,total_amount,status,created_at FROM brigade_acts WHERE project_name = ANY(%s) ORDER BY id DESC", (projects,))
-    else:
-        cur.execute("SELECT id,contract_id,project_name,brigade_name,period_from,period_to,total_amount,status,created_at FROM brigade_acts ORDER BY id DESC")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [{"id":r[0],"contractId":r[1],"projectName":r[2],"brigadeName":r[3],"periodFrom":str(r[4]) if r[4] else "","periodTo":str(r[5]) if r[5] else "","totalAmount":float(r[6] or 0),"status":r[7],"createdAt":str(r[8])} for r in rows]
+        where = [visibility_sql]
+        if contract_id:
+            where.append("bc.id=%s")
+            params.append(contract_id)
+        cur = conn.cursor()
+        try:
+            cur.execute("""SELECT ba.id,ba.contract_id,ba.project_name,ba.brigade_name,
+                                  ba.period_from,ba.period_to,ba.total_amount,ba.status,
+                                  ba.created_at,bc.company_id
+                           FROM brigade_acts ba
+                           JOIN brigade_contracts bc ON bc.id=ba.contract_id
+                           WHERE """ + " AND ".join(where) + " ORDER BY ba.id DESC", tuple(params))
+            rows = cur.fetchall()
+        finally:
+            cur.close()
+        return [{
+            "id": row[0], "contractId": row[1], "projectName": row[2],
+            "brigadeName": row[3], "periodFrom": str(row[4]) if row[4] else "",
+            "periodTo": str(row[5]) if row[5] else "", "totalAmount": float(row[6] or 0),
+            "status": row[7], "createdAt": str(row[8]), "companyId": row[9],
+        } for row in rows]
+    finally:
+        conn.close()
 
 @app.post("/brigade-acts")
 def create_brigade_act(data: dict, current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):

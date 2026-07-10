@@ -972,6 +972,33 @@
 
 **Estimated scope:** M
 
+## Task M5.3a: Brigade Read Isolation
+
+**Description:** Close global read paths for brigade contracts, payments, items, and acts using the existing `brigade_contracts.company_id` as the parent tenant boundary. Preserve current calculations and worker price masking.
+
+**Status:** Implemented locally; release pending.
+
+**Acceptance criteria:**
+- [x] Contract reads resolve selected/all-company context through effective membership roles.
+- [x] Payment reads join their parent contract and cannot bypass its company scope with `contract_id`.
+- [x] Aggregate and per-contract item reads filter the outer item row by the worker's assigned package.
+- [x] Brigade act reads join the parent contract and inherit its company scope.
+- [x] Workers remain restricted by company, assigned project, contractor identity, and package.
+- [x] Full-view roles see all brigade data only inside companies where that effective role is assigned.
+- [x] Responses include `companyId` without removing existing fields.
+
+**Verification:**
+- [x] Brigade access tests cover finance, foreman, worker, package, and fail-closed cases.
+- [x] Backend compile and focused tenant-access tests pass.
+- [x] Frontend tests and production build pass.
+- [ ] Production version and authenticated selected-company reads pass after deploy.
+
+**Known follow-up:** M5.3b must bind contract/payment/item/act mutations and estimate distribution to stored company ownership before the brigade chain is pilot-ready.
+
+**Dependencies:** Task M5.2
+
+**Estimated scope:** M
+
 ## Task M6: Remaining Tenant-Owned Domains
 
 **Description:** Apply the same kernel to projects, estimates, materials, journals, acts, staff, files, notifications, exports, audit records, and AI/OCR jobs.
