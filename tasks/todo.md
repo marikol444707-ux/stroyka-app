@@ -729,6 +729,26 @@
 
 **Estimated scope:** S
 
+## Task M4.4: Warehouse History Read Isolation
+
+**Description:** Scope warehouse history reads by the selected company while preserving role, project, and package restrictions.
+
+**Status:** Implemented locally; release pending.
+
+**Acceptance criteria:**
+- [x] The endpoint resolves `X-Company-Id` and `X-Company-Mode`.
+- [x] Proраб, worker, warehouse, and finance reads include the company boundary.
+- [x] Existing project/package/person filters remain active.
+- [x] Manual history creation and deletion are unchanged.
+
+**Verification:**
+- [ ] Backend compile and focused tests pass.
+- [ ] Production smoke confirms history does not cross company boundaries.
+
+**Dependencies:** Task M4.3
+
+**Estimated scope:** S
+
 ## Task M5: Finance And Accounting Isolation
 
 **Description:** Scope project payments, supplier payments, accounting records, contracts, and reports by verified company and legal entity.

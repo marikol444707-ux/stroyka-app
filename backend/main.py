@@ -6843,9 +6843,27 @@ def create_warehouse_movement(
     return dict(row)
 
 @app.get("/warehouse-history")
-def get_warehouse_history(current_user: dict = Depends(get_current_user)):
+def get_warehouse_history(
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        company_context = _resolve_work_company_context(
+            cur,
+            current_user,
+            None,
+            "read",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        company_filter_sql, company_filter_params = company_id_scope_filter(company_context, "wh.company_id")
+    except Exception:
+        cur.close(); conn.close()
+        raise
+    select_sql = "SELECT wh.id,wh.material,wh.type,wh.quantity,wh.date,wh.project,wh.issued_to as \"issuedTo\",wh.issued_by as \"issuedBy\",wh.work_package as \"workPackage\",wh.date_time as \"dateTime\" FROM warehouse_history wh WHERE TRUE"
     role = current_user.get("role")
     if role == "прораб":
         projects = user_project_names(current_user)
@@ -6853,10 +6871,10 @@ def get_warehouse_history(current_user: dict = Depends(get_current_user)):
             cur.close(); conn.close()
             return []
         package_names = user_package_names(current_user)
-        query = "SELECT id,material,type,quantity,date,project,issued_to as \"issuedTo\",issued_by as \"issuedBy\",work_package as \"workPackage\",date_time as \"dateTime\" FROM warehouse_history WHERE project = ANY(%s)"
-        params = [projects]
+        query = select_sql + company_filter_sql + " AND wh.project = ANY(%s)"
+        params = company_filter_params + [projects]
         if package_names:
-            query += " AND COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)"
+            query += " AND COALESCE(NULLIF(wh.work_package,''),'Основная') = ANY(%s)"
             params.append(package_names)
         cur.execute(query + " ORDER BY id DESC", tuple(params))
     elif role in WORKER_EXECUTION_ROLES:
@@ -6864,13 +6882,13 @@ def get_warehouse_history(current_user: dict = Depends(get_current_user)):
         if not package_names:
             cur.close(); conn.close()
             return []
-        query = "SELECT id,material,type,quantity,date,project,issued_to as \"issuedTo\",issued_by as \"issuedBy\",work_package as \"workPackage\",date_time as \"dateTime\" FROM warehouse_history WHERE (issued_by=%s OR issued_to=%s)"
-        params = [current_user.get("name",""), current_user.get("name","")]
-        query += " AND COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)"
+        query = select_sql + company_filter_sql + " AND (wh.issued_by=%s OR wh.issued_to=%s)"
+        params = company_filter_params + [current_user.get("name",""), current_user.get("name","")]
+        query += " AND COALESCE(NULLIF(wh.work_package,''),'Основная') = ANY(%s)"
         params.append(package_names)
         cur.execute(query + " ORDER BY id DESC", tuple(params))
     elif role in WAREHOUSE_ROLES or role in FINANCE_ROLES:
-        cur.execute("SELECT id,material,type,quantity,date,project,issued_to as \"issuedTo\",issued_by as \"issuedBy\",work_package as \"workPackage\",date_time as \"dateTime\" FROM warehouse_history ORDER BY id DESC")
+        cur.execute(select_sql + company_filter_sql + " ORDER BY wh.id DESC", company_filter_params)
     else:
         cur.close(); conn.close()
         return []
