@@ -6676,7 +6676,12 @@ def get_warehouse_movements(
     return [dict(r) for r in rows]
 
 @app.post("/warehouse-movements")
-def create_warehouse_movement(m: WarehouseMovementModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
+def create_warehouse_movement(
+    m: WarehouseMovementModel,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES)),
+):
     material_name = (m.materialName or "").strip()
     from_location = (m.fromLocation or "").strip()
     to_location = (m.toLocation or "").strip()
@@ -6701,6 +6706,27 @@ def create_warehouse_movement(m: WarehouseMovementModel, _current_user: dict = D
 
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    requested_company_ids = {
+        company_id for company_id in (
+            _project_company_id(cur, from_location),
+            _project_company_id(cur, to_location),
+        ) if _positive_int_or_none(company_id)
+    }
+    if len(requested_company_ids) > 1:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=409, detail="Источник и получатель относятся к разным компаниям")
+    company_context = _resolve_work_company_context(
+        cur,
+        _current_user,
+        next(iter(requested_company_ids), None),
+        "write",
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
+    )
+    company_id = int(company_context.get("companyId") or 0)
+    if company_id <= 0:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=409, detail="Компания перемещения не определена")
     conn.autocommit = False
     try:
         source_price = 0
@@ -6709,8 +6735,9 @@ def create_warehouse_movement(m: WarehouseMovementModel, _current_user: dict = D
         if from_location == "Основной склад":
             cur.execute(f"""SELECT id,quantity,unit,price,category FROM warehouse_main
                            WHERE LOWER(name)=LOWER(%s)
+                             AND company_id=%s
                              AND (%s='' OR {_sql_norm_unit('unit')}=%s)
-                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, source_unit, source_unit))
+                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, company_id, source_unit, source_unit))
             source = cur.fetchone()
             if not source:
                 raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на основном складе")
@@ -6724,9 +6751,10 @@ def create_warehouse_movement(m: WarehouseMovementModel, _current_user: dict = D
             cur.execute(f"""SELECT id,quantity,unit,price,category FROM materials
                            WHERE LOWER(name)=LOWER(%s)
                              AND project=%s
+                             AND company_id=%s
                              AND COALESCE(NULLIF(work_package,''),'Основная')=%s
                              AND (%s='' OR {_sql_norm_unit('unit')}=%s)
-                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, from_location, work_package, source_unit, source_unit))
+                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, from_location, company_id, work_package, source_unit, source_unit))
             source = cur.fetchone()
             if not source:
                 raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на складе объекта «"+from_location+"»" + (" по пакету «"+work_package+"»" if work_package else ""))
@@ -6751,8 +6779,9 @@ def create_warehouse_movement(m: WarehouseMovementModel, _current_user: dict = D
         if to_location == "Основной склад":
             cur.execute(f"""SELECT id FROM warehouse_main
                            WHERE LOWER(name)=LOWER(%s)
+                             AND company_id=%s
                              AND {_sql_norm_unit('unit')}=%s
-                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, source_unit))
+                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, company_id, source_unit))
             target = cur.fetchone()
             if target:
                 cur.execute("""UPDATE warehouse_main
@@ -6762,16 +6791,17 @@ def create_warehouse_movement(m: WarehouseMovementModel, _current_user: dict = D
                                    category=COALESCE(NULLIF(%s,''), category)
                                WHERE id=%s""", (qty, source_unit, source_price, source_price, source_category, target["id"]))
             else:
-                cur.execute("""INSERT INTO warehouse_main (name,unit,quantity,price,min_quantity,category)
-                               VALUES (%s,%s,%s,%s,%s,%s)""",
-                            (material_name, source_unit, qty, source_price, 0, source_category))
+                cur.execute("""INSERT INTO warehouse_main (name,unit,quantity,price,min_quantity,category,company_id)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                            (material_name, source_unit, qty, source_price, 0, source_category, company_id))
         else:
             cur.execute(f"""SELECT id FROM materials
                            WHERE LOWER(name)=LOWER(%s)
                              AND project=%s
+                             AND company_id=%s
                              AND COALESCE(NULLIF(work_package,''),'Основная')=%s
                              AND {_sql_norm_unit('unit')}=%s
-                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, to_location, work_package, source_unit))
+                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, to_location, company_id, work_package, source_unit))
             target = cur.fetchone()
             if target:
                 cur.execute("""UPDATE materials
@@ -6781,17 +6811,17 @@ def create_warehouse_movement(m: WarehouseMovementModel, _current_user: dict = D
                                    category=COALESCE(NULLIF(%s,''), category)
                                WHERE id=%s""", (qty, source_unit, source_price, source_price, source_category, target["id"]))
             else:
-                cur.execute("""INSERT INTO materials (name,unit,quantity,price,min_quantity,project,category,work_package)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                            (material_name, source_unit, qty, source_price, 0, to_location, source_category, work_package))
+                cur.execute("""INSERT INTO materials (name,unit,quantity,price,min_quantity,project,category,work_package,company_id)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                            (material_name, source_unit, qty, source_price, 0, to_location, source_category, work_package, company_id))
 
         cur.execute("""INSERT INTO warehouse_movements
-                          (material_name,from_location,to_location,quantity,unit,work_package,date,created_by,notes)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING
+                          (material_name,from_location,to_location,quantity,unit,work_package,date,created_by,notes,company_id)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING
                           id,material_name as "materialName",from_location as "fromLocation",
                           to_location as "toLocation",quantity,unit,work_package as "workPackage",
                           date,created_by as "createdBy",notes""",
-                    (material_name, from_location, to_location, qty, source_unit, work_package, m.date, m.createdBy or _current_user.get("name",""), m.notes))
+                    (material_name, from_location, to_location, qty, source_unit, work_package, m.date, m.createdBy or _current_user.get("name",""), m.notes, company_id))
         row = cur.fetchone()
         actor_name = m.createdBy or _current_user.get("name","")
         date_time = dt.datetime.now().strftime("%d.%m.%Y, %H:%M")

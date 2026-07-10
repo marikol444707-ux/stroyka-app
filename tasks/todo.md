@@ -708,6 +708,27 @@
 
 **Estimated scope:** S
 
+## Task M4.3: Warehouse Movement Write Isolation
+
+**Description:** Require a verified company context when creating a warehouse movement and keep source, target, material, and movement rows inside that company.
+
+**Status:** Implemented locally; release pending.
+
+**Acceptance criteria:**
+- [x] The movement write resolves the selected company context.
+- [x] Source and destination projects cannot belong to different companies.
+- [x] Source and target material lookups include `company_id`.
+- [x] New movement rows carry `company_id`.
+- [x] Existing balance and audit behavior remains otherwise unchanged.
+
+**Verification:**
+- [ ] Backend compile and focused tests pass.
+- [ ] Production smoke confirms a cross-company movement is rejected.
+
+**Dependencies:** Task M4.2
+
+**Estimated scope:** S
+
 ## Task M5: Finance And Accounting Isolation
 
 **Description:** Scope project payments, supplier payments, accounting records, contracts, and reports by verified company and legal entity.
