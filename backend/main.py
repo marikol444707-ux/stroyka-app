@@ -24217,7 +24217,12 @@ def workflow_invoice_preview(data: dict, _workflow: dict = Depends(require_workf
     }
 
 @app.delete("/warehouse-invoices/{id}")
-def delete_warehouse_invoice(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "кладовщик", "снабженец"))):
+def delete_warehouse_invoice(
+    id: int,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     import json as j
     conn = get_db()
     conn.autocommit = False
@@ -24226,11 +24231,25 @@ def delete_warehouse_invoice(id: int, _current_user: dict = Depends(require_role
         _ensure_invoice_document_link_columns(cur)
         cur.execute("""SELECT id, COALESCE(project,'') AS project, COALESCE(location,'') AS location,
                               COALESCE(status,'') AS status, items, COALESCE(accepted_by,'') AS accepted_by,
-                              COALESCE(added_by,'') AS added_by, date, supply_delivery_id, supplier_invoice_id
+                              COALESCE(added_by,'') AS added_by, date, supply_delivery_id, supplier_invoice_id,
+                              company_id
                        FROM warehouse_invoices WHERE id=%s FOR UPDATE""", (id,))
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Накладная не найдена")
+        _company_context, actor = resolve_resource_company_actor(
+            cur,
+            _current_user,
+            row.get("company_id"),
+            "delete",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            allowed_roles=(*LEADERSHIP_ROLES, "кладовщик", "снабженец"),
+            forbidden_detail="Роль в выбранной компании не позволяет аннулировать складскую накладную",
+            platform_staff_roles=PLATFORM_STAFF_ROLES,
+            client_account_roles=CLIENT_ACCOUNT_ROLES,
+        )
+        _current_user = actor
         if row.get("supply_delivery_id"):
             raise HTTPException(status_code=409, detail="Накладная создана при приёмке поставки. Исправляйте поставку/претензию, а не удаляйте накладную отдельно.")
         if row.get("status") == "Аннулирована":
@@ -24239,6 +24258,11 @@ def delete_warehouse_invoice(id: int, _current_user: dict = Depends(require_role
         target_project = row.get("project") or (row.get("location") if row.get("location") != "Основной склад" else "")
         if target_project:
             require_project_or_warehouse_access(_current_user, target_project)
+        if row.get("supplier_invoice_id"):
+            cur.execute("SELECT company_id FROM supplier_invoices WHERE id=%s FOR UPDATE", (row.get("supplier_invoice_id"),))
+            linked_supplier_invoice = cur.fetchone()
+            if linked_supplier_invoice and _positive_int_or_none(linked_supplier_invoice.get("company_id")) != _positive_int_or_none(row.get("company_id")):
+                raise HTTPException(status_code=409, detail="Связанный счёт поставщика относится к другой компании")
         try:
             items_list = j.loads(row.get("items") or "[]") if isinstance(row.get("items"), str) else (row.get("items") or [])
         except Exception:
@@ -24260,9 +24284,10 @@ def delete_warehouse_invoice(id: int, _current_user: dict = Depends(require_role
                 cur.execute(f"""SELECT id, quantity FROM materials
                                WHERE LOWER(name)=LOWER(%s)
                                  AND project=%s
+                                 AND company_id=%s
                                  AND COALESCE(work_package,'')=%s
                                  AND {_sql_norm_unit('unit')}=%s
-                               ORDER BY id LIMIT 1 FOR UPDATE""", (name, target_project, work_package, unit))
+                               ORDER BY id LIMIT 1 FOR UPDATE""", (name, target_project, row.get("company_id"), work_package, unit))
                 mat = cur.fetchone()
                 if not mat:
                     raise HTTPException(status_code=409, detail="Нельзя аннулировать накладную: материал «"+name+"» уже отсутствует на складе объекта")
@@ -24273,8 +24298,9 @@ def delete_warehouse_invoice(id: int, _current_user: dict = Depends(require_role
             else:
                 cur.execute(f"""SELECT id, quantity FROM warehouse_main
                                WHERE LOWER(name)=LOWER(%s)
+                                 AND company_id=%s
                                  AND {_sql_norm_unit('unit')}=%s
-                               ORDER BY id LIMIT 1 FOR UPDATE""", (name, unit))
+                               ORDER BY id LIMIT 1 FOR UPDATE""", (name, row.get("company_id"), unit))
                 mat = cur.fetchone()
                 if not mat:
                     raise HTTPException(status_code=409, detail="Нельзя аннулировать накладную: материал «"+name+"» уже отсутствует на основном складе")
@@ -24283,9 +24309,9 @@ def delete_warehouse_invoice(id: int, _current_user: dict = Depends(require_role
                 cur.execute("UPDATE warehouse_main SET quantity=COALESCE(quantity,0)-%s WHERE id=%s", (qty, mat["id"]))
                 history_project = "Основной склад"
             cur.execute("""INSERT INTO warehouse_history
-                              (material,type,quantity,unit,date,project,issued_by,work_package,date_time)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                        (name, "сторно прихода по накладной", qty, unit, row.get("date") or None, history_project, actor_name, work_package, date_time))
+                              (company_id,material,type,quantity,unit,date,project,issued_by,work_package,date_time)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        (row.get("company_id"), name, "сторно прихода по накладной", qty, unit, row.get("date") or None, history_project, actor_name, work_package, date_time))
             restored += 1
         cur.execute("""UPDATE material_inspection_journal
                        SET status=%s, remarks=COALESCE(NULLIF(remarks,''),'') || %s
@@ -24296,7 +24322,7 @@ def delete_warehouse_invoice(id: int, _current_user: dict = Depends(require_role
         if row.get("supplier_invoice_id"):
             cur.execute("""UPDATE supplier_invoices
                            SET warehouse_invoice_id=NULL
-                           WHERE id=%s AND warehouse_invoice_id=%s""", (row.get("supplier_invoice_id"), id))
+                           WHERE id=%s AND warehouse_invoice_id=%s AND company_id=%s""", (row.get("supplier_invoice_id"), id, row.get("company_id")))
         conn.commit()
         _run_project_ai_control_safely(target_project, "warehouse_invoice:annul")
         return {"ok": True, "annulled": True, "stockRowsRestored": restored}

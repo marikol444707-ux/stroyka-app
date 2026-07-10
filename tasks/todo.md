@@ -858,6 +858,29 @@
 
 **Estimated scope:** S
 
+## Task M4.10: Warehouse Invoice Annulment Isolation
+
+**Description:** Authorize annulment from the stored warehouse-invoice company and reverse stock only inside that company.
+
+**Status:** Implemented locally; release pending.
+
+**Acceptance criteria:**
+- [x] Authorization runs before delivery/status details are returned.
+- [x] The effective selected-company role controls annulment access.
+- [x] Project and main-warehouse stock lookups include `company_id`.
+- [x] Reversal history stores the invoice `company_id`.
+- [x] A linked supplier invoice must remain in the same company.
+- [x] Existing delivery protection, insufficient-stock checks, and idempotent already-annulled response remain unchanged.
+
+**Verification:**
+- [ ] Backend compile and focused tests pass.
+- [ ] Frontend tests and production build pass.
+- [ ] Production version and warehouse smoke pass after deploy.
+
+**Dependencies:** Task M4.9
+
+**Estimated scope:** S
+
 ## Task M5: Finance And Accounting Isolation
 
 **Description:** Scope project payments, supplier payments, accounting records, contracts, and reports by verified company and legal entity.
