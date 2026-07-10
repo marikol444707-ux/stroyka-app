@@ -10,6 +10,9 @@ from backend.features.estimate_access.service import (
 
 FULL_VIEW_ROLES = ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик")
 PACKAGE_LIMIT_ROLES = ("мастер", "бригадир", "субподрядчик")
+ACTIVE_ONLY_ROLES = ("прораб", "мастер", "бригадир", "субподрядчик")
+CUSTOMER_ROLES = ("заказчик",)
+PACKAGE_OPTIONAL_ROLES = ("прораб",)
 
 
 class FakeCursor:
@@ -38,6 +41,9 @@ class EstimateAccessTests(unittest.TestCase):
             ],
             FULL_VIEW_ROLES,
             PACKAGE_LIMIT_ROLES,
+            ACTIVE_ONLY_ROLES,
+            CUSTOMER_ROLES,
+            PACKAGE_OPTIONAL_ROLES,
         )
 
         self.assertEqual(params, [1, 2, ["Лицей"], ["Общестрой"]])
@@ -52,10 +58,45 @@ class EstimateAccessTests(unittest.TestCase):
                 [{"companyId": 2, "role": "мастер", "assignedProjects": ["Лицей"]}],
                 FULL_VIEW_ROLES,
                 PACKAGE_LIMIT_ROLES,
+                ACTIVE_ONLY_ROLES,
+                CUSTOMER_ROLES,
+                PACKAGE_OPTIONAL_ROLES,
             ),
             ("FALSE", []),
         )
-        self.assertEqual(estimate_visibility_filter([], FULL_VIEW_ROLES, PACKAGE_LIMIT_ROLES), ("FALSE", []))
+        self.assertEqual(
+            estimate_visibility_filter(
+                [], FULL_VIEW_ROLES, PACKAGE_LIMIT_ROLES, ACTIVE_ONLY_ROLES, CUSTOMER_ROLES
+            ),
+            ("FALSE", []),
+        )
+
+    def test_customer_visibility_requires_active_customer_estimate(self):
+        sql, params = estimate_visibility_filter(
+            [{"companyId": 3, "role": "заказчик", "assignedProjects": ["Лицей"]}],
+            FULL_VIEW_ROLES,
+            PACKAGE_LIMIT_ROLES,
+            ACTIVE_ONLY_ROLES,
+            CUSTOMER_ROLES,
+        )
+
+        self.assertEqual(params, [3, ["Лицей"]])
+        self.assertIn("e.status='Активная'", sql)
+        self.assertIn("e.smeta_type", sql)
+
+    def test_foreman_without_package_keeps_existing_all_package_behavior(self):
+        sql, params = estimate_visibility_filter(
+            [{"companyId": 3, "role": "прораб", "assignedProjects": ["Лицей"]}],
+            FULL_VIEW_ROLES,
+            (*PACKAGE_LIMIT_ROLES, "прораб"),
+            ACTIVE_ONLY_ROLES,
+            CUSTOMER_ROLES,
+            PACKAGE_OPTIONAL_ROLES,
+        )
+
+        self.assertEqual(params, [3, ["Лицей"]])
+        self.assertNotIn("work_package", sql)
+        self.assertIn("e.status='Активная'", sql)
 
     def test_resolver_scopes_estimate_and_project_by_company(self):
         cur = FakeCursor([

@@ -37,13 +37,28 @@ def _assigned_projects(actor):
     return sorted(set(projects + ([legacy_project] if legacy_project else [])))
 
 
-def estimate_visibility_filter(company_actors, full_view_roles, package_limit_roles, column_prefix="e"):
+def estimate_visibility_filter(
+    company_actors,
+    full_view_roles,
+    package_limit_roles,
+    active_only_roles=(),
+    customer_roles=(),
+    package_optional_roles=(),
+    column_prefix="e",
+):
     """Build a fail-closed estimate filter for effective company memberships."""
     prefix = str(column_prefix or "e").strip()
     if not prefix.replace("_", "").isalnum():
         raise ValueError("Invalid estimate table alias")
     full_roles = {str(role or "").strip() for role in full_view_roles or () if str(role or "").strip()}
     package_roles = {str(role or "").strip() for role in package_limit_roles or () if str(role or "").strip()}
+    active_roles = {str(role or "").strip() for role in active_only_roles or () if str(role or "").strip()}
+    normalized_customer_roles = {
+        str(role or "").strip() for role in customer_roles or () if str(role or "").strip()
+    }
+    optional_package_roles = {
+        str(role or "").strip() for role in package_optional_roles or () if str(role or "").strip()
+    }
     clauses = []
     params = []
     for actor in company_actors or []:
@@ -61,12 +76,17 @@ def estimate_visibility_filter(company_actors, full_view_roles, package_limit_ro
             actor_params.append(projects)
         if role in package_roles:
             packages = _actor_values(actor, "assignedPackages", "assigned_packages")
-            if not packages:
+            if not packages and role not in optional_package_roles:
                 continue
-            actor_clauses.append(
-                f"COALESCE(NULLIF({prefix}.work_package,''),'Основная') = ANY(%s)"
-            )
-            actor_params.append(packages)
+            if packages:
+                actor_clauses.append(
+                    f"COALESCE(NULLIF({prefix}.work_package,''),'Основная') = ANY(%s)"
+                )
+                actor_params.append(packages)
+        if role in active_roles or role in normalized_customer_roles:
+            actor_clauses.append(f"{prefix}.status='Активная'")
+        if role in normalized_customer_roles:
+            actor_clauses.append(f"COALESCE({prefix}.smeta_type,'Заказчик')='Заказчик'")
         clauses.append("(" + " AND ".join(actor_clauses) + ")")
         params.extend(actor_params)
     if not clauses:

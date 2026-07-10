@@ -19662,67 +19662,73 @@ def _estimate_response_payload_from_row(r, sections, *, sections_loaded: bool, t
 
 
 @app.get("/estimates")
-def get_estimates(summary: bool = False, current_user: dict = Depends(get_current_user)):
+def get_estimates(
+    summary: bool = False,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
+    try:
+        from backend.features.estimate_access.service import estimate_visibility_filter
+    except ModuleNotFoundError:
+        from features.estimate_access.service import estimate_visibility_filter
     conn = get_db()
+    context_cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    company_context = _resolve_work_company_context(
+        context_cur,
+        current_user,
+        None,
+        "read",
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
+    )
+    company_actors = effective_company_actors(current_user, company_context)
+    context_cur.close()
     cur = conn.cursor()
-    allowed_projects = visible_project_names(current_user)
-    role = current_user.get("role")
-    package_names = user_package_names(current_user) if role in PACKAGE_LIMIT_ROLES else []
-    restrict_packages = bool(package_names)
-    deny_without_packages = role in PACKAGE_LIMIT_ROLES and role != "прораб" and not package_names
+    visibility_sql, visibility_params = estimate_visibility_filter(
+        company_actors,
+        ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик"),
+        PACKAGE_LIMIT_ROLES,
+        (*WORKER_EXECUTION_ROLES, "прораб"),
+        ("заказчик",),
+        ("прораб",),
+    )
     base_cols = """e.id,e.project_id,e.project_name,e.name,e.version,e.sections_json,
                    COALESCE(e.smeta_type,'Заказчик'),COALESCE(e.work_package,'Основная'),COALESCE(e.is_template,FALSE),e.status,e.created_at,
                    (SELECT COUNT(*) FROM estimate_versions ev WHERE ev.estimate_id=e.id) as version_count,
-                   (SELECT MAX(ev.created_at) FROM estimate_versions ev WHERE ev.estimate_id=e.id) as latest_version_at"""
-    if role == "заказчик":
-        if not allowed_projects:
-            cur.execute(f"SELECT {base_cols} FROM estimates e WHERE FALSE")
-        else:
-            cur.execute(f"""SELECT {base_cols} FROM estimates e
-                            WHERE e.project_name = ANY(%s)
-                              AND e.status='Активная'
-                              AND COALESCE(e.smeta_type,'Заказчик')='Заказчик'
-                            ORDER BY e.id DESC""", (allowed_projects,))
-    elif allowed_projects is not None and not allowed_projects:
-        if role in WORKER_EXECUTION_ROLES:
-            cur.execute(f"SELECT {base_cols} FROM estimates e WHERE FALSE")
-        else:
-            cur.execute(f"""SELECT {base_cols} FROM estimates e
-                            WHERE COALESCE(e.is_template,FALSE)=TRUE
-                              AND COALESCE(e.project_name,'')=''
-                            ORDER BY e.id DESC""")
-    elif deny_without_packages:
-        cur.execute(f"SELECT {base_cols} FROM estimates e WHERE FALSE")
-    elif allowed_projects is None:
-        cur.execute(f"SELECT {base_cols} FROM estimates e ORDER BY e.id DESC")
-    else:
-        query = f"""SELECT {base_cols} FROM estimates e
-                    WHERE (e.project_name = ANY(%s)"""
-        params = [allowed_projects]
-        if restrict_packages:
-            query += " AND COALESCE(NULLIF(e.work_package,''),'Основная') = ANY(%s)"
-            params.append(package_names)
-        query += ") OR (COALESCE(e.is_template,FALSE)=TRUE AND COALESCE(e.project_name,'')=''"
-        if restrict_packages:
-            query += " AND COALESCE(NULLIF(e.work_package,''),'Основная') = ANY(%s)"
-            params.append(package_names)
-        query += ")"
-        query += " ORDER BY e.id DESC"
-        cur.execute(query, tuple(params))
+                   (SELECT MAX(ev.created_at) FROM estimate_versions ev WHERE ev.estimate_id=e.id) as latest_version_at,
+                   e.company_id"""
+    cur.execute(
+        f"SELECT {base_cols} FROM estimates e WHERE {visibility_sql} ORDER BY e.id DESC",
+        visibility_params,
+    )
     rows = cur.fetchall()
-    if role in WORKER_EXECUTION_ROLES or role == "прораб":
-        rows = [r for r in rows if (r[9] or "") == "Активная"]
+    actors_by_company = {
+        int(actor.get("companyId") or actor.get("company_id")): actor
+        for actor in company_actors
+        if actor.get("companyId") or actor.get("company_id")
+    }
     worker_allowed_items_by_scope = {}
-    if role in WORKER_EXECUTION_ROLES and rows:
-        worker_allowed_items_by_scope = _worker_allowed_estimate_items_for_scopes(
-            cur,
-            current_user,
-            [((r[2] or ""), (r[7] or "Основная")) for r in rows],
-        )
+    for company_id, actor in actors_by_company.items():
+        if actor.get("role") not in WORKER_EXECUTION_ROLES:
+            continue
+        scopes = [
+            ((r[2] or ""), (r[7] or "Основная"))
+            for r in rows
+            if int(r[13] or 0) == company_id
+        ]
+        if scopes:
+            allowed = _worker_allowed_estimate_items_for_scopes(cur, actor, scopes)
+            worker_allowed_items_by_scope.update(
+                {(company_id, project, package): items for (project, package), items in allowed.items()}
+            )
     cur.close(); conn.close()
     import json as j
     result = []
     for r in rows:
+        row_company_id = int(r[13] or 0)
+        row_actor = actors_by_company.get(row_company_id, {})
+        role = row_actor.get("role") or ""
         try:
             sections = j.loads(r[5]) if r[5] else []
         except:
@@ -19733,7 +19739,9 @@ def get_estimates(summary: bool = False, current_user: dict = Depends(get_curren
             # contract-items могут дополнительно сузить список строк, но их
             # отсутствие не должно скрывать весь пакет: новая логика работает
             # без обязательного ручного наряда.
-            allowed_items = worker_allowed_items_by_scope.get((r[2] or "", r[7] or "Основная"))
+            allowed_items = worker_allowed_items_by_scope.get(
+                (row_company_id, r[2] or "", r[7] or "Основная")
+            )
             sections = _sanitize_worker_estimate_sections(sections, allowed_items if allowed_items else None, estimate_id=r[0])
         summary_total = _estimate_sections_total_for_summary(sections)
         if role == "бухгалтер":
@@ -19750,8 +19758,17 @@ def get_estimates(summary: bool = False, current_user: dict = Depends(get_curren
 
 
 @app.get("/estimates-summary")
-def get_estimates_summary(current_user: dict = Depends(get_current_user)):
-    return get_estimates(summary=True, current_user=current_user)
+def get_estimates_summary(
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
+    return get_estimates(
+        summary=True,
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
+        current_user=current_user,
+    )
 
 
 @app.get("/estimates/{id}")
