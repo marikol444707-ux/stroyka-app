@@ -1,4 +1,7 @@
 import json
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+
+from fastapi import HTTPException
 
 
 def _positive_int(value):
@@ -24,6 +27,45 @@ def _actor_projects(actor):
     projects = _values((actor or {}).get("assignedProjects", (actor or {}).get("assigned_projects", [])))
     legacy_project = str((actor or {}).get("projectName") or (actor or {}).get("project_name") or "").strip()
     return sorted(set(projects + ([legacy_project] if legacy_project else [])))
+
+
+def require_brigade_child_company(child_company_id, contract_company_id):
+    """Reject a child row whose stored tenant differs from its contract owner."""
+    child_id = _positive_int(child_company_id)
+    parent_id = _positive_int(contract_company_id)
+    if not child_id or not parent_id or child_id != parent_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Дочерняя запись бригады относится к другой компании",
+        )
+    return parent_id
+
+
+def require_positive_brigade_amount(value):
+    try:
+        amount = Decimal(str(value).strip())
+    except (InvalidOperation, TypeError, ValueError):
+        amount = Decimal(0)
+    if not amount.is_finite() or amount < Decimal("0.01"):
+        raise HTTPException(status_code=400, detail="Сумма оплаты должна быть не меньше 0.01 ₽")
+    return amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def brigade_contract_project_reference(project_id, project_name):
+    """Use an immutable project id when present; names are legacy fallback only."""
+    normalized_project_id = _positive_int(project_id)
+    normalized_name = str(project_name or "").strip()
+    return normalized_project_id, "" if normalized_project_id else normalized_name
+
+
+def require_brigade_project_payment_link(project_payment_id):
+    link_id = _positive_int(project_payment_id)
+    if not link_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Выплата не связана с денежной проводкой однозначно. Нужна ручная сверка.",
+        )
+    return link_id
 
 
 def brigade_contract_visibility_filter(

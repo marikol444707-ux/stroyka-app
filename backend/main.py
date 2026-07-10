@@ -123,9 +123,21 @@ except ModuleNotFoundError:
     from features.project_payment_access.service import project_payment_visibility_filter
 
 try:
-    from backend.features.brigade_access.service import brigade_contract_visibility_filter
+    from backend.features.brigade_access.service import (
+        brigade_contract_project_reference,
+        brigade_contract_visibility_filter,
+        require_brigade_child_company,
+        require_brigade_project_payment_link,
+        require_positive_brigade_amount,
+    )
 except ModuleNotFoundError:
-    from features.brigade_access.service import brigade_contract_visibility_filter
+    from features.brigade_access.service import (
+        brigade_contract_project_reference,
+        brigade_contract_visibility_filter,
+        require_brigade_child_company,
+        require_brigade_project_payment_link,
+        require_positive_brigade_amount,
+    )
 
 def _startup_num(v) -> float:
     try:
@@ -1901,6 +1913,112 @@ def _brigade_contract_read_scope(
         return visibility_sql, visibility_params, actors
     finally:
         scope_cur.close()
+
+def _resolve_brigade_contract_actor(
+    cur,
+    user: dict,
+    contract_id,
+    allowed_roles,
+    *,
+    claimed_company_id=None,
+    x_company_id=None,
+    x_company_mode=None,
+    for_update: bool = False,
+):
+    normalized_contract_id = _positive_int_or_none(contract_id)
+    if not normalized_contract_id:
+        raise HTTPException(status_code=400, detail="contractId должен быть положительным целым числом")
+    lock_sql = " FOR UPDATE" if for_update else ""
+    cur.execute(
+        """SELECT id,company_id,project_id,project_name,
+                  COALESCE(NULLIF(work_package,''),'Основная') AS work_package,
+                  brigade_name,COALESCE(act_scan_url,'') AS act_scan_url,
+                  total_amount,status,contractor_id
+             FROM brigade_contracts
+            WHERE id=%s""" + lock_sql,
+        (normalized_contract_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Договор бригады не найден")
+    contract = {
+        "id": _row_get(row, "id", 0),
+        "companyId": _row_get(row, "company_id", 1),
+        "projectId": _row_get(row, "project_id", 2),
+        "projectName": _row_get(row, "project_name", 3, "") or "",
+        "workPackage": _row_get(row, "work_package", 4, "Основная") or "Основная",
+        "brigadeName": _row_get(row, "brigade_name", 5, "") or "",
+        "actScanUrl": _row_get(row, "act_scan_url", 6, "") or "",
+        "totalAmount": _row_get(row, "total_amount", 7, 0) or 0,
+        "status": _row_get(row, "status", 8, "") or "",
+        "contractorId": _row_get(row, "contractor_id", 9),
+    }
+    if not _positive_int_or_none(contract["projectId"]):
+        cur.execute(
+            "SELECT id,company_id FROM projects WHERE name=%s AND company_id IS NOT NULL ORDER BY id",
+            (contract["projectName"],),
+        )
+        legacy_projects = cur.fetchall() or []
+        if len(legacy_projects) != 1:
+            raise HTTPException(
+                status_code=409,
+                detail="Название объекта договора неоднозначно. Сначала назначьте точный projectId.",
+            )
+        legacy_company_id = _row_get(legacy_projects[0], "company_id", 1)
+        if _positive_int_or_none(legacy_company_id) != _positive_int_or_none(contract["companyId"]):
+            raise HTTPException(
+                status_code=409,
+                detail="Компания договора не совпадает с компанией объекта",
+            )
+    access_cur = cur.connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        _context, actor = resolve_resource_company_actor(
+            access_cur,
+            user,
+            contract["companyId"],
+            "update",
+            claimed_company_id=claimed_company_id,
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            allowed_roles=allowed_roles,
+            forbidden_detail="Роль в выбранной компании не позволяет изменять договоры бригад",
+            platform_staff_roles=PLATFORM_STAFF_ROLES,
+            client_account_roles=CLIENT_ACCOUNT_ROLES,
+        )
+    finally:
+        access_cur.close()
+    try:
+        from backend.features.project_access.service import (
+            require_child_project_identity,
+            resolve_project_parent,
+        )
+    except ModuleNotFoundError:
+        from features.project_access.service import (
+            require_child_project_identity,
+            resolve_project_parent,
+        )
+    project_id, legacy_project_name = brigade_contract_project_reference(
+        contract["projectId"],
+        contract["projectName"],
+    )
+    project = resolve_project_parent(
+        cur,
+        actor,
+        project_id=project_id,
+        project_name=legacy_project_name,
+        for_update=for_update,
+    )
+    contract_identity = {
+        **contract,
+        "projectId": project_id,
+        "projectName": legacy_project_name,
+    }
+    require_child_project_identity(contract_identity, project, child_label="Договор бригады")
+    require_project_access(actor, project["name"])
+    contract["companyId"] = project["companyId"]
+    contract["projectId"] = project["id"]
+    contract["projectName"] = project["name"]
+    return contract, actor, project
 
 def supplier_is_selected(selected_suppliers, supplier_id: int) -> bool:
     if not supplier_id:
@@ -3867,15 +3985,12 @@ def init_db():
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS telegram_id VARCHAR(100);
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(100);
-        ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
-        ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT '';
         ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS scan_url TEXT;
         ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT '';
         ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS work_journal_ids TEXT DEFAULT '[]';
         ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS source_type VARCHAR(100) DEFAULT '';
         ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS photo_urls TEXT DEFAULT '[]';
-        ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS act_scan_url TEXT;
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT FALSE;
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP;
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
@@ -4178,6 +4293,7 @@ def init_db():
             ON material_transfers(company_id,project_id,id DESC);
         CREATE TABLE IF NOT EXISTS brigade_contracts (
             id SERIAL PRIMARY KEY,
+            company_id INT DEFAULT 1,
             project_id INT,
             project_name VARCHAR(255),
             work_package VARCHAR(100) DEFAULT '',
@@ -4191,6 +4307,46 @@ def init_db():
             pricelist_id INT,
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT '';
+        ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS act_scan_url TEXT;
+        ALTER TABLE brigade_contracts ALTER COLUMN company_id SET DEFAULT 1;
+        ALTER TABLE brigade_contracts ALTER COLUMN company_id DROP NOT NULL;
+        UPDATE brigade_contracts bc
+           SET company_id=p.company_id
+          FROM projects p
+         WHERE bc.project_id=p.id
+           AND p.company_id IS NOT NULL
+           AND bc.company_id IS DISTINCT FROM p.company_id;
+        UPDATE brigade_contracts bc
+           SET company_id=project_scope.company_id,
+               project_id=project_scope.project_id
+          FROM (
+              SELECT name, MIN(id) AS project_id, MIN(company_id) AS company_id
+                FROM projects
+               WHERE company_id IS NOT NULL
+               GROUP BY name
+              HAVING COUNT(*)=1
+          ) project_scope
+         WHERE NOT EXISTS (
+                   SELECT 1 FROM projects exact_project
+                   WHERE exact_project.id=bc.project_id
+                     AND exact_project.company_id IS NOT NULL
+               )
+           AND bc.project_name=project_scope.name
+           AND (bc.company_id IS DISTINCT FROM project_scope.company_id
+                OR bc.project_id IS DISTINCT FROM project_scope.project_id);
+        UPDATE brigade_contracts bc
+           SET company_id=NULL
+         WHERE bc.company_id IS NOT NULL
+           AND NOT EXISTS (
+                   SELECT 1 FROM projects p
+                   WHERE p.id=bc.project_id
+                     AND p.company_id=bc.company_id
+               );
+        CREATE INDEX IF NOT EXISTS idx_brigade_contracts_company_id ON brigade_contracts(company_id,id DESC);
+        CREATE INDEX IF NOT EXISTS idx_brigade_contracts_company_project_id ON brigade_contracts(company_id,project_id);
+        CREATE INDEX IF NOT EXISTS idx_brigade_contracts_company_project_name ON brigade_contracts(company_id,project_name);
         CREATE TABLE IF NOT EXISTS brigade_contract_items (
             id SERIAL PRIMARY KEY,
             contract_id INT,
@@ -4207,13 +4363,65 @@ def init_db():
         );
         CREATE TABLE IF NOT EXISTS brigade_payments (
             id SERIAL PRIMARY KEY,
+            company_id INT,
             contract_id INT,
+            project_payment_id INT,
             amount NUMERIC(14,2) DEFAULT 0,
             paid_by VARCHAR(255),
             paid_date DATE,
             note TEXT,
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE brigade_payments ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE brigade_payments ADD COLUMN IF NOT EXISTS project_payment_id INT;
+        ALTER TABLE brigade_payments ALTER COLUMN company_id DROP DEFAULT;
+        ALTER TABLE brigade_payments ALTER COLUMN company_id DROP NOT NULL;
+        UPDATE brigade_payments bp
+           SET company_id=bc.company_id
+          FROM brigade_contracts bc
+         WHERE bp.contract_id=bc.id
+           AND bc.company_id IS NOT NULL
+           AND bp.company_id IS DISTINCT FROM bc.company_id;
+        UPDATE brigade_payments bp
+           SET company_id=NULL
+         WHERE bp.company_id IS NOT NULL
+           AND NOT EXISTS (
+                   SELECT 1 FROM brigade_contracts bc
+                   WHERE bc.id=bp.contract_id
+                     AND bc.company_id=bp.company_id
+               );
+        UPDATE brigade_payments
+           SET company_id=NULL,
+               project_payment_id=NULL
+         WHERE (company_id IS NOT NULL OR project_payment_id IS NOT NULL)
+           AND (
+               amount IS NULL
+               OR amount IN ('NaN'::numeric, 'Infinity'::numeric, '-Infinity'::numeric)
+           );
+        DO $brigade_payment_constraint$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                  FROM pg_constraint
+                 WHERE conname='chk_brigade_payments_finite_amount'
+                   AND conrelid='brigade_payments'::regclass
+            ) THEN
+                ALTER TABLE brigade_payments
+                    ADD CONSTRAINT chk_brigade_payments_finite_amount
+                    CHECK (
+                        company_id IS NULL
+                        OR (
+                            amount IS NOT NULL
+                            AND amount NOT IN ('NaN'::numeric, 'Infinity'::numeric, '-Infinity'::numeric)
+                        )
+                    );
+            END IF;
+        END
+        $brigade_payment_constraint$;
+        CREATE INDEX IF NOT EXISTS idx_brigade_payments_company_id ON brigade_payments(company_id,id DESC);
+        CREATE INDEX IF NOT EXISTS idx_brigade_payments_company_contract ON brigade_payments(company_id,contract_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_brigade_payments_project_payment
+            ON brigade_payments(project_payment_id) WHERE project_payment_id IS NOT NULL;
         CREATE TABLE IF NOT EXISTS brigade_acts (
             id SERIAL PRIMARY KEY,
             contract_id INT,
@@ -4309,7 +4517,8 @@ def init_db():
         );
         CREATE TABLE IF NOT EXISTS project_payments (
             id SERIAL PRIMARY KEY,
-            company_id INT NOT NULL DEFAULT 1,
+            company_id INT,
+            company_scope_verified BOOLEAN NOT NULL DEFAULT TRUE,
             project_name VARCHAR(255),
             work_package VARCHAR(100) DEFAULT '',
             amount NUMERIC(14,2) DEFAULT 0,
@@ -4320,8 +4529,12 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW()
         );
         ALTER TABLE project_payments ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE project_payments ADD COLUMN IF NOT EXISTS company_scope_verified BOOLEAN;
+        ALTER TABLE project_payments ALTER COLUMN company_id DROP DEFAULT;
+        ALTER TABLE project_payments ALTER COLUMN company_id DROP NOT NULL;
         UPDATE project_payments pp
-           SET company_id=project_scope.company_id
+           SET company_id=project_scope.company_id,
+               company_scope_verified=TRUE
           FROM (
               SELECT name, MIN(company_id) AS company_id
                 FROM projects
@@ -4329,14 +4542,94 @@ def init_db():
                GROUP BY name
               HAVING COUNT(DISTINCT company_id)=1
           ) project_scope
-         WHERE pp.company_id IS NULL
+         WHERE pp.company_scope_verified IS NULL
            AND pp.project_name=project_scope.name;
-        UPDATE project_payments SET company_id=1 WHERE company_id IS NULL;
-        ALTER TABLE project_payments ALTER COLUMN company_id SET DEFAULT 1;
-        ALTER TABLE project_payments ALTER COLUMN company_id SET NOT NULL;
+        UPDATE project_payments pp
+           SET company_id=NULL,
+               company_scope_verified=FALSE
+         WHERE (
+                   pp.company_scope_verified IS NULL
+               AND NOT EXISTS (
+                   SELECT 1
+                     FROM (
+                         SELECT name, MIN(company_id) AS company_id
+                           FROM projects
+                          WHERE company_id IS NOT NULL
+                          GROUP BY name
+                         HAVING COUNT(DISTINCT company_id)=1
+                     ) project_scope
+                    WHERE project_scope.name=pp.project_name
+                      AND project_scope.company_id=pp.company_id
+               ))
+            OR (
+                (pp.company_id IS NOT NULL OR pp.company_scope_verified IS DISTINCT FROM FALSE)
+                AND (
+                    pp.amount IS NULL
+                    OR pp.amount IN ('NaN'::numeric, 'Infinity'::numeric, '-Infinity'::numeric)
+                )
+            );
+        UPDATE project_payments
+           SET company_scope_verified=FALSE
+         WHERE company_scope_verified IS NULL;
+        ALTER TABLE project_payments ALTER COLUMN company_scope_verified SET DEFAULT TRUE;
+        ALTER TABLE project_payments ALTER COLUMN company_scope_verified SET NOT NULL;
+        DO $project_payment_constraint$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                  FROM pg_constraint
+                 WHERE conname='chk_project_payments_verified_amount'
+                   AND conrelid='project_payments'::regclass
+            ) THEN
+                ALTER TABLE project_payments
+                    ADD CONSTRAINT chk_project_payments_verified_amount
+                    CHECK (
+                        company_scope_verified=FALSE
+                        OR (
+                            company_id IS NOT NULL
+                            AND amount IS NOT NULL
+                            AND amount NOT IN ('NaN'::numeric, 'Infinity'::numeric, '-Infinity'::numeric)
+                        )
+                    );
+            END IF;
+        END
+        $project_payment_constraint$;
         ALTER TABLE project_payments ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT '';
         CREATE INDEX IF NOT EXISTS idx_project_payments_company_id ON project_payments(company_id,id DESC);
         CREATE INDEX IF NOT EXISTS idx_project_payments_company_project ON project_payments(company_id,project_name);
+        WITH candidate_pairs AS (
+            SELECT bp.id AS brigade_payment_id,
+                   pp.id AS project_payment_id,
+                   COUNT(*) OVER (PARTITION BY bp.id) AS project_candidates,
+                   COUNT(*) OVER (PARTITION BY pp.id) AS brigade_candidates
+              FROM brigade_payments bp
+              JOIN brigade_contracts bc
+                ON bc.id=bp.contract_id AND bc.company_id=bp.company_id
+              JOIN (
+                  SELECT name
+                    FROM projects
+                   WHERE company_id IS NOT NULL
+                   GROUP BY name
+                  HAVING COUNT(*)=1
+              ) unique_project
+                ON unique_project.name=bc.project_name
+              JOIN project_payments pp
+                ON pp.company_id=bp.company_id
+               AND pp.company_scope_verified=TRUE
+               AND pp.project_name=bc.project_name
+               AND pp.amount=bp.amount
+               AND COALESCE(pp.note,'')='Оплата бригаде ' || COALESCE(bc.brigade_name,'')
+               AND COALESCE(pp.date,'')=COALESCE(bp.paid_date::text,'')
+               AND COALESCE(pp.added_by,'')=COALESCE(bp.paid_by,'')
+             WHERE bp.project_payment_id IS NULL
+               AND bp.company_id IS NOT NULL
+        )
+        UPDATE brigade_payments bp
+           SET project_payment_id=candidate_pairs.project_payment_id
+          FROM candidate_pairs
+         WHERE bp.id=candidate_pairs.brigade_payment_id
+           AND candidate_pairs.project_candidates=1
+           AND candidate_pairs.brigade_candidates=1;
         CREATE TABLE IF NOT EXISTS accountable_payments (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -21613,7 +21906,7 @@ def get_brigade_contracts(
             "bc.total_amount,bc.status,bc.signed_at,bc.notes,bc.created_at,bc.pricelist_id,COALESCE(bc.work_package,''),"
             "COALESCE((SELECT SUM(COALESCE(bci.quantity,0)*COALESCE(bci.price_brigade,0)) FROM brigade_contract_items bci WHERE bci.contract_id=bc.id),0) AS plan_amount,"
             "COALESCE((SELECT SUM(CASE WHEN COALESCE(bci.quantity,0)>0 THEN GREATEST(0, LEAST(COALESCE(bci.done_quantity,0), COALESCE(bci.quantity,0))) * COALESCE(bci.price_brigade,0) ELSE 0 END) FROM brigade_contract_items bci WHERE bci.contract_id=bc.id),0) AS done_amount,"
-            "COALESCE((SELECT SUM(COALESCE(bp.amount,0)) FROM brigade_payments bp WHERE bp.contract_id=bc.id),0) AS paid_amount,"
+            "COALESCE((SELECT SUM(bp.amount) FROM brigade_payments bp WHERE bp.contract_id=bc.id AND bp.company_id=bc.company_id AND bp.amount IS NOT NULL AND bp.amount NOT IN ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)),0) AS paid_amount,"
             "bc.act_scan_url,bc.company_id FROM brigade_contracts bc WHERE "
         )
         cur = conn.cursor()
@@ -21694,16 +21987,21 @@ def get_brigade_payments(
         )
         if visibility_sql == "FALSE":
             return []
-        where = [visibility_sql]
+        where = [
+            visibility_sql,
+            "bp.amount IS NOT NULL",
+            "bp.amount NOT IN ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)",
+        ]
         if contract_id:
             where.append("bc.id=%s")
             params.append(contract_id)
         cur = conn.cursor()
         try:
             cur.execute("""SELECT bp.id,bp.contract_id,bp.amount,bp.paid_by,bp.paid_date,
-                                  bp.note,bp.created_at,bc.company_id
+                                  bp.note,bp.created_at,bp.company_id
                            FROM brigade_payments bp
-                           JOIN brigade_contracts bc ON bc.id=bp.contract_id
+                           JOIN brigade_contracts bc
+                             ON bc.id=bp.contract_id AND bc.company_id=bp.company_id
                            WHERE """ + " AND ".join(where) + " ORDER BY bp.id DESC", tuple(params))
             rows = cur.fetchall()
         finally:
@@ -21724,72 +22022,91 @@ def create_brigade_payment(
     _current_user: dict = Depends(get_current_user),
 ):
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    cur.execute("""SELECT COALESCE(act_scan_url,''), project_name, brigade_name,
-                          COALESCE((SELECT SUM(CASE WHEN COALESCE(quantity,0)>0 THEN GREATEST(0, LEAST(COALESCE(done_quantity,0), COALESCE(quantity,0))) * COALESCE(price_brigade,0) ELSE 0 END) FROM brigade_contract_items WHERE contract_id=bc.id),0) AS done_amount,
-                          COALESCE((SELECT SUM(COALESCE(amount,0)) FROM brigade_payments WHERE contract_id=bc.id),0) AS paid_amount
-                   FROM brigade_contracts bc WHERE id=%s""", (data.get("contractId"),))
-    contract = cur.fetchone()
-    if not contract:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Договор бригады не найден")
-    if not (contract[0] or "").strip():
-        cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail="Оплата заблокирована: загрузите скан подписанного акта")
-    amount = float(data.get("amount") or 0)
-    if amount <= 0:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail="Сумма оплаты должна быть больше нуля")
-    done_amount = float(contract[3] or 0)
-    paid_amount = float(contract[4] or 0)
-    available_to_pay = max(0, done_amount - paid_amount)
-    if amount > available_to_pay + 0.01:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail=f"Оплата превышает выполненный неоплаченный объём. Доступно к оплате: {available_to_pay:.2f} ₽")
-    project_name = contract[1] or ""
     claimed_company_id = data.get("companyId") if "companyId" in data else data.get("company_id")
     try:
-        company_id, actor = _resolve_project_payment_actor(
+        contract, actor, _project = _resolve_brigade_contract_actor(
             cur,
             _current_user,
-            project_name,
+            data.get("contractId"),
+            FINANCE_ROLES,
             claimed_company_id=claimed_company_id,
             x_company_id=x_company_id,
             x_company_mode=x_company_mode,
-            require_unambiguous_project=True,
+            for_update=True,
         )
+        company_id = int(contract["companyId"])
+        cur.execute("""SELECT company_id FROM brigade_payments
+                       WHERE contract_id=%s AND company_id IS DISTINCT FROM %s
+                       LIMIT 1""", (contract["id"], company_id))
+        inconsistent_payment = cur.fetchone()
+        if inconsistent_payment:
+            require_brigade_child_company(
+                _row_get(inconsistent_payment, "company_id", 0),
+                company_id,
+            )
+        cur.execute("""SELECT id FROM brigade_payments
+                       WHERE contract_id=%s AND company_id=%s
+                         AND (amount IS NULL
+                              OR amount IN ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric))
+                       LIMIT 1""", (contract["id"], company_id))
+        if cur.fetchone():
+            raise HTTPException(
+                status_code=409,
+                detail="В выплатах договора найдена некорректная сумма. Нужна ручная сверка.",
+            )
+        if not (contract["actScanUrl"] or "").strip():
+            raise HTTPException(status_code=400, detail="Оплата заблокирована: загрузите скан подписанного акта")
+        amount = require_positive_brigade_amount(data.get("amount"))
+        cur.execute("""SELECT
+                              COALESCE((SELECT SUM(CASE WHEN COALESCE(quantity,0)>0 THEN GREATEST(0, LEAST(COALESCE(done_quantity,0), COALESCE(quantity,0))) * COALESCE(price_brigade,0) ELSE 0 END)
+                                          FROM brigade_contract_items WHERE contract_id=%s),0) AS done_amount,
+                              COALESCE((SELECT SUM(COALESCE(amount,0))
+                                         FROM brigade_payments
+                                         WHERE contract_id=%s AND company_id=%s
+                                           AND amount IS NOT NULL
+                                           AND amount NOT IN ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)),0) AS paid_amount""",
+                    (contract["id"], contract["id"], company_id))
+        amounts = cur.fetchone()
+        done_amount = float(_row_get(amounts, "done_amount", 0, 0) or 0)
+        paid_amount = float(_row_get(amounts, "paid_amount", 1, 0) or 0)
+        if not math.isfinite(done_amount) or not math.isfinite(paid_amount):
+            raise HTTPException(
+                status_code=409,
+                detail="В договоре найдена некорректная сумма. Нужна ручная сверка.",
+            )
+        available_to_pay = max(0, done_amount - paid_amount)
+        if float(amount) > available_to_pay + 0.01:
+            raise HTTPException(status_code=400, detail=f"Оплата превышает выполненный неоплаченный объём. Доступно к оплате: {available_to_pay:.2f} ₽")
+        project_name = (contract["projectName"] or "").strip()
+        if not project_name:
+            raise HTTPException(status_code=409, detail="У договора не определен объект для денежной проводки")
+        paid_by = data.get("paidBy", "")
+        paid_date = data.get("paidDate") or None
+        cur.execute("""INSERT INTO brigade_payments
+                          (company_id,contract_id,amount,paid_by,paid_date,note)
+                       VALUES (%s,%s,%s,%s,%s,%s) RETURNING id""",
+                    (company_id, contract["id"], amount, paid_by, paid_date, data.get("note", "")))
+        new_id = cur.fetchone()[0]
+        payment_note = "Оплата бригаде " + contract["brigadeName"]
+        cur.execute("""INSERT INTO project_payments
+                           (company_id,project_name,amount,note,date,added_by)
+                       VALUES (%s,%s,%s,%s,%s,%s) RETURNING id""",
+                    (company_id, project_name, amount, payment_note, paid_date, paid_by))
+        project_payment_id = cur.fetchone()[0]
+        cur.execute("""UPDATE brigade_payments
+                       SET project_payment_id=%s
+                       WHERE id=%s AND company_id=%s""",
+                    (project_payment_id, new_id, company_id))
+        conn.commit()
+        return {"ok": True, "id": new_id, "companyId": company_id, "projectPaymentId": project_payment_id}
     except Exception:
         conn.rollback()
-        cur.close(); conn.close()
         raise
-    _current_user = actor
-    paid_by = data.get("paidBy","")
-    paid_date = data.get("paidDate") or None
-    cur.execute("INSERT INTO brigade_payments (contract_id,amount,paid_by,paid_date,note) VALUES (%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("contractId"), amount, paid_by, paid_date, data.get("note","")))
-    new_id = cur.fetchone()[0]
-    project_payment_id = None
-    brigade_name = contract[2] or ""
-    if project_name and amount:
-        payment_note = "Оплата бригаде " + brigade_name
-        cur.execute("""SELECT id FROM project_payments
-                       WHERE company_id=%s AND project_name=%s
-                         AND amount=%s AND COALESCE(note,'')=%s
-                         AND date IS NOT DISTINCT FROM %s AND COALESCE(added_by,'')=%s
-                       ORDER BY id DESC LIMIT 1""",
-                    (company_id, project_name, amount, payment_note, paid_date, paid_by))
-        existing = cur.fetchone()
-        if existing:
-            project_payment_id = existing[0]
-        else:
-            cur.execute("""INSERT INTO project_payments
-                               (company_id,project_name,amount,note,date,added_by)
-                           VALUES (%s,%s,%s,%s,%s,%s) RETURNING id""",
-                        (company_id, project_name, amount, payment_note, paid_date, paid_by))
-            project_payment_id = cur.fetchone()[0]
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True, "id": new_id, "companyId": company_id, "projectPaymentId": project_payment_id}
+    finally:
+        cur.close()
+        conn.close()
 
 @app.delete("/brigade-payments/{id}")
 def delete_brigade_payment(
@@ -21799,67 +22116,96 @@ def delete_brigade_payment(
     _current_user: dict = Depends(get_current_user),
 ):
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    cur.execute("""SELECT bp.amount, bp.paid_by, bp.paid_date, bc.project_name, bc.brigade_name
-                   FROM brigade_payments bp
-                   LEFT JOIN brigade_contracts bc ON bc.id=bp.contract_id
-                   WHERE bp.id=%s
-                   FOR UPDATE OF bp""", (id,))
-    payment = cur.fetchone()
-    if not payment:
-        cur.close(); conn.close()
-        return {"ok": True}
     try:
-        company_id, actor = _resolve_project_payment_actor(
+        cur.execute("SELECT contract_id FROM brigade_payments WHERE id=%s", (id,))
+        payment_link = cur.fetchone()
+        if not payment_link:
+            return {"ok": True}
+        contract_id = _row_get(payment_link, "contract_id", 0)
+        contract, actor, _project = _resolve_brigade_contract_actor(
             cur,
             _current_user,
-            payment[3] or "",
+            contract_id,
+            FINANCE_ROLES,
             x_company_id=x_company_id,
             x_company_mode=x_company_mode,
-            require_unambiguous_project=True,
+            for_update=True,
         )
-    except Exception:
-        conn.rollback()
-        cur.close(); conn.close()
-        raise
-    _current_user = actor
-    cur.execute("DELETE FROM brigade_payments WHERE id=%s",(id,))
-    project_payment_reversal_id = None
-    if payment[3]:
-        payment_note = "Оплата бригаде " + (payment[4] or "")
-        cur.execute("""SELECT id,COALESCE(work_package,''),amount,note,date,added_by
+        company_id = int(contract["companyId"])
+        cur.execute("""SELECT paid_by,company_id,project_payment_id
+                       FROM brigade_payments
+                       WHERE id=%s AND contract_id=%s
+                       FOR UPDATE""", (id, contract["id"]))
+        payment = cur.fetchone()
+        if not payment:
+            return {"ok": True}
+        require_brigade_child_company(
+            _row_get(payment, "company_id", 1),
+            company_id,
+        )
+        paid_by = _row_get(payment, "paid_by", 0, "") or ""
+        linked_project_payment_id = require_brigade_project_payment_link(
+            _row_get(payment, "project_payment_id", 2),
+        )
+        cur.execute("""SELECT id,project_name,COALESCE(work_package,''),amount,note,date,added_by
                        FROM project_payments
+                       WHERE id=%s AND company_id=%s
+                       FOR UPDATE""", (linked_project_payment_id, company_id))
+        project_payment = cur.fetchone()
+        if not project_payment:
+            raise HTTPException(
+                status_code=409,
+                detail="Связанная денежная проводка не найдена в компании. Нужна ручная сверка.",
+            )
+        if project_payment[3] is None:
+            raise HTTPException(
+                status_code=409,
+                detail="В денежной проводке не указана сумма. Нужна ручная сверка.",
+            )
+        project_payment_amount = float(project_payment[3])
+        if not math.isfinite(project_payment_amount):
+            raise HTTPException(
+                status_code=409,
+                detail="В денежной проводке найдена некорректная сумма. Нужна ручная сверка.",
+            )
+        cur.execute(
+            "DELETE FROM brigade_payments WHERE id=%s AND contract_id=%s AND company_id=%s",
+            (id, contract["id"], company_id),
+        )
+        project_payment_reversal_id = None
+        reversal_project_name = project_payment[1] or contract["projectName"]
+        payment_note = project_payment[4] or ("Оплата бригаде " + contract["brigadeName"])
+        reversal_note = "Сторно платежа #" + str(project_payment[0]) + ": " + payment_note
+        cur.execute("""SELECT id FROM project_payments
                        WHERE company_id=%s AND project_name=%s
                          AND amount=%s AND COALESCE(note,'')=%s
-                         AND date IS NOT DISTINCT FROM %s AND COALESCE(added_by,'')=%s
                        ORDER BY id DESC LIMIT 1""",
-                    (company_id, payment[3], payment[0], "Оплата бригаде " + (payment[4] or ""), payment[2], payment[1] or ""))
-        project_payment = cur.fetchone()
-        if project_payment:
-            reversal_note = "Сторно платежа #" + str(project_payment[0]) + ": " + payment_note
-            cur.execute("""SELECT id FROM project_payments
-                           WHERE company_id=%s AND project_name=%s
-                             AND amount=%s AND COALESCE(note,'')=%s
-                           ORDER BY id DESC LIMIT 1""",
-                        (company_id, payment[3], -(project_payment[2] or 0), reversal_note))
-            existing_reversal = cur.fetchone()
-            if existing_reversal:
-                project_payment_reversal_id = existing_reversal[0]
-            else:
-                cur.execute("""INSERT INTO project_payments
-                                   (company_id,project_name,work_package,amount,note,date,added_by)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                            (company_id, payment[3], project_payment[1] or "",
-                             -(project_payment[2] or 0), reversal_note,
-                             dt.date.today().isoformat(), actor.get("name") or payment[1] or ""))
-                project_payment_reversal_id = cur.fetchone()[0]
-    conn.commit()
-    cur.close(); conn.close()
-    return {
-        "ok": True,
-        "companyId": company_id,
-        "projectPaymentReversalId": project_payment_reversal_id,
-    }
+                    (company_id, reversal_project_name, -project_payment_amount, reversal_note))
+        existing_reversal = cur.fetchone()
+        if existing_reversal:
+            project_payment_reversal_id = existing_reversal[0]
+        else:
+            cur.execute("""INSERT INTO project_payments
+                               (company_id,project_name,work_package,amount,note,date,added_by)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                        (company_id, reversal_project_name, project_payment[2] or "",
+                         -project_payment_amount, reversal_note,
+                         dt.date.today().isoformat(), actor.get("name") or paid_by))
+            project_payment_reversal_id = cur.fetchone()[0]
+        conn.commit()
+        return {
+            "ok": True,
+            "companyId": company_id,
+            "projectPaymentReversalId": project_payment_reversal_id,
+        }
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
 
 @app.get("/salary-payments")
 def get_salary_payments(_current_user: dict = Depends(require_roles(*FINANCE_ROLES))):

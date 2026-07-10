@@ -1,6 +1,15 @@
 import unittest
+from decimal import Decimal
 
-from backend.features.brigade_access.service import brigade_contract_visibility_filter
+from fastapi import HTTPException
+
+from backend.features.brigade_access.service import (
+    brigade_contract_project_reference,
+    brigade_contract_visibility_filter,
+    require_brigade_child_company,
+    require_brigade_project_payment_link,
+    require_positive_brigade_amount,
+)
 
 
 FULL_VIEW_ROLES = ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик")
@@ -114,6 +123,46 @@ class BrigadeContractVisibilityFilterTests(unittest.TestCase):
             ),
             ("FALSE", []),
         )
+
+
+class BrigadeChildCompanyTests(unittest.TestCase):
+    def test_accepts_matching_parent_and_child_company(self):
+        self.assertEqual(require_brigade_child_company(4, 4), 4)
+
+    def test_rejects_missing_or_mismatched_company(self):
+        for child_company_id, contract_company_id in ((None, 4), (4, None), (3, 4)):
+            with self.subTest(
+                child_company_id=child_company_id,
+                contract_company_id=contract_company_id,
+            ), self.assertRaises(HTTPException) as raised:
+                require_brigade_child_company(child_company_id, contract_company_id)
+
+            self.assertEqual(raised.exception.status_code, 409)
+
+
+class BrigadePaymentWriteRulesTests(unittest.TestCase):
+    def test_requires_positive_finite_amount(self):
+        self.assertEqual(require_positive_brigade_amount("12.5"), Decimal("12.50"))
+        self.assertEqual(require_positive_brigade_amount("12.345"), Decimal("12.35"))
+
+        for value in (None, "", "bad", "NaN", "Infinity", "-Infinity", 0, -1, "0.001", "0.009"):
+            with self.subTest(value=value), self.assertRaises(HTTPException) as raised:
+                require_positive_brigade_amount(value)
+
+            self.assertEqual(raised.exception.status_code, 400)
+
+    def test_exact_project_id_is_authoritative_over_stale_name(self):
+        self.assertEqual(brigade_contract_project_reference(7, "Старое имя"), (7, ""))
+        self.assertEqual(brigade_contract_project_reference(None, "  Школа  "), (None, "Школа"))
+
+    def test_requires_explicit_project_payment_link_for_reversal(self):
+        self.assertEqual(require_brigade_project_payment_link("15"), 15)
+
+        for value in (None, "", 0, -1, "bad"):
+            with self.subTest(value=value), self.assertRaises(HTTPException) as raised:
+                require_brigade_project_payment_link(value)
+
+            self.assertEqual(raised.exception.status_code, 409)
 
 
 if __name__ == "__main__":

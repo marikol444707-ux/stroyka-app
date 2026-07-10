@@ -81,8 +81,10 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M5.1: Isolate company requisites by selected company and remove the global destructive replace. Deployed in `69f55f4b`; authenticated tenant smoke pending.
 - [x] Task M5.2: Isolate `project_payments` reads, writes, reversals, automatic document payments, and AI payment context by company. Deployed in `5db2e496`; authenticated tenant smoke pending.
 - [ ] Task M5.3: Add stored company ownership to brigade contracts/payments and close their remaining global read paths.
-- [ ] Task M5.3a: Scope brigade contract, payment, item, and act reads by effective company membership. Implemented locally; release pending.
-- [ ] Task M5.3b: Enforce stored company ownership across brigade contract/payment/item/act writes and estimate distribution.
+- [ ] Task M5.3a: Scope brigade contract, payment, item, and act reads by effective company membership. Pushed in `937d7a4f`; production release pending.
+- [ ] Task M5.3b1: Store brigade payment ownership and authorize create/reversal from the parent contract company. Implemented locally; release pending.
+- [ ] Task M5.3b2: Enforce selected-company ownership for brigade contract create/update/cancel and contractor assignment.
+- [ ] Task M5.3b3: Enforce parent-company ownership for pricelist loading, contract items, brigade acts, and estimate distribution.
 - [ ] Task M6: Scope remaining projects, estimates, journals, acts, files, notifications, audit, and AI jobs.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 

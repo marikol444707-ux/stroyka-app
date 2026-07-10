@@ -949,7 +949,7 @@
 **Status:** Deployed in `5db2e496`; production health, database availability, public routes, and unauthenticated route protection verified. Authenticated tenant-data smoke remains pending because the smoke account requires initial 2FA setup.
 
 **Acceptance criteria:**
-- [x] Existing payment rows first inherit an unambiguous project company; rows that cannot be proven remain in the accepted legacy company `1`. New rows require non-null `company_id` and use company indexes.
+- [x] Existing payment rows inherit only an unambiguous project company. M5.3b1 hardening quarantines unresolved/invalid legacy rows with `company_scope_verified=false` and `company_id=NULL`; all current server writes pass a non-null company explicitly and use company indexes.
 - [x] `GET /project-payments` filters by effective role in every allowed company; customers only see positive payments for assigned projects.
 - [x] Direct payment creation requires one selected company, an effective finance role, and a project belonging to that company.
 - [x] Payment reversal authorizes from the payment row's stored company and writes the reversal to the same company.
@@ -966,7 +966,7 @@
 - [x] Production health/version, database availability, public smoke, and unauthenticated `/project-payments` protection pass after deploy.
 - [ ] Authenticated selected-company payment reads pass after smoke-account 2FA setup.
 
-**Known follow-up:** M5.3 must add stored `company_id` to `brigade_contracts` and `brigade_payments` and close their current global list reads. Also add ownership to `interim_acts` and `expenses`; then remove the temporary duplicate-project-name guard and restore scoped manual expenses in the director tool.
+**Known follow-up:** M5.3 must finish stored ownership for the brigade chain. Also add ownership to `interim_acts` and `expenses`; then remove the remaining temporary duplicate-project-name guard and restore scoped manual expenses in the director tool.
 
 **Dependencies:** Task M5.1
 
@@ -976,7 +976,7 @@
 
 **Description:** Close global read paths for brigade contracts, payments, items, and acts using the existing `brigade_contracts.company_id` as the parent tenant boundary. Preserve current calculations and worker price masking.
 
-**Status:** Implemented locally; release pending.
+**Status:** Implemented and pushed in `937d7a4f`; production release pending.
 
 **Acceptance criteria:**
 - [x] Contract reads resolve selected/all-company context through effective membership roles.
@@ -993,11 +993,43 @@
 - [x] Frontend tests and production build pass.
 - [ ] Production version and authenticated selected-company reads pass after deploy.
 
-**Known follow-up:** M5.3b must bind contract/payment/item/act mutations and estimate distribution to stored company ownership before the brigade chain is pilot-ready.
+**Known follow-up:** M5.3b1-M5.3b3 must bind payment, contract, item, act, and estimate-distribution mutations to stored company ownership before the brigade chain is pilot-ready.
 
 **Dependencies:** Task M5.2
 
 **Estimated scope:** M
+
+## Task M5.3b1: Brigade Payment Write Isolation
+
+**Description:** Store payment ownership explicitly and derive every brigade payment mutation from the parent contract's saved company. Keep contract/item/act writes out of this step.
+
+**Status:** Implemented locally; release pending.
+
+**Acceptance criteria:**
+- [x] Brigade contract/payment ownership columns are indexed; exact/unique legacy rows are backfilled, while ambiguous rows remain `NULL` and fail closed instead of being assigned to company `1`.
+- [x] Payment reads fail closed when the payment and parent contract companies differ.
+- [x] Payment creation resolves the effective finance role from the contract's stored company, not from request project text.
+- [x] Payment creation stores the same company in `brigade_payments` and linked `project_payments`, plus the exact `project_payment_id` in one transaction.
+- [x] Payment deletion validates stored child/parent ownership and reverses only the exact linked `project_payments` row; ambiguous legacy links require manual reconciliation.
+- [x] Contract locking serializes available-balance checks so concurrent requests cannot overpay the same completed amount.
+- [x] Non-finite payment values (`NaN/Infinity`) and corrupted stored totals fail closed before a write or reversal.
+- [x] `NULL`, non-finite, and sub-cent brigade amounts are quarantined or rejected; accepted amounts are rounded to kopecks before both linked inserts.
+- [x] Ambiguous/unmapped legacy `project_payments` no longer fall back to company `1`; verified new writes require explicit company ownership at the database boundary.
+- [x] Exact `project_id` remains authoritative if the stored legacy project name is stale after a rename.
+- [x] `all_companies` and a conflicting `companyId` remain invalid for payment mutations.
+
+**Verification:**
+- [x] Brigade access tests cover matching, missing, and conflicting child-company ownership.
+- [x] Backend compile and focused tenant-access tests pass.
+- [x] Frontend tests and production build pass.
+- [x] Isolated PostgreSQL migration test covers exact, unique, ambiguous, stale-id, one-to-one link, duplicate-link, and idempotent rerun cases.
+- [ ] Production version and authenticated selected-company payment smoke pass after deploy.
+
+**Known follow-up:** M5.3b2 must close contract create/update/cancel and company-safe contractor assignment. M5.3b3 must close pricelist loading, items, acts, and estimate distribution.
+
+**Dependencies:** Task M5.3a
+
+**Estimated scope:** S
 
 ## Task M6: Remaining Tenant-Owned Domains
 
