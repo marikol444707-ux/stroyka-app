@@ -558,22 +558,50 @@ def create_and_select_offer(token, candidate, supplier_id, supplier_token=None):
 
 
 def create_supplier_invoice_for_offer(supplier_token, offer_id, candidate, stamp):
+    invoice_payload = {
+        "invoiceNumber": f"CODEX-SUPINV-{stamp}",
+        "invoiceDate": dt.date.today().isoformat(),
+        "amount": round(TEST_PRICE * candidate["quantity"], 2),
+        "vatAmount": 0,
+        "description": f"{TEST_NOTE_PREFIX} invoice",
+    }
     _, body = api_json(
         "POST",
         f"/supplier-offers/{offer_id}/create-invoice",
         token=supplier_token,
-        data={
-            "invoiceNumber": f"CODEX-SUPINV-{stamp}",
-            "invoiceDate": dt.date.today().isoformat(),
-            "amount": round(TEST_PRICE * candidate["quantity"], 2),
-            "vatAmount": 0,
-            "description": f"{TEST_NOTE_PREFIX} invoice",
-        },
+        data=invoice_payload,
         expected=200,
     )
     invoice_id = body.get("id")
     if not invoice_id:
         raise RuntimeError("Создание счета поставщика не вернуло id")
+    _, repeated = api_json(
+        "POST",
+        f"/supplier-offers/{offer_id}/create-invoice",
+        token=supplier_token,
+        data=invoice_payload,
+        expected=200,
+    )
+    if repeated.get("id") != invoice_id or repeated.get("alreadyExists") is not True:
+        raise RuntimeError("Повторное создание счета по КП должно вернуть существующий счет")
+    _, offer_history = api_json(
+        "GET",
+        f"/supplier-offers/{offer_id}/history",
+        token=supplier_token,
+        expected=200,
+    )
+    invoice_event = next(
+        (row for row in offer_history if row.get("eventType") == "invoice_created"),
+        None,
+    )
+    if not invoice_event:
+        raise RuntimeError("Создание счета по КП не записано в историю предложения")
+    try:
+        event_payload = json.loads(invoice_event.get("payloadJson") or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        event_payload = {}
+    if int(event_payload.get("invoiceId") or 0) != int(invoice_id):
+        raise RuntimeError("История КП содержит неверную ссылку на созданный счет")
     return invoice_id
 
 
@@ -1933,7 +1961,7 @@ def main():
                 "supplier offer list exposes the addressed offer through recipient and company scope",
                 "selected supplier KP request records email status and queues MAX notification",
                 "supplier account responded to KP and director selected it",
-                "supplier invoice created from selected KP",
+                "supplier invoice creation is tenant-scoped, idempotent and recorded in offer history",
                 "supplier shipment created",
                 "receipt created automatic invoice",
                 "supplier cabinet sees linked invoice, warehouse receipt, received quantity and receipt items",

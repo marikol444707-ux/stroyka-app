@@ -484,7 +484,10 @@ export const createSupplyActions = ({
       }),
     });
     const data = await r.json();
-    if (data.error) { alert('Ошибка: ' + data.error); return; }
+    if (!r.ok || data.detail || data.error) {
+      alert('Ошибка: ' + (data.detail || data.error || 'не удалось выставить счёт'));
+      return;
+    }
     notify('Счёт выставлен — ждёт оплаты бухгалтером', 'supply');
     setInvoicingOfferId(null);
     setNewOfferInvoice({ invoiceNumber: '', invoiceDate: new Date().toISOString().split('T')[0], amount: '', vatAmount: '', description: '', fileUrl: '' });

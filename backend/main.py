@@ -13,6 +13,7 @@ import secrets
 import base64
 import io
 import json
+import math
 import time
 import datetime as dt
 import mimetypes
@@ -10208,7 +10209,8 @@ def _supplier_offer_event_payload(data: dict) -> str:
     allowed = {
         "action", "pricePerUnit", "totalPrice", "deliveryDays", "paymentTerms",
         "vatIncluded", "validUntil", "supplierMessage", "pdfUrl", "itemsKp",
-        "status", "deliveryStatus",
+        "status", "deliveryStatus", "invoiceId", "invoiceNumber", "amount",
+        "vatAmount", "duplicateDocument",
     }
     payload = {k: data.get(k) for k in allowed if k in data}
     return json.dumps(payload, ensure_ascii=False, default=str)
@@ -11302,54 +11304,135 @@ def compare_kp_for_request(id: int, current_user: dict = Depends(require_roles(*
     }
 
 @app.post("/supplier-offers/{id}/create-invoice")
-def create_invoice_from_offer(id: int, data: dict, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
+def create_invoice_from_offer(
+    id: int,
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     """Поставщик выставляет счёт по выигранному КП.
        Автоматически создаёт supplier_invoice."""
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     _ensure_supply_runtime_columns(cur)
     conn.commit()
     cur.execute(
         "SELECT o.id, o.supplier_id, o.request_id, o.total_price, o.payment_terms, o.vat_included, "
-        "COALESCE(o.company_id, r.company_id, 1) AS company_id, "
+        "o.company_id, r.company_id AS request_company_id, "
         "s.name as supplier_name, r.project as project_name, r.material_name, "
         "COALESCE(r.work_package,'') AS work_package, r.items_json "
         "FROM supplier_offers o "
         "LEFT JOIN suppliers s ON s.id=o.supplier_id "
-        "LEFT JOIN supply_requests r ON r.id=o.request_id "
-        "WHERE o.id=%s AND o.status=%s",
+        "JOIN supply_requests r ON r.id=o.request_id "
+        "WHERE o.id=%s AND o.status=%s FOR UPDATE OF o, r",
         (id, 'Утверждено'))
     offer = cur.fetchone()
     if not offer:
         cur.close(); conn.close()
         return {"error": "Утверждённое КП не найдено"}
-    if _current_user.get("role") == "поставщик":
-        supplier_ids = current_supplier_ids(cur, _current_user)
-        if offer['supplier_id'] not in supplier_ids:
+    company_id = int(offer.get("company_id") or 0)
+    claimed_company_id = data.get("companyId") if "companyId" in data else data.get("company_id")
+    try:
+        assert_rows_company_scope(
+            [{"company_id": offer.get("request_company_id")}],
+            company_id,
+            "Заявка утверждённого КП",
+        )
+        if claimed_company_id not in (None, ""):
+            claimed_id = _positive_int_or_none(claimed_company_id)
+            if not claimed_id:
+                raise HTTPException(status_code=400, detail="companyId должен быть положительным целым числом")
+            assert_rows_company_scope(
+                [{"company_id": claimed_id}],
+                company_id,
+                "companyId счёта",
+            )
+        _ensure_supply_request_recipients_table(cur)
+        cur.execute("SELECT company_id FROM supplier_offers WHERE request_id=%s FOR UPDATE", (offer.get("request_id"),))
+        assert_rows_company_scope(cur.fetchall(), company_id, "Коммерческие предложения заявки")
+        cur.execute("SELECT company_id FROM supply_request_recipients WHERE request_id=%s FOR UPDATE", (offer.get("request_id"),))
+        assert_rows_company_scope(cur.fetchall(), company_id, "Получатели КП")
+
+        actor_user = _current_user
+        if _current_user.get("role") == "поставщик":
+            _require_supplier_offer_visibility(cur, id, _current_user, "Нет доступа к КП для выставления счёта")
+        else:
+            _company_context, actor_user = resolve_resource_company_actor(
+                cur,
+                _current_user,
+                company_id,
+                "create",
+                claimed_company_id=claimed_company_id,
+                x_company_id=x_company_id,
+                x_company_mode=x_company_mode,
+                allowed_roles=SUPPLY_INTERNAL_ROLES,
+                forbidden_detail="Роль в выбранной компании не позволяет создавать счёт по КП",
+                platform_staff_roles=PLATFORM_STAFF_ROLES,
+                client_account_roles=CLIENT_ACCOUNT_ROLES,
+            )
+            require_project_or_warehouse_access(actor_user, offer['project_name'] or "")
+            if actor_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(actor_user, offer.get("work_package") or "Основная"):
+                raise HTTPException(status_code=403, detail="Нет доступа к пакету КП")
+    except Exception:
+        conn.rollback()
+        cur.close(); conn.close()
+        raise
+    invoice_number = str(data.get('invoiceNumber') or '').strip()
+    if not invoice_number:
+        conn.rollback()
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Укажите номер счёта")
+    if len(invoice_number) > 100:
+        conn.rollback()
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Номер счёта слишком длинный")
+    invoice_date = str(data.get('invoiceDate') or '').strip() or None
+    if invoice_date:
+        try:
+            dt.date.fromisoformat(invoice_date)
+        except ValueError:
+            conn.rollback()
             cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="нет доступа к КП")
-    else:
-        if _current_user.get("role") not in SUPPLY_INTERNAL_ROLES:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Счёт поставщика создаёт снабжение, склад, бухгалтерия или руководство")
-        require_project_access(_current_user, offer['project_name'] or "")
-        if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, offer.get("work_package") or "Основная"):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Нет доступа к пакету КП")
-    invoice_number = data.get('invoiceNumber') or ''
-    invoice_date = data.get('invoiceDate') or None
-    amount = float(data.get('amount') or offer['total_price'] or 0)
+            raise HTTPException(status_code=400, detail="Дата счёта должна быть в формате ГГГГ-ММ-ДД")
+    try:
+        raw_amount = data.get('amount')
+        amount = float(raw_amount if raw_amount not in (None, "") else (offer['total_price'] or 0))
+        vat_amount = float(data.get('vatAmount') or 0)
+    except (TypeError, ValueError):
+        conn.rollback()
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Сумма счёта и НДС должны быть числами")
+    if not math.isfinite(amount) or amount <= 0:
+        conn.rollback()
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Сумма счёта должна быть больше нуля")
+    if not math.isfinite(vat_amount) or vat_amount < 0 or vat_amount > amount:
+        conn.rollback()
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Сумма НДС должна быть от нуля до суммы счёта")
     offer_total = _float_or_zero(offer.get('total_price'))
     if offer_total > 0 and amount > offer_total + max(1.0, offer_total * 0.02):
+        conn.rollback()
         cur.close(); conn.close()
         raise HTTPException(status_code=400, detail=f"Сумма счёта не может быть выше утверждённого КП: {round(offer_total, 2)} ₽")
-    vat_amount = float(data.get('vatAmount') or 0)
     file_url = data.get('fileUrl') or data.get('photoUrl') or ''
     description = data.get('description') or ('Материал: '+(offer['material_name'] or ''))
-    cur.execute("""SELECT id FROM supplier_invoices
-                   WHERE offer_id=%s AND COALESCE(status,'') <> 'Аннулирован'
-                   ORDER BY id DESC LIMIT 1""", (id,))
-    existing_invoice = cur.fetchone()
+    cur.execute("""SELECT id, status, company_id FROM supplier_invoices
+                   WHERE offer_id=%s
+                   ORDER BY id DESC FOR UPDATE""", (id,))
+    invoice_rows = cur.fetchall()
+    try:
+        assert_rows_company_scope(invoice_rows, company_id, "Счета утверждённого КП")
+    except Exception:
+        conn.rollback()
+        cur.close(); conn.close()
+        raise
+    existing_invoice = next(
+        (row for row in invoice_rows if (row.get("status") or "") != "Аннулирован"),
+        None,
+    )
     if existing_invoice:
         existing_id = existing_invoice.get('id') if isinstance(existing_invoice, dict) else existing_invoice[0]
         conn.commit()
@@ -11363,7 +11446,7 @@ def create_invoice_from_offer(id: int, data: dict, _current_user: dict = Depends
     invoice_package = data.get('workPackage') or (next(iter(item_packages)) if len(item_packages) == 1 else (offer.get("work_package") or ""))
     duplicate_invoice = _find_existing_supplier_invoice_duplicate(
         cur,
-        company_id=offer.get('company_id') or 1,
+        company_id=company_id,
         invoice_number=invoice_number,
         invoice_date=invoice_date,
         project_name=offer['project_name'],
@@ -11374,12 +11457,42 @@ def create_invoice_from_offer(id: int, data: dict, _current_user: dict = Depends
         offer_id=offer['id'],
     )
     if duplicate_invoice:
-        existing_id = duplicate_invoice.get("id")
+        existing_id = int(duplicate_invoice.get("id") or 0)
+        cur.execute(
+            """
+            SELECT id, company_id, supplier_id, offer_id, request_id
+              FROM supplier_invoices
+             WHERE id=%s
+             FOR UPDATE
+            """,
+            (existing_id,),
+        )
+        duplicate_scope = cur.fetchone()
+        try:
+            assert_rows_company_scope([duplicate_scope], company_id, "Найденный дубликат счёта")
+        except Exception:
+            conn.rollback()
+            cur.close(); conn.close()
+            raise
+        supplier_scope_ids = supplier_group_scope_ids(cur, [offer.get("supplier_id")])
+        if int((duplicate_scope or {}).get("supplier_id") or 0) not in supplier_scope_ids:
+            conn.rollback()
+            cur.close(); conn.close()
+            raise HTTPException(status_code=409, detail="Счёт с такими реквизитами относится к другому поставщику")
+        linked_offer_id = int((duplicate_scope or {}).get("offer_id") or 0)
+        linked_request_id = int((duplicate_scope or {}).get("request_id") or 0)
+        if linked_offer_id and linked_offer_id != int(offer.get("id") or 0):
+            conn.rollback()
+            cur.close(); conn.close()
+            raise HTTPException(status_code=409, detail="Счёт уже связан с другим КП")
+        if linked_request_id and linked_request_id != int(offer.get("request_id") or 0):
+            conn.rollback()
+            cur.close(); conn.close()
+            raise HTTPException(status_code=409, detail="Счёт уже связан с другой заявкой")
         cur.execute(
             """
             UPDATE supplier_invoices
-               SET company_id=%s,
-                   offer_id=COALESCE(offer_id,%s),
+               SET offer_id=COALESCE(offer_id,%s),
                    request_id=COALESCE(request_id,%s),
                    supplier_id=COALESCE(supplier_id,%s),
                    supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
@@ -11388,10 +11501,9 @@ def create_invoice_from_offer(id: int, data: dict, _current_user: dict = Depends
                    work_package=COALESCE(NULLIF(work_package,''),%s),
                    description=COALESCE(NULLIF(description,''),%s),
                    file_url=COALESCE(NULLIF(file_url,''),%s)
-             WHERE id=%s
+             WHERE id=%s AND company_id=%s
             """,
             (
-                offer.get('company_id') or 1,
                 offer['id'],
                 offer['request_id'],
                 offer['supplier_id'],
@@ -11402,7 +11514,28 @@ def create_invoice_from_offer(id: int, data: dict, _current_user: dict = Depends
                 description,
                 file_url,
                 existing_id,
+                company_id,
             ),
+        )
+        if cur.rowcount != 1:
+            conn.rollback()
+            cur.close(); conn.close()
+            raise HTTPException(status_code=409, detail="Компания счёта изменилась во время создания")
+        _log_supplier_offer_event(
+            cur,
+            id,
+            "invoice_linked",
+            "Утверждено",
+            "Утверждено",
+            actor_user,
+            {
+                "action": "invoice_linked",
+                "invoiceId": existing_id,
+                "invoiceNumber": invoice_number,
+                "amount": amount,
+                "vatAmount": vat_amount,
+                "duplicateDocument": True,
+            },
         )
         conn.commit()
         cur.close(); conn.close()
@@ -11413,11 +11546,26 @@ def create_invoice_from_offer(id: int, data: dict, _current_user: dict = Depends
         "amount, vat_amount, description, file_url, status, offer_id, request_id, "
         "payment_terms, material_name, work_package) "
         "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (offer.get('company_id') or 1, offer['supplier_id'], offer['supplier_name'], offer['project_name'],
+        (company_id, offer['supplier_id'], offer['supplier_name'], offer['project_name'],
          invoice_number, invoice_date, amount, vat_amount, description, file_url,
          'На утверждении', offer['id'], offer['request_id'],
          offer['payment_terms'], offer['material_name'], invoice_package))
     new_id = cur.fetchone()['id']
+    _log_supplier_offer_event(
+        cur,
+        id,
+        "invoice_created",
+        "Утверждено",
+        "Утверждено",
+        actor_user,
+        {
+            "action": "invoice_created",
+            "invoiceId": new_id,
+            "invoiceNumber": invoice_number,
+            "amount": amount,
+            "vatAmount": vat_amount,
+        },
+    )
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True, "id": new_id}
