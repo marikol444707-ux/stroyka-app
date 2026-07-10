@@ -11419,6 +11419,20 @@ def create_invoice_from_offer(
         raise HTTPException(status_code=400, detail=f"Сумма счёта не может быть выше утверждённого КП: {round(offer_total, 2)} ₽")
     file_url = data.get('fileUrl') or data.get('photoUrl') or ''
     description = data.get('description') or ('Материал: '+(offer['material_name'] or ''))
+    supplier_scope_ids = supplier_group_scope_ids(cur, [offer.get("supplier_id")])
+    invoice_lock_key = "|".join((
+        str(company_id),
+        ",".join(str(value) for value in sorted(supplier_scope_ids)),
+        invoice_number.casefold(),
+        invoice_date or "",
+        str(offer.get("project_name") or "").casefold(),
+    ))
+    invoice_lock_id = int.from_bytes(
+        hashlib.sha256(invoice_lock_key.encode("utf-8")).digest()[:8],
+        "big",
+        signed=True,
+    )
+    cur.execute("SELECT pg_advisory_xact_lock(%s)", (invoice_lock_id,))
     cur.execute("""SELECT id, status, company_id FROM supplier_invoices
                    WHERE offer_id=%s
                    ORDER BY id DESC FOR UPDATE""", (id,))
@@ -11474,7 +11488,6 @@ def create_invoice_from_offer(
             conn.rollback()
             cur.close(); conn.close()
             raise
-        supplier_scope_ids = supplier_group_scope_ids(cur, [offer.get("supplier_id")])
         if int((duplicate_scope or {}).get("supplier_id") or 0) not in supplier_scope_ids:
             conn.rollback()
             cur.close(); conn.close()

@@ -565,7 +565,7 @@
 - [x] Tracked frontend tests (14 suites / 66 tests passed).
 - [x] `npm run build`.
 - [x] `smoke:supply-chain` now asserts that repeated POST reuses one pending offer and records the update in its history; production run remains pending until release and credentials.
-- [x] Production version `fdf155b316cc`; health and database OK, service active, no warning-level log entries after deploy.
+- [x] Production version `fdf155b316cc`; HTTP smoke, active service check, clean warning log, and browser rendering of `/` and `/app` passed.
 
 **Dependencies:** Task M3.2
 
@@ -584,6 +584,7 @@
 - [x] Internal creation uses the offer's stored company, effective membership role, project access, and package access.
 - [x] All offers and recipient rows for the request are locked and checked against one company before invoice creation.
 - [x] Existing invoices for the offer are locked, checked by company, and reused idempotently.
+- [x] Concurrent writes for the same company, supplier group, invoice number, date, and project are serialized by a transaction-scoped advisory lock.
 - [x] A document duplicate is updated only with `WHERE id AND company_id`; a changed company fails closed.
 - [x] A duplicate document must belong to the same supplier group and cannot already belong to another offer or request.
 - [x] New invoices write the verified company explicitly; existing invoice, delivery, warehouse, and payment records are not migrated.
