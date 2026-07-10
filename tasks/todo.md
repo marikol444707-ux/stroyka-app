@@ -881,6 +881,27 @@
 
 **Estimated scope:** S
 
+## Task M4.11: Main Warehouse Write Isolation
+
+**Description:** Bind creation and updates of main-warehouse material cards to one selected company and authorize through the effective membership role.
+
+**Status:** Implemented locally; release pending.
+
+**Acceptance criteria:**
+- [x] `POST /warehouse-main` requires one writable company and stores `company_id`.
+- [x] `PUT /warehouse-main/{id}` authorizes from the row's stored company.
+- [x] Both routes use the effective selected-company role.
+- [x] `all_companies` remains read-only.
+- [x] Updates include the stored company in the final SQL predicate.
+
+**Verification:**
+- [ ] Backend compile and focused tests pass.
+- [ ] Frontend tests and production build pass.
+
+**Dependencies:** Task M4.10
+
+**Estimated scope:** S
+
 ## Task M5: Finance And Accounting Isolation
 
 **Description:** Scope project payments, supplier payments, accounting records, contracts, and reports by verified company and legal entity.

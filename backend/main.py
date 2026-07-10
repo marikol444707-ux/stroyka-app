@@ -6597,26 +6597,78 @@ def get_warehouse_main(
     return out
 
 @app.post("/warehouse-main")
-def create_warehouse_main(m: WarehouseMainModel, _current_user: dict = Depends(require_roles(*MAIN_WAREHOUSE_WRITE_ROLES))):
+def create_warehouse_main(
+    m: WarehouseMainModel,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     unit = _norm_base_unit(m.unit or "шт") or "шт"
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("INSERT INTO warehouse_main (name,unit,quantity,price,min_quantity,category) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id,name,unit,quantity,price,min_quantity as \"minQuantity\",category",
-                (m.name,unit,m.quantity,m.price,m.minQuantity,m.category))
-    row = cur.fetchone()
-    conn.commit()
-    conn.close()
+    try:
+        company_context = _resolve_work_company_context(
+            cur,
+            _current_user,
+            None,
+            "write",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        company_id = int(company_context.get("companyId") or 0)
+        actors = effective_company_actors(_current_user, company_context)
+        actor = actors[0] if len(actors) == 1 else {}
+        if company_id <= 0 or not actor:
+            raise HTTPException(status_code=409, detail="Компания основного склада не определена")
+        if (actor.get("role") or "") not in MAIN_WAREHOUSE_WRITE_ROLES:
+            raise HTTPException(status_code=403, detail="Роль в выбранной компании не позволяет менять основной склад")
+        cur.execute("INSERT INTO warehouse_main (name,unit,quantity,price,min_quantity,category,company_id) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id,name,unit,quantity,price,min_quantity as \"minQuantity\",category,company_id as \"companyId\"",
+                    (m.name,unit,m.quantity,m.price,m.minQuantity,m.category,company_id))
+        row = cur.fetchone()
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close(); conn.close()
     return dict(row)
 
 @app.put("/warehouse-main/{id}")
-def update_warehouse_main(id: int, m: WarehouseMainModel, _current_user: dict = Depends(require_roles(*MAIN_WAREHOUSE_WRITE_ROLES))):
+def update_warehouse_main(
+    id: int,
+    m: WarehouseMainModel,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     unit = _norm_base_unit(m.unit or "шт") or "шт"
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute("UPDATE warehouse_main SET name=%s,unit=%s,quantity=%s,price=%s,min_quantity=%s,category=%s WHERE id=%s",
-                (m.name,unit,m.quantity,m.price,m.minQuantity,m.category,id))
-    conn.commit()
-    conn.close()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("SELECT id,company_id FROM warehouse_main WHERE id=%s FOR UPDATE", (id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Материал основного склада не найден")
+        _company_context, _actor = resolve_resource_company_actor(
+            cur,
+            _current_user,
+            row.get("company_id"),
+            "update",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            allowed_roles=MAIN_WAREHOUSE_WRITE_ROLES,
+            forbidden_detail="Роль в выбранной компании не позволяет менять основной склад",
+            platform_staff_roles=PLATFORM_STAFF_ROLES,
+            client_account_roles=CLIENT_ACCOUNT_ROLES,
+        )
+        cur.execute("UPDATE warehouse_main SET name=%s,unit=%s,quantity=%s,price=%s,min_quantity=%s,category=%s WHERE id=%s AND company_id=%s",
+                    (m.name,unit,m.quantity,m.price,m.minQuantity,m.category,id,row.get("company_id")))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close(); conn.close()
     return {"ok": True}
 
 @app.delete("/warehouse-main/{id}")

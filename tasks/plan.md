@@ -76,6 +76,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [ ] Task M4.8: Require one verified company across warehouse invoice creation and stock updates. Implemented locally; release pending.
 - [ ] Task M4.9: Protect warehouse invoice accounting updates by stored company and effective finance role. Implemented locally; release pending.
 - [ ] Task M4.10: Protect warehouse invoice annulment and stock reversal by stored company. Implemented locally; release pending.
+- [ ] Task M4.11: Protect main-warehouse card creation and updates by selected company. Implemented locally; release pending.
 - [ ] Task M5: Scope payments, accounting, contracts, and financial reports.
 - [ ] Task M6: Scope remaining projects, estimates, journals, acts, files, notifications, audit, and AI jobs.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
