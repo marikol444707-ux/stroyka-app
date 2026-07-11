@@ -1636,11 +1636,32 @@
 
 **Estimated scope:** S
 
-## Task M6.4h: Tenant-Scoped Estimate Change List
+## Task M6.4h: Estimate Change Create Ownership
 
-**Description:** Change only `GET /unexpected-works` to select rows through stored `company_id/project_id` and the server-resolved tenant context. Keep create/update/delete, include/reconcile, limit-check, and AI routes unchanged in this slice.
+**Description:** Before strict list reads are enabled, change only `POST /unexpected-works` to resolve one selected-company actor and exact project parent, then store immutable `company_id/project_id` on every new row. Keep list/update/delete, include/reconcile, limit-check, and AI routes unchanged in this slice.
 
-**Status:** Planned; not started.
+**Status:** Implemented locally; release pending. Required before strict list reads because the legacy create route otherwise inserts ownerless rows that would disappear immediately after refresh.
+
+**Acceptance criteria:**
+- [x] Create requires one concrete selected company; `all_companies` and an unavailable company fail before `INSERT`.
+- [x] The project is resolved by exact parent inside the selected company, and both `company_id/project_id` are written from server state rather than request claims.
+- [x] Explicit `estimateId` and `includedInEstimateId` must belong to the same stored company/project; cross-project or cross-company parents fail before `INSERT`.
+- [x] Effective membership role controls project/package access and worker money/status sanitizing; the global account role cannot elevate it.
+- [x] Existing request fields and `{id,ok}` response remain compatible; list/update/delete, include/reconcile, limit-check, and AI behavior are unchanged.
+
+**Verification:**
+- [x] Focused tests cover stored owner IDs, canonical project identity, aggregate denial, unavailable company, cross-parent estimate denial, package checks, worker sanitizing, and rollback.
+- [x] Full backend suite (`211` tests), M6 registry audit, compile, diff check, and production build pass.
+
+**Dependencies:** Task M6.4g
+
+**Estimated scope:** S
+
+## Task M6.4i: Tenant-Scoped Estimate Change List
+
+**Description:** After all new rows receive stored ownership, change only `GET /unexpected-works` to select through `company_id/project_id` and server-resolved tenant context. Keep update/delete, include/reconcile, limit-check, and AI routes unchanged in this slice.
+
+**Status:** Planned after Task M6.4h; it may be bundled into the same release, but must not be deployed before the create-ownership prerequisite.
 
 **Acceptance criteria:**
 - [ ] Selected-company reads return only rows whose stored company and project are visible to the effective membership role.
@@ -1652,7 +1673,7 @@
 - [ ] Focused tests cover two companies, direct selected-company reads, aggregate reads, unavailable company `403`, cross-company invisibility, worker money hiding, and legacy/mismatched owner exclusion.
 - [ ] Production verification is read-only and confirms no row, owner, or business-field changes.
 
-**Dependencies:** Task M6.4g
+**Dependencies:** Task M6.4h
 
 **Estimated scope:** S
 

@@ -19016,45 +19016,42 @@ def get_unexpected_works(current_user: dict = Depends(require_roles(*PROJECT_DOC
              "deltaQuantity":float(r[20] or 0),"includedInEstimateId":r[21],
              "reason":r[22] or ""} for r in rows]
 
-@app.post("/unexpected-works")
-def create_unexpected_work(data: dict, current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
-    project_name = data.get("projectName", "")
-    require_project_access(current_user, project_name)
-    role = current_user.get("role") or ""
-    section_name = (data.get("sectionName") or data.get("workPackage") or "Основная").strip() or "Основная"
-    if role in PACKAGE_LIMIT_ROLES and not has_package_access(current_user, section_name):
-        raise HTTPException(status_code=403, detail="Нет доступа к пакету работ: " + section_name)
-    price = float(data.get("price", 0) or 0)
-    total = float(data.get("total", 0) or 0)
-    status = data.get("status", "Ожидает согласования")
-    added_by = data.get("addedBy", "") or current_user.get("name", "")
-    added_by_role = data.get("addedByRole", "") or role
-    if role in WORKER_EXECUTION_ROLES:
-        price = 0
-        total = 0
-        status = "Ожидает согласования"
-        added_by = current_user.get("name", "")
-        added_by_role = role
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""INSERT INTO unexpected_works
-                   (project_name,description,unit,quantity,price,total,added_by,added_by_role,status,notes,photo_url,
-                    change_type,estimate_id,section_name,estimate_item_name,base_quantity,new_required_quantity,
-                    delta_quantity,included_in_estimate_id,reason)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-        (project_name,data.get("description",""),data.get("unit","шт"),
-         float(data.get("quantity",0)),price,total,
-         added_by,added_by_role,status,
-         data.get("notes",""),data.get("photoUrl",""),
-         data.get("changeType") or "Работа вне сметы", data.get("estimateId") or None,
-         section_name, data.get("estimateItemName",""),
-         float(data.get("baseQuantity") or 0), float(data.get("newRequiredQuantity") or 0),
-         float(data.get("deltaQuantity") or 0), data.get("includedInEstimateId") or None,
-         data.get("reason","")))
-    conn.commit()
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return {"id":row[0],"ok":True}
+try:
+    from backend.features.estimate_access.service import (
+        resolve_estimate_parent as resolve_estimate_change_parent,
+    )
+    from backend.features.estimate_changes import register_estimate_changes_module
+    from backend.features.project_access.service import (
+        require_project_parent_access as require_estimate_change_project_access,
+        require_project_write_actor as require_estimate_change_write_actor,
+        resolve_project_parent as resolve_estimate_change_project,
+    )
+except ModuleNotFoundError:
+    from features.estimate_access.service import (
+        resolve_estimate_parent as resolve_estimate_change_parent,
+    )
+    from features.estimate_changes import register_estimate_changes_module
+    from features.project_access.service import (
+        require_project_parent_access as require_estimate_change_project_access,
+        require_project_write_actor as require_estimate_change_write_actor,
+        resolve_project_parent as resolve_estimate_change_project,
+    )
+
+register_estimate_changes_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "require_project_write_actor": require_estimate_change_write_actor,
+    "resolve_project_parent": resolve_estimate_change_project,
+    "require_project_parent_access": require_estimate_change_project_access,
+    "resolve_estimate_parent": resolve_estimate_change_parent,
+    "has_package_access": has_package_access,
+    "journal_write_roles": JOURNAL_WRITE_ROLES,
+    "full_view_roles": BRIGADE_FULL_VIEW_ROLES,
+    "package_limit_roles": PACKAGE_LIMIT_ROLES,
+    "worker_execution_roles": WORKER_EXECUTION_ROLES,
+})
 
 @app.put("/unexpected-works/{id}")
 def update_unexpected_work(id: int, data: dict, current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES, *LEADERSHIP_ROLES))):
