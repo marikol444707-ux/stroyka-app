@@ -1,5 +1,58 @@
 import React from 'react';
-import { Check, FileText, ScrollText, Search, X } from 'lucide-react';
+import { Check, FileText, ImageOff, LoaderCircle, ScrollText, Search, X } from 'lucide-react';
+
+import useProtectedFileObjectUrl from '../features/uploads/useProtectedFileObjectUrl';
+
+
+function WorkJournalPhotoPreview({url, fileSrc, onOpen, C}) {
+  const {src, loading, error} = useProtectedFileObjectUrl(url, fileSrc);
+  const frameStyle = {
+    width: '32px',
+    height: '32px',
+    flex: '0 0 32px',
+    borderRadius: '6px',
+    boxSizing: 'border-box',
+  };
+
+  if (loading) {
+    return (
+      <span
+        role="status"
+        aria-label="Фото ЖПР загружается"
+        onClick={event => event.stopPropagation()}
+        style={{...frameStyle, display:'flex', alignItems:'center', justifyContent:'center', color:C.textMuted, backgroundColor:C.bg, border:'1px solid ' + C.border}}
+      >
+        <LoaderCircle size={14}/>
+      </span>
+    );
+  }
+
+  if (error || !src) {
+    return (
+      <span
+        role="status"
+        aria-label="Фото ЖПР недоступно"
+        title={error}
+        onClick={event => event.stopPropagation()}
+        style={{...frameStyle, display:'flex', alignItems:'center', justifyContent:'center', color:C.danger || C.textMuted, backgroundColor:C.bg, border:'1px solid ' + C.border}}
+      >
+        <ImageOff size={14}/>
+      </span>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt="Фото к записи ЖПР"
+      onClick={event => {
+        event.stopPropagation();
+        if (onOpen) onOpen(src);
+      }}
+      style={{...frameStyle, objectFit:'cover', cursor:'pointer'}}
+    />
+  );
+}
 
 export default function ProjectWorkJournalPanel({
   project,
@@ -187,11 +240,11 @@ export default function ProjectWorkJournalPanel({
                       {item.status === 'Подтверждено' && <span style={badge(C.success, C.successLight, C.successBorder)}>✅</span>}
                       {item.status === 'Отклонено' && <span style={badge(C.danger, C.dangerLight, C.dangerBorder)}>❌</span>}
                       {item.photoUrl && (
-                        <img
-                          src={fileSrc(item.photoUrl)}
-                          alt=""
-                          onClick={event => { event.stopPropagation(); setShowPhotoModal(fileSrc(item.photoUrl)); }}
-                          style={{width: '32px', height: '32px', borderRadius: '6px', objectFit: 'cover', cursor: 'pointer'}}
+                        <WorkJournalPhotoPreview
+                          url={item.photoUrl}
+                          fileSrc={fileSrc}
+                          onOpen={setShowPhotoModal}
+                          C={C}
                         />
                       )}
                     </div>

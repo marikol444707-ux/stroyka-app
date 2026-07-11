@@ -1345,6 +1345,32 @@
 
 **Estimated scope:** S
 
+## Task M6.2d5: Protected Project Work-Journal Thumbnail
+
+**Description:** Move only the photo thumbnail in the existing project `Производство работ` list onto the authenticated Blob loader. Keep master uploads, work-journal writes, edit/history renderers, backend routes, and S3 ACL unchanged.
+
+**Status:** Implemented locally; release pending.
+
+**Acceptance criteria:**
+- [x] A strict local `/tenant-files/{positiveId}/content` ЖПР photo renders only after the authenticated Blob request succeeds.
+- [x] Clicking the thumbnail stops the journal-row edit click and opens the resolved Blob URL.
+- [x] Loading and failure states preserve the existing 32x32 slot; a failed protected request renders no `<img>` and never falls back to a public URL.
+- [x] Compatibility `/uploads` photos remain direct and trigger no Blob request.
+- [x] Component unmount revokes the created object URL through the shared M6.2d3 loader.
+- [x] Upload calls, stored ЖПР rows, edit/history renderers, backend, and storage ACL remain unchanged.
+
+**Verification:**
+- [x] Focused work-journal, chat-preview, and Blob-loader suites pass (`3` suites / `12` tests).
+- [x] Intended tracked frontend suite passes (`21` suites / `91` tests); full working-tree suite passes (`22` suites / `96` tests).
+- [x] Production build succeeds.
+- [ ] Production deploy, public smoke, authenticated tenant-file smoke, and project work-journal browser check pass.
+
+**Known follow-up:** Work-journal ownership and read/write isolation remain part of `M6.5`; do not opt ЖПР uploads into protected return URLs until every ЖПР renderer is audited and stored `company_id`/`project_id` checks are complete.
+
+**Dependencies:** Tasks M6.2d3-M6.2d4
+
+**Estimated scope:** S
+
 **M6 safety gate:** do not backfill ambiguous legacy rows, do not use project names as authorization identifiers, do not allow mutation in `all_companies`, and do not start the two-company production E2E until M6.0-M6.8 and the preceding M4/M5 gaps are closed.
 
 ## Task M7: Backfill, Constraints, And Pilot Matrix
