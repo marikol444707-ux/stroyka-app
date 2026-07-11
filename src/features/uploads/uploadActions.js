@@ -22,7 +22,7 @@ export const createUploadActions = ({
     try {
       const res = await fetch(API + '/upload-photo', { method: 'POST', body: fd });
       const data = await res.json();
-      return data.url;
+      return meta.preferProtectedUrl ? (data.contentUrl || data.url) : data.url;
     } catch {
       return '';
     }

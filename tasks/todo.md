@@ -1242,6 +1242,30 @@
 
 **Estimated scope:** S
 
+## Task M6.2d1: Protected Project-Letter Attachments
+
+**Description:** Start the consumer migration with one display-only document surface: newly uploaded project-letter attachments use the authorized tenant-file content endpoint, while all other upload flows and existing stored URLs remain compatible.
+
+**Status:** Implemented locally; release pending.
+
+**Acceptance criteria:**
+- [x] The shared upload helper returns the compatibility `url` by default, so existing consumers do not change behavior.
+- [x] An explicitly migrated consumer may request `contentUrl`, with compatibility fallback when an older backend does not return it.
+- [x] New project-letter attachments send the current exact `projectId` and store the protected `/tenant-files/{id}/content` path.
+- [x] Existing project-letter rows and all OCR, accounting, warehouse, chat, and photo consumers remain unchanged.
+- [x] New S3 objects remain `public-read` until the protected consumer audit is complete; private-storage cutover is not part of this slice.
+
+**Verification:**
+- [x] Focused upload-helper and project-letter component tests pass (`4` tests).
+- [x] Exact tracked frontend suite passes (`17` suites / `76` tests); full working-tree suite also passes (`18` suites / `81` tests), and the production build succeeds.
+- [ ] Production deploy, public smoke, and authenticated tenant-file smoke pass.
+
+**Known follow-up:** Continue M6.2d one display-only consumer at a time. Photo previews need a separate authenticated Blob-loader decision because protected responses use same-origin resource policy; do not switch S3 to private until those consumers are migrated and audited.
+
+**Dependencies:** Tasks M6.2c-M6.2c1
+
+**Estimated scope:** S
+
 **M6 safety gate:** do not backfill ambiguous legacy rows, do not use project names as authorization identifiers, do not allow mutation in `all_companies`, and do not start the two-company production E2E until M6.0-M6.8 and the preceding M4/M5 gaps are closed.
 
 ## Task M7: Backfill, Constraints, And Pilot Matrix

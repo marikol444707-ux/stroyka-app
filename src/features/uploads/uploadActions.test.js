@@ -58,4 +58,40 @@ describe('upload actions project identity', () => {
     const duplicateRequest = global.fetch.mock.calls[1][1];
     expect(duplicateRequest.body.get('projectId')).toBeNull();
   });
+
+  test('returns protected content URL only for explicitly migrated consumers', async () => {
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce({
+        json: async () => ({
+          url: '/uploads/company-4/file.pdf',
+          contentUrl: '/tenant-files/31/content',
+        }),
+      })
+      .mockResolvedValueOnce({
+        json: async () => ({
+          url: '/uploads/company-4/file.pdf',
+          contentUrl: '/tenant-files/32/content',
+        }),
+      })
+      .mockResolvedValueOnce({
+        json: async () => ({url: '/uploads/company-4/legacy.pdf'}),
+      });
+    const actions = createUploadActions({
+      API: '',
+      activePage: 'projects',
+      activeProjectTab: 'letters',
+      expandedProject: '',
+      masterProjectId: '',
+      projects: [{id: 17, name: 'Лицей'}],
+    });
+    const file = new File(['letter'], 'letter.pdf', {type: 'application/pdf'});
+
+    const compatibilityUrl = await actions.uploadPhoto(file, {projectId: 17});
+    const protectedUrl = await actions.uploadPhoto(file, {projectId: 17, preferProtectedUrl: true});
+    const protectedFallback = await actions.uploadPhoto(file, {projectId: 17, preferProtectedUrl: true});
+
+    expect(compatibilityUrl).toBe('/uploads/company-4/file.pdf');
+    expect(protectedUrl).toBe('/tenant-files/32/content');
+    expect(protectedFallback).toBe('/uploads/company-4/legacy.pdf');
+  });
 });

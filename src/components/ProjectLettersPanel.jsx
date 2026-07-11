@@ -4,6 +4,7 @@ import { API } from '../api';
 import { createProjectLetterForm } from '../features/documents/projectDocumentInitialForms';
 
 export default function ProjectLettersPanel({
+  projectId,
   projectName,
   projectLetters = [],
   newLetter,
@@ -27,7 +28,12 @@ export default function ProjectLettersPanel({
   const uploadLetterFile = async (file) => {
     if (!file) return;
     setUploadingLetter(true);
-    const url = await uploadPhoto(file, {projectName, context: 'project-letters'});
+    const url = await uploadPhoto(file, {
+      projectId,
+      projectName,
+      context: 'project-letters',
+      preferProtectedUrl: true,
+    });
     setUploadingLetter(false);
     if (url) {
       setNewLetter(prev => ({...prev, fileUrl: url}));
