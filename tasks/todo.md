@@ -1406,7 +1406,7 @@
 
 **Description:** Enable authenticated protected-photo previews only in the two master work-submission fields that write `work-journal` photos. Keep the daily-work act, estimate-change form, upload return value, stored URLs, backend, and S3 ACL unchanged.
 
-**Status:** Implementation and local verification complete; production deploy pending.
+**Status:** Deployed in `7c0d2570`; production runtime, public/authenticated file smoke, and master-cabinet browser smoke passed.
 
 **Acceptance criteria:**
 - [x] A dedicated master work-journal photo boundary always enables protected preview and forces `context="work-journal"`.
@@ -1418,9 +1418,9 @@
 
 **Verification:**
 - [x] Focused master boundary, attachment-field, Blob-loader, and ЖПР edit suites pass (`4` suites / `14` tests).
-- [x] Full working-tree frontend suite passes (`25` suites / `104` tests).
+- [x] Exact tracked frontend suite passes (`24` suites / `99` tests); full working-tree suite passes (`25` suites / `104` tests).
 - [x] Production build succeeds.
-- [ ] Production runtime, public smoke, and authenticated master browser flow pass after deploy.
+- [x] Production runtime and frontend assets match `7c0d2570`; public smoke, authenticated tenant-file cleanup, and master login/cabinet flow pass without console errors. The available master project has no linked price list, so the two work-submission fields are verified by focused component tests without creating a business row.
 
 **Known follow-up:** This slice only makes the two master submission renderers ready for protected URLs. It does not request protected return URLs and does not complete work-journal tenant ownership/read-write isolation; those remain separate audited slices.
 

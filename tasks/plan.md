@@ -98,7 +98,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.2d4: Migrate the main company-chat message thumbnail to the protected Blob loader without changing uploads or stored messages. Deployed in `845532f5`; public, authenticated file, and main-chat browser checks passed.
 - [x] Task M6.2d5: Migrate the project work-journal list thumbnail to the protected Blob loader without changing uploads, stored rows, or backend. Deployed in `6fe3a6aa`; public, authenticated file, and work-journal browser checks passed.
 - [x] Task M6.2d6: Add opt-in protected rendering to `PhotoAttachmentField` and enable it only in the work-journal edit form, preserving every other caller. Deployed in `8805175b`; public, authenticated file, and prorab work-journal edit checks passed.
-- [ ] Task M6.2d7: Enable protected preview only for the two master work-submission photo fields with `context="work-journal"`, preserving their compatibility upload contract and every other master form. Implementation and local verification are complete; production deploy is pending.
+- [x] Task M6.2d7: Enable protected preview only for the two master work-submission photo fields with `context="work-journal"`, preserving their compatibility upload contract and every other master form. Deployed in `7c0d2570`; public, authenticated file, and master-cabinet browser checks passed.
 - [ ] Task M6.4: Scope company `messages`, estimate versions, changes, and estimate chat by stored company and verified project parents; `/messages` currently remains a critical legacy global table.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
