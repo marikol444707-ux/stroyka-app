@@ -29,6 +29,205 @@ def _actor_projects(actor):
     return sorted(set(projects + ([legacy_project] if legacy_project else [])))
 
 
+def _row_value(row, key, index):
+    if isinstance(row, dict):
+        return row.get(key)
+    if isinstance(row, (list, tuple)) and len(row) > index:
+        return row[index]
+    return None
+
+
+def _unique_contractor_candidate(rows):
+    user_ids = sorted({
+        user_id
+        for row in rows or []
+        for user_id in [_positive_int(_row_value(row, "id", 0))]
+        if user_id
+    })
+    if len(user_ids) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail="В выбранной компании найдено несколько исполнителей с такими данными. Укажите точного пользователя.",
+        )
+    return user_ids[0] if user_ids else None
+
+
+def require_brigade_write_actor(company_actors, write_roles):
+    """Return the sole selected-company actor allowed to mutate brigade contracts."""
+    actors = [
+        dict(actor)
+        for actor in company_actors or []
+        if _positive_int((actor or {}).get("companyId") or (actor or {}).get("company_id"))
+    ]
+    if len(actors) != 1:
+        raise HTTPException(
+            status_code=409,
+            detail="Для изменения договора бригады выберите одну конкретную компанию",
+        )
+    actor = actors[0]
+    allowed_roles = {str(role or "").strip() for role in write_roles or [] if str(role or "").strip()}
+    if str(actor.get("role") or "").strip() not in allowed_roles:
+        raise HTTPException(
+            status_code=403,
+            detail="Роль в выбранной компании не позволяет изменять договоры бригад",
+        )
+    company_id = _positive_int(actor.get("companyId") or actor.get("company_id"))
+    actor["companyId"] = company_id
+    actor["company_id"] = company_id
+    return actor
+
+
+def resolve_brigade_contractor_user(cur, company_id, contractor_id=None, contractor_name=""):
+    """Resolve an optional contractor user without crossing the selected-company boundary."""
+    normalized_company_id = _positive_int(company_id)
+    if not normalized_company_id:
+        raise HTTPException(status_code=409, detail="Компания договора бригады не определена")
+    if contractor_id not in (None, "") and not _positive_int(contractor_id):
+        raise HTTPException(status_code=400, detail="contractorId должен быть положительным целым числом")
+    normalized_contractor_id = _positive_int(contractor_id)
+    normalized_name = str(contractor_name or "").strip()
+    company_scope_sql = """(
+        u.company_id=%s OR EXISTS (
+            SELECT 1 FROM user_company_roles m
+             WHERE m.user_id=u.id AND m.company_id=%s AND COALESCE(m.active,TRUE)=TRUE
+        )
+    )"""
+
+    if normalized_contractor_id:
+        cur.execute(
+            "SELECT u.id,u.name FROM users u WHERE u.id=%s AND COALESCE(u.active,TRUE)=TRUE AND "
+            + company_scope_sql
+            + " LIMIT 1",
+            (normalized_contractor_id, normalized_company_id, normalized_company_id),
+        )
+        user_row = cur.fetchone()
+        cur.execute(
+            """SELECT s.name,s.email_work,s.email_personal
+                 FROM staff s
+                WHERE s.id=%s AND s.company_id=%s
+                LIMIT 1""",
+            (normalized_contractor_id, normalized_company_id),
+        )
+        staff_row = cur.fetchone()
+        if not user_row and not staff_row:
+            raise HTTPException(
+                status_code=400,
+                detail="Исполнитель не найден в выбранной компании",
+            )
+        if user_row and not staff_row:
+            return _positive_int(_row_value(user_row, "id", 0))
+        if user_row and staff_row:
+            if not normalized_name:
+                raise HTTPException(
+                    status_code=409,
+                    detail="ID исполнителя неоднозначен. Укажите ФИО из выбранной карточки.",
+                )
+            requested_name = normalized_name.casefold()
+            user_name = str(_row_value(user_row, "name", 1) or "").strip().casefold()
+            staff_name = str(_row_value(staff_row, "name", 0) or "").strip().casefold()
+            if requested_name == user_name and requested_name != staff_name:
+                return _positive_int(_row_value(user_row, "id", 0))
+            if requested_name != staff_name:
+                raise HTTPException(
+                    status_code=409,
+                    detail="ID и ФИО исполнителя указывают на разные карточки",
+                )
+        normalized_name = str(_row_value(staff_row, "name", 0) or normalized_name).strip()
+        emails = sorted({
+            str(value or "").strip().lower()
+            for value in (
+                _row_value(staff_row, "email_work", 1),
+                _row_value(staff_row, "email_personal", 2),
+            )
+            if str(value or "").strip()
+        })
+        if emails:
+            cur.execute(
+                "SELECT u.id FROM users u WHERE COALESCE(u.active,TRUE)=TRUE AND "
+                + company_scope_sql
+                + " AND LOWER(COALESCE(u.email,'')) = ANY(%s) ORDER BY u.id",
+                (normalized_company_id, normalized_company_id, emails),
+            )
+            email_user_id = _unique_contractor_candidate(cur.fetchall())
+            if email_user_id:
+                return email_user_id
+
+    if not normalized_name:
+        return None
+    cur.execute(
+        "SELECT u.id FROM users u WHERE COALESCE(u.active,TRUE)=TRUE AND "
+        + company_scope_sql
+        + " AND LOWER(TRIM(COALESCE(u.name,'')))=LOWER(TRIM(%s)) ORDER BY u.id",
+        (normalized_company_id, normalized_company_id, normalized_name),
+    )
+    return _unique_contractor_candidate(cur.fetchall())
+
+
+def grant_brigade_contractor_scope(
+    cur,
+    company_id,
+    user_id,
+    project_name,
+    work_package,
+    *,
+    project_scoped_roles,
+    package_required_roles,
+):
+    """Grant project/package scope only to the contractor's membership in this company."""
+    normalized_company_id = _positive_int(company_id)
+    normalized_user_id = _positive_int(user_id)
+    project = str(project_name or "").strip()
+    package = str(work_package or "Основная").strip() or "Основная"
+    scoped_roles = sorted({str(role or "").strip() for role in project_scoped_roles or [] if str(role or "").strip()})
+    package_roles = sorted({str(role or "").strip() for role in package_required_roles or [] if str(role or "").strip()})
+    if not normalized_company_id or not normalized_user_id or not project or not scoped_roles:
+        return None
+
+    cur.execute(
+        """UPDATE user_company_roles
+              SET assigned_projects=CASE
+                      WHEN COALESCE(assigned_projects,'[]'::jsonb) @> jsonb_build_array(%s::text)
+                      THEN COALESCE(assigned_projects,'[]'::jsonb)
+                      ELSE COALESCE(assigned_projects,'[]'::jsonb) || jsonb_build_array(%s::text)
+                  END,
+                  assigned_packages=CASE
+                      WHEN NOT (role = ANY(%s)) THEN COALESCE(assigned_packages,'[]'::jsonb)
+                      WHEN COALESCE(assigned_packages,'[]'::jsonb) @> jsonb_build_array(%s::text)
+                      THEN COALESCE(assigned_packages,'[]'::jsonb)
+                      ELSE COALESCE(assigned_packages,'[]'::jsonb) || jsonb_build_array(%s::text)
+                  END,
+                  updated_at=NOW()
+            WHERE user_id=%s AND company_id=%s
+              AND COALESCE(active,TRUE)=TRUE AND role = ANY(%s)""",
+        (project, project, package_roles, package, package, normalized_user_id, normalized_company_id, scoped_roles),
+    )
+    cur.execute(
+        """UPDATE users
+              SET project_name=CASE WHEN COALESCE(TRIM(project_name),'')='' THEN %s ELSE project_name END,
+                  assigned_projects=CASE
+                      WHEN COALESCE(assigned_projects,'[]'::jsonb) @> jsonb_build_array(%s::text)
+                      THEN COALESCE(assigned_projects,'[]'::jsonb)
+                      ELSE COALESCE(assigned_projects,'[]'::jsonb) || jsonb_build_array(%s::text)
+                  END,
+                  assigned_packages=CASE
+                      WHEN NOT (role = ANY(%s)) THEN COALESCE(assigned_packages,'[]'::jsonb)
+                      WHEN COALESCE(assigned_packages,'[]'::jsonb) @> jsonb_build_array(%s::text)
+                      THEN COALESCE(assigned_packages,'[]'::jsonb)
+                      ELSE COALESCE(assigned_packages,'[]'::jsonb) || jsonb_build_array(%s::text)
+                  END,
+                  active=TRUE
+            WHERE id=%s AND company_id=%s AND COALESCE(active,TRUE)=TRUE
+              AND role = ANY(%s)""",
+        (project, project, project, package_roles, package, package, normalized_user_id, normalized_company_id, scoped_roles),
+    )
+    return {
+        "companyId": normalized_company_id,
+        "userId": normalized_user_id,
+        "projectName": project,
+        "workPackage": package,
+    }
+
+
 def require_brigade_child_company(child_company_id, contract_company_id):
     """Reject a child row whose stored tenant differs from its contract owner."""
     child_id = _positive_int(child_company_id)

@@ -672,7 +672,7 @@
 
 **Description:** Make `GET /warehouse-main` resolve the selected company context and return only main-warehouse rows belonging to the selected company or the allowed account summary.
 
-**Status:** Implemented locally; release pending.
+**Status:** Implemented and pushed in `83529e6c`; production release pending.
 
 **Acceptance criteria:**
 - [x] The endpoint accepts `X-Company-Id` and `X-Company-Mode` using the tenant context kernel.
@@ -1028,6 +1028,34 @@
 **Known follow-up:** M5.3b2 must close contract create/update/cancel and company-safe contractor assignment. M5.3b3 must close pricelist loading, items, acts, and estimate distribution.
 
 **Dependencies:** Task M5.3a
+
+**Estimated scope:** S
+
+## Task M5.3b2: Brigade Contract Write Isolation
+
+**Description:** Bind brigade contract creation to one selected company and canonical project, then authorize update/cancellation from the company already stored on the contract. Keep item, act, pricelist-load, and estimate-distribution writes out of this step.
+
+**Status:** Implemented locally; common production release pending.
+
+**Acceptance criteria:**
+- [x] Contract creation requires one selected company and the effective director/deputy role in that company; `all_companies` cannot mutate.
+- [x] The project is resolved and locked inside the selected company by exact ID/name, and the contract explicitly stores the same `company_id`, `project_id`, and canonical project name.
+- [x] Contractor lookup is limited to active users/memberships and staff of the selected company; ambiguous names and staff/user ID collisions fail closed instead of guessing.
+- [x] A staff card without a system user may remain a named, unlinked brigade; it never receives an accidental foreign `contractor_id`.
+- [x] Project/package access is added only to the contractor membership in the selected company. Legacy `users` scope is changed only when `users.company_id` is that same company.
+- [x] Contract update and cancellation authorize through the stored contract owner, reject body/header company conflicts, lock the contract/project, and write with both `id` and `company_id`.
+- [x] Existing contract fields, status-cancellation semantics, response fields, and creation-time pricelist auto-load remain compatible.
+- [x] The create form does not add a phantom local contract after a server rejection and uses the server-confirmed company/project after success.
+
+**Verification:**
+- [x] Brigade access tests cover selected-company role checks, cross-company contractor rejection, ambiguous names, staff/user ID collisions, unlinked staff cards, and company-bound membership/legacy update predicates.
+- [x] Focused form tests cover rejected and successful tenant-safe creation.
+- [x] Backend compile, all feature tests, frontend tests, and production build pass before release.
+- [ ] Production version and authenticated selected-company create/update/cancel smoke pass after deploy.
+
+**Known follow-up:** M5.3b3 must close explicit pricelist loading, contract-item mutations, brigade acts, and estimate distribution before the brigade chain is ready for a two-company pilot.
+
+**Dependencies:** Tasks M5.3a-M5.3b1
 
 **Estimated scope:** S
 

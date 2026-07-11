@@ -126,17 +126,23 @@ try:
     from backend.features.brigade_access.service import (
         brigade_contract_project_reference,
         brigade_contract_visibility_filter,
+        grant_brigade_contractor_scope,
         require_brigade_child_company,
         require_brigade_project_payment_link,
+        require_brigade_write_actor,
         require_positive_brigade_amount,
+        resolve_brigade_contractor_user,
     )
 except ModuleNotFoundError:
     from features.brigade_access.service import (
         brigade_contract_project_reference,
         brigade_contract_visibility_filter,
+        grant_brigade_contractor_scope,
         require_brigade_child_company,
         require_brigade_project_payment_link,
+        require_brigade_write_actor,
         require_positive_brigade_amount,
+        resolve_brigade_contractor_user,
     )
 
 def _startup_num(v) -> float:
@@ -22390,38 +22396,112 @@ def delete_crm_lead(id: int, _current_user: dict = Depends(require_roles(*LEADER
     return {"ok": True}
 
 @app.post("/brigade-contracts")
-def create_brigade_contract(data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
-    require_project_access(_current_user, data.get("projectName", ""))
+def create_brigade_contract(
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    pricelist_id = data.get("pricelistId") or None
-    work_package = (data.get("workPackage") or data.get("work_package") or "Основная").strip() or "Основная"
-    contractor_user_id = _resolve_staff_or_user_id(cur, data.get("contractorId"), data.get("brigadeName", ""))
-    cur.execute("INSERT INTO brigade_contracts (project_id,project_name,work_package,brigade_name,contractor_type,contractor_id,total_amount,status,notes,pricelist_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("projectId") or None,data.get("projectName",""),work_package,data.get("brigadeName",""),data.get("contractorType","Бригада"),contractor_user_id or None,data.get("totalAmount",0),data.get("status","Черновик"),data.get("notes",""),pricelist_id))
-    row = cur.fetchone()
-    new_id = row[0]
-    _grant_user_project_package_access(cur, contractor_user_id, data.get("projectName",""), work_package)
-    conn.commit()
-    inserted = 0
-    if pricelist_id:
+    access_cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
         try:
-            pl_id_int = int(pricelist_id)
-            cur.execute("SELECT coefficient FROM pricelists WHERE id=%s", (pl_id_int,))
-            cr = cur.fetchone()
-            coef = float(cr[0] or 1.0) if cr else 1.0
-            cur.execute("SELECT name, unit, price, category FROM pricelist_items WHERE pricelist_id=%s AND (item_type IS NULL OR item_type='work')", (pl_id_int,))
-            for it in cur.fetchall():
-                price = float(it[2] or 0)
-                cur.execute("INSERT INTO brigade_contract_items (contract_id, estimate_section, description, work_package, estimate_item_key, unit, quantity, price_smeta, price_brigade, done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                    (new_id, it[3] or "", it[0], work_package, "", it[1] or "шт", 0, price, round(price * coef, 2), 0))
-                inserted += 1
-            recalc_brigade_contract_total(cur, new_id)
-            conn.commit()
-        except Exception as e:
-            print("AUTO-LOAD FROM PRICELIST ERROR:", str(e))
-    cur.close(); conn.close()
-    return {"id": new_id, "ok": True, "itemsLoaded": inserted}
+            from backend.features.project_access.service import resolve_project_parent
+        except ModuleNotFoundError:
+            from features.project_access.service import resolve_project_parent
+        claimed_company_id = data.get("companyId") if "companyId" in data else data.get("company_id")
+        company_context = _resolve_work_company_context(
+            access_cur,
+            _current_user,
+            claimed_company_id,
+            "write",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        actor = require_brigade_write_actor(
+            effective_company_actors(_current_user, company_context),
+            LEADERSHIP_ROLES,
+        )
+        company_id = int(actor["companyId"])
+        project = resolve_project_parent(
+            access_cur,
+            actor,
+            project_id=data.get("projectId") or data.get("project_id"),
+            project_name=data.get("projectName") or data.get("project_name") or "",
+            for_update=True,
+        )
+        require_project_access(actor, project["name"])
+        pricelist_id = data.get("pricelistId") or None
+        work_package = (data.get("workPackage") or data.get("work_package") or "Основная").strip() or "Основная"
+        contractor_user_id = resolve_brigade_contractor_user(
+            cur,
+            company_id,
+            data.get("contractorId"),
+            data.get("brigadeName", ""),
+        )
+        cur.execute(
+            """INSERT INTO brigade_contracts
+                   (company_id,project_id,project_name,work_package,brigade_name,contractor_type,
+                    contractor_id,total_amount,status,notes,pricelist_id)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+               RETURNING id""",
+            (
+                company_id, project["id"], project["name"], work_package,
+                data.get("brigadeName", ""), data.get("contractorType", "Бригада"),
+                contractor_user_id or None, data.get("totalAmount", 0),
+                data.get("status", "Черновик"), data.get("notes", ""), pricelist_id,
+            ),
+        )
+        row = cur.fetchone()
+        new_id = _row_get(row, "id", 0)
+        grant_brigade_contractor_scope(
+            cur,
+            company_id,
+            contractor_user_id,
+            project["name"],
+            work_package,
+            project_scoped_roles=PROJECT_SCOPED_ACCESS_ROLES,
+            package_required_roles=WORK_PACKAGE_REQUIRED_ACCESS_ROLES,
+        )
+        conn.commit()
+
+        inserted = 0
+        if pricelist_id:
+            try:
+                pl_id_int = int(pricelist_id)
+                cur.execute("SELECT coefficient FROM pricelists WHERE id=%s", (pl_id_int,))
+                cr = cur.fetchone()
+                coef = float(cr[0] or 1.0) if cr else 1.0
+                cur.execute("SELECT name, unit, price, category FROM pricelist_items WHERE pricelist_id=%s AND (item_type IS NULL OR item_type='work')", (pl_id_int,))
+                for it in cur.fetchall():
+                    price = float(it[2] or 0)
+                    cur.execute("INSERT INTO brigade_contract_items (contract_id, estimate_section, description, work_package, estimate_item_key, unit, quantity, price_smeta, price_brigade, done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (new_id, it[3] or "", it[0], work_package, "", it[1] or "шт", 0, price, round(price * coef, 2), 0))
+                    inserted += 1
+                recalc_brigade_contract_total(cur, new_id)
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                print("AUTO-LOAD FROM PRICELIST ERROR:", str(e))
+        return {
+            "id": new_id,
+            "ok": True,
+            "itemsLoaded": inserted,
+            "companyId": company_id,
+            "projectId": project["id"],
+        }
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        access_cur.close()
+        cur.close()
+        conn.close()
 
 @app.post("/brigade-contracts/{contract_id}/load-from-pricelist")
 def load_brigade_items_from_pricelist(contract_id: int, with_materials: bool = False, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
@@ -22498,26 +22578,100 @@ def load_brigade_items_from_pricelist(contract_id: int, with_materials: bool = F
     return {"ok": True, "itemsLoaded": inserted, "matchedFromEstimate": matched}
 
 @app.put("/brigade-contracts/{id}")
-def update_brigade_contract(id: int, data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
+def update_brigade_contract(
+    id: int,
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    require_row_project_access(cur, "brigade_contracts", id, _current_user)
-    work_package = (data.get("workPackage") or data.get("work_package") or "").strip()
-    cur.execute("UPDATE brigade_contracts SET brigade_name=%s,contractor_type=%s,total_amount=%s,status=%s,signed_at=%s,notes=%s,pricelist_id=%s,work_package=COALESCE(NULLIF(%s,''),work_package),act_scan_url=COALESCE(%s,act_scan_url) WHERE id=%s",
-        (data.get("brigadeName",""),data.get("contractorType","Бригада"),data.get("totalAmount",0),data.get("status","Черновик"),data.get("signedAt") or None,data.get("notes",""),data.get("pricelistId") or None,work_package,data.get("actScanUrl"),id))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok":True}
+    try:
+        claimed_company_id = data.get("companyId") if "companyId" in data else data.get("company_id")
+        contract, _actor, _project = _resolve_brigade_contract_actor(
+            cur,
+            _current_user,
+            id,
+            LEADERSHIP_ROLES,
+            claimed_company_id=claimed_company_id,
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            for_update=True,
+        )
+        company_id = int(contract["companyId"])
+        work_package = (data.get("workPackage") or data.get("work_package") or "").strip()
+        cur.execute(
+            """UPDATE brigade_contracts
+                  SET brigade_name=%s,contractor_type=%s,total_amount=%s,status=%s,signed_at=%s,
+                      notes=%s,pricelist_id=%s,work_package=COALESCE(NULLIF(%s,''),work_package),
+                      act_scan_url=COALESCE(%s,act_scan_url)
+                WHERE id=%s AND company_id=%s
+                RETURNING id""",
+            (
+                data.get("brigadeName", ""), data.get("contractorType", "Бригада"),
+                data.get("totalAmount", 0), data.get("status", "Черновик"),
+                data.get("signedAt") or None, data.get("notes", ""),
+                data.get("pricelistId") or None, work_package, data.get("actScanUrl"),
+                contract["id"], company_id,
+            ),
+        )
+        if not cur.fetchone():
+            raise HTTPException(status_code=409, detail="Компания договора изменилась во время обновления")
+        conn.commit()
+        return {"ok": True, "companyId": company_id}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
 
 @app.delete("/brigade-contracts/{id}")
-def delete_brigade_contract(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "бухгалтер"))):
+def delete_brigade_contract(
+    id: int,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    require_row_project_access(cur, "brigade_contracts", id, _current_user)
-    cur.execute("UPDATE brigade_contracts SET status='Аннулирован' WHERE id=%s",(id,))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok":True}
+    try:
+        contract, _actor, _project = _resolve_brigade_contract_actor(
+            cur,
+            _current_user,
+            id,
+            (*LEADERSHIP_ROLES, "бухгалтер"),
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            for_update=True,
+        )
+        company_id = int(contract["companyId"])
+        cur.execute(
+            """UPDATE brigade_contracts
+                  SET status='Аннулирован'
+                WHERE id=%s AND company_id=%s
+                RETURNING id""",
+            (contract["id"], company_id),
+        )
+        if not cur.fetchone():
+            raise HTTPException(status_code=409, detail="Компания договора изменилась во время аннулирования")
+        conn.commit()
+        return {"ok": True, "companyId": company_id}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
 
 @app.get("/brigade-contract-items-all")
 def list_all_brigade_contract_items(

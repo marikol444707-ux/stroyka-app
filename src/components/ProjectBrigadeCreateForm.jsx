@@ -42,7 +42,19 @@ export default function ProjectBrigadeCreateForm({
       body: JSON.stringify(data),
     });
     const saved = await res.json();
-    const newContract = {...data, id: saved.id, totalAmount: 0, status: 'Черновик', items: []};
+    if (!res.ok || !saved.ok || !saved.id) {
+      alert('Не удалось создать договор: ' + (saved.detail || 'проверьте компанию, объект и исполнителя'));
+      return;
+    }
+    const newContract = {
+      ...data,
+      id: saved.id,
+      companyId: saved.companyId,
+      projectId: saved.projectId || project.id,
+      totalAmount: 0,
+      status: 'Черновик',
+      items: [],
+    };
 
     setBrigadeContracts(prev => [...prev, newContract]);
     setSelectedBrigadeContract(newContract);
