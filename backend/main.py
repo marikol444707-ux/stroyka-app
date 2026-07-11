@@ -18213,12 +18213,14 @@ async def upload_photo(
 ):
     try:
         from backend.features.document_access.service import (
+            document_project_reference,
             document_storage_namespace,
             require_document_upload_actor,
         )
         from backend.features.project_access.service import resolve_project_parent
     except ModuleNotFoundError:
         from features.document_access.service import (
+            document_project_reference,
             document_storage_namespace,
             require_document_upload_actor,
         )
@@ -18238,13 +18240,14 @@ async def upload_photo(
         actor = require_document_upload_actor(effective_company_actors(_current_user, company_context))
         company_id = int(actor["companyId"])
         requested_project_name = (projectName or project_name or "").strip()
+        bound_project_id, bound_project_name = document_project_reference(projectId, requested_project_name)
         project = None
-        if projectId or requested_project_name:
+        if bound_project_id:
             project = resolve_project_parent(
                 access_cur,
                 actor,
-                project_id=projectId,
-                project_name=requested_project_name,
+                project_id=bound_project_id,
+                project_name=bound_project_name,
             )
             require_project_access(actor, project["name"])
         namespace = document_storage_namespace(

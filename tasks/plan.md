@@ -84,9 +84,10 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [ ] Task M5.3a: Scope brigade contract, payment, item, and act reads by effective company membership. Pushed in `937d7a4f`; production release pending.
 - [ ] Task M5.3b1: Store brigade payment ownership and authorize create/reversal from the parent contract company. Pushed in `83529e6c`; production release pending.
 - [x] Task M5.3b2: Enforce selected-company ownership for brigade contract create/update/cancel and contractor assignment. Deployed in `8c971801`; public production smoke passed.
-- [x] Task M5.3b3: Enforce parent-company ownership for pricelist loading, contract items, brigade acts, and estimate distribution. Pushed in `5fac950e` and `854da456`; production release pending.
-- [ ] Task M5.3b4: Isolate the primary `Назначить мастеру` work-assignment route by the estimate's stored company and exact project. Implemented; production release pending.
+- [x] Task M5.3b3: Enforce parent-company ownership for pricelist loading, contract items, brigade acts, and estimate distribution. Deployed in `d885ba52`; public production smoke passed.
+- [x] Task M5.3b4: Isolate the primary `Назначить мастеру` work-assignment route by the estimate's stored company and exact project. Deployed in `d885ba52`; public production smoke passed.
 - [ ] Task M6: Scope remaining projects, estimates, journals, acts, files, notifications, audit, and AI jobs.
+- [ ] Task M6.2a: Register selected-company ownership for new uploads and bind a file to a project only by exact `projectId`. Ownership kernel deployed in `e4364a90`; compatibility hotfix pending release.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary
@@ -102,7 +103,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [ ] Task 13: Extract audit/client-error route group into a small backend feature module.
 - [ ] Task 14: Move one low-risk `init_db()` schema slice into Alembic.
 - [ ] Task 15: Add a minimal CI workflow for backend compile, frontend tests, and frontend build.
-- [ ] Task 15.1: Apply only SemVer-compatible frontend security updates without `--force`; critical audit findings are removed, production release pending.
+- [x] Task 15.1: Apply only SemVer-compatible frontend security updates without `--force`; deployed in `0d95c3d5`, critical audit findings removed, public production smoke passed.
 
 ### Checkpoint: Backend Shape
 

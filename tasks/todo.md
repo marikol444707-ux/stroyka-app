@@ -1063,7 +1063,7 @@
 
 **Description:** Authorize pricelist loading, contract-item mutations, brigade acts, and estimate distribution through their stored parent company and canonical project.
 
-**Status:** Implemented and pushed in `5fac950e` and `854da456`; production release pending.
+**Status:** Deployed in `d885ba52`; public production smoke passed. Authenticated selected-company smoke remains pending.
 
 **Acceptance criteria:**
 - [x] Explicit pricelist loading resolves and locks the parent contract, requires the effective selected-company role, and reads estimate quantities only from the same `company_id + project_id`.
@@ -1077,7 +1077,8 @@
 - [x] Backend compile passes.
 - [x] All backend feature tests pass (`89` tests).
 - [x] Staged diffs contain only the intended brigade child-write routes.
-- [ ] Production deploy and authenticated selected-company brigade smoke pass.
+- [x] Production deploy and public smoke pass.
+- [ ] Authenticated selected-company brigade smoke passes.
 
 **Dependencies:** Tasks M5.3a-M5.3b2
 
@@ -1087,7 +1088,7 @@
 
 **Description:** Protect the primary `Назначить мастеру` workflow so its contract, items, contractor lookup, and access grant always inherit the stored company and exact project of the selected estimate.
 
-**Status:** Implemented; production release pending.
+**Status:** Deployed in `d885ba52`; public production smoke passed. Authenticated selected-company smoke remains pending.
 
 **Acceptance criteria:**
 - [x] `POST /estimates/{estimate_id}/work-assignment` resolves the estimate inside one selected company and checks the effective assignment role before any write.
@@ -1102,7 +1103,8 @@
 - [x] Focused route tests cover tenant-bound contract creation/update, rejected group mode with rollback, and non-finite/zero coefficient rejection.
 - [x] Backend compile and all discovered backend feature tests pass.
 - [x] Frontend tests, production build, release diff review, and exact staged-snapshot checks pass.
-- [ ] Production deploy and authenticated selected-company `Назначить мастеру` smoke pass.
+- [x] Production deploy and public smoke pass.
+- [ ] Authenticated selected-company `Назначить мастеру` smoke passes.
 
 **Dependencies:** Tasks M5.3a-M5.3b3
 
@@ -1136,6 +1138,32 @@
 - [ ] `M6.6` Scope assignments, reports, attachments, AI/OCR tasks, summaries, dedupe keys, and background execution.
 - [ ] `M6.7` Scope MAX files, notifications, deep links, and outbox dispatch by company and verified recipient membership.
 - [ ] `M6.8` Add company-aware audit/export contracts and negative read/write tests for every migrated domain.
+
+## Task M6.2a: New Upload Ownership Kernel
+
+**Description:** Register the selected company for every new `/upload-photo` file, bind project ownership only from an exact `projectId`, and keep legacy `/uploads` readable until the authorized download path is ready.
+
+**Status:** Ownership kernel deployed in `e4364a90`; compatibility hotfix implemented locally, production release pending.
+
+**Acceptance criteria:**
+- [x] Upload writes require one concrete company; `all_companies` cannot upload.
+- [x] `file_ownership` stores the selected `company_id`, optional exact `project_id`, storage identity, context, and uploader.
+- [x] A client-supplied project name alone cannot become project ownership; without exact `projectId` the file remains company-common.
+- [x] Main warehouse, CRM, company documents, and other non-project namespaces no longer fail project resolution.
+- [x] The shared frontend upload action sends `projectId` only when the name has one exact project match or the caller supplies an explicit ID.
+- [x] Existing `/uploads` URLs remain available during the compatibility window.
+
+**Verification:**
+- [x] Document access tests cover concrete-company ownership, parent-company conflicts, ID-based namespaces, and name-only company-common fallback.
+- [x] Frontend upload tests cover one exact project match, non-project names, and duplicate names.
+- [x] Backend compile, all feature tests, frontend tests, build, and exact staged snapshot pass.
+- [ ] GitHub CI, production deploy, and public smoke pass.
+
+**Known follow-up:** `M6.2b` must return an authorized URL for newly registered local files and verify the stored file company/project before serving bytes. S3 private objects and signed URLs remain a separate storage step.
+
+**Dependencies:** Tasks M1-M2, M6.1
+
+**Estimated scope:** S
 
 **M6 safety gate:** do not backfill ambiguous legacy rows, do not use project names as authorization identifiers, do not allow mutation in `all_companies`, and do not start the two-company production E2E until M6.0-M6.8 and the preceding M4/M5 gaps are closed.
 
@@ -1247,7 +1275,7 @@
 
 **Description:** Update only vulnerable transitive frontend packages that fit the existing dependency ranges. Do not change React, `react-scripts`, or `xlsx`, and do not use `npm audit fix --force` in this step.
 
-**Status:** Implemented; production release pending.
+**Status:** Deployed in `0d95c3d5`; public production smoke passed.
 
 **Acceptance criteria:**
 - [x] `package.json` and direct dependency versions remain unchanged.
@@ -1262,7 +1290,7 @@
 - [x] `npm audit --audit-level=critical` exits successfully with zero critical findings.
 - [x] `bash -n deploy.sh` passes.
 - [x] A clean staged snapshot installs with `npm ci`, then passes frontend tests, build, and static checks.
-- [ ] GitHub CI, production deploy, and public production smoke pass.
+- [x] GitHub CI, production deploy, and public production smoke pass.
 
 **Dependencies:** Task 15
 

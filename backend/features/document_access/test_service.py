@@ -3,6 +3,7 @@ import unittest
 from fastapi import HTTPException
 
 from backend.features.document_access.service import (
+    document_project_reference,
     document_storage_namespace,
     require_document_parent_company,
     require_document_upload_actor,
@@ -34,6 +35,11 @@ class DocumentAccessTests(unittest.TestCase):
             document_storage_namespace(2, None, "", "general"),
             "company-2-common-general",
         )
+
+    def test_project_name_without_exact_id_stays_company_common(self):
+        self.assertEqual(document_project_reference(None, "Основной склад"), (None, ""))
+        self.assertEqual(document_project_reference(None, "CRM"), (None, ""))
+        self.assertEqual(document_project_reference(17, "Лицей"), (17, "Лицей"))
 
 
 if __name__ == "__main__":

@@ -10,10 +10,14 @@ export const createUploadActions = ({
     const projectFromExpanded = (projects || []).find(pr => String(pr.id) === String(expandedProject))?.name || '';
     const projectFromMaster = (projects || []).find(pr => String(pr.id) === String(masterProjectId))?.name || '';
     const projectName = meta.projectName || meta.project || projectFromExpanded || projectFromMaster || '';
+    const explicitProjectId = meta.projectId || meta.project_id || '';
+    const projectMatches = (projects || []).filter(pr => String(pr.name || '') === String(projectName));
+    const projectId = explicitProjectId || (projectMatches.length === 1 ? projectMatches[0].id : '');
     const context = meta.context || activeProjectTab || activePage || 'general';
     const fd = new FormData();
     fd.append('file', file);
     if (projectName) fd.append('projectName', projectName);
+    if (projectId) fd.append('projectId', String(projectId));
     if (context) fd.append('context', context);
     try {
       const res = await fetch(API + '/upload-photo', { method: 'POST', body: fd });

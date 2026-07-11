@@ -1,0 +1,61 @@
+import { createUploadActions } from './uploadActions';
+
+
+describe('upload actions project identity', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  test('sends projectId when the project name has one exact match', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      json: async () => ({ url: '/files/10' }),
+    });
+    const actions = createUploadActions({
+      API: '',
+      activePage: 'projects',
+      activeProjectTab: 'documents',
+      expandedProject: '',
+      masterProjectId: '',
+      projects: [{ id: 17, name: 'Лицей' }],
+    });
+
+    await actions.uploadPhoto(new File(['photo'], 'photo.jpg', { type: 'image/jpeg' }), {
+      projectName: 'Лицей',
+      context: 'project-documents',
+    });
+
+    const request = global.fetch.mock.calls[0][1];
+    expect(request.body.get('projectName')).toBe('Лицей');
+    expect(request.body.get('projectId')).toBe('17');
+  });
+
+  test('does not guess projectId for a non-project or duplicate name', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      json: async () => ({ url: '/files/11' }),
+    });
+    const actions = createUploadActions({
+      API: '',
+      activePage: 'crm',
+      activeProjectTab: '',
+      expandedProject: '',
+      masterProjectId: '',
+      projects: [{ id: 21, name: 'Дубль' }, { id: 22, name: 'Дубль' }],
+    });
+
+    await actions.uploadPhoto(new File(['doc'], 'doc.pdf', { type: 'application/pdf' }), {
+      projectName: 'CRM',
+      context: 'crm-documents',
+    });
+    const crmRequest = global.fetch.mock.calls[0][1];
+    expect(crmRequest.body.get('projectId')).toBeNull();
+
+    await actions.uploadPhoto(new File(['doc'], 'doc.pdf', { type: 'application/pdf' }), {
+      projectName: 'Дубль',
+      context: 'project-documents',
+    });
+    const duplicateRequest = global.fetch.mock.calls[1][1];
+    expect(duplicateRequest.body.get('projectId')).toBeNull();
+  });
+});

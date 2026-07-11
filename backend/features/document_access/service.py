@@ -38,6 +38,16 @@ def require_document_parent_company(document_company_id, parent_company_id):
     return parent_company_id
 
 
+def document_project_reference(project_id, project_name=""):
+    """Use a project name only as a consistency hint when an exact ID is present."""
+    normalized_project_id = _positive_int(project_id)
+    if project_id not in (None, "") and not normalized_project_id:
+        raise HTTPException(status_code=400, detail="projectId должен быть положительным целым числом")
+    if not normalized_project_id:
+        return None, ""
+    return normalized_project_id, str(project_name or "").strip()
+
+
 def document_storage_namespace(company_id, project_id=None, project_name="", context="general"):
     """Build a stable tenant namespace without trusting names as ownership proof."""
     company_id = _positive_int(company_id)
