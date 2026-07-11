@@ -94,7 +94,8 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [ ] Task M6.2d: Migrate file consumers to protected content URLs, then switch new S3 objects to private storage after a usage audit.
 - [x] Task M6.2d1: Move new project-letter attachments to opt-in protected `contentUrl` with exact `projectId`, while preserving every existing upload caller. Deployed in `8132954e`; public smoke and authenticated director UI check passed.
 - [x] Task M6.2d2: Move direct project-document registry scans to protected `contentUrl`; keep OCR source uploads compatible while binding them to exact `projectId`. Deployed in `7abf86e1`; runtime `b05fac7e` passed public, authenticated file, API, and registry UI checks.
-- [ ] Task M6.2d3: Add an authenticated Blob URL loader with lifecycle cleanup before migrating the first inline photo-preview consumer.
+- [ ] Task M6.2d3: Add an authenticated Blob URL loader with strict local-path detection, request cancellation, and object-URL cleanup. Implemented locally; release pending.
+- [ ] Task M6.2d4: Migrate the first display-only inline photo-preview consumer to the protected Blob loader.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary

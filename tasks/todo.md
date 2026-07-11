@@ -1293,6 +1293,32 @@
 
 **Estimated scope:** S
 
+## Task M6.2d3: Authenticated Protected Preview Kernel
+
+**Description:** Add the shared frontend primitive needed before protected tenant files can be rendered inside `<img>` or another inline preview. This slice does not migrate a business screen or change stored file URLs.
+
+**Status:** Implemented locally; release pending.
+
+**Acceptance criteria:**
+- [x] Compatibility `/uploads`, `blob:`, `data:`, and absolute external URLs remain direct and do not trigger a Blob fetch.
+- [x] Only a strict local `/tenant-files/{positiveId}/content` path enters protected mode; lookalike external or protocol-relative URLs are rejected.
+- [x] Protected bytes load through the normal authenticated fetch path with cookies and `no-store`, preserving company-context headers and the temporary Bearer fallback from the global wrapper.
+- [x] A failed protected request returns no image source and never falls back to the compatibility URL.
+- [x] URL changes or unmount abort unfinished requests; created object URLs are always revoked during cleanup.
+- [x] No business component, upload contract, stored document, or S3 ACL changes in this foundation slice.
+
+**Verification:**
+- [x] Focused Blob-loader tests pass (`6` tests).
+- [x] Exact tracked frontend suite passes (`19` suites / `85` tests); full working-tree suite passes (`20` suites / `90` tests).
+- [x] Production build succeeds.
+- [ ] Production deploy and public smoke pass.
+
+**Known follow-up:** `M6.2d4` must migrate one display-only inline photo surface and test loading/error UI before any broader photo rollout. Keep S3 `public-read` until every remaining direct consumer is audited.
+
+**Dependencies:** Tasks M6.2d1-M6.2d2
+
+**Estimated scope:** S
+
 **M6 safety gate:** do not backfill ambiguous legacy rows, do not use project names as authorization identifiers, do not allow mutation in `all_companies`, and do not start the two-company production E2E until M6.0-M6.8 and the preceding M4/M5 gaps are closed.
 
 ## Task M7: Backfill, Constraints, And Pilot Matrix
