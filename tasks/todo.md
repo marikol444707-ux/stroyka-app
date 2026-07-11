@@ -1770,6 +1770,32 @@
 
 **Estimated scope:** S
 
+## Task 15.2: Atomic Frontend Publication
+
+**Description:** Keep the currently served frontend available while the next production bundle is built, and prevent two deploy processes from changing the same checkout at once.
+
+**Status:** Deployed through `3e20b60e`; production verification passed.
+
+**Acceptance criteria:**
+- [x] `deploy.sh` acquires `/var/lock/stroyka-deploy.lock` before changing the checkout; a concurrent deploy exits before `git reset`, install, build, restart, or publish.
+- [x] React builds into a unique temporary directory instead of nginx's live `build` directory.
+- [x] Hashed assets are copied first and older hashes remain available for tabs opened before the deploy; manifests/public files follow, and `index.html` is replaced by one same-directory atomic rename.
+- [x] The publisher rejects an incomplete release and any nonempty target that is not already a frontend build.
+- [x] Live directory ownership and mode are not inherited from the private `mktemp` directory; `build` remains traversable by nginx with mode `0755`.
+
+**Verification:**
+- [x] `npm run test:deploy` passes three regression tests locally and on production Linux, including continuous index reads during delayed rsync and the `0700 -> 0755` permission case.
+- [x] `bash -n deploy.sh scripts/publish-frontend.sh`, M6 audit, full frontend suite (`32` suites / `127` tests), and a real `BUILD_PATH` production build pass.
+- [x] A deliberate second deploy was rejected with no changes while the first held the lock.
+- [x] Final runtime `3e20b60eb8d0` passed public smoke; a 180.5-second monitor made `308` requests each to `/`, `/app`, and `/max-app`, all `924` responses were `200`.
+- [x] Production `build` is `0755`, `index.html` is `0644`, the temporary release directory was removed, and all `133` manifest entries exist.
+
+**Known follow-up:** Old hashed assets are intentionally retained for already-open tabs. Add a separate age-based cleanup only after cache lifetime and rollback requirements are explicitly defined.
+
+**Dependencies:** Task 15.1
+
+**Estimated scope:** S
+
 ## Task 16: Supply Operator UX Polish
 
 **Description:** Improve the supply UI only after backend contracts are stable, focusing on clear business language and actionable diagnostics.

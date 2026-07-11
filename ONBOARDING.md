@@ -1054,6 +1054,10 @@ cd /var/www/stroyka-app && git pull --ff-only && bash deploy.sh
 journalctl -u stroyka -n 80 --no-pager
 ```
 
+`deploy.sh` обязан брать `/var/lock/stroyka-deploy.lock` до любых изменений checkout. Frontend собирается только во временный `.frontend-build.*`, затем `scripts/publish-frontend.sh` сначала добавляет новые hashed assets без удаления старых, после них обновляет manifest/public-файлы и последним атомарно заменяет live `index.html`. Publisher не должен переносить приватные права `0700` от `mktemp` на nginx-каталог: production `build` остаётся `0755`. Локальная и Linux-проверка: `npm run test:deploy`.
+
+Production-проверка атомарного deploy 2026-07-12: runtime `3e20b60eb8d0`; конкурентный второй запуск остановлен lock-файлом до изменений. Финальный public smoke прошёл, а отдельный монитор за `180.5` секунды получил по `308` ответов `200` от `/`, `/app` и `/max-app` без единого `404/500`. `build/index.html` имеет права `0644`, все `133` файла из asset manifest существуют, временная build-папка удалена.
+
 Проверка данных на сервере:
 
 ```bash
