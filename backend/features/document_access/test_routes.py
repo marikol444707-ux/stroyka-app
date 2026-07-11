@@ -1,11 +1,25 @@
+import asyncio
+import io
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from fastapi import HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import StreamingResponse
 
-from backend.features.document_access.routes import register_document_access_module
+from backend.features.document_access.routes import (
+    OwnedStreamingResponse,
+    _bounded_stream,
+    register_document_access_module,
+)
+from backend.features.document_access.service import delete_document_local_file, open_document_local_file
+
+
+def response_body(response):
+    async def collect():
+        return b"".join([chunk async for chunk in response.body_iterator])
+
+    return asyncio.run(collect())
 
 
 class FakeApp:
@@ -43,11 +57,13 @@ class FakeCursor:
 
 
 class FakeConnection:
-    def __init__(self, row):
+    def __init__(self, row, fail_commit_numbers=()):
         self.cursor_value = FakeCursor(row)
         self.cursor_factory = None
         self.autocommit = True
         self.committed = False
+        self.commit_count = 0
+        self.fail_commit_numbers = set(fail_commit_numbers)
         self.rolled_back = False
         self.closed = False
 
@@ -56,6 +72,9 @@ class FakeConnection:
         return self.cursor_value
 
     def commit(self):
+        self.commit_count += 1
+        if self.commit_count in self.fail_commit_numbers:
+            raise RuntimeError("database commit failed")
         self.committed = True
 
     def rollback(self):
@@ -66,7 +85,58 @@ class FakeConnection:
 
 
 class DocumentAccessRouteTests(unittest.TestCase):
-    def _register(self, connection, upload_dir, *, resolver=None, s3_enabled=False, s3_reader=None):
+    def test_stream_source_closes_when_asgi_send_fails(self):
+        stream = io.BytesIO(b"data")
+        response = OwnedStreamingResponse(
+            stream,
+            len(b"data"),
+            1024,
+            media_type="application/octet-stream",
+            headers={},
+        )
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(_message):
+            raise RuntimeError("client disconnected")
+
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.4"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "https",
+            "path": "/tenant-files/31/content",
+            "raw_path": b"/tenant-files/31/content",
+            "query_string": b"",
+            "headers": [],
+            "client": None,
+            "server": None,
+        }
+        with self.assertRaises(RuntimeError):
+            asyncio.run(response(scope, receive, send))
+        self.assertTrue(stream.closed)
+
+    def test_bounded_stream_closes_source_on_limit_or_size_mismatch(self):
+        for expected_size, max_bytes in ((4, 3), (5, 10)):
+            stream = io.BytesIO(b"data")
+            with self.subTest(expected_size=expected_size, max_bytes=max_bytes):
+                with self.assertRaises(RuntimeError):
+                    list(_bounded_stream(stream, expected_size, max_bytes, chunk_size=2))
+                self.assertTrue(stream.closed)
+
+    def _register(
+        self,
+        connection,
+        upload_dir,
+        *,
+        resolver=None,
+        project_access=None,
+        s3_enabled=False,
+        s3_reader=None,
+        s3_deleter=None,
+    ):
         app = FakeApp()
         resolver_calls = []
         project_calls = []
@@ -83,22 +153,35 @@ class DocumentAccessRouteTests(unittest.TestCase):
             project_calls.append((cur, actor, kwargs))
             return {"id": kwargs["project_id"], "companyId": actor["companyId"], "name": "Лицей"}
 
-        def require_project(actor, project_name):
-            access_calls.append((actor, project_name))
+        def require_project(cur, actor, project, full_view_roles):
+            access_calls.append((actor, project["name"]))
+            if project_access:
+                return project_access(cur, actor, project, full_view_roles)
+            return project
 
         register_document_access_module(app, {
             "get_db": lambda: connection,
             "get_current_user": lambda: None,
             "resolve_resource_company_actor": resolve_resource,
             "resolve_project_parent": resolve_project,
-            "require_project_access": require_project,
+            "require_project_parent_access": require_project,
+            "project_full_view_roles": ("директор", "зам_директора"),
             "leadership_roles": ("директор", "зам_директора"),
             "platform_staff_roles": (),
             "client_account_roles": (),
             "upload_dir": upload_dir,
+            "s3_prefixes": ("uploads",),
+            "s3_urls_for_key": lambda _key: ("https://storage.example/file.png",),
             "s3_enabled": lambda: s3_enabled,
-            "read_s3_object": s3_reader or (lambda _key: (b"s3-content", "application/octet-stream")),
-            "delete_s3_object": lambda key: s3_delete_calls.append(key),
+            "open_local_file": lambda file_url: open_document_local_file(upload_dir, file_url, 1024),
+            "delete_local_file": lambda file_url, missing_ok=False: delete_document_local_file(
+                upload_dir,
+                file_url,
+                missing_ok=missing_ok,
+            ),
+            "open_s3_object": s3_reader or (lambda _key: (io.BytesIO(b"s3-content"), len(b"s3-content"))),
+            "max_upload_bytes": 1024,
+            "delete_s3_object": s3_deleter or (lambda key: s3_delete_calls.append(key)),
         })
         return app, resolver_calls, project_calls, access_calls, s3_delete_calls
 
@@ -108,7 +191,7 @@ class DocumentAccessRouteTests(unittest.TestCase):
                 "id": 31,
                 "company_id": 4,
                 "project_id": 17,
-                "file_url": "/uploads/company-4/file.png",
+                "file_url": "/uploads/company-4-project-17-project-documents/project-documents/file.png",
                 "storage_key": "",
                 "context": "project-documents",
                 "original_name": "photo.png",
@@ -137,14 +220,14 @@ class DocumentAccessRouteTests(unittest.TestCase):
 
     def test_uploader_can_delete_local_file(self):
         with TemporaryDirectory() as upload_dir:
-            local_file = Path(upload_dir) / "company-4" / "file.png"
+            local_file = Path(upload_dir) / "company-4-common-general" / "general" / "file.png"
             local_file.parent.mkdir(parents=True)
             local_file.write_bytes(b"png")
             connection = FakeConnection({
                 "id": 31,
                 "company_id": 4,
                 "project_id": None,
-                "file_url": "/uploads/company-4/file.png",
+                "file_url": "/uploads/company-4-common-general/general/file.png",
                 "storage_key": "",
                 "uploaded_by_id": 9,
             })
@@ -162,17 +245,18 @@ class DocumentAccessRouteTests(unittest.TestCase):
             self.assertEqual(resolver_calls[0][2:4], (4, "delete"))
             self.assertTrue(any(call[0].startswith("DELETE FROM file_ownership") for call in connection.cursor_value.calls))
             self.assertTrue(connection.committed)
+            self.assertEqual(connection.commit_count, 2)
 
     def test_non_owner_cannot_delete_file(self):
         with TemporaryDirectory() as upload_dir:
-            local_file = Path(upload_dir) / "company-4" / "file.png"
+            local_file = Path(upload_dir) / "company-4-common-general" / "general" / "file.png"
             local_file.parent.mkdir(parents=True)
             local_file.write_bytes(b"png")
             connection = FakeConnection({
                 "id": 31,
                 "company_id": 4,
                 "project_id": None,
-                "file_url": "/uploads/company-4/file.png",
+                "file_url": "/uploads/company-4-common-general/general/file.png",
                 "storage_key": "",
                 "uploaded_by_id": 9,
             })
@@ -195,7 +279,7 @@ class DocumentAccessRouteTests(unittest.TestCase):
             "company_id": 4,
             "project_id": None,
             "file_url": "https://storage.example/file.png",
-            "storage_key": "uploads/company-4/file.png",
+            "storage_key": "uploads/company-4-common-general/general/file.png",
             "uploaded_by_id": 9,
         })
         app, _, _, _, s3_delete_calls = self._register(connection, "/tmp/uploads", s3_enabled=False)
@@ -213,14 +297,14 @@ class DocumentAccessRouteTests(unittest.TestCase):
 
     def test_local_content_read_uses_stored_company_and_project(self):
         with TemporaryDirectory() as upload_dir:
-            local_file = Path(upload_dir) / "company-4" / "file.png"
+            local_file = Path(upload_dir) / "company-4-project-17-general" / "general" / "file.png"
             local_file.parent.mkdir(parents=True)
             local_file.write_bytes(b"png-content")
             connection = FakeConnection({
                 "id": 31,
                 "company_id": 4,
                 "project_id": 17,
-                "file_url": "/uploads/company-4/file.png",
+                "file_url": "/uploads/company-4-project-17-general/general/file.png",
                 "storage_key": "",
                 "original_name": "photo report.png",
                 "content_type": "image/png",
@@ -235,9 +319,10 @@ class DocumentAccessRouteTests(unittest.TestCase):
                 current_user={"id": 9, "role": "прораб"},
             )
 
-            self.assertIsInstance(response, FileResponse)
-            self.assertEqual(Path(response.path).resolve(), local_file.resolve())
+            self.assertIsInstance(response, StreamingResponse)
+            self.assertEqual(response_body(response), b"png-content")
             self.assertEqual(response.media_type, "image/png")
+            self.assertEqual(response.headers["content-length"], str(len(b"png-content")))
             self.assertEqual(response.headers["cache-control"], "private, no-store")
             self.assertEqual(response.headers["x-content-type-options"], "nosniff")
             self.assertEqual(response.headers["content-security-policy"], "sandbox; default-src 'none'")
@@ -252,14 +337,14 @@ class DocumentAccessRouteTests(unittest.TestCase):
 
         def read_s3_object(key):
             s3_read_calls.append(key)
-            return b"png-content", "image/png"
+            return io.BytesIO(b"png-content"), len(b"png-content")
 
         connection = FakeConnection({
             "id": 31,
             "company_id": 4,
             "project_id": None,
             "file_url": "https://storage.example/file.png",
-            "storage_key": "uploads/company-4/file.png",
+            "storage_key": "uploads/company-4-common-general/general/file.png",
             "original_name": "photo.png",
             "content_type": "application/octet-stream",
             "uploaded_by_id": 9,
@@ -276,22 +361,23 @@ class DocumentAccessRouteTests(unittest.TestCase):
             current_user={"id": 9, "role": "прораб"},
         )
 
-        self.assertIsInstance(response, Response)
-        self.assertEqual(response.body, b"png-content")
+        self.assertIsInstance(response, StreamingResponse)
+        self.assertEqual(response_body(response), b"png-content")
         self.assertEqual(response.headers["content-type"], "image/png")
+        self.assertEqual(response.headers["content-length"], str(len(b"png-content")))
         self.assertEqual(response.headers["cache-control"], "private, no-store")
-        self.assertEqual(s3_read_calls, ["uploads/company-4/file.png"])
+        self.assertEqual(s3_read_calls, ["uploads/company-4-common-general/general/file.png"])
 
     def test_active_content_is_downloaded_instead_of_opened_inline(self):
         with TemporaryDirectory() as upload_dir:
-            local_file = Path(upload_dir) / "company-4" / "attack.html"
+            local_file = Path(upload_dir) / "company-4-common-general" / "general" / "attack.html"
             local_file.parent.mkdir(parents=True)
             local_file.write_text("<script>alert(1)</script>", encoding="utf-8")
             connection = FakeConnection({
                 "id": 31,
                 "company_id": 4,
                 "project_id": None,
-                "file_url": "/uploads/company-4/attack.html",
+                "file_url": "/uploads/company-4-common-general/general/attack.html",
                 "storage_key": "",
                 "original_name": "../attack.html",
                 "content_type": "text/html",
@@ -304,21 +390,22 @@ class DocumentAccessRouteTests(unittest.TestCase):
                 current_user={"id": 9, "role": "прораб"},
             )
 
-            self.assertIsInstance(response, FileResponse)
+            self.assertIsInstance(response, StreamingResponse)
+            self.assertEqual(response_body(response), b"<script>alert(1)</script>")
             self.assertEqual(response.media_type, "application/octet-stream")
             self.assertTrue(response.headers["content-disposition"].startswith("attachment;"))
             self.assertNotIn("..%2F", response.headers["content-disposition"])
 
     def test_content_read_stops_when_stored_company_is_not_authorized(self):
         with TemporaryDirectory() as upload_dir:
-            local_file = Path(upload_dir) / "company-4" / "file.png"
+            local_file = Path(upload_dir) / "company-4-common-general" / "general" / "file.png"
             local_file.parent.mkdir(parents=True)
             local_file.write_bytes(b"png-content")
             connection = FakeConnection({
                 "id": 31,
                 "company_id": 4,
                 "project_id": None,
-                "file_url": "/uploads/company-4/file.png",
+                "file_url": "/uploads/company-4-common-general/general/file.png",
                 "storage_key": "",
                 "original_name": "photo.png",
                 "content_type": "image/png",
@@ -345,7 +432,7 @@ class DocumentAccessRouteTests(unittest.TestCase):
                 "id": 31,
                 "company_id": 4,
                 "project_id": None,
-                "file_url": "/uploads/company-4/missing.png",
+                "file_url": "/uploads/company-4-common-general/general/missing.png",
                 "storage_key": "",
                 "uploaded_by_id": 9,
             })
@@ -365,7 +452,7 @@ class DocumentAccessRouteTests(unittest.TestCase):
             "company_id": 4,
             "project_id": None,
             "file_url": "https://storage.example/file.png",
-            "storage_key": "uploads/company-4/file.png",
+            "storage_key": "uploads/company-4-common-general/general/file.png",
             "uploaded_by_id": 9,
         })
         app, _, _, _, _ = self._register(
@@ -393,7 +480,7 @@ class DocumentAccessRouteTests(unittest.TestCase):
             "company_id": 4,
             "project_id": None,
             "file_url": "https://storage.example/file.png",
-            "storage_key": "uploads/company-4/file.png",
+            "storage_key": "uploads/company-4-common-general/general/file.png",
             "original_name": "photo.png",
             "uploaded_by_id": 9,
         })
@@ -412,6 +499,240 @@ class DocumentAccessRouteTests(unittest.TestCase):
             )
 
         self.assertEqual(raised.exception.status_code, 403)
+        self.assertEqual(s3_read_calls, [])
+
+    def test_content_is_not_read_when_project_assignment_is_ambiguous(self):
+        s3_read_calls = []
+
+        def reject_ambiguous_project(_cur, _actor, _project, _full_view_roles):
+            raise HTTPException(status_code=409, detail="Назначение объекта неоднозначно")
+
+        connection = FakeConnection({
+            "id": 31,
+            "company_id": 4,
+            "project_id": 17,
+            "file_url": "https://storage.example/file.png",
+            "storage_key": "uploads/company-4-project-17-general/general/file.png",
+            "context": "general",
+            "original_name": "photo.png",
+            "uploaded_by_id": 9,
+        })
+        app, _, _, _, _ = self._register(
+            connection,
+            "/tmp/uploads",
+            project_access=reject_ambiguous_project,
+            s3_enabled=True,
+            s3_reader=lambda key: s3_read_calls.append(key),
+        )
+
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("GET", "/tenant-files/{file_id}/content")](
+                31,
+                current_user={"id": 9, "role": "прораб"},
+            )
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(s3_read_calls, [])
+
+    def test_mismatched_storage_namespace_is_neither_read_nor_deleted(self):
+        for method, route in (
+            ("GET", "/tenant-files/{file_id}"),
+            ("GET", "/tenant-files/{file_id}/content"),
+            ("DELETE", "/tenant-files/{file_id}"),
+        ):
+            with self.subTest(method=method):
+                s3_read_calls = []
+                connection = FakeConnection({
+                    "id": 31,
+                    "company_id": 4,
+                    "project_id": None,
+                    "file_url": "https://storage.example/file.png",
+                    "storage_key": "uploads/company-5-common-general/general/file.png",
+                    "context": "general",
+                    "original_name": "photo.png",
+                    "uploaded_by_id": 9,
+                })
+                app, _, _, _, s3_delete_calls = self._register(
+                    connection,
+                    "/tmp/uploads",
+                    s3_enabled=True,
+                    s3_reader=lambda key: s3_read_calls.append(key),
+                )
+
+                with self.assertRaises(HTTPException) as raised:
+                    app.routes[(method, route)](
+                        31,
+                        current_user={"id": 9, "role": "прораб"},
+                    )
+
+                self.assertEqual(raised.exception.status_code, 409)
+                self.assertEqual(s3_read_calls, [])
+                self.assertEqual(s3_delete_calls, [])
+
+    def test_first_delete_commit_failure_keeps_physical_file(self):
+        with TemporaryDirectory() as upload_dir:
+            local_file = Path(upload_dir) / "company-4-common-general" / "general" / "file.png"
+            local_file.parent.mkdir(parents=True)
+            local_file.write_bytes(b"png")
+            connection = FakeConnection({
+                "id": 31,
+                "company_id": 4,
+                "project_id": None,
+                "file_url": "/uploads/company-4-common-general/general/file.png",
+                "storage_key": "",
+                "uploaded_by_id": 9,
+            }, fail_commit_numbers={1})
+            app, _, _, _, _ = self._register(connection, upload_dir)
+
+            with self.assertRaises(RuntimeError):
+                app.routes[("DELETE", "/tenant-files/{file_id}")](
+                    31,
+                    current_user={"id": 9, "role": "прораб"},
+                )
+
+            self.assertTrue(local_file.exists())
+            self.assertFalse(any(call[0].startswith("DELETE FROM file_ownership") for call in connection.cursor_value.calls))
+
+    def test_final_delete_commit_failure_is_retryable_after_file_is_gone(self):
+        with TemporaryDirectory() as upload_dir:
+            local_file = Path(upload_dir) / "company-4-common-general" / "general" / "file.png"
+            local_file.parent.mkdir(parents=True)
+            local_file.write_bytes(b"png")
+            connection = FakeConnection({
+                "id": 31,
+                "company_id": 4,
+                "project_id": None,
+                "file_url": "/uploads/company-4-common-general/general/file.png",
+                "storage_key": "",
+                "uploaded_by_id": 9,
+            }, fail_commit_numbers={2})
+            app, _, _, _, _ = self._register(connection, upload_dir)
+
+            with self.assertRaises(RuntimeError):
+                app.routes[("DELETE", "/tenant-files/{file_id}")](
+                    31,
+                    current_user={"id": 9, "role": "прораб"},
+                )
+            self.assertFalse(local_file.exists())
+            connection.cursor_value.row["deletion_status"] = "deleting"
+
+            response = app.routes[("DELETE", "/tenant-files/{file_id}")](
+                31,
+                current_user={"id": 9, "role": "прораб"},
+            )
+            self.assertTrue(response["ok"])
+            self.assertEqual(connection.commit_count, 4)
+
+    def test_first_delete_does_not_forget_missing_local_file(self):
+        with TemporaryDirectory() as upload_dir:
+            connection = FakeConnection({
+                "id": 31,
+                "company_id": 4,
+                "project_id": None,
+                "file_url": "/uploads/company-4-common-general/general/missing.png",
+                "storage_key": "",
+                "uploaded_by_id": 9,
+                "deletion_status": "active",
+            })
+            app, _, _, _, _ = self._register(connection, upload_dir)
+
+            with self.assertRaises(HTTPException) as raised:
+                app.routes[("DELETE", "/tenant-files/{file_id}")](
+                    31,
+                    current_user={"id": 9, "role": "прораб"},
+                )
+
+            self.assertEqual(raised.exception.status_code, 409)
+            sql_calls = [call[0] for call in connection.cursor_value.calls]
+            self.assertTrue(any("deletion_status='cleanup_failed'" in sql for sql in sql_calls))
+            self.assertFalse(any(sql.startswith("DELETE FROM file_ownership") for sql in sql_calls))
+
+    def test_first_delete_does_not_forget_missing_s3_file(self):
+        connection = FakeConnection({
+            "id": 31,
+            "company_id": 4,
+            "project_id": None,
+            "file_url": "https://storage.example/file.png",
+            "storage_key": "uploads/company-4-common-general/general/file.png",
+            "uploaded_by_id": 9,
+            "deletion_status": "active",
+        })
+        app, _, _, _, _ = self._register(
+            connection,
+            "/tmp/uploads",
+            s3_enabled=True,
+            s3_deleter=lambda _key: False,
+        )
+
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("DELETE", "/tenant-files/{file_id}")](
+                31,
+                current_user={"id": 9, "role": "прораб"},
+            )
+
+        self.assertEqual(raised.exception.status_code, 409)
+        sql_calls = [call[0] for call in connection.cursor_value.calls]
+        self.assertTrue(any("deletion_status='cleanup_failed'" in sql for sql in sql_calls))
+        self.assertFalse(any(sql.startswith("DELETE FROM file_ownership") for sql in sql_calls))
+
+    def test_storage_failure_is_recorded_for_retry(self):
+        connection = FakeConnection({
+            "id": 31,
+            "company_id": 4,
+            "project_id": None,
+            "file_url": "https://storage.example/file.png",
+            "storage_key": "uploads/company-4-common-general/general/file.png",
+            "uploaded_by_id": 9,
+        })
+
+        def fail_s3_delete(_key):
+            raise HTTPException(status_code=502, detail="storage failed")
+
+        app, _, _, _, _ = self._register(
+            connection,
+            "/tmp/uploads",
+            s3_enabled=True,
+            s3_deleter=fail_s3_delete,
+        )
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("DELETE", "/tenant-files/{file_id}")](
+                31,
+                current_user={"id": 9, "role": "прораб"},
+            )
+
+        self.assertEqual(raised.exception.status_code, 502)
+        sql_calls = [call[0] for call in connection.cursor_value.calls]
+        self.assertTrue(any("deletion_status='deleting'" in sql for sql in sql_calls))
+        self.assertTrue(any("deletion_status='cleanup_failed'" in sql for sql in sql_calls))
+        self.assertFalse(any(sql.startswith("DELETE FROM file_ownership") for sql in sql_calls))
+        self.assertEqual(connection.commit_count, 2)
+
+    def test_deleting_file_cannot_be_read(self):
+        s3_read_calls = []
+        connection = FakeConnection({
+            "id": 31,
+            "company_id": 4,
+            "project_id": None,
+            "file_url": "https://storage.example/file.png",
+            "storage_key": "uploads/company-4-common-general/general/file.png",
+            "original_name": "photo.png",
+            "uploaded_by_id": 9,
+            "deletion_status": "deleting",
+        })
+        app, _, _, _, _ = self._register(
+            connection,
+            "/tmp/uploads",
+            s3_enabled=True,
+            s3_reader=lambda key: s3_read_calls.append(key),
+        )
+
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("GET", "/tenant-files/{file_id}/content")](
+                31,
+                current_user={"id": 9, "role": "прораб"},
+            )
+
+        self.assertEqual(raised.exception.status_code, 410)
         self.assertEqual(s3_read_calls, [])
 
 

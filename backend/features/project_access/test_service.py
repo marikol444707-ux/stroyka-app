@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from backend.features.project_access.service import (
     project_visibility_filter,
     require_child_project_identity,
+    require_project_parent_access,
     require_project_row_company,
     require_project_write_actor,
     resolve_project_parent,
@@ -136,6 +137,46 @@ class ProjectAccessTests(unittest.TestCase):
                 {"companyId": 5, "projectId": 17, "projectName": "Лицей"},
                 parent,
                 child_label="Смета",
+            )
+        self.assertEqual(error.exception.status_code, 409)
+
+    def test_duplicate_project_name_requires_exact_project_id_for_scoped_role(self):
+        duplicate_rows = [
+            {"id": 17},
+            {"id": 18},
+        ]
+        project = {"id": 17, "companyId": 4, "name": "Лицей"}
+
+        for actor in (
+            {"companyId": 4, "role": "прораб", "assignedProjects": ["Лицей"]},
+            {"companyId": 4, "role": "прораб", "assignedProjects": ["Лицей"], "projectId": 17},
+            {"companyId": 4, "role": "прораб", "assignedProjects": ["Лицей"], "projectId": 18},
+        ):
+            with self.subTest(actor=actor), self.assertRaises(HTTPException) as error:
+                require_project_parent_access(
+                    FakeCursor(many=duplicate_rows),
+                    actor,
+                    project,
+                    FULL_VIEW_ROLES,
+                )
+            self.assertEqual(error.exception.status_code, 409)
+
+    def test_unique_project_name_keeps_legacy_scoped_access(self):
+        project = {"id": 17, "companyId": 4, "name": "Лицей"}
+        allowed = require_project_parent_access(
+            FakeCursor(many=[{"id": 17}]),
+            {"companyId": 4, "role": "прораб", "assignedProjects": ["Лицей"]},
+            project,
+            FULL_VIEW_ROLES,
+        )
+        self.assertEqual(allowed, project)
+
+        with self.assertRaises(HTTPException) as error:
+            require_project_parent_access(
+                FakeCursor(many=[{"id": 18}]),
+                {"companyId": 4, "role": "прораб", "assignedProjects": ["Лицей"]},
+                project,
+                FULL_VIEW_ROLES,
             )
         self.assertEqual(error.exception.status_code, 409)
 

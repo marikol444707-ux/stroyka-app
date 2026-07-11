@@ -1,12 +1,14 @@
-import os
 from typing import Optional
 from urllib.parse import quote
 
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import StreamingResponse
 
-from .service import document_local_path, document_response_policy
+from .service import (
+    document_response_policy,
+    require_document_storage_identity,
+)
 
 
 def _positive_int(value):
@@ -34,8 +36,44 @@ def _file_record(row):
         "uploaded_by_id",
         "uploaded_by",
         "created_at",
+        "deletion_status",
+        "deletion_error",
+        "deletion_requested_at",
     )
     return {field: row[index] if len(row) > index else None for index, field in enumerate(fields)}
+
+
+def _bounded_stream(stream, expected_size, max_bytes, chunk_size=64 * 1024):
+    total = 0
+    try:
+        while True:
+            chunk = stream.read(chunk_size)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise RuntimeError("Protected file stream exceeded configured limit")
+            yield chunk
+        if total != expected_size:
+            raise RuntimeError("Protected file stream size changed during delivery")
+    finally:
+        stream.close()
+
+
+class OwnedStreamingResponse(StreamingResponse):
+    def __init__(self, stream, expected_size, max_bytes, *, media_type, headers):
+        self._owned_stream = stream
+        super().__init__(
+            _bounded_stream(stream, expected_size, max_bytes),
+            media_type=media_type,
+            headers=headers,
+        )
+
+    async def __call__(self, scope, receive, send):
+        try:
+            return await super().__call__(scope, receive, send)
+        finally:
+            self._owned_stream.close()
 
 
 def register_document_access_module(app, deps):
@@ -43,14 +81,31 @@ def register_document_access_module(app, deps):
     get_current_user = deps["get_current_user"]
     resolve_resource_company_actor = deps["resolve_resource_company_actor"]
     resolve_project_parent = deps["resolve_project_parent"]
-    require_project_access = deps["require_project_access"]
+    require_project_parent_access = deps["require_project_parent_access"]
+    project_full_view_roles = deps.get("project_full_view_roles") or ()
     leadership_roles = set(deps.get("leadership_roles") or ())
     platform_staff_roles = deps.get("platform_staff_roles") or ()
     client_account_roles = deps.get("client_account_roles") or ()
-    upload_dir = deps["upload_dir"]
+    s3_prefix = deps.get("s3_prefixes") or deps.get("s3_prefix") or ""
+    s3_urls_for_key = deps["s3_urls_for_key"]
     s3_enabled = deps["s3_enabled"]
-    read_s3_object = deps["read_s3_object"]
+    open_local_file = deps["open_local_file"]
+    delete_local_file = deps["delete_local_file"]
+    open_s3_object = deps["open_s3_object"]
+    max_upload_bytes = int(deps["max_upload_bytes"])
     delete_s3_object = deps["delete_s3_object"]
+
+    def verify_file_storage(row):
+        storage_key = str(row.get("storage_key") or "").strip()
+        return require_document_storage_identity(
+            row["company_id"],
+            row.get("project_id"),
+            row.get("context") or "general",
+            row.get("file_url"),
+            storage_key,
+            s3_prefix=s3_prefix,
+            expected_s3_urls=s3_urls_for_key(storage_key) if storage_key else (),
+        )
 
     def authorize_file(cur, current_user, row, action_mode, x_company_id, x_company_mode):
         _context, actor = resolve_resource_company_actor(
@@ -65,14 +120,16 @@ def register_document_access_module(app, deps):
         )
         if row.get("project_id"):
             project = resolve_project_parent(cur, actor, project_id=row["project_id"])
-            require_project_access(actor, project["name"])
+            require_project_parent_access(cur, actor, project, project_full_view_roles)
         return actor
 
     def load_file(cur, file_id, *, for_update=False):
         lock_sql = " FOR UPDATE" if for_update else ""
         cur.execute(
             """SELECT id,company_id,project_id,file_url,storage_key,context,original_name,content_type,
-                      uploaded_by_id,uploaded_by,created_at
+                      uploaded_by_id,uploaded_by,created_at,
+                      COALESCE(deletion_status,'active') AS deletion_status,
+                      deletion_error,deletion_requested_at
                  FROM file_ownership WHERE id=%s""" + lock_sql,
             (file_id,),
         )
@@ -80,6 +137,11 @@ def register_document_access_module(app, deps):
         if not row:
             raise HTTPException(status_code=404, detail="Файл не найден")
         return row
+
+    def require_readable_file(row):
+        status = str(row.get("deletion_status") or "active").strip().lower()
+        if status != "active":
+            raise HTTPException(status_code=410, detail="Файл удаляется или ожидает повторного cleanup")
 
     @app.get("/tenant-files/{file_id}")
     def get_tenant_file_metadata(
@@ -93,6 +155,8 @@ def register_document_access_module(app, deps):
         try:
             row = load_file(cur, file_id)
             authorize_file(cur, current_user, row, "read", x_company_id, x_company_mode)
+            require_readable_file(row)
+            verify_file_storage(row)
             return {
                 "id": row["id"],
                 "companyId": row["company_id"],
@@ -129,22 +193,48 @@ def register_document_access_module(app, deps):
                     detail="Удалить файл может загрузивший его сотрудник или руководитель",
                 )
 
+            verify_file_storage(row)
+            retrying_after_physical_delete = (
+                str(row.get("deletion_status") or "active").strip().lower() == "deleting"
+            )
+
+            cur.execute(
+                """UPDATE file_ownership
+                      SET deletion_status='deleting',deletion_error=NULL,deletion_requested_at=NOW()
+                    WHERE id=%s AND company_id=%s""",
+                (file_id, row["company_id"]),
+            )
+            conn.commit()
+
             storage_key = str(row.get("storage_key") or "").strip()
-            if storage_key:
-                if not s3_enabled():
-                    raise HTTPException(
-                        status_code=409,
-                        detail="S3-хранилище недоступно: запись файла не удалена",
+            try:
+                if storage_key:
+                    if not s3_enabled():
+                        raise HTTPException(
+                            status_code=409,
+                            detail="S3-хранилище недоступно: cleanup будет повторен позже",
+                        )
+                    deleted = delete_s3_object(storage_key)
+                    if deleted is False and not retrying_after_physical_delete:
+                        raise HTTPException(
+                            status_code=409,
+                            detail="S3-файл отсутствует: запись владельца сохранена для проверки",
+                        )
+                else:
+                    delete_local_file(
+                        row.get("file_url"),
+                        missing_ok=retrying_after_physical_delete,
                     )
-                delete_s3_object(storage_key)
-            else:
-                local_path = document_local_path(upload_dir, row.get("file_url"))
-                if not local_path.is_file():
-                    raise HTTPException(
-                        status_code=409,
-                        detail="Локальный файл отсутствует: запись владельца не удалена",
-                    )
-                os.remove(local_path)
+            except Exception as storage_error:
+                conn.rollback()
+                cur.execute(
+                    """UPDATE file_ownership
+                          SET deletion_status='cleanup_failed',deletion_error=%s
+                        WHERE id=%s AND company_id=%s""",
+                    ((type(storage_error).__name__ + ": " + str(storage_error))[:500], file_id, row["company_id"]),
+                )
+                conn.commit()
+                raise
 
             cur.execute(
                 "DELETE FROM file_ownership WHERE id=%s AND company_id=%s",
@@ -171,6 +261,7 @@ def register_document_access_module(app, deps):
         try:
             row = load_file(cur, file_id)
             authorize_file(cur, current_user, row, "read", x_company_id, x_company_mode)
+            require_readable_file(row)
             headers = {
                 "Cache-Control": "private, no-store",
                 "X-Content-Type-Options": "nosniff",
@@ -179,21 +270,26 @@ def register_document_access_module(app, deps):
             }
             filename, media_type, disposition = document_response_policy(row.get("original_name"))
             headers["Content-Disposition"] = disposition + "; filename*=UTF-8''" + quote(filename, safe="")
+            verify_file_storage(row)
             storage_key = str(row.get("storage_key") or "").strip()
             if storage_key:
                 if not s3_enabled():
                     raise HTTPException(status_code=503, detail="S3-хранилище временно недоступно")
-                content, _storage_content_type = read_s3_object(storage_key)
-                return Response(
-                    content=content,
+                stream, content_length = open_s3_object(storage_key)
+                headers["Content-Length"] = str(content_length)
+                return OwnedStreamingResponse(
+                    stream,
+                    content_length,
+                    max_upload_bytes,
                     media_type=media_type,
                     headers=headers,
                 )
-            local_path = document_local_path(upload_dir, row.get("file_url"))
-            if not local_path.is_file():
-                raise HTTPException(status_code=404, detail="Файл отсутствует в хранилище")
-            return FileResponse(
-                path=local_path,
+            stream, content_length = open_local_file(row.get("file_url"))
+            headers["Content-Length"] = str(content_length)
+            return OwnedStreamingResponse(
+                stream,
+                content_length,
+                max_upload_bytes,
                 media_type=media_type,
                 headers=headers,
             )

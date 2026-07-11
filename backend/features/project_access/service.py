@@ -149,6 +149,42 @@ def resolve_project_parent(cur, actor, *, project_id=None, project_name="", for_
     return _project_parent(rows[0])
 
 
+def require_project_parent_access(cur, actor, project, full_view_roles):
+    """Authorize a resolved project without treating an ambiguous name as an ID."""
+    actor_company_id = _company_id(actor)
+    project_company_id = _positive_int((project or {}).get("companyId") or (project or {}).get("company_id"))
+    project_id = _positive_int((project or {}).get("id"))
+    project_name = str((project or {}).get("name") or "").strip()
+    if not actor_company_id or not project_company_id or actor_company_id != project_company_id:
+        raise HTTPException(status_code=403, detail="Объект относится к другой компании")
+    if not project_id or not project_name:
+        raise HTTPException(status_code=409, detail="Объект не имеет точного идентификатора")
+
+    full_roles = {str(role or "").strip() for role in full_view_roles or [] if str(role or "").strip()}
+    if str((actor or {}).get("role") or "").strip() in full_roles:
+        return project
+    if project_name not in _assigned_projects(actor):
+        raise HTTPException(status_code=403, detail="Нет доступа к объекту")
+
+    cur.execute(
+        "SELECT id FROM projects WHERE company_id=%s AND name=%s ORDER BY id",
+        (project_company_id, project_name),
+    )
+    project_ids = [
+        _positive_int(_row_value(row, "id", 0))
+        for row in (cur.fetchall() or [])
+    ]
+    project_ids = [value for value in project_ids if value]
+    if project_id not in project_ids:
+        raise HTTPException(status_code=409, detail="Объект изменился во время проверки доступа")
+    if len(project_ids) <= 1:
+        return project
+    raise HTTPException(
+        status_code=409,
+        detail="Назначение по названию объекта неоднозначно. Ограничьте доступ после миграции projectId членства",
+    )
+
+
 def require_child_project_identity(child, parent, *, child_label="Документ"):
     """Verify a stored child row against an already resolved project parent."""
     child_company_id = _positive_int((child or {}).get("companyId") or (child or {}).get("company_id"))

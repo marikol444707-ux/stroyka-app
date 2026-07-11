@@ -5,6 +5,7 @@ import hmac
 import json
 import os
 import re
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -68,6 +69,27 @@ def api_bytes(method, path, *, token="", headers=None, expected=200):
         text = raw.decode("utf-8", errors="replace")
         raise RuntimeError(f"{method} {path}: got {status}, expected {expected}. Body: {text[:900]}")
     return raw, response_headers
+
+
+def fetch_url(url):
+    absolute_url = urllib.parse.urljoin(API + "/", str(url or ""))
+    request = urllib.request.Request(absolute_url, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=45) as response:
+            return response.status, response.read()
+    except urllib.error.HTTPError as error:
+        return error.code, error.read()
+
+
+def wait_until_storage_is_gone(url, attempts=5):
+    last_status = None
+    for attempt in range(attempts):
+        last_status, _raw = fetch_url(url)
+        if last_status in (404, 410):
+            return
+        if attempt + 1 < attempts:
+            time.sleep(1)
+    raise RuntimeError(f"Физический файл остался доступен после cleanup: HTTP {last_status}")
 
 
 def totp_code(secret):
@@ -166,9 +188,14 @@ def main():
             raise RuntimeError("Защищенная выдача вернула неверный Content-Type")
         if protected_headers.get("cache-control", "").lower() != "private, no-store":
             raise RuntimeError("Защищенная выдача не запретила публичное кеширование")
+        compatibility_url = uploaded.get("url") or metadata.get("url")
+        compatibility_status, compatibility_content = fetch_url(compatibility_url)
+        if compatibility_status != 200 or hashlib.sha256(compatibility_content).digest() != hashlib.sha256(png).digest():
+            raise RuntimeError("Compatibility URL не вернул загруженный физический файл")
         api("DELETE", f"/tenant-files/{file_id}", token=token, headers=headers)
         api("GET", f"/tenant-files/{file_id}", token=token, headers=headers, expected=404)
         api_bytes("GET", f"/tenant-files/{file_id}/content", token=token, headers=headers, expected=404)
+        wait_until_storage_is_gone(compatibility_url)
         file_id = None
         print(json.dumps({
             "ok": True,
@@ -181,16 +208,19 @@ def main():
                 "authorized metadata read",
                 "authorized protected content read with exact bytes",
                 "physical object and ownership cleanup",
-                "deleted metadata and content return 404",
+                "deleted metadata/content return 404 and compatibility object disappears",
             ],
         }, ensure_ascii=False, indent=2))
     finally:
+        active_error = sys.exc_info()[1]
         if file_id:
             try:
                 api("DELETE", f"/tenant-files/{file_id}", token=token, headers=headers)
                 print(f"cleanup: removed tenant file {file_id}")
             except Exception as error:
-                print("cleanup warning:", error)
+                if active_error:
+                    raise RuntimeError(f"Основная ошибка: {active_error}; cleanup тоже не выполнен: {error}") from error
+                raise RuntimeError(f"Cleanup tenant-файла {file_id} не выполнен: {error}") from error
 
 
 if __name__ == "__main__":

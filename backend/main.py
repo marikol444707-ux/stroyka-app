@@ -22,7 +22,6 @@ import shutil
 import smtplib
 import subprocess
 import tempfile
-import urllib.error
 import urllib.parse
 import urllib.request
 from email.message import EmailMessage
@@ -2446,7 +2445,17 @@ S3_REGION = os.getenv("S3_REGION", "ru-central1").strip() or "ru-central1"
 S3_ACCESS_KEY_ID = (os.getenv("S3_ACCESS_KEY_ID") or os.getenv("AWS_ACCESS_KEY_ID") or "").strip()
 S3_SECRET_ACCESS_KEY = (os.getenv("S3_SECRET_ACCESS_KEY") or os.getenv("AWS_SECRET_ACCESS_KEY") or "").strip()
 S3_PUBLIC_URL = os.getenv("S3_PUBLIC_URL", "").rstrip("/")
+S3_LEGACY_PUBLIC_URLS = tuple(
+    value.strip().rstrip("/")
+    for value in os.getenv("S3_LEGACY_PUBLIC_URLS", "").split(",")
+    if value.strip()
+)
 S3_PREFIX = os.getenv("S3_PREFIX", "uploads").strip("/")
+S3_LEGACY_PREFIXES = tuple(
+    value.strip().strip("/")
+    for value in os.getenv("S3_LEGACY_PREFIXES", "").split(",")
+    if value.strip().strip("/")
+)
 S3_ACL = os.getenv("S3_ACL", "public-read").strip()
 BACKUP_DIR = os.getenv("BACKUP_DIR", "/var/backups/stroyka").strip()
 
@@ -3223,6 +3232,12 @@ def _s3_object_url(key: str) -> str:
         return S3_PUBLIC_URL + "/" + quoted_key
     return S3_ENDPOINT_URL + "/" + urllib.parse.quote(S3_BUCKET, safe="") + "/" + quoted_key
 
+def _s3_allowed_object_urls(key: str) -> tuple[str, ...]:
+    quoted_key = urllib.parse.quote(key, safe="/")
+    urls = [_s3_object_url(key)]
+    urls.extend(public_base + "/" + quoted_key for public_base in S3_LEGACY_PUBLIC_URLS)
+    return tuple(dict.fromkeys(urls))
+
 def _s3_put_object(key: str, content: bytes, content_type: str) -> str:
     quoted_bucket = urllib.parse.quote(S3_BUCKET, safe="")
     quoted_key = urllib.parse.quote(key, safe="/")
@@ -3269,99 +3284,6 @@ def _s3_put_object(key: str, content: bytes, content_type: str) -> str:
     with urllib.request.urlopen(req, timeout=30):
         pass
     return _s3_object_url(key)
-
-def _s3_delete_object(key: str) -> None:
-    quoted_bucket = urllib.parse.quote(S3_BUCKET, safe="")
-    quoted_key = urllib.parse.quote(key, safe="/")
-    url = S3_ENDPOINT_URL + "/" + quoted_bucket + "/" + quoted_key
-    parsed = urllib.parse.urlparse(url)
-    payload_hash = hashlib.sha256(b"").hexdigest()
-    now = dt.datetime.utcnow()
-    amz_date = now.strftime("%Y%m%dT%H%M%SZ")
-    date_stamp = now.strftime("%Y%m%d")
-    headers = {
-        "host": parsed.netloc,
-        "x-amz-content-sha256": payload_hash,
-        "x-amz-date": amz_date,
-    }
-    signed_header_names = sorted(headers.keys())
-    canonical_headers = "".join(f"{name}:{headers[name]}\n" for name in signed_header_names)
-    signed_headers = ";".join(signed_header_names)
-    canonical_request = "\n".join([
-        "DELETE", parsed.path or "/", "", canonical_headers, signed_headers, payload_hash,
-    ])
-    credential_scope = f"{date_stamp}/{S3_REGION}/s3/aws4_request"
-    string_to_sign = "\n".join([
-        "AWS4-HMAC-SHA256",
-        amz_date,
-        credential_scope,
-        hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
-    ])
-    signature = hmac.new(
-        _s3_signing_key(S3_SECRET_ACCESS_KEY, date_stamp, S3_REGION),
-        string_to_sign.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
-    headers["Authorization"] = (
-        "AWS4-HMAC-SHA256 "
-        f"Credential={S3_ACCESS_KEY_ID}/{credential_scope}, "
-        f"SignedHeaders={signed_headers}, Signature={signature}"
-    )
-    req = urllib.request.Request(url, headers=headers, method="DELETE")
-    with urllib.request.urlopen(req, timeout=30):
-        pass
-
-def _s3_get_object(key: str) -> tuple[bytes, str]:
-    quoted_bucket = urllib.parse.quote(S3_BUCKET, safe="")
-    quoted_key = urllib.parse.quote(key, safe="/")
-    url = S3_ENDPOINT_URL + "/" + quoted_bucket + "/" + quoted_key
-    parsed = urllib.parse.urlparse(url)
-    payload_hash = hashlib.sha256(b"").hexdigest()
-    now = dt.datetime.utcnow()
-    amz_date = now.strftime("%Y%m%dT%H%M%SZ")
-    date_stamp = now.strftime("%Y%m%d")
-    headers = {
-        "host": parsed.netloc,
-        "x-amz-content-sha256": payload_hash,
-        "x-amz-date": amz_date,
-    }
-    signed_header_names = sorted(headers.keys())
-    canonical_headers = "".join(f"{name}:{headers[name]}\n" for name in signed_header_names)
-    signed_headers = ";".join(signed_header_names)
-    canonical_request = "\n".join([
-        "GET", parsed.path or "/", "", canonical_headers, signed_headers, payload_hash,
-    ])
-    credential_scope = f"{date_stamp}/{S3_REGION}/s3/aws4_request"
-    string_to_sign = "\n".join([
-        "AWS4-HMAC-SHA256",
-        amz_date,
-        credential_scope,
-        hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
-    ])
-    signature = hmac.new(
-        _s3_signing_key(S3_SECRET_ACCESS_KEY, date_stamp, S3_REGION),
-        string_to_sign.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
-    headers["Authorization"] = (
-        "AWS4-HMAC-SHA256 "
-        f"Credential={S3_ACCESS_KEY_ID}/{credential_scope}, "
-        f"SignedHeaders={signed_headers}, Signature={signature}"
-    )
-    req = urllib.request.Request(url, headers=headers, method="GET")
-    try:
-        with urllib.request.urlopen(req, timeout=30) as response:
-            content = response.read(MAX_UPLOAD_BYTES + 1)
-            content_type = response.headers.get("Content-Type") or "application/octet-stream"
-    except urllib.error.HTTPError as error:
-        if error.code == 404:
-            raise HTTPException(status_code=404, detail="Файл отсутствует в S3-хранилище") from None
-        raise HTTPException(status_code=503, detail="S3-хранилище временно недоступно") from None
-    except (urllib.error.URLError, TimeoutError, OSError):
-        raise HTTPException(status_code=503, detail="S3-хранилище временно недоступно") from None
-    if len(content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="Файл превышает допустимый размер защищенной выдачи")
-    return content, content_type
 
 def _safe_upload_ext(filename: str) -> str:
     ext = os.path.splitext(filename or "")[1].lower()
@@ -3743,6 +3665,9 @@ def init_db():
         );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_file_ownership_url ON file_ownership(file_url);
         CREATE INDEX IF NOT EXISTS idx_file_ownership_company_project ON file_ownership(company_id,project_id,id DESC);
+        ALTER TABLE file_ownership ADD COLUMN IF NOT EXISTS deletion_status VARCHAR(30) DEFAULT 'active';
+        ALTER TABLE file_ownership ADD COLUMN IF NOT EXISTS deletion_error TEXT;
+        ALTER TABLE file_ownership ADD COLUMN IF NOT EXISTS deletion_requested_at TIMESTAMP;
         CREATE TABLE IF NOT EXISTS audit_log (
             id SERIAL PRIMARY KEY,
             user_id INT,
@@ -18312,6 +18237,7 @@ async def upload_photo(
             require_document_upload_actor,
         )
         from backend.features.project_access.service import resolve_project_parent
+        from backend.features.project_access.service import require_project_parent_access
     except ModuleNotFoundError:
         from features.document_access.service import (
             document_project_reference,
@@ -18319,6 +18245,7 @@ async def upload_photo(
             require_document_upload_actor,
         )
         from features.project_access.service import resolve_project_parent
+        from features.project_access.service import require_project_parent_access
     conn = get_db()
     conn.autocommit = False
     access_cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -18343,7 +18270,7 @@ async def upload_photo(
                 project_id=bound_project_id,
                 project_name=bound_project_name,
             )
-            require_project_access(actor, project["name"])
+            require_project_parent_access(access_cur, actor, project, BRIGADE_FULL_VIEW_ROLES)
         namespace = document_storage_namespace(
             company_id,
             (project or {}).get("id"),
@@ -31783,24 +31710,65 @@ register_project_launch_module(app, {
 
 try:
     from backend.features.document_access import register_document_access_module
-    from backend.features.project_access.service import resolve_project_parent as resolve_document_project_parent
+    from backend.features.document_access.service import delete_document_local_file, open_document_local_file
+    from backend.features.document_access.storage import (
+        delete_s3_object as delete_document_s3_object,
+        open_s3_object as open_document_s3_object,
+    )
+    from backend.features.project_access.service import (
+        require_project_parent_access as require_document_project_parent_access,
+        resolve_project_parent as resolve_document_project_parent,
+    )
 except ModuleNotFoundError:
     from features.document_access import register_document_access_module
-    from features.project_access.service import resolve_project_parent as resolve_document_project_parent
+    from features.document_access.service import delete_document_local_file, open_document_local_file
+    from features.document_access.storage import (
+        delete_s3_object as delete_document_s3_object,
+        open_s3_object as open_document_s3_object,
+    )
+    from features.project_access.service import (
+        require_project_parent_access as require_document_project_parent_access,
+        resolve_project_parent as resolve_document_project_parent,
+    )
 
 register_document_access_module(app, {
     "get_db": get_db,
     "get_current_user": get_current_user,
     "resolve_resource_company_actor": resolve_resource_company_actor,
     "resolve_project_parent": resolve_document_project_parent,
-    "require_project_access": require_project_access,
+    "require_project_parent_access": require_document_project_parent_access,
+    "project_full_view_roles": BRIGADE_FULL_VIEW_ROLES,
     "leadership_roles": LEADERSHIP_ROLES,
     "platform_staff_roles": PLATFORM_STAFF_ROLES,
     "client_account_roles": CLIENT_ACCOUNT_ROLES,
     "upload_dir": UPLOAD_DIR,
+    "s3_prefixes": (S3_PREFIX, *S3_LEGACY_PREFIXES),
+    "s3_urls_for_key": _s3_allowed_object_urls,
     "s3_enabled": _s3_enabled,
-    "read_s3_object": _s3_get_object,
-    "delete_s3_object": _s3_delete_object,
+    "open_local_file": lambda file_url: open_document_local_file(UPLOAD_DIR, file_url, MAX_UPLOAD_BYTES),
+    "delete_local_file": lambda file_url, missing_ok=False: delete_document_local_file(
+        UPLOAD_DIR,
+        file_url,
+        missing_ok=missing_ok,
+    ),
+    "open_s3_object": lambda storage_key: open_document_s3_object(
+        key=storage_key,
+        endpoint_url=S3_ENDPOINT_URL,
+        bucket=S3_BUCKET,
+        region=S3_REGION,
+        access_key=S3_ACCESS_KEY_ID,
+        secret_key=S3_SECRET_ACCESS_KEY,
+        max_bytes=MAX_UPLOAD_BYTES,
+    ),
+    "max_upload_bytes": MAX_UPLOAD_BYTES,
+    "delete_s3_object": lambda storage_key: delete_document_s3_object(
+        key=storage_key,
+        endpoint_url=S3_ENDPOINT_URL,
+        bucket=S3_BUCKET,
+        region=S3_REGION,
+        access_key=S3_ACCESS_KEY_ID,
+        secret_key=S3_SECRET_ACCESS_KEY,
+    ),
 })
 
 try:
