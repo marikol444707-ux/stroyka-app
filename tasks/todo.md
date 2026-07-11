@@ -1169,7 +1169,7 @@
 
 **Description:** Return the registered file ID, authorize metadata reads through the stored company/project owner, and provide an ownership-checked cleanup route for smoke artifacts.
 
-**Status:** Baseline deployed in `970b6aa8`; authenticated production smoke passed. Fail-closed storage hardening is pushed in `4107a4e4` and awaits production release.
+**Status:** Deployed through `7fcda405`; authenticated production smoke passed.
 
 **Acceptance criteria:**
 - [x] `/upload-photo` returns `fileId` and the stored company/project confirmation.
@@ -1183,9 +1183,9 @@
 - [x] Backend and smoke script compile.
 - [x] Focused document-access tests pass (`10` tests); the full working-tree backend suite passes (`105` tests).
 - [x] Baseline production deploy, nginx routing, and authenticated `npm run smoke:tenant-files` pass.
-- [ ] Fail-closed hardening from `4107a4e4` is deployed and rechecked.
+- [x] Fail-closed hardening from `4107a4e4` and cursor hotfix `7fcda405` are deployed and rechecked.
 
-**Known follow-up:** M6.2c must serve protected bytes while legacy public storage remains enabled during the compatibility window.
+**Known follow-up:** M6.2c serves protected bytes; M6.2d must migrate consumers and complete the private-storage cutover.
 
 **Dependencies:** Task M6.2a
 
@@ -1195,7 +1195,7 @@
 
 **Description:** Serve registered local and S3 file bytes only after authorizing the stored company/project owner, without breaking existing public URLs during migration. Keep private S3 ACL cutover as a separate storage step.
 
-**Status:** Implemented locally; production release pending.
+**Status:** Deployed in `f1d9e1de` with cursor hotfix `7fcda405`; authenticated production content smoke passed.
 
 **Acceptance criteria:**
 - [x] `GET /tenant-files/{id}/content` authorizes from the stored company and exact project before reading storage.
@@ -1210,7 +1210,7 @@
 - [x] Focused document-access tests cover positive and negative authorization, local/S3 content, unsafe types, cleanup, and unavailable storage (`18` tests).
 - [x] Backend and smoke script compile.
 - [x] Full working-tree backend suite (`113` tests) and exact staged snapshot (`109` backend, `74` frontend) plus production build pass.
-- [ ] Production deploy and authenticated `npm run smoke:tenant-files` pass.
+- [x] Production deploy, public/API smoke, authenticated `npm run smoke:tenant-files`, cleanup, and zero remaining smoke ownership rows pass.
 
 **Known follow-up:** M6.2d must migrate document consumers from compatibility URLs to the protected endpoint, switch new S3 objects away from `public-read`, and then retire public access only after a usage audit.
 

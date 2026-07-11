@@ -88,8 +88,8 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M5.3b4: Isolate the primary `Назначить мастеру` work-assignment route by the estimate's stored company and exact project. Deployed in `d885ba52`; public production smoke passed.
 - [ ] Task M6: Scope remaining projects, estimates, journals, acts, files, notifications, audit, and AI jobs.
 - [x] Task M6.2a: Register selected-company ownership for new uploads and bind a file to a project only by exact `projectId`. Deployed in `51550487`; public smoke passed.
-- [ ] Task M6.2b: Add authorized tenant-file metadata/delete APIs and an authenticated upload/read/cleanup smoke. Baseline deployed in `970b6aa8` and authenticated smoke passed; fail-closed hardening in `4107a4e4` awaits production release.
-- [ ] Task M6.2c: Add authorized local/S3 tenant-file byte serving while legacy public URLs remain compatible; keep private S3 ACL cutover as the next storage step. Implemented locally; production release pending.
+- [x] Task M6.2b: Add authorized tenant-file metadata/delete APIs and an authenticated upload/read/cleanup smoke. Deployed through `7fcda405`; authenticated production smoke passed.
+- [x] Task M6.2c: Add authorized local/S3 tenant-file byte serving while legacy public URLs remain compatible; keep private S3 ACL cutover as the next storage step. Deployed in `f1d9e1de` with hotfix `7fcda405`; authenticated content smoke passed.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary
