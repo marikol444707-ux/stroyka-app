@@ -1640,7 +1640,7 @@
 
 **Description:** Before strict list reads are enabled, change only `POST /unexpected-works` to resolve one selected-company actor and exact project parent, then store immutable `company_id/project_id` on every new row. Keep list/update/delete, include/reconcile, limit-check, and AI routes unchanged in this slice.
 
-**Status:** Implemented locally; release pending. Required before strict list reads because the legacy create route otherwise inserts ownerless rows that would disappear immediately after refresh.
+**Status:** Deployed in `ab9d9bf0` and included in verified runtime `3aa3bba4`.
 
 **Acceptance criteria:**
 - [x] Create requires one concrete selected company; `all_companies` and an unavailable company fail before `INSERT`.
@@ -1661,7 +1661,7 @@
 
 **Description:** After all new rows receive stored ownership, change only `GET /unexpected-works` to select through `company_id/project_id` and server-resolved tenant context. Keep update/delete, include/reconcile, limit-check, and AI routes unchanged in this slice.
 
-**Status:** Implemented locally; release pending after a fresh production ownership audit. It must be deployed together with or after Task M6.4h.
+**Status:** Deployed and verified read-only in runtime `3aa3bba4` after a clean production ownership audit.
 
 **Acceptance criteria:**
 - [x] Selected-company reads return only rows whose stored company and project are visible to the effective membership role.
@@ -1671,7 +1671,7 @@
 
 **Verification:**
 - [x] Focused tests cover two companies, direct selected-company reads, aggregate reads, unavailable company `403`, cross-company invisibility, worker money hiding, and legacy/mismatched owner exclusion.
-- [ ] Production verification is read-only and confirms no row, owner, or business-field changes.
+- [x] Production verification is read-only and confirms no row, owner, or business-field changes.
 - [x] Local verification passes: `38` focused tests, `223` full backend tests, compile, M6 registry audit, diff check, and production build.
 
 **Dependencies:** Task M6.4h
