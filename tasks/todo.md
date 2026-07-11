@@ -1349,7 +1349,7 @@
 
 **Description:** Move only the photo thumbnail in the existing project `Производство работ` list onto the authenticated Blob loader. Keep master uploads, work-journal writes, edit/history renderers, backend routes, and S3 ACL unchanged.
 
-**Status:** Deployed in `6fe3a6aa`; authenticated tenant-file smoke pending.
+**Status:** Deployed in `6fe3a6aa`; production verification passed.
 
 **Acceptance criteria:**
 - [x] A strict local `/tenant-files/{positiveId}/content` ЖПР photo renders only after the authenticated Blob request succeeds.
@@ -1364,10 +1364,10 @@
 - [x] Intended tracked frontend suite passes (`21` suites / `91` tests); full working-tree suite passes (`22` suites / `96` tests).
 - [x] Production build succeeds.
 - [x] Production runtime reports `6fe3a6aa`; public smoke passes.
-- [x] Director browser check opens `Кисловодск Лицей 4 -> Работы -> Производство работ`; the real compatibility thumbnail is 32x32, enlarged preview opens, and console errors/warnings are empty.
-- [ ] Authenticated tenant-file smoke is rerun after this frontend release.
+- [x] Prorab browser check opens `Кисловодск Лицей 4 -> Журналы -> Производство работ`; the real compatibility thumbnail is 32x32, enlarged preview opens, and the row edit modal stays closed.
+- [x] Authenticated tenant-file smoke passes after this frontend release and cleanup leaves `0` smoke ownership rows; the only browser error is an unrelated rate-limit `429` from `/master-profiles`.
 
-**Known follow-up:** Work-journal ownership and read/write isolation remain part of `M6.5`; do not opt ЖПР uploads into protected return URLs until every ЖПР renderer is audited and stored `company_id`/`project_id` checks are complete.
+**Known follow-up:** Work-journal ownership and read/write isolation remain part of `M6.5`; do not opt ЖПР uploads into protected return URLs until every ЖПР renderer is audited and stored `company_id`/`project_id` checks are complete. `M6.2d6` adds an explicit protected-preview opt-in to the shared attachment field and enables it only for the ЖПР edit form.
 
 **Dependencies:** Tasks M6.2d3-M6.2d4
 
