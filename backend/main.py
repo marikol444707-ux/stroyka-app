@@ -21383,14 +21383,6 @@ def update_estimate(
                         continue
                     _raise_work_journal_duplicate(duplicate_work)
                 used_materials = _force_work_material_package(used_materials, work_package_for_journal)
-                if used_materials and estimate_scope["companyId"] != 1:
-                    raise HTTPException(
-                        status_code=409,
-                        detail=(
-                            "Списание материалов для этой компании временно закрыто: "
-                            "сначала нужно перенести выдачу материалов на company_id"
-                        ),
-                    )
                 _validate_work_material_norm_reasons(
                     used_materials,
                     cur,
