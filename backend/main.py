@@ -21896,55 +21896,34 @@ def toggle_estimate_template(
     cur.close(); conn.close()
     return {"ok": True, "isTemplate": bool(row[0]) if row else False}
 
-@app.get("/estimates/{id}/versions")
-def get_estimate_versions(id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    if _current_user.get("role") == "бухгалтер":
-        raise HTTPException(status_code=403, detail="Бухгалтер видит закрывающие документы и акты, но не версии клиентской сметы")
-    conn = get_db()
-    cur = conn.cursor()
-    require_estimate_access(cur, id, _current_user)
-    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
-        cur.execute("SELECT COALESCE(status,'') FROM estimates WHERE id=%s", (id,))
-        status_row = cur.fetchone()
-        if not status_row or status_row[0] != "Активная":
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Исполнитель видит только активную назначенную смету")
-    cur.execute("SELECT id, version_label, total, comment, created_by, created_at FROM estimate_versions WHERE estimate_id=%s ORDER BY id DESC", (id,))
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [{"id":r[0],"versionLabel":r[1] or "","total":_sanitize_worker_estimate_total(_current_user, r[2]),"comment":r[3] or "","createdBy":r[4] or "","createdAt":str(r[5])} for r in rows]
+try:
+    from backend.features.estimate_access.service import (
+        estimate_visibility_filter,
+        resolve_estimate_parent,
+    )
+    from backend.features.estimate_versions import register_estimate_versions_module
+except ModuleNotFoundError:
+    from features.estimate_access.service import estimate_visibility_filter, resolve_estimate_parent
+    from features.estimate_versions import register_estimate_versions_module
 
-@app.get("/estimate-version/{version_id}")
-def get_estimate_version_detail(version_id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    import json as j
-    if _current_user.get("role") == "бухгалтер":
-        raise HTTPException(status_code=403, detail="Бухгалтер видит закрывающие документы и акты, но не версии клиентской сметы")
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""SELECT ev.id, ev.estimate_id, ev.version_label, ev.sections_json, ev.total, ev.comment, ev.created_by, ev.created_at,
-                          e.project_name, COALESCE(e.work_package,'Основная') AS work_package, COALESCE(e.status,'') AS estimate_status
-                   FROM estimate_versions ev
-                   JOIN estimates e ON e.id = ev.estimate_id
-                   WHERE ev.id=%s""", (version_id,))
-    r = cur.fetchone()
-    if not r:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="version not found")
-    require_estimate_access(cur, int(r[1]), _current_user)
-    if _current_user.get("role") in WORKER_EXECUTION_ROLES and r[10] != "Активная":
-        cur.close(); conn.close()
-        raise HTTPException(status_code=403, detail="Исполнитель видит только активную назначенную смету")
-    allowed_items = None
-    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
-        allowed_items = _worker_allowed_estimate_items_for_scopes(cur, _current_user, [((r[8] or ""), (r[9] or "Основная"))]).get((r[8] or "", r[9] or "Основная"), [])
-    cur.close(); conn.close()
-    try:
-        sections = j.loads(r[3]) if r[3] else []
-    except:
-        sections = []
-    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
-        sections = _sanitize_worker_estimate_sections(sections, allowed_items or [], estimate_id=r[1])
-    return {"id":r[0],"estimateId":r[1],"versionLabel":r[2] or "","sections":sections,"total":_sanitize_worker_estimate_total(_current_user, r[4]),"comment":r[5] or "","createdBy":r[6] or "","createdAt":str(r[7])}
+register_estimate_versions_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "estimate_visibility_filter": estimate_visibility_filter,
+    "resolve_estimate_parent": resolve_estimate_parent,
+    "project_document_roles": PROJECT_DOCUMENT_ROLES,
+    "full_view_roles": ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик"),
+    "package_limit_roles": PACKAGE_LIMIT_ROLES,
+    "active_only_roles": (*WORKER_EXECUTION_ROLES, "прораб"),
+    "customer_roles": ("заказчик",),
+    "package_optional_roles": ("прораб",),
+    "worker_execution_roles": WORKER_EXECUTION_ROLES,
+    "worker_allowed_items_for_scopes": _worker_allowed_estimate_items_for_scopes,
+    "sanitize_worker_sections": _sanitize_worker_estimate_sections,
+    "sanitize_worker_total": _sanitize_worker_estimate_total,
+})
 
 @app.delete("/estimates/{id}")
 def delete_estimate(id: int, hard: bool = False, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
