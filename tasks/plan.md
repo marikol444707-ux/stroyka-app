@@ -101,7 +101,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.2d7: Enable protected preview only for the two master work-submission photo fields with `context="work-journal"`, preserving their compatibility upload contract and every other master form. Deployed in `7c0d2570`; public, authenticated file, and master-cabinet browser checks passed.
 - [ ] Task M6.4: Scope company `messages`, estimate versions, changes, and estimate chat by stored company and verified project parents; `/messages` currently remains a critical legacy global table.
 - [x] Task M6.4a: Scope the existing company `/messages` list, create, and mark-read routes by selected company while preserving one explicitly marked legacy fallback. Deployed in `38d67411`; migration, public/negative API checks, and authenticated browser chat passed.
-- [ ] Task M6.4b: Add a read-only legacy company-message ownership report with fail-closed candidate classification and no backfill. Implementation and local verification are complete; production report is pending.
+- [x] Task M6.4b: Add a read-only legacy company-message ownership report with fail-closed candidate classification and no backfill. Released in `d81939d5`; production reported one ready row and identical before/after counts.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary

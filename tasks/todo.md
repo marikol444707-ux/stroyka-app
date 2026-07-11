@@ -1459,7 +1459,7 @@
 
 **Description:** Add an operator command that reports how legacy general-chat rows could map to companies without reading message content or changing the database. Do not perform backfill, add constraints, or alter runtime chat behavior in this slice.
 
-**Status:** Implementation and local verification complete; production report pending.
+**Status:** Released in `d81939d5`; production read-only report passed with one ready row and no database changes.
 
 **Acceptance criteria:**
 - [x] `python3 -m backend.features.company_messages.legacy_report` opens a consistent read-only transaction and executes only `SELECT` queries without commit.
@@ -1473,7 +1473,7 @@
 - [x] Focused company-context and company-message suites pass (`43` tests), including `4` report tests.
 - [x] Clean `HEAD + staged M6.4b` release snapshot passes the full backend suite (`149` tests); unrelated unstaged drafts are excluded from this release verification.
 - [x] Report module compiles; full working-tree frontend suite (`25` suites / `104` tests) and production build pass.
-- [ ] Production command runs in read-only mode, reports the expected one ready legacy row, and before/after database counts remain identical.
+- [x] Production command reports `ready=1`, `ambiguous=0`, `unresolved=0`, and `readyForBackfill=true`; before/after counts remain `(1 total, 1 legacy, 0 scoped)`.
 
 **Known follow-up:** Review and save the production report first. A later reversible `M6.4c` may backfill only candidates still classified as `ready`; it must recheck the same ownership conditions inside the write transaction and leave ambiguous rows untouched.
 
