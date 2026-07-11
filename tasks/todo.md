@@ -1485,7 +1485,7 @@
 
 **Description:** Convert the temporary company-chat compatibility layer into strict stored ownership. Backfill only rows whose author still has one unambiguous company, remove runtime inference, bind chat photos to the same company, and make the frontend discard stale company data immediately when the selected company changes.
 
-**Status:** Implemented and verified locally; production dry-run/apply, deploy, and authenticated browser verification are pending.
+**Status:** Completed and deployed in runtime `44380a2a` (`f407350b` feature, `081eaf3e` fail-closed hardening, `44380a2a` executable launcher hotfix).
 
 **Acceptance criteria:**
 - [x] `npm run audit:company-messages` is read-only by default and reports only IDs, counts, statuses, and reasons; message text, author names, and photo URLs are never printed.
@@ -1511,6 +1511,14 @@
 3. If the fresh report still says `readyCount=1` and `reviewCount=0`, run `python3 scripts/migrate-company-messages.py --apply --confirm APPLY_COMPANY_MESSAGES --expected-ready-count 1`.
 4. Repeat `npm run audit:company-messages`; require `legacyRows=0`, `readyCount=0`, and `reviewCount=0` before deploy.
 5. Run `bash deploy.sh`, then public/protected smoke and a browser check under two selected-company contexts when a safe two-company fixture exists.
+
+**Production verification:**
+- [x] Pre-apply dry-run returned one legacy row (`messageId=1`) ready for company `1`, with `reviewCount=0` and `writesAttempted=0`.
+- [x] Apply required `--expected-ready-count 1`, updated exactly one row, reported no write conflicts, and committed atomically.
+- [x] Post-apply and post-deploy dry-runs both returned `legacyRows=0`, `readyCount=0`, `reviewCount=0`, and `complete=true`.
+- [x] Deploy build, public smoke, service health, and logs passed at runtime `44380a2a8d78`.
+- [x] A temporary master read exactly the stored company-1 message with `legacyUnscoped=false`; `all_companies` returned `400`, and the cookie-authenticated browser opened `Чат` without console errors. No message was created or changed; temporary user `4380` was disabled after verification.
+- [x] The generic protected smoke could not use the existing admin because its first 2FA setup is pending; the dedicated temporary-user API and real browser checks closed the same `/messages` verification without changing the admin's security state.
 
 **Known follow-up:** Do not add `NOT NULL` or a foreign key until the production post-apply report is clean. Project chat, estimate chat, estimate versions/changes, and `unexpected_works` remain separate M6.4 slices. A true two-independent-tenant production E2E remains blocked until the planned fixture infrastructure exists.
 
