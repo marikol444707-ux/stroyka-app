@@ -71,6 +71,7 @@ export function useAppCoreRuntime({
     user,
   } = authEntryState;
   const {
+    setCompanyChatInput,
     setShowChatPanelRaw,
     setShowSystemStatus,
     setSystemStatus,
@@ -187,6 +188,8 @@ export function useAppCoreRuntime({
     API,
     companyContext,
     notify,
+    setCompanyChatInput,
+    setCompanyChatMessage: appMainState.setCompanyChatMessage,
     setCompanyMessages,
     user: currentUser,
   });

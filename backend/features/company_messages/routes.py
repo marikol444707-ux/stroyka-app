@@ -87,16 +87,18 @@ def _require_owned_chat_photo(cur, photo_url, company_id):
             """SELECT id,company_id,project_id,context,
                       COALESCE(deletion_status,'active') AS deletion_status
                  FROM file_ownership
-                WHERE id=%s""",
-            (int(content_match.group(1)),),
+                WHERE id=%s AND company_id=%s
+                FOR SHARE""",
+            (int(content_match.group(1)), company_id),
         )
     else:
         cur.execute(
             """SELECT id,company_id,project_id,context,
                       COALESCE(deletion_status,'active') AS deletion_status
                  FROM file_ownership
-                WHERE file_url=%s""",
-            (value,),
+                WHERE file_url=%s AND company_id=%s
+                FOR SHARE""",
+            (value, company_id),
         )
     row = cur.fetchone()
     if not row:

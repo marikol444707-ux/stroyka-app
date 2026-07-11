@@ -1489,25 +1489,26 @@
 
 **Acceptance criteria:**
 - [x] `npm run audit:company-messages` is read-only by default and reports only IDs, counts, statuses, and reasons; message text, author names, and photo URLs are never printed.
-- [x] Apply mode requires the exact confirmation `APPLY_COMPANY_MESSAGES`, updates only `chat_type='company'` rows, and leaves missing or multi-company ownership in `needs_review`.
+- [x] Apply mode requires the exact confirmation `APPLY_COMPANY_MESSAGES` and the fresh dry-run `--expected-ready-count`, updates only `chat_type='company'` rows, and rolls back without writes when any row needs review or the count changed.
+- [x] Migration classification includes active and inactive historical company memberships; any different company is `needs_review` rather than a guessed backfill.
 - [x] The write statement repeats author-company and conflicting-membership checks inside the same transaction; skipped rows are reported as `writeConflicts` and cannot produce `complete=true`.
 - [x] Runtime list and mark-read queries use only stored `messages.company_id`, reject `all_companies`, return the latest 200 messages in chronological order, and never infer ownership from the author's current profile.
-- [x] A chat photo must exist in `file_ownership`, belong to the selected company, have no project, use `context='company-chat'`, and remain active.
-- [x] Company-chat uploads explicitly opt out of project inference even when a project was previously open.
-- [x] The frontend clears chat state on company changes, aborts or ignores stale responses, skips `/messages` in `all_companies`, preserves unsent text on API failure, and never fabricates a local message after a failed write.
+- [x] A chat photo lookup is scoped to the selected company and row-locked through message commit; the file must have no project, use `context='company-chat'`, and remain active.
+- [x] Both company-chat upload entry points opt out of project inference and store the protected tenant-file content URL even when a project was previously open.
+- [x] Before paint, the frontend clears messages and both drafts on company changes, aborts or ignores stale responses, skips `/messages` in `all_companies`, preserves the current-company draft on API failure, and never fabricates a local message after a failed write.
 - [x] The generic data loader no longer issues competing `/messages` requests; one context-aware hook owns company-chat loading.
 - [x] Protected production smoke checks authenticated `/messages` and verifies that `all_companies` cannot read it.
 
 **Local verification required before release:**
-- [x] Focused migration/route/report backend tests pass (`22` tests).
-- [x] Focused chat/upload frontend tests pass (`4` suites / `13` tests).
-- [x] Full backend feature suite (`164` tests), full tracked frontend suite (`27` suites / `109` tests), M6 registry audit, compile, shell syntax, diff check, and production build pass.
+- [x] Focused migration/route/report backend tests pass (`27` tests).
+- [x] Focused chat/upload frontend tests pass (`6` suites / `17` tests).
+- [x] Full tracked backend feature suite (`165` tests), full tracked frontend suite plus the new floating-chat regression suite (`28` suites / `112` tests), M6 registry audit, compile, shell syntax, diff check, and production build pass.
 - [x] `npm audit --omit=dev --audit-level=critical` reports no critical advisories; the known CRA/XLSX backlog remains `29` findings (`14 high`) and is not modified with a breaking `--force` update.
 
 **Production release order:**
 1. `git pull --ff-only` while the `M6.4a` runtime is still active.
 2. Run `npm run audit:company-messages` and stop if any row is `needs_review` or the expected counts changed.
-3. Run `python3 scripts/migrate-company-messages.py --apply --confirm APPLY_COMPANY_MESSAGES`.
+3. If the fresh report still says `readyCount=1` and `reviewCount=0`, run `python3 scripts/migrate-company-messages.py --apply --confirm APPLY_COMPANY_MESSAGES --expected-ready-count 1`.
 4. Repeat `npm run audit:company-messages`; require `legacyRows=0`, `readyCount=0`, and `reviewCount=0` before deploy.
 5. Run `bash deploy.sh`, then public/protected smoke and a browser check under two selected-company contexts when a safe two-company fixture exists.
 

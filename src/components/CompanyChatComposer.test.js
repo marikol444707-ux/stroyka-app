@@ -4,7 +4,7 @@ import CompanyChatComposer from './CompanyChatComposer';
 
 describe('CompanyChatComposer', () => {
   test('uploads chat photos as company-level files', async () => {
-    const uploadPhoto = jest.fn().mockResolvedValue('/uploads/chat.jpg');
+    const uploadPhoto = jest.fn().mockResolvedValue('/tenant-files/71/content');
     const sendCompanyChatMessage = jest.fn();
     const {container} = render(
       <CompanyChatComposer
@@ -25,8 +25,9 @@ describe('CompanyChatComposer', () => {
 
     await waitFor(() => expect(uploadPhoto).toHaveBeenCalledWith(file, {
       context: 'company-chat',
+      preferProtectedUrl: true,
       projectScoped: false,
     }));
-    expect(sendCompanyChatMessage).toHaveBeenCalledWith('', '/uploads/chat.jpg');
+    expect(sendCompanyChatMessage).toHaveBeenCalledWith('', '/tenant-files/71/content');
   });
 });

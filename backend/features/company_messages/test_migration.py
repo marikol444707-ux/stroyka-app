@@ -1,4 +1,6 @@
+import io
 import unittest
+from contextlib import redirect_stderr
 from unittest.mock import patch
 
 from backend.features.company_messages.migration import (
@@ -135,7 +137,7 @@ class CompanyMessageMigrationTests(unittest.TestCase):
         sql, params = cursor.calls[0]
         self.assertIn("m.chat_type='company'", sql)
         self.assertIn("m.company_id IS NULL", sql)
-        self.assertIn("COALESCE(membership.active,TRUE)=TRUE", sql)
+        self.assertNotIn("membership.active", sql)
         self.assertEqual(params, ())
 
     def test_apply_rechecks_author_company_and_conflicting_memberships(self):
@@ -150,7 +152,7 @@ class CompanyMessageMigrationTests(unittest.TestCase):
         self.assertIn("u.company_id=%s", sql)
         self.assertIn("FROM user_company_roles membership", sql)
         self.assertIn("membership.company_id<>%s", sql)
-        self.assertIn("COALESCE(membership.active,TRUE)=TRUE", sql)
+        self.assertNotIn("membership.active", sql)
         self.assertEqual(params, (4, [11, 12], 4, 4))
         self.assertEqual(updated, 2)
 
@@ -230,6 +232,27 @@ class CompanyMessageMigrationTests(unittest.TestCase):
         self.assertFalse(connection.committed)
         self.assertTrue(connection.rolled_back)
 
+    def test_apply_refuses_review_rows_before_any_update(self):
+        cursor = FakeCursor(rows=(
+            {
+                "message_id": 34,
+                "author_id": 7,
+                "user_id": 7,
+                "user_company_id": 4,
+                "membership_company_ids": [4, 5],
+            },
+        ))
+        connection = FakeConnection(cursor)
+
+        result = run_migration(connection, apply=True, expected_ready_count=0)
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["failureReason"], "needs_review")
+        self.assertEqual(result["reviewCount"], 1)
+        self.assertFalse(any("UPDATE messages" in sql for sql, _params in cursor.calls))
+        self.assertFalse(connection.committed)
+        self.assertTrue(connection.rolled_back)
+
     def test_dry_run_is_not_complete_while_ready_rows_still_exist(self):
         cursor = ApplyConflictCursor(rows=(
             {
@@ -252,7 +275,7 @@ class CompanyMessageMigrationTests(unittest.TestCase):
 
     def test_apply_cli_requires_expected_ready_count_before_connecting(self):
         with patch("backend.features.company_messages.migration.psycopg2.connect") as connect:
-            with self.assertRaises(SystemExit):
+            with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 main(["--apply", "--confirm", "APPLY_COMPANY_MESSAGES"])
 
         connect.assert_not_called()

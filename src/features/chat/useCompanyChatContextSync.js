@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useRef} from 'react';
+import {useCallback, useLayoutEffect, useRef} from 'react';
 
 const positiveId = (value) => {
   const number = Number(value);
@@ -15,6 +15,8 @@ export function useCompanyChatContextSync({
   API,
   companyContext,
   notify,
+  setCompanyChatInput,
+  setCompanyChatMessage,
   setCompanyMessages,
   user,
 }) {
@@ -33,7 +35,6 @@ export function useCompanyChatContextSync({
       && companyId,
   );
   const contextKey = canUseCompanyChat ? `${userId}:${companyId}` : '';
-  contextKeyRef.current = contextKey;
 
   const reloadCompanyMessages = useCallback(async () => {
     if (!contextKey) {
@@ -72,11 +73,14 @@ export function useCompanyChatContextSync({
     [],
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    contextKeyRef.current = contextKey;
     sequenceRef.current += 1;
     controllerRef.current?.abort();
     controllerRef.current = null;
     setCompanyMessages([]);
+    setCompanyChatMessage?.('');
+    setCompanyChatInput?.('');
     if (!contextKey) return undefined;
 
     reloadCompanyMessages();
@@ -85,7 +89,7 @@ export function useCompanyChatContextSync({
       controllerRef.current?.abort();
       controllerRef.current = null;
     };
-  }, [contextKey, reloadCompanyMessages, setCompanyMessages]);
+  }, [contextKey, reloadCompanyMessages, setCompanyChatInput, setCompanyChatMessage, setCompanyMessages]);
 
   return {
     canUseCompanyChat,

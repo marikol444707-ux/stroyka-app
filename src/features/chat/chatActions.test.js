@@ -89,7 +89,7 @@ describe('company chat actions', () => {
     resolveSend(response({body: {id: 12}}));
     const sent = await sending;
 
-    expect(sent).toBe(true);
+    expect(sent).toBe(false);
     expect(deps.reloadCompanyMessages).not.toHaveBeenCalled();
     expect(deps.setCompanyChatMessage).not.toHaveBeenCalled();
   });

@@ -87,4 +87,31 @@ describe('useCompanyChatContextSync', () => {
     expect(global.fetch).not.toHaveBeenCalled();
     expect(result.current.canUseCompanyChat).toBe(false);
   });
+
+  test('clears both chat drafts when the selected company changes', async () => {
+    global.fetch.mockResolvedValue(response([]));
+    const setCompanyMessages = jest.fn();
+    const setCompanyChatMessage = jest.fn();
+    const setCompanyChatInput = jest.fn();
+    const props = {
+      API: '',
+      notify: jest.fn(),
+      setCompanyChatInput,
+      setCompanyChatMessage,
+      setCompanyMessages,
+      user: {id: 7},
+    };
+    const {rerender} = renderHook(
+      ({context}) => useCompanyChatContextSync({...props, companyContext: context}),
+      {initialProps: {context: companyContext(4)}},
+    );
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    setCompanyChatMessage.mockClear();
+    setCompanyChatInput.mockClear();
+
+    rerender({context: companyContext(5)});
+
+    expect(setCompanyChatMessage).toHaveBeenCalledWith('');
+    expect(setCompanyChatInput).toHaveBeenCalledWith('');
+  });
 });

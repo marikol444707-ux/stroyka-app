@@ -261,28 +261,26 @@ class CompanyMessagesRouteTests(unittest.TestCase):
                 self.assertEqual(raised.exception.detail, detail)
                 self.assertEqual(cursor.calls, [])
 
-    def test_create_rejects_photo_owned_by_another_company(self):
-        cursor = FakeCursor(fetchone_values=[{
-            "id": 71,
-            "company_id": 5,
-            "project_id": None,
-            "context": "company-chat",
-            "deletion_status": "active",
-        }])
+    def test_create_scopes_photo_lookup_to_selected_company(self):
+        cursor = FakeCursor(fetchone_values=[None])
         connection = FakeConnection(cursor)
         app, _ = self._register(connection)
 
         with self.assertRaises(HTTPException) as raised:
             app.routes[("POST", "/messages")](
-                {"chatType": "company", "photoUrl": "/uploads/company-5/chat.png"},
+                {"chatType": "company", "photoUrl": "/tenant-files/71/content"},
                 x_company_id="4",
                 x_company_mode="company",
                 current_user={"id": 9, "role": "директор"},
             )
 
-        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(raised.exception.status_code, 400)
         self.assertEqual(len(cursor.calls), 1)
-        self.assertIn("FROM file_ownership", cursor.calls[0][0])
+        sql, params = cursor.calls[0]
+        self.assertIn("FROM file_ownership", sql)
+        self.assertIn("company_id=%s", sql)
+        self.assertIn("FOR SHARE", sql)
+        self.assertEqual(params, (71, 4))
         self.assertFalse(connection.committed)
 
     def test_mutations_reject_all_companies_before_message_sql(self):

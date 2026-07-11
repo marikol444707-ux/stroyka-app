@@ -32,6 +32,16 @@ def _company_ids(value):
     return sorted({company_id for item in source for company_id in [_positive_int(item)] if company_id})
 
 
+def _non_negative_int(value):
+    try:
+        result = int(value)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError("must be a non-negative integer") from exc
+    if result < 0:
+        raise argparse.ArgumentTypeError("must be a non-negative integer")
+    return result
+
+
 def classify_legacy_message(row):
     item = dict(row or {})
     message_id = _positive_int(item.get("message_id"))
@@ -131,16 +141,11 @@ def _messages_have_company_id(cur):
     return bool(row.get("exists") if isinstance(row, dict) else row[0])
 
 
-def _ensure_schema(cur):
-    cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS company_id INT")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_messages_company_created_at ON messages(company_id,created_at)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_messages_author_id ON messages(author_id)")
-
-
-def _load_legacy_rows(cur, has_company_id):
-    where = "m.company_id IS NULL" if has_company_id else "TRUE"
+def _load_legacy_rows(cur, has_company_id=True):
+    if not has_company_id:
+        raise RuntimeError("messages.company_id is missing; deploy M6.4a before running M6.4c")
     cur.execute(
-        f"""SELECT m.id AS message_id,
+        """SELECT m.id AS message_id,
                    m.author_id,
                    u.id AS user_id,
                    u.company_id AS user_company_id,
@@ -152,7 +157,7 @@ def _load_legacy_rows(cur, has_company_id):
               FROM messages m
               LEFT JOIN users u ON u.id=m.author_id
               LEFT JOIN user_company_roles membership ON membership.user_id=u.id
-             WHERE {where}
+             WHERE m.company_id IS NULL
                AND m.chat_type='company'
              GROUP BY m.id,m.author_id,u.id,u.company_id
              ORDER BY m.id"""
@@ -189,37 +194,77 @@ def _apply_ready_rows(cur, ready_by_company):
     return updated
 
 
-def run_migration(conn, apply=False):
+def run_migration(conn, apply=False, expected_ready_count=None):
+    if apply and (isinstance(expected_ready_count, bool) or not isinstance(expected_ready_count, int) or expected_ready_count < 0):
+        raise ValueError("Apply requires a non-negative expected_ready_count")
+
+    conn.set_session(readonly=not apply, autocommit=False)
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         has_company_id = _messages_have_company_id(cur)
-        if apply and not has_company_id:
-            _ensure_schema(cur)
-            has_company_id = True
+        if not has_company_id:
+            raise RuntimeError("messages.company_id is missing; deploy M6.4a before running M6.4c")
         rows = _load_legacy_rows(cur, has_company_id)
         plan = plan_legacy_message_migration(rows)
-        updated = _apply_ready_rows(cur, plan["readyByCompany"]) if apply else 0
-        write_conflicts = max(plan["readyCount"] - updated, 0) if apply else 0
-        if apply:
-            conn.commit()
-        else:
-            conn.rollback()
-        return {
+        result = {
             "ok": True,
             "mode": "apply" if apply else "dry-run",
-            "columnExists": has_company_id,
+            "dryRun": not apply,
+            "columnExists": True,
             "legacyRows": len(rows),
             "readyCount": plan["readyCount"],
             "reviewCount": plan["reviewCount"],
             "readyByCompany": plan["readyByCompany"],
             "needsReview": plan["needsReview"][:50],
             "reviewListTruncated": len(plan["needsReview"]) > 50,
-            "updated": updated,
-            "writeConflicts": write_conflicts,
-            "complete": plan["reviewCount"] == 0 and (
-                write_conflicts == 0 if apply else plan["readyCount"] == 0
-            ),
+            "writesAttempted": 0,
+            "attemptedUpdated": 0,
+            "updated": 0,
+            "writeConflicts": 0,
+            "rolledBack": False,
+            "complete": False,
         }
+        if not apply:
+            conn.rollback()
+            result["rolledBack"] = True
+            result["complete"] = plan["reviewCount"] == 0 and plan["readyCount"] == 0
+            return result
+
+        if plan["reviewCount"]:
+            conn.rollback()
+            result.update({
+                "ok": False,
+                "failureReason": "needs_review",
+                "rolledBack": True,
+            })
+            return result
+        if plan["readyCount"] != expected_ready_count:
+            raise RuntimeError(
+                f"Expected {expected_ready_count} ready rows, found {plan['readyCount']}; rerun dry-run"
+            )
+
+        attempted_updated = _apply_ready_rows(cur, plan["readyByCompany"])
+        write_conflicts = max(plan["readyCount"] - attempted_updated, 0)
+        result.update({
+            "writesAttempted": plan["readyCount"],
+            "attemptedUpdated": attempted_updated,
+            "writeConflicts": write_conflicts,
+        })
+        if write_conflicts:
+            conn.rollback()
+            result.update({
+                "ok": False,
+                "failureReason": "write_conflict",
+                "rolledBack": True,
+            })
+            return result
+
+        conn.commit()
+        result.update({
+            "updated": attempted_updated,
+            "complete": True,
+        })
+        return result
     except Exception:
         conn.rollback()
         raise
@@ -232,18 +277,32 @@ def main(argv=None):
     parser.add_argument("--dry-run", action="store_true", help="Only report mappings; this is the default")
     parser.add_argument("--apply", action="store_true", help="Write only unambiguous company_id mappings")
     parser.add_argument("--confirm", default="", help=f"Required for --apply: {APPLY_CONFIRMATION}")
+    parser.add_argument(
+        "--expected-ready-count",
+        type=_non_negative_int,
+        default=None,
+        help="Required for --apply; must equal the immediately preceding dry-run readyCount",
+    )
     args = parser.parse_args(argv)
     if args.apply and args.dry_run:
         parser.error("Choose either --dry-run or --apply")
     if args.apply and args.confirm != APPLY_CONFIRMATION:
         parser.error(f"--apply requires --confirm {APPLY_CONFIRMATION}")
+    if args.apply and args.expected_ready_count is None:
+        parser.error("--apply requires --expected-ready-count from the immediately preceding dry-run")
+    if not args.apply and args.expected_ready_count is not None:
+        parser.error("--expected-ready-count is only valid with --apply")
     conn = psycopg2.connect(**_db_config())
     try:
-        result = run_migration(conn, apply=args.apply)
+        result = run_migration(
+            conn,
+            apply=args.apply,
+            expected_ready_count=args.expected_ready_count,
+        )
     finally:
         conn.close()
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0
+    return 0 if result.get("ok") else 1
 
 
 if __name__ == "__main__":

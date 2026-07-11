@@ -76,11 +76,11 @@ export const createChatActions = ({
       if (!response.ok) {
         throw new Error(await readError(response, 'Не удалось отправить сообщение'));
       }
-      if (contextIsCurrent(contextKeyAtRequest)) {
-        await reloadCompanyMessages?.();
-        if (contextIsCurrent(contextKeyAtRequest)) setCompanyChatMessage('');
-      }
-      return true;
+      if (!contextIsCurrent(contextKeyAtRequest)) return false;
+      await reloadCompanyMessages?.();
+      const contextStillCurrent = contextIsCurrent(contextKeyAtRequest);
+      if (contextStillCurrent) setCompanyChatMessage('');
+      return contextStillCurrent;
     } catch (error) {
       notify?.(`Не удалось отправить сообщение: ${error?.message || 'ошибка соединения'}`, 'chat');
       return false;

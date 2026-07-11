@@ -21,10 +21,14 @@ export default function FloatingCompanyChatPanel({
   const messages = Array.isArray(companyMessages) ? companyMessages : [];
   const userName = user?.name || '';
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 640;
-  const send = () => {
-    if (companyChatInput?.trim()) {
-      sendMessage(companyChatInput);
-      updateInput('');
+  const send = async () => {
+    if (!companyChatInput?.trim()) return false;
+    try {
+      const delivered = await sendMessage(companyChatInput, '');
+      if (delivered) updateInput('');
+      return Boolean(delivered);
+    } catch (_error) {
+      return false;
     }
   };
 
@@ -51,13 +55,13 @@ export default function FloatingCompanyChatPanel({
         <div style={{padding:'12px',borderTop:'1px solid rgba(148,163,184,0.18)',display:'flex',gap:'8px',minWidth:0}}>
           <label style={{padding:'8px',background:'rgba(30,41,59,0.8)',border:'1px solid rgba(148,163,184,0.18)',borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center'}}>
             <Camera size={16} color='#94a3b8'/>
-            <input type='file' accept='image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await savePhoto(e.target.files[0],{context:'company-chat'});sendMessage('[Фото]',url);}}}/>
+            <input type='file' accept='image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await savePhoto(e.target.files[0],{context:'company-chat',preferProtectedUrl:true,projectScoped:false});if(url) await sendMessage('[Фото]',url);}}}/>
           </label>
           <label style={{padding:'8px',background:'rgba(30,41,59,0.8)',border:'1px solid rgba(148,163,184,0.18)',borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center'}}>
             <FileText size={16} color='#94a3b8'/>
             <input type='file' accept='.pdf,.doc,.docx' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){sendMessage('[Документ] '+e.target.files[0].name,'');}}}/>
           </label>
-          <input placeholder="Сообщение..." value={companyChatInput||''} onChange={e=>updateInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&companyChatInput?.trim()) send();}} style={{flex:1,minWidth:0,padding:'10px 14px',backgroundColor:'rgba(30,41,59,0.8)',border:'1px solid rgba(148,163,184,0.18)',borderRadius:'12px',color:'#f8fafc',fontSize:'13px',outline:'none'}}/>
+          <input placeholder="Сообщение..." value={companyChatInput||''} onChange={e=>updateInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&companyChatInput?.trim()){e.preventDefault();send();}}} style={{flex:1,minWidth:0,padding:'10px 14px',backgroundColor:'rgba(30,41,59,0.8)',border:'1px solid rgba(148,163,184,0.18)',borderRadius:'12px',color:'#f8fafc',fontSize:'13px',outline:'none'}}/>
           <button onClick={send} style={{padding:'10px 16px',backgroundColor:'#ea580c',border:'none',borderRadius:'12px',color:'white',cursor:'pointer'}}><MessageSquare size={16}/></button>
         </div>
       </div>
