@@ -105,6 +105,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.4c: Backfill only revalidated unambiguous company-message rows, remove the runtime legacy fallback, isolate chat attachments, and synchronize frontend chat state with the selected company. Deployed in runtime `44380a2a`; atomic backfill, zero-legacy post-check, strict API scope, and authenticated chat UI passed.
 - [x] Task M6.4d: Scope estimate-version list and direct-detail reads through tenant context and a verified parent estimate, preserving effective per-company roles and worker sanitizing. Deployed in `b79ae5d2`; public, health, read-only API, and cleanup checks passed.
 - [x] Task M6.4e: Scope estimate-chat history, AI message creation, and clear-history through the selected company and verified estimate parent; invalidate stale frontend chat state on company changes. Deployed in `cf006af7`; public smoke and authenticated read-only browser check passed.
+- [ ] Task M6.4f: Audit `unexpected_works` ownership using stored IDs, estimate parents, and only globally unique legacy project names without reading business content or changing rows. Implemented locally; production audit pending.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary

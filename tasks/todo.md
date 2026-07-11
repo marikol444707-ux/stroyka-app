@@ -1584,6 +1584,31 @@
 
 **Estimated scope:** M
 
+## Task M6.4f: Estimate Change Ownership Audit
+
+**Description:** Add a read-only production audit for `unexpected_works` before introducing stored tenant ownership or changing estimate-change routes. Classify each row from identifiers only and fail closed on ambiguous or conflicting parents.
+
+**Status:** Implemented locally; production audit pending.
+
+**Acceptance criteria:**
+- [x] `npm run audit:estimate-changes` opens a read-only transaction and never commits or executes a write statement.
+- [x] The report reads only row IDs, project/estimate ownership IDs, and the legacy project name needed for classification; descriptions, notes, photos, prices, totals, and business reasons are not selected.
+- [x] Stored `company_id/project_id`, when present, must agree with the project and any explicit estimate parent.
+- [x] Missing stored ownership may be proposed from a valid `estimate_id`; name-only fallback is ready only when one project with that name exists globally.
+- [x] Broken explicit estimates, partial stored owners, name conflicts, row/parent mismatches, and cross-owner `included_in_estimate_id` links are reported for review rather than silently remapped.
+- [x] The report works both before and after owner columns are added and truncates previews without changing summary counts.
+
+**Verification:**
+- [x] Focused ownership-report suite passes (`5` tests), including backend-working-directory import, preview truncation, and a connection whose `commit()` raises immediately.
+- [x] Full backend regression passes (`189` tests); module compile, M6 registry audit, diff check, and production build pass.
+- [ ] Production `npm run audit:estimate-changes` returns a consistent read-only report; the local command cannot reach PostgreSQL on this workstation.
+
+**Known follow-up:** The audit is not a migration and does not close runtime reads/writes. Use its exact production counts to design a reversible `project_id/company_id` backfill, leave disputed rows untouched, then scope core CRUD and include/reconcile/AI flows in separate slices.
+
+**Dependencies:** Tasks M6.1 and M6.4d-M6.4e
+
+**Estimated scope:** S
+
 **M6 safety gate:** do not backfill ambiguous legacy rows, do not use project names as authorization identifiers, do not allow mutation in `all_companies`, and do not start the two-company production E2E until M6.0-M6.8 and the preceding M4/M5 gaps are closed.
 
 ## Task M7: Backfill, Constraints, And Pilot Matrix
