@@ -2,7 +2,7 @@ import json
 
 from fastapi import HTTPException
 
-from backend.features.project_access.service import (
+from ..project_access.service import (
     require_child_project_identity,
     resolve_project_parent,
 )
