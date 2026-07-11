@@ -30871,53 +30871,8 @@ def ai_prefill_hidden_works_act(act_id: int, _current_user: dict = Depends(requi
     cur.close(); conn.close()
     return {"ok": True, "conclusion": full_conclusion, "projectDocs": project_docs, "normatives": normatives, "aiFilled": True}
 
-@app.get("/estimates/{estimate_id}/chat-history")
-def get_estimate_chat(estimate_id: int, current_user: dict = Depends(get_current_user)):
-    if current_user.get("role") in WORKER_EXECUTION_ROLES:
-        raise HTTPException(status_code=403, detail="Исполнители не имеют доступа к чату сметы")
-    conn = get_db()
-    cur = conn.cursor()
-    require_estimate_access(cur, estimate_id, current_user)
-    cur.execute("SELECT id, role, content, created_at FROM estimate_chat_messages WHERE estimate_id=%s ORDER BY id ASC", (estimate_id,))
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [{"id": r[0], "role": r[1], "content": r[2], "createdAt": str(r[3])} for r in rows]
-
-@app.post("/estimate-chat")
-def estimate_chat(data: dict, current_user: dict = Depends(get_current_user)):
+def _generate_estimate_chat_answer(full_prompt: str, instructions: str) -> str:
     import openai as oa
-    if current_user.get("role") in WORKER_EXECUTION_ROLES:
-        raise HTTPException(status_code=403, detail="Исполнители не имеют доступа к чату сметы")
-    estimate_id = data.get("estimateId")
-    user_message = (data.get("message") or "").strip()
-    context = (data.get("context") or "").strip()
-    history = data.get("history") or []
-    if not estimate_id or not user_message:
-        raise HTTPException(status_code=400, detail="estimateId and message required")
-
-    conn = get_db()
-    cur = conn.cursor()
-    require_estimate_access(cur, int(estimate_id), current_user)
-    cur.execute("INSERT INTO estimate_chat_messages (estimate_id, role, content) VALUES (%s, %s, %s) RETURNING id, created_at",
-                (estimate_id, "user", user_message))
-    user_row = cur.fetchone()
-    conn.commit()
-
-    prompt_lines = []
-    if context:
-        prompt_lines.append("КОНТЕКСТ СМЕТЫ:\n" + context)
-    if history:
-        prompt_lines.append("\nПРЕДЫДУЩИЙ ДИАЛОГ:")
-        for m in history[-20:]:
-            r = m.get("role", "user")
-            c = m.get("content", "")
-            prompt_lines.append(("Пользователь: " if r == "user" else "Ассистент: ") + c)
-    prompt_lines.append("\nНОВЫЙ ВОПРОС ПОЛЬЗОВАТЕЛЯ:\n" + user_message)
-    prompt_lines.append("\nОтветь по-русски, используя факты из контекста сметы. Если для ответа недостаточно данных — скажи об этом. Если вопрос требует расчёта — приведи цифры явно.")
-    full_prompt = "\n".join(prompt_lines)
-
-    instructions = "Ты эксперт по строительным сметам. Помогаешь анализировать конкретную смету в формате диалога. Отвечаешь только по данной смете, не выдумываешь позиции. Используй конкретные числа из контекста."
-
     client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
     try:
         response = client.responses.create(
@@ -30930,23 +30885,30 @@ def estimate_chat(data: dict, current_user: dict = Depends(get_current_user)):
         answer = response.output_text or ""
     except Exception as e:
         answer = "Ошибка ИИ: " + str(e)
+    return answer
 
-    cur.execute("INSERT INTO estimate_chat_messages (estimate_id, role, content) VALUES (%s, %s, %s) RETURNING id, created_at",
-                (estimate_id, "assistant", answer))
-    asst_row = cur.fetchone()
-    conn.commit()
-    cur.close(); conn.close()
-    return {"response": answer, "userMessageId": user_row[0], "assistantMessageId": asst_row[0]}
+try:
+    from backend.features.estimate_chat import register_estimate_chat_module
+except ModuleNotFoundError:
+    from features.estimate_chat import register_estimate_chat_module
 
-@app.delete("/estimates/{estimate_id}/chat-history")
-def clear_estimate_chat(estimate_id: int, current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
-    conn = get_db()
-    cur = conn.cursor()
-    require_estimate_access(cur, estimate_id, current_user)
-    cur.execute("DELETE FROM estimate_chat_messages WHERE estimate_id=%s", (estimate_id,))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True}
+register_estimate_chat_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "estimate_visibility_filter": estimate_visibility_filter,
+    "resolve_estimate_parent": resolve_estimate_parent,
+    "project_document_roles": PROJECT_DOCUMENT_ROLES,
+    "full_view_roles": ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик"),
+    "package_limit_roles": PACKAGE_LIMIT_ROLES,
+    "active_only_roles": (*WORKER_EXECUTION_ROLES, "прораб"),
+    "customer_roles": ("заказчик",),
+    "package_optional_roles": ("прораб",),
+    "worker_execution_roles": WORKER_EXECUTION_ROLES,
+    "clear_roles": (*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"),
+    "generate_answer": _generate_estimate_chat_answer,
+})
 
 def _normalize_invoice_scan_image_entry(entry):
     mime_type = "image/jpeg"

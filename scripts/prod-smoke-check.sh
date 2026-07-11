@@ -140,6 +140,8 @@ check_not_spa_fallback "tenant file content route" "$BASE_URL/tenant-files/1/con
 check_not_spa_fallback "company messages route" "$BASE_URL/messages" "401 403"
 check_not_spa_fallback "estimate versions route" "$BASE_URL/estimates/1/versions" "401 403"
 check_not_spa_fallback "estimate version detail route" "$BASE_URL/estimate-version/1" "401 403"
+check_not_spa_fallback "estimate chat history route" "$BASE_URL/estimates/1/chat-history" "401 403"
+check_not_spa_fallback "estimate chat post route" "$BASE_URL/estimate-chat" "405"
 
 if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
   login_payload="$(python3 -c 'import json,os; print(json.dumps({"email": os.environ["SMOKE_EMAIL"], "password": os.environ["SMOKE_PASSWORD"]}, ensure_ascii=False))')"
@@ -243,6 +245,16 @@ for row in rows if isinstance(rows, list) else []:
         fi
         rm -f "$estimate_version_detail_file"
       fi
+
+      estimate_chat_history_file="$(mktemp)"
+      estimate_chat_history_code="$(curl -skS -o "$estimate_chat_history_file" -w '%{http_code}' "$BASE_URL/estimates/$versioned_estimate_id/chat-history" -H "Authorization: Bearer $token" || true)"
+      if [[ "$estimate_chat_history_code" == "200" ]] && python3 -c 'import json,sys; data=json.load(open(sys.argv[1])); sys.exit(0 if isinstance(data,list) else 1)' "$estimate_chat_history_file" >/dev/null 2>&1; then
+        echo "OK   /estimates/$versioned_estimate_id/chat-history 200"
+      else
+        echo "FAIL /estimates/$versioned_estimate_id/chat-history got=$estimate_chat_history_code expected=200 JSON list"
+        failures+=("/estimates/$versioned_estimate_id/chat-history got=$estimate_chat_history_code")
+      fi
+      rm -f "$estimate_chat_history_file"
     else
       echo "SKIP estimate version detail checks: no visible estimate with saved versions"
     fi
@@ -253,6 +265,22 @@ for row in rows if isinstance(rows, list) else []:
     else
       echo "FAIL /messages all-companies got=$company_messages_all_code expected=400/403"
       failures+=("/messages all-companies got=$company_messages_all_code expected=400/403")
+    fi
+
+    estimate_chat_all_write_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/estimate-chat" -H "Authorization: Bearer $token" -H 'X-Company-Mode: all_companies' -H 'Content-Type: application/json' -d '{"estimateId":2147483647,"message":"scope-smoke"}' || true)"
+    if [[ "$estimate_chat_all_write_code" == "400" || "$estimate_chat_all_write_code" == "403" || "$estimate_chat_all_write_code" == "409" ]]; then
+      echo "OK   /estimate-chat all-companies blocked $estimate_chat_all_write_code"
+    else
+      echo "FAIL /estimate-chat all-companies got=$estimate_chat_all_write_code expected=400/403/409"
+      failures+=("/estimate-chat all-companies got=$estimate_chat_all_write_code expected=400/403/409")
+    fi
+
+    estimate_chat_all_delete_code="$(curl -skS -o /dev/null -w '%{http_code}' -X DELETE "$BASE_URL/estimates/2147483647/chat-history" -H "Authorization: Bearer $token" -H 'X-Company-Mode: all_companies' || true)"
+    if [[ "$estimate_chat_all_delete_code" == "400" || "$estimate_chat_all_delete_code" == "403" || "$estimate_chat_all_delete_code" == "409" ]]; then
+      echo "OK   /estimate chat clear all-companies blocked $estimate_chat_all_delete_code"
+    else
+      echo "FAIL /estimate chat clear all-companies got=$estimate_chat_all_delete_code expected=400/403/409"
+      failures+=("/estimate chat clear all-companies got=$estimate_chat_all_delete_code expected=400/403/409")
     fi
 
     telegram_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/telegram/own-expenses" -H 'Content-Type: application/json' -d '{"telegramId":"smoke","description":"smoke","amount":1}' || true)"

@@ -1,9 +1,9 @@
-import { buildEstimateChatContext } from '../../utils/estimateChatUtils';
 import { resolveEstimatePackage } from '../../utils/estimatePackage';
 import {
   activeEstimateFromList,
   normalizeImportedEstimateItem,
 } from '../../utils/estimateUtils';
+import { createEstimateChatActions } from './estimateChatActions';
 
 export function createEstimatePageActions({
   API,
@@ -24,6 +24,7 @@ export function createEstimatePageActions({
   estimateChatInput,
   estimateChatLoading,
   estimateChatMessages,
+  estimateChatRequestRef,
   estimateMeasurementBasisMeta,
   estimateMeasurementBasisOf,
   estimateQualityRows,
@@ -76,6 +77,25 @@ export function createEstimatePageActions({
   confirmFn = window.confirm,
 }) {
   const currentUser = user || {};
+  const {
+    clearEstimateChatHistory,
+    handleOpenSelectedEstimateChat,
+    sendEstimateChatMessage,
+  } = createEstimateChatActions({
+    API,
+    alertFn,
+    estimateChatInput,
+    estimateChatLoading,
+    estimateChatMessages,
+    estimateChatRequestRef,
+    fetchFn,
+    readApiResult,
+    selectedEstimate,
+    setEstimateChatInput,
+    setEstimateChatLoading,
+    setEstimateChatMessages,
+    setShowEstimateChat,
+  });
   const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
   const sendAiAssistantMessage = async (rawMessage, fallbackText = 'Ошибка соединения с ИИ.') => {
     const msg = String(rawMessage || '').trim();
@@ -92,33 +112,6 @@ export function createEstimatePageActions({
       setAiMessages(prev => [...prev, {role: 'assistant', content: fallbackText}]);
     }
     setAiLoading(false);
-  };
-
-  const sendEstimateChatMessage = async () => {
-    if (!selectedEstimate || !estimateChatInput.trim() || estimateChatLoading) return;
-    const msg = estimateChatInput.trim();
-    setEstimateChatInput('');
-    const localHistory = [...estimateChatMessages, {role: 'user', content: msg, id: Date.now()}];
-    setEstimateChatMessages(localHistory);
-    setEstimateChatLoading(true);
-    try {
-      const context = buildEstimateChatContext(selectedEstimate);
-      const res = await fetchFn(API + '/estimate-chat', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          estimateId: selectedEstimate.id,
-          message: msg,
-          context,
-          history: estimateChatMessages.map(m => ({role: m.role, content: m.content})),
-        }),
-      });
-      const data = await res.json();
-      setEstimateChatMessages([...localHistory, {role: 'assistant', content: data.response || 'Ошибка ответа', id: data.assistantMessageId || Date.now() + 1}]);
-    } catch (err) {
-      setEstimateChatMessages([...localHistory, {role: 'assistant', content: 'Ошибка соединения', id: Date.now() + 1}]);
-    }
-    setEstimateChatLoading(false);
   };
 
   const handleEstimateImportFile = async (e) => {
@@ -518,18 +511,6 @@ export function createEstimatePageActions({
     alertFn('Импорт нормализован. Осталось замечаний: ' + qualityWarnings.length);
   };
 
-  const handleOpenSelectedEstimateChat = async () => {
-    if (!selectedEstimate?.id) return;
-    setEstimateChatMessages([]);
-    setShowEstimateChat(true);
-    try {
-      const h = await fetchFn(API + '/estimates/' + selectedEstimate.id + '/chat-history').then(r => r.json());
-      setEstimateChatMessages(Array.isArray(h) ? h : []);
-    } catch (e) {
-      setEstimateChatMessages([]);
-    }
-  };
-
   const handleOpenEstimateDistribute = () => {
     if (!selectedEstimate) return;
     setDistributeAssignments({});
@@ -544,6 +525,7 @@ export function createEstimatePageActions({
   };
 
   return {
+    clearEstimateChatHistory,
     fillSelectedEstimateExecutionPrices,
     handleDetectEstimateHiddenWorks,
     handleEstimateAiAnalysis,

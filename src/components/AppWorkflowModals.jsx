@@ -114,6 +114,7 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
     applyEstimateActivationState,
     autoReconcileEstimateChanges,
     buildEstimateDiffContent,
+    clearEstimateChatHistory,
     createSupplierInvite,
     enrichEstimateMeasurementBasis,
     estimateItemTotal,
@@ -144,7 +145,6 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
     setDistributeBrigades,
     setDistributing,
     setEstimateChatInput,
-    setEstimateChatMessages,
     setEstimatesList,
     setExpenseSubmitting,
     setFromEstimateForm,
@@ -453,9 +453,8 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
           btnO={btnO}
           isMobile={isMobile}
           darkMode={darkMode}
-          API={API}
+          clearEstimateChatHistory={clearEstimateChatHistory}
           estimateChatMessages={estimateChatMessages}
-          setEstimateChatMessages={setEstimateChatMessages}
           estimateChatLoading={estimateChatLoading}
           estimateChatInput={estimateChatInput}
           setEstimateChatInput={setEstimateChatInput}

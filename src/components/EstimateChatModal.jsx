@@ -11,9 +11,8 @@ export default function EstimateChatModal({
   btnO,
   isMobile,
   darkMode,
-  API,
+  clearEstimateChatHistory,
   estimateChatMessages,
-  setEstimateChatMessages,
   estimateChatLoading,
   estimateChatInput,
   setEstimateChatInput,
@@ -23,8 +22,7 @@ export default function EstimateChatModal({
 
   const clearChat = async () => {
     if (window.confirm('Очистить историю чата?')) {
-      await fetch(API+'/estimates/'+selectedEstimate.id+'/chat-history',{method:'DELETE'});
-      setEstimateChatMessages([]);
+      await clearEstimateChatHistory();
     }
   };
 
@@ -40,7 +38,7 @@ export default function EstimateChatModal({
             </div>
           </div>
           <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
-            <button onClick={clearChat} style={{background:'transparent',border:'1px solid rgba(255,255,255,0.4)',color:'white',cursor:'pointer',padding:'4px 10px',borderRadius:'6px',fontSize:'11px'}}>🗑️ Очистить</button>
+            <button disabled={estimateChatLoading} onClick={clearChat} style={{background:'transparent',border:'1px solid rgba(255,255,255,0.4)',color:'white',cursor:estimateChatLoading?'not-allowed':'pointer',opacity:estimateChatLoading?0.6:1,padding:'4px 10px',borderRadius:'6px',fontSize:'11px'}}>🗑️ Очистить</button>
             <button onClick={()=>setShowEstimateChat(false)} style={{background:'none',border:'none',cursor:'pointer',color:'white',fontSize:'22px',padding:'0 6px'}}>×</button>
           </div>
         </div>

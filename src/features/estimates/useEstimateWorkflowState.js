@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   createDistributeBrigadeForm,
   createEstimateItemForm,
@@ -9,7 +9,7 @@ import {
   createNewEstimateForm,
 } from './estimateInitialForms';
 
-export function useEstimateWorkflowState() {
+export function useEstimateWorkflowState(companyContextKey = '') {
   const [newEstimate, setNewEstimate] = useState(createNewEstimateForm);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [estimateVersions, setEstimateVersions] = useState([]);
@@ -24,6 +24,7 @@ export function useEstimateWorkflowState() {
   const [estimateChatMessages, setEstimateChatMessages] = useState([]);
   const [estimateChatInput, setEstimateChatInput] = useState('');
   const [estimateChatLoading, setEstimateChatLoading] = useState(false);
+  const estimateChatRequestRef = useRef(0);
   const [showGenerateEstimate, setShowGenerateEstimate] = useState(false);
   const [generateForm, setGenerateForm] = useState(createGenerateEstimateForm);
   const [generating, setGenerating] = useState(false);
@@ -42,9 +43,20 @@ export function useEstimateWorkflowState() {
   const [newEstimateSection, setNewEstimateSection] = useState(createEstimateSectionForm);
   const [newEstimateItem, setNewEstimateItem] = useState(createEstimateItemForm);
 
+  useEffect(() => {
+    estimateChatRequestRef.current += 1;
+    setShowEstimateChat(false);
+    setEstimateChatMessages([]);
+    setEstimateChatInput('');
+    setEstimateChatLoading(false);
+    setShowVersionHistory(false);
+    setEstimateVersions([]);
+    setSelectedVersionsToCompare([]);
+  }, [companyContextKey]);
+
   return {
     creatingFromEstimate, distributeAssignments, distributeBrigades, distributing,
-    estimateChatInput, estimateChatLoading, estimateChatMessages, estimateIssueFocusKey,
+    estimateChatInput, estimateChatLoading, estimateChatMessages, estimateChatRequestRef, estimateIssueFocusKey,
     estimateVersions, executionPriceFillPercent, fromEstimateForm, generateForm,
     generatePricelistForm, generating, generatingPricelist, importValidating,
     importValidationWarnings, newDistributeBrigade, newEstimate, newEstimateItem,

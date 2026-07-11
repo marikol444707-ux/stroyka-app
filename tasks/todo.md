@@ -1520,7 +1520,7 @@
 - [x] A temporary master read exactly the stored company-1 message with `legacyUnscoped=false`; `all_companies` returned `400`, and the cookie-authenticated browser opened `Чат` without console errors. No message was created or changed; temporary user `4380` was disabled after verification.
 - [x] The generic protected smoke could not use the existing admin because its first 2FA setup is pending; the dedicated temporary-user API and real browser checks closed the same `/messages` verification without changing the admin's security state.
 
-**Known follow-up:** Do not add `NOT NULL` or a foreign key until the production post-apply report is clean. Project chat, estimate chat, estimate changes, and `unexpected_works` remain separate M6.4 slices. A true two-independent-tenant production E2E remains blocked until the planned fixture infrastructure exists.
+**Known follow-up:** Do not add `NOT NULL` or a foreign key until the production post-apply report is clean. Project chat, estimate changes, and `unexpected_works` remain separate M6.4 slices. A true two-independent-tenant production E2E remains blocked until the planned fixture infrastructure exists.
 
 **Dependencies:** Tasks M6.4a and M6.4b
 
@@ -1549,11 +1549,39 @@
 - [x] The authenticated director browser opened `Сметы -> Электрика -> История`, rendered all `25` saved versions, and reported no console errors or warnings; no restore or other mutation was triggered.
 - [x] Production currently has only company `1`, so a true company-A/company-B negative E2E remains deferred to the isolated `smoke:multi-company` fixture instead of fabricating live tenant data.
 
-**Known follow-up:** Version creation, estimate changes, `unexpected_works`, project chat, and estimate chat remain separate M6.4 slices. Do not add a redundant `company_id` to `estimate_versions` while the verified stored parent is the authoritative owner.
+**Known follow-up:** Version creation, estimate changes, `unexpected_works`, and project chat remain separate M6.4 slices. Do not add a redundant `company_id` to `estimate_versions` while the verified stored parent is the authoritative owner.
 
 **Dependencies:** Tasks M6.1 and M6.4a-M6.4c
 
 **Estimated scope:** S
+
+## Task M6.4e: Tenant-Scoped Estimate Chat
+
+**Description:** Isolate estimate-chat history, AI message creation, and explicit history clearing through the server-selected company and the stored parent estimate. Preserve existing URLs, response fields, AI prompt behavior, and stored messages; do not add a redundant company column or migrate chat content in this slice.
+
+**Status:** Implemented locally; production release pending.
+
+**Acceptance criteria:**
+- [x] History and direct chat actions first apply the existing estimate visibility policy and re-verify the stored estimate parent before reading or changing `estimate_chat_messages`.
+- [x] The effective role in the parent estimate's company controls access; a global director who is a worker in that company cannot read or send estimate-chat messages.
+- [x] Read-only history may use `all_companies`, but message creation and history clearing require one concrete selected company and fail before SQL in aggregate mode.
+- [x] Clear-history authorization uses the effective company role and deletes only the verified parent estimate's chat after explicit frontend confirmation.
+- [x] Existing chat rows keep their immutable `estimate_id` owner; no schema change, backfill, content rewrite, or automatic deletion is introduced.
+- [x] Frontend request IDs ignore history/AI responses from an old estimate or company; company changes close the chat/version modals and clear messages, drafts, loading, and version comparison state before rendering the new context.
+- [x] Failed clear requests leave visible history intact, and the clear button is disabled while an AI request is in progress.
+
+**Verification:**
+- [x] Focused estimate access/version/chat backend suites pass (`24` tests), including backend-working-directory import, cross-company `404`, worker denial, selected-company writes, and aggregate-mode mutation denial.
+- [x] Focused frontend chat/context suites pass (`2` suites / `5` tests), including stale history, stale AI answer, failed clear, successful clear, and company-context reset.
+- [x] Full working-tree backend suite passes (`184` tests); full frontend suite passes (`31` suites / `122` tests).
+- [x] Production entrypoint/module compile, shell syntax, public proxy smoke, and production build pass.
+- [ ] Production deploy, protected read-only history check, aggregate-mode no-write probes, and authenticated browser chat-open check pass.
+
+**Known follow-up:** Estimate changes, `unexpected_works`, project chat, and estimate-version creation remain separate parent-owned slices. A true company-A/company-B negative E2E still requires the isolated multi-company fixture.
+
+**Dependencies:** Tasks M6.1 and M6.4a-M6.4d
+
+**Estimated scope:** M
 
 **M6 safety gate:** do not backfill ambiguous legacy rows, do not use project names as authorization identifiers, do not allow mutation in `all_companies`, and do not start the two-company production E2E until M6.0-M6.8 and the preceding M4/M5 gaps are closed.
 

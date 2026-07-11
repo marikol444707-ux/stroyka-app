@@ -102,7 +102,9 @@ function App() {
     nextEstimateVersionForFromList,
     workJournal
   });
-  const estimateWorkflowState = useEstimateWorkflowState();
+  const estimateWorkflowState = useEstimateWorkflowState(
+    companyContext.mode + ':' + (companyContext.selectedCompanyId || 'all')
+  );
   const {
     setEstimateIssueFocusKey,
     setExecutionPriceFillPercent
