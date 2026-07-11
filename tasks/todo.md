@@ -1349,7 +1349,7 @@
 
 **Description:** Move only the photo thumbnail in the existing project `Производство работ` list onto the authenticated Blob loader. Keep master uploads, work-journal writes, edit/history renderers, backend routes, and S3 ACL unchanged.
 
-**Status:** Implemented locally; release pending.
+**Status:** Deployed in `6fe3a6aa`; authenticated tenant-file smoke pending.
 
 **Acceptance criteria:**
 - [x] A strict local `/tenant-files/{positiveId}/content` ЖПР photo renders only after the authenticated Blob request succeeds.
@@ -1363,7 +1363,9 @@
 - [x] Focused work-journal, chat-preview, and Blob-loader suites pass (`3` suites / `12` tests).
 - [x] Intended tracked frontend suite passes (`21` suites / `91` tests); full working-tree suite passes (`22` suites / `96` tests).
 - [x] Production build succeeds.
-- [ ] Production deploy, public smoke, authenticated tenant-file smoke, and project work-journal browser check pass.
+- [x] Production runtime reports `6fe3a6aa`; public smoke passes.
+- [x] Director browser check opens `Кисловодск Лицей 4 -> Работы -> Производство работ`; the real compatibility thumbnail is 32x32, enlarged preview opens, and console errors/warnings are empty.
+- [ ] Authenticated tenant-file smoke is rerun after this frontend release.
 
 **Known follow-up:** Work-journal ownership and read/write isolation remain part of `M6.5`; do not opt ЖПР uploads into protected return URLs until every ЖПР renderer is audited and stored `company_id`/`project_id` checks are complete.
 
