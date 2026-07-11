@@ -178,7 +178,7 @@ def _classify_change(row, projects_by_id, projects_by_name, projects_by_company_
     return _ownership_result(item, final_status, final_reason, candidate, source)
 
 
-def build_estimate_change_ownership_report(cur):
+def collect_estimate_change_ownership(cur):
     cur.execute(
         """SELECT column_name
              FROM information_schema.columns
@@ -245,11 +245,15 @@ def build_estimate_change_ownership_report(cur):
         )
         for row in change_rows
     ]
+    return columns, classified
+
+
+def build_estimate_change_report_from_classified(columns, classified):
     status_counts = {
         status: sum(1 for item in classified if item["status"] == status)
         for status in ("stored", "ready", "ambiguous", "unresolved", "mismatched")
     }
-    total_rows = len(change_rows)
+    total_rows = len(classified)
     report_consistent = total_rows == sum(status_counts.values())
     ready_rows = [item for item in classified if item["status"] == "ready"]
     review_rows = [
@@ -315,6 +319,11 @@ def build_estimate_change_ownership_report(cur):
         "needsReview": [review_view(item) for item in review_rows[:PREVIEW_LIMIT]],
         "reviewListTruncated": len(review_rows) > PREVIEW_LIMIT,
     }
+
+
+def build_estimate_change_ownership_report(cur):
+    columns, classified = collect_estimate_change_ownership(cur)
+    return build_estimate_change_report_from_classified(columns, classified)
 
 
 def run_estimate_change_ownership_report(get_db):

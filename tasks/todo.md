@@ -1616,17 +1616,19 @@
 
 **Description:** Add nullable stored `company_id/project_id` ownership to `unexpected_works` and backfill only the four rows already classified as unambiguous by the production audit. Keep all runtime reads/writes unchanged in this migration slice.
 
-**Status:** Planned; not started.
+**Status:** Implementation complete locally; production dry-run/apply/post-audit pending.
 
 **Acceptance criteria:**
 - [ ] Dry-run repeats the current production gate exactly: `totalRows=4`, `ready=4`, no review rows, and all candidates target company `1` / project `1`.
-- [ ] Apply requires an explicit confirmation token and expected counts, rechecks every ownership source inside one transaction, and rolls back on drift or conflict.
-- [ ] Columns and supporting indexes are added reversibly; ambiguous rows are never guessed, and no `NOT NULL` or foreign key is added yet.
-- [ ] Existing estimate-change CRUD, include/reconcile, and AI routes remain behaviorally unchanged until a later tenant-scoping slice.
+- [x] Apply requires an explicit confirmation token, expected count, and SHA-256 of the complete dry-run plan; it rechecks every ownership source inside one transaction and rolls back on any drift or conflict.
+- [x] Columns and supporting indexes are added reversibly; ambiguous rows are never guessed, and no `NOT NULL` or foreign key is added yet.
+- [x] Existing estimate-change CRUD, include/reconcile, and AI routes remain behaviorally unchanged until a later tenant-scoping slice.
 
 **Verification:**
-- [ ] Migration/report tests cover pre-column, dry-run, apply, idempotent rerun, conflict rollback, and post-apply states.
+- [x] Migration/report tests cover pre-column, dry-run, apply, same-count ownership drift, idempotent rerun, exception/conflict rollback, and post-apply states (`17` focused tests); the clean release backend suite passes (`198` tests), M6 registry audit and production build pass.
 - [ ] Production before/after counts and ownership audit are identical except for the four guarded owner assignments.
+
+**Production apply order:** push the migration code and run only `git pull --ff-only` on the server without restarting the service. Run `python3 scripts/migrate-estimate-changes.py --dry-run`, require the same `readyCount=4` and empty review list, copy its `planSha256`, then run `python3 scripts/migrate-estimate-changes.py --apply --confirm APPLY_ESTIMATE_CHANGES --expected-ready-count 4 --expected-plan-sha256 <planSha256>` and repeat the dry-run. Only after the clean post-audit may `bash deploy.sh` restart the runtime. Any count or mapping drift, review row, lock timeout, row-count conflict, or failed post-check rolls the transaction back.
 
 **Dependencies:** Task M6.4f
 

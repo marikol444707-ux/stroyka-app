@@ -4746,6 +4746,8 @@ def init_db():
             approved_at VARCHAR(50),
             notes TEXT,
             photo_url TEXT,
+            project_id INT,
+            company_id INT,
             created_at TIMESTAMP DEFAULT NOW()
         );
         ALTER TABLE unexpected_works ADD COLUMN IF NOT EXISTS change_type VARCHAR(80) DEFAULT 'Работа вне сметы';
@@ -4757,6 +4759,10 @@ def init_db():
         ALTER TABLE unexpected_works ADD COLUMN IF NOT EXISTS delta_quantity NUMERIC(14,4);
         ALTER TABLE unexpected_works ADD COLUMN IF NOT EXISTS included_in_estimate_id INT;
         ALTER TABLE unexpected_works ADD COLUMN IF NOT EXISTS reason TEXT;
+        ALTER TABLE unexpected_works ADD COLUMN IF NOT EXISTS project_id INT;
+        ALTER TABLE unexpected_works ADD COLUMN IF NOT EXISTS company_id INT;
+        CREATE INDEX IF NOT EXISTS idx_unexpected_works_project_id ON unexpected_works(project_id);
+        CREATE INDEX IF NOT EXISTS idx_unexpected_works_company_id ON unexpected_works(company_id);
         UPDATE unexpected_works SET change_type='Работа вне сметы' WHERE change_type IS NULL OR change_type='';
         CREATE TABLE IF NOT EXISTS prescriptions (
             id SERIAL PRIMARY KEY,

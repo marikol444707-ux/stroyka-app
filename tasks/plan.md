@@ -106,7 +106,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.4d: Scope estimate-version list and direct-detail reads through tenant context and a verified parent estimate, preserving effective per-company roles and worker sanitizing. Deployed in `b79ae5d2`; public, health, read-only API, and cleanup checks passed.
 - [x] Task M6.4e: Scope estimate-chat history, AI message creation, and clear-history through the selected company and verified estimate parent; invalidate stale frontend chat state on company changes. Deployed in `cf006af7`; request-race hardening followed in `80f1e8df`, with production no-write API and browser checks passing.
 - [x] Task M6.4f: Audit `unexpected_works` ownership using stored IDs, estimate parents, and only globally unique legacy project names without reading business content or changing rows. Production dry-run on `80f1e8df` classified all `4` rows as ready for company `1` / project `1`, with no review rows and `writesAttempted=0`.
-- [ ] Task M6.4g: Add a separately reviewed, reversible ownership migration for `unexpected_works`, guarded by the exact production audit counts; do not change runtime CRUD in the migration slice.
+- [ ] Task M6.4g: Add a separately reviewed, reversible ownership migration for `unexpected_works`, guarded by the exact production audit counts; do not change runtime CRUD in the migration slice. The guarded CLI, nullable startup schema, and rollback tests are implemented and locally verified; production dry-run/apply/post-audit remain.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary
