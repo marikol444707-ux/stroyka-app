@@ -10,6 +10,7 @@ from pathlib import Path
 
 import psycopg2
 import psycopg2.extras
+import psycopg2.extensions
 
 from backend.features.estimate_changes.ownership_report import (
     build_estimate_change_report_from_classified,
@@ -189,7 +190,11 @@ def run_migration(conn, apply=False, expected_ready_count=None, expected_plan_sh
         finally:
             cur.close()
 
-    conn.set_session(readonly=False, autocommit=False, isolation_level="SERIALIZABLE")
+    conn.set_session(
+        readonly=False,
+        autocommit=False,
+        isolation_level=psycopg2.extensions.ISOLATION_LEVEL_SERIALIZABLE,
+    )
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         _ensure_schema(cur)
