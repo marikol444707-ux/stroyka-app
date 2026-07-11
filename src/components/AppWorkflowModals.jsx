@@ -52,6 +52,7 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
     distributeAssignments,
     distributeBrigades,
     distributing,
+    estimateChatHistoryLoading,
     estimateChatInput,
     estimateChatLoading,
     estimateChatMessages,
@@ -454,6 +455,7 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
           isMobile={isMobile}
           darkMode={darkMode}
           clearEstimateChatHistory={clearEstimateChatHistory}
+          estimateChatHistoryLoading={estimateChatHistoryLoading}
           estimateChatMessages={estimateChatMessages}
           estimateChatLoading={estimateChatLoading}
           estimateChatInput={estimateChatInput}

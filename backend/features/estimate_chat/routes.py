@@ -182,6 +182,7 @@ def register_estimate_chat_module(app, deps):
                 (estimate_id, "user", user_message),
             )
             user_row = cur.fetchone()
+            user_message_id = _row_id(user_row)
             conn.commit()
 
             prompt_lines = []
@@ -208,6 +209,28 @@ def register_estimate_chat_module(app, deps):
             )
             answer = str(generate_answer("\n".join(prompt_lines), instructions) or "")
 
+            actor = verified_parent(
+                cur,
+                current_user,
+                estimate_id,
+                "write",
+                x_company_id,
+                x_company_mode,
+            )
+            require_chat_actor(actor)
+            cur.execute(
+                """SELECT id
+                     FROM estimate_chat_messages
+                    WHERE id=%s AND estimate_id=%s AND role=%s
+                    FOR UPDATE""",
+                (user_message_id, estimate_id, "user"),
+            )
+            if not cur.fetchone():
+                raise HTTPException(
+                    status_code=409,
+                    detail="История чата была очищена во время подготовки ответа",
+                )
+
             cur.execute(
                 """INSERT INTO estimate_chat_messages (estimate_id,role,content)
                    VALUES (%s,%s,%s) RETURNING id,created_at""",
@@ -217,7 +240,7 @@ def register_estimate_chat_module(app, deps):
             conn.commit()
             return {
                 "response": answer,
-                "userMessageId": _row_id(user_row),
+                "userMessageId": user_message_id,
                 "assistantMessageId": _row_id(assistant_row),
             }
         except Exception:

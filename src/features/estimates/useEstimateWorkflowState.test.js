@@ -32,4 +32,20 @@ describe('useEstimateWorkflowState', () => {
     expect(result.current.selectedVersionsToCompare).toEqual([]);
     expect(result.current.estimateChatRequestRef.current).toBeGreaterThan(previousRequestId);
   });
+
+  test('invalidates chat and version requests when the selected estimate changes', () => {
+    const { result, rerender } = renderHook(
+      ({ contextKey, estimateId }) => useEstimateWorkflowState(contextKey, estimateId),
+      { initialProps: { contextKey: 'company:1', estimateId: 7 } },
+    );
+    const previousChatRequestId = result.current.estimateChatRequestRef.current;
+    const previousVersionRequestId = result.current.estimateVersionRequestRef.current;
+
+    rerender({ contextKey: 'company:1', estimateId: 8 });
+
+    expect(result.current.estimateChatRequestRef.current).toBeGreaterThan(previousChatRequestId);
+    expect(result.current.estimateVersionRequestRef.current).toBeGreaterThan(previousVersionRequestId);
+    expect(result.current.showEstimateChat).toBe(false);
+    expect(result.current.showVersionHistory).toBe(false);
+  });
 });

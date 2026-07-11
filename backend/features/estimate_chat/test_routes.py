@@ -252,6 +252,8 @@ class EstimateChatRouteTests(unittest.TestCase):
         cursor = FakeCursor(fetchone_values=[
             self._estimate_row(),
             {"id": 21, "created_at": "2026-07-11"},
+            self._estimate_row(),
+            {"id": 21},
             {"id": 22, "created_at": "2026-07-11"},
         ])
         connection = FakeConnection(cursor)
@@ -270,14 +272,43 @@ class EstimateChatRouteTests(unittest.TestCase):
         )
 
         self.assertEqual(calls["context"][0][3], "write")
-        self.assertEqual(calls["parent"][0][2], 7)
-        self.assertTrue(calls["parent"][0][3]["for_update"])
+        self.assertEqual(len(calls["parent"]), 2)
+        self.assertTrue(all(call[2] == 7 and call[3]["for_update"] for call in calls["parent"]))
         self.assertIn("INSERT INTO estimate_chat_messages", cursor.calls[1][0])
         self.assertEqual(cursor.calls[1][1], (7, "user", "Сколько стоит раздел?"))
-        self.assertEqual(cursor.calls[2][1], (7, "assistant", "Ответ ИИ"))
+        self.assertIn("FROM estimate_chat_messages", cursor.calls[3][0])
+        self.assertEqual(cursor.calls[3][1], (21, 7, "user"))
+        self.assertEqual(cursor.calls[4][1], (7, "assistant", "Ответ ИИ"))
         self.assertIn("КОНТЕКСТ СМЕТЫ", calls["ai"][0][0])
         self.assertEqual(response, {"response": "Ответ ИИ", "userMessageId": 21, "assistantMessageId": 22})
         self.assertEqual(connection.commits, 2)
+
+    def test_send_does_not_restore_assistant_after_history_was_cleared(self):
+        cursor = FakeCursor(fetchone_values=[
+            self._estimate_row(),
+            {"id": 21, "created_at": "2026-07-11"},
+            self._estimate_row(),
+            None,
+        ])
+        connection = FakeConnection(cursor)
+        app, calls = self._register(connection)
+
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("POST", "/estimate-chat")](
+                {"estimateId": 7, "message": "Вопрос"},
+                x_company_id="4",
+                x_company_mode="company",
+                current_user={"id": 9, "role": "директор"},
+            )
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(len(calls["parent"]), 2)
+        self.assertFalse(any(
+            "INSERT INTO estimate_chat_messages" in sql and params[1] == "assistant"
+            for sql, params in cursor.calls
+        ))
+        self.assertEqual(connection.commits, 1)
+        self.assertEqual(connection.rollbacks, 1)
 
     def test_clear_requires_effective_clear_role(self):
         cursor = FakeCursor(fetchone_values=[self._estimate_row()])

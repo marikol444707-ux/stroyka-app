@@ -5,6 +5,9 @@ export function createEstimateChatActions({
   API,
   alertFn = window.alert,
   buildContext = buildEstimateChatContext,
+  estimateChatActiveEstimateIdRef,
+  estimateChatHistoryLoading,
+  estimateChatHistoryLoadingRef,
   estimateChatInput,
   estimateChatLoading,
   estimateChatMessages,
@@ -12,12 +15,19 @@ export function createEstimateChatActions({
   fetchFn = fetch,
   readApiResult,
   selectedEstimate,
+  setEstimateChatHistoryLoading,
   setEstimateChatInput,
   setEstimateChatLoading,
   setEstimateChatMessages,
   setShowEstimateChat,
 }) {
   const requestRef = estimateChatRequestRef || { current: 0 };
+  const activeEstimateRef = estimateChatActiveEstimateIdRef || { current: null };
+  const historyLoadingRef = estimateChatHistoryLoadingRef || { current: false };
+  const setHistoryLoading = (value) => {
+    historyLoadingRef.current = value;
+    setEstimateChatHistoryLoading(value);
+  };
   const nextRequestId = () => {
     requestRef.current += 1;
     return requestRef.current;
@@ -26,11 +36,16 @@ export function createEstimateChatActions({
 
   const handleOpenSelectedEstimateChat = async () => {
     if (!selectedEstimate?.id) return false;
+    if (estimateChatLoading && activeEstimateRef.current === selectedEstimate.id) {
+      setShowEstimateChat(true);
+      return true;
+    }
     const requestId = nextRequestId();
     const estimateId = selectedEstimate.id;
     setEstimateChatMessages([]);
     setEstimateChatInput('');
     setEstimateChatLoading(false);
+    setHistoryLoading(true);
     setShowEstimateChat(true);
     try {
       const history = await readApiResult(await fetchFn(API + '/estimates/' + estimateId + '/chat-history'));
@@ -40,13 +55,22 @@ export function createEstimateChatActions({
     } catch (error) {
       if (isCurrentRequest(requestId)) setEstimateChatMessages([]);
       return false;
+    } finally {
+      if (isCurrentRequest(requestId)) setHistoryLoading(false);
     }
   };
 
   const sendEstimateChatMessage = async () => {
-    if (!selectedEstimate?.id || !String(estimateChatInput || '').trim() || estimateChatLoading) return false;
+    if (
+      !selectedEstimate?.id
+      || !String(estimateChatInput || '').trim()
+      || estimateChatLoading
+      || estimateChatHistoryLoading
+      || historyLoadingRef.current
+    ) return false;
     const requestId = nextRequestId();
     const estimateId = selectedEstimate.id;
+    activeEstimateRef.current = estimateId;
     const message = String(estimateChatInput).trim();
     const localHistory = [
       ...(Array.isArray(estimateChatMessages) ? estimateChatMessages : []),
@@ -87,13 +111,17 @@ export function createEstimateChatActions({
       ]);
       return false;
     } finally {
-      if (isCurrentRequest(requestId)) setEstimateChatLoading(false);
+      if (isCurrentRequest(requestId)) {
+        activeEstimateRef.current = null;
+        setEstimateChatLoading(false);
+      }
     }
   };
 
   const clearEstimateChatHistory = async () => {
-    if (!selectedEstimate?.id) return false;
+    if (!selectedEstimate?.id || estimateChatHistoryLoading || historyLoadingRef.current) return false;
     const requestId = nextRequestId();
+    activeEstimateRef.current = null;
     try {
       await readApiResult(await fetchFn(API + '/estimates/' + selectedEstimate.id + '/chat-history', {
         method: 'DELETE',

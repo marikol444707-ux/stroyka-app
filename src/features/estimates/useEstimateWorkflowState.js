@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   createDistributeBrigadeForm,
   createEstimateItemForm,
@@ -9,7 +9,7 @@ import {
   createNewEstimateForm,
 } from './estimateInitialForms';
 
-export function useEstimateWorkflowState(companyContextKey = '') {
+export function useEstimateWorkflowState(companyContextKey = '', selectedEstimateId = null) {
   const [newEstimate, setNewEstimate] = useState(createNewEstimateForm);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [estimateVersions, setEstimateVersions] = useState([]);
@@ -23,8 +23,12 @@ export function useEstimateWorkflowState(companyContextKey = '') {
   const [showEstimateChat, setShowEstimateChat] = useState(false);
   const [estimateChatMessages, setEstimateChatMessages] = useState([]);
   const [estimateChatInput, setEstimateChatInput] = useState('');
+  const [estimateChatHistoryLoading, setEstimateChatHistoryLoading] = useState(false);
   const [estimateChatLoading, setEstimateChatLoading] = useState(false);
+  const estimateChatActiveEstimateIdRef = useRef(null);
+  const estimateChatHistoryLoadingRef = useRef(false);
   const estimateChatRequestRef = useRef(0);
+  const estimateVersionRequestRef = useRef(0);
   const [showGenerateEstimate, setShowGenerateEstimate] = useState(false);
   const [generateForm, setGenerateForm] = useState(createGenerateEstimateForm);
   const [generating, setGenerating] = useState(false);
@@ -43,25 +47,35 @@ export function useEstimateWorkflowState(companyContextKey = '') {
   const [newEstimateSection, setNewEstimateSection] = useState(createEstimateSectionForm);
   const [newEstimateItem, setNewEstimateItem] = useState(createEstimateItemForm);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     estimateChatRequestRef.current += 1;
+    estimateVersionRequestRef.current += 1;
+    estimateChatActiveEstimateIdRef.current = null;
+    estimateChatHistoryLoadingRef.current = false;
+  }, [companyContextKey, selectedEstimateId]);
+
+  useEffect(() => {
     setShowEstimateChat(false);
     setEstimateChatMessages([]);
     setEstimateChatInput('');
+    setEstimateChatHistoryLoading(false);
     setEstimateChatLoading(false);
     setShowVersionHistory(false);
     setEstimateVersions([]);
     setSelectedVersionsToCompare([]);
-  }, [companyContextKey]);
+  }, [companyContextKey, selectedEstimateId]);
 
   return {
     creatingFromEstimate, distributeAssignments, distributeBrigades, distributing,
-    estimateChatInput, estimateChatLoading, estimateChatMessages, estimateChatRequestRef, estimateIssueFocusKey,
+    estimateChatActiveEstimateIdRef, estimateChatHistoryLoading, estimateChatHistoryLoadingRef,
+    estimateChatInput, estimateChatLoading,
+    estimateChatMessages, estimateChatRequestRef, estimateIssueFocusKey, estimateVersionRequestRef,
     estimateVersions, executionPriceFillPercent, fromEstimateForm, generateForm,
     generatePricelistForm, generating, generatingPricelist, importValidating,
     importValidationWarnings, newDistributeBrigade, newEstimate, newEstimateItem,
     newEstimateSection, selectedVersionsToCompare, setCreatingFromEstimate,
-    setDistributeAssignments, setDistributeBrigades, setDistributing, setEstimateChatInput,
+    setDistributeAssignments, setDistributeBrigades, setDistributing, setEstimateChatHistoryLoading,
+    setEstimateChatInput,
     setEstimateChatLoading, setEstimateChatMessages, setEstimateIssueFocusKey,
     setEstimateVersions, setExecutionPriceFillPercent, setFromEstimateForm, setGenerateForm,
     setGeneratePricelistForm, setGenerating, setGeneratingPricelist, setImportValidating,

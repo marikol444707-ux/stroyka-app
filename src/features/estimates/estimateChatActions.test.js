@@ -16,6 +16,9 @@ const createDeps = (overrides = {}) => ({
   alertFn: jest.fn(),
   buildContext: jest.fn(() => 'Контекст'),
   estimateChatInput: '',
+  estimateChatHistoryLoading: false,
+  estimateChatHistoryLoadingRef: { current: false },
+  estimateChatActiveEstimateIdRef: { current: null },
   estimateChatLoading: false,
   estimateChatMessages: [],
   estimateChatRequestRef: { current: 0 },
@@ -23,6 +26,7 @@ const createDeps = (overrides = {}) => ({
   readApiResult: jest.fn(async (response) => response.data),
   selectedEstimate: { id: 7, name: 'Смета' },
   setEstimateChatInput: jest.fn(),
+  setEstimateChatHistoryLoading: jest.fn(),
   setEstimateChatLoading: jest.fn(),
   setEstimateChatMessages: jest.fn(),
   setShowEstimateChat: jest.fn(),
@@ -66,6 +70,57 @@ describe('estimateChatActions', () => {
     ]);
     expect(deps.setEstimateChatLoading).toHaveBeenCalledTimes(1);
     expect(deps.setEstimateChatLoading).toHaveBeenCalledWith(true);
+  });
+
+  test('does not send while the current estimate history is still loading', async () => {
+    const pending = deferred();
+    const deps = createDeps({
+      estimateChatInput: 'Вопрос',
+      fetchFn: jest.fn(() => pending.promise),
+    });
+    const actions = createEstimateChatActions(deps);
+
+    const opening = actions.handleOpenSelectedEstimateChat();
+    const sending = actions.sendEstimateChatMessage();
+
+    expect(deps.fetchFn).toHaveBeenCalledTimes(1);
+    expect(await sending).toBe(false);
+    pending.resolve({ data: [] });
+    await opening;
+    expect(deps.setEstimateChatHistoryLoading).toHaveBeenNthCalledWith(1, true);
+    expect(deps.setEstimateChatHistoryLoading).toHaveBeenLastCalledWith(false);
+  });
+
+  test('reopens the same chat without invalidating an in-flight assistant response', async () => {
+    const pending = deferred();
+    const requestRef = { current: 0 };
+    const activeEstimateRef = { current: null };
+    const fetchFn = jest.fn(() => pending.promise);
+    const initialDeps = createDeps({
+      estimateChatActiveEstimateIdRef: activeEstimateRef,
+      estimateChatInput: 'Вопрос',
+      estimateChatRequestRef: requestRef,
+      fetchFn,
+    });
+    const sending = createEstimateChatActions(initialDeps).sendEstimateChatMessage();
+
+    const reopenDeps = createDeps({
+      estimateChatActiveEstimateIdRef: activeEstimateRef,
+      estimateChatLoading: true,
+      estimateChatRequestRef: requestRef,
+      fetchFn,
+    });
+    const reopening = createEstimateChatActions(reopenDeps).handleOpenSelectedEstimateChat();
+
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(requestRef.current).toBe(1);
+    expect(reopenDeps.setShowEstimateChat).toHaveBeenCalledWith(true);
+    expect(reopenDeps.setEstimateChatLoading).not.toHaveBeenCalled();
+    expect(await reopening).toBe(true);
+
+    pending.resolve({ data: { response: 'Готово', assistantMessageId: 22 } });
+    expect(await sending).toBe(true);
+    expect(initialDeps.setEstimateChatLoading).toHaveBeenLastCalledWith(false);
   });
 
   test('does not clear local history when the delete request fails', async () => {

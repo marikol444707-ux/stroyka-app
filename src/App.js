@@ -103,7 +103,8 @@ function App() {
     workJournal
   });
   const estimateWorkflowState = useEstimateWorkflowState(
-    companyContext.mode + ':' + (companyContext.selectedCompanyId || 'all')
+    companyContext.mode + ':' + (companyContext.selectedCompanyId || 'all'),
+    selectedEstimate?.id || null
   );
   const {
     setEstimateIssueFocusKey,

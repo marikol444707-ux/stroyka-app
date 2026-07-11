@@ -4,6 +4,7 @@ import {
   normalizeImportedEstimateItem,
 } from '../../utils/estimateUtils';
 import { createEstimateChatActions } from './estimateChatActions';
+import { createEstimateVersionActions } from './estimateVersionActions';
 
 export function createEstimatePageActions({
   API,
@@ -21,10 +22,14 @@ export function createEstimatePageActions({
   estimateItemTotal,
   estimateItemTypeMeta,
   estimateItemWorkSum,
+  estimateChatActiveEstimateIdRef,
+  estimateChatHistoryLoading,
+  estimateChatHistoryLoadingRef,
   estimateChatInput,
   estimateChatLoading,
   estimateChatMessages,
   estimateChatRequestRef,
+  estimateVersionRequestRef,
   estimateMeasurementBasisMeta,
   estimateMeasurementBasisOf,
   estimateQualityRows,
@@ -52,6 +57,7 @@ export function createEstimatePageActions({
   setAiMessages,
   setDistributeAssignments,
   setDistributeBrigades,
+  setEstimateChatHistoryLoading,
   setEstimateChatInput,
   setEstimateChatLoading,
   setEstimateChatMessages,
@@ -84,6 +90,9 @@ export function createEstimatePageActions({
   } = createEstimateChatActions({
     API,
     alertFn,
+    estimateChatActiveEstimateIdRef,
+    estimateChatHistoryLoading,
+    estimateChatHistoryLoadingRef,
     estimateChatInput,
     estimateChatLoading,
     estimateChatMessages,
@@ -91,10 +100,22 @@ export function createEstimatePageActions({
     fetchFn,
     readApiResult,
     selectedEstimate,
+    setEstimateChatHistoryLoading,
     setEstimateChatInput,
     setEstimateChatLoading,
     setEstimateChatMessages,
     setShowEstimateChat,
+  });
+  const { handleOpenSelectedEstimateHistory } = createEstimateVersionActions({
+    API,
+    alertFn,
+    estimateVersionRequestRef,
+    fetchFn,
+    readApiResult,
+    selectedEstimate,
+    setEstimateVersions,
+    setSelectedVersionsToCompare,
+    setShowVersionHistory,
   });
   const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
   const sendAiAssistantMessage = async (rawMessage, fallbackText = 'Ошибка соединения с ИИ.') => {
@@ -479,18 +500,6 @@ export function createEstimatePageActions({
     setEstimatesList(prev => prev.map(e => e.id === selectedEstimate.id ? {...e, isTemplate: data.isTemplate} : e));
     setSelectedEstimate(prev => ({...prev, isTemplate: data.isTemplate}));
     alertFn(data.isTemplate ? 'Смета помечена как шаблон — её можно использовать при создании новых смет' : 'Смета больше не шаблон');
-  };
-
-  const handleOpenSelectedEstimateHistory = async () => {
-    if (!selectedEstimate?.id) return;
-    try {
-      const versions = await fetchFn(API + '/estimates/' + selectedEstimate.id + '/versions').then(r => r.json());
-      setEstimateVersions(Array.isArray(versions) ? versions : []);
-      setSelectedVersionsToCompare([]);
-      setShowVersionHistory(true);
-    } catch (e) {
-      alertFn('Не удалось загрузить историю');
-    }
   };
 
   const handleNormalizeSelectedEstimateImport = async () => {
