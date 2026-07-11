@@ -22504,78 +22504,101 @@ def create_brigade_contract(
         conn.close()
 
 @app.post("/brigade-contracts/{contract_id}/load-from-pricelist")
-def load_brigade_items_from_pricelist(contract_id: int, with_materials: bool = False, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
+def load_brigade_items_from_pricelist(
+    contract_id: int,
+    with_materials: bool = False,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     import json as _json
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    require_row_project_access(cur, "brigade_contracts", contract_id, _current_user)
-    cur.execute("SELECT pricelist_id, project_name, COALESCE(NULLIF(work_package,''),'Основная') FROM brigade_contracts WHERE id=%s", (contract_id,))
-    r = cur.fetchone()
-    if not r or not r[0]:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail="К наряду не привязан прайс-лист")
-    pl_id = int(r[0])
-    project_name = r[1] or ""
-    contract_work_package = r[2] or "Основная"
+    try:
+        contract, actor, project = _resolve_brigade_contract_actor(
+            cur,
+            _current_user,
+            contract_id,
+            LEADERSHIP_ROLES,
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            for_update=True,
+        )
+        if not has_package_access(actor, contract["workPackage"]):
+            raise HTTPException(status_code=403, detail="Нет доступа к пакету работ договора")
+        cur.execute("SELECT pricelist_id FROM brigade_contracts WHERE id=%s AND company_id=%s", (contract["id"], contract["companyId"]))
+        r = cur.fetchone()
+        if not r or not _row_get(r, "pricelist_id", 0):
+            raise HTTPException(status_code=400, detail="К наряду не привязан прайс-лист")
+        pl_id = int(_row_get(r, "pricelist_id", 0))
 
-    cur.execute("SELECT coefficient FROM pricelists WHERE id=%s", (pl_id,))
-    cr = cur.fetchone()
-    coef = float(cr[0] or 1.0) if cr else 1.0
+        cur.execute("SELECT coefficient FROM pricelists WHERE id=%s", (pl_id,))
+        cr = cur.fetchone()
+        coef = float(_row_get(cr, "coefficient", 0, 1.0) or 1.0) if cr else 1.0
 
-    # Build estimate name -> qty lookup for this project
-    estimate_lookup = {}
-    if project_name:
+        estimate_lookup = {}
         cur.execute("""SELECT sections_json FROM estimates
-                       WHERE project_name=%s
+                       WHERE company_id=%s AND project_id=%s
                          AND COALESCE(smeta_type,'Заказчик')='Заказчик'
                          AND status='Активная'
-                       ORDER BY COALESCE(work_package,'Основная'), id DESC""", (project_name,))
+                       ORDER BY COALESCE(work_package,'Основная'), id DESC""",
+                    (contract["companyId"], project["id"]))
         est_rows = cur.fetchall()
         if not est_rows:
-            cur.execute("SELECT sections_json FROM estimates WHERE project_name=%s ORDER BY id DESC LIMIT 1", (project_name,))
+            cur.execute("""SELECT sections_json FROM estimates
+                           WHERE company_id=%s AND project_id=%s
+                           ORDER BY id DESC LIMIT 1""", (contract["companyId"], project["id"]))
             est_rows = cur.fetchall()
         for est_row in est_rows:
-            if est_row and est_row[0]:
-                try:
-                    sections = _json.loads(est_row[0])
-                    for s in sections:
-                        for it in (s.get("items") or []):
-                            nm = (it.get("name") or "").strip().lower()
-                            if nm:
-                                estimate_lookup[nm] = estimate_lookup.get(nm, 0) + float(it.get("quantity") or 0)
-                except Exception:
-                    pass
+            raw_sections = _row_get(est_row, "sections_json", 0)
+            if not raw_sections:
+                continue
+            try:
+                sections = _json.loads(raw_sections)
+                for section in sections:
+                    for item in (section.get("items") or []):
+                        name_key = (item.get("name") or "").strip().lower()
+                        if name_key:
+                            estimate_lookup[name_key] = estimate_lookup.get(name_key, 0) + float(item.get("quantity") or 0)
+            except Exception:
+                continue
 
-    cur.execute("SELECT description FROM brigade_contract_items WHERE contract_id=%s", (contract_id,))
-    existing_names = {row[0] for row in cur.fetchall()}
-    if with_materials:
-        cur.execute("SELECT name, unit, price, category, item_type FROM pricelist_items WHERE pricelist_id=%s", (pl_id,))
-    else:
-        cur.execute("SELECT name, unit, price, category, item_type FROM pricelist_items WHERE pricelist_id=%s AND (item_type IS NULL OR item_type='work')", (pl_id,))
-    rows = cur.fetchall()
-    inserted = 0
-    matched = 0
-    for it in rows:
-        if it[0] in existing_names:
-            continue
-        price = float(it[2] or 0)
-        nm_low = (it[0] or "").strip().lower()
-        # Try exact match first
-        qty = estimate_lookup.get(nm_low, 0)
-        # Try substring match if exact fails
-        if not qty and estimate_lookup:
-            for est_nm, est_qty in estimate_lookup.items():
-                if est_nm and (nm_low in est_nm or est_nm in nm_low):
-                    qty = est_qty
-                    break
-        if qty:
-            matched += 1
-        cur.execute("INSERT INTO brigade_contract_items (contract_id, estimate_section, description, work_package, estimate_item_key, unit, quantity, price_smeta, price_brigade, done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-            (contract_id, it[3] or "", it[0], contract_work_package, "", it[1] or "шт", qty, price, round(price * coef, 2), 0))
-        inserted += 1
-    recalc_brigade_contract_total(cur, contract_id)
-    conn.commit(); cur.close(); conn.close()
-    return {"ok": True, "itemsLoaded": inserted, "matchedFromEstimate": matched}
+        cur.execute("SELECT description FROM brigade_contract_items WHERE contract_id=%s", (contract["id"],))
+        existing_names = {_row_get(row, "description", 0) for row in cur.fetchall()}
+        if with_materials:
+            cur.execute("SELECT name, unit, price, category, item_type FROM pricelist_items WHERE pricelist_id=%s", (pl_id,))
+        else:
+            cur.execute("SELECT name, unit, price, category, item_type FROM pricelist_items WHERE pricelist_id=%s AND (item_type IS NULL OR item_type='work')", (pl_id,))
+        rows = cur.fetchall()
+        inserted = 0
+        matched = 0
+        for item in rows:
+            item_name = _row_get(item, "name", 0)
+            if item_name in existing_names:
+                continue
+            price = float(_row_get(item, "price", 2, 0) or 0)
+            name_key = (item_name or "").strip().lower()
+            quantity = estimate_lookup.get(name_key, 0)
+            if not quantity and estimate_lookup:
+                for estimate_name, estimate_quantity in estimate_lookup.items():
+                    if estimate_name and (name_key in estimate_name or estimate_name in name_key):
+                        quantity = estimate_quantity
+                        break
+            if quantity:
+                matched += 1
+            cur.execute("INSERT INTO brigade_contract_items (contract_id, estimate_section, description, work_package, estimate_item_key, unit, quantity, price_smeta, price_brigade, done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (contract["id"], _row_get(item, "category", 3, "") or "", item_name, contract["workPackage"], "", _row_get(item, "unit", 1, "шт") or "шт", quantity, price, round(price * coef, 2), 0))
+            inserted += 1
+        recalc_brigade_contract_total(cur, contract["id"])
+        conn.commit()
+        return {"ok": True, "itemsLoaded": inserted, "matchedFromEstimate": matched, "companyId": contract["companyId"], "projectId": project["id"]}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
 
 @app.put("/brigade-contracts/{id}")
 def update_brigade_contract(
@@ -23005,56 +23028,134 @@ def get_brigade_contract_items(
         conn.close()
 
 @app.post("/brigade-contract-items")
-def create_brigade_contract_item(data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
+def create_brigade_contract_item(
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    require_row_project_access(cur, "brigade_contracts", data.get("contractId"), _current_user)
-    work_package = (data.get("workPackage") or data.get("work_package") or "Основная").strip() or "Основная"
-    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, work_package):
-        cur.close(); conn.close()
-        raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
-    cur.execute("INSERT INTO brigade_contract_items (contract_id,estimate_section,description,work_package,estimate_item_key,unit,quantity,price_smeta,price_brigade,done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("contractId"),data.get("estimateSection",""),data.get("name","") or data.get("description",""),work_package,data.get("estimateItemKey","") or data.get("estimate_item_key",""),data.get("unit",""),data.get("quantity",0),data.get("priceSmeta",0),data.get("priceBrigade",0),data.get("doneQuantity",0)))
-    row = cur.fetchone()
-    recalc_brigade_contract_total(cur, data.get("contractId"))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"id":row[0],"ok":True}
+    try:
+        contract, actor, project = _resolve_brigade_contract_actor(
+            cur,
+            _current_user,
+            data.get("contractId"),
+            LEADERSHIP_ROLES,
+            claimed_company_id=data.get("companyId") if "companyId" in data else data.get("company_id"),
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            for_update=True,
+        )
+        work_package = (data.get("workPackage") or data.get("work_package") or contract["workPackage"]).strip() or "Основная"
+        if work_package != contract["workPackage"]:
+            raise HTTPException(status_code=400, detail="Пакет позиции должен совпадать с пакетом договора")
+        if not has_package_access(actor, work_package):
+            raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
+        cur.execute("INSERT INTO brigade_contract_items (contract_id,estimate_section,description,work_package,estimate_item_key,unit,quantity,price_smeta,price_brigade,done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (contract["id"],data.get("estimateSection",""),data.get("name","") or data.get("description",""),work_package,data.get("estimateItemKey","") or data.get("estimate_item_key",""),data.get("unit",""),data.get("quantity",0),data.get("priceSmeta",0),data.get("priceBrigade",0),data.get("doneQuantity",0)))
+        row = cur.fetchone()
+        recalc_brigade_contract_total(cur, contract["id"])
+        conn.commit()
+        return {"id": _row_get(row, "id", 0), "ok": True, "companyId": contract["companyId"], "projectId": project["id"]}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
 
 @app.put("/brigade-contract-items/{id}")
-def update_brigade_contract_item(id: int, data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
+def update_brigade_contract_item(
+    id: int,
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    require_brigade_item_access(cur, id, _current_user)
-    if "workPackage" in data or "work_package" in data:
-        new_work_package = (data.get("workPackage") or data.get("work_package") or "Основная").strip() or "Основная"
-        if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, new_work_package):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Нет доступа к новому пакету работ")
-    quantity = float(data.get("quantity", 0) or 0)
-    done_quantity = float(data.get("doneQuantity", 0) or 0)
-    done_quantity = max(0, min(done_quantity, quantity)) if quantity > 0 else 0
-    cur.execute("UPDATE brigade_contract_items SET quantity=%s,price_brigade=%s,price_smeta=%s,done_quantity=%s,work_package=COALESCE(%s,work_package),estimate_item_key=COALESCE(%s,estimate_item_key) WHERE id=%s RETURNING contract_id",
-        (quantity,data.get("priceBrigade",0),data.get("priceSmeta",0),done_quantity,data.get("workPackage", data.get("work_package")),data.get("estimateItemKey", data.get("estimate_item_key")),id))
-    row = cur.fetchone()
-    if row:
-        recalc_brigade_contract_total(cur, row[0])
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok":True}
+    try:
+        cur.execute("SELECT contract_id,COALESCE(NULLIF(work_package,''),'Основная') FROM brigade_contract_items WHERE id=%s FOR UPDATE", (id,))
+        item = cur.fetchone()
+        if not item:
+            raise HTTPException(status_code=404, detail="Запись не найдена")
+        contract_id = _row_get(item, "contract_id", 0)
+        contract, actor, project = _resolve_brigade_contract_actor(
+            cur,
+            _current_user,
+            contract_id,
+            LEADERSHIP_ROLES,
+            claimed_company_id=data.get("companyId") if "companyId" in data else data.get("company_id"),
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            for_update=True,
+        )
+        new_work_package = (data.get("workPackage") or data.get("work_package") or _row_get(item, "work_package", 1) or contract["workPackage"]).strip() or "Основная"
+        if new_work_package != contract["workPackage"]:
+            raise HTTPException(status_code=400, detail="Пакет позиции должен совпадать с пакетом договора")
+        if not has_package_access(actor, new_work_package):
+            raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
+        quantity = float(data.get("quantity", 0) or 0)
+        done_quantity = float(data.get("doneQuantity", 0) or 0)
+        done_quantity = max(0, min(done_quantity, quantity)) if quantity > 0 else 0
+        cur.execute("UPDATE brigade_contract_items SET quantity=%s,price_brigade=%s,price_smeta=%s,done_quantity=%s,work_package=%s,estimate_item_key=COALESCE(%s,estimate_item_key) WHERE id=%s AND contract_id=%s RETURNING contract_id",
+            (quantity,data.get("priceBrigade",0),data.get("priceSmeta",0),done_quantity,new_work_package,data.get("estimateItemKey", data.get("estimate_item_key")),id,contract["id"]))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=409, detail="Позиция договора изменилась. Обновите страницу")
+        recalc_brigade_contract_total(cur, contract["id"])
+        conn.commit()
+        return {"ok": True, "companyId": contract["companyId"], "projectId": project["id"]}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
 
 @app.delete("/brigade-contract-items/{id}")
-def delete_brigade_contract_item(id: int, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+def delete_brigade_contract_item(
+    id: int,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    require_brigade_item_access(cur, id, _current_user)
-    cur.execute("DELETE FROM brigade_contract_items WHERE id=%s RETURNING contract_id",(id,))
-    row = cur.fetchone()
-    if row:
-        recalc_brigade_contract_total(cur, row[0])
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok":True}
+    try:
+        cur.execute("SELECT contract_id,COALESCE(NULLIF(work_package,''),'Основная') FROM brigade_contract_items WHERE id=%s FOR UPDATE", (id,))
+        item = cur.fetchone()
+        if not item:
+            raise HTTPException(status_code=404, detail="Запись не найдена")
+        contract, actor, project = _resolve_brigade_contract_actor(
+            cur,
+            _current_user,
+            _row_get(item, "contract_id", 0),
+            (*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"),
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            for_update=True,
+        )
+        item_package = _row_get(item, "work_package", 1) or contract["workPackage"]
+        if not has_package_access(actor, item_package):
+            raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
+        cur.execute("DELETE FROM brigade_contract_items WHERE id=%s AND contract_id=%s RETURNING contract_id", (id, contract["id"]))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=409, detail="Позиция договора изменилась. Обновите страницу")
+        recalc_brigade_contract_total(cur, contract["id"])
+        conn.commit()
+        return {"ok": True, "companyId": contract["companyId"], "projectId": project["id"]}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
 
 @app.get("/brigade-acts")
 def get_brigade_acts(
