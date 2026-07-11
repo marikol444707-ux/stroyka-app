@@ -93,7 +93,8 @@ def wait_until_storage_is_gone(url, attempts=5):
     last_status = None
     for attempt in range(attempts):
         last_status, _raw = fetch_url(url)
-        if last_status in (404, 410):
+        # Timeweb returns 403 for a missing object when anonymous bucket listing is forbidden.
+        if last_status in (403, 404, 410):
             return
         if attempt + 1 < attempts:
             time.sleep(1)
