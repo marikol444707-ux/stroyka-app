@@ -22,6 +22,7 @@ import MasterDocumentsPage from './MasterDocumentsPage';
 import MasterHistoryPage from './MasterHistoryPage';
 import MasterMaterialsPage from './MasterMaterialsPage';
 import MasterSupplyPage from './MasterSupplyPage';
+import MasterWorkJournalPhotoField from './MasterWorkJournalPhotoField';
 import MyExpensesPage from './MyExpensesPage';
 import NotificationsDropdown from './NotificationsDropdown';
 import OwnExpenseFormModal from './OwnExpenseFormModal';
@@ -1511,7 +1512,7 @@ export default function MasterCabinetPage(props) {
                           </div>
                           {roomCheck && <div style={{ marginTop: '6px', padding: '7px 9px', borderRadius: '8px', border: '1px solid ' + (roomCheck.over > 0 ? C.dangerBorder : C.successBorder), backgroundColor: roomCheck.over > 0 ? C.dangerLight : C.successLight, color: roomCheck.over > 0 ? C.danger : C.success, fontSize: '11px', fontWeight: '600' }}>{roomMeasurementMessage(roomCheck)}</div>}
                           <div style={{ marginTop: '8px' }}>
-                            <PhotoAttachmentField
+                            <MasterWorkJournalPhotoField
                               C={C}
                               btnG={btnG}
                               value={params.photoUrl || ''}
@@ -1520,7 +1521,6 @@ export default function MasterCabinetPage(props) {
                               fileSrc={fileSrc}
                               setShowPhotoModal={setShowPhotoModal}
                               projectName={project?.name || projectName}
-                              context="work-journal"
                               title="Фото работы / помещения"
                               compact
                             />
@@ -1732,7 +1732,7 @@ export default function MasterCabinetPage(props) {
                                   return check ? <div style={{ marginBottom: '8px', padding: '8px 10px', borderRadius: '8px', border: '1px solid ' + (check.over > 0 ? C.dangerBorder : C.successBorder), backgroundColor: check.over > 0 ? C.dangerLight : C.successLight, color: check.over > 0 ? C.danger : C.success, fontSize: '11px', fontWeight: '600' }}>{roomMeasurementMessage(check)}</div> : null;
                                 })()}
                                 <input placeholder="Комментарий" value={selectedWorks[item.id]?.comment || ''} onChange={e => setSelectedWorks(prev => ({ ...prev, [item.id]: { ...prev[item.id], comment: e.target.value } }))} style={inp} />
-                                <PhotoAttachmentField
+                                <MasterWorkJournalPhotoField
                                   C={C}
                                   btnG={btnG}
                                   value={selectedWorks[item.id]?.photoUrl || ''}
@@ -1741,7 +1741,6 @@ export default function MasterCabinetPage(props) {
                                   fileSrc={fileSrc}
                                   setShowPhotoModal={setShowPhotoModal}
                                   projectName={project?.name || ''}
-                                  context="work-journal"
                                   title="Фото работы / помещения"
                                 />
                                 {(() => {

@@ -1402,6 +1402,32 @@
 
 **Estimated scope:** S
 
+## Task M6.2d7: Protected Master Work-Submission Photos
+
+**Description:** Enable authenticated protected-photo previews only in the two master work-submission fields that write `work-journal` photos. Keep the daily-work act, estimate-change form, upload return value, stored URLs, backend, and S3 ACL unchanged.
+
+**Status:** Implementation and local verification complete; production deploy pending.
+
+**Acceptance criteria:**
+- [x] A dedicated master work-journal photo boundary always enables protected preview and forces `context="work-journal"`.
+- [x] Exactly two master work-submission fields use that boundary: the estimate-work row and the selected-work row.
+- [x] The daily-work act and estimate-change photo fields remain on the default direct-preview component.
+- [x] Strict local `/tenant-files/{positiveId}/content` values load through authenticated fetch and open the resolved Blob URL.
+- [x] Compatibility `/uploads` values and the existing `appendPhotos(value, files, {projectName, context})` contract remain unchanged.
+- [x] Backend routes, stored work-journal rows, protected return values, and S3 ACL are unchanged.
+
+**Verification:**
+- [x] Focused master boundary, attachment-field, Blob-loader, and ЖПР edit suites pass (`4` suites / `14` tests).
+- [x] Full working-tree frontend suite passes (`25` suites / `104` tests).
+- [x] Production build succeeds.
+- [ ] Production runtime, public smoke, and authenticated master browser flow pass after deploy.
+
+**Known follow-up:** This slice only makes the two master submission renderers ready for protected URLs. It does not request protected return URLs and does not complete work-journal tenant ownership/read-write isolation; those remain separate audited slices.
+
+**Dependencies:** Tasks M6.2d3 and M6.2d6
+
+**Estimated scope:** S
+
 **M6 safety gate:** do not backfill ambiguous legacy rows, do not use project names as authorization identifiers, do not allow mutation in `all_companies`, and do not start the two-company production E2E until M6.0-M6.8 and the preceding M4/M5 gaps are closed.
 
 ## Task M7: Backfill, Constraints, And Pilot Matrix
