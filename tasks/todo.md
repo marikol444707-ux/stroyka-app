@@ -1432,7 +1432,7 @@
 
 **Description:** Add stored company ownership to the existing general company chat and scope list, create, and mark-read operations to one verified selected company. Keep project chat, estimate chat, protected upload return values, and legacy row backfill outside this slice.
 
-**Status:** Implementation and local verification complete; production deploy pending.
+**Status:** Deployed in `38d67411`; production migration, selected-company/negative API checks, and authenticated browser chat passed.
 
 **Acceptance criteria:**
 - [x] `messages.company_id` is added as nullable with supporting indexes; startup does not guess or backfill legacy ownership.
@@ -1447,7 +1447,7 @@
 - [x] Company-context and company-message focused suites pass (`39` tests); the company-message suite passes `7` tests including negative mutation cases.
 - [x] Exact tracked backend plus this slice passes (`145` tests); full working-tree backend suite passes (`149` tests).
 - [x] Backend entrypoint/module compile, full working-tree frontend suite (`25` suites / `104` tests), and production build pass.
-- [ ] Production migration, public/authenticated smoke, selected-company read, `all_companies` rejection, and real browser chat compatibility pass after deploy.
+- [x] Production migration and public smoke pass; selected-company read returns the marked legacy row, GET/create/mark-read reject `all_companies`, and the real master chat renders without console errors. No message row was created, changed, or backfilled.
 
 **Known follow-up:** Run a read-only legacy report again, backfill only unambiguous rows, then add stronger constraints in a separate reversible step. Project chat and estimate chat remain later `M6.4` slices; do not treat this company-chat release as complete two-company E2E coverage.
 
