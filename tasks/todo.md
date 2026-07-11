@@ -1559,7 +1559,7 @@
 
 **Description:** Isolate estimate-chat history, AI message creation, and explicit history clearing through the server-selected company and the stored parent estimate. Preserve existing URLs, response fields, AI prompt behavior, and stored messages; do not add a redundant company column or migrate chat content in this slice.
 
-**Status:** Implemented locally; production release pending.
+**Status:** Deployed in `cf006af7`; public smoke and authenticated read-only browser check passed.
 
 **Acceptance criteria:**
 - [x] History and direct chat actions first apply the existing estimate visibility policy and re-verify the stored estimate parent before reading or changing `estimate_chat_messages`.
@@ -1575,7 +1575,8 @@
 - [x] Focused frontend chat/context suites pass (`2` suites / `5` tests), including stale history, stale AI answer, failed clear, successful clear, and company-context reset.
 - [x] Full working-tree backend suite passes (`184` tests); full frontend suite passes (`31` suites / `122` tests).
 - [x] Production entrypoint/module compile, shell syntax, public proxy smoke, and production build pass.
-- [ ] Production deploy, protected read-only history check, aggregate-mode no-write probes, and authenticated browser chat-open check pass.
+- [x] Production runtime reports `cf006af7e4f9`; public smoke recognizes both estimate-chat routes, and the authenticated director browser opens `Сметы -> Кисловодск Лицей 4 -> Электрика -> Чат` with the correct estimate and no console warnings/errors. No message was sent and history was not cleared.
+- [ ] Protected aggregate-mode no-write probes remain wired into `smoke:prod`, but the generic production run skipped them without `SMOKE_EMAIL`/`SMOKE_PASSWORD`; route tests cover the fail-before-SQL behavior until the isolated multi-company fixture is available.
 
 **Known follow-up:** Estimate changes, `unexpected_works`, project chat, and estimate-version creation remain separate parent-owned slices. A true company-A/company-B negative E2E still requires the isolated multi-company fixture.
 
