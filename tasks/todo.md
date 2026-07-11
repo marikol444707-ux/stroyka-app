@@ -1259,7 +1259,7 @@
 - [x] Focused upload-helper and project-letter component tests pass (`4` tests).
 - [x] Exact tracked frontend suite passes (`17` suites / `76` tests); full working-tree suite also passes (`18` suites / `81` tests), and the production build succeeds.
 - [x] Production runtime reports `8132954e`; public smoke passes and the authenticated director browser opens the test-object letter form without console errors.
-- [ ] Repeat authenticated `smoke:tenant-files` when production smoke credentials are available; this frontend-only release did not change the already verified tenant-file backend.
+- [x] Authenticated `smoke:tenant-files` passed under the existing test foreman after the follow-up rollout; exact bytes, protected read, cleanup, compatibility-object disappearance, and zero remaining smoke rows were confirmed.
 
 **Known follow-up:** Continue M6.2d one display-only consumer at a time. Photo previews need a separate authenticated Blob-loader decision because protected responses use same-origin resource policy; do not switch S3 to private until those consumers are migrated and audited.
 
@@ -1271,7 +1271,7 @@
 
 **Description:** Continue the consumer migration with the direct scan paths in the existing project document registry. New-document scans and scans added to existing rows use authorized tenant-file content URLs. The OCR source remains on the compatibility URL until recognition can read protected content server-side.
 
-**Status:** Implemented locally; release pending.
+**Status:** Deployed in `7abf86e1`; production runtime `b05fac7e` passed public, authenticated file, API, and registry UI checks.
 
 **Acceptance criteria:**
 - [x] Both direct project-document scan upload paths send exact `projectId` and request protected `contentUrl` with compatibility fallback.
@@ -1283,9 +1283,11 @@
 **Verification:**
 - [x] Focused upload-helper, letter, and document-registry tests pass (`3` suites / `7` tests).
 - [x] Exact tracked frontend suite passes (`18` suites / `79` tests); full working-tree suite passes (`19` suites / `84` tests), and the production build succeeds.
-- [ ] Production deploy, public smoke, and authenticated registry UI check pass.
+- [x] Production deploy and public smoke pass; `/estimates?summary=true` returns `200` with `9` rows and `/material-transfers` returns `200` after runtime import hotfixes `3cf4d84e` and `b05fac7e`.
+- [x] A real HttpOnly-cookie browser session opens `Проекты -> Документы -> Реестр -> Добавить документ`; the direct scan and OCR controls render without a new ASGI `500`. No business document or orphan upload was created.
+- [x] Authenticated tenant-file smoke passes after the rollout and leaves `0` `smoke-tenant-files` ownership rows.
 
-**Known follow-up:** Migrate OCR only after the recognition backend can consume protected content. `project_documents` itself is still a legacy name-based record surface and must receive stored `company_id/project_id` under the wider M6 project-record isolation; protected file authorization does not replace that row migration.
+**Known follow-up:** Migrate OCR only after the recognition backend can consume protected content. Before any inline photo surface moves, add an authenticated Blob URL loader with object-URL cleanup because protected responses enforce same-origin resource policy. `project_documents` itself is still a legacy name-based record surface and must receive stored `company_id/project_id` under the wider M6 project-record isolation; protected file authorization does not replace that row migration.
 
 **Dependencies:** Task M6.2d1
 
