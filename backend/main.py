@@ -31621,11 +31621,13 @@ except ModuleNotFoundError:
 
 register_work_assignment_module(app, {
     "get_db": get_db,
-    "require_roles": require_roles,
-    "require_estimate_access": require_estimate_access,
-    "resolve_staff_or_user_id": _resolve_staff_or_user_id,
-    "grant_user_project_package_access": _grant_user_project_package_access,
+    "get_current_user": get_current_user,
+    "resolve_estimate_mutation_actor": _resolve_estimate_mutation_actor,
+    "resolve_brigade_contractor_user": resolve_brigade_contractor_user,
+    "grant_brigade_contractor_scope": grant_brigade_contractor_scope,
     "assign_roles": LEADERSHIP_ROLES,
+    "project_scoped_roles": PROJECT_SCOPED_ACCESS_ROLES,
+    "package_required_roles": WORK_PACKAGE_REQUIRED_ACCESS_ROLES,
     "log_audit": log_audit,
 })
 

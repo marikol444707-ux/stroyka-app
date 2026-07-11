@@ -85,6 +85,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [ ] Task M5.3b1: Store brigade payment ownership and authorize create/reversal from the parent contract company. Pushed in `83529e6c`; production release pending.
 - [x] Task M5.3b2: Enforce selected-company ownership for brigade contract create/update/cancel and contractor assignment. Deployed in `8c971801`; public production smoke passed.
 - [x] Task M5.3b3: Enforce parent-company ownership for pricelist loading, contract items, brigade acts, and estimate distribution. Pushed in `5fac950e` and `854da456`; production release pending.
+- [ ] Task M5.3b4: Isolate the primary `Назначить мастеру` work-assignment route by the estimate's stored company and exact project. Implemented; production release pending.
 - [ ] Task M6: Scope remaining projects, estimates, journals, acts, files, notifications, audit, and AI jobs.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 

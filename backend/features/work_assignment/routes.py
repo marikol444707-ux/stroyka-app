@@ -1,6 +1,8 @@
 import json
+import math
+from typing import Optional
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, Header, HTTPException
 
 
 def _text(value, limit=255):
@@ -9,7 +11,8 @@ def _text(value, limit=255):
 
 def _num(value):
     try:
-        return float(str(value if value is not None else 0).replace(" ", "").replace(",", "."))
+        result = float(str(value if value is not None else 0).replace(" ", "").replace(",", "."))
+        return result if math.isfinite(result) else 0.0
     except Exception:
         return 0.0
 
@@ -109,16 +112,23 @@ def _contract_match_sql(contractor_user_id):
 
 def register_work_assignment_module(app, deps):
     get_db = deps["get_db"]
-    require_roles = deps["require_roles"]
-    require_estimate_access = deps["require_estimate_access"]
-    resolve_staff_or_user_id = deps["resolve_staff_or_user_id"]
-    grant_user_project_package_access = deps.get("grant_user_project_package_access")
+    get_current_user = deps["get_current_user"]
+    resolve_estimate_mutation_actor = deps["resolve_estimate_mutation_actor"]
+    resolve_brigade_contractor_user = deps["resolve_brigade_contractor_user"]
+    grant_brigade_contractor_scope = deps["grant_brigade_contractor_scope"]
     log_audit = deps.get("log_audit")
     assign_roles = deps.get("assign_roles") or ()
-    assign_access = require_roles(*assign_roles)
+    project_scoped_roles = deps.get("project_scoped_roles") or ()
+    package_required_roles = deps.get("package_required_roles") or ()
 
     @app.post("/estimates/{estimate_id}/work-assignment")
-    def assign_estimate_work(estimate_id: int, data: dict, current_user: dict = Depends(assign_access)):
+    def assign_estimate_work(
+        estimate_id: int,
+        data: dict,
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
         data = data or {}
         assignee = data.get("assignee") or {}
         brigade_name = _text(assignee.get("brigadeName") or assignee.get("name") or data.get("brigadeName"), 255)
@@ -130,28 +140,45 @@ def register_work_assignment_module(app, deps):
         if not assignments:
             raise HTTPException(status_code=400, detail="Выберите работы для назначения")
         price_mode = _text(data.get("priceMode") or "coefficient", 40)
-        coefficient = _num(data.get("coefficient") or 0.6)
+        coefficient_value = data.get("coefficient")
+        coefficient = _num(0.6 if coefficient_value in (None, "") else coefficient_value)
         if price_mode == "coefficient" and coefficient <= 0:
             raise HTTPException(status_code=400, detail="Коэффициент должен быть больше нуля")
 
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor()
         try:
-            project_name, allowed_package = require_estimate_access(cur, estimate_id, current_user)
+            actor, estimate_scope = resolve_estimate_mutation_actor(
+                conn,
+                current_user,
+                estimate_id,
+                assign_roles,
+                x_company_id=x_company_id,
+                x_company_mode=x_company_mode,
+            )
+            company_id = int(estimate_scope["companyId"])
             cur.execute(
                 """SELECT id, name, project_id, project_name, COALESCE(NULLIF(work_package,''),'Основная'), sections_json, status
-                   FROM estimates WHERE id=%s""",
-                (estimate_id,),
+                   FROM estimates WHERE id=%s AND company_id=%s FOR UPDATE""",
+                (estimate_id, company_id),
             )
             estimate = cur.fetchone()
             if not estimate:
                 raise HTTPException(status_code=404, detail="Смета не найдена")
             estimate_name = estimate[1] or ""
             project_id = estimate[2]
-            project_name = estimate[3] or project_name
-            work_package = estimate[4] or allowed_package or "Основная"
+            if not project_id or int(project_id) != int(estimate_scope.get("projectId") or 0):
+                raise HTTPException(status_code=409, detail="Смета не привязана к точному объекту выбранной компании")
+            project_name = estimate_scope.get("projectName") or estimate[3] or ""
+            work_package = estimate_scope.get("workPackage") or estimate[4] or "Основная"
             sections = _json_sections(estimate[5])
-            contractor_user_id = resolve_staff_or_user_id(cur, contractor_id, brigade_name)
+            contractor_user_id = resolve_brigade_contractor_user(
+                cur,
+                company_id,
+                contractor_id,
+                brigade_name,
+            )
 
             match_sql, match_params = _contract_match_sql(contractor_user_id)
             if contractor_user_id:
@@ -160,12 +187,13 @@ def register_work_assignment_module(app, deps):
                 match_params = [brigade_name]
             cur.execute(
                 f"""SELECT id FROM brigade_contracts
-                    WHERE project_name=%s
+                    WHERE company_id=%s
+                      AND project_id=%s
                       AND COALESCE(NULLIF(work_package,''),'Основная')=%s
                       AND COALESCE(status,'') NOT IN ('Аннулирован','Удалён','Удален')
                       AND {match_sql}
-                    ORDER BY id DESC LIMIT 1""",
-                tuple([project_name, work_package] + match_params),
+                    ORDER BY id DESC LIMIT 1 FOR UPDATE""",
+                tuple([company_id, project_id, work_package] + match_params),
             )
             row = cur.fetchone()
             created_contract = False
@@ -174,16 +202,21 @@ def register_work_assignment_module(app, deps):
                 cur.execute(
                     """UPDATE brigade_contracts
                        SET brigade_name=%s, contractor_type=%s, contractor_id=COALESCE(%s, contractor_id)
-                       WHERE id=%s""",
-                    (brigade_name, contractor_type, contractor_user_id, contract_id),
+                       WHERE id=%s AND company_id=%s AND project_id=%s
+                       RETURNING id""",
+                    (brigade_name, contractor_type, contractor_user_id, contract_id, company_id, project_id),
                 )
+                if not cur.fetchone():
+                    raise HTTPException(status_code=409, detail="Договор изменился. Обновите страницу")
             else:
                 cur.execute(
                     """INSERT INTO brigade_contracts
-                         (project_id, project_name, work_package, brigade_name, contractor_type, contractor_id, total_amount, status, notes, pricelist_id)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                         (company_id, project_id, project_name, work_package, brigade_name, contractor_type,
+                          contractor_id, total_amount, status, notes, pricelist_id)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        RETURNING id""",
                     (
+                        company_id,
                         project_id or None,
                         project_name,
                         work_package,
@@ -213,10 +246,15 @@ def register_work_assignment_module(app, deps):
                 if price_smeta <= 0:
                     raise HTTPException(status_code=400, detail="В работе нет цены сметы: " + _text(item.get("name"), 120))
                 row_mode = _text(assignment.get("priceMode") or price_mode, 40)
-                row_coefficient = _num(assignment.get("coefficient") or coefficient)
+                row_coefficient_value = assignment.get("coefficient")
+                row_coefficient = _num(
+                    coefficient if row_coefficient_value in (None, "") else row_coefficient_value
+                )
                 manual_price = _num(assignment.get("manualPrice") or assignment.get("priceBrigade"))
+                if row_mode == "coefficient" and row_coefficient <= 0:
+                    raise HTTPException(status_code=400, detail="Коэффициент должен быть больше нуля")
                 price_brigade = manual_price if row_mode == "manual" else round(price_smeta * row_coefficient, 2)
-                if price_brigade <= 0:
+                if not math.isfinite(price_brigade) or price_brigade <= 0:
                     raise HTTPException(status_code=400, detail="Цена исполнителю должна быть больше нуля: " + _text(item.get("name"), 120))
                 section_name = _text(section.get("name"), 500)
                 item_name = _text(item.get("name") or item.get("description"), 500)
@@ -241,8 +279,8 @@ def register_work_assignment_module(app, deps):
                         """UPDATE brigade_contract_items
                            SET estimate_section=%s, description=%s, work_package=%s, estimate_item_key=%s,
                                unit=%s, quantity=%s, price_smeta=%s, price_brigade=%s
-                           WHERE id=%s""",
-                        (section_name, item_name, work_package, estimate_item_key, unit, qty, price_smeta, price_brigade, existing[0]),
+                           WHERE id=%s AND contract_id=%s""",
+                        (section_name, item_name, work_package, estimate_item_key, unit, qty, price_smeta, price_brigade, existing[0], contract_id),
                     )
                     updated += 1
                     item_id = existing[0]
@@ -277,28 +315,32 @@ def register_work_assignment_module(app, deps):
                      SELECT SUM(COALESCE(quantity,0)*COALESCE(price_brigade,0))
                      FROM brigade_contract_items WHERE contract_id=%s
                    ),0)
-                   WHERE id=%s""",
-                (contract_id, contract_id),
+                   WHERE id=%s AND company_id=%s AND project_id=%s""",
+                (contract_id, contract_id, company_id, project_id),
             )
-            if contractor_user_id and grant_user_project_package_access:
-                grant_user_project_package_access(cur, contractor_user_id, project_name, work_package)
+            grant_brigade_contractor_scope(
+                cur,
+                company_id,
+                contractor_user_id,
+                project_name,
+                work_package,
+                project_scoped_roles=project_scoped_roles,
+                package_required_roles=package_required_roles,
+            )
             conn.commit()
         except HTTPException:
             conn.rollback()
-            cur.close()
-            conn.close()
             raise
         except Exception as exc:
             conn.rollback()
+            raise HTTPException(status_code=500, detail="Не удалось назначить работы: " + str(exc))
+        finally:
             cur.close()
             conn.close()
-            raise HTTPException(status_code=500, detail="Не удалось назначить работы: " + str(exc))
-        cur.close()
-        conn.close()
         if log_audit:
             log_audit(
                 current_user.get("name") or "",
-                current_user.get("role") or "",
+                actor.get("role") or current_user.get("role") or "",
                 "assign_estimate_work",
                 "brigade_contract",
                 contract_id,
@@ -315,5 +357,7 @@ def register_work_assignment_module(app, deps):
             "contractorId": contractor_user_id,
             "projectName": project_name,
             "workPackage": work_package,
+            "companyId": company_id,
+            "projectId": project_id,
             "items": result_items,
         }

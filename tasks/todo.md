@@ -1083,6 +1083,31 @@
 
 **Estimated scope:** M
 
+## Task M5.3b4: Primary Work Assignment Tenant Isolation
+
+**Description:** Protect the primary `Назначить мастеру` workflow so its contract, items, contractor lookup, and access grant always inherit the stored company and exact project of the selected estimate.
+
+**Status:** Implemented; production release pending.
+
+**Acceptance criteria:**
+- [x] `POST /estimates/{estimate_id}/work-assignment` resolves the estimate inside one selected company and checks the effective assignment role before any write.
+- [x] Existing contracts are searched and locked by `company_id + project_id + work_package`; same-named projects in another company cannot be reused.
+- [x] New contracts explicitly store the estimate's `company_id`, canonical `project_id`, and project name.
+- [x] Contractor lookup and project/package scope grants are limited to the same company membership.
+- [x] Contract-item updates remain bound to the resolved parent contract; client company/project text cannot move the assignment to another tenant.
+- [x] `all_companies`, a conflicting company context, a missing exact project, and a non-finite coefficient fail before commit.
+- [x] Existing response fields remain compatible; `companyId` and `projectId` are additive confirmation fields.
+
+**Verification:**
+- [x] Focused route tests cover tenant-bound contract creation/update, rejected group mode with rollback, and non-finite/zero coefficient rejection.
+- [x] Backend compile and all discovered backend feature tests pass.
+- [x] Frontend tests, production build, release diff review, and exact staged-snapshot checks pass.
+- [ ] Production deploy and authenticated selected-company `Назначить мастеру` smoke pass.
+
+**Dependencies:** Tasks M5.3a-M5.3b3
+
+**Estimated scope:** S
+
 ## Task M6: Remaining Tenant-Owned Domains
 
 **Description:** Apply the same kernel to projects, estimates, materials, journals, acts, staff, files, notifications, exports, audit records, and AI/OCR jobs.
