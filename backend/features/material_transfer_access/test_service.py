@@ -1,4 +1,8 @@
+import os
+import subprocess
+import sys
 import unittest
+from pathlib import Path
 
 from fastapi import HTTPException
 
@@ -26,6 +30,22 @@ class FakeCursor:
 
 
 class MaterialTransferAccessTests(unittest.TestCase):
+    def test_service_imports_from_backend_working_directory(self):
+        backend_dir = Path(__file__).resolve().parents[2]
+        env = dict(os.environ)
+        env["PYTHONPATH"] = ""
+
+        result = subprocess.run(
+            [sys.executable, "-c", "from features.material_transfer_access.service import material_transfer_visibility_filter"],
+            cwd=backend_dir,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_visibility_scopes_full_role_by_company(self):
         sql, params = material_transfer_visibility_filter(
             [{"companyId": 2, "role": "кладовщик"}],
