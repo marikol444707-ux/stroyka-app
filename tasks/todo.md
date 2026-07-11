@@ -1616,21 +1616,43 @@
 
 **Description:** Add nullable stored `company_id/project_id` ownership to `unexpected_works` and backfill only the four rows already classified as unambiguous by the production audit. Keep all runtime reads/writes unchanged in this migration slice.
 
-**Status:** Implementation complete locally; production dry-run/apply/post-audit pending.
+**Status:** Deployed in `e8003a1d`; production dry-run, guarded apply, post-audit, public smoke, and read-only API verification passed.
 
 **Acceptance criteria:**
-- [ ] Dry-run repeats the current production gate exactly: `totalRows=4`, `ready=4`, no review rows, and all candidates target company `1` / project `1`.
+- [x] Dry-run repeated the production gate exactly: `totalRows=4`, `ready=4`, no review rows, and all candidates targeted company `1` / project `1`.
 - [x] Apply requires an explicit confirmation token, expected count, and SHA-256 of the complete dry-run plan; it rechecks every ownership source inside one transaction and rolls back on any drift or conflict.
 - [x] Columns and supporting indexes are added reversibly; ambiguous rows are never guessed, and no `NOT NULL` or foreign key is added yet.
 - [x] Existing estimate-change CRUD, include/reconcile, and AI routes remain behaviorally unchanged until a later tenant-scoping slice.
 
 **Verification:**
 - [x] Migration/report tests cover pre-column, dry-run, apply, same-count ownership drift, idempotent rerun, exception/conflict rollback, and post-apply states (`17` focused tests); the clean release backend suite passes (`198` tests), M6 registry audit and production build pass.
-- [ ] Production before/after counts and ownership audit are identical except for the four guarded owner assignments.
+- [x] Production before/after stayed at `4` rows with max ID `4`; the business-field SHA-256 stayed `cceaafd9eed744be011a3d3c9aea1eb91a0eb75fff30ce896cbe8a090732893a`, while all four rows received only `company_id=1/project_id=1`.
 
 **Production apply order:** push the migration code and run only `git pull --ff-only` on the server without restarting the service. Run `python3 scripts/migrate-estimate-changes.py --dry-run`, require the same `readyCount=4` and empty review list, copy its `planSha256`, then run `python3 scripts/migrate-estimate-changes.py --apply --confirm APPLY_ESTIMATE_CHANGES --expected-ready-count 4 --expected-plan-sha256 <planSha256>` and repeat the dry-run. Only after the clean post-audit may `bash deploy.sh` restart the runtime. Any count or mapping drift, review row, lock timeout, row-count conflict, or failed post-check rolls the transaction back.
 
+**Production result:** pre-apply dry-run had no owner columns, `readyCount=4`, `reviewCount=0`, and plan SHA-256 `e59a747eec491063b6d8fce460bd90c2a5db57b11113f548d3752d3a35e03ba1`. Apply updated exactly `4` rows with `0` conflicts and passed its in-transaction post-check. Repeated dry-run and the independent ownership audit report `storedRows=4`, `legacyRows=0`, `ready=0`, no review rows, and `complete=true`. Runtime health/DB/systemd/startup logs and public smoke passed; a temporary estimator read the unchanged route and received IDs `1-4`, then the account was disabled.
+
 **Dependencies:** Task M6.4f
+
+**Estimated scope:** S
+
+## Task M6.4h: Tenant-Scoped Estimate Change List
+
+**Description:** Change only `GET /unexpected-works` to select rows through stored `company_id/project_id` and the server-resolved tenant context. Keep create/update/delete, include/reconcile, limit-check, and AI routes unchanged in this slice.
+
+**Status:** Planned; not started.
+
+**Acceptance criteria:**
+- [ ] Selected-company reads return only rows whose stored company and project are visible to the effective membership role.
+- [ ] `all_companies` remains read-only and applies each company's effective project/package/status policy without using global role elevation.
+- [ ] Rows with missing or conflicting stored ownership fail closed; the legacy project name is display data only, never the authorization key.
+- [ ] Existing response fields, money hiding, customer status filtering, package filtering, and ordering remain unchanged.
+
+**Verification:**
+- [ ] Focused tests cover two companies, direct selected-company reads, aggregate reads, unavailable company `403`, cross-company invisibility, worker money hiding, and legacy/mismatched owner exclusion.
+- [ ] Production verification is read-only and confirms no row, owner, or business-field changes.
+
+**Dependencies:** Task M6.4g
 
 **Estimated scope:** S
 
