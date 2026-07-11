@@ -1234,8 +1234,8 @@
 - [x] `smoke:tenant-files` verifies exact bytes and confirms the physical compatibility object disappears after deletion; cleanup failure fails the smoke.
 
 **Verification:**
-- [x] Document-access tests pass (`41` tests); project-access tests pass (`11` tests).
-- [x] Full local backend feature discovery passes (`138` tests); backend/smoke compile and frontend production build pass.
+- [x] Document-access tests pass (`43` tests); project-access tests pass (`11` tests).
+- [x] Full local backend feature discovery passes (`140` tests); backend/smoke compile and frontend production build pass.
 - [ ] Production deploy and authenticated `npm run smoke:tenant-files` pass on the hardened release.
 
 **Dependencies:** Task M6.2c

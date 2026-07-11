@@ -194,9 +194,8 @@ def register_document_access_module(app, deps):
                 )
 
             verify_file_storage(row)
-            retrying_after_physical_delete = (
-                str(row.get("deletion_status") or "active").strip().lower() == "deleting"
-            )
+            deletion_status = str(row.get("deletion_status") or "active").strip().lower()
+            retrying_cleanup = deletion_status in ("deleting", "cleanup_failed")
 
             cur.execute(
                 """UPDATE file_ownership
@@ -215,7 +214,7 @@ def register_document_access_module(app, deps):
                             detail="S3-хранилище недоступно: cleanup будет повторен позже",
                         )
                     deleted = delete_s3_object(storage_key)
-                    if deleted is False and not retrying_after_physical_delete:
+                    if deleted is False and not retrying_cleanup:
                         raise HTTPException(
                             status_code=409,
                             detail="S3-файл отсутствует: запись владельца сохранена для проверки",
@@ -223,7 +222,7 @@ def register_document_access_module(app, deps):
                 else:
                     delete_local_file(
                         row.get("file_url"),
-                        missing_ok=retrying_after_physical_delete,
+                        missing_ok=retrying_cleanup,
                     )
             except Exception as storage_error:
                 conn.rollback()

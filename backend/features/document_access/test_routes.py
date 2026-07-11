@@ -675,6 +675,58 @@ class DocumentAccessRouteTests(unittest.TestCase):
         self.assertTrue(any("deletion_status='cleanup_failed'" in sql for sql in sql_calls))
         self.assertFalse(any(sql.startswith("DELETE FROM file_ownership") for sql in sql_calls))
 
+    def test_cleanup_failed_local_delete_can_finish_when_file_is_already_gone(self):
+        with TemporaryDirectory() as upload_dir:
+            connection = FakeConnection({
+                "id": 31,
+                "company_id": 4,
+                "project_id": None,
+                "file_url": "/uploads/company-4-common-general/general/missing.png",
+                "storage_key": "",
+                "uploaded_by_id": 9,
+                "deletion_status": "cleanup_failed",
+            })
+            app, _, _, _, _ = self._register(connection, upload_dir)
+
+            response = app.routes[("DELETE", "/tenant-files/{file_id}")](
+                31,
+                current_user={"id": 9, "role": "прораб"},
+            )
+
+            self.assertTrue(response["ok"])
+            self.assertTrue(any(
+                call[0].startswith("DELETE FROM file_ownership")
+                for call in connection.cursor_value.calls
+            ))
+
+    def test_cleanup_failed_s3_delete_can_finish_when_object_is_already_gone(self):
+        connection = FakeConnection({
+            "id": 31,
+            "company_id": 4,
+            "project_id": None,
+            "file_url": "https://storage.example/file.png",
+            "storage_key": "uploads/company-4-common-general/general/file.png",
+            "uploaded_by_id": 9,
+            "deletion_status": "cleanup_failed",
+        })
+        app, _, _, _, _ = self._register(
+            connection,
+            "/tmp/uploads",
+            s3_enabled=True,
+            s3_deleter=lambda _key: False,
+        )
+
+        response = app.routes[("DELETE", "/tenant-files/{file_id}")](
+            31,
+            current_user={"id": 9, "role": "прораб"},
+        )
+
+        self.assertTrue(response["ok"])
+        self.assertTrue(any(
+            call[0].startswith("DELETE FROM file_ownership")
+            for call in connection.cursor_value.calls
+        ))
+
     def test_storage_failure_is_recorded_for_retry(self):
         connection = FakeConnection({
             "id": 31,
