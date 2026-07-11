@@ -232,6 +232,7 @@ export default function ProjectWorkJournalEditModal({
               projectName={journal.project || ''}
               context="work-journal"
               title="Фото работы / помещения"
+              protectedPreview
             />
           </div>
 

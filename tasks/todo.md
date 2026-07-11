@@ -1373,6 +1373,33 @@
 
 **Estimated scope:** S
 
+## Task M6.2d6: Protected Photo Field In Work-Journal Edit
+
+**Description:** Add an explicit protected-preview mode to the shared `PhotoAttachmentField`, but enable it only in the existing ЖПР edit modal. Keep every other caller, upload return contract, stored photo URL, backend route, and S3 ACL unchanged.
+
+**Status:** Implementation and local verification complete; production deploy pending.
+
+**Acceptance criteria:**
+- [x] `PhotoAttachmentField` defaults to direct rendering, so existing CRM, room, measurement, and master-cabinet callers do not start authenticated Blob requests.
+- [x] Only `ProjectWorkJournalEditModal` passes the protected-preview opt-in.
+- [x] A strict local `/tenant-files/{positiveId}/content` photo loads through authenticated fetch and opens the resolved Blob URL.
+- [x] Loading and failure states preserve the existing 54x54 or 70x70 photo slot; failure renders no image and never falls back to the protected path.
+- [x] Compatibility `/uploads` photos remain direct even inside the opted-in ЖПР form.
+- [x] Unmount revokes the created object URL through the shared M6.2d3 loader.
+- [x] Upload calls retain `{projectName, context}` and continue returning/storing the compatibility URL.
+
+**Verification:**
+- [x] Focused Blob-loader, chat, work-journal list, attachment-field, and ЖПР edit suites pass (`5` suites / `18` tests).
+- [x] Intended tracked frontend suite passes (`23` suites / `97` tests); full working-tree suite passes (`24` suites / `102` tests).
+- [x] Production build succeeds.
+- [ ] Production deploy, public smoke, authenticated tenant-file smoke, and ЖПР edit browser check pass.
+
+**Known follow-up:** This slice makes the ЖПР edit renderer compatible with protected URLs but does not request protected return URLs for new ЖПР uploads. Work-journal ownership/read-write isolation and the remaining photo renderers must be audited before changing the upload contract or S3 ACL.
+
+**Dependencies:** Tasks M6.2d3 and M6.2d5
+
+**Estimated scope:** S
+
 **M6 safety gate:** do not backfill ambiguous legacy rows, do not use project names as authorization identifiers, do not allow mutation in `all_companies`, and do not start the two-company production E2E until M6.0-M6.8 and the preceding M4/M5 gaps are closed.
 
 ## Task M7: Backfill, Constraints, And Pilot Matrix

@@ -1,5 +1,78 @@
 import React from 'react';
-import { Camera, Image as ImageIcon, X } from 'lucide-react';
+import { Camera, Image as ImageIcon, ImageOff, LoaderCircle, X } from 'lucide-react';
+
+import useProtectedFileObjectUrl from '../features/uploads/useProtectedFileObjectUrl';
+
+
+function photoFrameStyle(compact, C) {
+  const size = compact ? '54px' : '70px';
+  return {
+    width: size,
+    height: size,
+    boxSizing: 'border-box',
+    borderRadius: '7px',
+    border: '1px solid ' + (C?.border || '#cbd5e1'),
+  };
+}
+
+function AttachmentPhotoImage({src, setShowPhotoModal, compact, C}) {
+  return (
+    <img
+      src={src}
+      alt="Прикрепленное фото"
+      onClick={() => setShowPhotoModal && setShowPhotoModal(src)}
+      style={{...photoFrameStyle(compact, C), objectFit: 'cover', cursor: 'pointer'}}
+    />
+  );
+}
+
+function ProtectedAttachmentPhotoPreview({url, fileSrc, setShowPhotoModal, compact, C}) {
+  const {src, loading, error} = useProtectedFileObjectUrl(url, fileSrc);
+  const frameStyle = photoFrameStyle(compact, C);
+
+  if (loading) {
+    return (
+      <div
+        role="status"
+        aria-label="Фото загружается"
+        style={{...frameStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C?.textMuted || '#64748b', backgroundColor: C?.bg || 'transparent'}}
+      >
+        <LoaderCircle size={compact ? 14 : 16}/>
+      </div>
+    );
+  }
+
+  if (error || !src) {
+    return (
+      <div
+        role="status"
+        aria-label="Фото недоступно"
+        title={error}
+        style={{...frameStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C?.danger || C?.textMuted || '#64748b', backgroundColor: C?.bg || 'transparent'}}
+      >
+        <ImageOff size={compact ? 14 : 16}/>
+      </div>
+    );
+  }
+
+  return <AttachmentPhotoImage src={src} setShowPhotoModal={setShowPhotoModal} compact={compact} C={C}/>;
+}
+
+function AttachmentPhotoPreview({url, fileSrc, setShowPhotoModal, protectedPreview, compact, C}) {
+  if (protectedPreview) {
+    return (
+      <ProtectedAttachmentPhotoPreview
+        url={url}
+        fileSrc={fileSrc}
+        setShowPhotoModal={setShowPhotoModal}
+        compact={compact}
+        C={C}
+      />
+    );
+  }
+  const src = typeof fileSrc === 'function' ? fileSrc(url) : url;
+  return <AttachmentPhotoImage src={src} setShowPhotoModal={setShowPhotoModal} compact={compact} C={C}/>;
+}
 
 export default function PhotoAttachmentField({
   C,
@@ -14,6 +87,7 @@ export default function PhotoAttachmentField({
   title = 'Фото',
   emptyText = 'Фото не прикреплены',
   compact = false,
+  protectedPreview = false,
 }) {
   const galleryRef = React.useRef(null);
   const cameraRef = React.useRef(null);
@@ -25,8 +99,6 @@ export default function PhotoAttachmentField({
     borderRadius: '8px',
     cursor: 'pointer',
   };
-  const resolvedSrc = url => (fileSrc ? fileSrc(url) : url);
-
   const handleFiles = async files => {
     const list = Array.from(files || []).filter(Boolean);
     if (!list.length || !appendPhotos) return;
@@ -59,11 +131,13 @@ export default function PhotoAttachmentField({
         <div style={{display: 'flex', gap: '6px', flexWrap: 'wrap'}}>
           {urls.map((url, index) => (
             <div key={url + index} style={{position: 'relative'}}>
-              <img
-                src={resolvedSrc(url)}
-                alt=""
-                onClick={() => setShowPhotoModal && setShowPhotoModal(resolvedSrc(url))}
-                style={{width: compact ? '54px' : '70px', height: compact ? '54px' : '70px', objectFit: 'cover', borderRadius: '7px', cursor: 'pointer', border: '1px solid ' + (C?.border || '#cbd5e1')}}
+              <AttachmentPhotoPreview
+                url={url}
+                fileSrc={fileSrc}
+                setShowPhotoModal={setShowPhotoModal}
+                protectedPreview={protectedPreview}
+                compact={compact}
+                C={C}
               />
               <button type="button" onClick={() => removePhoto(index)} style={{position: 'absolute', top: '-5px', right: '-5px', width: '18px', height: '18px', borderRadius: '50%', border: 'none', backgroundColor: 'rgba(220,38,38,0.95)', color: 'white', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
                 <X size={11}/>
