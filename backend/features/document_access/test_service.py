@@ -1,8 +1,11 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from fastapi import HTTPException
 
 from backend.features.document_access.service import (
+    document_local_path,
     document_project_reference,
     document_storage_namespace,
     require_document_parent_company,
@@ -40,6 +43,27 @@ class DocumentAccessTests(unittest.TestCase):
         self.assertEqual(document_project_reference(None, "Основной склад"), (None, ""))
         self.assertEqual(document_project_reference(None, "CRM"), (None, ""))
         self.assertEqual(document_project_reference(17, "Лицей"), (17, "Лицей"))
+
+    def test_local_file_path_stays_inside_upload_root(self):
+        with TemporaryDirectory() as upload_dir:
+            expected = Path(upload_dir) / "company-4" / "invoice.pdf"
+            expected.parent.mkdir(parents=True)
+            expected.write_bytes(b"pdf")
+
+            actual = document_local_path(upload_dir, "/uploads/company-4/invoice.pdf")
+
+            self.assertEqual(actual, expected.resolve())
+
+    def test_local_file_path_rejects_traversal_and_non_local_urls(self):
+        with TemporaryDirectory() as upload_dir:
+            for file_url in (
+                "/uploads/../secret.txt",
+                "/uploads/%2e%2e/secret.txt",
+                "https://storage.example/file.pdf",
+            ):
+                with self.subTest(file_url=file_url), self.assertRaises(HTTPException) as raised:
+                    document_local_path(upload_dir, file_url)
+                self.assertEqual(raised.exception.status_code, 409)
 
 
 if __name__ == "__main__":

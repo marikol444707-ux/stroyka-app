@@ -1,4 +1,6 @@
 import re
+from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 from fastapi import HTTPException
 
@@ -58,3 +60,22 @@ def document_storage_namespace(company_id, project_id=None, project_name="", con
     if project_id:
         return f"company-{company_id}-project-{project_id}-{context_key}"
     return f"company-{company_id}-common-{context_key}"
+
+
+def document_local_path(upload_dir, file_url):
+    """Resolve a registered local upload without allowing it to escape the upload root."""
+    parsed = urlsplit(str(file_url or ""))
+    if parsed.scheme or parsed.netloc or not parsed.path.startswith("/uploads/"):
+        raise HTTPException(status_code=409, detail="Файл не относится к локальному хранилищу")
+    relative_path = unquote(parsed.path[len("/uploads/"):])
+    if not relative_path or relative_path.startswith(("/", "\\")) or "\\" in relative_path or "\x00" in relative_path:
+        raise HTTPException(status_code=409, detail="Некорректный путь локального файла")
+    root_path = Path(upload_dir).resolve()
+    try:
+        local_path = (root_path / relative_path).resolve()
+        local_path.relative_to(root_path)
+    except (OSError, RuntimeError, ValueError):
+        raise HTTPException(status_code=409, detail="Некорректный путь локального файла")
+    if local_path == root_path:
+        raise HTTPException(status_code=409, detail="Некорректный путь локального файла")
+    return local_path
