@@ -2,6 +2,7 @@
 import os
 import shlex
 import shutil
+import stat
 import subprocess
 import tempfile
 import time
@@ -31,6 +32,8 @@ class PublishFrontendTests(unittest.TestCase):
         (self.target / "index.html").write_text(self.old_index, encoding="utf-8")
         (self.target / "stale-root-file.html").write_text("stale", encoding="utf-8")
         (self.target / "static" / "js" / "old.js").write_text("old", encoding="utf-8")
+        self.source.chmod(0o700)
+        self.target.chmod(0o755)
 
     def tearDown(self):
         self.temp_dir.cleanup()
@@ -71,6 +74,7 @@ class PublishFrontendTests(unittest.TestCase):
         self.assertGreater(len(observed_indexes), 10)
         self.assertNotIn(None, observed_indexes)
         self.assertTrue(set(observed_indexes).issubset({self.old_index, self.new_index}))
+        self.assertEqual(stat.S_IMODE(self.target.stat().st_mode), 0o755)
         self.assertEqual((self.target / "index.html").read_text(encoding="utf-8"), self.new_index)
         self.assertFalse((self.target / "stale-root-file.html").exists())
         self.assertTrue((self.target / "static" / "js" / "old.js").exists())
