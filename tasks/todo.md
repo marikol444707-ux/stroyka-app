@@ -1319,6 +1319,32 @@
 
 **Estimated scope:** S
 
+## Task M6.2d4: First Protected Inline Photo Consumer
+
+**Description:** Move one existing display-only thumbnail in the main company chat onto the authenticated Blob loader. Keep message creation, upload return values, stored rows, the floating mini-chat, backend, and S3 ACL unchanged in this slice.
+
+**Status:** Implemented locally; release pending.
+
+**Acceptance criteria:**
+- [x] A strict local `/tenant-files/{positiveId}/content` chat photo renders only after the authenticated Blob request succeeds.
+- [x] Clicking the thumbnail opens the resolved Blob URL instead of the protected endpoint path.
+- [x] Loading and failure states keep a stable preview frame; a failed protected request renders no `<img>` and never falls back to a public URL.
+- [x] Compatibility `/uploads` photos remain direct and trigger no Blob request.
+- [x] Component unmount still revokes the created object URL through the shared M6.2d3 loader.
+- [x] Company-chat upload calls, message schema, floating mini-chat, backend routes, and storage ACL remain unchanged.
+
+**Verification:**
+- [x] Focused chat-preview and Blob-loader suites pass (`2` suites / `9` tests).
+- [x] Intended tracked frontend suite passes (`20` suites / `88` tests); full working-tree suite passes (`21` suites / `93` tests).
+- [x] Production build succeeds.
+- [ ] Production deploy, public smoke, authenticated tenant-file smoke, and main-chat browser check pass.
+
+**Known follow-up:** Do not opt company-chat uploads into protected return URLs until every chat renderer can display them. `M6.2d5` moves the project work-journal list thumbnail next; the floating mini-chat photo path remains a separate audited slice.
+
+**Dependencies:** Task M6.2d3
+
+**Estimated scope:** S
+
 **M6 safety gate:** do not backfill ambiguous legacy rows, do not use project names as authorization identifiers, do not allow mutation in `all_companies`, and do not start the two-company production E2E until M6.0-M6.8 and the preceding M4/M5 gaps are closed.
 
 ## Task M7: Backfill, Constraints, And Pilot Matrix
