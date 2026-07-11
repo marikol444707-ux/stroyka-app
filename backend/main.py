@@ -22760,7 +22760,13 @@ def list_all_brigade_contract_items(
         conn.close()
 
 @app.post("/estimates/{estimate_id}/distribute")
-def distribute_estimate_to_brigades(estimate_id: int, data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
+def distribute_estimate_to_brigades(
+    estimate_id: int,
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     import json as _json
     assignments = data.get("assignments") or []
     default_coef = float(data.get("defaultCoefficient") or 1.0)
@@ -22768,14 +22774,28 @@ def distribute_estimate_to_brigades(estimate_id: int, data: dict, _current_user:
         raise HTTPException(status_code=400, detail="Нет распределений")
 
     conn = get_db()
+    conn.autocommit = False
+    actor, estimate_scope = _resolve_estimate_mutation_actor(
+        conn,
+        _current_user,
+        estimate_id,
+        LEADERSHIP_ROLES,
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
+    )
     cur = conn.cursor()
-    require_estimate_access(cur, estimate_id, _current_user)
-    cur.execute("SELECT name, project_id, project_name, COALESCE(work_package,'Основная') FROM estimates WHERE id=%s", (estimate_id,))
+    cur.execute("""SELECT name,project_id,project_name,COALESCE(work_package,'Основная')
+                     FROM estimates WHERE id=%s AND company_id=%s FOR UPDATE""",
+                (estimate_id, estimate_scope["companyId"]))
     est = cur.fetchone()
     if not est:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Смета не найдена")
     estimate_name, project_id, project_name, estimate_work_package = est[0] or "", est[1], est[2] or "", est[3] or "Основная"
+    if not _positive_int_or_none(project_id):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=409, detail="Смета не привязана к точному объекту")
+    company_id = int(estimate_scope["companyId"])
 
     # group assignments by brigade
     brigades_map = {}
@@ -22836,7 +22856,12 @@ def distribute_estimate_to_brigades(estimate_id: int, data: dict, _current_user:
 
     created = []
     for bdata in brigades_map.values():
-        contractor_user_id = _resolve_staff_or_user_id(cur, bdata.get("contractorId"), bdata.get("brigadeName", ""))
+        contractor_user_id = resolve_brigade_contractor_user(
+            cur,
+            company_id,
+            bdata.get("contractorId"),
+            bdata.get("brigadeName", ""),
+        )
         # find coefficient
         pl_id = bdata.get("pricelistId")
         try:
@@ -22845,9 +22870,11 @@ def distribute_estimate_to_brigades(estimate_id: int, data: dict, _current_user:
             pl_id = None
         coef = pl_coef.get(pl_id, default_coef) if pl_id else default_coef
         # create brigade_contract
-        cur.execute("""INSERT INTO brigade_contracts (project_id, project_name, work_package, brigade_name, contractor_type, contractor_id, total_amount, status, notes, pricelist_id)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-            (project_id or None, project_name, estimate_work_package, bdata["brigadeName"], bdata["contractorType"], contractor_user_id or None, 0, "Черновик", "Создан из сметы: " + estimate_name, pl_id))
+        cur.execute("""INSERT INTO brigade_contracts
+                              (company_id,project_id,project_name,work_package,brigade_name,contractor_type,
+                               contractor_id,total_amount,status,notes,pricelist_id)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+            (company_id, project_id, project_name, estimate_work_package, bdata["brigadeName"], bdata["contractorType"], contractor_user_id or None, 0, "Черновик", "Создан из сметы: " + estimate_name, pl_id))
         contract_id = cur.fetchone()[0]
         total = 0
         for it in bdata["items"]:
@@ -22859,12 +22886,20 @@ def distribute_estimate_to_brigades(estimate_id: int, data: dict, _current_user:
                 (contract_id, it.get("section",""), it.get("name",""), estimate_work_package, it.get("estimateItemKey") or it.get("estimate_item_key") or "", it.get("unit","шт"), qty, price_smeta, price_brigade, 0))
             total += qty * price_brigade
         cur.execute("UPDATE brigade_contracts SET total_amount=%s WHERE id=%s", (round(total, 2), contract_id))
-        _grant_user_project_package_access(cur, contractor_user_id, project_name, estimate_work_package)
+        grant_brigade_contractor_scope(
+            cur,
+            company_id,
+            contractor_user_id,
+            project_name,
+            estimate_work_package,
+            project_scoped_roles=PROJECT_SCOPED_ACCESS_ROLES,
+            package_required_roles=WORK_PACKAGE_REQUIRED_ACCESS_ROLES,
+        )
         created.append({"id": contract_id, "brigadeName": bdata["brigadeName"], "contractorId": contractor_user_id, "totalAmount": round(total, 2), "itemsCount": len(bdata["items"])})
 
     conn.commit()
     cur.close(); conn.close()
-    return {"ok": True, "createdContracts": created}
+    return {"ok": True, "createdContracts": created, "companyId": company_id, "projectId": project_id}
 
 @app.post("/estimates/{estimate_id}/ai-distribute-suggest")
 def ai_suggest_distribution(estimate_id: int, data: dict, _current_user: dict = Depends(require_roles(*ESTIMATE_WRITE_ROLES))):
@@ -23201,37 +23236,59 @@ def get_brigade_acts(
         conn.close()
 
 @app.post("/brigade-acts")
-def create_brigade_act(data: dict, current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
-    require_project_access(current_user, data.get("projectName", ""))
+def create_brigade_act(
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    contract_id = data.get("contractId")
-    total_amount = float(data.get("totalAmount") or 0)
-    cur.execute("""SELECT bc.project_name, bc.brigade_name,
-                          COALESCE((SELECT SUM(CASE WHEN COALESCE(quantity,0)>0 THEN GREATEST(0, LEAST(COALESCE(done_quantity,0), COALESCE(quantity,0))) * COALESCE(price_brigade,0) ELSE 0 END) FROM brigade_contract_items WHERE contract_id=bc.id),0) AS done_amount,
-                          COALESCE((SELECT SUM(COALESCE(total_amount,0)) FROM brigade_acts WHERE contract_id=bc.id AND COALESCE(status,'') <> 'Аннулирован'),0) AS acted_amount
-                   FROM brigade_contracts bc WHERE bc.id=%s""", (contract_id,))
-    contract = cur.fetchone()
-    if not contract:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Договор бригады не найден")
-    if (contract[0] or "") != (data.get("projectName") or ""):
-        cur.close(); conn.close()
-        raise HTTPException(status_code=403, detail="Договор бригады относится к другому объекту")
-    require_project_access(current_user, contract[0] or "")
-    available_to_act = max(0, float(contract[2] or 0) - float(contract[3] or 0))
-    if total_amount <= 0:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail="Сумма акта должна быть больше нуля")
-    if total_amount > available_to_act + 0.01:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail=f"Сумма акта превышает выполненный неактированный объём. Доступно к акту: {available_to_act:.2f} ₽")
-    cur.execute("INSERT INTO brigade_acts (contract_id,project_name,brigade_name,period_from,period_to,total_amount,status) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (contract_id, contract[0] or "", contract[1] or data.get("brigadeName",""), data.get("periodFrom") or None, data.get("periodTo") or None, total_amount, data.get("status","Черновик")))
-    conn.commit()
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return {"id":row[0],"ok":True}
+    try:
+        contract, actor, project = _resolve_brigade_contract_actor(
+            cur,
+            current_user,
+            data.get("contractId"),
+            (*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"),
+            claimed_company_id=data.get("companyId") if "companyId" in data else data.get("company_id"),
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            for_update=True,
+        )
+        if data.get("projectName") and (data.get("projectName") or "").strip() != contract["projectName"]:
+            raise HTTPException(status_code=403, detail="Договор бригады относится к другому объекту")
+        if not has_package_access(actor, contract["workPackage"]):
+            raise HTTPException(status_code=403, detail="Нет доступа к пакету работ договора")
+        total_amount = float(data.get("totalAmount") or 0)
+        cur.execute("""SELECT COALESCE((
+                                   SELECT SUM(CASE WHEN COALESCE(quantity,0)>0
+                                                   THEN GREATEST(0, LEAST(COALESCE(done_quantity,0), COALESCE(quantity,0))) * COALESCE(price_brigade,0)
+                                                   ELSE 0 END)
+                                     FROM brigade_contract_items WHERE contract_id=%s
+                               ),0) AS done_amount,
+                               COALESCE((
+                                   SELECT SUM(COALESCE(total_amount,0))
+                                     FROM brigade_acts
+                                    WHERE contract_id=%s AND COALESCE(status,'') <> 'Аннулирован'
+                               ),0) AS acted_amount""", (contract["id"], contract["id"]))
+        totals = cur.fetchone()
+        available_to_act = max(0, float(_row_get(totals, "done_amount", 0, 0) or 0) - float(_row_get(totals, "acted_amount", 1, 0) or 0))
+        if total_amount <= 0:
+            raise HTTPException(status_code=400, detail="Сумма акта должна быть больше нуля")
+        if total_amount > available_to_act + 0.01:
+            raise HTTPException(status_code=400, detail=f"Сумма акта превышает выполненный неактированный объём. Доступно к акту: {available_to_act:.2f} ₽")
+        cur.execute("INSERT INTO brigade_acts (contract_id,project_name,brigade_name,period_from,period_to,total_amount,status) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (contract["id"], contract["projectName"], contract["brigadeName"] or data.get("brigadeName",""), data.get("periodFrom") or None, data.get("periodTo") or None, total_amount, data.get("status","Черновик")))
+        row = cur.fetchone()
+        conn.commit()
+        return {"id": _row_get(row, "id", 0), "ok": True, "companyId": contract["companyId"], "projectId": project["id"]}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
 
 @app.get("/material-transfers")
 def get_material_transfers(
