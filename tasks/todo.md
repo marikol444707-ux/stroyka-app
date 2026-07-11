@@ -1297,7 +1297,7 @@
 
 **Description:** Add the shared frontend primitive needed before protected tenant files can be rendered inside `<img>` or another inline preview. This slice does not migrate a business screen or change stored file URLs.
 
-**Status:** Implemented locally; release pending.
+**Status:** Deployed in `6a45a2ea`; production verification passed.
 
 **Acceptance criteria:**
 - [x] Compatibility `/uploads`, `blob:`, `data:`, and absolute external URLs remain direct and do not trigger a Blob fetch.
@@ -1311,7 +1311,7 @@
 - [x] Focused Blob-loader tests pass (`6` tests).
 - [x] Exact tracked frontend suite passes (`19` suites / `85` tests); full working-tree suite passes (`20` suites / `90` tests).
 - [x] Production build succeeds.
-- [ ] Production deploy and public smoke pass.
+- [x] Production deploy, public smoke, and authenticated tenant-file smoke pass; cleanup leaves `0` `smoke-tenant-files` ownership rows.
 
 **Known follow-up:** `M6.2d4` must migrate one display-only inline photo surface and test loading/error UI before any broader photo rollout. Keep S3 `public-read` until every remaining direct consumer is audited.
 
