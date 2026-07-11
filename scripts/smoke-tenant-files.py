@@ -112,7 +112,14 @@ def totp_code(secret):
 
 
 def login(email, password):
-    body = api("POST", "/login", data={"email": email, "password": password})
+    try:
+        body = api("POST", "/login", data={"email": email, "password": password})
+    except RuntimeError as error:
+        if "POST /login: got 401" in str(error):
+            raise SystemExit(
+                "FAIL login: неверный email или пароль; код 2FA еще не проверялся"
+            ) from None
+        raise
     if body.get("authToken"):
         return body["authToken"]
     if body.get("twoFactorSetupRequired"):

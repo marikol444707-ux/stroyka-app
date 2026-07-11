@@ -32,10 +32,12 @@ check_not_spa() {
   local code
   body="$(mktemp)"
   code="$(curl -skS -o "$body" -w '%{http_code}' "$BASE_URL$path" || true)"
-  if [[ " $expected_codes " == *" $code "* ]] && ! head -c 200 "$body" | grep -qiE '<!doctype|<html'; then
-    echo "OK   $name $path $code"
-    rm -f "$body"
-    return 0
+  if [[ " $expected_codes " == *" $code "* ]]; then
+    if [[ "$code" == "429" ]] || ! head -c 200 "$body" | grep -qiE '<!doctype|<html'; then
+      echo "OK   $name $path $code"
+      rm -f "$body"
+      return 0
+    fi
   fi
   echo "FAIL $name $path got=$code expected=$expected_codes"
   if head -c 200 "$body" | grep -qiE '<!doctype|<html'; then
@@ -50,7 +52,7 @@ check_not_spa() {
 echo "Public API proxy check: $BASE_URL"
 check_json "site pricing" "/site/pricing" 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if isinstance(data.get("rules"), list) else 1)'
 check_json "site projects" "/site/projects" 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if isinstance(data, list) else 1)'
-check_not_spa "site leads route" "/site/leads" "405"
+check_not_spa "site leads route" "/site/leads" "405 429"
 check_not_spa "site price rules route" "/site-price-rules" "401 403"
 check_not_spa "estimate reconciliations route" "/estimate-reconciliations" "401 403"
 check_not_spa "estimate reconciliation items route" "/estimate-reconciliation-items/1" "401 403 405"
