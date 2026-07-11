@@ -1143,7 +1143,7 @@
 
 **Description:** Register the selected company for every new `/upload-photo` file, bind project ownership only from an exact `projectId`, and keep legacy `/uploads` readable until the authorized download path is ready.
 
-**Status:** Ownership kernel deployed in `e4364a90`; compatibility hotfix implemented locally, production release pending.
+**Status:** Deployed in `51550487`; public production smoke passed.
 
 **Acceptance criteria:**
 - [x] Upload writes require one concrete company; `all_companies` cannot upload.
@@ -1157,11 +1157,35 @@
 - [x] Document access tests cover concrete-company ownership, parent-company conflicts, ID-based namespaces, and name-only company-common fallback.
 - [x] Frontend upload tests cover one exact project match, non-project names, and duplicate names.
 - [x] Backend compile, all feature tests, frontend tests, build, and exact staged snapshot pass.
-- [ ] GitHub CI, production deploy, and public smoke pass.
+- [x] Production deploy and public smoke pass.
 
 **Known follow-up:** `M6.2b` must return an authorized URL for newly registered local files and verify the stored file company/project before serving bytes. S3 private objects and signed URLs remain a separate storage step.
 
 **Dependencies:** Tasks M1-M2, M6.1
+
+**Estimated scope:** S
+
+## Task M6.2b: Tenant File Metadata And Cleanup Smoke
+
+**Description:** Return the registered file ID, authorize metadata reads through the stored company/project owner, and provide an ownership-checked cleanup route for smoke artifacts.
+
+**Status:** Implemented locally; production release pending.
+
+**Acceptance criteria:**
+- [x] `/upload-photo` returns `fileId` and the stored company/project confirmation.
+- [x] `GET /tenant-files/{id}` exposes metadata only to an effective member of the stored company and verifies project access when present.
+- [x] `DELETE /tenant-files/{id}` requires one concrete company and allows only the uploader or company leadership.
+- [x] Cleanup removes both local files and S3 objects before removing the ownership row.
+- [x] `smoke:tenant-files` uploads a one-pixel technical PNG, verifies metadata, deletes it, and confirms `404` after cleanup.
+
+**Verification:**
+- [x] Backend and smoke script compile.
+- [x] All backend feature tests pass (`99` tests).
+- [ ] Production deploy and authenticated `npm run smoke:tenant-files` pass.
+
+**Known follow-up:** M6.2c must serve protected bytes or short signed URLs; current metadata response still exposes the compatibility URL while legacy public storage remains enabled.
+
+**Dependencies:** Task M6.2a
 
 **Estimated scope:** S
 

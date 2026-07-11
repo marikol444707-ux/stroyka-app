@@ -57,6 +57,7 @@
     "smoke:activity-log": "python3 scripts/smoke-activity-log.py",
     "smoke:preprod": "python3 scripts/smoke-preprod.py",
     "smoke:test-artifacts": "python3 scripts/smoke-test-artifacts.py",
+    "smoke:tenant-files": "python3 scripts/smoke-tenant-files.py",
     "check:smeta": "python3 scripts/check-smeta-parser.py",
     "test": "react-scripts test",
     "eject": "react-scripts eject",

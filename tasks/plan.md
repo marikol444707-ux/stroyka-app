@@ -87,7 +87,8 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M5.3b3: Enforce parent-company ownership for pricelist loading, contract items, brigade acts, and estimate distribution. Deployed in `d885ba52`; public production smoke passed.
 - [x] Task M5.3b4: Isolate the primary `Назначить мастеру` work-assignment route by the estimate's stored company and exact project. Deployed in `d885ba52`; public production smoke passed.
 - [ ] Task M6: Scope remaining projects, estimates, journals, acts, files, notifications, audit, and AI jobs.
-- [ ] Task M6.2a: Register selected-company ownership for new uploads and bind a file to a project only by exact `projectId`. Ownership kernel deployed in `e4364a90`; compatibility hotfix pending release.
+- [x] Task M6.2a: Register selected-company ownership for new uploads and bind a file to a project only by exact `projectId`. Deployed in `51550487`; public smoke passed.
+- [ ] Task M6.2b: Add authorized tenant-file metadata/delete APIs and an authenticated upload/read/cleanup smoke. Implemented locally; production release pending.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary

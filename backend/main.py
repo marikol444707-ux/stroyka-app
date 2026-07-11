@@ -3269,6 +3269,47 @@ def _s3_put_object(key: str, content: bytes, content_type: str) -> str:
         pass
     return _s3_object_url(key)
 
+def _s3_delete_object(key: str) -> None:
+    quoted_bucket = urllib.parse.quote(S3_BUCKET, safe="")
+    quoted_key = urllib.parse.quote(key, safe="/")
+    url = S3_ENDPOINT_URL + "/" + quoted_bucket + "/" + quoted_key
+    parsed = urllib.parse.urlparse(url)
+    payload_hash = hashlib.sha256(b"").hexdigest()
+    now = dt.datetime.utcnow()
+    amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+    date_stamp = now.strftime("%Y%m%d")
+    headers = {
+        "host": parsed.netloc,
+        "x-amz-content-sha256": payload_hash,
+        "x-amz-date": amz_date,
+    }
+    signed_header_names = sorted(headers.keys())
+    canonical_headers = "".join(f"{name}:{headers[name]}\n" for name in signed_header_names)
+    signed_headers = ";".join(signed_header_names)
+    canonical_request = "\n".join([
+        "DELETE", parsed.path or "/", "", canonical_headers, signed_headers, payload_hash,
+    ])
+    credential_scope = f"{date_stamp}/{S3_REGION}/s3/aws4_request"
+    string_to_sign = "\n".join([
+        "AWS4-HMAC-SHA256",
+        amz_date,
+        credential_scope,
+        hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
+    ])
+    signature = hmac.new(
+        _s3_signing_key(S3_SECRET_ACCESS_KEY, date_stamp, S3_REGION),
+        string_to_sign.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    headers["Authorization"] = (
+        "AWS4-HMAC-SHA256 "
+        f"Credential={S3_ACCESS_KEY_ID}/{credential_scope}, "
+        f"SignedHeaders={signed_headers}, Signature={signature}"
+    )
+    req = urllib.request.Request(url, headers=headers, method="DELETE")
+    with urllib.request.urlopen(req, timeout=30):
+        pass
+
 def _safe_upload_ext(filename: str) -> str:
     ext = os.path.splitext(filename or "")[1].lower()
     if not ext or len(ext) > 16:
@@ -18270,7 +18311,8 @@ async def upload_photo(
                            original_name=EXCLUDED.original_name,
                            content_type=EXCLUDED.content_type,
                            uploaded_by_id=EXCLUDED.uploaded_by_id,
-                           uploaded_by=EXCLUDED.uploaded_by""",
+                           uploaded_by=EXCLUDED.uploaded_by
+               RETURNING id""",
             (
                 company_id,
                 (project or {}).get("id"),
@@ -18283,9 +18325,13 @@ async def upload_photo(
                 _current_user.get("name") or "",
             ),
         )
+        ownership_row = access_cur.fetchone()
+        file_id = _row_get(ownership_row, "id", 0)
         conn.commit()
         return {
             **uploaded,
+            "fileId": file_id,
+            "metadataUrl": "/tenant-files/" + str(file_id),
             "companyId": company_id,
             "projectId": (project or {}).get("id"),
             "projectName": (project or {}).get("name") or "",
@@ -18295,6 +18341,110 @@ async def upload_photo(
         raise
     finally:
         access_cur.close()
+        conn.close()
+
+@app.get("/tenant-files/{file_id}")
+def get_tenant_file_metadata(
+    file_id: int,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("""SELECT id,company_id,project_id,file_url,context,original_name,content_type,
+                              uploaded_by_id,uploaded_by,created_at
+                         FROM file_ownership WHERE id=%s""", (file_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Файл не найден")
+        company_context = _resolve_work_company_context(
+            cur,
+            current_user,
+            None,
+            "read",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        actors = effective_company_actors(current_user, company_context)
+        actor = next((item for item in actors if _positive_int_or_none(item.get("companyId") or item.get("company_id")) == row["company_id"]), None)
+        if not actor:
+            raise HTTPException(status_code=403, detail="Нет доступа к файлу этой компании")
+        if row.get("project_id"):
+            try:
+                from backend.features.project_access.service import resolve_project_parent
+            except ModuleNotFoundError:
+                from features.project_access.service import resolve_project_parent
+            project = resolve_project_parent(cur, actor, project_id=row["project_id"])
+            require_project_access(actor, project["name"])
+        return {
+            "id": row["id"],
+            "companyId": row["company_id"],
+            "projectId": row.get("project_id"),
+            "url": row["file_url"],
+            "context": row.get("context") or "general",
+            "originalName": row.get("original_name") or "",
+            "contentType": row.get("content_type") or "",
+            "uploadedBy": row.get("uploaded_by") or "",
+            "createdAt": str(row.get("created_at") or ""),
+        }
+    finally:
+        cur.close()
+        conn.close()
+
+@app.delete("/tenant-files/{file_id}")
+def delete_tenant_file(
+    file_id: int,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
+    try:
+        from backend.features.document_access.service import require_document_upload_actor
+    except ModuleNotFoundError:
+        from features.document_access.service import require_document_upload_actor
+    conn = get_db()
+    conn.autocommit = False
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("""SELECT id,company_id,project_id,file_url,storage_key,uploaded_by_id
+                         FROM file_ownership WHERE id=%s FOR UPDATE""", (file_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Файл не найден")
+        company_context = _resolve_work_company_context(
+            cur,
+            current_user,
+            row["company_id"],
+            "write",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        actor = require_document_upload_actor(effective_company_actors(current_user, company_context))
+        if int(actor["companyId"]) != int(row["company_id"]):
+            raise HTTPException(status_code=403, detail="Нет доступа к файлу этой компании")
+        is_owner = _positive_int_or_none(row.get("uploaded_by_id")) == _positive_int_or_none(current_user.get("id"))
+        if actor.get("role") not in LEADERSHIP_ROLES and not is_owner:
+            raise HTTPException(status_code=403, detail="Удалить файл может загрузивший его сотрудник или руководитель")
+        storage_key = (row.get("storage_key") or "").strip()
+        file_url = row.get("file_url") or ""
+        if storage_key and _s3_enabled():
+            _s3_delete_object(storage_key)
+        elif file_url.startswith("/uploads/"):
+            relative_path = urllib.parse.unquote(file_url[len("/uploads/"):])
+            root_path = os.path.realpath(UPLOAD_DIR)
+            local_path = os.path.realpath(os.path.join(root_path, relative_path))
+            if local_path.startswith(root_path + os.sep) and os.path.isfile(local_path):
+                os.remove(local_path)
+        cur.execute("DELETE FROM file_ownership WHERE id=%s AND company_id=%s", (file_id, row["company_id"]))
+        conn.commit()
+        return {"ok": True, "id": file_id, "companyId": row["company_id"]}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
         conn.close()
 
 @app.get("/room-windows")
