@@ -1133,7 +1133,7 @@
 - [ ] `M6.1` Make projects the tenant root: selected-company reads/writes, immutable company ownership, and ID-based access instead of `project_name` security.
 - [ ] `M6.2` Protect files and document versions with parent ownership; keep legacy `/uploads` compatible while new protected documents use authorized downloads or short signed URLs.
 - [ ] `M6.3` Scope staff, memberships, personal documents, consents, and dismissal so one company membership can be disabled without disabling the global account.
-- [ ] `M6.4` Scope estimates, versions, changes, templates, and estimate chat by stored company and project ID.
+- [ ] `M6.4` Scope company messages, estimates, versions, changes, templates, and estimate chat by stored company and verified project ID.
 - [ ] `M6.5` Scope work journal, rooms/measurements, contract items, journals, acts, and their cascading material/document writes.
 - [ ] `M6.6` Scope assignments, reports, attachments, AI/OCR tasks, summaries, dedupe keys, and background execution.
 - [ ] `M6.7` Scope MAX files, notifications, deep links, and outbox dispatch by company and verified recipient membership.
@@ -1323,7 +1323,7 @@
 
 **Description:** Move one existing display-only thumbnail in the main company chat onto the authenticated Blob loader. Keep message creation, upload return values, stored rows, the floating mini-chat, backend, and S3 ACL unchanged in this slice.
 
-**Status:** Implemented locally; release pending.
+**Status:** Deployed in `845532f5`; production verification passed.
 
 **Acceptance criteria:**
 - [x] A strict local `/tenant-files/{positiveId}/content` chat photo renders only after the authenticated Blob request succeeds.
@@ -1337,9 +1337,9 @@
 - [x] Focused chat-preview and Blob-loader suites pass (`2` suites / `9` tests).
 - [x] Intended tracked frontend suite passes (`20` suites / `88` tests); full working-tree suite passes (`21` suites / `93` tests).
 - [x] Production build succeeds.
-- [ ] Production deploy, public smoke, authenticated tenant-file smoke, and main-chat browser check pass.
+- [x] Production deploy, public smoke, authenticated tenant-file smoke, and main-chat browser check pass; cleanup leaves `0` smoke ownership rows.
 
-**Known follow-up:** Do not opt company-chat uploads into protected return URLs until every chat renderer can display them. `M6.2d5` moves the project work-journal list thumbnail next; the floating mini-chat photo path remains a separate audited slice.
+**Known follow-up:** Do not opt company-chat uploads into protected return URLs until every chat renderer can display them. The legacy `/messages` table/API must also receive stored `company_id`, selected-company reads/writes, and negative tenant tests in `M6.4`. `M6.2d5` moves the project work-journal list thumbnail next; the floating mini-chat photo path remains a separate audited slice.
 
 **Dependencies:** Task M6.2d3
 
