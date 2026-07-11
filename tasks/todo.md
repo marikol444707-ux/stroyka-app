@@ -1500,9 +1500,9 @@
 - [x] Protected production smoke checks authenticated `/messages` and verifies that `all_companies` cannot read it.
 
 **Local verification required before release:**
-- [x] Focused migration/route/report backend tests pass (`27` tests).
-- [x] Focused chat/upload frontend tests pass (`6` suites / `17` tests).
-- [x] Full tracked backend feature suite (`165` tests), full tracked frontend suite plus the new floating-chat regression suite (`28` suites / `112` tests), M6 registry audit, compile, shell syntax, diff check, and production build pass.
+- [x] Focused migration/route/report backend tests pass (`28` tests).
+- [x] Focused chat/upload frontend tests pass (`6` suites / `19` tests).
+- [x] Full tracked backend feature suite (`166` tests), full tracked frontend suite plus the new floating-chat regression suite (`28` suites / `112` tests), M6 registry audit, compile, shell syntax, diff check, and production build pass.
 - [x] `npm audit --omit=dev --audit-level=critical` reports no critical advisories; the known CRA/XLSX backlog remains `29` findings (`14 high`) and is not modified with a breaking `--force` update.
 
 **Production release order:**

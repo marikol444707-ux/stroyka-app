@@ -1,6 +1,9 @@
 import io
+import subprocess
+import sys
 import unittest
 from contextlib import redirect_stderr
+from pathlib import Path
 from unittest.mock import patch
 
 from backend.features.company_messages.migration import (
@@ -61,6 +64,20 @@ class ApplyConflictCursor(FakeCursor):
 
 
 class CompanyMessageMigrationTests(unittest.TestCase):
+    def test_script_entrypoint_can_import_backend_from_repo_root(self):
+        root = Path(__file__).resolve().parents[3]
+
+        result = subprocess.run(
+            [sys.executable, str(root / "scripts" / "migrate-company-messages.py"), "--help"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--expected-ready-count", result.stdout)
+
     def test_maps_author_with_one_company(self):
         result = classify_legacy_message({
             "message_id": 11,
