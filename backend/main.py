@@ -4619,7 +4619,7 @@ def init_db():
                AND pp.project_name=bc.project_name
                AND pp.amount=bp.amount
                AND COALESCE(pp.note,'')='Оплата бригаде ' || COALESCE(bc.brigade_name,'')
-               AND COALESCE(pp.date,'')=COALESCE(bp.paid_date::text,'')
+               AND COALESCE(pp.date::text,'')=COALESCE(bp.paid_date::text,'')
                AND COALESCE(pp.added_by,'')=COALESCE(bp.paid_by,'')
              WHERE bp.project_payment_id IS NULL
                AND bp.company_id IS NOT NULL
