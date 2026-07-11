@@ -2,6 +2,7 @@ import os
 from typing import Optional
 from urllib.parse import quote
 
+import psycopg2.extras
 from fastapi import Depends, Header, HTTPException
 from fastapi.responses import FileResponse, Response
 
@@ -88,7 +89,7 @@ def register_document_access_module(app, deps):
         current_user: dict = Depends(get_current_user),
     ):
         conn = get_db()
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             row = load_file(cur, file_id)
             authorize_file(cur, current_user, row, "read", x_company_id, x_company_mode)
@@ -117,7 +118,7 @@ def register_document_access_module(app, deps):
     ):
         conn = get_db()
         conn.autocommit = False
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             row = load_file(cur, file_id, for_update=True)
             actor = authorize_file(cur, current_user, row, "delete", x_company_id, x_company_mode)
@@ -166,7 +167,7 @@ def register_document_access_module(app, deps):
         current_user: dict = Depends(get_current_user),
     ):
         conn = get_db()
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             row = load_file(cur, file_id)
             authorize_file(cur, current_user, row, "read", x_company_id, x_company_mode)

@@ -45,12 +45,14 @@ class FakeCursor:
 class FakeConnection:
     def __init__(self, row):
         self.cursor_value = FakeCursor(row)
+        self.cursor_factory = None
         self.autocommit = True
         self.committed = False
         self.rolled_back = False
         self.closed = False
 
-    def cursor(self):
+    def cursor(self, cursor_factory=None):
+        self.cursor_factory = cursor_factory
         return self.cursor_value
 
     def commit(self):
@@ -130,6 +132,7 @@ class DocumentAccessRouteTests(unittest.TestCase):
             self.assertEqual(resolver_calls[0][2:4], (4, "read"))
             self.assertEqual(project_calls[0][2], {"project_id": 17})
             self.assertEqual(access_calls[0][1], "Лицей")
+            self.assertIsNotNone(connection.cursor_factory)
             self.assertTrue(connection.closed)
 
     def test_uploader_can_delete_local_file(self):
