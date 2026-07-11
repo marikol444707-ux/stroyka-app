@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { createAiAssistantActions } from '../ai-assistant/aiAssistantActions';
 import { createAuthActions } from '../auth/authActions';
 import { createChatActions } from '../chat/chatActions';
+import { useCompanyChatContextSync } from '../chat/useCompanyChatContextSync';
 import { createCrmActions } from '../crm/crmActions';
 import { createDataLoadActions } from '../data-loaders/dataLoadActions';
 import { useAppDataLoaders } from '../data-loaders/useAppDataLoaders';
@@ -36,6 +37,7 @@ export function useAppCoreRuntime({
   ROLES,
   appMainState,
   authEntryState,
+  companyContext,
   shellOverlayState,
   aiAssistantState,
   materialNormsState,
@@ -176,6 +178,19 @@ export function useAppCoreRuntime({
 
   useNotificationDismissEffect(appMainState.setShowNotifications);
 
+  const {
+    canUseCompanyChat,
+    companyChatContextKey,
+    isCompanyChatContextCurrent,
+    reloadCompanyMessages,
+  } = useCompanyChatContextSync({
+    API,
+    companyContext,
+    notify,
+    setCompanyMessages,
+    user: currentUser,
+  });
+
   useEffect(() => {
     if (!currentUser || activePage !== 'activitylog') return;
     loadAuditLog();
@@ -223,7 +238,6 @@ export function useAppCoreRuntime({
     setChecklists,
     setClients,
     setCompanyDocuments,
-    setCompanyMessages,
     setCompanyRequisites,
     setContracts,
     setEstimateReconciliations,
@@ -384,9 +398,13 @@ export function useAppCoreRuntime({
     setShowChatPanel,
   } = createChatActions({
     API,
+    canUseCompanyChat,
+    companyChatContextKey,
+    isCompanyChatContextCurrent,
     loadProjectChat,
+    notify,
+    reloadCompanyMessages,
     setCompanyChatMessage: appMainState.setCompanyChatMessage,
-    setCompanyMessages,
     setShowChatPanelRaw,
     setProjectChatMessage,
     showChatPanel,

@@ -7,10 +7,17 @@ export const createUploadActions = ({
   projects,
 }) => {
   const uploadPhoto = async (file, meta = {}) => {
-    const projectFromExpanded = (projects || []).find(pr => String(pr.id) === String(expandedProject))?.name || '';
-    const projectFromMaster = (projects || []).find(pr => String(pr.id) === String(masterProjectId))?.name || '';
-    const projectName = meta.projectName || meta.project || projectFromExpanded || projectFromMaster || '';
-    const explicitProjectId = meta.projectId || meta.project_id || '';
+    const projectScoped = meta.projectScoped !== false;
+    const projectFromExpanded = projectScoped
+      ? (projects || []).find(pr => String(pr.id) === String(expandedProject))?.name || ''
+      : '';
+    const projectFromMaster = projectScoped
+      ? (projects || []).find(pr => String(pr.id) === String(masterProjectId))?.name || ''
+      : '';
+    const projectName = projectScoped
+      ? meta.projectName || meta.project || projectFromExpanded || projectFromMaster || ''
+      : '';
+    const explicitProjectId = projectScoped ? meta.projectId || meta.project_id || '' : '';
     const projectMatches = (projects || []).filter(pr => String(pr.name || '') === String(projectName));
     const projectId = explicitProjectId || (projectMatches.length === 1 ? projectMatches[0].id : '');
     const context = meta.context || activeProjectTab || activePage || 'general';

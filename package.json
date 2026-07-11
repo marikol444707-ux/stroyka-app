@@ -27,6 +27,7 @@
     "generate:public-plans": "node scripts/generate-public-project-plan-assets.js",
     "smoke:data-guard": "python3 scripts/smoke-data-guard.py",
     "audit:m6": "python3 scripts/check-m6-tenant-registry.py",
+    "audit:company-messages": "python3 scripts/migrate-company-messages.py --dry-run",
     "smoke:telegram-expense": "python3 scripts/smoke-telegram-own-expense.py",
     "smoke:max-warehouse": "python3 scripts/smoke-max-warehouse-invoice.py",
     "smoke:max-miniapp-session": "python3 scripts/smoke-max-miniapp-session.py",

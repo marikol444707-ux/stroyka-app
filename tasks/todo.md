@@ -1481,6 +1481,42 @@
 
 **Estimated scope:** S
 
+## Task M6.4c: Strict Company Message Cutover
+
+**Description:** Convert the temporary company-chat compatibility layer into strict stored ownership. Backfill only rows whose author still has one unambiguous company, remove runtime inference, bind chat photos to the same company, and make the frontend discard stale company data immediately when the selected company changes.
+
+**Status:** Implemented and verified locally; production dry-run/apply, deploy, and authenticated browser verification are pending.
+
+**Acceptance criteria:**
+- [x] `npm run audit:company-messages` is read-only by default and reports only IDs, counts, statuses, and reasons; message text, author names, and photo URLs are never printed.
+- [x] Apply mode requires the exact confirmation `APPLY_COMPANY_MESSAGES`, updates only `chat_type='company'` rows, and leaves missing or multi-company ownership in `needs_review`.
+- [x] The write statement repeats author-company and conflicting-membership checks inside the same transaction; skipped rows are reported as `writeConflicts` and cannot produce `complete=true`.
+- [x] Runtime list and mark-read queries use only stored `messages.company_id`, reject `all_companies`, return the latest 200 messages in chronological order, and never infer ownership from the author's current profile.
+- [x] A chat photo must exist in `file_ownership`, belong to the selected company, have no project, use `context='company-chat'`, and remain active.
+- [x] Company-chat uploads explicitly opt out of project inference even when a project was previously open.
+- [x] The frontend clears chat state on company changes, aborts or ignores stale responses, skips `/messages` in `all_companies`, preserves unsent text on API failure, and never fabricates a local message after a failed write.
+- [x] The generic data loader no longer issues competing `/messages` requests; one context-aware hook owns company-chat loading.
+- [x] Protected production smoke checks authenticated `/messages` and verifies that `all_companies` cannot read it.
+
+**Local verification required before release:**
+- [x] Focused migration/route/report backend tests pass (`22` tests).
+- [x] Focused chat/upload frontend tests pass (`4` suites / `13` tests).
+- [x] Full backend feature suite (`164` tests), full tracked frontend suite (`27` suites / `109` tests), M6 registry audit, compile, shell syntax, diff check, and production build pass.
+- [x] `npm audit --omit=dev --audit-level=critical` reports no critical advisories; the known CRA/XLSX backlog remains `29` findings (`14 high`) and is not modified with a breaking `--force` update.
+
+**Production release order:**
+1. `git pull --ff-only` while the `M6.4a` runtime is still active.
+2. Run `npm run audit:company-messages` and stop if any row is `needs_review` or the expected counts changed.
+3. Run `python3 scripts/migrate-company-messages.py --apply --confirm APPLY_COMPANY_MESSAGES`.
+4. Repeat `npm run audit:company-messages`; require `legacyRows=0`, `readyCount=0`, and `reviewCount=0` before deploy.
+5. Run `bash deploy.sh`, then public/protected smoke and a browser check under two selected-company contexts when a safe two-company fixture exists.
+
+**Known follow-up:** Do not add `NOT NULL` or a foreign key until the production post-apply report is clean. Project chat, estimate chat, estimate versions/changes, and `unexpected_works` remain separate M6.4 slices. A true two-independent-tenant production E2E remains blocked until the planned fixture infrastructure exists.
+
+**Dependencies:** Tasks M6.4a and M6.4b
+
+**Estimated scope:** M
+
 **M6 safety gate:** do not backfill ambiguous legacy rows, do not use project names as authorization identifiers, do not allow mutation in `all_companies`, and do not start the two-company production E2E until M6.0-M6.8 and the preceding M4/M5 gaps are closed.
 
 ## Task M7: Backfill, Constraints, And Pilot Matrix

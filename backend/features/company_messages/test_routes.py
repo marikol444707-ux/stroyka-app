@@ -25,9 +25,10 @@ class FakeApp:
 
 
 class FakeCursor:
-    def __init__(self, rows=(), row=None, rowcount=0):
+    def __init__(self, rows=(), row=None, rowcount=0, fetchone_values=None):
         self.rows = list(rows)
         self.row = row
+        self.fetchone_values = list(fetchone_values or [])
         self.rowcount = rowcount
         self.calls = []
         self.closed = False
@@ -39,6 +40,8 @@ class FakeCursor:
         return list(self.rows)
 
     def fetchone(self):
+        if self.fetchone_values:
+            return self.fetchone_values.pop(0)
         return self.row
 
     def close(self):
@@ -95,7 +98,7 @@ class CompanyMessagesRouteTests(unittest.TestCase):
         })
         return app, resolver_calls
 
-    def test_list_scopes_selected_company_and_marks_safely_derived_legacy_rows(self):
+    def test_list_uses_strict_company_scope_and_latest_message_window(self):
         cursor = FakeCursor(rows=(
             {
                 "id": 1,
@@ -110,19 +113,6 @@ class CompanyMessagesRouteTests(unittest.TestCase):
                 "created_at": "2026-07-11",
                 "read_by": [9],
             },
-            {
-                "id": 2,
-                "company_id": None,
-                "chat_type": "company",
-                "project_id": None,
-                "author_id": 8,
-                "author_name": "Петр",
-                "author_role": "прораб",
-                "text": "Старое",
-                "photo_url": "",
-                "created_at": "2026-07-10",
-                "read_by": "[8]",
-            },
         ))
         connection = FakeConnection(cursor)
         app, resolver_calls = self._register(connection)
@@ -136,18 +126,14 @@ class CompanyMessagesRouteTests(unittest.TestCase):
         self.assertEqual(resolver_calls[0][3], "read")
         self.assertEqual(resolver_calls[0][4]["x_company_id"], "4")
         sql, params = cursor.calls[0]
-        self.assertRegex(sql, r"messages\.company_id=%s\s+OR \(\s+messages\.company_id IS NULL\s+AND EXISTS")
-        self.assertIn("legacy_author.id=messages.author_id", sql)
-        self.assertIn("legacy_author.company_id=%s", sql)
-        self.assertIn("FROM user_company_roles other_membership", sql)
-        self.assertIn("other_membership.company_id<>%s", sql)
-        self.assertNotIn("OR messages.company_id IS NULL)", sql)
-        self.assertEqual(params, (4, 4, 4))
+        self.assertIn("WHERE company_id=%s", sql)
+        self.assertNotIn("company_id IS NULL", sql)
+        self.assertIn("ORDER BY created_at DESC,id DESC LIMIT 200", sql)
+        self.assertIn("ORDER BY created_at ASC,id ASC", sql)
+        self.assertEqual(params, (4,))
         self.assertEqual(response[0]["companyId"], 4)
         self.assertFalse(response[0]["legacyUnscoped"])
-        self.assertIsNone(response[1]["companyId"])
-        self.assertTrue(response[1]["legacyUnscoped"])
-        self.assertEqual(response[1]["readBy"], [8])
+        self.assertEqual(len(response), 1)
         self.assertTrue(connection.closed)
 
     def test_list_rejects_all_companies_before_query(self):
@@ -252,6 +238,53 @@ class CompanyMessagesRouteTests(unittest.TestCase):
         self.assertEqual(cursor.calls, [])
         self.assertFalse(connection.committed)
 
+    def test_create_rejects_empty_or_oversized_message_content(self):
+        fixtures = (
+            ({"chatType": "company", "text": "   ", "photoUrl": ""}, "Сообщение не может быть пустым"),
+            ({"chatType": "company", "text": "x" * 10001}, "Текст сообщения слишком длинный"),
+        )
+        for payload, detail in fixtures:
+            with self.subTest(detail=detail):
+                cursor = FakeCursor()
+                connection = FakeConnection(cursor)
+                app, _ = self._register(connection)
+
+                with self.assertRaises(HTTPException) as raised:
+                    app.routes[("POST", "/messages")](
+                        payload,
+                        x_company_id="4",
+                        x_company_mode="company",
+                        current_user={"id": 9, "role": "директор"},
+                    )
+
+                self.assertEqual(raised.exception.status_code, 400)
+                self.assertEqual(raised.exception.detail, detail)
+                self.assertEqual(cursor.calls, [])
+
+    def test_create_rejects_photo_owned_by_another_company(self):
+        cursor = FakeCursor(fetchone_values=[{
+            "id": 71,
+            "company_id": 5,
+            "project_id": None,
+            "context": "company-chat",
+            "deletion_status": "active",
+        }])
+        connection = FakeConnection(cursor)
+        app, _ = self._register(connection)
+
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("POST", "/messages")](
+                {"chatType": "company", "photoUrl": "/uploads/company-5/chat.png"},
+                x_company_id="4",
+                x_company_mode="company",
+                current_user={"id": 9, "role": "директор"},
+            )
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(len(cursor.calls), 1)
+        self.assertIn("FROM file_ownership", cursor.calls[0][0])
+        self.assertFalse(connection.committed)
+
     def test_mutations_reject_all_companies_before_message_sql(self):
         for method, path, data in (
             ("POST", "/messages", {"chatType": "company", "text": "x"}),
@@ -292,15 +325,15 @@ class CompanyMessagesRouteTests(unittest.TestCase):
 
         self.assertEqual(resolver_calls[0][3], "update")
         sql, params = cursor.calls[0]
-        self.assertRegex(sql, r"messages\.company_id=%s\s+OR \(\s+messages\.company_id IS NULL\s+AND EXISTS")
-        self.assertIn("legacy_author.id=messages.author_id", sql)
-        self.assertIn("legacy_author.company_id=%s", sql)
-        self.assertIn("FROM user_company_roles other_membership", sql)
-        self.assertIn("other_membership.company_id<>%s", sql)
-        self.assertNotIn("OR messages.company_id IS NULL)", sql)
+        self.assertIn("WITH visible AS", sql)
+        self.assertIn("WHERE company_id=%s", sql)
+        self.assertNotIn("company_id IS NULL", sql)
+        self.assertIn("ORDER BY created_at DESC,id DESC", sql)
+        self.assertIn("LIMIT 200", sql)
         self.assertIn("chat_type=%s", sql)
-        self.assertEqual(params[1:5], (4, 4, 4, "company"))
-        self.assertEqual(json.loads(params[0]), [9])
+        self.assertEqual(params[:2], (4, "company"))
+        self.assertEqual(json.loads(params[2]), [9])
+        self.assertEqual(params[3], 4)
         self.assertEqual(json.loads(params[-1]), [9])
         self.assertEqual(response, {"ok": True, "updated": 3})
         self.assertTrue(connection.committed)

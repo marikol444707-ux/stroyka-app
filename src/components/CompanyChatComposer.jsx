@@ -9,7 +9,7 @@ export default function CompanyChatComposer({C, inp, btnO, companyChatMessage, s
           <Upload size={18} color={C.textSec}/>
           <input type="file" accept="image/*" style={{display:'none'}} onChange={async e=>{
             if(e.target.files[0]){
-              const url = await uploadPhoto(e.target.files[0],{context:'company-chat'});
+              const url = await uploadPhoto(e.target.files[0],{context:'company-chat',projectScoped:false});
               sendCompanyChatMessage('',url);
             }
           }}/>

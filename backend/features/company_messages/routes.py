@@ -1,31 +1,9 @@
 import json
+import re
 from typing import Optional
 
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException
-
-
-_MESSAGE_COMPANY_SCOPE_SQL = """
-    (
-        messages.company_id=%s
-        OR (
-            messages.company_id IS NULL
-            AND EXISTS (
-                SELECT 1
-                  FROM users legacy_author
-                 WHERE legacy_author.id=messages.author_id
-                   AND legacy_author.company_id=%s
-                   AND NOT EXISTS (
-                       SELECT 1
-                         FROM user_company_roles other_membership
-                        WHERE other_membership.user_id=legacy_author.id
-                          AND COALESCE(other_membership.active,TRUE)=TRUE
-                          AND other_membership.company_id<>%s
-                   )
-            )
-        )
-    )
-"""
 
 
 def _positive_int(value):
@@ -84,6 +62,57 @@ def _require_company_chat_payload(data):
     return payload
 
 
+def _require_company_message_content(payload):
+    item = dict(payload or {})
+    text = str(item.get("text") or "")
+    photo_url = str(item.get("photoUrl") or "").strip()
+    if len(text) > 10000:
+        raise HTTPException(status_code=400, detail="Текст сообщения слишком длинный")
+    if not text.strip() and not photo_url:
+        raise HTTPException(status_code=400, detail="Сообщение не может быть пустым")
+    item["text"] = text
+    item["photoUrl"] = photo_url
+    return item
+
+
+def _require_owned_chat_photo(cur, photo_url, company_id):
+    value = str(photo_url or "").strip()
+    if not value:
+        return ""
+    if len(value) > 2048:
+        raise HTTPException(status_code=400, detail="Ссылка на фото слишком длинная")
+    content_match = re.fullmatch(r"/tenant-files/([1-9][0-9]*)/content", value)
+    if content_match:
+        cur.execute(
+            """SELECT id,company_id,project_id,context,
+                      COALESCE(deletion_status,'active') AS deletion_status
+                 FROM file_ownership
+                WHERE id=%s""",
+            (int(content_match.group(1)),),
+        )
+    else:
+        cur.execute(
+            """SELECT id,company_id,project_id,context,
+                      COALESCE(deletion_status,'active') AS deletion_status
+                 FROM file_ownership
+                WHERE file_url=%s""",
+            (value,),
+        )
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=400, detail="Фото чата не зарегистрировано")
+    item = dict(row)
+    if _positive_int(item.get("company_id")) != company_id:
+        raise HTTPException(status_code=409, detail="Фото относится к другой компании")
+    if item.get("project_id") not in (None, ""):
+        raise HTTPException(status_code=409, detail="Фото объекта нельзя прикрепить к общему чату компании")
+    if str(item.get("context") or "").strip().lower() != "company-chat":
+        raise HTTPException(status_code=409, detail="Файл загружен не для общего чата компании")
+    if str(item.get("deletion_status") or "active").strip().lower() != "active":
+        raise HTTPException(status_code=410, detail="Фото удаляется или недоступно")
+    return value
+
+
 def register_company_messages_module(app, deps):
     get_db = deps["get_db"]
     get_current_user = deps["get_current_user"]
@@ -116,14 +145,18 @@ def register_company_messages_module(app, deps):
         try:
             _context, company_id = resolve_context(cur, current_user, "read", x_company_id, x_company_mode)
             cur.execute(
-                f"""SELECT id,company_id,chat_type,project_id,author_id,author_name,author_role,
-                           text,photo_url,created_at,read_by
-                      FROM messages
-                     WHERE {_MESSAGE_COMPANY_SCOPE_SQL}
-                      AND chat_type='company'
-                    ORDER BY created_at ASC
-                    LIMIT 200""",
-                (company_id, company_id, company_id),
+                """SELECT id,company_id,chat_type,project_id,author_id,author_name,author_role,
+                          text,photo_url,created_at,read_by
+                     FROM (
+                         SELECT id,company_id,chat_type,project_id,author_id,author_name,author_role,
+                                text,photo_url,created_at,read_by
+                           FROM messages
+                          WHERE company_id=%s AND chat_type='company'
+                          ORDER BY created_at DESC,id DESC
+                          LIMIT 200
+                     ) recent
+                    ORDER BY created_at ASC,id ASC""",
+                (company_id,),
             )
             return [_message_response(row) for row in cur.fetchall()]
         finally:
@@ -137,7 +170,7 @@ def register_company_messages_module(app, deps):
         x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
         current_user: dict = Depends(get_current_user),
     ):
-        payload = _require_company_chat_payload(data)
+        payload = _require_company_message_content(_require_company_chat_payload(data))
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
@@ -146,6 +179,7 @@ def register_company_messages_module(app, deps):
             author_id = _positive_int(actor.get("id"))
             if not author_id:
                 raise HTTPException(status_code=403, detail="Пользователь чата не определен")
+            photo_url = _require_owned_chat_photo(cur, payload.get("photoUrl"), company_id)
             read_by = json.dumps([author_id])
             cur.execute(
                 """INSERT INTO messages
@@ -161,7 +195,7 @@ def register_company_messages_module(app, deps):
                     actor.get("name") or "",
                     actor.get("role") or "",
                     str(payload.get("text") or ""),
-                    str(payload.get("photoUrl") or ""),
+                    photo_url,
                     read_by,
                 ),
             )
@@ -190,12 +224,19 @@ def register_company_messages_module(app, deps):
                 raise HTTPException(status_code=403, detail="Пользователь чата не определен")
             read_by = json.dumps([user_id])
             cur.execute(
-                f"""UPDATE messages
+                """WITH visible AS (
+                       SELECT id
+                         FROM messages
+                        WHERE company_id=%s AND chat_type=%s
+                        ORDER BY created_at DESC,id DESC
+                        LIMIT 200
+                   )
+                   UPDATE messages
                       SET read_by=COALESCE(read_by,'[]'::jsonb) || %s::jsonb
-                    WHERE {_MESSAGE_COMPANY_SCOPE_SQL}
-                      AND chat_type=%s
+                    WHERE company_id=%s
+                      AND id IN (SELECT id FROM visible)
                       AND NOT COALESCE(read_by,'[]'::jsonb) @> %s::jsonb""",
-                (read_by, company_id, company_id, company_id, "company", read_by),
+                (company_id, "company", read_by, company_id, read_by),
             )
             updated = cur.rowcount
             conn.commit()

@@ -180,6 +180,7 @@ if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
       "/estimates"
       "/estimates?summary=true"
       "/materials"
+      "/messages"
       "/supply-requests"
       "/supply-history"
       "/own-expenses"
@@ -201,6 +202,14 @@ if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
         failures+=("$path got=$code expected=200")
       fi
     done
+
+    company_messages_all_code="$(curl -skS -o /dev/null -w '%{http_code}' "$BASE_URL/messages" -H "Authorization: Bearer $token" -H 'X-Company-Mode: all_companies' || true)"
+    if [[ "$company_messages_all_code" == "400" || "$company_messages_all_code" == "403" ]]; then
+      echo "OK   /messages all-companies blocked $company_messages_all_code"
+    else
+      echo "FAIL /messages all-companies got=$company_messages_all_code expected=400/403"
+      failures+=("/messages all-companies got=$company_messages_all_code expected=400/403")
+    fi
 
     telegram_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/telegram/own-expenses" -H 'Content-Type: application/json' -d '{"telegramId":"smoke","description":"smoke","amount":1}' || true)"
     if [[ "$telegram_code" == "403" || "$telegram_code" == "503" ]]; then

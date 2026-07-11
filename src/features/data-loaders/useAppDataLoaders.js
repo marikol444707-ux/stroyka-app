@@ -17,7 +17,7 @@ export const useAppDataLoaders = (ctx) => {
     createMaterialsPageState, createWorkJournalPageState, estimatesTab, initialDataLoaded, MATERIAL_NORMS_PAGE_LIMIT, materialNormSearch,
     MATERIALS_PAGE_LIMIT, mergeRowsByIdValue, mobileApiRequestsRef, mobileLoadedScopesRef, mobileScopeForPage, normalizeEstimateList, roleFlagsForUser,
     ROLES, setAccountablePayments, setAiFindings, setAiTasks, setAllBrigadeItems, setAllBrigadePayments, setAuditLog,
-    setBrigadeContracts, setCableJournal, setChecklists, setClients, setCompanyDocuments, setCompanyMessages, setCompanyRequisites,
+    setBrigadeContracts, setCableJournal, setChecklists, setClients, setCompanyDocuments, setCompanyRequisites,
     setContracts, setEstimateReconciliations, setEstimatesList, setEstimatesPage, setExpenseReports, setHiddenActs, setHistory,
     setInitialDataLoaded, setInspectionOrders, setInterimActs, setInventory, setInviteCodes, setInvoices, setLeads,
     setManualExpenses, setMasterProfiles, setMaterialAliases, setMaterialInspections, setMaterialNormOverrides, setMaterialNorms, setMaterialNormsPage,
@@ -531,10 +531,7 @@ export const useAppDataLoaders = (ctx) => {
       const aud = (isLeadershipRole || isFinanceRole) ? await getApi(pagedPath('/audit-log', {limit: AUDIT_LOG_PAGE_LIMIT})) : [];
       setAuditLog(Array.isArray(aud) ? aud : []);
     });
-    if (page === 'companychat') return loadMobileScopeOnce('mobile:chat', async () => {
-      const msgs = await getApi('/messages');
-      setCompanyMessages(Array.isArray(msgs)?msgs:[]);
-    });
+    if (page === 'companychat') return undefined;
   };
 
   useEffect(() => {
@@ -707,10 +704,6 @@ export const useAppDataLoaders = (ctx) => {
           } catch(_){}
         }
         if (ls !== null) setLeads(Array.isArray(ls)?ls:[]);
-      } catch(e) {}
-      try {
-        const msgs = await get('/messages');
-        setLoaded(setCompanyMessages, msgs);
       } catch(e) {}
       if (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) try {
         const mt = await get('/material-transfers');

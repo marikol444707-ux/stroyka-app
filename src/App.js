@@ -133,6 +133,7 @@ function App() {
     aiAssistantState,
     appMainState,
     authEntryState,
+    companyContext,
     layout: {
       isMobile
     },

@@ -4,7 +4,7 @@
   "rules": {
     "writeMode": "A mutation requires one concrete selected company.",
     "ownership": "New rows inherit immutable companyId and projectId from a verified parent.",
-    "legacy": "Legacy rows stay unchanged until M7 dry-run; ambiguous ownership is needs_review.",
+    "legacy": "Legacy rows change only through an explicit dry-run/apply migration; ambiguous ownership is needs_review.",
     "files": "Protected documents use an ownership record and authorized download or short signed URL."
   },
   "entries": [
@@ -24,7 +24,7 @@
     {"domain":"estimates","resource":"estimates","kind":"table","parent":"projects","companyState":"legacy_default","ownerSource":"stored project","routePrefixes":["/estimates"],"stage":"M6.4","priority":"critical"},
     {"domain":"estimates","resource":"estimate_versions","kind":"table","parent":"estimates","companyState":"missing","ownerSource":"stored estimate","routePrefixes":["/estimate-version"],"stage":"M6.4","priority":"high"},
     {"domain":"estimates","resource":"estimate_chat_messages","kind":"table","parent":"estimates","companyState":"missing","ownerSource":"stored estimate","routePrefixes":["/estimate-chat"],"stage":"M6.4","priority":"high"},
-    {"domain":"chat","resource":"messages","kind":"table","parent":"companies","companyState":"missing","ownerSource":"selected company context","routePrefixes":["/messages"],"stage":"M6.4","priority":"critical"},
+    {"domain":"chat","resource":"messages","kind":"table","parent":"companies","companyState":"stored","ownerSource":"stored company; audited migration for legacy rows","routePrefixes":["/messages"],"stage":"M6.4","priority":"critical"},
     {"domain":"estimates","resource":"unexpected_works","kind":"table","parent":"projects/estimates","companyState":"missing","ownerSource":"stored project and estimate","routePrefixes":["/unexpected-works"],"stage":"M6.4","priority":"critical"},
     {"domain":"execution","resource":"work_journal","kind":"table","parent":"projects/estimates","companyState":"legacy_default","ownerSource":"stored project","routePrefixes":["/work-journal"],"stage":"M6.5","priority":"critical"},
     {"domain":"execution","resource":"rooms","kind":"table","parent":"projects","companyState":"missing","ownerSource":"stored project","routePrefixes":["/rooms"],"stage":"M6.5","priority":"high"},

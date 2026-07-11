@@ -1,58 +1,90 @@
 export const createChatActions = ({
   API,
+  canUseCompanyChat,
+  companyChatContextKey,
+  isCompanyChatContextCurrent,
   loadProjectChat,
+  notify,
+  reloadCompanyMessages,
   setCompanyChatMessage,
-  setCompanyMessages,
   setShowChatPanelRaw,
   setProjectChatMessage,
   showChatPanel,
   unreadMessagesCount,
   user,
 }) => {
+  const contextIsCurrent = (key) => (
+    typeof isCompanyChatContextCurrent === 'function'
+      ? isCompanyChatContextCurrent(key)
+      : true
+  );
+  const readError = async (response, fallback) => {
+    const payload = await response.json().catch(() => ({}));
+    const detail = typeof payload?.detail === 'string' ? payload.detail.trim() : '';
+    return detail || `${fallback} (HTTP ${response.status})`;
+  };
+
   const setShowChatPanel = (val) => {
     const next = typeof val === 'function' ? val(showChatPanel) : val;
     setShowChatPanelRaw(next);
-    if (next && user && unreadMessagesCount > 0) {
-      fetch(API + '/messages/mark-read', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({userId: user.id, chatType: 'company'}),
-      })
-        .then(() => setCompanyMessages(prev => prev.map(m => ({...m, readBy: [...(m.readBy || []), user.id]}))))
-        .catch(() => {});
+    if (!next || !user || unreadMessagesCount <= 0) return Promise.resolve(false);
+    if (!canUseCompanyChat) {
+      notify?.('Для чата выберите конкретную компанию', 'chat');
+      return Promise.resolve(false);
     }
+    return (async () => {
+      const contextKeyAtRequest = companyChatContextKey;
+      try {
+        const response = await fetch(API + '/messages/mark-read', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({chatType: 'company'}),
+        });
+        if (!response.ok) {
+          throw new Error(await readError(response, 'Не удалось отметить сообщения прочитанными'));
+        }
+        if (contextIsCurrent(contextKeyAtRequest)) await reloadCompanyMessages?.();
+        return true;
+      } catch (error) {
+        notify?.(
+          `Не удалось отметить сообщения прочитанными: ${error?.message || 'ошибка соединения'}`,
+          'chat',
+        );
+        return false;
+      }
+    })();
   };
 
   const sendCompanyChatMessage = async (text, photoUrl) => {
-    if (!text && !photoUrl) return;
+    if (!text && !photoUrl) return false;
+    if (!canUseCompanyChat) {
+      notify?.('Для чата выберите конкретную компанию', 'chat');
+      return false;
+    }
+    const contextKeyAtRequest = companyChatContextKey;
     try {
-      await fetch(API + '/messages', {
+      const response = await fetch(API + '/messages', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           chatType: 'company',
           projectId: null,
-          authorId: user.id,
-          authorName: user.name,
-          authorRole: user.role,
           text,
           photoUrl,
         }),
       });
-      const msgs = await fetch(API + '/messages').then(r => r.json()).catch(() => []);
-      setCompanyMessages(Array.isArray(msgs) ? msgs : []);
-    } catch (e) {
-      const msg = {
-        id: Date.now(),
-        text,
-        photo_url: photoUrl,
-        author_name: user.name,
-        author_role: user.role,
-        created_at: new Date().toISOString(),
-      };
-      setCompanyMessages(prev => [...prev, msg]);
+      if (!response.ok) {
+        throw new Error(await readError(response, 'Не удалось отправить сообщение'));
+      }
+      if (contextIsCurrent(contextKeyAtRequest)) {
+        await reloadCompanyMessages?.();
+        if (contextIsCurrent(contextKeyAtRequest)) setCompanyChatMessage('');
+      }
+      return true;
+    } catch (error) {
+      notify?.(`Не удалось отправить сообщение: ${error?.message || 'ошибка соединения'}`, 'chat');
+      return false;
     }
-    setCompanyChatMessage('');
   };
 
   const sendProjectChatMessage = async (projectName, text, photoUrl) => {

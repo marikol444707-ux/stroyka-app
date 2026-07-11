@@ -59,6 +59,30 @@ describe('upload actions project identity', () => {
     expect(duplicateRequest.body.get('projectId')).toBeNull();
   });
 
+  test('keeps a company-level upload outside the previously opened project', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      json: async () => ({url: '/files/company-chat'}),
+    });
+    const actions = createUploadActions({
+      API: '',
+      activePage: 'companychat',
+      activeProjectTab: 'documents',
+      expandedProject: 17,
+      masterProjectId: 17,
+      projects: [{id: 17, name: 'Лицей'}],
+    });
+
+    await actions.uploadPhoto(new File(['photo'], 'chat.jpg', {type: 'image/jpeg'}), {
+      context: 'company-chat',
+      projectScoped: false,
+    });
+
+    const request = global.fetch.mock.calls[0][1];
+    expect(request.body.get('context')).toBe('company-chat');
+    expect(request.body.get('projectName')).toBeNull();
+    expect(request.body.get('projectId')).toBeNull();
+  });
+
   test('returns protected content URL only for explicitly migrated consumers', async () => {
     global.fetch = jest.fn()
       .mockResolvedValueOnce({
