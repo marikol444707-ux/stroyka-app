@@ -92,7 +92,8 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.2c: Add authorized local/S3 tenant-file byte serving while legacy public URLs remain compatible; keep private S3 ACL cutover as the next storage step. Deployed in `f1d9e1de` with hotfix `7fcda405`; authenticated content smoke passed.
 - [x] Task M6.2c1: Harden tenant files against ambiguous project names, cross-tenant storage pointers, redirecting/unbounded S3 reads, symlink races, and unverified physical cleanup. Deployed through `224238cd`; public and authenticated production smoke passed.
 - [ ] Task M6.2d: Migrate file consumers to protected content URLs, then switch new S3 objects to private storage after a usage audit.
-- [ ] Task M6.2d1: Move new project-letter attachments to opt-in protected `contentUrl` with exact `projectId`, while preserving every existing upload caller. Implemented locally; release pending.
+- [x] Task M6.2d1: Move new project-letter attachments to opt-in protected `contentUrl` with exact `projectId`, while preserving every existing upload caller. Deployed in `8132954e`; public smoke and authenticated director UI check passed.
+- [ ] Task M6.2d2: Move direct project-document registry scans to protected `contentUrl`; keep OCR source uploads compatible while binding them to exact `projectId`. Implemented locally; release pending.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary

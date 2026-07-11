@@ -36,6 +36,7 @@ export default function DocumentRecognitionPanel({
   btnB,
   uploadPhoto,
   fileSrc,
+  projectId,
   projectName = '',
   context = 'document-recognition',
   entityType = '',
@@ -61,6 +62,7 @@ export default function DocumentRecognitionPanel({
     if (!file || !uploadPhoto) return;
     setLoading(true);
     const url = await uploadPhoto(file, {
+      projectId,
       projectName: projectName || currentFields?.name || 'Документы',
       context,
     });

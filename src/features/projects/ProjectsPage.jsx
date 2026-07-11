@@ -622,6 +622,7 @@ export default function ProjectsPage({ ctx }) {
                   )}
                   {activeProjectTab==='📁 Реестр'&&(
                     <ProjectDocumentsRegistryPanel
+                      projectId={p.id}
                       projectName={p.name}
                       projectDocuments={projectDocuments}
                       newProjectDoc={newProjectDoc}

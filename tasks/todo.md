@@ -1246,7 +1246,7 @@
 
 **Description:** Start the consumer migration with one display-only document surface: newly uploaded project-letter attachments use the authorized tenant-file content endpoint, while all other upload flows and existing stored URLs remain compatible.
 
-**Status:** Implemented locally; release pending.
+**Status:** Deployed in `8132954e`; public smoke and authenticated director UI check passed.
 
 **Acceptance criteria:**
 - [x] The shared upload helper returns the compatibility `url` by default, so existing consumers do not change behavior.
@@ -1258,11 +1258,36 @@
 **Verification:**
 - [x] Focused upload-helper and project-letter component tests pass (`4` tests).
 - [x] Exact tracked frontend suite passes (`17` suites / `76` tests); full working-tree suite also passes (`18` suites / `81` tests), and the production build succeeds.
-- [ ] Production deploy, public smoke, and authenticated tenant-file smoke pass.
+- [x] Production runtime reports `8132954e`; public smoke passes and the authenticated director browser opens the test-object letter form without console errors.
+- [ ] Repeat authenticated `smoke:tenant-files` when production smoke credentials are available; this frontend-only release did not change the already verified tenant-file backend.
 
 **Known follow-up:** Continue M6.2d one display-only consumer at a time. Photo previews need a separate authenticated Blob-loader decision because protected responses use same-origin resource policy; do not switch S3 to private until those consumers are migrated and audited.
 
 **Dependencies:** Tasks M6.2c-M6.2c1
+
+**Estimated scope:** S
+
+## Task M6.2d2: Protected Project-Document Registry Scans
+
+**Description:** Continue the consumer migration with the direct scan paths in the existing project document registry. New-document scans and scans added to existing rows use authorized tenant-file content URLs. The OCR source remains on the compatibility URL until recognition can read protected content server-side.
+
+**Status:** Implemented locally; release pending.
+
+**Acceptance criteria:**
+- [x] Both direct project-document scan upload paths send exact `projectId` and request protected `contentUrl` with compatibility fallback.
+- [x] The project screen passes its current immutable project ID into the registry component.
+- [x] Document-recognition upload sends exact `projectId` but does not opt in to protected URL yet.
+- [x] Existing project-document rows and every non-registry upload consumer remain unchanged.
+- [x] S3 remains `public-read`; private-storage cutover is still outside this slice.
+
+**Verification:**
+- [x] Focused upload-helper, letter, and document-registry tests pass (`3` suites / `7` tests).
+- [x] Exact tracked frontend suite passes (`18` suites / `79` tests); full working-tree suite passes (`19` suites / `84` tests), and the production build succeeds.
+- [ ] Production deploy, public smoke, and authenticated registry UI check pass.
+
+**Known follow-up:** Migrate OCR only after the recognition backend can consume protected content. `project_documents` itself is still a legacy name-based record surface and must receive stored `company_id/project_id` under the wider M6 project-record isolation; protected file authorization does not replace that row migration.
+
+**Dependencies:** Task M6.2d1
 
 **Estimated scope:** S
 

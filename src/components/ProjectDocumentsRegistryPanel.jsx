@@ -12,6 +12,7 @@ const GROUPS = [
 ];
 
 export default function ProjectDocumentsRegistryPanel({
+  projectId,
   projectName,
   projectDocuments = [],
   newProjectDoc,
@@ -51,7 +52,12 @@ export default function ProjectDocumentsRegistryPanel({
   const uploadNewScan = async (file) => {
     if (!file) return;
     setUploadingDoc(true);
-    const url = await uploadPhoto(file, {projectName, context: 'project-documents'});
+    const url = await uploadPhoto(file, {
+      projectId,
+      projectName,
+      context: 'project-documents',
+      preferProtectedUrl: true,
+    });
     setUploadingDoc(false);
     if (url) {
       setNewProjectDoc(prev => ({
@@ -64,7 +70,12 @@ export default function ProjectDocumentsRegistryPanel({
 
   const uploadExistingScan = async (doc, file) => {
     if (!file) return;
-    const url = await uploadPhoto(file, {projectName, context: 'project-documents'});
+    const url = await uploadPhoto(file, {
+      projectId,
+      projectName,
+      context: 'project-documents',
+      preferProtectedUrl: true,
+    });
     if (url) {
       await fetch(API + '/project-documents/' + doc.id, {
         method: 'PUT',
@@ -130,6 +141,7 @@ export default function ProjectDocumentsRegistryPanel({
             btnB={btnB}
             uploadPhoto={uploadPhoto}
             fileSrc={fileSrc}
+            projectId={projectId}
             projectName={projectName}
             context="project-contract-documents"
             entityType="project_document"
