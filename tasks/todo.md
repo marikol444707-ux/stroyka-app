@@ -1520,11 +1520,40 @@
 - [x] A temporary master read exactly the stored company-1 message with `legacyUnscoped=false`; `all_companies` returned `400`, and the cookie-authenticated browser opened `Чат` without console errors. No message was created or changed; temporary user `4380` was disabled after verification.
 - [x] The generic protected smoke could not use the existing admin because its first 2FA setup is pending; the dedicated temporary-user API and real browser checks closed the same `/messages` verification without changing the admin's security state.
 
-**Known follow-up:** Do not add `NOT NULL` or a foreign key until the production post-apply report is clean. Project chat, estimate chat, estimate versions/changes, and `unexpected_works` remain separate M6.4 slices. A true two-independent-tenant production E2E remains blocked until the planned fixture infrastructure exists.
+**Known follow-up:** Do not add `NOT NULL` or a foreign key until the production post-apply report is clean. Project chat, estimate chat, estimate changes, and `unexpected_works` remain separate M6.4 slices. A true two-independent-tenant production E2E remains blocked until the planned fixture infrastructure exists.
 
 **Dependencies:** Tasks M6.4a and M6.4b
 
 **Estimated scope:** M
+
+## Task M6.4d: Tenant-Scoped Estimate Version Reads
+
+**Description:** Isolate the existing estimate-version history and direct version-detail reads through the server-selected company context and the stored parent estimate. Preserve the existing response shape, per-company effective roles, and worker sanitizing; do not change version creation, estimate changes, unexpected works, estimate chat, or schema in this slice.
+
+**Status:** Deployed in `b79ae5d2`; production read-only API and browser checks passed.
+
+**Acceptance criteria:**
+- [x] `GET /estimates/{id}/versions` resolves the read company context, applies the existing estimate visibility policy, and verifies the stored estimate parent before reading child versions.
+- [x] `GET /estimate-version/{version_id}` joins the parent estimate inside the same visibility filter; an invisible or cross-company direct ID returns `404` before child data is exposed.
+- [x] `all_companies` remains read-only and evaluates the effective role separately for the company that owns each parent estimate.
+- [x] Accounting denial, active/package/project visibility, worker item filtering, and worker total sanitizing use the effective company actor rather than the global account role.
+- [x] `estimate_versions` inherits ownership from its immutable `estimate_id`; no guessed `company_id`, backfill, constraint, or business-data rewrite is introduced.
+- [x] Non-document memberships fail closed even when the account is authenticated.
+
+**Verification:**
+- [x] Estimate-version and estimate-access focused backend suites pass (`16` tests).
+- [x] Full working-tree backend suite passes (`176` tests); M6 registry audit and production entrypoint compile pass.
+- [x] Full frontend suite passes (`29` suites / `117` tests) and production build succeeds.
+- [x] Public smoke recognizes both estimate-version routes as protected backend APIs rather than SPA fallbacks.
+- [x] Production deploy and read-only API probe passed at runtime `b79ae5d25315`: estimate `25` returned its version list, direct version `110` returned `200`, a missing version returned `404`, and the row count/max ID stayed unchanged (`78`/`110`).
+- [x] The authenticated director browser opened `Сметы -> Электрика -> История`, rendered all `25` saved versions, and reported no console errors or warnings; no restore or other mutation was triggered.
+- [x] Production currently has only company `1`, so a true company-A/company-B negative E2E remains deferred to the isolated `smoke:multi-company` fixture instead of fabricating live tenant data.
+
+**Known follow-up:** Version creation, estimate changes, `unexpected_works`, project chat, and estimate chat remain separate M6.4 slices. Do not add a redundant `company_id` to `estimate_versions` while the verified stored parent is the authoritative owner.
+
+**Dependencies:** Tasks M6.1 and M6.4a-M6.4c
+
+**Estimated scope:** S
 
 **M6 safety gate:** do not backfill ambiguous legacy rows, do not use project names as authorization identifiers, do not allow mutation in `all_companies`, and do not start the two-company production E2E until M6.0-M6.8 and the preceding M4/M5 gaps are closed.
 

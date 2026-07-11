@@ -138,6 +138,8 @@ check_not_spa_fallback "site price rules route" "$BASE_URL/site-price-rules" "40
 check_not_spa_fallback "tenant files route" "$BASE_URL/tenant-files/1" "401 403"
 check_not_spa_fallback "tenant file content route" "$BASE_URL/tenant-files/1/content" "401 403"
 check_not_spa_fallback "company messages route" "$BASE_URL/messages" "401 403"
+check_not_spa_fallback "estimate versions route" "$BASE_URL/estimates/1/versions" "401 403"
+check_not_spa_fallback "estimate version detail route" "$BASE_URL/estimate-version/1" "401 403"
 
 if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
   login_payload="$(python3 -c 'import json,os; print(json.dumps({"email": os.environ["SMOKE_EMAIL"], "password": os.environ["SMOKE_PASSWORD"]}, ensure_ascii=False))')"
@@ -202,6 +204,48 @@ if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
         failures+=("$path got=$code expected=200")
       fi
     done
+
+    estimates_body="$(curl -skS "$BASE_URL/estimates?summary=true" -H "Authorization: Bearer $token" || true)"
+    versioned_estimate_id="$(printf '%s' "$estimates_body" | python3 -c '
+import json
+import sys
+
+try:
+    rows = json.load(sys.stdin)
+except Exception:
+    rows = []
+for row in rows if isinstance(rows, list) else []:
+    if int(row.get("versionCount") or 0) > 0 and int(row.get("id") or 0) > 0:
+        print(int(row["id"]))
+        break
+' 2>/dev/null || true)"
+    if [[ -n "$versioned_estimate_id" ]]; then
+      estimate_versions_file="$(mktemp)"
+      estimate_versions_code="$(curl -skS -o "$estimate_versions_file" -w '%{http_code}' "$BASE_URL/estimates/$versioned_estimate_id/versions" -H "Authorization: Bearer $token" || true)"
+      if [[ "$estimate_versions_code" == "200" ]] && python3 -c 'import json,sys; data=json.load(open(sys.argv[1])); sys.exit(0 if isinstance(data,list) and data else 1)' "$estimate_versions_file" >/dev/null 2>&1; then
+        echo "OK   /estimates/$versioned_estimate_id/versions 200"
+        estimate_version_id="$(python3 -c 'import json,sys; data=json.load(open(sys.argv[1])); print(int(data[0].get("id") or 0))' "$estimate_versions_file" 2>/dev/null || true)"
+      else
+        echo "FAIL /estimates/$versioned_estimate_id/versions got=$estimate_versions_code expected=200 non-empty JSON list"
+        failures+=("/estimates/$versioned_estimate_id/versions got=$estimate_versions_code")
+        estimate_version_id=""
+      fi
+      rm -f "$estimate_versions_file"
+
+      if [[ -n "$estimate_version_id" && "$estimate_version_id" != "0" ]]; then
+        estimate_version_detail_file="$(mktemp)"
+        estimate_version_detail_code="$(curl -skS -o "$estimate_version_detail_file" -w '%{http_code}' "$BASE_URL/estimate-version/$estimate_version_id" -H "Authorization: Bearer $token" || true)"
+        if [[ "$estimate_version_detail_code" == "200" ]] && python3 -c 'import json,sys; data=json.load(open(sys.argv[1])); sys.exit(0 if int(data.get("id") or 0)==int(sys.argv[2]) and int(data.get("estimateId") or 0)==int(sys.argv[3]) else 1)' "$estimate_version_detail_file" "$estimate_version_id" "$versioned_estimate_id" >/dev/null 2>&1; then
+          echo "OK   /estimate-version/$estimate_version_id 200"
+        else
+          echo "FAIL /estimate-version/$estimate_version_id got=$estimate_version_detail_code expected=200 matching parent"
+          failures+=("/estimate-version/$estimate_version_id got=$estimate_version_detail_code")
+        fi
+        rm -f "$estimate_version_detail_file"
+      fi
+    else
+      echo "SKIP estimate version detail checks: no visible estimate with saved versions"
+    fi
 
     company_messages_all_code="$(curl -skS -o /dev/null -w '%{http_code}' "$BASE_URL/messages" -H "Authorization: Bearer $token" -H 'X-Company-Mode: all_companies' || true)"
     if [[ "$company_messages_all_code" == "400" || "$company_messages_all_code" == "403" ]]; then

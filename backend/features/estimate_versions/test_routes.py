@@ -206,6 +206,31 @@ class EstimateVersionRouteTests(unittest.TestCase):
         self.assertEqual(params, (31, 4))
         self.assertTrue(connection.closed)
 
+    def test_non_document_membership_fails_closed_before_parent_resolution(self):
+        cursor = FakeCursor()
+        connection = FakeConnection(cursor)
+        app, calls = self._register(connection, actors=[{
+            "id": 14,
+            "companyId": 4,
+            "role": "поставщик",
+            "assignedProjects": ["Лицей"],
+        }])
+
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("GET", "/estimate-version/{version_id}")](
+                31,
+                x_company_id="4",
+                x_company_mode="company",
+                current_user={"id": 14, "role": "поставщик"},
+            )
+
+        self.assertEqual(raised.exception.status_code, 404)
+        self.assertEqual(calls["visibility"][0][0], [])
+        self.assertEqual(calls["parent"], [])
+        self.assertIn("AND (FALSE)", cursor.calls[0][0])
+        self.assertEqual(cursor.calls[0][1], (31,))
+        self.assertTrue(connection.closed)
+
     def test_direct_version_uses_effective_company_role_for_accountant_denial(self):
         cursor = FakeCursor(fetchone_values=[{
             "id": 31,
