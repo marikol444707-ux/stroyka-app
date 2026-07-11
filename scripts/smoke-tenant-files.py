@@ -48,7 +48,15 @@ def api(method, path, *, token="", data=None, body=None, headers=None, expected=
     text = raw.decode("utf-8", errors="replace")
     if status != expected:
         raise RuntimeError(f"{method} {path}: got {status}, expected {expected}. Body: {text[:900]}")
-    return json.loads(text) if text else {}
+    if not text:
+        return {}
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as error:
+        response_kind = "HTML от nginx/SPA" if re.search(r"<!doctype|<html", text, re.IGNORECASE) else "не JSON"
+        raise RuntimeError(
+            f"{method} {path}: HTTP {status}, ожидался JSON, получен {response_kind}. Body: {text[:900]}"
+        ) from error
 
 
 def api_bytes(method, path, *, token="", headers=None, expected=200):
@@ -195,8 +203,8 @@ def main():
         api("DELETE", f"/tenant-files/{file_id}", token=token, headers=headers)
         api("GET", f"/tenant-files/{file_id}", token=token, headers=headers, expected=404)
         api_bytes("GET", f"/tenant-files/{file_id}/content", token=token, headers=headers, expected=404)
-        wait_until_storage_is_gone(compatibility_url)
         file_id = None
+        wait_until_storage_is_gone(compatibility_url)
         print(json.dumps({
             "ok": True,
             "projectId": project["id"],

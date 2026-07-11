@@ -133,6 +133,8 @@ check_json_predicate "site pricing" "$BASE_URL/site/pricing" 'import json,sys; d
 check_json_predicate "site projects" "$BASE_URL/site/projects" 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if isinstance(data, list) else 1)'
 check_not_spa_fallback "site leads route" "$BASE_URL/site/leads" "405"
 check_not_spa_fallback "site price rules route" "$BASE_URL/site-price-rules" "401 403"
+check_not_spa_fallback "tenant files route" "$BASE_URL/tenant-files/1" "401 403"
+check_not_spa_fallback "tenant file content route" "$BASE_URL/tenant-files/1/content" "401 403"
 
 if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
   login_payload="$(python3 -c 'import json,os; print(json.dumps({"email": os.environ["SMOKE_EMAIL"], "password": os.environ["SMOKE_PASSWORD"]}, ensure_ascii=False))')"
