@@ -58,6 +58,7 @@ check_not_spa "estimate reconciliations route" "/estimate-reconciliations" "401 
 check_not_spa "estimate reconciliation items route" "/estimate-reconciliation-items/1" "401 403 405"
 check_not_spa "tenant files route" "/tenant-files/1" "401 403"
 check_not_spa "tenant file content route" "/tenant-files/1/content" "401 403"
+check_not_spa "company messages route" "/messages" "401 403"
 
 if (( ${#FAILURES[@]} > 0 )); then
   echo "Public API proxy check failed:"

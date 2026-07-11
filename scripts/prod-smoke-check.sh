@@ -137,6 +137,7 @@ check_not_spa_fallback "site leads route" "$BASE_URL/site/leads" "405 429"
 check_not_spa_fallback "site price rules route" "$BASE_URL/site-price-rules" "401 403"
 check_not_spa_fallback "tenant files route" "$BASE_URL/tenant-files/1" "401 403"
 check_not_spa_fallback "tenant file content route" "$BASE_URL/tenant-files/1/content" "401 403"
+check_not_spa_fallback "company messages route" "$BASE_URL/messages" "401 403"
 
 if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
   login_payload="$(python3 -c 'import json,os; print(json.dumps({"email": os.environ["SMOKE_EMAIL"], "password": os.environ["SMOKE_PASSWORD"]}, ensure_ascii=False))')"

@@ -3482,6 +3482,9 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW()
         );
         ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_by JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS company_id INT;
+        CREATE INDEX IF NOT EXISTS idx_messages_company_created_at ON messages(company_id,created_at);
+        CREATE INDEX IF NOT EXISTS idx_messages_author_id ON messages(author_id);
         ALTER TABLE users ADD COLUMN IF NOT EXISTS assigned_projects JSONB DEFAULT '[]'::jsonb;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS assigned_packages JSONB DEFAULT '[]'::jsonb;
         CREATE TABLE IF NOT EXISTS tb_journal (
@@ -18462,62 +18465,6 @@ def delete_room_door(id: int, _current_user: dict = Depends(require_roles(*PROJE
     cur.close(); conn.close()
     return {"ok": True}
 
-@app.get("/messages")
-def get_messages(_current_user: dict = Depends(get_current_user)):
-    import json as _j
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id,chat_type,project_id,author_id,author_name,author_role,text,photo_url,created_at,read_by FROM messages ORDER BY created_at ASC LIMIT 200")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    out = []
-    for r in rows:
-        try: rb = r[9] if isinstance(r[9], list) else (_j.loads(r[9]) if r[9] else [])
-        except: rb = []
-        out.append({"id":r[0],"chat_type":r[1],"project_id":r[2],"author_id":r[3],"author_name":r[4],"author_role":r[5],"text":r[6],"photo_url":r[7],"created_at":str(r[8]),"readBy":rb})
-    return out
-
-@app.post("/messages")
-def create_message(data: dict, current_user: dict = Depends(get_current_user)):
-    import json as _j
-    conn = get_db()
-    cur = conn.cursor()
-    # Автор сразу попадает в read_by
-    author_id = current_user.get("id")
-    read_by = _j.dumps([author_id] if author_id else [])
-    cur.execute("INSERT INTO messages (chat_type,project_id,author_id,author_name,author_role,text,photo_url,read_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s::jsonb) RETURNING *",
-        (data.get('chatType','company'),data.get('projectId'),author_id,current_user.get("name",""),current_user.get("role",""),data.get('text',''),data.get('photoUrl',''),read_by))
-    conn.commit()
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return row
-
-@app.post("/messages/mark-read")
-def mark_messages_read(data: dict, current_user: dict = Depends(get_current_user)):
-    """Помечает все сообщения как прочитанные данным пользователем.
-       data: {userId, chatType?, projectId?} — фильтры опциональны."""
-    user_id = current_user.get("id")
-    chat_type = data.get('chatType')
-    project_id = data.get('projectId')
-    conn = get_db()
-    cur = conn.cursor()
-    where = ["NOT (read_by @> %s::jsonb)"]
-    params = [str(user_id) if isinstance(user_id, int) else __import__('json').dumps([user_id])]
-    # подправим: read_by это массив id, ищем где user_id НЕ входит
-    import json as _j
-    params[0] = _j.dumps([user_id])
-    if chat_type:
-        where.append("chat_type=%s"); params.append(chat_type)
-    if project_id is not None:
-        where.append("project_id=%s"); params.append(project_id)
-    sql = "UPDATE messages SET read_by = read_by || %s::jsonb WHERE " + " AND ".join(where)
-    params.insert(0, _j.dumps([user_id]))
-    cur.execute(sql, params)
-    updated = cur.rowcount
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True, "updated": updated}
-
 import urllib.request
 import json as json_lib
 
@@ -31647,12 +31594,28 @@ register_client_account_routes(app, {
 
 try:
     from backend.features.company_context import register_company_context_module
+    from backend.features.company_context.service import effective_company_user, resolve_request_company_context
 except ModuleNotFoundError:
     from features.company_context import register_company_context_module
+    from features.company_context.service import effective_company_user, resolve_request_company_context
 
 register_company_context_module(app, {
     "get_db": get_db,
     "get_current_user": get_current_user,
+    "platform_staff_roles": PLATFORM_STAFF_ROLES,
+    "client_account_roles": CLIENT_ACCOUNT_ROLES,
+})
+
+try:
+    from backend.features.company_messages import register_company_messages_module
+except ModuleNotFoundError:
+    from features.company_messages import register_company_messages_module
+
+register_company_messages_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_request_company_context": resolve_request_company_context,
+    "effective_company_user": effective_company_user,
     "platform_staff_roles": PLATFORM_STAFF_ROLES,
     "client_account_roles": CLIENT_ACCOUNT_ROLES,
 })

@@ -1428,6 +1428,33 @@
 
 **Estimated scope:** S
 
+## Task M6.4a: Tenant-Scoped Company Messages
+
+**Description:** Add stored company ownership to the existing general company chat and scope list, create, and mark-read operations to one verified selected company. Keep project chat, estimate chat, protected upload return values, and legacy row backfill outside this slice.
+
+**Status:** Implementation and local verification complete; production deploy pending.
+
+**Acceptance criteria:**
+- [x] `messages.company_id` is added as nullable with supporting indexes; startup does not guess or backfill legacy ownership.
+- [x] `GET /messages` requires one selected company, returns only that company's general-chat rows, and allows a temporary legacy row only when its stored author belongs to that legacy company without another active company membership.
+- [x] `POST /messages` stores the resolved company and server-derived author; client-supplied author/company values cannot override them.
+- [x] `POST /messages/mark-read` ignores the claimed `userId` and updates only messages visible in the resolved company.
+- [x] Read and mutation requests fail closed in `all_companies`; an unresolved server actor cannot create a message.
+- [x] `/project-chat`, estimate flows, frontend payloads, stored legacy rows, protected upload returns, and S3 ACL remain unchanged.
+- [x] Public proxy smoke recognizes `/messages` as an API route rather than an SPA fallback.
+
+**Verification:**
+- [x] Company-context and company-message focused suites pass (`39` tests); the company-message suite passes `7` tests including negative mutation cases.
+- [x] Exact tracked backend plus this slice passes (`145` tests); full working-tree backend suite passes (`149` tests).
+- [x] Backend entrypoint/module compile, full working-tree frontend suite (`25` suites / `104` tests), and production build pass.
+- [ ] Production migration, public/authenticated smoke, selected-company read, `all_companies` rejection, and real browser chat compatibility pass after deploy.
+
+**Known follow-up:** Run a read-only legacy report again, backfill only unambiguous rows, then add stronger constraints in a separate reversible step. Project chat and estimate chat remain later `M6.4` slices; do not treat this company-chat release as complete two-company E2E coverage.
+
+**Dependencies:** Tasks M1 and M6.0
+
+**Estimated scope:** S
+
 **M6 safety gate:** do not backfill ambiguous legacy rows, do not use project names as authorization identifiers, do not allow mutation in `all_companies`, and do not start the two-company production E2E until M6.0-M6.8 and the preceding M4/M5 gaps are closed.
 
 ## Task M7: Backfill, Constraints, And Pilot Matrix
