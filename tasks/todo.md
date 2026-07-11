@@ -1559,7 +1559,7 @@
 
 **Description:** Isolate estimate-chat history, AI message creation, and explicit history clearing through the server-selected company and the stored parent estimate. Preserve existing URLs, response fields, AI prompt behavior, and stored messages; do not add a redundant company column or migrate chat content in this slice.
 
-**Status:** Deployed in `cf006af7`; public smoke and authenticated read-only browser check passed.
+**Status:** Deployed in `cf006af7`; request-race hardening deployed in `80f1e8df`, and public, no-write API, and authenticated browser checks passed.
 
 **Acceptance criteria:**
 - [x] History and direct chat actions first apply the existing estimate visibility policy and re-verify the stored estimate parent before reading or changing `estimate_chat_messages`.
@@ -1569,14 +1569,17 @@
 - [x] Existing chat rows keep their immutable `estimate_id` owner; no schema change, backfill, content rewrite, or automatic deletion is introduced.
 - [x] Frontend request IDs ignore history/AI responses from an old estimate or company; company changes close the chat/version modals and clear messages, drafts, loading, and version comparison state before rendering the new context.
 - [x] Failed clear requests leave visible history intact, and the clear button is disabled while an AI request is in progress.
+- [x] The backend re-locks and re-verifies the estimate after AI generation and stores the assistant answer only if the original user message still exists, so a concurrent clear cannot restore deleted history.
+- [x] The frontend keeps history loading separate from AI loading, blocks send/clear during history loading, ignores stale version responses, and preserves an in-flight answer when the same chat is closed and reopened.
 
 **Verification:**
 - [x] Focused estimate access/version/chat backend suites pass (`24` tests), including backend-working-directory import, cross-company `404`, worker denial, selected-company writes, and aggregate-mode mutation denial.
 - [x] Focused frontend chat/context suites pass (`2` suites / `5` tests), including stale history, stale AI answer, failed clear, successful clear, and company-context reset.
-- [x] Full working-tree backend suite passes (`184` tests); full frontend suite passes (`31` suites / `122` tests).
+- [x] Full working-tree backend suite passes (`190` tests); full frontend suite passes (`32` suites / `127` tests).
 - [x] Production entrypoint/module compile, shell syntax, public proxy smoke, and production build pass.
 - [x] Production runtime reports `cf006af7e4f9`; public smoke recognizes both estimate-chat routes, and the authenticated director browser opens `Сметы -> Кисловодск Лицей 4 -> Электрика -> Чат` with the correct estimate and no console warnings/errors. No message was sent and history was not cleared.
-- [ ] Protected aggregate-mode no-write probes remain wired into `smoke:prod`, but the generic production run skipped them without `SMOKE_EMAIL`/`SMOKE_PASSWORD`; route tests cover the fail-before-SQL behavior until the isolated multi-company fixture is available.
+- [x] Hardened runtime `80f1e8df72ea` passes health, DB, systemd, startup-log, public smoke, and production build checks. A temporary estimator received `200` for selected/all-company history, `400` for aggregate send/clear, and `403` for an unavailable company; `estimate_chat_messages` stayed at `0` rows with the same SHA-256 before and after.
+- [x] The authenticated production browser reopened `Сметы -> Кисловодск Лицей 4 -> Электрика -> Чат`, loaded history with `200`, rendered the empty state with send disabled, and reported `0` console errors/warnings. No send/clear action was used, and the temporary user was disabled afterward.
 
 **Known follow-up:** Estimate changes, `unexpected_works`, project chat, and estimate-version creation remain separate parent-owned slices. A true company-A/company-B negative E2E still requires the isolated multi-company fixture.
 
@@ -1588,7 +1591,7 @@
 
 **Description:** Add a read-only production audit for `unexpected_works` before introducing stored tenant ownership or changing estimate-change routes. Classify each row from identifiers only and fail closed on ambiguous or conflicting parents.
 
-**Status:** Implemented locally; production audit pending.
+**Status:** Released in `6bb10f47`; production read-only audit completed on runtime `80f1e8df`.
 
 **Acceptance criteria:**
 - [x] `npm run audit:estimate-changes` opens a read-only transaction and never commits or executes a write statement.
@@ -1601,11 +1604,31 @@
 **Verification:**
 - [x] Focused ownership-report suite passes (`5` tests), including backend-working-directory import, preview truncation, and a connection whose `commit()` raises immediately.
 - [x] Full backend regression passes (`189` tests); module compile, M6 registry audit, diff check, and production build pass.
-- [ ] Production `npm run audit:estimate-changes` returns a consistent read-only report; the local command cannot reach PostgreSQL on this workstation.
+- [x] Production `npm run audit:estimate-changes` returned a consistent read-only report: `4` total/legacy rows, all `4` ready for company `1` and project `1` through a globally unique project name, `0` ambiguous/unresolved/mismatched rows, and `writesAttempted=0`.
 
 **Known follow-up:** The audit is not a migration and does not close runtime reads/writes. Use its exact production counts to design a reversible `project_id/company_id` backfill, leave disputed rows untouched, then scope core CRUD and include/reconcile/AI flows in separate slices.
 
 **Dependencies:** Tasks M6.1 and M6.4d-M6.4e
+
+**Estimated scope:** S
+
+## Task M6.4g: Guarded Unexpected-Works Ownership Migration
+
+**Description:** Add nullable stored `company_id/project_id` ownership to `unexpected_works` and backfill only the four rows already classified as unambiguous by the production audit. Keep all runtime reads/writes unchanged in this migration slice.
+
+**Status:** Planned; not started.
+
+**Acceptance criteria:**
+- [ ] Dry-run repeats the current production gate exactly: `totalRows=4`, `ready=4`, no review rows, and all candidates target company `1` / project `1`.
+- [ ] Apply requires an explicit confirmation token and expected counts, rechecks every ownership source inside one transaction, and rolls back on drift or conflict.
+- [ ] Columns and supporting indexes are added reversibly; ambiguous rows are never guessed, and no `NOT NULL` or foreign key is added yet.
+- [ ] Existing estimate-change CRUD, include/reconcile, and AI routes remain behaviorally unchanged until a later tenant-scoping slice.
+
+**Verification:**
+- [ ] Migration/report tests cover pre-column, dry-run, apply, idempotent rerun, conflict rollback, and post-apply states.
+- [ ] Production before/after counts and ownership audit are identical except for the four guarded owner assignments.
+
+**Dependencies:** Task M6.4f
 
 **Estimated scope:** S
 
