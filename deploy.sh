@@ -6,6 +6,7 @@ git reset --hard HEAD
 git pull --ff-only
 echo "HEAD: $(git rev-parse --short HEAD)"
 PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py
+npm ci
 npm run build
 systemctl restart stroyka
 systemctl is-active --quiet stroyka

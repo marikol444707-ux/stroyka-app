@@ -102,6 +102,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [ ] Task 13: Extract audit/client-error route group into a small backend feature module.
 - [ ] Task 14: Move one low-risk `init_db()` schema slice into Alembic.
 - [ ] Task 15: Add a minimal CI workflow for backend compile, frontend tests, and frontend build.
+- [ ] Task 15.1: Apply only SemVer-compatible frontend security updates without `--force`; critical audit findings are removed, production release pending.
 
 ### Checkpoint: Backend Shape
 

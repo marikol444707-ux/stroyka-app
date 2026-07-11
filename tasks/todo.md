@@ -1243,6 +1243,38 @@
 
 **Estimated scope:** S
 
+## Task 15.1: Compatible Frontend Dependency Security Refresh
+
+**Description:** Update only vulnerable transitive frontend packages that fit the existing dependency ranges. Do not change React, `react-scripts`, or `xlsx`, and do not use `npm audit fix --force` in this step.
+
+**Status:** Implemented; production release pending.
+
+**Acceptance criteria:**
+- [x] `package.json` and direct dependency versions remain unchanged.
+- [x] `package-lock.json` receives only SemVer-compatible updates calculated by `npm audit fix` without `--force`.
+- [x] `deploy.sh` installs the exact lock-file tree with `npm ci` before building and restarting the service.
+- [x] The critical `shell-quote` advisory is removed; audit totals fall from `40` to `29` and critical findings from `1` to `0`.
+- [x] Remaining `react-scripts` and `xlsx` advisories stay visible as separate migration work instead of being hidden by breaking overrides.
+
+**Verification:**
+- [x] `npm ls --depth=0` passes.
+- [x] Frontend tests and production build pass with the updated installed tree.
+- [x] `npm audit --audit-level=critical` exits successfully with zero critical findings.
+- [x] `bash -n deploy.sh` passes.
+- [x] A clean staged snapshot installs with `npm ci`, then passes frontend tests, build, and static checks.
+- [ ] GitHub CI, production deploy, and public production smoke pass.
+
+**Dependencies:** Task 15
+
+**Files likely touched:**
+- `package-lock.json`
+- `deploy.sh`
+- `ONBOARDING.md`
+- `tasks/plan.md`
+- `tasks/todo.md`
+
+**Estimated scope:** S
+
 ## Task 16: Supply Operator UX Polish
 
 **Description:** Improve the supply UI only after backend contracts are stable, focusing on clear business language and actionable diagnostics.
