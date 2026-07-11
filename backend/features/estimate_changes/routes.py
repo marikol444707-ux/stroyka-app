@@ -31,6 +31,10 @@ def _row_id(row):
     return None
 
 
+def _number(value):
+    return float(value or 0)
+
+
 def _assert_same_project(estimate, project, label):
     estimate_company_id = _positive_int((estimate or {}).get("companyId") or (estimate or {}).get("company_id"))
     estimate_project_id = _positive_int((estimate or {}).get("projectId") or (estimate or {}).get("project_id"))
@@ -50,10 +54,116 @@ def register_estimate_changes_module(app, deps):
     require_project_parent_access = deps["require_project_parent_access"]
     resolve_estimate_parent = deps["resolve_estimate_parent"]
     has_package_access = deps["has_package_access"]
+    visibility_filter = deps["visibility_filter"]
+    project_document_roles = {str(role or "").strip() for role in deps["project_document_roles"]}
     journal_write_roles = tuple(deps["journal_write_roles"])
     full_view_roles = tuple(deps["full_view_roles"])
     package_limit_roles = set(deps["package_limit_roles"])
+    package_unrestricted_roles = tuple(deps["package_unrestricted_roles"])
+    customer_roles = tuple(deps["customer_roles"])
+    customer_statuses = tuple(deps["customer_statuses"])
     worker_execution_roles = set(deps["worker_execution_roles"])
+
+    def read_scope(cur, current_user, x_company_id, x_company_mode):
+        company_context = resolve_work_company_context(
+            cur,
+            current_user,
+            None,
+            "read",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        company_actors = []
+        for actor in effective_company_actors(current_user, company_context):
+            company_id = _positive_int((actor or {}).get("companyId") or (actor or {}).get("company_id"))
+            role = str((actor or {}).get("role") or "").strip()
+            if not company_id or role not in project_document_roles:
+                continue
+            normalized_actor = dict(actor or {})
+            normalized_actor["companyId"] = company_id
+            normalized_actor["company_id"] = company_id
+            normalized_actor["role"] = role
+            company_actors.append(normalized_actor)
+        visibility_sql, visibility_params = visibility_filter(
+            company_actors,
+            project_document_roles,
+            full_view_roles,
+            package_limit_roles,
+            package_unrestricted_roles,
+            customer_roles,
+            customer_statuses,
+            project_prefix="p",
+            change_prefix="uw",
+        )
+        return company_actors, visibility_sql, visibility_params
+
+    @app.get("/unexpected-works")
+    def get_unexpected_works(
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            company_actors, visibility_sql, visibility_params = read_scope(
+                cur,
+                current_user,
+                x_company_id,
+                x_company_mode,
+            )
+            cur.execute(
+                f"""SELECT uw.id,uw.project_name,uw.description,uw.unit,uw.quantity,uw.price,
+                            uw.total,uw.added_by,uw.added_by_role,uw.status,uw.approved_by,
+                            uw.approved_at,uw.notes,uw.photo_url,uw.change_type,uw.estimate_id,
+                            uw.section_name,uw.estimate_item_name,uw.base_quantity,
+                            uw.new_required_quantity,uw.delta_quantity,uw.included_in_estimate_id,
+                            uw.reason,uw.company_id
+                       FROM unexpected_works uw
+                       JOIN projects p ON p.id=uw.project_id AND p.company_id=uw.company_id
+                      WHERE {visibility_sql}
+                      ORDER BY uw.id DESC""",
+                tuple(visibility_params),
+            )
+            actors_by_company = {
+                _positive_int(actor.get("companyId") or actor.get("company_id")): actor
+                for actor in company_actors
+            }
+            result = []
+            for row in cur.fetchall() or []:
+                actor = actors_by_company.get(_positive_int(row.get("company_id")))
+                if not actor:
+                    continue
+                hide_money = actor.get("role") in worker_execution_roles
+                result.append({
+                    "id": row.get("id"),
+                    "projectName": row.get("project_name"),
+                    "description": row.get("description"),
+                    "unit": row.get("unit"),
+                    "quantity": _number(row.get("quantity")),
+                    "price": 0 if hide_money else _number(row.get("price")),
+                    "total": 0 if hide_money else _number(row.get("total")),
+                    "addedBy": row.get("added_by"),
+                    "addedByRole": row.get("added_by_role"),
+                    "status": row.get("status"),
+                    "approvedBy": row.get("approved_by"),
+                    "approvedAt": row.get("approved_at"),
+                    "notes": row.get("notes"),
+                    "photoUrl": row.get("photo_url"),
+                    "changeType": row.get("change_type") or "Работа вне сметы",
+                    "estimateId": row.get("estimate_id"),
+                    "sectionName": row.get("section_name") or "",
+                    "estimateItemName": row.get("estimate_item_name") or "",
+                    "baseQuantity": _number(row.get("base_quantity")),
+                    "newRequiredQuantity": _number(row.get("new_required_quantity")),
+                    "deltaQuantity": _number(row.get("delta_quantity")),
+                    "includedInEstimateId": row.get("included_in_estimate_id"),
+                    "reason": row.get("reason") or "",
+                })
+            return result
+        finally:
+            cur.close()
+            conn.close()
 
     @app.post("/unexpected-works")
     def create_unexpected_work(

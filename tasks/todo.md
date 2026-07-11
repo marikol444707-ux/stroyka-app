@@ -1661,17 +1661,18 @@
 
 **Description:** After all new rows receive stored ownership, change only `GET /unexpected-works` to select through `company_id/project_id` and server-resolved tenant context. Keep update/delete, include/reconcile, limit-check, and AI routes unchanged in this slice.
 
-**Status:** Planned after Task M6.4h; it may be bundled into the same release, but must not be deployed before the create-ownership prerequisite.
+**Status:** Implemented locally; release pending after a fresh production ownership audit. It must be deployed together with or after Task M6.4h.
 
 **Acceptance criteria:**
-- [ ] Selected-company reads return only rows whose stored company and project are visible to the effective membership role.
-- [ ] `all_companies` remains read-only and applies each company's effective project/package/status policy without using global role elevation.
-- [ ] Rows with missing or conflicting stored ownership fail closed; the legacy project name is display data only, never the authorization key.
-- [ ] Existing response fields, money hiding, customer status filtering, package filtering, and ordering remain unchanged.
+- [x] Selected-company reads return only rows whose stored company and project are visible to the effective membership role.
+- [x] `all_companies` remains read-only and applies each company's effective project/package/status policy without using global role elevation.
+- [x] Rows with missing or conflicting stored ownership fail closed; the legacy project name is display data only, never the authorization key.
+- [x] Existing response fields, money hiding, customer status filtering, package filtering, and ordering remain unchanged.
 
 **Verification:**
-- [ ] Focused tests cover two companies, direct selected-company reads, aggregate reads, unavailable company `403`, cross-company invisibility, worker money hiding, and legacy/mismatched owner exclusion.
+- [x] Focused tests cover two companies, direct selected-company reads, aggregate reads, unavailable company `403`, cross-company invisibility, worker money hiding, and legacy/mismatched owner exclusion.
 - [ ] Production verification is read-only and confirms no row, owner, or business-field changes.
+- [x] Local verification passes: `38` focused tests, `223` full backend tests, compile, M6 registry audit, diff check, and production build.
 
 **Dependencies:** Task M6.4h
 

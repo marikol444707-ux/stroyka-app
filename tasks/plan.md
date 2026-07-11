@@ -108,7 +108,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.4f: Audit `unexpected_works` ownership using stored IDs, estimate parents, and only globally unique legacy project names without reading business content or changing rows. Production dry-run on `80f1e8df` classified all `4` rows as ready for company `1` / project `1`, with no review rows and `writesAttempted=0`.
 - [x] Task M6.4g: Add a separately reviewed, reversible ownership migration for `unexpected_works`, guarded by the exact production audit counts; do not change runtime CRUD in the migration slice. Deployed in `e8003a1d`; guarded apply stored all `4` owners, post-audit is clean, and business fields remained byte-for-byte equivalent by hash.
 - [ ] Task M6.4h: Make only `POST /unexpected-works` resolve one concrete company/project and store `company_id/project_id`, so new rows cannot become invisible when strict reads are enabled; keep every existing-row mutation and AI/reconcile flow unchanged. Implemented locally; release pending.
-- [ ] Task M6.4i: Scope only `GET /unexpected-works` by stored company/project ownership and effective tenant role while preserving its response shape and every remaining route.
+- [ ] Task M6.4i: Scope only `GET /unexpected-works` by stored company/project ownership and effective tenant role while preserving its response shape and every remaining route. Implemented locally; release pending after a fresh production ownership audit.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary

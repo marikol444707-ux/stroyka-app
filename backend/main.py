@@ -18982,45 +18982,12 @@ def create_project_chat(data: dict, current_user: dict = Depends(get_current_use
 ESTIMATE_CHANGE_APPROVED_STATUSES = ("Утверждено", "Утверждено отдельной допработой")
 ESTIMATE_CHANGE_CUSTOMER_STATUSES = ("Ожидает согласования", "Утверждено", "Утверждено отдельной допработой", "Включено в новую смету")
 
-@app.get("/unexpected-works")
-def get_unexpected_works(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    allowed_projects = visible_project_names(current_user)
-    role = current_user.get("role")
-    package_sql, package_params = package_access_filter(current_user, "section_name")
-    cols = """id,project_name,description,unit,quantity,price,total,added_by,added_by_role,status,
-              approved_by,approved_at,notes,photo_url,change_type,estimate_id,section_name,
-              estimate_item_name,base_quantity,new_required_quantity,delta_quantity,
-              included_in_estimate_id,reason"""
-    if allowed_projects is not None:
-        if not allowed_projects:
-            cur.close(); conn.close()
-            return []
-        if role == "заказчик":
-            cur.execute(f"SELECT {cols} FROM unexpected_works WHERE project_name = ANY(%s) AND status = ANY(%s){package_sql} ORDER BY id DESC", [allowed_projects, list(ESTIMATE_CHANGE_CUSTOMER_STATUSES)] + package_params)
-        else:
-            cur.execute(f"SELECT {cols} FROM unexpected_works WHERE project_name = ANY(%s) AND COALESCE(status,'') <> 'Аннулировано'{package_sql} ORDER BY id DESC", [allowed_projects] + package_params)
-    else:
-        cur.execute(f"SELECT {cols} FROM unexpected_works WHERE COALESCE(status,'') <> 'Аннулировано' ORDER BY id DESC")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    hide_money = role in WORKER_EXECUTION_ROLES
-    return [{"id":r[0],"projectName":r[1],"description":r[2],"unit":r[3],
-             "quantity":float(r[4] or 0),"price":0 if hide_money else float(r[5] or 0),"total":0 if hide_money else float(r[6] or 0),
-             "addedBy":r[7],"addedByRole":r[8],"status":r[9],"approvedBy":r[10],
-             "approvedAt":r[11],"notes":r[12],"photoUrl":r[13],
-             "changeType":r[14] or "Работа вне сметы","estimateId":r[15],
-             "sectionName":r[16] or "","estimateItemName":r[17] or "",
-             "baseQuantity":float(r[18] or 0),"newRequiredQuantity":float(r[19] or 0),
-             "deltaQuantity":float(r[20] or 0),"includedInEstimateId":r[21],
-             "reason":r[22] or ""} for r in rows]
-
 try:
     from backend.features.estimate_access.service import (
         resolve_estimate_parent as resolve_estimate_change_parent,
     )
     from backend.features.estimate_changes import register_estimate_changes_module
+    from backend.features.estimate_changes.service import estimate_change_visibility_filter
     from backend.features.project_access.service import (
         require_project_parent_access as require_estimate_change_project_access,
         require_project_write_actor as require_estimate_change_write_actor,
@@ -19031,6 +18998,7 @@ except ModuleNotFoundError:
         resolve_estimate_parent as resolve_estimate_change_parent,
     )
     from features.estimate_changes import register_estimate_changes_module
+    from features.estimate_changes.service import estimate_change_visibility_filter
     from features.project_access.service import (
         require_project_parent_access as require_estimate_change_project_access,
         require_project_write_actor as require_estimate_change_write_actor,
@@ -19047,9 +19015,14 @@ register_estimate_changes_module(app, {
     "require_project_parent_access": require_estimate_change_project_access,
     "resolve_estimate_parent": resolve_estimate_change_parent,
     "has_package_access": has_package_access,
+    "visibility_filter": estimate_change_visibility_filter,
+    "project_document_roles": PROJECT_DOCUMENT_ROLES,
     "journal_write_roles": JOURNAL_WRITE_ROLES,
     "full_view_roles": BRIGADE_FULL_VIEW_ROLES,
     "package_limit_roles": PACKAGE_LIMIT_ROLES,
+    "package_unrestricted_roles": ("прораб",),
+    "customer_roles": ("заказчик",),
+    "customer_statuses": ESTIMATE_CHANGE_CUSTOMER_STATUSES,
     "worker_execution_roles": WORKER_EXECUTION_ROLES,
 })
 

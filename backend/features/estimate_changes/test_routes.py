@@ -7,11 +7,19 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from backend.features.estimate_changes.routes import register_estimate_changes_module
+from backend.features.estimate_changes.service import estimate_change_visibility_filter
 
 
 class FakeApp:
     def __init__(self):
         self.routes = {}
+
+    def get(self, path):
+        def decorator(handler):
+            self.routes[("GET", path)] = handler
+            return handler
+
+        return decorator
 
     def post(self, path):
         def decorator(handler):
@@ -172,6 +180,23 @@ class EstimateChangeCreateRouteTests(unittest.TestCase):
             "require_project_parent_access": require_project_access,
             "resolve_estimate_parent": resolve_estimate,
             "has_package_access": has_package,
+            "visibility_filter": estimate_change_visibility_filter,
+            "project_document_roles": (
+                "директор",
+                "зам_директора",
+                "бухгалтер",
+                "прораб",
+                "главный_инженер",
+                "сметчик",
+                "мастер",
+                "субподрядчик",
+                "бригадир",
+                "кладовщик",
+                "снабженец",
+                "технадзор",
+                "заказчик",
+                "стройконтроль",
+            ),
             "journal_write_roles": (
                 "директор",
                 "зам_директора",
@@ -189,6 +214,14 @@ class EstimateChangeCreateRouteTests(unittest.TestCase):
                 "сметчик",
             ),
             "package_limit_roles": ("прораб", "мастер", "субподрядчик", "бригадир"),
+            "package_unrestricted_roles": ("прораб",),
+            "customer_roles": ("заказчик",),
+            "customer_statuses": (
+                "Ожидает согласования",
+                "Утверждено",
+                "Утверждено отдельной допработой",
+                "Включено в новую смету",
+            ),
             "worker_execution_roles": ("мастер", "субподрядчик", "бригадир"),
         })
         return app, calls

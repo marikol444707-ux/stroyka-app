@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-11",
+  "updatedAt": "2026-07-12",
   "rules": {
     "writeMode": "A mutation requires one concrete selected company.",
     "ownership": "New rows inherit immutable companyId and projectId from a verified parent.",
@@ -25,7 +25,7 @@
     {"domain":"estimates","resource":"estimate_versions","kind":"table","parent":"estimates","companyState":"missing","ownerSource":"verified stored estimate parent for reads","routePrefixes":["/estimate-version","/estimates/{id}/versions"],"stage":"M6.4","priority":"high","accessState":"verified_parent_read"},
     {"domain":"estimates","resource":"estimate_chat_messages","kind":"table","parent":"estimates","companyState":"missing","ownerSource":"verified stored estimate parent for reads and writes","routePrefixes":["/estimate-chat","/estimates/{estimate_id}/chat-history"],"stage":"M6.4","priority":"high","accessState":"verified_parent_read_write"},
     {"domain":"chat","resource":"messages","kind":"table","parent":"companies","companyState":"stored","ownerSource":"stored company; audited migration for legacy rows","routePrefixes":["/messages"],"stage":"M6.4","priority":"critical"},
-    {"domain":"estimates","resource":"unexpected_works","kind":"table","parent":"projects/estimates","companyState":"missing","ownerSource":"stored project and estimate","routePrefixes":["/unexpected-works"],"stage":"M6.4","priority":"critical"},
+    {"domain":"estimates","resource":"unexpected_works","kind":"table","parent":"projects/estimates","companyState":"stored","ownerSource":"stored company_id/project_id joined to projects","routePrefixes":["/unexpected-works"],"stage":"M6.4","priority":"critical","accessState":"stored_owner_create_list_read"},
     {"domain":"execution","resource":"work_journal","kind":"table","parent":"projects/estimates","companyState":"legacy_default","ownerSource":"stored project","routePrefixes":["/work-journal"],"stage":"M6.5","priority":"critical"},
     {"domain":"execution","resource":"rooms","kind":"table","parent":"projects","companyState":"missing","ownerSource":"stored project","routePrefixes":["/rooms"],"stage":"M6.5","priority":"high"},
     {"domain":"execution","resource":"room_works","kind":"table","parent":"rooms/work_journal","companyState":"missing","ownerSource":"stored room and journal","routePrefixes":["/room-works"],"stage":"M6.5","priority":"high"},
