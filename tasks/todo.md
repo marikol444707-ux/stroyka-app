@@ -1377,7 +1377,7 @@
 
 **Description:** Add an explicit protected-preview mode to the shared `PhotoAttachmentField`, but enable it only in the existing ЖПР edit modal. Keep every other caller, upload return contract, stored photo URL, backend route, and S3 ACL unchanged.
 
-**Status:** Implementation and local verification complete; production deploy pending.
+**Status:** Deployed in `8805175b`; public and browser verification passed.
 
 **Acceptance criteria:**
 - [x] `PhotoAttachmentField` defaults to direct rendering, so existing CRM, room, measurement, and master-cabinet callers do not start authenticated Blob requests.
@@ -1392,7 +1392,9 @@
 - [x] Focused Blob-loader, chat, work-journal list, attachment-field, and ЖПР edit suites pass (`5` suites / `18` tests).
 - [x] Intended tracked frontend suite passes (`23` suites / `97` tests); full working-tree suite passes (`24` suites / `102` tests).
 - [x] Production build succeeds.
-- [ ] Production deploy, public smoke, authenticated tenant-file smoke, and ЖПР edit browser check pass.
+- [x] Production runtime reports `8805175bc13d`; public smoke and the director ЖПР edit browser check pass.
+- [x] Existing compatibility S3 photo remains direct at 70x70, opens the enlarged preview, and produces no browser log errors.
+- [x] No backend route changed in this frontend-only slice; the protected endpoint remains covered by the successful M6.2d5 authenticated production smoke, while this rollout intentionally created no new temporary file.
 
 **Known follow-up:** This slice makes the ЖПР edit renderer compatible with protected URLs but does not request protected return URLs for new ЖПР uploads. Work-journal ownership/read-write isolation and the remaining photo renderers must be audited before changing the upload contract or S3 ACL.
 
