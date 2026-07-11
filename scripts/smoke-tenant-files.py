@@ -50,6 +50,26 @@ def api(method, path, *, token="", data=None, body=None, headers=None, expected=
     return json.loads(text) if text else {}
 
 
+def api_bytes(method, path, *, token="", headers=None, expected=200):
+    request_headers = dict(headers or {})
+    if token:
+        request_headers["Authorization"] = "Bearer " + token
+    request = urllib.request.Request(API + path, headers=request_headers, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=45) as response:
+            status = response.status
+            raw = response.read()
+            response_headers = {key.lower(): value for key, value in response.headers.items()}
+    except urllib.error.HTTPError as error:
+        status = error.code
+        raw = error.read()
+        response_headers = {key.lower(): value for key, value in error.headers.items()}
+    if status != expected:
+        text = raw.decode("utf-8", errors="replace")
+        raise RuntimeError(f"{method} {path}: got {status}, expected {expected}. Body: {text[:900]}")
+    return raw, response_headers
+
+
 def totp_code(secret):
     secret = re.sub(r"\s+", "", str(secret or "")).upper()
     secret += "=" * (-len(secret) % 8)
@@ -131,8 +151,24 @@ def main():
         metadata = api("GET", f"/tenant-files/{file_id}", token=token, headers=headers)
         if metadata.get("context") != "smoke-tenant-files" or int(metadata.get("companyId") or 0) != company_id:
             raise RuntimeError("Метаданные tenant-файла не совпали")
+        expected_content_url = f"/tenant-files/{file_id}/content"
+        if uploaded.get("contentUrl") != expected_content_url or metadata.get("contentUrl") != expected_content_url:
+            raise RuntimeError("Сервер не вернул защищенный URL файла")
+        protected_content, protected_headers = api_bytes(
+            "GET",
+            expected_content_url,
+            token=token,
+            headers=headers,
+        )
+        if hashlib.sha256(protected_content).digest() != hashlib.sha256(png).digest():
+            raise RuntimeError("Защищенная выдача вернула другое содержимое файла")
+        if not protected_headers.get("content-type", "").lower().startswith("image/png"):
+            raise RuntimeError("Защищенная выдача вернула неверный Content-Type")
+        if protected_headers.get("cache-control", "").lower() != "private, no-store":
+            raise RuntimeError("Защищенная выдача не запретила публичное кеширование")
         api("DELETE", f"/tenant-files/{file_id}", token=token, headers=headers)
         api("GET", f"/tenant-files/{file_id}", token=token, headers=headers, expected=404)
+        api_bytes("GET", f"/tenant-files/{file_id}/content", token=token, headers=headers, expected=404)
         file_id = None
         print(json.dumps({
             "ok": True,
@@ -143,8 +179,9 @@ def main():
                 "authenticated multipart upload",
                 "stored company/project ownership",
                 "authorized metadata read",
+                "authorized protected content read with exact bytes",
                 "physical object and ownership cleanup",
-                "deleted metadata returns 404",
+                "deleted metadata and content return 404",
             ],
         }, ensure_ascii=False, indent=2))
     finally:

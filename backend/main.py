@@ -22,6 +22,7 @@ import shutil
 import smtplib
 import subprocess
 import tempfile
+import urllib.error
 import urllib.parse
 import urllib.request
 from email.message import EmailMessage
@@ -3309,6 +3310,58 @@ def _s3_delete_object(key: str) -> None:
     req = urllib.request.Request(url, headers=headers, method="DELETE")
     with urllib.request.urlopen(req, timeout=30):
         pass
+
+def _s3_get_object(key: str) -> tuple[bytes, str]:
+    quoted_bucket = urllib.parse.quote(S3_BUCKET, safe="")
+    quoted_key = urllib.parse.quote(key, safe="/")
+    url = S3_ENDPOINT_URL + "/" + quoted_bucket + "/" + quoted_key
+    parsed = urllib.parse.urlparse(url)
+    payload_hash = hashlib.sha256(b"").hexdigest()
+    now = dt.datetime.utcnow()
+    amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+    date_stamp = now.strftime("%Y%m%d")
+    headers = {
+        "host": parsed.netloc,
+        "x-amz-content-sha256": payload_hash,
+        "x-amz-date": amz_date,
+    }
+    signed_header_names = sorted(headers.keys())
+    canonical_headers = "".join(f"{name}:{headers[name]}\n" for name in signed_header_names)
+    signed_headers = ";".join(signed_header_names)
+    canonical_request = "\n".join([
+        "GET", parsed.path or "/", "", canonical_headers, signed_headers, payload_hash,
+    ])
+    credential_scope = f"{date_stamp}/{S3_REGION}/s3/aws4_request"
+    string_to_sign = "\n".join([
+        "AWS4-HMAC-SHA256",
+        amz_date,
+        credential_scope,
+        hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
+    ])
+    signature = hmac.new(
+        _s3_signing_key(S3_SECRET_ACCESS_KEY, date_stamp, S3_REGION),
+        string_to_sign.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    headers["Authorization"] = (
+        "AWS4-HMAC-SHA256 "
+        f"Credential={S3_ACCESS_KEY_ID}/{credential_scope}, "
+        f"SignedHeaders={signed_headers}, Signature={signature}"
+    )
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as response:
+            content = response.read(MAX_UPLOAD_BYTES + 1)
+            content_type = response.headers.get("Content-Type") or "application/octet-stream"
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            raise HTTPException(status_code=404, detail="Файл отсутствует в S3-хранилище") from None
+        raise HTTPException(status_code=503, detail="S3-хранилище временно недоступно") from None
+    except (urllib.error.URLError, TimeoutError, OSError):
+        raise HTTPException(status_code=503, detail="S3-хранилище временно недоступно") from None
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Файл превышает допустимый размер защищенной выдачи")
+    return content, content_type
 
 def _safe_upload_ext(filename: str) -> str:
     ext = os.path.splitext(filename or "")[1].lower()
@@ -18332,6 +18385,7 @@ async def upload_photo(
             **uploaded,
             "fileId": file_id,
             "metadataUrl": "/tenant-files/" + str(file_id),
+            "contentUrl": "/tenant-files/" + str(file_id) + "/content",
             "companyId": company_id,
             "projectId": (project or {}).get("id"),
             "projectName": (project or {}).get("name") or "",
@@ -31745,6 +31799,7 @@ register_document_access_module(app, {
     "client_account_roles": CLIENT_ACCOUNT_ROLES,
     "upload_dir": UPLOAD_DIR,
     "s3_enabled": _s3_enabled,
+    "read_s3_object": _s3_get_object,
     "delete_s3_object": _s3_delete_object,
 })
 

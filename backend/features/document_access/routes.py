@@ -1,9 +1,11 @@
 import os
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import Depends, Header, HTTPException
+from fastapi.responses import FileResponse, Response
 
-from .service import document_local_path
+from .service import document_local_path, document_response_policy
 
 
 def _positive_int(value):
@@ -46,6 +48,7 @@ def register_document_access_module(app, deps):
     client_account_roles = deps.get("client_account_roles") or ()
     upload_dir = deps["upload_dir"]
     s3_enabled = deps["s3_enabled"]
+    read_s3_object = deps["read_s3_object"]
     delete_s3_object = deps["delete_s3_object"]
 
     def authorize_file(cur, current_user, row, action_mode, x_company_id, x_company_mode):
@@ -94,6 +97,7 @@ def register_document_access_module(app, deps):
                 "companyId": row["company_id"],
                 "projectId": row.get("project_id"),
                 "url": row["file_url"],
+                "contentUrl": f"/tenant-files/{row['id']}/content",
                 "context": row.get("context") or "general",
                 "originalName": row.get("original_name") or "",
                 "contentType": row.get("content_type") or "",
@@ -150,6 +154,48 @@ def register_document_access_module(app, deps):
         except Exception:
             conn.rollback()
             raise
+        finally:
+            cur.close()
+            conn.close()
+
+    @app.get("/tenant-files/{file_id}/content")
+    def get_tenant_file_content(
+        file_id: int,
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
+        conn = get_db()
+        cur = conn.cursor()
+        try:
+            row = load_file(cur, file_id)
+            authorize_file(cur, current_user, row, "read", x_company_id, x_company_mode)
+            headers = {
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+                "Content-Security-Policy": "sandbox; default-src 'none'",
+                "Cross-Origin-Resource-Policy": "same-origin",
+            }
+            filename, media_type, disposition = document_response_policy(row.get("original_name"))
+            headers["Content-Disposition"] = disposition + "; filename*=UTF-8''" + quote(filename, safe="")
+            storage_key = str(row.get("storage_key") or "").strip()
+            if storage_key:
+                if not s3_enabled():
+                    raise HTTPException(status_code=503, detail="S3-хранилище временно недоступно")
+                content, _storage_content_type = read_s3_object(storage_key)
+                return Response(
+                    content=content,
+                    media_type=media_type,
+                    headers=headers,
+                )
+            local_path = document_local_path(upload_dir, row.get("file_url"))
+            if not local_path.is_file():
+                raise HTTPException(status_code=404, detail="Файл отсутствует в хранилище")
+            return FileResponse(
+                path=local_path,
+                media_type=media_type,
+                headers=headers,
+            )
         finally:
             cur.close()
             conn.close()

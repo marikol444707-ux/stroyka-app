@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from backend.features.document_access.service import (
     document_local_path,
     document_project_reference,
+    document_response_policy,
     document_storage_namespace,
     require_document_parent_company,
     require_document_upload_actor,
@@ -64,6 +65,24 @@ class DocumentAccessTests(unittest.TestCase):
                 with self.subTest(file_url=file_url), self.assertRaises(HTTPException) as raised:
                     document_local_path(upload_dir, file_url)
                 self.assertEqual(raised.exception.status_code, 409)
+
+    def test_response_policy_only_opens_safe_raster_images_and_pdf_inline(self):
+        self.assertEqual(
+            document_response_policy("photo.png"),
+            ("photo.png", "image/png", "inline"),
+        )
+        self.assertEqual(
+            document_response_policy("report.pdf"),
+            ("report.pdf", "application/pdf", "inline"),
+        )
+        self.assertEqual(
+            document_response_policy("../attack.html"),
+            ("attack.html", "application/octet-stream", "attachment"),
+        )
+        self.assertEqual(
+            document_response_policy("vector.svg"),
+            ("vector.svg", "application/octet-stream", "attachment"),
+        )
 
 
 if __name__ == "__main__":

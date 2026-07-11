@@ -1169,23 +1169,52 @@
 
 **Description:** Return the registered file ID, authorize metadata reads through the stored company/project owner, and provide an ownership-checked cleanup route for smoke artifacts.
 
-**Status:** Implemented locally; production release pending.
+**Status:** Baseline deployed in `970b6aa8`; authenticated production smoke passed. Fail-closed storage hardening is pushed in `4107a4e4` and awaits production release.
 
 **Acceptance criteria:**
 - [x] `/upload-photo` returns `fileId` and the stored company/project confirmation.
 - [x] `GET /tenant-files/{id}` exposes metadata only to an effective member of the stored company and verifies project access when present.
 - [x] `DELETE /tenant-files/{id}` requires one concrete company and allows only the uploader or company leadership.
 - [x] Cleanup removes both local files and S3 objects before removing the ownership row.
+- [x] Unsafe or missing local storage and unavailable S3 fail closed without deleting the ownership row.
 - [x] `smoke:tenant-files` uploads a one-pixel technical PNG, verifies metadata, deletes it, and confirms `404` after cleanup.
 
 **Verification:**
 - [x] Backend and smoke script compile.
-- [x] All backend feature tests pass (`99` tests).
-- [ ] Production deploy and authenticated `npm run smoke:tenant-files` pass.
+- [x] Focused document-access tests pass (`10` tests); the full working-tree backend suite passes (`105` tests).
+- [x] Baseline production deploy, nginx routing, and authenticated `npm run smoke:tenant-files` pass.
+- [ ] Fail-closed hardening from `4107a4e4` is deployed and rechecked.
 
-**Known follow-up:** M6.2c must serve protected bytes or short signed URLs; current metadata response still exposes the compatibility URL while legacy public storage remains enabled.
+**Known follow-up:** M6.2c must serve protected bytes while legacy public storage remains enabled during the compatibility window.
 
 **Dependencies:** Task M6.2a
+
+**Estimated scope:** S
+
+## Task M6.2c: Authorized Tenant File Content
+
+**Description:** Serve registered local and S3 file bytes only after authorizing the stored company/project owner, without breaking existing public URLs during migration. Keep private S3 ACL cutover as a separate storage step.
+
+**Status:** Implemented locally; production release pending.
+
+**Acceptance criteria:**
+- [x] `GET /tenant-files/{id}/content` authorizes from the stored company and exact project before reading storage.
+- [x] Local content resolves only inside the configured uploads directory and returns `404` when the physical object is missing.
+- [x] S3 content is fetched by a server-side signed request only after authorization; missing or unavailable storage fails closed.
+- [x] Protected responses use `private, no-store`, `nosniff`, sandbox CSP, same-origin resource policy, and an encoded filename.
+- [x] PDF/raster images may open inline; HTML, SVG, and other active or unknown types are forced to binary attachment.
+- [x] Upload and metadata responses expose additive `contentUrl`; existing compatibility `url` remains unchanged.
+- [x] `smoke:tenant-files` verifies the exact uploaded bytes, content type, private cache policy, cleanup, and post-delete `404`.
+
+**Verification:**
+- [x] Focused document-access tests cover positive and negative authorization, local/S3 content, unsafe types, cleanup, and unavailable storage (`18` tests).
+- [x] Backend and smoke script compile.
+- [x] Full working-tree backend suite (`113` tests) and exact staged snapshot (`109` backend, `74` frontend) plus production build pass.
+- [ ] Production deploy and authenticated `npm run smoke:tenant-files` pass.
+
+**Known follow-up:** M6.2d must migrate document consumers from compatibility URLs to the protected endpoint, switch new S3 objects away from `public-read`, and then retire public access only after a usage audit.
+
+**Dependencies:** Tasks M6.2a-M6.2b
 
 **Estimated scope:** S
 

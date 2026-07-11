@@ -5,6 +5,16 @@ from urllib.parse import unquote, urlsplit
 from fastapi import HTTPException
 
 
+_INLINE_DOCUMENT_TYPES = {
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+
+
 def _positive_int(value):
     try:
         result = int(value)
@@ -79,3 +89,15 @@ def document_local_path(upload_dir, file_url):
     if local_path == root_path:
         raise HTTPException(status_code=409, detail="Некорректный путь локального файла")
     return local_path
+
+
+def document_response_policy(original_name):
+    """Allow inline display only for passive file types selected from a safe extension."""
+    filename = str(original_name or "file").replace("\\", "/").split("/")[-1]
+    filename = "".join(ch for ch in filename if ch >= " " and ch != "\x7f").strip()[:255]
+    if not filename or filename in (".", ".."):
+        filename = "file"
+    media_type = _INLINE_DOCUMENT_TYPES.get(Path(filename).suffix.lower())
+    if media_type:
+        return filename, media_type, "inline"
+    return filename, "application/octet-stream", "attachment"
