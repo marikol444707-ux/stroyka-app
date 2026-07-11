@@ -1377,7 +1377,7 @@
 
 **Description:** Add an explicit protected-preview mode to the shared `PhotoAttachmentField`, but enable it only in the existing ЖПР edit modal. Keep every other caller, upload return contract, stored photo URL, backend route, and S3 ACL unchanged.
 
-**Status:** Deployed in `8805175b`; public and browser verification passed.
+**Status:** Deployed in `8805175b`; production verification passed.
 
 **Acceptance criteria:**
 - [x] `PhotoAttachmentField` defaults to direct rendering, so existing CRM, room, measurement, and master-cabinet callers do not start authenticated Blob requests.
@@ -1392,11 +1392,11 @@
 - [x] Focused Blob-loader, chat, work-journal list, attachment-field, and ЖПР edit suites pass (`5` suites / `18` tests).
 - [x] Intended tracked frontend suite passes (`23` suites / `97` tests); full working-tree suite passes (`24` suites / `102` tests).
 - [x] Production build succeeds.
-- [x] Production runtime reports `8805175bc13d`; public smoke and the director ЖПР edit browser check pass.
-- [x] Existing compatibility S3 photo remains direct at 70x70, opens the enlarged preview, and produces no browser log errors.
-- [x] No backend route changed in this frontend-only slice; the protected endpoint remains covered by the successful M6.2d5 authenticated production smoke, while this rollout intentionally created no new temporary file.
+- [x] Production runtime reports `8805175bc13d`; public smoke and the prorab ЖПР edit browser check pass.
+- [x] Existing compatibility S3 photo remains direct at 70x70 and opens the enlarged preview; the only browser error is an unrelated rate-limit `429` from `/master-profiles`.
+- [x] Authenticated tenant-file smoke passes after this frontend release and cleanup leaves `0` smoke ownership rows; no backend route or business row changed.
 
-**Known follow-up:** This slice makes the ЖПР edit renderer compatible with protected URLs but does not request protected return URLs for new ЖПР uploads. Work-journal ownership/read-write isolation and the remaining photo renderers must be audited before changing the upload contract or S3 ACL.
+**Known follow-up:** This slice makes the ЖПР edit renderer compatible with protected URLs but does not request protected return URLs for new ЖПР uploads. `M6.2d7` enables the same opt-in only in the two master work-submission fields; work-journal ownership/read-write isolation and the remaining photo renderers must still be audited before changing the upload contract or S3 ACL.
 
 **Dependencies:** Tasks M6.2d3 and M6.2d5
 
