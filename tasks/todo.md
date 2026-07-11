@@ -1455,6 +1455,32 @@
 
 **Estimated scope:** S
 
+## Task M6.4b: Legacy Company Message Dry-Run Report
+
+**Description:** Add an operator command that reports how legacy general-chat rows could map to companies without reading message content or changing the database. Do not perform backfill, add constraints, or alter runtime chat behavior in this slice.
+
+**Status:** Implementation and local verification complete; production report pending.
+
+**Acceptance criteria:**
+- [x] `python3 -m backend.features.company_messages.legacy_report` opens a consistent read-only transaction and executes only `SELECT` queries without commit.
+- [x] The report exposes counts and IDs needed for migration review but never returns message text, author names, photo URLs, or other chat content.
+- [x] Candidates are classified as `ready`, `ambiguous`, or `unresolved` from the stored author legacy company and active company memberships.
+- [x] A conflicting active membership fails closed as `ambiguous`; missing author/company data fails closed as `unresolved`.
+- [x] `readyForBackfill` is true only when candidate/count snapshots match and no ambiguous or unresolved rows exist.
+- [x] The command explicitly returns `dryRun=true` and `writesAttempted=0`; routes, schema, stored rows, frontend, and S3 behavior remain unchanged.
+
+**Verification:**
+- [x] Focused company-context and company-message suites pass (`43` tests), including `4` report tests.
+- [x] Clean `HEAD + staged M6.4b` release snapshot passes the full backend suite (`149` tests); unrelated unstaged drafts are excluded from this release verification.
+- [x] Report module compiles; full working-tree frontend suite (`25` suites / `104` tests) and production build pass.
+- [ ] Production command runs in read-only mode, reports the expected one ready legacy row, and before/after database counts remain identical.
+
+**Known follow-up:** Review and save the production report first. A later reversible `M6.4c` may backfill only candidates still classified as `ready`; it must recheck the same ownership conditions inside the write transaction and leave ambiguous rows untouched.
+
+**Dependencies:** Task M6.4a
+
+**Estimated scope:** S
+
 **M6 safety gate:** do not backfill ambiguous legacy rows, do not use project names as authorization identifiers, do not allow mutation in `all_companies`, and do not start the two-company production E2E until M6.0-M6.8 and the preceding M4/M5 gaps are closed.
 
 ## Task M7: Backfill, Constraints, And Pilot Matrix
