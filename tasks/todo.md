@@ -1035,7 +1035,7 @@
 
 **Description:** Bind brigade contract creation to one selected company and canonical project, then authorize update/cancellation from the company already stored on the contract. Keep item, act, pricelist-load, and estimate-distribution writes out of this step.
 
-**Status:** Implemented locally; common production release pending.
+**Status:** Deployed in `8c971801`; public production smoke passed. Authenticated selected-company smoke remains pending.
 
 **Acceptance criteria:**
 - [x] Contract creation requires one selected company and the effective director/deputy role in that company; `all_companies` cannot mutate.
@@ -1058,6 +1058,30 @@
 **Dependencies:** Tasks M5.3a-M5.3b1
 
 **Estimated scope:** S
+
+## Task M5.3b3: Brigade Child Write Isolation
+
+**Description:** Authorize pricelist loading, contract-item mutations, brigade acts, and estimate distribution through their stored parent company and canonical project.
+
+**Status:** Implemented and pushed in `5fac950e` and `854da456`; production release pending.
+
+**Acceptance criteria:**
+- [x] Explicit pricelist loading resolves and locks the parent contract, requires the effective selected-company role, and reads estimate quantities only from the same `company_id + project_id`.
+- [x] Contract-item create/update/delete resolves the parent contract before mutation and rejects a package that differs from the contract package.
+- [x] Estimate distribution resolves the stored estimate company, requires a canonical project ID, and creates contracts with that same company/project identity.
+- [x] Contractor lookup and scope grants during distribution stay inside the selected company membership.
+- [x] Brigade act creation resolves and locks the parent contract and derives company, project, brigade, package, and available amount from server data.
+- [x] Client-supplied company/project names are routing hints only and cannot move a child row to another tenant.
+
+**Verification:**
+- [x] Backend compile passes.
+- [x] All backend feature tests pass (`89` tests).
+- [x] Staged diffs contain only the intended brigade child-write routes.
+- [ ] Production deploy and authenticated selected-company brigade smoke pass.
+
+**Dependencies:** Tasks M5.3a-M5.3b2
+
+**Estimated scope:** M
 
 ## Task M6: Remaining Tenant-Owned Domains
 
