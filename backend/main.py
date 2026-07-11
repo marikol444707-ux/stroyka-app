@@ -3634,6 +3634,21 @@ def init_db():
             change_reason TEXT,
             created_at TIMESTAMP DEFAULT NOW()
         );
+        CREATE TABLE IF NOT EXISTS file_ownership (
+            id SERIAL PRIMARY KEY,
+            company_id INT NOT NULL,
+            project_id INT,
+            file_url TEXT NOT NULL,
+            storage_key TEXT,
+            context VARCHAR(100) DEFAULT 'general',
+            original_name TEXT,
+            content_type VARCHAR(255),
+            uploaded_by_id INT,
+            uploaded_by VARCHAR(255),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_file_ownership_url ON file_ownership(file_url);
+        CREATE INDEX IF NOT EXISTS idx_file_ownership_company_project ON file_ownership(company_id,project_id,id DESC);
         CREATE TABLE IF NOT EXISTS audit_log (
             id SERIAL PRIMARY KEY,
             user_id INT,
@@ -18190,10 +18205,94 @@ async def upload_photo(
     file: UploadFile = File(...),
     projectName: str = Form(default=""),
     project_name: str = Form(default=""),
+    projectId: Optional[int] = Form(default=None),
     context: str = Form(default="general"),
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
     _current_user: dict = Depends(get_current_user),
 ):
-    return save_upload_file(file, projectName or project_name, context)
+    try:
+        from backend.features.document_access.service import (
+            document_storage_namespace,
+            require_document_upload_actor,
+        )
+        from backend.features.project_access.service import resolve_project_parent
+    except ModuleNotFoundError:
+        from features.document_access.service import (
+            document_storage_namespace,
+            require_document_upload_actor,
+        )
+        from features.project_access.service import resolve_project_parent
+    conn = get_db()
+    conn.autocommit = False
+    access_cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        company_context = _resolve_work_company_context(
+            access_cur,
+            _current_user,
+            None,
+            "write",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        actor = require_document_upload_actor(effective_company_actors(_current_user, company_context))
+        company_id = int(actor["companyId"])
+        requested_project_name = (projectName or project_name or "").strip()
+        project = None
+        if projectId or requested_project_name:
+            project = resolve_project_parent(
+                access_cur,
+                actor,
+                project_id=projectId,
+                project_name=requested_project_name,
+            )
+            require_project_access(actor, project["name"])
+        namespace = document_storage_namespace(
+            company_id,
+            (project or {}).get("id"),
+            (project or {}).get("name") or requested_project_name,
+            context,
+        )
+        uploaded = save_upload_file(file, namespace, context)
+        access_cur.execute(
+            """INSERT INTO file_ownership
+                      (company_id,project_id,file_url,storage_key,context,original_name,content_type,
+                       uploaded_by_id,uploaded_by)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+               ON CONFLICT (file_url) DO UPDATE
+                       SET company_id=EXCLUDED.company_id,
+                           project_id=EXCLUDED.project_id,
+                           storage_key=EXCLUDED.storage_key,
+                           context=EXCLUDED.context,
+                           original_name=EXCLUDED.original_name,
+                           content_type=EXCLUDED.content_type,
+                           uploaded_by_id=EXCLUDED.uploaded_by_id,
+                           uploaded_by=EXCLUDED.uploaded_by""",
+            (
+                company_id,
+                (project or {}).get("id"),
+                uploaded.get("url"),
+                uploaded.get("key") or "",
+                context or "general",
+                file.filename or "file",
+                file.content_type or "",
+                _current_user.get("id"),
+                _current_user.get("name") or "",
+            ),
+        )
+        conn.commit()
+        return {
+            **uploaded,
+            "companyId": company_id,
+            "projectId": (project or {}).get("id"),
+            "projectName": (project or {}).get("name") or "",
+        }
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        access_cur.close()
+        conn.close()
 
 @app.get("/room-windows")
 def get_room_windows(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
