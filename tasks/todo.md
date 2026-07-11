@@ -1222,7 +1222,7 @@
 
 **Description:** Close the authorization, storage-integrity, streaming, and cleanup gaps found by an adversarial review of the deployed M6.2c baseline.
 
-**Status:** Implemented locally; production release pending.
+**Status:** Deployed and verified in production through `224238cd`.
 
 **Acceptance criteria:**
 - [x] Restricted roles fail closed when duplicate project names cannot be resolved to their exact assigned `project_id`; upload and download use the same rule.
@@ -1231,12 +1231,12 @@
 - [x] Local/S3 deletion is retryable across database or storage failure and keeps an explicit cleanup state until both sides agree.
 - [x] S3 reads and deletes require HTTPS and reject redirects; reads require a bounded `Content-Length` and close the source on completion or disconnect.
 - [x] Missing, oversized, changed, symlinked, or unavailable storage fails closed.
-- [x] `smoke:tenant-files` verifies exact bytes and confirms the physical compatibility object disappears after deletion; cleanup failure fails the smoke.
+- [x] `smoke:tenant-files` verifies exact bytes and confirms the compatibility URL stops serving the object after deletion; cleanup failure fails the smoke.
 
 **Verification:**
 - [x] Document-access tests pass (`43` tests); project-access tests pass (`11` tests).
 - [x] Full local backend feature discovery passes (`140` tests); backend/smoke compile and frontend production build pass.
-- [ ] Production deploy and authenticated `npm run smoke:tenant-files` pass on the hardened release.
+- [x] Production runtime reports `224238cd`; public smoke and authenticated `npm run smoke:tenant-files` pass, smoke rows are `0`, cleanup statuses are empty, and the temporary user is disabled.
 
 **Dependencies:** Task M6.2c
 
