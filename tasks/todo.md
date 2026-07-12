@@ -1792,7 +1792,7 @@
 
 **Description:** Scope direct `PUT/DELETE /work-journal/{id}` through one selected-company actor, a locked stored journal owner, and the exact project parent. Repeat owner fields in final updates and keep material restoration inside the same company.
 
-**Status:** Implemented locally; release pending. AI prefill, batch creation, rooms, acts, and contracts remain unchanged.
+**Status:** Deployed and verified in production runtime `0f0575f69aaa`. Health, full public smoke, and unauthenticated PUT/DELETE route protection passed. AI prefill, batch creation, rooms, acts, and contracts remain unchanged.
 
 **Dependencies:** Task M6.5c
 
