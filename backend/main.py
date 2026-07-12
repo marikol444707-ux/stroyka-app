@@ -3045,12 +3045,25 @@ def _director_agent_tool_staff(args):
         ],
     }
 
-def _director_agent_tool_ai_tasks(args):
+def _director_agent_tool_ai_tasks(args, company_ids=None):
+    scoped_company_ids = []
+    for value in company_ids or []:
+        try:
+            company_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if company_id > 0 and company_id not in scoped_company_ids:
+            scoped_company_ids.append(company_id)
+    if not scoped_company_ids:
+        return {"openStatusCounts": {}, "tasks": []}
     rows = _director_agent_query(
         """SELECT project_name, title, assigned_role, assigned_to, status, due_date, updated_at
            FROM ai_tasks
-           WHERE COALESCE(status,'') NOT IN ('Закрыто','Отклонено')
-           ORDER BY updated_at DESC, id DESC LIMIT 80"""
+           WHERE owner_scope='company'
+             AND company_id=ANY(%s)
+             AND COALESCE(status,'') NOT IN ('Закрыто','Отклонено')
+           ORDER BY updated_at DESC, id DESC LIMIT 80""",
+        (scoped_company_ids,),
     )
     counts = {}
     for r in rows:
@@ -3192,7 +3205,7 @@ def director_agent_ask(
             return {"answer": "Неизвестный инструмент: " + str(tool), "steps": steps, "model": "yandexgpt-lite"}
         args = parsed.get("args") or {}
         try:
-            if tool == "finances":
+            if tool in ("finances", "ai_tasks"):
                 result = DIRECTOR_AGENT_TOOLS[tool]["fn"](args, request_company_ids)
             else:
                 result = DIRECTOR_AGENT_TOOLS[tool]["fn"](args)
@@ -6251,19 +6264,6 @@ class AiFindingModel(BaseModel):
     assignedRole: str = ""
     assignedTo: str = ""
     status: str = "Новое"
-    dedupeKey: str = ""
-
-class AiTaskModel(BaseModel):
-    findingId: Optional[int] = None
-    projectName: str = ""
-    title: str = ""
-    description: str = ""
-    assignedRole: str = ""
-    assignedTo: str = ""
-    status: str = "Новое"
-    dueDate: str = ""
-    actionLabel: str = ""
-    actionPayload: str = ""
     dedupeKey: str = ""
 
 class ToolModel(BaseModel):
@@ -18025,114 +18025,6 @@ def run_all_ai_control(data: dict = None, current_user: dict = Depends(get_ai_co
         "closed": sum(int(r.get("closed") or 0) for r in results if r.get("ok")),
     }
 
-@app.get("/ai-tasks")
-def list_ai_tasks(project_name: str = None, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    if project_name:
-        require_project_access(current_user, project_name)
-        cur.execute(AI_TASK_SELECT + " WHERE project_name=%s ORDER BY updated_at DESC, id DESC", (project_name,))
-    else:
-        allowed_projects = visible_project_names(current_user)
-        if allowed_projects is not None:
-            if not allowed_projects:
-                cur.close(); conn.close()
-                return []
-            cur.execute(AI_TASK_SELECT + " WHERE project_name = ANY(%s) ORDER BY updated_at DESC, id DESC", (allowed_projects,))
-        elif not can_see_system_tasks(current_user):
-            cur.execute(AI_TASK_SELECT + " WHERE COALESCE(project_name,'')<>%s ORDER BY updated_at DESC, id DESC", (SYSTEM_PROJECT_NAME,))
-        else:
-            cur.execute(AI_TASK_SELECT + " ORDER BY updated_at DESC, id DESC")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [dict(r) for r in rows]
-
-@app.post("/ai-tasks")
-def create_ai_task(data: AiTaskModel, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, *WORKER_EXECUTION_ROLES, "снабженец", "кладовщик"))):
-    payload = data.dict()
-    if not payload.get("projectName"):
-        raise HTTPException(status_code=400, detail="projectName required")
-    project_name = payload.get("projectName")
-    require_project_access(current_user, project_name)
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    action_payload = payload.get("actionPayload") or ""
-    dedupe_key = _ai_task_dedupe_key(payload)
-    if dedupe_key:
-        payload["dedupeKey"] = dedupe_key
-        cur.execute(
-            AI_TASK_SELECT + " WHERE project_name=%s AND dedupe_key=%s AND status NOT IN ('Закрыто','Отклонено') ORDER BY updated_at DESC, id DESC LIMIT 1",
-            (project_name, dedupe_key)
-        )
-        existing = cur.fetchone()
-        if existing:
-            _close_duplicate_ai_tasks(cur, project_name, dedupe_key, existing["id"], current_user.get("name") or "system")
-            cur.close(); conn.close()
-            return dict(existing)
-    marker = ""
-    marker_prefixes = ("ESTIMATE_NORM_REVIEW:", "ESTIMATE_DIFF_REVIEW:", "ESTIMATE_CHANGE_RECONCILE:")
-    if any(prefix in action_payload for prefix in marker_prefixes):
-        try:
-            marker = json.loads(action_payload).get("marker") or ""
-        except Exception:
-            for prefix in marker_prefixes:
-                if prefix in action_payload:
-                    marker = action_payload[action_payload.find(prefix):].split('"')[0].split("'")[0].split()[0]
-                    break
-    if marker:
-        cur.execute(
-            AI_TASK_SELECT + " WHERE project_name=%s AND action_payload LIKE %s AND status NOT IN ('Закрыто','Отклонено') ORDER BY updated_at DESC, id DESC LIMIT 1",
-            (project_name, "%"+marker+"%")
-        )
-        existing = cur.fetchone()
-        if existing:
-            cur.close(); conn.close()
-            return dict(existing)
-    task_id = _insert_ai_task(cur, payload, current_user)
-    cur.execute(AI_TASK_SELECT + " WHERE id=%s", (task_id,))
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return dict(row)
-
-@app.put("/ai-tasks/{id}")
-def update_ai_task(id: int, data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    require_row_project_access(cur, "ai_tasks", id, current_user, "project_name")
-    editable = {
-        "title": "title",
-        "description": "description",
-        "assignedRole": "assigned_role",
-        "assignedTo": "assigned_to",
-        "status": "status",
-        "dueDate": "due_date",
-        "actionLabel": "action_label",
-        "actionPayload": "action_payload",
-    }
-    sets, vals = [], []
-    for js_key, db_col in editable.items():
-        if js_key in data:
-            if js_key == "dueDate":
-                sets.append(db_col + "=NULLIF(%s,'')::date")
-            else:
-                sets.append(db_col + "=%s")
-            vals.append(data[js_key] or "")
-    if data.get("status") in ("Принято к исполнению", "В работе"):
-        sets.append("accepted_by=%s")
-        vals.append(current_user.get("name") or "")
-        sets.append("accepted_at=COALESCE(accepted_at,NOW())")
-    if data.get("status") in ("Закрыто", "Отклонено", "Исправлено"):
-        sets.append("closed_by=%s")
-        vals.append(current_user.get("name") or "")
-        sets.append("closed_at=NOW()")
-    if sets:
-        vals.append(id)
-        cur.execute("UPDATE ai_tasks SET " + ", ".join(sets) + ", updated_at=NOW() WHERE id=%s", vals)
-    cur.execute(AI_TASK_SELECT + " WHERE id=%s", (id,))
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return dict(row)
-
 @app.get("/tools")
 def get_tools(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     conn = get_db()
@@ -29733,6 +29625,28 @@ register_ai_findings_module(app, {
     "full_view_roles": ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик"),
     "finding_select": AI_FINDING_SELECT,
     "upsert_finding": lambda cur, payload, actor, project: _upsert_ai_finding(cur, payload, actor, project)[0],
+})
+
+try:
+    from backend.features.ai_tasks import register_ai_tasks_module
+except ModuleNotFoundError:
+    from features.ai_tasks import register_ai_tasks_module
+
+register_ai_tasks_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "read_roles": PROJECT_DOCUMENT_ROLES,
+    "write_roles": (*PROJECT_DOCUMENT_WRITE_ROLES, *WORKER_EXECUTION_ROLES, "снабженец", "кладовщик"),
+    "update_roles": PROJECT_DOCUMENT_ROLES,
+    "full_view_roles": ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик"),
+    "platform_task_roles": PLATFORM_STAFF_ROLES,
+    "task_select": AI_TASK_SELECT,
+    "insert_task": lambda cur, payload, actor, owner: _insert_ai_task(cur, payload, actor, owner),
+    "close_duplicates": _close_duplicate_ai_tasks,
+    "dedupe_key": _ai_task_dedupe_key,
+    "system_project_name": SYSTEM_PROJECT_NAME,
 })
 
 try:
