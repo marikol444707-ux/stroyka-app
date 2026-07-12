@@ -2164,7 +2164,7 @@
 
 **Description:** Add nullable `company_id/project_id` to `ai_findings` and guarded-backfill every row through its exact project plus any supported linked entity. Keep findings CRUD, AI-control, dedupe, tasks, and business payloads unchanged.
 
-**Status:** Implemented locally. Production must run `npm run audit:ai-findings-ownership`, apply only its exact ready count and plan SHA-256, then repeat the audit before findings runtime changes.
+**Status:** Completed in production. Guarded apply updated `1342/1342` rows without conflicts; the repeated audit is strict-ready with no legacy or review rows.
 
 **Safety:**
 - Dry-run uses a PostgreSQL read-only transaction and never selects finding title, description, suggested action, or assignment content.
@@ -2172,3 +2172,17 @@
 - The batch update is followed by full project/entity/stored-owner reclassification before commit.
 
 **Estimated scope:** S
+
+## Task M6.6c2: Scope AI Findings Runtime
+
+**Description:** Scope finding list/create/update and internal finding upsert/dedupe/stale-close through stored company/project ownership. Keep AI task/report/attachment ownership and run-all orchestration for their later independent slices.
+
+**Status:** Implemented locally. Production deployment and protected tenant smoke are pending.
+
+**Safety:**
+- Every request resolves one selected company and one effective company role before finding SQL.
+- List and direct-ID updates use stored `company_id/project_id`; a foreign finding ID returns `404`.
+- New and deduplicated findings always persist the resolved owner; supported linked entities must resolve to the same owner.
+- Automatic name-only execution fails closed when the project owner is not globally unique.
+
+**Estimated scope:** M

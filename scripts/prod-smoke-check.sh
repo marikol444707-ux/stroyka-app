@@ -144,6 +144,7 @@ check_not_spa_fallback "estimate chat history route" "$BASE_URL/estimates/1/chat
 check_not_spa_fallback "estimate chat post route" "$BASE_URL/estimate-chat" "405"
 check_not_spa_fallback "project AI summary route" "$BASE_URL/project-ai-summary/smoke" "401 403"
 check_not_spa_fallback "project AI summary post route" "$BASE_URL/project-ai-summary" "405"
+check_not_spa_fallback "AI findings route" "$BASE_URL/ai-findings" "401 403"
 
 if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
   login_payload="$(python3 -c 'import json,os; print(json.dumps({"email": os.environ["SMOKE_EMAIL"], "password": os.environ["SMOKE_PASSWORD"]}, ensure_ascii=False))')"
@@ -197,6 +198,7 @@ if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
       "/unexpected-works"
       "/supervisor-acts"
       "/expenses"
+      "/ai-findings"
       "/ai-tasks"
     )
     for path in "${protected_paths[@]}"; do

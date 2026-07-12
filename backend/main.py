@@ -5173,6 +5173,8 @@ def init_db():
             WHERE company_id IS NOT NULL AND project_id IS NOT NULL;
         CREATE TABLE IF NOT EXISTS ai_findings (
             id SERIAL PRIMARY KEY,
+            company_id INT,
+            project_id INT,
             project_name VARCHAR(255),
             finding_type VARCHAR(100) DEFAULT 'rule',
             category VARCHAR(100) DEFAULT 'Общее',
@@ -5192,6 +5194,11 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE ai_findings ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE ai_findings ADD COLUMN IF NOT EXISTS project_id INT;
+        CREATE INDEX IF NOT EXISTS idx_ai_findings_company_id ON ai_findings(company_id);
+        CREATE INDEX IF NOT EXISTS idx_ai_findings_project_id ON ai_findings(project_id);
+        CREATE INDEX IF NOT EXISTS idx_ai_findings_owner_status ON ai_findings(company_id,project_id,status);
         CREATE INDEX IF NOT EXISTS idx_ai_findings_project ON ai_findings(project_name);
         CREATE INDEX IF NOT EXISTS idx_ai_findings_status ON ai_findings(status);
         CREATE INDEX IF NOT EXISTS idx_ai_findings_dedupe ON ai_findings(project_name, dedupe_key);
@@ -17121,78 +17128,25 @@ def _ensure_ai_task_for_finding(cur, finding_id: int, finding: dict, current_use
         "dedupeKey": dedupe_key,
     }, current_user)
 
-def _upsert_ai_finding(cur, finding: dict, current_user: dict):
+def _upsert_ai_finding(cur, finding: dict, current_user: dict, project_owner: dict = None):
+    try:
+        from backend.features.ai_findings.service import resolve_project_owner, upsert_finding
+    except ModuleNotFoundError:
+        from features.ai_findings.service import resolve_project_owner, upsert_finding
     project_name = finding.get("projectName") or ""
-    require_project_access(current_user, project_name)
-    assignment = _normalize_ai_assignment(
+    if project_owner is None:
+        require_project_access(current_user, project_name)
+        owner = resolve_project_owner(cur, project_name)
+    else:
+        owner = project_owner
+    return upsert_finding(
         cur,
-        project_name,
-        finding.get("assignedRole") or "",
-        finding.get("assignedTo") or "",
+        finding,
+        current_user,
+        owner,
+        normalize_assignment=_normalize_ai_assignment,
+        ensure_task=_ensure_ai_task_for_finding,
     )
-    finding = {**finding, "assignedRole": assignment.get("assignedRole") or "", "assignedTo": assignment.get("assignedTo") or ""}
-    dedupe_key = finding.get("dedupeKey") or ""
-    if dedupe_key:
-        cur.execute("""
-            SELECT id FROM ai_findings
-            WHERE project_name=%s AND dedupe_key=%s AND status NOT IN ('Закрыто','Отклонено')
-            LIMIT 1
-        """, (project_name, dedupe_key))
-        row = cur.fetchone()
-        if row:
-            finding_id = row["id"] if isinstance(row, dict) else row[0]
-            cur.execute("""
-                UPDATE ai_findings
-                SET finding_type=%s, category=%s, severity=%s, title=%s, description=%s,
-                    source=%s, linked_entity_type=%s, linked_entity_id=%s,
-                    suggested_action=%s, assigned_role=%s, assigned_to=%s,
-                    updated_at=NOW()
-                WHERE id=%s
-            """, (
-                finding.get("findingType") or "rule",
-                finding.get("category") or "Общее",
-                finding.get("severity") or "Проверить",
-                finding.get("title") or "",
-                finding.get("description") or "",
-                finding.get("source") or "system_rules",
-                finding.get("linkedEntityType") or "",
-                finding.get("linkedEntityId") or "",
-                finding.get("suggestedAction") or "",
-                finding.get("assignedRole") or "",
-                finding.get("assignedTo") or "",
-                finding_id,
-            ))
-            _ensure_ai_task_for_finding(cur, finding_id, finding, current_user)
-            return finding_id, False
-    cur.execute("""
-        INSERT INTO ai_findings (
-            project_name, finding_type, category, severity, title, description, source,
-            linked_entity_type, linked_entity_id, suggested_action, assigned_role,
-            assigned_to, status, dedupe_key, created_by, created_by_id, created_at, updated_at
-        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
-        RETURNING id
-    """, (
-        project_name,
-        finding.get("findingType") or "rule",
-        finding.get("category") or "Общее",
-        finding.get("severity") or "Проверить",
-        finding.get("title") or "",
-        finding.get("description") or "",
-        finding.get("source") or "system_rules",
-        finding.get("linkedEntityType") or "",
-        finding.get("linkedEntityId") or "",
-        finding.get("suggestedAction") or "",
-        finding.get("assignedRole") or "",
-        finding.get("assignedTo") or "",
-        finding.get("status") or "Новое",
-        dedupe_key,
-        current_user.get("name") or "",
-        current_user.get("id"),
-    ))
-    row = cur.fetchone()
-    finding_id = row["id"] if isinstance(row, dict) else row[0]
-    _ensure_ai_task_for_finding(cur, finding_id, finding, current_user)
-    return finding_id, True
 
 def _ai_system_user():
     return {"id": None, "name": "ИИ-контроль", "role": "директор", "assignedProjects": []}
@@ -17351,35 +17305,15 @@ def _upsert_ai_task(cur, data: dict, current_user: dict):
     task_id = _insert_ai_task(cur, data, current_user)
     return task_id, True
 
-def _close_stale_ai_findings(cur, project_name: str, categories: list[str], active_keys: set[str], actor: str = "ИИ-контроль") -> int:
+def _close_stale_ai_findings(cur, project_name: str, categories: list[str], active_keys: set[str], actor: str = "ИИ-контроль", project_owner: dict = None) -> int:
     if not project_name or not categories:
         return 0
-    cur.execute("""
-        SELECT id, dedupe_key
-        FROM ai_findings
-        WHERE project_name=%s
-          AND category = ANY(%s)
-          AND source='system_rules'
-          AND status NOT IN ('Закрыто','Отклонено')
-    """, (project_name, categories))
-    stale_ids = []
-    for row in cur.fetchall() or []:
-        if (row.get("dedupe_key") or "") not in active_keys:
-            stale_ids.append(row.get("id"))
-    if not stale_ids:
-        return 0
-    cur.execute("""
-        UPDATE ai_findings
-        SET status='Закрыто', updated_at=NOW()
-        WHERE id = ANY(%s)
-    """, (stale_ids,))
-    cur.execute("""
-        UPDATE ai_tasks
-        SET status='Закрыто', closed_by=%s, closed_at=NOW(), updated_at=NOW()
-        WHERE finding_id = ANY(%s)
-          AND status NOT IN ('Закрыто','Отклонено')
-    """, (actor, stale_ids))
-    return len(stale_ids)
+    try:
+        from backend.features.ai_findings.service import close_stale_findings, resolve_project_owner
+    except ModuleNotFoundError:
+        from features.ai_findings.service import close_stale_findings, resolve_project_owner
+    owner = project_owner or resolve_project_owner(cur, project_name)
+    return close_stale_findings(cur, owner, categories, active_keys, actor)
 
 def _close_stale_ai_tasks(cur, project_name: str, prefixes: list[str], active_keys: set[str], actor: str = "ИИ-контроль") -> int:
     if not project_name or not prefixes:
@@ -17570,6 +17504,11 @@ def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: 
     if not project_name:
         raise HTTPException(status_code=400, detail="projectName required")
     require_project_access(current_user, project_name)
+    try:
+        from backend.features.ai_findings.service import resolve_project_owner
+    except ModuleNotFoundError:
+        from features.ai_findings.service import resolve_project_owner
+    finding_project_owner = resolve_project_owner(cur, project_name, for_update=True)
     created = updated = tasks_created = tasks_updated = closed = 0
 
     cur.execute("""SELECT id, project, name, floor_area, wall_area, ceiling_area, height, windows, doors, notes, floor, liter, room_type
@@ -17718,12 +17657,12 @@ def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: 
 
     active_finding_keys = {f.get("dedupeKey") for f in findings if f.get("dedupeKey")}
     for finding in findings:
-        _, is_created = _upsert_ai_finding(cur, finding, current_user)
+        _, is_created = _upsert_ai_finding(cur, finding, current_user, finding_project_owner)
         if is_created:
             created += 1
         else:
             updated += 1
-    closed += _close_stale_ai_findings(cur, project_name, ["Помещения", "ЖПР"], active_finding_keys, current_user.get("name") or "ИИ-контроль")
+    closed += _close_stale_ai_findings(cur, project_name, ["Помещения", "ЖПР"], active_finding_keys, current_user.get("name") or "ИИ-контроль", finding_project_owner)
 
     cur.execute("""SELECT id, sections_json, name, version, COALESCE(work_package,'') AS work_package
                    FROM estimates
@@ -17964,89 +17903,6 @@ def _run_project_ai_control_safely(project_name: str, reason: str = "event"):
                 conn.close()
         except Exception:
             pass
-
-@app.get("/ai-findings")
-def list_ai_findings(project_name: str = None, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    if project_name:
-        require_project_access(current_user, project_name)
-        cur.execute(AI_FINDING_SELECT + " WHERE project_name=%s ORDER BY updated_at DESC, id DESC", (project_name,))
-    else:
-        allowed_projects = visible_project_names(current_user)
-        if allowed_projects is not None:
-            if not allowed_projects:
-                cur.close(); conn.close()
-                return []
-            cur.execute(AI_FINDING_SELECT + " WHERE project_name = ANY(%s) ORDER BY updated_at DESC, id DESC", (allowed_projects,))
-        else:
-            cur.execute(AI_FINDING_SELECT + " ORDER BY updated_at DESC, id DESC")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [dict(r) for r in rows]
-
-@app.post("/ai-findings")
-def create_ai_finding(data: AiFindingModel, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, *WORKER_EXECUTION_ROLES))):
-    payload = data.dict()
-    if not payload.get("projectName"):
-        raise HTTPException(status_code=400, detail="projectName required")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    finding_id, _ = _upsert_ai_finding(cur, payload, current_user)
-    cur.execute(AI_FINDING_SELECT + " WHERE id=%s", (finding_id,))
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return dict(row)
-
-@app.put("/ai-findings/{id}")
-def update_ai_finding(id: int, data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    require_row_project_access(cur, "ai_findings", id, current_user, "project_name")
-    editable = {
-        "findingType": "finding_type",
-        "category": "category",
-        "severity": "severity",
-        "title": "title",
-        "description": "description",
-        "source": "source",
-        "linkedEntityType": "linked_entity_type",
-        "linkedEntityId": "linked_entity_id",
-        "suggestedAction": "suggested_action",
-        "assignedRole": "assigned_role",
-        "assignedTo": "assigned_to",
-        "status": "status",
-        "dedupeKey": "dedupe_key",
-    }
-    sets, vals = [], []
-    for js_key, db_col in editable.items():
-        if js_key in data:
-            sets.append(db_col + "=%s")
-            vals.append(data[js_key])
-    if sets:
-        vals.append(id)
-        cur.execute("UPDATE ai_findings SET " + ", ".join(sets) + ", updated_at=NOW() WHERE id=%s", vals)
-        if data.get("status") in ("Закрыто", "Отклонено"):
-            cur.execute("SELECT project_name, dedupe_key FROM ai_findings WHERE id=%s", (id,))
-            finding_row = cur.fetchone()
-            project_name = finding_row["project_name"] if finding_row else ""
-            dedupe_key = finding_row["dedupe_key"] if finding_row else ""
-            params = [data.get("status"), current_user.get("name") or "", id]
-            sql = """
-                UPDATE ai_tasks
-                SET status=%s, closed_by=%s, closed_at=NOW(), updated_at=NOW()
-                WHERE status NOT IN ('Закрыто','Отклонено')
-                  AND (finding_id=%s
-            """
-            if project_name and dedupe_key:
-                sql += " OR (project_name=%s AND dedupe_key=%s)"
-                params.extend([project_name, dedupe_key])
-            sql += ")"
-            cur.execute(sql, params)
-    cur.execute(AI_FINDING_SELECT + " WHERE id=%s", (id,))
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return dict(row)
 
 @app.post("/ai-findings/generate")
 def generate_ai_findings(data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
@@ -29794,6 +29650,24 @@ def create_expense(data: dict, _current_user: dict = Depends(require_roles(*FINA
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
+
+try:
+    from backend.features.ai_findings import register_ai_findings_module
+except ModuleNotFoundError:
+    from features.ai_findings import register_ai_findings_module
+
+register_ai_findings_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "read_roles": PROJECT_DOCUMENT_ROLES,
+    "write_roles": (*PROJECT_DOCUMENT_WRITE_ROLES, *WORKER_EXECUTION_ROLES),
+    "update_roles": PROJECT_DOCUMENT_ROLES,
+    "full_view_roles": ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик"),
+    "finding_select": AI_FINDING_SELECT,
+    "upsert_finding": lambda cur, payload, actor, project: _upsert_ai_finding(cur, payload, actor, project)[0],
+})
 
 try:
     from backend.features.ai_summary import register_ai_summary_module
