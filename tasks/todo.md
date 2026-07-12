@@ -1772,7 +1772,7 @@
 
 **Description:** Change only direct `POST /work-journal` so the server resolves one selected company and exact project parent, then stores the canonical project name and `company_id`.
 
-**Status:** Implemented locally; release pending. Existing-row list/update/delete, AI prefill, batch creation, rooms, acts, and contracts remain unchanged.
+**Status:** Deployed and verified in production runtime `e74dafc5d0f6`. Health, full public smoke, and unauthenticated route protection passed. Existing-row list/update/delete, AI prefill, batch creation, rooms, acts, and contracts remain unchanged.
 
 **Dependencies:** Task M6.5a
 
