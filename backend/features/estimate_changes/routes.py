@@ -50,6 +50,7 @@ def register_estimate_changes_module(app, deps):
     resolve_work_company_context = deps["resolve_work_company_context"]
     effective_company_actors = deps["effective_company_actors"]
     require_project_write_actor = deps["require_project_write_actor"]
+    require_project_row_company = deps["require_project_row_company"]
     resolve_project_parent = deps["resolve_project_parent"]
     require_project_parent_access = deps["require_project_parent_access"]
     resolve_estimate_parent = deps["resolve_estimate_parent"]
@@ -57,12 +58,61 @@ def register_estimate_changes_module(app, deps):
     visibility_filter = deps["visibility_filter"]
     project_document_roles = {str(role or "").strip() for role in deps["project_document_roles"]}
     journal_write_roles = tuple(deps["journal_write_roles"])
+    project_write_roles = tuple(deps["project_write_roles"])
     full_view_roles = tuple(deps["full_view_roles"])
     package_limit_roles = set(deps["package_limit_roles"])
     package_unrestricted_roles = tuple(deps["package_unrestricted_roles"])
     customer_roles = tuple(deps["customer_roles"])
     customer_statuses = tuple(deps["customer_statuses"])
     worker_execution_roles = set(deps["worker_execution_roles"])
+    approved_statuses = set(deps["approved_statuses"])
+    log_audit = deps["log_audit"]
+
+    def mutation_scope(cur, current_user, record_id, action_mode, x_company_id, x_company_mode):
+        company_context = resolve_work_company_context(
+            cur,
+            current_user,
+            None,
+            action_mode,
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        actor = require_project_write_actor(
+            effective_company_actors(current_user, company_context),
+            project_write_roles,
+        )
+        cur.execute(
+            """SELECT id,company_id,project_id,project_name,status,description,unit,quantity,
+                      added_by,change_type
+                 FROM unexpected_works
+                WHERE id=%s
+                FOR UPDATE""",
+            (record_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Запись не найдена")
+
+        stored_company_id = _positive_int(row.get("company_id"))
+        stored_project_id = _positive_int(row.get("project_id"))
+        if not stored_company_id or not stored_project_id:
+            raise HTTPException(status_code=409, detail="Владелец изменения к смете не определён")
+        require_project_row_company(actor, stored_company_id)
+
+        project = resolve_project_parent(
+            cur,
+            actor,
+            project_id=stored_project_id,
+            project_name=str(row.get("project_name") or "").strip(),
+            for_update=True,
+        )
+        require_project_parent_access(cur, actor, project, full_view_roles)
+        if (
+            _positive_int(project.get("companyId") or project.get("company_id")) != stored_company_id
+            or _positive_int(project.get("id")) != stored_project_id
+        ):
+            raise HTTPException(status_code=409, detail="Владелец изменения не совпадает с объектом")
+        return actor, project, row
 
     def read_scope(cur, current_user, x_company_id, x_company_mode):
         company_context = resolve_work_company_context(
@@ -272,6 +322,183 @@ def register_estimate_changes_module(app, deps):
             row = cur.fetchone()
             conn.commit()
             return {"id": _row_id(row), "ok": True}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+
+    @app.put("/unexpected-works/{id}")
+    def update_unexpected_work(
+        id: int,
+        data: dict,
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
+        payload = data or {}
+        included_estimate_id = _optional_id(
+            payload,
+            "includedInEstimateId",
+            "includedInEstimateId",
+        )
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        audit_payload = None
+        response = None
+        try:
+            actor, project, row = mutation_scope(
+                cur,
+                current_user,
+                id,
+                "update",
+                x_company_id,
+                x_company_mode,
+            )
+            company_id = _positive_int(row.get("company_id"))
+            project_id = _positive_int(row.get("project_id"))
+            project_name = str(project.get("name") or "").strip()
+            if included_estimate_id:
+                included_estimate = resolve_estimate_parent(cur, actor, included_estimate_id)
+                _assert_same_project(included_estimate, project, "Смета включения")
+
+            old_status = str(row.get("status") or "")
+            new_status = str(payload.get("status") or "")
+            price = _number(payload.get("price"))
+            total = _number(payload.get("total"))
+            approved_by = str(actor.get("name") or payload.get("approvedBy") or "")
+            approved_at = payload.get("approvedAt", "")
+            cur.execute(
+                """UPDATE unexpected_works SET
+                       status=%s, price=%s, total=%s, approved_by=%s, approved_at=%s,
+                       included_in_estimate_id=COALESCE(%s,included_in_estimate_id),
+                       reason=COALESCE(%s,reason)
+                     WHERE id=%s AND company_id=%s AND project_id=%s
+                     RETURNING id""",
+                (
+                    new_status,
+                    price,
+                    total,
+                    approved_by,
+                    approved_at,
+                    included_estimate_id,
+                    payload.get("reason") if "reason" in payload else None,
+                    id,
+                    company_id,
+                    project_id,
+                ),
+            )
+            if not _row_id(cur.fetchone()):
+                raise HTTPException(status_code=409, detail="Изменение изменилось во время проверки владельца")
+
+            auto_journal_id = None
+            should_create_journal = (
+                new_status in approved_statuses
+                and old_status not in approved_statuses
+                and str(row.get("change_type") or "") != "Исключение объёма"
+            )
+            if should_create_journal:
+                cur.execute("SELECT id FROM work_journal WHERE unexpected_work_id=%s LIMIT 1", (id,))
+                existing = cur.fetchone()
+                description = str(row.get("description") or "").strip()
+                if not existing and description:
+                    cur.execute("SAVEPOINT estimate_change_journal")
+                    try:
+                        from datetime import date
+
+                        cur.execute(
+                            """INSERT INTO work_journal
+                               (company_id,master_id,master_name,project,description,unit,quantity,
+                                price_per_unit,total,date,status,comment,unexpected_work_id)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                               RETURNING id""",
+                            (
+                                company_id,
+                                None,
+                                row.get("added_by") or "(изменение к смете)",
+                                project_name,
+                                description,
+                                row.get("unit") or "шт",
+                                _number(row.get("quantity")),
+                                price,
+                                total,
+                                date.today().isoformat(),
+                                "На проверке",
+                                "Авто-запись по утверждённому изменению к смете №"
+                                + str(id)
+                                + " ("
+                                + str(row.get("change_type") or "Работа вне сметы")
+                                + ")",
+                                id,
+                            ),
+                        )
+                        auto_journal_id = _row_id(cur.fetchone())
+                        cur.execute("RELEASE SAVEPOINT estimate_change_journal")
+                    except Exception as error:
+                        cur.execute("ROLLBACK TO SAVEPOINT estimate_change_journal")
+                        cur.execute("RELEASE SAVEPOINT estimate_change_journal")
+                        print("UNEXPECTED→JOURNAL ERROR:", str(error))
+
+            conn.commit()
+            if new_status != old_status:
+                audit_payload = {
+                    "user_name": actor.get("name") or "—",
+                    "user_role": actor.get("role") or "—",
+                    "action": "status_change",
+                    "entity_type": "unexpected_work",
+                    "entity_id": id,
+                    "description": "Статус: "
+                    + (old_status or "—")
+                    + " → "
+                    + new_status
+                    + ", сумма: "
+                    + str(total)
+                    + " ₽",
+                    "project_name": project_name,
+                }
+            response = {"ok": True, "journalId": auto_journal_id}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+        if audit_payload:
+            log_audit(**audit_payload)
+        return response
+
+    @app.delete("/unexpected-works/{id}")
+    def delete_unexpected_work(
+        id: int,
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            _actor, _project, row = mutation_scope(
+                cur,
+                current_user,
+                id,
+                "delete",
+                x_company_id,
+                x_company_mode,
+            )
+            company_id = _positive_int(row.get("company_id"))
+            project_id = _positive_int(row.get("project_id"))
+            cur.execute(
+                """UPDATE unexpected_works
+                      SET status='Аннулировано'
+                    WHERE id=%s AND company_id=%s AND project_id=%s
+                    RETURNING id""",
+                (id, company_id, project_id),
+            )
+            if not _row_id(cur.fetchone()):
+                raise HTTPException(status_code=409, detail="Изменение изменилось во время проверки владельца")
+            conn.commit()
+            return {"ok": True}
         except Exception:
             conn.rollback()
             raise

@@ -28,6 +28,20 @@ class FakeApp:
 
         return decorator
 
+    def put(self, path):
+        def decorator(handler):
+            self.routes[("PUT", path)] = handler
+            return handler
+
+        return decorator
+
+    def delete(self, path):
+        def decorator(handler):
+            self.routes[("DELETE", path)] = handler
+            return handler
+
+        return decorator
+
 
 class FakeCursor:
     def __init__(self, row=None):
@@ -176,6 +190,7 @@ class EstimateChangeCreateRouteTests(unittest.TestCase):
             "resolve_work_company_context": resolve_context,
             "effective_company_actors": lambda _user, _context: selected_actors,
             "require_project_write_actor": require_write_actor,
+            "require_project_row_company": lambda _actor, company_id: company_id,
             "resolve_project_parent": resolve_project,
             "require_project_parent_access": require_project_access,
             "resolve_estimate_parent": resolve_estimate,
@@ -206,6 +221,7 @@ class EstimateChangeCreateRouteTests(unittest.TestCase):
                 "субподрядчик",
                 "бригадир",
             ),
+            "project_write_roles": ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик"),
             "full_view_roles": (
                 "директор",
                 "зам_директора",
@@ -223,6 +239,8 @@ class EstimateChangeCreateRouteTests(unittest.TestCase):
                 "Включено в новую смету",
             ),
             "worker_execution_roles": ("мастер", "субподрядчик", "бригадир"),
+            "approved_statuses": ("Утверждено", "Утверждено отдельной допработой"),
+            "log_audit": lambda **_kwargs: None,
         })
         return app, calls
 

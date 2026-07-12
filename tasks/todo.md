@@ -1678,6 +1678,59 @@
 
 **Estimated scope:** S
 
+## Task M6.4j: Tenant-Scoped Direct Estimate Change Mutation
+
+**Description:** Move only direct `PUT/DELETE /unexpected-works/{id}` into the estimate-change module. Resolve one effective selected-company writer, lock the stored change row, verify its exact `company_id/project_id` parent, and constrain the final update by the same owner. Keep include/reconcile, estimate-reconciliation, AI, and limit-check routes unchanged.
+
+**Status:** Implemented locally; release pending.
+
+**Acceptance criteria:**
+- [x] `all_companies`, unavailable companies, non-writer effective roles, ownerless rows, and direct IDs from another company fail before any update.
+- [x] The global account role cannot elevate the selected-company membership role.
+- [x] `includedInEstimateId`, when supplied, must belong to the same stored company/project.
+- [x] The final `UPDATE` repeats `id + company_id + project_id` after a locked owner check.
+- [x] Approval-created work-journal rows inherit the change `company_id`; best-effort journal failure uses a savepoint and cannot silently roll back the approved change.
+- [x] Existing response shapes, approval statuses, soft-delete semantics, and visible business fields remain compatible.
+
+**Verification:**
+- [x] Focused tests cover selected-owner mutation, cross-company direct IDs, ownerless rows, aggregate denial, effective-role denial, foreign included estimates, owner-constrained soft delete, inherited journal ownership, and journal-savepoint recovery.
+- [x] Local verification passes: `45` focused estimate-change tests, `231` full backend tests, compile, M6 registry audit, diff check, and production build.
+- [ ] Production verification uses an existing row for read-only negative checks and a controlled test row only when cleanup is guaranteed.
+
+**Dependencies:** Task M6.4i
+
+**Estimated scope:** S
+
+## Task M6.4k: Tenant-Scoped Include And Reconcile Changes
+
+**Description:** Scope `/estimates/{id}/include-changes` and `/estimates/{id}/reconcile-changes` through one verified estimate/project owner. Every selected unexpected-work ID must match that same owner before an estimate version or status is changed.
+
+**Status:** Planned after Task M6.4j.
+
+**Dependencies:** Task M6.4j
+
+**Estimated scope:** M
+
+## Task M6.4l: Tenant-Scoped Estimate Reconciliation
+
+**Description:** Scope estimate-reconciliation list/detail/create/update and unexpected-work candidate reads through verified base/next estimate parents. Project names remain display fields only.
+
+**Status:** Planned after Task M6.4k.
+
+**Dependencies:** Task M6.4k
+
+**Estimated scope:** M
+
+## Task M6.4m: Tenant-Scoped Estimate Change AI And Limit Read
+
+**Description:** Scope direct AI pricing and project limit aggregation by stored owner and selected-company read context. The AI receives only a verified visible row, and limit totals aggregate only the exact stored project owner.
+
+**Status:** Planned after Task M6.4l.
+
+**Dependencies:** Task M6.4l
+
+**Estimated scope:** S
+
 **M6 safety gate:** do not backfill ambiguous legacy rows, do not use project names as authorization identifiers, do not allow mutation in `all_companies`, and do not start the two-company production E2E until M6.0-M6.8 and the preceding M4/M5 gaps are closed.
 
 ## Task M7: Backfill, Constraints, And Pilot Matrix

@@ -18990,6 +18990,7 @@ try:
     from backend.features.estimate_changes.service import estimate_change_visibility_filter
     from backend.features.project_access.service import (
         require_project_parent_access as require_estimate_change_project_access,
+        require_project_row_company as require_estimate_change_row_company,
         require_project_write_actor as require_estimate_change_write_actor,
         resolve_project_parent as resolve_estimate_change_project,
     )
@@ -19001,6 +19002,7 @@ except ModuleNotFoundError:
     from features.estimate_changes.service import estimate_change_visibility_filter
     from features.project_access.service import (
         require_project_parent_access as require_estimate_change_project_access,
+        require_project_row_company as require_estimate_change_row_company,
         require_project_write_actor as require_estimate_change_write_actor,
         resolve_project_parent as resolve_estimate_change_project,
     )
@@ -19011,6 +19013,7 @@ register_estimate_changes_module(app, {
     "resolve_work_company_context": _resolve_work_company_context,
     "effective_company_actors": effective_company_actors,
     "require_project_write_actor": require_estimate_change_write_actor,
+    "require_project_row_company": require_estimate_change_row_company,
     "resolve_project_parent": resolve_estimate_change_project,
     "require_project_parent_access": require_estimate_change_project_access,
     "resolve_estimate_parent": resolve_estimate_change_parent,
@@ -19018,76 +19021,16 @@ register_estimate_changes_module(app, {
     "visibility_filter": estimate_change_visibility_filter,
     "project_document_roles": PROJECT_DOCUMENT_ROLES,
     "journal_write_roles": JOURNAL_WRITE_ROLES,
+    "project_write_roles": (*PROJECT_WRITE_ROLES, *LEADERSHIP_ROLES),
     "full_view_roles": BRIGADE_FULL_VIEW_ROLES,
     "package_limit_roles": PACKAGE_LIMIT_ROLES,
     "package_unrestricted_roles": ("прораб",),
     "customer_roles": ("заказчик",),
     "customer_statuses": ESTIMATE_CHANGE_CUSTOMER_STATUSES,
     "worker_execution_roles": WORKER_EXECUTION_ROLES,
+    "approved_statuses": ESTIMATE_CHANGE_APPROVED_STATUSES,
+    "log_audit": lambda **kwargs: log_audit(**kwargs),
 })
-
-@app.put("/unexpected-works/{id}")
-def update_unexpected_work(id: int, data: dict, current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES, *LEADERSHIP_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    new_status = data.get("status","")
-    price = float(data.get("price",0))
-    total = float(data.get("total",0))
-    # Считываем текущее состояние и описательные поля до апдейта
-    cur.execute("SELECT status, project_name, description, unit, quantity, added_by, change_type FROM unexpected_works WHERE id=%s", (id,))
-    row = cur.fetchone()
-    if not row:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Запись не найдена")
-    require_project_access(current_user, row[1] or "")
-    old_status = row[0] if row else ""
-    cur.execute("""UPDATE unexpected_works SET
-                   status=%s, price=%s, total=%s, approved_by=%s, approved_at=%s,
-                   included_in_estimate_id=COALESCE(%s,included_in_estimate_id),
-                   reason=COALESCE(%s,reason)
-                   WHERE id=%s""",
-        (new_status, price, total, data.get("approvedBy",""), data.get("approvedAt",""),
-         data.get("includedInEstimateId") or None, data.get("reason") if "reason" in data else None, id))
-    # Если изменение стало утверждённой отдельной допработой и записи в журнале ещё нет — авто-создаём.
-    # Статус «Включено в новую смету» в журнал не пишет, чтобы не задвоить объём.
-    auto_journal_id = None
-    if row and new_status in ESTIMATE_CHANGE_APPROVED_STATUSES and old_status not in ESTIMATE_CHANGE_APPROVED_STATUSES and (row[6] or "") != "Исключение объёма":
-        proj, desc, unit, qty, added_by, change_type = row[1] or "", row[2] or "", row[3] or "шт", float(row[4] or 0), row[5] or "", row[6] or "Работа вне сметы"
-        cur.execute("SELECT id FROM work_journal WHERE unexpected_work_id=%s LIMIT 1", (id,))
-        existing = cur.fetchone()
-        if not existing and desc:
-            from datetime import date as _date
-            today = _date.today().isoformat()
-            try:
-                cur.execute("""INSERT INTO work_journal
-                               (master_id, master_name, project, description, unit, quantity, price_per_unit, total, date, status, comment,
-                                unexpected_work_id)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                            (None, added_by or "(изменение к смете)", proj, desc, unit, qty, price, total, today,
-                             "На проверке",
-                             "Авто-запись по утверждённому изменению к смете №"+str(id)+" ("+change_type+")",
-                             id))
-                auto_journal_id = cur.fetchone()[0]
-            except Exception as e:
-                print("UNEXPECTED→JOURNAL ERROR:", str(e))
-    conn.commit()
-    cur.close(); conn.close()
-    if row and new_status != old_status:
-        log_audit(user_name=data.get("approvedBy") or "—", user_role="—",
-                  action="status_change", entity_type="unexpected_work", entity_id=id,
-                  description="Статус: "+(old_status or "—")+" → "+new_status+", сумма: "+str(total)+" ₽",
-                  project_name=row[1] or "")
-    return {"ok": True, "journalId": auto_journal_id}
-
-@app.delete("/unexpected-works/{id}")
-def delete_unexpected_work(id: int, current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES, *LEADERSHIP_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    require_row_project_access(cur, "unexpected_works", id, current_user)
-    cur.execute("UPDATE unexpected_works SET status='Аннулировано' WHERE id=%s", (id,))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True}
 
 @app.post("/parse-smeta")
 async def parse_smeta(file: UploadFile = File(...), _current_user: dict = Depends(get_current_user)):

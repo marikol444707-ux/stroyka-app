@@ -16,6 +16,12 @@ class FakeApp:
     def post(self, path):
         return self._route("POST", path)
 
+    def put(self, path):
+        return self._route("PUT", path)
+
+    def delete(self, path):
+        return self._route("DELETE", path)
+
     def _route(self, method, path):
         def decorator(handler):
             self.routes[(method, path)] = handler
@@ -78,6 +84,7 @@ class EstimateChangeReadRouteTests(unittest.TestCase):
             "resolve_work_company_context": resolve_context,
             "effective_company_actors": lambda _user, _context: list(actors),
             "require_project_write_actor": lambda company_actors, _roles: list(company_actors)[0],
+            "require_project_row_company": lambda _actor, company_id: company_id,
             "resolve_project_parent": lambda _cur, _actor, **_kwargs: {
                 "id": 14,
                 "companyId": 4,
@@ -108,6 +115,7 @@ class EstimateChangeReadRouteTests(unittest.TestCase):
                 "стройконтроль",
             ),
             "journal_write_roles": ("директор", "прораб", "мастер"),
+            "project_write_roles": ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик"),
             "full_view_roles": ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик"),
             "package_limit_roles": ("прораб", "мастер", "субподрядчик", "бригадир"),
             "package_unrestricted_roles": ("прораб",),
@@ -119,6 +127,8 @@ class EstimateChangeReadRouteTests(unittest.TestCase):
                 "Включено в новую смету",
             ),
             "worker_execution_roles": ("мастер", "субподрядчик", "бригадир"),
+            "approved_statuses": ("Утверждено", "Утверждено отдельной допработой"),
+            "log_audit": lambda **_kwargs: None,
         })
         return app.routes[("GET", "/unexpected-works")], calls
 
