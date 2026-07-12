@@ -55,6 +55,131 @@ class MessengerOwnershipReportTests(unittest.TestCase):
         self.assertEqual(report["needsReview"][0]["channelType"], "internal")
         self.assertEqual(report["needsReview"][0]["rowStatus"], "enabled")
 
+    def test_company_level_channel_uses_stored_owner(self):
+        rows = self.base_rows()
+        rows["messenger_channels"] = [
+            {
+                "id": 4,
+                "channel_type": "internal",
+                "project_name": "",
+                "company_id": 1,
+                "project_id": None,
+                "enabled": True,
+            },
+        ]
+
+        report = build_report_from_rows(rows)
+
+        self.assertEqual(report["byTable"]["messenger_channels"]["verified"], 1)
+        self.assertEqual(report["readyByCompany"], {"1": 1})
+        self.assertEqual(report["needsReview"], [])
+
+    def test_channel_outbox_inherits_stored_channel_owner(self):
+        rows = self.base_rows()
+        rows["messenger_channels"] = [
+            {
+                "id": 4,
+                "channel_type": "internal",
+                "project_name": "",
+                "company_id": 1,
+                "project_id": None,
+                "enabled": True,
+            },
+        ]
+        rows["entity_owners"] = [
+            {
+                "entity_type": "messenger_channel",
+                "entity_id": 4,
+                "company_id": 1,
+                "project_id": None,
+                "project_name": "",
+            },
+        ]
+        rows["messenger_outbox"] = [
+            {
+                "id": 11,
+                "entity_type": "messenger_channel",
+                "entity_id": 4,
+                "status": "sent",
+            },
+        ]
+
+        report = build_report_from_rows(rows)
+
+        self.assertEqual(report["summary"]["verified"], 2)
+        self.assertEqual(report["readyByCompany"], {"1": 2})
+        self.assertEqual(report["needsReview"], [])
+
+    def test_stored_channel_project_must_belong_to_stored_company(self):
+        rows = self.base_rows()
+        rows["messenger_channels"] = [
+            {
+                "id": 4,
+                "channel_type": "object",
+                "project_name": "Объект A",
+                "company_id": 2,
+                "project_id": 10,
+                "enabled": True,
+            },
+        ]
+
+        report = build_report_from_rows(rows)
+
+        self.assertEqual(report["summary"]["mismatched"], 1)
+        self.assertEqual(report["needsReview"][0]["reason"], "channel_project_company_mismatch")
+
+    def test_production_channel_shape_leaves_only_deleted_supply_parents(self):
+        rows = self.base_rows()
+        channel_ids = (10, 17, 18, 27)
+        rows["messenger_channels"] = [
+            {
+                "id": channel_id,
+                "channel_type": "internal",
+                "project_name": "",
+                "company_id": 1,
+                "project_id": None,
+                "enabled": True,
+            }
+            for channel_id in channel_ids
+        ]
+        rows["entity_owners"] = [
+            {
+                "entity_type": "messenger_channel",
+                "entity_id": channel_id,
+                "company_id": 1,
+                "project_id": None,
+                "project_name": "",
+            }
+            for channel_id in (17, 18, 27)
+        ]
+        rows["messenger_outbox"] = [
+            {
+                "id": outbox_id,
+                "entity_type": "messenger_channel",
+                "entity_id": channel_id,
+                "status": "sent",
+            }
+            for outbox_id, channel_id in ((26, 17), (27, 18), (28, 27))
+        ] + [
+            {
+                "id": outbox_id,
+                "entity_type": "supply_request",
+                "entity_id": request_id,
+                "status": "failed",
+            }
+            for outbox_id, request_id in ((30, 825), (32, 829), (34, 833), (36, 837), (38, 841))
+        ]
+
+        report = build_report_from_rows(rows)
+
+        self.assertEqual(
+            report["summary"],
+            {"totalRows": 12, "verified": 7, "ambiguous": 0, "unresolved": 5, "mismatched": 0},
+        )
+        self.assertEqual(report["byTable"]["messenger_channels"]["verified"], 4)
+        self.assertEqual(report["byTable"]["messenger_outbox"]["verified"], 3)
+        self.assertEqual({item["reason"] for item in report["needsReview"]}, {"entity_parent_not_found"})
+
     def test_recipient_company_disambiguates_duplicate_project_name(self):
         rows = self.base_rows()
         rows["projects"].append({"id": 30, "company_id": 2, "name": "Объект A"})

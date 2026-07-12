@@ -181,8 +181,45 @@ def _classification(table, row, status, reason, owner=None):
     }
 
 
-def classify_channel(row, projects_by_name):
+def classify_channel(row, projects_by_id, projects_by_name):
     item = dict(row or {})
+    company_id = _positive_int(item.get("company_id"))
+    project_id = _positive_int(item.get("project_id"))
+    if project_id:
+        project_owner = projects_by_id.get(project_id)
+        if not project_owner:
+            result = _classification(
+                "messenger_channels", item, "unresolved", "channel_project_not_found"
+            )
+        elif not company_id:
+            result = _classification(
+                "messenger_channels", item, "unresolved", "channel_company_owner_missing"
+            )
+        elif company_id != project_owner["companyId"]:
+            result = _classification(
+                "messenger_channels", item, "mismatched", "channel_project_company_mismatch"
+            )
+        else:
+            result = _classification(
+                "messenger_channels",
+                item,
+                "verified",
+                "verified_stored_channel_owner",
+                dict(project_owner, source="stored_channel_owner"),
+            )
+        result["recipientCompanyIds"] = []
+        return result
+    if company_id:
+        result = _classification(
+            "messenger_channels",
+            item,
+            "verified",
+            "verified_stored_channel_owner",
+            _owner(company_id, None, "stored_channel_owner"),
+        )
+        result["recipientCompanyIds"] = []
+        return result
+
     project_name = str(item.get("project_name") or "").strip()
     if not project_name:
         result = _classification("messenger_channels", item, "unresolved", "channel_owner_missing")
@@ -265,7 +302,7 @@ def build_report_from_rows(rows):
         for table in MESSENGER_ITEM_TABLES
     }
     classified_by_table["messenger_channels"] = [
-        classify_channel(row, projects_by_name)
+        classify_channel(row, projects_by_id, projects_by_name)
         for row in rows.get("messenger_channels", []) or []
     ]
     classified = [item for table in TABLES for item in classified_by_table[table]]
@@ -346,7 +383,10 @@ def load_ownership_rows(cur):
     rows["staff"] = [dict(row or {}) for row in (cur.fetchall() or [])]
     cur.execute("SELECT id,user_id,staff_id FROM messenger_accounts ORDER BY id")
     rows["messenger_accounts"] = [dict(row or {}) for row in (cur.fetchall() or [])]
-    cur.execute("SELECT id,channel_type,project_name,enabled,created_at FROM messenger_channels ORDER BY id")
+    cur.execute(
+        "SELECT id,channel_type,project_name,company_id,project_id,enabled,created_at "
+        "FROM messenger_channels ORDER BY id"
+    )
     rows["messenger_channels"] = [dict(row or {}) for row in (cur.fetchall() or [])]
     cur.execute(
         "SELECT id,messenger_account_id,user_id,staff_id,project_name,entity_type,entity_id,created_at "
@@ -372,7 +412,7 @@ def load_ownership_rows(cur):
                    SELECT 'marketing_publication',mp.id,NULL::INT,mp.project_id,p.name
                      FROM marketing_publications mp LEFT JOIN projects p ON p.id=mp.project_id
                    UNION ALL
-                   SELECT 'messenger_channel',mc.id,NULL::INT,NULL::INT,mc.project_name
+                   SELECT 'messenger_channel',mc.id,mc.company_id,mc.project_id,mc.project_name
                      FROM messenger_channels mc
                    ORDER BY entity_type,entity_id"""
     )

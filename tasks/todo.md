@@ -2340,7 +2340,7 @@
 
 **Description:** Make supply-chain cleanup remove MAX outbox rows for every request created by the smoke before deleting the request parents.
 
-**Status:** Implemented and tested locally. Production release is pending.
+**Status:** Released in `9991ee5d`. Production cleanup verification remains grouped with the next supply-chain smoke.
 
 **Safety:**
 - Cleanup targets only `provider='max'`, `entity_type='supply_request'` and the exact request IDs created by the current smoke.
@@ -2353,7 +2353,7 @@
 
 **Description:** Add nullable `company_id/project_id` to messenger channels and backfill only exact project owners or explicit operator-provided channel mappings.
 
-**Status:** Implemented and tested locally. Production dry-run with an explicit channel map is pending.
+**Status:** Production migration completed: all four internal channels store company `1`, no project owner, no legacy/review/mismatch rows; the guarded post-audit is strict-ready.
 
 **Safety:**
 - Dry-run is read-only; apply requires exact ready count, SHA-256 plan and `APPLY_MESSENGER_CHANNEL_OWNERSHIP` confirmation.
@@ -2363,3 +2363,17 @@
 - Runtime routes and outbox rows remain unchanged until the stored channel-owner post-check is clean.
 
 **Estimated scope:** M
+
+## Task M6.7c: Consume Stored Channel Ownership In Messenger Audit
+
+**Description:** Make the existing read-only messenger ownership report prefer stored channel company/project ownership and pass it to channel-linked outbox rows.
+
+**Status:** Implemented and tested locally. Production release is pending.
+
+**Safety:**
+- Runtime webhook, channel CRUD, outbox writes and dispatch remain unchanged.
+- Stored project ownership is revalidated against the exact project company before it is accepted.
+- Legacy project-name inference remains available only for channels without stored ownership.
+- Five failed outbox rows with deleted supply parents remain unresolved and visible; this slice does not delete, retry or relabel them.
+
+**Estimated scope:** XS
