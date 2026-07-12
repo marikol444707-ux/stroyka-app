@@ -31,6 +31,13 @@ def _row_id(row):
     return None
 
 
+def _number(value):
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def register_estimate_reconciliations_module(app, deps):
     get_db = deps["get_db"]
     get_current_user = deps["get_current_user"]
@@ -47,7 +54,6 @@ def register_estimate_reconciliations_module(app, deps):
     add_change_items = deps["add_change_items"]
     item_payload = deps["item_payload"]
     reconciliation_payload = deps["reconciliation_payload"]
-    safe_float = deps["safe_float"]
     log_audit = deps["log_audit"]
     document_roles = tuple(deps["document_roles"])
     estimate_write_roles = tuple(deps["estimate_write_roles"])
@@ -342,13 +348,13 @@ def register_estimate_reconciliations_module(app, deps):
                         source.get("section") or "",
                         source.get("name") or "",
                         source.get("unit") or "",
-                        safe_float((base_row or {}).get("qty")),
-                        safe_float((next_row or {}).get("qty")),
-                        safe_float((base_row or {}).get("unitPrice")),
-                        safe_float((next_row or {}).get("unitPrice")),
-                        safe_float((base_row or {}).get("sum")),
-                        safe_float((next_row or {}).get("sum")),
-                        safe_float(row.get("impact")),
+                        _number((base_row or {}).get("qty")),
+                        _number((next_row or {}).get("qty")),
+                        _number((base_row or {}).get("unitPrice")),
+                        _number((next_row or {}).get("unitPrice")),
+                        _number((base_row or {}).get("sum")),
+                        _number((next_row or {}).get("sum")),
+                        _number(row.get("impact")),
                         {
                             "changed": "Проверить изменение объёма/цены",
                             "added": "Проверить новую позицию",

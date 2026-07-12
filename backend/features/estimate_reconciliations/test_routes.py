@@ -175,7 +175,6 @@ class EstimateReconciliationRouteTests(unittest.TestCase):
                 "id": row[0],
                 **({"items": items} if items is not None else {}),
             },
-            "safe_float": lambda value: float(value or 0),
             "log_audit": lambda **_kwargs: None,
             "document_roles": ("директор", "прораб", "заказчик"),
             "estimate_write_roles": ("директор", "прораб", "сметчик"),

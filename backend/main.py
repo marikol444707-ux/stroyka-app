@@ -20666,7 +20666,6 @@ register_estimate_reconciliations_module(app, {
     "add_change_items": _estimate_reconciliation_change_items,
     "item_payload": _estimate_reconciliation_item_payload,
     "reconciliation_payload": _estimate_reconciliation_payload,
-    "safe_float": _safe_float,
     "log_audit": lambda **kwargs: log_audit(**kwargs),
     "document_roles": PROJECT_DOCUMENT_ROLES,
     "estimate_write_roles": ESTIMATE_WRITE_ROLES,
