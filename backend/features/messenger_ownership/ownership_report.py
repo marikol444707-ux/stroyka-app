@@ -7,7 +7,8 @@ import psycopg2.extras
 
 
 PREVIEW_LIMIT = 100
-TABLES = ("messenger_files", "messenger_outbox")
+TABLES = ("messenger_channels", "messenger_files", "messenger_outbox")
+MESSENGER_ITEM_TABLES = ("messenger_files", "messenger_outbox")
 SUPPORTED_ENTITY_TYPES = {
     "ai_task",
     "marketing_publication",
@@ -162,15 +163,40 @@ def _dedupe_owners(owners):
 
 def _classification(table, row, status, reason, owner=None):
     owner = owner or {}
+    row_status = str(row.get("status") or "").strip()
+    if table == "messenger_channels":
+        row_status = "enabled" if row.get("enabled") is not False else "disabled"
     return {
         "table": table,
         "recordId": _positive_int(row.get("id")),
         "entityType": str(row.get("entity_type") or "").strip(),
+        "entityId": _positive_int(row.get("entity_id")),
+        "channelType": str(row.get("channel_type") or "").strip(),
+        "rowStatus": row_status,
+        "createdAt": str(row.get("created_at") or ""),
         "companyId": owner.get("companyId") if status == "verified" else None,
         "projectId": owner.get("projectId") if status == "verified" else None,
         "status": status,
         "reason": reason,
     }
+
+
+def classify_channel(row, projects_by_name):
+    item = dict(row or {})
+    project_name = str(item.get("project_name") or "").strip()
+    if not project_name:
+        result = _classification("messenger_channels", item, "unresolved", "channel_owner_missing")
+        result["recipientCompanyIds"] = []
+        return result
+    owners = _dedupe_owners(projects_by_name.get(project_name, []))
+    if not owners:
+        result = _classification("messenger_channels", item, "unresolved", "channel_project_not_found")
+    elif len(owners) > 1:
+        result = _classification("messenger_channels", item, "ambiguous", "channel_project_ambiguous")
+    else:
+        result = _classification("messenger_channels", item, "verified", "verified_channel_project", owners[0])
+    result["recipientCompanyIds"] = []
+    return result
 
 
 def classify_row(table, row, projects_by_name, entities, user_companies, staff_companies, accounts):
@@ -236,8 +262,12 @@ def build_report_from_rows(rows):
             )
             for row in rows.get(table, []) or []
         ]
-        for table in TABLES
+        for table in MESSENGER_ITEM_TABLES
     }
+    classified_by_table["messenger_channels"] = [
+        classify_channel(row, projects_by_name)
+        for row in rows.get("messenger_channels", []) or []
+    ]
     classified = [item for table in TABLES for item in classified_by_table[table]]
     counts = Counter(item["status"] for item in classified)
     review = [item for item in classified if item["status"] != "verified"]
@@ -248,8 +278,13 @@ def build_report_from_rows(rows):
     )
     entity_types = Counter(
         table + ":" + (str((row or {}).get("entity_type") or "").strip() or "(none)")
-        for table in TABLES
+        for table in MESSENGER_ITEM_TABLES
         for row in (rows.get(table, []) or [])
+    )
+    row_statuses = Counter(
+        item["table"] + ":" + item["rowStatus"]
+        for item in classified
+        if item.get("rowStatus")
     )
     by_table = {}
     for table in TABLES:
@@ -280,12 +315,17 @@ def build_report_from_rows(rows):
         },
         "byTable": by_table,
         "byEntityType": dict(sorted(entity_types.items())),
+        "byStatus": dict(sorted(row_statuses.items())),
         "readyByCompany": dict(sorted(ready_by_company.items())),
         "needsReview": [
             {
                 "table": item["table"],
                 "recordId": item["recordId"],
                 "entityType": item["entityType"],
+                "entityId": item["entityId"],
+                "channelType": item["channelType"],
+                "rowStatus": item["rowStatus"],
+                "createdAt": item["createdAt"],
                 "recipientCompanyIds": item["recipientCompanyIds"],
                 "status": item["status"],
                 "reason": item["reason"],
@@ -306,13 +346,15 @@ def load_ownership_rows(cur):
     rows["staff"] = [dict(row or {}) for row in (cur.fetchall() or [])]
     cur.execute("SELECT id,user_id,staff_id FROM messenger_accounts ORDER BY id")
     rows["messenger_accounts"] = [dict(row or {}) for row in (cur.fetchall() or [])]
+    cur.execute("SELECT id,channel_type,project_name,enabled,created_at FROM messenger_channels ORDER BY id")
+    rows["messenger_channels"] = [dict(row or {}) for row in (cur.fetchall() or [])]
     cur.execute(
-        "SELECT id,messenger_account_id,user_id,staff_id,project_name,entity_type,entity_id "
+        "SELECT id,messenger_account_id,user_id,staff_id,project_name,entity_type,entity_id,created_at "
         "FROM messenger_files ORDER BY id"
     )
     rows["messenger_files"] = [dict(row or {}) for row in (cur.fetchall() or [])]
     cur.execute(
-        "SELECT id,messenger_account_id,user_id,staff_id,entity_type,entity_id "
+        "SELECT id,messenger_account_id,user_id,staff_id,entity_type,entity_id,status,created_at "
         "FROM messenger_outbox ORDER BY id"
     )
     rows["messenger_outbox"] = [dict(row or {}) for row in (cur.fetchall() or [])]

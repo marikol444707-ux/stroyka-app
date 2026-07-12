@@ -2313,7 +2313,7 @@
 
 **Description:** Separate supported-but-deleted parents from unknown entity types and show recipient-company candidates without treating them as verified ownership.
 
-**Status:** Implemented and tested locally. Production report rerun is pending.
+**Status:** Production rerun confirmed `5` supported-but-deleted supply parents and `3` channels without owner; every row has an empty recipient-company candidate list.
 
 **Safety:**
 - The report remains read-only and does not inspect payload or message content.
@@ -2321,3 +2321,17 @@
 - `recipientCompanyIds` is diagnostic evidence only and cannot make an orphaned entity row migration-ready.
 
 **Estimated scope:** XS
+
+## Task M6.7a2: Audit Messenger Channels And Queue State
+
+**Description:** Treat messenger channels as tenant parents, report their project ownership and expose only operational outbox state needed for a safe migration decision.
+
+**Status:** Implemented and tested locally. Production audit is pending.
+
+**Safety:**
+- Channel audit reads only ID, type, project name, enabled state and timestamp; chat IDs, titles and metadata stay unread.
+- Outbox diagnostics add only entity ID, status and timestamp; message title/body/payload remain unread.
+- `messenger_accounts` is recorded as a shared identity resolved through selected-company memberships, not forced into one company.
+- No old outbox row is deleted, retried or linked by this audit.
+
+**Estimated scope:** S

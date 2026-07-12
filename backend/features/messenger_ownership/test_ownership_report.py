@@ -15,6 +15,7 @@ class MessengerOwnershipReportTests(unittest.TestCase):
             "user_company_roles": [],
             "staff": [],
             "messenger_accounts": [],
+            "messenger_channels": [],
             "entity_owners": [],
             "messenger_files": [],
             "messenger_outbox": [],
@@ -29,6 +30,30 @@ class MessengerOwnershipReportTests(unittest.TestCase):
         self.assertEqual(report["summary"]["verified"], 1)
         self.assertEqual(report["readyByCompany"], {"1": 1})
         self.assertEqual(report["needsReview"], [])
+
+    def test_channel_uses_unique_project_owner(self):
+        rows = self.base_rows()
+        rows["messenger_channels"] = [
+            {"id": 3, "channel_type": "object", "project_name": "Объект A", "enabled": True},
+        ]
+
+        report = build_report_from_rows(rows)
+
+        self.assertEqual(report["byTable"]["messenger_channels"]["verified"], 1)
+        self.assertEqual(report["readyByCompany"], {"1": 1})
+
+    def test_company_level_channel_without_owner_requires_review(self):
+        rows = self.base_rows()
+        rows["messenger_channels"] = [
+            {"id": 4, "channel_type": "internal", "project_name": "", "enabled": True},
+        ]
+
+        report = build_report_from_rows(rows)
+
+        self.assertEqual(report["summary"]["unresolved"], 1)
+        self.assertEqual(report["needsReview"][0]["reason"], "channel_owner_missing")
+        self.assertEqual(report["needsReview"][0]["channelType"], "internal")
+        self.assertEqual(report["needsReview"][0]["rowStatus"], "enabled")
 
     def test_recipient_company_disambiguates_duplicate_project_name(self):
         rows = self.base_rows()
@@ -87,7 +112,14 @@ class MessengerOwnershipReportTests(unittest.TestCase):
         rows = self.base_rows()
         rows["user_company_roles"] = [{"user_id": 7, "company_id": 1, "active": True}]
         rows["messenger_outbox"] = [
-            {"id": 12, "user_id": 7, "entity_type": "supply_request", "entity_id": 404},
+            {
+                "id": 12,
+                "user_id": 7,
+                "entity_type": "supply_request",
+                "entity_id": 404,
+                "status": "queued",
+                "created_at": "2026-07-01",
+            },
         ]
 
         report = build_report_from_rows(rows)
@@ -95,6 +127,9 @@ class MessengerOwnershipReportTests(unittest.TestCase):
         self.assertEqual(report["summary"]["unresolved"], 1)
         self.assertEqual(report["needsReview"][0]["reason"], "entity_parent_not_found")
         self.assertEqual(report["needsReview"][0]["recipientCompanyIds"], [1])
+        self.assertEqual(report["needsReview"][0]["entityId"], 404)
+        self.assertEqual(report["needsReview"][0]["rowStatus"], "queued")
+        self.assertEqual(report["byStatus"], {"messenger_outbox:queued": 1})
 
     def test_known_entity_without_owner_is_not_hidden_by_recipient(self):
         rows = self.base_rows()

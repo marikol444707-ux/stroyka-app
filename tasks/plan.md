@@ -132,7 +132,8 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [ ] Task M6.6f1: Scope single-project `/ai-control/run` and `/ai-findings/generate` through selected company, effective role and exact project owner; fail closed on duplicate name-only source scope. Production `c6dfddaa321b`, public smoke passed; protected run deferred into final M6.6 smoke.
 - [ ] Task M6.6f2: Scope `/ai-control/run-all` and automatic event runs; finish with combined protected single/batch/event and negative cross-company smoke. Production runtime `8ef743a6a7d6`; public smoke passed, combined protected smoke deferred.
 - [x] Task M6.7a: Audit ownership candidates for `messenger_files` and `messenger_outbox` through exact project/entity parents and verified recipient memberships without changing rows. Production found `8` unresolved outbox rows: `5` deleted supply parents and `3` ownerless channels; no writes.
-- [ ] Task M6.7a1: Distinguish deleted supported parents from unsupported entity types and expose recipient-company evidence without accepting it as ownership. Implemented and tested locally; production rerun pending.
+- [x] Task M6.7a1: Distinguish deleted supported parents from unsupported entity types and expose recipient-company evidence without accepting it as ownership. Production confirmed `5` orphan supply notifications and `3` ownerless channel notifications, all without recipient-company evidence.
+- [ ] Task M6.7a2: Expand the read-only audit to `messenger_channels` and outbox operational status; register global messenger account/channel routes before schema work. Implemented and tested locally; production audit pending.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary
