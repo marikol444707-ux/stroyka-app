@@ -14938,12 +14938,17 @@ def _restore_material_work_writeoff(cur, project: str, material: dict, work_row:
     work_package = (material.get("workPackage") or material.get("work_package") or work_row.get("work_package") or "").strip()
     master_name = work_row.get("master_name") or ""
     master_id = work_row.get("master_id")
+    company_id = _positive_int_or_none(work_row.get("company_id"))
+    if not company_id:
+        raise HTTPException(status_code=409, detail="Компания ЖПР не определена")
     if not name or qty <= 0:
         return
-    personal_balance = _personal_material_balance(cur, project, master_id, master_name, name, work_package, unit)
+    personal_balance = _personal_material_balance(
+        cur, project, master_id, master_name, name, work_package, unit, company_id=company_id
+    )
     if personal_balance["issued"] > 0:
-        cur.execute("INSERT INTO warehouse_history (material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                    (name, "корректировка списания мастера", qty, unit, date_value or None, project, master_name, actor_name or master_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+        cur.execute("INSERT INTO warehouse_history (company_id,material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (company_id, name, "корректировка списания мастера", qty, unit, date_value or None, project, master_name, actor_name or master_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
         return
     mat = _stock_row_by_material_key(
         cur,
@@ -14951,15 +14956,16 @@ def _restore_material_work_writeoff(cur, project: str, material: dict, work_row:
         material_name=name,
         unit=unit,
         work_package=work_package,
+        company_id=company_id,
     )
     if mat:
         mat_id = mat.get("id") if isinstance(mat, dict) else mat[0]
         cur.execute("UPDATE materials SET quantity=COALESCE(quantity,0)+%s, unit=COALESCE(NULLIF(unit,''),%s) WHERE id=%s", (qty, unit, mat_id))
     else:
-        cur.execute("INSERT INTO materials (name, unit, quantity, price, min_quantity, project, category, work_package) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-                    (name, unit, qty, 0, 0, project, "Возврат", work_package))
-    cur.execute("INSERT INTO warehouse_history (material,type,quantity,unit,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                (name, "возврат (корректировка работы)", qty, unit, date_value or None, project, actor_name or master_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+        cur.execute("INSERT INTO materials (company_id,name,unit,quantity,price,min_quantity,project,category,work_package) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (company_id, name, unit, qty, 0, 0, project, "Возврат", work_package))
+    cur.execute("INSERT INTO warehouse_history (company_id,material,type,quantity,unit,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (company_id, name, "возврат (корректировка работы)", qty, unit, date_value or None, project, actor_name or master_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
 
 def _apply_work_material_delta(cur, work_row: dict, old_items, new_items, current_user: dict, date_value: str):
     project = work_row.get("project") or ""
@@ -14997,7 +15003,7 @@ def _apply_work_material_delta(cur, work_row: dict, old_items, new_items, curren
         else:
             _restore_material_work_writeoff(cur, project, material, work_row, date_value, current_user.get("name") or "")
 
-def _work_journal_duplicate(cur, project, room_id=None, room_name="", estimate_item_key="", description="", work_package="", exclude_id=None):
+def _work_journal_duplicate(cur, project, room_id=None, room_name="", estimate_item_key="", description="", work_package="", exclude_id=None, company_id=None):
     project = (project or "").strip()
     room_name = (room_name or "").strip()
     estimate_item_key = (estimate_item_key or "").strip()
@@ -15010,6 +15016,8 @@ def _work_journal_duplicate(cur, project, room_id=None, room_name="", estimate_i
     exclude_params = [exclude_id] if exclude_id else []
     package_sql = " AND COALESCE(work_package,'')=%s" if work_package else ""
     package_params = [work_package] if work_package else []
+    company_sql = " AND company_id=%s" if company_id else ""
+    company_params = [company_id] if company_id else []
 
     target_sql = "COALESCE(estimate_item_key,'')=%s" if estimate_item_key else "LOWER(TRIM(description))=LOWER(TRIM(%s))"
     target_value = estimate_item_key if estimate_item_key else description
@@ -15017,8 +15025,8 @@ def _work_journal_duplicate(cur, project, room_id=None, room_name="", estimate_i
     if room_id:
         cur.execute(f"""SELECT id, master_name, status, room_name, work_package, master_id FROM work_journal
                        WHERE project=%s AND room_id=%s AND {target_sql}
-                         AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано'){package_sql}{exclude_sql}
-                       LIMIT 1""", [project, room_id, target_value] + package_params + exclude_params)
+                         AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано'){company_sql}{package_sql}{exclude_sql}
+                       LIMIT 1""", [project, room_id, target_value] + company_params + package_params + exclude_params)
         duplicate = cur.fetchone()
         if duplicate:
             return duplicate
@@ -15026,8 +15034,8 @@ def _work_journal_duplicate(cur, project, room_id=None, room_name="", estimate_i
     if room_name:
         cur.execute(f"""SELECT id, master_name, status, room_name, work_package, master_id FROM work_journal
                        WHERE project=%s AND LOWER(TRIM(COALESCE(room_name,'')))=LOWER(TRIM(%s)) AND {target_sql}
-                         AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано'){package_sql}{exclude_sql}
-                       LIMIT 1""", [project, room_name, target_value] + package_params + exclude_params)
+                         AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано'){company_sql}{package_sql}{exclude_sql}
+                       LIMIT 1""", [project, room_name, target_value] + company_params + package_params + exclude_params)
         duplicate = cur.fetchone()
         if duplicate:
             return duplicate
@@ -15358,6 +15366,7 @@ def create_work_journal(
             estimate_item_key=journal_estimate_item_key,
             description=journal_description,
             work_package=journal_work_package,
+            company_id=journal_company_id,
         ))
         used = _force_work_material_package(used, journal_work_package)
         _validate_work_material_norm_reasons(
@@ -15464,17 +15473,67 @@ def create_work_journal(
         cur.close()
         conn.close()
 
+
+def _resolve_work_journal_mutation(cur, current_user, journal_id, action_mode, x_company_id, x_company_mode, allowed_roles):
+    try:
+        from backend.features.work_journal.service import resolve_work_journal_mutation_scope
+        from backend.features.project_access.service import (
+            require_project_parent_access,
+            resolve_project_parent,
+        )
+    except ModuleNotFoundError:
+        from features.work_journal.service import resolve_work_journal_mutation_scope
+        from features.project_access.service import (
+            require_project_parent_access,
+            resolve_project_parent,
+        )
+    _, _, require_project_write_actor = _project_access_helpers()
+    return resolve_work_journal_mutation_scope(
+        cur,
+        current_user,
+        journal_id,
+        action_mode=action_mode,
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
+        allowed_roles=allowed_roles,
+        deps={
+            "resolve_work_company_context": _resolve_work_company_context,
+            "effective_company_actors": effective_company_actors,
+            "require_project_write_actor": require_project_write_actor,
+            "resolve_project_parent": resolve_project_parent,
+            "require_project_parent_access": require_project_parent_access,
+            "full_view_roles": BRIGADE_FULL_VIEW_ROLES,
+        },
+    )
+
+
 @app.put("/work-journal/{id}")
-def update_work_journal(id: int, data: dict, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
+def update_work_journal(
+    id: int,
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     import json as _json
     conn = get_db()
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    require_row_project_access(cur, "work_journal", id, _current_user, "project")
-    cur.execute("""SELECT project, master_id, master_name, room_id, room_name, description,
+    request_user = _current_user
+    try:
+        _current_user, journal_project, owner_row = _resolve_work_journal_mutation(
+            cur, request_user, id, "update", x_company_id, x_company_mode, JOURNAL_WRITE_ROLES,
+        )
+    except Exception:
+        conn.rollback()
+        cur.close()
+        conn.close()
+        raise
+    cur.execute("""SELECT company_id,project, master_id, master_name, room_id, room_name, description,
                           estimate_item_key, work_package, status, quantity, unit, date, materials_used,
                           contract_item_id, estimate_id, section_name, estimate_item_name
-				                   FROM work_journal WHERE id=%s FOR UPDATE""", (id,))
+				                   FROM work_journal WHERE id=%s AND company_id=%s FOR UPDATE""",
+                (id, owner_row.get("company_id")))
     project_row = cur.fetchone()
     project_name = project_row.get("project") if project_row else ""
     role = _current_user.get("role")
@@ -15533,7 +15592,12 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
             raise HTTPException(status_code=403, detail="Отклонять ЖПР может директор, зам, прораб или главный инженер")
         conn.rollback()
         cur.close(); conn.close()
-        return delete_work_journal(id, _current_user)
+        return delete_work_journal(
+            id,
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            _current_user=request_user,
+        )
     # Динамически обновляем только переданные поля. Старая логика (status/confirmedBy/...) продолжает работать.
     fields_map = [
         ('status', 'status'),
@@ -15639,6 +15703,7 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
             description=data.get("description", project_row.get("description") if project_row else ""),
             work_package=data.get("workPackage", project_row.get("work_package") if project_row else ""),
             exclude_id=id,
+            company_id=owner_row.get("company_id"),
         ))
     try:
         if new_materials is not None:
@@ -15648,8 +15713,14 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
         if not sets:
             conn.rollback()
             return {"ok": True}
-        vals.append(id)
-        cur.execute("UPDATE work_journal SET " + ", ".join(sets) + " WHERE id=%s", vals)
+        vals.extend([id, owner_row.get("company_id"), journal_project.get("name")])
+        cur.execute(
+            "UPDATE work_journal SET " + ", ".join(sets)
+            + " WHERE id=%s AND company_id=%s AND project=%s RETURNING id",
+            vals,
+        )
+        if not cur.fetchone():
+            raise HTTPException(status_code=409, detail="Запись ЖПР изменилась во время проверки владельца")
         updated_row = _work_journal_sync_row(cur, id)
         if contract_item_id:
             _recalculate_contract_item_done_from_work_journal(cur, contract_item_id)
@@ -15681,18 +15752,26 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
         conn.close()
 
 @app.delete("/work-journal/{id}")
-def delete_work_journal(id: int, _current_user: dict = Depends(require_roles("директор"))):
+def delete_work_journal(
+    id: int,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     import json as _json
     from datetime import datetime
     conn = get_db()
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        require_row_project_access(cur, "work_journal", id, _current_user, "project")
-        cur.execute("""SELECT project, master_id, master_name, date, status, comment, materials_used,
+        _current_user, journal_project, owner_row = _resolve_work_journal_mutation(
+            cur, _current_user, id, "delete", x_company_id, x_company_mode, ("директор",),
+        )
+        cur.execute("""SELECT company_id,project, master_id, master_name, date, status, comment, materials_used,
                               work_package, quantity, contract_item_id, description, estimate_id,
                               section_name, estimate_item_key, estimate_item_name
-                       FROM work_journal WHERE id=%s FOR UPDATE""", (id,))
+                       FROM work_journal WHERE id=%s AND company_id=%s FOR UPDATE""",
+                    (id, owner_row.get("company_id")))
         work = cur.fetchone()
         if not work:
             conn.rollback()
@@ -15721,23 +15800,28 @@ def delete_work_journal(id: int, _current_user: dict = Depends(require_roles("д
             master_name = work.get("master_name") or ""
             master_id = work.get("master_id")
             work_package = m.get("workPackage") or m.get("work_package") or work.get("work_package") or ""
-            personal_balance = _personal_material_balance(cur, project_name, master_id, master_name, name, work_package, unit)
+            company_id = int(work.get("company_id") or 0)
+            if not company_id:
+                raise HTTPException(status_code=409, detail="Компания ЖПР не определена")
+            personal_balance = _personal_material_balance(
+                cur, project_name, master_id, master_name, name, work_package, unit, company_id=company_id
+            )
             if personal_balance["issued"] > 0:
-                cur.execute("INSERT INTO warehouse_history (material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                            (name, "отмена списания мастера", qty, unit, str(work.get("date") or ""), project_name, master_name, _current_user.get("name") or "", work_package, datetime.now().strftime("%d.%m.%Y, %H:%M")))
+                cur.execute("INSERT INTO warehouse_history (company_id,material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                            (company_id, name, "отмена списания мастера", qty, unit, str(work.get("date") or ""), project_name, master_name, _current_user.get("name") or "", work_package, datetime.now().strftime("%d.%m.%Y, %H:%M")))
                 continue
             cur.execute(f"""SELECT id FROM materials
-                           WHERE name=%s AND project=%s AND COALESCE(work_package,'')=%s
+                           WHERE company_id=%s AND name=%s AND project=%s AND COALESCE(work_package,'')=%s
                              AND {_sql_norm_unit('unit')}=%s
-                           ORDER BY id LIMIT 1 FOR UPDATE""", (name, project_name, work_package, unit))
+                           ORDER BY id LIMIT 1 FOR UPDATE""", (company_id, name, project_name, work_package, unit))
             mat = cur.fetchone()
             if mat:
                 cur.execute("UPDATE materials SET quantity=COALESCE(quantity,0)+%s, unit=COALESCE(NULLIF(unit,''),%s) WHERE id=%s", (qty, unit, mat["id"]))
             else:
-                cur.execute("INSERT INTO materials (name, unit, quantity, price, min_quantity, project, category, work_package) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-                            (name, unit, qty, 0, 0, project_name, "Возврат", work_package))
-            cur.execute("INSERT INTO warehouse_history (material,type,quantity,unit,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                        (name, "возврат (удаление работы)", qty, unit, str(work.get("date") or ""), project_name, master_name, work_package, datetime.now().strftime("%d.%m.%Y, %H:%M")))
+                cur.execute("INSERT INTO materials (company_id,name,unit,quantity,price,min_quantity,project,category,work_package) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                            (company_id, name, unit, qty, 0, 0, project_name, "Возврат", work_package))
+            cur.execute("INSERT INTO warehouse_history (company_id,material,type,quantity,unit,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (company_id, name, "возврат (удаление работы)", qty, unit, str(work.get("date") or ""), project_name, master_name, work_package, datetime.now().strftime("%d.%m.%Y, %H:%M")))
         cur.execute("SELECT COUNT(*) AS cnt FROM piecework WHERE work_journal_id=%s", (id,))
         piecework_row = cur.fetchone()
         piecework_count = int((piecework_row.get("cnt") if isinstance(piecework_row, dict) else piecework_row[0]) or 0)
@@ -15748,7 +15832,13 @@ def delete_work_journal(id: int, _current_user: dict = Depends(require_roles("д
         if actor_name:
             cancel_note += " (" + actor_name + ")"
         new_comment = (old_comment + "\n" + cancel_note).strip() if old_comment else cancel_note
-        cur.execute("UPDATE work_journal SET status=%s, comment=%s WHERE id=%s", ("Отклонено", new_comment, id))
+        cur.execute(
+            """UPDATE work_journal SET status=%s,comment=%s
+                WHERE id=%s AND company_id=%s AND project=%s RETURNING id""",
+            ("Отклонено", new_comment, id, owner_row.get("company_id"), journal_project.get("name")),
+        )
+        if not cur.fetchone():
+            raise HTTPException(status_code=409, detail="Запись ЖПР изменилась во время проверки владельца")
         _recalculate_contract_item_done_from_work_journal(cur, work.get("contract_item_id"))
         _recalculate_estimate_item_done_from_work_journal(cur, work)
         _mark_room_work_rejected(cur, id, actor_name)

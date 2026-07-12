@@ -6,6 +6,7 @@ from backend.features.work_journal.service import (
     mask_work_journal_money,
     require_work_journal_parent_owner,
     resolve_work_journal_create_scope,
+    resolve_work_journal_mutation_scope,
     work_journal_visibility_filter,
 )
 
@@ -141,6 +142,32 @@ class WorkJournalCreateScopeTests(unittest.TestCase):
         self.assertEqual((worker["customerPricePerUnit"], worker["customerTotal"]), (0, 0))
         self.assertEqual(customer["executionTotal"], 0)
         self.assertEqual(customer["customerTotal"], 0)
+
+    def test_mutation_direct_id_requires_stored_company_actor(self):
+        class Cursor:
+            def execute(self, _sql, _params=()):
+                pass
+            def fetchone(self):
+                return {"id": 7, "company_id": 8, "project": "Лицей", "work_package": "Основная"}
+
+        deps = {
+            "resolve_work_company_context": lambda *_args, **_kwargs: {},
+            "effective_company_actors": lambda *_args: [{"companyId": 4, "role": "директор"}],
+            "require_project_write_actor": lambda actors, _roles: actors[0],
+            "resolve_project_parent": lambda *_args, **_kwargs: {"id": 14, "companyId": 4, "name": "Лицей"},
+            "require_project_parent_access": lambda *_args: None,
+            "full_view_roles": ("директор",),
+        }
+        with self.assertRaises(HTTPException) as raised:
+            resolve_work_journal_mutation_scope(
+                Cursor(), {}, 7,
+                action_mode="update",
+                x_company_id="4",
+                x_company_mode="company",
+                allowed_roles=("директор",),
+                deps=deps,
+            )
+        self.assertEqual(raised.exception.status_code, 404)
 
 
 if __name__ == "__main__":

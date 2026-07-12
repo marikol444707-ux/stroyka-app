@@ -151,3 +151,52 @@ def mask_work_journal_money(row, actor, worker_roles):
         item["pricePerUnit"] = item.get("executionPricePerUnit") or 0
         item["total"] = item.get("executionTotal") or 0
     return item
+
+
+def resolve_work_journal_mutation_scope(
+    cur,
+    current_user,
+    journal_id,
+    *,
+    action_mode,
+    x_company_id,
+    x_company_mode,
+    allowed_roles,
+    deps,
+):
+    context = deps["resolve_work_company_context"](
+        cur, current_user, None, action_mode,
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
+    )
+    actor = deps["require_project_write_actor"](
+        deps["effective_company_actors"](current_user, context),
+        allowed_roles,
+    )
+    cur.execute(
+        """SELECT id,company_id,project,COALESCE(NULLIF(work_package,''),'Основная') AS work_package,
+                  master_id,master_name
+             FROM work_journal WHERE id=%s FOR UPDATE""",
+        (journal_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Запись журнала не найдена")
+    stored_company = _positive_int(row.get("company_id"))
+    if not stored_company:
+        raise HTTPException(status_code=409, detail="Компания записи ЖПР не определена")
+    actor_company = _positive_int(actor.get("companyId") or actor.get("company_id"))
+    if actor_company != stored_company:
+        raise HTTPException(status_code=404, detail="Запись журнала не найдена")
+    project = deps["resolve_project_parent"](
+        cur,
+        actor,
+        project_name=str(row.get("project") or "").strip(),
+        for_update=True,
+    )
+    deps["require_project_parent_access"](
+        cur, actor, project, deps["full_view_roles"],
+    )
+    if _positive_int(project.get("companyId")) != stored_company:
+        raise HTTPException(status_code=409, detail="Владелец ЖПР не совпадает с объектом")
+    return actor, project, row

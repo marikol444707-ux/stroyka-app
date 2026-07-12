@@ -116,7 +116,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.5a: Audit `work_journal` ownership through its unique project and explicit estimate, unexpected-work, and brigade-contract parents without changing rows. Production report verified all `8` rows with no backfill or review.
 - [x] Task M6.5b: Make direct `POST /work-journal` resolve one selected company/project and store `company_id`; deployed and verified in runtime `e74dafc5d0f6`.
 - [x] Task M6.5c: Scope `GET /work-journal` by stored owner and effective per-company role while preserving project/package/worker/customer filters and money masking. Deployed and verified in runtime `2a559a9149fe`.
-- [ ] Task M6.5d: Scope direct `PUT/DELETE /work-journal/{id}` through one selected-company actor and the exact stored journal/project owner; leave AI prefill and linked acts unchanged.
+- [x] Task M6.5d: Scope direct `PUT/DELETE /work-journal/{id}` through one selected-company actor and the exact stored journal/project owner; implemented locally, production release pending.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary

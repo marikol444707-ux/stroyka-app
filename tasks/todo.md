@@ -1788,6 +1788,16 @@
 
 **Estimated scope:** M
 
+## Task M6.5d: Tenant-Scoped Work Journal Mutation
+
+**Description:** Scope direct `PUT/DELETE /work-journal/{id}` through one selected-company actor, a locked stored journal owner, and the exact project parent. Repeat owner fields in final updates and keep material restoration inside the same company.
+
+**Status:** Implemented locally; release pending. AI prefill, batch creation, rooms, acts, and contracts remain unchanged.
+
+**Dependencies:** Task M6.5c
+
+**Estimated scope:** M
+
 **M6 safety gate:** do not backfill ambiguous legacy rows, do not use project names as authorization identifiers, do not allow mutation in `all_companies`, and do not start the two-company production E2E until M6.0-M6.8 and the preceding M4/M5 gaps are closed.
 
 ## Task M7: Backfill, Constraints, And Pilot Matrix
