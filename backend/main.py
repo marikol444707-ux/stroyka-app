@@ -17215,8 +17215,19 @@ def _upsert_ai_finding(cur, finding: dict, current_user: dict, project_owner: di
         ensure_task=_ensure_ai_task_for_finding,
     )
 
-def _ai_system_user():
-    return {"id": None, "name": "ИИ-контроль", "role": "директор", "assignedProjects": []}
+def _ai_system_user(project_owner: dict = None):
+    owner = dict(project_owner or {})
+    company_id = _positive_int_or_none(owner.get("companyId"))
+    project_name = str(owner.get("name") or "").strip()
+    return {
+        "id": None,
+        "name": "ИИ-контроль",
+        "role": "директор",
+        "companyId": company_id,
+        "company_id": company_id,
+        "assignedProjects": [project_name] if project_name else [],
+        "aiControlSystem": True,
+    }
 
 def _safe_project_list(value):
     if isinstance(value, list):
@@ -17990,56 +18001,20 @@ def _run_project_ai_control(
     }
 
 def _run_project_ai_control_safely(project_name: str, reason: str = "event"):
-    if not project_name:
-        return {}
-    conn = None
-    cur = None
     try:
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        return _run_project_ai_control(cur, project_name, _ai_system_user(), reason=reason)
-    except Exception as e:
-        print("AI CONTROL AUTO-RUN ERROR:", project_name, reason, str(e))
-        return {}
-    finally:
-        try:
-            if cur:
-                cur.close()
-            if conn:
-                conn.close()
-        except Exception:
-            pass
-
-@app.post("/ai-control/run-all")
-def run_all_ai_control(data: dict = None, current_user: dict = Depends(get_ai_control_runner)):
-    if current_user.get("role") not in (*LEADERSHIP_ROLES, "главный_инженер", "сметчик"):
-        raise HTTPException(status_code=403, detail="Недостаточно прав")
-    data = data or {}
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("""SELECT name
-                   FROM projects
-                   WHERE COALESCE(archived,FALSE)=FALSE
-                     AND COALESCE(status,'') NOT IN ('Завершён','Завершен','Архив')
-                   ORDER BY id""")
-    projects = [r["name"] for r in cur.fetchall() if r.get("name")]
-    results = []
-    for project_name in projects:
-        try:
-            results.append(_run_project_ai_control(cur, project_name, current_user, data.get("reason") or "nightly"))
-        except Exception as e:
-            results.append({"ok": False, "projectName": project_name, "detail": str(e)})
-    cur.close(); conn.close()
-    return {
-        "ok": True,
-        "projects": len(projects),
-        "results": results,
-        "created": sum(int(r.get("created") or 0) for r in results if r.get("ok")),
-        "updated": sum(int(r.get("updated") or 0) for r in results if r.get("ok")),
-        "tasksCreated": sum(int(r.get("tasksCreated") or 0) for r in results if r.get("ok")),
-        "tasksUpdated": sum(int(r.get("tasksUpdated") or 0) for r in results if r.get("ok")),
-        "closed": sum(int(r.get("closed") or 0) for r in results if r.get("ok")),
-    }
+        from backend.features.ai_control.runtime import run_project_ai_control_safely
+        from backend.features.ai_findings.service import resolve_project_owner
+    except ModuleNotFoundError:
+        from features.ai_control.runtime import run_project_ai_control_safely
+        from features.ai_findings.service import resolve_project_owner
+    return run_project_ai_control_safely(
+        get_db,
+        resolve_project_owner,
+        _run_project_ai_control,
+        _ai_system_user,
+        project_name,
+        reason,
+    )
 
 @app.get("/tools")
 def get_tools(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
@@ -29675,6 +29650,7 @@ except ModuleNotFoundError:
 register_ai_control_module(app, {
     "get_db": get_db,
     "get_current_user": get_current_user,
+    "get_ai_control_runner": get_ai_control_runner,
     "resolve_work_company_context": _resolve_work_company_context,
     "effective_company_actors": effective_company_actors,
     "resolve_project_owner": resolve_ai_control_project_owner,
@@ -29682,6 +29658,8 @@ register_ai_control_module(app, {
     "run_project_ai_control": _run_project_ai_control,
     "generate_roles": PROJECT_DOCUMENT_WRITE_ROLES,
     "run_roles": (*PROJECT_DOCUMENT_WRITE_ROLES, "кладовщик", "снабженец", *WORKER_EXECUTION_ROLES),
+    "run_all_roles": (*LEADERSHIP_ROLES, "главный_инженер", "сметчик"),
+    "system_actor_for_project": _ai_system_user,
 })
 
 try:

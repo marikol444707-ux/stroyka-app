@@ -2266,7 +2266,7 @@
 
 **Description:** Keep the existing single-run URLs while resolving one selected company, effective company role and exact stored project owner before AI generation.
 
-**Status:** Implemented and focused-tested locally. Production deploy and protected smoke are pending.
+**Status:** Deployed on production runtime `c6dfddaa321b`; public smoke passed. Protected single-run is intentionally deferred into the combined final M6.6 smoke.
 
 **Safety:**
 - `all_companies` is rejected before project lookup or generation.
@@ -2277,3 +2277,19 @@
 - `/ai-control/run-all` and automatic event runs remain unchanged until M6.6f2.
 
 **Estimated scope:** S
+
+## Task M6.6f2: Isolate Batch and Event AI Control Runs
+
+**Description:** Scope batch and automatic AI runs without changing the AI findings/tasks business algorithm.
+
+**Status:** Implemented and focused-tested locally. Production deploy and combined final M6.6 smoke are pending.
+
+**Safety:**
+- User `run-all` requires one selected company and an effective leadership/engineering role.
+- Internal scheduler may enumerate companies, but resolves exact owner for every project.
+- Every project in `run-all` uses an independent transaction; one failure does not leave partial writes or stop other projects.
+- Event-triggered runs resolve one exact owner and commit or roll back atomically.
+- Ambiguous name-only sources fail closed instead of mixing company data.
+- Final protected smoke combines deferred single-run, company batch, event run and negative cross-company checks.
+
+**Estimated scope:** M

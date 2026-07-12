@@ -129,8 +129,8 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.6d2b: Scope direct `ai_tasks` list/create/update and assignment actions through stored owner while keeping `Система` in platform-only scope. Production runtime `337fdba2ffc3`; public smoke passed, protected smoke still requires credentials.
 - [x] Task M6.6e1: Add guarded owner migration for task reports and attachments through stored task/report parents without changing child runtime. Production schema and post-audit are strict-ready with both child tables empty.
 - [x] Task M6.6e2: Persist owner on report/attachment writes and scope child reads through the verified parent task. Production runtime `52cf98630067`; live assignment/report/attachment smoke and strict post-audit passed.
-- [ ] Task M6.6f1: Scope single-project `/ai-control/run` and `/ai-findings/generate` through selected company, effective role and exact project owner; fail closed on duplicate name-only source scope. Implemented and focused-tested locally; deploy pending.
-- [ ] Task M6.6f2: Scope `/ai-control/run-all` and automatic event runs; finish with negative cross-company API tests.
+- [ ] Task M6.6f1: Scope single-project `/ai-control/run` and `/ai-findings/generate` through selected company, effective role and exact project owner; fail closed on duplicate name-only source scope. Production `c6dfddaa321b`, public smoke passed; protected run deferred into final M6.6 smoke.
+- [ ] Task M6.6f2: Scope `/ai-control/run-all` and automatic event runs; finish with combined protected single/batch/event and negative cross-company smoke. Implemented and focused-tested locally; deploy pending.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary

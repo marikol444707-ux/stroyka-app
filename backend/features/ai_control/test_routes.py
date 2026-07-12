@@ -29,6 +29,9 @@ class FakeCursor:
     def fetchone(self):
         return self.current
 
+    def fetchall(self):
+        return list(self.current or [])
+
     def close(self):
         pass
 
@@ -65,9 +68,10 @@ def actor(company_id=4, role="директор"):
 
 
 class AiControlRouteTests(unittest.TestCase):
-    def build_app(self, cursor, *, mode="company", actors=None, runner=None, owner=None):
+    def build_app(self, cursor, *, mode="company", actors=None, runner=None, owner=None, extra_connections=None):
         app = FakeApp()
         connection = FakeConnection(cursor)
+        connections = [connection, *(extra_connections or [])]
         selected = list(actors or [actor()])
         calls = []
 
@@ -89,8 +93,9 @@ class AiControlRouteTests(unittest.TestCase):
             }
 
         register_ai_control_module(app, {
-            "get_db": lambda: connection,
+            "get_db": lambda: connections.pop(0),
             "get_current_user": lambda: {},
+            "get_ai_control_runner": lambda: {},
             "resolve_work_company_context": resolve_context,
             "effective_company_actors": lambda _user, _context: selected,
             "resolve_project_owner": resolve_owner,
@@ -98,6 +103,10 @@ class AiControlRouteTests(unittest.TestCase):
             "run_project_ai_control": run,
             "generate_roles": ("директор", "сметчик"),
             "run_roles": ("директор", "сметчик", "мастер"),
+            "run_all_roles": ("директор", "сметчик"),
+            "system_actor_for_project": lambda project: {
+                "role": "директор", "name": "ИИ-контроль", "companyId": project["companyId"],
+            },
         })
         return app, connection, calls
 
@@ -132,6 +141,84 @@ class AiControlRouteTests(unittest.TestCase):
 
         self.assertEqual(caught.exception.status_code, 409)
         self.assertEqual(owner_calls, [])
+
+    def test_run_all_lists_only_selected_company_and_commits_each_project(self):
+        list_cursor = FakeCursor([[{"id": 10, "company_id": 4, "name": "Объект A"}]])
+        project_cursor = FakeCursor([{"company_count": 1, "project_count": 1}])
+        project_connection = FakeConnection(project_cursor)
+        app, list_connection, owner_calls = self.build_app(
+            list_cursor,
+            extra_connections=[project_connection],
+        )
+
+        result = app.routes[("POST", "/ai-control/run-all")](
+            {"reason": "nightly"}, "4", "company", {"role": "директор"},
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["projects"], 1)
+        self.assertIn("WHERE company_id=%s", list_cursor.calls[0][0])
+        self.assertEqual(list_cursor.calls[0][1], (4,))
+        self.assertEqual(owner_calls[0][1]["project_id"], 10)
+        self.assertTrue(project_connection.committed)
+        self.assertTrue(list_connection.closed)
+
+    def test_run_all_rejects_all_companies_before_listing_projects(self):
+        list_cursor = FakeCursor([])
+        app, list_connection, owner_calls = self.build_app(list_cursor, mode="all_companies")
+
+        with self.assertRaises(HTTPException) as caught:
+            app.routes[("POST", "/ai-control/run-all")](
+                {}, None, "all_companies", {"role": "директор"},
+            )
+
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertEqual(list_cursor.calls, [])
+        self.assertEqual(owner_calls, [])
+        self.assertTrue(list_connection.closed)
+
+    def test_system_run_all_lists_all_companies_but_uses_exact_owner_per_project(self):
+        list_cursor = FakeCursor([[{"id": 10, "company_id": 4, "name": "Объект A"}]])
+        project_cursor = FakeCursor([{"company_count": 1, "project_count": 1}])
+        project_connection = FakeConnection(project_cursor)
+        app, _list_connection, owner_calls = self.build_app(
+            list_cursor,
+            extra_connections=[project_connection],
+        )
+
+        result = app.routes[("POST", "/ai-control/run-all")](
+            {"reason": "scheduler"}, None, None, {"role": "директор", "aiControlSystem": True},
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertNotIn("WHERE company_id=%s", list_cursor.calls[0][0])
+        self.assertEqual(owner_calls[0][1]["company_id"], 4)
+        self.assertEqual(owner_calls[0][1]["project_id"], 10)
+        self.assertTrue(project_connection.committed)
+
+    def test_run_all_rolls_back_failed_project_and_reports_error(self):
+        list_cursor = FakeCursor([[{"id": 10, "company_id": 4, "name": "Объект A"}]])
+        project_cursor = FakeCursor([{"company_count": 1, "project_count": 1}])
+        project_connection = FakeConnection(project_cursor)
+
+        def fail(*_args):
+            raise RuntimeError("project generation failed")
+
+        app, _list_connection, _owner_calls = self.build_app(
+            list_cursor,
+            runner=fail,
+            extra_connections=[project_connection],
+        )
+
+        result = app.routes[("POST", "/ai-control/run-all")](
+            {}, "4", "company", {"role": "директор"},
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["results"][0]["ok"])
+        self.assertIn("project generation failed", result["results"][0]["detail"])
+        self.assertTrue(project_connection.rolled_back)
+        self.assertFalse(project_connection.committed)
 
     def test_single_run_rejects_duplicate_name_across_companies(self):
         cursor = FakeCursor([{"company_count": 2, "project_count": 2}])
