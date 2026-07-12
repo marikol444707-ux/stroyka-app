@@ -1782,7 +1782,7 @@
 
 **Description:** Scope `GET /work-journal` through stored company ownership and one unambiguous project parent while applying project, package, worker, customer-status, search, date, pagination, and money-masking rules per effective company membership.
 
-**Status:** Implemented locally; release pending. Existing-row mutations, AI prefill, batch creation, rooms, acts, and contracts remain unchanged.
+**Status:** Deployed and verified in production runtime `2a559a9149fe`. Health, full public smoke, and unauthenticated route protection passed. Existing-row mutations, AI prefill, batch creation, rooms, acts, and contracts remain unchanged.
 
 **Dependencies:** Task M6.5b
 
