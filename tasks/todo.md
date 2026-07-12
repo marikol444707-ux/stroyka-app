@@ -2191,12 +2191,26 @@
 
 **Description:** Add guarded task ownership without changing task routes. Tenant tasks store `owner_scope='company'` with `company_id/project_id`; `Система` tasks store `owner_scope='platform'` with no company/project IDs.
 
-**Status:** Implemented locally. Production must run `npm run audit:ai-tasks-ownership`, apply only the returned count and SHA, then repeat the audit before M6.6d2.
+**Status:** Completed in production. `2039/2039` rows migrated without conflicts; repeated audit is strict-ready.
 
 **Safety:**
 - A task linked to a finding must inherit exactly the finding's stored owner.
 - A task without finding must resolve one exact project owner.
 - Platform scope is allowed only for `project_name='Система'` and cannot contain company/project IDs.
 - Runtime task CRUD remains unchanged until a clean post-audit.
+
+**Estimated scope:** S
+
+## Task M6.6d2a: Enforce AI Task Owner Writes
+
+**Description:** Persist explicit owner on every task insert and constrain AI/finding dedupe updates by that owner before switching task routes.
+
+**Status:** Implemented locally. Production deploy and strict post-audit are pending.
+
+**Safety:**
+- Finding tasks inherit the finding's stored company/project owner.
+- Standalone project tasks require one exact project owner.
+- Password-reset tasks use platform scope only.
+- Dedupe updates and duplicate closing include the complete stored owner filter.
 
 **Estimated scope:** S

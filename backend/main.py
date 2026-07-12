@@ -5204,6 +5204,9 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_ai_findings_dedupe ON ai_findings(project_name, dedupe_key);
         CREATE TABLE IF NOT EXISTS ai_tasks (
             id SERIAL PRIMARY KEY,
+            owner_scope TEXT,
+            company_id INT,
+            project_id INT,
             finding_id INT,
             project_name VARCHAR(255),
             title TEXT,
@@ -5220,8 +5223,19 @@ def init_db():
             action_payload TEXT,
             dedupe_key VARCHAR(255),
             created_at TIMESTAMP DEFAULT NOW(),
-            updated_at TIMESTAMP DEFAULT NOW()
+            updated_at TIMESTAMP DEFAULT NOW(),
+            CONSTRAINT ck_ai_tasks_owner_scope CHECK (
+                owner_scope IS NULL OR
+                (owner_scope='company' AND company_id IS NOT NULL AND project_id IS NOT NULL) OR
+                (owner_scope='platform' AND company_id IS NULL AND project_id IS NULL)
+            )
         );
+        ALTER TABLE ai_tasks ADD COLUMN IF NOT EXISTS owner_scope TEXT;
+        ALTER TABLE ai_tasks ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE ai_tasks ADD COLUMN IF NOT EXISTS project_id INT;
+        CREATE INDEX IF NOT EXISTS idx_ai_tasks_company_id ON ai_tasks(company_id);
+        CREATE INDEX IF NOT EXISTS idx_ai_tasks_project_id ON ai_tasks(project_id);
+        CREATE INDEX IF NOT EXISTS idx_ai_tasks_owner_status ON ai_tasks(owner_scope,company_id,project_id,status);
         ALTER TABLE ai_tasks ADD COLUMN IF NOT EXISTS dedupe_key VARCHAR(255);
         ALTER TABLE ai_findings ALTER COLUMN project_name TYPE TEXT;
         ALTER TABLE ai_findings ALTER COLUMN finding_type TYPE TEXT;
@@ -6504,6 +6518,9 @@ def _upsert_password_reset_task(cur, user_id, user_name: str, email: str, code: 
         SELECT id
         FROM ai_tasks
         WHERE project_name=%s
+          AND owner_scope='platform'
+          AND company_id IS NULL
+          AND project_id IS NULL
           AND dedupe_key=%s
           AND status NOT IN ('Закрыто','Отклонено')
         ORDER BY updated_at DESC, id DESC
@@ -6527,14 +6544,14 @@ def _upsert_password_reset_task(cur, user_id, user_name: str, email: str, code: 
                 action_label='Открыть пользователей',
                 action_payload=%s,
                 updated_at=NOW()
-            WHERE id=%s
+            WHERE id=%s AND owner_scope='platform' AND company_id IS NULL AND project_id IS NULL
         """, (title, description, expires.date(), action_payload, task_id))
         return task_id
     cur.execute("""
         INSERT INTO ai_tasks (
-            finding_id, project_name, title, description, assigned_role, assigned_to,
+            owner_scope, company_id, project_id, finding_id, project_name, title, description, assigned_role, assigned_to,
             status, due_date, action_label, action_payload, dedupe_key, created_at, updated_at
-        ) VALUES (NULL,%s,%s,%s,'директор','','Новое',%s,'Открыть пользователей',%s,%s,NOW(),NOW())
+        ) VALUES ('platform',NULL,NULL,NULL,%s,%s,%s,'директор','','Новое',%s,'Открыть пользователей',%s,%s,NOW(),NOW())
         RETURNING id
     """, (SYSTEM_PROJECT_NAME, title, description, expires.date(), action_payload, dedupe_key))
     row = cur.fetchone()
@@ -6548,6 +6565,9 @@ def _close_password_reset_task(cur, user_id):
             closed_at=NOW(),
             updated_at=NOW()
         WHERE project_name=%s
+          AND owner_scope='platform'
+          AND company_id IS NULL
+          AND project_id IS NULL
           AND dedupe_key=%s
           AND status NOT IN ('Закрыто','Отклонено')
     """, (SYSTEM_PROJECT_NAME, _password_reset_dedupe_key(user_id)))
@@ -17011,10 +17031,16 @@ def _ai_task_dedupe_key(data: dict) -> str:
         return str(explicit)
     return _ai_task_dedupe_from_payload(data.get("actionPayload") or data.get("action_payload") or "")
 
-def _close_duplicate_ai_tasks(cur, project_name: str, dedupe_key: str, keep_id: int = None, actor: str = "system"):
+def _close_duplicate_ai_tasks(cur, project_name: str, dedupe_key: str, keep_id: int = None, actor: str = "system", task_owner: dict = None):
     if not project_name or not dedupe_key:
         return
-    params = [actor or "system", project_name, dedupe_key]
+    try:
+        from backend.features.ai_tasks.service import resolve_task_owner, task_owner_filter
+    except ModuleNotFoundError:
+        from features.ai_tasks.service import resolve_task_owner, task_owner_filter
+    owner = task_owner or resolve_task_owner(cur, {"projectName": project_name}, system_project_name=SYSTEM_PROJECT_NAME)
+    owner_sql, owner_params = task_owner_filter(owner)
+    params = [actor or "system", project_name, dedupe_key, *owner_params]
     sql = """
         UPDATE ai_tasks
         SET status='Закрыто',
@@ -17024,15 +17050,21 @@ def _close_duplicate_ai_tasks(cur, project_name: str, dedupe_key: str, keep_id: 
         WHERE project_name=%s
           AND dedupe_key=%s
           AND status NOT IN ('Закрыто','Отклонено')
-    """
+          AND """ + owner_sql
     if keep_id:
         sql += " AND id<>%s"
         params.append(keep_id)
     cur.execute(sql, params)
 
-def _insert_ai_task(cur, data: dict, current_user: dict):
+def _insert_ai_task(cur, data: dict, current_user: dict, task_owner: dict = None):
+    try:
+        from backend.features.ai_tasks.service import resolve_task_owner
+    except ModuleNotFoundError:
+        from features.ai_tasks.service import resolve_task_owner
     project_name = data.get("projectName") or data.get("project_name") or ""
     require_project_access(current_user, project_name)
+    owner = task_owner or resolve_task_owner(cur, data, system_project_name=SYSTEM_PROJECT_NAME)
+    project_name = owner["projectName"]
     dedupe_key = _ai_task_dedupe_key(data)
     assignment = _normalize_ai_assignment(
         cur,
@@ -17043,12 +17075,15 @@ def _insert_ai_task(cur, data: dict, current_user: dict):
     )
     cur.execute("""
         INSERT INTO ai_tasks (
-            finding_id, project_name, title, description, assigned_role, assigned_to,
+            owner_scope, company_id, project_id, finding_id, project_name, title, description, assigned_role, assigned_to,
             status, due_date, action_label, action_payload, dedupe_key, created_by,
             created_by_id, created_at, updated_at
-        ) VALUES (%s,%s,%s,%s,%s,%s,%s,NULLIF(%s,'')::date,%s,%s,%s,%s,%s,NOW(),NOW())
+        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NULLIF(%s,'')::date,%s,%s,%s,%s,%s,NOW(),NOW())
         RETURNING id
     """, (
+        owner["scope"],
+        owner.get("companyId"),
+        owner.get("projectId"),
         data.get("findingId") or data.get("finding_id"),
         project_name,
         data.get("title") or "",
@@ -17067,6 +17102,16 @@ def _insert_ai_task(cur, data: dict, current_user: dict):
     return row["id"] if isinstance(row, dict) else row[0]
 
 def _ensure_ai_task_for_finding(cur, finding_id: int, finding: dict, current_user: dict):
+    try:
+        from backend.features.ai_tasks.service import resolve_task_owner, task_owner_filter
+    except ModuleNotFoundError:
+        from features.ai_tasks.service import resolve_task_owner, task_owner_filter
+    task_owner = resolve_task_owner(
+        cur,
+        {"findingId": finding_id, "projectName": finding.get("projectName") or ""},
+        system_project_name=SYSTEM_PROJECT_NAME,
+    )
+    owner_sql, owner_params = task_owner_filter(task_owner)
     dedupe_key = finding.get("dedupeKey") or ""
     linked_type = finding.get("linkedEntityType") or ""
     task_type = "work_room_link_review" if linked_type == "work_journal" else (
@@ -17087,8 +17132,8 @@ def _ensure_ai_task_for_finding(cur, finding_id: int, finding: dict, current_use
             finding.get("assignedTo") or "",
         )
         cur.execute(
-            AI_TASK_SELECT + " WHERE project_name=%s AND dedupe_key=%s AND status NOT IN ('Закрыто','Отклонено') ORDER BY updated_at DESC, id DESC LIMIT 1",
-            (finding.get("projectName"), dedupe_key)
+            AI_TASK_SELECT + " WHERE project_name=%s AND dedupe_key=%s AND status NOT IN ('Закрыто','Отклонено') AND " + owner_sql + " ORDER BY updated_at DESC, id DESC LIMIT 1",
+            (finding.get("projectName"), dedupe_key, *owner_params)
         )
         existing = cur.fetchone()
         if existing:
@@ -17098,8 +17143,7 @@ def _ensure_ai_task_for_finding(cur, finding_id: int, finding: dict, current_use
                 SET finding_id=%s, title=%s, description=%s, assigned_role=%s,
                     assigned_to=%s, action_label=%s, action_payload=%s, dedupe_key=%s,
                     updated_at=NOW()
-                WHERE id=%s
-            """, (
+                WHERE id=%s AND """ + owner_sql, (
                 finding_id,
                 finding.get("title") or "",
                 finding.get("suggestedAction") or finding.get("description") or "",
@@ -17109,10 +17153,15 @@ def _ensure_ai_task_for_finding(cur, finding_id: int, finding: dict, current_use
                 action_payload,
                 dedupe_key,
                 task_id,
+                *owner_params,
             ))
-            _close_duplicate_ai_tasks(cur, finding.get("projectName") or "", dedupe_key, task_id, current_user.get("name") or "system")
+            _close_duplicate_ai_tasks(cur, finding.get("projectName") or "", dedupe_key, task_id, current_user.get("name") or "system", task_owner)
             return None
-    cur.execute("SELECT id FROM ai_tasks WHERE finding_id=%s AND status NOT IN ('Закрыто','Отклонено') LIMIT 1", (finding_id,))
+    cur.execute(
+        "SELECT id FROM ai_tasks WHERE finding_id=%s "
+        "AND status NOT IN ('Закрыто','Отклонено') AND " + owner_sql + " LIMIT 1",
+        (finding_id, *owner_params),
+    )
     if cur.fetchone():
         return None
     return _insert_ai_task(cur, {
@@ -17126,7 +17175,7 @@ def _ensure_ai_task_for_finding(cur, finding_id: int, finding: dict, current_use
         "actionLabel": "Принять к исполнению",
         "actionPayload": action_payload,
         "dedupeKey": dedupe_key,
-    }, current_user)
+    }, current_user, task_owner)
 
 def _upsert_ai_finding(cur, finding: dict, current_user: dict, project_owner: dict = None):
     try:
@@ -17261,8 +17310,14 @@ def _ai_payload(payload: dict) -> str:
     return json.dumps(payload or {}, ensure_ascii=False)
 
 def _upsert_ai_task(cur, data: dict, current_user: dict):
+    try:
+        from backend.features.ai_tasks.service import resolve_task_owner, task_owner_filter
+    except ModuleNotFoundError:
+        from features.ai_tasks.service import resolve_task_owner, task_owner_filter
     project_name = data.get("projectName") or data.get("project_name") or ""
     require_project_access(current_user, project_name)
+    task_owner = resolve_task_owner(cur, data, system_project_name=SYSTEM_PROJECT_NAME)
+    owner_sql, owner_params = task_owner_filter(task_owner)
     assignment = _normalize_ai_assignment(
         cur,
         project_name,
@@ -17274,8 +17329,8 @@ def _upsert_ai_task(cur, data: dict, current_user: dict):
     dedupe_key = _ai_task_dedupe_key(data)
     if dedupe_key:
         cur.execute(
-            AI_TASK_SELECT + " WHERE project_name=%s AND dedupe_key=%s AND status NOT IN ('Закрыто','Отклонено') ORDER BY updated_at DESC, id DESC LIMIT 1",
-            (project_name, dedupe_key)
+            AI_TASK_SELECT + " WHERE project_name=%s AND dedupe_key=%s AND status NOT IN ('Закрыто','Отклонено') AND " + owner_sql + " ORDER BY updated_at DESC, id DESC LIMIT 1",
+            (project_name, dedupe_key, *owner_params)
         )
         existing = cur.fetchone()
         if existing:
@@ -17287,8 +17342,7 @@ def _upsert_ai_task(cur, data: dict, current_user: dict):
                     created_by=COALESCE(NULLIF(created_by,''),%s),
                     created_by_id=COALESCE(created_by_id,%s),
                     updated_at=NOW()
-                WHERE id=%s
-            """, (
+                WHERE id=%s AND """ + owner_sql, (
                 data.get("title") or "",
                 data.get("description") or "",
                 data.get("assignedRole") or data.get("assigned_role") or "",
@@ -17299,10 +17353,11 @@ def _upsert_ai_task(cur, data: dict, current_user: dict):
                 current_user.get("name") or current_user.get("email") or "",
                 current_user.get("id"),
                 task_id,
+                *owner_params,
             ))
-            _close_duplicate_ai_tasks(cur, project_name, dedupe_key, task_id, current_user.get("name") or "system")
+            _close_duplicate_ai_tasks(cur, project_name, dedupe_key, task_id, current_user.get("name") or "system", task_owner)
             return task_id, False
-    task_id = _insert_ai_task(cur, data, current_user)
+    task_id = _insert_ai_task(cur, data, current_user, task_owner)
     return task_id, True
 
 def _close_stale_ai_findings(cur, project_name: str, categories: list[str], active_keys: set[str], actor: str = "ИИ-контроль", project_owner: dict = None) -> int:

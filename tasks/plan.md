@@ -124,8 +124,9 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.6b3: Remove the legacy global primary key on `project_name` only after M6.6b2 is live, preserving unique `(company_id,project_id)` so different companies may use the same project name. Production cutover and post-audits passed on runtime `1dbd04db211a`.
 - [x] Task M6.6c1: Add and guarded-backfill `ai_findings.company_id/project_id` through exact project and supported linked-entity parents without changing findings runtime. Production migrated all `1342` rows and post-audit is strict-ready.
 - [x] Task M6.6c2: Scope `ai_findings` list/create/update, upsert/dedupe and stale-close through stored owner; validate supported polymorphic entity parents fail-closed. Production runtime `88fbc832a5b1`, protected smoke and post-audit passed.
-- [ ] Task M6.6d1: Add guarded `ai_tasks` ownership with explicit `company` or `platform` scope without changing task runtime. Implemented locally; production dry-run/apply pending.
-- [ ] Task M6.6d2: Scope direct `ai_tasks` list/create/update and assignment actions through a verified finding/project owner while keeping `Система` in platform-only scope.
+- [x] Task M6.6d1: Add guarded `ai_tasks` ownership with explicit `company` or `platform` scope without changing task runtime. Production migrated all `2039` rows and post-audit is strict-ready.
+- [ ] Task M6.6d2a: Make every company/platform task insert and AI upsert persist and constrain stored owner. Implemented locally; production deploy pending.
+- [ ] Task M6.6d2b: Scope direct `ai_tasks` list/create/update and assignment actions through stored owner while keeping `Система` in platform-only scope.
 - [ ] Task M6.6e: Scope task reports and attachments only through the already verified task, requiring attachment `report_id` and `task_id` to resolve to the same owner.
 - [ ] Task M6.6f: Scope `/ai-control/run`, `/ai-findings/generate`, automatic project runs, dedupe/close cascades, and `/ai-control/run-all`; finish with negative cross-company API tests.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
