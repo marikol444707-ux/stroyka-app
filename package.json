@@ -34,6 +34,7 @@
     "audit:work-journal": "python3 -m backend.features.work_journal.ownership_report",
     "audit:ai-ownership": "python3 -m backend.features.ai_ownership.ownership_report",
     "audit:ai-summary-ownership": "python3 -m backend.features.ai_summary_ownership.migration --dry-run",
+    "audit:ai-summary-primary-key": "python3 -m backend.features.ai_summary_ownership.primary_key_migration --dry-run",
     "smoke:telegram-expense": "python3 scripts/smoke-telegram-own-expense.py",
     "smoke:max-warehouse": "python3 scripts/smoke-max-warehouse-invoice.py",
     "smoke:max-miniapp-session": "python3 scripts/smoke-max-miniapp-session.py",

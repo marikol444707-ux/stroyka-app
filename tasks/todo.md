@@ -2146,3 +2146,16 @@
 - The existing global `project_name` primary key remains until runtime cutover; removing it is the independent M6.6b3 step.
 
 **Estimated scope:** S
+
+## Task M6.6b3: Cut Over Project AI Summary Primary Key
+
+**Description:** After tenant-scoped summary runtime is live, replace the global `project_name` primary key with `(company_id,project_id)` so independent companies can use the same project name. Do not change summary payloads or routes in this slice.
+
+**Status:** Implemented locally. Production must run `npm run audit:ai-summary-primary-key`, then apply only the exact returned row count and plan SHA-256.
+
+**Safety:**
+- Dry-run is read-only and validates stored owners, duplicate owner groups, current PK columns, row count, and plan SHA-256.
+- Apply locks projects and summaries, requires the exact legacy constraint, sets owner columns `NOT NULL`, replaces only the PK, and performs a post-check before commit.
+- The existing partial unique `(company_id,project_id)` index remains during this cutover so the already deployed M6.6b2 upsert contract stays valid.
+
+**Estimated scope:** S
