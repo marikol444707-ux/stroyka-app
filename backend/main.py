@@ -38,6 +38,8 @@ try:
         CORS_ORIGINS,
         PUBLIC_LEAD_LAST_SUBMIT as _PUBLIC_LEAD_LAST_SUBMIT,
         PUBLIC_LEAD_RATE_LIMIT_SECONDS,
+        PUBLIC_SITE_COMPANY_ID,
+        PUBLIC_SITE_LEAD_UPLOADS_ENABLED,
         SMTP_FROM,
         SMTP_HOST,
         SMTP_PASSWORD,
@@ -69,6 +71,8 @@ except ModuleNotFoundError:
         CORS_ORIGINS,
         PUBLIC_LEAD_LAST_SUBMIT as _PUBLIC_LEAD_LAST_SUBMIT,
         PUBLIC_LEAD_RATE_LIMIT_SECONDS,
+        PUBLIC_SITE_COMPANY_ID,
+        PUBLIC_SITE_LEAD_UPLOADS_ENABLED,
         SMTP_FROM,
         SMTP_HOST,
         SMTP_PASSWORD,
@@ -2424,6 +2428,11 @@ def _log_api_error(request: Request, exc: Optional[Exception] = None, status_cod
 
 @app.middleware("http")
 async def api_error_logging_middleware(request: Request, call_next):
+    if (
+        request.url.path.startswith("/uploads/")
+        and "/public-site-lead-quarantine/" in request.url.path
+    ):
+        return Response(status_code=404)
     try:
         response = await call_next(request)
         if response.status_code >= 500:
@@ -3238,7 +3247,7 @@ def _s3_allowed_object_urls(key: str) -> tuple[str, ...]:
     urls.extend(public_base + "/" + quoted_key for public_base in S3_LEGACY_PUBLIC_URLS)
     return tuple(dict.fromkeys(urls))
 
-def _s3_put_object(key: str, content: bytes, content_type: str) -> str:
+def _s3_put_object(key: str, content: bytes, content_type: str, acl=None) -> str:
     quoted_bucket = urllib.parse.quote(S3_BUCKET, safe="")
     quoted_key = urllib.parse.quote(key, safe="/")
     url = S3_ENDPOINT_URL + "/" + quoted_bucket + "/" + quoted_key
@@ -3253,8 +3262,9 @@ def _s3_put_object(key: str, content: bytes, content_type: str) -> str:
         "x-amz-content-sha256": payload_hash,
         "x-amz-date": amz_date,
     }
-    if S3_ACL:
-        headers["x-amz-acl"] = S3_ACL
+    object_acl = S3_ACL if acl is None else str(acl or "").strip()
+    if object_acl:
+        headers["x-amz-acl"] = object_acl
     signed_header_names = sorted(headers.keys())
     canonical_headers = "".join(f"{name}:{headers[name]}\n" for name in signed_header_names)
     signed_headers = ";".join(signed_header_names)
@@ -3318,6 +3328,7 @@ def save_upload_bytes(
     project_name: str = "",
     context: str = "",
     content_type: str = "",
+    storage_acl=None,
 ) -> dict:
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="Файл слишком большой")
@@ -3331,7 +3342,7 @@ def save_upload_bytes(
     if _s3_enabled():
         key = "/".join(x for x in [S3_PREFIX, project_segment, context_segment, today, filename] if x)
         try:
-            url = _s3_put_object(key, content, content_type)
+            url = _s3_put_object(key, content, content_type, acl=storage_acl)
         except Exception as e:
             raise HTTPException(status_code=502, detail="Не удалось загрузить файл в S3: " + str(e))
         return {"url": url, "storage": "s3", "key": key, "project": project_segment, "context": context_segment, "filename": original_name}
@@ -31213,6 +31224,22 @@ register_public_site_routes(app, {
     "system_project_name": SYSTEM_PROJECT_NAME,
     "public_lead_rate_limit_seconds": PUBLIC_LEAD_RATE_LIMIT_SECONDS,
     "public_lead_last_submit": _PUBLIC_LEAD_LAST_SUBMIT,
+    "public_site_company_id": PUBLIC_SITE_COMPANY_ID,
+    "public_site_lead_uploads_enabled": PUBLIC_SITE_LEAD_UPLOADS_ENABLED,
+    "save_upload_bytes": save_upload_bytes,
+    "delete_local_file": lambda file_url, missing_ok=False: delete_document_local_file(
+        UPLOAD_DIR,
+        file_url,
+        missing_ok=missing_ok,
+    ),
+    "delete_s3_object": lambda storage_key: delete_document_s3_object(
+        key=storage_key,
+        endpoint_url=S3_ENDPOINT_URL,
+        bucket=S3_BUCKET,
+        region=S3_REGION,
+        access_key=S3_ACCESS_KEY_ID,
+        secret_key=S3_SECRET_ACCESS_KEY,
+    ),
 })
 
 try:

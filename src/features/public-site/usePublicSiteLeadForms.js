@@ -5,18 +5,24 @@ import {
   formatMoney,
   partnerTypes,
 } from './publicSiteContent';
+import { uploadPublicLeadFiles, validatePublicLeadFiles } from './publicLeadFiles';
 
-export const usePublicSiteLeadForms = ({ result, selectedLeadProject }) => {
+export const usePublicSiteLeadForms = ({ result, selectedLeadProject, onLeadFilesChanged }) => {
   const [lead, setLead] = useState({ name: '', phone: '', comment: '' });
   const [leadConsent, setLeadConsent] = useState(false);
   const [leadWebsite, setLeadWebsite] = useState('');
   const [sent, setSent] = useState(false);
   const [leadSending, setLeadSending] = useState(false);
   const [leadError, setLeadError] = useState('');
+  const [leadFiles, setLeadFiles] = useState([]);
   const [partnerLead, setPartnerLead] = useState({
     type: 'supplier',
     name: '',
     phone: '',
+    email: '',
+    inn: '',
+    region: '',
+    specialization: '',
     comment: '',
   });
   const [partnerConsent, setPartnerConsent] = useState(false);
@@ -24,6 +30,19 @@ export const usePublicSiteLeadForms = ({ result, selectedLeadProject }) => {
   const [partnerSending, setPartnerSending] = useState(false);
   const [partnerSent, setPartnerSent] = useState(false);
   const [partnerError, setPartnerError] = useState('');
+
+  const chooseLeadFiles = (fileList) => {
+    setLeadError('');
+    try {
+      const files = validatePublicLeadFiles(fileList);
+      setLeadFiles(files);
+      onLeadFilesChanged?.(files.length);
+    } catch (error) {
+      setLeadFiles([]);
+      onLeadFilesChanged?.(0);
+      setLeadError(error.message || 'Не удалось выбрать файлы');
+    }
+  };
 
   const submitLead = async (event) => {
     event.preventDefault();
@@ -35,6 +54,9 @@ export const usePublicSiteLeadForms = ({ result, selectedLeadProject }) => {
     }
     setLeadSending(true);
     try {
+      const attachmentTokens = leadFiles.length
+        ? await uploadPublicLeadFiles(leadFiles, API)
+        : [];
       const response = await fetch(API + '/site/leads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -59,6 +81,7 @@ export const usePublicSiteLeadForms = ({ result, selectedLeadProject }) => {
             rangeText: `${formatMoney(result.min)} - ${formatMoney(result.max)} ₽`,
           },
           selectedProject: selectedLeadProject,
+          attachmentTokens,
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -69,6 +92,8 @@ export const usePublicSiteLeadForms = ({ result, selectedLeadProject }) => {
       setLead({ name: '', phone: '', comment: '' });
       setLeadConsent(false);
       setLeadWebsite('');
+      setLeadFiles([]);
+      onLeadFilesChanged?.(0);
     } catch (error) {
       setLeadError(error.message || 'Не удалось отправить заявку');
     } finally {
@@ -94,8 +119,12 @@ export const usePublicSiteLeadForms = ({ result, selectedLeadProject }) => {
         body: JSON.stringify({
           name: partnerLead.name || partnerType.label,
           phone: partnerLead.phone,
+          email: partnerLead.email,
           comment: [
             'Тип заявки: ' + partnerType.label,
+            partnerLead.inn ? 'ИНН: ' + partnerLead.inn : '',
+            partnerLead.region ? 'Регион: ' + partnerLead.region : '',
+            partnerLead.specialization ? 'Специализация: ' + partnerLead.specialization : '',
             partnerLead.comment ? 'Комментарий: ' + partnerLead.comment : '',
             'Заявка только на проверку. Активный доступ не выдавать автоматически.',
           ].filter(Boolean).join('\n'),
@@ -117,7 +146,16 @@ export const usePublicSiteLeadForms = ({ result, selectedLeadProject }) => {
         throw new Error(data.detail || 'Не удалось отправить заявку');
       }
       setPartnerSent(true);
-      setPartnerLead({ type: 'supplier', name: '', phone: '', comment: '' });
+      setPartnerLead({
+        type: 'supplier',
+        name: '',
+        phone: '',
+        email: '',
+        inn: '',
+        region: '',
+        specialization: '',
+        comment: '',
+      });
       setPartnerConsent(false);
       setPartnerWebsite('');
     } catch (error) {
@@ -137,6 +175,8 @@ export const usePublicSiteLeadForms = ({ result, selectedLeadProject }) => {
     sent,
     leadSending,
     leadError,
+    leadFiles,
+    chooseLeadFiles,
     partnerLead,
     setPartnerLead,
     partnerConsent,

@@ -50,6 +50,7 @@ const PublicSitePage = ({ onLogin }) => {
 
   const {
     sitePricingRules,
+    leadFileUploadsEnabled,
     projectCategory,
     filteredProjects,
     selectedProject,
@@ -126,6 +127,8 @@ const PublicSitePage = ({ onLogin }) => {
     sent,
     leadSending,
     leadError,
+    leadFiles,
+    chooseLeadFiles,
     partnerLead,
     setPartnerLead,
     partnerConsent,
@@ -140,6 +143,7 @@ const PublicSitePage = ({ onLogin }) => {
   } = usePublicSiteLeadForms({
     result,
     selectedLeadProject,
+    onLeadFilesChanged: (count) => setCalc((current) => ({ ...current, files: count })),
   });
 
   const scrollTo = useCallback((id) => {
@@ -267,6 +271,9 @@ const PublicSitePage = ({ onLogin }) => {
             updateCalc={updateCalc}
             result={result}
             scrollTo={scrollTo}
+            leadFileUploadsEnabled={leadFileUploadsEnabled}
+            leadFiles={leadFiles}
+            chooseLeadFiles={chooseLeadFiles}
           />
 
           <section id="passport" className="public-passport" aria-label="Цифровой паспорт объекта">
@@ -830,8 +837,24 @@ const PublicSitePage = ({ onLogin }) => {
             <input value={partnerLead.phone} onChange={(event) => setPartnerLead({ ...partnerLead, phone: event.target.value })} placeholder="+7" required />
           </label>
           <label>
-            Что предлагаете
-            <textarea value={partnerLead.comment} onChange={(event) => setPartnerLead({ ...partnerLead, comment: event.target.value })} placeholder="Материалы, виды работ, регион, опыт" />
+            Email
+            <input type="email" value={partnerLead.email} onChange={(event) => setPartnerLead({ ...partnerLead, email: event.target.value })} placeholder="mail@company.ru" />
+          </label>
+          <label>
+            ИНН
+            <input inputMode="numeric" value={partnerLead.inn} onChange={(event) => setPartnerLead({ ...partnerLead, inn: event.target.value })} placeholder="Для проверки компании или ИП" />
+          </label>
+          <label>
+            Регион работы
+            <input value={partnerLead.region} onChange={(event) => setPartnerLead({ ...partnerLead, region: event.target.value })} placeholder="Ставропольский край" />
+          </label>
+          <label>
+            Специализация
+            <input value={partnerLead.specialization} onChange={(event) => setPartnerLead({ ...partnerLead, specialization: event.target.value })} placeholder="Материалы или виды работ" />
+          </label>
+          <label>
+            Дополнительная информация
+            <textarea value={partnerLead.comment} onChange={(event) => setPartnerLead({ ...partnerLead, comment: event.target.value })} placeholder="Опыт, условия работы, примеры объектов" />
           </label>
           <label className="public-consent">
             <input

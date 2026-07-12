@@ -1,9 +1,18 @@
 import datetime as dt
 import json
+import re
 import time
+import uuid
 
 import psycopg2.extras
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, File, HTTPException, Request, UploadFile
+
+from .upload_policy import (
+    MAX_PUBLIC_LEAD_FILE_BYTES,
+    MAX_PUBLIC_LEAD_FILES,
+    public_upload_rate_exceeded,
+    validate_public_lead_file,
+)
 
 
 SITE_PRICE_GROUP_LABELS = {
@@ -58,6 +67,95 @@ def _public_client_ip(request: Request) -> str:
     return _public_text(request.client.host if request.client else "unknown", 80)
 
 
+def _public_attachment_tokens(data: dict) -> list[str]:
+    raw_tokens = data.get("attachmentTokens")
+    if raw_tokens in (None, ""):
+        return []
+    if not isinstance(raw_tokens, list):
+        raise HTTPException(status_code=422, detail="Некорректный список файлов")
+    tokens = []
+    for raw_token in raw_tokens:
+        token = str(raw_token or "").strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{32}", token):
+            raise HTTPException(status_code=422, detail="Некорректный токен файла")
+        if token not in tokens:
+            tokens.append(token)
+    if len(tokens) > MAX_PUBLIC_LEAD_FILES:
+        raise HTTPException(status_code=422, detail="К заявке можно прикрепить не больше 5 файлов")
+    return tokens
+
+
+def _ensure_public_lead_uploads_schema(cur) -> None:
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS public_lead_uploads (
+            token VARCHAR(64) PRIMARY KEY,
+            company_id INT NOT NULL,
+            file_ownership_id INT NOT NULL,
+            original_name TEXT NOT NULL,
+            content_type VARCHAR(255) NOT NULL,
+            size_bytes BIGINT NOT NULL,
+            client_ip VARCHAR(80),
+            status VARCHAR(30) NOT NULL DEFAULT 'pending',
+            lead_id INT,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            expires_at TIMESTAMP NOT NULL
+        )
+    """)
+    cur.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_public_lead_uploads_file
+        ON public_lead_uploads(file_ownership_id)
+    """)
+
+
+def _cleanup_expired_public_lead_uploads(get_db, delete_local_file, delete_s3_object, limit=20) -> int:
+    if not delete_local_file or not delete_s3_object:
+        return 0
+    conn = get_db()
+    cur = conn.cursor()
+    cleaned = 0
+    try:
+        _ensure_public_lead_uploads_schema(cur)
+        cur.execute("""
+            SELECT u.token,u.file_ownership_id,f.file_url,COALESCE(f.storage_key,'')
+            FROM public_lead_uploads u
+            JOIN file_ownership f ON f.id=u.file_ownership_id
+            WHERE u.status IN ('pending','cleanup_failed')
+              AND u.expires_at<=NOW()
+            ORDER BY u.expires_at,u.token
+            LIMIT %s
+            FOR UPDATE OF u SKIP LOCKED
+        """, (max(1, min(int(limit or 20), 100)),))
+        rows = cur.fetchall()
+        for token, ownership_id, file_url, storage_key in rows:
+            try:
+                if storage_key:
+                    delete_s3_object(storage_key)
+                else:
+                    delete_local_file(file_url, missing_ok=True)
+                cur.execute("DELETE FROM public_lead_uploads WHERE token=%s", (token,))
+                cur.execute("DELETE FROM file_ownership WHERE id=%s", (ownership_id,))
+                cleaned += 1
+            except Exception as error:
+                cur.execute(
+                    "UPDATE public_lead_uploads SET status='cleanup_failed' WHERE token=%s",
+                    (token,),
+                )
+                cur.execute("""
+                    UPDATE file_ownership
+                       SET deletion_status='cleanup_failed',deletion_error=%s,
+                           deletion_requested_at=NOW()
+                     WHERE id=%s
+                """, (_public_text(str(error), 1000), ownership_id))
+        conn.commit()
+        return cleaned
+    except Exception:
+        conn.rollback()
+        return cleaned
+    finally:
+        cur.close()
+        conn.close()
+
+
 def _public_lead_notes(data: dict) -> str:
     parts = []
     comment = _public_text(data.get("comment") or data.get("notes"), 1200)
@@ -73,6 +171,32 @@ def _public_lead_notes(data: dict) -> str:
         compact = " · ".join([x for x in calc_parts if x])
         if compact:
             parts.append("Расчёт сайта: " + compact)
+    selected_project = data.get("selectedProject") if isinstance(data.get("selectedProject"), dict) else {}
+    if selected_project:
+        project_parts = []
+        direction = _public_text(selected_project.get("directionTitle"), 160)
+        project_code = _public_text(selected_project.get("projectCode"), 80)
+        project_title = _public_text(selected_project.get("projectTitle"), 255)
+        area = _public_text(selected_project.get("projectArea"), 80)
+        floors = _public_text(selected_project.get("projectFloors"), 80)
+        estimate = _public_text(selected_project.get("estimateRange") or selected_project.get("estimateFrom"), 120)
+        project_url = _public_text(selected_project.get("projectUrl"), 500)
+        if direction:
+            project_parts.append("направление: " + direction)
+        if project_code:
+            project_parts.append("код: " + project_code)
+        if project_title:
+            project_parts.append("проект: " + project_title)
+        if area:
+            project_parts.append("площадь: " + area)
+        if floors:
+            project_parts.append("этажность: " + floors)
+        if estimate:
+            project_parts.append("ориентир: " + estimate)
+        if project_url:
+            project_parts.append("карточка: " + project_url)
+        if project_parts:
+            parts.append("Выбранный проект: " + " · ".join(project_parts))
     page = _public_text(data.get("page"), 120)
     if page:
         parts.append("Страница: " + page)
@@ -169,8 +293,93 @@ def register_public_site_routes(app, deps):
     system_project_name = deps["system_project_name"]
     lead_rate_limit_seconds = deps.get("public_lead_rate_limit_seconds", 0)
     lead_last_submit = deps.get("public_lead_last_submit", {})
+    lead_uploads_enabled = bool(deps.get("public_site_lead_uploads_enabled", False))
+    public_site_company_id = int(deps.get("public_site_company_id") or 0)
+    save_upload_bytes = deps.get("save_upload_bytes")
+    delete_local_file = deps.get("delete_local_file")
+    delete_s3_object = deps.get("delete_s3_object")
 
     site_admin = require_roles(*leadership_roles)
+
+    @app.post("/site/lead-files")
+    async def create_site_lead_file(request: Request, file: UploadFile = File(...)):
+        if not lead_uploads_enabled:
+            raise HTTPException(status_code=404, detail="Загрузка файлов с сайта пока отключена")
+        if not public_site_company_id or not save_upload_bytes:
+            raise HTTPException(status_code=503, detail="Хранилище заявок не настроено")
+
+        content = await file.read(MAX_PUBLIC_LEAD_FILE_BYTES + 1)
+        validated = validate_public_lead_file(file.filename or "file", file.content_type or "", content)
+        _cleanup_expired_public_lead_uploads(get_db, delete_local_file, delete_s3_object)
+        token = uuid.uuid4().hex
+        context = "public-site-lead-quarantine"
+        namespace = f"company-{public_site_company_id}-common-{context}"
+
+        conn = get_db()
+        cur = conn.cursor()
+        try:
+            _ensure_public_lead_uploads_schema(cur)
+            cur.execute("""
+                SELECT COUNT(*)
+                FROM public_lead_uploads
+                WHERE client_ip=%s AND created_at>NOW() - INTERVAL '1 hour'
+            """, (_public_client_ip(request),))
+            recent_uploads = cur.fetchone()[0]
+            if public_upload_rate_exceeded(recent_uploads):
+                raise HTTPException(status_code=429, detail="Слишком много файлов. Попробуйте позже.")
+            uploaded = save_upload_bytes(
+                content,
+                validated["filename"],
+                namespace,
+                context,
+                validated["contentType"],
+                "",
+            )
+            cur.execute("""
+                INSERT INTO file_ownership (
+                    company_id,project_id,file_url,storage_key,context,original_name,content_type,
+                    uploaded_by_id,uploaded_by
+                ) VALUES (%s,NULL,%s,%s,%s,%s,%s,NULL,'Публичный сайт')
+                RETURNING id
+            """, (
+                public_site_company_id,
+                uploaded.get("url"),
+                uploaded.get("key") or "",
+                context,
+                validated["filename"],
+                validated["contentType"],
+            ))
+            ownership_id = cur.fetchone()[0]
+            cur.execute("""
+                INSERT INTO public_lead_uploads (
+                    token,company_id,file_ownership_id,original_name,content_type,size_bytes,
+                    client_ip,status,expires_at
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,'pending',NOW() + INTERVAL '1 hour')
+            """, (
+                token,
+                public_site_company_id,
+                ownership_id,
+                validated["filename"],
+                validated["contentType"],
+                validated["size"],
+                _public_client_ip(request),
+            ))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+
+        return {
+            "ok": True,
+            "token": token,
+            "name": validated["filename"],
+            "contentType": validated["contentType"],
+            "size": validated["size"],
+            "expiresInSeconds": 3600,
+        }
 
     @app.get("/site/projects")
     def get_site_projects():
@@ -197,6 +406,11 @@ def register_public_site_routes(app, deps):
         return {
             "rules": rules,
             "groups": SITE_PRICE_GROUP_LABELS,
+            "capabilities": {
+                "leadFileUploads": lead_uploads_enabled,
+                "maxLeadFiles": MAX_PUBLIC_LEAD_FILES,
+                "maxLeadFileMb": int(MAX_PUBLIC_LEAD_FILE_BYTES / 1024 / 1024),
+            },
             "domains": {
                 "public": "stroyka26.pro",
                 "app": "app.stroyka26.pro",
@@ -265,6 +479,9 @@ def register_public_site_routes(app, deps):
         phone = _public_text(data.get("phone"), 80)
         if not phone:
             raise HTTPException(status_code=422, detail="Укажите телефон")
+        attachment_tokens = _public_attachment_tokens(data)
+        if attachment_tokens and not lead_uploads_enabled:
+            raise HTTPException(status_code=422, detail="Загрузка файлов с сайта пока отключена")
 
         name = _public_text(data.get("name") or "Заявка с сайта", 255)
         email = _public_text(data.get("email"), 255)
@@ -296,6 +513,22 @@ def register_public_site_routes(app, deps):
         conn = get_db()
         cur = conn.cursor()
         try:
+            pending_uploads = []
+            if attachment_tokens:
+                _ensure_public_lead_uploads_schema(cur)
+                cur.execute("""
+                    SELECT u.token,u.file_ownership_id,u.original_name,u.content_type,u.size_bytes
+                    FROM public_lead_uploads u
+                    WHERE u.token = ANY(%s)
+                      AND u.company_id=%s
+                      AND u.client_ip=%s
+                      AND u.status='pending'
+                      AND u.expires_at>NOW()
+                    FOR UPDATE
+                """, (attachment_tokens, public_site_company_id, client_ip))
+                pending_uploads = cur.fetchall()
+                if len(pending_uploads) != len(attachment_tokens):
+                    raise HTTPException(status_code=422, detail="Один или несколько файлов недоступны или просрочены")
             cur.execute(
                 """INSERT INTO crm_leads
                    (name,phone,email,source,budget,notes,stage,created_by,created_at,lead_type,review_status)
@@ -303,6 +536,30 @@ def register_public_site_routes(app, deps):
                 (name, phone, email, source, budget, notes, "Новый", "Сайт", created_at, lead_type, review_status),
             )
             new_id = cur.fetchone()[0]
+            for upload in pending_uploads:
+                ownership_id = upload[1]
+                cur.execute("""
+                    INSERT INTO crm_lead_documents (
+                        lead_id,doc_type,title,file_url,status,confidential,notes,uploaded_by
+                    ) VALUES (%s,'Файл с сайта',%s,%s,'Загружен',true,%s,'Публичный сайт')
+                """, (
+                    new_id,
+                    upload[2],
+                    "/tenant-files/" + str(ownership_id) + "/content",
+                    "Получено вместе с публичной заявкой",
+                ))
+            if pending_uploads:
+                cur.execute("""
+                    UPDATE public_lead_uploads
+                       SET status='attached',lead_id=%s
+                     WHERE token = ANY(%s) AND status='pending'
+                """, (new_id, attachment_tokens))
+                if cur.rowcount != len(attachment_tokens):
+                    raise HTTPException(status_code=409, detail="Не удалось закрепить все файлы за заявкой")
+                cur.execute(
+                    "UPDATE crm_leads SET document_status='Есть документы' WHERE id=%s",
+                    (new_id,),
+                )
             action_payload = json.dumps({
                 "type": "open_page",
                 "page": "crm",
@@ -323,10 +580,16 @@ def register_public_site_routes(app, deps):
             ))
             conn.commit()
             lead_last_submit[client_ip] = now
+        except HTTPException:
+            conn.rollback()
+            raise
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             cur.close()
             conn.close()
-        return {"ok": True, "id": new_id}
+        return {"ok": True, "id": new_id, "attachments": len(attachment_tokens)}
 
     @app.put("/projects/{id}/site-publication")
     def update_project_site_publication(id: int, data: dict, current_user: dict = Depends(site_admin)):

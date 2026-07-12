@@ -15,7 +15,15 @@ import {
   formatMoney,
 } from './publicSiteContent';
 
-export const PublicSiteCalculatorSection = ({ calc, updateCalc, result, scrollTo }) => (
+export const PublicSiteCalculatorSection = ({
+  calc,
+  updateCalc,
+  result,
+  scrollTo,
+  leadFileUploadsEnabled = false,
+  leadFiles = [],
+  chooseLeadFiles,
+}) => (
           <section id="calculator" className="public-calculator" aria-label="Калькулятор строительства">
             <div className="public-tool-header">
               <div>
@@ -247,16 +255,25 @@ export const PublicSiteCalculatorSection = ({ calc, updateCalc, result, scrollTo
                 </>
               )}
 
-              <label className="public-upload">
-                <Upload size={16} />
-                Проект / фото / план
-                <input
-                  type="file"
-                  multiple
-                  onChange={(event) => updateCalc('files', event.target.files?.length || 0)}
-              />
-              </label>
-              {calc.files > 0 && <span className="public-file-count">Файлов: {calc.files}</span>}
+              {leadFileUploadsEnabled && (
+                <>
+                  <label className="public-upload">
+                    <Upload size={16} />
+                    Проект / фото / план
+                    <input
+                      type="file"
+                      accept="application/pdf,image/jpeg,image/png,image/webp"
+                      multiple
+                      onChange={(event) => chooseLeadFiles?.(event.target.files)}
+                    />
+                  </label>
+                  {leadFiles.length > 0 && (
+                    <span className="public-file-count">
+                      Выбрано файлов: {leadFiles.length} · до 10 МБ каждый
+                    </span>
+                  )}
+                </>
+              )}
             </div>
 
             <div className="public-result">

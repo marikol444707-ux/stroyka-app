@@ -11,6 +11,7 @@ export const usePublicSiteProjects = () => {
   const [selectedProjectId, setSelectedProjectId] = useState(publicProjects[0].id);
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
   const [sitePricingRules, setSitePricingRules] = useState([]);
+  const [leadFileUploadsEnabled, setLeadFileUploadsEnabled] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -21,6 +22,7 @@ export const usePublicSiteProjects = () => {
         const data = await response.json();
         if (cancelled) return;
         setSitePricingRules(Array.isArray(data.rules) ? data.rules : []);
+        setLeadFileUploadsEnabled(data.capabilities?.leadFileUploads === true);
       } catch (_) {
         // Если backend ещё не обновлён, калькулятор работает по локальным дефолтам.
       }
@@ -72,6 +74,7 @@ export const usePublicSiteProjects = () => {
 
   return {
     sitePricingRules,
+    leadFileUploadsEnabled,
     projectCategory,
     filteredProjects,
     selectedProject,
