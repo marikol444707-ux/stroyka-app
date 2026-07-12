@@ -2348,3 +2348,18 @@
 - Existing failed orphan rows remain untouched until the guarded messenger migration defines their legacy status.
 
 **Estimated scope:** XS
+
+## Task M6.7b: Guard Messenger Channel Ownership Migration
+
+**Description:** Add nullable `company_id/project_id` to messenger channels and backfill only exact project owners or explicit operator-provided channel mappings.
+
+**Status:** Implemented and tested locally. Production dry-run with an explicit channel map is pending.
+
+**Safety:**
+- Dry-run is read-only; apply requires exact ready count, SHA-256 plan and `APPLY_MESSENGER_CHANNEL_OWNERSHIP` confirmation.
+- Company-level channels without project names are never assigned automatically.
+- Every explicit company/project is checked against existing companies and the exact project parent.
+- Unknown channel IDs, partial stored owners, mapping conflicts and changed plans block the whole transaction.
+- Runtime routes and outbox rows remain unchanged until the stored channel-owner post-check is clean.
+
+**Estimated scope:** M

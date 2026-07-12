@@ -135,6 +135,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.7a1: Distinguish deleted supported parents from unsupported entity types and expose recipient-company evidence without accepting it as ownership. Production confirmed `5` orphan supply notifications and `3` ownerless channel notifications, all without recipient-company evidence.
 - [x] Task M6.7a2: Expand the read-only audit to `messenger_channels` and outbox operational status; register global messenger account/channel routes before schema work. Production found four ownerless internal channels, three sent channel messages and five failed orphan supply messages.
 - [ ] Task M6.7a3: Fix `smoke:supply-chain` cleanup so every generated request removes its own MAX outbox rows before the request parent. Implemented and tested locally; production release pending.
+- [ ] Task M6.7b: Add guarded nullable company/project ownership migration for messenger channels with explicit operator mappings, expected count and SHA plan. Implemented and tested locally; production dry-run with channel map pending.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary
