@@ -2151,11 +2151,24 @@
 
 **Description:** After tenant-scoped summary runtime is live, replace the global `project_name` primary key with `(company_id,project_id)` so independent companies can use the same project name. Do not change summary payloads or routes in this slice.
 
-**Status:** Implemented locally. Production must run `npm run audit:ai-summary-primary-key`, then apply only the exact returned row count and plan SHA-256.
+**Status:** Completed in production on runtime `1dbd04db211a`. The primary key is `(company_id,project_id)`, the legacy name key is removed, and both ownership and public smoke audits passed.
 
 **Safety:**
 - Dry-run is read-only and validates stored owners, duplicate owner groups, current PK columns, row count, and plan SHA-256.
 - Apply locks projects and summaries, requires the exact legacy constraint, sets owner columns `NOT NULL`, replaces only the PK, and performs a post-check before commit.
 - The existing partial unique `(company_id,project_id)` index remains during this cutover so the already deployed M6.6b2 upsert contract stays valid.
+
+**Estimated scope:** S
+
+## Task M6.6c1: Store AI Finding Ownership
+
+**Description:** Add nullable `company_id/project_id` to `ai_findings` and guarded-backfill every row through its exact project plus any supported linked entity. Keep findings CRUD, AI-control, dedupe, tasks, and business payloads unchanged.
+
+**Status:** Implemented locally. Production must run `npm run audit:ai-findings-ownership`, apply only its exact ready count and plan SHA-256, then repeat the audit before findings runtime changes.
+
+**Safety:**
+- Dry-run uses a PostgreSQL read-only transaction and never selects finding title, description, suggested action, or assignment content.
+- Apply locks all supported parent tables and findings, requires `APPLY_AI_FINDINGS_OWNERSHIP`, count and SHA, and updates only rows with both owner columns null.
+- The batch update is followed by full project/entity/stored-owner reclassification before commit.
 
 **Estimated scope:** S
