@@ -40,6 +40,7 @@
     "audit:ai-task-children-ownership": "python3 -m backend.features.ai_task_children_ownership.migration --dry-run",
     "audit:messenger-ownership": "python3 -m backend.features.messenger_ownership.ownership_report",
     "audit:messenger-channel-ownership": "python3 -m backend.features.messenger_channel_ownership.migration",
+    "audit:messenger-item-ownership": "python3 -m backend.features.messenger_item_ownership.migration",
     "smoke:telegram-expense": "python3 scripts/smoke-telegram-own-expense.py",
     "smoke:max-warehouse": "python3 scripts/smoke-max-warehouse-invoice.py",
     "smoke:max-miniapp-session": "python3 scripts/smoke-max-miniapp-session.py",

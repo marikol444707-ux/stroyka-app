@@ -2368,7 +2368,7 @@
 
 **Description:** Make the existing read-only messenger ownership report prefer stored channel company/project ownership and pass it to channel-linked outbox rows.
 
-**Status:** Implemented and tested locally. Production release is pending.
+**Status:** Production verified: four channels and three sent channel messages resolve to company `1`; only five failed deleted-parent supply notifications remain unresolved.
 
 **Safety:**
 - Runtime webhook, channel CRUD, outbox writes and dispatch remain unchanged.
@@ -2377,3 +2377,18 @@
 - Five failed outbox rows with deleted supply parents remain unresolved and visible; this slice does not delete, retry or relabel them.
 
 **Estimated scope:** XS
+
+## Task M6.7d1: Guard Messenger File And Outbox Ownership Migration
+
+**Description:** Add nullable `owner_scope/company_id/project_id` to messenger files and outbox, backfill verified company owners, and preserve only explicitly selected failed deleted-parent outbox rows as terminal legacy history.
+
+**Status:** Implemented and tested locally. Production dry-run is pending.
+
+**Safety:**
+- Dry-run is read-only; apply requires exact ready count, SHA-256 plan and `APPLY_MESSENGER_ITEM_OWNERSHIP` confirmation.
+- A row can become `legacy` only through an explicit `--legacy-outbox ID`, only while `failed/skipped`, only with a supported deleted parent and no recipient-company evidence.
+- A database constraint prevents legacy rows from returning to `queued`, so dispatch cannot resend them.
+- Verified company rows inherit only the exact project/entity/recipient evidence from the existing audit; conflicting stored owners block the transaction.
+- Runtime writes and tenant reads remain unchanged until the post-migration audit is strict-ready.
+
+**Estimated scope:** M
