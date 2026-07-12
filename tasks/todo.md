@@ -1798,6 +1798,16 @@
 
 **Estimated scope:** M
 
+## Task M6.5e: Tenant-Scoped Work Journal AI Prefill
+
+**Description:** Verify the selected-company actor and exact stored journal owner before sending business data to AI. After the external response, open a new transaction, repeat the owner lock, verify the source snapshot is unchanged, and only then save AI fields.
+
+**Status:** Implemented locally; release pending. Batch creation, rooms, acts, and contracts remain unchanged.
+
+**Dependencies:** Task M6.5d
+
+**Estimated scope:** S
+
 **M6 safety gate:** do not backfill ambiguous legacy rows, do not use project names as authorization identifiers, do not allow mutation in `all_companies`, and do not start the two-company production E2E until M6.0-M6.8 and the preceding M4/M5 gaps are closed.
 
 ## Task M7: Backfill, Constraints, And Pilot Matrix

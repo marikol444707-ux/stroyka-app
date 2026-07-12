@@ -15872,19 +15872,56 @@ def delete_work_journal(
         conn.close()
 
 @app.post("/work-journal/{id}/ai-prefill")
-def ai_prefill_work_journal(id: int, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
+def ai_prefill_work_journal(
+    id: int,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     import openai as oa, json as j, re
     conn = get_db()
-    cur = conn.cursor()
-    require_work_journal_actor_access(cur, id, _current_user)
-    cur.execute("""SELECT description, section_name, unit, quantity, materials_used, project, hidden_work
-                   FROM work_journal WHERE id=%s""", (id,))
-    row = cur.fetchone()
-    if not row:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="запись не найдена")
-    description, section_name, unit, quantity, materials_used, project, hidden_work = row
-    cur.close()
+    conn.autocommit = False
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        actor, journal_project, owner_row = _resolve_work_journal_mutation(
+            cur, _current_user, id, "read", x_company_id, x_company_mode, JOURNAL_WRITE_ROLES,
+        )
+        if actor.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(
+            actor, owner_row.get("work_package") or "Основная"
+        ):
+            raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
+        if actor.get("role") in WORKER_EXECUTION_ROLES:
+            if (
+                str(owner_row.get("master_id") or "") != str(actor.get("id") or "")
+                and (
+                    owner_row.get("master_id")
+                    or str(owner_row.get("master_name") or "").strip().lower()
+                    != str(actor.get("name") or "").strip().lower()
+                )
+            ):
+                raise HTTPException(status_code=403, detail="Исполнитель может работать только со своей записью ЖПР")
+        cur.execute(
+            """SELECT description,section_name,unit,quantity,materials_used,project,hidden_work
+                 FROM work_journal
+                WHERE id=%s AND company_id=%s AND project=%s""",
+            (id, owner_row.get("company_id"), journal_project.get("name")),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="запись не найдена")
+        description = row.get("description")
+        section_name = row.get("section_name")
+        unit = row.get("unit")
+        quantity = row.get("quantity")
+        materials_used = row.get("materials_used")
+        project = row.get("project")
+        hidden_work = row.get("hidden_work")
+        owner_company_id = owner_row.get("company_id")
+        canonical_project_name = journal_project.get("name")
+        conn.rollback()
+    finally:
+        cur.close()
+        conn.close()
 
     user_text = (
         "Описание работы: " + (description or "—") + "\n"
@@ -15919,7 +15956,6 @@ def ai_prefill_work_journal(id: int, _current_user: dict = Depends(require_roles
         print("AI-PREFILL work_journal primary empty, fallback. err=" + str(err))
         answer, err = _call("yandexgpt-5.1/latest")
     if not (answer or "").strip():
-        conn.close()
         raise HTTPException(status_code=502, detail="AI вернул пустой ответ: " + str(err))
 
     text = answer.strip()
@@ -15929,23 +15965,52 @@ def ai_prefill_work_journal(id: int, _current_user: dict = Depends(require_roles
     try:
         parsed = j.loads(text)
     except Exception as e:
-        conn.close()
         raise HTTPException(status_code=502, detail="AI вернул невалидный JSON: " + str(e)[:200])
 
     normatives = (parsed.get("normatives") or "").strip()
     project_docs = (parsed.get("projectDocs") or "").strip()
     quality_note = (parsed.get("qualityNote") or "").strip()
 
-    cur = conn.cursor()
-    # qualityNote дописываем в comment (если comment пустой), нормативы и проектные доки — в свои поля
-    cur.execute("""UPDATE work_journal
-                   SET normatives=%s, project_docs=%s,
-                       comment = CASE WHEN COALESCE(comment,'')='' THEN %s ELSE comment END,
-                       ai_filled=TRUE
-                   WHERE id=%s""",
-                (normatives, project_docs, quality_note, id))
-    conn.commit()
-    cur.close(); conn.close()
+    save_conn = get_db()
+    save_conn.autocommit = False
+    save_cur = save_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        _actor, save_project, save_owner = _resolve_work_journal_mutation(
+            save_cur, _current_user, id, "update", x_company_id, x_company_mode, JOURNAL_WRITE_ROLES,
+        )
+        if (
+            int(save_owner.get("company_id") or 0) != int(owner_company_id or 0)
+            or save_project.get("name") != canonical_project_name
+        ):
+            raise HTTPException(status_code=409, detail="Владелец ЖПР изменился во время AI-запроса")
+        save_cur.execute(
+            """UPDATE work_journal
+                SET normatives=%s,project_docs=%s,
+                      comment=CASE WHEN COALESCE(comment,'')='' THEN %s ELSE comment END,
+                      ai_filled=TRUE
+                WHERE id=%s AND company_id=%s AND project=%s
+                  AND description IS NOT DISTINCT FROM %s
+                  AND section_name IS NOT DISTINCT FROM %s
+                  AND unit IS NOT DISTINCT FROM %s
+                  AND quantity IS NOT DISTINCT FROM %s
+                  AND materials_used IS NOT DISTINCT FROM %s
+                  AND hidden_work IS NOT DISTINCT FROM %s
+                RETURNING id""",
+            (
+                normatives, project_docs, quality_note,
+                id, owner_company_id, canonical_project_name,
+                description, section_name, unit, quantity, materials_used, hidden_work,
+            ),
+        )
+        if not save_cur.fetchone():
+            raise HTTPException(status_code=409, detail="ЖПР изменилась во время AI-запроса")
+        save_conn.commit()
+    except Exception:
+        save_conn.rollback()
+        raise
+    finally:
+        save_cur.close()
+        save_conn.close()
     return {"ok": True, "normatives": normatives, "projectDocs": project_docs, "qualityNote": quality_note, "aiFilled": True}
 
 # Ключевые слова скрытых работ (резерв, если ИИ недоступен) — СНиП 12-01-2004
