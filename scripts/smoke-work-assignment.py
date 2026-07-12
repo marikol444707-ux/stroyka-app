@@ -130,6 +130,28 @@ def cleanup():
     conn = db_conn()
     cur = conn.cursor()
     try:
+        cur.execute(
+            """
+            DELETE FROM ai_task_attachments
+            WHERE task_id IN (SELECT id FROM ai_tasks WHERE project_name=%s)
+               OR report_id IN (
+                   SELECT r.id
+                   FROM ai_task_reports r
+                   JOIN ai_tasks t ON t.id=r.task_id
+                   WHERE t.project_name=%s
+               )
+            """,
+            (PROJECT_NAME, PROJECT_NAME),
+        )
+        cur.execute(
+            """
+            DELETE FROM ai_task_reports
+            WHERE task_id IN (SELECT id FROM ai_tasks WHERE project_name=%s)
+            """,
+            (PROJECT_NAME,),
+        )
+        cur.execute("DELETE FROM ai_tasks WHERE project_name=%s", (PROJECT_NAME,))
+        cur.execute("DELETE FROM ai_findings WHERE project_name=%s", (PROJECT_NAME,))
         cur.execute("DELETE FROM room_works WHERE project=%s", (PROJECT_NAME,))
         cur.execute("DELETE FROM work_journal WHERE project=%s", (PROJECT_NAME,))
         cur.execute(
