@@ -12,6 +12,7 @@ export const usePublicSiteProjects = () => {
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
   const [sitePricingRules, setSitePricingRules] = useState([]);
   const [leadFileUploadsEnabled, setLeadFileUploadsEnabled] = useState(false);
+  const [hasPublishedProjects, setHasPublishedProjects] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -35,6 +36,7 @@ export const usePublicSiteProjects = () => {
         if (cancelled || !Array.isArray(data) || data.length === 0) return;
         const normalized = data.map(normalizeSiteProject);
         setSiteProjects(normalized);
+        setHasPublishedProjects(true);
         setSelectedProjectId(normalized[0].id);
         setSelectedPhotoIndex(0);
       } catch (_) {
@@ -75,6 +77,7 @@ export const usePublicSiteProjects = () => {
   return {
     sitePricingRules,
     leadFileUploadsEnabled,
+    hasPublishedProjects,
     projectCategory,
     filteredProjects,
     selectedProject,

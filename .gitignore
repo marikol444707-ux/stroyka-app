@@ -27,6 +27,8 @@ backend/.env
 /backend/uploads/
 /outputs/
 /tmp/
+public/site-assets/projects/**/*.original.png
+public/site-assets/projects/**/*.generated.png
 
 npm-debug.log*
 yarn-debug.log*

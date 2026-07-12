@@ -51,6 +51,7 @@ const PublicSitePage = ({ onLogin }) => {
   const {
     sitePricingRules,
     leadFileUploadsEnabled,
+    hasPublishedProjects,
     projectCategory,
     filteredProjects,
     selectedProject,
@@ -366,14 +367,12 @@ const PublicSitePage = ({ onLogin }) => {
       </section>
 
       <section id="objects" className="public-section public-objects">
-        <div className="public-section-head">
-          <p className="public-eyebrow dark">Объекты</p>
-          <h2>Галерея проектов с доказательствами работ</h2>
-          <p>
-            Сейчас это витрина для сайта. Дальше лучшие фото, цифры и статус объекта
-            можно будет публиковать прямо из ERP после разрешения директора.
-          </p>
-        </div>
+        {hasPublishedProjects && <>
+          <div className="public-section-head">
+            <p className="public-eyebrow dark">Объекты</p>
+            <h2>Галерея выполненных и текущих объектов</h2>
+            <p>Опубликованные фотографии, этапы и показатели объектов.</p>
+          </div>
 
         <div className="public-gallery-tabs" aria-label="Фильтр проектов">
           {projectFilters.map((filter) => (
@@ -461,6 +460,7 @@ const PublicSitePage = ({ onLogin }) => {
             </button>
           ))}
         </div>
+        </>}
 
         <div id="work-proof" className="public-work-proof">
           <div className="public-section-head compact">

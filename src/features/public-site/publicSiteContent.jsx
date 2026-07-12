@@ -213,7 +213,7 @@ export const referenceDirections = [
     id: 'one-floor-modern',
     title: 'Одноэтажный современный дом',
     text: 'Компактные дома 90-160 м2 с террасой, светлой гостиной и понятной планировкой.',
-    image: '/site-assets/projects/h1-01/facade.png',
+    image: '/site-assets/projects/h1-01/facade.webp',
     tags: ['1 этаж', 'современный фасад', 'терраса'],
     calcPatch: { type: 'house', floors: 1, wallType: 'gasblock', package: 'turnkey', area: 120, rooms: 4 },
     examples: [
@@ -233,7 +233,7 @@ export const referenceDirections = [
     id: 'one-floor-brick',
     title: 'Одноэтажный дом из кирпича',
     text: 'Классические капитальные дома для постоянного проживания.',
-    image: '/site-assets/projects/b1-01/facade.png',
+    image: '/site-assets/projects/b1-01/facade.webp',
     tags: ['кирпич', 'классика', 'надежность'],
     calcPatch: { type: 'house', floors: 1, wallType: 'brick', package: 'turnkey', area: 135, rooms: 4 },
     examples: [
@@ -253,7 +253,7 @@ export const referenceDirections = [
     id: 'family-cottage',
     title: 'Семейный коттедж',
     text: 'Загородные дома с общей семейной зоной, террасой и удобной логикой жизни.',
-    image: '/site-assets/projects/fam-01/facade.png',
+    image: '/site-assets/projects/fam-01/facade.webp',
     tags: ['коттедж', 'семья', 'двор'],
     calcPatch: { type: 'house', floors: 1, wallType: 'gasblock', package: 'turnkey', area: 155, rooms: 5 },
     examples: [
@@ -521,8 +521,8 @@ export const readyProjectCardsByDirection = {
       layout: 'Кухня-гостиная 45,8 м2, 3 спальни, ванная, санузел, гардеробная, кладовая, прихожая.',
       visuals: 'Реальный 3D-фасад, второй ракурс и обмерный план 110 м2.',
       media: [
-        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/h1-01/facade.png' },
-        { id: 'render-side', kind: 'image', role: 'render', label: '3D боковой', src: '/site-assets/projects/h1-01/side.png' },
+        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/h1-01/facade.webp' },
+        { id: 'render-side', kind: 'image', role: 'render', label: '3D боковой', src: '/site-assets/projects/h1-01/side.webp' },
         { id: 'plan-1', kind: 'image', role: 'plan', label: 'Планировка', src: '/site-assets/projects/h1-01/plan.png' },
       ],
       calcPatch: { area: 110, floors: 1, rooms: 4, bedrooms: 3, wallType: 'brick', package: 'turnkey' },
@@ -535,8 +535,8 @@ export const readyProjectCardsByDirection = {
       layout: 'Кухня-гостиная 36,9 м2, 3 спальни, две ванные, кладовая, гардеробные и прихожая.',
       visuals: 'Фасады из рабочего альбома, второй ракурс и план М 1:100.',
       media: [
-        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/h1-02/facade.png' },
-        { id: 'render-side', kind: 'image', role: 'render', label: '3D боковой', src: '/site-assets/projects/h1-02/side.png' },
+        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/h1-02/facade.webp' },
+        { id: 'render-side', kind: 'image', role: 'render', label: '3D боковой', src: '/site-assets/projects/h1-02/side.webp' },
         { id: 'plan-1', kind: 'image', role: 'plan', label: 'Планировка', src: '/site-assets/projects/h1-02/plan.png' },
       ],
       calcPatch: { area: 116, floors: 1, rooms: 4, bedrooms: 3, wallType: 'brick', package: 'turnkey' },
@@ -546,14 +546,14 @@ export const readyProjectCardsByDirection = {
       title: 'Современный дом 100 м2 с плоской кровлей',
       area: '100 м2',
       floors: '1 этаж',
-      layout: 'Кухня-гостиная, 2 спальни, санузел, техническое помещение и входная зона.',
+      layout: 'Кухня-гостиная 35,1 м2, 3 спальни, ванная, санузел, техническое помещение и входная зона.',
       visuals: 'Современный плоский фасад, перспективный вид и план из рабочего альбома.',
       media: [
-        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/h1-03/facade.png' },
-        { id: 'render-side', kind: 'image', role: 'render', label: '3D боковой', src: '/site-assets/projects/h1-03/side.png' },
+        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/h1-03/facade.webp' },
+        { id: 'render-side', kind: 'image', role: 'render', label: '3D боковой', src: '/site-assets/projects/h1-03/side.webp' },
         { id: 'plan-1', kind: 'image', role: 'plan', label: 'Планировка', src: '/site-assets/projects/h1-03/plan.png' },
       ],
-      calcPatch: { area: 100, floors: 1, rooms: 3, bedrooms: 2, wallType: 'gasblock', package: 'turnkey' },
+      calcPatch: { area: 100, floors: 1, rooms: 4, bedrooms: 3, wallType: 'gasblock', package: 'turnkey' },
     },
   ],
   'one-floor-brick': [
@@ -565,8 +565,8 @@ export const readyProjectCardsByDirection = {
       layout: 'Кухня-гостиная 45,8 м2, 3 спальни, ванная, санузел, гардеробная и кладовая.',
       visuals: 'Реальный 3D-фасад в светлом кирпиче, второй ракурс и обмерный план 110 м2.',
       media: [
-        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/b1-01/facade.png' },
-        { id: 'render-side', kind: 'image', role: 'render', label: '3D боковой', src: '/site-assets/projects/b1-01/side.png' },
+        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/b1-01/facade.webp' },
+        { id: 'render-side', kind: 'image', role: 'render', label: '3D боковой', src: '/site-assets/projects/b1-01/side.webp' },
         { id: 'plan-1', kind: 'image', role: 'plan', label: 'Планировка', src: '/site-assets/projects/b1-01/plan.png' },
       ],
       calcPatch: { area: 110, floors: 1, rooms: 4, bedrooms: 3, wallType: 'brick', package: 'turnkey' },
@@ -579,8 +579,8 @@ export const readyProjectCardsByDirection = {
       layout: 'Гостиная с эркером, 3 спальни, кабинет, 2 санузла.',
       visuals: 'Кирпичный фасад с эркером, второй ракурс и план 138 м2.',
       media: [
-        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/b1-02/facade.png' },
-        { id: 'render-side', kind: 'image', role: 'render', label: '3D боковой', src: '/site-assets/projects/b1-02/side.png' },
+        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/b1-02/facade.webp' },
+        { id: 'render-side', kind: 'image', role: 'render', label: '3D боковой', src: '/site-assets/projects/b1-02/side.webp' },
         { id: 'plan-1', kind: 'image', role: 'plan', label: 'Планировка', src: '/site-assets/projects/b1-02/plan.png' },
       ],
       calcPatch: { area: 138, floors: 1, rooms: 5, bedrooms: 3, wallType: 'brick', package: 'turnkey' },
@@ -593,8 +593,8 @@ export const readyProjectCardsByDirection = {
       layout: 'Кухня-гостиная с выходом на террасу, 4 спальни, 2 санузла.',
       visuals: 'Кирпич, терраса, второй ракурс и план 155 м2.',
       media: [
-        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/b1-03/facade.png' },
-        { id: 'render-side', kind: 'image', role: 'render', label: '3D терраса', src: '/site-assets/projects/b1-03/side.png' },
+        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/b1-03/facade.webp' },
+        { id: 'render-side', kind: 'image', role: 'render', label: '3D терраса', src: '/site-assets/projects/b1-03/side.webp' },
         { id: 'plan-1', kind: 'image', role: 'plan', label: 'Планировка', src: '/site-assets/projects/b1-03/plan.png' },
       ],
       calcPatch: { area: 155, floors: 1, rooms: 5, bedrooms: 4, wallType: 'brick', package: 'turnkey' },
@@ -609,8 +609,8 @@ export const readyProjectCardsByDirection = {
       layout: 'Кухня-гостиная 36,9 м2, 3 спальни, две ванные, кладовая и гардеробные.',
       visuals: 'Рабочий альбом: фасады, второй ракурс и план М 1:100.',
       media: [
-        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/fam-01/facade.png' },
-        { id: 'render-side', kind: 'image', role: 'render', label: '3D боковой', src: '/site-assets/projects/fam-01/side.png' },
+        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/fam-01/facade.webp' },
+        { id: 'render-side', kind: 'image', role: 'render', label: '3D боковой', src: '/site-assets/projects/fam-01/side.webp' },
         { id: 'plan-1', kind: 'image', role: 'plan', label: 'Планировка', src: '/site-assets/projects/fam-01/plan.png' },
       ],
       calcPatch: { area: 116, floors: 1, rooms: 4, bedrooms: 3, wallType: 'brick', package: 'turnkey' },
@@ -623,8 +623,8 @@ export const readyProjectCardsByDirection = {
       layout: 'Гостиная со вторым светом, 3 спальни, кабинет, 2 санузла.',
       visuals: 'Высокая гостиная, второй ракурс и план 170 м2.',
       media: [
-        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/fam-02/facade.png' },
-        { id: 'render-side', kind: 'image', role: 'render', label: '3D боковой', src: '/site-assets/projects/fam-02/side.png' },
+        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/fam-02/facade.webp' },
+        { id: 'render-side', kind: 'image', role: 'render', label: '3D боковой', src: '/site-assets/projects/fam-02/side.webp' },
         { id: 'plan-1', kind: 'image', role: 'plan', label: 'Планировка', src: '/site-assets/projects/fam-02/plan.png' },
       ],
       calcPatch: { area: 170, floors: 1, rooms: 5, bedrooms: 3, wallType: 'gasblock', package: 'turnkey' },
@@ -637,8 +637,8 @@ export const readyProjectCardsByDirection = {
       layout: '4 спальни, гостевая, кухня-гостиная, постирочная.',
       visuals: 'Терраса, второй ракурс и план 185 м2.',
       media: [
-        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/fam-03/facade.png' },
-        { id: 'render-side', kind: 'image', role: 'render', label: '3D терраса', src: '/site-assets/projects/fam-03/side.png' },
+        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/fam-03/facade.webp' },
+        { id: 'render-side', kind: 'image', role: 'render', label: '3D терраса', src: '/site-assets/projects/fam-03/side.webp' },
         { id: 'plan-1', kind: 'image', role: 'plan', label: 'Планировка', src: '/site-assets/projects/fam-03/plan.png' },
       ],
       calcPatch: { area: 185, floors: 1, rooms: 6, bedrooms: 5, wallType: 'gasblock', package: 'turnkey' },
@@ -706,7 +706,7 @@ export const readyProjectCardsByDirection = {
   ],
 };
 
-export const makeProjectMedia = (code, labels, files = ['facade.png', 'side.png', 'plan.png']) => {
+export const makeProjectMedia = (code, labels, files = ['facade.webp', 'side.webp', 'plan.png']) => {
   const slug = String(code).toLowerCase();
   return files.map((file, index) => ({
     id: index === 0 ? 'render-front' : index === 1 ? 'render-side' : `plan-${index - 1}`,
@@ -725,7 +725,7 @@ export const readyProjectMediaByCode = {
   ...makeProjectMediaMap(
     ['H2-01', 'H2-02', 'H2-03', 'B2-01', 'B2-02', 'B2-03', 'GAR-01', 'GAR-02', 'GAR-03', 'TOWN-01', 'TOWN-02', 'TOWN-03'],
     ['3D фасад', '3D боковой', 'План 1 этажа', 'План 2 этажа'],
-    ['facade.png', 'side.png', 'plan-1.png', 'plan-2.png'],
+    ['facade.webp', 'side.webp', 'plan-1.png', 'plan-2.png'],
   ),
   ...makeProjectMediaMap(
     ['REC-01', 'REC-02', 'REC-03'],

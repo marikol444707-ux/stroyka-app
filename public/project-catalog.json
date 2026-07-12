@@ -12,7 +12,7 @@
       "summary": "3 проекта · 3 вида · от 9,6 млн ₽",
       "previewImages": [
         {
-          "src": "/site-assets/projects/h1-01/facade.png",
+          "src": "/site-assets/projects/h1-01/facade.webp",
           "alt": "Фасад проекта H1-01"
         },
         {
@@ -35,14 +35,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/h1-01/facade.png"
+              "src": "/site-assets/projects/h1-01/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/h1-01/side.png"
+              "src": "/site-assets/projects/h1-01/side.webp"
             },
             {
               "id": "plan",
@@ -68,14 +68,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/h1-02/facade.png"
+              "src": "/site-assets/projects/h1-02/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/h1-02/side.png"
+              "src": "/site-assets/projects/h1-02/side.webp"
             },
             {
               "id": "plan",
@@ -92,7 +92,7 @@
           "title": "Современный дом 100 м2 с плоской кровлей",
           "area": "100 м2",
           "floors": "1 этаж",
-          "layout": "Кухня-гостиная, 2 спальни, санузел, техническое помещение и входная зона.",
+          "layout": "Кухня-гостиная 35,1 м2, 3 спальни, ванная, санузел, техническое помещение и входная зона.",
           "visuals": "Современный плоский фасад, перспективный вид и план из рабочего альбома.",
           "url": "https://stroyka26.pro/?project=H1-03#projects",
           "media": [
@@ -101,14 +101,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/h1-03/facade.png"
+              "src": "/site-assets/projects/h1-03/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/h1-03/side.png"
+              "src": "/site-assets/projects/h1-03/side.webp"
             },
             {
               "id": "plan",
@@ -129,7 +129,7 @@
       "summary": "3 проекта · 3 вида · от 9,8 млн ₽",
       "previewImages": [
         {
-          "src": "/site-assets/projects/b1-01/facade.png",
+          "src": "/site-assets/projects/b1-01/facade.webp",
           "alt": "Фасад проекта B1-01"
         },
         {
@@ -152,14 +152,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/b1-01/facade.png"
+              "src": "/site-assets/projects/b1-01/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/b1-01/side.png"
+              "src": "/site-assets/projects/b1-01/side.webp"
             },
             {
               "id": "plan",
@@ -185,14 +185,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/b1-02/facade.png"
+              "src": "/site-assets/projects/b1-02/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/b1-02/side.png"
+              "src": "/site-assets/projects/b1-02/side.webp"
             },
             {
               "id": "plan",
@@ -218,14 +218,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/b1-03/facade.png"
+              "src": "/site-assets/projects/b1-03/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/b1-03/side.png"
+              "src": "/site-assets/projects/b1-03/side.webp"
             },
             {
               "id": "plan",
@@ -246,7 +246,7 @@
       "summary": "3 проекта · 3 вида · от 11,5 млн ₽",
       "previewImages": [
         {
-          "src": "/site-assets/projects/fam-01/facade.png",
+          "src": "/site-assets/projects/fam-01/facade.webp",
           "alt": "Фасад проекта FAM-01"
         },
         {
@@ -269,14 +269,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/fam-01/facade.png"
+              "src": "/site-assets/projects/fam-01/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/fam-01/side.png"
+              "src": "/site-assets/projects/fam-01/side.webp"
             },
             {
               "id": "plan",
@@ -302,14 +302,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/fam-02/facade.png"
+              "src": "/site-assets/projects/fam-02/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/fam-02/side.png"
+              "src": "/site-assets/projects/fam-02/side.webp"
             },
             {
               "id": "plan",
@@ -335,14 +335,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/fam-03/facade.png"
+              "src": "/site-assets/projects/fam-03/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/fam-03/side.png"
+              "src": "/site-assets/projects/fam-03/side.webp"
             },
             {
               "id": "plan",
@@ -363,7 +363,7 @@
       "summary": "3 проекта · 4 вида · от 10,9 млн ₽",
       "previewImages": [
         {
-          "src": "/site-assets/projects/h2-01/facade.png",
+          "src": "/site-assets/projects/h2-01/facade.webp",
           "alt": "Фасад проекта H2-01"
         },
         {
@@ -386,14 +386,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/h2-01/facade.png"
+              "src": "/site-assets/projects/h2-01/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/h2-01/side.png"
+              "src": "/site-assets/projects/h2-01/side.webp"
             },
             {
               "id": "plan-1",
@@ -426,14 +426,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/h2-02/facade.png"
+              "src": "/site-assets/projects/h2-02/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/h2-02/side.png"
+              "src": "/site-assets/projects/h2-02/side.webp"
             },
             {
               "id": "plan-1",
@@ -466,14 +466,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/h2-03/facade.png"
+              "src": "/site-assets/projects/h2-03/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/h2-03/side.png"
+              "src": "/site-assets/projects/h2-03/side.webp"
             },
             {
               "id": "plan-1",
@@ -501,7 +501,7 @@
       "summary": "3 проекта · 4 вида · от 15,7 млн ₽",
       "previewImages": [
         {
-          "src": "/site-assets/projects/b2-01/facade.png",
+          "src": "/site-assets/projects/b2-01/facade.webp",
           "alt": "Фасад проекта B2-01"
         },
         {
@@ -524,14 +524,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/b2-01/facade.png"
+              "src": "/site-assets/projects/b2-01/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/b2-01/side.png"
+              "src": "/site-assets/projects/b2-01/side.webp"
             },
             {
               "id": "plan-1",
@@ -564,14 +564,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/b2-02/facade.png"
+              "src": "/site-assets/projects/b2-02/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/b2-02/side.png"
+              "src": "/site-assets/projects/b2-02/side.webp"
             },
             {
               "id": "plan-1",
@@ -604,14 +604,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/b2-03/facade.png"
+              "src": "/site-assets/projects/b2-03/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/b2-03/side.png"
+              "src": "/site-assets/projects/b2-03/side.webp"
             },
             {
               "id": "plan-1",
@@ -639,7 +639,7 @@
       "summary": "3 проекта · 4 вида · от 12,2 млн ₽",
       "previewImages": [
         {
-          "src": "/site-assets/projects/gar-01/facade.png",
+          "src": "/site-assets/projects/gar-01/facade.webp",
           "alt": "Фасад проекта GAR-01"
         },
         {
@@ -662,14 +662,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/gar-01/facade.png"
+              "src": "/site-assets/projects/gar-01/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/gar-01/side.png"
+              "src": "/site-assets/projects/gar-01/side.webp"
             },
             {
               "id": "plan-1",
@@ -702,14 +702,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/gar-02/facade.png"
+              "src": "/site-assets/projects/gar-02/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/gar-02/side.png"
+              "src": "/site-assets/projects/gar-02/side.webp"
             },
             {
               "id": "plan-1",
@@ -742,14 +742,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/gar-03/facade.png"
+              "src": "/site-assets/projects/gar-03/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/gar-03/side.png"
+              "src": "/site-assets/projects/gar-03/side.webp"
             },
             {
               "id": "plan-1",
@@ -777,7 +777,7 @@
       "summary": "3 проекта · 4 вида · от 6,1 млн ₽",
       "previewImages": [
         {
-          "src": "/site-assets/projects/town-01/facade.png",
+          "src": "/site-assets/projects/town-01/facade.webp",
           "alt": "Фасад проекта TOWN-01"
         },
         {
@@ -800,14 +800,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/town-01/facade.png"
+              "src": "/site-assets/projects/town-01/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/town-01/side.png"
+              "src": "/site-assets/projects/town-01/side.webp"
             },
             {
               "id": "plan-1",
@@ -840,14 +840,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/town-02/facade.png"
+              "src": "/site-assets/projects/town-02/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/town-02/side.png"
+              "src": "/site-assets/projects/town-02/side.webp"
             },
             {
               "id": "plan-1",
@@ -880,14 +880,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/town-03/facade.png"
+              "src": "/site-assets/projects/town-03/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/town-03/side.png"
+              "src": "/site-assets/projects/town-03/side.webp"
             },
             {
               "id": "plan-1",
@@ -915,7 +915,7 @@
       "summary": "3 проекта · 3 вида · от 2,8 млн ₽",
       "previewImages": [
         {
-          "src": "/site-assets/projects/rec-01/facade.png",
+          "src": "/site-assets/projects/rec-01/facade.webp",
           "alt": "Визуал реконструкции REC-01"
         },
         {
@@ -938,14 +938,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/rec-01/facade.png"
+              "src": "/site-assets/projects/rec-01/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/rec-01/side.png"
+              "src": "/site-assets/projects/rec-01/side.webp"
             },
             {
               "id": "plan",
@@ -971,14 +971,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/rec-02/facade.png"
+              "src": "/site-assets/projects/rec-02/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/rec-02/side.png"
+              "src": "/site-assets/projects/rec-02/side.webp"
             },
             {
               "id": "plan",
@@ -1004,14 +1004,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/rec-03/facade.png"
+              "src": "/site-assets/projects/rec-03/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/rec-03/side.png"
+              "src": "/site-assets/projects/rec-03/side.webp"
             },
             {
               "id": "plan",
@@ -1032,7 +1032,7 @@
       "summary": "3 проекта · 3 вида · от 1,9 млн ₽",
       "previewImages": [
         {
-          "src": "/site-assets/projects/fac-01/facade.png",
+          "src": "/site-assets/projects/fac-01/facade.webp",
           "alt": "Фасад проекта FAC-01"
         },
         {
@@ -1055,14 +1055,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/fac-01/facade.png"
+              "src": "/site-assets/projects/fac-01/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/fac-01/side.png"
+              "src": "/site-assets/projects/fac-01/side.webp"
             },
             {
               "id": "plan",
@@ -1088,14 +1088,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/fac-02/facade.png"
+              "src": "/site-assets/projects/fac-02/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/fac-02/side.png"
+              "src": "/site-assets/projects/fac-02/side.webp"
             },
             {
               "id": "plan",
@@ -1121,14 +1121,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/fac-03/facade.png"
+              "src": "/site-assets/projects/fac-03/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/fac-03/side.png"
+              "src": "/site-assets/projects/fac-03/side.webp"
             },
             {
               "id": "plan",
@@ -1149,7 +1149,7 @@
       "summary": "3 проекта · 3 вида · от 1,2 млн ₽",
       "previewImages": [
         {
-          "src": "/site-assets/projects/roof-01/facade.png",
+          "src": "/site-assets/projects/roof-01/facade.webp",
           "alt": "Визуал кровли ROOF-01"
         },
         {
@@ -1172,14 +1172,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/roof-01/facade.png"
+              "src": "/site-assets/projects/roof-01/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/roof-01/side.png"
+              "src": "/site-assets/projects/roof-01/side.webp"
             },
             {
               "id": "plan",
@@ -1205,14 +1205,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/roof-02/facade.png"
+              "src": "/site-assets/projects/roof-02/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/roof-02/side.png"
+              "src": "/site-assets/projects/roof-02/side.webp"
             },
             {
               "id": "plan",
@@ -1238,14 +1238,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/roof-03/facade.png"
+              "src": "/site-assets/projects/roof-03/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/roof-03/side.png"
+              "src": "/site-assets/projects/roof-03/side.webp"
             },
             {
               "id": "plan",
@@ -1266,7 +1266,7 @@
       "summary": "3 проекта · 3 вида · от 1,5 млн ₽",
       "previewImages": [
         {
-          "src": "/site-assets/projects/apt-01/facade.png",
+          "src": "/site-assets/projects/apt-01/facade.webp",
           "alt": "Визуал ремонта APT-01"
         },
         {
@@ -1289,14 +1289,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/apt-01/facade.png"
+              "src": "/site-assets/projects/apt-01/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/apt-01/side.png"
+              "src": "/site-assets/projects/apt-01/side.webp"
             },
             {
               "id": "plan",
@@ -1322,14 +1322,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/apt-02/facade.png"
+              "src": "/site-assets/projects/apt-02/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/apt-02/side.png"
+              "src": "/site-assets/projects/apt-02/side.webp"
             },
             {
               "id": "plan",
@@ -1355,14 +1355,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/apt-03/facade.png"
+              "src": "/site-assets/projects/apt-03/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/apt-03/side.png"
+              "src": "/site-assets/projects/apt-03/side.webp"
             },
             {
               "id": "plan",
@@ -1383,7 +1383,7 @@
       "summary": "3 проекта · 3 вида · от 4,1 млн ₽",
       "previewImages": [
         {
-          "src": "/site-assets/projects/fin-01/facade.png",
+          "src": "/site-assets/projects/fin-01/facade.webp",
           "alt": "Визуал отделки FIN-01"
         },
         {
@@ -1406,14 +1406,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/fin-01/facade.png"
+              "src": "/site-assets/projects/fin-01/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/fin-01/side.png"
+              "src": "/site-assets/projects/fin-01/side.webp"
             },
             {
               "id": "plan",
@@ -1439,14 +1439,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/fin-02/facade.png"
+              "src": "/site-assets/projects/fin-02/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/fin-02/side.png"
+              "src": "/site-assets/projects/fin-02/side.webp"
             },
             {
               "id": "plan",
@@ -1472,14 +1472,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/fin-03/facade.png"
+              "src": "/site-assets/projects/fin-03/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/fin-03/side.png"
+              "src": "/site-assets/projects/fin-03/side.webp"
             },
             {
               "id": "plan",
@@ -1500,7 +1500,7 @@
       "summary": "3 проекта · 3 вида · от 320 тыс ₽",
       "previewImages": [
         {
-          "src": "/site-assets/projects/bath-01/facade.png",
+          "src": "/site-assets/projects/bath-01/facade.webp",
           "alt": "Визуал санузла BATH-01"
         },
         {
@@ -1523,14 +1523,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/bath-01/facade.png"
+              "src": "/site-assets/projects/bath-01/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/bath-01/side.png"
+              "src": "/site-assets/projects/bath-01/side.webp"
             },
             {
               "id": "plan",
@@ -1556,14 +1556,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/bath-02/facade.png"
+              "src": "/site-assets/projects/bath-02/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/bath-02/side.png"
+              "src": "/site-assets/projects/bath-02/side.webp"
             },
             {
               "id": "plan",
@@ -1589,14 +1589,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/bath-03/facade.png"
+              "src": "/site-assets/projects/bath-03/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/bath-03/side.png"
+              "src": "/site-assets/projects/bath-03/side.webp"
             },
             {
               "id": "plan",
@@ -1617,7 +1617,7 @@
       "summary": "3 проекта · 3 вида · от 980 тыс ₽",
       "previewImages": [
         {
-          "src": "/site-assets/projects/kit-01/facade.png",
+          "src": "/site-assets/projects/kit-01/facade.webp",
           "alt": "Визуал кухни-гостиной KIT-01"
         },
         {
@@ -1640,14 +1640,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/kit-01/facade.png"
+              "src": "/site-assets/projects/kit-01/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/kit-01/side.png"
+              "src": "/site-assets/projects/kit-01/side.webp"
             },
             {
               "id": "plan",
@@ -1673,14 +1673,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/kit-02/facade.png"
+              "src": "/site-assets/projects/kit-02/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/kit-02/side.png"
+              "src": "/site-assets/projects/kit-02/side.webp"
             },
             {
               "id": "plan",
@@ -1706,14 +1706,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/kit-03/facade.png"
+              "src": "/site-assets/projects/kit-03/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/kit-03/side.png"
+              "src": "/site-assets/projects/kit-03/side.webp"
             },
             {
               "id": "plan",
@@ -1734,7 +1734,7 @@
       "summary": "3 проекта · 3 вида · от 3,9 млн ₽",
       "previewImages": [
         {
-          "src": "/site-assets/projects/off-01/facade.png",
+          "src": "/site-assets/projects/off-01/facade.webp",
           "alt": "Визуал офиса OFF-01"
         },
         {
@@ -1757,14 +1757,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/off-01/facade.png"
+              "src": "/site-assets/projects/off-01/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/off-01/side.png"
+              "src": "/site-assets/projects/off-01/side.webp"
             },
             {
               "id": "plan",
@@ -1790,14 +1790,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/off-02/facade.png"
+              "src": "/site-assets/projects/off-02/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/off-02/side.png"
+              "src": "/site-assets/projects/off-02/side.webp"
             },
             {
               "id": "plan",
@@ -1823,14 +1823,14 @@
               "kind": "image",
               "role": "render",
               "label": "3D фасад",
-              "src": "/site-assets/projects/off-03/facade.png"
+              "src": "/site-assets/projects/off-03/facade.webp"
             },
             {
               "id": "render-side",
               "kind": "image",
               "role": "render",
               "label": "Второй ракурс",
-              "src": "/site-assets/projects/off-03/side.png"
+              "src": "/site-assets/projects/off-03/side.webp"
             },
             {
               "id": "plan",

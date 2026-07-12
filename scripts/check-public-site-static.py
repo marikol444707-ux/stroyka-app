@@ -376,7 +376,7 @@ def check_react_project_media_assets():
     if not media_map_match:
         fail("cannot find readyProjectMediaByCode in publicSiteContent.jsx")
 
-    default_files = ["facade.png", "side.png", "plan.png"]
+    default_files = ["facade.webp", "side.webp", "plan.png"]
     for match in re.finditer(
         r"makeProjectMediaMap\(\s*\[(?P<codes>.*?)\]\s*,\s*\[(?P<labels>.*?)\]\s*(?:,\s*\[(?P<files>.*?)\])?\s*,?\s*\)",
         media_map_match.group("body"),
