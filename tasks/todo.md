@@ -2177,7 +2177,7 @@
 
 **Description:** Scope finding list/create/update and internal finding upsert/dedupe/stale-close through stored company/project ownership. Keep AI task/report/attachment ownership and run-all orchestration for their later independent slices.
 
-**Status:** Implemented locally. Production deployment and protected tenant smoke are pending.
+**Status:** Completed in production on runtime `88fbc832a5b1`. Public/protected smoke and strict owner post-audit passed.
 
 **Safety:**
 - Every request resolves one selected company and one effective company role before finding SQL.
@@ -2186,3 +2186,17 @@
 - Automatic name-only execution fails closed when the project owner is not globally unique.
 
 **Estimated scope:** M
+
+## Task M6.6d1: Store Explicit AI Task Ownership
+
+**Description:** Add guarded task ownership without changing task routes. Tenant tasks store `owner_scope='company'` with `company_id/project_id`; `Система` tasks store `owner_scope='platform'` with no company/project IDs.
+
+**Status:** Planned. Read-only production report and guarded migration implementation are next.
+
+**Safety:**
+- A task linked to a finding must inherit exactly the finding's stored owner.
+- A task without finding must resolve one exact project owner.
+- Platform scope is allowed only for `project_name='Система'` and cannot contain company/project IDs.
+- Runtime task CRUD remains unchanged until a clean post-audit.
+
+**Estimated scope:** S
