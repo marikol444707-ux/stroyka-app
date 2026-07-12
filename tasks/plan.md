@@ -119,8 +119,8 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.5d: Scope direct `PUT/DELETE /work-journal/{id}` through one selected-company actor and the exact stored journal/project owner; deployed and verified in runtime `0f0575f69aaa`.
 - [x] Task M6.5e: Scope `POST /work-journal/{id}/ai-prefill` by stored owner before the AI call and repeat the owner lock before saving the AI result. Implemented locally; production release pending.
 - [x] Task M6.6a: Audit ownership of `project_ai_summary`, `ai_findings`, `ai_tasks`, `ai_task_reports`, and `ai_task_attachments` without changing runtime or rows. Production verified all `3382` retained rows with `unresolved=0`, `mismatched=0`, and `writesAttempted=0` after guarded smoke cleanup.
-- [ ] Task M6.6b1: Add and guarded-backfill `project_ai_summary.company_id/project_id` from the exact unique project parent without changing runtime. Implemented locally; production dry-run/apply pending.
-- [ ] Task M6.6b2: Scope only `GET/POST /project-ai-summary` through one selected company and stored company/project owner; preserve the response and summary payload.
+- [x] Task M6.6b1: Add and guarded-backfill `project_ai_summary.company_id/project_id` from the exact unique project parent without changing runtime. Production migrated `1` row and the post-audit is strict-ready.
+- [ ] Task M6.6b2: Scope only `GET/POST /project-ai-summary` through one selected company and stored company/project owner; preserve the response and summary payload. Implemented locally; production release pending.
 - [ ] Task M6.6b3: Remove the legacy global primary key on `project_name` only after M6.6b2 is live, preserving unique `(company_id,project_id)` so different companies may use the same project name.
 - [ ] Task M6.6c: Scope `ai_findings` list/create/update through one verified project owner and validate supported polymorphic entity parents fail-closed.
 - [ ] Task M6.6d: Scope direct `ai_tasks` list/create/update and assignment actions through a verified finding/project owner while keeping `Система` in an explicit platform-only scope.

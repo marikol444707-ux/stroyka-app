@@ -2137,7 +2137,7 @@
 
 **Description:** Add nullable `company_id/project_id` to `project_ai_summary`, revalidate each exact legacy `project_name` against one project, and backfill only a guarded dry-run plan. Keep existing GET/POST and AI-control runtime unchanged.
 
-**Status:** Implemented locally. Production must run `npm run audit:ai-summary-ownership`, apply only the returned count and SHA-256, then repeat the dry-run before M6.6b2.
+**Status:** Completed in production. Guarded apply updated the sole legacy row to `company_id=1/project_id=1`; post-audit returned `storedRows=1`, `legacyRows=0`, no review rows, and `readyForStrictRuntime=true`.
 
 **Safety:**
 - Dry-run uses a PostgreSQL read-only transaction and never alters schema.

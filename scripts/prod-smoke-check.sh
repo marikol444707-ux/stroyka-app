@@ -142,6 +142,8 @@ check_not_spa_fallback "estimate versions route" "$BASE_URL/estimates/1/versions
 check_not_spa_fallback "estimate version detail route" "$BASE_URL/estimate-version/1" "401 403"
 check_not_spa_fallback "estimate chat history route" "$BASE_URL/estimates/1/chat-history" "401 403"
 check_not_spa_fallback "estimate chat post route" "$BASE_URL/estimate-chat" "405"
+check_not_spa_fallback "project AI summary route" "$BASE_URL/project-ai-summary/smoke" "401 403"
+check_not_spa_fallback "project AI summary post route" "$BASE_URL/project-ai-summary" "405"
 
 if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
   login_payload="$(python3 -c 'import json,os; print(json.dumps({"email": os.environ["SMOKE_EMAIL"], "password": os.environ["SMOKE_PASSWORD"]}, ensure_ascii=False))')"
@@ -281,6 +283,22 @@ for row in rows if isinstance(rows, list) else []:
     else
       echo "FAIL /estimate chat clear all-companies got=$estimate_chat_all_delete_code expected=400/403/409"
       failures+=("/estimate chat clear all-companies got=$estimate_chat_all_delete_code expected=400/403/409")
+    fi
+
+    ai_summary_all_read_code="$(curl -skS -o /dev/null -w '%{http_code}' "$BASE_URL/project-ai-summary/scope-smoke" -H "Authorization: Bearer $token" -H 'X-Company-Mode: all_companies' || true)"
+    if [[ "$ai_summary_all_read_code" == "400" || "$ai_summary_all_read_code" == "403" || "$ai_summary_all_read_code" == "409" ]]; then
+      echo "OK   /project-ai-summary all-companies read blocked $ai_summary_all_read_code"
+    else
+      echo "FAIL /project-ai-summary all-companies read got=$ai_summary_all_read_code expected=400/403/409"
+      failures+=("/project-ai-summary all-companies read got=$ai_summary_all_read_code expected=400/403/409")
+    fi
+
+    ai_summary_all_write_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/project-ai-summary" -H "Authorization: Bearer $token" -H 'X-Company-Mode: all_companies' -H 'Content-Type: application/json' -d '{"projectName":"scope-smoke","payloadHash":"scope-smoke","summary":"scope-smoke"}' || true)"
+    if [[ "$ai_summary_all_write_code" == "400" || "$ai_summary_all_write_code" == "403" || "$ai_summary_all_write_code" == "409" ]]; then
+      echo "OK   /project-ai-summary all-companies write blocked $ai_summary_all_write_code"
+    else
+      echo "FAIL /project-ai-summary all-companies write got=$ai_summary_all_write_code expected=400/403/409"
+      failures+=("/project-ai-summary all-companies write got=$ai_summary_all_write_code expected=400/403/409")
     fi
 
     telegram_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/telegram/own-expenses" -H 'Content-Type: application/json' -d '{"telegramId":"smoke","description":"smoke","amount":1}' || true)"

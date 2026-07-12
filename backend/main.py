@@ -5158,10 +5158,19 @@ def init_db():
         );
         CREATE TABLE IF NOT EXISTS project_ai_summary (
             project_name VARCHAR(255) PRIMARY KEY,
+            company_id INT,
+            project_id INT,
             payload_hash VARCHAR(64),
             summary TEXT,
             updated_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE project_ai_summary ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE project_ai_summary ADD COLUMN IF NOT EXISTS project_id INT;
+        CREATE INDEX IF NOT EXISTS idx_project_ai_summary_company_id ON project_ai_summary(company_id);
+        CREATE INDEX IF NOT EXISTS idx_project_ai_summary_project_id ON project_ai_summary(project_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_project_ai_summary_company_project
+            ON project_ai_summary(company_id,project_id)
+            WHERE company_id IS NOT NULL AND project_id IS NOT NULL;
         CREATE TABLE IF NOT EXISTS ai_findings (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -29786,37 +29795,19 @@ def create_expense(data: dict, _current_user: dict = Depends(require_roles(*FINA
     cur.close(); conn.close()
     return {"ok":True}
 
-@app.get("/project-ai-summary/{project_name}")
-def get_project_ai_summary(project_name: str, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    require_project_access(current_user, project_name)
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT payload_hash, summary, updated_at FROM project_ai_summary WHERE project_name=%s", (project_name,))
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    if not row:
-        return {"exists": False}
-    return {"exists": True, "payloadHash": row[0], "summary": row[1] or "", "updatedAt": str(row[2])}
+try:
+    from backend.features.ai_summary import register_ai_summary_module
+except ModuleNotFoundError:
+    from features.ai_summary import register_ai_summary_module
 
-@app.post("/project-ai-summary")
-def save_project_ai_summary(data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    project_name = data.get("projectName", "")
-    if not project_name:
-        raise HTTPException(status_code=400, detail="projectName required")
-    require_project_access(current_user, project_name)
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO project_ai_summary (project_name, payload_hash, summary, updated_at)
-        VALUES (%s, %s, %s, NOW())
-        ON CONFLICT (project_name) DO UPDATE SET
-            payload_hash = EXCLUDED.payload_hash,
-            summary = EXCLUDED.summary,
-            updated_at = NOW()
-    """, (project_name, data.get("payloadHash", ""), data.get("summary", "")))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True}
+register_ai_summary_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "project_document_roles": PROJECT_DOCUMENT_ROLES,
+    "full_view_roles": ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик"),
+})
 
 @app.post("/ai-generate-estimate")
 def ai_generate_estimate(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
