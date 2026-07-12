@@ -88,6 +88,8 @@ check_not_spa "project AI summary post route" "/project-ai-summary" "405"
 check_not_spa "AI tasks route" "/ai-tasks" "401 403"
 check_not_spa "assignments route" "/assignments" "401 403"
 check_not_spa "AI task reports route" "/ai-tasks/1/reports" "401 403"
+check_not_spa "AI control single run route" "/ai-control/run" "405"
+check_not_spa "AI findings generate route" "/ai-findings/generate" "405"
 
 if (( ${#FAILURES[@]} > 0 )); then
   echo "Public API proxy check failed:"

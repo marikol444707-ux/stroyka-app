@@ -2250,7 +2250,7 @@
 
 **Description:** Persist owner on every report and attachment write, and require child owner to match the already authorized task/report parent on reads.
 
-**Status:** Implemented and focused-tested locally. Production deploy and protected smoke are pending.
+**Status:** Completed in production on runtime `52cf98630067`; live assignment/report/attachment owner smoke passed and cleaned up.
 
 **Safety:**
 - Existing API routes and response shape remain unchanged.
@@ -2259,5 +2259,21 @@
 - Report, close-comment and attachment inserts copy owner from the locked parent task.
 - Summary counters ignore child rows whose owner does not match their task.
 - Fresh installations create the same owner columns and CHECK constraints; existing databases still use guarded migration.
+
+**Estimated scope:** S
+
+## Task M6.6f1: Isolate Single-Project AI Control Runs
+
+**Description:** Keep the existing single-run URLs while resolving one selected company, effective company role and exact stored project owner before AI generation.
+
+**Status:** Implemented and focused-tested locally. Production deploy and protected smoke are pending.
+
+**Safety:**
+- `all_companies` is rejected before project lookup or generation.
+- Role checks use the effective role in the selected company, not only the base account role.
+- The runner receives exact `companyId/projectId/name` and does not resolve output owner globally by name.
+- Standalone task upsert, duplicate cleanup and stale-close reuse that same exact owner.
+- Name-only AI sources fail with `409` when the same project name exists more than once.
+- `/ai-control/run-all` and automatic event runs remain unchanged until M6.6f2.
 
 **Estimated scope:** S

@@ -171,6 +171,8 @@ check_not_spa_fallback "AI findings route" "$BASE_URL/ai-findings" "401 403"
 check_not_spa_fallback "AI tasks route" "$BASE_URL/ai-tasks" "401 403"
 check_not_spa_fallback "assignments route" "$BASE_URL/assignments" "401 403"
 check_not_spa_fallback "AI task reports route" "$BASE_URL/ai-tasks/1/reports" "401 403"
+check_not_spa_fallback "AI control single run route" "$BASE_URL/ai-control/run" "405"
+check_not_spa_fallback "AI findings generate route" "$BASE_URL/ai-findings/generate" "405"
 
 if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
   login_payload="$(python3 -c 'import json,os; print(json.dumps({"email": os.environ["SMOKE_EMAIL"], "password": os.environ["SMOKE_PASSWORD"]}, ensure_ascii=False))')"

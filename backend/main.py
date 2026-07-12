@@ -17327,15 +17327,15 @@ def _normalize_ai_assignment(cur, project_name: str, assigned_role: str = "", as
 def _ai_payload(payload: dict) -> str:
     return json.dumps(payload or {}, ensure_ascii=False)
 
-def _upsert_ai_task(cur, data: dict, current_user: dict):
+def _upsert_ai_task(cur, data: dict, current_user: dict, task_owner: dict = None):
     try:
         from backend.features.ai_tasks.service import resolve_task_owner, task_owner_filter
     except ModuleNotFoundError:
         from features.ai_tasks.service import resolve_task_owner, task_owner_filter
     project_name = data.get("projectName") or data.get("project_name") or ""
     require_project_access(current_user, project_name)
-    task_owner = resolve_task_owner(cur, data, system_project_name=SYSTEM_PROJECT_NAME)
-    owner_sql, owner_params = task_owner_filter(task_owner)
+    owner = task_owner or resolve_task_owner(cur, data, system_project_name=SYSTEM_PROJECT_NAME)
+    owner_sql, owner_params = task_owner_filter(owner)
     assignment = _normalize_ai_assignment(
         cur,
         project_name,
@@ -17373,9 +17373,9 @@ def _upsert_ai_task(cur, data: dict, current_user: dict):
                 task_id,
                 *owner_params,
             ))
-            _close_duplicate_ai_tasks(cur, project_name, dedupe_key, task_id, current_user.get("name") or "system", task_owner)
+            _close_duplicate_ai_tasks(cur, project_name, dedupe_key, task_id, current_user.get("name") or "system", owner)
             return task_id, False
-    task_id = _insert_ai_task(cur, data, current_user, task_owner)
+    task_id = _insert_ai_task(cur, data, current_user, owner)
     return task_id, True
 
 def _close_stale_ai_findings(cur, project_name: str, categories: list[str], active_keys: set[str], actor: str = "ИИ-контроль", project_owner: dict = None) -> int:
@@ -17388,17 +17388,33 @@ def _close_stale_ai_findings(cur, project_name: str, categories: list[str], acti
     owner = project_owner or resolve_project_owner(cur, project_name)
     return close_stale_findings(cur, owner, categories, active_keys, actor)
 
-def _close_stale_ai_tasks(cur, project_name: str, prefixes: list[str], active_keys: set[str], actor: str = "ИИ-контроль") -> int:
+def _close_stale_ai_tasks(
+    cur,
+    project_name: str,
+    prefixes: list[str],
+    active_keys: set[str],
+    actor: str = "ИИ-контроль",
+    task_owner: dict = None,
+) -> int:
     if not project_name or not prefixes:
         return 0
+    try:
+        from backend.features.ai_tasks.service import resolve_task_owner, task_owner_filter
+    except ModuleNotFoundError:
+        from features.ai_tasks.service import resolve_task_owner, task_owner_filter
+    owner = task_owner or resolve_task_owner(
+        cur, {"projectName": project_name}, system_project_name=SYSTEM_PROJECT_NAME,
+    )
+    owner_sql, owner_params = task_owner_filter(owner)
     where = " OR ".join(["dedupe_key LIKE %s" for _ in prefixes])
-    params = [project_name] + [p + "%" for p in prefixes]
+    params = [project_name] + [p + "%" for p in prefixes] + owner_params
     cur.execute(f"""
         SELECT id, dedupe_key
         FROM ai_tasks
         WHERE project_name=%s
           AND status NOT IN ('Закрыто','Отклонено')
           AND ({where})
+          AND {owner_sql}
     """, params)
     stale_ids = []
     for row in cur.fetchall() or []:
@@ -17409,8 +17425,9 @@ def _close_stale_ai_tasks(cur, project_name: str, prefixes: list[str], active_ke
     cur.execute("""
         UPDATE ai_tasks
         SET status='Закрыто', closed_by=%s, closed_at=NOW(), updated_at=NOW()
-        WHERE id = ANY(%s)
-    """, (actor, stale_ids))
+        WHERE id = ANY(%s) AND """ + owner_sql,
+        (actor, stale_ids, *owner_params),
+    )
     return len(stale_ids)
 
 def _estimate_sections(value):
@@ -17573,7 +17590,13 @@ def _add_ai_task_candidate(tasks: list[dict], project_name: str, title: str, des
         "_group": group,
     })
 
-def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: str = "manual"):
+def _run_project_ai_control(
+    cur,
+    project_name: str,
+    current_user: dict,
+    reason: str = "manual",
+    project_owner: dict = None,
+):
     if not project_name:
         raise HTTPException(status_code=400, detail="projectName required")
     require_project_access(current_user, project_name)
@@ -17581,7 +17604,16 @@ def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: 
         from backend.features.ai_findings.service import resolve_project_owner
     except ModuleNotFoundError:
         from features.ai_findings.service import resolve_project_owner
-    finding_project_owner = resolve_project_owner(cur, project_name, for_update=True)
+    if project_owner is None:
+        finding_project_owner = resolve_project_owner(cur, project_name, for_update=True)
+    else:
+        finding_project_owner = dict(project_owner)
+        if (
+            str(finding_project_owner.get("name") or "").strip() != project_name.strip()
+            or not _positive_int_or_none(finding_project_owner.get("id"))
+            or not _positive_int_or_none(finding_project_owner.get("companyId"))
+        ):
+            raise HTTPException(status_code=409, detail="Владелец объекта ИИ-контроля не определён")
     created = updated = tasks_created = tasks_updated = closed = 0
 
     cur.execute("""SELECT id, project, name, floor_area, wall_area, ceiling_area, height, windows, doors, notes, floor, liter, room_type
@@ -17930,7 +17962,7 @@ def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: 
 
     for task in tasks:
         task.pop("_group", None)
-        _, is_created = _upsert_ai_task(cur, task, current_user)
+        _, is_created = _upsert_ai_task(cur, task, current_user, finding_project_owner)
         if is_created:
             tasks_created += 1
         else:
@@ -17941,7 +17973,8 @@ def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: 
         project_name,
         ["MATERIAL_RULE:", "ESTIMATE_RULE:", "MATERIAL_CONTROL:", "ROOM_CONTROL:", "WORK_ROOM_LINK:"],
         active_task_keys,
-        current_user.get("name") or "ИИ-контроль"
+        current_user.get("name") or "ИИ-контроль",
+        finding_project_owner,
     )
     return {
         "ok": True,
@@ -17976,30 +18009,6 @@ def _run_project_ai_control_safely(project_name: str, reason: str = "event"):
                 conn.close()
         except Exception:
             pass
-
-@app.post("/ai-findings/generate")
-def generate_ai_findings(data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
-    project_name = data.get("projectName") or data.get("project_name") or data.get("project") or ""
-    if not project_name:
-        raise HTTPException(status_code=400, detail="projectName required")
-    require_project_access(current_user, project_name)
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    result = _run_project_ai_control(cur, project_name, current_user, data.get("reason") or "manual")
-    cur.close(); conn.close()
-    return result
-
-@app.post("/ai-control/run")
-def run_ai_control(data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "кладовщик", "снабженец", *WORKER_EXECUTION_ROLES))):
-    project_name = data.get("projectName") or data.get("project_name") or data.get("project") or ""
-    if not project_name:
-        raise HTTPException(status_code=400, detail="projectName required")
-    require_project_access(current_user, project_name)
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    result = _run_project_ai_control(cur, project_name, current_user, data.get("reason") or "manual")
-    cur.close(); conn.close()
-    return result
 
 @app.post("/ai-control/run-all")
 def run_all_ai_control(data: dict = None, current_user: dict = Depends(get_ai_control_runner)):
@@ -29654,6 +29663,25 @@ register_ai_tasks_module(app, {
     "close_duplicates": _close_duplicate_ai_tasks,
     "dedupe_key": _ai_task_dedupe_key,
     "system_project_name": SYSTEM_PROJECT_NAME,
+})
+
+try:
+    from backend.features.ai_control import register_ai_control_module
+    from backend.features.ai_findings.service import resolve_project_owner as resolve_ai_control_project_owner
+except ModuleNotFoundError:
+    from features.ai_control import register_ai_control_module
+    from features.ai_findings.service import resolve_project_owner as resolve_ai_control_project_owner
+
+register_ai_control_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "resolve_project_owner": resolve_ai_control_project_owner,
+    "require_project_access": require_project_access,
+    "run_project_ai_control": _run_project_ai_control,
+    "generate_roles": PROJECT_DOCUMENT_WRITE_ROLES,
+    "run_roles": (*PROJECT_DOCUMENT_WRITE_ROLES, "кладовщик", "снабженец", *WORKER_EXECUTION_ROLES),
 })
 
 try:
