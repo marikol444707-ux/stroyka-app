@@ -14226,126 +14226,98 @@ def get_work_journal(
     search: str = "",
     date_from: str = "",
     date_to: str = "",
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
     current_user: dict = Depends(get_current_user),
 ):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    select_sql = """SELECT id,master_id as "masterId",master_name as "masterName",project,description,unit,quantity,
-                          price_per_unit as "pricePerUnit",total,date,status,comment,
-                          customer_price_per_unit as "customerPricePerUnit",
-                          customer_total as "customerTotal",
-                          execution_price_per_unit as "executionPricePerUnit",
-                          execution_total as "executionTotal",
-                          execution_price_mode as "executionPriceMode",
-                          photo_url as "photoUrl",confirmed_by as "confirmedBy",confirmed_at as "confirmedAt",
-                          materials_used as "materialsUsed",
-                          estimate_id as "estimateId", section_name as "sectionName",
-                          responsible_itr as "responsibleItr", weather,
-                          time_start as "timeStart", time_end as "timeEnd",
-                          hidden_work as "hiddenWork", quality_status as "qualityStatus",
-                          normatives, project_docs as "projectDocs",
-                          ai_filled as "aiFilled",
-                          unexpected_work_id as "unexpectedWorkId",
-                          work_package as "workPackage",
-                          room_id as "roomId",
-                          room_name as "roomName",
-                          surface,
-                          estimate_item_name as "estimateItemName",
-                          estimate_item_key as "estimateItemKey"
-                   FROM work_journal"""
-    role = current_user.get("role")
-    page_sql, page_params = limit_offset_sql(limit, offset)
-    package_names = user_package_names(current_user) if role in PACKAGE_LIMIT_ROLES and role != "прораб" else []
-    scoped_journal_roles = ("прораб", "стройконтроль", "технадзор")
-    project_filter = (project_name or "").strip()
-    search_filter = (search or "").strip()
-    if project_filter:
-        require_project_access(current_user, project_filter)
-
-    def add_runtime_filters(conditions, params):
+    try:
+        try:
+            from backend.features.work_journal.service import (
+                mask_work_journal_money,
+                work_journal_visibility_filter,
+            )
+        except ModuleNotFoundError:
+            from features.work_journal.service import (
+                mask_work_journal_money,
+                work_journal_visibility_filter,
+            )
+        context = _resolve_work_company_context(
+            cur,
+            current_user,
+            None,
+            "read",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        visibility_sql, visibility_params, company_actors = work_journal_visibility_filter(
+            effective_company_actors(current_user, context),
+            full_view_roles=BRIGADE_FULL_VIEW_ROLES,
+            scoped_roles=("прораб", "стройконтроль", "технадзор"),
+            worker_roles=WORKER_EXECUTION_ROLES,
+            customer_roles=("заказчик",),
+            package_limit_roles=PACKAGE_LIMIT_ROLES,
+        )
+        select_sql = """SELECT wj.id,wj.master_id as "masterId",wj.master_name as "masterName",wj.project,wj.description,wj.unit,wj.quantity,
+                              wj.price_per_unit as "pricePerUnit",wj.total,wj.date,wj.status,wj.comment,
+                              wj.customer_price_per_unit as "customerPricePerUnit",wj.customer_total as "customerTotal",
+                              wj.execution_price_per_unit as "executionPricePerUnit",wj.execution_total as "executionTotal",
+                              wj.execution_price_mode as "executionPriceMode",wj.photo_url as "photoUrl",
+                              wj.confirmed_by as "confirmedBy",wj.confirmed_at as "confirmedAt",
+                              wj.materials_used as "materialsUsed",wj.estimate_id as "estimateId",
+                              wj.section_name as "sectionName",wj.responsible_itr as "responsibleItr",wj.weather,
+                              wj.time_start as "timeStart",wj.time_end as "timeEnd",wj.hidden_work as "hiddenWork",
+                              wj.quality_status as "qualityStatus",wj.normatives,wj.project_docs as "projectDocs",
+                              wj.ai_filled as "aiFilled",wj.unexpected_work_id as "unexpectedWorkId",
+                              wj.work_package as "workPackage",wj.room_id as "roomId",wj.room_name as "roomName",
+                              wj.surface,wj.estimate_item_name as "estimateItemName",
+                              wj.estimate_item_key as "estimateItemKey",wj.company_id as "_companyId"
+                         FROM work_journal wj
+                         JOIN (
+                             SELECT company_id,name,MIN(id) AS id
+                               FROM projects
+                              GROUP BY company_id,name
+                             HAVING COUNT(*)=1
+                         ) p ON p.company_id=wj.company_id AND p.name=wj.project"""
+        conditions = [visibility_sql]
+        params = list(visibility_params)
+        project_filter = str(project_name or "").strip()
+        search_filter = str(search or "").strip()
         if project_filter:
-            conditions.append("project=%s")
+            conditions.append("wj.project=%s")
             params.append(project_filter)
         if search_filter:
             conditions.append("""(
-                COALESCE(description, '') ILIKE %s OR
-                COALESCE(master_name, '') ILIKE %s OR
-                COALESCE(project, '') ILIKE %s OR
-                COALESCE(comment, '') ILIKE %s OR
-                COALESCE(room_name, '') ILIKE %s OR
-                COALESCE(section_name, '') ILIKE %s OR
-                COALESCE(work_package, '') ILIKE %s OR
-                COALESCE(status, '') ILIKE %s
-            )""")
-            params.extend([f"%{search_filter}%"] * 8)
+                COALESCE(wj.description,'') ILIKE %s OR COALESCE(wj.master_name,'') ILIKE %s OR
+                COALESCE(wj.project,'') ILIKE %s OR COALESCE(wj.comment,'') ILIKE %s OR
+                COALESCE(wj.room_name,'') ILIKE %s OR COALESCE(wj.section_name,'') ILIKE %s OR
+                COALESCE(wj.work_package,'') ILIKE %s OR COALESCE(wj.status,'') ILIKE %s)""")
+            params.extend(["%" + search_filter + "%"] * 8)
         if date_from:
-            conditions.append("date >= %s")
+            conditions.append("wj.date >= %s")
             params.append(date_from)
         if date_to:
-            conditions.append("date <= %s")
+            conditions.append("wj.date <= %s")
             params.append(date_to)
-
-    if role in PACKAGE_LIMIT_ROLES and role != "прораб" and not package_names:
-        cur.close(); conn.close()
-        return []
-    if can_see_all_company_data(current_user) or role in scoped_journal_roles:
-        projects = user_project_names(current_user)
-        conditions = []
-        params = []
-        if role in scoped_journal_roles and not projects:
-            cur.close(); conn.close()
-            return []
-        if role in scoped_journal_roles and projects:
-            conditions.append("project = ANY(%s)")
-            params.append(projects)
-        if role in PACKAGE_LIMIT_ROLES and package_names:
-            conditions.append("COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)")
-            params.append(package_names)
-        add_runtime_filters(conditions, params)
-        if conditions:
-            cur.execute(select_sql + " WHERE " + " AND ".join(conditions) + " ORDER BY id DESC" + page_sql, params + page_params)
-        else:
-            cur.execute(select_sql + " ORDER BY id DESC" + page_sql, page_params)
-    elif role in WORKER_EXECUTION_ROLES:
-        if not package_names:
-            cur.close(); conn.close()
-            return []
-        conditions = ["(COALESCE(master_id,0)=%s OR (COALESCE(master_id,0)=0 AND LOWER(TRIM(master_name))=LOWER(TRIM(%s))))"]
-        params = [current_user.get("id"), current_user.get("name") or ""]
-        conditions.append("COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)")
-        params.append(package_names)
-        add_runtime_filters(conditions, params)
-        cur.execute(select_sql + " WHERE " + " AND ".join(conditions) + " ORDER BY id DESC" + page_sql, params + page_params)
-    elif role == "заказчик":
-        projects = user_project_names(current_user)
-        if not projects:
-            cur.close(); conn.close()
-            return []
-        conditions = ["project = ANY(%s)", "status='Подтверждено'"]
-        params = [projects]
-        add_runtime_filters(conditions, params)
-        cur.execute(select_sql + " WHERE " + " AND ".join(conditions) + " ORDER BY id DESC" + page_sql, params + page_params)
-    else:
-        cur.close(); conn.close()
-        return []
-    rows = cur.fetchall()
-    conn.close()
-    out = [dict(r) for r in rows]
-    if role in ("заказчик", "технадзор", "стройконтроль"):
-        for row in out:
-            row["pricePerUnit"] = 0
-            row["total"] = 0
-            row["executionPricePerUnit"] = 0
-            row["executionTotal"] = 0
-            row["customerPricePerUnit"] = 0
-            row["customerTotal"] = 0
-    elif role in WORKER_EXECUTION_ROLES:
-        for row in out:
-            row["customerPricePerUnit"] = 0
-            row["customerTotal"] = 0
-            row["pricePerUnit"] = row.get("executionPricePerUnit") or 0
-            row["total"] = row.get("executionTotal") or 0
-    return out
+        page_sql, page_params = limit_offset_sql(limit, offset)
+        cur.execute(
+            select_sql + " WHERE " + " AND ".join(conditions) + " ORDER BY wj.id DESC" + page_sql,
+            tuple(params + page_params),
+        )
+        actors_by_company = {
+            int(actor["companyId"]): actor for actor in company_actors if actor.get("companyId")
+        }
+        result = []
+        for source_row in cur.fetchall() or []:
+            row = dict(source_row)
+            actor = actors_by_company.get(int(row.pop("_companyId", 0) or 0))
+            if actor:
+                result.append(mask_work_journal_money(row, actor, WORKER_EXECUTION_ROLES))
+        return result
+    finally:
+        cur.close()
+        conn.close()
 
 def _parse_materials_used(raw):
     import json as _json

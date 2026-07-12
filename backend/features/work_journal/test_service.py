@@ -3,8 +3,10 @@ import unittest
 from fastapi import HTTPException
 
 from backend.features.work_journal.service import (
+    mask_work_journal_money,
     require_work_journal_parent_owner,
     resolve_work_journal_create_scope,
+    work_journal_visibility_filter,
 )
 
 
@@ -95,6 +97,50 @@ class WorkJournalCreateScopeTests(unittest.TestCase):
             {"companyId": 4, "id": 14},
             "Смета",
         )
+
+    def test_visibility_uses_effective_role_per_company(self):
+        sql, params, actors = work_journal_visibility_filter(
+            [
+                {"companyId": 4, "role": "директор"},
+                {"companyId": 8, "role": "мастер", "id": 19, "name": "Иванов", "assignedPackages": ["Фасад"]},
+            ],
+            full_view_roles=("директор",),
+            scoped_roles=("прораб", "технадзор", "стройконтроль"),
+            worker_roles=("мастер", "бригадир", "субподрядчик"),
+            customer_roles=("заказчик",),
+            package_limit_roles=("прораб", "мастер", "бригадир", "субподрядчик"),
+        )
+        self.assertIn("wj.company_id=%s", sql)
+        self.assertIn("wj.master_id", sql)
+        self.assertIn("wj.work_package", sql)
+        self.assertEqual(params, [4, 8, 19, "Иванов", ["Фасад"]])
+        self.assertEqual([actor["companyId"] for actor in actors], [4, 8])
+
+    def test_customer_visibility_requires_project_and_confirmed_status(self):
+        sql, params, _actors = work_journal_visibility_filter(
+            [{"companyId": 4, "role": "заказчик", "assignedProjects": ["Лицей"]}],
+            full_view_roles=("директор",),
+            scoped_roles=("прораб", "технадзор", "стройконтроль"),
+            worker_roles=("мастер",),
+            customer_roles=("заказчик",),
+            package_limit_roles=("прораб", "мастер"),
+        )
+        self.assertIn("p.name = ANY(%s)", sql)
+        self.assertIn("wj.status='Подтверждено'", sql)
+        self.assertEqual(params, [4, 4, ["Лицей"]])
+
+    def test_money_mask_uses_row_company_actor_role(self):
+        row = {
+            "pricePerUnit": 100, "total": 200,
+            "customerPricePerUnit": 120, "customerTotal": 240,
+            "executionPricePerUnit": 80, "executionTotal": 160,
+        }
+        worker = mask_work_journal_money(row, {"role": "мастер"}, ("мастер",))
+        customer = mask_work_journal_money(row, {"role": "заказчик"}, ("мастер",))
+        self.assertEqual((worker["pricePerUnit"], worker["total"]), (80, 160))
+        self.assertEqual((worker["customerPricePerUnit"], worker["customerTotal"]), (0, 0))
+        self.assertEqual(customer["executionTotal"], 0)
+        self.assertEqual(customer["customerTotal"], 0)
 
 
 if __name__ == "__main__":

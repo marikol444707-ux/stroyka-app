@@ -1778,6 +1778,16 @@
 
 **Estimated scope:** S
 
+## Task M6.5c: Tenant-Scoped Work Journal Read
+
+**Description:** Scope `GET /work-journal` through stored company ownership and one unambiguous project parent while applying project, package, worker, customer-status, search, date, pagination, and money-masking rules per effective company membership.
+
+**Status:** Implemented locally; release pending. Existing-row mutations, AI prefill, batch creation, rooms, acts, and contracts remain unchanged.
+
+**Dependencies:** Task M6.5b
+
+**Estimated scope:** M
+
 **M6 safety gate:** do not backfill ambiguous legacy rows, do not use project names as authorization identifiers, do not allow mutation in `all_companies`, and do not start the two-company production E2E until M6.0-M6.8 and the preceding M4/M5 gaps are closed.
 
 ## Task M7: Backfill, Constraints, And Pilot Matrix
