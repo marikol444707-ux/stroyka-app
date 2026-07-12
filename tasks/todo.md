@@ -2392,3 +2392,18 @@
 - Runtime writes and tenant reads remain unchanged until the post-migration audit is strict-ready.
 
 **Estimated scope:** M
+
+## Task M6.7d2a1: Persist Internal MAX Item Ownership
+
+**Description:** Store owner scope/company/project on internal MAX file and outbox inserts without changing reads or dispatch.
+
+**Status:** Implemented and tested. Production M6.7d1 is strict-ready; the linked-employee preflight found no active MAX accounts and no duplicate identifiers. Runtime deploy pending.
+
+**Safety:**
+- Stored channel and warehouse-document owners have priority over names or recipient hints.
+- Project-based writes resolve one exact project only inside the employee's active company memberships.
+- Duplicate project names across employee companies and company-level actions with multiple memberships fail closed.
+- Marketing publication and supplier-KP outbox writers remain unchanged for the separately reviewed M6.7d2a2 slice.
+- Outbox reads, status changes and dispatch remain unchanged until M6.7d2b.
+
+**Estimated scope:** S

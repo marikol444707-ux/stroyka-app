@@ -640,6 +640,127 @@ def _find_employee_by_messenger(cur, provider: str, external_user_id: str, chat_
     }
 
 
+def _messenger_employee_company_ids(cur, employee: dict) -> list:
+    employee = dict(employee or {})
+    source = str(employee.get("source") or "").strip()
+    employee_id = _int_or_none(employee.get("id"))
+    if source == "users" and employee_id:
+        cur.execute(
+            "SELECT DISTINCT company_id FROM user_company_roles "
+            "WHERE user_id=%s AND COALESCE(active,TRUE)=TRUE AND company_id IS NOT NULL ORDER BY company_id",
+            (employee_id,),
+        )
+    elif source == "staff" and employee_id:
+        cur.execute(
+            "SELECT DISTINCT company_id FROM staff WHERE id=%s AND company_id IS NOT NULL",
+            (employee_id,),
+        )
+    else:
+        raise HTTPException(status_code=409, detail="Не удалось определить сотрудника для MAX-владельца")
+    return sorted(
+        {
+            _int_or_none(_row_get(row, "company_id", 0))
+            for row in (cur.fetchall() or [])
+            if _int_or_none(_row_get(row, "company_id", 0))
+        }
+    )
+
+
+def resolve_internal_messenger_owner(
+    cur,
+    employee: dict,
+    project_name: str = "",
+    entity_type: str = "",
+    entity_id: int = None,
+) -> dict:
+    employee = dict(employee or {})
+    entity_type = _text(entity_type, 120)
+    entity_id = _int_or_none(entity_id)
+    project_name = _text(project_name, 255)
+    if project_name == "Основной склад":
+        project_name = ""
+
+    if entity_type == "messenger_channel" and entity_id:
+        cur.execute(
+            "SELECT company_id,project_id FROM messenger_channels WHERE id=%s",
+            (entity_id,),
+        )
+        row = cur.fetchone()
+        company_id = _int_or_none(_row_get(row, "company_id", 0))
+        project_id = _int_or_none(_row_get(row, "project_id", 1))
+        if not company_id:
+            raise HTTPException(status_code=409, detail="MAX-канал не имеет сохраненного владельца")
+        employee_source = str(employee.get("source") or "").strip()
+        if employee_source in {"users", "staff"}:
+            if company_id not in _messenger_employee_company_ids(cur, employee):
+                raise HTTPException(status_code=403, detail="MAX-канал принадлежит другой компании")
+        elif employee_source != "max_bot":
+            raise HTTPException(status_code=409, detail="Не удалось определить сотрудника MAX-канала")
+        return {"scope": "company", "companyId": company_id, "projectId": project_id}
+
+    if entity_type == "warehouse_invoice" and entity_id:
+        cur.execute(
+            "SELECT company_id,project FROM warehouse_invoices WHERE id=%s",
+            (entity_id,),
+        )
+        row = cur.fetchone()
+        company_id = _int_or_none(_row_get(row, "company_id", 0))
+        invoice_project = _text(_row_get(row, "project", 1), 255)
+        if invoice_project == "Основной склад":
+            invoice_project = ""
+        if not company_id:
+            raise HTTPException(status_code=409, detail="Складская накладная не имеет владельца компании")
+        if company_id not in _messenger_employee_company_ids(cur, employee):
+            raise HTTPException(status_code=403, detail="Складская накладная принадлежит другой компании")
+        project_id = None
+        if invoice_project:
+            cur.execute(
+                "SELECT id FROM projects WHERE company_id=%s AND name=%s ORDER BY id",
+                (company_id, invoice_project),
+            )
+            projects = list(cur.fetchall() or [])
+            if len(projects) != 1:
+                raise HTTPException(status_code=409, detail="Объект складской накладной определяется неоднозначно")
+            project_id = _int_or_none(_row_get(projects[0], "id", 0))
+        return {"scope": "company", "companyId": company_id, "projectId": project_id}
+
+    if entity_type == "max_invoice_draft" and entity_id and not project_name:
+        cur.execute(
+            "SELECT project_name,location FROM max_invoice_drafts WHERE id=%s",
+            (entity_id,),
+        )
+        row = cur.fetchone()
+        project_name = _text(_row_get(row, "project_name", 0), 255)
+        if not project_name:
+            location = _text(_row_get(row, "location", 1), 255)
+            project_name = "" if location == "Основной склад" else location
+
+    company_ids = _messenger_employee_company_ids(cur, employee)
+    if not company_ids:
+        raise HTTPException(status_code=409, detail="Сотрудник MAX не привязан к компании")
+
+    if project_name:
+        cur.execute(
+            "SELECT id,company_id,name FROM projects "
+            "WHERE company_id=ANY(%s) AND name=%s AND COALESCE(archived,FALSE)=FALSE ORDER BY company_id,id",
+            (company_ids, project_name),
+        )
+        projects = list(cur.fetchall() or [])
+        if not projects:
+            raise HTTPException(status_code=403, detail="Объект MAX не принадлежит компаниям сотрудника")
+        if len(projects) != 1:
+            raise HTTPException(status_code=409, detail="В компаниях сотрудника есть объекты с одинаковым названием")
+        return {
+            "scope": "company",
+            "companyId": _int_or_none(_row_get(projects[0], "company_id", 1)),
+            "projectId": _int_or_none(_row_get(projects[0], "id", 0)),
+        }
+
+    if len(company_ids) != 1:
+        raise HTTPException(status_code=409, detail="Для действия MAX нужно явно выбрать компанию")
+    return {"scope": "company", "companyId": company_ids[0], "projectId": None}
+
+
 def _employee_has_project_access(employee: dict, project_name: str, deps: dict) -> bool:
     if not project_name:
         return True
@@ -888,17 +1009,20 @@ def register_messenger_module(app, deps):
                 for key, value in item.items()
                 if key not in {"contentBase64", "content_base64", "base64", "dataUrl", "data_url", "content", "data", "image", "imageData"}
             }
+            owner = resolve_internal_messenger_owner(cur, employee, project_name=project_name)
             cur.execute(
                 """
                 INSERT INTO messenger_files
-                    (provider,messenger_account_id,user_id,staff_id,external_user_id,chat_id,
+                    (owner_scope,company_id,project_id,provider,messenger_account_id,user_id,staff_id,external_user_id,chat_id,
                      file_token,source_id,project_name,context,original_filename,content_type,size_bytes,
                      url,storage,storage_key,entity_type,entity_id,metadata_json)
                 VALUES
-                    ('max',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                    ('company',%s,%s,'max',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
                 RETURNING *
                 """,
                 (
+                    owner["companyId"],
+                    owner["projectId"],
                     employee.get("messengerAccountId"),
                     user_id,
                     staff_id,
@@ -1334,16 +1458,25 @@ def register_messenger_module(app, deps):
         actions = actions if isinstance(actions, list) else []
         user_id = employee.get("id") if employee.get("source") == "users" else None
         staff_id = employee.get("id") if employee.get("source") == "staff" else None
+        owner = resolve_internal_messenger_owner(
+            cur,
+            employee,
+            project_name=_text(payload.get("projectName") or payload.get("project"), 255),
+            entity_type=entity_type,
+            entity_id=entity_id,
+        )
         cur.execute(
             """
             INSERT INTO messenger_outbox
-                (provider,messenger_account_id,user_id,staff_id,external_user_id,chat_id,
+                (owner_scope,company_id,project_id,provider,messenger_account_id,user_id,staff_id,external_user_id,chat_id,
                  event_type,entity_type,entity_id,title,body,payload_json,actions_json,status,priority)
             VALUES
-                ('max',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,'queued',%s)
+                ('company',%s,%s,'max',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,'queued',%s)
             RETURNING id
             """,
             (
+                owner["companyId"],
+                owner["projectId"],
                 employee.get("messengerAccountId"),
                 user_id,
                 staff_id,
