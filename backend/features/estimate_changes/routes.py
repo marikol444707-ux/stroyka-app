@@ -95,6 +95,8 @@ def register_estimate_changes_module(app, deps):
     leadership_roles = tuple(deps["leadership_roles"])
     estimate_write_roles = tuple(deps["estimate_write_roles"])
     log_audit = deps["log_audit"]
+    yandex_api_key = deps.get("yandex_api_key")
+    yandex_folder_id = deps.get("yandex_folder_id")
 
     def estimate_mutation_scope(
         cur,
@@ -351,6 +353,111 @@ def register_estimate_changes_module(app, deps):
         finally:
             cur.close()
             conn.close()
+
+    @app.post("/unexpected-works/{id}/ai-estimate")
+    def ai_estimate_unexpected_work(
+        id: int,
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
+        """Estimate one visible change only after its stored tenant owner is verified."""
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            _actors, visibility_sql, visibility_params = read_scope(
+                cur,
+                current_user,
+                x_company_id,
+                x_company_mode,
+            )
+            cur.execute(
+                f"""SELECT uw.description,uw.unit,uw.quantity
+                       FROM unexpected_works uw
+                       JOIN projects p ON p.id=uw.project_id AND p.company_id=uw.company_id
+                      WHERE uw.id=%s AND {visibility_sql}""",
+                (id, *visibility_params),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="запись не найдена")
+            description = str(row.get("description") or "")
+            unit = str(row.get("unit") or "")
+            quantity = _number(row.get("quantity"))
+            keyword_parts = description.lower().split()
+            keyword = keyword_parts[0][:5] if keyword_parts else ""
+            cur.execute(
+                """SELECT name,unit,price FROM pricelist_items
+                    WHERE LOWER(name) LIKE %s LIMIT 10""",
+                ("%" + keyword + "%",),
+            )
+            similar = cur.fetchall() or []
+        finally:
+            cur.close()
+            conn.close()
+
+        import openai as oa
+
+        similar_lines = [
+            str(item.get("name") or "")
+            + " · "
+            + str(item.get("unit") or "")
+            + " · "
+            + str(item.get("price") or 0)
+            + " ₽/"
+            + str(item.get("unit") or "шт")
+            for item in similar
+        ]
+        user_text = (
+            "Описание работы: " + description + "\n"
+            "Единица: " + unit + "\n"
+            "Объём: " + str(quantity) + "\n\n"
+            "Похожие позиции из прайсов (для ориентира):\n"
+            + ("\n".join(similar_lines) if similar_lines else "(нет данных)")
+            + "\n\n"
+            "Верни СТРОГО JSON: {\"pricePerUnit\": число, \"justification\": \"строка\"}\n"
+            "pricePerUnit — оценочная цена за единицу в рублях для строительных работ в России в 2026 году.\n"
+            "justification — 1-2 строки обоснования."
+        )
+        instructions = "Ты эксперт по строительной смете. Отвечай СТРОГО JSON без markdown."
+        client = oa.OpenAI(
+            api_key=yandex_api_key,
+            base_url="https://ai.api.cloud.yandex.net/v1",
+            project=yandex_folder_id,
+        )
+
+        def call(model_id):
+            try:
+                response = client.responses.create(
+                    model="gpt://" + str(yandex_folder_id or "") + "/" + model_id,
+                    temperature=0.2,
+                    instructions=instructions,
+                    input=user_text,
+                    max_output_tokens=800,
+                )
+                return response.output_text or "", None
+            except Exception as exc:
+                return "", str(exc)
+
+        answer, error = call("qwen3.6-35b-a3b/latest")
+        if not answer.strip():
+            answer, error = call("yandexgpt-5.1/latest")
+        if not answer.strip():
+            raise HTTPException(status_code=502, detail="AI вернул пустой ответ: " + str(error))
+        match = re.search(r"\{.*\}", answer.strip(), re.DOTALL)
+        raw_json = match.group(0) if match else answer.strip()
+        try:
+            parsed = json.loads(raw_json)
+        except Exception:
+            raise HTTPException(status_code=502, detail="AI вернул невалидный JSON")
+        price = _number(parsed.get("pricePerUnit"))
+        return {
+            "ok": True,
+            "pricePerUnit": price,
+            "estimatedTotal": round(price * quantity, 2),
+            "justification": str(parsed.get("justification") or "").strip(),
+            "similar": similar_lines,
+        }
 
     @app.post("/unexpected-works")
     def create_unexpected_work(

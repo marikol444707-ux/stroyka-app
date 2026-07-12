@@ -1750,7 +1750,7 @@
 
 **Description:** Scope direct AI pricing and project limit aggregation by stored owner and selected-company read context. The AI receives only a verified visible row, and limit totals aggregate only the exact stored project owner.
 
-**Status:** Planned after Task M6.4l.
+**Status:** In progress. Direct AI estimate now resolves the selected-company read context and exact stored change owner before loading business data or calling the AI provider. Tenant-scoped project limit aggregation remains open.
 
 **Dependencies:** Task M6.4l
 

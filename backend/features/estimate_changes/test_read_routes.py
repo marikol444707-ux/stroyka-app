@@ -132,6 +132,7 @@ class EstimateChangeReadRouteTests(unittest.TestCase):
             "estimate_write_roles": ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик"),
             "log_audit": lambda **_kwargs: None,
         })
+        calls["ai_handler"] = app.routes[("POST", "/unexpected-works/{id}/ai-estimate")]
         return app.routes[("GET", "/unexpected-works")], calls
 
     @staticmethod
@@ -274,6 +275,35 @@ class EstimateChangeReadRouteTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.status_code, 403)
         self.assertEqual(cursor.calls, [])
+        self.assertTrue(cursor.closed)
+        self.assertTrue(connection.closed)
+
+    def test_ai_direct_id_uses_stored_owner_scope_before_ai_call(self):
+        class MissingCursor(FakeCursor):
+            def fetchone(self):
+                return None
+
+        cursor = MissingCursor()
+        connection = FakeConnection(cursor)
+        _list_handler, calls = self._register(
+            connection,
+            [{"companyId": 4, "role": "директор"}],
+        )
+
+        with self.assertRaises(HTTPException) as raised:
+            calls["ai_handler"](
+                id=901,
+                x_company_id="4",
+                x_company_mode="company",
+                current_user={"id": 9, "role": "account_owner"},
+            )
+
+        self.assertEqual(raised.exception.status_code, 404)
+        sql, params = cursor.calls[0]
+        self.assertIn("uw.id=%s", sql)
+        self.assertIn("JOIN projects p ON p.id=uw.project_id AND p.company_id=uw.company_id", sql)
+        self.assertNotIn("project_name", sql)
+        self.assertEqual(params, (901, 4))
         self.assertTrue(cursor.closed)
         self.assertTrue(connection.closed)
 

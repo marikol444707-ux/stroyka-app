@@ -19032,6 +19032,8 @@ register_estimate_changes_module(app, {
     "leadership_roles": LEADERSHIP_ROLES,
     "estimate_write_roles": ESTIMATE_WRITE_ROLES,
     "log_audit": lambda **kwargs: log_audit(**kwargs),
+    "yandex_api_key": YANDEX_API_KEY,
+    "yandex_folder_id": YANDEX_FOLDER_ID,
 })
 
 @app.post("/parse-smeta")
@@ -28694,61 +28696,6 @@ def delete_warranty_defect(id: int, current_user: dict = Depends(require_roles(*
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True}
-
-@app.post("/unexpected-works/{id}/ai-estimate")
-def ai_estimate_unexpected_work(id: int, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    """AI оценивает стоимость изменения к смете по аналогии со сметой и прайсами."""
-    import openai as oa, json as j, re
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT description, unit, quantity, project_name FROM unexpected_works WHERE id=%s", (id,))
-    row = cur.fetchone()
-    if not row:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="запись не найдена")
-    desc, unit, qty, proj_name = row[0] or "", row[1] or "", float(row[2] or 0), row[3] or ""
-    require_project_access(current_user, proj_name)
-    # Подбираем похожие позиции из смет и прайсов как контекст
-    cur.execute("""SELECT name, unit, price_per_unit FROM (
-                       SELECT name, unit, price as price_per_unit FROM pricelist_items WHERE LOWER(name) LIKE %s
-                   ) sub LIMIT 10""", ('%' + desc.lower().split()[0][:5] + '%',))
-    similar = cur.fetchall()
-    cur.close(); conn.close()
-
-    similar_lines = [s[0]+' · '+(s[1] or '')+' · '+str(s[2] or 0)+' ₽/'+(s[1] or 'шт') for s in similar]
-    user_text = (
-        "Описание работы: " + desc + "\n"
-        "Единица: " + unit + "\n"
-        "Объём: " + str(qty) + "\n\n"
-        "Похожие позиции из прайсов (для ориентира):\n" + ('\n'.join(similar_lines) if similar_lines else '(нет данных)') + "\n\n"
-        "Верни СТРОГО JSON: {\"pricePerUnit\": число, \"justification\": \"строка\"}\n"
-        "pricePerUnit — оценочная цена за единицу в рублях для строительных работ в России в 2026 году.\n"
-        "justification — 1-2 строки обоснования (например: «аналог из прайса 850 ₽/м², увеличено на 15% за сложность ручной работы»)."
-    )
-    instructions = "Ты эксперт по строительной смете. Отвечай СТРОГО JSON без markdown."
-    client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
-    def _call(model_id):
-        try:
-            r = client.responses.create(model="gpt://"+YANDEX_FOLDER_ID+"/"+model_id, temperature=0.2, instructions=instructions, input=user_text, max_output_tokens=800)
-            return (r.output_text or ""), None
-        except Exception as e:
-            return "", str(e)
-    answer, err = _call("qwen3.6-35b-a3b/latest")
-    if not (answer or "").strip():
-        answer, err = _call("yandexgpt-5.1/latest")
-    if not (answer or "").strip():
-        raise HTTPException(status_code=502, detail="AI вернул пустой ответ: "+str(err))
-    text = answer.strip()
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    if m: text = m.group(0)
-    try:
-        parsed = j.loads(text)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail="AI вернул невалидный JSON")
-    price = float(parsed.get("pricePerUnit") or 0)
-    justification = (parsed.get("justification") or "").strip()
-    estimated_total = round(price * qty, 2)
-    return {"ok": True, "pricePerUnit": price, "estimatedTotal": estimated_total, "justification": justification, "similar": similar_lines}
 
 @app.get("/unexpected-works/limit-check")
 def check_unexpected_limit(project_name: str, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
