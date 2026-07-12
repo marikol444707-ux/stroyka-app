@@ -38,6 +38,7 @@
     "audit:ai-findings-ownership": "python3 -m backend.features.ai_findings_ownership.migration --dry-run",
     "audit:ai-tasks-ownership": "python3 -m backend.features.ai_tasks_ownership.migration --dry-run",
     "audit:ai-task-children-ownership": "python3 -m backend.features.ai_task_children_ownership.migration --dry-run",
+    "audit:messenger-ownership": "python3 -m backend.features.messenger_ownership.ownership_report",
     "smoke:telegram-expense": "python3 scripts/smoke-telegram-own-expense.py",
     "smoke:max-warehouse": "python3 scripts/smoke-max-warehouse-invoice.py",
     "smoke:max-miniapp-session": "python3 scripts/smoke-max-miniapp-session.py",

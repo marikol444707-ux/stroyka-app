@@ -1802,7 +1802,7 @@
 
 **Description:** Verify the selected-company actor and exact stored journal owner before sending business data to AI. After the external response, open a new transaction, repeat the owner lock, verify the source snapshot is unchanged, and only then save AI fields.
 
-**Status:** Implemented locally; release pending. Batch creation, rooms, acts, and contracts remain unchanged.
+**Status:** Included in production runtime `8ef743a6`; protected owner smoke remains grouped with the final M6 verification. Batch creation, rooms, acts, and contracts remain unchanged.
 
 **Dependencies:** Task M6.5d
 
@@ -2282,7 +2282,7 @@
 
 **Description:** Scope batch and automatic AI runs without changing the AI findings/tasks business algorithm.
 
-**Status:** Implemented and focused-tested locally. Production deploy and combined final M6.6 smoke are pending.
+**Status:** Deployed in production runtime `8ef743a6a7d6`; public smoke passed. Combined protected M6 smoke is intentionally deferred.
 
 **Safety:**
 - User `run-all` requires one selected company and an effective leadership/engineering role.
@@ -2293,3 +2293,18 @@
 - Final protected smoke combines deferred single-run, company batch, event run and negative cross-company checks.
 
 **Estimated scope:** M
+
+## Task M6.7a: Audit Messenger File And Outbox Ownership
+
+**Description:** Produce a read-only owner report for `messenger_files` and `messenger_outbox` before adding tenant columns or changing MAX runtime.
+
+**Status:** Implemented and unit-tested locally. Production dry-run is pending.
+
+**Safety:**
+- Database session is forced read-only and reports `writesAttempted=0`.
+- Exact project or supported entity parent is stronger than recipient identity.
+- Recipient membership may disambiguate duplicate project names but never guesses between several companies.
+- Conflicting recipient and parent owners are `mismatched`; missing or multiple candidates remain review rows.
+- Message bodies, file bytes, payload JSON and attachment metadata are not read.
+
+**Estimated scope:** S

@@ -117,7 +117,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.5b: Make direct `POST /work-journal` resolve one selected company/project and store `company_id`; deployed and verified in runtime `e74dafc5d0f6`.
 - [x] Task M6.5c: Scope `GET /work-journal` by stored owner and effective per-company role while preserving project/package/worker/customer filters and money masking. Deployed and verified in runtime `2a559a9149fe`.
 - [x] Task M6.5d: Scope direct `PUT/DELETE /work-journal/{id}` through one selected-company actor and the exact stored journal/project owner; deployed and verified in runtime `0f0575f69aaa`.
-- [x] Task M6.5e: Scope `POST /work-journal/{id}/ai-prefill` by stored owner before the AI call and repeat the owner lock before saving the AI result. Implemented locally; production release pending.
+- [x] Task M6.5e: Scope `POST /work-journal/{id}/ai-prefill` by stored owner before the AI call and repeat the owner lock before saving the AI result. Included in production runtime `8ef743a6`; protected owner smoke remains grouped with the final M6 verification.
 - [x] Task M6.6a: Audit ownership of `project_ai_summary`, `ai_findings`, `ai_tasks`, `ai_task_reports`, and `ai_task_attachments` without changing runtime or rows. Production verified all `3382` retained rows with `unresolved=0`, `mismatched=0`, and `writesAttempted=0` after guarded smoke cleanup.
 - [x] Task M6.6b1: Add and guarded-backfill `project_ai_summary.company_id/project_id` from the exact unique project parent without changing runtime. Production migrated `1` row and the post-audit is strict-ready.
 - [x] Task M6.6b2: Scope only `GET/POST /project-ai-summary` through one selected company and stored company/project owner; preserve the response and summary payload. Production runtime `b155491cab86` and public smoke passed.
@@ -130,7 +130,8 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.6e1: Add guarded owner migration for task reports and attachments through stored task/report parents without changing child runtime. Production schema and post-audit are strict-ready with both child tables empty.
 - [x] Task M6.6e2: Persist owner on report/attachment writes and scope child reads through the verified parent task. Production runtime `52cf98630067`; live assignment/report/attachment smoke and strict post-audit passed.
 - [ ] Task M6.6f1: Scope single-project `/ai-control/run` and `/ai-findings/generate` through selected company, effective role and exact project owner; fail closed on duplicate name-only source scope. Production `c6dfddaa321b`, public smoke passed; protected run deferred into final M6.6 smoke.
-- [ ] Task M6.6f2: Scope `/ai-control/run-all` and automatic event runs; finish with combined protected single/batch/event and negative cross-company smoke. Implemented and focused-tested locally; deploy pending.
+- [ ] Task M6.6f2: Scope `/ai-control/run-all` and automatic event runs; finish with combined protected single/batch/event and negative cross-company smoke. Production runtime `8ef743a6a7d6`; public smoke passed, combined protected smoke deferred.
+- [ ] Task M6.7a: Audit ownership candidates for `messenger_files` and `messenger_outbox` through exact project/entity parents and verified recipient memberships without changing rows. Implemented and unit-tested locally; production dry-run pending.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary
