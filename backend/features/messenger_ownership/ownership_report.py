@@ -8,6 +8,14 @@ import psycopg2.extras
 
 PREVIEW_LIMIT = 100
 TABLES = ("messenger_files", "messenger_outbox")
+SUPPORTED_ENTITY_TYPES = {
+    "ai_task",
+    "marketing_publication",
+    "max_invoice_draft",
+    "messenger_channel",
+    "supply_request",
+    "warehouse_invoice",
+}
 
 
 def _positive_int(value):
@@ -168,6 +176,12 @@ def _classification(table, row, status, reason, owner=None):
 def classify_row(table, row, projects_by_name, entities, user_companies, staff_companies, accounts):
     item = dict(row or {})
     recipient_companies = _recipient_companies(item, user_companies, staff_companies, accounts)
+
+    def result(status, reason, owner=None):
+        classified = _classification(table, item, status, reason, owner)
+        classified["recipientCompanyIds"] = sorted(recipient_companies)
+        return classified
+
     strong_owners = []
     project_name = str(item.get("project_name") or "").strip()
     if project_name:
@@ -175,33 +189,34 @@ def classify_row(table, row, projects_by_name, entities, user_companies, staff_c
     entity_type = str(item.get("entity_type") or "").strip()
     entity_id = _positive_int(item.get("entity_id"))
     if bool(entity_type) != bool(entity_id):
-        return _classification(table, item, "unresolved", "entity_parent_incomplete")
+        return result("unresolved", "entity_parent_incomplete")
     if entity_type and entity_id:
         entity = entities.get((entity_type, entity_id))
         if not entity:
-            return _classification(table, item, "unresolved", "entity_parent_unsupported")
+            reason = "entity_parent_not_found" if entity_type in SUPPORTED_ENTITY_TYPES else "entity_parent_unsupported"
+            return result("unresolved", reason)
         if entity["issues"]:
             status, reason = entity["issues"][0]
-            return _classification(table, item, status, reason)
+            return result(status, reason)
         strong_owners.extend(entity["owners"])
     strong_owners = _dedupe_owners(strong_owners)
 
     if recipient_companies and strong_owners:
         matching = [owner for owner in strong_owners if owner["companyId"] in recipient_companies]
         if not matching:
-            return _classification(table, item, "mismatched", "recipient_owner_mismatch")
+            return result("mismatched", "recipient_owner_mismatch")
         strong_owners = matching
     if len(strong_owners) == 1:
         reason = "verified_project_or_entity_owner"
-        return _classification(table, item, "verified", reason, strong_owners[0])
+        return result("verified", reason, strong_owners[0])
     if len(strong_owners) > 1:
-        return _classification(table, item, "ambiguous", "project_or_entity_owner_ambiguous")
+        return result("ambiguous", "project_or_entity_owner_ambiguous")
     if len(recipient_companies) == 1:
         company_id = next(iter(recipient_companies))
-        return _classification(table, item, "verified", "verified_recipient_company", _owner(company_id))
+        return result("verified", "verified_recipient_company", _owner(company_id))
     if len(recipient_companies) > 1:
-        return _classification(table, item, "ambiguous", "recipient_company_ambiguous")
-    return _classification(table, item, "unresolved", "owner_evidence_missing")
+        return result("ambiguous", "recipient_company_ambiguous")
+    return result("unresolved", "owner_evidence_missing")
 
 
 def build_report_from_rows(rows):
@@ -271,6 +286,7 @@ def build_report_from_rows(rows):
                 "table": item["table"],
                 "recordId": item["recordId"],
                 "entityType": item["entityType"],
+                "recipientCompanyIds": item["recipientCompanyIds"],
                 "status": item["status"],
                 "reason": item["reason"],
             }

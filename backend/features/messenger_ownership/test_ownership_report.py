@@ -83,6 +83,19 @@ class MessengerOwnershipReportTests(unittest.TestCase):
         self.assertEqual(report["needsReview"][0]["entityType"], "unknown_document")
         self.assertEqual(report["byEntityType"], {"messenger_outbox:unknown_document": 1})
 
+    def test_supported_but_deleted_parent_is_reported_as_not_found(self):
+        rows = self.base_rows()
+        rows["user_company_roles"] = [{"user_id": 7, "company_id": 1, "active": True}]
+        rows["messenger_outbox"] = [
+            {"id": 12, "user_id": 7, "entity_type": "supply_request", "entity_id": 404},
+        ]
+
+        report = build_report_from_rows(rows)
+
+        self.assertEqual(report["summary"]["unresolved"], 1)
+        self.assertEqual(report["needsReview"][0]["reason"], "entity_parent_not_found")
+        self.assertEqual(report["needsReview"][0]["recipientCompanyIds"], [1])
+
     def test_known_entity_without_owner_is_not_hidden_by_recipient(self):
         rows = self.base_rows()
         rows["user_company_roles"] = [{"user_id": 7, "company_id": 1, "active": True}]

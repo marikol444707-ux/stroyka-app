@@ -2298,7 +2298,7 @@
 
 **Description:** Produce a read-only owner report for `messenger_files` and `messenger_outbox` before adding tenant columns or changing MAX runtime.
 
-**Status:** Implemented and unit-tested locally. Production dry-run is pending.
+**Status:** Production dry-run completed with `writesAttempted=0`: `8` outbox rows are unresolved, including `5` missing supply-request parents and `3` messenger channels without an owner.
 
 **Safety:**
 - Database session is forced read-only and reports `writesAttempted=0`.
@@ -2308,3 +2308,16 @@
 - Message bodies, file bytes, payload JSON and attachment metadata are not read.
 
 **Estimated scope:** S
+
+## Task M6.7a1: Clarify Messenger Ownership Diagnostics
+
+**Description:** Separate supported-but-deleted parents from unknown entity types and show recipient-company candidates without treating them as verified ownership.
+
+**Status:** Implemented and tested locally. Production report rerun is pending.
+
+**Safety:**
+- The report remains read-only and does not inspect payload or message content.
+- Missing supported parents use `entity_parent_not_found`; unknown types use `entity_parent_unsupported`.
+- `recipientCompanyIds` is diagnostic evidence only and cannot make an orphaned entity row migration-ready.
+
+**Estimated scope:** XS
