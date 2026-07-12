@@ -1705,7 +1705,7 @@
 
 **Description:** Scope `/estimates/{id}/include-changes` and `/estimates/{id}/reconcile-changes` through one verified estimate/project owner. Every selected unexpected-work ID must match that same owner before an estimate version or status is changed.
 
-**Status:** Implemented locally after Task M6.4j; release pending.
+**Status:** Deployed and verified in runtime `52ec9af417f4` after Task M6.4j.
 
 **Implementation checklist:**
 - [x] Both routes resolve one selected-company effective actor and reject aggregate `all_companies` mutation.
@@ -1719,6 +1719,7 @@
 - [x] Legacy response shapes and estimate-section transformation rules remain compatible.
 - [x] Focused tests cover owned include, foreign selected IDs, owner-constrained reconcile, server identity, and aggregate-company denial.
 - [x] Local verification passes `51` estimate-change tests, `236` full backend tests, compile, route-duplication check, and `git diff --check`.
+- [x] Production deploy completed atomically; independent public smoke passed and both new POST routes returned the expected unauthenticated `401` instead of SPA/404.
 
 **Known follow-up:** M6.4l still owns estimate-reconciliation list/detail/create/update/candidate scoping. M6.4m still owns AI estimate and limit aggregation. Do not mark the whole `unexpected_works` domain tenant-complete until those slices and production verification pass.
 
