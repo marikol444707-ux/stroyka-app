@@ -2326,7 +2326,7 @@
 
 **Description:** Treat messenger channels as tenant parents, report their project ownership and expose only operational outbox state needed for a safe migration decision.
 
-**Status:** Implemented and tested locally. Production audit is pending.
+**Status:** Production audit completed: four enabled internal channels have no owner; three channel messages are already sent; five failed supply messages point to deleted smoke requests.
 
 **Safety:**
 - Channel audit reads only ID, type, project name, enabled state and timestamp; chat IDs, titles and metadata stay unread.
@@ -2335,3 +2335,16 @@
 - No old outbox row is deleted, retried or linked by this audit.
 
 **Estimated scope:** S
+
+## Task M6.7a3: Stop Supply Smoke Outbox Orphans
+
+**Description:** Make supply-chain cleanup remove MAX outbox rows for every request created by the smoke before deleting the request parents.
+
+**Status:** Implemented and tested locally. Production release is pending.
+
+**Safety:**
+- Cleanup targets only `provider='max'`, `entity_type='supply_request'` and the exact request IDs created by the current smoke.
+- Production business requests and unrelated outbox rows are never selected.
+- Existing failed orphan rows remain untouched until the guarded messenger migration defines their legacy status.
+
+**Estimated scope:** XS

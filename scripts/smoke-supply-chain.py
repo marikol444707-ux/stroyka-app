@@ -1666,6 +1666,26 @@ def assert_supplier_documents_group_scope(token, supplier_id, stamp, created):
     return duplicate_supplier_id, document_ids
 
 
+def cleanup_request_ids(created):
+    request_ids = set()
+    for key in ("requestId", "withdrawRequestId", "diagnosticRequestId", "notificationRequestId"):
+        try:
+            request_id = int(created.get(key) or 0)
+        except (TypeError, ValueError):
+            continue
+        if request_id > 0:
+            request_ids.add(request_id)
+    return sorted(request_ids)
+
+
+def cleanup_request_outbox(cur, created):
+    for request_id in cleanup_request_ids(created):
+        cur.execute(
+            "DELETE FROM messenger_outbox WHERE provider='max' AND entity_type='supply_request' AND entity_id=%s",
+            (request_id,),
+        )
+
+
 def cleanup(created):
     conn = None
     try:
@@ -1747,6 +1767,7 @@ def cleanup(created):
             "nameOnlyCreatedSupplierId": created.get("nameOnlyCreatedSupplierId"),
             "supplierId": created.get("supplierId"),
         }
+        cleanup_request_outbox(cur, created)
         for document_id in created.get("supplierDocumentIds") or []:
             cur.execute("DELETE FROM supplier_documents WHERE id=%s", (document_id,))
         if ids["dedupeSupplierInvoiceDuplicateId"]:
