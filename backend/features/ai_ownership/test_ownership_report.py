@@ -110,6 +110,23 @@ class AiOwnershipReportTests(unittest.TestCase):
         self.assertGreater(report["summary"]["unresolved"], 0)
         self.assertIn("project_name_ambiguous", {item["reason"] for item in report["needsReview"]})
 
+    def test_exact_legacy_project_name_with_trailing_space_is_verified(self):
+        rows = complete_rows()
+        rows["projects"][0]["name"] = "Объект A "
+        rows["project_ai_summary"][0]["project_name"] = "Объект A "
+        rows["ai_findings"][0]["project_name"] = "Объект A "
+        rows["ai_tasks"][0]["project_name"] = "Объект A "
+        rows["linked_entities"][0]["project_name"] = "Объект A "
+        report = build_report_from_rows(rows)
+        self.assertTrue(report["readyForStrictRuntime"])
+
+    def test_whitespace_only_near_match_does_not_cross_link_projects(self):
+        rows = complete_rows()
+        rows["projects"][0]["name"] = "Объект A "
+        report = build_report_from_rows(rows)
+        self.assertFalse(report["readyForStrictRuntime"])
+        self.assertIn("project_not_found", {item["reason"] for item in report["needsReview"]})
+
     def test_linked_entity_from_other_project_is_mismatched(self):
         rows = complete_rows()
         rows["projects"].append({"id": 11, "name": "Объект B", "company_id": 8})

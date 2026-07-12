@@ -71,10 +71,10 @@ def _project_index(project_rows):
 
 
 def resolve_project(project_name, projects):
-    name = str(project_name or "").strip()
+    name = str(project_name or "")
     if name == SYSTEM_PROJECT_NAME:
         return {"status": "verified", "reason": "platform_system_scope", "scope": "system"}
-    if not name:
+    if not name.strip():
         return {"status": "unresolved", "reason": "project_name_missing"}
     candidates = projects.get(name, [])
     if not candidates:
