@@ -31227,11 +31227,12 @@ except ModuleNotFoundError:
 
 register_assignments_module(app, {
     "get_db": get_db,
-    "require_roles": require_roles,
-    "require_project_access": require_project_access,
-    "visible_project_names": visible_project_names,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
     "leadership_roles": LEADERSHIP_ROLES,
-    "finance_roles": FINANCE_ROLES,
+    "full_view_roles": ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик"),
+    "platform_task_roles": PLATFORM_STAFF_ROLES,
     "assignment_roles": (
         *PROJECT_DOCUMENT_ROLES,
         *WORKER_EXECUTION_ROLES,

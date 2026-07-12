@@ -2,9 +2,16 @@ import json
 from typing import Optional
 
 import psycopg2.extras
-from fastapi import Depends, HTTPException
+from fastapi import Depends, Header, HTTPException
 
 from .schema import ensure_assignments_schema
+
+try:
+    from backend.features.ai_findings.service import resolve_project_owner
+    from backend.features.ai_tasks.service import task_owner_filter
+except ModuleNotFoundError:
+    from features.ai_findings.service import resolve_project_owner
+    from features.ai_tasks.service import task_owner_filter
 
 
 ASSIGNMENT_SYSTEM_CONDITION = """
@@ -36,6 +43,9 @@ ASSIGNMENT_SYSTEM_CONDITION = """
 
 ASSIGNMENT_TASK_SELECT = f"""
 SELECT id,
+       owner_scope as "ownerScope",
+       company_id as "companyId",
+       project_id as "projectId",
        finding_id as "findingId",
        project_name as "projectName",
        title,
@@ -140,20 +150,79 @@ def _report_dict(row, attachments=None):
 
 def register_assignments_module(app, deps):
     get_db = deps["get_db"]
-    require_roles = deps["require_roles"]
-    require_project_access = deps["require_project_access"]
-    visible_project_names = deps["visible_project_names"]
+    get_current_user = deps["get_current_user"]
+    resolve_work_company_context = deps["resolve_work_company_context"]
+    effective_company_actors = deps["effective_company_actors"]
     leadership_roles = deps.get("leadership_roles") or ()
-    finance_roles = deps.get("finance_roles") or ()
+    full_view_roles = set(deps.get("full_view_roles") or leadership_roles)
+    platform_task_roles = set(deps.get("platform_task_roles") or leadership_roles)
     assignment_roles = tuple(dict.fromkeys(deps.get("assignment_roles") or ()))
+    assignment_role_set = set(assignment_roles)
 
     ensure_assignments_schema(get_db)
 
-    def assignment_access():
-        return require_roles(*assignment_roles)
-
     def is_leadership_user(user: dict):
-        return (user.get("role") or "") in leadership_roles
+        return (user.get("role") or "") in set(leadership_roles) | platform_task_roles
+
+    def selected_actor(cur, current_user, action_mode, x_company_id, x_company_mode):
+        context = resolve_work_company_context(
+            cur, current_user, None, action_mode,
+            x_company_id=x_company_id, x_company_mode=x_company_mode,
+        )
+        if context.get("mode") == "all_companies":
+            raise HTTPException(status_code=409, detail="Для поручений выберите одну конкретную компанию")
+        actors = [
+            dict(actor or {}) for actor in effective_company_actors(current_user, context)
+            if str((actor or {}).get("role") or "").strip() in assignment_role_set
+        ]
+        if not actors:
+            raise HTTPException(status_code=403, detail="Роль в выбранной компании не позволяет работать с поручениями")
+        if len(actors) != 1:
+            raise HTTPException(status_code=409, detail="Для поручений выберите одну конкретную компанию")
+        actor = actors[0]
+        try:
+            company_id = int(actor.get("companyId") or actor.get("company_id"))
+        except (TypeError, ValueError):
+            company_id = 0
+        if company_id <= 0:
+            raise HTTPException(status_code=409, detail="Компания поручения не определена")
+        actor["companyId"] = company_id
+        actor["company_id"] = company_id
+        return actor
+
+    def assigned_projects(actor):
+        values = _json_list(actor.get("assignedProjects", actor.get("assigned_projects", [])))
+        result = {str(value).strip() for value in values if str(value or "").strip()}
+        legacy = str(actor.get("projectName") or actor.get("project_name") or "").strip()
+        if legacy:
+            result.add(legacy)
+        return result
+
+    def require_actor_project(cur, actor, project_name, project_id=None, for_update=False):
+        project = resolve_project_owner(
+            cur, project_name, company_id=actor["companyId"], project_id=project_id, for_update=for_update,
+        )
+        if str(actor.get("role") or "").strip() not in full_view_roles:
+            if project["name"].strip() not in assigned_projects(actor):
+                raise HTTPException(status_code=403, detail="Нет доступа к объекту")
+        return project
+
+    def assigned_project_ids(cur, actor):
+        assigned = sorted(assigned_projects(actor))
+        if not assigned:
+            return []
+        cur.execute(
+            "SELECT id,company_id,name FROM projects WHERE company_id=%s AND BTRIM(name)=ANY(%s) ORDER BY id",
+            (actor["companyId"], assigned),
+        )
+        rows = cur.fetchall() or []
+        by_name = {}
+        for row in rows:
+            name = str(row.get("name") or "").strip()
+            by_name.setdefault(name, []).append(int(row.get("id") or 0))
+        if any(name not in by_name or len(by_name[name]) != 1 or by_name[name][0] <= 0 for name in assigned):
+            raise HTTPException(status_code=409, detail="Назначение по названию объекта неоднозначно")
+        return [by_name[name][0] for name in assigned]
 
     def identity_values(user: dict):
         return [str(value).strip().lower() for value in (
@@ -195,18 +264,39 @@ def register_assignments_module(app, deps):
         )
         params.extend([identities, user.get("role") or "", identities])
 
-    def load_task(cur, task_id: int, user: dict):
-        cur.execute(ASSIGNMENT_TASK_SELECT + " WHERE id=%s", (task_id,))
+    def load_task(cur, task_id: int, actor: dict, *, for_update=False):
+        include_platform = str(actor.get("role") or "").strip() in platform_task_roles
+        if include_platform:
+            cur.execute(
+                ASSIGNMENT_TASK_SELECT + " WHERE id=%s AND owner_scope='platform' AND company_id IS NULL AND project_id IS NULL",
+                (task_id,),
+            )
+        else:
+            cur.execute(
+                ASSIGNMENT_TASK_SELECT + " WHERE id=%s AND owner_scope='company' AND company_id=%s",
+                (task_id, actor["companyId"]),
+            )
         task = cur.fetchone()
         if not task:
             raise HTTPException(status_code=404, detail="Поручение не найдено")
-        project_name = task.get("projectName") or ""
-        require_project_access(user, project_name)
-        if task.get("systemGenerated") and not is_leadership_user(user):
+        if task.get("ownerScope") == "platform":
+            owner = {"scope": "platform", "companyId": None, "projectId": None}
+        else:
+            project = require_actor_project(
+                cur, actor, task.get("projectName") or "", project_id=task.get("projectId"), for_update=for_update,
+            )
+            owner = {"scope": "company", "companyId": actor["companyId"], "projectId": project["id"]}
+        if task.get("systemGenerated") and not is_leadership_user(actor):
             raise HTTPException(status_code=403, detail="ИИ-поручение доступно только в контуре ИИ-контроля")
-        if not can_access_task(user, task):
+        if not can_access_task(actor, task):
             raise HTTPException(status_code=403, detail="Поручение назначено другой роли или исполнителю")
-        return task
+        if for_update:
+            owner_sql, owner_params = task_owner_filter(owner)
+            cur.execute(ASSIGNMENT_TASK_SELECT + " WHERE " + owner_sql + " AND id=%s FOR UPDATE", (*owner_params, task_id))
+            task = cur.fetchone()
+            if not task:
+                raise HTTPException(status_code=404, detail="Поручение не найдено")
+        return task, owner
 
     def load_reports(cur, task_ids):
         if not task_ids:
@@ -254,32 +344,46 @@ def register_assignments_module(app, deps):
         status: Optional[str] = None,
         assigned_only: bool = False,
         include_system: bool = False,
-        current_user: dict = Depends(assignment_access()),
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
     ):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            include_system = bool(include_system and is_leadership_user(current_user))
             where = []
             params = []
-            if project_name:
-                require_project_access(current_user, project_name)
-                where.append("project_name=%s")
-                params.append(project_name)
+            if project_name == "Система":
+                if str(current_user.get("role") or "").strip() not in platform_task_roles:
+                    raise HTTPException(status_code=403, detail="Нет доступа к системным поручениям")
+                actor = dict(current_user)
+                include_system = bool(include_system)
+                where.append("owner_scope='platform' AND company_id IS NULL AND project_id IS NULL")
             else:
-                allowed_projects = visible_project_names(current_user)
-                if allowed_projects is not None:
-                    if not allowed_projects:
+                actor = selected_actor(cur, current_user, "read", x_company_id, x_company_mode)
+                include_system = bool(include_system and is_leadership_user(actor))
+            if project_name and project_name != "Система":
+                project = require_actor_project(cur, actor, project_name)
+                where.append("owner_scope='company' AND company_id=%s AND project_id=%s")
+                params.extend([actor["companyId"], project["id"]])
+            elif not project_name:
+                company_where = "(owner_scope='company' AND company_id=%s"
+                params.append(actor["companyId"])
+                if str(actor.get("role") or "").strip() not in full_view_roles:
+                    project_ids = assigned_project_ids(cur, actor)
+                    if not project_ids:
                         return []
-                    where.append("project_name=ANY(%s)")
-                    params.append(allowed_projects)
+                    company_where += " AND project_id=ANY(%s)"
+                    params.append(project_ids)
+                company_where += ")"
+                where.append(company_where)
             if status:
                 where.append("status=%s")
                 params.append(status)
             if not include_system:
                 where.append("NOT " + ASSIGNMENT_SYSTEM_CONDITION)
-            if assigned_only or not is_leadership_user(current_user):
-                append_user_task_scope(where, params, current_user)
+            if assigned_only or not is_leadership_user(actor):
+                append_user_task_scope(where, params, actor)
             sql = ASSIGNMENT_TASK_SELECT
             if where:
                 sql += " WHERE " + " AND ".join(where)
@@ -293,11 +397,19 @@ def register_assignments_module(app, deps):
             conn.close()
 
     @app.get("/ai-tasks/{task_id}/reports")
-    def list_task_reports(task_id: int, current_user: dict = Depends(assignment_access())):
+    def list_task_reports(
+        task_id: int,
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            load_task(cur, task_id, current_user)
+            actor = dict(current_user) if str(current_user.get("role") or "").strip() in platform_task_roles else selected_actor(
+                cur, current_user, "read", x_company_id, x_company_mode,
+            )
+            load_task(cur, task_id, actor)
             reports_by_task = load_reports(cur, [task_id])
             return reports_by_task.get(task_id, [])
         finally:
@@ -305,15 +417,26 @@ def register_assignments_module(app, deps):
             conn.close()
 
     @app.post("/ai-tasks/{task_id}/accept")
-    def accept_task(task_id: int, data: dict = None, current_user: dict = Depends(assignment_access())):
+    def accept_task(
+        task_id: int,
+        data: dict = None,
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
         data = data or {}
         next_status = _text(data.get("status") or "В работе", 100)
         if next_status not in ("Принято к исполнению", "В работе"):
             raise HTTPException(status_code=400, detail="Поручение можно принять только в работу")
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            load_task(cur, task_id, current_user)
+            actor = dict(current_user) if str(current_user.get("role") or "").strip() in platform_task_roles else selected_actor(
+                cur, current_user, "update", x_company_id, x_company_mode,
+            )
+            _task, owner = load_task(cur, task_id, actor, for_update=True)
+            owner_sql, owner_params = task_owner_filter(owner)
             cur.execute(
                 """
                 UPDATE ai_tasks
@@ -321,12 +444,11 @@ def register_assignments_module(app, deps):
                        accepted_by=%s,
                        accepted_at=COALESCE(accepted_at,NOW()),
                        updated_at=NOW()
-                 WHERE id=%s
-                """,
-                (next_status, current_user.get("name") or current_user.get("email") or "", task_id),
+                 WHERE """ + owner_sql + " AND id=%s",
+                (next_status, actor.get("name") or actor.get("email") or "", *owner_params, task_id),
             )
             conn.commit()
-            cur.execute(ASSIGNMENT_TASK_SELECT + " WHERE id=%s", (task_id,))
+            cur.execute(ASSIGNMENT_TASK_SELECT + " WHERE " + owner_sql + " AND id=%s", (*owner_params, task_id))
             return dict(cur.fetchone())
         except Exception:
             conn.rollback()
@@ -336,7 +458,13 @@ def register_assignments_module(app, deps):
             conn.close()
 
     @app.post("/ai-tasks/{task_id}/reports")
-    def create_task_report(task_id: int, data: dict, current_user: dict = Depends(assignment_access())):
+    def create_task_report(
+        task_id: int,
+        data: dict,
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
         data = data or {}
         text = _text(data.get("text") or data.get("reportText") or data.get("comment"), 10000)
         attachments = _attachment_rows(data)
@@ -345,9 +473,14 @@ def register_assignments_module(app, deps):
         report_status = _text(data.get("reportStatus") or data.get("status") or "Отчет отправлен", 100)
         next_task_status = _text(data.get("taskStatus") or data.get("nextStatus") or "На проверке", 100)
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            task = load_task(cur, task_id, current_user)
+            actor = dict(current_user) if str(current_user.get("role") or "").strip() in platform_task_roles else selected_actor(
+                cur, current_user, "update", x_company_id, x_company_mode,
+            )
+            task, owner = load_task(cur, task_id, actor, for_update=True)
+            owner_sql, owner_params = task_owner_filter(owner)
             cur.execute(
                 """
                 INSERT INTO ai_task_reports
@@ -359,9 +492,9 @@ def register_assignments_module(app, deps):
                     task_id,
                     text,
                     report_status,
-                    current_user.get("id"),
-                    current_user.get("name") or current_user.get("email") or "",
-                    current_user.get("role") or "",
+                    actor.get("id"),
+                    actor.get("name") or actor.get("email") or "",
+                    actor.get("role") or "",
                 ),
             )
             report = cur.fetchone()
@@ -389,13 +522,12 @@ def register_assignments_module(app, deps):
                            accepted_by=COALESCE(NULLIF(accepted_by,''),%s),
                            accepted_at=COALESCE(accepted_at,NOW()),
                            updated_at=NOW()
-                     WHERE id=%s
-                    """,
-                    (next_task_status, current_user.get("name") or current_user.get("email") or "", task_id),
+                     WHERE """ + owner_sql + " AND id=%s",
+                    (next_task_status, actor.get("name") or actor.get("email") or "", *owner_params, task_id),
                 )
             conn.commit()
             reports_by_task = load_reports(cur, [task_id])
-            cur.execute(ASSIGNMENT_TASK_SELECT + " WHERE id=%s", (task_id,))
+            cur.execute(ASSIGNMENT_TASK_SELECT + " WHERE " + owner_sql + " AND id=%s", (*owner_params, task_id))
             updated_task = cur.fetchone()
             return {
                 "ok": True,
@@ -410,15 +542,26 @@ def register_assignments_module(app, deps):
             conn.close()
 
     @app.post("/ai-tasks/{task_id}/close")
-    def close_task(task_id: int, data: dict = None, current_user: dict = Depends(assignment_access())):
+    def close_task(
+        task_id: int,
+        data: dict = None,
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
         data = data or {}
         next_status = _text(data.get("status") or "Закрыто", 100)
         if next_status not in ("Закрыто", "Отклонено", "Исправлено"):
             raise HTTPException(status_code=400, detail="Недопустимый статус закрытия поручения")
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            load_task(cur, task_id, current_user)
+            actor = dict(current_user) if str(current_user.get("role") or "").strip() in platform_task_roles else selected_actor(
+                cur, current_user, "update", x_company_id, x_company_mode,
+            )
+            _task, owner = load_task(cur, task_id, actor, for_update=True)
+            owner_sql, owner_params = task_owner_filter(owner)
             comment = _text(data.get("text") or data.get("comment"), 10000)
             if comment:
                 cur.execute(
@@ -431,9 +574,9 @@ def register_assignments_module(app, deps):
                         task_id,
                         comment,
                         "Закрытие",
-                        current_user.get("id"),
-                        current_user.get("name") or current_user.get("email") or "",
-                        current_user.get("role") or "",
+                        actor.get("id"),
+                        actor.get("name") or actor.get("email") or "",
+                        actor.get("role") or "",
                     ),
                 )
             cur.execute(
@@ -443,13 +586,12 @@ def register_assignments_module(app, deps):
                        closed_by=%s,
                        closed_at=NOW(),
                        updated_at=NOW()
-                 WHERE id=%s
-                """,
-                (next_status, current_user.get("name") or current_user.get("email") or "", task_id),
+                 WHERE """ + owner_sql + " AND id=%s",
+                (next_status, actor.get("name") or actor.get("email") or "", *owner_params, task_id),
             )
             conn.commit()
             reports_by_task = load_reports(cur, [task_id])
-            cur.execute(ASSIGNMENT_TASK_SELECT + " WHERE id=%s", (task_id,))
+            cur.execute(ASSIGNMENT_TASK_SELECT + " WHERE " + owner_sql + " AND id=%s", (*owner_params, task_id))
             return {"ok": True, "task": _task_dict(cur.fetchone(), reports_by_task.get(task_id, []))}
         except Exception:
             conn.rollback()

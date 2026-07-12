@@ -2205,7 +2205,7 @@
 
 **Description:** Persist explicit owner on every task insert and constrain AI/finding dedupe updates by that owner before switching task routes.
 
-**Status:** Implemented locally. Production deploy and strict post-audit are pending.
+**Status:** Pushed to `main` as `5f558777`. Production deploy and strict post-audit are pending.
 
 **Safety:**
 - Finding tasks inherit the finding's stored company/project owner.
@@ -2214,3 +2214,19 @@
 - Dedupe updates and duplicate closing include the complete stored owner filter.
 
 **Estimated scope:** S
+
+## Task M6.6d2b: Isolate AI Task Routes and Actions
+
+**Description:** Keep the current task API and screens while scoping direct task CRUD, assignment lists and accept/report/close actions through the selected company and stored task owner.
+
+**Status:** Implemented and fully verified locally. Commit, push and production verification are pending.
+
+**Safety:**
+- `all_companies` is rejected; one company context is required.
+- Company tasks use stored `company_id/project_id`; platform tasks are excluded from company requests and require a platform role.
+- Cross-company IDs are hidden with `404` before mutation.
+- Mutations lock the exact stored project and refetch the task with complete owner.
+- Worker visibility keeps both project assignment and role/person assignment filters.
+- Reports and attachments remain M6.6e, but current actions reach them only through a verified parent task.
+
+**Estimated scope:** M
