@@ -103,7 +103,15 @@ class FakeConnection:
 
 
 class EstimateReconciliationRouteTests(unittest.TestCase):
-    def _register(self, connection, *, actors=None, parents=None, add_change_calls=None):
+    def _register(
+        self,
+        connection,
+        *,
+        actors=None,
+        parents=None,
+        add_change_calls=None,
+        package_allowed=True,
+    ):
         app = FakeApp()
         selected_actors = actors or [{
             "id": 9,
@@ -149,7 +157,7 @@ class EstimateReconciliationRouteTests(unittest.TestCase):
             "resolve_project_parent": lambda _cur, _actor, **_kwargs: {"id": 14, "companyId": 4, "name": "Alpha"},
             "require_project_parent_access": lambda _cur, _actor, project, _roles: project,
             "resolve_estimate_parent": resolve_estimate,
-            "has_package_access": lambda _actor, _package: True,
+            "has_package_access": lambda _actor, _package: package_allowed,
             "normalize_sections": lambda sections: (sections, []),
             "sections_total": lambda _sections: 0,
             "build_diff": lambda *_args: {
@@ -200,6 +208,8 @@ class EstimateReconciliationRouteTests(unittest.TestCase):
         self.assertIn("JOIN estimates b ON b.id=r.base_estimate_id", sql)
         self.assertIn("JOIN estimates n ON n.id=r.next_estimate_id", sql)
         self.assertIn("b.company_id=n.company_id", sql)
+        self.assertIn("r.work_package", sql)
+        self.assertIn("r.smeta_type", sql)
         self.assertIn("p.company_id=%s", sql)
         self.assertEqual(params, (4,))
         self.assertEqual(result, [{"id": 7}])
@@ -243,6 +253,34 @@ class EstimateReconciliationRouteTests(unittest.TestCase):
             )
 
         self.assertEqual(raised.exception.status_code, 404)
+        self.assertFalse(any(sql.startswith("INSERT INTO estimate_reconciliations") for sql, _ in cursor.calls))
+        self.assertTrue(connection.rolled_back)
+
+    def test_foreman_without_package_access_cannot_create_reconciliation(self):
+        cursor = FakeCursor()
+        connection = FakeConnection(cursor)
+        app = self._register(
+            connection,
+            actors=[{
+                "id": 15,
+                "name": "Прораб",
+                "role": "прораб",
+                "companyId": 4,
+                "assignedProjects": ["Alpha"],
+                "assignedPackages": ["Электрика"],
+            }],
+            package_allowed=False,
+        )
+
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("POST", "/estimate-reconciliations")](
+                {"baseEstimateId": 100, "nextEstimateId": 101},
+                x_company_id="4",
+                x_company_mode="company",
+                current_user={"id": 15, "name": "Глобальный директор", "role": "директор"},
+            )
+
+        self.assertEqual(raised.exception.status_code, 403)
         self.assertFalse(any(sql.startswith("INSERT INTO estimate_reconciliations") for sql, _ in cursor.calls))
         self.assertTrue(connection.rolled_back)
 

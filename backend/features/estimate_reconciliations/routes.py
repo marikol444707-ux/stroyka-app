@@ -62,8 +62,11 @@ def register_estimate_reconciliations_module(app, deps):
                     JOIN projects p ON p.id=b.project_id AND p.company_id=b.company_id"""
     owner_match = """b.company_id=n.company_id AND b.project_id=n.project_id
                       AND b.project_id IS NOT NULL
+                      AND COALESCE(NULLIF(r.work_package,''),'Основная')=
+                          COALESCE(NULLIF(b.work_package,''),'Основная')
                       AND COALESCE(NULLIF(b.work_package,''),'Основная')=
                           COALESCE(NULLIF(n.work_package,''),'Основная')
+                      AND COALESCE(r.smeta_type,'Заказчик')=COALESCE(b.smeta_type,'Заказчик')
                       AND COALESCE(b.smeta_type,'Заказчик')=COALESCE(n.smeta_type,'Заказчик')"""
 
     def read_scope(cur, current_user, x_company_id, x_company_mode):

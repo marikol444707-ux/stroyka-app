@@ -20673,7 +20673,7 @@ register_estimate_reconciliations_module(app, {
     "approval_roles": (*LEADERSHIP_ROLES, "главный_инженер", "сметчик"),
     "full_view_roles": BRIGADE_FULL_VIEW_ROLES,
     "package_limit_roles": PACKAGE_LIMIT_ROLES,
-    "package_unrestricted_roles": ("прораб",),
+    "package_unrestricted_roles": (),
     "customer_roles": ("заказчик",),
 })
 

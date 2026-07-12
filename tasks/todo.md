@@ -1740,7 +1740,7 @@
 - [x] Output contains only IDs, reasons, and counters; no names, sections, sums, or notes.
 - [x] Production returned `readyForStrictRuntime=true`, `totalRows=0`, and empty `needsReview`; no writes were attempted.
 
-**Prepared runtime:** List/detail/create/update and item mutations resolve tenant access through both estimate parents. Candidate `unexpected_works` use exact company/project IDs, aggregate-company and foreign direct-ID writes stop before mutation, final updates repeat parent IDs, and package limits remain active. Local tests pass `15` focused and `247` full backend tests.
+**Prepared runtime:** List/detail/create/update and item mutations resolve tenant access through both estimate parents. Candidate `unexpected_works` use exact company/project IDs, aggregate-company and foreign direct-ID writes stop before mutation, final updates repeat parent IDs, reconciliation type/package must match both parents, and package limits remain active for proраб and other limited roles. Local verification passes `16` focused and `248` full backend tests, compile, M6 audit, production build, route-duplication check, and diff check.
 
 **Dependencies:** Task M6.4k
 
