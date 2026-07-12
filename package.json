@@ -30,6 +30,7 @@
     "audit:m6": "python3 scripts/check-m6-tenant-registry.py",
     "audit:company-messages": "python3 scripts/migrate-company-messages.py --dry-run",
     "audit:estimate-changes": "python3 -m backend.features.estimate_changes.ownership_report",
+    "audit:estimate-reconciliations": "python3 -m backend.features.estimate_reconciliations.ownership_report",
     "smoke:telegram-expense": "python3 scripts/smoke-telegram-own-expense.py",
     "smoke:max-warehouse": "python3 scripts/smoke-max-warehouse-invoice.py",
     "smoke:max-miniapp-session": "python3 scripts/smoke-max-miniapp-session.py",
