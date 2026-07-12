@@ -1756,6 +1756,18 @@
 
 **Estimated scope:** S
 
+## Task M6.5a: Work Journal Ownership Audit
+
+**Description:** Classify every `work_journal` row through a globally unique project and any explicit estimate, unexpected-work, or brigade-contract parent. Do not change rows or expose business content.
+
+**Status:** Implemented locally; production read-only report pending.
+
+**Safety:** The command opens a read-only transaction, attempts no writes, and reports only journal IDs, owner IDs, reasons, and counters. Ambiguous project names and conflicting parents always require review.
+
+**Dependencies:** Task M6.4m
+
+**Estimated scope:** S
+
 **M6 safety gate:** do not backfill ambiguous legacy rows, do not use project names as authorization identifiers, do not allow mutation in `all_companies`, and do not start the two-company production E2E until M6.0-M6.8 and the preceding M4/M5 gaps are closed.
 
 ## Task M7: Backfill, Constraints, And Pilot Matrix
