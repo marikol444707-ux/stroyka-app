@@ -1760,11 +1760,21 @@
 
 **Description:** Classify every `work_journal` row through a globally unique project and any explicit estimate, unexpected-work, or brigade-contract parent. Do not change rows or expose business content.
 
-**Status:** Implemented locally; production read-only report pending.
+**Status:** Production read-only report passed: `8` verified rows, no backfill, unresolved, mismatched, or review rows.
 
 **Safety:** The command opens a read-only transaction, attempts no writes, and reports only journal IDs, owner IDs, reasons, and counters. Ambiguous project names and conflicting parents always require review.
 
 **Dependencies:** Task M6.4m
+
+**Estimated scope:** S
+
+## Task M6.5b: Store Work Journal Owner On Create
+
+**Description:** Change only direct `POST /work-journal` so the server resolves one selected company and exact project parent, then stores the canonical project name and `company_id`.
+
+**Status:** Implemented locally; release pending. Existing-row list/update/delete, AI prefill, batch creation, rooms, acts, and contracts remain unchanged.
+
+**Dependencies:** Task M6.5a
 
 **Estimated scope:** S
 

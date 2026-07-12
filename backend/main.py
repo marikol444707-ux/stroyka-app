@@ -15284,21 +15284,65 @@ def _mark_room_work_rejected(cur, work_journal_id: int, confirmed_by: str = ""):
     cur.execute("UPDATE room_works SET status='Отклонено', confirmed_by=%s WHERE work_journal_id=%s", (confirmed_by or "", work_journal_id))
 
 @app.post("/work-journal")
-def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
-    require_project_access(_current_user, w.project)
-    user_role = _current_user.get("role")
-    work_package = (w.workPackage or "Основная").strip() or "Основная"
-    if user_role in PACKAGE_LIMIT_ROLES and not has_work_execution_package_access(_current_user, w.project, work_package):
-        raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
-    if user_role in WORKER_EXECUTION_ROLES:
-        if str(w.masterId or "") != str(_current_user.get("id") or "") and (w.masterName or "").strip().lower() != (_current_user.get("name") or "").strip().lower():
-            raise HTTPException(status_code=403, detail="Мастер может создавать ЖПР только от своего имени")
-    used = [m for m in (w.materialsUsed or []) if m.get("name") and float(m.get("quantity") or 0) > 0]
-
+def create_work_journal(
+    w: WorkJournalModel,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
+        try:
+            from backend.features.work_journal.service import (
+                require_work_journal_parent_owner,
+                resolve_work_journal_create_scope,
+            )
+        except ModuleNotFoundError:
+            from features.work_journal.service import (
+                require_work_journal_parent_owner,
+                resolve_work_journal_create_scope,
+            )
+        _, _, require_project_write_actor = _project_access_helpers()
+        try:
+            from backend.features.project_access.service import (
+                require_project_parent_access,
+                resolve_project_parent,
+            )
+            from backend.features.estimate_access.service import resolve_estimate_parent
+        except ModuleNotFoundError:
+            from features.project_access.service import (
+                require_project_parent_access,
+                resolve_project_parent,
+            )
+            from features.estimate_access.service import resolve_estimate_parent
+        _current_user, journal_project = resolve_work_journal_create_scope(
+            cur,
+            _current_user,
+            w.project,
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            deps={
+                "resolve_work_company_context": _resolve_work_company_context,
+                "effective_company_actors": effective_company_actors,
+                "require_project_write_actor": require_project_write_actor,
+                "resolve_project_parent": resolve_project_parent,
+                "require_project_parent_access": require_project_parent_access,
+                "journal_write_roles": JOURNAL_WRITE_ROLES,
+                "full_view_roles": BRIGADE_FULL_VIEW_ROLES,
+            },
+        )
+        w.project = journal_project["name"]
+        journal_company_id = journal_project["companyId"]
+        user_role = _current_user.get("role")
+        work_package = (w.workPackage or "Основная").strip() or "Основная"
+        if user_role in PACKAGE_LIMIT_ROLES and not has_work_execution_package_access(_current_user, w.project, work_package):
+            raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
+        if user_role in WORKER_EXECUTION_ROLES:
+            if str(w.masterId or "") != str(_current_user.get("id") or "") and (w.masterName or "").strip().lower() != (_current_user.get("name") or "").strip().lower():
+                raise HTTPException(status_code=403, detail="Мастер может создавать ЖПР только от своего имени")
+        used = [m for m in (w.materialsUsed or []) if m.get("name") and float(m.get("quantity") or 0) > 0]
         journal_room_id = w.roomId
         journal_room_name = (w.roomName or "").strip()
         if user_role in WORKER_EXECUTION_ROLES and not journal_room_id and not journal_room_name:
@@ -15315,7 +15359,8 @@ def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(requi
         if str(journal_estimate_item_key or "").startswith("pricelist:"):
             journal_estimate_item_key = ""
         if journal_estimate_id:
-            require_estimate_access(cur, journal_estimate_id, _current_user)
+            journal_estimate = resolve_estimate_parent(cur, _current_user, journal_estimate_id)
+            require_work_journal_parent_owner(journal_estimate, journal_project, "Смета")
             estimate_work_item = _load_estimate_work_item(
                 cur,
                 journal_estimate_id,
@@ -15394,15 +15439,28 @@ def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(requi
                 customer_price = estimate_work_item.get("pricePerUnit") if estimate_work_item else 0
                 customer_total = float(w.quantity or 0) * float(customer_price or 0)
                 execution_mode = "not_set"
+        if contract_item_id:
+            cur.execute(
+                """SELECT bci.id
+                     FROM brigade_contract_items bci
+                     JOIN brigade_contracts bc ON bc.id=bci.contract_id
+                    WHERE bci.id=%s AND bc.company_id=%s AND bc.project_id=%s""",
+                (contract_item_id, journal_company_id, journal_project["id"]),
+            )
+            if not cur.fetchone():
+                raise HTTPException(
+                    status_code=409,
+                    detail="Договорная позиция относится к другой компании или объекту",
+                )
         cur.execute("""INSERT INTO work_journal
-                       (master_id,master_name,project,description,unit,quantity,price_per_unit,total,date,
+                       (company_id,master_id,master_name,project,description,unit,quantity,price_per_unit,total,date,
                         comment,photo_url,materials_used,
                         estimate_id,section_name,responsible_itr,weather,time_start,time_end,
                         hidden_work,quality_status,normatives,project_docs,
                         work_package,room_id,room_name,surface,estimate_item_name,estimate_item_key,
                         contract_item_id,customer_price_per_unit,customer_total,execution_price_per_unit,execution_total,execution_price_mode)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
-                    (w.masterId,w.masterName,w.project,journal_description,journal_unit,w.quantity,execution_price,execution_total,w.date,
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+                    (journal_company_id,w.masterId,w.masterName,w.project,journal_description,journal_unit,w.quantity,execution_price,execution_total,w.date,
                      w.comment,w.photoUrl,materials_json,
                      journal_estimate_id,journal_section_name,w.responsibleItr,w.weather,w.timeStart,w.timeEnd,
                      w.hiddenWork,w.qualityStatus,w.normatives,w.projectDocs,
