@@ -1731,16 +1731,16 @@
 
 **Description:** Scope estimate-reconciliation list/detail/create/update and unexpected-work candidate reads through verified base/next estimate parents. Project names remain display fields only.
 
-**Status:** Read-only ownership audit implemented locally. Strict runtime is prepared locally and blocked on a clean production report.
+**Status:** Ready for release. Production read-only audit on `94c4e4b0` returned `readyForStrictRuntime=true`, `totalRows=0`, and empty `needsReview`; strict runtime is now unblocked.
 
 **Audit checklist:**
 - [x] `npm run audit:estimate-reconciliations` uses a read-only transaction and attempts no writes.
 - [x] Ownership derives only from `base_estimate_id`, `next_estimate_id`, their stored company/project owners, and the stored project row.
 - [x] Missing parents, cross-company/project pairs, and estimate/reconciliation package or type conflicts become `needsReview` rows.
 - [x] Output contains only IDs, reasons, and counters; no names, sections, sums, or notes.
-- [x] Strict runtime must not ship until production returns `readyForStrictRuntime=true` and empty `needsReview`.
+- [x] Production returned `readyForStrictRuntime=true`, `totalRows=0`, and empty `needsReview`; no writes were attempted.
 
-**Prepared runtime:** List/detail/create/update and item mutations resolve tenant access through both estimate parents. Candidate `unexpected_works` use exact company/project IDs, aggregate-company and foreign direct-ID writes stop before mutation, final updates repeat parent IDs, and package limits remain active. Local tests pass `15` focused and `251` full backend tests; this is not production evidence.
+**Prepared runtime:** List/detail/create/update and item mutations resolve tenant access through both estimate parents. Candidate `unexpected_works` use exact company/project IDs, aggregate-company and foreign direct-ID writes stop before mutation, final updates repeat parent IDs, and package limits remain active. Local tests pass `15` focused and `247` full backend tests.
 
 **Dependencies:** Task M6.4k
 
