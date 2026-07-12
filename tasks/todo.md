@@ -2117,7 +2117,7 @@
 
 **Description:** Produce one fail-closed read-only ownership report for `project_ai_summary`, `ai_findings`, `ai_tasks`, `ai_task_reports`, and `ai_task_attachments`. Resolve tenant rows through a globally unique project and verified parent chain; classify `project_name='Система'` as an explicit platform scope. Do not read AI business payloads, write rows, migrate schema, or change runtime routes.
 
-**Status:** Implemented locally. Production execution of `npm run audit:ai-ownership` is required before any M6.6 runtime slice starts.
+**Status:** Completed in production. The final report classified all `3382` retained rows as verified, including `141` platform-system rows, with `unresolved=0`, `mismatched=0`, `needsReview=[]`, and `writesAttempted=0`. Six orphaned work-assignment smoke tasks were removed by an exact guarded transaction, and the originating smoke cleanup was fixed.
 
 **Runtime slices after a clean report:**
 - `M6.6b` project AI summary read/write.
@@ -2129,6 +2129,20 @@
 **Verification:**
 - [x] Focused classifier tests cover valid tenant chains, platform system tasks, ambiguous projects, unsupported/mismatched polymorphic entities, orphan reports, and cross-task attachments.
 - [x] Database runner requests a PostgreSQL read-only transaction and executes only ownership/linkage `SELECT` statements.
-- [ ] Production report has `readyForStrictRuntime=true`, `writesAttempted=0`, `unresolved=0`, and `mismatched=0`.
+- [x] Production report has `readyForStrictRuntime=true`, `writesAttempted=0`, `unresolved=0`, and `mismatched=0`.
+
+**Estimated scope:** S
+
+## Task M6.6b1: Store Project AI Summary Ownership
+
+**Description:** Add nullable `company_id/project_id` to `project_ai_summary`, revalidate each exact legacy `project_name` against one project, and backfill only a guarded dry-run plan. Keep existing GET/POST and AI-control runtime unchanged.
+
+**Status:** Implemented locally. Production must run `npm run audit:ai-summary-ownership`, apply only the returned count and SHA-256, then repeat the dry-run before M6.6b2.
+
+**Safety:**
+- Dry-run uses a PostgreSQL read-only transaction and never alters schema.
+- Apply requires `APPLY_AI_SUMMARY_OWNERSHIP`, expected ready count, and exact plan SHA-256.
+- Apply locks projects/summary, updates only null owners, creates the future `(company_id,project_id)` unique index, and commits only after every row is stored and reverified.
+- The existing global `project_name` primary key remains until runtime cutover; removing it is the independent M6.6b3 step.
 
 **Estimated scope:** S
