@@ -28697,31 +28697,6 @@ def delete_warranty_defect(id: int, current_user: dict = Depends(require_roles(*
     cur.close(); conn.close()
     return {"ok": True}
 
-@app.get("/unexpected-works/limit-check")
-def check_unexpected_limit(project_name: str, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    """Проверка превышения контрольного % изменений к смете от бюджета проекта."""
-    require_project_access(current_user, project_name)
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT budget FROM projects WHERE name=%s", (project_name,))
-    row = cur.fetchone()
-    if not row:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="проект не найден")
-    budget = float(row[0] or 0)
-    cur.execute("SELECT COALESCE(SUM(total),0) FROM unexpected_works WHERE project_name=%s AND status = ANY(%s) AND COALESCE(change_type,'') <> %s AND included_in_estimate_id IS NULL", (project_name, list(ESTIMATE_CHANGE_APPROVED_STATUSES), "Исключение объёма"))
-    approved_sum = float(cur.fetchone()[0] or 0)
-    cur.execute("SELECT COALESCE(SUM(total),0) FROM unexpected_works WHERE project_name=%s AND status='Ожидает согласования' AND COALESCE(change_type,'') <> %s", (project_name, "Исключение объёма"))
-    pending_sum = float(cur.fetchone()[0] or 0)
-    cur.close(); conn.close()
-    LIMIT_PCT = 10.0  # лимит 10% от бюджета без особого согласования
-    percent = (approved_sum / budget * 100) if budget > 0 else 0
-    over_limit = percent > LIMIT_PCT
-    return {"projectName": project_name, "budget": budget, "approvedSum": approved_sum,
-            "pendingSum": pending_sum, "percentOfBudget": round(percent, 2),
-            "limitPct": LIMIT_PCT, "overLimit": over_limit,
-            "warning": "Утверждённые изменения к смете превысили "+str(LIMIT_PCT)+"% от бюджета — стоит оформить доп.соглашение или новую редакцию сметы" if over_limit else None}
-
 @app.delete("/inspection-orders/{id}")
 def delete_inspection_order(id: int, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
     conn = get_db()

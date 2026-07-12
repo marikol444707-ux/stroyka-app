@@ -459,6 +459,91 @@ def register_estimate_changes_module(app, deps):
             "similar": similar_lines,
         }
 
+    @app.get("/unexpected-works/limit-check")
+    def check_unexpected_limit(
+        project_name: str,
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
+        """Calculate the project change limit inside one verified company owner."""
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            company_actors, _visibility_sql, _visibility_params = read_scope(
+                cur,
+                current_user,
+                x_company_id,
+                x_company_mode,
+            )
+            if len(company_actors) != 1:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Для проверки лимита выберите одну компанию",
+                )
+            actor = company_actors[0]
+            project = resolve_project_parent(
+                cur,
+                actor,
+                project_name=str(project_name or "").strip(),
+            )
+            require_project_parent_access(cur, actor, project, full_view_roles)
+            company_id = _positive_int(project.get("companyId") or project.get("company_id"))
+            project_id = _positive_int(project.get("id"))
+            canonical_name = str(project.get("name") or "").strip()
+            if not company_id or not project_id or not canonical_name:
+                raise HTTPException(status_code=409, detail="Объект не имеет точного владельца")
+            cur.execute(
+                "SELECT budget FROM projects WHERE id=%s AND company_id=%s",
+                (project_id, company_id),
+            )
+            budget_row = cur.fetchone()
+            if not budget_row:
+                raise HTTPException(status_code=404, detail="проект не найден")
+            budget = _number(budget_row.get("budget"))
+            cur.execute(
+                """SELECT COALESCE(SUM(total),0) AS total
+                     FROM unexpected_works
+                    WHERE company_id=%s AND project_id=%s
+                      AND status = ANY(%s)
+                      AND COALESCE(change_type,'') <> %s
+                      AND included_in_estimate_id IS NULL""",
+                (company_id, project_id, sorted(approved_statuses), "Исключение объёма"),
+            )
+            approved_sum = _number((cur.fetchone() or {}).get("total"))
+            cur.execute(
+                """SELECT COALESCE(SUM(total),0) AS total
+                     FROM unexpected_works
+                    WHERE company_id=%s AND project_id=%s
+                      AND status='Ожидает согласования'
+                      AND COALESCE(change_type,'') <> %s""",
+                (company_id, project_id, "Исключение объёма"),
+            )
+            pending_sum = _number((cur.fetchone() or {}).get("total"))
+        finally:
+            cur.close()
+            conn.close()
+
+        limit_pct = 10.0
+        percent = approved_sum / budget * 100 if budget > 0 else 0
+        over_limit = percent > limit_pct
+        return {
+            "projectName": canonical_name,
+            "budget": budget,
+            "approvedSum": approved_sum,
+            "pendingSum": pending_sum,
+            "percentOfBudget": round(percent, 2),
+            "limitPct": limit_pct,
+            "overLimit": over_limit,
+            "warning": (
+                "Утверждённые изменения к смете превысили "
+                + str(limit_pct)
+                + "% от бюджета — стоит оформить доп.соглашение или новую редакцию сметы"
+                if over_limit
+                else None
+            ),
+        }
+
     @app.post("/unexpected-works")
     def create_unexpected_work(
         data: dict,

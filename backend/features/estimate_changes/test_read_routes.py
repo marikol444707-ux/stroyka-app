@@ -133,6 +133,7 @@ class EstimateChangeReadRouteTests(unittest.TestCase):
             "log_audit": lambda **_kwargs: None,
         })
         calls["ai_handler"] = app.routes[("POST", "/unexpected-works/{id}/ai-estimate")]
+        calls["limit_handler"] = app.routes[("GET", "/unexpected-works/limit-check")]
         return app.routes[("GET", "/unexpected-works")], calls
 
     @staticmethod
@@ -306,6 +307,72 @@ class EstimateChangeReadRouteTests(unittest.TestCase):
         self.assertEqual(params, (901, 4))
         self.assertTrue(cursor.closed)
         self.assertTrue(connection.closed)
+
+    def test_limit_check_rejects_all_companies_before_data_query(self):
+        cursor = FakeCursor()
+        connection = FakeConnection(cursor)
+        _list_handler, calls = self._register(
+            connection,
+            [
+                {"companyId": 4, "role": "директор"},
+                {"companyId": 8, "role": "директор"},
+            ],
+        )
+
+        with self.assertRaises(HTTPException) as raised:
+            calls["limit_handler"](
+                project_name="Лицей",
+                x_company_id=None,
+                x_company_mode="all_companies",
+                current_user={"id": 9, "role": "account_owner"},
+            )
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(cursor.calls, [])
+
+    def test_limit_check_aggregates_only_verified_company_and_project(self):
+        class SequenceCursor(FakeCursor):
+            def __init__(self):
+                super().__init__()
+                self.responses = iter([
+                    {"budget": 10000},
+                    {"total": 1200},
+                    {"total": 300},
+                ])
+
+            def fetchone(self):
+                return next(self.responses)
+
+        cursor = SequenceCursor()
+        connection = FakeConnection(cursor)
+        _list_handler, calls = self._register(
+            connection,
+            [{"companyId": 4, "role": "директор"}],
+        )
+
+        response = calls["limit_handler"](
+            project_name="Лицей",
+            x_company_id="4",
+            x_company_mode="company",
+            current_user={"id": 9, "role": "account_owner"},
+        )
+
+        self.assertEqual(response["projectName"], "Лицей")
+        self.assertEqual(response["approvedSum"], 1200.0)
+        self.assertEqual(response["pendingSum"], 300.0)
+        self.assertEqual(response["percentOfBudget"], 12.0)
+        self.assertTrue(response["overLimit"])
+        budget_sql, budget_params = cursor.calls[0]
+        approved_sql, approved_params = cursor.calls[1]
+        pending_sql, pending_params = cursor.calls[2]
+        self.assertIn("WHERE id=%s AND company_id=%s", budget_sql)
+        self.assertEqual(budget_params, (14, 4))
+        self.assertIn("company_id=%s AND project_id=%s", approved_sql)
+        self.assertIn("company_id=%s AND project_id=%s", pending_sql)
+        self.assertNotIn("project_name", approved_sql)
+        self.assertNotIn("project_name", pending_sql)
+        self.assertEqual(approved_params[:2], (4, 14))
+        self.assertEqual(pending_params[:2], (4, 14))
 
 
 if __name__ == "__main__":
