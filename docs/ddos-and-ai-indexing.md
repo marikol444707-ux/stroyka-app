@@ -61,6 +61,12 @@ location = /site/leads {
     proxy_pass http://127.0.0.1:8001;
 }
 
+location = /site/lead-files {
+    limit_req zone=lead_limit burst=10 nodelay;
+    client_max_body_size 11m;
+    proxy_pass http://127.0.0.1:8001;
+}
+
 location = /site/pricing {
     limit_req zone=lead_limit burst=20 nodelay;
     proxy_pass http://127.0.0.1:8001;

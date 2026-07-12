@@ -119,6 +119,28 @@ check_not_spa_fallback() {
   rm -f "$body_file"
 }
 
+check_post_not_spa_fallback() {
+  local name="$1"
+  local url="$2"
+  local expected_codes="$3"
+  local body_file
+  local code
+  body_file="$(mktemp)"
+  code="$(curl -skS -X POST -o "$body_file" -w '%{http_code}' "$url" || true)"
+  if [[ " $expected_codes " == *" $code "* ]] && ! head -c 200 "$body_file" | grep -qiE '<!doctype|<html'; then
+    echo "OK   $name $code"
+    rm -f "$body_file"
+    return 0
+  fi
+  echo "FAIL $name got=$code expected=$expected_codes"
+  if head -c 200 "$body_file" | grep -qiE '<!doctype|<html'; then
+    failures+=("$name returned HTML instead of backend JSON")
+  else
+    failures+=("$name got=$code expected=$expected_codes")
+  fi
+  rm -f "$body_file"
+}
+
 echo "Smoke-check: $BASE_URL"
 
 check_code "frontend /" "$BASE_URL/"
@@ -134,6 +156,7 @@ fi
 check_json_predicate "site pricing" "$BASE_URL/site/pricing" 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if isinstance(data.get("rules"), list) else 1)'
 check_json_predicate "site projects" "$BASE_URL/site/projects" 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if isinstance(data, list) else 1)'
 check_not_spa_fallback "site leads route" "$BASE_URL/site/leads" "405 429"
+check_post_not_spa_fallback "site lead files route" "$BASE_URL/site/lead-files" "422 429"
 check_not_spa_fallback "site price rules route" "$BASE_URL/site-price-rules" "401 403"
 check_not_spa_fallback "tenant files route" "$BASE_URL/tenant-files/1" "401 403"
 check_not_spa_fallback "tenant file content route" "$BASE_URL/tenant-files/1/content" "401 403"
