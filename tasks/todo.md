@@ -2191,7 +2191,7 @@
 
 **Description:** Add guarded task ownership without changing task routes. Tenant tasks store `owner_scope='company'` with `company_id/project_id`; `Система` tasks store `owner_scope='platform'` with no company/project IDs.
 
-**Status:** Planned. Read-only production report and guarded migration implementation are next.
+**Status:** Implemented locally. Production must run `npm run audit:ai-tasks-ownership`, apply only the returned count and SHA, then repeat the audit before M6.6d2.
 
 **Safety:**
 - A task linked to a finding must inherit exactly the finding's stored owner.
