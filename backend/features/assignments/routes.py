@@ -303,10 +303,15 @@ def register_assignments_module(app, deps):
             return {}
         cur.execute(
             """
-            SELECT *
-              FROM ai_task_reports
-             WHERE task_id=ANY(%s)
-             ORDER BY created_at DESC, id DESC
+            SELECT r.*
+              FROM ai_task_reports r
+              JOIN ai_tasks t
+                ON t.id=r.task_id
+               AND r.owner_scope=t.owner_scope
+               AND r.company_id IS NOT DISTINCT FROM t.company_id
+               AND r.project_id IS NOT DISTINCT FROM t.project_id
+             WHERE r.task_id=ANY(%s)
+             ORDER BY r.created_at DESC, r.id DESC
             """,
             (list(task_ids),),
         )
@@ -316,10 +321,16 @@ def register_assignments_module(app, deps):
         if report_ids:
             cur.execute(
                 """
-                SELECT *
-                  FROM ai_task_attachments
-                 WHERE report_id=ANY(%s)
-                 ORDER BY id
+                SELECT a.*
+                  FROM ai_task_attachments a
+                  JOIN ai_task_reports r
+                    ON r.id=a.report_id
+                   AND a.task_id=r.task_id
+                   AND a.owner_scope=r.owner_scope
+                   AND a.company_id IS NOT DISTINCT FROM r.company_id
+                   AND a.project_id IS NOT DISTINCT FROM r.project_id
+                 WHERE a.report_id=ANY(%s)
+                 ORDER BY a.id
                 """,
                 (report_ids,),
             )
@@ -484,8 +495,9 @@ def register_assignments_module(app, deps):
             cur.execute(
                 """
                 INSERT INTO ai_task_reports
-                    (task_id,report_text,status,author_id,author_name,author_role)
-                VALUES (%s,%s,%s,%s,%s,%s)
+                    (task_id,report_text,status,author_id,author_name,author_role,
+                     owner_scope,company_id,project_id)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 RETURNING *
                 """,
                 (
@@ -495,6 +507,9 @@ def register_assignments_module(app, deps):
                     actor.get("id"),
                     actor.get("name") or actor.get("email") or "",
                     actor.get("role") or "",
+                    owner["scope"],
+                    owner.get("companyId"),
+                    owner.get("projectId"),
                 ),
             )
             report = cur.fetchone()
@@ -502,8 +517,9 @@ def register_assignments_module(app, deps):
                 cur.execute(
                     """
                     INSERT INTO ai_task_attachments
-                        (report_id,task_id,file_url,file_type,file_name,source)
-                    VALUES (%s,%s,%s,%s,%s,%s)
+                        (report_id,task_id,file_url,file_type,file_name,source,
+                         owner_scope,company_id,project_id)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     """,
                     (
                         report.get("id"),
@@ -512,6 +528,9 @@ def register_assignments_module(app, deps):
                         attachment["type"],
                         attachment["name"],
                         attachment["source"],
+                        owner["scope"],
+                        owner.get("companyId"),
+                        owner.get("projectId"),
                     ),
                 )
             if next_task_status and task.get("status") not in ("Закрыто", "Отклонено"):
@@ -567,8 +586,9 @@ def register_assignments_module(app, deps):
                 cur.execute(
                     """
                     INSERT INTO ai_task_reports
-                        (task_id,report_text,status,author_id,author_name,author_role)
-                    VALUES (%s,%s,%s,%s,%s,%s)
+                        (task_id,report_text,status,author_id,author_name,author_role,
+                         owner_scope,company_id,project_id)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     """,
                     (
                         task_id,
@@ -577,6 +597,9 @@ def register_assignments_module(app, deps):
                         actor.get("id"),
                         actor.get("name") or actor.get("email") or "",
                         actor.get("role") or "",
+                        owner["scope"],
+                        owner.get("companyId"),
+                        owner.get("projectId"),
                     ),
                 )
             cur.execute(

@@ -148,15 +148,17 @@ def select_project():
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     project_name = os.getenv("ASSIGNMENT_SMOKE_PROJECT", "").strip()
     if project_name:
-        cur.execute("SELECT id, name FROM projects WHERE name=%s LIMIT 1", (project_name,))
+        cur.execute("SELECT id,name,company_id FROM projects WHERE name=%s ORDER BY id LIMIT 1", (project_name,))
     else:
-        cur.execute("SELECT id, name FROM projects WHERE COALESCE(archived,FALSE)=FALSE ORDER BY id LIMIT 1")
+        cur.execute("SELECT id,name,company_id FROM projects WHERE COALESCE(archived,FALSE)=FALSE ORDER BY id LIMIT 1")
     project = cur.fetchone()
     cur.close()
     conn.close()
     if not project:
         raise SystemExit("FAIL: нет активного объекта для smoke поручений")
-    return project["name"]
+    if not project.get("company_id"):
+        raise SystemExit("FAIL: у smoke-объекта не определена компания")
+    return dict(project)
 
 
 def ensure_worker(project_name, email, name, password, role="мастер"):
@@ -183,19 +185,22 @@ def ensure_worker(project_name, email, name, password, role="мастер"):
     )
 
 
-def insert_system_assignment(project_name, stamp):
+def insert_system_assignment(project, stamp):
     conn = psycopg2.connect(**db_config())
     cur = conn.cursor()
+    project_id = project["id"]
+    company_id = project["company_id"]
     cur.execute(
         """
         INSERT INTO ai_tasks (
             project_name, title, description, assigned_role, assigned_to, status,
-            action_label, action_payload, dedupe_key, created_by, created_at, updated_at
-        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
+            action_label, action_payload, dedupe_key, created_by,
+            owner_scope, company_id, project_id, created_at, updated_at
+        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'company',%s,%s,NOW(),NOW())
         RETURNING id
         """,
         (
-            project_name,
+            project["name"],
             f"CODEX QA ИИ-поручение {stamp}",
             "Smoke: системное поручение должно быть скрыто из рабочего списка",
             "мастер",
@@ -205,6 +210,8 @@ def insert_system_assignment(project_name, stamp):
             json.dumps({"type": "room_measurement_review", "source": "system_rules"}, ensure_ascii=False),
             f"ROOM_CONTROL:assignment-smoke:{stamp}",
             "ИИ-контроль",
+            company_id,
+            project_id,
         ),
     )
     task_id = cur.fetchone()[0]
@@ -212,6 +219,46 @@ def insert_system_assignment(project_name, stamp):
     cur.close()
     conn.close()
     return task_id
+
+
+def verify_task_child_owners(task_id):
+    conn = psycopg2.connect(**db_config())
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute(
+            """
+            SELECT t.owner_scope AS task_scope,
+                   t.company_id AS task_company_id,
+                   t.project_id AS task_project_id,
+                   r.owner_scope AS report_scope,
+                   r.company_id AS report_company_id,
+                   r.project_id AS report_project_id,
+                   a.owner_scope AS attachment_scope,
+                   a.company_id AS attachment_company_id,
+                   a.project_id AS attachment_project_id
+              FROM ai_tasks t
+              JOIN ai_task_reports r ON r.task_id=t.id
+              JOIN ai_task_attachments a ON a.report_id=r.id AND a.task_id=t.id
+             WHERE t.id=%s
+             ORDER BY r.id DESC,a.id DESC
+             LIMIT 1
+            """,
+            (task_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise RuntimeError("Отчёт или вложение поручения не найдены для owner-проверки")
+        expected = (row["task_scope"], row["task_company_id"], row["task_project_id"])
+        report_owner = (row["report_scope"], row["report_company_id"], row["report_project_id"])
+        attachment_owner = (row["attachment_scope"], row["attachment_company_id"], row["attachment_project_id"])
+        if report_owner != expected or attachment_owner != expected:
+            raise RuntimeError(
+                f"Owner отчёта/вложения не совпал с задачей: task={expected}, "
+                f"report={report_owner}, attachment={attachment_owner}"
+            )
+    finally:
+        cur.close()
+        conn.close()
 
 
 def cleanup(task_ids):
@@ -241,7 +288,8 @@ def main():
     admin_email = require_env("SMOKE_EMAIL")
     admin_password = require_env("SMOKE_PASSWORD")
     director_token = login(admin_email, admin_password)
-    project_name = select_project()
+    project = select_project()
+    project_name = project["name"]
     ensure_worker(project_name, TEST_EMAIL, TEST_NAME, TEST_PASSWORD)
     ensure_worker(project_name, OTHER_EMAIL, OTHER_NAME, OTHER_PASSWORD)
     master_token = login(TEST_EMAIL, TEST_PASSWORD)
@@ -269,7 +317,7 @@ def main():
         task_id = task.get("id")
         if not task_id:
             raise RuntimeError(f"POST /ai-tasks не вернул id: {task}")
-        system_task_id = insert_system_assignment(project_name, stamp)
+        system_task_id = insert_system_assignment(project, stamp)
 
         encoded_project = urllib.parse.quote(project_name)
         _, director_default = api_json("GET", f"/assignments?project_name={encoded_project}", token=director_token, expected=200)
@@ -316,6 +364,7 @@ def main():
             raise RuntimeError(f"Отчет не перевел поручение на проверку: {report}")
         if int(updated_task.get("reportsCount") or 0) < 1:
             raise RuntimeError(f"Отчет не записался в счетчик поручения: {report}")
+        verify_task_child_owners(task_id)
 
         _, assignments = api_json("GET", f"/assignments?project_name={encoded_project}", token=director_token, expected=200)
         assignment = next((row for row in assignments if str(row.get("id")) == str(task_id)), None)
@@ -346,6 +395,7 @@ def main():
                 "same-role non-assignee cannot see or accept exact assignment",
                 "assigned master can take it into work",
                 "master report with photo attachment is saved",
+                "report and attachment inherit exact stored task owner",
                 "assignment moves to review after report",
                 "director sees report through /assignments and closes task",
             ],

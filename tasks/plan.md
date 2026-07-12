@@ -127,8 +127,8 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.6d1: Add guarded `ai_tasks` ownership with explicit `company` or `platform` scope without changing task runtime. Production migrated all `2039` rows and post-audit is strict-ready.
 - [x] Task M6.6d2a: Make every company/platform task insert and AI upsert persist and constrain stored owner. Production runtime `337fdba2ffc3`; post-audit strict-ready.
 - [x] Task M6.6d2b: Scope direct `ai_tasks` list/create/update and assignment actions through stored owner while keeping `Система` in platform-only scope. Production runtime `337fdba2ffc3`; public smoke passed, protected smoke still requires credentials.
-- [ ] Task M6.6e1: Add guarded owner migration for task reports and attachments through stored task/report parents without changing child runtime. Implemented locally; production dry-run/apply pending.
-- [ ] Task M6.6e2: Persist owner on report/attachment writes and scope child reads through the verified parent task.
+- [x] Task M6.6e1: Add guarded owner migration for task reports and attachments through stored task/report parents without changing child runtime. Production schema and post-audit are strict-ready with both child tables empty.
+- [ ] Task M6.6e2: Persist owner on report/attachment writes and scope child reads through the verified parent task. Implemented and focused-tested locally; production deploy pending.
 - [ ] Task M6.6f: Scope `/ai-control/run`, `/ai-findings/generate`, automatic project runs, dedupe/close cascades, and `/ai-control/run-all`; finish with negative cross-company API tests.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 

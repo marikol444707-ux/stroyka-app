@@ -16981,7 +16981,14 @@ SELECT id,
 FROM ai_findings
 """
 
-AI_TASK_SELECT = """
+AI_TASK_REPORT_OWNER_MATCH = """
+r.task_id=ai_tasks.id
+AND r.owner_scope=ai_tasks.owner_scope
+AND r.company_id IS NOT DISTINCT FROM ai_tasks.company_id
+AND r.project_id IS NOT DISTINCT FROM ai_tasks.project_id
+""".strip()
+
+AI_TASK_SELECT = f"""
 SELECT id,
        finding_id as "findingId",
        project_name as "projectName",
@@ -16998,10 +17005,10 @@ SELECT id,
        action_label as "actionLabel",
        action_payload as "actionPayload",
        dedupe_key as "dedupeKey",
-       COALESCE((SELECT COUNT(*) FROM ai_task_reports r WHERE r.task_id=ai_tasks.id),0) as "reportsCount",
-       COALESCE((SELECT r.report_text FROM ai_task_reports r WHERE r.task_id=ai_tasks.id ORDER BY r.created_at DESC, r.id DESC LIMIT 1),'') as "latestReportText",
-       COALESCE((SELECT r.author_name FROM ai_task_reports r WHERE r.task_id=ai_tasks.id ORDER BY r.created_at DESC, r.id DESC LIMIT 1),'') as "latestReportAuthor",
-       (SELECT r.created_at FROM ai_task_reports r WHERE r.task_id=ai_tasks.id ORDER BY r.created_at DESC, r.id DESC LIMIT 1) as "latestReportAt",
+       COALESCE((SELECT COUNT(*) FROM ai_task_reports r WHERE {AI_TASK_REPORT_OWNER_MATCH}),0) as "reportsCount",
+       COALESCE((SELECT r.report_text FROM ai_task_reports r WHERE {AI_TASK_REPORT_OWNER_MATCH} ORDER BY r.created_at DESC, r.id DESC LIMIT 1),'') as "latestReportText",
+       COALESCE((SELECT r.author_name FROM ai_task_reports r WHERE {AI_TASK_REPORT_OWNER_MATCH} ORDER BY r.created_at DESC, r.id DESC LIMIT 1),'') as "latestReportAuthor",
+       (SELECT r.created_at FROM ai_task_reports r WHERE {AI_TASK_REPORT_OWNER_MATCH} ORDER BY r.created_at DESC, r.id DESC LIMIT 1) as "latestReportAt",
        created_at as "createdAt",
        updated_at as "updatedAt"
 FROM ai_tasks

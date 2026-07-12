@@ -193,6 +193,103 @@ class AssignmentTenantRouteTests(unittest.TestCase):
         self.assertNotIn("company_id=%s", cursor.calls[2][0])
         self.assertTrue(conn.committed)
 
+    def test_report_reads_require_matching_task_report_and_attachment_owner(self):
+        task = {
+            "id": 20, "ownerScope": "company", "companyId": 4, "projectId": 10,
+            "projectName": "Объект A", "assignedRole": "мастер", "assignedTo": "",
+            "createdBy": "Директор", "systemGenerated": False,
+        }
+        report = {"id": 30, "task_id": 20, "report_text": "Готово"}
+        cursor = FakeCursor([
+            task,
+            [{"id": 10, "company_id": 4, "name": "Объект A"}],
+            [report],
+            [],
+        ])
+        app, _conn = self.build_app(cursor)
+
+        rows = app.routes[("GET", "/ai-tasks/{task_id}/reports")](
+            20, "4", "company", {"role": "директор"},
+        )
+
+        self.assertEqual(rows[0]["id"], 30)
+        report_sql = cursor.calls[2][0]
+        attachment_sql = cursor.calls[3][0]
+        self.assertIn("JOIN ai_tasks", report_sql)
+        self.assertIn("r.owner_scope=t.owner_scope", report_sql)
+        self.assertIn("r.company_id IS NOT DISTINCT FROM t.company_id", report_sql)
+        self.assertIn("JOIN ai_task_reports", attachment_sql)
+        self.assertIn("a.task_id=r.task_id", attachment_sql)
+        self.assertIn("a.owner_scope=r.owner_scope", attachment_sql)
+
+    def test_report_and_attachment_writes_copy_verified_task_owner(self):
+        task = {
+            "id": 20, "ownerScope": "company", "companyId": 4, "projectId": 10,
+            "projectName": "Объект A", "assignedRole": "мастер", "assignedTo": "",
+            "createdBy": "Директор", "systemGenerated": False, "status": "В работе",
+        }
+        report = {"id": 30, "task_id": 20, "report_text": "Готово"}
+        cursor = FakeCursor([
+            task,
+            [{"id": 10, "company_id": 4, "name": "Объект A"}],
+            task,
+            report,
+            None,
+            None,
+            [report],
+            [],
+            task,
+        ])
+        app, conn = self.build_app(cursor)
+
+        result = app.routes[("POST", "/ai-tasks/{task_id}/reports")](
+            20,
+            {"text": "Готово", "attachments": [{"url": "/files/30.jpg", "type": "photo"}]},
+            "4",
+            "company",
+            {"role": "директор", "name": "Директор"},
+        )
+
+        self.assertTrue(result["ok"])
+        report_insert = next(call for call in cursor.calls if call[0].startswith("INSERT INTO ai_task_reports"))
+        attachment_insert = next(call for call in cursor.calls if call[0].startswith("INSERT INTO ai_task_attachments"))
+        self.assertIn("owner_scope,company_id,project_id", report_insert[0])
+        self.assertEqual(report_insert[1][-3:], ("company", 4, 10))
+        self.assertIn("owner_scope,company_id,project_id", attachment_insert[0])
+        self.assertEqual(attachment_insert[1][-3:], ("company", 4, 10))
+        self.assertTrue(conn.committed)
+
+    def test_close_comment_copies_verified_task_owner(self):
+        task = {
+            "id": 20, "ownerScope": "company", "companyId": 4, "projectId": 10,
+            "projectName": "Объект A", "assignedRole": "мастер", "assignedTo": "",
+            "createdBy": "Директор", "systemGenerated": False,
+        }
+        cursor = FakeCursor([
+            task,
+            [{"id": 10, "company_id": 4, "name": "Объект A"}],
+            task,
+            None,
+            None,
+            [],
+            task,
+        ])
+        app, conn = self.build_app(cursor)
+
+        result = app.routes[("POST", "/ai-tasks/{task_id}/close")](
+            20,
+            {"status": "Закрыто", "comment": "Принято"},
+            "4",
+            "company",
+            {"role": "директор", "name": "Директор"},
+        )
+
+        self.assertTrue(result["ok"])
+        report_insert = next(call for call in cursor.calls if call[0].startswith("INSERT INTO ai_task_reports"))
+        self.assertIn("owner_scope,company_id,project_id", report_insert[0])
+        self.assertEqual(report_insert[1][-3:], ("company", 4, 10))
+        self.assertTrue(conn.committed)
+
 
 if __name__ == "__main__":
     unittest.main()

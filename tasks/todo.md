@@ -2235,7 +2235,7 @@
 
 **Description:** Guarded migration for `ai_task_reports` and `ai_task_attachments` without changing child runtime. Reports inherit stored task owner; attachments require matching report/task parents and owner.
 
-**Status:** Implemented locally. Production dry-run/apply and post-audit are pending.
+**Status:** Completed in production. Both child tables were empty; schema apply and strict post-audit completed without row writes or conflicts.
 
 **Safety:**
 - Dry-run reads IDs and owner columns only, not report text or file URLs.
@@ -2243,5 +2243,21 @@
 - Parent reports are updated before attachments in one serializable transaction.
 - Missing parents, report/task mismatch and stored-owner mismatch block the whole apply.
 - Runtime switches only in M6.6e2 after strict-ready post-audit.
+
+**Estimated scope:** S
+
+## Task M6.6e2: Isolate AI Task Child Runtime
+
+**Description:** Persist owner on every report and attachment write, and require child owner to match the already authorized task/report parent on reads.
+
+**Status:** Implemented and focused-tested locally. Production deploy and protected smoke are pending.
+
+**Safety:**
+- Existing API routes and response shape remain unchanged.
+- Report list joins the authorized task by exact stored owner.
+- Attachment list requires the same report, task and stored owner.
+- Report, close-comment and attachment inserts copy owner from the locked parent task.
+- Summary counters ignore child rows whose owner does not match their task.
+- Fresh installations create the same owner columns and CHECK constraints; existing databases still use guarded migration.
 
 **Estimated scope:** S
