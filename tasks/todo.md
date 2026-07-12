@@ -2112,3 +2112,23 @@
 **Dependencies:** Task P4
 
 **Estimated scope:** M
+
+## Task M6.6a: Five-Table AI Ownership Audit
+
+**Description:** Produce one fail-closed read-only ownership report for `project_ai_summary`, `ai_findings`, `ai_tasks`, `ai_task_reports`, and `ai_task_attachments`. Resolve tenant rows through a globally unique project and verified parent chain; classify `project_name='Система'` as an explicit platform scope. Do not read AI business payloads, write rows, migrate schema, or change runtime routes.
+
+**Status:** Implemented locally. Production execution of `npm run audit:ai-ownership` is required before any M6.6 runtime slice starts.
+
+**Runtime slices after a clean report:**
+- `M6.6b` project AI summary read/write.
+- `M6.6c` finding list/create/update and supported linked-entity verification.
+- `M6.6d` task CRUD and assignment actions, including isolated platform system tasks.
+- `M6.6e` reports and attachments through matching task/report parents.
+- `M6.6f` generate/run/run-all, automatic execution, dedupe and close cascades, then cross-company negative tests.
+
+**Verification:**
+- [x] Focused classifier tests cover valid tenant chains, platform system tasks, ambiguous projects, unsupported/mismatched polymorphic entities, orphan reports, and cross-task attachments.
+- [x] Database runner requests a PostgreSQL read-only transaction and executes only ownership/linkage `SELECT` statements.
+- [ ] Production report has `readyForStrictRuntime=true`, `writesAttempted=0`, `unresolved=0`, and `mismatched=0`.
+
+**Estimated scope:** S

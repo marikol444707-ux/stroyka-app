@@ -118,6 +118,12 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.5c: Scope `GET /work-journal` by stored owner and effective per-company role while preserving project/package/worker/customer filters and money masking. Deployed and verified in runtime `2a559a9149fe`.
 - [x] Task M6.5d: Scope direct `PUT/DELETE /work-journal/{id}` through one selected-company actor and the exact stored journal/project owner; deployed and verified in runtime `0f0575f69aaa`.
 - [x] Task M6.5e: Scope `POST /work-journal/{id}/ai-prefill` by stored owner before the AI call and repeat the owner lock before saving the AI result. Implemented locally; production release pending.
+- [ ] Task M6.6a: Audit ownership of `project_ai_summary`, `ai_findings`, `ai_tasks`, `ai_task_reports`, and `ai_task_attachments` without changing runtime or rows. Local report and tests are ready; production report must be clean before M6.6b.
+- [ ] Task M6.6b: Scope only `GET/POST /project-ai-summary` through one selected company and exact project parent; preserve the existing response and summary payload.
+- [ ] Task M6.6c: Scope `ai_findings` list/create/update through one verified project owner and validate supported polymorphic entity parents fail-closed.
+- [ ] Task M6.6d: Scope direct `ai_tasks` list/create/update and assignment actions through a verified finding/project owner while keeping `Система` in an explicit platform-only scope.
+- [ ] Task M6.6e: Scope task reports and attachments only through the already verified task, requiring attachment `report_id` and `task_id` to resolve to the same owner.
+- [ ] Task M6.6f: Scope `/ai-control/run`, `/ai-findings/generate`, automatic project runs, dedupe/close cascades, and `/ai-control/run-all`; finish with negative cross-company API tests.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary
