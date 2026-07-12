@@ -240,6 +240,8 @@ class EstimateChangeCreateRouteTests(unittest.TestCase):
             ),
             "worker_execution_roles": ("мастер", "субподрядчик", "бригадир"),
             "approved_statuses": ("Утверждено", "Утверждено отдельной допработой"),
+            "leadership_roles": ("директор", "зам_директора"),
+            "estimate_write_roles": ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик"),
             "log_audit": lambda **_kwargs: None,
         })
         return app, calls

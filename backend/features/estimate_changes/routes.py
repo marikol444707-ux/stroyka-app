@@ -1,4 +1,7 @@
+import copy
+import json
 import re
+import time
 from typing import Optional
 
 import psycopg2.extras
@@ -29,6 +32,29 @@ def _row_id(row):
     if isinstance(row, (list, tuple)) and row:
         return _positive_int(row[0])
     return None
+
+
+def _row_value(row, key, index):
+    if isinstance(row, dict):
+        return row.get(key)
+    if isinstance(row, (list, tuple)) and len(row) > index:
+        return row[index]
+    return None
+
+
+def _change_ids(data):
+    values = (data or {}).get("changeIds") or (data or {}).get("change_ids") or []
+    if not isinstance(values, list):
+        raise HTTPException(status_code=400, detail="changeIds должен быть массивом идентификаторов")
+    result = []
+    for value in values:
+        raw_value = str(value).strip() if not isinstance(value, bool) else ""
+        if not re.fullmatch(r"[1-9][0-9]*", raw_value):
+            raise HTTPException(status_code=400, detail="changeIds содержит некорректный идентификатор")
+        normalized = int(raw_value)
+        if normalized not in result:
+            result.append(normalized)
+    return result
 
 
 def _number(value):
@@ -66,7 +92,118 @@ def register_estimate_changes_module(app, deps):
     customer_statuses = tuple(deps["customer_statuses"])
     worker_execution_roles = set(deps["worker_execution_roles"])
     approved_statuses = set(deps["approved_statuses"])
+    leadership_roles = tuple(deps["leadership_roles"])
+    estimate_write_roles = tuple(deps["estimate_write_roles"])
     log_audit = deps["log_audit"]
+
+    def estimate_mutation_scope(
+        cur,
+        current_user,
+        estimate_id,
+        allowed_roles,
+        action_mode,
+        x_company_id,
+        x_company_mode,
+    ):
+        company_context = resolve_work_company_context(
+            cur,
+            current_user,
+            None,
+            action_mode,
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        actor = require_project_write_actor(
+            effective_company_actors(current_user, company_context),
+            allowed_roles,
+        )
+        estimate = resolve_estimate_parent(cur, actor, estimate_id, for_update=True)
+        project = resolve_project_parent(
+            cur,
+            actor,
+            project_id=estimate.get("projectId"),
+            project_name=estimate.get("projectName"),
+            for_update=True,
+        )
+        require_project_parent_access(cur, actor, project, full_view_roles)
+        _assert_same_project(estimate, project, "Смета")
+        return actor, estimate, project
+
+    def load_estimate_for_change(cur, estimate, *, include_sections):
+        columns = (
+            "id,company_id,project_id,project_name,name,version,sections_json,"
+            "COALESCE(smeta_type,'Заказчик') AS smeta_type,"
+            "COALESCE(NULLIF(work_package,''),'Основная') AS work_package,status"
+            if include_sections
+            else
+            "id,company_id,project_id,project_name,"
+            "COALESCE(smeta_type,'Заказчик') AS smeta_type,"
+            "COALESCE(NULLIF(work_package,''),'Основная') AS work_package,status"
+        )
+        cur.execute(
+            "SELECT " + columns + " FROM estimates "
+            "WHERE id=%s AND company_id=%s AND project_id=%s FOR UPDATE",
+            (estimate["id"], estimate["companyId"], estimate["projectId"]),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=409, detail="Смета изменилась во время проверки владельца")
+        return row
+
+    def load_changes_for_estimate(
+        cur,
+        *,
+        company_id,
+        project_id,
+        estimate_id,
+        selected_ids,
+        include_payload,
+    ):
+        columns = (
+            "id,company_id,project_id,description,unit,quantity,price,total,change_type,estimate_id,"
+            "section_name,estimate_item_name,base_quantity,new_required_quantity,delta_quantity,reason,"
+            "status,included_in_estimate_id"
+            if include_payload
+            else "id,company_id,project_id,status,included_in_estimate_id"
+        )
+        if selected_ids:
+            cur.execute(
+                "SELECT " + columns + " FROM unexpected_works "
+                "WHERE id = ANY(%s) ORDER BY id FOR UPDATE",
+                (selected_ids,),
+            )
+            rows = cur.fetchall() or []
+            found_ids = {_positive_int(_row_value(row, "id", 0)) for row in rows}
+            if found_ids != set(selected_ids):
+                raise HTTPException(status_code=404, detail="Одно или несколько изменений не найдены")
+            for row in rows:
+                if (
+                    _positive_int(_row_value(row, "company_id", 1)) != company_id
+                    or _positive_int(_row_value(row, "project_id", 2)) != project_id
+                ):
+                    raise HTTPException(status_code=403, detail="Изменение относится к другой компании или объекту")
+            eligible_ids = []
+            for row in rows:
+                change_id = _positive_int(_row_value(row, "id", 0))
+                status_index = 16 if include_payload else 3
+                included_index = 17 if include_payload else 4
+                if (
+                    str(_row_value(row, "status", status_index) or "") not in approved_statuses
+                    or _row_value(row, "included_in_estimate_id", included_index) is not None
+                ):
+                    raise HTTPException(status_code=409, detail="Изменение уже включено или не утверждено")
+                eligible_ids.append(change_id)
+            return rows, eligible_ids
+
+        cur.execute(
+            "SELECT " + columns + " FROM unexpected_works "
+            "WHERE company_id=%s AND project_id=%s "
+            "AND status = ANY(%s) AND included_in_estimate_id IS NULL "
+            "AND (estimate_id=%s OR estimate_id IS NULL) ORDER BY id FOR UPDATE",
+            (company_id, project_id, sorted(approved_statuses), estimate_id),
+        )
+        rows = cur.fetchall() or []
+        return rows, [_positive_int(_row_value(row, "id", 0)) for row in rows]
 
     def mutation_scope(cur, current_user, record_id, action_mode, x_company_id, x_company_mode):
         company_context = resolve_work_company_context(
@@ -499,6 +636,312 @@ def register_estimate_changes_module(app, deps):
                 raise HTTPException(status_code=409, detail="Изменение изменилось во время проверки владельца")
             conn.commit()
             return {"ok": True}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+
+    @app.post("/estimates/{id}/include-changes")
+    def include_estimate_changes(
+        id: int,
+        data: dict,
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
+        payload = data or {}
+        selected_ids = _change_ids(payload)
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            actor, estimate, project = estimate_mutation_scope(
+                cur,
+                current_user,
+                id,
+                leadership_roles,
+                "update",
+                x_company_id,
+                x_company_mode,
+            )
+            company_id = _positive_int(estimate.get("companyId"))
+            project_id = _positive_int(estimate.get("projectId"))
+            estimate_row = load_estimate_for_change(cur, estimate, include_sections=True)
+            project_name = str(estimate.get("projectName") or project.get("name") or "").strip()
+            name = str(estimate_row.get("name") or "Смета")
+            version = str(estimate_row.get("version") or "1.0")
+            smeta_type = str(estimate_row.get("smeta_type") or "Заказчик")
+            work_package = str(estimate_row.get("work_package") or "Основная")
+            sections_value = estimate_row.get("sections_json")
+            try:
+                sections = sections_value if isinstance(sections_value, list) else json.loads(sections_value or "[]")
+            except Exception:
+                sections = []
+            sections = copy.deepcopy(sections if isinstance(sections, list) else [])
+
+            changes, eligible_ids = load_changes_for_estimate(
+                cur,
+                company_id=company_id,
+                project_id=project_id,
+                estimate_id=id,
+                selected_ids=selected_ids,
+                include_payload=True,
+            )
+            if not changes:
+                raise HTTPException(status_code=400, detail="Нет утверждённых изменений для включения")
+
+            def normalize(value):
+                return re.sub(
+                    r"[^a-zа-я0-9]+",
+                    " ",
+                    str(value or "").lower().replace("ё", "е"),
+                ).strip()
+
+            def find_item(section_name, item_name):
+                section_key = normalize(section_name)
+                item_key = normalize(item_name)
+                fallback = None
+                for section in sections:
+                    section_matches = normalize(section.get("name")) == section_key if section_key else True
+                    for item in section.get("items") or []:
+                        if normalize(item.get("name")) != item_key:
+                            continue
+                        if section_matches:
+                            return section, item
+                        fallback = fallback or (section, item)
+                return fallback
+
+            def changes_section():
+                for section in sections:
+                    if normalize(section.get("name")) == normalize("Изменения к смете"):
+                        return section
+                section = {
+                    "id": int(time.time() * 1000),
+                    "name": "Изменения к смете",
+                    "items": [],
+                }
+                sections.append(section)
+                return section
+
+            not_applied = []
+            applied_ids = []
+            for index, change in enumerate(changes):
+                change_id = _positive_int(change.get("id"))
+                description = change.get("description")
+                unit = change.get("unit")
+                quantity = _number(change.get("delta_quantity")) or _number(change.get("quantity"))
+                price = _number(change.get("price"))
+                change_type = str(change.get("change_type") or "Работа вне сметы")
+                section_name = change.get("section_name")
+                item_name = change.get("estimate_item_name")
+                target = find_item(section_name, item_name or description) if item_name or description else None
+                if change_type in ("Дополнительный объём к строке сметы", "Исключение объёма") and target:
+                    _section, item = target
+                    old_quantity = _number(item.get("quantity"))
+                    required = _number(change.get("new_required_quantity"))
+                    if required <= 0:
+                        required = (
+                            old_quantity + quantity
+                            if change_type == "Дополнительный объём к строке сметы"
+                            else max(0, old_quantity - quantity)
+                        )
+                    item["quantity"] = required
+                    if _number(item.get("doneQuantity")) > required:
+                        item["doneQuantity"] = required
+                    if price > 0:
+                        if _number(item.get("priceWork")) > 0 or not _number(item.get("priceMaterial")):
+                            item["priceWork"] = price
+                        else:
+                            item["priceMaterial"] = price
+                    item["sourceUnexpectedWorkId"] = change_id
+                    item["changeType"] = change_type
+                    applied_ids.append(change_id)
+                    continue
+                if change_type == "Исключение объёма":
+                    not_applied.append(description or item_name or str(change_id))
+                    continue
+                section = changes_section()
+                section.setdefault("items", []).append({
+                    "id": int(time.time() * 1000) + index + 1,
+                    "itemType": "work",
+                    "name": description or item_name or "Изменение к смете",
+                    "unit": unit or "шт",
+                    "quantity": quantity,
+                    "priceWork": price,
+                    "priceMaterial": 0,
+                    "measurementBasis": "manual",
+                    "sourceUnexpectedWorkId": change_id,
+                    "changeType": change_type,
+                    "reason": change.get("reason") or "",
+                })
+                applied_ids.append(change_id)
+
+            if not_applied:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Не найдены строки для исключения объёма: " + ", ".join(not_applied[:5]),
+                )
+            if not applied_ids or set(applied_ids) != set(eligible_ids):
+                raise HTTPException(status_code=409, detail="Не все выбранные изменения удалось применить")
+
+            version_parts = version.split(".")
+            try:
+                version_parts[-1] = str(int(version_parts[-1]) + 1)
+                next_version = ".".join(version_parts)
+            except Exception:
+                next_version = version + "+1"
+            new_version = str(payload.get("version") or next_version)
+            new_name = str(payload.get("name") or name + " — ред. " + new_version)
+            cur.execute(
+                """UPDATE estimates SET status='Архив'
+                     WHERE company_id=%s AND project_id=%s
+                       AND COALESCE(smeta_type,'Заказчик')=%s
+                       AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                       AND status='Активная'""",
+                (company_id, project_id, smeta_type, work_package),
+            )
+            cur.execute(
+                """INSERT INTO estimates
+                   (company_id,project_id,project_name,name,version,sections_json,smeta_type,work_package,status)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'Активная')
+                   RETURNING id,created_at""",
+                (
+                    company_id,
+                    project_id,
+                    project_name,
+                    new_name,
+                    new_version,
+                    json.dumps(sections, ensure_ascii=False),
+                    smeta_type,
+                    work_package,
+                ),
+            )
+            created = cur.fetchone()
+            new_id = _positive_int(_row_value(created, "id", 0))
+            created_at = _row_value(created, "created_at", 1)
+            if not new_id:
+                raise HTTPException(status_code=409, detail="Новая версия сметы не создана")
+            cur.execute(
+                """UPDATE unexpected_works
+                      SET status='Включено в новую смету',included_in_estimate_id=%s,
+                          approved_by=COALESCE(NULLIF(approved_by,''),%s),
+                          approved_at=COALESCE(approved_at,TO_CHAR(CURRENT_DATE,'YYYY-MM-DD'))
+                    WHERE company_id=%s AND project_id=%s AND id = ANY(%s)
+                      AND status = ANY(%s) AND included_in_estimate_id IS NULL
+                    RETURNING id""",
+                (
+                    new_id,
+                    str(actor.get("name") or ""),
+                    company_id,
+                    project_id,
+                    applied_ids,
+                    sorted(approved_statuses),
+                ),
+            )
+            updated_ids = {_row_id(row) for row in (cur.fetchall() or [])}
+            if updated_ids != set(applied_ids):
+                raise HTTPException(status_code=409, detail="Изменения изменились во время включения в смету")
+            conn.commit()
+            return {
+                "ok": True,
+                "id": new_id,
+                "includedChangeIds": applied_ids,
+                "estimate": {
+                    "id": new_id,
+                    "projectId": project_id,
+                    "projectName": project_name,
+                    "name": new_name,
+                    "version": new_version,
+                    "sections": sections,
+                    "smetaType": smeta_type,
+                    "workPackage": work_package,
+                    "status": "Активная",
+                    "createdAt": str(created_at) if created_at else "",
+                },
+            }
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+
+    @app.post("/estimates/{id}/reconcile-changes")
+    def reconcile_estimate_changes(
+        id: int,
+        data: dict,
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
+        payload = data or {}
+        selected_ids = _change_ids(payload)
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            actor, estimate, project = estimate_mutation_scope(
+                cur,
+                current_user,
+                id,
+                estimate_write_roles,
+                "update",
+                x_company_id,
+                x_company_mode,
+            )
+            company_id = _positive_int(estimate.get("companyId"))
+            project_id = _positive_int(estimate.get("projectId"))
+            estimate_row = load_estimate_for_change(cur, estimate, include_sections=False)
+            if (
+                str(estimate_row.get("smeta_type") or "Заказчик") != "Заказчик"
+                or str(estimate_row.get("status") or "Черновик") != "Активная"
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Сверка изменений доступна только для активной сметы заказчика",
+                )
+            if not selected_ids:
+                conn.commit()
+                return {"ok": True, "includedChangeIds": []}
+            _rows, allowed_ids = load_changes_for_estimate(
+                cur,
+                company_id=company_id,
+                project_id=project_id,
+                estimate_id=id,
+                selected_ids=selected_ids,
+                include_payload=False,
+            )
+            note = "Автоматически сопоставлено с новой сметой №" + str(id)
+            cur.execute(
+                """UPDATE unexpected_works
+                      SET status='Включено в новую смету',included_in_estimate_id=%s,
+                          approved_by=COALESCE(NULLIF(approved_by,''),%s),
+                          approved_at=COALESCE(approved_at,TO_CHAR(CURRENT_DATE,'YYYY-MM-DD')),
+                          reason=CASE
+                            WHEN COALESCE(reason,'')='' THEN %s
+                            WHEN reason LIKE %s THEN reason
+                            ELSE reason || '; ' || %s
+                          END
+                    WHERE company_id=%s AND project_id=%s AND id = ANY(%s)
+                      AND status = ANY(%s) AND included_in_estimate_id IS NULL
+                    RETURNING id""",
+                (
+                    id,
+                    str(actor.get("name") or ""),
+                    note,
+                    "%" + note + "%",
+                    note,
+                    company_id,
+                    project_id,
+                    allowed_ids,
+                    sorted(approved_statuses),
+                ),
+            )
+            updated_ids = {_row_id(row) for row in (cur.fetchall() or [])}
+            if updated_ids != set(allowed_ids):
+                raise HTTPException(status_code=409, detail="Изменения изменились во время сверки")
+            conn.commit()
+            return {"ok": True, "includedChangeIds": allowed_ids}
         except Exception:
             conn.rollback()
             raise

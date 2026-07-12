@@ -1705,7 +1705,22 @@
 
 **Description:** Scope `/estimates/{id}/include-changes` and `/estimates/{id}/reconcile-changes` through one verified estimate/project owner. Every selected unexpected-work ID must match that same owner before an estimate version or status is changed.
 
-**Status:** Planned after Task M6.4j.
+**Status:** Implemented locally after Task M6.4j; release pending.
+
+**Implementation checklist:**
+- [x] Both routes resolve one selected-company effective actor and reject aggregate `all_companies` mutation.
+- [x] The target estimate and exact project parent are locked and verified through stored `company_id/project_id`; names remain display data.
+- [x] Explicit change IDs are locked as one set and every ID must exist, belong to the target company/project, be approved, and not already be included before any estimate write.
+- [x] Automatic include selection is constrained by stored company/project plus the existing estimate-link rule.
+- [x] Archiving active estimates is constrained by company, project, estimate type, and work package.
+- [x] The generated estimate stores the inherited `company_id/project_id`; no ownerless new version is created.
+- [x] Final change updates repeat company/project/status/not-included predicates and require every selected ID in `RETURNING` before commit.
+- [x] `approved_by` comes from the server-resolved company actor; client `updatedBy` cannot replace audit identity.
+- [x] Legacy response shapes and estimate-section transformation rules remain compatible.
+- [x] Focused tests cover owned include, foreign selected IDs, owner-constrained reconcile, server identity, and aggregate-company denial.
+- [x] Local verification passes `51` estimate-change tests, `236` full backend tests, compile, route-duplication check, and `git diff --check`.
+
+**Known follow-up:** M6.4l still owns estimate-reconciliation list/detail/create/update/candidate scoping. M6.4m still owns AI estimate and limit aggregation. Do not mark the whole `unexpected_works` domain tenant-complete until those slices and production verification pass.
 
 **Dependencies:** Task M6.4j
 
