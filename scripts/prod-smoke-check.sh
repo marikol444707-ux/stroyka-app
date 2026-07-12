@@ -168,6 +168,9 @@ check_not_spa_fallback "estimate chat post route" "$BASE_URL/estimate-chat" "405
 check_not_spa_fallback "project AI summary route" "$BASE_URL/project-ai-summary/smoke" "401 403"
 check_not_spa_fallback "project AI summary post route" "$BASE_URL/project-ai-summary" "405"
 check_not_spa_fallback "AI findings route" "$BASE_URL/ai-findings" "401 403"
+check_not_spa_fallback "AI tasks route" "$BASE_URL/ai-tasks" "401 403"
+check_not_spa_fallback "assignments route" "$BASE_URL/assignments" "401 403"
+check_not_spa_fallback "AI task reports route" "$BASE_URL/ai-tasks/1/reports" "401 403"
 
 if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
   login_payload="$(python3 -c 'import json,os; print(json.dumps({"email": os.environ["SMOKE_EMAIL"], "password": os.environ["SMOKE_PASSWORD"]}, ensure_ascii=False))')"
@@ -223,6 +226,7 @@ if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
       "/expenses"
       "/ai-findings"
       "/ai-tasks"
+      "/assignments"
     )
     for path in "${protected_paths[@]}"; do
       code="$(curl -skS -o /dev/null -w '%{http_code}' "$BASE_URL$path" -H "Authorization: Bearer $token" || true)"

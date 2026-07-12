@@ -2205,7 +2205,7 @@
 
 **Description:** Persist explicit owner on every task insert and constrain AI/finding dedupe updates by that owner before switching task routes.
 
-**Status:** Pushed to `main` as `5f558777`. Production deploy and strict post-audit are pending.
+**Status:** Completed in production on runtime `337fdba2ffc3`; strict post-audit passed.
 
 **Safety:**
 - Finding tasks inherit the finding's stored company/project owner.
@@ -2219,7 +2219,7 @@
 
 **Description:** Keep the current task API and screens while scoping direct task CRUD, assignment lists and accept/report/close actions through the selected company and stored task owner.
 
-**Status:** Implemented and fully verified locally. Commit, push and production verification are pending.
+**Status:** Completed in production on runtime `337fdba2ffc3`; public smoke and strict post-audit passed. Protected smoke still requires credentials.
 
 **Safety:**
 - `all_companies` is rejected; one company context is required.
@@ -2230,3 +2230,18 @@
 - Reports and attachments remain M6.6e, but current actions reach them only through a verified parent task.
 
 **Estimated scope:** M
+
+## Task M6.6e1: Store AI Task Child Ownership
+
+**Description:** Guarded migration for `ai_task_reports` and `ai_task_attachments` without changing child runtime. Reports inherit stored task owner; attachments require matching report/task parents and owner.
+
+**Status:** Implemented locally. Production dry-run/apply and post-audit are pending.
+
+**Safety:**
+- Dry-run reads IDs and owner columns only, not report text or file URLs.
+- Apply requires exact ready count and SHA-256 plan.
+- Parent reports are updated before attachments in one serializable transaction.
+- Missing parents, report/task mismatch and stored-owner mismatch block the whole apply.
+- Runtime switches only in M6.6e2 after strict-ready post-audit.
+
+**Estimated scope:** S

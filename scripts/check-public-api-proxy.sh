@@ -85,6 +85,9 @@ check_not_spa "tenant file content route" "/tenant-files/1/content" "401 403"
 check_not_spa "company messages route" "/messages" "401 403"
 check_not_spa "project AI summary route" "/project-ai-summary/smoke" "401 403"
 check_not_spa "project AI summary post route" "/project-ai-summary" "405"
+check_not_spa "AI tasks route" "/ai-tasks" "401 403"
+check_not_spa "assignments route" "/assignments" "401 403"
+check_not_spa "AI task reports route" "/ai-tasks/1/reports" "401 403"
 
 if (( ${#FAILURES[@]} > 0 )); then
   echo "Public API proxy check failed:"
