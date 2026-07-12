@@ -111,8 +111,8 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.4i: Scope only `GET /unexpected-works` by stored company/project ownership and effective tenant role while preserving its response shape and every remaining route. Deployed and verified read-only in runtime `3aa3bba4`.
 - [x] Task M6.4j: Scope direct `PUT/DELETE /unexpected-works/{id}` by the selected-company actor and exact stored owner; carry `company_id` into the approval-created work journal. Deployed and verified in runtime `52ec9af4`.
 - [x] Task M6.4k: Scope `/estimates/{id}/include-changes` and `/estimates/{id}/reconcile-changes` through one verified estimate/project owner and update only same-owner change IDs. Deployed and verified in runtime `52ec9af4`.
-- [x] Task M6.4l: Scope estimate-reconciliation CRUD and its unexpected-work candidates through verified estimate parents instead of project names. Production read-only audit passed with `0` rows and empty `needsReview`; strict runtime is ready for release.
-- [x] Task M6.4m: Scope `/unexpected-works/{id}/ai-estimate` and `/unexpected-works/limit-check` by stored ownership and selected-company read context. Implemented locally; production release and live verification remain pending.
+- [x] Task M6.4l: Scope estimate-reconciliation CRUD and its unexpected-work candidates through verified estimate parents instead of project names. Deployed and verified in runtime `6648dd738d23` after a clean production audit.
+- [x] Task M6.4m: Scope `/unexpected-works/{id}/ai-estimate` and `/unexpected-works/limit-check` by stored ownership and selected-company read context. Deployed and verified in runtime `26818ea40322`.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary

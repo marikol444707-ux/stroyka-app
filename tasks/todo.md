@@ -1731,7 +1731,7 @@
 
 **Description:** Scope estimate-reconciliation list/detail/create/update and unexpected-work candidate reads through verified base/next estimate parents. Project names remain display fields only.
 
-**Status:** Ready for release. Production read-only audit on `94c4e4b0` returned `readyForStrictRuntime=true`, `totalRows=0`, and empty `needsReview`; strict runtime is now unblocked.
+**Status:** Deployed and verified in production runtime `6648dd738d23`. Health, public smoke, route protection, startup logs, and the repeated read-only ownership audit passed.
 
 **Audit checklist:**
 - [x] `npm run audit:estimate-reconciliations` uses a read-only transaction and attempts no writes.
@@ -1750,7 +1750,7 @@
 
 **Description:** Scope direct AI pricing and project limit aggregation by stored owner and selected-company read context. The AI receives only a verified visible row, and limit totals aggregate only the exact stored project owner.
 
-**Status:** Implemented locally; release pending. Direct AI estimate verifies the stored change owner before calling AI. Limit-check requires one selected company, resolves the exact project parent, and aggregates budget and changes only by stored company/project IDs.
+**Status:** Deployed and verified in production runtime `26818ea40322`. Direct AI and limit-check routes are present behind authentication; health and full public smoke passed.
 
 **Dependencies:** Task M6.4l
 
