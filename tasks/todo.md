@@ -2412,7 +2412,7 @@
 
 **Description:** Store exact company/project ownership on supplier-KP and marketing-publication outbox messages and on authenticated messenger-channel upsert without changing outbox reads or dispatch.
 
-**Status:** Production supply smoke passed. Messenger-channel proxy passed on `768f38e79cde`; marketing smoke then exposed missing `/marketing-publications` proxy. Marketing/site publication route fix and rerun pending.
+**Status:** Production verified on runtime `2a9c48f18e54`: supply and marketing publication smokes passed, exact outbox owners were confirmed and the strict item-ownership audit remained clean.
 
 **Safety:**
 - Supplier notifications inherit only the stored supply-request company/project and require a recipient from the same company.
