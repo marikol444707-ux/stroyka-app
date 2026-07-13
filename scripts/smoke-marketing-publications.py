@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
+import base64
 import datetime as dt
+import hashlib
+import hmac
 import json
 import os
+import re
 import sys
+import time
 import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
 
 import psycopg2
+import psycopg2.extras
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -89,12 +95,40 @@ def max_bot_token():
     return token
 
 
+def totp_code(secret):
+    secret = re.sub(r"\s+", "", str(secret or "")).upper()
+    if not secret:
+        raise RuntimeError("Нет TOTP secret для 2FA")
+    secret += "=" * (-len(secret) % 8)
+    key = base64.b32decode(secret, casefold=True)
+    counter = int(time.time()) // 30
+    digest = hmac.new(key, counter.to_bytes(8, "big"), hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    code = (int.from_bytes(digest[offset:offset + 4], "big") & 0x7FFFFFFF) % 1000000
+    return str(code).zfill(6)
+
+
 def login(email, password):
     _, body = api_json("POST", "/login", data={"email": email, "password": password}, expected=200)
     token = body.get("authToken")
-    if not token:
-        raise SystemExit(f"FAIL login {email}: authToken не получен")
-    return token
+    if token:
+        return token
+    if body.get("twoFactorSetupRequired"):
+        raise SystemExit(f"FAIL login {email}: требуется первичная настройка 2FA. Используйте настроенный аккаунт.")
+    if body.get("twoFactorRequired") and body.get("challengeToken"):
+        code = env_value("SMOKE_2FA_CODE") or (totp_code(env_value("SMOKE_TOTP_SECRET")) if env_value("SMOKE_TOTP_SECRET") else "")
+        if not code:
+            raise SystemExit(f"FAIL login {email}: нужен SMOKE_2FA_CODE или SMOKE_TOTP_SECRET")
+        _, verified = api_json(
+            "POST",
+            "/login/2fa/verify",
+            data={"challengeToken": body.get("challengeToken"), "code": code},
+            expected=200,
+        )
+        token = verified.get("authToken")
+        if token:
+            return token
+    raise SystemExit(f"FAIL login {email}: authToken не получен")
 
 
 def cleanup(publication_id=None, channel_id=None, outbox_ids=None):
@@ -148,6 +182,8 @@ def main():
         channel_id = channel.get("id")
         if not channel_id:
             raise RuntimeError(f"messenger channel did not return id: {channel_body}")
+        if not channel.get("companyId"):
+            raise RuntimeError(f"messenger channel did not persist company owner: {channel_body}")
 
         _, created = api_json(
             "POST",
@@ -199,6 +235,30 @@ def main():
         if not any(action.get("id") == "openPublication" for action in queued.get("actions") or []):
             raise RuntimeError(f"outbox publication has no open action: {queued}")
 
+        conn = psycopg2.connect(**db_config())
+        try:
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute(
+                """
+                SELECT o.owner_scope, o.company_id, o.project_id,
+                       c.company_id AS channel_company_id, c.project_id AS channel_project_id
+                  FROM messenger_outbox o
+                  JOIN messenger_channels c ON c.id=%s
+                 WHERE o.id=%s
+                """,
+                (channel_id, outbox_ids[0]),
+            )
+            owner = cur.fetchone()
+            cur.close()
+        finally:
+            conn.close()
+        if not owner or owner.get("owner_scope") != "company":
+            raise RuntimeError(f"marketing MAX outbox has no company owner: {owner}")
+        if int(owner.get("company_id") or 0) != int(owner.get("channel_company_id") or 0):
+            raise RuntimeError(f"marketing MAX outbox belongs to a different company: {owner}")
+        if int(owner.get("project_id") or 0) != int(owner.get("channel_project_id") or 0):
+            raise RuntimeError(f"marketing MAX outbox belongs to a different project: {owner}")
+
         _, site_publications = api_json("GET", "/site/publications?limit=50", expected=200)
         if not any(item.get("id") == publication_id for item in site_publications):
             raise RuntimeError("publication is not visible in public site publications feed")
@@ -210,7 +270,7 @@ def main():
             "outboxIds": outbox_ids,
             "checked": [
                 "marketing publication is created",
-                "publication publish queues MAX outbox message",
+                "publication publish queues MAX outbox message with exact channel owner",
                 "outbox message has openPublication action",
                 "site/publications exposes published queued item",
             ],

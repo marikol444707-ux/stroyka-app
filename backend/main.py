@@ -109,6 +109,11 @@ except ModuleNotFoundError:
     )
 
 try:
+    from backend.features.messenger.writer_ownership import resolve_supply_outbox_owner
+except ModuleNotFoundError:
+    from features.messenger.writer_ownership import resolve_supply_outbox_owner
+
+try:
     from backend.features.supplier_access.service import (
         supplier_invoice_visibility_filter,
         supplier_offer_visibility_filter,
@@ -1515,6 +1520,9 @@ def _ensure_supply_notification_messenger_tables(cur):
     cur.execute("""
         CREATE TABLE IF NOT EXISTS messenger_outbox (
             id SERIAL PRIMARY KEY,
+            owner_scope VARCHAR(20),
+            company_id INT,
+            project_id INT,
             provider VARCHAR(40) NOT NULL,
             messenger_account_id INT,
             user_id INT,
@@ -1540,6 +1548,9 @@ def _ensure_supply_notification_messenger_tables(cur):
             updated_at TIMESTAMP DEFAULT NOW()
         )
     """)
+    cur.execute("ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS owner_scope VARCHAR(20)")
+    cur.execute("ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS company_id INT")
+    cur.execute("ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS project_id INT")
     cur.execute("ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS provider VARCHAR(40)")
     cur.execute("ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS messenger_account_id INT")
     cur.execute("ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS user_id INT")
@@ -1562,7 +1573,7 @@ def _ensure_supply_notification_messenger_tables(cur):
 
 def _supply_request_notification_context(cur, request_id: int) -> dict:
     cur.execute("""
-        SELECT id, material_name, quantity, unit, project, work_package, notes, items_json
+        SELECT id, material_name, quantity, unit, project, work_package, notes, items_json, company_id
           FROM supply_requests
          WHERE id=%s
          LIMIT 1
@@ -1585,11 +1596,26 @@ def _supply_request_notification_context(cur, request_id: int) -> dict:
     material = _row_get(row, "material_name", 1, "") or ""
     quantity = _row_get(row, "quantity", 2, "") or ""
     unit = _row_get(row, "unit", 3, "") or ""
+    project = _row_get(row, "project", 4, "") or ""
+    company_id = _row_get(row, "company_id", 8, None)
+    project_id = None
+    if company_id and project and project != "Основной склад":
+        cur.execute(
+            "SELECT id FROM projects WHERE company_id=%s AND name=%s "
+            "AND COALESCE(archived,FALSE)=FALSE ORDER BY id",
+            (company_id, project),
+        )
+        projects = list(cur.fetchall() or [])
+        if len(projects) != 1:
+            raise HTTPException(status_code=409, detail="Объект заявки КП определяется неоднозначно")
+        project_id = _row_get(projects[0], "id", 0, None)
     if not item_lines and material:
         item_lines.append(f"- {material}: {quantity} {unit}".strip())
     return {
         "id": int(_row_get(row, "id", 0, request_id) or request_id),
-        "project": _row_get(row, "project", 4, "") or "",
+        "companyId": company_id,
+        "projectId": project_id,
+        "project": project,
         "workPackage": _row_get(row, "work_package", 5, "") or "",
         "materialName": material,
         "quantity": quantity,
@@ -1643,10 +1669,12 @@ def _queue_supply_request_max_notification(cur, recipient: dict, request_context
         return None, "MAX не привязан"
     account_id = int(_row_get(account, "id", 0, 0) or 0)
     request_id = int((request_context or {}).get("id") or 0)
+    owner = resolve_supply_outbox_owner(request_context, recipient)
     cur.execute("""
         SELECT id, status
           FROM messenger_outbox
          WHERE provider='max'
+           AND company_id=%s
            AND messenger_account_id=%s
            AND event_type='supplier_kp_requested'
            AND entity_type='supply_request'
@@ -1654,7 +1682,7 @@ def _queue_supply_request_max_notification(cur, recipient: dict, request_context
            AND COALESCE(status,'') NOT IN ('cancelled','failed')
          ORDER BY id DESC
          LIMIT 1
-    """, (account_id, request_id))
+    """, (owner["companyId"], account_id, request_id))
     existing = cur.fetchone()
     if existing:
         return int(_row_get(existing, "id", 0, 0) or 0), "В очереди MAX"
@@ -1676,13 +1704,15 @@ def _queue_supply_request_max_notification(cur, recipient: dict, request_context
     }]
     cur.execute("""
         INSERT INTO messenger_outbox
-            (provider, messenger_account_id, user_id, external_user_id, chat_id, event_type,
+            (owner_scope, company_id, project_id, provider, messenger_account_id, user_id, external_user_id, chat_id, event_type,
              entity_type, entity_id, title, body, payload_json, actions_json, status, priority,
              created_at, updated_at)
-        VALUES ('max',%s,%s,%s,%s,'supplier_kp_requested',
+        VALUES ('company',%s,%s,'max',%s,%s,%s,%s,'supplier_kp_requested',
                 'supply_request',%s,%s,%s,%s::jsonb,%s::jsonb,'queued',4,NOW(),NOW())
         RETURNING id
     """, (
+        owner["companyId"],
+        owner["projectId"],
         account_id,
         supplier_user_id,
         _row_get(account, "external_user_id", 1, "") or "",
@@ -1701,11 +1731,18 @@ def _notify_supply_request_recipients(cur, request_id: int, company_id: int = No
     request_context = _supply_request_notification_context(cur, request_id)
     if not request_context:
         return []
-    recipient_company_sql = " AND r.company_id=%s" if company_id else ""
-    recipient_params = [request_id] + ([company_id] if company_id else [])
+    request_company_id = _positive_int_or_none(request_context.get("companyId"))
+    requested_company_id = _positive_int_or_none(company_id)
+    if not request_company_id:
+        raise HTTPException(status_code=409, detail="Заявка снабжения не привязана к компании")
+    if requested_company_id and requested_company_id != request_company_id:
+        raise HTTPException(status_code=409, detail="Компания уведомления не совпадает с компанией заявки")
+    company_id = request_company_id
+    recipient_company_sql = " AND r.company_id=%s"
+    recipient_params = [request_id, company_id]
     cur.execute("""
         SELECT r.id, r.request_id, r.target_supplier_id, r.supplier_id, r.supplier_user_id,
-               r.email_notification_status, r.max_notification_status, r.max_outbox_id,
+               r.email_notification_status, r.max_notification_status, r.max_outbox_id, r.company_id,
                COALESCE(s.name,'') AS supplier_name,
                COALESCE(NULLIF(s.email,''), NULLIF(u.email,''), '') AS email
           FROM supply_request_recipients r
@@ -1722,8 +1759,8 @@ def _notify_supply_request_recipients(cur, request_id: int, company_id: int = No
     scope_ids = _normalize_supplier_ids([row.get("target_supplier_id") or row.get("supplier_id") for row in recipients])
     offer_by_supplier = {}
     if scope_ids:
-        offer_company_sql = " AND company_id=%s" if company_id else ""
-        offer_params = [request_id, scope_ids] + ([company_id] if company_id else [])
+        offer_company_sql = " AND company_id=%s"
+        offer_params = [request_id, scope_ids, company_id]
         cur.execute("""
             SELECT id, supplier_id
               FROM supplier_offers
@@ -31209,6 +31246,8 @@ register_messenger_module(app, {
     "create_auth_session": _create_auth_session,
     "set_auth_session_cookie": _set_auth_session_cookie,
     "enrich_worker_project_links": enrich_worker_project_links,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
     "scan_invoice": scan_invoice,
     "sync_supplier_invoice_from_warehouse": _sync_supplier_invoice_from_warehouse,
     "save_upload_bytes": save_upload_bytes,
@@ -31229,6 +31268,9 @@ register_marketing_module(app, {
     "get_db": get_db,
     "require_roles": require_roles,
     "leadership_roles": LEADERSHIP_ROLES,
+    "resolve_resource_company_actor": resolve_resource_company_actor,
+    "platform_staff_roles": PLATFORM_STAFF_ROLES,
+    "client_account_roles": CLIENT_ACCOUNT_ROLES,
     "log_audit": log_audit,
     "app_public_url": APP_PUBLIC_URL,
 })

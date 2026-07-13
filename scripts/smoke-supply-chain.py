@@ -944,9 +944,22 @@ def assert_supply_request_notifications(admin_token, supplier_id, supplier_email
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute(
             """
-            SELECT id, provider, messenger_account_id, event_type, entity_type, entity_id, status, actions_json
-              FROM messenger_outbox
-             WHERE id=%s
+            SELECT o.id, o.owner_scope, o.company_id, o.project_id, o.provider,
+                   o.messenger_account_id, o.event_type, o.entity_type, o.entity_id,
+                   o.status, o.actions_json,
+                   r.company_id AS request_company_id,
+                   (
+                       SELECT p.id
+                         FROM projects p
+                        WHERE p.company_id=r.company_id
+                          AND p.name=r.project
+                          AND COALESCE(p.archived,FALSE)=FALSE
+                        ORDER BY p.id
+                        LIMIT 1
+                   ) AS request_project_id
+              FROM messenger_outbox o
+              JOIN supply_requests r ON r.id=o.entity_id
+             WHERE o.id=%s
             """,
             (outbox_id,),
         )
@@ -962,6 +975,12 @@ def assert_supply_request_notifications(admin_token, supplier_id, supplier_email
             raise RuntimeError("MAX outbox-запись по КП указывает не на заявку")
         if outbox.get("status") != "queued":
             raise RuntimeError("MAX outbox-запись по КП не в статусе queued")
+        if outbox.get("owner_scope") != "company":
+            raise RuntimeError("MAX outbox-запись по КП не получила company owner_scope")
+        if int(outbox.get("company_id") or 0) != int(outbox.get("request_company_id") or 0):
+            raise RuntimeError("MAX outbox-запись по КП принадлежит не компании заявки")
+        if int(outbox.get("project_id") or 0) != int(outbox.get("request_project_id") or 0):
+            raise RuntimeError("MAX outbox-запись по КП принадлежит не объекту заявки")
         actions = outbox.get("actions_json") or []
         if isinstance(actions, str):
             actions = json.loads(actions)
@@ -2017,7 +2036,7 @@ def main():
                 "supply request passed estimate control",
                 "selected supplier received KP request",
                 "supplier offer list exposes the addressed offer through recipient and company scope",
-                "selected supplier KP request records email status and queues MAX notification",
+                "selected supplier KP request records email status and queues MAX notification with exact owner",
                 "supplier account responded to KP and director selected it",
                 "supplier invoice creation is tenant-scoped, idempotent and recorded in offer history",
                 "supplier invoice list keeps internal company scope and supplier cross-client identity scope",

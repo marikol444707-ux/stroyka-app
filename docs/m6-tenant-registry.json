@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-12",
+  "updatedAt": "2026-07-13",
   "rules": {
     "writeMode": "A mutation requires one concrete selected company.",
     "ownership": "New rows inherit immutable companyId and projectId from a verified parent.",
@@ -44,9 +44,9 @@
     {"domain":"ai","resource":"ai_task_attachments","kind":"table","parent":"ai_task_reports/ai_tasks","companyState":"stored","ownerSource":"matching verified report and task","routePrefixes":["/ai-tasks"],"stage":"M6.6","priority":"high","accessState":"tenant_child_runtime_local_production_pending"},
     {"domain":"ai","resource":"project_ai_summary","kind":"table","parent":"projects","companyState":"stored","ownerSource":"stored company_id/project_id joined to selected-company project","routePrefixes":["/project-ai-summary","/ai-control"],"stage":"M6.6","priority":"high","accessState":"stored_owner_summary_runtime_production_legacy_pk_cutover_pending"},
     {"domain":"messenger","resource":"messenger_accounts","kind":"table","parent":"users/staff memberships","companyState":"missing","ownerSource":"derived selected-company membership; identity may be shared across companies","routePrefixes":["/messenger-accounts"],"stage":"M6.7","priority":"critical","accessState":"global_runtime_audit_pending"},
-    {"domain":"messenger","resource":"messenger_channels","kind":"table","parent":"companies/projects","companyState":"stored","ownerSource":"stored company/project required before child outbox ownership","routePrefixes":["/messenger-channels"],"stage":"M6.7","priority":"critical","accessState":"stored_owner_production_audit_runtime_pending"},
-    {"domain":"messenger","resource":"messenger_files","kind":"table","parent":"projects/polymorphic entity","companyState":"stored","ownerSource":"verified employee and parent entity","routePrefixes":["/max/files"],"stage":"M6.7","priority":"critical","accessState":"stored_owner_schema_internal_writes_release_pending"},
-    {"domain":"messenger","resource":"messenger_outbox","kind":"table","parent":"recipient/polymorphic entity","companyState":"stored","ownerSource":"verified recipient membership and parent entity, including stored messenger channel owner; explicit terminal legacy scope for deleted-parent history","routePrefixes":["/max/outbox","/messenger-outbox"],"stage":"M6.7","priority":"critical","accessState":"stored_owner_schema_internal_writes_release_pending"},
+    {"domain":"messenger","resource":"messenger_channels","kind":"table","parent":"companies/projects","companyState":"stored","ownerSource":"stored company/project required before child outbox ownership","routePrefixes":["/messenger-channels"],"stage":"M6.7","priority":"critical","accessState":"stored_owner_authenticated_writes_release_pending"},
+    {"domain":"messenger","resource":"messenger_files","kind":"table","parent":"projects/polymorphic entity","companyState":"stored","ownerSource":"verified employee and parent entity","routePrefixes":["/max/files"],"stage":"M6.7","priority":"critical","accessState":"stored_owner_internal_writes_production"},
+    {"domain":"messenger","resource":"messenger_outbox","kind":"table","parent":"recipient/polymorphic entity","companyState":"stored","ownerSource":"verified recipient membership and parent entity, including stored messenger channel owner; explicit terminal legacy scope for deleted-parent history","routePrefixes":["/max/outbox","/messenger-outbox"],"stage":"M6.7","priority":"critical","accessState":"stored_owner_internal_writes_production_supplier_marketing_release_pending"},
     {"domain":"audit","resource":"audit_log","kind":"table","parent":"polymorphic entity","companyState":"missing","ownerSource":"request tenant context and verified parent","routePrefixes":["/audit-log"],"stage":"M6.8","priority":"critical"},
     {"domain":"audit","resource":"api_errors","kind":"table","parent":"request context","companyState":"missing","ownerSource":"request tenant context","routePrefixes":["/system-status"],"stage":"M6.8","priority":"high"}
   ]

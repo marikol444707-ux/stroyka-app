@@ -2397,7 +2397,7 @@
 
 **Description:** Store owner scope/company/project on internal MAX file and outbox inserts without changing reads or dispatch.
 
-**Status:** Implemented and tested. Production M6.7d1 is strict-ready; the linked-employee preflight found no active MAX accounts and no duplicate identifiers. Runtime deploy pending.
+**Status:** Production verified on runtime `e6f4934859bc`; public smoke and strict messenger item ownership audit passed.
 
 **Safety:**
 - Stored channel and warehouse-document owners have priority over names or recipient hints.
@@ -2405,5 +2405,20 @@
 - Duplicate project names across employee companies and company-level actions with multiple memberships fail closed.
 - Marketing publication and supplier-KP outbox writers remain unchanged for the separately reviewed M6.7d2a2 slice.
 - Outbox reads, status changes and dispatch remain unchanged until M6.7d2b.
+
+**Estimated scope:** S
+
+## Task M6.7d2a2: Persist Supplier And Marketing MAX Ownership
+
+**Description:** Store exact company/project ownership on supplier-KP and marketing-publication outbox messages and on authenticated messenger-channel upsert without changing outbox reads or dispatch.
+
+**Status:** Implemented locally. Protected supply/marketing smokes and production deploy pending.
+
+**Safety:**
+- Supplier notifications inherit only the stored supply-request company/project and require a recipient from the same company.
+- Marketing publication outbox inherits the stored marketing-channel owner and a verified project from that company; mixed companies fail closed.
+- Authenticated channel creation resolves one selected-company actor and one exact project; an existing channel cannot be moved across companies by upsert.
+- Base schema creation includes nullable owner columns for clean installations; guarded production migration and its constraints remain the source of truth for legacy rows.
+- Outbox reads, status changes and dispatch remain unchanged until `M6.7d2b`.
 
 **Estimated scope:** S

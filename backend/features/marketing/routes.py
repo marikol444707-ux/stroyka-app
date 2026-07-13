@@ -3,8 +3,9 @@ import json
 import urllib.parse
 
 import psycopg2.extras
-from fastapi import Depends, HTTPException, Query
+from fastapi import Depends, Header, HTTPException, Query
 
+from ..messenger.writer_ownership import resolve_marketing_outbox_owners
 from .schema import ensure_marketing_schema
 
 
@@ -153,6 +154,9 @@ def register_marketing_module(app, deps):
     get_db = deps["get_db"]
     require_roles = deps["require_roles"]
     leadership_roles = deps["leadership_roles"]
+    resolve_resource_company_actor = deps["resolve_resource_company_actor"]
+    platform_staff_roles = deps.get("platform_staff_roles") or ()
+    client_account_roles = deps.get("client_account_roles") or ()
     log_audit = deps.get("log_audit")
     app_public_url = (deps.get("app_public_url") or "https://stroyka26.pro").rstrip("/")
 
@@ -202,6 +206,21 @@ def register_marketing_module(app, deps):
         if missing:
             raise HTTPException(status_code=400, detail="Некоторые MAX-каналы не найдены или отключены")
         return rows
+
+    def publication_project_owner(cur, publication: dict):
+        project_id = _int_or_none((publication or {}).get("project_id"))
+        if not project_id:
+            return None
+        cur.execute(
+            "SELECT id,company_id,name FROM projects WHERE id=%s AND COALESCE(archived,FALSE)=FALSE",
+            (project_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=409, detail="Объект публикации не найден или архивирован")
+        if not _int_or_none(row.get("company_id")):
+            raise HTTPException(status_code=409, detail="Объект публикации не привязан к компании")
+        return row
 
     @app.get("/site/publications")
     def list_site_publications(limit: int = Query(default=20, ge=1, le=100)):
@@ -365,7 +384,13 @@ def register_marketing_module(app, deps):
             conn.close()
 
     @app.post("/marketing-publications/{publication_id}/publish")
-    def publish_marketing_publication(publication_id: int, data: dict = None, current_user: dict = Depends(marketing_access)):
+    def publish_marketing_publication(
+        publication_id: int,
+        data: dict = None,
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(marketing_access),
+    ):
         data = data or {}
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -377,10 +402,30 @@ def register_marketing_module(app, deps):
             channels = fetch_marketing_channels(cur, channel_ids) if should_publish_max else []
             if should_publish_max and not channels:
                 raise HTTPException(status_code=400, detail="Выберите маркетинговый MAX-канал")
+            channel_owners = resolve_marketing_outbox_owners(
+                channels,
+                publication_project_owner(cur, publication) if channels else None,
+            )
+            if channel_owners:
+                company_id = next(iter(channel_owners.values()))["companyId"]
+                resolve_resource_company_actor(
+                    cur,
+                    current_user,
+                    company_id,
+                    "publish",
+                    claimed_company_id=data.get("companyId") or data.get("company_id"),
+                    x_company_id=x_company_id,
+                    x_company_mode=x_company_mode,
+                    allowed_roles=(*leadership_roles, "менеджер_crm"),
+                    forbidden_detail="Роль в выбранной компании не позволяет публиковать в MAX",
+                    platform_staff_roles=platform_staff_roles,
+                    client_account_roles=client_account_roles,
+                )
             utm_campaign = _text(data.get("utmCampaign") or publication.get("utm_campaign") or f"publication-{publication_id}", 160)
             public_url = _with_utm(publication.get("publication_url") or default_publication_url(publication.get("project_id")), utm_campaign)
             outbox_ids = []
             for channel in channels:
+                owner = channel_owners[int(channel["id"])]
                 payload = {
                     "publicationId": publication_id,
                     "publicationUrl": public_url,
@@ -401,12 +446,16 @@ def register_marketing_module(app, deps):
                 cur.execute(
                     """
                     INSERT INTO messenger_outbox
-                        (provider,chat_id,event_type,entity_type,entity_id,title,body,payload_json,actions_json,status,priority)
+                        (owner_scope,company_id,project_id,provider,chat_id,event_type,entity_type,entity_id,
+                         title,body,payload_json,actions_json,status,priority)
                     VALUES
-                        ('max',%s,'marketing_publication','marketing_publication',%s,%s,%s,%s::jsonb,%s::jsonb,'queued',6)
+                        ('company',%s,%s,'max',%s,'marketing_publication','marketing_publication',%s,
+                         %s,%s,%s::jsonb,%s::jsonb,'queued',6)
                     RETURNING id
                     """,
                     (
+                        owner["companyId"],
+                        owner["projectId"],
                         channel.get("chat_id") or "",
                         publication_id,
                         publication.get("title") or "",

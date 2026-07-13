@@ -15,6 +15,7 @@ import psycopg2.extras
 from fastapi import Depends, Header, HTTPException, Query, Request, Response
 
 from .schema import ensure_messenger_schema
+from .writer_ownership import resolve_channel_write_owner as resolve_authenticated_channel_owner
 
 
 def _text(value, limit=255):
@@ -265,6 +266,8 @@ def _public_messenger_channel(row: dict) -> dict:
     row = row or {}
     return {
         "id": row.get("id"),
+        "companyId": row.get("company_id"),
+        "projectId": row.get("project_id"),
         "provider": row.get("provider") or "",
         "chatId": row.get("chat_id") or "",
         "title": row.get("title") or "",
@@ -813,6 +816,8 @@ def register_messenger_module(app, deps):
     create_auth_session = deps.get("create_auth_session")
     set_auth_session_cookie = deps.get("set_auth_session_cookie")
     enrich_worker_project_links = deps.get("enrich_worker_project_links")
+    resolve_work_company_context = deps["resolve_work_company_context"]
+    effective_company_actors = deps["effective_company_actors"]
     max_registration_roles = deps.get("max_registration_roles") or (
         "прораб",
         "главный_инженер",
@@ -2279,6 +2284,34 @@ def register_messenger_module(app, deps):
             ),
         }
 
+    def resolve_channel_write_owner(cur, current_user: dict, data: dict, project_name: str, x_company_id, x_company_mode):
+        requested_company_id = _int_or_none((data or {}).get("companyId") or (data or {}).get("company_id"))
+        company_context = resolve_work_company_context(
+            cur,
+            current_user,
+            requested_company_id,
+            "write",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        actors = effective_company_actors(current_user, company_context)
+        company_id = _int_or_none(company_context.get("companyId") or company_context.get("company_id"))
+        projects = []
+        if project_name:
+            cur.execute(
+                "SELECT id,company_id FROM projects WHERE company_id=%s AND name=%s "
+                "AND COALESCE(archived,FALSE)=FALSE ORDER BY id",
+                (company_id, project_name),
+            )
+            projects = list(cur.fetchall() or [])
+        return resolve_authenticated_channel_owner(
+            company_context,
+            actors,
+            projects,
+            project_required=bool(project_name),
+            leadership_roles=leadership_roles,
+        )
+
     def fetch_channel(cur, channel_id: int):
         cur.execute("SELECT * FROM messenger_channels WHERE id=%s", (channel_id,))
         row = cur.fetchone()
@@ -2428,30 +2461,50 @@ def register_messenger_module(app, deps):
             conn.close()
 
     @app.post("/messenger-channels")
-    def upsert_messenger_channel(data: dict, current_user: dict = Depends(require_roles(*leadership_roles, "менеджер_crm"))):
+    def upsert_messenger_channel(
+        data: dict,
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(require_roles(*leadership_roles, "менеджер_crm")),
+    ):
         payload = normalize_channel_payload(data or {})
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
+            owner = resolve_channel_write_owner(
+                cur,
+                current_user,
+                data or {},
+                payload["projectName"],
+                x_company_id,
+                x_company_mode,
+            )
             cur.execute(
                 """
                 INSERT INTO messenger_channels
-                    (provider,chat_id,title,channel_type,project_name,source_label,campaign_code,default_stage,enabled,metadata_json)
+                    (company_id,project_id,provider,chat_id,title,channel_type,project_name,source_label,
+                     campaign_code,default_stage,enabled,metadata_json)
                 VALUES
-                    (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                    (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
                 ON CONFLICT (provider, chat_id) DO UPDATE SET
                     title=EXCLUDED.title,
                     channel_type=EXCLUDED.channel_type,
                     project_name=EXCLUDED.project_name,
+                    company_id=COALESCE(messenger_channels.company_id,EXCLUDED.company_id),
+                    project_id=EXCLUDED.project_id,
                     source_label=EXCLUDED.source_label,
                     campaign_code=EXCLUDED.campaign_code,
                     default_stage=EXCLUDED.default_stage,
                     enabled=EXCLUDED.enabled,
                     metadata_json=EXCLUDED.metadata_json,
                     updated_at=NOW()
+                WHERE messenger_channels.company_id IS NULL
+                   OR messenger_channels.company_id=EXCLUDED.company_id
                 RETURNING *
                 """,
                 (
+                    owner["companyId"],
+                    owner["projectId"],
                     payload["provider"],
                     payload["chatId"],
                     payload["title"],
@@ -2465,6 +2518,8 @@ def register_messenger_module(app, deps):
                 ),
             )
             row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=409, detail="MAX-канал уже принадлежит другой компании")
             conn.commit()
             return {"ok": True, "channel": _public_messenger_channel(row)}
         except Exception:

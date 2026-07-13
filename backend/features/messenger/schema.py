@@ -29,6 +29,8 @@ def ensure_messenger_schema(get_db):
 
             CREATE TABLE IF NOT EXISTS messenger_channels (
                 id SERIAL PRIMARY KEY,
+                company_id INT,
+                project_id INT,
                 provider VARCHAR(40) NOT NULL,
                 chat_id VARCHAR(120) NOT NULL,
                 title VARCHAR(255),
@@ -42,10 +44,14 @@ def ensure_messenger_schema(get_db):
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW()
             );
+            ALTER TABLE messenger_channels ADD COLUMN IF NOT EXISTS company_id INT;
+            ALTER TABLE messenger_channels ADD COLUMN IF NOT EXISTS project_id INT;
             CREATE UNIQUE INDEX IF NOT EXISTS idx_messenger_channels_provider_chat_unique
                 ON messenger_channels(provider, chat_id);
             CREATE INDEX IF NOT EXISTS idx_messenger_channels_provider_type
                 ON messenger_channels(provider, channel_type, enabled);
+            CREATE INDEX IF NOT EXISTS idx_messenger_channels_owner
+                ON messenger_channels(company_id, project_id, id);
 
             CREATE TABLE IF NOT EXISTS max_invoice_drafts (
                 id SERIAL PRIMARY KEY,
@@ -87,6 +93,9 @@ def ensure_messenger_schema(get_db):
 
             CREATE TABLE IF NOT EXISTS messenger_outbox (
                 id SERIAL PRIMARY KEY,
+                owner_scope VARCHAR(20),
+                company_id INT,
+                project_id INT,
                 provider VARCHAR(40) NOT NULL,
                 messenger_account_id INT,
                 user_id INT,
@@ -111,15 +120,23 @@ def ensure_messenger_schema(get_db):
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW()
             );
+            ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS owner_scope VARCHAR(20);
+            ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS company_id INT;
+            ALTER TABLE messenger_outbox ADD COLUMN IF NOT EXISTS project_id INT;
             CREATE INDEX IF NOT EXISTS idx_messenger_outbox_provider_status
                 ON messenger_outbox(provider, status, priority, id);
             CREATE INDEX IF NOT EXISTS idx_messenger_outbox_account
                 ON messenger_outbox(messenger_account_id);
             CREATE INDEX IF NOT EXISTS idx_messenger_outbox_entity
                 ON messenger_outbox(entity_type, entity_id);
+            CREATE INDEX IF NOT EXISTS idx_messenger_outbox_owner
+                ON messenger_outbox(owner_scope, company_id, project_id, id);
 
             CREATE TABLE IF NOT EXISTS messenger_files (
                 id SERIAL PRIMARY KEY,
+                owner_scope VARCHAR(20),
+                company_id INT,
+                project_id INT,
                 provider VARCHAR(40) NOT NULL,
                 messenger_account_id INT,
                 user_id INT,
@@ -142,10 +159,15 @@ def ensure_messenger_schema(get_db):
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW()
             );
+            ALTER TABLE messenger_files ADD COLUMN IF NOT EXISTS owner_scope VARCHAR(20);
+            ALTER TABLE messenger_files ADD COLUMN IF NOT EXISTS company_id INT;
+            ALTER TABLE messenger_files ADD COLUMN IF NOT EXISTS project_id INT;
             CREATE INDEX IF NOT EXISTS idx_messenger_files_provider_account
                 ON messenger_files(provider, messenger_account_id);
             CREATE INDEX IF NOT EXISTS idx_messenger_files_entity
                 ON messenger_files(entity_type, entity_id);
+            CREATE INDEX IF NOT EXISTS idx_messenger_files_owner
+                ON messenger_files(owner_scope, company_id, project_id, id);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_messenger_files_provider_file_token_unique
                 ON messenger_files(provider, file_token)
                 WHERE file_token IS NOT NULL AND file_token <> '';
