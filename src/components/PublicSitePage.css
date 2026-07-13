@@ -2959,6 +2959,116 @@
   color: #ffffff;
 }
 
+.public-layout-request-editor {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #b8d7d0;
+  border-radius: 6px;
+  background: #f5faf8;
+}
+
+.public-layout-request-head,
+.public-layout-request-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.public-layout-request-head div {
+  display: grid;
+  gap: 2px;
+}
+
+.public-layout-request-head small {
+  color: var(--site-muted);
+}
+
+.public-layout-request-head > button {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 36px;
+  border: 1px solid var(--site-line);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--site-ink);
+  cursor: pointer;
+}
+
+.public-layout-request-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.public-layout-request-grid label,
+.public-layout-request-notes {
+  display: grid;
+  gap: 6px;
+  color: var(--site-ink);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.public-layout-request-grid input,
+.public-layout-request-notes textarea {
+  width: 100%;
+  border: 1px solid var(--site-line);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--site-ink);
+  font: inherit;
+}
+
+.public-layout-request-grid input {
+  min-height: 42px;
+  padding: 8px 10px;
+}
+
+.public-layout-request-notes textarea {
+  min-height: 86px;
+  padding: 10px;
+  resize: vertical;
+}
+
+.public-layout-request-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--site-ink);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.public-layout-request-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--site-green);
+}
+
+.public-layout-request-actions {
+  justify-content: flex-end;
+}
+
+.public-layout-request-actions button {
+  min-height: 42px;
+  padding: 9px 13px;
+}
+
+@media (max-width: 480px) {
+  .public-layout-request-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .public-layout-request-actions button {
+    flex: 1 1 0;
+  }
+}
+
 .public-project-action-status {
   min-height: 20px;
   margin: -2px 0 0;

@@ -38,6 +38,7 @@ import {
   publicCalcDefaults
 } from '../features/public-site/publicSiteContent';
 import { PublicSiteCalculatorSection } from '../features/public-site/PublicSiteCalculatorSection';
+import { PublicLayoutRequestEditor } from '../features/public-site/PublicLayoutRequestEditor';
 import { usePublicSiteCalculator } from '../features/public-site/usePublicSiteCalculator';
 import { usePublicSiteProjects } from '../features/public-site/usePublicSiteProjects';
 import { usePublicSiteLeadForms } from '../features/public-site/usePublicSiteLeadForms';
@@ -48,6 +49,7 @@ const PublicSitePage = ({ onLogin }) => {
   const [selectedReferenceMediaId, setSelectedReferenceMediaId] = useState('render-front');
   const [isReferenceMirrored, setIsReferenceMirrored] = useState(false);
   const [referenceActionMessage, setReferenceActionMessage] = useState('');
+  const [isLayoutRequestOpen, setIsLayoutRequestOpen] = useState(false);
   const deepLinkedReferenceRef = useRef(false);
 
   const {
@@ -179,6 +181,7 @@ const PublicSitePage = ({ onLogin }) => {
     setSelectedReferenceExample(projectCard.title);
     setSelectedReferenceMediaId('render-front');
     setIsReferenceMirrored(false);
+    setIsLayoutRequestOpen(false);
     setCalc((current) => ({ ...current, ...direction.calcPatch, ...(projectCard.calcPatch || {}) }));
     setLead((current) => ({
       ...current,
@@ -219,12 +222,29 @@ const PublicSitePage = ({ onLogin }) => {
     setTimeout(() => scrollTo('selected-project-preview'), 0);
   };
 
-  const requestLayoutChange = () => {
+  const openLayoutRequest = () => {
+    setIsLayoutRequestOpen(true);
+    setReferenceActionMessage('Укажите, что нужно изменить в планировке');
+    setTimeout(() => scrollTo('public-layout-request-editor'), 80);
+  };
+
+  const applyLayoutRequest = ({ spaces, bathrooms, garage, notes }) => {
+    const isHouseLayout = selectedReference.calcPatch?.type === 'house';
+    const spacesText = isHouseLayout
+      ? `${spaces} ${spaces === 1 ? 'спальня' : spaces > 1 && spaces < 5 ? 'спальни' : 'спален'}`
+      : `${spaces} ${spaces === 1 ? 'комната / зона' : spaces > 1 && spaces < 5 ? 'комнаты / зоны' : 'комнат / зон'}`;
     setCalc((current) => ({ ...current, ...selectedReference.calcPatch, ...(selectedReferenceProject?.calcPatch || {}) }));
     setLead((current) => ({
       ...current,
-      comment: `Нужна доработка планировки. Направление: ${selectedReference.title}. Проект: ${selectedReferenceProject?.title || selectedReference.title}. Планировка: ${selectedReferenceProject?.layout || selectedReference.text}`,
+      comment: [
+        `Нужна доработка планировки. Направление: ${selectedReference.title}.`,
+        `Проект: ${selectedReferenceProject?.title || selectedReference.title}.`,
+        `Пожелания: ${spacesText}, ${bathrooms} ${bathrooms === 1 ? 'санузел' : bathrooms > 1 && bathrooms < 5 ? 'санузла' : 'санузлов'}${isHouseLayout ? `, ${garage ? 'гараж нужен' : 'гараж не нужен'}` : ''}.`,
+        notes ? `Дополнительно: ${notes}.` : '',
+        `Исходная планировка: ${selectedReferenceProject?.layout || selectedReference.text}`,
+      ].filter(Boolean).join(' '),
     }));
+    setIsLayoutRequestOpen(false);
     setReferenceActionMessage('Запрос на изменение планировки добавлен в заявку');
     setTimeout(() => scrollTo('request'), 0);
   };
@@ -762,9 +782,29 @@ const PublicSitePage = ({ onLogin }) => {
                   >
                     {isReferenceMirrored ? 'Вернуть обычный вариант' : 'Показать зеркальный вариант'}
                   </button>
-                  <button className="public-project-editor" type="button" onClick={requestLayoutChange}>
+                  <button
+                    className="public-project-editor"
+                    type="button"
+                    aria-expanded={isLayoutRequestOpen}
+                    aria-controls="public-layout-request-editor"
+                    onClick={openLayoutRequest}
+                  >
                     Изменить планировку в заявке
                   </button>
+                  {isLayoutRequestOpen && (
+                    <PublicLayoutRequestEditor
+                      key={selectedReferenceProject?.code || selectedReference.id}
+                      projectTitle={selectedReferenceProject?.title || selectedReference.title}
+                      initialSpaces={selectedReference.calcPatch?.type === 'house'
+                        ? Number(selectedReferenceProject?.calcPatch?.bedrooms) || Number.parseInt(selectedReferenceSpecs.find(([label]) => label === 'Количество спален')?.[1], 10) || 3
+                        : Number(selectedReferenceProject?.calcPatch?.rooms) || 1}
+                      initialBathrooms={Number(selectedReferenceProject?.calcPatch?.bathrooms) || 1}
+                      initialGarage={String(selectedReferenceSpecs.find(([label]) => label === 'Гараж')?.[1] || '').toLowerCase() === 'есть'}
+                      isHouseLayout={selectedReference.calcPatch?.type === 'house'}
+                      onApply={applyLayoutRequest}
+                      onCancel={() => setIsLayoutRequestOpen(false)}
+                    />
+                  )}
                   <button className="public-project-outline" type="button" onClick={chooseSimilarReferenceProject}>
                     Похожие по виду ({Math.max(3, selectedReferenceProjects.length)})
                   </button>

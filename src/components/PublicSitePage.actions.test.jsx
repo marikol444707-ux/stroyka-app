@@ -47,14 +47,27 @@ describe('public project actions', () => {
     expect(document.getElementById('selected-project-preview').scrollIntoView).toHaveBeenCalled();
   });
 
-  test('opens a prefilled request for layout changes', () => {
+  test('collects layout changes and opens a prefilled request', () => {
     render(<PublicSitePage onLogin={jest.fn()} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Изменить планировку в заявке' }));
+    expect(screen.getByRole('region', { name: 'Пожелания к планировке' })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Спален' }), { target: { value: '4' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Санузлов' }), { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Нужен гараж' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Дополнительные пожелания' }), {
+      target: { value: 'Добавить постирочную рядом с санузлом' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить в заявку' }));
     flushActions();
 
     expect(document.getElementById('request').scrollIntoView).toHaveBeenCalled();
-    expect(screen.getByLabelText('Комментарий').value).toContain('Нужна доработка планировки');
+    expect(screen.getByLabelText('Комментарий').value).toContain('4 спальни');
+    expect(screen.getByLabelText('Комментарий').value).toContain('2 санузла');
+    expect(screen.getByLabelText('Комментарий').value).toContain('гараж нужен');
+    expect(screen.getByLabelText('Комментарий').value).toContain('Добавить постирочную рядом с санузлом');
+    expect(screen.queryByRole('region', { name: 'Пожелания к планировке' })).not.toBeInTheDocument();
   });
 
   test('opens the calculator with the selected project', () => {
