@@ -58,10 +58,14 @@
   background-image:
     linear-gradient(90deg, rgba(11, 31, 27, 0.78) 0%, rgba(11, 31, 27, 0.45) 42%, rgba(11, 31, 27, 0.14) 100%),
     linear-gradient(180deg, rgba(0, 0, 0, 0.18) 0%, rgba(255, 255, 255, 0.08) 58%, #ffffff 100%),
-    url("https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=2200&q=86");
+    var(--public-hero-image);
   background-size: cover;
   background-position: center;
   position: relative;
+}
+
+.public-mobile-actions {
+  display: none;
 }
 
 .public-nav {
@@ -3286,6 +3290,49 @@
   }
   .public-site {
     min-width: 0;
+    padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  }
+  .public-mobile-actions {
+    position: fixed;
+    z-index: 100;
+    right: 12px;
+    bottom: max(10px, env(safe-area-inset-bottom, 0px));
+    left: 12px;
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    gap: 8px;
+    padding: 8px;
+    border: 1px solid rgba(15, 95, 74, 0.18);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.22);
+    backdrop-filter: blur(10px);
+  }
+  .public-mobile-actions button {
+    min-width: 0;
+    min-height: 48px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid #cbd8d4;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #0f5f4a;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+  .public-mobile-actions button.primary {
+    border-color: #f97316;
+    background: #f97316;
+    color: #ffffff;
+  }
+  .public-mobile-actions button:focus-visible {
+    outline: none;
+    box-shadow: var(--site-focus);
   }
   .public-site > *,
   .public-hero,
@@ -3686,6 +3733,11 @@
   }
   .public-section-head {
     margin-bottom: 20px;
+  }
+  .public-mobile-actions {
+    width: auto;
+    max-width: none;
+    overflow: visible;
   }
 }
 

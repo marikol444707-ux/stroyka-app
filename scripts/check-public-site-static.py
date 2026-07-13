@@ -11,6 +11,9 @@ ROOT = Path(__file__).resolve().parents[1]
 PUBLIC = ROOT / "public"
 BUILD = ROOT / "build"
 PUBLIC_SITE_CONTENT = ROOT / "src" / "features" / "public-site" / "publicSiteContent.jsx"
+PUBLIC_SITE_PAGE = ROOT / "src" / "components" / "PublicSitePage.jsx"
+PUBLIC_SITE_STYLES = ROOT / "src" / "components" / "PublicSitePage.css"
+HERO_IMAGE = "/site-assets/projects/h2-01/facade.webp"
 
 REQUIRED_PAGES = [
     "index.html",
@@ -418,6 +421,22 @@ def check_react_project_media_assets():
 
 def check_index_jsonld():
     index = read(PUBLIC / "index.html")
+    page = read(PUBLIC_SITE_PAGE)
+    styles = read(PUBLIC_SITE_STYLES)
+
+    if f'href="%PUBLIC_URL%{HERO_IMAGE}"' not in index:
+        fail("index.html missing local hero preload")
+    if "var(--public-hero-image)" not in styles or HERO_IMAGE not in page:
+        fail("public site hero should use the local project image")
+    if not re.search(
+        r'className="public-mobile-actions".*?scrollTo\(\'request\'\).*?Заявка',
+        page,
+        re.S,
+    ):
+        fail("public site missing mobile conversion actions")
+    if "дальше привяжем эту форму к CRM" in page:
+        fail("public request copy still describes CRM as a future integration")
+
     blocks = re.findall(r'<script type="application/ld\+json">\s*(.*?)\s*</script>', index, re.S)
     if not blocks:
         fail("index.html missing JSON-LD")

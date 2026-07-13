@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Clock,
   FileText,
+  House,
   Image,
   MapPin,
   Package,
@@ -219,7 +220,10 @@ const PublicSitePage = ({ onLogin }) => {
 
   return (
     <main className="public-site">
-      <section className="public-hero">
+      <section
+        className="public-hero"
+        style={{ '--public-hero-image': 'url("/site-assets/projects/h2-01/facade.webp")' }}
+      >
         <header className="public-nav">
           <button className="public-brand" type="button" onClick={() => scrollTo('top')}>
             <span>Строй</span><strong>Ка</strong>
@@ -881,8 +885,8 @@ const PublicSitePage = ({ onLogin }) => {
           <p className="public-eyebrow dark">Точная смета</p>
           <h2>Оставьте заявку на расчёт</h2>
           <p>
-            Мы сохраним параметры расчёта и дальше привяжем эту форму к CRM,
-            чтобы заявка не терялась.
+            После отправки выбранный проект, параметры расчёта и ваши контакты
+            сразу появятся в CRM у менеджера.
           </p>
         </div>
         <form className="public-request-form" onSubmit={submitLead}>
@@ -1000,6 +1004,17 @@ const PublicSitePage = ({ onLogin }) => {
           <span><a href="/contacts.html">Контакты</a></span>
         </div>
       </section>
+
+      <nav className="public-mobile-actions" aria-label="Быстрые действия">
+        <button type="button" onClick={() => scrollTo('projects')}>
+          <House size={18} />
+          Проекты
+        </button>
+        <button className="primary" type="button" onClick={() => scrollTo('request')}>
+          <Calculator size={18} />
+          Заявка
+        </button>
+      </nav>
     </main>
   );
 };
