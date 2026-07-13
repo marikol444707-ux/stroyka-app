@@ -155,6 +155,7 @@ fi
 
 check_json_predicate "site pricing" "$BASE_URL/site/pricing" 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if isinstance(data.get("rules"), list) else 1)'
 check_json_predicate "site projects" "$BASE_URL/site/projects" 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if isinstance(data, list) else 1)'
+check_json_predicate "site publications" "$BASE_URL/site/publications?limit=1" 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if isinstance(data, list) else 1)'
 check_not_spa_fallback "site leads route" "$BASE_URL/site/leads" "405 429"
 check_post_not_spa_fallback "site lead files route" "$BASE_URL/site/lead-files" "422 429"
 check_not_spa_fallback "site price rules route" "$BASE_URL/site-price-rules" "401 403"
@@ -176,6 +177,8 @@ check_not_spa_fallback "AI findings generate route" "$BASE_URL/ai-findings/gener
 check_not_spa_fallback "AI control run-all route" "$BASE_URL/ai-control/run-all" "405"
 check_not_spa_fallback "messenger channels route" "$BASE_URL/messenger-channels" "401 403"
 check_post_not_spa_fallback "messenger channels post route" "$BASE_URL/messenger-channels" "401 403 422"
+check_not_spa_fallback "marketing publications route" "$BASE_URL/marketing-publications" "401 403"
+check_post_not_spa_fallback "marketing publications post route" "$BASE_URL/marketing-publications" "401 403 422"
 
 if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
   login_payload="$(python3 -c 'import json,os; print(json.dumps({"email": os.environ["SMOKE_EMAIL"], "password": os.environ["SMOKE_PASSWORD"]}, ensure_ascii=False))')"
