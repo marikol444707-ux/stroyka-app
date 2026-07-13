@@ -79,4 +79,67 @@ describe('public project actions', () => {
     expect(document.getElementById('calculator').scrollIntoView).toHaveBeenCalled();
     expect(screen.getByRole('status')).toHaveTextContent('Проект передан в калькулятор');
   });
+
+  test('keeps the mirrored variant when the project is sent to the calculator', () => {
+    render(<PublicSitePage onLogin={jest.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Показать зеркальный вариант' }));
+    fireEvent.click(screen.getByRole('button', { name: /Рассчитать такой проект/ }));
+    flushActions();
+
+    expect(screen.getByRole('button', { name: 'Вернуть обычный вариант' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByLabelText('Комментарий').value).toContain('Вариант: зеркальный');
+    expect(document.getElementById('calculator').scrollIntoView).toHaveBeenCalled();
+  });
+
+  test('keeps layout preferences when the mirrored variant changes', () => {
+    render(<PublicSitePage onLogin={jest.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Изменить планировку в заявке' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Спален' }), { target: { value: '4' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить в заявку' }));
+    flushActions();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Показать зеркальный вариант' }));
+    flushActions();
+
+    expect(screen.getByLabelText('Комментарий').value).toContain('4 спальни');
+    expect(screen.getByLabelText('Комментарий').value).toContain('Вариант: зеркальный');
+    expect(document.querySelector('.public-request-selected')).toHaveTextContent('Зеркальный вариант · 4 спальни');
+  });
+
+  test('resets project-specific options when a similar project is selected', () => {
+    render(<PublicSitePage onLogin={jest.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Изменить планировку в заявке' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Спален' }), { target: { value: '4' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить в заявку' }));
+    flushActions();
+    fireEvent.click(screen.getByRole('button', { name: 'Показать зеркальный вариант' }));
+    fireEvent.click(screen.getByRole('button', { name: /Похожие по виду/ }));
+    flushActions();
+
+    expect(screen.getByRole('button', { name: 'Показать зеркальный вариант' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByLabelText('Комментарий').value).not.toContain('Вариант: зеркальный');
+    expect(document.querySelector('.public-request-selected')).not.toHaveTextContent('4 спальни');
+  });
+
+  test('reopens the layout editor with the saved preferences', () => {
+    render(<PublicSitePage onLogin={jest.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Изменить планировку в заявке' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Спален' }), { target: { value: '5' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Санузлов' }), { target: { value: '3' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Дополнительные пожелания' }), {
+      target: { value: 'Кабинет рядом со входом' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить в заявку' }));
+    flushActions();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Изменить планировку в заявке' }));
+
+    expect(screen.getByRole('spinbutton', { name: 'Спален' })).toHaveValue(5);
+    expect(screen.getByRole('spinbutton', { name: 'Санузлов' })).toHaveValue(3);
+    expect(screen.getByRole('textbox', { name: 'Дополнительные пожелания' })).toHaveValue('Кабинет рядом со входом');
+  });
 });

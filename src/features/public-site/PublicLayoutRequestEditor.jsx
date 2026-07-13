@@ -12,6 +12,7 @@ export const PublicLayoutRequestEditor = ({
   initialSpaces = 3,
   initialBathrooms = 1,
   initialGarage = false,
+  initialNotes = '',
   isHouseLayout = true,
   onApply,
   onCancel,
@@ -19,7 +20,7 @@ export const PublicLayoutRequestEditor = ({
   const [spaces, setSpaces] = useState(initialSpaces);
   const [bathrooms, setBathrooms] = useState(initialBathrooms);
   const [garage, setGarage] = useState(initialGarage);
-  const [notes, setNotes] = useState('');
+  const [notes, setNotes] = useState(initialNotes);
 
   return (
     <section

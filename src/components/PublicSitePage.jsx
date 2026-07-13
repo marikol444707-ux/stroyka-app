@@ -39,6 +39,10 @@ import {
 } from '../features/public-site/publicSiteContent';
 import { PublicSiteCalculatorSection } from '../features/public-site/PublicSiteCalculatorSection';
 import { PublicLayoutRequestEditor } from '../features/public-site/PublicLayoutRequestEditor';
+import {
+  buildPublicProjectLeadComment,
+  describePublicLayoutPreferences,
+} from '../features/public-site/publicProjectSelection';
 import { usePublicSiteCalculator } from '../features/public-site/usePublicSiteCalculator';
 import { usePublicSiteProjects } from '../features/public-site/usePublicSiteProjects';
 import { usePublicSiteLeadForms } from '../features/public-site/usePublicSiteLeadForms';
@@ -50,6 +54,7 @@ const PublicSitePage = ({ onLogin }) => {
   const [isReferenceMirrored, setIsReferenceMirrored] = useState(false);
   const [referenceActionMessage, setReferenceActionMessage] = useState('');
   const [isLayoutRequestOpen, setIsLayoutRequestOpen] = useState(false);
+  const [layoutPreferences, setLayoutPreferences] = useState(null);
   const deepLinkedReferenceRef = useRef(false);
 
   const {
@@ -113,6 +118,9 @@ const PublicSitePage = ({ onLogin }) => {
     projectUrl: selectedReferencePublicUrl,
     estimateRange: selectedReferenceEstimate.rangeLabel,
     estimateFrom: selectedReferenceEstimate.fromLabel,
+    variant: isReferenceMirrored ? 'mirrored' : 'standard',
+    variantLabel: isReferenceMirrored ? 'Зеркальный вариант' : 'Обычный вариант',
+    layoutPreferences,
     mediaCount: selectedReferenceMediaOptions.length,
     media: selectedReferenceMediaOptions.map((item) => ({
       id: item.id,
@@ -182,10 +190,16 @@ const PublicSitePage = ({ onLogin }) => {
     setSelectedReferenceMediaId('render-front');
     setIsReferenceMirrored(false);
     setIsLayoutRequestOpen(false);
+    setLayoutPreferences(null);
     setCalc((current) => ({ ...current, ...direction.calcPatch, ...(projectCard.calcPatch || {}) }));
     setLead((current) => ({
       ...current,
-      comment: `Интересует: ${direction.title}. Проект: ${projectCard.title}. Формат объекта: ${getReferenceObjectCard(direction, projectCard, getReferenceProjectEstimate(direction, projectCard)).format}. Планировка: ${projectCard.layout || direction.text}. Ссылка на карточку: https://stroyka26.pro/?project=${encodeURIComponent(projectCard.code || '')}#projects`,
+      comment: buildPublicProjectLeadComment({
+        direction,
+        project: projectCard,
+        objectFormat: getReferenceObjectCard(direction, projectCard, getReferenceProjectEstimate(direction, projectCard)).format,
+        projectUrl: `https://stroyka26.pro/?project=${encodeURIComponent(projectCard.code || '')}#projects`,
+      }),
     }));
     if (scrollTarget === 'calculator' || scrollTarget === true) {
       setTimeout(() => scrollTo('calculator'), 0);
@@ -218,6 +232,17 @@ const PublicSitePage = ({ onLogin }) => {
     const nextValue = !isReferenceMirrored;
     setSelectedReferenceMediaId('render-front');
     setIsReferenceMirrored(nextValue);
+    setLead((current) => ({
+      ...current,
+      comment: buildPublicProjectLeadComment({
+        direction: selectedReference,
+        project: selectedReferenceProject,
+        objectFormat: selectedReferenceObjectCard.format,
+        projectUrl: selectedReferencePublicUrl,
+        mirrored: nextValue,
+        layoutPreferences,
+      }),
+    }));
     setReferenceActionMessage(nextValue ? 'Зеркальный вариант включён' : 'Обычный вариант восстановлен');
     setTimeout(() => scrollTo('selected-project-preview'), 0);
   };
@@ -230,19 +255,19 @@ const PublicSitePage = ({ onLogin }) => {
 
   const applyLayoutRequest = ({ spaces, bathrooms, garage, notes }) => {
     const isHouseLayout = selectedReference.calcPatch?.type === 'house';
-    const spacesText = isHouseLayout
-      ? `${spaces} ${spaces === 1 ? 'спальня' : spaces > 1 && spaces < 5 ? 'спальни' : 'спален'}`
-      : `${spaces} ${spaces === 1 ? 'комната / зона' : spaces > 1 && spaces < 5 ? 'комнаты / зоны' : 'комнат / зон'}`;
+    const nextLayoutPreferences = { spaces, bathrooms, garage, notes, isHouseLayout };
+    setLayoutPreferences(nextLayoutPreferences);
     setCalc((current) => ({ ...current, ...selectedReference.calcPatch, ...(selectedReferenceProject?.calcPatch || {}) }));
     setLead((current) => ({
       ...current,
-      comment: [
-        `Нужна доработка планировки. Направление: ${selectedReference.title}.`,
-        `Проект: ${selectedReferenceProject?.title || selectedReference.title}.`,
-        `Пожелания: ${spacesText}, ${bathrooms} ${bathrooms === 1 ? 'санузел' : bathrooms > 1 && bathrooms < 5 ? 'санузла' : 'санузлов'}${isHouseLayout ? `, ${garage ? 'гараж нужен' : 'гараж не нужен'}` : ''}.`,
-        notes ? `Дополнительно: ${notes}.` : '',
-        `Исходная планировка: ${selectedReferenceProject?.layout || selectedReference.text}`,
-      ].filter(Boolean).join(' '),
+      comment: buildPublicProjectLeadComment({
+        direction: selectedReference,
+        project: selectedReferenceProject,
+        objectFormat: selectedReferenceObjectCard.format,
+        projectUrl: selectedReferencePublicUrl,
+        mirrored: isReferenceMirrored,
+        layoutPreferences: nextLayoutPreferences,
+      }),
     }));
     setIsLayoutRequestOpen(false);
     setReferenceActionMessage('Запрос на изменение планировки добавлен в заявку');
@@ -250,8 +275,20 @@ const PublicSitePage = ({ onLogin }) => {
   };
 
   const calculateSelectedReference = () => {
+    setCalc((current) => ({ ...current, ...selectedReference.calcPatch, ...(selectedReferenceProject?.calcPatch || {}) }));
+    setLead((current) => ({
+      ...current,
+      comment: buildPublicProjectLeadComment({
+        direction: selectedReference,
+        project: selectedReferenceProject,
+        objectFormat: selectedReferenceObjectCard.format,
+        projectUrl: selectedReferencePublicUrl,
+        mirrored: isReferenceMirrored,
+        layoutPreferences,
+      }),
+    }));
     setReferenceActionMessage('Проект передан в калькулятор');
-    chooseReference(selectedReference, selectedReferenceProject, 'calculator');
+    setTimeout(() => scrollTo('calculator'), 0);
   };
 
 
@@ -795,11 +832,12 @@ const PublicSitePage = ({ onLogin }) => {
                     <PublicLayoutRequestEditor
                       key={selectedReferenceProject?.code || selectedReference.id}
                       projectTitle={selectedReferenceProject?.title || selectedReference.title}
-                      initialSpaces={selectedReference.calcPatch?.type === 'house'
+                      initialSpaces={layoutPreferences?.spaces ?? (selectedReference.calcPatch?.type === 'house'
                         ? Number(selectedReferenceProject?.calcPatch?.bedrooms) || Number.parseInt(selectedReferenceSpecs.find(([label]) => label === 'Количество спален')?.[1], 10) || 3
-                        : Number(selectedReferenceProject?.calcPatch?.rooms) || 1}
-                      initialBathrooms={Number(selectedReferenceProject?.calcPatch?.bathrooms) || 1}
-                      initialGarage={String(selectedReferenceSpecs.find(([label]) => label === 'Гараж')?.[1] || '').toLowerCase() === 'есть'}
+                        : Number(selectedReferenceProject?.calcPatch?.rooms) || 1)}
+                      initialBathrooms={layoutPreferences?.bathrooms ?? (Number(selectedReferenceProject?.calcPatch?.bathrooms) || 1)}
+                      initialGarage={layoutPreferences?.garage ?? String(selectedReferenceSpecs.find(([label]) => label === 'Гараж')?.[1] || '').toLowerCase() === 'есть'}
+                      initialNotes={layoutPreferences?.notes || ''}
                       isHouseLayout={selectedReference.calcPatch?.type === 'house'}
                       onApply={applyLayoutRequest}
                       onCancel={() => setIsLayoutRequestOpen(false)}
@@ -958,6 +996,10 @@ const PublicSitePage = ({ onLogin }) => {
             <strong>{selectedLeadProject.projectTitle}</strong>
             <small>
               {selectedLeadProject.directionTitle} · {selectedLeadProject.projectCode || 'проект'} · {selectedLeadProject.estimateRange}
+            </small>
+            <small>
+              {selectedLeadProject.variantLabel}
+              {layoutPreferences ? ` · ${describePublicLayoutPreferences(layoutPreferences)}` : ''}
             </small>
             <button type="button" onClick={() => scrollTo('projects')}>Изменить проект</button>
           </div>
