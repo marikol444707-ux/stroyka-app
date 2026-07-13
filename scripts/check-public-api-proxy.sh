@@ -91,6 +91,8 @@ check_not_spa "AI task reports route" "/ai-tasks/1/reports" "401 403"
 check_not_spa "AI control single run route" "/ai-control/run" "405"
 check_not_spa "AI findings generate route" "/ai-findings/generate" "405"
 check_not_spa "AI control run-all route" "/ai-control/run-all" "405"
+check_not_spa "messenger channels route" "/messenger-channels" "401 403"
+check_post_not_spa "messenger channels post route" "/messenger-channels" "401 403 422"
 
 if (( ${#FAILURES[@]} > 0 )); then
   echo "Public API proxy check failed:"

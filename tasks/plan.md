@@ -139,7 +139,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.7c: Make the read-only messenger ownership audit consume stored channel ownership and propagate it to channel outbox diagnostics. Production verified `7` company-owned rows and left only `5` failed deleted-parent rows unresolved.
 - [x] Task M6.7d1: Add guarded owner scope migration for messenger files/outbox; preserve explicitly selected failed deleted-parent rows as terminal legacy history. Production migrated all `8` rows and the post-audit is strict-ready.
 - [x] Task M6.7d2a1: Persist exact company/project owner on internal MAX file and outbox writes using stored entity owner or active employee memberships. Production runtime `e6f4934859bc`; public smoke and strict item-ownership audit passed.
-- [ ] Task M6.7d2a2: Persist exact owner on supplier-KP and marketing-publication outbox writes and on authenticated messenger-channel upsert. Implemented locally; protected supply/marketing smokes and production deploy pending.
+- [ ] Task M6.7d2a2: Persist exact owner on supplier-KP and marketing-publication outbox writes and on authenticated messenger-channel upsert. Production supply smoke passed on `d14f56eeb1db`; nginx messenger-channel proxy fix and marketing smoke rerun pending.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary

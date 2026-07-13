@@ -2412,7 +2412,7 @@
 
 **Description:** Store exact company/project ownership on supplier-KP and marketing-publication outbox messages and on authenticated messenger-channel upsert without changing outbox reads or dispatch.
 
-**Status:** Implemented locally. Protected supply/marketing smokes and production deploy pending.
+**Status:** Production supply smoke passed on `d14f56eeb1db`. Marketing smoke exposed an nginx HTML `405` before backend; route fix and rerun pending.
 
 **Safety:**
 - Supplier notifications inherit only the stored supply-request company/project and require a recipient from the same company.
