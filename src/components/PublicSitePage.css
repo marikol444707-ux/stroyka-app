@@ -2959,6 +2959,16 @@
   color: #ffffff;
 }
 
+.public-project-action-status {
+  min-height: 20px;
+  margin: -2px 0 0;
+  color: var(--site-green-dark);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.4;
+  text-align: center;
+}
+
 .public-reference-cta {
   justify-content: center;
 }

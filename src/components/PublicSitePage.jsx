@@ -47,6 +47,7 @@ const PublicSitePage = ({ onLogin }) => {
   const [selectedReferenceExample, setSelectedReferenceExample] = useState(getReferenceProjectCards(referenceDirections[0])[0].title);
   const [selectedReferenceMediaId, setSelectedReferenceMediaId] = useState('render-front');
   const [isReferenceMirrored, setIsReferenceMirrored] = useState(false);
+  const [referenceActionMessage, setReferenceActionMessage] = useState('');
   const deepLinkedReferenceRef = useRef(false);
 
   const {
@@ -206,15 +207,31 @@ const PublicSitePage = ({ onLogin }) => {
     const currentIndex = selectedReferenceProjects.findIndex((project) => project.title === selectedReferenceProject?.title);
     const nextProject = selectedReferenceProjects[(currentIndex + 1) % selectedReferenceProjects.length] || selectedReferenceProjects[0];
     chooseReference(selectedReference, nextProject);
+    setReferenceActionMessage(`Открыт похожий проект: ${nextProject.title}`);
+    setTimeout(() => scrollTo('selected-project-preview'), 0);
   };
 
-  const requestLayoutEditor = () => {
+  const toggleReferenceMirror = () => {
+    const nextValue = !isReferenceMirrored;
+    setSelectedReferenceMediaId('render-front');
+    setIsReferenceMirrored(nextValue);
+    setReferenceActionMessage(nextValue ? 'Зеркальный вариант включён' : 'Обычный вариант восстановлен');
+    setTimeout(() => scrollTo('selected-project-preview'), 0);
+  };
+
+  const requestLayoutChange = () => {
     setCalc((current) => ({ ...current, ...selectedReference.calcPatch, ...(selectedReferenceProject?.calcPatch || {}) }));
     setLead((current) => ({
       ...current,
       comment: `Нужна доработка планировки. Направление: ${selectedReference.title}. Проект: ${selectedReferenceProject?.title || selectedReference.title}. Планировка: ${selectedReferenceProject?.layout || selectedReference.text}`,
     }));
-    setTimeout(() => scrollTo('calculator'), 0);
+    setReferenceActionMessage('Запрос на изменение планировки добавлен в заявку');
+    setTimeout(() => scrollTo('request'), 0);
+  };
+
+  const calculateSelectedReference = () => {
+    setReferenceActionMessage('Проект передан в калькулятор');
+    chooseReference(selectedReference, selectedReferenceProject, 'calculator');
   };
 
 
@@ -617,7 +634,10 @@ const PublicSitePage = ({ onLogin }) => {
 	                      );
 	                    })}
 	                  </div>
-	                  <div className={isReferenceMirrored ? 'public-project-hero-visual mirrored' : 'public-project-hero-visual'}>
+	                  <div
+                      id="selected-project-preview"
+                      className={isReferenceMirrored ? 'public-project-hero-visual mirrored' : 'public-project-hero-visual'}
+                    >
 	                    <ProjectConceptVisual
 	                      direction={selectedReference}
 	                      project={selectedReferenceProject}
@@ -738,20 +758,23 @@ const PublicSitePage = ({ onLogin }) => {
                     className="public-project-outline"
                     type="button"
                     aria-pressed={isReferenceMirrored}
-                    onClick={() => setIsReferenceMirrored((value) => !value)}
+                    onClick={toggleReferenceMirror}
                   >
                     {isReferenceMirrored ? 'Вернуть обычный вариант' : 'Показать зеркальный вариант'}
                   </button>
-                  <button className="public-project-editor" type="button" onClick={requestLayoutEditor}>
-                    Редактор планировки
+                  <button className="public-project-editor" type="button" onClick={requestLayoutChange}>
+                    Изменить планировку в заявке
                   </button>
                   <button className="public-project-outline" type="button" onClick={chooseSimilarReferenceProject}>
                     Похожие по виду ({Math.max(3, selectedReferenceProjects.length)})
                   </button>
+                  <p className="public-project-action-status" role="status" aria-live="polite">
+                    {referenceActionMessage}
+                  </p>
                   <button
                     className="public-primary public-reference-cta"
                     type="button"
-                    onClick={() => chooseReference(selectedReference, selectedReferenceProject, 'calculator')}
+                    onClick={calculateSelectedReference}
                   >
                     Рассчитать такой проект
                     <ChevronRight size={18} />
