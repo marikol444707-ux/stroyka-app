@@ -14,6 +14,7 @@ from typing import Optional
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException, Query, Request, Response
 
+from .outbox_access import resolve_outbox_read_company_ids
 from .schema import ensure_messenger_schema
 from .writer_ownership import resolve_channel_write_owner as resolve_authenticated_channel_owner
 
@@ -210,6 +211,9 @@ def _public_messenger_outbox_item(row: dict) -> dict:
     row = row or {}
     return {
         "id": row.get("id"),
+        "ownerScope": row.get("owner_scope") or "",
+        "companyId": row.get("company_id"),
+        "projectId": row.get("project_id"),
         "provider": row.get("provider") or "",
         "messengerAccountId": row.get("messenger_account_id"),
         "userId": row.get("user_id"),
@@ -3350,6 +3354,8 @@ def register_messenger_module(app, deps):
         provider: str = Query(default="max"),
         status: str = Query(default="queued"),
         limit: int = Query(default=100, ge=1, le=500),
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
         current_user: dict = Depends(require_roles(*leadership_roles)),
     ):
         provider = _text(provider or "max", 40).lower()
@@ -3357,17 +3363,32 @@ def register_messenger_module(app, deps):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
+            company_context = resolve_work_company_context(
+                cur,
+                current_user,
+                None,
+                "read",
+                x_company_id=x_company_id,
+                x_company_mode=x_company_mode,
+            )
+            company_ids = resolve_outbox_read_company_ids(
+                company_context,
+                effective_company_actors(current_user, company_context),
+                leadership_roles=leadership_roles,
+            )
             if status and status != "all":
                 cur.execute(
                     """
                     SELECT *
                       FROM messenger_outbox
                      WHERE provider=%s
+                       AND owner_scope='company'
+                       AND company_id = ANY(%s)
                        AND status=%s
                      ORDER BY id DESC
                      LIMIT %s
                     """,
-                    (provider, status, limit),
+                    (provider, company_ids, status, limit),
                 )
             else:
                 cur.execute(
@@ -3375,10 +3396,12 @@ def register_messenger_module(app, deps):
                     SELECT *
                       FROM messenger_outbox
                      WHERE provider=%s
+                       AND owner_scope='company'
+                       AND company_id = ANY(%s)
                      ORDER BY id DESC
                      LIMIT %s
                     """,
-                    (provider, limit),
+                    (provider, company_ids, limit),
                 )
             return {"ok": True, "items": [_public_messenger_outbox_item(row) for row in cur.fetchall()]}
         finally:

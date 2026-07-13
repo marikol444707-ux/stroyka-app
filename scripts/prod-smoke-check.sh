@@ -177,6 +177,7 @@ check_not_spa_fallback "AI findings generate route" "$BASE_URL/ai-findings/gener
 check_not_spa_fallback "AI control run-all route" "$BASE_URL/ai-control/run-all" "405"
 check_not_spa_fallback "messenger channels route" "$BASE_URL/messenger-channels" "401 403"
 check_post_not_spa_fallback "messenger channels post route" "$BASE_URL/messenger-channels" "401 403 422"
+check_not_spa_fallback "messenger outbox route" "$BASE_URL/messenger-outbox" "401 403"
 check_not_spa_fallback "marketing publications route" "$BASE_URL/marketing-publications" "401 403"
 check_post_not_spa_fallback "marketing publications post route" "$BASE_URL/marketing-publications" "401 403 422"
 

@@ -2422,3 +2422,19 @@
 - Outbox reads, status changes and dispatch remain unchanged until `M6.7d2b`.
 
 **Estimated scope:** S
+
+## Task M6.7d2b1: Scope Authenticated MAX Outbox Reads
+
+**Description:** Restrict the leadership `/messenger-outbox` list to stored `owner_scope=company` rows from the selected tenant context without changing bot-token dispatch or status callbacks.
+
+**Status:** Implemented locally; focused ownership tests, full backend regression and frontend build pass. Production deploy and protected `smoke:messenger-outbox` pending.
+
+**Safety:**
+- A selected company is accepted only when its effective membership role is director or deputy director.
+- `Все компании` includes only companies where the effective role is leadership; lower-role memberships are excluded.
+- Queries require both `owner_scope='company'` and an allowed stored `company_id`, so terminal legacy rows and foreign-company messages are invisible.
+- The public response exposes stored owner scope/company/project for support diagnostics.
+- Bot-token `/max/outbox`, dispatch and status updates remain unchanged for the separately reviewed `M6.7d2b2` service-scope slice.
+- `smoke:messenger-outbox` verifies selected-company rows, rejects an inaccessible company header and checks leadership-only aggregation in `Все компании`.
+
+**Estimated scope:** S
