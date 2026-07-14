@@ -2,7 +2,12 @@ import unittest
 from unittest.mock import patch
 
 from . import ownership_report as ownership_report_module
-from .ownership_report import build_report_from_rows, load_ownership_rows, run_ownership_report
+from .ownership_report import (
+    build_report_from_rows,
+    load_ownership_rows,
+    review_plan_sha256,
+    run_ownership_report,
+)
 
 
 class ApiErrorOwnershipReportTests(unittest.TestCase):
@@ -187,6 +192,24 @@ class ApiErrorOwnershipReportTests(unittest.TestCase):
         self.assertEqual(connection.session, {"readonly": True, "autocommit": False})
         self.assertTrue(connection.closed)
         self.assertEqual(report["writesAttempted"], 0)
+
+    def test_production_review_fixture_keeps_exact_guard_sha(self):
+        review = [
+            {"recordId": 1, "status": "unresolved", "reason": "actor_not_found"},
+            *[
+                {"recordId": record_id, "status": "unresolved", "reason": "actor_missing"}
+                for record_id in range(34, 46)
+            ],
+            *[
+                {"recordId": record_id, "status": "unresolved", "reason": "actor_inactive"}
+                for record_id in (46, 47, 48, 64, 65)
+            ],
+        ]
+
+        self.assertEqual(
+            review_plan_sha256(review),
+            "9d0cdecb7ab563774626510d67f9a256ab22e2aedc83e7dc64bae09d57a5c7b7",
+        )
 
 
 if __name__ == "__main__":

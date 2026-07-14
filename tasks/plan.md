@@ -148,7 +148,8 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.8a1b: Prevent `smoke:platform-crm` from leaving ordinary audit-log orphans and add stable review counts/SHA to the read-only report. Released in `6620cb35`; the stable production review set was used by the guarded migration.
 - [x] Task M6.8a2: Add and apply the guarded nullable owner migration for `audit_log`. Production migrated all `1037` rows into `110 company + 800 platform + 127 legacy`; post-audit is strict-ready with zero unresolved, ambiguous or mismatched rows.
 - [ ] Task M6.8a3: Persist owner scope on every new audit event and restrict `/audit-log` to company-owned rows allowed by the selected company context. Pushed in `e83bf30c`; production deploy and protected smoke remain pending.
-- [x] Task M6.8b1: Add a read-only ownership report for `api_errors` before changing schema, writers or `/system-status`. Local tests and M6 registry validation pass; production report remains pending.
+- [x] Task M6.8b1: Add a read-only ownership report for `api_errors` before changing schema, writers or `/system-status`. Production classified `76/94` rows as company `1` and left `18` inactive/missing actor rows for explicit legacy review; no ambiguous or mismatched rows.
+- [ ] Task M6.8b2: Add a guarded nullable owner migration for `api_errors`, accepting the exact production review set only by SHA. Implemented locally; release and production dry-run/apply remain pending.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary

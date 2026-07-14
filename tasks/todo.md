@@ -2551,7 +2551,7 @@
 
 **Description:** Produce a read-only ownership report for `api_errors` before adding tenant columns or changing middleware, `/client-errors` or `/system-status`.
 
-**Status:** Implemented locally. Production read-only report remains pending.
+**Status:** Production report completed: `76/94` rows resolve to company `1`; `18` inactive/missing actor rows require explicit legacy review; ambiguous and mismatched are zero. `writesAttempted=0`.
 
 **Safety:**
 - The report opens a read-only transaction and always returns `writesAttempted=0`.
@@ -2563,6 +2563,26 @@
 
 **Verification:**
 - [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.api_error_ownership.test_ownership_report`
-- [ ] `npm run audit:api-error-ownership` on production.
+- [x] `npm run audit:api-error-ownership` on production.
+
+**Estimated scope:** S
+
+## Task M6.8b2: Guard API Error Ownership Migration
+
+**Description:** Add nullable stored ownership to `api_errors` without changing middleware, `/client-errors` or `/system-status`. Migrate verified company rows and preserve only the exact reviewed missing/inactive actor set as terminal `legacy`.
+
+**Status:** Implemented locally. Release and guarded production dry-run/apply remain pending.
+
+**Safety:**
+- Dry-run is the default, opens a read-only transaction and never changes schema or rows.
+- The `18` unresolved rows enter legacy only when `--legacy-review-sha` exactly matches production review SHA `9d0cdecb7ab563774626510d67f9a256ab22e2aedc83e7dc64bae09d57a5c7b7`.
+- Ambiguous and mismatched rows block apply and can never be hidden as legacy.
+- Apply requires `APPLY_API_ERROR_OWNERSHIP`, exact ready count and exact migration-plan SHA from the immediately preceding dry-run.
+- Apply locks `api_errors`, re-runs classification in a serializable transaction, updates only ownerless rows and rolls back on drift, conflict or failed strict post-check.
+- Runtime writers and `/system-status` remain unchanged until the guarded production migration is complete.
+
+**Verification:**
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.api_error_ownership.test_ownership_report backend.features.api_error_ownership.test_migration`
+- [ ] Production guarded dry-run and apply.
 
 **Estimated scope:** S

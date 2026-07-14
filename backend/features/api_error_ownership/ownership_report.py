@@ -113,28 +113,35 @@ def classify_error_row(row, users_by_id, user_companies):
     return result
 
 
-def _review_plan_sha(items):
+def review_plan_sha256(items):
+    review = [item for item in items or [] if item.get("status") != "verified"]
     plan = [
         {
             "recordId": item.get("recordId"),
             "status": item.get("status"),
             "reason": item.get("reason"),
         }
-        for item in sorted(items, key=lambda value: value.get("recordId") or 0)
+        for item in sorted(review, key=lambda value: value.get("recordId") or 0)
     ]
     payload = json.dumps(plan, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def build_report_from_rows(rows):
+def classify_ownership_rows(rows):
     rows = rows or {}
     errors = [dict(row or {}) for row in rows.get("api_errors", []) or []]
     users_by_id = _user_index(rows.get("users", []))
     user_companies = _membership_index(rows.get("user_company_roles", []))
-    classified = [
+    return [
         classify_error_row(row, users_by_id, user_companies)
         for row in errors
     ]
+
+
+def build_report_from_rows(rows):
+    rows = rows or {}
+    errors = [dict(row or {}) for row in rows.get("api_errors", []) or []]
+    classified = classify_ownership_rows(rows)
     counts = Counter(item["status"] for item in classified)
     verified = [item for item in classified if item["status"] == "verified"]
     review = [item for item in classified if item["status"] != "verified"]
@@ -173,7 +180,7 @@ def build_report_from_rows(rows):
             "first": min(review_ids) if review_ids else None,
             "last": max(review_ids) if review_ids else None,
         },
-        "reviewPlanSha256": _review_plan_sha(review),
+        "reviewPlanSha256": review_plan_sha256(review),
         "needsReview": review[:PREVIEW_LIMIT],
         "reviewListTruncated": len(review) > PREVIEW_LIMIT,
     }
