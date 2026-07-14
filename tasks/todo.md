@@ -2591,7 +2591,7 @@
 
 **Description:** Persist exact stored owner on middleware and `/client-errors` writes, then restrict every `api_errors` count and row returned by `/system-status` to the selected authorized scope.
 
-**Status:** Implemented locally. Release and protected production smoke remain pending.
+**Status:** Runtime `c310a33c` deployed; migration and public smoke pass. Protected smoke found a missing production nginx proxy for `POST /client-errors`; route guard is implemented locally and nginx hotfix/redeploy remain pending.
 
 **Safety:**
 - One shared runtime writer stores all owner columns; new rows never remain ownerless and never enter `legacy`.

@@ -101,6 +101,7 @@ check_not_spa "MAX outbox worker route" "/max/outbox" "401 403"
 check_post_not_spa "MAX outbox dispatch route" "/max/outbox/dispatch?dry_run=true" "401 403"
 check_not_spa "marketing publications route" "/marketing-publications" "401 403"
 check_post_not_spa "marketing publications post route" "/marketing-publications" "401 403 422"
+check_post_not_spa "client errors route" "/client-errors" "200 422 429"
 
 if (( ${#FAILURES[@]} > 0 )); then
   echo "Public API proxy check failed:"

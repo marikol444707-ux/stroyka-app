@@ -186,6 +186,7 @@ check_not_spa_fallback "MAX outbox worker route" "$BASE_URL/max/outbox" "401 403
 check_post_not_spa_fallback "MAX outbox dispatch route" "$BASE_URL/max/outbox/dispatch?dry_run=true" "401 403"
 check_not_spa_fallback "marketing publications route" "$BASE_URL/marketing-publications" "401 403"
 check_post_not_spa_fallback "marketing publications post route" "$BASE_URL/marketing-publications" "401 403 422"
+check_post_not_spa_fallback "client errors route" "$BASE_URL/client-errors" "200 422 429"
 
 if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
   login_payload="$(python3 -c 'import json,os; print(json.dumps({"email": os.environ["SMOKE_EMAIL"], "password": os.environ["SMOKE_PASSWORD"]}, ensure_ascii=False))')"
