@@ -5,7 +5,7 @@ import {
   formatMoney,
   partnerTypes,
 } from './publicSiteContent';
-import { uploadPublicLeadFiles, validatePublicLeadFiles } from './publicLeadFiles';
+import { mergePublicLeadFiles, uploadPublicLeadFiles } from './publicLeadFiles';
 
 export const usePublicSiteLeadForms = ({ result, selectedLeadProject, onLeadFilesChanged }) => {
   const [lead, setLead] = useState({ name: '', phone: '', comment: '' });
@@ -15,6 +15,7 @@ export const usePublicSiteLeadForms = ({ result, selectedLeadProject, onLeadFile
   const [leadSending, setLeadSending] = useState(false);
   const [leadError, setLeadError] = useState('');
   const [leadFiles, setLeadFiles] = useState([]);
+  const [leadFileError, setLeadFileError] = useState('');
   const [partnerLead, setPartnerLead] = useState({
     type: 'supplier',
     name: '',
@@ -32,16 +33,21 @@ export const usePublicSiteLeadForms = ({ result, selectedLeadProject, onLeadFile
   const [partnerError, setPartnerError] = useState('');
 
   const chooseLeadFiles = (fileList) => {
-    setLeadError('');
+    setLeadFileError('');
     try {
-      const files = validatePublicLeadFiles(fileList);
+      const files = mergePublicLeadFiles(leadFiles, fileList);
       setLeadFiles(files);
       onLeadFilesChanged?.(files.length);
     } catch (error) {
-      setLeadFiles([]);
-      onLeadFilesChanged?.(0);
-      setLeadError(error.message || 'Не удалось выбрать файлы');
+      setLeadFileError(error.message || 'Не удалось выбрать файлы');
     }
+  };
+
+  const removeLeadFile = (index) => {
+    setLeadFileError('');
+    const nextFiles = leadFiles.filter((_, fileIndex) => fileIndex !== index);
+    setLeadFiles(nextFiles);
+    onLeadFilesChanged?.(nextFiles.length);
   };
 
   const submitLead = async (event) => {
@@ -93,6 +99,7 @@ export const usePublicSiteLeadForms = ({ result, selectedLeadProject, onLeadFile
       setLeadConsent(false);
       setLeadWebsite('');
       setLeadFiles([]);
+      setLeadFileError('');
       onLeadFilesChanged?.(0);
     } catch (error) {
       setLeadError(error.message || 'Не удалось отправить заявку');
@@ -176,7 +183,9 @@ export const usePublicSiteLeadForms = ({ result, selectedLeadProject, onLeadFile
     leadSending,
     leadError,
     leadFiles,
+    leadFileError,
     chooseLeadFiles,
+    removeLeadFile,
     partnerLead,
     setPartnerLead,
     partnerConsent,

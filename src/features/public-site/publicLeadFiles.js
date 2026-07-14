@@ -24,6 +24,21 @@ export const validatePublicLeadFiles = (fileList) => {
   return files;
 };
 
+const getPublicLeadFileKey = (file) => [
+  file.name,
+  file.size,
+  file.type,
+  file.lastModified,
+].join(':');
+
+export const mergePublicLeadFiles = (currentFiles, newFiles) => {
+  const mergedFiles = [...Array.from(currentFiles || []), ...Array.from(newFiles || [])];
+  const uniqueFiles = Array.from(new Map(
+    mergedFiles.map((file) => [getPublicLeadFileKey(file), file])
+  ).values());
+  return validatePublicLeadFiles(uniqueFiles);
+};
+
 export const uploadPublicLeadFiles = async (files, api, fetchImpl = fetch) => {
   const validatedFiles = validatePublicLeadFiles(files);
   const tokens = [];

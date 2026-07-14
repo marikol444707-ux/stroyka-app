@@ -1,5 +1,6 @@
 import React from 'react';
-import { Calculator, Check, Upload } from 'lucide-react';
+import { Calculator, Check } from 'lucide-react';
+import { PublicProjectFilePicker } from './PublicProjectFilePicker';
 import {
   workTypes,
   houseWallTypes,
@@ -22,7 +23,9 @@ export const PublicSiteCalculatorSection = ({
   scrollTo,
   leadFileUploadsEnabled = false,
   leadFiles = [],
+  leadFileError = '',
   chooseLeadFiles,
+  removeLeadFile,
 }) => (
           <section id="calculator" className="public-calculator" aria-label="Калькулятор строительства">
             <div className="public-tool-header">
@@ -255,26 +258,16 @@ export const PublicSiteCalculatorSection = ({
                 </>
               )}
 
-              {leadFileUploadsEnabled && (
-                <>
-                  <label className="public-upload">
-                    <Upload size={16} />
-                    Проект / фото / план
-                    <input
-                      type="file"
-                      accept="application/pdf,image/jpeg,image/png,image/webp"
-                      multiple
-                      onChange={(event) => chooseLeadFiles?.(event.target.files)}
-                    />
-                  </label>
-                  {leadFiles.length > 0 && (
-                    <span className="public-file-count">
-                      Выбрано файлов: {leadFiles.length} · до 10 МБ каждый
-                    </span>
-                  )}
-                </>
-              )}
             </div>
+
+            {leadFileUploadsEnabled && (
+              <PublicProjectFilePicker
+                files={leadFiles}
+                error={leadFileError}
+                onChoose={chooseLeadFiles}
+                onRemove={removeLeadFile}
+              />
+            )}
 
             <div className="public-result">
               <div className="public-result-main">

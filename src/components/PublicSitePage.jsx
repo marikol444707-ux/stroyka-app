@@ -201,7 +201,9 @@ const PublicSitePage = ({ onLogin }) => {
     leadSending,
     leadError,
     leadFiles,
+    leadFileError,
     chooseLeadFiles,
+    removeLeadFile,
     partnerLead,
     setPartnerLead,
     partnerConsent,
@@ -464,7 +466,9 @@ const PublicSitePage = ({ onLogin }) => {
             scrollTo={scrollTo}
             leadFileUploadsEnabled={leadFileUploadsEnabled}
             leadFiles={leadFiles}
+            leadFileError={leadFileError}
             chooseLeadFiles={chooseLeadFiles}
+            removeLeadFile={removeLeadFile}
           />
 
           <section id="passport" className="public-passport" aria-label="Цифровой паспорт объекта">
@@ -1128,6 +1132,9 @@ const PublicSitePage = ({ onLogin }) => {
             </small>
             {selectedReferencePackage && (
               <small>Комплектация: {selectedReferencePackage.label} · {selectedReferencePackage.duration}</small>
+            )}
+            {leadFiles.length > 0 && (
+              <small>Приложено файлов: {leadFiles.length}</small>
             )}
             <small>
               {selectedLeadProject.variantLabel}

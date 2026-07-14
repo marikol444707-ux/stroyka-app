@@ -1,4 +1,8 @@
-import { validatePublicLeadFiles, uploadPublicLeadFiles } from './publicLeadFiles';
+import {
+  mergePublicLeadFiles,
+  validatePublicLeadFiles,
+  uploadPublicLeadFiles,
+} from './publicLeadFiles';
 
 describe('public lead files', () => {
   test('accepts up to five supported files', () => {
@@ -21,6 +25,13 @@ describe('public lead files', () => {
   test('rejects unsupported file type', () => {
     const files = [new File(['sheet'], 'estimate.xlsx', { type: 'application/vnd.ms-excel' })];
     expect(() => validatePublicLeadFiles(files)).toThrow('PDF, JPEG, PNG или WebP');
+  });
+
+  test('adds new files without duplicating an already selected file', () => {
+    const plan = new File(['%PDF-1.7'], 'plan.pdf', { type: 'application/pdf', lastModified: 100 });
+    const photo = new File(['photo'], 'house.jpg', { type: 'image/jpeg', lastModified: 200 });
+
+    expect(mergePublicLeadFiles([plan], [plan, photo])).toEqual([plan, photo]);
   });
 
   test('uploads files and returns tokens', async () => {
