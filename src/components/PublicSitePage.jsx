@@ -56,7 +56,11 @@ import { usePublicSiteCalculator } from '../features/public-site/usePublicSiteCa
 import { usePublicSiteProjects } from '../features/public-site/usePublicSiteProjects';
 import { usePublicSiteLeadForms } from '../features/public-site/usePublicSiteLeadForms';
 import { PublicProjectComparisonPanel } from '../features/public-site/PublicProjectComparisonPanel';
-import { buildPublicProjectComparisonItem } from '../features/public-site/publicProjectComparison';
+import {
+  buildPublicProjectComparisonItem,
+  buildPublicProjectComparisonUrl,
+  parsePublicProjectComparisonCodes,
+} from '../features/public-site/publicProjectComparison';
 import {
   publicPlotCheckDefaults,
   serializePublicPlotCheck,
@@ -77,6 +81,7 @@ const PublicSitePage = ({ onLogin }) => {
     getPublicProjectHousePackage(getReferenceProjectCards(referenceDirections[0])[0]?.calcPatch?.package).value
   ));
   const deepLinkedReferenceRef = useRef(false);
+  const comparisonDirectionRef = useRef(selectedReferenceId);
 
   const {
     sitePricingRules,
@@ -153,6 +158,14 @@ const PublicSitePage = ({ onLogin }) => {
       project,
       estimate: getReferenceProjectEstimate(selectedReference, project),
     }));
+  const comparisonShareUrl = typeof window !== 'undefined'
+    ? buildPublicProjectComparisonUrl({
+        origin: window.location.origin,
+        pathname: window.location.pathname,
+        selectedCode: selectedReferenceProject?.code,
+        comparedCodes: comparedProjectCodes,
+      })
+    : '';
   const selectedReferenceRenderCount = selectedReferenceMediaOptions.filter((item) => item.role === 'render' || item.kind === 'render').length;
   const selectedReferencePlanCount = selectedReferenceMediaOptions.filter((item) => item.role === 'plan' || item.kind === 'plan').length;
   const selectedReferenceAssetSummary = [
@@ -314,14 +327,24 @@ const PublicSitePage = ({ onLogin }) => {
     if (deepLinkedReferenceRef.current) return;
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
-    const projectCode = params.get('project') || params.get('ref');
+    const comparisonValue = params.get('compare');
+    const comparisonFirstCode = String(comparisonValue || '').split(',')[0].trim();
+    const projectCode = params.get('project') || params.get('ref') || comparisonFirstCode;
     const match = findReferenceProjectByCode(projectCode);
     if (!match) return;
+    const sharedComparisonCodes = parsePublicProjectComparisonCodes(
+      comparisonValue,
+      getReferenceProjectCards(match.direction),
+    );
     deepLinkedReferenceRef.current = true;
+    comparisonDirectionRef.current = match.direction.id;
     chooseReference(match.direction, match.project, 'catalog');
+    setComparedProjectCodes(sharedComparisonCodes);
   }, [chooseReference]);
 
   useEffect(() => {
+    if (comparisonDirectionRef.current === selectedReferenceId) return;
+    comparisonDirectionRef.current = selectedReferenceId;
     setComparedProjectCodes([]);
   }, [selectedReferenceId]);
 
@@ -360,6 +383,40 @@ const PublicSitePage = ({ onLogin }) => {
     chooseReference(selectedReference, project);
     setReferenceActionMessage(`Выбран проект ${code} для расчёта`);
     setTimeout(() => scrollTo('selected-project-preview'), 0);
+  };
+
+  const shareProjectComparison = async () => {
+    if (!comparisonShareUrl) return;
+    try {
+      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+        await navigator.share({
+          title: `Сравнение проектов ${comparedProjectCodes.join(', ')}`,
+          text: 'Проекты СтройКа для совместного выбора',
+          url: comparisonShareUrl,
+        });
+        setReferenceActionMessage('Ссылка на сравнение отправлена');
+        return;
+      }
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(comparisonShareUrl);
+        setReferenceActionMessage('Ссылка на сравнение скопирована');
+        return;
+      }
+      const textarea = document.createElement('textarea');
+      textarea.value = comparisonShareUrl;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand?.('copy');
+      document.body.removeChild(textarea);
+      if (!copied) throw new Error('copy unavailable');
+      setReferenceActionMessage('Ссылка на сравнение скопирована');
+    } catch (error) {
+      if (error?.name === 'AbortError') return;
+      setReferenceActionMessage('Не удалось поделиться. Откройте ссылку ещё раз и повторите.');
+    }
   };
 
   const syncReferencePackage = (packageOption) => {
@@ -853,6 +910,7 @@ const PublicSitePage = ({ onLogin }) => {
                     selectedCode={selectedReferenceProject?.code}
                     onSelect={selectComparedProject}
                     onRemove={removeComparedProject}
+                    onShare={shareProjectComparison}
                   />
                 )}
 	              <div className="public-project-catalog-main">

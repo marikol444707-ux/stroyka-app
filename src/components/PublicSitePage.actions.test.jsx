@@ -5,6 +5,7 @@ import PublicSitePage from './PublicSitePage';
 describe('public project actions', () => {
   beforeEach(() => {
     jest.useFakeTimers();
+    window.history.replaceState({}, '', '/');
     Element.prototype.scrollIntoView = jest.fn();
     global.fetch = jest.fn().mockResolvedValue({
       ok: false,
@@ -16,6 +17,7 @@ describe('public project actions', () => {
     jest.runOnlyPendingTimers();
     jest.useRealTimers();
     jest.restoreAllMocks();
+    delete navigator.share;
   });
 
   const flushActions = () => {
@@ -74,6 +76,38 @@ describe('public project actions', () => {
 
     expect(screen.queryByRole('region', { name: 'Сравнение проектов' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Добавить B1-01 к сравнению' })).toBeInTheDocument();
+  });
+
+  test('opens the same project comparison from a shared URL', async () => {
+    window.history.replaceState({}, '', '/?project=H1-02&compare=H1-01%2CH1-02#projects');
+
+    render(<PublicSitePage onLogin={jest.fn()} />);
+
+    const comparison = await screen.findByRole('region', { name: 'Сравнение проектов' });
+    expect(comparison).toHaveTextContent('Одноэтажный кирпичный дом 110 м2');
+    expect(comparison).toHaveTextContent('Дом 116 м2 с кухней-гостиной');
+    expect(comparison).toHaveTextContent('2 из 3');
+    expect(document.querySelector('.public-project-spec-column h3')).toHaveTextContent('Дом 116 м2 с кухней-гостиной');
+  });
+
+  test('shares the selected project and comparison list', async () => {
+    const share = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+    render(<PublicSitePage onLogin={jest.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить H1-01 к сравнению' }));
+    fireEvent.click(screen.getByRole('button', { name: /H1-02.*Дом 116 м2 с кухней-гостиной/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить H1-02 к сравнению' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Поделиться сравнением' }));
+      await Promise.resolve();
+    });
+
+    expect(share).toHaveBeenCalledTimes(1);
+    const sharedUrl = new URL(share.mock.calls[0][0].url);
+    expect(sharedUrl.searchParams.get('project')).toBe('H1-02');
+    expect(sharedUrl.searchParams.get('compare')).toBe('H1-01,H1-02');
+    expect(sharedUrl.hash).toBe('#projects');
   });
 
   test('collects layout changes and opens a prefilled request', () => {

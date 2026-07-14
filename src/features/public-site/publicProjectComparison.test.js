@@ -1,4 +1,8 @@
-import { buildPublicProjectComparisonItem } from './publicProjectComparison';
+import {
+  buildPublicProjectComparisonItem,
+  buildPublicProjectComparisonUrl,
+  parsePublicProjectComparisonCodes,
+} from './publicProjectComparison';
 
 test('builds a comparable project summary from public project fields', () => {
   const item = buildPublicProjectComparisonItem({
@@ -38,4 +42,24 @@ test('omits house-only facts for a repair project', () => {
   expect(item.facts).not.toEqual(expect.arrayContaining([
     expect.arrayContaining(['Материал стен']),
   ]));
+});
+
+test('keeps only unique project codes from the opened direction', () => {
+  const projects = [{ code: 'H1-01' }, { code: 'H1-02' }, { code: 'H1-03' }];
+
+  expect(parsePublicProjectComparisonCodes('H1-01,H1-02,H1-01,B2-01,H1-03,H1-04', projects))
+    .toEqual(['H1-01', 'H1-02', 'H1-03']);
+});
+
+test('builds a shareable comparison URL without carrying unrelated query data', () => {
+  const url = new URL(buildPublicProjectComparisonUrl({
+    origin: 'https://stroyka26.pro',
+    pathname: '/',
+    selectedCode: 'H1-02',
+    comparedCodes: ['H1-01', 'H1-02'],
+  }));
+
+  expect(url.searchParams.get('project')).toBe('H1-02');
+  expect(url.searchParams.get('compare')).toBe('H1-01,H1-02');
+  expect(url.hash).toBe('#projects');
 });

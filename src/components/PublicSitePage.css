@@ -1887,10 +1887,40 @@
   font-size: 12px;
 }
 
-.public-project-comparison-head strong {
+.public-project-comparison-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.public-project-comparison-actions strong {
   color: var(--site-green-dark);
   font-size: 13px;
   white-space: nowrap;
+}
+
+.public-project-comparison-actions button {
+  min-height: 34px;
+  border: 1px solid #bfd9d0;
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--site-green-dark);
+  padding: 7px 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.public-project-comparison-actions button:hover {
+  border-color: var(--site-green);
+  background: var(--site-chip-bg);
 }
 
 .public-project-comparison-grid {
@@ -4514,6 +4544,16 @@
   }
   .public-project-comparison {
     padding: 14px;
+  }
+  .public-project-comparison-head {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .public-project-comparison-actions {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+  }
+  .public-project-comparison-select {
+    scroll-margin-bottom: 90px;
   }
   .public-project-comparison-grid {
     grid-template-columns: 1fr;

@@ -5,6 +5,28 @@ const wallTypeLabels = {
   frame: 'Каркас',
 };
 
+export const parsePublicProjectComparisonCodes = (value, projects = []) => {
+  const allowedCodes = new Set(projects.map((project) => project.code).filter(Boolean));
+  const parsed = String(value || '')
+    .split(',')
+    .map((code) => code.trim())
+    .filter((code) => allowedCodes.has(code));
+  return [...new Set(parsed)].slice(0, 3);
+};
+
+export const buildPublicProjectComparisonUrl = ({
+  origin,
+  pathname = '/',
+  selectedCode,
+  comparedCodes = [],
+}) => {
+  const url = new URL(pathname || '/', origin);
+  if (selectedCode) url.searchParams.set('project', selectedCode);
+  if (comparedCodes.length) url.searchParams.set('compare', comparedCodes.slice(0, 3).join(','));
+  url.hash = 'projects';
+  return url.toString();
+};
+
 export const buildPublicProjectComparisonItem = ({ project = {}, estimate = {} }) => {
   const calc = project.calcPatch || {};
   const isHouse = (calc.type || 'house') === 'house';

@@ -1,7 +1,7 @@
 import React from 'react';
-import { Check, GitCompare, X } from 'lucide-react';
+import { Check, GitCompare, Share2, X } from 'lucide-react';
 
-export const PublicProjectComparisonPanel = ({ items, selectedCode, onSelect, onRemove }) => (
+export const PublicProjectComparisonPanel = ({ items, selectedCode, onSelect, onRemove, onShare }) => (
   <section className="public-project-comparison" aria-label="Сравнение проектов">
     <div className="public-project-comparison-head">
       <span><GitCompare size={17} /></span>
@@ -9,7 +9,13 @@ export const PublicProjectComparisonPanel = ({ items, selectedCode, onSelect, on
         <h4>Сравнение проектов</h4>
         <p>{items.length < 2 ? 'Добавьте ещё один проект этого направления.' : 'Сравните основные параметры и выберите вариант для расчёта.'}</p>
       </div>
-      <strong>{items.length} из 3</strong>
+      <div className="public-project-comparison-actions">
+        <strong>{items.length} из 3</strong>
+        <button type="button" onClick={onShare} aria-label="Поделиться сравнением">
+          <Share2 size={15} />
+          Поделиться
+        </button>
+      </div>
     </div>
     <div className="public-project-comparison-grid" style={{ '--comparison-count': items.length }}>
       {items.map((item) => (
