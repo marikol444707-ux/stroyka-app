@@ -2505,7 +2505,7 @@
 
 **Description:** Stop platform CRM smoke from deleting test parents while leaving their ordinary audit history orphaned, and make the read-only report identify the complete review set with stable counts and SHA.
 
-**Status:** Implemented locally. Production rerun is pending.
+**Status:** Released. The stable production review set was used unchanged by the guarded ownership migration.
 
 **Safety:**
 - Smoke cleanup deletes only rows whose project, actor or description contains the unique `CODEX PLATFORM CRM SMOKE <run id>` prefix from the current run.
@@ -2519,7 +2519,7 @@
 
 **Description:** Add nullable stored ownership to `audit_log` without changing runtime reads/writes yet. Migrate exact company/platform rows automatically and preserve only the explicitly reviewed deleted-parent set as `legacy`.
 
-**Status:** Implemented locally. Production ownership rerun, guarded migration dry-run and explicit apply remain pending.
+**Status:** Production complete. The guarded apply updated `1037/1037` rows with no conflicts: `110` company, `800` platform and `127` explicitly reviewed legacy rows. Post-audit reports `readyForStrictRuntime=true`, zero legacy-ownerless rows and zero unresolved/ambiguous/mismatched rows.
 
 **Safety:**
 - Dry-run is the default, opens a read-only transaction and never changes schema or rows.
@@ -2528,6 +2528,21 @@
 - Apply additionally requires `APPLY_AUDIT_LOG_OWNERSHIP`, exact ready count and exact full migration-plan SHA from the immediately preceding dry-run.
 - The apply path locks `audit_log`, re-runs ownership inside a serializable transaction, updates only completely ownerless rows and rolls back on count/SHA drift, write conflict or failed post-check.
 - `legacy` cannot carry company/project IDs; platform rows cannot carry tenant IDs; company rows require a company ID.
-- `/audit-log` and `log_audit` remain unchanged until the migration is complete and the next runtime slice is separately verified.
+- `/audit-log` and `log_audit` remained unchanged during migration; runtime tenant enforcement is the separate `M6.8a3` slice.
+
+**Estimated scope:** S
+
+## Task M6.8a3: Persist And Enforce Audit Runtime Ownership
+
+**Description:** Make every new audit row store an explicit owner scope and restrict the company activity journal to stored company-owned rows visible through the selected company context.
+
+**Status:** Implemented locally. Production deploy, protected activity-log smoke and post-deploy strict ownership audit remain pending.
+
+**Safety:**
+- The central writer resolves ownership only from an exact project, supported stored entity parent or active actor membership. Platform identity actions remain `platform`.
+- If ownership evidence is missing, conflicting or ambiguous, the event is preserved as terminal `legacy`; it is never guessed into a company and never appears in `/audit-log`.
+- Direct UI audit writes ignore client actor identity, require one selected company and store the server-resolved effective actor and company. A supplied project must exist exactly in that company.
+- `/audit-log` always requires `owner_scope='company'` and a stored `company_id`; selected-company and `Все компании` reads include only companies where the effective membership role is director, deputy director or accountant.
+- The existing search/date/action filters remain server-side and are applied after the owner boundary.
 
 **Estimated scope:** S

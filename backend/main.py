@@ -3221,6 +3221,7 @@ def director_agent_ask(
             parsed = _director_agent_extract_json(reply)
         except Exception:
             log_audit(
+                user_id=current_user.get("id"),
                 user_name=current_user.get("name", ""),
                 user_role=current_user.get("role", ""),
                 action="director_agent_ask",
@@ -3231,6 +3232,7 @@ def director_agent_ask(
         tool = parsed.get("tool") or ""
         if tool == "answer":
             log_audit(
+                user_id=current_user.get("id"),
                 user_name=current_user.get("name", ""),
                 user_role=current_user.get("role", ""),
                 action="director_agent_ask",
@@ -3257,6 +3259,7 @@ def director_agent_ask(
     messages.append({"role": "user", "text": "Дай финальный ответ директору на основе уже полученных данных обычным текстом."})
     reply = _director_agent_call_yandex(messages, temperature=0.25)
     log_audit(
+        user_id=current_user.get("id"),
         user_name=current_user.get("name", ""),
         user_role=current_user.get("role", ""),
         action="director_agent_ask",
@@ -3743,8 +3746,24 @@ def init_db():
             description TEXT,
             project_name VARCHAR(255),
             ip VARCHAR(50),
+            owner_scope TEXT,
+            company_id INT,
+            project_id INT,
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS owner_scope TEXT;
+        ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS project_id INT;
+        CREATE INDEX IF NOT EXISTS idx_audit_log_owner ON audit_log(owner_scope,company_id,project_id);
+        DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_audit_log_owner_scope') THEN
+                ALTER TABLE audit_log ADD CONSTRAINT ck_audit_log_owner_scope CHECK (
+                    (owner_scope IS NULL AND company_id IS NULL AND project_id IS NULL) OR
+                    (owner_scope='company' AND company_id IS NOT NULL) OR
+                    (owner_scope IN ('platform','legacy') AND company_id IS NULL AND project_id IS NULL)
+                );
+            END IF;
+        END $$;
         CREATE TABLE IF NOT EXISTS api_errors (
             id SERIAL PRIMARY KEY,
             method VARCHAR(20),
@@ -27851,71 +27870,6 @@ def ai_generate_tb_instruction(data: dict, current_user: dict = Depends(require_
         raise HTTPException(status_code=502, detail="AI вернул пустой ответ: " + str(err))
     return {"ok": True, "instructionText": answer.strip()}
 
-@app.get("/audit-log")
-def list_audit_log(
-    limit: int = 200,
-    offset: int = 0,
-    search: str = "",
-    user_name: str = "",
-    user_role: str = "",
-    action: str = "",
-    entity_type: str = "",
-    project_name: str = "",
-    date_from: str = "",
-    date_to: str = "",
-    _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "бухгалтер")),
-):
-    limit = max(1, min(int(limit or 200), 500))
-    offset = max(0, int(offset or 0))
-    where = []
-    params = []
-
-    def add_like(column, value):
-        value = (value or "").strip()
-        if value:
-            where.append(f"COALESCE({column}, '') ILIKE %s")
-            params.append("%" + value + "%")
-
-    add_like("user_name", user_name)
-    add_like("user_role", user_role)
-    add_like("action", action)
-    add_like("entity_type", entity_type)
-    add_like("project_name", project_name)
-
-    search = (search or "").strip()
-    if search:
-        where.append("""(
-            COALESCE(user_name, '') ILIKE %s OR
-            COALESCE(user_role, '') ILIKE %s OR
-            COALESCE(action, '') ILIKE %s OR
-            COALESCE(entity_type, '') ILIKE %s OR
-            COALESCE(description, '') ILIKE %s OR
-            COALESCE(project_name, '') ILIKE %s
-        )""")
-        params.extend(["%" + search + "%"] * 6)
-
-    if date_from:
-        where.append("created_at >= %s")
-        params.append(date_from)
-    if date_to:
-        where.append("created_at < (%s::date + INTERVAL '1 day')")
-        params.append(date_to)
-
-    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT id, user_id, user_name, user_role, action, entity_type, entity_id, description, project_name, created_at "
-        f"FROM audit_log{where_sql} ORDER BY created_at DESC, id DESC LIMIT %s OFFSET %s",
-        tuple(params + [limit, offset]),
-    )
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [{"id":r[0],"userId":r[1],"userName":r[2] or "","userRole":r[3] or "",
-             "action":r[4] or "","entityType":r[5] or "","entityId":r[6],
-             "description":r[7] or "","projectName":r[8] or "",
-             "createdAt":r[9].isoformat() if hasattr(r[9], "isoformat") else str(r[9])} for r in rows]
-
 @app.get("/inspection-orders")
 def list_inspection_orders(project_name: str = None, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     conn = get_db()
@@ -28743,18 +28697,87 @@ def delete_inspection_order(id: int, current_user: dict = Depends(require_roles(
     cur.close(); conn.close()
     return {"ok": True}
 
-def log_audit(user_name="", user_role="", action="", entity_type="", entity_id=None, description="", project_name=""):
+def log_audit(
+    user_name="",
+    user_role="",
+    action="",
+    entity_type="",
+    entity_id=None,
+    description="",
+    project_name="",
+    user_id=None,
+    owner_scope=None,
+    company_id=None,
+    project_id=None,
+):
     """Запись действия в audit_log. Тихо игнорирует ошибки чтобы не ломать основные операции."""
+    conn = None
+    cur = None
     try:
+        try:
+            from backend.features.audit_ownership.runtime import insert_audit_event
+        except ModuleNotFoundError:
+            from features.audit_ownership.runtime import insert_audit_event
         conn = get_db()
-        cur = conn.cursor()
-        cur.execute("""INSERT INTO audit_log (user_name, user_role, action, entity_type, entity_id, description, project_name)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s)""",
-                    (user_name, user_role, action, entity_type, entity_id, description, project_name))
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        result = insert_audit_event(
+            cur,
+            user_id=user_id,
+            user_name=user_name,
+            user_role=user_role,
+            action=action,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            description=description,
+            project_name=project_name,
+            owner_scope=owner_scope,
+            company_id=company_id,
+            project_id=project_id,
+        )
         conn.commit()
-        cur.close(); conn.close()
+        if result["owner"]["scope"] == "legacy":
+            print(
+                "AUDIT OWNER LEGACY:",
+                str(action or ""),
+                str(entity_type or ""),
+                entity_id,
+                result["owner"].get("reason"),
+            )
+        return result["id"]
     except Exception as e:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
         print("AUDIT LOG ERROR:", str(e))
+        return None
+    finally:
+        if cur:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+try:
+    from backend.features.audit_ownership.routes import register_audit_log_module
+except ModuleNotFoundError:
+    from features.audit_ownership.routes import register_audit_log_module
+
+
+register_audit_log_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "allowed_roles": (*LEADERSHIP_ROLES, "бухгалтер"),
+})
 
 def save_doc_version(document_type, document_id, snapshot_json, changed_by="", change_reason=""):
     """Сохранить snapshot документа в document_versions. Возвращает label новой версии."""
@@ -28813,21 +28836,6 @@ def get_document_version(vid: int, _current_user: dict = Depends(require_roles(*
     return {"id":r[0],"documentType":r[1],"documentId":r[2],"versionLabel":r[3],
             "snapshot":snap,"changedBy":r[5] or "","changeReason":r[6] or "",
             "createdAt":str(r[7])}
-
-@app.post("/audit-log")
-def create_audit_entry(data: dict, current_user: dict = Depends(get_current_user)):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""INSERT INTO audit_log
-                   (user_id, user_name, user_role, action, entity_type, entity_id, description, project_name)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                (current_user.get("id"), current_user.get("name",""), current_user.get("role",""),
-                 data.get("action",""), data.get("entityType",""), data.get("entityId"),
-                 data.get("description",""), data.get("projectName","")))
-    conn.commit()
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return {"id": row[0], "ok": True}
 
 # Хранилище онлайн статусов
 online_users = {}

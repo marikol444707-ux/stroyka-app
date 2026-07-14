@@ -11,8 +11,8 @@ import urllib.request
 BASE_URL = os.getenv("BASE_URL", "https://stroyka26.pro").rstrip("/")
 
 
-def api_json(method, path, token=None, data=None, expected=None):
-    headers = {"Content-Type": "application/json"}
+def api_json(method, path, token=None, data=None, headers=None, expected=None):
+    headers = {"Content-Type": "application/json", **(headers or {})}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     body = json.dumps(data, ensure_ascii=False).encode("utf-8") if data is not None else None
@@ -41,6 +41,17 @@ def query(path, params):
 def login(email, password):
     _, body = api_json("POST", "/login", data={"email": email, "password": password}, expected=200)
     token = body.get("authToken")
+    if not token and body.get("twoFactorRequired"):
+        code = os.getenv("SMOKE_2FA_CODE", "").strip()
+        if not code:
+            raise SystemExit("Нужно задать SMOKE_2FA_CODE")
+        _, body = api_json(
+            "POST",
+            "/login/2fa/verify",
+            data={"challengeToken": body.get("challengeToken"), "code": code},
+            expected=200,
+        )
+        token = body.get("authToken")
     if not token:
         raise RuntimeError("authToken не получен")
     return token
@@ -78,6 +89,21 @@ def main():
     email = require_env("SMOKE_EMAIL")
     password = require_env("SMOKE_PASSWORD")
     token = login(email, password)
+    _, company_context = api_json("GET", "/users/company-context", token=token, expected=200)
+    allowed_roles = {"директор", "зам_директора", "бухгалтер"}
+    companies = [
+        item for item in company_context.get("companies") or []
+        if item.get("role") in allowed_roles and int(item.get("companyId") or 0) > 0
+    ]
+    requested_company_id = int(os.getenv("SMOKE_COMPANY_ID", "0") or 0)
+    selected = next(
+        (item for item in companies if int(item.get("companyId") or 0) == requested_company_id),
+        companies[0] if companies and not requested_company_id else None,
+    )
+    if not selected:
+        raise RuntimeError("У smoke-пользователя нет разрешенной компании для журнала действий")
+    company_id = int(selected["companyId"])
+    company_headers = {"X-Company-Mode": "company", "X-Company-Id": str(company_id)}
 
     stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%d%H%M%S")
     marker = f"CODEX QA audit smoke {stamp}"
@@ -90,6 +116,7 @@ def main():
         "POST",
         "/audit-log",
         token=token,
+        headers=company_headers,
         expected=200,
         data={
             "action": action,
@@ -109,16 +136,19 @@ def main():
         "GET",
         query("/audit-log", {"limit": 20, "search": marker}),
         token=token,
+        headers=company_headers,
         expected=200,
     )
     assert_true(isinstance(rows, list), "search вернул не список")
     assert_true(any(row.get("id") == audit_id for row in rows), "созданная запись не найдена по search")
+    assert_true(all(int(row.get("companyId") or 0) == company_id for row in rows), "search вернул запись другой компании")
     checks.append("search finds created audit row")
 
     _, action_rows = api_json(
         "GET",
         query("/audit-log", {"limit": 20, "action": action}),
         token=token,
+        headers=company_headers,
         expected=200,
     )
     assert_true(any(row.get("id") == audit_id for row in action_rows), "созданная запись не найдена по action")
@@ -129,6 +159,7 @@ def main():
         "GET",
         query("/audit-log", {"limit": 20, "entity_type": entity_type}),
         token=token,
+        headers=company_headers,
         expected=200,
     )
     assert_true(any(row.get("id") == audit_id for row in entity_rows), "созданная запись не найдена по entity_type")
@@ -139,6 +170,7 @@ def main():
         "GET",
         query("/audit-log", {"limit": 20, "project_name": project_name, "search": marker}),
         token=token,
+        headers=company_headers,
         expected=200,
     )
     assert_true(any(row.get("id") == audit_id for row in project_rows), "созданная запись не найдена по объекту")
@@ -149,6 +181,7 @@ def main():
         "GET",
         query("/audit-log", {"limit": 20, "date_from": today, "search": marker}),
         token=token,
+        headers=company_headers,
         expected=200,
     )
     assert_true(any(row.get("id") == audit_id for row in date_rows), "созданная запись не найдена по date_from")
@@ -158,6 +191,7 @@ def main():
         "GET",
         query("/audit-log", {"limit": 50}),
         token=token,
+        headers=company_headers,
         expected=200,
     )
     assert_true(isinstance(latest_rows, list), "последние записи вернули не список")
@@ -168,6 +202,7 @@ def main():
     print(json.dumps({
         "ok": True,
         "auditId": audit_id,
+        "companyId": company_id,
         "marker": marker,
         "projectName": project_name,
         "checked": checks,
