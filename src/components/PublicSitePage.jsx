@@ -53,6 +53,10 @@ import {
 import { usePublicSiteCalculator } from '../features/public-site/usePublicSiteCalculator';
 import { usePublicSiteProjects } from '../features/public-site/usePublicSiteProjects';
 import { usePublicSiteLeadForms } from '../features/public-site/usePublicSiteLeadForms';
+import {
+  publicPlotCheckDefaults,
+  serializePublicPlotCheck,
+} from '../features/public-site/publicPlotCheck';
 const PublicSitePage = ({ onLogin }) => {
   const [calc, setCalc] = useState(publicCalcDefaults);
   const [selectedReferenceId, setSelectedReferenceId] = useState(referenceDirections[0].id);
@@ -62,6 +66,7 @@ const PublicSitePage = ({ onLogin }) => {
   const [referenceActionMessage, setReferenceActionMessage] = useState('');
   const [isLayoutRequestOpen, setIsLayoutRequestOpen] = useState(false);
   const [layoutPreferences, setLayoutPreferences] = useState(null);
+  const [plotCheck, setPlotCheck] = useState(publicPlotCheckDefaults);
   const [selectedHousePackage, setSelectedHousePackage] = useState(() => (
     getPublicProjectHousePackage(getReferenceProjectCards(referenceDirections[0])[0]?.calcPatch?.package).value
   ));
@@ -181,6 +186,7 @@ const PublicSitePage = ({ onLogin }) => {
       min,
       max,
     })),
+    plotCheck: selectedReferenceIsHouse ? serializePublicPlotCheck(plotCheck) : null,
     mediaCount: selectedReferenceMediaOptions.length,
     media: selectedReferenceMediaOptions.map((item) => ({
       id: item.id,
@@ -339,6 +345,10 @@ const PublicSitePage = ({ onLogin }) => {
     if (field === 'package') syncReferencePackage({ value });
   };
 
+  const updatePlotCheck = (field, value) => {
+    setPlotCheck((current) => ({ ...current, [field]: value }));
+  };
+
   const toggleReferenceMirror = () => {
     const nextValue = !isReferenceMirrored;
     setSelectedReferenceMediaId('render-front');
@@ -469,6 +479,8 @@ const PublicSitePage = ({ onLogin }) => {
             leadFileError={leadFileError}
             chooseLeadFiles={chooseLeadFiles}
             removeLeadFile={removeLeadFile}
+            plotCheck={plotCheck}
+            updatePlotCheck={updatePlotCheck}
           />
 
           <section id="passport" className="public-passport" aria-label="Цифровой паспорт объекта">
@@ -1141,6 +1153,12 @@ const PublicSitePage = ({ onLogin }) => {
             )}
             {leadFiles.length > 0 && (
               <small>Приложено файлов: {leadFiles.length}</small>
+            )}
+            {selectedLeadProject.plotCheck && (
+              <small>
+                Участок: заполнено {selectedLeadProject.plotCheck.completed} из {selectedLeadProject.plotCheck.total}
+                {' · '}проверить пунктов: {selectedLeadProject.plotCheck.reviewItems.length}
+              </small>
             )}
             <small>
               {selectedLeadProject.variantLabel}

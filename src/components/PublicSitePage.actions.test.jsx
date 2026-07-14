@@ -80,6 +80,23 @@ describe('public project actions', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Проект передан в калькулятор');
   });
 
+  test('collects plot details for the request without changing the estimate', () => {
+    render(<PublicSitePage onLogin={jest.fn()} />);
+    const initialEstimate = document.querySelector('.public-result-main strong').textContent;
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Статус участка' }), { target: { value: 'owned' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Подъезд для техники' }), { target: { value: 'good' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Рельеф' }), { target: { value: 'flat' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Коммуникации' }), { target: { value: 'boundary' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Геология уже есть' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Геодезия уже есть' }));
+
+    expect(screen.getByRole('region', { name: 'Предварительная проверка участка' })).toHaveTextContent('Основные данные указаны');
+    expect(document.querySelector('.public-request-selected')).toHaveTextContent('Участок: заполнено 6 из 6 · проверить пунктов: 0');
+    expect(document.querySelector('.public-result-main strong').textContent.replace(/\s/g, ' '))
+      .toBe(initialEstimate.replace(/\s/g, ' '));
+  });
+
   test('selects a house package and carries it into the calculator and request', () => {
     render(<PublicSitePage onLogin={jest.fn()} />);
     const initialEstimate = document.querySelector('.public-project-cost-panel strong').textContent;

@@ -197,6 +197,27 @@ def _public_lead_notes(data: dict) -> str:
             project_parts.append("карточка: " + project_url)
         if project_parts:
             parts.append("Выбранный проект: " + " · ".join(project_parts))
+        plot_check = selected_project.get("plotCheck") if isinstance(selected_project.get("plotCheck"), dict) else {}
+        if plot_check:
+            plot_parts = []
+            for key, label in (
+                ("statusLabel", ""),
+                ("accessLabel", "подъезд: "),
+                ("reliefLabel", "рельеф: "),
+                ("utilitiesLabel", "сети: "),
+            ):
+                value = _public_text(plot_check.get(key), 120)
+                if value:
+                    plot_parts.append(label + value)
+            plot_parts.append("геология: " + ("есть" if plot_check.get("geologyReady") is True else "нет"))
+            plot_parts.append("геодезия: " + ("есть" if plot_check.get("geodesyReady") is True else "нет"))
+            review_items = plot_check.get("reviewItems") if isinstance(plot_check.get("reviewItems"), list) else []
+            review_text = ", ".join(
+                item for item in (_public_text(value, 80) for value in review_items[:8]) if item
+            )
+            if review_text:
+                plot_parts.append("проверить: " + review_text)
+            parts.append("Участок: " + " · ".join(plot_parts))
     page = _public_text(data.get("page"), 120)
     if page:
         parts.append("Страница: " + page)

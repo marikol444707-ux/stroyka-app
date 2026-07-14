@@ -1,6 +1,7 @@
 import React from 'react';
 import { Calculator, Check } from 'lucide-react';
 import { PublicProjectFilePicker } from './PublicProjectFilePicker';
+import { PublicPlotCheckPanel } from './PublicPlotCheckPanel';
 import {
   workTypes,
   houseWallTypes,
@@ -26,6 +27,8 @@ export const PublicSiteCalculatorSection = ({
   leadFileError = '',
   chooseLeadFiles,
   removeLeadFile,
+  plotCheck,
+  updatePlotCheck,
 }) => (
           <section id="calculator" className="public-calculator" aria-label="Калькулятор строительства">
             <div className="public-tool-header">
@@ -259,6 +262,10 @@ export const PublicSiteCalculatorSection = ({
               )}
 
             </div>
+
+            {calc.type === 'house' && (
+              <PublicPlotCheckPanel value={plotCheck} onChange={updatePlotCheck} />
+            )}
 
             {leadFileUploadsEnabled && (
               <PublicProjectFilePicker

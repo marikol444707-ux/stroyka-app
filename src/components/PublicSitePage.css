@@ -514,6 +514,107 @@
   color: var(--site-green-dark);
 }
 
+.public-plot-check {
+  margin: 4px 0 16px;
+  border: 1px solid var(--site-line);
+  border-radius: 8px;
+  background: #f7fbf9;
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+}
+
+.public-plot-check-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 11px;
+}
+
+.public-plot-check-head > span {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: #e4f4ee;
+  color: var(--site-green);
+  display: grid;
+  place-items: center;
+}
+
+.public-plot-check-head h3,
+.public-plot-check-head p {
+  margin: 0;
+}
+
+.public-plot-check-head h3 {
+  color: var(--site-ink);
+  font-size: 16px;
+}
+
+.public-plot-check-head p {
+  margin-top: 4px;
+  color: var(--site-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.public-plot-check-head strong {
+  color: var(--site-green-dark);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.public-plot-check-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.public-plot-surveys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.public-plot-surveys label {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--site-line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--site-ink);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.public-plot-surveys label:has(input:checked) {
+  border-color: #cde8dc;
+  background: #eef8f4;
+  color: var(--site-green-dark);
+}
+
+.public-plot-check-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border-top: 1px solid var(--site-line);
+  padding-top: 12px;
+  color: #8a5a08;
+}
+
+.public-plot-check-result.ready {
+  color: var(--site-green-dark);
+}
+
+.public-plot-check-result p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .public-project-file-picker {
   min-width: 0;
   margin: 4px 0 16px;
@@ -3961,6 +4062,7 @@
     white-space: normal;
   }
   .public-calc-grid,
+  .public-plot-check-grid,
   .public-passport-grid,
   .public-service-row,
   .public-process-grid,
@@ -3975,6 +4077,12 @@
   .public-project-thumb-grid,
   .public-partner-types {
     grid-template-columns: 1fr;
+  }
+  .public-plot-check-head {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .public-plot-check-head > strong {
+    grid-column: 2;
   }
   .public-project-catalog-head {
     grid-template-columns: 1fr;

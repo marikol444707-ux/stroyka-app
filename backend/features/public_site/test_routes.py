@@ -143,6 +143,28 @@ class PublicLeadNotesTests(unittest.TestCase):
         self.assertIn("карточка: https://stroyka26.pro/?project=H1-01#projects", notes)
         self.assertNotIn("private-or-large-media", notes)
 
+    def test_includes_plot_check_in_crm_notes(self):
+        notes = _public_lead_notes({
+            "selectedProject": {
+                "projectTitle": "Дом 110 м2",
+                "plotCheck": {
+                    "statusLabel": "Участок уже есть",
+                    "accessLabel": "Подъезд ограничен",
+                    "reliefLabel": "Есть уклон",
+                    "utilitiesLabel": "Нужно подключение",
+                    "geologyReady": False,
+                    "geodesyReady": True,
+                    "reviewItems": ["подъезд техники", "перепад высот", "геология"],
+                },
+            },
+        })
+
+        self.assertIn("Участок: Участок уже есть", notes)
+        self.assertIn("подъезд: Подъезд ограничен", notes)
+        self.assertIn("геология: нет", notes)
+        self.assertIn("геодезия: есть", notes)
+        self.assertIn("проверить: подъезд техники, перепад высот, геология", notes)
+
     def test_ignores_invalid_selected_project(self):
         self.assertEqual(
             _public_lead_notes({"selectedProject": "H1-01", "page": "public-site"}),
