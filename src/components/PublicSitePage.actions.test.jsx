@@ -47,6 +47,35 @@ describe('public project actions', () => {
     expect(document.getElementById('selected-project-preview').scrollIntoView).toHaveBeenCalled();
   });
 
+  test('compares projects and selects one for the calculation', () => {
+    render(<PublicSitePage onLogin={jest.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить H1-01 к сравнению' }));
+    fireEvent.click(screen.getByRole('button', { name: /H1-02.*Дом 116 м2 с кухней-гостиной/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить H1-02 к сравнению' }));
+
+    const comparison = screen.getByRole('region', { name: 'Сравнение проектов' });
+    expect(comparison).toHaveTextContent('Одноэтажный кирпичный дом 110 м2');
+    expect(comparison).toHaveTextContent('Дом 116 м2 с кухней-гостиной');
+    expect(comparison).toHaveTextContent('2 из 3');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Выбрать H1-01 для расчёта' }));
+    expect(document.querySelector('.public-project-spec-column h3')).toHaveTextContent('Одноэтажный кирпичный дом 110 м2');
+    expect(screen.getByRole('status')).toHaveTextContent('Выбран проект H1-01');
+  });
+
+  test('clears comparison when another project direction opens', () => {
+    render(<PublicSitePage onLogin={jest.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить H1-01 к сравнению' }));
+    expect(screen.getByRole('region', { name: 'Сравнение проектов' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Одноэтажный дом из кирпича.*Смотреть проекты/ }));
+
+    expect(screen.queryByRole('region', { name: 'Сравнение проектов' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Добавить B1-01 к сравнению' })).toBeInTheDocument();
+  });
+
   test('collects layout changes and opens a prefilled request', () => {
     render(<PublicSitePage onLogin={jest.fn()} />);
 

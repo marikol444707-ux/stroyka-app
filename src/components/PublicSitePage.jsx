@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Clock,
   FileText,
+  GitCompare,
   House,
   Image,
   MapPin,
@@ -53,6 +54,8 @@ import {
 import { usePublicSiteCalculator } from '../features/public-site/usePublicSiteCalculator';
 import { usePublicSiteProjects } from '../features/public-site/usePublicSiteProjects';
 import { usePublicSiteLeadForms } from '../features/public-site/usePublicSiteLeadForms';
+import { PublicProjectComparisonPanel } from '../features/public-site/PublicProjectComparisonPanel';
+import { buildPublicProjectComparisonItem } from '../features/public-site/publicProjectComparison';
 import {
   publicPlotCheckDefaults,
   serializePublicPlotCheck,
@@ -67,6 +70,7 @@ const PublicSitePage = ({ onLogin }) => {
   const [isLayoutRequestOpen, setIsLayoutRequestOpen] = useState(false);
   const [layoutPreferences, setLayoutPreferences] = useState(null);
   const [plotCheck, setPlotCheck] = useState(publicPlotCheckDefaults);
+  const [comparedProjectCodes, setComparedProjectCodes] = useState([]);
   const [selectedHousePackage, setSelectedHousePackage] = useState(() => (
     getPublicProjectHousePackage(getReferenceProjectCards(referenceDirections[0])[0]?.calcPatch?.package).value
   ));
@@ -140,6 +144,13 @@ const PublicSitePage = ({ onLogin }) => {
   const selectedReferencePaymentSchedule = selectedReferencePackage
     ? getPublicProjectPaymentSchedule(selectedReferencePackage.value, selectedReferenceEstimate)
     : [];
+  const comparedProjects = comparedProjectCodes
+    .map((code) => selectedReferenceProjects.find((project) => project.code === code))
+    .filter(Boolean)
+    .map((project) => buildPublicProjectComparisonItem({
+      project,
+      estimate: getReferenceProjectEstimate(selectedReference, project),
+    }));
   const selectedReferenceRenderCount = selectedReferenceMediaOptions.filter((item) => item.role === 'render' || item.kind === 'render').length;
   const selectedReferencePlanCount = selectedReferenceMediaOptions.filter((item) => item.role === 'plan' || item.kind === 'plan').length;
   const selectedReferenceAssetSummary = [
@@ -306,11 +317,44 @@ const PublicSitePage = ({ onLogin }) => {
     chooseReference(match.direction, match.project, 'catalog');
   }, [chooseReference]);
 
+  useEffect(() => {
+    setComparedProjectCodes([]);
+  }, [selectedReferenceId]);
+
   const chooseSimilarReferenceProject = () => {
     const currentIndex = selectedReferenceProjects.findIndex((project) => project.title === selectedReferenceProject?.title);
     const nextProject = selectedReferenceProjects[(currentIndex + 1) % selectedReferenceProjects.length] || selectedReferenceProjects[0];
     chooseReference(selectedReference, nextProject);
     setReferenceActionMessage(`Открыт похожий проект: ${nextProject.title}`);
+    setTimeout(() => scrollTo('selected-project-preview'), 0);
+  };
+
+  const toggleCurrentProjectComparison = () => {
+    const code = selectedReferenceProject?.code;
+    if (!code) return;
+    if (comparedProjectCodes.includes(code)) {
+      setComparedProjectCodes((current) => current.filter((item) => item !== code));
+      setReferenceActionMessage(`Проект ${code} убран из сравнения`);
+      return;
+    }
+    if (comparedProjectCodes.length >= 3) {
+      setReferenceActionMessage('В сравнении уже три проекта. Уберите один, чтобы добавить другой.');
+      return;
+    }
+    setComparedProjectCodes((current) => [...current, code]);
+    setReferenceActionMessage(`Проект ${code} добавлен к сравнению`);
+  };
+
+  const removeComparedProject = (code) => {
+    setComparedProjectCodes((current) => current.filter((item) => item !== code));
+    setReferenceActionMessage(`Проект ${code} убран из сравнения`);
+  };
+
+  const selectComparedProject = (code) => {
+    const project = selectedReferenceProjects.find((item) => item.code === code);
+    if (!project) return;
+    chooseReference(selectedReference, project);
+    setReferenceActionMessage(`Выбран проект ${code} для расчёта`);
     setTimeout(() => scrollTo('selected-project-preview'), 0);
   };
 
@@ -766,6 +810,16 @@ const PublicSitePage = ({ onLogin }) => {
                     ))}
                   </div>
                   <div className="public-project-decision-actions">
+                    <button
+                      className="public-secondary dark"
+                      type="button"
+                      aria-pressed={comparedProjectCodes.includes(selectedReferenceProject?.code)}
+                      aria-label={`${comparedProjectCodes.includes(selectedReferenceProject?.code) ? 'Убрать' : 'Добавить'} ${selectedReferenceProject?.code} ${comparedProjectCodes.includes(selectedReferenceProject?.code) ? 'из сравнения' : 'к сравнению'}`}
+                      onClick={toggleCurrentProjectComparison}
+                    >
+                      <GitCompare size={16} />
+                      {comparedProjectCodes.includes(selectedReferenceProject?.code) ? 'В сравнении' : 'Сравнить'}
+                    </button>
                     <a
                       className="public-secondary dark public-project-share-link"
                       href={selectedReferenceDeepLink}
@@ -791,6 +845,14 @@ const PublicSitePage = ({ onLogin }) => {
                     </button>
                   </div>
                 </div>
+                {comparedProjects.length > 0 && (
+                  <PublicProjectComparisonPanel
+                    items={comparedProjects}
+                    selectedCode={selectedReferenceProject?.code}
+                    onSelect={selectComparedProject}
+                    onRemove={removeComparedProject}
+                  />
+                )}
 	              <div className="public-project-catalog-main">
 	                <div className="public-project-visual-column">
 	                  <div className="public-project-thumb-grid" aria-label="Варианты проекта">

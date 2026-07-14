@@ -1836,7 +1836,7 @@
 
 .public-project-decision-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(104px, auto));
+  grid-template-columns: repeat(4, minmax(104px, auto));
   gap: 8px;
 }
 
@@ -1845,6 +1845,166 @@
   min-height: 42px;
   padding: 10px 13px;
   white-space: nowrap;
+}
+
+.public-project-comparison {
+  border-bottom: 1px solid var(--site-line);
+  background: #f8fbf9;
+  padding: 16px 18px 18px;
+}
+
+.public-project-comparison-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.public-project-comparison-head > span {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: #e4f4ee;
+  color: var(--site-green);
+  display: grid;
+  place-items: center;
+}
+
+.public-project-comparison-head h4,
+.public-project-comparison-head p {
+  margin: 0;
+}
+
+.public-project-comparison-head h4 {
+  color: var(--site-ink);
+  font-size: 16px;
+}
+
+.public-project-comparison-head p {
+  margin-top: 3px;
+  color: var(--site-muted);
+  font-size: 12px;
+}
+
+.public-project-comparison-head strong {
+  color: var(--site-green-dark);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.public-project-comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--comparison-count), minmax(0, 1fr));
+  border-top: 1px solid var(--site-line);
+}
+
+.public-project-comparison-grid article {
+  min-width: 0;
+  padding: 14px;
+  border-left: 1px solid var(--site-line);
+}
+
+.public-project-comparison-grid article:first-child {
+  border-left: 0;
+}
+
+.public-project-comparison-grid article.selected {
+  background: #eef8f4;
+}
+
+.public-project-comparison-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.public-project-comparison-title > span {
+  color: var(--site-orange-dark);
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.public-project-comparison-title button {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--site-muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.public-project-comparison-title button:hover {
+  background: #ffffff;
+  color: #b42318;
+}
+
+.public-project-comparison-grid h5 {
+  margin: 5px 0 12px;
+  color: var(--site-ink);
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.public-project-comparison-grid dl {
+  margin: 0;
+  display: grid;
+}
+
+.public-project-comparison-grid dl div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 8px;
+  padding: 7px 0;
+  border-top: 1px solid #e2e9e6;
+}
+
+.public-project-comparison-grid dt,
+.public-project-comparison-grid dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.public-project-comparison-grid dt {
+  color: var(--site-muted);
+  font-size: 11px;
+}
+
+.public-project-comparison-grid dd {
+  color: var(--site-ink);
+  font-size: 12px;
+  font-weight: 850;
+  text-align: right;
+}
+
+.public-project-comparison-select {
+  width: 100%;
+  min-height: 40px;
+  margin-top: 12px;
+  border: 1px solid #bfd9d0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--site-green-dark);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 10px;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.public-project-comparison-grid article.selected .public-project-comparison-select {
+  border-color: var(--site-green);
+  background: var(--site-green);
+  color: #ffffff;
 }
 
 .public-project-catalog-main {
@@ -3881,6 +4041,9 @@
   .public-project-catalog-main {
     grid-template-columns: 1fr;
   }
+  .public-project-decision-actions {
+    grid-template-columns: repeat(2, minmax(104px, 1fr));
+  }
   .public-project-spec-column {
     border-left: 0;
     border-top: 1px solid var(--site-line);
@@ -4125,6 +4288,20 @@
   .public-project-decision-actions .public-secondary {
     width: 100%;
     white-space: normal;
+  }
+  .public-project-comparison {
+    padding: 14px;
+  }
+  .public-project-comparison-grid {
+    grid-template-columns: 1fr;
+  }
+  .public-project-comparison-grid article,
+  .public-project-comparison-grid article:first-child {
+    border-left: 0;
+    border-top: 1px solid var(--site-line);
+  }
+  .public-project-comparison-grid article:first-child {
+    border-top: 0;
   }
   .public-gallery-image {
     min-height: 280px;
