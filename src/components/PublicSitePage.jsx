@@ -170,6 +170,7 @@ const PublicSitePage = ({ onLogin }) => {
   const selectedReferenceComparison = serializePublicProjectComparison(
     comparedProjects,
     selectedReferenceProject?.code,
+    comparisonShareUrl,
   );
   const selectedReferenceRenderCount = selectedReferenceMediaOptions.filter((item) => item.role === 'render' || item.kind === 'render').length;
   const selectedReferencePlanCount = selectedReferenceMediaOptions.filter((item) => item.role === 'plan' || item.kind === 'plan').length;

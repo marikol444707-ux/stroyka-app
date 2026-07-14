@@ -1,3 +1,20 @@
+const PUBLIC_COMPARISON_LABEL = 'Ссылка на сравнение:';
+const PUBLIC_SITE_ORIGINS = new Set(['https://stroyka26.pro', 'https://www.stroyka26.pro']);
+
+export const publicComparisonUrlFromLeadNotes = (notes = '') => {
+  const line = String(notes).split(/\r?\n/).find(value => value.trim().startsWith(PUBLIC_COMPARISON_LABEL));
+  const rawUrl = line?.trim().slice(PUBLIC_COMPARISON_LABEL.length).trim() || '';
+  if (!rawUrl) return '';
+  try {
+    const url = new URL(rawUrl);
+    if (!PUBLIC_SITE_ORIGINS.has(url.origin) || url.pathname !== '/') return '';
+    if (!url.searchParams.get('project') || !url.searchParams.get('compare')) return '';
+    return url.toString();
+  } catch {
+    return '';
+  }
+};
+
 export const buildLeadPayload = (lead = {}, { createdBy = '', createdAt = '', includeCreateMeta = false } = {}) => {
   const body = {
     name: lead.name || '',

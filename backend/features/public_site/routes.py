@@ -2,6 +2,7 @@ import datetime as dt
 import json
 import re
 import time
+import urllib.parse
 import uuid
 
 import psycopg2.extras
@@ -58,6 +59,22 @@ def _site_int(value, default=0):
 
 def _public_text(value, limit: int = 255) -> str:
     return str(value or "").strip()[:limit]
+
+
+def _public_comparison_url(value) -> str:
+    raw = _public_text(value, 500)
+    if not raw:
+        return ""
+    try:
+        parsed = urllib.parse.urlparse(raw)
+        params = urllib.parse.parse_qs(parsed.query)
+    except (TypeError, ValueError):
+        return ""
+    if parsed.scheme != "https" or parsed.netloc not in {"stroyka26.pro", "www.stroyka26.pro"}:
+        return ""
+    if parsed.path not in {"", "/"} or not params.get("project") or not params.get("compare"):
+        return ""
+    return raw
 
 
 def _public_client_ip(request: Request) -> str:
@@ -272,6 +289,9 @@ def _public_lead_notes(data: dict) -> str:
                     break
             if compared_projects:
                 parts.append("Сравнение клиента: " + "; ".join(compared_projects))
+                comparison_url = _public_comparison_url(comparison.get("comparisonUrl"))
+                if comparison_url:
+                    parts.append("Ссылка на сравнение: " + comparison_url)
     page = _public_text(data.get("page"), 120)
     if page:
         parts.append("Страница: " + page)

@@ -27,7 +27,7 @@ export const buildPublicProjectComparisonUrl = ({
   return url.toString();
 };
 
-export const serializePublicProjectComparison = (items = [], selectedCode = '') => {
+export const serializePublicProjectComparison = (items = [], selectedCode = '', comparisonUrl = '') => {
   const serializedItems = [];
   const seenCodes = new Set();
   items.forEach((item) => {
@@ -45,6 +45,7 @@ export const serializePublicProjectComparison = (items = [], selectedCode = '') 
   return {
     status: 'customer_shortlist',
     selectedCode,
+    comparisonUrl,
     items: serializedItems,
   };
 };

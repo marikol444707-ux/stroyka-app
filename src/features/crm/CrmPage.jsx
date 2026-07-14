@@ -1,7 +1,8 @@
 import React from 'react';
-import { AlertTriangle, Building2, Check, ClipboardList, Edit2, FileText, Filter, Plus, Search, Trash2, Upload, UserCheck, Users, X } from 'lucide-react';
+import { AlertTriangle, Building2, Check, ClipboardList, Edit2, ExternalLink, FileText, Filter, Plus, Search, Trash2, Upload, UserCheck, Users, X } from 'lucide-react';
 import DocumentRecognitionPanel from '../../components/DocumentRecognitionPanel';
 import PhotoAttachmentField from '../../components/PhotoAttachmentField';
+import { publicComparisonUrlFromLeadNotes } from './leadUtils';
 
 const EMPTY_LEAD = {
   name: '',
@@ -362,6 +363,7 @@ export default function CrmPage({
     const isSupplier = lead.leadType === 'Поставщик';
     const isWorker = ['Мастер', 'Бригадир', 'Субподрядчик'].includes(lead.leadType);
     const attention = attentionForLead(lead);
+    const comparisonUrl = publicComparisonUrlFromLeadNotes(lead.notes);
     const borderColor = attention.overdue ? C.danger : attention.today ? C.warning : C.accent;
     return (
       <article key={lead.id} style={{ ...card, padding: compact ? '12px' : '14px', borderLeft: '3px solid ' + borderColor, marginBottom: '10px', overflow: 'hidden' }}>
@@ -401,6 +403,11 @@ export default function CrmPage({
         )}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '10px' }}>
           <button onClick={() => editLead(lead)} style={{ ...btnG, padding: '6px 9px', fontSize: '11px' }}><Edit2 size={12} />Открыть</button>
+          {comparisonUrl && (
+            <a href={comparisonUrl} target="_blank" rel="noreferrer" style={{ ...btnG, padding: '6px 9px', fontSize: '11px', textDecoration: 'none' }}>
+              <ExternalLink size={12} />Открыть сравнение
+            </a>
+          )}
           {lead.leadType === 'Клиент' && createProjectFromLead && (
             <button onClick={() => createProjectFromLead(lead)} disabled={!!lead.projectId} style={{ ...btnG, padding: '6px 9px', fontSize: '11px', opacity: lead.projectId ? 0.7 : 1 }}>
               <Building2 size={12} />{lead.projectId ? 'Объект создан' : 'В объект'}

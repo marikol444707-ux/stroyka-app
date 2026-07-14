@@ -196,6 +196,7 @@ class PublicLeadNotesTests(unittest.TestCase):
                 "comparison": {
                     "status": "customer_shortlist",
                     "selectedCode": "H1-02",
+                    "comparisonUrl": "https://stroyka26.pro/?project=H1-02&compare=H1-01%2CH1-02#projects",
                     "items": [
                         {"code": "H1-01", "title": "Дом 110 м2", "estimateRange": "9-11 млн ₽"},
                         {"code": "H1-02", "title": "Дом 116 м2", "estimateRange": "10-12 млн ₽"},
@@ -211,8 +212,27 @@ class PublicLeadNotesTests(unittest.TestCase):
         self.assertIn("H1-01 — Дом 110 м2 — 9-11 млн ₽", notes)
         self.assertIn("H1-02 — Дом 116 м2 — 10-12 млн ₽ — выбран", notes)
         self.assertIn("H1-03 — Дом 132 м2 — 11-14 млн ₽", notes)
+        self.assertIn(
+            "Ссылка на сравнение: https://stroyka26.pro/?project=H1-02&compare=H1-01%2CH1-02#projects",
+            notes,
+        )
         self.assertNotIn("Дубль", notes)
         self.assertNotIn("H1-04", notes)
+
+    def test_ignores_external_comparison_url_in_crm_notes(self):
+        notes = _public_lead_notes({
+            "selectedProject": {
+                "comparison": {
+                    "status": "customer_shortlist",
+                    "selectedCode": "H1-01",
+                    "comparisonUrl": "https://evil.example/phishing",
+                    "items": [{"code": "H1-01", "title": "Дом 110 м2"}],
+                },
+            },
+        })
+
+        self.assertIn("Сравнение клиента:", notes)
+        self.assertNotIn("evil.example", notes)
 
     def test_ignores_invalid_selected_project(self):
         self.assertEqual(

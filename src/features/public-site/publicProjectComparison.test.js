@@ -75,11 +75,12 @@ test('serializes a compact customer shortlist for the CRM lead', () => {
       project: { code: 'H1-02', title: 'Дом 116 м2', area: '116 м2', floors: '1 этаж' },
       estimate: { rangeLabel: '10-12 млн ₽' },
     }),
-  ], 'H1-02');
+  ], 'H1-02', 'https://stroyka26.pro/?project=H1-02&compare=H1-01%2CH1-02#projects');
 
   expect(comparison).toEqual({
     status: 'customer_shortlist',
     selectedCode: 'H1-02',
+    comparisonUrl: 'https://stroyka26.pro/?project=H1-02&compare=H1-01%2CH1-02#projects',
     items: [
       { code: 'H1-01', title: 'Дом 110 м2', area: '110 м2', floors: '1 этаж', estimateRange: '9-11 млн ₽' },
       { code: 'H1-02', title: 'Дом 116 м2', area: '116 м2', floors: '1 этаж', estimateRange: '10-12 млн ₽' },
