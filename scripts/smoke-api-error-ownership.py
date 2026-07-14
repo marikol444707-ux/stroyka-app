@@ -207,6 +207,13 @@ def main():
         )
 
         all_companies_count = None
+        checked = [
+            "client error stores exact selected company owner",
+            "selected company system status excludes platform, legacy and foreign errors",
+            "recent audit rows use the same selected company scope",
+            "foreign company header is rejected",
+        ]
+        skipped = []
         if context.get("canUseAllCompanies"):
             allowed_ids = {int(item["companyId"]) for item in companies}
             _, all_status = api_json(
@@ -220,19 +227,17 @@ def main():
             assert_company_rows(all_rows, allowed_ids, "api_error")
             assert_company_rows(all_status.get("recentAudit") or [], allowed_ids, "audit")
             all_companies_count = len(all_rows)
+            checked.append("all-companies mode includes only leadership memberships")
+        else:
+            skipped.append("all-companies mode: current user context does not expose this mode")
 
         print(json.dumps({
             "ok": True,
             "companyId": company_id,
             "apiErrorId": matching[0].get("id"),
             "allCompaniesItems": all_companies_count,
-            "checked": [
-                "client error stores exact selected company owner",
-                "selected company system status excludes platform, legacy and foreign errors",
-                "recent audit rows use the same selected company scope",
-                "foreign company header is rejected",
-                "all-companies mode includes only leadership memberships",
-            ],
+            "checked": checked,
+            "skipped": skipped,
         }, ensure_ascii=False, indent=2))
     finally:
         cleanup()
