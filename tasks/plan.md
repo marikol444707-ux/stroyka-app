@@ -150,7 +150,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.8a3: Persist owner scope on every new audit event and restrict `/audit-log` to company-owned rows allowed by the selected company context. Production protected activity-log smoke and strict migration audit passed.
 - [x] Task M6.8b1: Add a read-only ownership report for `api_errors` before changing schema, writers or `/system-status`. Production classified `76/94` rows as company `1` and left `18` inactive/missing actor rows for explicit legacy review; no ambiguous or mismatched rows.
 - [x] Task M6.8b2: Add and apply a guarded nullable owner migration for `api_errors`, accepting the exact production review set only by SHA. Production migrated `94/94` rows into `76 company + 18 legacy`; strict post-audit and public smoke passed.
-- [ ] Task M6.8b3: Persist exact owner on middleware and client-error writes, and tenant-filter all `api_errors` counts/list reads in `/system-status`. Runtime and protected smoke are implemented locally; release and production verification remain pending.
+- [x] Task M6.8b3: Persist exact owner on middleware and client-error writes, and tenant-filter all `api_errors` counts/list reads in `/system-status`. Runtime `f1842f19`, nginx proxy guard, protected ownership smoke, strict post-audit and full production smoke passed.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary

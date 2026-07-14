@@ -2591,7 +2591,7 @@
 
 **Description:** Persist exact stored owner on middleware and `/client-errors` writes, then restrict every `api_errors` count and row returned by `/system-status` to the selected authorized scope.
 
-**Status:** Runtime `c310a33c` deployed; migration and public smoke pass. Protected smoke found a missing production nginx proxy for `POST /client-errors`; route guard is implemented locally and nginx hotfix/redeploy remain pending.
+**Status:** Complete in production on runtime `f1842f19`. Nginx proxy, protected ownership smoke, strict migration audit and full production smoke pass.
 
 **Safety:**
 - One shared runtime writer stores all owner columns; new rows never remain ownerless and never enter `legacy`.
@@ -2606,6 +2606,6 @@
 - [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.api_error_ownership.test_ownership_report backend.features.api_error_ownership.test_migration backend.features.api_error_ownership.test_runtime`
 - [x] Python compilation and `git diff --check`.
 - [x] Full backend suite and production build.
-- [ ] Production `npm run smoke:api-error-ownership`, strict migration audit and `npm run smoke:prod`.
+- [x] Production `npm run smoke:api-error-ownership`, strict migration audit and `npm run smoke:prod`.
 
 **Estimated scope:** S
