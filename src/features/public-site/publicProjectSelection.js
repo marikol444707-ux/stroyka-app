@@ -32,11 +32,13 @@ export const buildPublicProjectLeadComment = ({
   projectUrl,
   mirrored = false,
   layoutPreferences = null,
+  packageSelection = null,
 }) => [
   layoutPreferences ? 'Нужна доработка планировки.' : `Интересует: ${direction.title}.`,
   layoutPreferences ? `Направление: ${direction.title}.` : '',
   `Проект: ${project.title}.`,
   `Вариант: ${mirrored ? 'зеркальный' : 'обычный'}.`,
+  packageSelection ? `Комплектация: ${packageSelection.label}.` : '',
   objectFormat ? `Формат объекта: ${objectFormat}.` : '',
   layoutPreferences ? `Пожелания: ${describePublicLayoutPreferences(layoutPreferences)}.` : '',
   `Исходная планировка: ${withoutSentenceEnd(project.layout || direction.text)}.`,

@@ -20,6 +20,7 @@ test('builds a lead comment with the selected project variant and layout', () =>
     objectFormat: 'Дом под ключ',
     projectUrl: 'https://stroyka26.pro/?project=H1-01#projects',
     mirrored: true,
+    packageSelection: { label: 'Тёплый контур' },
     layoutPreferences: {
       spaces: 4,
       bathrooms: 2,
@@ -30,6 +31,7 @@ test('builds a lead comment with the selected project variant and layout', () =>
   });
 
   expect(comment).toContain('Вариант: зеркальный.');
+  expect(comment).toContain('Комплектация: Тёплый контур.');
   expect(comment).toContain('Пожелания: 4 спальни, 2 санузла, гараж не нужен.');
   expect(comment).toContain('Ссылка на карточку: https://stroyka26.pro/?project=H1-01#projects');
   expect(comment).not.toContain('..');

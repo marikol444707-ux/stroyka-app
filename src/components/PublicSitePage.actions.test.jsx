@@ -80,6 +80,26 @@ describe('public project actions', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Проект передан в калькулятор');
   });
 
+  test('selects a house package and carries it into the calculator and request', () => {
+    render(<PublicSitePage onLogin={jest.fn()} />);
+    const initialEstimate = document.querySelector('.public-project-cost-panel strong').textContent;
+
+    expect(screen.getAllByRole('radio', { name: /Коробка|Тёплый контур|Под ключ/ })).toHaveLength(3);
+    fireEvent.click(screen.getByRole('radio', { name: /Тёплый контур/ }));
+    flushActions();
+
+    expect(screen.getByRole('radio', { name: /Тёплый контур/ })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('combobox', { name: 'Комплектация' })).toHaveValue('warm');
+    expect(document.querySelector('.public-project-cost-panel strong')).not.toHaveTextContent(initialEstimate);
+    expect(screen.getByLabelText('Комментарий').value).toContain('Комплектация: Тёплый контур');
+    expect(document.querySelector('.public-request-selected')).toHaveTextContent('Тёплый контур');
+    expect(screen.getByRole('status')).toHaveTextContent('Выбрана комплектация «Тёплый контур»');
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Комплектация' }), { target: { value: 'box' } });
+    expect(screen.getByRole('radio', { name: /Коробка/ })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByLabelText('Комментарий').value).toContain('Комплектация: Коробка');
+  });
+
   test('keeps the mirrored variant when the project is sent to the calculator', () => {
     render(<PublicSitePage onLogin={jest.fn()} />);
 

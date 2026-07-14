@@ -2709,6 +2709,115 @@
   line-height: 1.4;
 }
 
+.public-project-packages {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.public-project-packages-head > div {
+  display: grid;
+  gap: 3px;
+}
+
+.public-project-packages-head span {
+  color: var(--site-ink);
+  font-size: 15px;
+  font-weight: 950;
+}
+
+.public-project-packages-head small,
+.public-project-packages > p {
+  margin: 0;
+  color: var(--site-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.public-project-package-list {
+  display: grid;
+  gap: 8px;
+}
+
+.public-project-package {
+  width: 100%;
+  min-width: 0;
+  min-height: 116px;
+  border: 1px solid var(--site-line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--site-ink);
+  padding: 12px;
+  display: grid;
+  grid-template-columns: minmax(130px, 0.9fr) minmax(150px, 1.1fr);
+  gap: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.public-project-package:hover {
+  border-color: #8eb5a9;
+}
+
+.public-project-package.active {
+  border-color: var(--site-green);
+  background: #f2faf7;
+  box-shadow: inset 3px 0 0 var(--site-green);
+}
+
+.public-project-package-main,
+.public-project-package-includes {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+}
+
+.public-project-package-main b {
+  font-size: 16px;
+}
+
+.public-project-package-main strong {
+  color: var(--site-orange-dark);
+  font-size: 17px;
+}
+
+.public-project-package-main small {
+  color: var(--site-green-dark);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.public-project-package-main em {
+  color: var(--site-muted);
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.35;
+}
+
+.public-project-package-includes small {
+  min-width: 0;
+  color: #344054;
+  font-size: 11px;
+  line-height: 1.35;
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.public-project-package-includes svg {
+  flex: 0 0 auto;
+  color: var(--site-green);
+  margin-top: 1px;
+}
+
+@media (max-width: 480px) {
+  .public-project-package {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+}
+
 .public-project-layout-card {
   min-width: 0;
   border: 1px solid #dce7e3;

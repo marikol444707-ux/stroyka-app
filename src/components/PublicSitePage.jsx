@@ -39,6 +39,11 @@ import {
 } from '../features/public-site/publicSiteContent';
 import { PublicSiteCalculatorSection } from '../features/public-site/PublicSiteCalculatorSection';
 import { PublicLayoutRequestEditor } from '../features/public-site/PublicLayoutRequestEditor';
+import { PublicProjectPackageSelector } from '../features/public-site/PublicProjectPackageSelector';
+import {
+  getPublicProjectHousePackage,
+  publicProjectHousePackages,
+} from '../features/public-site/publicProjectPackages';
 import {
   buildPublicProjectLeadComment,
   describePublicLayoutPreferences,
@@ -55,6 +60,9 @@ const PublicSitePage = ({ onLogin }) => {
   const [referenceActionMessage, setReferenceActionMessage] = useState('');
   const [isLayoutRequestOpen, setIsLayoutRequestOpen] = useState(false);
   const [layoutPreferences, setLayoutPreferences] = useState(null);
+  const [selectedHousePackage, setSelectedHousePackage] = useState(() => (
+    getPublicProjectHousePackage(getReferenceProjectCards(referenceDirections[0])[0]?.calcPatch?.package).value
+  ));
   const deepLinkedReferenceRef = useRef(false);
 
   const {
@@ -80,13 +88,48 @@ const PublicSitePage = ({ onLogin }) => {
   const selectedReference = referenceDirections.find((item) => item.id === selectedReferenceId) || referenceDirections[0];
   const selectedReferenceProjects = getReferenceProjectCards(selectedReference);
   const selectedReferenceProject = selectedReferenceProjects.find((project) => project.title === selectedReferenceExample) || selectedReferenceProjects[0];
+  const selectedReferenceIsHouse = (selectedReferenceProject?.calcPatch?.type || selectedReference.calcPatch?.type) === 'house';
+  const selectedReferencePackage = selectedReferenceIsHouse
+    ? getPublicProjectHousePackage(selectedHousePackage)
+    : null;
+  const selectedReferenceCalcPatch = {
+    ...selectedReference.calcPatch,
+    ...(selectedReferenceProject?.calcPatch || {}),
+    ...(selectedReferencePackage ? { package: selectedReferencePackage.value } : {}),
+  };
+  const selectedReferenceProjectForEstimate = selectedReferencePackage
+    ? {
+        ...selectedReferenceProject,
+        calcPatch: selectedReferenceCalcPatch,
+      }
+    : selectedReferenceProject;
   const selectedReferenceSpecs = getProjectSpecs(selectedReference, selectedReferenceProject);
   const selectedReferenceLayoutGroups = getProjectLayoutGroups(selectedReference, selectedReferenceProject);
   const selectedReferenceMediaOptions = getProjectMediaOptions(selectedReference, selectedReferenceProject);
   const selectedReferenceMedia = selectedReferenceMediaOptions.find((item) => item.id === selectedReferenceMediaId) || selectedReferenceMediaOptions[0];
   const selectedReferenceMediaIndex = Math.max(0, selectedReferenceMediaOptions.findIndex((item) => item.id === selectedReferenceMedia?.id));
-  const selectedReferenceEstimate = getReferenceProjectEstimate(selectedReference, selectedReferenceProject);
-  const selectedReferenceObjectCard = getReferenceObjectCard(selectedReference, selectedReferenceProject, selectedReferenceEstimate);
+  const selectedReferenceEstimate = getReferenceProjectEstimate(selectedReference, selectedReferenceProjectForEstimate);
+  const selectedReferenceObjectCard = getReferenceObjectCard(selectedReference, selectedReferenceProjectForEstimate, selectedReferenceEstimate);
+  const selectedReferencePackageOptions = selectedReferenceIsHouse
+    ? publicProjectHousePackages.map((packageOption) => {
+        const estimate = getReferenceProjectEstimate(selectedReference, {
+          ...selectedReferenceProject,
+          calcPatch: {
+            ...selectedReference.calcPatch,
+            ...(selectedReferenceProject?.calcPatch || {}),
+            package: packageOption.value,
+          },
+        });
+        return {
+          ...packageOption,
+          estimateFrom: estimate.fromLabel,
+          estimateRange: estimate.rangeLabel,
+        };
+      })
+    : [];
+  const selectedReferencePackageSelection = selectedReferencePackage
+    ? selectedReferencePackageOptions.find((item) => item.value === selectedReferencePackage.value)
+    : null;
   const selectedReferenceRenderCount = selectedReferenceMediaOptions.filter((item) => item.role === 'render' || item.kind === 'render').length;
   const selectedReferencePlanCount = selectedReferenceMediaOptions.filter((item) => item.role === 'plan' || item.kind === 'plan').length;
   const selectedReferenceAssetSummary = [
@@ -121,6 +164,10 @@ const PublicSitePage = ({ onLogin }) => {
     variant: isReferenceMirrored ? 'mirrored' : 'standard',
     variantLabel: isReferenceMirrored ? 'Зеркальный вариант' : 'Обычный вариант',
     layoutPreferences,
+    package: selectedReferencePackage?.value || null,
+    packageLabel: selectedReferencePackage?.label || '',
+    packageDuration: selectedReferencePackage?.duration || '',
+    packageIncludes: selectedReferencePackage?.includes || [],
     mediaCount: selectedReferenceMediaOptions.length,
     media: selectedReferenceMediaOptions.map((item) => ({
       id: item.id,
@@ -185,20 +232,38 @@ const PublicSitePage = ({ onLogin }) => {
     const projectCard = typeof project === 'string'
       ? getReferenceProjectCards(direction).find((item) => item.title === project) || { title: project, calcPatch: {} }
       : project;
+    const isHouseProject = (projectCard?.calcPatch?.type || direction.calcPatch?.type) === 'house';
+    const nextPackage = isHouseProject
+      ? getPublicProjectHousePackage(projectCard?.calcPatch?.package || direction.calcPatch?.package)
+      : null;
+    const nextCalcPatch = {
+      ...direction.calcPatch,
+      ...(projectCard.calcPatch || {}),
+      ...(nextPackage ? { package: nextPackage.value } : {}),
+    };
+    const nextProjectForEstimate = nextPackage
+      ? { ...projectCard, calcPatch: nextCalcPatch }
+      : projectCard;
+    const nextEstimate = getReferenceProjectEstimate(direction, nextProjectForEstimate);
+    const nextPackageSelection = nextPackage
+      ? { ...nextPackage, estimateFrom: nextEstimate.fromLabel, estimateRange: nextEstimate.rangeLabel }
+      : null;
     setSelectedReferenceId(direction.id);
     setSelectedReferenceExample(projectCard.title);
     setSelectedReferenceMediaId('render-front');
     setIsReferenceMirrored(false);
     setIsLayoutRequestOpen(false);
     setLayoutPreferences(null);
-    setCalc((current) => ({ ...current, ...direction.calcPatch, ...(projectCard.calcPatch || {}) }));
+    setSelectedHousePackage(nextPackage?.value || 'turnkey');
+    setCalc((current) => ({ ...current, ...nextCalcPatch }));
     setLead((current) => ({
       ...current,
       comment: buildPublicProjectLeadComment({
         direction,
         project: projectCard,
-        objectFormat: getReferenceObjectCard(direction, projectCard, getReferenceProjectEstimate(direction, projectCard)).format,
+        objectFormat: getReferenceObjectCard(direction, nextProjectForEstimate, nextEstimate).format,
         projectUrl: `https://stroyka26.pro/?project=${encodeURIComponent(projectCard.code || '')}#projects`,
+        packageSelection: nextPackageSelection,
       }),
     }));
     if (scrollTarget === 'calculator' || scrollTarget === true) {
@@ -228,6 +293,37 @@ const PublicSitePage = ({ onLogin }) => {
     setTimeout(() => scrollTo('selected-project-preview'), 0);
   };
 
+  const syncReferencePackage = (packageOption) => {
+    const nextPackageSelection = selectedReferencePackageOptions.find((item) => item.value === packageOption.value);
+    if (!selectedReferenceIsHouse || !nextPackageSelection) return null;
+    setSelectedHousePackage(nextPackageSelection.value);
+    setLead((current) => ({
+      ...current,
+      comment: buildPublicProjectLeadComment({
+        direction: selectedReference,
+        project: selectedReferenceProject,
+        objectFormat: selectedReferenceObjectCard.format,
+        projectUrl: selectedReferencePublicUrl,
+        mirrored: isReferenceMirrored,
+        layoutPreferences,
+        packageSelection: nextPackageSelection,
+      }),
+    }));
+    setReferenceActionMessage(`Выбрана комплектация «${nextPackageSelection.label}»`);
+    return nextPackageSelection;
+  };
+
+  const chooseReferencePackage = (packageOption) => {
+    const nextPackageSelection = syncReferencePackage(packageOption);
+    if (!nextPackageSelection) return;
+    setCalc((current) => ({ ...current, ...selectedReferenceCalcPatch, package: nextPackageSelection.value }));
+  };
+
+  const updatePublicCalculator = (field, value) => {
+    updateCalc(field, value);
+    if (field === 'package') syncReferencePackage({ value });
+  };
+
   const toggleReferenceMirror = () => {
     const nextValue = !isReferenceMirrored;
     setSelectedReferenceMediaId('render-front');
@@ -241,6 +337,7 @@ const PublicSitePage = ({ onLogin }) => {
         projectUrl: selectedReferencePublicUrl,
         mirrored: nextValue,
         layoutPreferences,
+        packageSelection: selectedReferencePackageSelection,
       }),
     }));
     setReferenceActionMessage(nextValue ? 'Зеркальный вариант включён' : 'Обычный вариант восстановлен');
@@ -254,10 +351,10 @@ const PublicSitePage = ({ onLogin }) => {
   };
 
   const applyLayoutRequest = ({ spaces, bathrooms, garage, notes }) => {
-    const isHouseLayout = selectedReference.calcPatch?.type === 'house';
+    const isHouseLayout = selectedReferenceIsHouse;
     const nextLayoutPreferences = { spaces, bathrooms, garage, notes, isHouseLayout };
     setLayoutPreferences(nextLayoutPreferences);
-    setCalc((current) => ({ ...current, ...selectedReference.calcPatch, ...(selectedReferenceProject?.calcPatch || {}) }));
+    setCalc((current) => ({ ...current, ...selectedReferenceCalcPatch }));
     setLead((current) => ({
       ...current,
       comment: buildPublicProjectLeadComment({
@@ -267,6 +364,7 @@ const PublicSitePage = ({ onLogin }) => {
         projectUrl: selectedReferencePublicUrl,
         mirrored: isReferenceMirrored,
         layoutPreferences: nextLayoutPreferences,
+        packageSelection: selectedReferencePackageSelection,
       }),
     }));
     setIsLayoutRequestOpen(false);
@@ -275,7 +373,7 @@ const PublicSitePage = ({ onLogin }) => {
   };
 
   const calculateSelectedReference = () => {
-    setCalc((current) => ({ ...current, ...selectedReference.calcPatch, ...(selectedReferenceProject?.calcPatch || {}) }));
+    setCalc((current) => ({ ...current, ...selectedReferenceCalcPatch }));
     setLead((current) => ({
       ...current,
       comment: buildPublicProjectLeadComment({
@@ -285,6 +383,7 @@ const PublicSitePage = ({ onLogin }) => {
         projectUrl: selectedReferencePublicUrl,
         mirrored: isReferenceMirrored,
         layoutPreferences,
+        packageSelection: selectedReferencePackageSelection,
       }),
     }));
     setReferenceActionMessage('Проект передан в калькулятор');
@@ -347,7 +446,7 @@ const PublicSitePage = ({ onLogin }) => {
         <div className="public-hero-tools">
           <PublicSiteCalculatorSection
             calc={calc}
-            updateCalc={updateCalc}
+            updateCalc={updatePublicCalculator}
             result={result}
             scrollTo={scrollTo}
             leadFileUploadsEnabled={leadFileUploadsEnabled}
@@ -766,8 +865,19 @@ const PublicSitePage = ({ onLogin }) => {
                       </div>
                     ))}
                   </div>
+                  {selectedReferenceIsHouse && (
+                    <PublicProjectPackageSelector
+                      packages={selectedReferencePackageOptions}
+                      selectedValue={selectedReferencePackage.value}
+                      onSelect={chooseReferencePackage}
+                    />
+                  )}
                   <div className="public-project-cost-panel">
-                    <span>Примерная стоимость этого проекта</span>
+                    <span>
+                      {selectedReferencePackage
+                        ? `Ориентир: ${selectedReferencePackage.label}`
+                        : 'Примерная стоимость этого проекта'}
+                    </span>
                     <strong>{selectedReferenceEstimate.rangeLabel}</strong>
                     <small>Ориентир для сайта. Точная сумма зависит от замера, проекта, грунтов, материалов и комплектации.</small>
                   </div>
@@ -832,13 +942,13 @@ const PublicSitePage = ({ onLogin }) => {
                     <PublicLayoutRequestEditor
                       key={selectedReferenceProject?.code || selectedReference.id}
                       projectTitle={selectedReferenceProject?.title || selectedReference.title}
-                      initialSpaces={layoutPreferences?.spaces ?? (selectedReference.calcPatch?.type === 'house'
+                      initialSpaces={layoutPreferences?.spaces ?? (selectedReferenceIsHouse
                         ? Number(selectedReferenceProject?.calcPatch?.bedrooms) || Number.parseInt(selectedReferenceSpecs.find(([label]) => label === 'Количество спален')?.[1], 10) || 3
                         : Number(selectedReferenceProject?.calcPatch?.rooms) || 1)}
                       initialBathrooms={layoutPreferences?.bathrooms ?? (Number(selectedReferenceProject?.calcPatch?.bathrooms) || 1)}
                       initialGarage={layoutPreferences?.garage ?? String(selectedReferenceSpecs.find(([label]) => label === 'Гараж')?.[1] || '').toLowerCase() === 'есть'}
                       initialNotes={layoutPreferences?.notes || ''}
-                      isHouseLayout={selectedReference.calcPatch?.type === 'house'}
+                      isHouseLayout={selectedReferenceIsHouse}
                       onApply={applyLayoutRequest}
                       onCancel={() => setIsLayoutRequestOpen(false)}
                     />
@@ -997,6 +1107,9 @@ const PublicSitePage = ({ onLogin }) => {
             <small>
               {selectedLeadProject.directionTitle} · {selectedLeadProject.projectCode || 'проект'} · {selectedLeadProject.estimateRange}
             </small>
+            {selectedReferencePackage && (
+              <small>Комплектация: {selectedReferencePackage.label} · {selectedReferencePackage.duration}</small>
+            )}
             <small>
               {selectedLeadProject.variantLabel}
               {layoutPreferences ? ` · ${describePublicLayoutPreferences(layoutPreferences)}` : ''}
