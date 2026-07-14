@@ -2484,3 +2484,19 @@
 - The protected smoke creates an explicit company-owned row and a terminal legacy row, proves legacy exclusion/requeue denial, verifies allowed status transitions and cleans both rows.
 
 **Estimated scope:** S
+
+## Task M6.8a1: Audit Legacy Audit Log Ownership
+
+**Description:** Produce a read-only ownership report for `audit_log` before adding tenant columns or changing `/audit-log` runtime behavior.
+
+**Status:** Implemented locally. Production `npm run audit:audit-log-ownership` is pending.
+
+**Safety:**
+- The report opens a read-only database transaction and always returns `writesAttempted=0`.
+- Exact stored project/entity ownership wins; duplicate project names, missing parents and conflicting evidence remain review rows.
+- One active actor company may be used only as a company-level fallback. Multiple memberships are never guessed.
+- Login, logout, password-reset and 2FA events are explicit platform scope instead of being copied into every company.
+- Output contains only record/entity IDs, ownership status and reason; descriptions, user names, IP addresses and error text are not read.
+- `/audit-log`, `log_audit` writers, table schema and production data remain unchanged until the production report is clean and reviewed.
+
+**Estimated scope:** S

@@ -144,6 +144,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.7d2b2: Restrict bot-token outbox list/summary/dispatch/status to stored company-owned rows and lock real dispatch selection with `FOR UPDATE SKIP LOCKED`. Production `smoke:max-bot-adapter` passed with company owner, terminal legacy exclusion and dispatch dry-run.
 - [x] Task M6.7e1: Audit shared `messenger_accounts` identities through active user memberships or stored staff company without adding `company_id` to the identity row. Production report is strict-ready with zero account rows and no unresolved/ambiguous identities.
 - [ ] Task M6.7e2: Scope authenticated `/messenger-accounts` list/upsert through selected-company leadership and target employee memberships while keeping one shared messenger identity. Local route and smoke coverage pass; production deploy pending.
+- [ ] Task M6.8a1: Audit legacy `audit_log` ownership through exact project/entity parents, active actor memberships and explicit platform identity events without changing rows. Local read-only report and tests pass; production audit pending.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary
