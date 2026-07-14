@@ -286,16 +286,38 @@ def classify_audit_row(row, projects_by_name, entities, user_companies):
     return _classification(item, "unresolved", reason)
 
 
-def build_report_from_rows(rows):
+def classify_ownership_rows(rows):
     projects_by_id, projects_by_name = _project_indexes(rows.get("projects", []))
     user_companies = _membership_index(rows.get("user_company_roles", []))
     entities = _entity_index(
         rows.get("entity_owners", []), projects_by_id, projects_by_name, user_companies
     )
-    classified = [
+    return [
         classify_audit_row(row, projects_by_name, entities, user_companies)
         for row in rows.get("audit_log", [])
     ]
+
+
+def review_plan_sha256(classified):
+    review_plan = [
+        {
+            "recordId": item["recordId"],
+            "entityType": item["entityType"],
+            "status": item["status"],
+            "reason": item["reason"],
+        }
+        for item in classified
+        if item["status"] != "verified"
+    ]
+    return hashlib.sha256(
+        json.dumps(review_plan, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+
+
+def build_report_from_rows(rows):
+    classified = classify_ownership_rows(rows)
     counts = Counter(item["status"] for item in classified)
     review = [item for item in classified if item["status"] != "verified"]
     ready_by_company = Counter(
@@ -306,20 +328,7 @@ def build_report_from_rows(rows):
     by_entity_type = Counter(item["entityType"] or "(missing)" for item in classified)
     review_by_reason = Counter(item["reason"] for item in review)
     review_by_entity_type = Counter(item["entityType"] or "(missing)" for item in review)
-    review_plan = [
-        {
-            "recordId": item["recordId"],
-            "entityType": item["entityType"],
-            "status": item["status"],
-            "reason": item["reason"],
-        }
-        for item in review
-    ]
-    review_plan_sha256 = hashlib.sha256(
-        json.dumps(review_plan, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
-            "utf-8"
-        )
-    ).hexdigest()
+    review_plan_hash = review_plan_sha256(classified)
     review_ids = [item["recordId"] for item in review if item.get("recordId")]
     return {
         "ok": True,
@@ -348,7 +357,7 @@ def build_report_from_rows(rows):
             "first": min(review_ids) if review_ids else None,
             "last": max(review_ids) if review_ids else None,
         },
-        "reviewPlanSha256": review_plan_sha256,
+        "reviewPlanSha256": review_plan_hash,
         "needsReview": [
             {
                 "recordId": item["recordId"],

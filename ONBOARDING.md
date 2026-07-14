@@ -1135,6 +1135,8 @@ Production-проверка атомарного deploy 2026-07-12: runtime `3e2
 - Отчёт не читает и не выводит `description`, имя пользователя, IP или содержимое ошибок. До чистого production-отчёта схема, writers и `/audit-log` не переключаются.
 - Production `M6.8a1` проверил `1037` строк без записи: `910` подтверждены (`800` platform identity events и `110` company `1`), `127` относятся к удалённым родителям/старой истории, ambiguous и mismatched отсутствуют. Эти `127` строк нельзя автоматически присваивать компании: следующий guarded-план должен либо получить точного родителя, либо сохранить их в явном `legacy` scope.
 - `smoke:platform-crm` обязан удалять audit-строки только текущего запуска по уникальному `CODEX PLATFORM CRM SMOKE <run id>` префиксу до удаления тестовых родителей. Старые audit-строки этот cleanup не затрагивает.
+- Guarded-перенос запускается через `npm run audit:audit-log-migration -- --legacy-review-sha <reviewPlanSha256>`. Без точного SHA полного review-набора удалённые родители не переводятся в `legacy`; ambiguous/mismatched не переводятся никогда; dry-run не меняет схему и данные.
+- Применение требует одновременно `--confirm APPLY_AUDIT_LOG_OWNERSHIP`, `--expected-ready-count` и `--expected-plan-sha256` из непосредственно предшествующего dry-run. До успешного post-check `/audit-log` и writers не переключаются на stored owner.
 
 Проверка данных на сервере:
 

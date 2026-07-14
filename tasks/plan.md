@@ -145,7 +145,8 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.7e1: Audit shared `messenger_accounts` identities through active user memberships or stored staff company without adding `company_id` to the identity row. Production report is strict-ready with zero account rows and no unresolved/ambiguous identities.
 - [x] Task M6.7e2: Scope authenticated `/messenger-accounts` list/upsert through selected-company leadership and target employee memberships while keeping one shared messenger identity. Production runtime `3944b80d39a4`; protected account smoke, cleanup, strict ownership audit and public production smoke passed.
 - [x] Task M6.8a1: Audit legacy `audit_log` ownership through exact project/entity parents, active actor memberships and explicit platform identity events without changing rows. Production report found `910/1037` verified, including `800` platform and `110` company rows; `127` deleted-parent rows need an explicit legacy decision, with no ambiguous or mismatched owners.
-- [ ] Task M6.8a1b: Prevent `smoke:platform-crm` from leaving ordinary audit-log orphans and add stable review counts/SHA to the read-only report. Local tests pass; production rerun pending.
+- [x] Task M6.8a1b: Prevent `smoke:platform-crm` from leaving ordinary audit-log orphans and add stable review counts/SHA to the read-only report. Released in `6620cb35`; production rerun remains the input for the guarded migration.
+- [ ] Task M6.8a2: Add a guarded nullable owner migration for `audit_log`. Exact company/platform owners are automatic; the complete deleted-parent review set can become terminal `legacy` only with its production review SHA. Local implementation and tests pass; production dry-run/apply are pending.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary

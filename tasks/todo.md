@@ -2514,3 +2514,20 @@
 - `invite_code` ownership uses its stored company/project columns; deleted invitations remain unresolved.
 
 **Estimated scope:** XS
+
+## Task M6.8a2: Guard Audit Log Ownership Migration
+
+**Description:** Add nullable stored ownership to `audit_log` without changing runtime reads/writes yet. Migrate exact company/platform rows automatically and preserve only the explicitly reviewed deleted-parent set as `legacy`.
+
+**Status:** Implemented locally. Production ownership rerun, guarded migration dry-run and explicit apply remain pending.
+
+**Safety:**
+- Dry-run is the default, opens a read-only transaction and never changes schema or rows.
+- `--legacy-review-sha` must exactly match the SHA of every current non-verified row from `audit:audit-log-ownership`; a changed row, parent or classification aborts the plan.
+- Only `unresolved` history may enter `legacy`; ambiguous and mismatched ownership always blocks apply even with a matching review SHA.
+- Apply additionally requires `APPLY_AUDIT_LOG_OWNERSHIP`, exact ready count and exact full migration-plan SHA from the immediately preceding dry-run.
+- The apply path locks `audit_log`, re-runs ownership inside a serializable transaction, updates only completely ownerless rows and rolls back on count/SHA drift, write conflict or failed post-check.
+- `legacy` cannot carry company/project IDs; platform rows cannot carry tenant IDs; company rows require a company ID.
+- `/audit-log` and `log_audit` remain unchanged until the migration is complete and the next runtime slice is separately verified.
+
+**Estimated scope:** S
