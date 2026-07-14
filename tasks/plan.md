@@ -141,8 +141,9 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.7d2a1: Persist exact company/project owner on internal MAX file and outbox writes using stored entity owner or active employee memberships. Production runtime `e6f4934859bc`; public smoke and strict item-ownership audit passed.
 - [x] Task M6.7d2a2: Persist exact owner on supplier-KP and marketing-publication outbox writes and on authenticated messenger-channel upsert. Production supply and marketing publication smokes passed on runtime `2a9c48f18e54`; strict item-ownership audit remains clean.
 - [x] Task M6.7d2b1: Scope authenticated `/messenger-outbox` reads to stored company-owned rows visible through the selected company context and effective leadership role. Production runtime `1cc73b4de724`; protected selected-company and cross-company smoke passed.
-- [ ] Task M6.7d2b2: Restrict bot-token outbox list/summary/dispatch/status to stored company-owned rows and lock real dispatch selection with `FOR UPDATE SKIP LOCKED`. Local implementation and combined protected smoke pending.
-- [ ] Task M6.7e1: Audit shared `messenger_accounts` identities through active user memberships or stored staff company without adding `company_id` to the identity row. Local read-only report implemented; production dry-run pending.
+- [x] Task M6.7d2b2: Restrict bot-token outbox list/summary/dispatch/status to stored company-owned rows and lock real dispatch selection with `FOR UPDATE SKIP LOCKED`. Production `smoke:max-bot-adapter` passed with company owner, terminal legacy exclusion and dispatch dry-run.
+- [x] Task M6.7e1: Audit shared `messenger_accounts` identities through active user memberships or stored staff company without adding `company_id` to the identity row. Production report is strict-ready with zero account rows and no unresolved/ambiguous identities.
+- [ ] Task M6.7e2: Scope authenticated `/messenger-accounts` list/upsert through selected-company leadership and target employee memberships while keeping one shared messenger identity. Local route and smoke coverage pass; production deploy pending.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary

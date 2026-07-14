@@ -14,6 +14,12 @@ from typing import Optional
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException, Query, Request, Response
 
+from .account_access import (
+    account_identity_lock_keys,
+    require_account_target_company,
+    resolve_account_company_ids,
+    resolve_existing_account,
+)
 from .outbox_access import resolve_outbox_read_company_ids
 from .outbox_worker_access import (
     WORKER_OUTBOX_SCOPE_SQL,
@@ -802,6 +808,7 @@ def _source_id(data: dict, source: dict) -> str:
 
 def register_messenger_module(app, deps):
     get_db = deps["get_db"]
+    get_current_user = deps["get_current_user"]
     require_roles = deps["require_roles"]
     create_warehouse_invoice_record = deps["create_warehouse_invoice_record"]
     scan_invoice = deps.get("scan_invoice")
@@ -2391,22 +2398,84 @@ def register_messenger_module(app, deps):
         return "\n".join(lines)[:4000]
 
     @app.get("/messenger-accounts")
-    def list_messenger_accounts(current_user: dict = Depends(require_roles(*leadership_roles))):
+    def list_messenger_accounts(
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
+            company_context = resolve_work_company_context(
+                cur,
+                current_user,
+                None,
+                "read",
+                x_company_id=x_company_id,
+                x_company_mode=x_company_mode,
+            )
+            company_ids = resolve_account_company_ids(
+                company_context,
+                effective_company_actors(current_user, company_context),
+                leadership_roles=leadership_roles,
+            )
             cur.execute(
                 """
                 SELECT ma.id,ma.provider,ma.user_id,ma.staff_id,ma.external_user_id,ma.chat_id,
                        ma.display_name,ma.verified_at,ma.enabled,
                        COALESCE(u.name,s.name,'') AS employee_name,
-                       COALESCE(u.role,s.role,'') AS employee_role
+                       COALESCE(
+                           (SELECT ucr.role
+                              FROM user_company_roles ucr
+                             WHERE ucr.user_id=ma.user_id
+                               AND COALESCE(ucr.active,TRUE)=TRUE
+                               AND ucr.company_id=ANY(%s)
+                             ORDER BY ucr.company_id,ucr.id
+                             LIMIT 1),
+                           s.role,u.role,''
+                       ) AS employee_role,
+                       ARRAY(
+                           SELECT DISTINCT owner_company_id
+                             FROM (
+                                 SELECT ucr.company_id AS owner_company_id
+                                   FROM user_company_roles ucr
+                                  WHERE ucr.user_id=ma.user_id
+                                    AND COALESCE(ucr.active,TRUE)=TRUE
+                                    AND ucr.company_id=ANY(%s)
+                                 UNION ALL
+                                 SELECT st.company_id
+                                   FROM staff st
+                                  WHERE st.id=ma.staff_id
+                                    AND st.company_id=ANY(%s)
+                             ) owners
+                            WHERE owner_company_id IS NOT NULL
+                            ORDER BY owner_company_id
+                       ) AS company_ids
                   FROM messenger_accounts ma
                   LEFT JOIN users u ON u.id=ma.user_id
                   LEFT JOIN staff s ON s.id=ma.staff_id
+                 WHERE (ma.user_id IS NOT NULL
+                        AND ma.staff_id IS NULL
+                        AND COALESCE(u.active,TRUE)=TRUE
+                        AND EXISTS (
+                           SELECT 1
+                             FROM user_company_roles visible_ucr
+                            WHERE visible_ucr.user_id=ma.user_id
+                              AND COALESCE(visible_ucr.active,TRUE)=TRUE
+                              AND visible_ucr.company_id=ANY(%s)
+                       ))
+                    OR (ma.staff_id IS NOT NULL
+                        AND ma.user_id IS NULL
+                        AND EXISTS (
+                           SELECT 1
+                             FROM staff visible_staff
+                            WHERE visible_staff.id=ma.staff_id
+                              AND visible_staff.company_id=ANY(%s)
+                       ))
                  ORDER BY ma.id DESC
                  LIMIT 500
-                """
+                """,
+                (company_ids, company_ids, company_ids, company_ids, company_ids),
             )
             return {
                 "ok": True,
@@ -2423,6 +2492,7 @@ def register_messenger_module(app, deps):
                         "enabled": bool(row.get("enabled", True)),
                         "employeeName": row.get("employee_name") or "",
                         "employeeRole": row.get("employee_role") or "",
+                        "companyIds": [int(value) for value in (row.get("company_ids") or [])],
                     }
                     for row in cur.fetchall()
                 ],
@@ -2587,7 +2657,12 @@ def register_messenger_module(app, deps):
             conn.close()
 
     @app.post("/messenger-accounts")
-    def upsert_messenger_account(data: dict, current_user: dict = Depends(require_roles(*leadership_roles))):
+    def upsert_messenger_account(
+        data: dict,
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
         data = data or {}
         provider = _text(data.get("provider") or "max", 40).lower()
         if provider not in ("max", "telegram"):
@@ -2612,32 +2687,99 @@ def register_messenger_module(app, deps):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
+            requested_company_id = _int_or_none(data.get("companyId") or data.get("company_id"))
+            company_context = resolve_work_company_context(
+                cur,
+                current_user,
+                requested_company_id,
+                "write",
+                x_company_id=x_company_id,
+                x_company_mode=x_company_mode,
+            )
+            company_ids = resolve_account_company_ids(
+                company_context,
+                effective_company_actors(current_user, company_context),
+                leadership_roles=leadership_roles,
+                write=True,
+            )
+            company_id = company_ids[0]
             if user_id:
-                cur.execute("SELECT id,name,role FROM users WHERE id=%s AND COALESCE(active,TRUE)=TRUE", (user_id,))
+                cur.execute(
+                    """
+                    SELECT u.id,u.name,COALESCE(ucr.role,u.role,'') AS role,
+                           ARRAY[ucr.company_id]::INT[] AS company_ids
+                      FROM users u
+                      JOIN user_company_roles ucr ON ucr.user_id=u.id
+                     WHERE u.id=%s
+                       AND ucr.company_id=%s
+                       AND COALESCE(u.active,TRUE)=TRUE
+                       AND COALESCE(ucr.active,TRUE)=TRUE
+                     ORDER BY ucr.id
+                     LIMIT 1
+                    """,
+                    (user_id, company_id),
+                )
                 target = cur.fetchone()
                 if not target:
-                    raise HTTPException(status_code=404, detail="Активный пользователь для привязки не найден")
+                    raise HTTPException(
+                        status_code=404,
+                        detail="Активный пользователь выбранной компании для привязки не найден",
+                    )
             else:
-                cur.execute("SELECT id,name,role FROM staff WHERE id=%s", (staff_id,))
+                cur.execute(
+                    """
+                    SELECT id,name,role,ARRAY[company_id]::INT[] AS company_ids
+                      FROM staff
+                     WHERE id=%s
+                       AND company_id=%s
+                       AND COALESCE(NULLIF(status,''),'Активен')='Активен'
+                       AND fired_date IS NULL
+                    """,
+                    (staff_id, company_id),
+                )
                 target = cur.fetchone()
                 if not target:
-                    raise HTTPException(status_code=404, detail="Сотрудник для привязки не найден")
+                    raise HTTPException(
+                        status_code=404,
+                        detail="Сотрудник выбранной компании для привязки не найден",
+                    )
+            require_account_target_company(target.get("company_ids") or [], company_id)
+
+            lock_keys = account_identity_lock_keys(
+                provider,
+                external_user_id=external_user_id,
+                chat_id=chat_id,
+                user_id=user_id,
+                staff_id=staff_id,
+            )
+            cur.execute(
+                """
+                SELECT pg_advisory_xact_lock(hashtext(lock_key))
+                  FROM unnest(%s::text[]) AS identity_keys(lock_key)
+                 ORDER BY lock_key
+                """,
+                (lock_keys,),
+            )
 
             cur.execute(
                 """
-                SELECT id
+                SELECT id,user_id,staff_id
                   FROM messenger_accounts
                  WHERE provider=%s
                    AND ((%s<>'' AND external_user_id=%s)
                      OR (%s<>'' AND chat_id=%s)
                      OR (%s IS NOT NULL AND user_id=%s)
                      OR (%s IS NOT NULL AND staff_id=%s))
-                 ORDER BY id DESC
-                 LIMIT 1
+                 ORDER BY id
+                 LIMIT 2
                 """,
                 (provider, external_user_id, external_user_id, chat_id, chat_id, user_id, user_id, staff_id, staff_id),
             )
-            existing = cur.fetchone()
+            existing = resolve_existing_account(
+                cur.fetchall(),
+                user_id=user_id,
+                staff_id=staff_id,
+            )
             if existing:
                 cur.execute(
                     """
@@ -2683,6 +2825,7 @@ def register_messenger_module(app, deps):
                     "enabled": bool(row.get("enabled", True)),
                     "employeeName": target.get("name") or "",
                     "employeeRole": target.get("role") or "",
+                    "companyIds": [company_id],
                 },
             }
         except Exception:

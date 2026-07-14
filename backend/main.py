@@ -31230,6 +31230,7 @@ except ModuleNotFoundError:
 
 register_messenger_module(app, {
     "get_db": get_db,
+    "get_current_user": get_current_user,
     "require_roles": require_roles,
     "create_warehouse_invoice_record": _create_warehouse_invoice_record,
     "warehouse_roles": WAREHOUSE_ROLES,

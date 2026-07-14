@@ -48,6 +48,7 @@
     "smoke:max-bot-adapter": "python3 scripts/smoke-max-bot-adapter.py",
     "smoke:max-marketing": "python3 scripts/smoke-max-marketing-lead.py",
     "smoke:messenger-outbox": "python3 scripts/smoke-messenger-outbox.py",
+    "smoke:messenger-accounts": "python3 scripts/smoke-messenger-accounts.py",
     "smoke:marketing-publications": "python3 scripts/smoke-marketing-publications.py",
     "max:dispatch": "python3 scripts/dispatch-max-outbox.py",
     "max:dispatch:dry-run": "python3 scripts/dispatch-max-outbox.py --dry-run",

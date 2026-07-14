@@ -2443,7 +2443,7 @@
 
 **Description:** Add a read-only ownership/access report for `messenger_accounts` before changing its authenticated list and upsert routes. A messenger identity belongs to one employee identity and may be visible in several companies only through that employee's active memberships.
 
-**Status:** Implemented locally; focused report tests pass. Full regression and production dry-run pending.
+**Status:** Production verified: the read-only audit returned `totalRows=0`, `unresolved=0`, `ambiguous=0`, `mismatched=0` and `readyForRuntime=true` without writes.
 
 **Safety:**
 - `messenger_accounts` does not receive `company_id`: one MAX/Telegram identity may legitimately serve one user in several companies.
@@ -2454,11 +2454,27 @@
 
 **Estimated scope:** S
 
+## Task M6.7e2: Scope Messenger Account Runtime
+
+**Description:** Keep one shared MAX/Telegram identity per employee while restricting authenticated account list and upsert to companies where the current user has an effective leadership role.
+
+**Status:** Implemented locally. Helper and route tests pass; protected `smoke:messenger-accounts`, full regression and production deploy are pending.
+
+**Safety:**
+- A selected company lists only accounts whose target user has an active membership in that company or whose target staff row stores that company.
+- `Все компании` is read-only and includes only companies where the effective role is director or deputy director.
+- Create/update requires one selected company and one active employee target from that company.
+- Existing `(provider, external_user_id/chat_id/user_id/staff_id)` matches cannot be moved to another employee; overlapping matches fail with `409` for manual review.
+- No `company_id` is added to `messenger_accounts`; a user shared by several companies remains one messenger identity and gains visibility only through active memberships.
+- Protected smoke uses two unique temporary users, verifies selected/foreign/all-company behavior and reassignment blocking, then deletes every generated row.
+
+**Estimated scope:** S
+
 ## Task M6.7d2b2: Scope MAX Worker And Prevent Concurrent Dispatch
 
 **Description:** Keep the platform MAX worker global across companies while allowing it to list, dispatch and update only stored company-owned outbox rows.
 
-**Status:** Implemented locally; full regression, combined deploy and protected `smoke:max-bot-adapter` pending.
+**Status:** Production verified: `smoke:max-bot-adapter` passed company-owned worker list/status/dispatch, terminal legacy exclusion/requeue denial and CLI dry-run; cleanup completed.
 
 **Safety:**
 - The bot token is a platform service credential, so it may process rows from every tenant but cannot read or mutate ownerless/legacy rows.
