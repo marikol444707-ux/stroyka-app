@@ -2458,7 +2458,7 @@
 
 **Description:** Keep one shared MAX/Telegram identity per employee while restricting authenticated account list and upsert to companies where the current user has an effective leadership role.
 
-**Status:** Implemented locally. Helper and route tests pass; protected `smoke:messenger-accounts`, full regression and production deploy are pending.
+**Status:** Production verified on runtime `3944b80d39a4`: protected account smoke, exact cleanup, strict ownership post-audit and production smoke passed.
 
 **Safety:**
 - A selected company lists only accounts whose target user has an active membership in that company or whose target staff row stores that company.
