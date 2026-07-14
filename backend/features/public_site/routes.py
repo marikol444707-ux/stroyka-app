@@ -218,36 +218,34 @@ def _public_lead_notes(data: dict) -> str:
     return "\n".join(parts)[:4000]
 
 
-def _public_site_project(row: dict) -> dict:
+def _public_site_project(row: dict):
     enhanced = _site_list_value(row.get("publicEnhancedImages"))
     images = enhanced or _site_list_value(row.get("publicImages")) or _site_list_value(row.get("publicOriginalImages"))
     main = (row.get("publicMainImageUrl") or "").strip()
     if main and main not in images:
         images = [main] + images
-    if not images:
-        images = ["https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=84"]
-    progress = _site_int(row.get("publicProgress"), _site_int(row.get("progress"), 0))
+    images = [str(image).strip() for image in images if isinstance(image, str) and str(image).strip()]
+    title = _public_text(row.get("publicTitle"), 255)
+    if not title or not images:
+        return None
+    progress = _site_int(row.get("publicProgress"), 0)
     return {
         "id": row.get("id"),
-        "projectId": row.get("id"),
-        "projectName": row.get("name") or "",
-        "title": row.get("publicTitle") or row.get("name") or "",
+        "title": title,
         "category": row.get("publicCategory") or "house",
         "location": row.get("publicLocation") or "",
         "area": row.get("publicArea") or "",
         "year": row.get("publicYear") or "",
-        "stage": row.get("publicStage") or row.get("status") or "",
+        "stage": row.get("publicStage") or "",
         "progress": max(0, min(100, progress)),
         "price": row.get("publicPriceLabel") or "",
-        "term": row.get("publicTerm") or row.get("deadline") or "",
+        "term": row.get("publicTerm") or "",
         "summary": row.get("publicSummary") or "",
         "result": row.get("publicResult") or "",
         "passport": row.get("publicPassport") or "",
         "tags": _site_list_value(row.get("publicTags")),
         "images": images,
         "isLive": bool(row.get("publicIsLive")),
-        "aiStatus": row.get("publicAiStatus") or "Не обработано",
-        "aiNotes": row.get("publicAiNotes") or "",
     }
 
 
@@ -395,7 +393,8 @@ def register_public_site_routes(app, deps):
                 LIMIT 60
             """)
             rows = cur.fetchall()
-            return [_public_site_project(dict(r)) for r in rows]
+            projects = [_public_site_project(dict(row)) for row in rows]
+            return [project for project in projects if project is not None]
         finally:
             cur.close()
             conn.close()
@@ -640,22 +639,25 @@ def register_public_site_routes(app, deps):
                 if js_key in data:
                     sets.append(db_col + "=%s::jsonb")
                     vals.append(json.dumps(_site_list_value(data.get(js_key)), ensure_ascii=False))
-            if data.get("publicShowOnSite") and not str(data.get("publicTitle") or "").strip():
-                if "publicTitle" not in data:
-                    sets.append("public_title=%s")
-                    vals.append(project_row.get("name") or "")
             if sets:
                 sets.append("public_updated_at=NOW()")
                 vals.append(id)
                 cur.execute("UPDATE projects SET " + ", ".join(sets) + " WHERE id=%s", vals)
             cur.execute(f"""SELECT id,name,status,deadline,progress,{project_public_select} FROM projects WHERE id=%s""", (id,))
             row = cur.fetchone()
+            site_project = _public_site_project(dict(row))
+            if row.get("publicShowOnSite") and site_project is None:
+                conn.rollback()
+                raise HTTPException(
+                    status_code=422,
+                    detail="Для публикации заполните отдельное публичное название и добавьте хотя бы одно фото",
+                )
             conn.commit()
             if log_audit:
                 log_audit(user_name=current_user.get("name",""), user_role=current_user.get("role",""),
                           action="update", entity_type="project_site_publication", entity_id=id,
                           description="Обновлена публикация объекта на сайт", project_name=project_row.get("name") or "")
-            return {"ok": True, "project": dict(row), "siteProject": _public_site_project(dict(row))}
+            return {"ok": True, "project": dict(row), "siteProject": site_project}
         finally:
             cur.close()
             conn.close()

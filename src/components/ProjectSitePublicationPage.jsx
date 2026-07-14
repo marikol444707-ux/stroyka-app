@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, Globe2, Image, Megaphone, Plus, Radio, RefreshCw, Save, Send } from 'lucide-react';
+import { isProjectSitePublicationReady } from '../utils/projectSitePublicationUtils';
 
 const PUBLIC_CATEGORIES = [
   { value: 'house', label: 'Дом' },
@@ -47,6 +48,7 @@ export default function ProjectSitePublicationPage({
 
   const selectedProject = activeProjects.find(project => String(project.id) === String(selectedProjectId)) || activeProjects[0];
   const draft = selectedProject && typeof projectSiteDraft === 'function' ? projectSiteDraft(selectedProject) : null;
+  const publicationReadiness = isProjectSitePublicationReady(draft || {});
   const visibleCount = activeProjects.filter(project => project.publicShowOnSite).length;
   const liveCount = activeProjects.filter(project => project.publicIsLive).length;
   const needsPhotoCount = activeProjects.filter(project => !project.publicMainImageUrl && project.publicShowOnSite).length;
@@ -253,8 +255,21 @@ export default function ProjectSitePublicationPage({
                 </p>
               </div>
               <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap'}}>
+                <span style={badge(
+                  publicationReadiness.ready ? C.success : C.warning,
+                  publicationReadiness.ready ? C.successLight : C.warningLight,
+                  publicationReadiness.ready ? C.successBorder : C.warningBorder,
+                )}>
+                  {publicationReadiness.ready ? 'Готово к публикации' : `Не хватает: ${publicationReadiness.missing.join(', ')}`}
+                </span>
                 <label style={{...badge(draft.publicShowOnSite ? C.success : C.textSec, draft.publicShowOnSite ? C.successLight : C.bg, C.border), cursor: 'pointer'}}>
-                  <input type="checkbox" checked={!!draft.publicShowOnSite} onChange={event => patch({publicShowOnSite: event.target.checked})} style={{margin: 0}}/> Показывать
+                  <input
+                    type="checkbox"
+                    checked={!!draft.publicShowOnSite}
+                    disabled={!draft.publicShowOnSite && !publicationReadiness.ready}
+                    onChange={event => patch({publicShowOnSite: event.target.checked})}
+                    style={{margin: 0}}
+                  /> Показывать
                 </label>
                 <label style={{...badge(draft.publicIsLive ? C.info : C.textSec, draft.publicIsLive ? C.infoLight : C.bg, C.border), cursor: 'pointer'}}>
                   <input type="checkbox" checked={!!draft.publicIsLive} onChange={event => patch({publicIsLive: event.target.checked})} style={{margin: 0}}/> Живой объект

@@ -1458,9 +1458,9 @@ export const normalizeSiteProject = (project) => {
     ? project.images
     : (Array.isArray(project.publicImages) ? project.publicImages : []);
   return {
-    id: String(project.id || project.projectId || project.title || project.projectName || Math.random()),
+    id: String(project.id || project.projectId || project.title || Math.random()),
     category: project.category || project.publicCategory || 'house',
-    title: project.title || project.publicTitle || project.projectName || 'Объект СтройКа',
+    title: project.title || project.publicTitle || '',
     location: project.location || project.publicLocation || '',
     area: project.area || project.publicArea || '',
     year: project.year || project.publicYear || '',
@@ -1469,10 +1469,10 @@ export const normalizeSiteProject = (project) => {
     price: project.price || project.publicPriceLabel || '',
     term: project.term || project.publicTerm || '',
     passport: project.passport || project.publicPassport || 'Фото, этапы и паспорт объекта',
+    summary: project.summary || project.publicSummary || '',
     result: project.result || project.publicResult || project.publicSummary || '',
     tags: Array.isArray(project.tags) ? project.tags : (Array.isArray(project.publicTags) ? project.publicTags : []),
-    images: images.length ? images : publicProjects[0].images,
+    images,
     isLive: Boolean(project.isLive || project.publicIsLive),
-    aiStatus: project.aiStatus || project.publicAiStatus || '',
   };
 };

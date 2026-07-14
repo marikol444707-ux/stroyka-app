@@ -9,6 +9,7 @@ from starlette.datastructures import Headers, UploadFile
 from backend.features.public_site.routes import (
     _public_attachment_tokens,
     _public_lead_notes,
+    _public_site_project,
     register_public_site_routes,
 )
 
@@ -85,6 +86,40 @@ class _FakeConnection:
 
 
 class PublicLeadNotesTests(unittest.TestCase):
+    def test_public_project_exposes_only_explicit_public_fields(self):
+        project = _public_site_project({
+            "id": 17,
+            "name": "ул. Частная, заказчик Иванов",
+            "status": "В работе",
+            "publicTitle": "Дом с террасой",
+            "publicCategory": "house",
+            "publicImages": ["https://cdn.example.test/house.webp"],
+            "publicStage": "Тёплый контур",
+            "publicAiNotes": "скрыть лицо заказчика",
+            "publicAiStatus": "Проверено директором",
+        })
+
+        self.assertEqual(project["title"], "Дом с террасой")
+        self.assertEqual(project["images"], ["https://cdn.example.test/house.webp"])
+        self.assertNotIn("projectName", project)
+        self.assertNotIn("projectId", project)
+        self.assertNotIn("aiNotes", project)
+        self.assertNotIn("aiStatus", project)
+        self.assertNotIn("ул. Частная", str(project))
+
+    def test_public_project_requires_public_title_and_real_image(self):
+        self.assertIsNone(_public_site_project({
+            "id": 17,
+            "name": "Внутреннее название",
+            "publicTitle": "",
+            "publicImages": ["https://cdn.example.test/house.webp"],
+        }))
+        self.assertIsNone(_public_site_project({
+            "id": 18,
+            "publicTitle": "Дом с террасой",
+            "publicImages": [],
+        }))
+
     def test_includes_selected_project_in_crm_notes(self):
         notes = _public_lead_notes({
             "comment": "Нужна консультация",

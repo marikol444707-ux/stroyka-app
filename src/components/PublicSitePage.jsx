@@ -608,12 +608,14 @@ const PublicSitePage = ({ onLogin }) => {
           <aside className="public-gallery-info">
             <div className="public-gallery-info-top">
               <div>
-                <p className="public-tool-kicker">Выбранный проект</p>
+                <p className="public-tool-kicker">{selectedProject.isLive ? 'Текущий объект' : 'Завершённый объект'}</p>
                 <h3>{selectedProject.title}</h3>
                 <span><MapPin size={14} /> {selectedProject.location} · {selectedProject.year}</span>
               </div>
               <strong>{selectedProject.progress}%</strong>
             </div>
+
+            {selectedProject.summary && <p className="public-gallery-summary">{selectedProject.summary}</p>}
 
             <div className="public-gallery-progress">
               <i style={{ width: `${selectedProject.progress}%` }} />
@@ -635,6 +637,10 @@ const PublicSitePage = ({ onLogin }) => {
             <div className="public-gallery-tags">
               {selectedProject.tags.map((tag) => <span key={tag}>{tag}</span>)}
             </div>
+            <button className="public-gallery-cta" type="button" onClick={() => scrollTo('calculator')}>
+              Рассчитать похожий объект
+              <ChevronRight size={16} />
+            </button>
           </aside>
         </div>
 

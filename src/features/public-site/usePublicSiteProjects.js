@@ -34,7 +34,10 @@ export const usePublicSiteProjects = () => {
         if (!response.ok) return;
         const data = await response.json();
         if (cancelled || !Array.isArray(data) || data.length === 0) return;
-        const normalized = data.map(normalizeSiteProject);
+        const normalized = data
+          .map(normalizeSiteProject)
+          .filter((project) => project.title.trim() && project.images.length > 0);
+        if (normalized.length === 0) return;
         setSiteProjects(normalized);
         setHasPublishedProjects(true);
         setSelectedProjectId(normalized[0].id);

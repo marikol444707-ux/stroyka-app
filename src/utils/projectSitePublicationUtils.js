@@ -8,7 +8,7 @@ export const projectSitePublicationDraft = (project = {}, draftByProjectId = {})
     publicShowOnSite: !!project.publicShowOnSite,
     publicIsLive: !!project.publicIsLive,
     publicStatus: project.publicStatus || 'Черновик',
-    publicTitle: project.publicTitle || project.name || '',
+    publicTitle: project.publicTitle || '',
     publicCategory: project.publicCategory || 'house',
     publicLocation: project.publicLocation || '',
     publicArea: project.publicArea || '',
@@ -34,7 +34,7 @@ export const projectSitePublicationPayload = (project = {}, draft = {}) => ({
   publicShowOnSite: !!draft.publicShowOnSite,
   publicIsLive: !!draft.publicIsLive,
   publicStatus: draft.publicStatus || 'Черновик',
-  publicTitle: draft.publicTitle || project.name,
+  publicTitle: String(draft.publicTitle || '').trim(),
   publicCategory: draft.publicCategory || 'house',
   publicLocation: draft.publicLocation || '',
   publicArea: draft.publicArea || '',
@@ -54,3 +54,17 @@ export const projectSitePublicationPayload = (project = {}, draft = {}) => ({
   publicAiStatus: draft.publicAiStatus || 'Не обработано',
   publicAiNotes: draft.publicAiNotes || '',
 });
+
+export const isProjectSitePublicationReady = (draft = {}) => {
+  const hasTitle = Boolean(String(draft.publicTitle || '').trim());
+  const hasImage = [
+    draft.publicMainImageUrl,
+    draft.publicImagesText,
+    draft.publicOriginalImagesText,
+    draft.publicEnhancedImagesText,
+  ].some((value) => Boolean(String(value || '').trim()));
+  const missing = [];
+  if (!hasTitle) missing.push('публичное название');
+  if (!hasImage) missing.push('фото');
+  return { ready: missing.length === 0, missing };
+};

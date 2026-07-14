@@ -1221,6 +1221,13 @@
   line-height: 1;
 }
 
+.public-gallery-summary {
+  margin: 0;
+  color: var(--site-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .public-gallery-progress {
   height: 8px;
   background: #e9efec;
@@ -1304,6 +1311,28 @@
   padding: 7px 9px;
   font-size: 12px;
   font-weight: 850;
+}
+
+.public-gallery-cta {
+  width: 100%;
+  min-height: 42px;
+  margin-top: 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--site-green);
+  color: #ffffff;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.public-gallery-cta:hover {
+  background: var(--site-green-dark);
 }
 
 .public-project-strip {
