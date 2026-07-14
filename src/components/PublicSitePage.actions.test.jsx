@@ -148,6 +148,38 @@ describe('public project actions', () => {
     expect(screen.getByRole('region', { name: 'Примерный график этапов и платежей' })).toHaveTextContent('4 этапа');
   });
 
+  test('adds a selected mortgage or installment scenario to the request', () => {
+    render(<PublicSitePage onLogin={jest.fn()} />);
+
+    const financing = screen.getByRole('region', { name: 'Ипотека и рассрочка' });
+    expect(financing).toHaveTextContent('Предварительный платёж');
+    expect(screen.getByRole('radio', { name: 'Ипотека' })).toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Первоначальный взнос, %' }), {
+      target: { value: '25' },
+    });
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Примерная ставка, % годовых' }), {
+      target: { value: '15' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить ипотеку в заявку' }));
+
+    expect(financing).toHaveTextContent('Ипотека добавлена в заявку');
+    expect(document.querySelector('.public-request-selected')).toHaveTextContent('Ипотека на строительство');
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Рассрочка' }));
+    expect(screen.queryByRole('spinbutton', { name: 'Примерная ставка, % годовых' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить рассрочку в заявку' }));
+
+    expect(financing).toHaveTextContent('Рассрочка добавлена в заявку');
+    expect(document.querySelector('.public-request-selected')).toHaveTextContent('Рассрочка по договору');
+
+    fireEvent.click(document.querySelector('.public-project-decision-actions .public-primary'));
+    flushActions();
+
+    expect(document.getElementById('request').scrollIntoView).toHaveBeenCalled();
+    expect(document.querySelector('.public-request-selected')).toHaveTextContent('Рассрочка по договору');
+  });
+
   test('keeps the mirrored variant when the project is sent to the calculator', () => {
     render(<PublicSitePage onLogin={jest.fn()} />);
 

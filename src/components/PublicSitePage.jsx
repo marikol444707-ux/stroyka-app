@@ -42,6 +42,7 @@ import { PublicSiteCalculatorSection } from '../features/public-site/PublicSiteC
 import { PublicLayoutRequestEditor } from '../features/public-site/PublicLayoutRequestEditor';
 import { PublicProjectPackageSelector } from '../features/public-site/PublicProjectPackageSelector';
 import { PublicProjectPaymentSchedule } from '../features/public-site/PublicProjectPaymentSchedule';
+import { PublicProjectFinancing } from '../features/public-site/PublicProjectFinancing.jsx';
 import {
   getPublicProjectHousePackage,
   getPublicProjectPaymentSchedule,
@@ -71,6 +72,7 @@ const PublicSitePage = ({ onLogin }) => {
   const [layoutPreferences, setLayoutPreferences] = useState(null);
   const [plotCheck, setPlotCheck] = useState(publicPlotCheckDefaults);
   const [comparedProjectCodes, setComparedProjectCodes] = useState([]);
+  const [selectedFinancing, setSelectedFinancing] = useState(null);
   const [selectedHousePackage, setSelectedHousePackage] = useState(() => (
     getPublicProjectHousePackage(getReferenceProjectCards(referenceDirections[0])[0]?.calcPatch?.package).value
   ));
@@ -197,6 +199,7 @@ const PublicSitePage = ({ onLogin }) => {
       min,
       max,
     })),
+    financing: selectedFinancing,
     plotCheck: selectedReferenceIsHouse ? serializePublicPlotCheck(plotCheck) : null,
     mediaCount: selectedReferenceMediaOptions.length,
     media: selectedReferenceMediaOptions.map((item) => ({
@@ -286,6 +289,7 @@ const PublicSitePage = ({ onLogin }) => {
     setIsReferenceMirrored(false);
     setIsLayoutRequestOpen(false);
     setLayoutPreferences(null);
+    setSelectedFinancing(null);
     setSelectedHousePackage(nextPackage?.value || 'turnkey');
     setCalc((current) => ({ ...current, ...nextCalcPatch }));
     setLead((current) => ({
@@ -361,6 +365,7 @@ const PublicSitePage = ({ onLogin }) => {
   const syncReferencePackage = (packageOption) => {
     const nextPackageSelection = selectedReferencePackageOptions.find((item) => item.value === packageOption.value);
     if (!selectedReferenceIsHouse || !nextPackageSelection) return null;
+    setSelectedFinancing(null);
     setSelectedHousePackage(nextPackageSelection.value);
     setLead((current) => ({
       ...current,
@@ -829,17 +834,14 @@ const PublicSitePage = ({ onLogin }) => {
                     <button
                       className="public-secondary dark"
                       type="button"
-                      onClick={() => chooseReference(selectedReference, selectedReferenceProject, 'calculator')}
+                      onClick={calculateSelectedReference}
                     >
                       К расчету
                     </button>
                     <button
                       className="public-primary"
                       type="button"
-                      onClick={() => {
-                        chooseReference(selectedReference, selectedReferenceProject);
-                        setTimeout(() => scrollTo('request'), 0);
-                      }}
+                      onClick={() => setTimeout(() => scrollTo('request'), 0)}
                     >
                       Оставить заявку
                     </button>
@@ -982,6 +984,17 @@ const PublicSitePage = ({ onLogin }) => {
                     <PublicProjectPaymentSchedule
                       packageLabel={selectedReferencePackage.label}
                       stages={selectedReferencePaymentSchedule}
+                    />
+                  )}
+                  {selectedReferenceIsHouse && (
+                    <PublicProjectFinancing
+                      key={`${selectedReferenceProject?.code || selectedReference.id}-${selectedReferencePackage?.value || 'project'}`}
+                      estimate={selectedReferenceEstimate}
+                      selectedFinancing={selectedFinancing}
+                      onApply={(financing) => {
+                        setSelectedFinancing(financing);
+                        setReferenceActionMessage(`${financing.modeLabel} добавлена в заявку`);
+                      }}
                     />
                   )}
                   <div className="public-generated-object-card">
@@ -1220,6 +1233,11 @@ const PublicSitePage = ({ onLogin }) => {
               <small>
                 Участок: заполнено {selectedLeadProject.plotCheck.completed} из {selectedLeadProject.plotCheck.total}
                 {' · '}проверить пунктов: {selectedLeadProject.plotCheck.reviewItems.length}
+              </small>
+            )}
+            {selectedLeadProject.financing && (
+              <small>
+                {selectedLeadProject.financing.modeLabel}: {selectedLeadProject.financing.monthlyRange}
               </small>
             )}
             <small>

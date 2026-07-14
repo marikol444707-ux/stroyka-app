@@ -218,6 +218,33 @@ def _public_lead_notes(data: dict) -> str:
             if review_text:
                 plot_parts.append("проверить: " + review_text)
             parts.append("Участок: " + " · ".join(plot_parts))
+        financing = selected_project.get("financing") if isinstance(selected_project.get("financing"), dict) else {}
+        if financing and financing.get("status") == "indicative":
+            financing_parts = []
+            mode_label = _public_text(financing.get("modeLabel"), 120)
+            down_percent_value = financing.get("downPaymentPercent")
+            down_percent = _public_text(str(down_percent_value), 20) if down_percent_value is not None else ""
+            down_range = _public_text(financing.get("downPaymentRange"), 120)
+            term_label = _public_text(financing.get("termLabel"), 80)
+            annual_rate_value = financing.get("annualRate")
+            annual_rate = _public_text(str(annual_rate_value), 20) if annual_rate_value is not None else ""
+            monthly_range = _public_text(financing.get("monthlyRange"), 120)
+            if mode_label:
+                financing_parts.append(mode_label)
+            if down_percent:
+                down_text = "первый взнос: " + down_percent + "%"
+                if down_range:
+                    down_text += " (" + down_range + ")"
+                financing_parts.append(down_text)
+            if term_label:
+                financing_parts.append("срок: " + term_label)
+            if annual_rate:
+                financing_parts.append("примерная ставка: " + annual_rate + "%")
+            if monthly_range:
+                financing_parts.append("платёж: " + monthly_range)
+            if financing_parts:
+                financing_parts.append("предварительный сценарий, не банковское предложение")
+                parts.append("Финансирование: " + " · ".join(financing_parts))
     page = _public_text(data.get("page"), 120)
     if page:
         parts.append("Страница: " + page)

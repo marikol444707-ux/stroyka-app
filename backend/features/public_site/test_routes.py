@@ -165,6 +165,29 @@ class PublicLeadNotesTests(unittest.TestCase):
         self.assertIn("геодезия: есть", notes)
         self.assertIn("проверить: подъезд техники, перепад высот, геология", notes)
 
+    def test_includes_selected_financing_scenario_in_crm_notes(self):
+        notes = _public_lead_notes({
+            "selectedProject": {
+                "projectTitle": "Дом 110 м2",
+                "financing": {
+                    "status": "indicative",
+                    "modeLabel": "Ипотека на строительство",
+                    "downPaymentPercent": 20,
+                    "downPaymentRange": "2-2,4 млн ₽",
+                    "termLabel": "20 лет",
+                    "annualRate": 12,
+                    "monthlyRange": "88-106 тыс. ₽/мес.",
+                },
+            },
+        })
+
+        self.assertIn("Финансирование: Ипотека на строительство", notes)
+        self.assertIn("первый взнос: 20% (2-2,4 млн ₽)", notes)
+        self.assertIn("срок: 20 лет", notes)
+        self.assertIn("примерная ставка: 12%", notes)
+        self.assertIn("платёж: 88-106 тыс. ₽/мес.", notes)
+        self.assertIn("предварительный сценарий, не банковское предложение", notes)
+
     def test_ignores_invalid_selected_project(self):
         self.assertEqual(
             _public_lead_notes({"selectedProject": "H1-01", "page": "public-site"}),
