@@ -2536,7 +2536,7 @@
 
 **Description:** Make every new audit row store an explicit owner scope and restrict the company activity journal to stored company-owned rows visible through the selected company context.
 
-**Status:** Implemented locally. Production deploy, protected activity-log smoke and post-deploy strict ownership audit remain pending.
+**Status:** Pushed in `e83bf30c`. Production deploy, protected activity-log smoke and post-deploy strict ownership audit remain pending.
 
 **Safety:**
 - The central writer resolves ownership only from an exact project, supported stored entity parent or active actor membership. Platform identity actions remain `platform`.
@@ -2544,5 +2544,25 @@
 - Direct UI audit writes ignore client actor identity, require one selected company and store the server-resolved effective actor and company. A supplied project must exist exactly in that company.
 - `/audit-log` always requires `owner_scope='company'` and a stored `company_id`; selected-company and `Все компании` reads include only companies where the effective membership role is director, deputy director or accountant.
 - The existing search/date/action filters remain server-side and are applied after the owner boundary.
+
+**Estimated scope:** S
+
+## Task M6.8b1: Audit Legacy API Error Ownership
+
+**Description:** Produce a read-only ownership report for `api_errors` before adding tenant columns or changing middleware, `/client-errors` or `/system-status`.
+
+**Status:** Implemented locally. Production read-only report remains pending.
+
+**Safety:**
+- The report opens a read-only transaction and always returns `writesAttempted=0`.
+- One active company membership may classify an authenticated company actor; multiple memberships remain ambiguous and are never guessed.
+- Verified platform staff roles are platform scope. Client-account roles remain unresolved until an explicit account-level owner model exists; they are not promoted into global platform scope.
+- Anonymous, missing and inactive actors remain review rows for a later guarded legacy decision.
+- The report does not read or output path, error message or user name. It returns only row IDs, ownership status/reason and aggregate method/count diagnostics.
+- Table schema, middleware writers, `/client-errors`, `/system-status` and production rows remain unchanged in this slice.
+
+**Verification:**
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.api_error_ownership.test_ownership_report`
+- [ ] `npm run audit:api-error-ownership` on production.
 
 **Estimated scope:** S
