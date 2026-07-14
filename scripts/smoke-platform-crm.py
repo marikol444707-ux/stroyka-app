@@ -210,12 +210,23 @@ def check_client_account_owner_access(account_owner_user, password):
     }
 
 
+def cleanup_audit_log(cur):
+    cur.execute(
+        """DELETE FROM audit_log
+            WHERE project_name LIKE %s
+               OR user_name LIKE %s
+               OR description LIKE %s""",
+        (PREFIX + "%", PREFIX + "%", "%" + PREFIX + "%"),
+    )
+
+
 def cleanup():
     conn = db_conn()
     cur = conn.cursor()
     like_prefix = PREFIX + "%"
     emails = [SYSTEM_EMAIL, CRM_EMAIL, *PLATFORM_ROLE_EMAILS.values(), *CLIENT_ACCOUNT_EMAILS.values()]
     try:
+        cleanup_audit_log(cur)
         cur.execute("DELETE FROM project_documents WHERE project_name LIKE %s OR notes LIKE %s", (like_prefix, "%" + PREFIX + "%"))
         cur.execute("DELETE FROM projects WHERE name LIKE %s", (like_prefix,))
         cur.execute("DELETE FROM crm_lead_documents WHERE lead_id IN (SELECT id FROM crm_leads WHERE name LIKE %s)", (like_prefix,))

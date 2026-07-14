@@ -2489,7 +2489,7 @@
 
 **Description:** Produce a read-only ownership report for `audit_log` before adding tenant columns or changing `/audit-log` runtime behavior.
 
-**Status:** Implemented locally. Production `npm run audit:audit-log-ownership` is pending.
+**Status:** Production read-only audit completed: `910/1037` rows verified (`800` platform, `110` company `1`), `127` unresolved deleted-parent/history rows, no ambiguous or mismatched owners. No rows were changed.
 
 **Safety:**
 - The report opens a read-only database transaction and always returns `writesAttempted=0`.
@@ -2500,3 +2500,17 @@
 - `/audit-log`, `log_audit` writers, table schema and production data remain unchanged until the production report is clean and reviewed.
 
 **Estimated scope:** S
+
+## Task M6.8a1b: Stabilize Audit Diagnostics And Smoke Cleanup
+
+**Description:** Stop platform CRM smoke from deleting test parents while leaving their ordinary audit history orphaned, and make the read-only report identify the complete review set with stable counts and SHA.
+
+**Status:** Implemented locally. Production rerun is pending.
+
+**Safety:**
+- Smoke cleanup deletes only rows whose project, actor or description contains the unique `CODEX PLATFORM CRM SMOKE <run id>` prefix from the current run.
+- Existing `127` unresolved rows are not deleted, updated or automatically assigned.
+- The report adds aggregate reason/entity counts, ID range and SHA-256 over every review row while continuing to omit descriptions, actor names and IP addresses.
+- `invite_code` ownership uses its stored company/project columns; deleted invitations remain unresolved.
+
+**Estimated scope:** XS

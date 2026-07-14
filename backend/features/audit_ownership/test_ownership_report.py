@@ -158,6 +158,24 @@ class AuditOwnershipReportTests(unittest.TestCase):
         self.assertEqual(report["summary"]["ambiguous"], 1)
         self.assertEqual(report["needsReview"][0]["reason"], "actor_company_ambiguous")
 
+    def test_review_summary_and_plan_hash_cover_all_review_rows(self):
+        rows = self.base_rows()
+        rows["audit_log"] = [
+            {"id": 20, "entity_type": "crm_lead", "entity_id": 404},
+            {"id": 21, "entity_type": "invite_code", "entity_id": 405},
+        ]
+
+        report = build_report_from_rows(rows)
+
+        self.assertEqual(report["reviewCount"], 2)
+        self.assertEqual(
+            report["reviewByReason"],
+            {"entity_parent_not_found": 2},
+        )
+        self.assertEqual(report["reviewByEntityType"], {"crm_lead": 1, "invite_code": 1})
+        self.assertEqual(report["reviewIdRange"], {"first": 20, "last": 21})
+        self.assertEqual(len(report["reviewPlanSha256"]), 64)
+
     def test_login_and_2fa_actions_are_platform_scope(self):
         rows = self.base_rows()
         rows["audit_log"] = [

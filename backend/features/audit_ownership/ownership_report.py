@@ -1,5 +1,6 @@
 """Read-only tenant ownership diagnostics for legacy audit_log rows."""
 
+import hashlib
 import json
 from collections import Counter, defaultdict
 
@@ -54,6 +55,7 @@ ENTITY_SPECS = (
     ),
     ("crm_lead", "crm_leads", "id", "company_id", "project_id", "project_name"),
     ("site_price_rule", "site_price_rules", "id", "company_id", None, None),
+    ("invite_code", "invite_codes", "id", "company_id", None, "project_name"),
     (
         "project_site_publication",
         "project_site_publications",
@@ -302,6 +304,23 @@ def build_report_from_rows(rows):
         if item["status"] == "verified" and item.get("companyId")
     )
     by_entity_type = Counter(item["entityType"] or "(missing)" for item in classified)
+    review_by_reason = Counter(item["reason"] for item in review)
+    review_by_entity_type = Counter(item["entityType"] or "(missing)" for item in review)
+    review_plan = [
+        {
+            "recordId": item["recordId"],
+            "entityType": item["entityType"],
+            "status": item["status"],
+            "reason": item["reason"],
+        }
+        for item in review
+    ]
+    review_plan_sha256 = hashlib.sha256(
+        json.dumps(review_plan, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+    review_ids = [item["recordId"] for item in review if item.get("recordId")]
     return {
         "ok": True,
         "dryRun": True,
@@ -322,6 +341,14 @@ def build_report_from_rows(rows):
         },
         "byEntityType": dict(sorted(by_entity_type.items())),
         "readyByCompany": dict(sorted(ready_by_company.items())),
+        "reviewCount": len(review),
+        "reviewByReason": dict(sorted(review_by_reason.items())),
+        "reviewByEntityType": dict(sorted(review_by_entity_type.items())),
+        "reviewIdRange": {
+            "first": min(review_ids) if review_ids else None,
+            "last": max(review_ids) if review_ids else None,
+        },
+        "reviewPlanSha256": review_plan_sha256,
         "needsReview": [
             {
                 "recordId": item["recordId"],
