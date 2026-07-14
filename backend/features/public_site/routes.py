@@ -245,6 +245,33 @@ def _public_lead_notes(data: dict) -> str:
             if financing_parts:
                 financing_parts.append("предварительный сценарий, не банковское предложение")
                 parts.append("Финансирование: " + " · ".join(financing_parts))
+        comparison = selected_project.get("comparison") if isinstance(selected_project.get("comparison"), dict) else {}
+        comparison_items = comparison.get("items") if isinstance(comparison.get("items"), list) else []
+        if comparison.get("status") == "customer_shortlist" and comparison_items:
+            selected_code = _public_text(comparison.get("selectedCode"), 80)
+            compared_projects = []
+            seen_codes = set()
+            for item in comparison_items:
+                if not isinstance(item, dict):
+                    continue
+                code = _public_text(item.get("code"), 80)
+                if not code or code in seen_codes:
+                    continue
+                seen_codes.add(code)
+                title = _public_text(item.get("title"), 180)
+                estimate_range = _public_text(item.get("estimateRange"), 120)
+                item_parts = [code]
+                if title:
+                    item_parts.append(title)
+                if estimate_range:
+                    item_parts.append(estimate_range)
+                if code == selected_code:
+                    item_parts.append("выбран")
+                compared_projects.append(" — ".join(item_parts))
+                if len(compared_projects) >= 3:
+                    break
+            if compared_projects:
+                parts.append("Сравнение клиента: " + "; ".join(compared_projects))
     page = _public_text(data.get("page"), 120)
     if page:
         parts.append("Страница: " + page)

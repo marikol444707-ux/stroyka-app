@@ -2,6 +2,7 @@ import {
   buildPublicProjectComparisonItem,
   buildPublicProjectComparisonUrl,
   parsePublicProjectComparisonCodes,
+  serializePublicProjectComparison,
 } from './publicProjectComparison';
 
 test('builds a comparable project summary from public project fields', () => {
@@ -62,4 +63,26 @@ test('builds a shareable comparison URL without carrying unrelated query data', 
   expect(url.searchParams.get('project')).toBe('H1-02');
   expect(url.searchParams.get('compare')).toBe('H1-01,H1-02');
   expect(url.hash).toBe('#projects');
+});
+
+test('serializes a compact customer shortlist for the CRM lead', () => {
+  const comparison = serializePublicProjectComparison([
+    buildPublicProjectComparisonItem({
+      project: { code: 'H1-01', title: 'Дом 110 м2', area: '110 м2', floors: '1 этаж' },
+      estimate: { rangeLabel: '9-11 млн ₽' },
+    }),
+    buildPublicProjectComparisonItem({
+      project: { code: 'H1-02', title: 'Дом 116 м2', area: '116 м2', floors: '1 этаж' },
+      estimate: { rangeLabel: '10-12 млн ₽' },
+    }),
+  ], 'H1-02');
+
+  expect(comparison).toEqual({
+    status: 'customer_shortlist',
+    selectedCode: 'H1-02',
+    items: [
+      { code: 'H1-01', title: 'Дом 110 м2', area: '110 м2', floors: '1 этаж', estimateRange: '9-11 млн ₽' },
+      { code: 'H1-02', title: 'Дом 116 м2', area: '116 м2', floors: '1 этаж', estimateRange: '10-12 млн ₽' },
+    ],
+  });
 });

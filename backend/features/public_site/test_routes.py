@@ -188,6 +188,32 @@ class PublicLeadNotesTests(unittest.TestCase):
         self.assertIn("платёж: 88-106 тыс. ₽/мес.", notes)
         self.assertIn("предварительный сценарий, не банковское предложение", notes)
 
+    def test_includes_compared_project_shortlist_in_crm_notes(self):
+        notes = _public_lead_notes({
+            "selectedProject": {
+                "projectCode": "H1-02",
+                "projectTitle": "Дом 116 м2",
+                "comparison": {
+                    "status": "customer_shortlist",
+                    "selectedCode": "H1-02",
+                    "items": [
+                        {"code": "H1-01", "title": "Дом 110 м2", "estimateRange": "9-11 млн ₽"},
+                        {"code": "H1-02", "title": "Дом 116 м2", "estimateRange": "10-12 млн ₽"},
+                        {"code": "H1-01", "title": "Дубль", "estimateRange": "1 ₽"},
+                        {"code": "H1-03", "title": "Дом 132 м2", "estimateRange": "11-14 млн ₽"},
+                        {"code": "H1-04", "title": "Лишний", "estimateRange": "15 млн ₽"},
+                    ],
+                },
+            },
+        })
+
+        self.assertIn("Сравнение клиента:", notes)
+        self.assertIn("H1-01 — Дом 110 м2 — 9-11 млн ₽", notes)
+        self.assertIn("H1-02 — Дом 116 м2 — 10-12 млн ₽ — выбран", notes)
+        self.assertIn("H1-03 — Дом 132 м2 — 11-14 млн ₽", notes)
+        self.assertNotIn("Дубль", notes)
+        self.assertNotIn("H1-04", notes)
+
     def test_ignores_invalid_selected_project(self):
         self.assertEqual(
             _public_lead_notes({"selectedProject": "H1-01", "page": "public-site"}),

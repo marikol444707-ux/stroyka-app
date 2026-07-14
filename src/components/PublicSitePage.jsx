@@ -60,6 +60,7 @@ import {
   buildPublicProjectComparisonItem,
   buildPublicProjectComparisonUrl,
   parsePublicProjectComparisonCodes,
+  serializePublicProjectComparison,
 } from '../features/public-site/publicProjectComparison';
 import {
   publicPlotCheckDefaults,
@@ -166,6 +167,10 @@ const PublicSitePage = ({ onLogin }) => {
         comparedCodes: comparedProjectCodes,
       })
     : '';
+  const selectedReferenceComparison = serializePublicProjectComparison(
+    comparedProjects,
+    selectedReferenceProject?.code,
+  );
   const selectedReferenceRenderCount = selectedReferenceMediaOptions.filter((item) => item.role === 'render' || item.kind === 'render').length;
   const selectedReferencePlanCount = selectedReferenceMediaOptions.filter((item) => item.role === 'plan' || item.kind === 'plan').length;
   const selectedReferenceAssetSummary = [
@@ -213,6 +218,7 @@ const PublicSitePage = ({ onLogin }) => {
       max,
     })),
     financing: selectedFinancing,
+    comparison: selectedReferenceComparison,
     plotCheck: selectedReferenceIsHouse ? serializePublicPlotCheck(plotCheck) : null,
     mediaCount: selectedReferenceMediaOptions.length,
     media: selectedReferenceMediaOptions.map((item) => ({
@@ -1296,6 +1302,11 @@ const PublicSitePage = ({ onLogin }) => {
             {selectedLeadProject.financing && (
               <small>
                 {selectedLeadProject.financing.modeLabel}: {selectedLeadProject.financing.monthlyRange}
+              </small>
+            )}
+            {selectedLeadProject.comparison && (
+              <small>
+                Сравнивались: {selectedLeadProject.comparison.items.map((item) => item.code).join(', ')}
               </small>
             )}
             <small>

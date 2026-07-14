@@ -27,6 +27,28 @@ export const buildPublicProjectComparisonUrl = ({
   return url.toString();
 };
 
+export const serializePublicProjectComparison = (items = [], selectedCode = '') => {
+  const serializedItems = [];
+  const seenCodes = new Set();
+  items.forEach((item) => {
+    if (!item?.code || seenCodes.has(item.code) || serializedItems.length >= 3) return;
+    seenCodes.add(item.code);
+    serializedItems.push({
+      code: item.code,
+      title: item.title || 'Проект',
+      area: item.area || '',
+      floors: item.floors || '',
+      estimateRange: item.estimateRange || '',
+    });
+  });
+  if (!serializedItems.length) return null;
+  return {
+    status: 'customer_shortlist',
+    selectedCode,
+    items: serializedItems,
+  };
+};
+
 export const buildPublicProjectComparisonItem = ({ project = {}, estimate = {} }) => {
   const calc = project.calcPatch || {};
   const isHouse = (calc.type || 'house') === 'house';
@@ -42,6 +64,9 @@ export const buildPublicProjectComparisonItem = ({ project = {}, estimate = {} }
   return {
     code: project.code || '',
     title: project.title || 'Проект',
+    area: project.area || '',
+    floors: project.floors || '',
+    estimateRange: estimate.rangeLabel || estimate.fromLabel || '',
     facts,
     project,
   };

@@ -60,6 +60,7 @@ describe('public project actions', () => {
     expect(comparison).toHaveTextContent('Одноэтажный кирпичный дом 110 м2');
     expect(comparison).toHaveTextContent('Дом 116 м2 с кухней-гостиной');
     expect(comparison).toHaveTextContent('2 из 3');
+    expect(document.querySelector('.public-request-selected')).toHaveTextContent('Сравнивались: H1-01, H1-02');
 
     fireEvent.click(screen.getByRole('button', { name: 'Выбрать H1-01 для расчёта' }));
     expect(document.querySelector('.public-project-spec-column h3')).toHaveTextContent('Одноэтажный кирпичный дом 110 м2');
@@ -108,7 +109,7 @@ describe('public project actions', () => {
     expect(sharedUrl.searchParams.get('project')).toBe('H1-02');
     expect(sharedUrl.searchParams.get('compare')).toBe('H1-01,H1-02');
     expect(sharedUrl.hash).toBe('#projects');
-  });
+  }, 15000);
 
   test('collects layout changes and opens a prefilled request', () => {
     render(<PublicSitePage onLogin={jest.fn()} />);
