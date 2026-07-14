@@ -2427,7 +2427,7 @@
 
 **Description:** Restrict the leadership `/messenger-outbox` list to stored `owner_scope=company` rows from the selected tenant context without changing bot-token dispatch or status callbacks.
 
-**Status:** Implemented locally; focused ownership tests, full backend regression and frontend build pass. Production deploy and protected `smoke:messenger-outbox` pending.
+**Status:** Production runtime `1cc73b4de724`; protected `smoke:messenger-outbox` and public production smoke passed.
 
 **Safety:**
 - A selected company is accepted only when its effective membership role is director or deputy director.
@@ -2436,6 +2436,21 @@
 - The public response exposes stored owner scope/company/project for support diagnostics.
 - Bot-token `/max/outbox`, dispatch and status updates remain unchanged for the separately reviewed `M6.7d2b2` service-scope slice.
 - `smoke:messenger-outbox` verifies selected-company rows, rejects an inaccessible company header and checks leadership-only aggregation in `Все компании`.
+
+**Estimated scope:** S
+
+## Task M6.7e1: Audit Shared Messenger Account Ownership
+
+**Description:** Add a read-only ownership/access report for `messenger_accounts` before changing its authenticated list and upsert routes. A messenger identity belongs to one employee identity and may be visible in several companies only through that employee's active memberships.
+
+**Status:** Implemented locally; focused report tests pass. Full regression and production dry-run pending.
+
+**Safety:**
+- `messenger_accounts` does not receive `company_id`: one MAX/Telegram identity may legitimately serve one user in several companies.
+- A user-linked account derives company visibility only from active `user_company_roles`; a staff-linked account derives one company from stored `staff.company_id`.
+- Exactly one employee target is required. Missing, dual, inactive, deleted and company-less targets remain unresolved.
+- Duplicate `(provider, external_user_id)` or `(provider, chat_id)` identities are ambiguous and block runtime tightening until reviewed.
+- The report is a read-only transaction with `writesAttempted=0`; it never returns external user ID, chat ID, display name, phone hash or password data.
 
 **Estimated scope:** S
 
