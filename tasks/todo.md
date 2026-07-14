@@ -2438,3 +2438,18 @@
 - `smoke:messenger-outbox` verifies selected-company rows, rejects an inaccessible company header and checks leadership-only aggregation in `Все компании`.
 
 **Estimated scope:** S
+
+## Task M6.7d2b2: Scope MAX Worker And Prevent Concurrent Dispatch
+
+**Description:** Keep the platform MAX worker global across companies while allowing it to list, dispatch and update only stored company-owned outbox rows.
+
+**Status:** Implemented locally; full regression, combined deploy and protected `smoke:max-bot-adapter` pending.
+
+**Safety:**
+- The bot token is a platform service credential, so it may process rows from every tenant but cannot read or mutate ownerless/legacy rows.
+- Worker list, operational summary, dispatch and every status transition share one `owner_scope='company' AND company_id IS NOT NULL` predicate.
+- Real dispatch selects rows with `FOR UPDATE SKIP LOCKED`, preventing two concurrent workers from sending the same queued row at the same time.
+- Dry-run does not lock rows and cannot update status.
+- The protected smoke creates an explicit company-owned row and a terminal legacy row, proves legacy exclusion/requeue denial, verifies allowed status transitions and cleans both rows.
+
+**Estimated scope:** S

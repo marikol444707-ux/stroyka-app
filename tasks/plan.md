@@ -141,6 +141,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.7d2a1: Persist exact company/project owner on internal MAX file and outbox writes using stored entity owner or active employee memberships. Production runtime `e6f4934859bc`; public smoke and strict item-ownership audit passed.
 - [x] Task M6.7d2a2: Persist exact owner on supplier-KP and marketing-publication outbox writes and on authenticated messenger-channel upsert. Production supply and marketing publication smokes passed on runtime `2a9c48f18e54`; strict item-ownership audit remains clean.
 - [ ] Task M6.7d2b1: Scope authenticated `/messenger-outbox` reads to stored company-owned rows visible through the selected company context and effective leadership role. Full local regression passes; production deploy and protected `smoke:messenger-outbox` pending.
+- [ ] Task M6.7d2b2: Restrict bot-token outbox list/summary/dispatch/status to stored company-owned rows and lock real dispatch selection with `FOR UPDATE SKIP LOCKED`. Local implementation and combined protected smoke pending.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 
 ### Checkpoint: SaaS Boundary

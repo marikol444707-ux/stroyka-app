@@ -15,6 +15,11 @@ import psycopg2.extras
 from fastapi import Depends, Header, HTTPException, Query, Request, Response
 
 from .outbox_access import resolve_outbox_read_company_ids
+from .outbox_worker_access import (
+    WORKER_OUTBOX_SCOPE_SQL,
+    assert_worker_outbox_owner,
+    dispatch_outbox_lock_clause,
+)
 from .schema import ensure_messenger_schema
 from .writer_ownership import resolve_channel_write_owner as resolve_authenticated_channel_owner
 
@@ -3043,10 +3048,11 @@ def register_messenger_module(app, deps):
         try:
             if status and status != "all":
                 cur.execute(
-                    """
+                    f"""
                     SELECT *
                       FROM messenger_outbox
                      WHERE provider='max'
+                       AND {WORKER_OUTBOX_SCOPE_SQL}
                        AND status=%s
                        AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
                      ORDER BY priority ASC, id ASC
@@ -3056,10 +3062,11 @@ def register_messenger_module(app, deps):
                 )
             else:
                 cur.execute(
-                    """
+                    f"""
                     SELECT *
                       FROM messenger_outbox
                      WHERE provider='max'
+                       AND {WORKER_OUTBOX_SCOPE_SQL}
                      ORDER BY id DESC
                      LIMIT %s
                     """,
@@ -3102,10 +3109,11 @@ def register_messenger_module(app, deps):
             )
             channels = [_public_messenger_channel(row) for row in cur.fetchall()]
             cur.execute(
-                """
+                f"""
                 SELECT COALESCE(status,'') AS status, COUNT(*) AS count
                   FROM messenger_outbox
                  WHERE provider='max'
+                   AND {WORKER_OUTBOX_SCOPE_SQL}
                  GROUP BY COALESCE(status,'')
                  ORDER BY status
                 """
@@ -3157,20 +3165,24 @@ def register_messenger_module(app, deps):
         failed = []
         planned = []
         try:
+            lock_clause = dispatch_outbox_lock_clause(dry_run=dry_run)
             cur.execute(
-                """
+                f"""
                 SELECT *
                   FROM messenger_outbox
                  WHERE provider='max'
+                   AND {WORKER_OUTBOX_SCOPE_SQL}
                    AND status='queued'
                    AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
                  ORDER BY priority ASC, id ASC
                  LIMIT %s
+                 {lock_clause}
                 """,
                 (limit,),
             )
             rows = cur.fetchall()
             for row in rows:
+                assert_worker_outbox_owner(row)
                 payload = max_message_payload_from_outbox(row)
                 target = {
                     "chatId": row.get("chat_id") or "",
@@ -3187,7 +3199,7 @@ def register_messenger_module(app, deps):
                 try:
                     response, provider_message_id, _payload = send_max_outbox_row(row)
                     cur.execute(
-                        """
+                        f"""
                         UPDATE messenger_outbox
                            SET status='sent',
                                provider_message_id=%s,
@@ -3196,6 +3208,7 @@ def register_messenger_module(app, deps):
                                next_attempt_at=NULL,
                                updated_at=NOW()
                          WHERE provider='max' AND id=%s
+                           AND {WORKER_OUTBOX_SCOPE_SQL}
                      RETURNING *
                         """,
                         (provider_message_id, row.get("id")),
@@ -3210,7 +3223,7 @@ def register_messenger_module(app, deps):
                 except Exception as exc:
                     detail = getattr(exc, "detail", str(exc)) or "MAX delivery failed"
                     cur.execute(
-                        """
+                        f"""
                         UPDATE messenger_outbox
                            SET status='failed',
                                attempts=COALESCE(attempts,0)+1,
@@ -3219,6 +3232,7 @@ def register_messenger_module(app, deps):
                                next_attempt_at=NOW() + INTERVAL '5 minutes',
                                updated_at=NOW()
                          WHERE provider='max' AND id=%s
+                           AND {WORKER_OUTBOX_SCOPE_SQL}
                      RETURNING *
                         """,
                         (_text(detail, 1000), row.get("id")),
@@ -3253,7 +3267,7 @@ def register_messenger_module(app, deps):
         try:
             if status == "sent":
                 cur.execute(
-                    """
+                    f"""
                     UPDATE messenger_outbox
                        SET status='sent',
                            provider_message_id=%s,
@@ -3262,13 +3276,14 @@ def register_messenger_module(app, deps):
                            next_attempt_at=NULL,
                            updated_at=NOW()
                      WHERE provider='max' AND id=%s
+                       AND {WORKER_OUTBOX_SCOPE_SQL}
                  RETURNING *
                     """,
                     (provider_message_id, message_id),
                 )
             elif status == "failed":
                 cur.execute(
-                    """
+                    f"""
                     UPDATE messenger_outbox
                        SET status='failed',
                            attempts=COALESCE(attempts,0)+1,
@@ -3277,31 +3292,34 @@ def register_messenger_module(app, deps):
                            next_attempt_at=NOW() + (%s || ' seconds')::interval,
                            updated_at=NOW()
                      WHERE provider='max' AND id=%s
+                       AND {WORKER_OUTBOX_SCOPE_SQL}
                  RETURNING *
                     """,
                     (error or "MAX delivery failed", retry_after, message_id),
                 )
             elif status == "queued":
                 cur.execute(
-                    """
+                    f"""
                     UPDATE messenger_outbox
                        SET status='queued',
                            last_error='',
                            next_attempt_at=NULL,
                            updated_at=NOW()
                      WHERE provider='max' AND id=%s
+                       AND {WORKER_OUTBOX_SCOPE_SQL}
                  RETURNING *
                     """,
                     (message_id,),
                 )
             else:
                 cur.execute(
-                    """
+                    f"""
                     UPDATE messenger_outbox
                        SET status='skipped',
                            last_error=%s,
                            updated_at=NOW()
                      WHERE provider='max' AND id=%s
+                       AND {WORKER_OUTBOX_SCOPE_SQL}
                  RETURNING *
                     """,
                     (error, message_id),

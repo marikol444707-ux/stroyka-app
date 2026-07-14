@@ -82,6 +82,71 @@ def max_bot_token():
     return token
 
 
+def smoke_company_id():
+    requested = str(env_value("SMOKE_COMPANY_ID") or "").strip()
+    requested_id = None
+    if requested:
+        try:
+            requested_id = int(requested)
+        except ValueError as exc:
+            raise SystemExit("SMOKE_COMPANY_ID должен быть положительным числом") from exc
+        if requested_id <= 0:
+            raise SystemExit("SMOKE_COMPANY_ID должен быть положительным числом")
+    conn = psycopg2.connect(**db_config())
+    cur = conn.cursor()
+    if requested_id:
+        cur.execute(
+            "SELECT id FROM companies WHERE id=%s AND COALESCE(active,TRUE)=TRUE",
+            (requested_id,),
+        )
+    else:
+        cur.execute("SELECT id FROM companies WHERE COALESCE(active,TRUE)=TRUE ORDER BY id LIMIT 2")
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    if requested_id and len(rows) == 1:
+        return int(rows[0][0])
+    if not requested_id and len(rows) == 1:
+        return int(rows[0][0])
+    raise SystemExit("Нужно задать SMOKE_COMPANY_ID: активная компания не определена однозначно")
+
+
+def insert_internal_channel(company_id):
+    conn = psycopg2.connect(**db_config())
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO messenger_channels
+            (company_id,provider,chat_id,title,channel_type,source_label,default_stage,enabled,metadata_json)
+        VALUES
+            (%s,'max',%s,%s,'internal','MAX внутренний бот','Новый',TRUE,%s::jsonb)
+        ON CONFLICT (provider, chat_id) DO UPDATE SET
+            title=EXCLUDED.title,
+            company_id=COALESCE(messenger_channels.company_id,EXCLUDED.company_id),
+            metadata_json=COALESCE(messenger_channels.metadata_json,'{}'::jsonb) || EXCLUDED.metadata_json,
+            enabled=TRUE,
+            updated_at=NOW()
+        WHERE messenger_channels.company_id IS NULL
+           OR messenger_channels.company_id=EXCLUDED.company_id
+        RETURNING id
+        """,
+        (
+            company_id,
+            INTERNAL_CHAT_ID,
+            CHANNEL_TITLE,
+            json.dumps({"smokeRunId": RUN_ID, "purpose": "internal bot channel"}, ensure_ascii=False),
+        ),
+    )
+    row = cur.fetchone()
+    if not row:
+        raise RuntimeError("Smoke MAX-канал принадлежит другой компании")
+    channel_id = row[0]
+    conn.commit()
+    cur.close()
+    conn.close()
+    return channel_id
+
+
 def cleanup(lead_id=None, outbox_id=None, outbox_ids=None):
     conn = None
     try:
@@ -113,20 +178,21 @@ def cleanup(lead_id=None, outbox_id=None, outbox_ids=None):
             conn.close()
 
 
-def insert_outbox():
+def insert_outbox(company_id):
     conn = psycopg2.connect(**db_config())
     cur = conn.cursor()
     cur.execute(
         """
         INSERT INTO messenger_outbox
-            (provider,external_user_id,chat_id,event_type,entity_type,entity_id,
+            (owner_scope,company_id,provider,external_user_id,chat_id,event_type,entity_type,entity_id,
              title,body,payload_json,actions_json,status,priority)
         VALUES
-            ('max',%s,%s,'codex_max_adapter_smoke','smoke',NULL,
+            ('company',%s,'max',%s,%s,'codex_max_adapter_smoke','smoke',NULL,
              %s,%s,%s::jsonb,%s::jsonb,'queued',1)
         RETURNING id
         """,
         (
+            company_id,
             f"codex-user-{RUN_ID}",
             INTERNAL_CHAT_ID,
             "CODEX MAX smoke",
@@ -147,33 +213,67 @@ def insert_outbox():
     return outbox_id
 
 
-def insert_marketing_channel():
+def insert_legacy_outbox():
+    conn = psycopg2.connect(**db_config())
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO messenger_outbox
+            (owner_scope,provider,external_user_id,chat_id,event_type,entity_type,entity_id,
+             title,body,payload_json,actions_json,status,priority,last_error)
+        VALUES
+            ('legacy','max',%s,%s,'codex_max_adapter_legacy','smoke',NULL,
+             %s,%s,'{}'::jsonb,'[]'::jsonb,'failed',9,'terminal smoke legacy')
+        RETURNING id
+        """,
+        (
+            f"codex-legacy-user-{RUN_ID}",
+            f"codex-legacy-chat-{RUN_ID}",
+            "CODEX MAX legacy smoke",
+            "Terminal legacy row must stay outside worker scope.",
+        ),
+    )
+    outbox_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close()
+    conn.close()
+    return outbox_id
+
+
+def insert_marketing_channel(company_id):
     conn = psycopg2.connect(**db_config())
     cur = conn.cursor()
     cur.execute(
         """
         INSERT INTO messenger_channels
-            (provider,chat_id,title,channel_type,source_label,campaign_code,default_stage,enabled,metadata_json)
+            (company_id,provider,chat_id,title,channel_type,source_label,campaign_code,default_stage,enabled,metadata_json)
         VALUES
-            ('max',%s,%s,'marketing','MAX маркетинг',%s,'Новый',TRUE,%s::jsonb)
+            (%s,'max',%s,%s,'marketing','MAX маркетинг',%s,'Новый',TRUE,%s::jsonb)
         ON CONFLICT (provider, chat_id) DO UPDATE SET
             title=EXCLUDED.title,
             channel_type='marketing',
+            company_id=COALESCE(messenger_channels.company_id,EXCLUDED.company_id),
             source_label=EXCLUDED.source_label,
             campaign_code=EXCLUDED.campaign_code,
             enabled=TRUE,
             metadata_json=COALESCE(messenger_channels.metadata_json,'{}'::jsonb) || EXCLUDED.metadata_json,
             updated_at=NOW()
+        WHERE messenger_channels.company_id IS NULL
+           OR messenger_channels.company_id=EXCLUDED.company_id
         RETURNING id
         """,
         (
+            company_id,
             MARKETING_CHAT_ID,
             f"CODEX MAX marketing {RUN_ID}",
             f"codex-max-adapter-{RUN_ID}",
             json.dumps({"smokeRunId": RUN_ID, "purpose": "explicit marketing channel"}, ensure_ascii=False),
         ),
     )
-    channel_id = cur.fetchone()[0]
+    row = cur.fetchone()
+    if not row:
+        raise RuntimeError("Smoke marketing MAX-канал принадлежит другой компании")
+    channel_id = row[0]
     conn.commit()
     cur.close()
     conn.close()
@@ -202,12 +302,15 @@ def run_dispatch_cli(token):
 
 def main():
     token = max_bot_token()
+    company_id = smoke_company_id()
     headers = {"X-Max-Bot-Api-Secret": token}
     lead_id = None
     outbox_id = None
     help_outbox_id = None
     identity_outbox_id = None
+    legacy_outbox_id = None
     try:
+        insert_internal_channel(company_id)
         _, linked = api_json(
             "POST",
             "/max/webhook",
@@ -296,7 +399,7 @@ def main():
         if random_group_result.get("action") != "message_ignored":
             raise RuntimeError(f"Random internal group message should stay silent: {random_group_message}")
 
-        marketing_channel_id = insert_marketing_channel()
+        marketing_channel_id = insert_marketing_channel(company_id)
         _, message = api_json(
             "POST",
             "/max/webhook",
@@ -321,7 +424,26 @@ def main():
         if not lead_id or not str(lead.get("source") or "").startswith("MAX:"):
             raise RuntimeError(f"MAX webhook lead payload is wrong: {message}")
 
-        outbox_id = insert_outbox()
+        outbox_id = insert_outbox(company_id)
+        legacy_outbox_id = insert_legacy_outbox()
+        _, worker_items = api_json(
+            "GET",
+            "/max/outbox?status=all&limit=100",
+            headers=headers,
+            expected=200,
+        )
+        worker_ids = {int(item.get("id") or 0) for item in worker_items.get("items") or []}
+        if outbox_id not in worker_ids:
+            raise RuntimeError(f"Company-owned smoke outbox is missing from worker scope: {worker_items}")
+        if legacy_outbox_id in worker_ids:
+            raise RuntimeError(f"Terminal legacy outbox leaked into worker scope: {worker_items}")
+        api_json(
+            "POST",
+            f"/max/outbox/{legacy_outbox_id}/status",
+            data={"status": "queued"},
+            headers=headers,
+            expected=404,
+        )
         _, status = api_json(
             "GET",
             "/max/bot/status",
@@ -348,6 +470,26 @@ def main():
         if not attachments or attachments[0].get("type") != "inline_keyboard":
             raise RuntimeError(f"MAX dispatch dry-run did not build inline keyboard: {planned}")
 
+        _, skipped = api_json(
+            "POST",
+            f"/max/outbox/{outbox_id}/status",
+            data={"status": "skipped", "error": "smoke transition"},
+            headers=headers,
+            expected=200,
+        )
+        skipped_item = skipped.get("item") or {}
+        if skipped_item.get("status") != "skipped" or skipped_item.get("companyId") != company_id:
+            raise RuntimeError(f"Company-owned outbox was not marked skipped: {skipped}")
+        _, requeued = api_json(
+            "POST",
+            f"/max/outbox/{outbox_id}/status",
+            data={"status": "queued"},
+            headers=headers,
+            expected=200,
+        )
+        if (requeued.get("item") or {}).get("status") != "queued":
+            raise RuntimeError(f"Company-owned outbox was not requeued: {requeued}")
+
         cli_dispatch = run_dispatch_cli(token)
         cli_planned = next((item for item in cli_dispatch.get("planned") or [] if item.get("id") == outbox_id), None)
         if not cli_planned:
@@ -361,6 +503,8 @@ def main():
             "marketingChannelId": marketing_channel_id,
             "leadId": lead_id,
             "outboxId": outbox_id,
+            "legacyOutboxId": legacy_outbox_id,
+            "companyId": company_id,
             "checked": [
                 "MAX webhook secret header is accepted",
                 "bot_added links MAX bot channel as internal by default",
@@ -369,13 +513,20 @@ def main():
                 "random internal MAX group message stays silent",
                 "message_created in explicit marketing MAX channel creates CRM lead",
                 "max bot status exposes channels and outbox through /max route",
+                "worker list excludes terminal legacy outbox rows",
+                "status callback cannot requeue terminal legacy outbox rows",
                 "outbox dispatch dry-run builds MAX message and inline keyboard",
+                "company-owned outbox status can move skipped -> queued",
                 "outbox dispatch CLI dry-run is ready for cron/systemd timer",
             ],
             "timestamp": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
         }, ensure_ascii=False, indent=2))
     finally:
-        cleanup(lead_id, outbox_id, [item for item in (help_outbox_id, identity_outbox_id) if item])
+        cleanup(
+            lead_id,
+            outbox_id,
+            [item for item in (help_outbox_id, identity_outbox_id, legacy_outbox_id) if item],
+        )
 
 
 if __name__ == "__main__":

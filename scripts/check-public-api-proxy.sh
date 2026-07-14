@@ -95,6 +95,8 @@ check_not_spa "AI control run-all route" "/ai-control/run-all" "405"
 check_not_spa "messenger channels route" "/messenger-channels" "401 403"
 check_post_not_spa "messenger channels post route" "/messenger-channels" "401 403 422"
 check_not_spa "messenger outbox route" "/messenger-outbox" "401 403"
+check_not_spa "MAX outbox worker route" "/max/outbox" "401 403"
+check_post_not_spa "MAX outbox dispatch route" "/max/outbox/dispatch?dry_run=true" "401 403"
 check_not_spa "marketing publications route" "/marketing-publications" "401 403"
 check_post_not_spa "marketing publications post route" "/marketing-publications" "401 403 422"
 
