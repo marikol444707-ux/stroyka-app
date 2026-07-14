@@ -109,6 +109,21 @@ except ModuleNotFoundError:
     )
 
 try:
+    from backend.features.api_error_ownership.runtime import (
+        insert_api_error,
+        resolve_api_error_read_scope,
+        resolve_api_error_write_owner,
+        scoped_api_error_filter,
+    )
+except ModuleNotFoundError:
+    from features.api_error_ownership.runtime import (
+        insert_api_error,
+        resolve_api_error_read_scope,
+        resolve_api_error_write_owner,
+        scoped_api_error_filter,
+    )
+
+try:
     from backend.features.messenger.writer_ownership import resolve_supply_outbox_owner
 except ModuleNotFoundError:
     from features.messenger.writer_ownership import resolve_supply_outbox_owner
@@ -2413,16 +2428,47 @@ def _clip_api_error_text(value: str, limit: int = 700) -> str:
         return text
     return text[:limit - 1] + "…"
 
-def _request_user_snapshot(request: Request) -> dict:
+def _request_user_snapshot(request: Request, cur=None) -> dict:
     auth = request.headers.get("authorization") or ""
-    if not auth.lower().startswith("bearer "):
+    if auth.lower().startswith("bearer "):
+        try:
+            payload = verify_auth_token(auth.split(" ", 1)[1].strip())
+            return {
+                "id": payload.get("id"),
+                "name": payload.get("name") or "",
+                "role": payload.get("role") or "",
+                "user_id": payload.get("id"),
+                "user_name": payload.get("name") or "",
+                "user_role": payload.get("role") or "",
+            }
+        except Exception:
+            return {}
+    session_token = request.cookies.get(AUTH_SESSION_COOKIE_NAME) if request else ""
+    if not session_token or cur is None:
         return {}
     try:
-        payload = verify_auth_token(auth.split(" ", 1)[1].strip())
+        cur.execute(
+            """SELECT u.id, u.name, u.role
+               FROM user_sessions s
+               JOIN users u ON u.id=s.user_id
+               WHERE s.session_hash=%s
+                 AND s.revoked_at IS NULL
+                 AND s.expires_at>NOW()
+                 AND COALESCE(u.active, TRUE)=TRUE
+               LIMIT 1""",
+            (_session_token_hash(session_token),),
+        )
+        row = cur.fetchone()
+        if not row:
+            return {}
+        actor = dict(row)
         return {
-            "user_id": payload.get("id"),
-            "user_name": payload.get("name") or "",
-            "user_role": payload.get("role") or "",
+            "id": actor.get("id"),
+            "name": actor.get("name") or "",
+            "role": actor.get("role") or "",
+            "user_id": actor.get("id"),
+            "user_name": actor.get("name") or "",
+            "user_role": actor.get("role") or "",
         }
     except Exception:
         return {}
@@ -2432,22 +2478,28 @@ def _log_api_error(request: Request, exc: Optional[Exception] = None, status_cod
     conn = None
     cur = None
     try:
-        user = _request_user_snapshot(request)
         conn = get_db()
-        cur = conn.cursor()
-        cur.execute("""INSERT INTO api_errors
-                       (method, path, status_code, error_type, error_message, user_id, user_name, user_role)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (
-                        request.method,
-                        request.url.path,
-                        status_code,
-                        exc.__class__.__name__ if exc else "HTTP_" + str(status_code),
-                        _clip_api_error_text(str(exc or "")),
-                        user.get("user_id"),
-                        user.get("user_name") or "",
-                        user.get("user_role") or "",
-                    ))
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        user = _request_user_snapshot(request, cur)
+        owner = resolve_api_error_write_owner(
+            cur,
+            user,
+            _resolve_work_company_context,
+            x_company_id=request.headers.get("x-company-id"),
+            x_company_mode=request.headers.get("x-company-mode"),
+        )
+        insert_api_error(
+            cur,
+            method=request.method,
+            path=request.url.path,
+            status_code=status_code,
+            error_type=exc.__class__.__name__ if exc else "HTTP_" + str(status_code),
+            error_message=_clip_api_error_text(str(exc or "")),
+            user_id=user.get("user_id"),
+            user_name=user.get("user_name") or "",
+            user_role=user.get("user_role") or "",
+            owner=owner,
+        )
         conn.commit()
     except Exception as log_exc:
         print("API ERROR LOG ERROR:", str(log_exc))
@@ -2553,7 +2605,6 @@ def log_client_error(data: dict, request: Request):
     error_type = _clip_api_error_text(data.get("type") or data.get("name") or "ClientError", 120)
     message = _clip_api_error_text(data.get("message") or "", 450)
     stack = _clip_api_error_text(data.get("stack") or "", 900)
-    user = _request_user_snapshot(request)
     now = time.time()
     rate_key = "|".join([client_ip, path, error_type])
     last = CLIENT_ERROR_LAST_SUBMIT.get(rate_key, 0)
@@ -2569,20 +2620,27 @@ def log_client_error(data: dict, request: Request):
     cur = None
     try:
         conn = get_db()
-        cur = conn.cursor()
-        cur.execute("""INSERT INTO api_errors
-                       (method, path, status_code, error_type, error_message, user_id, user_name, user_role)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (
-                        "CLIENT",
-                        path,
-                        499,
-                        error_type,
-                        _clip_api_error_text((message + ("\n" + stack if stack else "")).strip(), 1000),
-                        user.get("user_id"),
-                        user.get("user_name") or "",
-                        user.get("user_role") or "",
-                    ))
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        user = _request_user_snapshot(request, cur)
+        owner = resolve_api_error_write_owner(
+            cur,
+            user,
+            _resolve_work_company_context,
+            x_company_id=request.headers.get("x-company-id"),
+            x_company_mode=request.headers.get("x-company-mode"),
+        )
+        insert_api_error(
+            cur,
+            method="CLIENT",
+            path=path,
+            status_code=499,
+            error_type=error_type,
+            error_message=_clip_api_error_text((message + ("\n" + stack if stack else "")).strip(), 1000),
+            user_id=user.get("user_id"),
+            user_name=user.get("user_name") or "",
+            user_role=user.get("user_role") or "",
+            owner=owner,
+        )
         conn.commit()
         return {"ok": True}
     except Exception as exc:
@@ -2690,7 +2748,9 @@ def health():
 def system_status(
     api_errors_since: Optional[float] = None,
     api_errors_hours: int = 24,
-    _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "system_owner")),
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "system_owner")),
 ):
     started = time.time()
     try:
@@ -2728,8 +2788,23 @@ def system_status(
         "apiErrors": [],
         "apiErrorsWindow": api_errors_window,
     }
+    conn = None
+    cur = None
+    scope_cur = None
     try:
         conn = get_db()
+        scope_cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        api_error_scope = resolve_api_error_read_scope(
+            scope_cur,
+            current_user,
+            _resolve_work_company_context,
+            effective_company_actors,
+            allowed_roles=LEADERSHIP_ROLES,
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        scope_cur.close()
+        scope_cur = None
         cur = conn.cursor()
         status["counts"]["projects"] = _count_table(cur, "projects")
         status["counts"]["activeProjects"] = _count_table(cur, "projects", "COALESCE(status,'') <> 'Завершён'")
@@ -2742,18 +2817,36 @@ def system_status(
         status["counts"]["warehouseMain"] = _count_table(cur, "warehouse_main")
         status["counts"]["supplyRequests"] = _count_table(cur, "supply_requests")
         status["counts"]["openAiTasks"] = _count_table(cur, "ai_tasks", "COALESCE(status,'') NOT IN ('Закрыто','Готово','Отменено')")
-        api_errors_count = _count_table(cur, "api_errors")
+        api_scope_where, api_scope_params = scoped_api_error_filter(api_error_scope)
+        api_errors_count = _count_table(cur, "api_errors", api_scope_where, api_scope_params)
         if api_errors_count is not None:
             status["counts"]["apiErrors"] = api_errors_count
-            status["counts"]["apiErrorsLast24h"] = _count_table(cur, "api_errors", "created_at >= NOW() - INTERVAL '24 hours'")
-            status["counts"]["clientErrorsLast24h"] = _count_table(cur, "api_errors", "method='CLIENT' AND created_at >= NOW() - INTERVAL '24 hours'")
-            cur.execute("SELECT COUNT(*) FROM api_errors WHERE " + api_errors_where, api_errors_params)
+            last_24h_where, last_24h_params = scoped_api_error_filter(
+                api_error_scope,
+                "created_at >= NOW() - INTERVAL '24 hours'",
+            )
+            client_last_24h_where, client_last_24h_params = scoped_api_error_filter(
+                api_error_scope,
+                "method='CLIENT' AND created_at >= NOW() - INTERVAL '24 hours'",
+            )
+            shown_where, shown_params = scoped_api_error_filter(
+                api_error_scope,
+                api_errors_where,
+                api_errors_params,
+            )
+            status["counts"]["apiErrorsLast24h"] = _count_table(
+                cur, "api_errors", last_24h_where, last_24h_params
+            )
+            status["counts"]["clientErrorsLast24h"] = _count_table(
+                cur, "api_errors", client_last_24h_where, client_last_24h_params
+            )
+            cur.execute("SELECT COUNT(*) FROM api_errors WHERE " + shown_where, shown_params)
             status["counts"]["apiErrorsShown"] = int((cur.fetchone() or [0])[0] or 0)
             cur.execute("""SELECT id, method, path, status_code, error_type, error_message,
-                                  user_name, user_role, created_at
+                                  user_name, user_role, created_at, owner_scope, company_id, project_id
                            FROM api_errors
-                           WHERE """ + api_errors_where + """
-                           ORDER BY id DESC LIMIT 20""", api_errors_params)
+                           WHERE """ + shown_where + """
+                           ORDER BY id DESC LIMIT 20""", shown_params)
             status["apiErrors"] = [
                 {
                     "id": r[0],
@@ -2765,12 +2858,19 @@ def system_status(
                     "user": r[6] or "",
                     "role": r[7] or "",
                     "createdAt": str(r[8]) if r[8] else "",
+                    "ownerScope": r[9] or "",
+                    "companyId": r[10],
+                    "projectId": r[11],
                 }
                 for r in cur.fetchall()
             ]
         if _count_table(cur, "audit_log") is not None:
-            cur.execute("""SELECT user_name, user_role, action, entity_type, description, created_at
-                           FROM audit_log ORDER BY id DESC LIMIT 8""")
+            audit_scope_where, audit_scope_params = scoped_api_error_filter(api_error_scope)
+            cur.execute("""SELECT user_name, user_role, action, entity_type, description, created_at,
+                                  owner_scope, company_id, project_id
+                           FROM audit_log
+                           WHERE """ + audit_scope_where + """
+                           ORDER BY id DESC LIMIT 8""", audit_scope_params)
             status["recentAudit"] = [
                 {
                     "user": r[0] or "",
@@ -2779,14 +2879,34 @@ def system_status(
                     "entityType": r[3] or "",
                     "description": r[4] or "",
                     "createdAt": str(r[5]) if r[5] else "",
+                    "ownerScope": r[6] or "",
+                    "companyId": r[7],
+                    "projectId": r[8],
                 }
                 for r in cur.fetchall()
             ]
-        cur.close(); conn.close()
         status["db"] = {"ok": True, "latencyMs": round((time.time() - started) * 1000, 1)}
+    except HTTPException:
+        raise
     except Exception as e:
         status["ok"] = False
         status["db"] = {"ok": False, "error": e.__class__.__name__}
+    finally:
+        try:
+            if scope_cur:
+                scope_cur.close()
+        except Exception:
+            pass
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if conn:
+                conn.close()
+        except Exception:
+            pass
     return status
 
 DIRECTOR_AGENT_ROLES = ("директор", "system_owner")

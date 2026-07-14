@@ -1,4 +1,4 @@
-import { installAuthFetch } from './api';
+import { installAuthFetch, sendClientError } from './api';
 
 describe('installAuthFetch', () => {
   const originalFetch = window.fetch;
@@ -130,4 +130,55 @@ describe('installAuthFetch', () => {
       expect(headers.has('X-Company-Id')).toBe(false);
     },
   );
+});
+
+describe('sendClientError', () => {
+  const originalFetch = window.fetch;
+  const originalSendBeacon = navigator.sendBeacon;
+  const originalClientErrorLogging = process.env.REACT_APP_CLIENT_ERROR_LOGGING;
+
+  beforeEach(() => {
+    localStorage.clear();
+    delete window.__stroykaAuthFetchInstalled;
+    process.env.REACT_APP_CLIENT_ERROR_LOGGING = 'true';
+  });
+
+  afterEach(() => {
+    window.fetch = originalFetch;
+    Object.defineProperty(navigator, 'sendBeacon', {
+      configurable: true,
+      value: originalSendBeacon,
+    });
+    localStorage.clear();
+    delete window.__stroykaAuthFetchInstalled;
+    if (originalClientErrorLogging === undefined) {
+      delete process.env.REACT_APP_CLIENT_ERROR_LOGGING;
+    } else {
+      process.env.REACT_APP_CLIENT_ERROR_LOGGING = originalClientErrorLogging;
+    }
+  });
+
+  it('uses authenticated tenant fetch before beacon fallback', async () => {
+    localStorage.setItem('authToken', 'director-token');
+    localStorage.setItem('user', JSON.stringify({ id: 42, email: 'director@example.test' }));
+    localStorage.setItem('stroyka.companyContext.v1.42', JSON.stringify({ mode: 'company', companyId: 7 }));
+    const nativeFetch = jest.fn().mockResolvedValue(new Response('{"ok":true}', { status: 200 }));
+    window.fetch = nativeFetch;
+    Object.defineProperty(navigator, 'sendBeacon', {
+      configurable: true,
+      value: jest.fn().mockReturnValue(true),
+    });
+
+    installAuthFetch();
+    await sendClientError({ type: 'WindowError', message: 'failure', stack: 'stack' });
+
+    expect(nativeFetch).toHaveBeenCalledTimes(2);
+    expect(navigator.sendBeacon).not.toHaveBeenCalled();
+    expect(String(nativeFetch.mock.calls[0][0])).toContain('/csrf-token');
+    const headers = new Headers(nativeFetch.mock.calls[1][1].headers || {});
+    expect(headers.get('Authorization')).toBe('Bearer director-token');
+    expect(headers.get('X-Company-Mode')).toBe('company');
+    expect(headers.get('X-Company-Id')).toBe('7');
+    expect(nativeFetch.mock.calls[1][1].keepalive).toBe(true);
+  });
 });

@@ -2571,7 +2571,7 @@
 
 **Description:** Add nullable stored ownership to `api_errors` without changing middleware, `/client-errors` or `/system-status`. Migrate verified company rows and preserve only the exact reviewed missing/inactive actor set as terminal `legacy`.
 
-**Status:** Implemented locally. Release and guarded production dry-run/apply remain pending.
+**Status:** Complete in production. All `94` rows migrated into `76 company + 18 explicit legacy`; strict post-audit and public smoke passed on runtime `a1e9541429ef`.
 
 **Safety:**
 - Dry-run is the default, opens a read-only transaction and never changes schema or rows.
@@ -2579,10 +2579,33 @@
 - Ambiguous and mismatched rows block apply and can never be hidden as legacy.
 - Apply requires `APPLY_API_ERROR_OWNERSHIP`, exact ready count and exact migration-plan SHA from the immediately preceding dry-run.
 - Apply locks `api_errors`, re-runs classification in a serializable transaction, updates only ownerless rows and rolls back on drift, conflict or failed strict post-check.
-- Runtime writers and `/system-status` remain unchanged until the guarded production migration is complete.
+- Runtime writers and `/system-status` remained unchanged until the guarded production migration completed.
 
 **Verification:**
 - [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.api_error_ownership.test_ownership_report backend.features.api_error_ownership.test_migration`
-- [ ] Production guarded dry-run and apply.
+- [x] Production guarded dry-run, apply and strict post-audit.
+
+**Estimated scope:** S
+
+## Task M6.8b3: Enforce API Error Runtime Ownership
+
+**Description:** Persist exact stored owner on middleware and `/client-errors` writes, then restrict every `api_errors` count and row returned by `/system-status` to the selected authorized scope.
+
+**Status:** Implemented locally. Release and protected production smoke remain pending.
+
+**Safety:**
+- One shared runtime writer stores all owner columns; new rows never remain ownerless and never enter `legacy`.
+- Request identity is resolved from either a verified Bearer token or an active server-side cookie session; raw browser identity data is never trusted.
+- Authenticated company errors use only the server-validated selected-company context. Missing, platform or ambiguous request context fails closed to platform scope instead of guessing a company.
+- Company directors and deputies read only `owner_scope='company'` rows from leadership memberships allowed by the selected company context.
+- `system_owner` reads only `owner_scope='platform'`; terminal legacy history is excluded from runtime responses.
+- All count and list queries share the same parameterized owner predicate before the time window is applied.
+- The protected smoke creates one uniquely marked client error, checks selected-company/all-companies/foreign-company behavior and deletes only its exact smoke row.
+
+**Verification:**
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.api_error_ownership.test_ownership_report backend.features.api_error_ownership.test_migration backend.features.api_error_ownership.test_runtime`
+- [x] Python compilation and `git diff --check`.
+- [x] Full backend suite and production build.
+- [ ] Production `npm run smoke:api-error-ownership`, strict migration audit and `npm run smoke:prod`.
 
 **Estimated scope:** S
