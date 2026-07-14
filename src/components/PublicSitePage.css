@@ -2709,6 +2709,125 @@
   line-height: 1.4;
 }
 
+.public-project-payment-schedule {
+  min-width: 0;
+  border-top: 1px solid var(--site-line);
+  border-bottom: 1px solid var(--site-line);
+  padding: 14px 0;
+  display: grid;
+  gap: 12px;
+}
+
+.public-project-payment-head {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.public-project-payment-icon {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 50%;
+  background: #e9f5f1;
+  color: var(--site-green);
+  display: grid;
+  place-items: center;
+}
+
+.public-project-payment-head > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.public-project-payment-head h4,
+.public-project-payment-head p,
+.public-project-payment-note {
+  margin: 0;
+}
+
+.public-project-payment-head h4 {
+  color: var(--site-ink);
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.public-project-payment-head p {
+  color: var(--site-green-dark);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.public-project-payment-list {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+}
+
+.public-project-payment-list li {
+  min-width: 0;
+  padding: 9px 0;
+  border-top: 1px solid #edf1ef;
+  display: grid;
+  grid-template-columns: 26px minmax(120px, 1fr) 44px minmax(130px, auto);
+  align-items: center;
+  gap: 8px;
+}
+
+.public-project-payment-number {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #f2f4f3;
+  color: var(--site-green-dark);
+  font-size: 11px;
+  font-weight: 900;
+  display: grid;
+  place-items: center;
+}
+
+.public-project-payment-list strong {
+  min-width: 0;
+  color: #344054;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.public-project-payment-list b {
+  color: var(--site-orange-dark);
+  font-size: 12px;
+  text-align: right;
+}
+
+.public-project-payment-list small {
+  color: var(--site-ink);
+  font-size: 11px;
+  font-weight: 800;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.public-project-payment-note {
+  color: var(--site-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+@media (max-width: 480px) {
+  .public-project-payment-list li {
+    grid-template-columns: 26px minmax(0, 1fr) 40px;
+  }
+
+  .public-project-payment-list small {
+    grid-column: 2 / 4;
+    text-align: left;
+  }
+}
+
 .public-project-packages {
   min-width: 0;
   display: grid;

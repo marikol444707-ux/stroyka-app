@@ -94,10 +94,12 @@ describe('public project actions', () => {
     expect(screen.getByLabelText('Комментарий').value).toContain('Комплектация: Тёплый контур');
     expect(document.querySelector('.public-request-selected')).toHaveTextContent('Тёплый контур');
     expect(screen.getByRole('status')).toHaveTextContent('Выбрана комплектация «Тёплый контур»');
+    expect(screen.getByRole('region', { name: 'Примерный график этапов и платежей' })).toHaveTextContent('5 этапов');
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Комплектация' }), { target: { value: 'box' } });
     expect(screen.getByRole('radio', { name: /Коробка/ })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByLabelText('Комментарий').value).toContain('Комплектация: Коробка');
+    expect(screen.getByRole('region', { name: 'Примерный график этапов и платежей' })).toHaveTextContent('4 этапа');
   });
 
   test('keeps the mirrored variant when the project is sent to the calculator', () => {

@@ -40,8 +40,10 @@ import {
 import { PublicSiteCalculatorSection } from '../features/public-site/PublicSiteCalculatorSection';
 import { PublicLayoutRequestEditor } from '../features/public-site/PublicLayoutRequestEditor';
 import { PublicProjectPackageSelector } from '../features/public-site/PublicProjectPackageSelector';
+import { PublicProjectPaymentSchedule } from '../features/public-site/PublicProjectPaymentSchedule';
 import {
   getPublicProjectHousePackage,
+  getPublicProjectPaymentSchedule,
   publicProjectHousePackages,
 } from '../features/public-site/publicProjectPackages';
 import {
@@ -130,6 +132,9 @@ const PublicSitePage = ({ onLogin }) => {
   const selectedReferencePackageSelection = selectedReferencePackage
     ? selectedReferencePackageOptions.find((item) => item.value === selectedReferencePackage.value)
     : null;
+  const selectedReferencePaymentSchedule = selectedReferencePackage
+    ? getPublicProjectPaymentSchedule(selectedReferencePackage.value, selectedReferenceEstimate)
+    : [];
   const selectedReferenceRenderCount = selectedReferenceMediaOptions.filter((item) => item.role === 'render' || item.kind === 'render').length;
   const selectedReferencePlanCount = selectedReferenceMediaOptions.filter((item) => item.role === 'plan' || item.kind === 'plan').length;
   const selectedReferenceAssetSummary = [
@@ -168,6 +173,14 @@ const PublicSitePage = ({ onLogin }) => {
     packageLabel: selectedReferencePackage?.label || '',
     packageDuration: selectedReferencePackage?.duration || '',
     packageIncludes: selectedReferencePackage?.includes || [],
+    paymentScheduleStatus: selectedReferencePackage ? 'indicative' : null,
+    paymentSchedule: selectedReferencePaymentSchedule.map(({ id, title, percent, min, max }) => ({
+      id,
+      title,
+      percent,
+      min,
+      max,
+    })),
     mediaCount: selectedReferenceMediaOptions.length,
     media: selectedReferenceMediaOptions.map((item) => ({
       id: item.id,
@@ -881,6 +894,12 @@ const PublicSitePage = ({ onLogin }) => {
                     <strong>{selectedReferenceEstimate.rangeLabel}</strong>
                     <small>Ориентир для сайта. Точная сумма зависит от замера, проекта, грунтов, материалов и комплектации.</small>
                   </div>
+                  {selectedReferencePackage && (
+                    <PublicProjectPaymentSchedule
+                      packageLabel={selectedReferencePackage.label}
+                      stages={selectedReferencePaymentSchedule}
+                    />
+                  )}
                   <div className="public-generated-object-card">
                     <div className="public-generated-object-head">
                       <span>{selectedReferenceObjectCard.status}</span>
