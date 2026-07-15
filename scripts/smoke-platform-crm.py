@@ -949,18 +949,45 @@ def check_crm(crm_token, foreign_company_id):
         },
     )
     client_lead_id = client_lead.get("id")
+    company_headers = {"X-Company-Id": "1", "X-Company-Mode": "company"}
+    _, client_document = api_json(
+        "POST",
+        f"/crm/leads/{client_lead_id}/documents",
+        token=crm_token,
+        expected=200,
+        headers=company_headers,
+        data={"title": f"{PREFIX} Client Project Document"},
+    )
+    _, client_task = api_json(
+        "POST",
+        f"/crm/leads/{client_lead_id}/tasks",
+        token=crm_token,
+        expected=200,
+        headers=company_headers,
+        data={"title": f"{PREFIX} Client Project Task"},
+    )
     _, project_created = api_json(
         "POST",
         f"/crm/leads/{client_lead_id}/create-project",
         token=crm_token,
         expected=200,
+        headers=company_headers,
         data={"projectName": PROJECT_CREATE_NAME, "budget": 250000},
     )
     created_project_id = project_created.get("project", {}).get("id")
     if not created_project_id:
         raise RuntimeError(f"CRM create-project returned invalid body: {project_created}")
+    _, legacy_project = api_json(
+        "POST",
+        f"/crm-leads/{client_lead_id}/create-project",
+        token=crm_token,
+        expected=200,
+        headers=company_headers,
+        data={"projectName": f"{PROJECT_CREATE_NAME} ignored"},
+    )
+    if not legacy_project.get("alreadyExists") or legacy_project.get("project", {}).get("id") != created_project_id:
+        raise RuntimeError(f"Legacy CRM create-project did not reuse tenant-safe project: {legacy_project}")
 
-    company_headers = {"X-Company-Id": "1", "X-Company-Mode": "company"}
     conn = db_conn()
     cur = conn.cursor()
     try:
@@ -1058,6 +1085,8 @@ def check_crm(crm_token, foreign_company_id):
             f"/crm/leads/{foreign_lead_id}/transfer-documents-to-project",
             {"projectName": PROJECT_NAME, "documentIds": [foreign_document_id]},
         ),
+        ("POST", f"/crm/leads/{foreign_lead_id}/create-project", {"projectName": f"{PREFIX} Foreign Project"}),
+        ("POST", f"/crm-leads/{foreign_lead_id}/create-project", {"projectName": f"{PREFIX} Foreign Legacy Project"}),
     )
     foreign_workflow_statuses = []
     for method, path, data in foreign_workflow_mutations:
@@ -1092,6 +1121,26 @@ def check_crm(crm_token, foreign_company_id):
             (task.get("id"),),
         )
         task_owner = cur.fetchone()
+        cur.execute(
+            "SELECT company_id FROM projects WHERE id=%s",
+            (created_project_id,),
+        )
+        created_project_owner = cur.fetchone()
+        cur.execute(
+            "SELECT company_id,project_id FROM crm_leads WHERE id=%s",
+            (client_lead_id,),
+        )
+        project_lead_owner = cur.fetchone()
+        cur.execute(
+            "SELECT company_id,project_id FROM crm_lead_documents WHERE id=%s",
+            (client_document.get("id"),),
+        )
+        project_document_owner = cur.fetchone()
+        cur.execute(
+            "SELECT company_id,project_id FROM crm_lead_tasks WHERE id=%s",
+            (client_task.get("id"),),
+        )
+        project_task_owner = cur.fetchone()
     finally:
         cur.close()
         conn.close()
@@ -1101,6 +1150,14 @@ def check_crm(crm_token, foreign_company_id):
         raise RuntimeError(f"CRM document did not inherit lead owner: {document_owner}")
     if int((task_owner or {}).get("company_id") or 0) != 1:
         raise RuntimeError(f"CRM task did not inherit lead owner: {task_owner}")
+    project_chain = [created_project_owner, project_lead_owner, project_document_owner, project_task_owner]
+    if any(int((row or {}).get("company_id") or 0) != 1 for row in project_chain):
+        raise RuntimeError(f"CRM project chain did not preserve company owner: {project_chain}")
+    if any(
+        int((row or {}).get("project_id") or 0) != int(created_project_id)
+        for row in (project_lead_owner, project_document_owner, project_task_owner)
+    ):
+        raise RuntimeError(f"CRM project chain did not preserve exact project owner: {project_chain}")
     public_company_id = int(env_value("PUBLIC_SITE_COMPANY_ID", "0") or 0)
     if public_company_id <= 0:
         raise RuntimeError("PUBLIC_SITE_COMPANY_ID must be configured before CRM writer smoke")
@@ -1172,6 +1229,7 @@ def check_crm(crm_token, foreign_company_id):
         "foreignMutationStatuses": foreign_mutation_statuses,
         "ownWorkflowOwnershipChecked": True,
         "foreignWorkflowStatuses": foreign_workflow_statuses,
+        "projectCreationOwnershipChecked": True,
         "publicLeadId": public_lead_ids[0],
         "publicPartnerLeadIds": public_lead_ids[1:],
     }

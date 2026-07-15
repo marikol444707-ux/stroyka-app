@@ -22052,52 +22052,6 @@ def update_crm_lead(id: int, data: dict, _current_user: dict = Depends(require_r
     cur.close(); conn.close()
     return {"ok": True}
 
-@app.post("/crm-leads/{id}/create-project")
-def create_project_from_crm_lead(id: int, data: dict = None, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm"))):
-    data = data or {}
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,name,phone,email,source,budget,notes,stage,project_id FROM crm_leads WHERE id=%s", (id,))
-    lead = cur.fetchone()
-    if not lead:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Лид не найден")
-
-    if lead.get("project_id"):
-        cur.execute("SELECT id,name,client,status,budget,deadline,progress,tasks,pricelist_id as \"pricelistId\",floors,liters,COALESCE(archived,false) as archived FROM projects WHERE id=%s", (lead["project_id"],))
-        project = cur.fetchone()
-        cur.close(); conn.close()
-        if project:
-            return {"ok": True, "alreadyExists": True, "project": dict(project)}
-
-    project_name = _public_text(data.get("projectName") or lead.get("name") or ("Заявка #" + str(id)), 255)
-    client_name = _public_text(data.get("client") or lead.get("name") or lead.get("phone") or "", 255)
-    if not project_name:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail="Укажите название объекта")
-
-    cur.execute("SELECT id FROM projects WHERE LOWER(name)=LOWER(%s) LIMIT 1", (project_name,))
-    duplicate = cur.fetchone()
-    if duplicate:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=409, detail="Объект с таким названием уже существует")
-
-    budget = _startup_num(data.get("budget") if data.get("budget") not in (None, "") else lead.get("budget"))
-    notes = lead.get("notes") or ""
-
-    cur.execute(f"""INSERT INTO projects (name,client,status,budget,deadline,progress,tasks,pricelist_id,floors,liters) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id,name,client,status,budget,deadline,progress,tasks,pricelist_id as "pricelistId",floors,liters,COALESCE(archived,false) as archived,archived_at as "archivedAt",{PROJECT_PUBLIC_SELECT}""",
-        (project_name, client_name, data.get("status") or "Планирование", budget, data.get("deadline") or "", 0, [], None, int(data.get("floors") or 1), data.get("liters") or ""))
-    project = cur.fetchone()
-    source_note = "Создан объект #" + str(project["id"]) + " из CRM-лида #" + str(id)
-    updated_notes = notes
-    if source_note not in updated_notes:
-        updated_notes = (updated_notes + ("\n\n" if updated_notes else "") + source_note)[:4000]
-    cur.execute("UPDATE crm_leads SET project_id=%s, stage=%s, notes=%s WHERE id=%s", (project["id"], data.get("stage") or "Договор", updated_notes, id))
-    log_audit(user_name=current_user.get("name",""), user_role=current_user.get("role",""),
-              action="create", entity_type="project", entity_id=project["id"], description="Создан объект из CRM-лида #" + str(id), project_name=project["name"])
-    cur.close(); conn.close()
-    return {"ok": True, "alreadyExists": False, "project": dict(project)}
-
 @app.delete("/crm-leads/{id}")
 def delete_crm_lead(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm"))):
     conn = get_db()

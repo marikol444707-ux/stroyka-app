@@ -589,38 +589,64 @@ def register_crm_module(app, deps):
             cur.close()
             conn.close()
 
+    @app.post("/crm-leads/{lead_id}/create-project")
     @app.post("/crm/leads/{lead_id}/create-project")
-    def crm_create_project_from_lead(lead_id: int, data: dict = None, current_user: dict = Depends(crm_access)):
+    def crm_create_project_from_lead(
+        lead_id: int,
+        data: dict = None,
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(crm_access),
+    ):
         data = data or {}
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            lead = fetch_lead(cur, lead_id)
+            lead = fetch_lead(cur, lead_id, for_update=True)
+            owner = child_owner(cur, current_user, lead, "create", x_company_id, x_company_mode)
             if lead.get("projectId"):
                 cur.execute("""
-                    SELECT id,name,client,status,budget,deadline,progress,tasks,pricelist_id,COALESCE(archived,false) AS archived,archived_at
-                    FROM projects WHERE id=%s
-                """, (lead.get("projectId"),))
+                    SELECT id,company_id,name,client,status,budget,deadline,progress,tasks,pricelist_id,
+                           COALESCE(archived,false) AS archived,archived_at
+                      FROM projects
+                     WHERE id=%s AND company_id=%s
+                """, (lead.get("projectId"), owner["companyId"]))
                 project = cur.fetchone()
                 if project:
                     return {"ok": True, "alreadyExists": True, "project": _project_dict(project)}
+                raise HTTPException(status_code=409, detail="Объект CRM-заявки не принадлежит её компании")
+
+            owner_params = (lead_id, owner["companyId"], owner["projectId"])
+            for table in ("crm_lead_documents", "crm_lead_tasks"):
+                cur.execute(f"""
+                    SELECT 1 FROM {table}
+                     WHERE lead_id=%s
+                       AND (company_id IS DISTINCT FROM %s OR project_id IS DISTINCT FROM %s)
+                     LIMIT 1
+                """, owner_params)
+                if cur.fetchone():
+                    raise HTTPException(status_code=409, detail="Данные CRM имеют конфликт владельца. Сначала исправьте привязку.")
 
             project_name = _text(data.get("projectName") or lead.get("name") or ("Заявка #" + str(lead_id)), 255)
             client_name = _text(data.get("client") or lead.get("name") or lead.get("phone") or "", 255)
             if not project_name:
                 raise HTTPException(status_code=400, detail="Укажите название объекта")
 
-            cur.execute("SELECT id FROM projects WHERE LOWER(name)=LOWER(%s) LIMIT 1", (project_name,))
+            cur.execute(
+                "SELECT id FROM projects WHERE company_id=%s AND LOWER(name)=LOWER(%s) LIMIT 1",
+                (owner["companyId"], project_name),
+            )
             if cur.fetchone():
                 raise HTTPException(status_code=409, detail="Объект с таким названием уже существует")
 
             budget = _num(data.get("budget") if data.get("budget") not in (None, "") else lead.get("budget"))
             cur.execute("""
-                INSERT INTO projects (name,client,status,budget,deadline,progress,tasks,pricelist_id,floors,liters)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                RETURNING id,name,client,status,budget,deadline,progress,tasks,pricelist_id,COALESCE(archived,false) AS archived,archived_at
+                INSERT INTO projects (company_id,name,client,status,budget,deadline,progress,tasks,pricelist_id,floors,liters)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                RETURNING id,company_id,name,client,status,budget,deadline,progress,tasks,pricelist_id,
+                          COALESCE(archived,false) AS archived,archived_at
             """, (
-                project_name, client_name, data.get("status") or "Планирование", budget,
+                owner["companyId"], project_name, client_name, data.get("status") or "Планирование", budget,
                 data.get("deadline") or "", 0, [], None, int(data.get("floors") or 1), data.get("liters") or "",
             ))
             project = _project_dict(cur.fetchone())
@@ -628,13 +654,22 @@ def register_crm_module(app, deps):
             notes = lead.get("notes") or ""
             if source_note not in notes:
                 notes = (notes + ("\n\n" if notes else "") + source_note)[:4000]
+            for table in ("crm_lead_documents", "crm_lead_tasks"):
+                cur.execute(
+                    f"""UPDATE {table} SET project_id=%s
+                         WHERE lead_id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s""",
+                    (project["id"], *owner_params),
+                )
             cur.execute("""
                 UPDATE crm_leads
                    SET project_id=%s, stage=%s, review_status=%s, notes=%s
-                 WHERE id=%s
+                 WHERE id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s
             """, (
-                project["id"], data.get("stage") or "Договор", data.get("reviewStatus") or "Передан в объект", notes, lead_id,
+                project["id"], data.get("stage") or "Договор", data.get("reviewStatus") or "Передан в объект", notes,
+                lead_id, owner["companyId"], owner["projectId"],
             ))
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=409, detail="CRM-заявка изменилась во время создания объекта")
             conn.commit()
             if log_audit:
                 log_audit(

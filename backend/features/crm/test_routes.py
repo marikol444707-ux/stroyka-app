@@ -106,6 +106,10 @@ class CrmRouteOwnershipTests(unittest.TestCase):
         main_source = (Path(__file__).resolve().parents[2] / "main.py").read_text(encoding="utf-8")
         self.assertNotIn('@app.post("/crm/leads/{id}/approve-supplier")', main_source)
 
+    def test_project_creation_has_no_legacy_implementation_in_main(self):
+        main_source = (Path(__file__).resolve().parents[2] / "main.py").read_text(encoding="utf-8")
+        self.assertNotIn('@app.post("/crm-leads/{id}/create-project")', main_source)
+
     def build_app(self, route_cursor, *, context=None, actors=None):
         schema_connection = FakeConnection(FakeCursor())
         route_connection = FakeConnection(route_cursor)
@@ -569,6 +573,108 @@ class CrmRouteOwnershipTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 404)
         self.assertFalse(any(sql.startswith("INSERT INTO project_documents") for sql, _ in cursor.calls))
         self.assertEqual(connection.rollbacks, 1)
+
+    def test_project_creation_routes_share_one_tenant_safe_handler(self):
+        app, _, _, _ = self.build_app(FakeCursor())
+
+        self.assertIs(
+            app.routes[("POST", "/crm/leads/{lead_id}/create-project")],
+            app.routes[("POST", "/crm-leads/{lead_id}/create-project")],
+        )
+
+    def test_project_creation_rejects_foreign_lead_before_insert(self):
+        cursor = FakeCursor(fetchone_values=[lead_row(company_id=8, project_id=None)])
+        app, connection, _, resource_calls = self.build_app(cursor)
+
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("POST", "/crm/leads/{lead_id}/create-project")](
+                10,
+                {"projectName": "Чужой объект"},
+                x_company_id="4",
+                x_company_mode="company",
+                current_user={"id": 9, "role": "директор"},
+            )
+
+        self.assertEqual(raised.exception.status_code, 404)
+        self.assertEqual(resource_calls[0][:2], (8, "create"))
+        self.assertFalse(any(sql.startswith("INSERT INTO projects") for sql, _ in cursor.calls))
+        self.assertEqual(connection.rollbacks, 1)
+
+    def test_project_creation_reuses_only_project_from_lead_company(self):
+        project = {
+            "id": 21,
+            "company_id": 4,
+            "name": "Связанный объект",
+            "budget": 0,
+            "tasks": [],
+        }
+        cursor = FakeCursor(fetchone_values=[lead_row(), project])
+        app, connection, _, resource_calls = self.build_app(cursor)
+
+        response = app.routes[("POST", "/crm/leads/{lead_id}/create-project")](
+            10,
+            {},
+            x_company_id="4",
+            x_company_mode="company",
+            current_user={"id": 9, "role": "директор"},
+        )
+
+        sql, params = next(call for call in cursor.calls if "FROM projects" in call[0])
+        self.assertIn("id=%s AND company_id=%s", sql)
+        self.assertEqual(params, (21, 4))
+        self.assertEqual(resource_calls[0][:2], (4, "create"))
+        self.assertTrue(response["alreadyExists"])
+        self.assertEqual(response["project"]["id"], 21)
+        self.assertFalse(any(call[0].startswith("INSERT INTO projects") for call in cursor.calls))
+        self.assertTrue(connection.closed)
+
+    def test_project_creation_persists_lead_company_and_moves_exact_children(self):
+        project = {
+            "id": 101,
+            "company_id": 4,
+            "name": "Новый объект",
+            "client": "Лид",
+            "status": "Планирование",
+            "budget": 250000,
+            "deadline": "",
+            "progress": 0,
+            "tasks": [],
+            "pricelist_id": None,
+            "archived": False,
+            "archived_at": None,
+        }
+        cursor = FakeCursor(
+            fetchone_values=[lead_row(project_id=None), None, None, None, project],
+        )
+        app, connection, _, resource_calls = self.build_app(cursor)
+
+        response = app.routes[("POST", "/crm-leads/{lead_id}/create-project")](
+            10,
+            {"projectName": "Новый объект", "budget": 250000, "companyId": 999},
+            x_company_id="4",
+            x_company_mode="company",
+            current_user={"id": 9, "name": "Директор", "role": "директор"},
+        )
+
+        insert_sql, insert_params = next(call for call in cursor.calls if call[0].startswith("INSERT INTO projects"))
+        self.assertIn("company_id,name", insert_sql)
+        self.assertEqual(insert_params[0], 4)
+        self.assertNotIn(999, insert_params)
+        for table in ("crm_lead_documents", "crm_lead_tasks"):
+            sql, params = next(
+                call for call in cursor.calls
+                if call[0].startswith(f"UPDATE {table} SET project_id=%s")
+            )
+            self.assertIn("lead_id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s", sql)
+            self.assertEqual(params, (101, 10, 4, None))
+        lead_sql, lead_params = next(
+            call for call in cursor.calls if call[0].startswith("UPDATE crm_leads SET project_id=%s")
+        )
+        self.assertIn("id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s", lead_sql)
+        self.assertEqual(lead_params[-3:], (10, 4, None))
+        self.assertEqual(resource_calls[0][:2], (4, "create"))
+        self.assertEqual(response["project"]["id"], 101)
+        self.assertEqual(connection.commits, 1)
 
     def test_create_rejects_all_companies_before_insert(self):
         cursor = FakeCursor()
