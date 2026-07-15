@@ -2071,6 +2071,31 @@
 
 **Estimated scope:** S
 
+## Task M7i: Audit Core Supply Ownership
+
+**Description:** Register and audit only the first stored procurement chain: `supply_requests -> supply_request_recipients -> supplier_offers`. Prove company and project/request ownership without reading materials, quantities, suppliers, prices, terms, messages or notes.
+
+**Status:** Implemented locally. Production read-only report pending; no migration or runtime change is included.
+
+**Acceptance criteria:**
+- [x] A supply request is verified only by an existing stored company and exactly one same-company project matching its legacy project field.
+- [x] A recipient and offer are verified only through their exact stored request parent and an identical stored company.
+- [x] Missing parents are unresolved, duplicate same-company project names are ambiguous, and cross-company parents are mismatched.
+- [x] Child rows of an unresolved request remain unresolved and are never independently guessed.
+- [x] Loader reads only IDs and owner relations; procurement content and supplier/commercial fields are excluded.
+- [x] Report runs read-only, rolls back and reports `writesAttempted=0`.
+- [ ] Production dry-run provides exact verified/unresolved/ambiguous/mismatched counts and review reasons.
+- [ ] Registry coverage confirms the three tables leave the unregistered set.
+
+**Verification:**
+- [x] `python3 -m unittest backend.features.supply_ownership.test_ownership_report` (`10` tests).
+- [ ] `npm run audit:supply-ownership` on production.
+- [ ] `npm run audit:tenant-registry-coverage` on production.
+
+**Dependencies:** Task M7g production completion; independent of M7h supplier-link audit and any future supply backfill or runtime change
+
+**Estimated scope:** S
+
 ## Task 12: Extract Auth Helpers
 
 **Description:** Move auth/session helper functions from `backend/main.py` into `backend/auth.py` without changing behavior.
