@@ -2075,7 +2075,7 @@
 
 **Description:** Register and audit only the first stored procurement chain: `supply_requests -> supply_request_recipients -> supplier_offers`. Prove company and project/request ownership without reading materials, quantities, suppliers, prices, terms, messages or notes.
 
-**Status:** Implemented locally. Production read-only report pending; no migration or runtime change is included.
+**Status:** Production read-only report completed but strict readiness is blocked. It found `25` unresolved child rows in company `1`: `17 supply_request_recipients` and `8 supplier_offers`, all with `request_parent_not_found`. The transaction rolled back and did not change data. No automatic deletion or company-based reassignment is allowed.
 
 **Acceptance criteria:**
 - [x] A supply request is verified only by an existing stored company and exactly one same-company project matching its legacy project field.
@@ -2084,15 +2084,36 @@
 - [x] Child rows of an unresolved request remain unresolved and are never independently guessed.
 - [x] Loader reads only IDs and owner relations; procurement content and supplier/commercial fields are excluded.
 - [x] Report runs read-only, rolls back and reports `writesAttempted=0`.
-- [ ] Production dry-run provides exact verified/unresolved/ambiguous/mismatched counts and review reasons.
+- [x] Production dry-run provides a complete review list: `25` unresolved rows, all caused by a missing request parent; no writes were made.
 - [x] Registry coverage confirms the three tables leave the unregistered set.
 
 **Verification:**
 - [x] `python3 -m unittest backend.features.supply_ownership.test_ownership_report` (`10` tests).
-- [ ] `npm run audit:supply-ownership` on production.
+- [x] `npm run audit:supply-ownership` on production: `17` orphaned recipients and `8` orphaned offers require review.
 - [x] `npm run audit:tenant-registry-coverage` on production: all three tables are registered; `78` tables remain outside the registry.
 
 **Dependencies:** Task M7g production completion; independent of M7h supplier-link audit and any future supply backfill or runtime change
+
+**Estimated scope:** S
+
+## Task M7i1: Diagnose Orphaned Core-Supply Children
+
+**Description:** Determine why the `25` production recipients/offers reference missing supply requests and whether downstream invoices, deliveries, messages or other records still depend on them. Produce only IDs, relation types and exact counts; do not expose procurement content.
+
+**Status:** Pending implementation. The `M7i` review list is complete and provides the exact starting set.
+
+**Acceptance criteria:**
+- [ ] The report starts from the exact `17` recipient and `8` offer rows identified by `M7i` and fails closed if the set changes.
+- [ ] It distinguishes deleted/test request residue from rows that still have downstream business references without guessing a replacement request.
+- [ ] It reads and outputs only IDs, company ownership and relation types; materials, suppliers, prices, terms, messages and notes remain excluded.
+- [ ] It runs read-only, rolls back and reports `writesAttempted=0`.
+- [ ] Any future cleanup/backfill is a separate guarded apply with exact expected count and plan SHA.
+
+**Verification:**
+- [ ] Focused unit tests cover stale request IDs, downstream references, changed-set failure and zero-write rollback.
+- [ ] Production dry-run captures exact classifications and review reasons.
+
+**Dependencies:** Task M7i production dry-run
 
 **Estimated scope:** S
 
