@@ -5,7 +5,6 @@ import hashlib
 import hmac
 import json
 import os
-import re
 import sys
 import time
 import urllib.error
@@ -25,6 +24,7 @@ CHAT_ID_FROM_ENV = bool(os.getenv("MAX_MARKETING_SMOKE_CHAT_ID"))
 CHAT_ID = os.getenv("MAX_MARKETING_SMOKE_CHAT_ID", f"codex-max-marketing-{RUN_ID}")
 TITLE = os.getenv("MAX_MARKETING_SMOKE_TITLE", f"CODEX MAX маркетинг {RUN_ID}")
 CAMPAIGN = os.getenv("MAX_MARKETING_SMOKE_CAMPAIGN", f"codex-campaign-{RUN_ID}")
+SMOKE_USER_EMAIL = f"max-marketing-smoke-{RUN_ID}@stroyka.local"
 
 
 def load_env():
@@ -46,6 +46,17 @@ def env_value(name, default=""):
     return os.getenv(name) or ENV.get(name, default)
 
 
+def smoke_company_id():
+    raw = env_value("SMOKE_COMPANY_ID") or env_value("PUBLIC_SITE_COMPANY_ID")
+    try:
+        company_id = int(raw or 0)
+    except (TypeError, ValueError):
+        company_id = 0
+    if company_id <= 0:
+        raise SystemExit("Нужно задать SMOKE_COMPANY_ID или PUBLIC_SITE_COMPANY_ID")
+    return company_id
+
+
 def db_config():
     return {
         "dbname": env_value("DB_NAME", "stroyka"),
@@ -54,6 +65,70 @@ def db_config():
         "host": env_value("DB_HOST", "localhost"),
         "port": env_value("DB_PORT", "5432"),
     }
+
+
+def b64url(data):
+    return base64.urlsafe_b64encode(data).decode("utf-8").rstrip("=")
+
+
+def hash_password(password):
+    salt = uuid.uuid4().hex
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 260000).hex()
+    return f"pbkdf2_sha256$260000${salt}${digest}"
+
+
+def auth_token_for(user):
+    payload = {
+        "id": user.get("id"),
+        "email": user.get("email") or "",
+        "role": user.get("role") or "",
+        "name": user.get("name") or "",
+        "twoFactorPassed": True,
+        "exp": int(time.time()) + 3600,
+    }
+    body = b64url(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    secret = env_value("AUTH_SECRET") or (env_value("DB_PASSWORD", "password") + "|stroyka-auth")
+    signature = hmac.new(secret.encode("utf-8"), body.encode("utf-8"), hashlib.sha256).digest()
+    return body + "." + b64url(signature)
+
+
+def prepare_smoke_director():
+    company_id = smoke_company_id()
+    conn = psycopg2.connect(**db_config())
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("SELECT id,platform_account_id FROM companies WHERE id=%s", (company_id,))
+        company = cur.fetchone()
+        if not company:
+            raise RuntimeError(f"Smoke company #{company_id} not found")
+        cur.execute(
+            """
+            INSERT INTO users (
+                name,email,password,role,company_id,platform_account_id,
+                assigned_projects,assigned_packages,active,two_factor_required,two_factor_enabled
+            ) VALUES (%s,%s,%s,'директор',%s,%s,'[]'::jsonb,'[]'::jsonb,TRUE,FALSE,FALSE)
+            RETURNING id,name,email,role
+            """,
+            (TITLE + " Director", SMOKE_USER_EMAIL, hash_password(uuid.uuid4().hex), company_id, company.get("platform_account_id")),
+        )
+        user = dict(cur.fetchone())
+        cur.execute(
+            """
+            INSERT INTO user_company_roles (
+                user_id,platform_account_id,company_id,role,assigned_projects,assigned_packages,active,is_default
+            ) VALUES (%s,%s,%s,'директор','[]'::jsonb,'[]'::jsonb,TRUE,TRUE)
+            """,
+            (user["id"], company.get("platform_account_id"), company_id),
+        )
+        token = auth_token_for(user)
+        conn.commit()
+        return {**user, "token": token, "companyId": company_id}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
 
 
 def api_json(method, path, token=None, data=None, headers=None, expected=None):
@@ -81,13 +156,6 @@ def api_json(method, path, token=None, data=None, headers=None, expected=None):
         return status, {"raw": text}
 
 
-def require_env(name):
-    value = env_value(name, "")
-    if not value:
-        raise SystemExit(f"Нужно задать {name} в окружении или backend/.env")
-    return value
-
-
 def max_bot_token():
     token = env_value("SMOKE_MAX_BOT_TOKEN") or env_value("MAX_WEBHOOK_SECRET") or env_value("MAX_BOT_API_TOKEN")
     token = (token or "").strip()
@@ -96,57 +164,21 @@ def max_bot_token():
     return token
 
 
-def totp_code(secret):
-    clean = re.sub(r"\s+", "", secret or "").upper()
-    if not clean:
-        return ""
-    clean += "=" * (-len(clean) % 8)
-    key = base64.b32decode(clean, casefold=True)
-    counter = int(time.time()) // 30
-    digest = hmac.new(key, counter.to_bytes(8, "big"), hashlib.sha1).digest()
-    offset = digest[-1] & 0x0F
-    value = int.from_bytes(digest[offset : offset + 4], "big") & 0x7FFFFFFF
-    return f"{value % 1_000_000:06d}"
-
-
-def login(email, password):
-    _, body = api_json("POST", "/login", data={"email": email, "password": password}, expected=200)
-    token = body.get("authToken")
-    if token:
-        return token
-    if body.get("twoFactorSetupRequired"):
-        raise SystemExit(
-            f"FAIL login {email}: требуется первичная настройка 2FA. "
-            "Используйте аккаунт с уже настроенной 2FA или отдельный smoke-аккаунт."
-        )
-    if body.get("twoFactorRequired") and body.get("challengeToken"):
-        code = env_value("SMOKE_2FA_CODE")
-        if not code and env_value("SMOKE_TOTP_SECRET"):
-            code = totp_code(env_value("SMOKE_TOTP_SECRET"))
-        if not code:
-            raise SystemExit(f"FAIL login {email}: нужен SMOKE_2FA_CODE или SMOKE_TOTP_SECRET")
-        _, verified = api_json(
-            "POST",
-            "/login/2fa/verify",
-            data={"challengeToken": body.get("challengeToken"), "code": code},
-            expected=200,
-        )
-        token = verified.get("authToken")
-        if token:
-            return token
-        raise SystemExit(f"FAIL login {email}: 2FA не вернула authToken")
-    raise SystemExit(f"FAIL login {email}: authToken не получен")
-
-
-def cleanup(lead_id=None, channel_id=None):
+def cleanup(lead_id=None, channel_id=None, user_id=None):
     conn = None
     try:
         conn = psycopg2.connect(**db_config())
         cur = conn.cursor()
         if lead_id:
+            cur.execute("DELETE FROM crm_lead_documents WHERE lead_id=%s", (lead_id,))
+            cur.execute("DELETE FROM crm_lead_tasks WHERE lead_id=%s", (lead_id,))
             cur.execute("DELETE FROM crm_leads WHERE id=%s", (lead_id,))
         if channel_id and (not CHAT_ID_FROM_ENV or os.getenv("SMOKE_DELETE_CHANNEL") == "1"):
             cur.execute("DELETE FROM messenger_channels WHERE id=%s", (channel_id,))
+        if user_id:
+            cur.execute("DELETE FROM audit_log WHERE user_id=%s", (user_id,))
+            cur.execute("DELETE FROM user_company_roles WHERE user_id=%s", (user_id,))
+            cur.execute("DELETE FROM users WHERE id=%s", (user_id,))
         conn.commit()
         cur.close()
         print("cleanup: removed MAX marketing smoke rows")
@@ -160,10 +192,9 @@ def cleanup(lead_id=None, channel_id=None):
 
 
 def main():
-    admin_email = require_env("SMOKE_EMAIL")
-    admin_password = require_env("SMOKE_PASSWORD")
-    director_token = login(admin_email, admin_password)
     bot_token = max_bot_token()
+    director = prepare_smoke_director()
+    director_token = director["token"]
     channel_id = None
     lead_id = None
     try:
@@ -256,7 +287,7 @@ def main():
             "timestamp": dt.datetime.utcnow().isoformat() + "Z",
         }, ensure_ascii=False, indent=2))
     finally:
-        cleanup(lead_id, channel_id)
+        cleanup(lead_id, channel_id, director.get("id"))
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -10,41 +11,42 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 
-class MaxMarketingLoginTests(unittest.TestCase):
-    def test_login_returns_direct_token_without_2fa(self):
-        with patch.object(MODULE, "api_json", return_value=(200, {"authToken": "direct-token"})):
-            self.assertEqual(MODULE.login("director@example.test", "secret"), "direct-token")
-
-    def test_login_verifies_2fa_challenge(self):
-        responses = [
-            (200, {"twoFactorRequired": True, "challengeToken": "challenge"}),
-            (200, {"authToken": "verified-token"}),
-        ]
-        with (
-            patch.object(MODULE, "api_json", side_effect=responses) as api_json,
-            patch.object(MODULE, "env_value", side_effect=lambda name, default="": "123456" if name == "SMOKE_2FA_CODE" else default),
-        ):
-            token = MODULE.login("director@example.test", "secret")
-
-        self.assertEqual(token, "verified-token")
-        self.assertEqual(api_json.call_count, 2)
-        self.assertEqual(
-            api_json.call_args_list[1].kwargs["data"],
-            {"challengeToken": "challenge", "code": "123456"},
+class MaxMarketingSmokeTests(unittest.TestCase):
+    def test_temporary_user_password_is_stored_as_pbkdf2(self):
+        self.assertRegex(
+            MODULE.hash_password("temporary-secret"),
+            r"^pbkdf2_sha256\$260000\$[0-9a-f]{32}\$[0-9a-f]{64}$",
         )
 
-    def test_login_requires_2fa_input_for_challenge(self):
-        with (
-            patch.object(
-                MODULE,
-                "api_json",
-                return_value=(200, {"twoFactorRequired": True, "challengeToken": "challenge"}),
-            ),
-            patch.object(MODULE, "env_value", return_value=""),
+    def test_smoke_company_prefers_explicit_company_then_public_site_owner(self):
+        with patch.object(
+            MODULE,
+            "env_value",
+            side_effect=lambda name, default="": {
+                "SMOKE_COMPANY_ID": "7",
+                "PUBLIC_SITE_COMPANY_ID": "1",
+            }.get(name, default),
         ):
-            with self.assertRaisesRegex(SystemExit, "SMOKE_2FA_CODE"):
-                MODULE.login("director@example.test", "secret")
+            self.assertEqual(MODULE.smoke_company_id(), 7)
 
+        with patch.object(
+            MODULE,
+            "env_value",
+            side_effect=lambda name, default="": "1" if name == "PUBLIC_SITE_COMPANY_ID" else default,
+        ):
+            self.assertEqual(MODULE.smoke_company_id(), 1)
+
+    def test_temporary_director_token_marks_2fa_as_passed(self):
+        token = MODULE.auth_token_for({
+            "id": 101,
+            "email": "max-smoke@example.test",
+            "role": "директор",
+            "name": "MAX Smoke",
+        })
+        body, _signature = token.split(".", 1)
+        payload = json.loads(MODULE.base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+
+        self.assertIs(payload["twoFactorPassed"], True)
 
 if __name__ == "__main__":
     unittest.main()
