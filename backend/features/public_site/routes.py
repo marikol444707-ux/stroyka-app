@@ -384,7 +384,6 @@ def register_public_site_routes(app, deps):
     require_project_access = deps["require_project_access"]
     log_audit = deps.get("log_audit")
     project_public_select = deps["project_public_select"]
-    system_project_name = deps["system_project_name"]
     lead_rate_limit_seconds = deps.get("public_lead_rate_limit_seconds", 0)
     lead_last_submit = deps.get("public_lead_last_submit", {})
     lead_uploads_enabled = bool(deps.get("public_site_lead_uploads_enabled", False))
@@ -660,24 +659,14 @@ def register_public_site_routes(app, deps):
                     "UPDATE crm_leads SET document_status='Есть документы' WHERE id=%s",
                     (new_id,),
                 )
-            action_payload = json.dumps({
-                "type": "open_page",
-                "page": "crm",
-                "leadId": new_id,
-                "source": "site",
-            }, ensure_ascii=False)
             cur.execute("""
-                INSERT INTO ai_tasks (
-                    owner_scope,company_id,project_id,finding_id,project_name,title,description,assigned_role,assigned_to,
-                    status, due_date, action_label, action_payload, dedupe_key, created_at, updated_at
-                ) VALUES ('company',%s,NULL,NULL,%s,%s,%s,'директор','','Новое',NULL,'Открыть CRM',%s,%s,NOW(),NOW())
+                INSERT INTO crm_lead_tasks (
+                    company_id,project_id,lead_id,title,due_date,status,assigned_to,notes,created_by
+                ) VALUES (%s,NULL,%s,'Связаться с заявителем','','Новая','',%s,'Сайт')
             """, (
                 lead_owner["companyId"],
-                system_project_name,
-                "Новая заявка с сайта: " + name,
+                new_id,
                 "Телефон: " + phone + (("\nEmail: " + email) if email else "") + (("\n\n" + notes) if notes else ""),
-                action_payload,
-                "SITE_LEAD:" + str(new_id),
             ))
             conn.commit()
             lead_last_submit[client_ip] = now

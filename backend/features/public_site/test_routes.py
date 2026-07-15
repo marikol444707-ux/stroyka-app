@@ -331,7 +331,7 @@ class PublicLeadNotesTests(unittest.TestCase):
         )
         task_query, task_insert = next(
             (query, params) for query, params in statements
-            if query.startswith("INSERT INTO ai_tasks")
+            if query.startswith("INSERT INTO crm_lead_tasks")
         )
         self.assertEqual(lead_query.count("%s"), len(lead_insert))
         self.assertEqual(document_query.count("%s"), len(document_insert))
@@ -339,7 +339,8 @@ class PublicLeadNotesTests(unittest.TestCase):
         self.assertEqual(lead_insert[0], 1)
         self.assertEqual(document_insert[0:2], (1, 501))
         self.assertEqual(document_insert[3], "/tenant-files/71/content")
-        self.assertEqual(task_insert[0], 1)
+        self.assertEqual(task_insert[0:2], (1, 501))
+        self.assertFalse(any(query.startswith("INSERT INTO ai_tasks") for query, _params in statements))
         self.assertTrue(all(connection.rollbacks == 0 for connection in connections))
 
     def test_public_lead_rejects_missing_site_company_before_database_write(self):

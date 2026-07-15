@@ -951,8 +951,9 @@ def check_crm(crm_token):
         cur.execute("SELECT company_id FROM crm_leads WHERE id=%s", (public_lead_id,))
         public_owner = cur.fetchone()
         cur.execute(
-            "SELECT owner_scope,company_id FROM ai_tasks WHERE dedupe_key=%s",
-            ("SITE_LEAD:" + str(public_lead_id),),
+            "SELECT company_id,project_id FROM crm_lead_tasks "
+            "WHERE lead_id=%s AND created_by='Сайт' ORDER BY id DESC LIMIT 1",
+            (public_lead_id,),
         )
         public_task_owner = cur.fetchone()
     finally:
@@ -961,10 +962,10 @@ def check_crm(crm_token):
     if (public_owner or {}).get("company_id") != public_company_id:
         raise RuntimeError(f"public CRM lead owner mismatch: {public_owner}")
     if (
-        (public_task_owner or {}).get("owner_scope") != "company"
-        or (public_task_owner or {}).get("company_id") != public_company_id
+        (public_task_owner or {}).get("company_id") != public_company_id
+        or (public_task_owner or {}).get("project_id") is not None
     ):
-        raise RuntimeError(f"public CRM AI task owner mismatch: {public_task_owner}")
+        raise RuntimeError(f"public CRM task owner mismatch: {public_task_owner}")
     return {
         "supplierLeadId": supplier_lead_id,
         "workerLeadId": worker_lead_id,
