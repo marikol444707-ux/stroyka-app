@@ -533,7 +533,8 @@ export function buildAppRenderContext({
     layout: { isMobile },
     materialNormsState,
     selectors: appShellSelectors,
-    ui: appShellUi
+    ui: appShellUi,
+    user
   });
 
   const projectsPageContext = buildProjectsPageContext({

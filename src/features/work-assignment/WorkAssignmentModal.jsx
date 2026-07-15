@@ -8,7 +8,7 @@ function isPerformer(item = {}) {
     return ['мастер', 'субподрядчик', 'бригадир', 'электрик', 'слаботочник', 'отделочник', 'гпх', 'самозанятый', 'ип', 'ооо'].some(token => text.includes(token));
 }
 
-function performerRows(staff = [], users = []) {
+export function performerRows(staff = [], users = []) {
   const rows = [];
   const seenKeys = new Set();
   const seenUserIds = new Set();
@@ -89,7 +89,7 @@ export default function WorkAssignmentModal({
 
   const submit = async () => {
     if (!brigadeName) {
-      alert('Выберите мастера или укажите название бригады');
+      alert('Выберите исполнителя или укажите название бригады');
       return;
     }
     if (!selectedRows.length) {
@@ -160,7 +160,7 @@ export default function WorkAssignmentModal({
           <div>
             <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}>
               <UserCheck size={20} color={C.accent} />
-              <b style={{color: C.text, fontSize: '16px'}}>Назначить работы мастеру</b>
+              <b style={{color: C.text, fontSize: '16px'}}>Назначить работы исполнителю</b>
             </div>
             <p style={{color: C.textSec, fontSize: '12px', margin: '5px 0 0'}}>
               {selectedEstimate.projectName || 'Объект'} · {selectedEstimate.workPackage || selectedEstimate.work_package || 'Основная'}
@@ -172,7 +172,7 @@ export default function WorkAssignmentModal({
         <div style={{padding: '16px 20px', overflowY: 'auto'}}>
           <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(260px,1fr) 180px 180px', gap: '10px', marginBottom: '14px'}}>
             <select value={contractorId} onChange={event => { setContractorId(event.target.value); if (event.target.value) setManualName(''); }} style={{...inp, marginBottom: 0}}>
-              <option value="">Выберите мастера / бригаду</option>
+              <option value="">Выберите мастера / субподрядчика / бригаду</option>
               {performers.map(item => <option key={(item.contractorId || item.id) + '-' + item.name} value={item.contractorId || item.id}>{item.name}</option>)}
             </select>
             <input value={manualName} onChange={event => { setManualName(event.target.value); if (event.target.value) setContractorId(''); }} placeholder="Или название бригады" style={{...inp, marginBottom: 0}} />

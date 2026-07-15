@@ -28,6 +28,7 @@ export function buildEstimatesPageContext({
   actions = {},
   appMainState = {},
   businessRuntime = {},
+  companyContext = {},
   coreRuntime = {},
   estimatePageActions = {},
   estimateWorkflowState = {},
@@ -35,6 +36,7 @@ export function buildEstimatesPageContext({
   materialNormsState = {},
   selectors = {},
   ui = {},
+  user = null,
 }) {
   return {
     ...ui,
@@ -47,6 +49,7 @@ export function buildEstimatesPageContext({
     ...actions,
     ...selectors,
     API,
+    companyContext,
     ESTIMATE_PACKAGES,
     EstimateAddSectionForm,
     EstimateCreateActions,
@@ -72,5 +75,6 @@ export function buildEstimatesPageContext({
     WorkAssignmentStatusPanel,
     WORK_MATERIAL_NORM_RULES,
     isMobile: layout.isMobile,
+    user,
   };
 }

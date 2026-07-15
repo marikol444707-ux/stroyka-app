@@ -1,4 +1,5 @@
 import React from 'react';
+import { canManageEstimateForContext, estimateRoleForContext } from './estimateAccess';
 
 export default function EstimatesPage({ ctx }) {
   const {
@@ -13,7 +14,7 @@ export default function EstimatesPage({ ctx }) {
     estimateStatusView, estimateTotal, EstimateTotalCard, estimateTypeIcon, estimateUpdatedTs, estimateVersionChain, executionPriceFillPercent, exportToExcel,
     fillSelectedEstimateExecutionPrices, fmtMeasure, generateMaterialNormSuggestions, handleDetectEstimateHiddenWorks, handleEstimateAiAnalysis, handleEstimateImportFile, handleExportSelectedEstimate, handleNormalizeSelectedEstimateImport,
     handleOpenEstimateDistribute, handleOpenSelectedEstimateChat, handleOpenSelectedEstimateHistory, handleOpenWorkAssignment, handlePreviewSelectedEstimate, handleShowSelectedEstimateDiff, handleToggleSelectedEstimateTemplate, importValidating,
-    importValidationWarnings, inp, isArchivedEstimate, isDirector, isGlobalEstimateTemplate, isLeadership, isMobile, jumpToEstimateIssue,
+    importValidationWarnings, inp, isArchivedEstimate, isGlobalEstimateTemplate, isMobile, jumpToEstimateIssue,
     loadAll, loadMaterialNormsPage, markEstimateWorkNoMaterialFromCoverage, materialNormCanCreateSupply, materialNormCoverageComment, materialNormCoverageDisplayRows, materialNormCoverageExportRows, materialNormCoverageMeta,
     materialNormCoverageProject, MaterialNormCoverageSection, MaterialNormFormPanel, materialNormNotice, MaterialNormNotice, materialNormOverrides, MaterialNormOverridesPanel, materialNormPreviewSuggestions,
     materialNormRuleForCalc, materialNorms, materialNormSearch, MaterialNormsHeader, MaterialNormsListPanel, materialNormsPage, materialNormSuggestionLoading, MaterialNormSuggestionsPanel,
@@ -23,10 +24,11 @@ export default function EstimatesPage({ ctx }) {
     setEstimateProjectFilter, setEstimateSearch, setEstimatesList, setEstimatesTab, setEstimateStatusRemote, setExecutionPriceFillPercent, setGenerateForm, setImportValidationWarnings,
     setMaterialNormCoverageProject, setMaterialNormNotice, setMaterialNormPreviewSuggestions, setMaterialNormSearch, setMobileExpandedRenderLists, setNewEstimate, setNewEstimateItem, setNewEstimateSection,
     setNewMaterialNorm, setSelectedEstimate, setShowArchivedEstimates, setShowEstimateIssuesOnly, setShowEstimateWorkSummary, setShowForm, setShowGenerateEstimate, showArchivedEstimates,
-    showEstimateIssuesOnly, showEstimateWorkSummary, showForm, showPreview, user, visibleActiveProjects, visibleEstimatesForCurrentUser, WORK_MATERIAL_NORM_RULES,
+    companyContext, showEstimateIssuesOnly, showEstimateWorkSummary, showForm, showPreview, user, visibleActiveProjects, visibleEstimatesForCurrentUser, WORK_MATERIAL_NORM_RULES,
     WorkAssignmentStatusPanel,
   } = ctx;
-  const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
+  const effectiveUserRole = estimateRoleForContext(user, companyContext);
+  const isLeadershipUser = canManageEstimateForContext(user, companyContext);
 
   return (
 <div>
@@ -144,10 +146,10 @@ export default function EstimatesPage({ ctx }) {
                   sameEstimateGroup={sameEstimateGroup}
                   selectedEstimate={selectedEstimate}
                   setEstimateStatusRemote={setEstimateStatusRemote}
-                  showLeadership={['директор','зам_директора'].includes(user?.role)}
+                  showLeadership={isLeadershipUser}
 	                  showEstimateIssuesOnly={showEstimateIssuesOnly}
 	                />
-		                {['директор','зам_директора'].includes(user?.role) && (
+		                {isLeadershipUser && (
 		                  <EstimateExecutionPricingPanel
 		                    priceStats={selectedEstimateExecutionPriceStats()}
 		                    executionPriceFillPercent={executionPriceFillPercent}
@@ -168,12 +170,12 @@ export default function EstimatesPage({ ctx }) {
                   btnO={btnO}
                   btnR={btnR}
                   isMobile={isMobile}
-                  showLeadership={['директор','зам_директора'].includes(user?.role)}
+                  showLeadership={isLeadershipUser}
                   onOpenWorkAssignment={handleOpenWorkAssignment}
                 />
                 <EstimateDuplicateWorkSummaryPanel
                   selectedEstimate={selectedEstimate}
-                  userRole={user?.role}
+                  userRole={effectiveUserRole}
                   isMobile={isMobile}
                   showEstimateWorkSummary={showEstimateWorkSummary}
                   setShowEstimateWorkSummary={setShowEstimateWorkSummary}
@@ -198,7 +200,7 @@ export default function EstimatesPage({ ctx }) {
                   isMobile={isMobile}
                   estimateQualityRows={estimateQualityRows}
                   brigadeContracts={brigadeContracts}
-                  userRole={user?.role}
+                  userRole={effectiveUserRole}
                   setSelectedEstimate={setSelectedEstimate}
                   setEstimatesList={setEstimatesList}
                   persistEstimate={persistEstimate}
@@ -241,8 +243,8 @@ export default function EstimatesPage({ ctx }) {
                   showPreview={showPreview}
                   buildEstimateDiffContent={buildEstimateDiffContent}
                   onCreateReconciliation={createEstimateReconciliation}
-                  isLeadership={isLeadership}
-                  canHardDeleteEstimate={isDirector}
+                  isLeadership={isLeadershipUser}
+                  canHardDeleteEstimate={effectiveUserRole === 'директор'}
                 />
               </div>)}
               </>);})()}
