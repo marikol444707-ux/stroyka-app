@@ -788,7 +788,7 @@ def check_platform_roles(system_token, platform_result):
     }
 
 
-def check_crm(crm_token):
+def check_crm(crm_token, foreign_company_id):
     project_id = create_smoke_project()
     supplier_name = f"{PREFIX} Supplier"
     _, supplier_lead = api_json(
@@ -902,12 +902,31 @@ def check_crm(crm_token):
     if not created_project_id:
         raise RuntimeError(f"CRM create-project returned invalid body: {project_created}")
 
+    conn = db_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """INSERT INTO crm_leads
+                   (company_id,name,source,stage,created_by,created_at,lead_type)
+               VALUES (%s,%s,'smoke','Новый',%s,CURRENT_DATE,'Клиент')
+               RETURNING id""",
+            (foreign_company_id, f"{PREFIX} Foreign Company Lead", PREFIX),
+        )
+        foreign_lead_id = cur.fetchone()[0]
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
     _, details = api_json("GET", f"/crm/leads/{supplier_lead_id}/details", token=crm_token, expected=200)
     if not details.get("documents") or not details.get("tasks"):
         raise RuntimeError("CRM details did not return documents and tasks")
     _, summaries = api_json("GET", "/crm/lead-summaries", token=crm_token, expected=200)
     if not any(item.get("id") == supplier_lead_id for item in summaries):
         raise RuntimeError("CRM summaries did not include created lead")
+    if any(item.get("id") == foreign_lead_id for item in summaries):
+        raise RuntimeError("CRM summaries leaked a lead from another company")
+    api_json("GET", f"/crm/leads/{foreign_lead_id}/details", token=crm_token, expected=404)
     conn = db_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
@@ -999,6 +1018,7 @@ def check_crm(crm_token):
         "createdProjectId": created_project_id,
         "transferredProjectDocumentIds": transfer.get("created", []),
         "ownershipChecked": True,
+        "foreignLeadHidden": True,
         "publicLeadId": public_lead_ids[0],
         "publicPartnerLeadIds": public_lead_ids[1:],
     }
@@ -1013,7 +1033,7 @@ def main():
         crm_token = login(CRM_EMAIL, crm_password)
         platform_result = check_platform(system_token)
         platform_roles_result = check_platform_roles(system_token, platform_result)
-        crm_result = check_crm(crm_token)
+        crm_result = check_crm(crm_token, platform_result["companyId"])
         summary = {
             "ok": True,
             "baseUrl": BASE_URL,
@@ -1038,6 +1058,7 @@ def main():
                 "client account dashboard read-only",
                 "client account owner login and endpoint matrix",
                 "crm lead summaries and details",
+                "crm read isolation between companies",
                 "crm documents and tasks",
                 "supplier approval",
                 "worker approval",

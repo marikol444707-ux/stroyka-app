@@ -132,9 +132,20 @@ LEAD_SELECT = """
     estimate_id AS "estimateId",
     COALESCE(document_status,'Не собраны') AS "documentStatus",
     COALESCE(review_status,'Новая') AS "reviewStatus",
-    COALESCE((SELECT COUNT(*) FROM crm_lead_documents d WHERE d.lead_id=crm_leads.id),0) AS "documentsCount",
-    COALESCE((SELECT COUNT(*) FROM crm_lead_tasks t WHERE t.lead_id=crm_leads.id AND COALESCE(t.status,'')<>'Закрыта'),0) AS "openTasksCount",
-    COALESCE((SELECT MIN(NULLIF(t.due_date,'')) FROM crm_lead_tasks t WHERE t.lead_id=crm_leads.id AND COALESCE(t.status,'')<>'Закрыта'),'') AS "nextTaskDueDate"
+    COALESCE((SELECT COUNT(*) FROM crm_lead_documents d
+              WHERE d.lead_id=crm_leads.id
+                AND d.company_id=crm_leads.company_id
+                AND d.project_id IS NOT DISTINCT FROM crm_leads.project_id),0) AS "documentsCount",
+    COALESCE((SELECT COUNT(*) FROM crm_lead_tasks t
+              WHERE t.lead_id=crm_leads.id
+                AND t.company_id=crm_leads.company_id
+                AND t.project_id IS NOT DISTINCT FROM crm_leads.project_id
+                AND COALESCE(t.status,'')<>'Закрыта'),0) AS "openTasksCount",
+    COALESCE((SELECT MIN(NULLIF(t.due_date,'')) FROM crm_lead_tasks t
+              WHERE t.lead_id=crm_leads.id
+                AND t.company_id=crm_leads.company_id
+                AND t.project_id IS NOT DISTINCT FROM crm_leads.project_id
+                AND COALESCE(t.status,'')<>'Закрыта'),'') AS "nextTaskDueDate"
 """
 
 
@@ -213,6 +224,26 @@ def register_crm_module(app, deps):
             allowed_roles=crm_roles,
         )
 
+    def readable_company_ids(cur, current_user, x_company_id, x_company_mode):
+        context = resolve_work_company_context(
+            cur,
+            current_user,
+            None,
+            "read",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        allowed_roles = set(crm_roles)
+        company_ids = sorted({
+            int(actor.get("companyId") or actor.get("company_id") or 0)
+            for actor in effective_company_actors(current_user, context)
+            if (actor.get("role") or "") in allowed_roles
+            and int(actor.get("companyId") or actor.get("company_id") or 0) > 0
+        })
+        if not company_ids:
+            raise HTTPException(status_code=403, detail="Роль в выбранной компании не позволяет читать CRM")
+        return company_ids
+
     def child_owner(cur, current_user, lead, action_mode, x_company_id, x_company_mode):
         owner = resolve_lead_child_owner(lead)
         resolve_resource_company_actor(
@@ -229,6 +260,16 @@ def register_crm_module(app, deps):
 
     def fetch_lead(cur, lead_id):
         cur.execute("SELECT " + LEAD_SELECT + " FROM crm_leads WHERE id=%s", (lead_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="CRM-заявка не найдена")
+        return _lead_dict(row)
+
+    def fetch_readable_lead(cur, lead_id, company_ids):
+        cur.execute(
+            "SELECT " + LEAD_SELECT + " FROM crm_leads WHERE id=%s AND company_id = ANY(%s)",
+            (lead_id, company_ids),
+        )
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="CRM-заявка не найдена")
@@ -277,27 +318,55 @@ def register_crm_module(app, deps):
         return row.get("id") if isinstance(row, dict) else row[0]
 
     @app.get("/crm/lead-summaries")
-    def crm_lead_summaries(_current_user: dict = Depends(crm_access)):
+    def crm_lead_summaries(
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(crm_access),
+    ):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("SELECT " + LEAD_SELECT + " FROM crm_leads ORDER BY id DESC")
-        rows = [_lead_dict(row) for row in cur.fetchall()]
-        cur.close()
-        conn.close()
-        return rows
+        try:
+            company_ids = readable_company_ids(cur, current_user, x_company_id, x_company_mode)
+            cur.execute(
+                "SELECT " + LEAD_SELECT + " FROM crm_leads WHERE company_id = ANY(%s) ORDER BY id DESC",
+                (company_ids,),
+            )
+            return [_lead_dict(row) for row in cur.fetchall()]
+        finally:
+            cur.close()
+            conn.close()
 
     @app.get("/crm/leads/{lead_id}/details")
-    def crm_lead_details(lead_id: int, _current_user: dict = Depends(crm_access)):
+    def crm_lead_details(
+        lead_id: int,
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(crm_access),
+    ):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        lead = fetch_lead(cur, lead_id)
-        cur.execute("SELECT * FROM crm_lead_documents WHERE lead_id=%s ORDER BY created_at DESC,id DESC", (lead_id,))
-        documents = [_doc_dict(row) for row in cur.fetchall()]
-        cur.execute("SELECT * FROM crm_lead_tasks WHERE lead_id=%s ORDER BY COALESCE(due_date,''),id", (lead_id,))
-        tasks = [_task_dict(row) for row in cur.fetchall()]
-        cur.close()
-        conn.close()
-        return {"lead": lead, "documents": documents, "tasks": tasks}
+        try:
+            company_ids = readable_company_ids(cur, current_user, x_company_id, x_company_mode)
+            lead = fetch_readable_lead(cur, lead_id, company_ids)
+            owner_params = (lead_id, lead["companyId"], lead.get("projectId"))
+            cur.execute(
+                """SELECT * FROM crm_lead_documents
+                   WHERE lead_id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s
+                   ORDER BY created_at DESC,id DESC""",
+                owner_params,
+            )
+            documents = [_doc_dict(row) for row in cur.fetchall()]
+            cur.execute(
+                """SELECT * FROM crm_lead_tasks
+                   WHERE lead_id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s
+                   ORDER BY COALESCE(due_date,''),id""",
+                owner_params,
+            )
+            tasks = [_task_dict(row) for row in cur.fetchall()]
+            return {"lead": lead, "documents": documents, "tasks": tasks}
+        finally:
+            cur.close()
+            conn.close()
 
     @app.post("/crm/leads")
     def crm_create_lead(

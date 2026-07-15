@@ -30,8 +30,9 @@ class FakeApp:
 
 
 class FakeCursor:
-    def __init__(self, fetchone_values=()):
+    def __init__(self, fetchone_values=(), fetchall_values=()):
         self.fetchone_values = list(fetchone_values)
+        self.fetchall_values = list(fetchall_values)
         self.calls = []
         self.rowcount = 1
 
@@ -42,7 +43,7 @@ class FakeCursor:
         return self.fetchone_values.pop(0) if self.fetchone_values else None
 
     def fetchall(self):
-        return []
+        return self.fetchall_values.pop(0) if self.fetchall_values else []
 
     def close(self):
         pass
@@ -99,7 +100,13 @@ class CrmRouteOwnershipTests(unittest.TestCase):
 
         def resolve_resource(cur, user, company_id, action_mode, **kwargs):
             resource_calls.append((company_id, action_mode, kwargs))
-            return selected_context, selected_actors[0]
+            actor = next(
+                (item for item in selected_actors if int(item.get("companyId") or 0) == int(company_id or 0)),
+                None,
+            )
+            if not actor:
+                raise HTTPException(status_code=404, detail="CRM-заявка не найдена")
+            return selected_context, actor
 
         app = FakeApp()
         register_crm_module(app, {
@@ -111,6 +118,80 @@ class CrmRouteOwnershipTests(unittest.TestCase):
             "resolve_resource_company_actor": resolve_resource,
         })
         return app, route_connection, resolver_calls, resource_calls
+
+    def test_summaries_only_query_companies_with_crm_role(self):
+        cursor = FakeCursor(fetchall_values=[[lead_row(company_id=4)]])
+        app, connection, resolver_calls, _ = self.build_app(
+            cursor,
+            context={"mode": "all_companies", "companyId": None},
+            actors=[
+                {"id": 9, "role": "директор", "companyId": 4},
+                {"id": 9, "role": "рабочий", "companyId": 8},
+            ],
+        )
+
+        response = app.routes[("GET", "/crm/lead-summaries")](
+            x_company_id=None,
+            x_company_mode="all_companies",
+            current_user={"id": 9, "role": "директор"},
+        )
+
+        sql, params = next(call for call in cursor.calls if "FROM crm_leads" in call[0])
+        self.assertIn("WHERE company_id = ANY(%s)", sql)
+        self.assertIn("d.company_id=crm_leads.company_id", sql)
+        self.assertIn("t.project_id IS NOT DISTINCT FROM crm_leads.project_id", sql)
+        self.assertEqual(params, ([4],))
+        self.assertEqual(response[0]["companyId"], 4)
+        self.assertEqual(resolver_calls, [(None, "read", {"x_company_id": None, "x_company_mode": "all_companies"})])
+        self.assertTrue(connection.closed)
+
+    def test_details_hide_lead_from_another_company(self):
+        cursor = FakeCursor(fetchone_values=[None])
+        app, connection, _, _ = self.build_app(cursor)
+
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("GET", "/crm/leads/{lead_id}/details")](
+                10,
+                x_company_id="4",
+                x_company_mode="company",
+                current_user={"id": 9, "role": "директор"},
+            )
+
+        sql, params = next(call for call in cursor.calls if "FROM crm_leads" in call[0])
+        self.assertIn("id=%s AND company_id = ANY(%s)", sql)
+        self.assertEqual(params, (10, [4]))
+        self.assertEqual(raised.exception.status_code, 404)
+        self.assertTrue(connection.closed)
+
+    def test_details_scope_children_to_exact_lead_owner(self):
+        document = {"id": 31, "lead_id": 10, "company_id": 4, "project_id": 21}
+        task = {"id": 41, "lead_id": 10, "company_id": 4, "project_id": 21}
+        cursor = FakeCursor(
+            fetchone_values=[lead_row()],
+            fetchall_values=[[document], [task]],
+        )
+        app, connection, _, _ = self.build_app(cursor)
+
+        response = app.routes[("GET", "/crm/leads/{lead_id}/details")](
+            10,
+            x_company_id="4",
+            x_company_mode="company",
+            current_user={"id": 9, "role": "директор"},
+        )
+
+        child_calls = [
+            call for call in cursor.calls
+            if call[0].startswith("SELECT * FROM crm_lead_documents")
+            or call[0].startswith("SELECT * FROM crm_lead_tasks")
+        ]
+        self.assertEqual(len(child_calls), 2)
+        for sql, params in child_calls:
+            self.assertIn("company_id=%s", sql)
+            self.assertIn("project_id IS NOT DISTINCT FROM %s", sql)
+            self.assertEqual(params, (10, 4, 21))
+        self.assertEqual(response["documents"][0]["leadId"], 10)
+        self.assertEqual(response["tasks"][0]["leadId"], 10)
+        self.assertTrue(connection.closed)
 
     def test_create_stores_selected_company_and_server_actor(self):
         cursor = FakeCursor(fetchone_values=[{"id": 77}])
