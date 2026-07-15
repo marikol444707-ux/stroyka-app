@@ -1993,7 +1993,20 @@
 
 **Description:** After M7f1 is live, scope list/detail/update/delete/approve/invite/transfer routes and both CRM project-creation writers through stored lead/child ownership. Project creation must persist the lead's exact company instead of relying on a database default or UI context.
 
-**Status:** Pending. Kept separate so writer rollout and rollback remain bounded.
+**Status:** In progress. Company-scoped list/detail reads are complete in production; mutation and project-creation routes remain pending.
+
+**Acceptance criteria:**
+- [x] Lead summaries use only companies where the effective actor has a CRM role; aggregate mode never broadens access beyond those memberships.
+- [x] Lead details return `404` outside the allowed company set and load documents/tasks only when their stored company/project matches the lead exactly.
+- [x] Lead counters use the same exact child owner instead of counting rows by `lead_id` alone.
+- [x] Production smoke creates a foreign-company lead, proves it is absent from summaries and inaccessible by direct detail URL, then cleans it up.
+- [ ] Scope lead update/delete and document/task update/delete through stored owner.
+- [ ] Scope supplier/worker approval, invite and document transfer through stored owner.
+- [ ] Make both CRM project-creation writers authorize the lead owner and persist its exact company explicitly.
+
+**Verification:**
+- [x] Focused CRM tests (`16`) and full backend suite (`617`).
+- [x] Production deploy smoke, `smoke:platform-crm` with `foreignLeadHidden=true`, and strict post-audit with zero legacy/unresolved/mismatched rows.
 
 **Dependencies:** Task M7f1 production verification
 
