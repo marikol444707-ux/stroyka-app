@@ -158,8 +158,8 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M7d: Register the three CRM tables as explicit blockers and add a PII-free read-only ownership report over exact project and lead parents. Production found one standalone lead without project owner and no child rows; zero rows were changed.
 - [x] Task M7e: Add and apply a guarded nullable CRM ownership migration with explicit standalone-lead mapping, exact count/SHA guards and strict post-check. Current production audit is strict-ready with one stored lead and no legacy, unresolved or mismatched rows.
 - [x] Task M7f1: Persist exact CRM owner on authenticated, public-site, MAX, document and task writes. Runtime `d97e88b5`; full platform/public CRM smoke, all five public lead types, self-contained MAX marketing smoke with verified cleanup, deploy smoke and strict audit passed.
-- [ ] Task M7f2: Company-scoped reads and lead/document/task update-delete routes are live (`9446ebe4`; own mutations passed, six foreign mutations returned `403`). Next scope approvals, invites and document transfer; both project writers remain after that.
-- [ ] Task M7f2a-legacy: Scope compatibility `GET /crm-leads` through effective CRM company roles and extend negative smoke coverage; release pending.
+- [ ] Task M7f2: Company-scoped reads, lead/document/task mutations and approval/invite/transfer workflows are live (`cca0dbd7`; four foreign workflows returned `403`). Only both CRM project-creation writers remain.
+- [x] Task M7f2a-legacy: Compatibility `GET /crm-leads` is scoped through effective CRM company roles; negative production smoke confirmed legacy isolation.
 
 ### Checkpoint: SaaS Boundary
 

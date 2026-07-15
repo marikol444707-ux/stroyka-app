@@ -1993,7 +1993,7 @@
 
 **Description:** After M7f1 is live, scope list/detail/update/delete/approve/invite/transfer routes and both CRM project-creation writers through stored lead/child ownership. Project creation must persist the lead's exact company instead of relying on a database default or UI context.
 
-**Status:** In progress. Company-scoped reads and lead/document/task update-delete routes are complete in production; approvals, invitations, transfers and project creation remain pending.
+**Status:** In progress. Company-scoped reads, lead/document/task update-delete, approvals, invitations and document transfer are complete in production; only both CRM project-creation writers remain pending.
 
 **Acceptance criteria:**
 - [x] Lead summaries use only companies where the effective actor has a CRM role; aggregate mode never broadens access beyond those memberships.
@@ -2001,22 +2001,22 @@
 - [x] Lead counters use the same exact child owner instead of counting rows by `lead_id` alone.
 - [x] Production smoke creates a foreign-company lead, proves it is absent from summaries and inaccessible by direct detail URL, then cleans it up.
 - [x] Scope lead update/delete and document/task update/delete through stored owner.
-- [ ] Scope supplier/worker approval, invite and document transfer through stored owner.
+- [x] Scope supplier/worker approval, invite and document transfer through stored owner.
 - [ ] Make both CRM project-creation writers authorize the lead owner and persist its exact company explicitly.
 
 **Verification:**
-- [x] Focused CRM tests (`24`) and full backend suite (`625`).
-- [x] Production deploy smoke, `smoke:platform-crm` with `foreignLeadHidden=true`, `ownMutationsChecked=true` and six foreign mutation `403` responses, plus strict post-audit with zero legacy/unresolved/mismatched rows.
+- [x] Focused CRM tests (`36`) and full backend suite (`637`).
+- [x] Production deploy smoke, `smoke:platform-crm` with `foreignLeadHidden=true`, `ownMutationsChecked=true`, six foreign mutation `403` responses, `ownWorkflowOwnershipChecked=true` and four foreign workflow `403` responses, plus strict post-audit with zero legacy/unresolved/mismatched rows.
 
 ### Task M7f2a-legacy: Scope Compatibility CRM List
 
-**Status:** In progress. Новый CRM list/detail read уже проверен в production; совместимый `GET /crm-leads` подготовлен к отдельному выпуску.
+**Status:** Complete in production. Совместимый `GET /crm-leads` использует effective CRM company roles; negative production smoke подтвердил изоляцию.
 
 **Acceptance criteria:**
 - [x] Legacy-список фильтруется по stored `crm_leads.company_id`.
 - [x] Выбранная компания и `Все компании` учитывают effective leadership/CRM-роли, а не глобальную JWT-роль.
 - [x] Negative smoke проверяет, что лид чужой компании отсутствует в legacy-списке.
-- [ ] Production deploy и повторный `smoke:platform-crm` подтверждают legacy isolation.
+- [x] Production deploy и повторный `smoke:platform-crm` подтверждают legacy isolation.
 
 **Dependencies:** Task M7f1 production verification
 
