@@ -102,6 +102,32 @@ class WarehouseOwnershipReportTests(unittest.TestCase):
             {"verified_company_main_warehouse"},
         )
 
+    def test_reciprocal_main_warehouse_invoice_resolves_projectless_supplier_invoice(self):
+        rows = base_rows()
+        rows["supplier_invoices"] = [{
+            "id": 15,
+            "company_id": 3,
+            "project_name": "",
+            "request_id": None,
+            "offer_id": None,
+            "warehouse_invoice_id": 37,
+        }]
+        rows["warehouse_invoices"] = [{
+            "id": 37,
+            "company_id": 3,
+            "project": "",
+            "location": "Основной склад",
+            "warehouse_target": "main",
+            "supply_delivery_id": None,
+            "supply_request_id": None,
+            "supplier_invoice_id": 15,
+        }]
+
+        report = build_report_from_rows(rows)
+
+        self.assertTrue(report["readyForStrictRuntime"])
+        self.assertEqual(report["verifiedPreview"][0]["reason"], "verified_document_chain")
+
     def test_object_invoice_requires_exact_project(self):
         rows = base_rows()
         rows["warehouse_invoices"] = [{

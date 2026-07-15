@@ -21,6 +21,7 @@ def base_rows():
         ],
         "supplier_invoices": [],
         "supply_deliveries": [],
+        "warehouse_invoices": [],
     }
 
 
@@ -75,6 +76,79 @@ class SupplyExecutionOwnershipReportTests(unittest.TestCase):
 
         self.assertTrue(report["readyForStrictRuntime"])
         self.assertEqual(report["verifiedPreview"][0]["reason"], "verified_company_and_project")
+
+    def test_projectless_invoice_inherits_exact_reciprocal_main_warehouse_owner(self):
+        rows = base_rows()
+        rows["supplier_invoices"] = [{
+            "id": 15,
+            "company_id": 3,
+            "project_name": "",
+            "request_id": None,
+            "offer_id": None,
+            "warehouse_invoice_id": 37,
+        }]
+        rows["warehouse_invoices"] = [{
+            "id": 37,
+            "company_id": 3,
+            "project": "",
+            "location": "Основной склад",
+            "warehouse_target": "main",
+            "supplier_invoice_id": 15,
+        }]
+
+        report = build_report_from_rows(rows)
+
+        self.assertTrue(report["readyForStrictRuntime"])
+        self.assertEqual(report["verifiedPreview"][0]["reason"], "verified_main_warehouse_parent")
+        self.assertIsNone(report["verifiedPreview"][0]["projectId"])
+
+    def test_projectless_invoice_does_not_inherit_object_warehouse_owner(self):
+        rows = base_rows()
+        rows["supplier_invoices"] = [{
+            "id": 15,
+            "company_id": 3,
+            "project_name": "",
+            "request_id": None,
+            "offer_id": None,
+            "warehouse_invoice_id": 37,
+        }]
+        rows["warehouse_invoices"] = [{
+            "id": 37,
+            "company_id": 3,
+            "project": "Object A",
+            "location": "Object A",
+            "warehouse_target": "object",
+            "supplier_invoice_id": 15,
+        }]
+
+        report = build_report_from_rows(rows)
+
+        self.assertEqual(report["summary"]["unresolved"], 1)
+        self.assertEqual(report["needsReview"][0]["reason"], "project_owner_missing")
+
+    def test_projectless_invoice_requires_reciprocal_warehouse_link(self):
+        rows = base_rows()
+        rows["supplier_invoices"] = [{
+            "id": 15,
+            "company_id": 3,
+            "project_name": "",
+            "request_id": None,
+            "offer_id": None,
+            "warehouse_invoice_id": 37,
+        }]
+        rows["warehouse_invoices"] = [{
+            "id": 37,
+            "company_id": 3,
+            "project": "",
+            "location": "Основной склад",
+            "warehouse_target": "main",
+            "supplier_invoice_id": 999,
+        }]
+
+        report = build_report_from_rows(rows)
+
+        self.assertEqual(report["summary"]["mismatched"], 1)
+        self.assertEqual(report["needsReview"][0]["reason"], "warehouse_invoice_reverse_link_mismatch")
 
     def test_invoice_offer_and_request_must_describe_one_chain(self):
         rows = base_rows()
@@ -242,6 +316,7 @@ class SupplyExecutionOwnershipReportTests(unittest.TestCase):
                 "request_id": 21,
                 "offer_id": 31,
             }],
+            [],
         ]
 
         rows = load_ownership_rows(cur)

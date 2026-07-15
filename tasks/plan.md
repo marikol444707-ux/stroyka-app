@@ -164,8 +164,8 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M7h: Register `company_supplier_links` and audit exact company/global-supplier/optional platform-account ownership without reading supplier or contract data. Production confirmed the table is empty, strict-ready and unchanged (`unresolved=0`, `mismatched=0`, `writesAttempted=0`).
 - [ ] Task M7i: Register `supply_requests`, `supply_request_recipients` and `supplier_offers`, then audit their exact stored company/project/request ownership without reading procurement content or changing runtime. Production dry-run is blocked by `25` orphaned children (`17` recipients and `8` offers) whose request parents no longer exist.
 - [ ] Task M7i1: Diagnose the `25` orphaned core-supply children and their downstream references read-only; local fail-closed report and tests are complete, production dry-run pending. Do not delete, guess or reassign rows before an exact guarded remediation plan.
-- [ ] Task M7j: Register `supplier_invoices` and `supply_deliveries`, then audit exact company/project/request/offer ownership. Published to main; registry coverage is confirmed, but the attached production paste omitted the ownership report summary.
-- [ ] Task M7k: Register `warehouse_invoices` and `warehouse_history`, then audit exact company/project/main-warehouse and optional document-parent ownership. Implemented locally; production read-only report pending.
+- [ ] Task M7j: Register `supplier_invoices` and `supply_deliveries`, then audit exact company/project/request/offer ownership. Production verified `52/53`; the only unresolved row is projectless supplier invoice `#15`, now locally classified through its exact reciprocal main-warehouse parent pending production re-run.
+- [ ] Task M7k: Register `warehouse_invoices` and `warehouse_history`, then audit exact company/project/main-warehouse and optional document-parent ownership. Production verified `403/404`; all `359` history rows are clean and the only unresolved warehouse invoice `#37` is the same main-warehouse chain fixed locally pending re-run.
 
 ### Checkpoint: SaaS Boundary
 

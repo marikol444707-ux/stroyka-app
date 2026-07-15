@@ -9,6 +9,7 @@ import psycopg2.extras
 
 PREVIEW_LIMIT = 100
 TABLES = ("supplier_invoices", "supply_deliveries")
+MAIN_WAREHOUSE = "Основной склад"
 
 
 def _positive_int(value):
@@ -177,12 +178,51 @@ def _with_parent_status(base, requests, offers, require_request, require_offer):
         return {**base, "status": "mismatched", "reason": "offer_request_mismatch"}
 
     effective_request_id = request_id or (offer and offer["requestId"])
-    reason = "verified_company_and_project"
+    reason = base.get("reason") or "verified_company_and_project"
     if offer:
         reason = "verified_request_and_offer_chain"
     elif request:
         reason = "verified_request_parent"
     return {**base, "requestId": effective_request_id, "reason": reason}
+
+
+def _inherit_main_warehouse_owner(base, row, warehouse_invoices):
+    if base.get("status") != "unresolved" or base.get("reason") != "project_owner_missing":
+        return base
+    row = dict(row or {})
+    warehouse_invoice_id = _positive_int(row.get("warehouse_invoice_id"))
+    if not warehouse_invoice_id:
+        return base
+    parent = warehouse_invoices.get(warehouse_invoice_id)
+    if not parent:
+        return {**base, "reason": "warehouse_invoice_parent_not_found"}
+
+    parent_company_id = _positive_int(parent.get("company_id"))
+    if parent_company_id != base.get("companyId"):
+        return {
+            **base,
+            "status": "mismatched",
+            "reason": "warehouse_invoice_company_mismatch",
+        }
+
+    parent_project = _project_name(parent.get("project"))
+    location = _project_name(parent.get("location"))
+    if not parent_project and location and location != MAIN_WAREHOUSE:
+        parent_project = location
+    target = _project_name(parent.get("warehouse_target")).lower()
+    if not target:
+        target = "object" if parent_project else "main"
+    if target != "main" or parent_project:
+        return base
+
+    reverse_id = _positive_int(parent.get("supplier_invoice_id"))
+    if reverse_id != _positive_int(row.get("id")):
+        return {
+            **base,
+            "status": "mismatched",
+            "reason": "warehouse_invoice_reverse_link_mismatch",
+        }
+    return {**base, "status": "verified", "reason": "verified_main_warehouse_parent"}
 
 
 def _plan_sha256(classified):
@@ -214,6 +254,12 @@ def classify_supply_execution_rows(rows):
         name = _project_name(project.get("name"))
         if name:
             projects_by_name[name].append(project)
+    warehouse_invoices = {
+        warehouse_invoice_id: dict(row or {})
+        for row in (rows.get("warehouse_invoices") or [])
+        for warehouse_invoice_id in [_positive_int((row or {}).get("id"))]
+        if warehouse_invoice_id
+    }
 
     request_items = [
         _classify_request(row, company_ids, projects_by_name)
@@ -226,18 +272,21 @@ def classify_supply_execution_rows(rows):
     ]
     offers = {item["recordId"]: item for item in offer_items if item["recordId"]}
 
-    classified = [
-        _with_parent_status(
-            _classify_project_owner(
-                "supplier_invoices", row, "project_name", company_ids, projects_by_name
-            ),
-            requests,
-            offers,
-            require_request=False,
-            require_offer=False,
+    classified = []
+    for row in (rows.get("supplier_invoices") or []):
+        base = _classify_project_owner(
+            "supplier_invoices", row, "project_name", company_ids, projects_by_name
         )
-        for row in (rows.get("supplier_invoices") or [])
-    ]
+        base = _inherit_main_warehouse_owner(base, row, warehouse_invoices)
+        classified.append(
+            _with_parent_status(
+                base,
+                requests,
+                offers,
+                require_request=False,
+                require_offer=False,
+            )
+        )
     classified += [
         _with_parent_status(
             _classify_project_owner(
@@ -296,12 +345,16 @@ def load_ownership_rows(cur):
         "supply_requests": "SELECT id,company_id,project FROM supply_requests ORDER BY id",
         "supplier_offers": "SELECT id,company_id,request_id FROM supplier_offers ORDER BY id",
         "supplier_invoices": (
-            "SELECT id,company_id,project_name,request_id,offer_id "
+            "SELECT id,company_id,project_name,request_id,offer_id,warehouse_invoice_id "
             "FROM supplier_invoices ORDER BY id"
         ),
         "supply_deliveries": (
             "SELECT id,company_id,project,request_id,offer_id "
             "FROM supply_deliveries ORDER BY id"
+        ),
+        "warehouse_invoices": (
+            "SELECT id,company_id,project,location,warehouse_target,supplier_invoice_id "
+            "FROM warehouse_invoices ORDER BY id"
         ),
     }
     rows = {}
