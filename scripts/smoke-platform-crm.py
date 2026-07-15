@@ -80,6 +80,35 @@ def b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode("utf-8").rstrip("=")
 
 
+def totp_code(secret: str) -> str:
+    value = "".join(str(secret or "").split()).upper()
+    if not value:
+        raise RuntimeError("2FA setup did not return manualKey")
+    value += "=" * (-len(value) % 8)
+    key = base64.b32decode(value, casefold=True)
+    counter = int(time.time()) // 30
+    digest = hmac.new(key, counter.to_bytes(8, "big"), hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    code = int.from_bytes(digest[offset : offset + 4], "big") & 0x7FFFFFFF
+    return str(code % 1_000_000).zfill(6)
+
+
+def complete_2fa_setup(registration: dict) -> dict:
+    if not registration.get("twoFactorSetupRequired"):
+        return registration
+    setup_token = registration.get("setupToken")
+    manual_key = registration.get("manualKey")
+    if not setup_token or not manual_key:
+        raise RuntimeError(f"2FA setup response is incomplete: {registration}")
+    _, verified = api_json(
+        "POST",
+        "/login/2fa/setup-confirm",
+        expected=200,
+        data={"setupToken": setup_token, "code": totp_code(manual_key)},
+    )
+    return verified
+
+
 def auth_token_for(user: dict) -> str:
     payload = {
         "id": user.get("id"),
@@ -716,6 +745,7 @@ def check_platform_roles(system_token, platform_result):
             "password": account_owner_password,
         },
     )
+    registered_owner = complete_2fa_setup(registered_owner)
     if registered_owner.get("role") != "account_owner":
         raise RuntimeError(f"account owner register returned invalid role: {registered_owner}")
     if registered_owner.get("platformAccountId") != platform_result.get("platformAccountId"):

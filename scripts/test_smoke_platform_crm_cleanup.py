@@ -2,6 +2,7 @@ import importlib.util
 import json
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPT_PATH = Path(__file__).with_name("smoke-platform-crm.py")
@@ -11,6 +12,30 @@ SPEC.loader.exec_module(MODULE)
 
 
 class PlatformCrmCleanupTests(unittest.TestCase):
+    def test_complete_2fa_setup_confirms_registration_challenge(self):
+        with (
+            patch.object(MODULE, "totp_code", return_value="123456"),
+            patch.object(MODULE, "api_json", return_value=(200, {"authToken": "verified"})) as api_json,
+        ):
+            result = MODULE.complete_2fa_setup(
+                {
+                    "twoFactorSetupRequired": True,
+                    "setupToken": "setup-token",
+                    "manualKey": "JBSWY3DPEHPK3PXP",
+                }
+            )
+
+        self.assertEqual(result, {"authToken": "verified"})
+        self.assertEqual(
+            api_json.call_args.kwargs["data"],
+            {"setupToken": "setup-token", "code": "123456"},
+        )
+
+    def test_complete_2fa_setup_keeps_regular_registration(self):
+        registration = {"authToken": "direct"}
+
+        self.assertIs(MODULE.complete_2fa_setup(registration), registration)
+
     def test_smoke_token_marks_2fa_as_passed_for_temporary_user(self):
         token = MODULE.auth_token_for(
             {
