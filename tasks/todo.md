@@ -1854,7 +1854,7 @@
 
 **Description:** Correct the generic readiness rule so an optional `project_id` column requires an index only when project-owned rows exist, then add one guarded additive index for the confirmed ЖПР query path: `work_journal(company_id, project)`. Do not add constraints, alter business rows, or touch the 35 unresolved registry/runtime scopes.
 
-**Status:** Implemented locally. Production must first run `npm run audit:tenant-indexes`, then apply only the exact reported `missingCount` and `planSha256`, and finally rerun both M7 audits.
+**Status:** Production dry-run confirms exactly one missing index, zero blockers and plan SHA `a4afc77c1555d0b3b0391222ee75b403694bd23c6d3fe158ce4bdf8b5eb5be4d`. Guarded apply and post-audits remain pending.
 
 **Acceptance criteria:**
 - [x] Empty optional project scope no longer produces a false `project_index_missing` blocker.
@@ -1878,7 +1878,7 @@
 
 **Description:** Compare every PostgreSQL `public` base table with the M6 registry before treating the 41 registered resources as complete. Report unregistered tables and their ownership-signal columns without reading counts or business rows. This closes the discovered blind spot where CRM tables and their project-creation writers were outside the tenant readiness report.
 
-**Status:** Implemented locally. Production must run `npm run audit:tenant-registry-coverage`; every returned table then requires an explicit classification as stored owner, verified immutable parent, shared platform data, public surface, or unresolved legacy data.
+**Status:** Production report completed read-only: `127` schema tables, `40` registered physical tables plus one surface and `87` unregistered tables (`31 critical`, `27 high`, `29 unclassified`). Registered-table drift and duplicate registry entries are zero. Every returned table still requires an explicit bounded classification.
 
 **Acceptance criteria:**
 - [x] Collector reads only `information_schema` table/column metadata in a read-only transaction and rolls back.
@@ -1894,6 +1894,35 @@
 - [ ] `npm run audit:tenant-registry-coverage` on production.
 
 **Dependencies:** Task M7a; independent of M7b index apply
+
+**Estimated scope:** S
+
+## Task M7d: Read-Only CRM Ownership Audit
+
+**Description:** Register `crm_leads`, `crm_lead_documents` and `crm_lead_tasks` as explicit tenant blockers, then classify current rows through exact stored parents before adding owner columns or changing either CRM project-creation path.
+
+**Status:** Implemented locally. The report and registry changes require production deployment, followed by `npm run audit:crm-ownership` and a fresh registry coverage report.
+
+**Acceptance criteria:**
+- [x] A lead is verified only through `crm_leads.project_id -> projects.id -> projects.company_id -> companies.id`.
+- [x] Standalone leads, deleted projects and projects without a valid company remain unresolved; company `1` is never assumed.
+- [x] Documents and tasks inherit ownership only from a verified stored lead.
+- [x] The report reads only record IDs and owner-parent IDs; it does not read or output names, phones, email, notes, source, document metadata or task titles.
+- [x] The command runs in a PostgreSQL read-only transaction, rolls back and reports `writesAttempted=0`.
+- [x] All three tables are present in the registry with `companyState=missing`, so readiness remains fail-closed.
+- [ ] Production report is captured and split into exact migration/review counts.
+
+**Safety:**
+- Do not add `company_id` or change CRM reads/writes until the production report identifies verified and standalone lead populations.
+- Do not patch only the two project INSERT statements: a project owner must be inherited from the stored owner of the lead, not from a default or current company guess.
+- A later guarded migration must update only rows proven by immutable parents; standalone leads require explicit operator mapping or a documented non-company scope.
+
+**Verification:**
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.crm_ownership.test_ownership_report`
+- [ ] `npm run audit:crm-ownership` on production.
+- [ ] `npm run audit:tenant-registry-coverage` after deploy.
+
+**Dependencies:** Task M7c production report; independent of M7b index apply
 
 **Estimated scope:** S
 

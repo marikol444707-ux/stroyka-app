@@ -153,8 +153,9 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M6.8b3: Persist exact owner on middleware and client-error writes, and tenant-filter all `api_errors` counts/list reads in `/system-status`. Runtime `f1842f19`, nginx proxy guard, protected ownership smoke, strict post-audit and full production smoke passed.
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 - [x] Task M7a: Add a fail-closed read-only tenant readiness report over the M6 registry and stored owner columns. Initial production report completed with zero writes and no orphan/mismatched stored owners; optional empty project columns no longer create false index blockers.
-- [x] Task M7b: Add a guarded, reversible index-only migration for the verified `work_journal(company_id, project)` gap. Local implementation is complete; production dry-run/apply/post-audit remain required.
-- [x] Task M7c: Add a fail-closed read-only coverage report that compares every public database table with the M6 tenant registry before constraints. Local implementation is complete; production classification remains required.
+- [x] Task M7b: Add a guarded, reversible index-only migration for the verified `work_journal(company_id, project)` gap. Production dry-run confirms one exact missing index and no blockers; guarded apply/post-audit remain required.
+- [x] Task M7c: Add a fail-closed read-only coverage report that compares every public database table with the M6 tenant registry before constraints. Production found `127` tables, `40` registered physical tables and `87` unregistered tables; registry freeze remains blocked.
+- [x] Task M7d: Register the three CRM tables as explicit blockers and add a PII-free read-only ownership report over exact project and lead parents. Local implementation is complete; production report remains required before designing migration or changing CRM writers.
 
 ### Checkpoint: SaaS Boundary
 

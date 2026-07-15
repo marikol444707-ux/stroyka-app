@@ -1,0 +1,1 @@
+"""CRM tenant ownership diagnostics."""

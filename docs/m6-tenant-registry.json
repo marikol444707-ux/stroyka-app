@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-14",
+  "updatedAt": "2026-07-15",
   "rules": {
     "writeMode": "A mutation requires one concrete selected company.",
     "ownership": "New rows inherit immutable companyId and projectId from a verified parent.",
@@ -10,6 +10,9 @@
   "entries": [
     {"domain":"projects","resource":"projects","kind":"table","parent":"platform_accounts/companies","companyState":"legacy_default","ownerSource":"selected company context","routePrefixes":["/projects"],"stage":"M6.1","priority":"critical"},
     {"domain":"projects","resource":"clients","kind":"table","parent":"companies","companyState":"missing","ownerSource":"selected company context","routePrefixes":["/clients"],"stage":"M6.1","priority":"high"},
+    {"domain":"crm","resource":"crm_leads","kind":"table","parent":"companies/projects","companyState":"missing","ownerSource":"exact stored project when present; standalone lead owner unresolved","routePrefixes":["/crm-leads","/crm/leads"],"stage":"M6.1","priority":"critical","accessState":"ownership_audit_production_pending"},
+    {"domain":"crm","resource":"crm_lead_documents","kind":"table","parent":"crm_leads","companyState":"missing","ownerSource":"verified stored CRM lead","routePrefixes":["/crm/leads"],"stage":"M6.1","priority":"critical","accessState":"ownership_audit_production_pending"},
+    {"domain":"crm","resource":"crm_lead_tasks","kind":"table","parent":"crm_leads","companyState":"missing","ownerSource":"verified stored CRM lead","routePrefixes":["/crm/leads"],"stage":"M6.1","priority":"critical","accessState":"ownership_audit_production_pending"},
     {"domain":"documents","resource":"project_documents","kind":"table","parent":"projects","companyState":"missing","ownerSource":"stored project","routePrefixes":["/project-documents"],"stage":"M6.2","priority":"critical"},
     {"domain":"documents","resource":"project_measurements","kind":"table","parent":"projects","companyState":"missing","ownerSource":"stored project","routePrefixes":["/project-measurements"],"stage":"M6.2","priority":"high"},
     {"domain":"documents","resource":"measurement_room_drafts","kind":"table","parent":"project_measurements","companyState":"missing","ownerSource":"stored measurement","routePrefixes":["/measurement-room-drafts"],"stage":"M6.2","priority":"high"},
