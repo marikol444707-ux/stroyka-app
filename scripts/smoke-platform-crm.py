@@ -950,6 +950,7 @@ def check_crm(crm_token, foreign_company_id):
     if not created_project_id:
         raise RuntimeError(f"CRM create-project returned invalid body: {project_created}")
 
+    company_headers = {"X-Company-Id": "1", "X-Company-Mode": "company"}
     conn = db_conn()
     cur = conn.cursor()
     try:
@@ -978,15 +979,52 @@ def check_crm(crm_token, foreign_company_id):
         cur.close()
         conn.close()
 
-    _, details = api_json("GET", f"/crm/leads/{supplier_lead_id}/details", token=crm_token, expected=200)
+    _, details = api_json(
+        "GET",
+        f"/crm/leads/{supplier_lead_id}/details",
+        token=crm_token,
+        expected=200,
+        headers=company_headers,
+    )
     if not details.get("documents") or not details.get("tasks"):
         raise RuntimeError("CRM details did not return documents and tasks")
-    _, summaries = api_json("GET", "/crm/lead-summaries", token=crm_token, expected=200)
+
+    _, summaries = api_json(
+        "GET",
+        "/crm/lead-summaries",
+        token=crm_token,
+        expected=200,
+        headers=company_headers,
+    )
     if not any(item.get("id") == supplier_lead_id for item in summaries):
         raise RuntimeError("CRM summaries did not include created lead")
     if any(item.get("id") == foreign_lead_id for item in summaries):
         raise RuntimeError("CRM summaries leaked a lead from another company")
-    api_json("GET", f"/crm/leads/{foreign_lead_id}/details", token=crm_token, expected=404)
+    _, legacy_summaries = api_json(
+        "GET",
+        "/crm-leads",
+        token=crm_token,
+        expected=200,
+        headers=company_headers,
+    )
+    if any(item.get("id") == foreign_lead_id for item in legacy_summaries):
+        raise RuntimeError("Legacy CRM list exposed a lead from another company")
+    _, aggregate_legacy_summaries = api_json(
+        "GET",
+        "/crm-leads",
+        token=crm_token,
+        expected=200,
+        headers={"X-Company-Mode": "all_companies"},
+    )
+    if any(item.get("id") == foreign_lead_id for item in aggregate_legacy_summaries):
+        raise RuntimeError("Legacy CRM all-companies mode exposed a company without effective CRM role")
+    api_json(
+        "GET",
+        f"/crm/leads/{foreign_lead_id}/details",
+        token=crm_token,
+        expected=404,
+        headers=company_headers,
+    )
     foreign_mutations = (
         ("PUT", f"/crm/leads/{foreign_lead_id}", {"name": f"{PREFIX} Foreign Company Lead"}),
         ("DELETE", f"/crm/leads/{foreign_lead_id}", None),
@@ -1147,6 +1185,7 @@ def main():
                 "crm lead summaries and details",
                 "crm read isolation between companies",
                 "crm lead/document/task mutation isolation",
+                "legacy crm list read isolation",
                 "crm documents and tasks",
                 "supplier approval",
                 "worker approval",

@@ -7,6 +7,7 @@ from .writer_ownership import (
     resolve_lead_child_owner,
     resolve_marketing_lead_owner,
     resolve_public_lead_owner,
+    restrict_crm_read_context,
 )
 
 
@@ -46,6 +47,26 @@ class CrmWriterOwnershipTests(unittest.TestCase):
                 {"mode": "company", "companyId": 4},
                 [{"role": "директор", "companyId": 8}],
                 allowed_roles=("директор",),
+            )
+
+    def test_read_context_keeps_only_companies_with_effective_crm_role(self):
+        context = restrict_crm_read_context(
+            {"mode": "all_companies", "companyIds": [4, 8]},
+            [
+                {"role": "директор", "companyId": 4},
+                {"role": "мастер", "companyId": 8},
+            ],
+            allowed_roles=("директор", "менеджер_crm"),
+        )
+
+        self.assertEqual(context["companyIds"], [4])
+
+    def test_selected_company_requires_effective_crm_role(self):
+        with self.assertRaisesRegex(HTTPException, "не позволяет просматривать CRM"):
+            restrict_crm_read_context(
+                {"mode": "company", "companyId": 4, "companyIds": [4]},
+                [{"role": "мастер", "companyId": 4}],
+                allowed_roles=("директор", "менеджер_crm"),
             )
 
     def test_public_site_requires_explicit_company(self):

@@ -24,6 +24,31 @@ def resolve_authenticated_lead_owner(company_context, actors, *, allowed_roles=(
     return {"companyId": company_id, "actor": actors[0]}
 
 
+def restrict_crm_read_context(company_context, actors, *, allowed_roles=()) -> dict:
+    context = dict(company_context or {})
+    normalized_roles = {str(role or "").strip() for role in allowed_roles or () if str(role or "").strip()}
+    allowed_company_ids = {
+        company_id
+        for actor in actors or []
+        for company_id in [_positive_int((actor or {}).get("companyId") or (actor or {}).get("company_id"))]
+        if company_id and (not normalized_roles or ((actor or {}).get("role") or "") in normalized_roles)
+    }
+    if context.get("mode") == "company":
+        company_id = _positive_int(context.get("companyId") or context.get("company_id"))
+        if not company_id or company_id not in allowed_company_ids:
+            raise HTTPException(status_code=403, detail="Роль в выбранной компании не позволяет просматривать CRM")
+        return {**context, "companyIds": [company_id]}
+    if context.get("mode") == "all_companies":
+        context_company_ids = {
+            company_id
+            for value in context.get("companyIds") or []
+            for company_id in [_positive_int(value)]
+            if company_id
+        }
+        return {**context, "companyIds": sorted(allowed_company_ids & context_company_ids)}
+    raise HTTPException(status_code=403, detail="Контекст компаний для CRM не определен")
+
+
 def resolve_public_lead_owner(public_site_company_id) -> dict:
     company_id = _positive_int(public_site_company_id)
     if not company_id:

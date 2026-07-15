@@ -129,9 +129,9 @@ except ModuleNotFoundError:
     from features.messenger.writer_ownership import resolve_supply_outbox_owner
 
 try:
-    from backend.features.crm.writer_ownership import resolve_authenticated_lead_owner
+    from backend.features.crm.writer_ownership import resolve_authenticated_lead_owner, restrict_crm_read_context
 except ModuleNotFoundError:
-    from features.crm.writer_ownership import resolve_authenticated_lead_owner
+    from features.crm.writer_ownership import resolve_authenticated_lead_owner, restrict_crm_read_context
 
 try:
     from backend.features.supplier_access.service import (
@@ -21965,13 +21965,55 @@ def delete_salary_payment(id: int, _current_user: dict = Depends(require_roles(*
     return {"ok": True}
 
 @app.get("/crm-leads")
-def get_crm_leads(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm"))):
+def get_crm_leads(
+    x_company_id: str = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm")),
+):
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id,name,phone,email,source,budget,notes,stage,created_by,created_at,project_id,photo_url FROM crm_leads ORDER BY id DESC")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [{"id":r[0],"name":r[1] or "","phone":r[2] or "","email":r[3] or "","source":r[4] or "","budget":float(r[5] or 0),"notes":r[6] or "","stage":r[7] or "Новый","createdBy":r[8] or "","createdAt":r[9] or "","projectId":r[10],"photoUrl":r[11] or ""} for r in rows]
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        company_context = _resolve_work_company_context(
+            cur,
+            current_user,
+            None,
+            "read",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        company_context = restrict_crm_read_context(
+            company_context,
+            effective_company_actors(current_user, company_context),
+            allowed_roles=(*LEADERSHIP_ROLES, "менеджер_crm"),
+        )
+        company_sql, company_params = company_id_scope_filter(company_context, "crm_leads.company_id")
+        cur.execute("""
+            SELECT id,company_id AS "companyId",name,phone,email,source,budget,notes,stage,
+                   created_by AS "createdBy",created_at AS "createdAt",project_id AS "projectId",
+                   photo_url AS "photoUrl"
+            FROM crm_leads
+            WHERE TRUE
+        """ + company_sql + " ORDER BY id DESC", company_params)
+        rows = cur.fetchall()
+        return [
+            {
+                **dict(row),
+                "name": row.get("name") or "",
+                "phone": row.get("phone") or "",
+                "email": row.get("email") or "",
+                "source": row.get("source") or "",
+                "budget": float(row.get("budget") or 0),
+                "notes": row.get("notes") or "",
+                "stage": row.get("stage") or "Новый",
+                "createdBy": row.get("createdBy") or "",
+                "createdAt": row.get("createdAt") or "",
+                "photoUrl": row.get("photoUrl") or "",
+            }
+            for row in rows
+        ]
+    finally:
+        cur.close()
+        conn.close()
 
 @app.post("/crm-leads")
 def create_crm_lead(
