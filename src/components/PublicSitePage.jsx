@@ -1204,14 +1204,6 @@ const PublicSitePage = ({ onLogin }) => {
                   <p className="public-project-action-status" role="status" aria-live="polite">
                     {referenceActionMessage}
                   </p>
-                  <button
-                    className="public-primary public-reference-cta"
-                    type="button"
-                    onClick={calculateSelectedReference}
-                  >
-                    Рассчитать такой проект
-                    <ChevronRight size={18} />
-                  </button>
                 </div>
               </div>
             </section>

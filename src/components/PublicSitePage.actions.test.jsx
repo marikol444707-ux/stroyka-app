@@ -242,7 +242,8 @@ describe('public project actions', () => {
   test('opens the calculator with the selected project', () => {
     render(<PublicSitePage onLogin={jest.fn()} />);
 
-    fireEvent.click(screen.getByRole('button', { name: /Рассчитать такой проект/ }));
+    expect(screen.queryByRole('button', { name: 'Рассчитать такой проект' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'К расчету' }));
     flushActions();
 
     expect(document.getElementById('calculator').scrollIntoView).toHaveBeenCalled();
@@ -324,7 +325,7 @@ describe('public project actions', () => {
     render(<PublicSitePage onLogin={jest.fn()} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Показать зеркальный вариант' }));
-    fireEvent.click(screen.getByRole('button', { name: /Рассчитать такой проект/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'К расчету' }));
     flushActions();
 
     expect(screen.getByRole('button', { name: 'Вернуть обычный вариант' })).toHaveAttribute('aria-pressed', 'true');
