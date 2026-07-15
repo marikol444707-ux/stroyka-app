@@ -13,6 +13,7 @@ import {
   Package,
   QrCode,
   Settings,
+  Share2,
   ShieldCheck,
 } from 'lucide-react';
 import './PublicSitePage.css';
@@ -190,6 +191,9 @@ const PublicSitePage = ({ onLogin }) => {
     ? `/?project=${encodeURIComponent(selectedReferenceProject.code)}#projects`
     : '/#projects';
   const selectedReferencePublicUrl = `https://stroyka26.pro${selectedReferenceDeepLink}`;
+  const selectedReferenceShareUrl = typeof window !== 'undefined'
+    ? new URL(selectedReferenceDeepLink, window.location.origin).toString()
+    : selectedReferencePublicUrl;
   const selectedLeadProject = {
     status: PROJECT_EXAMPLE_STATUS,
     directionId: selectedReference.id,
@@ -392,25 +396,21 @@ const PublicSitePage = ({ onLogin }) => {
     setTimeout(() => scrollTo('selected-project-preview'), 0);
   };
 
-  const shareProjectComparison = async () => {
-    if (!comparisonShareUrl) return;
+  const sharePublicLink = async ({ url, title, text, sentMessage, copiedMessage }) => {
+    if (!url) return;
     try {
       if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
-        await navigator.share({
-          title: `Сравнение проектов ${comparedProjectCodes.join(', ')}`,
-          text: 'Проекты СтройКа для совместного выбора',
-          url: comparisonShareUrl,
-        });
-        setReferenceActionMessage('Ссылка на сравнение отправлена');
+        await navigator.share({ title, text, url });
+        setReferenceActionMessage(sentMessage);
         return;
       }
       if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(comparisonShareUrl);
-        setReferenceActionMessage('Ссылка на сравнение скопирована');
+        await navigator.clipboard.writeText(url);
+        setReferenceActionMessage(copiedMessage);
         return;
       }
       const textarea = document.createElement('textarea');
-      textarea.value = comparisonShareUrl;
+      textarea.value = url;
       textarea.setAttribute('readonly', '');
       textarea.style.position = 'fixed';
       textarea.style.opacity = '0';
@@ -419,12 +419,28 @@ const PublicSitePage = ({ onLogin }) => {
       const copied = document.execCommand?.('copy');
       document.body.removeChild(textarea);
       if (!copied) throw new Error('copy unavailable');
-      setReferenceActionMessage('Ссылка на сравнение скопирована');
+      setReferenceActionMessage(copiedMessage);
     } catch (error) {
       if (error?.name === 'AbortError') return;
       setReferenceActionMessage('Не удалось поделиться. Откройте ссылку ещё раз и повторите.');
     }
   };
+
+  const shareProjectComparison = () => sharePublicLink({
+    url: comparisonShareUrl,
+    title: `Сравнение проектов ${comparedProjectCodes.join(', ')}`,
+    text: 'Проекты СтройКа для совместного выбора',
+    sentMessage: 'Ссылка на сравнение отправлена',
+    copiedMessage: 'Ссылка на сравнение скопирована',
+  });
+
+  const shareSelectedReferenceProject = () => sharePublicLink({
+    url: selectedReferenceShareUrl,
+    title: `Проект ${selectedReferenceProject?.code || ''} — ${selectedReferenceProject?.title || selectedReference.title}`,
+    text: 'Проект СтройКа для расчёта',
+    sentMessage: 'Ссылка на проект отправлена',
+    copiedMessage: 'Ссылка на проект скопирована',
+  });
 
   const syncReferencePackage = (packageOption) => {
     const nextPackageSelection = selectedReferencePackageOptions.find((item) => item.value === packageOption.value);
@@ -889,12 +905,15 @@ const PublicSitePage = ({ onLogin }) => {
                       <GitCompare size={16} />
                       {comparedProjectCodes.includes(selectedReferenceProject?.code) ? 'В сравнении' : 'Сравнить'}
                     </button>
-                    <a
+                    <button
                       className="public-secondary dark public-project-share-link"
-                      href={selectedReferenceDeepLink}
+                      type="button"
+                      aria-label="Поделиться проектом"
+                      onClick={shareSelectedReferenceProject}
                     >
-                      Ссылка
-                    </a>
+                      <Share2 size={16} />
+                      Поделиться
+                    </button>
                     <button
                       className="public-secondary dark"
                       type="button"

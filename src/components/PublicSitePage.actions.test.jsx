@@ -18,6 +18,7 @@ describe('public project actions', () => {
     jest.useRealTimers();
     jest.restoreAllMocks();
     delete navigator.share;
+    delete navigator.clipboard;
   });
 
   const flushActions = () => {
@@ -110,6 +111,46 @@ describe('public project actions', () => {
     expect(sharedUrl.searchParams.get('compare')).toBe('H1-01,H1-02');
     expect(sharedUrl.hash).toBe('#projects');
   }, 15000);
+
+  test('shares one selected project instead of reloading the page', async () => {
+    const share = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+    render(<PublicSitePage onLogin={jest.fn()} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Поделиться проектом' }));
+      await Promise.resolve();
+    });
+
+    expect(share).toHaveBeenCalledTimes(1);
+    const payload = share.mock.calls[0][0];
+    const sharedUrl = new URL(payload.url);
+    expect(payload.title).toContain('H1-01');
+    expect(sharedUrl.searchParams.get('project')).toBe('H1-01');
+    expect(sharedUrl.searchParams.has('compare')).toBe(false);
+    expect(sharedUrl.hash).toBe('#projects');
+    expect(screen.getByRole('status')).toHaveTextContent('Ссылка на проект отправлена');
+  });
+
+  test('copies the selected project link when system sharing is unavailable', async () => {
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    render(<PublicSitePage onLogin={jest.fn()} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Поделиться проектом' }));
+      await Promise.resolve();
+    });
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    const copiedUrl = new URL(writeText.mock.calls[0][0]);
+    expect(copiedUrl.searchParams.get('project')).toBe('H1-01');
+    expect(copiedUrl.searchParams.has('compare')).toBe(false);
+    expect(screen.getByRole('status')).toHaveTextContent('Ссылка на проект скопирована');
+  });
 
   test('collects layout changes and opens a prefilled request', () => {
     render(<PublicSitePage onLogin={jest.fn()} />);
