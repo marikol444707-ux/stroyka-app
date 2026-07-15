@@ -1133,14 +1133,16 @@ const PublicSitePage = ({ onLogin }) => {
                       </div>
                     ))}
                   </dl>
-                  <button
-                    className="public-project-outline"
-                    type="button"
-                    aria-pressed={isReferenceMirrored}
-                    onClick={toggleReferenceMirror}
-                  >
-                    {isReferenceMirrored ? 'Вернуть обычный вариант' : 'Показать зеркальный вариант'}
-                  </button>
+                  {selectedReferenceIsHouse && (
+                    <button
+                      className="public-project-outline"
+                      type="button"
+                      aria-pressed={isReferenceMirrored}
+                      onClick={toggleReferenceMirror}
+                    >
+                      {isReferenceMirrored ? 'Вернуть обычный вариант' : 'Показать зеркальный вариант'}
+                    </button>
+                  )}
                   <button
                     className="public-project-editor"
                     type="button"

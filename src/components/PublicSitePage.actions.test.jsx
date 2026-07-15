@@ -29,13 +29,24 @@ describe('public project actions', () => {
 
   test('shows a mirrored project result at the preview', () => {
     render(<PublicSitePage onLogin={jest.fn()} />);
+    const preview = document.getElementById('selected-project-preview');
 
     fireEvent.click(screen.getByRole('button', { name: 'Показать зеркальный вариант' }));
     flushActions();
 
+    expect(preview).toHaveClass('mirrored');
+    expect(preview.querySelector('img.public-project-media-image.is-render')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Вернуть обычный вариант' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('status')).toHaveTextContent('Зеркальный вариант включён');
-    expect(document.getElementById('selected-project-preview').scrollIntoView).toHaveBeenCalled();
+    expect(preview.scrollIntoView).toHaveBeenCalled();
+  });
+
+  test('does not offer a mirrored variant for renovation projects', () => {
+    render(<PublicSitePage onLogin={jest.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Ремонт квартиры.*Смотреть проекты/ }));
+
+    expect(screen.queryByRole('button', { name: 'Показать зеркальный вариант' })).not.toBeInTheDocument();
   });
 
   test('shows similar projects and opens the selected option at the preview', () => {
