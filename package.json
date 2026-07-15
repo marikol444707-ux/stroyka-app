@@ -50,6 +50,7 @@
     "audit:tenant-indexes": "python3 -m backend.features.tenant_readiness.index_migration --dry-run",
     "audit:tenant-registry-coverage": "python3 -m backend.features.tenant_readiness.coverage_report",
     "audit:crm-ownership": "python3 -m backend.features.crm_ownership.migration",
+    "audit:public-file-ownership": "python3 -m backend.features.public_file_ownership.ownership_report",
     "smoke:api-error-ownership": "python3 scripts/smoke-api-error-ownership.py",
     "smoke:telegram-expense": "python3 scripts/smoke-telegram-own-expense.py",
     "smoke:max-warehouse": "python3 scripts/smoke-max-warehouse-invoice.py",

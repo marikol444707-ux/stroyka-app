@@ -2023,6 +2023,30 @@
 
 **Estimated scope:** M
 
+## Task M7g: Audit Public CRM File Ownership
+
+**Description:** Register `file_ownership` and `public_lead_uploads`, then verify their stored owner chain without reading file metadata, upload tokens, client IPs or CRM content. This is the smallest critical slice remaining after CRM ownership rollout.
+
+**Status:** Implemented locally. Production read-only report is pending; no migration or runtime change is included.
+
+**Acceptance criteria:**
+- [x] `file_ownership` is verified only by an existing stored company and, when present, an exact project from the same company.
+- [x] `public_lead_uploads` requires the same company as its exact file owner and, when attached, its exact CRM lead.
+- [x] Missing parents are unresolved and cross-company parents are mismatched; neither is guessed or repaired.
+- [x] Loader reads only IDs and owner relations and never selects upload token, URL/storage key, filename/type, client IP or CRM PII/content.
+- [x] Report runs read-only, rolls back and reports `writesAttempted=0`.
+- [ ] Production dry-run provides exact verified/unresolved/mismatched counts and review reasons.
+- [ ] Re-run registry coverage and confirm these two tables leave the unregistered set.
+
+**Verification:**
+- [x] `python3 -m unittest backend.features.public_file_ownership.test_ownership_report` (`7` tests).
+- [ ] `npm run audit:public-file-ownership` on production.
+- [ ] `npm run audit:tenant-registry-coverage` on production.
+
+**Dependencies:** Task M7f2 production completion
+
+**Estimated scope:** S
+
 ## Task 12: Extract Auth Helpers
 
 **Description:** Move auth/session helper functions from `backend/main.py` into `backend/auth.py` without changing behavior.

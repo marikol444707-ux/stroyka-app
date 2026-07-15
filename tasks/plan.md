@@ -160,6 +160,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M7f1: Persist exact CRM owner on authenticated, public-site, MAX, document and task writes. Runtime `d97e88b5`; full platform/public CRM smoke, all five public lead types, self-contained MAX marketing smoke with verified cleanup, deploy smoke and strict audit passed.
 - [x] Task M7f2: Reads, mutations, approvals/invites/transfers and both project-creation URLs enforce stored ownership. Runtime `f8c66354`, protected CRM smoke (`projectCreationOwnershipChecked=true`, six foreign workflow `403`) and strict audit passed.
 - [x] Task M7f2a-legacy: Compatibility `GET /crm-leads` is scoped through effective CRM company roles; negative production smoke confirmed legacy isolation.
+- [ ] Task M7g: Register `file_ownership` and `public_lead_uploads` and run a PII-free read-only audit of company/project/file/CRM-lead ownership. Implemented locally; production dry-run pending.
 
 ### Checkpoint: SaaS Boundary
 
