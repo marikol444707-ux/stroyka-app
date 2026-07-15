@@ -152,6 +152,26 @@ describe('public project actions', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Ссылка на проект скопирована');
   });
 
+  test('copies the selected project link when system sharing fails', async () => {
+    const share = jest.fn().mockRejectedValue(new Error('share unavailable'));
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    render(<PublicSitePage onLogin={jest.fn()} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Поделиться проектом' }));
+      await Promise.resolve();
+    });
+
+    expect(share).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('status')).toHaveTextContent('Ссылка на проект скопирована');
+  });
+
   test('collects layout changes and opens a prefilled request', () => {
     render(<PublicSitePage onLogin={jest.fn()} />);
 

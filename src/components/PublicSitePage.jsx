@@ -400,9 +400,13 @@ const PublicSitePage = ({ onLogin }) => {
     if (!url) return;
     try {
       if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
-        await navigator.share({ title, text, url });
-        setReferenceActionMessage(sentMessage);
-        return;
+        try {
+          await navigator.share({ title, text, url });
+          setReferenceActionMessage(sentMessage);
+          return;
+        } catch (error) {
+          if (error?.name === 'AbortError') return;
+        }
       }
       if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(url);
@@ -420,8 +424,7 @@ const PublicSitePage = ({ onLogin }) => {
       document.body.removeChild(textarea);
       if (!copied) throw new Error('copy unavailable');
       setReferenceActionMessage(copiedMessage);
-    } catch (error) {
-      if (error?.name === 'AbortError') return;
+    } catch {
       setReferenceActionMessage('Не удалось поделиться. Откройте ссылку ещё раз и повторите.');
     }
   };
