@@ -25,8 +25,6 @@ export default function EstimateSectionsEditor({
   setMobileExpandedRenderLists,
   isMobile,
   estimateQualityRows,
-  brigadeContracts,
-  userRole,
   setSelectedEstimate,
   setEstimatesList,
   persistEstimate,
@@ -124,13 +122,11 @@ export default function EstimateSectionsEditor({
         const updateItem = (idx, field, val, saveNow = false) => updateItemPatch(idx, {[field]: val}, saveNow);
         const persist = persistLatestEstimate;
         const inpCell = {padding: '3px 5px', border: '1px solid ' + C.border, borderRadius: '5px', fontSize: '11px', width: '100%', minWidth: 0, minHeight: '26px', backgroundColor: C.bgWhite, color: C.text, outline: 'none'};
-        const estimateTbl = {...tbl, minWidth: isMobile ? '1040px' : '1088px', tableLayout: 'fixed'};
+        const estimateTbl = {...tbl, minWidth: isMobile ? '880px' : '928px', tableLayout: 'fixed'};
         const estimateTblH = {...tblH, padding: '4px 5px', fontSize: '10px', lineHeight: 1.1, whiteSpace: 'nowrap'};
         const estimateTblC = {...tblC, padding: '3px 5px', fontSize: '11px', lineHeight: 1.15, verticalAlign: 'middle'};
         const stickySumStyle = {position: 'sticky', right: '38px', zIndex: 2, boxShadow: '-8px 0 10px -10px ' + C.textMuted};
         const stickyDeleteStyle = {position: 'sticky', right: 0, zIndex: 2};
-        const projBrigades = brigadeContracts.filter(bc => bc.projectName === selectedEstimate.projectName).map(bc => bc.brigadeName).filter(Boolean);
-        const canEditExecutionPrice = ['директор', 'зам_директора'].includes(userRole);
         const markSectionBasis = () => {
           const sections = (selectedEstimate.sections || []).map((s, sidx) => sidx === si ? {...s, items: (s.items || []).map(it => isEstimateWorkItem(it, s.name) ? {...it, measurementBasis: estimateMeasurementBasisOf(it, s.name)} : it)} : s);
           const updated = {...selectedEstimate, sections};
@@ -159,11 +155,9 @@ export default function EstimateSectionsEditor({
                         <th style={{...estimateTblH, width: '90px'}}>Обмер</th>
                         <th style={{...estimateTblH, width: '44px'}}>Ед.</th>
                         <th style={{...estimateTblH, width: '68px'}}>План</th>
-                        <th style={{...estimateTblH, width: '78px'}}>Кому</th>
                         <th style={{...estimateTblH, width: '68px'}}>Сделано</th>
                         <th style={{...estimateTblH, width: '68px'}}>Ост.</th>
                         <th style={{...estimateTblH, width: '86px'}}>Цена</th>
-                        <th style={{...estimateTblH, width: '82px'}}>Внутр.</th>
                         <th style={{...estimateTblH, width: '96px', ...stickySumStyle, top: 0, zIndex: 3, backgroundColor: C.bg}}>Сумма</th>
                         <th style={{...estimateTblH, width: '30px', ...stickyDeleteStyle, top: 0, zIndex: 4, backgroundColor: C.bg}}></th>
                       </tr>
@@ -184,7 +178,6 @@ export default function EstimateSectionsEditor({
                         const rowDomId = estimateIssueDomId(selectedEstimate.id, si, item._idx);
                         const isIssueFocused = estimateIssueFocusKey === rowDomId;
                         const rowStickyBg = isIssueFocused ? C.warningLight : C.bgWhite;
-                        const executionPrice = Number(item.executionPricePerUnit || item.internalPricePerUnit || item.masterPricePerUnit || 0);
                         const importedLineTotal = estimateItemTotal(item);
                         const importedUnitPrice = qty > 0 ? importedLineTotal / qty : 0;
                         const importMeta = estimateImportLineMeta(item, qtyNorm);
@@ -210,11 +203,9 @@ export default function EstimateSectionsEditor({
                             <td style={estimateTblC}>{autoPill(basisMeta.icon, isWork ? basisMeta.label : '—', !isWork)}</td>
                             <td style={estimateTblC}>{autoPill('', qtyNorm.unit || item.unit || 'шт')}</td>
                             <td style={estimateTblC}><input type="number" step="any" inputMode="decimal" value={qtyNorm.qty || ''} onChange={e => updateItem(item._idx, 'quantity', denormalizeMeasure(e.target.value, item.unit))} onBlur={persist} style={inpCell} /></td>
-                            <td style={estimateTblC}><select disabled={!isWork} value={isWork ? (item.brigadeName || '') : ''} onChange={e => updateItem(item._idx, 'brigadeName', e.target.value, true)} style={{...inpCell, opacity: isWork ? 1 : 0.55}}><option value="">—</option>{projBrigades.map(b => <option key={b} value={b}>{b}</option>)}</select></td>
                             <td style={estimateTblC}><input disabled={!isWork} type="number" step="any" inputMode="decimal" value={isWork ? (doneNorm.qty || '') : ''} onChange={e => {const raw = denormalizeMeasure(e.target.value, item.unit); if (qty > 0 && raw > qty) {alert('Сделано не может быть больше плана (' + fmtMeasure(qty, item.unit) + ')'); return;} updateItem(item._idx, 'doneQuantity', raw);}} onBlur={persist} style={{...inpCell, color: done > 0 ? C.success : C.text, opacity: isWork ? 1 : 0.55}} /></td>
                             <td style={{...estimateTblC, color: isWork ? (qty > 0 && remain === 0 ? C.success : remain > 0 ? C.warning : C.textMuted) : C.textMuted, fontWeight: '600'}}>{isWork && qty > 0 ? fmtMeasure(remain, item.unit) : '—'}</td>
                             <td style={estimateTblC}>{item.isImported ? <div title={importMeta || ''} style={{...inpCell, backgroundColor: C.bg, whiteSpace: 'normal', lineHeight: 1.15}}><b style={{color: C.success}}>{Math.round(importedLineTotal).toLocaleString('ru-RU')} ₽</b><div style={{color: C.textMuted, fontSize: '9px', marginTop: '1px'}}>≈ {importedUnitPrice ? importedUnitPrice.toLocaleString('ru-RU', {maximumFractionDigits: 2}) : 0} ₽/{qtyNorm.unit || item.unit || 'ед.'}</div></div> : <input type="number" step="any" inputMode="decimal" title="Цена за единицу" value={item[priceField] || ''} onChange={e => updateItem(item._idx, priceField, e.target.value)} onBlur={persist} style={inpCell} />}</td>
-                            <td style={estimateTblC}>{isWork ? <input disabled={!canEditExecutionPrice} type="number" step="any" inputMode="decimal" title="Внутренняя цена исполнителю за единицу. Если пусто — используется fallback по цене заказчика до настройки пакета." value={item.executionPricePerUnit || ''} onChange={e => updateItemPatch(item._idx, {executionPricePerUnit: e.target.value, executionPriceMode: e.target.value ? 'fixed' : '', executionPricePercent: ''})} onBlur={persist} placeholder="авто" style={{...inpCell, color: executionPrice > 0 ? C.success : C.textMuted, opacity: canEditExecutionPrice ? 1 : 0.65}} /> : <span style={{color: C.textMuted}}>—</span>}</td>
                             <td style={{...estimateTblC, ...stickySumStyle, backgroundColor: rowStickyBg, fontWeight: '700', color: C.success, whiteSpace: 'nowrap', fontSize: '12px'}}>{sumOf(item).toLocaleString('ru-RU') + ' ₽'}</td>
                             <td style={{...estimateTblC, ...stickyDeleteStyle, backgroundColor: rowStickyBg}}><button onClick={() => removeAt(item._idx)} style={{...btnR, padding: '3px 6px'}}><Trash2 size={11} /></button></td>
                           </tr>

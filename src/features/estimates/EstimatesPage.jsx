@@ -188,8 +188,6 @@ export default function EstimatesPage({ ctx }) {
                   setMobileExpandedRenderLists={setMobileExpandedRenderLists}
                   isMobile={isMobile}
                   estimateQualityRows={estimateQualityRows}
-                  brigadeContracts={brigadeContracts}
-                  userRole={effectiveUserRole}
                   setSelectedEstimate={setSelectedEstimate}
                   setEstimatesList={setEstimatesList}
                   persistEstimate={persistEstimate}
