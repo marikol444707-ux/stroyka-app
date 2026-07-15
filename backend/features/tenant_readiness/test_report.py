@@ -28,6 +28,7 @@ def company_fact(*, index=True, null_rows=0):
         "companyOwnerNullRows": 0,
         "invalidOwnerScopeRows": 0,
         "orphanCompanyRows": 0,
+        "projectRows": 0,
         "orphanProjectRows": 0,
         "mismatchedProjectRows": 0,
     }
@@ -103,11 +104,21 @@ class TenantReadinessReportTests(unittest.TestCase):
     def test_project_column_requires_project_index(self):
         fact = company_fact()
         fact["columns"]["project_id"] = {"nullable": True}
+        fact["projectRows"] = 1
 
         report = build_report([entry("sample")], {"sample": fact})
 
         self.assertFalse(report["readyForConstraints"])
         self.assertEqual(report["schemaBlockers"][0]["reason"], "project_index_missing")
+
+    def test_unused_optional_project_column_does_not_require_index(self):
+        fact = company_fact()
+        fact["columns"]["project_id"] = {"nullable": True}
+
+        report = build_report([entry("sample")], {"sample": fact})
+
+        self.assertTrue(report["readyForConstraints"])
+        self.assertFalse(report["tables"][0]["projectIndexRequired"])
 
     def test_unknown_owner_scope_blocks_constraint_planning(self):
         fact = company_fact()

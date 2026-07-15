@@ -57,6 +57,7 @@ def build_report(entries, table_facts):
         columns = dict(fact.get("columns") or {})
         indexes = list(fact.get("indexes") or [])
         constraints = list(fact.get("constraints") or [])
+        project_rows = int(fact.get("projectRows") or 0)
         resource_blockers = []
         if not TABLE_RE.fullmatch(resource):
             resource_blockers.append({"resource": resource, "reason": "invalid_table_identifier"})
@@ -67,7 +68,7 @@ def build_report(entries, table_facts):
         else:
             if not any(_index_has_column(index, "company_id") for index in indexes):
                 resource_blockers.append({"resource": resource, "reason": "company_index_missing"})
-            if "project_id" in columns and not any(
+            if project_rows and "project_id" in columns and not any(
                 _index_has_column(index, "project_id") for index in indexes
             ):
                 resource_blockers.append({"resource": resource, "reason": "project_index_missing"})
@@ -126,7 +127,9 @@ def build_report(entries, table_facts):
             "companyColumnNullable": bool((columns.get("company_id") or {}).get("nullable", True)),
             "ownerScopeColumn": "owner_scope" in columns,
             "companyIndex": any(_index_has_column(index, "company_id") for index in indexes),
-            "projectIndex": "project_id" not in columns or any(
+            "projectRows": project_rows,
+            "projectIndexRequired": bool(project_rows and "project_id" in columns),
+            "projectIndex": not project_rows or "project_id" not in columns or any(
                 _index_has_column(index, "project_id") for index in indexes
             ),
             "orphanCompanyRows": int(fact.get("orphanCompanyRows") or 0),
@@ -258,6 +261,9 @@ def collect_table_facts(cur, entries):
                 joins.append(sql.SQL("LEFT JOIN projects p ON p.id=t.project_id"))
                 count_fields.extend([
                     sql.SQL(
+                        "COUNT(*) FILTER (WHERE t.project_id IS NOT NULL) AS project_rows"
+                    ),
+                    sql.SQL(
                         "COUNT(*) FILTER (WHERE t.project_id IS NOT NULL AND p.id IS NULL) "
                         "AS orphan_project_rows"
                     ),
@@ -282,6 +288,7 @@ def collect_table_facts(cur, entries):
             "companyOwnerNullRows": int(counts.get("company_owner_null_rows") or 0),
             "invalidOwnerScopeRows": int(counts.get("invalid_owner_scope_rows") or 0),
             "orphanCompanyRows": int(counts.get("orphan_company_rows") or 0),
+            "projectRows": int(counts.get("project_rows") or 0),
             "orphanProjectRows": int(counts.get("orphan_project_rows") or 0),
             "mismatchedProjectRows": int(counts.get("mismatched_project_rows") or 0),
         })
