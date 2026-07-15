@@ -2121,7 +2121,7 @@
 
 **Description:** Register and audit the next procurement chain slice: `supplier_invoices -> supply_deliveries`. Verify stored company/project ownership and optional or required request/offer parents without reading invoice, supplier, material, quantity, price, file or delivery content.
 
-**Status:** Implemented locally. Production read-only report pending; no schema, backfill, writer or runtime change is included.
+**Status:** Published to main. Production registry coverage confirms both tables are registered (`51/127` registered physical tables, `76` unregistered), but the attached paste starts after the ownership-report summary. No schema, backfill, writer or runtime change is included.
 
 **Acceptance criteria:**
 - [x] A direct supplier invoice is verified only by an existing stored company and exactly one same-company project matching its legacy project field.
@@ -2131,14 +2131,41 @@
 - [x] Loader reads only record and owner-parent IDs plus the legacy project fields needed for classification; commercial and delivery content is excluded.
 - [x] Report runs in a PostgreSQL read-only transaction, rolls back and reports `writesAttempted=0`.
 - [ ] Production dry-run provides exact verified/unresolved/ambiguous/mismatched counts and review reasons.
-- [ ] Registry coverage confirms both tables leave the unregistered set.
+- [x] Registry coverage confirms both tables leave the unregistered set.
 
 **Verification:**
 - [x] `python3 -m unittest backend.features.supply_execution_ownership.test_ownership_report` (`12` tests).
 - [ ] `npm run audit:supply-execution-ownership` on production.
-- [ ] `npm run audit:tenant-registry-coverage` on production.
+- [x] `npm run audit:tenant-registry-coverage` on production: `51` registered physical tables, `76` unregistered and zero registry drift.
 
 **Dependencies:** Task M7i report implementation; independent of M7h production result and later warehouse ownership audit
+
+**Estimated scope:** S
+
+## Task M7k: Audit Warehouse Invoice And History Ownership
+
+**Description:** Register and audit `warehouse_invoices -> warehouse_history`. Verify exact stored company/project or explicit main-warehouse scope and validate optional request, delivery and supplier-invoice parents without reading warehouse or commercial content.
+
+**Status:** Implemented locally. Production read-only report pending; no schema, backfill, writer, stock or runtime change is included.
+
+**Acceptance criteria:**
+- [x] An object warehouse invoice is verified only by an existing stored company and exactly one same-company project resolved from its project/location scope.
+- [x] A main-warehouse invoice and history row use explicit company scope; an object cannot be hidden behind `warehouse_target=main`.
+- [x] Optional request, delivery and supplier-invoice parents must exist, already have a verified exact owner chain and match the warehouse company/project/request.
+- [x] A non-null supplier-invoice reverse link cannot point to another warehouse invoice.
+- [x] Warehouse history requires either one exact same-company project or explicit `Основной склад`; blank scope remains unresolved.
+- [x] Missing parents are unresolved, duplicate same-company projects are ambiguous and cross-company/project/request links are mismatched.
+- [x] Loader reads only IDs and owner relations; materials, quantities, units, supplier data, document numbers, totals, items, payments, photos and personal fields are excluded.
+- [x] Report runs read-only, rolls back and reports `writesAttempted=0`.
+- [ ] Production dry-run provides exact verified/unresolved/ambiguous/mismatched counts and review reasons.
+- [ ] Registry coverage confirms both warehouse tables leave the unregistered set.
+
+**Verification:**
+- [x] `python3 -m unittest backend.features.warehouse_ownership.test_ownership_report backend.features.supply_execution_ownership.test_ownership_report` (`26` tests).
+- [ ] `npm run audit:warehouse-ownership` on production.
+- [ ] `npm run audit:tenant-registry-coverage` on production.
+
+**Dependencies:** Task M7j implementation; production classification remains independent of any future warehouse cleanup, backfill or runtime change
 
 **Estimated scope:** S
 

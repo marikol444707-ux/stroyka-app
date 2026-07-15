@@ -201,7 +201,7 @@ def _plan_sha256(classified):
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def build_report_from_rows(rows):
+def classify_supply_execution_rows(rows):
     company_ids = {
         company_id
         for row in (rows.get("companies") or [])
@@ -250,6 +250,11 @@ def build_report_from_rows(rows):
         )
         for row in (rows.get("supply_deliveries") or [])
     ]
+    return classified
+
+
+def build_report_from_rows(rows):
+    classified = classify_supply_execution_rows(rows)
 
     statuses = ("verified", "unresolved", "ambiguous", "mismatched")
     counts = Counter(item["status"] for item in classified)
