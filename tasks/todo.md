@@ -1962,17 +1962,18 @@
 
 **Description:** Stop every current CRM creation path from producing ownerless rows after the guarded CRM migration. Authenticated leads use one selected company and effective role; public-site and MAX leads use stored/configured server ownership; documents and tasks inherit the exact lead owner.
 
-**Status:** Implemented locally. Production deploy is blocked until Task M7e apply and the mapping-free post-audit report `readyForStrictRuntime=true`.
+**Status:** Deployed and verified for authenticated and public-site writers on runtime `d97e88b5`; only the credential-gated `smoke:max-marketing` remains.
 
 **Acceptance criteria:**
 - [x] Both authenticated lead POST routes resolve one concrete selected company and reject aggregate or unauthorized effective roles.
 - [x] Client-supplied `companyId` and `createdBy` do not control stored ownership or actor identity.
-- [x] `/site/leads` requires `PUBLIC_SITE_COMPANY_ID` and writes the same company to the lead, uploaded CRM document and generated AI task.
+- [x] `/site/leads` requires `PUBLIC_SITE_COMPANY_ID` and writes the same company to the lead, uploaded CRM document and projectless CRM follow-up task.
 - [x] `/max/marketing-leads` requires a stored company on the exact marketing channel and copies it to the CRM lead.
 - [x] CRM documents and tasks copy stored `company_id/project_id` from the parent lead and reject an ownerless legacy lead.
 - [x] No CRM writer added by this slice falls back to company `1`.
-- [ ] Production M7e apply and strict post-audit pass before deploy.
-- [ ] Protected platform CRM and MAX marketing smokes verify stored owner propagation and clean their test rows.
+- [x] Production M7e apply and strict post-audit pass before deploy.
+- [x] Protected platform CRM smoke verifies stored owner propagation for authenticated leads, a public client and all four public partner types, then cleans its test rows.
+- [ ] MAX marketing smoke verifies stored channel owner propagation and cleans its test rows; blocked only by missing safe server `SMOKE_EMAIL/SMOKE_PASSWORD` configuration.
 
 **Safety:**
 - Deploying this runtime before the M7e columns exist is prohibited.
@@ -1982,7 +1983,8 @@
 **Verification:**
 - [x] Focused CRM/public/MAX ownership tests and Python compilation.
 - [x] Full backend suite (`614` tests), frontend production build and M6 registry gate (`44` entries).
-- [ ] Production `smoke:platform-crm`, `smoke:max-marketing`, strict CRM audit and `smoke:prod`.
+- [x] Production `smoke:platform-crm`, strict CRM audit and deploy `smoke:prod`.
+- [ ] Production `smoke:max-marketing` after smoke credentials are configured safely on the server.
 
 **Dependencies:** Task M7e strict production post-audit
 
