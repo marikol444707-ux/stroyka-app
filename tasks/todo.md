@@ -1854,7 +1854,7 @@
 
 **Description:** Correct the generic readiness rule so an optional `project_id` column requires an index only when project-owned rows exist, then add one guarded additive index for the confirmed ЖПР query path: `work_journal(company_id, project)`. Do not add constraints, alter business rows, or touch the 35 unresolved registry/runtime scopes.
 
-**Status:** Production dry-run confirms exactly one missing index, zero blockers and plan SHA `a4afc77c1555d0b3b0391222ee75b403694bd23c6d3fe158ce4bdf8b5eb5be4d`. Guarded apply and post-audits remain pending.
+**Status:** Complete in production. The guarded plan added the one confirmed index; the post-readiness report shows `work_journal.projectIndex=true` and `schemaBlockers=0`. The separate `runtime_release_pending` registry blocker remains intentionally open.
 
 **Acceptance criteria:**
 - [x] Empty optional project scope no longer produces a false `project_index_missing` blocker.
@@ -1863,12 +1863,12 @@
 - [x] Apply requires exact confirmation, missing-index count and SHA-256 plan.
 - [x] Migration creates only `idx_work_journal_company_project` on `(company_id, project)` with short lock/statement timeouts.
 - [x] Report exposes exact rollback SQL; no backfill, `NOT NULL`, FK, CHECK or pilot data is included.
-- [ ] Production index apply and post-audits pass.
+- [x] Production index apply and post-readiness audit pass.
 
 **Verification:**
 - [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.tenant_readiness.test_index_migration backend.features.tenant_readiness.test_report`
-- [ ] `npm run audit:tenant-indexes` on production.
-- [ ] `npm run audit:tenant-readiness` after apply.
+- [x] `npm run audit:tenant-indexes` on production.
+- [x] `npm run audit:tenant-readiness` after apply: project index present, zero schema blockers.
 
 **Dependencies:** Task M7a production report
 
@@ -1901,7 +1901,7 @@
 
 **Description:** Register `crm_leads`, `crm_lead_documents` and `crm_lead_tasks` as explicit tenant blockers, then classify current rows through exact stored parents before adding owner columns or changing either CRM project-creation path.
 
-**Status:** Implemented locally. The report and registry changes require production deployment, followed by `npm run audit:crm-ownership` and a fresh registry coverage report.
+**Status:** Production report completed read-only: one `crm_leads` row exists, has no project owner and remains unresolved; documents and tasks are empty. `writesAttempted=0`, plan SHA `aa8b4a3488506f404a0a037425eb7a99eb0cd9f30fb9a00b2b969a47c8fb4a83`.
 
 **Acceptance criteria:**
 - [x] A lead is verified only through `crm_leads.project_id -> projects.id -> projects.company_id -> companies.id`.
@@ -1910,7 +1910,7 @@
 - [x] The report reads only record IDs and owner-parent IDs; it does not read or output names, phones, email, notes, source, document metadata or task titles.
 - [x] The command runs in a PostgreSQL read-only transaction, rolls back and reports `writesAttempted=0`.
 - [x] All three tables are present in the registry with `companyState=missing`, so readiness remains fail-closed.
-- [ ] Production report is captured and split into exact migration/review counts.
+- [x] Production report is captured and split into exact migration/review counts.
 
 **Safety:**
 - Do not add `company_id` or change CRM reads/writes until the production report identifies verified and standalone lead populations.
@@ -1919,10 +1919,42 @@
 
 **Verification:**
 - [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.crm_ownership.test_ownership_report`
-- [ ] `npm run audit:crm-ownership` on production.
+- [x] `npm run audit:crm-ownership` on production.
 - [ ] `npm run audit:tenant-registry-coverage` after deploy.
 
 **Dependencies:** Task M7c production report; independent of M7b index apply
+
+**Estimated scope:** S
+
+## Task M7e: Guarded CRM Ownership Migration
+
+**Description:** Add nullable stored owner columns to CRM leads, documents and tasks. Backfill exact project-owned leads automatically, require an explicit operator mapping for every standalone lead, and inherit child ownership only from the verified lead.
+
+**Status:** Implemented locally. Production currently requires an explicit decision for standalone lead `#1`; schema and rows remain unchanged until a guarded apply is run with that mapping.
+
+**Acceptance criteria:**
+- [x] Default `npm run audit:crm-ownership` is read-only, performs zero writes and rolls back.
+- [x] `--lead-owner LEAD_ID:COMPANY_ID` is required for a standalone lead and rejects unknown leads, missing companies, duplicate mappings and conflicts with an existing project owner.
+- [x] Leads with an exact stored project derive the company only from `projects.company_id`.
+- [x] Documents and tasks inherit the exact company/project pair from a ready or stored lead; missing or conflicting parents block apply.
+- [x] Apply adds only nullable owner columns, bounded indexes and project-implies-company checks; it does not change CRM content or assign a project to a standalone lead.
+- [x] Apply requires `APPLY_CRM_OWNERSHIP`, exact ready count and exact SHA-256 plan, then locks and rechecks the same plan before writing.
+- [x] Every update targets only ownerless rows; any conflict or failed strict post-check rolls back the transaction.
+- [ ] The director explicitly confirms the company owner of lead `#1`.
+- [ ] Production dry-run with the confirmed mapping, guarded apply and strict post-audit pass.
+
+**Safety:**
+- Mapping a standalone lead is a business ownership decision, not a technical inference. The migration must not assume company `1` merely because it is the only current tenant.
+- Existing `project_id`, lead fields, documents, tasks and user-visible statuses are not changed.
+- Runtime reads/writes and both CRM project-creation endpoints remain unchanged until stored ownership is strict-ready.
+
+**Verification:**
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.crm_ownership.test_ownership_report backend.features.crm_ownership.test_migration`
+- [ ] `npm run audit:crm-ownership -- --lead-owner <lead>:<company>` on production.
+- [ ] Guarded apply with the exact reported `readyCount` and `planSha256`.
+- [ ] `npm run audit:crm-ownership` without manual mapping after apply.
+
+**Dependencies:** Task M7d production report
 
 **Estimated scope:** S
 
