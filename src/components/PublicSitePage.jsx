@@ -84,6 +84,7 @@ const PublicSitePage = ({ onLogin }) => {
   ));
   const deepLinkedReferenceRef = useRef(false);
   const comparisonDirectionRef = useRef(selectedReferenceId);
+  const requestPhoneInputRef = useRef(null);
 
   const {
     sitePricingRules,
@@ -547,6 +548,11 @@ const PublicSitePage = ({ onLogin }) => {
     setTimeout(() => scrollTo('calculator'), 0);
   };
 
+  const openSelectedReferenceRequest = () => {
+    setReferenceActionMessage(`Проект ${selectedReferenceProject?.code || ''} выбран для заявки`);
+    scrollTo('request');
+    requestPhoneInputRef.current?.focus({ preventScroll: true });
+  };
 
   return (
     <main className="public-site">
@@ -927,7 +933,7 @@ const PublicSitePage = ({ onLogin }) => {
                     <button
                       className="public-primary"
                       type="button"
-                      onClick={() => setTimeout(() => scrollTo('request'), 0)}
+                      onClick={openSelectedReferenceRequest}
                     >
                       Оставить заявку
                     </button>
@@ -1353,7 +1359,13 @@ const PublicSitePage = ({ onLogin }) => {
           </label>
           <label>
             Телефон
-            <input value={lead.phone} onChange={(event) => setLead({ ...lead, phone: event.target.value })} placeholder="+7" required />
+            <input
+              ref={requestPhoneInputRef}
+              value={lead.phone}
+              onChange={(event) => setLead({ ...lead, phone: event.target.value })}
+              placeholder="+7"
+              required
+            />
           </label>
           <label>
             Комментарий

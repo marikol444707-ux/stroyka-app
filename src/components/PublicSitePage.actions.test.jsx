@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import PublicSitePage from './PublicSitePage';
 
 describe('public project actions', () => {
@@ -170,6 +170,20 @@ describe('public project actions', () => {
     expect(share).toHaveBeenCalledTimes(1);
     expect(writeText).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('status')).toHaveTextContent('Ссылка на проект скопирована');
+  });
+
+  test('opens the selected project request at the required phone field', () => {
+    render(<PublicSitePage onLogin={jest.fn()} />);
+    const requestSection = document.getElementById('request');
+    const requestActions = document.querySelector('.public-project-decision-actions');
+    const phoneInput = within(requestSection).getByLabelText('Телефон');
+
+    fireEvent.click(within(requestActions).getByRole('button', { name: 'Оставить заявку' }));
+    flushActions();
+
+    expect(requestSection.scrollIntoView).toHaveBeenCalled();
+    expect(phoneInput).toHaveFocus();
+    expect(within(requestSection).getByText('Одноэтажный кирпичный дом 110 м2')).toBeInTheDocument();
   });
 
   test('collects layout changes and opens a prefilled request', () => {
