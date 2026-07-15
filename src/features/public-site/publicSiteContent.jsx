@@ -372,6 +372,7 @@ export const referenceDirections = [
   {
     id: 'facade',
     title: 'Ремонт и отделка фасада',
+    layoutRequestEnabled: false,
     text: 'Фасад, утепление, декоративная отделка и аккуратный внешний вид дома.',
     image: 'https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=900&q=82',
     tags: ['фасад', 'утепление', 'отделка'],
@@ -392,6 +393,7 @@ export const referenceDirections = [
   {
     id: 'roof',
     title: 'Ремонт кровли',
+    layoutRequestEnabled: false,
     text: 'Замена покрытия, утепление, водосток, примыкания и безопасность.',
     image: 'https://images.unsplash.com/photo-1541976590-713941681591?auto=format&fit=crop&w=900&q=82',
     tags: ['кровля', 'утепление', 'водосток'],

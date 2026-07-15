@@ -114,6 +114,7 @@ const PublicSitePage = ({ onLogin }) => {
     project.code !== selectedReferenceProject?.code
   ));
   const selectedReferenceIsHouse = (selectedReferenceProject?.calcPatch?.type || selectedReference.calcPatch?.type) === 'house';
+  const selectedReferenceSupportsLayoutRequest = selectedReference.layoutRequestEnabled !== false;
   const selectedReferencePackage = selectedReferenceIsHouse
     ? getPublicProjectHousePackage(selectedHousePackage)
     : null;
@@ -1143,16 +1144,18 @@ const PublicSitePage = ({ onLogin }) => {
                       {isReferenceMirrored ? 'Вернуть обычный вариант' : 'Показать зеркальный вариант'}
                     </button>
                   )}
-                  <button
-                    className="public-project-editor"
-                    type="button"
-                    aria-expanded={isLayoutRequestOpen}
-                    aria-controls="public-layout-request-editor"
-                    onClick={openLayoutRequest}
-                  >
-                    Изменить планировку в заявке
-                  </button>
-                  {isLayoutRequestOpen && (
+                  {selectedReferenceSupportsLayoutRequest && (
+                    <button
+                      className="public-project-editor"
+                      type="button"
+                      aria-expanded={isLayoutRequestOpen}
+                      aria-controls="public-layout-request-editor"
+                      onClick={openLayoutRequest}
+                    >
+                      Изменить планировку в заявке
+                    </button>
+                  )}
+                  {selectedReferenceSupportsLayoutRequest && isLayoutRequestOpen && (
                     <PublicLayoutRequestEditor
                       key={selectedReferenceProject?.code || selectedReference.id}
                       projectTitle={selectedReferenceProject?.title || selectedReference.title}

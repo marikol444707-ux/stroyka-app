@@ -49,6 +49,19 @@ describe('public project actions', () => {
     expect(screen.queryByRole('button', { name: 'Показать зеркальный вариант' })).not.toBeInTheDocument();
   });
 
+  test('offers layout changes only for projects with interior spaces', () => {
+    render(<PublicSitePage onLogin={jest.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Ремонт квартиры.*Смотреть проекты/ }));
+    expect(screen.getByRole('button', { name: 'Изменить планировку в заявке' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Ремонт и отделка фасада.*Смотреть проекты/ }));
+    expect(screen.queryByRole('button', { name: 'Изменить планировку в заявке' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Ремонт кровли.*Смотреть проекты/ }));
+    expect(screen.queryByRole('button', { name: 'Изменить планировку в заявке' })).not.toBeInTheDocument();
+  });
+
   test('shows similar projects and opens the selected option at the preview', () => {
     render(<PublicSitePage onLogin={jest.fn()} />);
     const initialTitle = document.querySelector('.public-project-spec-column h3').textContent;
