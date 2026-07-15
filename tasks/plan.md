@@ -154,6 +154,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 - [x] Task M7a: Add a fail-closed read-only tenant readiness report over the M6 registry and stored owner columns. Initial production report completed with zero writes and no orphan/mismatched stored owners; optional empty project columns no longer create false index blockers.
 - [x] Task M7b: Add a guarded, reversible index-only migration for the verified `work_journal(company_id, project)` gap. Local implementation is complete; production dry-run/apply/post-audit remain required.
+- [x] Task M7c: Add a fail-closed read-only coverage report that compares every public database table with the M6 tenant registry before constraints. Local implementation is complete; production classification remains required.
 
 ### Checkpoint: SaaS Boundary
 

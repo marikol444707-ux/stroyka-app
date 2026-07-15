@@ -1874,6 +1874,29 @@
 
 **Estimated scope:** S
 
+## Task M7c: Tenant Registry Coverage Audit
+
+**Description:** Compare every PostgreSQL `public` base table with the M6 registry before treating the 41 registered resources as complete. Report unregistered tables and their ownership-signal columns without reading counts or business rows. This closes the discovered blind spot where CRM tables and their project-creation writers were outside the tenant readiness report.
+
+**Status:** Implemented locally. Production must run `npm run audit:tenant-registry-coverage`; every returned table then requires an explicit classification as stored owner, verified immutable parent, shared platform data, public surface, or unresolved legacy data.
+
+**Acceptance criteria:**
+- [x] Collector reads only `information_schema` table/column metadata in a read-only transaction and rolls back.
+- [x] Registry surfaces are not mistaken for physical tables.
+- [x] Missing registered tables and duplicate registry table entries fail closed.
+- [x] Every unregistered public table blocks registry freeze.
+- [x] Unregistered `company_id/owner_scope` tables are marked critical; project-identity tables are marked high; tables without known owner columns remain unclassified rather than being assumed safe.
+- [x] Report does not count, select, output, classify automatically, or modify business rows.
+- [ ] Production coverage report is captured and split into bounded domain slices.
+
+**Verification:**
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.tenant_readiness.test_coverage_report`
+- [ ] `npm run audit:tenant-registry-coverage` on production.
+
+**Dependencies:** Task M7a; independent of M7b index apply
+
+**Estimated scope:** S
+
 ## Task 12: Extract Auth Helpers
 
 **Description:** Move auth/session helper functions from `backend/main.py` into `backend/auth.py` without changing behavior.
