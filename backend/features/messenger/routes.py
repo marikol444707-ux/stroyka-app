@@ -28,6 +28,7 @@ from .outbox_worker_access import (
 )
 from .schema import ensure_messenger_schema
 from .writer_ownership import resolve_channel_write_owner as resolve_authenticated_channel_owner
+from ..crm.writer_ownership import resolve_marketing_lead_owner
 
 
 def _text(value, limit=255):
@@ -3119,6 +3120,7 @@ def register_messenger_module(app, deps):
                 raise HTTPException(status_code=403, detail="MAX-канал отключен")
             if (channel.get("channel_type") or "") != "marketing":
                 raise HTTPException(status_code=409, detail="Этот MAX-канал не является маркетинговым")
+            lead_owner = resolve_marketing_lead_owner(channel)
 
             source = max_lead_source(channel, lead_data)
             stage = _text(lead_data.get("stage") or channel.get("default_stage") or "Новый", 80) or "Новый"
@@ -3127,16 +3129,17 @@ def register_messenger_module(app, deps):
             cur.execute(
                 """
                 INSERT INTO crm_leads
-                    (name,phone,email,source,budget,notes,stage,created_by,created_at,
+                    (company_id,name,phone,email,source,budget,notes,stage,created_by,created_at,
                      lead_type,review_status)
                 VALUES
-                    (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 RETURNING id,name,phone,email,source,budget,notes,stage,
                           created_by,created_at,project_id,photo_url,
                           COALESCE(lead_type,'Клиент') AS lead_type,
                           COALESCE(review_status,'Новая') AS review_status
                 """,
                 (
+                    lead_owner["companyId"],
                     name,
                     phone,
                     email,

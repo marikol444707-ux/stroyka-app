@@ -129,6 +129,11 @@ except ModuleNotFoundError:
     from features.messenger.writer_ownership import resolve_supply_outbox_owner
 
 try:
+    from backend.features.crm.writer_ownership import resolve_authenticated_lead_owner
+except ModuleNotFoundError:
+    from features.crm.writer_ownership import resolve_authenticated_lead_owner
+
+try:
     from backend.features.supplier_access.service import (
         supplier_invoice_visibility_filter,
         supplier_offer_visibility_filter,
@@ -1860,6 +1865,21 @@ def _resolve_work_company_context(
         x_company_mode=x_company_mode,
         platform_staff_roles=PLATFORM_STAFF_ROLES,
         client_account_roles=CLIENT_ACCOUNT_ROLES,
+    )
+
+def _resolve_crm_create_owner(cur, user, x_company_id=None, x_company_mode=None):
+    context = _resolve_work_company_context(
+        cur,
+        user,
+        None,
+        "create",
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
+    )
+    return resolve_authenticated_lead_owner(
+        context,
+        effective_company_actors(user, context),
+        allowed_roles=(*LEADERSHIP_ROLES, "менеджер_crm"),
     )
 
 def _project_company_id(cur, project_name: str):
@@ -21954,15 +21974,30 @@ def get_crm_leads(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES,
     return [{"id":r[0],"name":r[1] or "","phone":r[2] or "","email":r[3] or "","source":r[4] or "","budget":float(r[5] or 0),"notes":r[6] or "","stage":r[7] or "Новый","createdBy":r[8] or "","createdAt":r[9] or "","projectId":r[10],"photoUrl":r[11] or ""} for r in rows]
 
 @app.post("/crm-leads")
-def create_crm_lead(data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm"))):
+def create_crm_lead(
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm")),
+):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("INSERT INTO crm_leads (name,phone,email,source,budget,notes,stage,created_by,created_at,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("name",""), data.get("phone",""), data.get("email",""), data.get("source",""), data.get("budget") or 0, data.get("notes",""), data.get("stage","Новый"), data.get("createdBy",""), data.get("createdAt",""), data.get("photoUrl","")))
-    new_id = cur.fetchone()[0]
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True, "id": new_id}
+    try:
+        owner = _resolve_crm_create_owner(cur, _current_user, x_company_id, x_company_mode)
+        cur.execute("INSERT INTO crm_leads (company_id,name,phone,email,source,budget,notes,stage,created_by,created_at,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (owner["companyId"], data.get("name",""), data.get("phone",""), data.get("email",""), data.get("source",""), data.get("budget") or 0, data.get("notes",""), data.get("stage","Новый"), _current_user.get("name", ""), data.get("createdAt",""), data.get("photoUrl","")))
+        new_id = cur.fetchone()[0]
+        conn.commit()
+        return {"ok": True, "id": new_id}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as error:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(error))
+    finally:
+        cur.close()
+        conn.close()
 
 @app.put("/crm-leads/{id}")
 def update_crm_lead(id: int, data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm"))):
@@ -31184,6 +31219,9 @@ register_crm_module(app, {
     "supplier_update_missing_fields": _update_supplier_missing_fields,
     "supplier_remember_alias": _remember_supplier_alias,
     "app_public_url": APP_PUBLIC_URL,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "resolve_resource_company_actor": resolve_resource_company_actor,
 })
 
 try:

@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 import datetime as dt
+import base64
+import hashlib
+import hmac
 import json
 import os
+import re
 import sys
+import time
 import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
 
 import psycopg2
+import psycopg2.extras
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -90,12 +96,46 @@ def max_bot_token():
     return token
 
 
+def totp_code(secret):
+    clean = re.sub(r"\s+", "", secret or "").upper()
+    if not clean:
+        return ""
+    clean += "=" * (-len(clean) % 8)
+    key = base64.b32decode(clean, casefold=True)
+    counter = int(time.time()) // 30
+    digest = hmac.new(key, counter.to_bytes(8, "big"), hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    value = int.from_bytes(digest[offset : offset + 4], "big") & 0x7FFFFFFF
+    return f"{value % 1_000_000:06d}"
+
+
 def login(email, password):
     _, body = api_json("POST", "/login", data={"email": email, "password": password}, expected=200)
     token = body.get("authToken")
-    if not token:
-        raise SystemExit(f"FAIL login {email}: authToken не получен")
-    return token
+    if token:
+        return token
+    if body.get("twoFactorSetupRequired"):
+        raise SystemExit(
+            f"FAIL login {email}: требуется первичная настройка 2FA. "
+            "Используйте аккаунт с уже настроенной 2FA или отдельный smoke-аккаунт."
+        )
+    if body.get("twoFactorRequired") and body.get("challengeToken"):
+        code = env_value("SMOKE_2FA_CODE")
+        if not code and env_value("SMOKE_TOTP_SECRET"):
+            code = totp_code(env_value("SMOKE_TOTP_SECRET"))
+        if not code:
+            raise SystemExit(f"FAIL login {email}: нужен SMOKE_2FA_CODE или SMOKE_TOTP_SECRET")
+        _, verified = api_json(
+            "POST",
+            "/login/2fa/verify",
+            data={"challengeToken": body.get("challengeToken"), "code": code},
+            expected=200,
+        )
+        token = verified.get("authToken")
+        if token:
+            return token
+        raise SystemExit(f"FAIL login {email}: 2FA не вернула authToken")
+    raise SystemExit(f"FAIL login {email}: authToken не получен")
 
 
 def cleanup(lead_id=None, channel_id=None):
@@ -183,6 +223,22 @@ def main():
             raise RuntimeError("MAX marketing lead is not visible in CRM lead summaries")
         if crm_lead.get("phone") != phone:
             raise RuntimeError(f"CRM lead phone mismatch: {crm_lead}")
+        conn = psycopg2.connect(**db_config())
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            cur.execute("SELECT company_id FROM messenger_channels WHERE id=%s", (channel_id,))
+            channel_owner = cur.fetchone()
+            cur.execute("SELECT company_id FROM crm_leads WHERE id=%s", (lead_id,))
+            lead_owner = cur.fetchone()
+        finally:
+            cur.close()
+            conn.close()
+        if not channel_owner or not channel_owner.get("company_id"):
+            raise RuntimeError(f"marketing channel has no stored company owner: {channel_owner}")
+        if (lead_owner or {}).get("company_id") != channel_owner.get("company_id"):
+            raise RuntimeError(
+                f"MAX CRM lead owner does not match marketing channel: lead={lead_owner} channel={channel_owner}"
+            )
 
         print(json.dumps({
             "ok": True,
@@ -195,6 +251,7 @@ def main():
                 "MAX bot endpoint creates CRM lead",
                 "CRM lead keeps channel/campaign context in notes",
                 "lead is visible in /crm/lead-summaries",
+                "CRM lead inherits exact stored marketing channel company",
             ],
             "timestamp": dt.datetime.utcnow().isoformat() + "Z",
         }, ensure_ascii=False, indent=2))

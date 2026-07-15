@@ -1930,7 +1930,7 @@
 
 **Description:** Add nullable stored owner columns to CRM leads, documents and tasks. Backfill exact project-owned leads automatically, require an explicit operator mapping for every standalone lead, and inherit child ownership only from the verified lead.
 
-**Status:** Implemented locally. Production currently requires an explicit decision for standalone lead `#1`; schema and rows remain unchanged until a guarded apply is run with that mapping.
+**Status:** Implemented locally. Production dry-run explicitly mapped standalone lead `#1` to company `#1` and returned one ready row with no unresolved/mismatched rows; guarded apply and strict post-audit are still pending.
 
 **Acceptance criteria:**
 - [x] Default `npm run audit:crm-ownership` is read-only, performs zero writes and rolls back.
@@ -1940,7 +1940,7 @@
 - [x] Apply adds only nullable owner columns, bounded indexes and project-implies-company checks; it does not change CRM content or assign a project to a standalone lead.
 - [x] Apply requires `APPLY_CRM_OWNERSHIP`, exact ready count and exact SHA-256 plan, then locks and rechecks the same plan before writing.
 - [x] Every update targets only ownerless rows; any conflict or failed strict post-check rolls back the transaction.
-- [ ] The director explicitly confirms the company owner of lead `#1`.
+- [x] The director explicitly confirms the company owner of lead `#1` through the production dry-run mapping `1:1`.
 - [ ] Production dry-run with the confirmed mapping, guarded apply and strict post-audit pass.
 
 **Safety:**
@@ -1957,6 +1957,46 @@
 **Dependencies:** Task M7d production report
 
 **Estimated scope:** S
+
+## Task M7f1: Persist CRM Writer Ownership
+
+**Description:** Stop every current CRM creation path from producing ownerless rows after the guarded CRM migration. Authenticated leads use one selected company and effective role; public-site and MAX leads use stored/configured server ownership; documents and tasks inherit the exact lead owner.
+
+**Status:** Implemented locally. Production deploy is blocked until Task M7e apply and the mapping-free post-audit report `readyForStrictRuntime=true`.
+
+**Acceptance criteria:**
+- [x] Both authenticated lead POST routes resolve one concrete selected company and reject aggregate or unauthorized effective roles.
+- [x] Client-supplied `companyId` and `createdBy` do not control stored ownership or actor identity.
+- [x] `/site/leads` requires `PUBLIC_SITE_COMPANY_ID` and writes the same company to the lead, uploaded CRM document and generated AI task.
+- [x] `/max/marketing-leads` requires a stored company on the exact marketing channel and copies it to the CRM lead.
+- [x] CRM documents and tasks copy stored `company_id/project_id` from the parent lead and reject an ownerless legacy lead.
+- [x] No CRM writer added by this slice falls back to company `1`.
+- [ ] Production M7e apply and strict post-audit pass before deploy.
+- [ ] Protected platform CRM and MAX marketing smokes verify stored owner propagation and clean their test rows.
+
+**Safety:**
+- Deploying this runtime before the M7e columns exist is prohibited.
+- Existing CRM rows, reads, update/delete routes and both create-project routes are not changed in this slice.
+- Public and messenger ownership comes from server configuration/stored channel rows, never from request payload.
+
+**Verification:**
+- [x] Focused CRM/public/MAX ownership tests and Python compilation.
+- [x] Full backend suite (`614` tests), frontend production build and M6 registry gate (`44` entries).
+- [ ] Production `smoke:platform-crm`, `smoke:max-marketing`, strict CRM audit and `smoke:prod`.
+
+**Dependencies:** Task M7e strict production post-audit
+
+**Estimated scope:** S
+
+## Task M7f2: Enforce CRM Read And Mutation Ownership
+
+**Description:** After M7f1 is live, scope list/detail/update/delete/approve/invite/transfer routes and both CRM project-creation writers through stored lead/child ownership. Project creation must persist the lead's exact company instead of relying on a database default or UI context.
+
+**Status:** Pending. Kept separate so writer rollout and rollback remain bounded.
+
+**Dependencies:** Task M7f1 production verification
+
+**Estimated scope:** M
 
 ## Task 12: Extract Auth Helpers
 

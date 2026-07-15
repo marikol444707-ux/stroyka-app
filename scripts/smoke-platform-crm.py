@@ -94,12 +94,14 @@ def auth_token_for(user: dict) -> str:
     return body + "." + b64url(sig)
 
 
-def api_json(method, path, token=None, data=None, expected=None):
-    headers = {"Content-Type": "application/json"}
+def api_json(method, path, token=None, data=None, expected=None, headers=None):
+    request_headers = {"Content-Type": "application/json"}
     if token:
-        headers["Authorization"] = f"Bearer {token}"
+        request_headers["Authorization"] = f"Bearer {token}"
+    if headers:
+        request_headers.update(headers)
     body = json.dumps(data, ensure_ascii=False).encode("utf-8") if data is not None else None
-    req = urllib.request.Request(BASE_URL + path, data=body, headers=headers, method=method)
+    req = urllib.request.Request(BASE_URL + path, data=body, headers=request_headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=40) as resp:
             status = resp.status
@@ -227,6 +229,7 @@ def cleanup():
     emails = [SYSTEM_EMAIL, CRM_EMAIL, *PLATFORM_ROLE_EMAILS.values(), *CLIENT_ACCOUNT_EMAILS.values()]
     try:
         cleanup_audit_log(cur)
+        cur.execute("DELETE FROM ai_tasks WHERE title LIKE %s", (like_prefix,))
         cur.execute("DELETE FROM project_documents WHERE project_name LIKE %s OR notes LIKE %s", (like_prefix, "%" + PREFIX + "%"))
         cur.execute("DELETE FROM projects WHERE name LIKE %s", (like_prefix,))
         cur.execute("DELETE FROM crm_lead_documents WHERE lead_id IN (SELECT id FROM crm_leads WHERE name LIKE %s)", (like_prefix,))
@@ -867,6 +870,70 @@ def check_crm(crm_token):
     _, summaries = api_json("GET", "/crm/lead-summaries", token=crm_token, expected=200)
     if not any(item.get("id") == supplier_lead_id for item in summaries):
         raise RuntimeError("CRM summaries did not include created lead")
+    conn = db_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute(
+            "SELECT id,company_id FROM crm_leads WHERE id=ANY(%s) ORDER BY id",
+            ([supplier_lead_id, worker_lead_id, client_lead_id],),
+        )
+        lead_owners = list(cur.fetchall() or [])
+        cur.execute(
+            "SELECT company_id,project_id FROM crm_lead_documents WHERE id=%s",
+            (supplier_doc.get("id"),),
+        )
+        document_owner = cur.fetchone()
+        cur.execute(
+            "SELECT company_id,project_id FROM crm_lead_tasks WHERE id=%s",
+            (task.get("id"),),
+        )
+        task_owner = cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
+    if len(lead_owners) != 3 or any(int(row.get("company_id") or 0) != 1 for row in lead_owners):
+        raise RuntimeError(f"CRM leads did not store company owner: {lead_owners}")
+    if int((document_owner or {}).get("company_id") or 0) != 1:
+        raise RuntimeError(f"CRM document did not inherit lead owner: {document_owner}")
+    if int((task_owner or {}).get("company_id") or 0) != 1:
+        raise RuntimeError(f"CRM task did not inherit lead owner: {task_owner}")
+    public_company_id = int(env_value("PUBLIC_SITE_COMPANY_ID", "0") or 0)
+    if public_company_id <= 0:
+        raise RuntimeError("PUBLIC_SITE_COMPANY_ID must be configured before CRM writer smoke")
+    _, public_lead = api_json(
+        "POST",
+        "/site/leads",
+        expected=200,
+        headers={"X-Forwarded-For": f"198.51.{int(RUN_ID[:2], 16)}.{int(RUN_ID[2:4], 16)}"},
+        data={
+            "name": f"{PREFIX} Public Lead",
+            "phone": "+70000000004",
+            "source": "public-site-smoke",
+            "consentAccepted": True,
+            "consentVersion": "smoke",
+        },
+    )
+    public_lead_id = public_lead.get("id")
+    conn = db_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("SELECT company_id FROM crm_leads WHERE id=%s", (public_lead_id,))
+        public_owner = cur.fetchone()
+        cur.execute(
+            "SELECT owner_scope,company_id FROM ai_tasks WHERE dedupe_key=%s",
+            ("SITE_LEAD:" + str(public_lead_id),),
+        )
+        public_task_owner = cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
+    if (public_owner or {}).get("company_id") != public_company_id:
+        raise RuntimeError(f"public CRM lead owner mismatch: {public_owner}")
+    if (
+        (public_task_owner or {}).get("owner_scope") != "company"
+        or (public_task_owner or {}).get("company_id") != public_company_id
+    ):
+        raise RuntimeError(f"public CRM AI task owner mismatch: {public_task_owner}")
     return {
         "supplierLeadId": supplier_lead_id,
         "workerLeadId": worker_lead_id,
@@ -874,6 +941,8 @@ def check_crm(crm_token):
         "projectId": project_id,
         "createdProjectId": created_project_id,
         "transferredProjectDocumentIds": transfer.get("created", []),
+        "ownershipChecked": True,
+        "publicLeadId": public_lead_id,
     }
 
 

@@ -321,13 +321,49 @@ class PublicLeadNotesTests(unittest.TestCase):
         )
 
         self.assertEqual(created, {"ok": True, "id": 501, "attachments": 1})
-        document_insert = next(
-            params for query, params in statements
+        lead_query, lead_insert = next(
+            (query, params) for query, params in statements
+            if query.startswith("INSERT INTO crm_leads")
+        )
+        document_query, document_insert = next(
+            (query, params) for query, params in statements
             if query.startswith("INSERT INTO crm_lead_documents")
         )
-        self.assertEqual(document_insert[0], 501)
-        self.assertEqual(document_insert[2], "/tenant-files/71/content")
+        task_query, task_insert = next(
+            (query, params) for query, params in statements
+            if query.startswith("INSERT INTO ai_tasks")
+        )
+        self.assertEqual(lead_query.count("%s"), len(lead_insert))
+        self.assertEqual(document_query.count("%s"), len(document_insert))
+        self.assertEqual(task_query.count("%s"), len(task_insert))
+        self.assertEqual(lead_insert[0], 1)
+        self.assertEqual(document_insert[0:2], (1, 501))
+        self.assertEqual(document_insert[3], "/tenant-files/71/content")
+        self.assertEqual(task_insert[0], 1)
         self.assertTrue(all(connection.rollbacks == 0 for connection in connections))
+
+    def test_public_lead_rejects_missing_site_company_before_database_write(self):
+        app = _FakeApp()
+        database_calls = []
+        register_public_site_routes(app, {
+            "get_db": lambda: database_calls.append(True),
+            "require_roles": lambda *_roles: lambda: {},
+            "leadership_roles": ("директор",),
+            "require_project_access": lambda *_args: None,
+            "project_public_select": "",
+            "system_project_name": "Система",
+            "public_site_company_id": None,
+        })
+        request = SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1"))
+
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("POST", "/site/leads")](
+                {"phone": "+70000000000", "consentAccepted": True},
+                request,
+            )
+
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertEqual(database_calls, [])
 
 
 if __name__ == "__main__":

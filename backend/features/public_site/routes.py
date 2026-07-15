@@ -14,6 +14,7 @@ from .upload_policy import (
     public_upload_rate_exceeded,
     validate_public_lead_file,
 )
+from ..crm.writer_ownership import resolve_public_lead_owner
 
 
 SITE_PRICE_GROUP_LABELS = {
@@ -557,6 +558,7 @@ def register_public_site_routes(app, deps):
 
     @app.post("/site/leads")
     def create_site_lead(data: dict, request: Request):
+        lead_owner = resolve_public_lead_owner(public_site_company_id)
         client_ip = _public_client_ip(request)
         now = time.time()
         last = lead_last_submit.get(client_ip, 0)
@@ -625,18 +627,22 @@ def register_public_site_routes(app, deps):
                     raise HTTPException(status_code=422, detail="Один или несколько файлов недоступны или просрочены")
             cur.execute(
                 """INSERT INTO crm_leads
-                   (name,phone,email,source,budget,notes,stage,created_by,created_at,lead_type,review_status)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                (name, phone, email, source, budget, notes, "Новый", "Сайт", created_at, lead_type, review_status),
+                   (company_id,name,phone,email,source,budget,notes,stage,created_by,created_at,lead_type,review_status)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                (
+                    lead_owner["companyId"], name, phone, email, source, budget, notes,
+                    "Новый", "Сайт", created_at, lead_type, review_status,
+                ),
             )
             new_id = cur.fetchone()[0]
             for upload in pending_uploads:
                 ownership_id = upload[1]
                 cur.execute("""
                     INSERT INTO crm_lead_documents (
-                        lead_id,doc_type,title,file_url,status,confidential,notes,uploaded_by
-                    ) VALUES (%s,'Файл с сайта',%s,%s,'Загружен',true,%s,'Публичный сайт')
+                        company_id,project_id,lead_id,doc_type,title,file_url,status,confidential,notes,uploaded_by
+                    ) VALUES (%s,NULL,%s,'Файл с сайта',%s,%s,'Загружен',true,%s,'Публичный сайт')
                 """, (
+                    lead_owner["companyId"],
                     new_id,
                     upload[2],
                     "/tenant-files/" + str(ownership_id) + "/content",
@@ -662,10 +668,11 @@ def register_public_site_routes(app, deps):
             }, ensure_ascii=False)
             cur.execute("""
                 INSERT INTO ai_tasks (
-                    finding_id, project_name, title, description, assigned_role, assigned_to,
+                    owner_scope,company_id,project_id,finding_id,project_name,title,description,assigned_role,assigned_to,
                     status, due_date, action_label, action_payload, dedupe_key, created_at, updated_at
-                ) VALUES (NULL,%s,%s,%s,'директор','','Новое',NULL,'Открыть CRM',%s,%s,NOW(),NOW())
+                ) VALUES ('company',%s,NULL,NULL,%s,%s,%s,'директор','','Новое',NULL,'Открыть CRM',%s,%s,NOW(),NOW())
             """, (
+                lead_owner["companyId"],
                 system_project_name,
                 "Новая заявка с сайта: " + name,
                 "Телефон: " + phone + (("\nEmail: " + email) if email else "") + (("\n\n" + notes) if notes else ""),

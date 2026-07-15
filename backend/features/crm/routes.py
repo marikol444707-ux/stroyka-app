@@ -3,7 +3,9 @@ import json
 import uuid
 
 import psycopg2.extras
-from fastapi import Depends, HTTPException
+from fastapi import Depends, Header, HTTPException
+
+from .writer_ownership import resolve_authenticated_lead_owner, resolve_lead_child_owner
 
 
 CRM_LEAD_TYPES = {
@@ -103,7 +105,7 @@ def _ensure_crm_schema(get_db):
 
 
 LEAD_SELECT = """
-    id,name,phone,email,source,budget,notes,stage,created_by AS "createdBy",created_at AS "createdAt",
+    id,company_id AS "companyId",name,phone,email,source,budget,notes,stage,created_by AS "createdBy",created_at AS "createdAt",
     project_id AS "projectId",photo_url AS "photoUrl",
     COALESCE(lead_type,'Клиент') AS "leadType",
     COALESCE(counterparty_type,'') AS "counterpartyType",
@@ -187,10 +189,43 @@ def register_crm_module(app, deps):
     supplier_update_missing_fields = deps.get("supplier_update_missing_fields")
     supplier_remember_alias = deps.get("supplier_remember_alias")
     app_public_url = (deps.get("app_public_url") or "").rstrip("/")
+    resolve_work_company_context = deps["resolve_work_company_context"]
+    effective_company_actors = deps["effective_company_actors"]
+    resolve_resource_company_actor = deps["resolve_resource_company_actor"]
 
     _ensure_crm_schema(get_db)
 
     crm_access = require_roles(*leadership_roles, "менеджер_crm")
+    crm_roles = (*leadership_roles, "менеджер_crm")
+
+    def create_owner(cur, current_user, x_company_id, x_company_mode):
+        context = resolve_work_company_context(
+            cur,
+            current_user,
+            None,
+            "create",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        return resolve_authenticated_lead_owner(
+            context,
+            effective_company_actors(current_user, context),
+            allowed_roles=crm_roles,
+        )
+
+    def child_owner(cur, current_user, lead, action_mode, x_company_id, x_company_mode):
+        owner = resolve_lead_child_owner(lead)
+        resolve_resource_company_actor(
+            cur,
+            current_user,
+            owner["companyId"],
+            action_mode,
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            allowed_roles=crm_roles,
+            forbidden_detail="Роль в выбранной компании не позволяет менять CRM",
+        )
+        return owner
 
     def fetch_lead(cur, lead_id):
         cur.execute("SELECT " + LEAD_SELECT + " FROM crm_leads WHERE id=%s", (lead_id,))
@@ -265,28 +300,35 @@ def register_crm_module(app, deps):
         return {"lead": lead, "documents": documents, "tasks": tasks}
 
     @app.post("/crm/leads")
-    def crm_create_lead(data: dict, current_user: dict = Depends(crm_access)):
+    def crm_create_lead(
+        data: dict,
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(crm_access),
+    ):
         conn = get_db()
         cur = conn.cursor()
         try:
+            owner = create_owner(cur, current_user, x_company_id, x_company_mode)
             cur.execute("""
                 INSERT INTO crm_leads (
-                    name,phone,email,source,budget,notes,stage,created_by,created_at,photo_url,
+                    company_id,name,phone,email,source,budget,notes,stage,created_by,created_at,photo_url,
                     lead_type,counterparty_type,responsible_name,next_contact_at,address,work_type,area,
                     priority,loss_reason,legal_form,passport_data,inn,kpp,ogrn,legal_address,
                     contract_subject,bank,bik,bank_account,corr_account,signer_name,signer_basis,estimate_id,
                     document_status,review_status
                 ) VALUES (
-                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                     %s,%s,%s,%s,%s,%s,%s,
                     %s,%s,%s,%s,%s,%s,%s,%s,
                     %s,%s,%s,%s,%s,%s,%s,%s,
                     %s,%s
                 ) RETURNING id
             """, (
+                owner["companyId"],
                 _text(data.get("name")), _text(data.get("phone"), 80), _text(data.get("email")),
                 _text(data.get("source")), _num(data.get("budget")), data.get("notes") or "",
-                _text(data.get("stage") or "Новый", 80), current_user.get("name") or data.get("createdBy") or "",
+                _text(data.get("stage") or "Новый", 80), current_user.get("name") or "",
                 data.get("createdAt") or dt.datetime.utcnow().strftime("%Y-%m-%d"), data.get("photoUrl") or "",
                 _lead_type(data.get("leadType")), _text(data.get("counterpartyType"), 80),
                 _text(data.get("responsibleName")), _text(data.get("nextContactAt"), 50),
@@ -307,6 +349,9 @@ def register_crm_module(app, deps):
             if log_audit:
                 log_audit(current_user.get("name", ""), current_user.get("role", ""), "create", "crm_lead", lead_id, "Создана CRM-заявка", "")
             return {"ok": True, "id": lead_id}
+        except HTTPException:
+            conn.rollback()
+            raise
         except Exception as e:
             conn.rollback()
             raise HTTPException(status_code=400, detail=str(e))
@@ -444,25 +489,42 @@ def register_crm_module(app, deps):
             conn.close()
 
     @app.post("/crm/leads/{lead_id}/documents")
-    def crm_create_document(lead_id: int, data: dict, current_user: dict = Depends(crm_access)):
+    def crm_create_document(
+        lead_id: int,
+        data: dict,
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(crm_access),
+    ):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        fetch_lead(cur, lead_id)
-        cur.execute("""
-            INSERT INTO crm_lead_documents (lead_id,doc_type,title,file_url,status,number,doc_date,confidential,notes,uploaded_by)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *
-        """, (
-            lead_id, _text(data.get("docType"), 100), _text(data.get("title")),
-            data.get("fileUrl") or "", _text(data.get("status") or "Загружен", 80),
-            _text(data.get("number"), 100), _text(data.get("docDate"), 50),
-            _bool(data.get("confidential")), data.get("notes") or "", current_user.get("name") or "",
-        ))
-        row = _doc_dict(cur.fetchone())
-        cur.execute("UPDATE crm_leads SET document_status='Есть документы' WHERE id=%s", (lead_id,))
-        conn.commit()
-        cur.close()
-        conn.close()
-        return row
+        try:
+            lead = fetch_lead(cur, lead_id)
+            owner = child_owner(cur, current_user, lead, "create", x_company_id, x_company_mode)
+            cur.execute("""
+                INSERT INTO crm_lead_documents (
+                    company_id,project_id,lead_id,doc_type,title,file_url,status,number,doc_date,confidential,notes,uploaded_by
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *
+            """, (
+                owner["companyId"], owner["projectId"], lead_id,
+                _text(data.get("docType"), 100), _text(data.get("title")),
+                data.get("fileUrl") or "", _text(data.get("status") or "Загружен", 80),
+                _text(data.get("number"), 100), _text(data.get("docDate"), 50),
+                _bool(data.get("confidential")), data.get("notes") or "", current_user.get("name") or "",
+            ))
+            row = _doc_dict(cur.fetchone())
+            cur.execute("UPDATE crm_leads SET document_status='Есть документы' WHERE id=%s", (lead_id,))
+            conn.commit()
+            return row
+        except HTTPException:
+            conn.rollback()
+            raise
+        except Exception as error:
+            conn.rollback()
+            raise HTTPException(status_code=400, detail=str(error))
+        finally:
+            cur.close()
+            conn.close()
 
     @app.put("/crm/documents/{doc_id}")
     def crm_update_document(doc_id: int, data: dict, _current_user: dict = Depends(crm_access)):
@@ -498,23 +560,39 @@ def register_crm_module(app, deps):
         return {"ok": True}
 
     @app.post("/crm/leads/{lead_id}/tasks")
-    def crm_create_task(lead_id: int, data: dict, current_user: dict = Depends(crm_access)):
+    def crm_create_task(
+        lead_id: int,
+        data: dict,
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(crm_access),
+    ):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        fetch_lead(cur, lead_id)
-        cur.execute("""
-            INSERT INTO crm_lead_tasks (lead_id,title,due_date,status,assigned_to,notes,created_by)
-            VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *
-        """, (
-            lead_id, _text(data.get("title") or "Следующий шаг"), _text(data.get("dueDate"), 50),
-            _text(data.get("status") or "Новая", 80), _text(data.get("assignedTo")),
-            data.get("notes") or "", current_user.get("name") or "",
-        ))
-        row = _task_dict(cur.fetchone())
-        conn.commit()
-        cur.close()
-        conn.close()
-        return row
+        try:
+            lead = fetch_lead(cur, lead_id)
+            owner = child_owner(cur, current_user, lead, "create", x_company_id, x_company_mode)
+            cur.execute("""
+                INSERT INTO crm_lead_tasks (company_id,project_id,lead_id,title,due_date,status,assigned_to,notes,created_by)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *
+            """, (
+                owner["companyId"], owner["projectId"], lead_id,
+                _text(data.get("title") or "Следующий шаг"), _text(data.get("dueDate"), 50),
+                _text(data.get("status") or "Новая", 80), _text(data.get("assignedTo")),
+                data.get("notes") or "", current_user.get("name") or "",
+            ))
+            row = _task_dict(cur.fetchone())
+            conn.commit()
+            return row
+        except HTTPException:
+            conn.rollback()
+            raise
+        except Exception as error:
+            conn.rollback()
+            raise HTTPException(status_code=400, detail=str(error))
+        finally:
+            cur.close()
+            conn.close()
 
     @app.put("/crm/tasks/{task_id}")
     def crm_update_task(task_id: int, data: dict, _current_user: dict = Depends(crm_access)):
