@@ -54,6 +54,7 @@
     "audit:supplier-link-ownership": "python3 -m backend.features.supplier_link_ownership.ownership_report",
     "audit:supply-ownership": "python3 -m backend.features.supply_ownership.ownership_report",
     "audit:supply-orphans": "python3 -m backend.features.supply_ownership.orphan_report",
+    "migrate:supply-orphans": "python3 -m backend.features.supply_ownership.remediation --dry-run",
     "audit:supply-execution-ownership": "python3 -m backend.features.supply_execution_ownership.ownership_report",
     "audit:warehouse-ownership": "python3 -m backend.features.warehouse_ownership.ownership_report",
     "smoke:api-error-ownership": "python3 scripts/smoke-api-error-ownership.py",

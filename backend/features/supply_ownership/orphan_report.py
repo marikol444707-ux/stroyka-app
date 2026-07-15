@@ -214,7 +214,8 @@ def load_orphan_rows(cur):
             (request_ids,),
         ),
         "messenger_outbox": (
-            "SELECT id,company_id,CASE WHEN entity_type='supply_request' THEN entity_id END AS request_id "
+            "SELECT id,company_id,owner_scope,status,"
+            "CASE WHEN entity_type='supply_request' THEN entity_id END AS request_id "
             "FROM messenger_outbox WHERE (entity_type='supply_request' AND entity_id=ANY(%s)) "
             "OR id=ANY(%s) ORDER BY id",
             (request_ids, outbox_ids),

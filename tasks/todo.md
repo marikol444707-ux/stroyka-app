@@ -2121,18 +2121,18 @@
 
 **Description:** Prepare an exact cleanup plan for the `17` orphan recipients and `8` orphan offers whose requests no longer exist. Preserve the five already-terminal legacy MAX outbox rows and do not touch valid requests, invoices, deliveries, claims, warehouse documents or supply history.
 
-**Status:** Pending implementation. M7i1 proved there are no business-document or cross-company dependencies and fixed the source SHA.
+**Status:** Implemented locally. M7i1 proved there are no business-document or cross-company dependencies and fixed the source SHA. Production must run only the default dry-run before any apply decision.
 
 **Acceptance criteria:**
-- [ ] Dry-run requires source count `25` and SHA `99f5b9b8a3e7d45bbea2042e12dfbadf727447e58996975243f36f5cf0f001e8`; changed input fails closed.
-- [ ] Plan includes only the exact `17 supply_request_recipients` and `8 supplier_offers` rows whose parent requests are absent.
-- [ ] Messenger outbox rows `30/32/34/36/38` remain unchanged as terminal legacy history.
-- [ ] Any newly discovered invoice, delivery, claim, warehouse, history or owner-mismatch reference blocks the whole plan.
-- [ ] Default command is dry-run with `writesAttempted=0`; apply requires explicit expected count and plan SHA.
+- [x] Dry-run requires source count `25` and SHA `99f5b9b8a3e7d45bbea2042e12dfbadf727447e58996975243f36f5cf0f001e8`; changed input fails closed.
+- [x] Plan includes only the exact `17 supply_request_recipients` and `8 supplier_offers` rows whose parent requests are absent.
+- [x] Messenger outbox rows `30/32/34/36/38` remain unchanged as terminal legacy history.
+- [x] Any newly discovered invoice, delivery, claim, warehouse, history or owner-mismatch reference blocks the whole plan.
+- [x] Default command is dry-run with `writesAttempted=0`; apply requires explicit expected count and plan SHA.
 - [ ] Post-apply verification must rerun `audit:supply-ownership`, `audit:supply-orphans` and messenger ownership audit before M7i closes.
 
 **Verification:**
-- [ ] Unit tests cover exact-set success, changed-set failure, newly linked business document failure, preserved outbox rows, rollback and guarded apply.
+- [x] Unit tests cover exact-set success, changed-set failure, newly linked business document failure, preserved terminal-legacy outbox state, rollback and guarded apply (`10` remediation tests; `25` combined core-supply tests).
 - [ ] Production dry-run captures the exact delete plan before any apply.
 
 **Dependencies:** Task M7i1 production completion
