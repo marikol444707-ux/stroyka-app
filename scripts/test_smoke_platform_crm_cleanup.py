@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import unittest
 from pathlib import Path
 
@@ -10,6 +11,20 @@ SPEC.loader.exec_module(MODULE)
 
 
 class PlatformCrmCleanupTests(unittest.TestCase):
+    def test_smoke_token_marks_2fa_as_passed_for_temporary_user(self):
+        token = MODULE.auth_token_for(
+            {
+                "id": 101,
+                "email": "system-smoke@example.test",
+                "role": "system_owner",
+                "name": "System Smoke",
+            }
+        )
+        body, _signature = token.split(".", 1)
+        payload = json.loads(MODULE.base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+
+        self.assertIs(payload["twoFactorPassed"], True)
+
     def test_audit_cleanup_is_limited_to_current_smoke_prefix(self):
         class Cursor:
             def __init__(self):

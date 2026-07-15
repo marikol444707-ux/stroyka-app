@@ -86,6 +86,7 @@ def auth_token_for(user: dict) -> str:
         "email": user.get("email") or "",
         "role": user.get("role") or "",
         "name": user.get("name") or "",
+        "twoFactorPassed": True,
         "exp": int(time.time()) + 3600,
     }
     body = b64url(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
