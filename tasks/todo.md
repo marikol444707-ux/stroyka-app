@@ -1993,7 +1993,7 @@
 
 **Description:** After M7f1 is live, scope list/detail/update/delete/approve/invite/transfer routes and both CRM project-creation writers through stored lead/child ownership. Project creation must persist the lead's exact company instead of relying on a database default or UI context.
 
-**Status:** In progress. Company-scoped reads, lead/document/task update-delete, approvals, invitations and document transfer are complete in production; only both CRM project-creation writers remain pending.
+**Status:** In progress. Reads, mutations, approvals, invitations and document transfer are complete in production. Both project-creation URLs now use one stored-owner implementation locally; production deploy and protected verification remain.
 
 **Acceptance criteria:**
 - [x] Lead summaries use only companies where the effective actor has a CRM role; aggregate mode never broadens access beyond those memberships.
@@ -2002,11 +2002,12 @@
 - [x] Production smoke creates a foreign-company lead, proves it is absent from summaries and inaccessible by direct detail URL, then cleans it up.
 - [x] Scope lead update/delete and document/task update/delete through stored owner.
 - [x] Scope supplier/worker approval, invite and document transfer through stored owner.
-- [ ] Make both CRM project-creation writers authorize the lead owner and persist its exact company explicitly.
+- [x] Make both CRM project-creation writers authorize the lead owner and persist its exact company explicitly.
 
 **Verification:**
-- [x] Focused CRM tests (`36`) and full backend suite (`637`).
+- [x] Focused CRM tests (`41`) and full backend suite (`642`).
 - [x] Production deploy smoke, `smoke:platform-crm` with `foreignLeadHidden=true`, `ownMutationsChecked=true`, six foreign mutation `403` responses, `ownWorkflowOwnershipChecked=true` and four foreign workflow `403` responses, plus strict post-audit with zero legacy/unresolved/mismatched rows.
+- [ ] Deploy project creation runtime and confirm `projectCreationOwnershipChecked=true`, both foreign project-creation URLs reject access, and strict CRM audit remains clean.
 
 ### Task M7f2a-legacy: Scope Compatibility CRM List
 
