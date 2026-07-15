@@ -71,6 +71,7 @@
     "smoke:own-expense": "python3 scripts/smoke-own-expense-chain.py",
     "smoke:work-doc-chain": "python3 scripts/smoke-work-doc-chain.py",
     "smoke:supply-chain": "python3 scripts/smoke-supply-chain.py",
+    "smoke:main-warehouse-receipt": "python3 scripts/smoke-main-warehouse-receipt.py",
     "smoke:core-chains": "python3 scripts/smoke-core-chains.py",
     "smoke:optional-chains": "python3 scripts/smoke-optional-chains.py",
     "smoke:role-matrix": "python3 scripts/smoke-role-matrix.py",

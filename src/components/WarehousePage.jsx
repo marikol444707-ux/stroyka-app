@@ -239,6 +239,7 @@ export default function WarehousePage(props) {
 
       {warehouseTab === 'invoices' && (
         <WarehouseInvoicesPanel
+          user={user}
           showForm={showForm}
           setShowForm={setShowForm}
           newInvoice={newInvoice}

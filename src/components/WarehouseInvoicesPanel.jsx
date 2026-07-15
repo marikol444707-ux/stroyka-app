@@ -7,6 +7,7 @@ const INVOICE_VISIBLE_DESKTOP = 30;
 const INVOICE_VISIBLE_MOBILE = 12;
 
 export default function WarehouseInvoicesPanel({
+  user,
   showForm,
   setShowForm,
   newInvoice,
@@ -341,6 +342,7 @@ export default function WarehouseInvoicesPanel({
 
       {showForm && (
         <WarehouseInvoiceForm
+          user={user}
           newInvoice={newInvoice}
           setNewInvoice={setNewInvoice}
           suppliers={suppliers}

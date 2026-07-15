@@ -5,6 +5,7 @@ import { createWarehouseInvoiceItemForm } from '../../features/warehouse/warehou
 import { groupSuppliers } from '../../utils/supplierUtils';
 
 export function WarehouseInvoiceForm({
+  user,
   newInvoice,
   setNewInvoice,
   suppliers,
@@ -59,6 +60,26 @@ export function WarehouseInvoiceForm({
     ? {display:'grid',gridTemplateColumns:'1fr',gap:'8px',marginBottom:'10px',padding:'10px',borderRadius:'12px',border:'1.5px solid '+C.border,backgroundColor:C.bg,minWidth:0}
     : {display:'grid',gridTemplateColumns:'minmax(180px,2.5fr) 0.8fr 0.8fr 0.9fr minmax(120px,1.2fr) minmax(130px,1.4fr) minmax(180px,1.8fr) auto',gap:'6px',marginBottom:'8px',alignItems:'center'};
   const supplierOptions = React.useMemo(() => groupSuppliers(suppliers), [suppliers]);
+  const isMainWarehouse = newInvoice.location === 'Основной склад';
+  const canReceiveWithoutSupplier = ['директор', 'зам_директора'].includes(String(user?.role || ''));
+  const inventoryOnly = isMainWarehouse && newInvoice.inventoryOnly === true;
+
+  const setInventoryOnly = (enabled) => {
+    setNewInvoice({
+      ...newInvoice,
+      inventoryOnly: enabled,
+      accountingRequired: !enabled,
+      syncSupplierInvoice: !enabled,
+      selectedAction: enabled ? 'receive_stock_without_supplier' : 'receive_to_warehouse',
+      sourceType: enabled ? 'manual_main_receipt' : 'manual_main_invoice',
+      supplierId: enabled ? '' : newInvoice.supplierId,
+      supplier: enabled ? '' : newInvoice.supplier,
+      supplierName: enabled ? '' : newInvoice.supplierName,
+      isNewSupplier: enabled ? false : newInvoice.isNewSupplier,
+      newSupplierName: enabled ? '' : newInvoice.newSupplierName,
+      vat: enabled ? 'Без НДС' : newInvoice.vat,
+    });
+  };
 
   const setItem = (idx, patch) => {
     const items = [...invoiceItems];
@@ -120,6 +141,16 @@ export function WarehouseInvoiceForm({
       ...newInvoice,
       location,
       project: nextProject,
+      warehouseTarget: nextProject ? 'object' : 'main',
+      inventoryOnly: nextProject ? false : newInvoice.inventoryOnly,
+      accountingRequired: nextProject ? true : newInvoice.accountingRequired,
+      syncSupplierInvoice: nextProject ? true : newInvoice.syncSupplierInvoice,
+      selectedAction: nextProject
+        ? 'receive_to_warehouse'
+        : (newInvoice.inventoryOnly ? 'receive_stock_without_supplier' : 'receive_to_warehouse'),
+      sourceType: nextProject
+        ? 'manual_project_invoice'
+        : (newInvoice.inventoryOnly ? 'manual_main_receipt' : 'manual_main_invoice'),
       workPackage: nextDefault,
       items: invoiceItems.map(item => ({...item, workPackage: item.workPackage || nextDefault})),
     });
@@ -143,9 +174,20 @@ export function WarehouseInvoiceForm({
     <div style={{...card,padding:isMobile?'14px':'20px',marginBottom:'20px',overflow:'hidden'}}>
       <h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>Новая приходная накладная</h3>
       <div style={formGridStyle}>
-        <input placeholder="Номер накладной *" value={newInvoice.number} onChange={event => setNewInvoice({...newInvoice, number: event.target.value})} style={{...inp,marginBottom:0,width:'100%',minWidth:0,boxSizing:'border-box'}}/>
+        <input placeholder={inventoryOnly ? 'Номер документа (необязательно)' : 'Номер накладной *'} value={newInvoice.number} onChange={event => setNewInvoice({...newInvoice, number: event.target.value})} style={{...inp,marginBottom:0,width:'100%',minWidth:0,boxSizing:'border-box'}}/>
         <input type="date" value={newInvoice.date} onChange={event => setNewInvoice({...newInvoice, date: event.target.value})} style={{...inp,marginBottom:0,width:'100%',minWidth:0,boxSizing:'border-box'}}/>
-        <div style={{gridColumn:spanAll,minWidth:0}}>
+        {isMainWarehouse && canReceiveWithoutSupplier && (
+          <label style={{gridColumn:spanAll,display:'flex',gap:'10px',alignItems:'flex-start',padding:'12px',border:'1.5px solid '+(inventoryOnly?C.successBorder:C.border),backgroundColor:inventoryOnly?C.successLight:C.bg,borderRadius:'8px',cursor:'pointer'}}>
+            <input type="checkbox" checked={inventoryOnly} onChange={event => setInventoryOnly(event.target.checked)} style={{accentColor:C.success,marginTop:'2px'}}/>
+            <span>
+              <b style={{display:'block',color:C.text,fontSize:'13px'}}>Без поставщика и оплаты</b>
+              <span style={{display:'block',color:C.textSec,fontSize:'12px',lineHeight:1.45,marginTop:'3px'}}>
+                Материал попадёт на основной склад и в историю движений. Документ к оплате и задолженность поставщику не создаются.
+              </span>
+            </span>
+          </label>
+        )}
+        {!inventoryOnly && <div style={{gridColumn:spanAll,minWidth:0}}>
           <label style={{fontSize:'12px',color:C.textSec,display:'flex',alignItems:'center',gap:'8px',marginBottom:'8px',cursor:'pointer'}}>
             <input type="checkbox" checked={newInvoice.isNewSupplier} onChange={event => setNewInvoice({...newInvoice, isNewSupplier: event.target.checked})} style={{accentColor:C.accent}}/>
             Новый поставщик
@@ -158,9 +200,9 @@ export function WarehouseInvoiceForm({
               {supplierOptions.map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
             </select>
           )}
-        </div>
+        </div>}
         <input placeholder="Принял" value={newInvoice.acceptedBy} onChange={event => setNewInvoice({...newInvoice, acceptedBy: event.target.value})} style={{...inp,marginBottom:0,width:'100%',minWidth:0,boxSizing:'border-box'}}/>
-        <select value={newInvoice.vat} onChange={event => setNewInvoice({...newInvoice, vat: event.target.value})} style={{...inp,marginBottom:0,width:'100%',minWidth:0,boxSizing:'border-box'}}>
+        <select value={newInvoice.vat} disabled={inventoryOnly} onChange={event => setNewInvoice({...newInvoice, vat: event.target.value})} style={{...inp,marginBottom:0,width:'100%',minWidth:0,boxSizing:'border-box',opacity:inventoryOnly?0.65:1}}>
           {VAT_OPTIONS.map(value => <option key={value}>{value}</option>)}
         </select>
         <div style={{gridColumn:spanAll,minWidth:0}}>
@@ -410,9 +452,12 @@ export function WarehouseInvoiceCard({
     <div style={{...card,padding:isMobile?'14px':'16px',marginBottom:'10px',overflow:'hidden'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexDirection:isMobile?'column':'row'}}>
         <div style={{minWidth:0}}>
-          <b style={{color:C.text,fontSize:'14px'}}>{'Накладная № '+inv.number}</b>
-          <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{inv.date+' · '+inv.supplierName+' · '+(inv.location==='Основной склад'?'Основной склад':inv.project||'')}</p>
+          <b style={{color:C.text,fontSize:'14px'}}>{(inv.accountingRequired === false ? 'Складской приход № ' : 'Накладная № ')+inv.number}</b>
+          <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>
+            {[inv.date, inv.supplierName, inv.location==='Основной склад'?'Основной склад':inv.project||''].filter(Boolean).join(' · ')}
+          </p>
           <p style={{color:C.textSec,margin:'0',fontSize:'12px'}}>{'Принял: '+inv.acceptedBy+' · '+inv.vat+' · позиций: '+items.length}</p>
+          {inv.accountingRequired === false && <p style={{color:C.success,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>Без поставщика · не является документом к оплате</p>}
           {inv.status && <p style={{color:inv.status==='Аннулирована'?C.danger:C.textSec,margin:'2px 0 0',fontSize:'11px',fontWeight:'700'}}>{'Статус: '+inv.status}</p>}
           {isSupplyDeliveryInvoice(inv) && <p style={{color:C.success,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>Из поставки снабжения #{inv.supplyDeliveryId||inv.sourceId}{inv.supplyRequestId?' · заявка #'+inv.supplyRequestId:''}</p>}
           {inv.sourceType === 'manual_project_invoice' && <p style={{color:C.info,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>Ручной приход на объект · прямой заказ / распоряжение директора</p>}

@@ -1,4 +1,7 @@
-import { buildScanDraftInvoiceNumber } from '../../utils/accountingInvoices';
+import {
+  buildInternalWarehouseReceiptNumber,
+  buildScanDraftInvoiceNumber,
+} from '../../utils/accountingInvoices';
 import {
   createIssueToolForm,
   createToolForm,
@@ -76,12 +79,18 @@ export const createWarehouseCrudActions = ({
 
   const saveInvoiceNew = async () => {
     const isScannedInvoice = String(newInvoice.sourceType || '').startsWith('scan_') || Boolean(newInvoice.scanDocumentType || newInvoice.scanWarnings);
-    const invoiceNumber = String(newInvoice.number || '').trim() || (isScannedInvoice ? buildScanDraftInvoiceNumber() : '');
-    if (!invoiceNumber || newInvoice.items.filter(i=>i.name&&i.quantity).length===0) { alert('Заполните номер накладной и материалы'); return false; }
     if (!newInvoice.location) { alert('Выберите куда оприходовать (основной склад или объект)'); return false; }
-    let supplierId = newInvoice.supplierId;
-    let resolvedSupplierName = suppliers.find(s=>s.id===Number(supplierId))?.name || '';
-    if (newInvoice.isNewSupplier && newInvoice.newSupplierName) {
+    const inventoryOnlyMainReceipt = newInvoice.location === 'Основной склад' && newInvoice.inventoryOnly === true;
+    const invoiceNumber = String(newInvoice.number || '').trim()
+      || (inventoryOnlyMainReceipt ? buildInternalWarehouseReceiptNumber() : '')
+      || (isScannedInvoice ? buildScanDraftInvoiceNumber() : '');
+    if (!invoiceNumber || newInvoice.items.filter(i=>i.name&&i.quantity).length===0) {
+      alert(inventoryOnlyMainReceipt ? 'Добавьте материалы' : 'Заполните номер накладной и материалы');
+      return false;
+    }
+    let supplierId = inventoryOnlyMainReceipt ? '' : newInvoice.supplierId;
+    let resolvedSupplierName = inventoryOnlyMainReceipt ? '' : (suppliers.find(s=>s.id===Number(supplierId))?.name || '');
+    if (!inventoryOnlyMainReceipt && newInvoice.isNewSupplier && newInvoice.newSupplierName) {
       const normalizeSupplierName = value => String(value||'')
         .toLowerCase()
         .replace(/ё/g,'е')
@@ -107,6 +116,10 @@ export const createWarehouseCrudActions = ({
         resolvedSupplierName = newSup.name || newInvoice.newSupplierName;
       }
     }
+    if (!inventoryOnlyMainReceipt && newInvoice.location === 'Основной склад' && !supplierId && !resolvedSupplierName) {
+      alert('Выберите поставщика или включите режим «Без поставщика и оплаты»');
+      return false;
+    }
     const invoiceProject = newInvoice.location !== 'Основной склад' ? newInvoice.location : '';
     const invoicePackages = invoiceProject ? getProjectWorkPackageOptions(invoiceProject) : [];
     const defaultWorkPackage = newInvoice.workPackage || (invoicePackages.length === 1 ? invoicePackages[0] : '');
@@ -128,8 +141,12 @@ export const createWarehouseCrudActions = ({
     const photoUrls = Array.isArray(newInvoice.photoUrls) && newInvoice.photoUrls.length ? newInvoice.photoUrls : (Array.isArray(newInvoice.photos) ? newInvoice.photos : []);
     const photoUrl = photoUrls.length > 0 ? photoUrls[0] : (newInvoice.photoUrl || '');
     const warehouseTarget = newInvoice.warehouseTarget || (invoiceProject ? 'object' : 'main');
-    const selectedAction = newInvoice.selectedAction || 'receive_to_warehouse';
-    const sourceType = newInvoice.sourceType || (invoiceProject ? 'manual_project_invoice' : 'manual_main_invoice');
+    const selectedAction = inventoryOnlyMainReceipt
+      ? 'receive_stock_without_supplier'
+      : (newInvoice.selectedAction || 'receive_to_warehouse');
+    const sourceType = inventoryOnlyMainReceipt
+      ? 'manual_main_receipt'
+      : (newInvoice.sourceType || (invoiceProject ? 'manual_project_invoice' : 'manual_main_invoice'));
     const materialMatch = validItems.map((item, index) => ({
       row:index+1,
       name:item.name || '',
@@ -143,8 +160,8 @@ export const createWarehouseCrudActions = ({
       id:Date.now(),
       number:invoiceNumber,
       date:newInvoice.date,
-      supplierId:Number(supplierId)||0,
-      supplierName:resolvedSupplierName||suppliers.find(s=>s.id===Number(supplierId))?.name||newInvoice.newSupplierName||'',
+      supplierId:inventoryOnlyMainReceipt ? null : (Number(supplierId)||0),
+      supplierName:inventoryOnlyMainReceipt ? '' : (resolvedSupplierName||suppliers.find(s=>s.id===Number(supplierId))?.name||newInvoice.newSupplierName||''),
       acceptedBy:newInvoice.acceptedBy||user.name,
       location:newInvoice.location,
       project:invoiceProject,
@@ -160,6 +177,9 @@ export const createWarehouseCrudActions = ({
       status:'Принята',
       addedBy:user.name,
       warehouseTarget,
+      inventoryOnly:inventoryOnlyMainReceipt,
+      accountingRequired:!inventoryOnlyMainReceipt,
+      syncSupplierInvoice:!inventoryOnlyMainReceipt,
       selectedAction,
       sourceType,
       sourceId:newInvoice.sourceId||null,

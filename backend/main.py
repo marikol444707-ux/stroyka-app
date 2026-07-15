@@ -152,6 +152,21 @@ except ModuleNotFoundError:
     from features.project_payment_access.service import project_payment_visibility_filter
 
 try:
+    from backend.features.warehouse_receipts.policy import (
+        WarehouseReceiptPolicyError,
+        build_internal_receipt_number,
+        resolve_warehouse_receipt_policy,
+        warehouse_invoice_accounting_required,
+    )
+except ModuleNotFoundError:
+    from features.warehouse_receipts.policy import (
+        WarehouseReceiptPolicyError,
+        build_internal_receipt_number,
+        resolve_warehouse_receipt_policy,
+        warehouse_invoice_accounting_required,
+    )
+
+try:
     from backend.features.brigade_access.service import (
         brigade_contract_project_reference,
         brigade_contract_visibility_filter,
@@ -24147,7 +24162,9 @@ def get_warehouse_invoices(
         if not photo_urls and r[15]:
             photo_urls = [r[15]]
         material_match = _json_list_or_empty(r[24]) if len(r) > 24 else []
-        result.append({"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":total_base,"totalVat":total_vat,"totalWithVat":total_with_vat,"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or "","photos":photo_urls,"pagesCount":r[21] or len(photo_urls) or 1,"sourceType":r[16] or "","sourceId":r[17],"supplyDeliveryId":r[18],"supplyRequestId":r[19],"warehouseTarget":(r[22] if len(r) > 22 else "") or ("object" if r[7] else "main"),"selectedAction":(r[23] if len(r) > 23 else "") or "","materialMatch":material_match,"accountingStatus":(r[25] if len(r) > 25 else "") or "","accountingComment":(r[26] if len(r) > 26 else "") or "","accountingUpdatedBy":(r[27] if len(r) > 27 else "") or "","accountingUpdatedAt":str(r[28]) if len(r) > 28 and r[28] else "","paidAmount":float(r[29] or 0) if len(r) > 29 else 0,"paidAt":(r[30] if len(r) > 30 else "") or "","paidBy":(r[31] if len(r) > 31 else "") or "","supplierInvoiceId":r[32] if len(r) > 32 else None,"companyId":r[33] if len(r) > 33 else None})
+        invoice_result = {"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":total_base,"totalVat":total_vat,"totalWithVat":total_with_vat,"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or "","photos":photo_urls,"pagesCount":r[21] or len(photo_urls) or 1,"sourceType":r[16] or "","sourceId":r[17],"supplyDeliveryId":r[18],"supplyRequestId":r[19],"warehouseTarget":(r[22] if len(r) > 22 else "") or ("object" if r[7] else "main"),"selectedAction":(r[23] if len(r) > 23 else "") or "","materialMatch":material_match,"accountingStatus":(r[25] if len(r) > 25 else "") or "","accountingComment":(r[26] if len(r) > 26 else "") or "","accountingUpdatedBy":(r[27] if len(r) > 27 else "") or "","accountingUpdatedAt":str(r[28]) if len(r) > 28 and r[28] else "","paidAmount":float(r[29] or 0) if len(r) > 29 else 0,"paidAt":(r[30] if len(r) > 30 else "") or "","paidBy":(r[31] if len(r) > 31 else "") or "","supplierInvoiceId":r[32] if len(r) > 32 else None,"companyId":r[33] if len(r) > 33 else None}
+        invoice_result["accountingRequired"] = warehouse_invoice_accounting_required(invoice_result)
+        result.append(invoice_result)
     return result
 
 def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_company_id=None, x_company_mode=None):
@@ -24229,6 +24246,22 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
         if (actor.get("role") or "") not in WAREHOUSE_ROLES:
             raise HTTPException(status_code=403, detail="Роль в выбранной компании не позволяет принимать складские накладные")
         current_user = actor
+        try:
+            receipt_policy = resolve_warehouse_receipt_policy(
+                data,
+                target_project=target_project,
+                role=current_user.get("role") or "",
+            )
+        except WarehouseReceiptPolicyError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc))
+        inventory_only = bool(receipt_policy.get("inventoryOnly"))
+        accounting_required = bool(receipt_policy.get("accountingRequired"))
+        if inventory_only:
+            source_type = "manual_main_receipt"
+            data["supplierId"] = None
+            data["supplierName"] = ""
+            data["supplier"] = ""
+            data["syncSupplierInvoice"] = False
         if target_project:
             require_project_or_warehouse_access(current_user, target_project)
         if supplier_invoice_id and current_user.get("role") not in FINANCE_ROLES:
@@ -24254,6 +24287,9 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
             if cur.fetchone():
                 raise HTTPException(status_code=409, detail="По этому источнику накладная уже принята")
         invoice_number = (data.get("number") or "").strip()
+        if inventory_only and not invoice_number:
+            invoice_number = build_internal_receipt_number()
+            data["number"] = invoice_number
         invoice_date = data.get("date") or None
         supplier_name = (data.get("supplierName") or "").strip()
         supplier_lookup_payload = {
@@ -24323,7 +24359,7 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
         pages_count = int(data.get("pagesCount") or data.get("pages_count") or len(photo_urls) or 1)
         warehouse_target = str(data.get("warehouseTarget") or data.get("warehouse_target") or ("object" if target_project else "main")).strip()
         warehouse_target = warehouse_target if warehouse_target in {"main", "object"} else ("object" if target_project else "main")
-        selected_action = str(data.get("selectedAction") or data.get("selected_action") or "receive_to_warehouse").strip() or "receive_to_warehouse"
+        selected_action = receipt_policy.get("selectedAction") or "receive_to_warehouse"
         material_match = data.get("materialMatch") or data.get("material_match") or []
         if isinstance(material_match, str):
             try:
@@ -24493,12 +24529,15 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
     result = {
         "id": invoice_id,
         "ok": True,
+        "number": invoice_number,
+        "inventoryOnly": inventory_only,
+        "accountingRequired": accounting_required,
         "stockRowsAdded": stock_rows_added,
         "historyAdded": history_added,
         "inspectionsAdded": inspections_added,
         "cablesAdded": cables_added,
     }
-    if (data or {}).get("syncSupplierInvoice") is not False and (data or {}).get("sync_supplier_invoice") is not False:
+    if accounting_required and (data or {}).get("syncSupplierInvoice") is not False and (data or {}).get("sync_supplier_invoice") is not False:
         try:
             accounting_link = _sync_supplier_invoice_from_warehouse(invoice_id, data, current_user)
             result["supplierInvoiceId"] = accounting_link.get("id")
@@ -24539,9 +24578,14 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
         if not warehouse_invoice:
             raise HTTPException(status_code=404, detail="Складская накладная для бухгалтерии не найдена")
         existing_supplier_invoice_id = warehouse_invoice.get("supplier_invoice_id")
-        if existing_supplier_invoice_id:
+        if existing_supplier_invoice_id and warehouse_invoice_accounting_required(warehouse_invoice):
             conn.commit()
             return {"id": existing_supplier_invoice_id, "ok": True, "alreadyExists": True}
+        if not warehouse_invoice_accounting_required(warehouse_invoice):
+            raise HTTPException(
+                status_code=409,
+                detail="Приход на основной склад без поставщика не создаёт первичку и задолженность",
+            )
 
         items = _json_list_or_empty(warehouse_invoice.get("items"))
         first_item = items[0] if items and isinstance(items[0], dict) else {}
@@ -25197,10 +25241,10 @@ def update_warehouse_invoice_accounting(
     try:
         _ensure_warehouse_invoice_accounting_columns(cur)
         _ensure_invoice_document_link_columns(cur)
-        cur.execute("""SELECT id, number, date, supplier_name, location, project, items,
+        cur.execute("""SELECT id, number, date, supplier_id, supplier_name, location, project, items,
                               total_base, total_vat, total_with_vat, status, photo_url, photo_urls,
                               accounting_status, accounting_comment, paid_amount, supplier_invoice_id,
-                              company_id
+                              company_id, warehouse_target, selected_action
                        FROM warehouse_invoices WHERE id=%s FOR UPDATE""", (id,))
         row = cur.fetchone()
         if not row:
@@ -25219,6 +25263,11 @@ def update_warehouse_invoice_accounting(
             client_account_roles=CLIENT_ACCOUNT_ROLES,
         )
         _current_user = actor
+        if not warehouse_invoice_accounting_required(row):
+            raise HTTPException(
+                status_code=409,
+                detail="Приход на основной склад без поставщика не является документом к оплате",
+            )
         if row.get("status") == "Аннулирована":
             raise HTTPException(status_code=409, detail="Аннулированную накладную нельзя отправить в оплату")
 
@@ -28215,6 +28264,12 @@ def list_supplier_invoices(
         wi.photo_urls AS warehouse_invoice_photo_urls,
         wi.items AS warehouse_invoice_items,
         wi.status AS warehouse_invoice_status,
+        wi.supplier_id AS warehouse_invoice_supplier_id,
+        wi.supplier_name AS warehouse_invoice_supplier_name,
+        wi.warehouse_target AS warehouse_invoice_target,
+        wi.selected_action AS warehouse_invoice_selected_action,
+        wi.location AS warehouse_invoice_location,
+        wi.project AS warehouse_invoice_project_name,
         COALESCE(NULLIF(wi.project,''), NULLIF(wi.location,''), si.project_name) AS warehouse_invoice_project,
         sd.id AS delivery_id,
         sd.status AS delivery_status,
@@ -28301,6 +28356,18 @@ def list_supplier_invoices(
         photo_urls = _json_list_or_empty(r.get("warehouse_invoice_photo_urls"))
         warehouse_photo_url = r.get("warehouse_invoice_photo_url") or (photo_urls[0] if photo_urls else "")
         warehouse_invoice_id = r.get("linked_warehouse_invoice_id")
+        accounting_required = True
+        if warehouse_invoice_id:
+            accounting_required = warehouse_invoice_accounting_required({
+                "supplier_id": r.get("warehouse_invoice_supplier_id") or r.get("supplier_id"),
+                "supplier_name": r.get("warehouse_invoice_supplier_name") or r.get("supplier_name") or "",
+                "warehouse_target": r.get("warehouse_invoice_target") or "",
+                "selected_action": r.get("warehouse_invoice_selected_action") or "",
+                "location": r.get("warehouse_invoice_location") or "",
+                "project": r.get("warehouse_invoice_project_name") or "",
+            })
+        if not accounting_required:
+            continue
         result.append({
             "id": r.get("id"), "companyId": r.get("company_id"), "supplierId": r.get("supplier_id"), "supplierName": r.get("supplier_name") or "",
             "projectName": r.get("project_name") or "", "invoiceNumber": r.get("invoice_number") or "",
@@ -28317,6 +28384,7 @@ def list_supplier_invoices(
             "offerId": r.get("offer_id"), "requestId": r.get("request_id"),
             "paymentTerms": r.get("payment_terms") or "", "materialName": r.get("material_name") or "",
             "workPackage": r.get("work_package") or "", "warehouseInvoiceId": warehouse_invoice_id,
+            "accountingRequired": accounting_required,
             "warehouseInvoiceNumber": r.get("warehouse_invoice_number") or "",
             "warehouseInvoiceDate": str(r.get("warehouse_invoice_date")) if r.get("warehouse_invoice_date") else "",
             "warehouseInvoicePhotoUrl": warehouse_photo_url or "",

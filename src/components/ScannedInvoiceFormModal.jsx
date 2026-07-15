@@ -4,6 +4,7 @@ import { API } from '../api';
 import { createWarehouseInvoiceItemForm } from '../features/warehouse/warehouseInitialForms';
 
 export default function ScannedInvoiceFormModal({
+  user,
   showScannedInvoiceForm,
   setShowScannedInvoiceForm,
   C,
@@ -30,6 +31,9 @@ export default function ScannedInvoiceFormModal({
   const defaultWorkPackage = packageOptions.length === 1 ? packageOptions[0] : '';
   const isScannedInvoice = String(newInvoice.sourceType || '').startsWith('scan_') || Boolean(newInvoice.scanDocumentType || newInvoice.scanWarnings || newInvoice.scanRecognition);
   const scanRecognition = newInvoice.scanRecognition || {};
+  const isMainWarehouse = newInvoice.location === 'Основной склад';
+  const canReceiveWithoutSupplier = ['директор', 'зам_директора'].includes(String(user?.role || ''));
+  const inventoryOnly = isMainWarehouse && newInvoice.inventoryOnly === true;
 
   const updateItem = (idx, patch) => {
     const items=[...newInvoice.items];
@@ -67,6 +71,16 @@ export default function ScannedInvoiceFormModal({
       ...newInvoice,
       location,
       project,
+      warehouseTarget: project ? 'object' : 'main',
+      inventoryOnly: project ? false : newInvoice.inventoryOnly,
+      accountingRequired: project ? true : newInvoice.accountingRequired,
+      syncSupplierInvoice: project ? true : newInvoice.syncSupplierInvoice,
+      selectedAction: project
+        ? 'receive_to_warehouse'
+        : (newInvoice.inventoryOnly ? 'receive_stock_without_supplier' : 'receive_to_warehouse'),
+      sourceType: project
+        ? (isScannedInvoice ? newInvoice.sourceType : 'manual_project_invoice')
+        : (newInvoice.inventoryOnly ? 'manual_main_receipt' : (isScannedInvoice ? newInvoice.sourceType : 'manual_main_invoice')),
       workPackage: defaultPackage,
       items: (newInvoice.items || []).map(item => ({...item, workPackage: item.workPackage || defaultPackage})),
       ...(isScannedInvoice ? {scanHasManualCorrections:true} : {}),
@@ -74,7 +88,7 @@ export default function ScannedInvoiceFormModal({
   };
 
   const save = async () => {
-    if(!newInvoice.number) return alert('Укажите номер накладной');
+    if(!newInvoice.number && !inventoryOnly) return alert('Укажите номер накладной');
     if(!newInvoice.location) return alert('Выберите склад');
     const validItems=(newInvoice.items||[]).filter(i=>i.name&&Number(i.quantity)>0);
     if(!validItems.length) return alert('Добавьте хотя бы одну позицию');
@@ -89,6 +103,22 @@ export default function ScannedInvoiceFormModal({
       ...newInvoice,
       ...patch,
       ...(markEdited && isScannedInvoice ? {scanHasManualCorrections:true} : {}),
+    });
+  };
+
+  const setInventoryOnly = (enabled) => {
+    patchInvoice({
+      inventoryOnly: enabled,
+      accountingRequired: !enabled,
+      syncSupplierInvoice: !enabled,
+      selectedAction: enabled ? 'receive_stock_without_supplier' : 'receive_to_warehouse',
+      sourceType: enabled ? 'manual_main_receipt' : 'manual_main_invoice',
+      supplierId: enabled ? '' : newInvoice.supplierId,
+      supplier: enabled ? '' : newInvoice.supplier,
+      supplierName: enabled ? '' : newInvoice.supplierName,
+      isNewSupplier: enabled ? false : newInvoice.isNewSupplier,
+      newSupplierName: enabled ? '' : newInvoice.newSupplierName,
+      vat: enabled ? 'Без НДС' : newInvoice.vat,
     });
   };
 
@@ -157,7 +187,7 @@ export default function ScannedInvoiceFormModal({
   const displayVat = Number(newInvoice.totalVat||0);
   const scanWarnings = Array.isArray(newInvoice.scanWarnings) ? newInvoice.scanWarnings.filter(Boolean) : [];
   const isDraftNumber = /^SCAN-\d{8}-\d{4}$/i.test(String(newInvoice.number || ''));
-  const canRememberTemplate = isScannedInvoice && String(newInvoice.supplier || newInvoice.newSupplierName || scanRecognition.supplierName || '').trim();
+  const canRememberTemplate = !inventoryOnly && isScannedInvoice && String(newInvoice.supplier || newInvoice.newSupplierName || scanRecognition.supplierName || '').trim();
 
   return (
     <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:isMobile?'center':'center',justifyContent:'center',padding:isMobile?'12px':0,boxSizing:'border-box'}}>
@@ -186,16 +216,27 @@ export default function ScannedInvoiceFormModal({
             {scanWarnings.map((warning, index) => <div key={index}>{warning}</div>)}
           </div>
         )}
-        <input placeholder='Номер документа *' value={newInvoice.number||''} onChange={e=>patchInvoice({number:e.target.value})} style={inputStyle}/>
-        <input placeholder='Поставщик' value={newInvoice.supplier||newInvoice.newSupplierName||''} onChange={e=>patchInvoice({supplier:e.target.value,newSupplierName:e.target.value,isNewSupplier:true})} style={inputStyle}/>
+        <input placeholder={inventoryOnly ? 'Номер документа (необязательно)' : 'Номер документа *'} value={newInvoice.number||''} onChange={e=>patchInvoice({number:e.target.value})} style={inputStyle}/>
+        {!inventoryOnly && <input placeholder='Поставщик' value={newInvoice.supplier||newInvoice.newSupplierName||''} onChange={e=>patchInvoice({supplier:e.target.value,newSupplierName:e.target.value,isNewSupplier:true})} style={inputStyle}/>}
         <select value={newInvoice.location||''} onChange={e=>updateLocation(e.target.value)} style={inputStyle}>
           <option value=''>Выберите склад *</option>
           <option value='Основной склад'>📦 Основной склад</option>
           {projects.map(p=><option key={p.id} value={p.name}>🏗️ {p.name}</option>)}
         </select>
+        {isMainWarehouse && canReceiveWithoutSupplier && (
+          <label style={{display:'flex',gap:'10px',alignItems:'flex-start',padding:'12px',border:'1.5px solid '+(inventoryOnly?C.successBorder:C.border),backgroundColor:inventoryOnly?C.successLight:C.bg,borderRadius:'8px',cursor:'pointer',marginBottom:'10px'}}>
+            <input type='checkbox' checked={inventoryOnly} onChange={event=>setInventoryOnly(event.target.checked)} style={{accentColor:C.success,marginTop:'2px'}}/>
+            <span>
+              <b style={{display:'block',color:C.text,fontSize:isMobile?'15px':'13px'}}>Без поставщика и оплаты</b>
+              <span style={{display:'block',color:C.textSec,fontSize:isMobile?'13px':'12px',lineHeight:1.45,marginTop:'3px'}}>
+                Только приход на основной склад. В бухгалтерию и задолженность поставщику документ не попадёт.
+              </span>
+            </span>
+          </label>
+        )}
         <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:'8px'}}>
           <input type='date' value={newInvoice.date||new Date().toISOString().split('T')[0]} onChange={e=>patchInvoice({date:e.target.value})} style={inputStyle}/>
-          <select value={newInvoice.vat||'Без НДС'} onChange={e=>patchInvoice({vat:e.target.value})} style={inputStyle}>
+          <select value={newInvoice.vat||'Без НДС'} disabled={inventoryOnly} onChange={e=>patchInvoice({vat:e.target.value})} style={{...inputStyle,opacity:inventoryOnly?0.65:1}}>
             <option value='Без НДС'>Без НДС</option>
             <option value='С НДС 20%'>С НДС 20%</option>
             <option value='С НДС 22%'>С НДС 22%</option>

@@ -21,6 +21,35 @@ export const buildScanDraftInvoiceNumber = (date = new Date()) => {
   return `SCAN-${stamp}-${time}`;
 };
 
+export const buildInternalWarehouseReceiptNumber = (date = new Date()) => {
+  const stamp = [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('');
+  const time = [
+    String(date.getHours()).padStart(2, '0'),
+    String(date.getMinutes()).padStart(2, '0'),
+    String(date.getSeconds()).padStart(2, '0'),
+    String(date.getMilliseconds()).padStart(3, '0'),
+  ].join('');
+  return `ПРИХОД-${stamp}-${time}`;
+};
+
+export const isWarehouseInvoiceAccountingRequired = (invoice = {}) => {
+  if (String(invoice.selectedAction || invoice.selected_action || '') === 'receive_stock_without_supplier') return false;
+  if (invoice.accountingRequired === false || invoice.accounting_required === false) return false;
+  const project = String(invoice.project || '').trim();
+  const location = String(invoice.location || '').trim();
+  const target = String(invoice.warehouseTarget || invoice.warehouse_target || '').trim();
+  const isMainWarehouse = target === 'main' || (!project && location === 'Основной склад');
+  const supplierId = Number(invoice.supplierId || invoice.supplier_id || 0);
+  const supplierName = String(
+    invoice.supplierName || invoice.supplier_name || invoice.supplier || invoice.newSupplierName || '',
+  ).trim();
+  return !(isMainWarehouse && supplierId <= 0 && !supplierName);
+};
+
 export const buildInvoicePrintPayload = ({
   inv = {},
   invoiceRows = { items: [] },
@@ -105,6 +134,7 @@ export const buildAccountingInvoiceRows = (invoices = [], controlFn, options = {
   return (
     (invoices || [])
       .filter(invoice => String(invoice.status || '') !== 'Аннулирована')
+      .filter(isWarehouseInvoiceAccountingRequired)
       .map(invoice => {
         const controls = includeControls && typeof controlFn === 'function'
           ? (controlFn(invoice) || []).filter(row => row && row.name)

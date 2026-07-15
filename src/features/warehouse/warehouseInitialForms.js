@@ -77,6 +77,8 @@ export const createWarehouseInvoiceForm = (overrides = {}) => ({
   location: 'Основной склад',
   project: '',
   warehouseTarget: 'main',
+  inventoryOnly: false,
+  syncSupplierInvoice: true,
   selectedAction: 'receive_to_warehouse',
   sourceType: 'manual_main_invoice',
   sourceId: null,

@@ -1,0 +1,1 @@
+"""Warehouse receipt business rules."""

@@ -2169,6 +2169,29 @@
 
 **Estimated scope:** S
 
+## Task M7k1: Separate Main Warehouse Receipt From Supplier Payable
+
+**Description:** Allow a director or deputy director to receive material into the main warehouse without a supplier document or payable, while preserving the existing supplier-backed invoice chain.
+
+**Status:** Implemented locally. Production deploy and `smoke:main-warehouse-receipt` remain pending.
+
+**Safety:**
+- The inventory-only mode is explicit, main-warehouse-only and revalidated on the backend for `директор` or `зам_директора`.
+- Supplier identity and `supplier_invoice_id` are forbidden in this mode; the backend never creates or syncs `supplier_invoices`.
+- The material and `warehouse_history` receipt remain ordinary stock facts. Only accounting/payable behavior is excluded.
+- Legacy supplierless main-warehouse receipts are excluded from warehouse and supplier accounting lists even if an old bad reciprocal link exists.
+- Supplier-backed main-warehouse documents retain the existing accounting chain and access roles.
+
+**Verification:**
+- [x] Backend policy unit tests.
+- [x] Frontend accounting-policy unit tests.
+- [x] Python compilation and production frontend build.
+- [ ] Production deploy.
+- [ ] Protected `npm run smoke:main-warehouse-receipt` with director 2FA.
+- [ ] `npm run smoke:prod` and both ownership audits after deploy.
+
+**Estimated scope:** S
+
 ## Task 12: Extract Auth Helpers
 
 **Description:** Move auth/session helper functions from `backend/main.py` into `backend/auth.py` without changing behavior.

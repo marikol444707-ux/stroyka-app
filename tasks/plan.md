@@ -166,6 +166,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [ ] Task M7i1: Diagnose the `25` orphaned core-supply children and their downstream references read-only; local fail-closed report and tests are complete, production dry-run pending. Do not delete, guess or reassign rows before an exact guarded remediation plan.
 - [ ] Task M7j: Register `supplier_invoices` and `supply_deliveries`, then audit exact company/project/request/offer ownership. Production verified `52/53`; the only unresolved row is projectless supplier invoice `#15`, now locally classified through its exact reciprocal main-warehouse parent pending production re-run.
 - [ ] Task M7k: Register `warehouse_invoices` and `warehouse_history`, then audit exact company/project/main-warehouse and optional document-parent ownership. Production verified `403/404`; all `359` history rows are clean and the only unresolved warehouse invoice `#37` is the same main-warehouse chain fixed locally pending re-run.
+- [ ] Task M7k1: Separate supplier documents from inventory-only main-warehouse receipts. Local backend policy, director/deputy UI, accounting exclusion and targeted production smoke are complete; production deploy and smoke remain pending.
 
 ### Checkpoint: SaaS Boundary
 
