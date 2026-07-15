@@ -42,6 +42,7 @@ PUBLIC_SITE_LEAD_CASES = (
     {"partnerType": "brigade", "leadType": "Бригадир", "reviewStatus": "На проверке", "name": "Public Brigade"},
     {"partnerType": "subcontractor", "leadType": "Субподрядчик", "reviewStatus": "На проверке", "name": "Public Subcontractor"},
 )
+PUBLIC_LEAD_PACE_SECONDS = float(os.getenv("SMOKE_PUBLIC_LEAD_PACE_SECONDS", "13"))
 
 
 def load_env():
@@ -959,6 +960,8 @@ def check_crm(crm_token, foreign_company_id):
         raise RuntimeError("PUBLIC_SITE_COMPANY_ID must be configured before CRM writer smoke")
     public_leads = []
     for index, case in enumerate(PUBLIC_SITE_LEAD_CASES):
+        if PUBLIC_LEAD_PACE_SECONDS > 0:
+            time.sleep(PUBLIC_LEAD_PACE_SECONDS)
         _, public_lead = api_json(
             "POST",
             "/site/leads",
