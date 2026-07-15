@@ -1199,6 +1199,8 @@ export const ProjectConceptVisual = ({ direction, project, media }) => {
         className={`public-project-media-image ${media.role === 'plan' ? 'is-plan' : 'is-render'}`}
         src={media.src}
         alt={`${media.label || 'Визуал'}: ${profile.title}`}
+        loading="lazy"
+        decoding="async"
       />
     );
   }
@@ -1246,6 +1248,8 @@ export const ProjectConceptThumb = ({ direction, project }) => {
         className="public-project-concept-thumb image-thumb"
         src={imageMedia.src}
         alt=""
+        loading="lazy"
+        decoding="async"
       />
     );
   }
