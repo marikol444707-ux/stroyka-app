@@ -35,6 +35,13 @@ CLIENT_ACCOUNT_EMAILS = {
 }
 PROJECT_NAME = f"{PREFIX} Project"
 PROJECT_CREATE_NAME = f"{PREFIX} Created Project"
+PUBLIC_SITE_LEAD_CASES = (
+    {"partnerType": None, "leadType": "Клиент", "reviewStatus": "Новая", "name": "Public Client"},
+    {"partnerType": "supplier", "leadType": "Поставщик", "reviewStatus": "На проверке", "name": "Public Supplier"},
+    {"partnerType": "master", "leadType": "Мастер", "reviewStatus": "На проверке", "name": "Public Master"},
+    {"partnerType": "brigade", "leadType": "Бригадир", "reviewStatus": "На проверке", "name": "Public Brigade"},
+    {"partnerType": "subcontractor", "leadType": "Субподрядчик", "reviewStatus": "На проверке", "name": "Public Subcontractor"},
+)
 
 
 def load_env():
@@ -931,41 +938,59 @@ def check_crm(crm_token):
     public_company_id = int(env_value("PUBLIC_SITE_COMPANY_ID", "0") or 0)
     if public_company_id <= 0:
         raise RuntimeError("PUBLIC_SITE_COMPANY_ID must be configured before CRM writer smoke")
-    _, public_lead = api_json(
-        "POST",
-        "/site/leads",
-        expected=200,
-        headers={"X-Forwarded-For": f"198.51.{int(RUN_ID[:2], 16)}.{int(RUN_ID[2:4], 16)}"},
-        data={
-            "name": f"{PREFIX} Public Lead",
-            "phone": "+70000000004",
-            "source": "public-site-smoke",
-            "consentAccepted": True,
-            "consentVersion": "smoke",
-        },
-    )
-    public_lead_id = public_lead.get("id")
+    public_leads = []
+    for index, case in enumerate(PUBLIC_SITE_LEAD_CASES):
+        _, public_lead = api_json(
+            "POST",
+            "/site/leads",
+            expected=200,
+            headers={"X-Forwarded-For": f"198.51.{int(RUN_ID[:2], 16)}.{10 + index}"},
+            data={
+                "name": f"{PREFIX} {case['name']}",
+                "phone": f"+700000000{4 + index:02d}",
+                "source": "public-site-smoke",
+                "page": "public-site-partners" if case["partnerType"] else "public-site",
+                "partnerType": case["partnerType"],
+                "consentAccepted": True,
+                "consentVersion": "smoke",
+            },
+        )
+        public_lead_id = public_lead.get("id")
+        if not public_lead_id:
+            raise RuntimeError(f"public CRM lead create returned invalid body: {public_lead}")
+        public_leads.append({**case, "id": public_lead_id})
+    public_lead_ids = [item["id"] for item in public_leads]
     conn = db_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute("SELECT company_id FROM crm_leads WHERE id=%s", (public_lead_id,))
-        public_owner = cur.fetchone()
         cur.execute(
-            "SELECT company_id,project_id FROM crm_lead_tasks "
-            "WHERE lead_id=%s AND created_by='Сайт' ORDER BY id DESC LIMIT 1",
-            (public_lead_id,),
+            "SELECT id,company_id,lead_type,review_status FROM crm_leads WHERE id=ANY(%s)",
+            (public_lead_ids,),
         )
-        public_task_owner = cur.fetchone()
+        public_owners = {row["id"]: row for row in (cur.fetchall() or [])}
+        cur.execute(
+            "SELECT lead_id,company_id,project_id FROM crm_lead_tasks "
+            "WHERE lead_id=ANY(%s) AND created_by='Сайт'",
+            (public_lead_ids,),
+        )
+        public_task_owners = {row["lead_id"]: row for row in (cur.fetchall() or [])}
     finally:
         cur.close()
         conn.close()
-    if (public_owner or {}).get("company_id") != public_company_id:
-        raise RuntimeError(f"public CRM lead owner mismatch: {public_owner}")
-    if (
-        (public_task_owner or {}).get("company_id") != public_company_id
-        or (public_task_owner or {}).get("project_id") is not None
-    ):
-        raise RuntimeError(f"public CRM task owner mismatch: {public_task_owner}")
+    for expected in public_leads:
+        public_owner = public_owners.get(expected["id"]) or {}
+        if (
+            public_owner.get("company_id") != public_company_id
+            or public_owner.get("lead_type") != expected["leadType"]
+            or public_owner.get("review_status") != expected["reviewStatus"]
+        ):
+            raise RuntimeError(f"public CRM lead routing mismatch: {public_owner}")
+        public_task_owner = public_task_owners.get(expected["id"]) or {}
+        if (
+            public_task_owner.get("company_id") != public_company_id
+            or public_task_owner.get("project_id") is not None
+        ):
+            raise RuntimeError(f"public CRM task owner mismatch: {public_task_owner}")
     return {
         "supplierLeadId": supplier_lead_id,
         "workerLeadId": worker_lead_id,
@@ -974,7 +999,8 @@ def check_crm(crm_token):
         "createdProjectId": created_project_id,
         "transferredProjectDocumentIds": transfer.get("created", []),
         "ownershipChecked": True,
-        "publicLeadId": public_lead_id,
+        "publicLeadId": public_lead_ids[0],
+        "publicPartnerLeadIds": public_lead_ids[1:],
     }
 
 
@@ -1018,6 +1044,7 @@ def main():
                 "crm invite creation",
                 "crm lead to project",
                 "crm document transfer to project documents",
+                "public client and partner lead routing",
             ],
             "platform": platform_result,
             "platformRoles": platform_roles_result,

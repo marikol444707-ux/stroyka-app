@@ -12,6 +12,18 @@ SPEC.loader.exec_module(MODULE)
 
 
 class PlatformCrmCleanupTests(unittest.TestCase):
+    def test_public_site_partner_cases_cover_every_supported_type(self):
+        self.assertEqual(
+            [(case["partnerType"], case["leadType"]) for case in MODULE.PUBLIC_SITE_LEAD_CASES],
+            [
+                (None, "Клиент"),
+                ("supplier", "Поставщик"),
+                ("master", "Мастер"),
+                ("brigade", "Бригадир"),
+                ("subcontractor", "Субподрядчик"),
+            ],
+        )
+
     def test_complete_2fa_setup_confirms_registration_challenge(self):
         with (
             patch.object(MODULE, "totp_code", return_value="123456"),
