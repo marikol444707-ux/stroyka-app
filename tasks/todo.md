@@ -1828,6 +1828,28 @@
 
 **Estimated scope:** L, delivered as separate migration slices
 
+## Task M7a: Read-Only Tenant Constraint Readiness
+
+**Description:** Add one fail-closed operator report that combines the M6 tenant registry with technical database ownership facts. The report must identify registry gaps, pending runtime releases, missing owner columns/indexes, null or invalid scopes, orphan companies/projects, and project-company mismatches before any M7 constraint is designed or applied.
+
+**Status:** Implemented locally. Production execution of `npm run audit:tenant-readiness` is still required; a blocked result is expected while M4-M6 registry gaps remain and is not permission to apply constraints.
+
+**Acceptance criteria:**
+- [x] Report uses a PostgreSQL read-only transaction, performs zero writes, and always rolls back.
+- [x] Report reads only schema/index/constraint metadata and ownership counts; it does not output message text, document contents, names, sums, or other business data.
+- [x] `missing`, `legacy_default`, `public_surface`, and `pending/local` registry states fail closed.
+- [x] Stored tables are checked for `company_id`, relevant indexes, null owners, invalid scopes, orphan parents, and project-company mismatches.
+- [x] Constraint candidates are informational only; no `ALTER`, backfill, guessed mapping, or pilot-company creation is included.
+- [ ] Production report is captured and its blockers are split into independent M7 follow-up slices.
+
+**Verification:**
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.tenant_readiness.test_report`
+- [ ] `npm run audit:tenant-readiness` on production.
+
+**Dependencies:** Tasks M4-M6 and the current `docs/m6-tenant-registry.json`
+
+**Estimated scope:** S
+
 ## Task 12: Extract Auth Helpers
 
 **Description:** Move auth/session helper functions from `backend/main.py` into `backend/auth.py` without changing behavior.

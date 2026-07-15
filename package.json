@@ -46,6 +46,7 @@
     "audit:audit-log-migration": "python3 -m backend.features.audit_ownership.migration --dry-run",
     "audit:api-error-ownership": "python3 -m backend.features.api_error_ownership.ownership_report",
     "audit:api-error-migration": "python3 -m backend.features.api_error_ownership.migration --dry-run",
+    "audit:tenant-readiness": "python3 -m backend.features.tenant_readiness.report",
     "smoke:api-error-ownership": "python3 scripts/smoke-api-error-ownership.py",
     "smoke:telegram-expense": "python3 scripts/smoke-telegram-own-expense.py",
     "smoke:max-warehouse": "python3 scripts/smoke-max-warehouse-invoice.py",
