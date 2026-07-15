@@ -471,7 +471,7 @@ export function buildAppShellProps({
     workAssignmentProps: {
       show: estimateWorkflowState.showWorkAssignment,
       onClose: () => safeSetShowWorkAssignment(false),
-      selectedEstimate: estimateWorkflowState.selectedEstimate,
+      selectedEstimate: appMainState.selectedEstimate,
       staff: appMainState.staff,
       users,
       API,
