@@ -157,7 +157,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M7c: Add a fail-closed read-only coverage report that compares every public database table with the M6 tenant registry before constraints. Production found `127` tables, `40` registered physical tables and `87` unregistered tables; registry freeze remains blocked.
 - [x] Task M7d: Register the three CRM tables as explicit blockers and add a PII-free read-only ownership report over exact project and lead parents. Production found one standalone lead without project owner and no child rows; zero rows were changed.
 - [x] Task M7e: Add and apply a guarded nullable CRM ownership migration with explicit standalone-lead mapping, exact count/SHA guards and strict post-check. Current production audit is strict-ready with one stored lead and no legacy, unresolved or mismatched rows.
-- [ ] Task M7f1: Persist exact CRM owner on authenticated, public-site, MAX, document and task writes. Runtime `d97e88b5`, full platform/public CRM smoke, all five public lead types, deploy smoke and strict audit passed; only credential-gated `smoke:max-marketing` remains.
+- [x] Task M7f1: Persist exact CRM owner on authenticated, public-site, MAX, document and task writes. Runtime `d97e88b5`; full platform/public CRM smoke, all five public lead types, self-contained MAX marketing smoke with verified cleanup, deploy smoke and strict audit passed.
 - [ ] Task M7f2: Scope CRM reads and every update/delete/project-creation path through stored lead/child ownership; both project writers must copy the lead company explicitly.
 
 ### Checkpoint: SaaS Boundary

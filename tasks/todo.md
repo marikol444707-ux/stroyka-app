@@ -1962,7 +1962,7 @@
 
 **Description:** Stop every current CRM creation path from producing ownerless rows after the guarded CRM migration. Authenticated leads use one selected company and effective role; public-site and MAX leads use stored/configured server ownership; documents and tasks inherit the exact lead owner.
 
-**Status:** Deployed and verified for authenticated and public-site writers on runtime `d97e88b5`; only the credential-gated `smoke:max-marketing` remains.
+**Status:** Complete in production. Authenticated, public-site and MAX writers, cleanup and strict ownership audit are verified.
 
 **Acceptance criteria:**
 - [x] Both authenticated lead POST routes resolve one concrete selected company and reject aggregate or unauthorized effective roles.
@@ -1973,7 +1973,7 @@
 - [x] No CRM writer added by this slice falls back to company `1`.
 - [x] Production M7e apply and strict post-audit pass before deploy.
 - [x] Protected platform CRM smoke verifies stored owner propagation for authenticated leads, a public client and all four public partner types, then cleans its test rows.
-- [ ] MAX marketing smoke verifies stored channel owner propagation and cleans its test rows; blocked only by missing safe server `SMOKE_EMAIL/SMOKE_PASSWORD` configuration.
+- [x] Self-contained MAX marketing smoke verifies stored channel owner propagation without a user password and proves cleanup of its temporary rows.
 
 **Safety:**
 - Deploying this runtime before the M7e columns exist is prohibited.
@@ -1983,8 +1983,7 @@
 **Verification:**
 - [x] Focused CRM/public/MAX ownership tests and Python compilation.
 - [x] Full backend suite (`614` tests), frontend production build and M6 registry gate (`44` entries).
-- [x] Production `smoke:platform-crm`, strict CRM audit and deploy `smoke:prod`.
-- [ ] Production `smoke:max-marketing` after smoke credentials are configured safely on the server.
+- [x] Production `smoke:platform-crm`, `smoke:max-marketing`, strict CRM audit and deploy `smoke:prod`.
 
 **Dependencies:** Task M7e strict production post-audit
 
