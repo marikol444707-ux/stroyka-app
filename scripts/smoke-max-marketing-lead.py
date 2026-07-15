@@ -173,19 +173,32 @@ def cleanup(lead_id=None, channel_id=None, user_id=None):
             cur.execute("DELETE FROM crm_lead_documents WHERE lead_id=%s", (lead_id,))
             cur.execute("DELETE FROM crm_lead_tasks WHERE lead_id=%s", (lead_id,))
             cur.execute("DELETE FROM crm_leads WHERE id=%s", (lead_id,))
-        if channel_id and (not CHAT_ID_FROM_ENV or os.getenv("SMOKE_DELETE_CHANNEL") == "1"):
+        delete_channel = bool(channel_id and (not CHAT_ID_FROM_ENV or os.getenv("SMOKE_DELETE_CHANNEL") == "1"))
+        if delete_channel:
             cur.execute("DELETE FROM messenger_channels WHERE id=%s", (channel_id,))
         if user_id:
             cur.execute("DELETE FROM audit_log WHERE user_id=%s", (user_id,))
             cur.execute("DELETE FROM user_company_roles WHERE user_id=%s", (user_id,))
             cur.execute("DELETE FROM users WHERE id=%s", (user_id,))
         conn.commit()
+        checks = []
+        if lead_id:
+            checks.append(("crm_leads", lead_id))
+        if delete_channel:
+            checks.append(("messenger_channels", channel_id))
+        if user_id:
+            checks.extend((("user_company_roles", user_id), ("users", user_id)))
+        for table, record_id in checks:
+            column = "user_id" if table == "user_company_roles" else "id"
+            cur.execute(f"SELECT COUNT(*) FROM {table} WHERE {column}=%s", (record_id,))
+            if int((cur.fetchone() or [0])[0] or 0) != 0:
+                raise RuntimeError(f"cleanup left {table} record for id {record_id}")
         cur.close()
         print("cleanup: removed MAX marketing smoke rows")
     except Exception as exc:
         if conn:
             conn.rollback()
-        print(f"cleanup warning: {exc}", file=sys.stderr)
+        raise RuntimeError(f"MAX marketing smoke cleanup failed: {exc}") from exc
     finally:
         if conn:
             conn.close()
@@ -284,7 +297,7 @@ def main():
                 "lead is visible in /crm/lead-summaries",
                 "CRM lead inherits exact stored marketing channel company",
             ],
-            "timestamp": dt.datetime.utcnow().isoformat() + "Z",
+            "timestamp": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
         }, ensure_ascii=False, indent=2))
     finally:
         cleanup(lead_id, channel_id, director.get("id"))
