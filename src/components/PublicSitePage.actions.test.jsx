@@ -115,6 +115,7 @@ describe('public project actions', () => {
     render(<PublicSitePage onLogin={jest.fn()} />);
 
     const comparison = await screen.findByRole('region', { name: 'Сравнение проектов' });
+    expect(document.getElementById('projects')).toHaveClass('public-project-decision-bar');
     expect(comparison).toHaveTextContent('Одноэтажный кирпичный дом 110 м2');
     expect(comparison).toHaveTextContent('Дом 116 м2 с кухней-гостиной');
     expect(comparison).toHaveTextContent('2 из 3');

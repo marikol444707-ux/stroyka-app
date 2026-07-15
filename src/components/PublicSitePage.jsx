@@ -880,7 +880,7 @@ const PublicSitePage = ({ onLogin }) => {
               })}
             </div>
 
-	            <section id="projects" className="public-project-catalog" aria-label="Готовые проекты выбранного направления">
+	            <section className="public-project-catalog" aria-label="Готовые проекты выбранного направления">
 	              <div className="public-project-catalog-head">
 	                <div>
 	                  <p>Открытое направление</p>
@@ -893,7 +893,7 @@ const PublicSitePage = ({ onLogin }) => {
                     <span>{selectedReferencePlanCount} план</span>
 	                </div>
 	              </div>
-                <div className="public-project-decision-bar">
+                <div id="projects" className="public-project-decision-bar">
                   <div className="public-project-decision-copy">
                     <span>Выбрано для расчета</span>
                     <strong>{selectedReferenceProject?.title || selectedReference.title}</strong>
