@@ -1878,7 +1878,7 @@
 
 **Description:** Compare every PostgreSQL `public` base table with the M6 registry before treating the 41 registered resources as complete. Report unregistered tables and their ownership-signal columns without reading counts or business rows. This closes the discovered blind spot where CRM tables and their project-creation writers were outside the tenant readiness report.
 
-**Status:** Production report completed read-only: `127` schema tables, `40` registered physical tables plus one surface and `87` unregistered tables (`31 critical`, `27 high`, `29 unclassified`). Registered-table drift and duplicate registry entries are zero. Every returned table still requires an explicit bounded classification.
+**Status:** Production report completed read-only. After CRM and public-file slices: `127` schema tables, `45` registered physical tables plus one surface and `82` unregistered tables (`29 critical`, `26 high`, `27 unclassified`). Registered-table drift and duplicate registry entries are zero.
 
 **Acceptance criteria:**
 - [x] Collector reads only `information_schema` table/column metadata in a read-only transaction and rolls back.
@@ -1887,11 +1887,11 @@
 - [x] Every unregistered public table blocks registry freeze.
 - [x] Unregistered `company_id/owner_scope` tables are marked critical; project-identity tables are marked high; tables without known owner columns remain unclassified rather than being assumed safe.
 - [x] Report does not count, select, output, classify automatically, or modify business rows.
-- [ ] Production coverage report is captured and split into bounded domain slices.
+- [x] Production coverage report is captured and split into bounded domain slices; CRM and public-file slices are complete, remaining tables stay fail-closed.
 
 **Verification:**
 - [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.tenant_readiness.test_coverage_report`
-- [ ] `npm run audit:tenant-registry-coverage` on production.
+- [x] `npm run audit:tenant-registry-coverage` on production: `82` unregistered, zero missing/duplicate entries.
 
 **Dependencies:** Task M7a; independent of M7b index apply
 
@@ -2027,7 +2027,7 @@
 
 **Description:** Register `file_ownership` and `public_lead_uploads`, then verify their stored owner chain without reading file metadata, upload tokens, client IPs or CRM content. This is the smallest critical slice remaining after CRM ownership rollout.
 
-**Status:** Implemented locally. Production read-only report is pending; no migration or runtime change is included.
+**Status:** Complete in production. All `11/11` rows are verified in company `1`; no unresolved/mismatched rows and no writes.
 
 **Acceptance criteria:**
 - [x] `file_ownership` is verified only by an existing stored company and, when present, an exact project from the same company.
@@ -2035,13 +2035,13 @@
 - [x] Missing parents are unresolved and cross-company parents are mismatched; neither is guessed or repaired.
 - [x] Loader reads only IDs and owner relations and never selects upload token, URL/storage key, filename/type, client IP or CRM PII/content.
 - [x] Report runs read-only, rolls back and reports `writesAttempted=0`.
-- [ ] Production dry-run provides exact verified/unresolved/mismatched counts and review reasons.
-- [ ] Re-run registry coverage and confirm these two tables leave the unregistered set.
+- [x] Production dry-run: `verified=11`, `unresolved=0`, `mismatched=0`, `needsReview=[]`, `writesAttempted=0`.
+- [x] Registry coverage confirms both tables registered; current unregistered set is `82`.
 
 **Verification:**
 - [x] `python3 -m unittest backend.features.public_file_ownership.test_ownership_report` (`7` tests).
-- [ ] `npm run audit:public-file-ownership` on production.
-- [ ] `npm run audit:tenant-registry-coverage` on production.
+- [x] `npm run audit:public-file-ownership` on production.
+- [x] `npm run audit:tenant-registry-coverage` on production.
 
 **Dependencies:** Task M7f2 production completion
 

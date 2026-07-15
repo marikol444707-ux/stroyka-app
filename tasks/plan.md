@@ -154,13 +154,13 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [ ] Task M7: Run dry-run backfill, add database constraints/indexes, and verify the pilot tenant matrix.
 - [x] Task M7a: Add a fail-closed read-only tenant readiness report over the M6 registry and stored owner columns. Initial production report completed with zero writes and no orphan/mismatched stored owners; optional empty project columns no longer create false index blockers.
 - [x] Task M7b: Add a guarded, reversible index-only migration for the verified `work_journal(company_id, project)` gap. Production readiness now reports the project index present and zero schema blockers; runtime ownership release remains a separate registry blocker.
-- [x] Task M7c: Add a fail-closed read-only coverage report that compares every public database table with the M6 tenant registry before constraints. Production found `127` tables, `40` registered physical tables and `87` unregistered tables; registry freeze remains blocked.
+- [x] Task M7c: Add a fail-closed read-only coverage report that compares every public database table with the M6 tenant registry before constraints. Current production coverage: `127` tables, `45` registered physical tables and `82` unregistered (`29 critical`, `26 high`, `27 unclassified`); registry freeze remains blocked.
 - [x] Task M7d: Register the three CRM tables as explicit blockers and add a PII-free read-only ownership report over exact project and lead parents. Production found one standalone lead without project owner and no child rows; zero rows were changed.
 - [x] Task M7e: Add and apply a guarded nullable CRM ownership migration with explicit standalone-lead mapping, exact count/SHA guards and strict post-check. Current production audit is strict-ready with one stored lead and no legacy, unresolved or mismatched rows.
 - [x] Task M7f1: Persist exact CRM owner on authenticated, public-site, MAX, document and task writes. Runtime `d97e88b5`; full platform/public CRM smoke, all five public lead types, self-contained MAX marketing smoke with verified cleanup, deploy smoke and strict audit passed.
 - [x] Task M7f2: Reads, mutations, approvals/invites/transfers and both project-creation URLs enforce stored ownership. Runtime `f8c66354`, protected CRM smoke (`projectCreationOwnershipChecked=true`, six foreign workflow `403`) and strict audit passed.
 - [x] Task M7f2a-legacy: Compatibility `GET /crm-leads` is scoped through effective CRM company roles; negative production smoke confirmed legacy isolation.
-- [ ] Task M7g: Register `file_ownership` and `public_lead_uploads` and run a PII-free read-only audit of company/project/file/CRM-lead ownership. Implemented locally; production dry-run pending.
+- [x] Task M7g: Register `file_ownership` and `public_lead_uploads`; production read-only audit verified all `11/11` rows with zero unresolved/mismatched and coverage dropped to `82` unregistered tables.
 
 ### Checkpoint: SaaS Boundary
 
