@@ -84,6 +84,15 @@ def lead_row(company_id=4, project_id=21):
     }
 
 
+def child_owner_row(record_id, company_id=4, project_id=21, lead_id=10):
+    return {
+        "id": record_id,
+        "lead_id": lead_id,
+        "company_id": company_id,
+        "project_id": project_id,
+    }
+
+
 class CrmRouteOwnershipTests(unittest.TestCase):
     def build_app(self, route_cursor, *, context=None, actors=None):
         schema_connection = FakeConnection(FakeCursor())
@@ -214,6 +223,162 @@ class CrmRouteOwnershipTests(unittest.TestCase):
         self.assertIs(connection.cursor_kwargs[0].get("cursor_factory"), psycopg2.extras.RealDictCursor)
         self.assertEqual(connection.commits, 1)
 
+    def test_lead_update_uses_stored_owner_in_authorization_and_sql(self):
+        cursor = FakeCursor(fetchone_values=[lead_row()])
+        app, connection, _, resource_calls = self.build_app(cursor)
+
+        response = app.routes[("PUT", "/crm/leads/{lead_id}")](
+            10,
+            {"name": "Обновлённый лид"},
+            x_company_id="4",
+            x_company_mode="company",
+            current_user={"id": 9, "role": "директор"},
+        )
+
+        sql, params = next(call for call in cursor.calls if call[0].startswith("UPDATE crm_leads SET"))
+        self.assertTrue(cursor.calls[0][0].endswith("FOR UPDATE"))
+        self.assertIn("WHERE id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s", sql)
+        self.assertEqual(params[-3:], (10, 4, 21))
+        self.assertEqual(resource_calls[0][:2], (4, "update"))
+        self.assertEqual(response, {"ok": True})
+        self.assertEqual(connection.commits, 1)
+        self.assertTrue(connection.closed)
+
+    def test_lead_update_rejects_foreign_company_before_update(self):
+        cursor = FakeCursor(fetchone_values=[lead_row(company_id=8)])
+        app, connection, _, resource_calls = self.build_app(cursor)
+
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("PUT", "/crm/leads/{lead_id}")](
+                10,
+                {"name": "Чужой лид"},
+                x_company_id="4",
+                x_company_mode="company",
+                current_user={"id": 9, "role": "директор"},
+            )
+
+        self.assertEqual(raised.exception.status_code, 404)
+        self.assertEqual(resource_calls[0][:2], (8, "update"))
+        self.assertFalse(any(sql.startswith("UPDATE crm_leads SET") for sql, _ in cursor.calls))
+        self.assertEqual(connection.rollbacks, 1)
+        self.assertTrue(connection.closed)
+
+    def test_lead_delete_scopes_parent_and_children_to_exact_owner(self):
+        cursor = FakeCursor(fetchone_values=[lead_row()])
+        app, connection, _, resource_calls = self.build_app(cursor)
+
+        response = app.routes[("DELETE", "/crm/leads/{lead_id}")](
+            10,
+            x_company_id="4",
+            x_company_mode="company",
+            current_user={"id": 9, "role": "директор"},
+        )
+
+        delete_calls = [call for call in cursor.calls if call[0].startswith("DELETE FROM crm_")]
+        self.assertEqual(len(delete_calls), 3)
+        for sql, params in delete_calls:
+            self.assertIn("company_id=%s", sql)
+            self.assertIn("project_id IS NOT DISTINCT FROM %s", sql)
+            self.assertEqual(params, (10, 4, 21))
+        self.assertEqual(resource_calls[0][:2], (4, "delete"))
+        self.assertEqual(response, {"ok": True})
+        self.assertEqual(connection.commits, 1)
+
+    def test_lead_delete_stops_on_mismatched_child_owner(self):
+        cursor = FakeCursor(fetchone_values=[lead_row(), {"exists": 1}])
+        app, connection, _, _ = self.build_app(cursor)
+
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("DELETE", "/crm/leads/{lead_id}")](
+                10,
+                x_company_id="4",
+                x_company_mode="company",
+                current_user={"id": 9, "role": "директор"},
+            )
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertFalse(any(sql.startswith("DELETE FROM crm_") for sql, _ in cursor.calls))
+        self.assertEqual(connection.rollbacks, 1)
+        self.assertTrue(connection.closed)
+
+    def test_document_update_scopes_exact_stored_owner(self):
+        updated = {**child_owner_row(31), "title": "Договор", "created_at": "2026-07-15"}
+        cursor = FakeCursor(fetchone_values=[child_owner_row(31), updated])
+        app, connection, _, resource_calls = self.build_app(cursor)
+
+        response = app.routes[("PUT", "/crm/documents/{doc_id}")](
+            31,
+            {"title": "Договор"},
+            x_company_id="4",
+            x_company_mode="company",
+            current_user={"id": 9, "role": "директор"},
+        )
+
+        sql, params = next(call for call in cursor.calls if call[0].startswith("UPDATE crm_lead_documents SET"))
+        self.assertIn("FOR UPDATE OF child,lead", cursor.calls[0][0])
+        self.assertIn("WHERE id=%s AND lead_id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s", sql)
+        self.assertEqual(params[-4:], (31, 10, 4, 21))
+        self.assertEqual(resource_calls[0][:2], (4, "update"))
+        self.assertEqual(response["leadId"], 10)
+        self.assertEqual(connection.commits, 1)
+
+    def test_document_delete_scopes_exact_stored_owner(self):
+        cursor = FakeCursor(fetchone_values=[child_owner_row(31)])
+        app, connection, _, resource_calls = self.build_app(cursor)
+
+        response = app.routes[("DELETE", "/crm/documents/{doc_id}")](
+            31,
+            x_company_id="4",
+            x_company_mode="company",
+            current_user={"id": 9, "role": "директор"},
+        )
+
+        sql, params = next(call for call in cursor.calls if call[0].startswith("DELETE FROM crm_lead_documents"))
+        self.assertIn("id=%s AND lead_id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s", sql)
+        self.assertEqual(params, (31, 10, 4, 21))
+        self.assertEqual(resource_calls[0][:2], (4, "delete"))
+        self.assertEqual(response, {"ok": True})
+
+    def test_task_update_scopes_exact_stored_owner(self):
+        updated = {**child_owner_row(41), "title": "Позвонить", "created_at": "2026-07-15"}
+        cursor = FakeCursor(fetchone_values=[child_owner_row(41), updated])
+        app, connection, _, resource_calls = self.build_app(cursor)
+
+        response = app.routes[("PUT", "/crm/tasks/{task_id}")](
+            41,
+            {"title": "Позвонить", "status": "Закрыта"},
+            x_company_id="4",
+            x_company_mode="company",
+            current_user={"id": 9, "role": "директор"},
+        )
+
+        sql, params = next(call for call in cursor.calls if call[0].startswith("UPDATE crm_lead_tasks SET"))
+        self.assertIn("FOR UPDATE OF child,lead", cursor.calls[0][0])
+        self.assertIn("WHERE id=%s AND lead_id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s", sql)
+        self.assertEqual(params[-4:], (41, 10, 4, 21))
+        self.assertIn("completed_at=NOW()", sql)
+        self.assertEqual(resource_calls[0][:2], (4, "update"))
+        self.assertEqual(response["leadId"], 10)
+        self.assertEqual(connection.commits, 1)
+
+    def test_task_delete_rejects_foreign_company_before_delete(self):
+        cursor = FakeCursor(fetchone_values=[child_owner_row(41, company_id=8)])
+        app, connection, _, resource_calls = self.build_app(cursor)
+
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("DELETE", "/crm/tasks/{task_id}")](
+                41,
+                x_company_id="4",
+                x_company_mode="company",
+                current_user={"id": 9, "role": "директор"},
+            )
+
+        self.assertEqual(raised.exception.status_code, 404)
+        self.assertEqual(resource_calls[0][:2], (8, "delete"))
+        self.assertFalse(any(sql.startswith("DELETE FROM crm_lead_tasks") for sql, _ in cursor.calls))
+        self.assertEqual(connection.rollbacks, 1)
+        self.assertTrue(connection.closed)
+
     def test_create_rejects_all_companies_before_insert(self):
         cursor = FakeCursor()
         app, connection, _, _ = self.build_app(
@@ -260,6 +425,12 @@ class CrmRouteOwnershipTests(unittest.TestCase):
         self.assertIn("company_id,project_id,lead_id", sql)
         self.assertEqual(sql.count("%s"), len(params))
         self.assertEqual(params[:3], (4, 21, 10))
+        lead_update_sql, lead_update_params = next(
+            call for call in cursor.calls if call[0].startswith("UPDATE crm_leads SET document_status")
+        )
+        self.assertIn("company_id=%s", lead_update_sql)
+        self.assertIn("project_id IS NOT DISTINCT FROM %s", lead_update_sql)
+        self.assertEqual(lead_update_params, (10, 4, 21))
         self.assertEqual(resource_calls[0][:2], (4, "create"))
         self.assertEqual(response["leadId"], 10)
         self.assertEqual(connection.commits, 1)

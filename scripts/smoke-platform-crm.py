@@ -813,6 +813,24 @@ def check_crm(crm_token, foreign_company_id):
     supplier_lead_id = supplier_lead.get("id")
     if not supplier_lead_id:
         raise RuntimeError(f"CRM supplier lead create returned invalid body: {supplier_lead}")
+    api_json(
+        "PUT",
+        f"/crm/leads/{supplier_lead_id}",
+        token=crm_token,
+        expected=200,
+        data={
+            "name": supplier_name,
+            "phone": "+70000000001",
+            "email": f"supplier-{RUN_ID}@stroyka.local",
+            "source": "smoke",
+            "leadType": "Поставщик",
+            "stage": "На проверке",
+            "reviewStatus": "На проверке",
+            "workType": "Отделочные материалы",
+            "inn": "0000000000",
+            "notes": "temporary smoke lead updated",
+        },
+    )
 
     _, supplier_doc = api_json(
         "POST",
@@ -829,6 +847,27 @@ def check_crm(crm_token, foreign_company_id):
             "notes": f"{PREFIX} CRM transfer check",
         },
     )
+    _, updated_supplier_doc = api_json(
+        "PUT",
+        f"/crm/documents/{supplier_doc.get('id')}",
+        token=crm_token,
+        expected=200,
+        data={
+            **supplier_doc,
+            "title": "Smoke requisites updated",
+            "confidential": True,
+        },
+    )
+    if updated_supplier_doc.get("title") != "Smoke requisites updated":
+        raise RuntimeError(f"CRM document update returned invalid body: {updated_supplier_doc}")
+    _, disposable_doc = api_json(
+        "POST",
+        f"/crm/leads/{supplier_lead_id}/documents",
+        token=crm_token,
+        expected=200,
+        data={"title": f"{PREFIX} Disposable CRM Document"},
+    )
+    api_json("DELETE", f"/crm/documents/{disposable_doc.get('id')}", token=crm_token, expected=200)
     _, task = api_json(
         "POST",
         f"/crm/leads/{supplier_lead_id}/tasks",
@@ -837,6 +876,14 @@ def check_crm(crm_token, foreign_company_id):
         data={"title": "Проверить поставщика", "dueDate": "2026-06-30", "assignedTo": "CODEX QA"},
     )
     api_json("PUT", f"/crm/tasks/{task.get('id')}", token=crm_token, expected=200, data={**task, "status": "Закрыта"})
+    _, disposable_task = api_json(
+        "POST",
+        f"/crm/leads/{supplier_lead_id}/tasks",
+        token=crm_token,
+        expected=200,
+        data={"title": f"{PREFIX} Disposable CRM Task"},
+    )
+    api_json("DELETE", f"/crm/tasks/{disposable_task.get('id')}", token=crm_token, expected=200)
     _, approved_supplier = api_json("POST", f"/crm/leads/{supplier_lead_id}/approve-supplier", token=crm_token, expected=200, data={})
     if not approved_supplier.get("supplier", {}).get("id"):
         raise RuntimeError(f"approve supplier returned invalid body: {approved_supplier}")
@@ -914,6 +961,18 @@ def check_crm(crm_token, foreign_company_id):
             (foreign_company_id, f"{PREFIX} Foreign Company Lead", PREFIX),
         )
         foreign_lead_id = cur.fetchone()[0]
+        cur.execute(
+            """INSERT INTO crm_lead_documents (company_id,project_id,lead_id,title)
+               VALUES (%s,NULL,%s,%s) RETURNING id""",
+            (foreign_company_id, foreign_lead_id, f"{PREFIX} Foreign Document"),
+        )
+        foreign_document_id = cur.fetchone()[0]
+        cur.execute(
+            """INSERT INTO crm_lead_tasks (company_id,project_id,lead_id,title)
+               VALUES (%s,NULL,%s,%s) RETURNING id""",
+            (foreign_company_id, foreign_lead_id, f"{PREFIX} Foreign Task"),
+        )
+        foreign_task_id = cur.fetchone()[0]
         conn.commit()
     finally:
         cur.close()
@@ -928,6 +987,29 @@ def check_crm(crm_token, foreign_company_id):
     if any(item.get("id") == foreign_lead_id for item in summaries):
         raise RuntimeError("CRM summaries leaked a lead from another company")
     api_json("GET", f"/crm/leads/{foreign_lead_id}/details", token=crm_token, expected=404)
+    foreign_mutations = (
+        ("PUT", f"/crm/leads/{foreign_lead_id}", {"name": f"{PREFIX} Foreign Company Lead"}),
+        ("DELETE", f"/crm/leads/{foreign_lead_id}", None),
+        ("PUT", f"/crm/documents/{foreign_document_id}", {"title": f"{PREFIX} Foreign Document"}),
+        ("DELETE", f"/crm/documents/{foreign_document_id}", None),
+        ("PUT", f"/crm/tasks/{foreign_task_id}", {"title": f"{PREFIX} Foreign Task"}),
+        ("DELETE", f"/crm/tasks/{foreign_task_id}", None),
+    )
+    foreign_mutation_statuses = []
+    for method, path, data in foreign_mutations:
+        status, body = api_json(method, path, token=crm_token, data=data)
+        if status not in (403, 404):
+            raise RuntimeError(f"{method} {path} did not reject foreign CRM owner: status={status} body={body}")
+        foreign_mutation_statuses.append(status)
+
+    _, disposable_lead = api_json(
+        "POST",
+        "/crm/leads",
+        token=crm_token,
+        expected=200,
+        data={"name": f"{PREFIX} Disposable Lead", "leadType": "Клиент"},
+    )
+    api_json("DELETE", f"/crm/leads/{disposable_lead.get('id')}", token=crm_token, expected=200)
     conn = db_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
@@ -1022,6 +1104,8 @@ def check_crm(crm_token, foreign_company_id):
         "transferredProjectDocumentIds": transfer.get("created", []),
         "ownershipChecked": True,
         "foreignLeadHidden": True,
+        "ownMutationsChecked": True,
+        "foreignMutationStatuses": foreign_mutation_statuses,
         "publicLeadId": public_lead_ids[0],
         "publicPartnerLeadIds": public_lead_ids[1:],
     }
@@ -1062,6 +1146,7 @@ def main():
                 "client account owner login and endpoint matrix",
                 "crm lead summaries and details",
                 "crm read isolation between companies",
+                "crm lead/document/task mutation isolation",
                 "crm documents and tasks",
                 "supplier approval",
                 "worker approval",

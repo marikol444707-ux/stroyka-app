@@ -244,8 +244,7 @@ def register_crm_module(app, deps):
             raise HTTPException(status_code=403, detail="Роль в выбранной компании не позволяет читать CRM")
         return company_ids
 
-    def child_owner(cur, current_user, lead, action_mode, x_company_id, x_company_mode):
-        owner = resolve_lead_child_owner(lead)
+    def authorize_owner(cur, current_user, owner, action_mode, x_company_id, x_company_mode):
         resolve_resource_company_actor(
             cur,
             current_user,
@@ -258,8 +257,41 @@ def register_crm_module(app, deps):
         )
         return owner
 
-    def fetch_lead(cur, lead_id):
-        cur.execute("SELECT " + LEAD_SELECT + " FROM crm_leads WHERE id=%s", (lead_id,))
+    def child_owner(cur, current_user, lead, action_mode, x_company_id, x_company_mode):
+        return authorize_owner(
+            cur,
+            current_user,
+            resolve_lead_child_owner(lead),
+            action_mode,
+            x_company_id,
+            x_company_mode,
+        )
+
+    def fetch_stored_child_owner(cur, table, record_id, not_found_detail):
+        if table not in ("crm_lead_documents", "crm_lead_tasks"):
+            raise ValueError("Unsupported CRM child table")
+        cur.execute(f"""
+            SELECT child.id,child.lead_id,child.company_id,child.project_id
+              FROM {table} child
+              JOIN crm_leads lead
+                ON lead.id=child.lead_id
+               AND lead.company_id=child.company_id
+               AND lead.project_id IS NOT DISTINCT FROM child.project_id
+             WHERE child.id=%s
+             FOR UPDATE OF child,lead
+        """, (record_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail=not_found_detail)
+        return {
+            "companyId": int(row.get("company_id") or 0),
+            "projectId": row.get("project_id"),
+            "leadId": int(row.get("lead_id") or 0),
+        }
+
+    def fetch_lead(cur, lead_id, *, for_update=False):
+        lock_sql = " FOR UPDATE" if for_update else ""
+        cur.execute("SELECT " + LEAD_SELECT + " FROM crm_leads WHERE id=%s" + lock_sql, (lead_id,))
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="CRM-заявка не найдена")
@@ -430,10 +462,18 @@ def register_crm_module(app, deps):
             conn.close()
 
     @app.put("/crm/leads/{lead_id}")
-    def crm_update_lead(lead_id: int, data: dict, current_user: dict = Depends(crm_access)):
+    def crm_update_lead(
+        lead_id: int,
+        data: dict,
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(crm_access),
+    ):
         conn = get_db()
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
+            lead = fetch_lead(cur, lead_id, for_update=True)
+            owner = child_owner(cur, current_user, lead, "update", x_company_id, x_company_mode)
             cur.execute("""
                 UPDATE crm_leads SET
                     name=%s,phone=%s,email=%s,source=%s,budget=%s,notes=%s,stage=%s,photo_url=%s,
@@ -442,7 +482,7 @@ def register_crm_module(app, deps):
                     legal_form=%s,passport_data=%s,inn=%s,kpp=%s,ogrn=%s,legal_address=%s,
                     contract_subject=%s,bank=%s,bik=%s,bank_account=%s,corr_account=%s,signer_name=%s,signer_basis=%s,
                     estimate_id=%s,document_status=%s,review_status=%s
-                WHERE id=%s
+                WHERE id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s
             """, (
                 _text(data.get("name")), _text(data.get("phone"), 80), _text(data.get("email")),
                 _text(data.get("source")), _num(data.get("budget")), data.get("notes") or "",
@@ -460,7 +500,7 @@ def register_crm_module(app, deps):
                 int(data.get("estimateId") or 0) or None,
                 _text(data.get("documentStatus") or "Не собраны", 80),
                 _text(data.get("reviewStatus") or "Новая", 80),
-                lead_id,
+                lead_id, owner["companyId"], owner["projectId"],
             ))
             if cur.rowcount == 0:
                 raise HTTPException(status_code=404, detail="CRM-заявка не найдена")
@@ -479,16 +519,55 @@ def register_crm_module(app, deps):
             conn.close()
 
     @app.delete("/crm/leads/{lead_id}")
-    def crm_delete_lead(lead_id: int, _current_user: dict = Depends(crm_access)):
+    def crm_delete_lead(
+        lead_id: int,
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(crm_access),
+    ):
         conn = get_db()
-        cur = conn.cursor()
-        cur.execute("DELETE FROM crm_lead_documents WHERE lead_id=%s", (lead_id,))
-        cur.execute("DELETE FROM crm_lead_tasks WHERE lead_id=%s", (lead_id,))
-        cur.execute("DELETE FROM crm_leads WHERE id=%s", (lead_id,))
-        conn.commit()
-        cur.close()
-        conn.close()
-        return {"ok": True}
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            lead = fetch_lead(cur, lead_id, for_update=True)
+            owner = child_owner(cur, current_user, lead, "delete", x_company_id, x_company_mode)
+            owner_params = (lead_id, owner["companyId"], owner["projectId"])
+            for table in ("crm_lead_documents", "crm_lead_tasks"):
+                cur.execute(f"""
+                    SELECT 1 FROM {table}
+                     WHERE lead_id=%s
+                       AND (company_id IS DISTINCT FROM %s OR project_id IS DISTINCT FROM %s)
+                     LIMIT 1
+                """, owner_params)
+                if cur.fetchone():
+                    raise HTTPException(status_code=409, detail="Данные CRM имеют конфликт владельца. Сначала исправьте привязку.")
+            cur.execute(
+                """DELETE FROM crm_lead_documents
+                    WHERE lead_id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s""",
+                owner_params,
+            )
+            cur.execute(
+                """DELETE FROM crm_lead_tasks
+                    WHERE lead_id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s""",
+                owner_params,
+            )
+            cur.execute(
+                """DELETE FROM crm_leads
+                    WHERE id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s""",
+                owner_params,
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="CRM-заявка не найдена")
+            conn.commit()
+            return {"ok": True}
+        except HTTPException:
+            conn.rollback()
+            raise
+        except Exception as error:
+            conn.rollback()
+            raise HTTPException(status_code=400, detail=str(error))
+        finally:
+            cur.close()
+            conn.close()
 
     @app.post("/crm/leads/{lead_id}/create-project")
     def crm_create_project_from_lead(lead_id: int, data: dict = None, current_user: dict = Depends(crm_access)):
@@ -569,7 +648,7 @@ def register_crm_module(app, deps):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            lead = fetch_lead(cur, lead_id)
+            lead = fetch_lead(cur, lead_id, for_update=True)
             owner = child_owner(cur, current_user, lead, "create", x_company_id, x_company_mode)
             cur.execute("""
                 INSERT INTO crm_lead_documents (
@@ -583,7 +662,13 @@ def register_crm_module(app, deps):
                 _bool(data.get("confidential")), data.get("notes") or "", current_user.get("name") or "",
             ))
             row = _doc_dict(cur.fetchone())
-            cur.execute("UPDATE crm_leads SET document_status='Есть документы' WHERE id=%s", (lead_id,))
+            cur.execute(
+                """UPDATE crm_leads SET document_status='Есть документы'
+                    WHERE id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s""",
+                (lead_id, owner["companyId"], owner["projectId"]),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="CRM-заявка не найдена")
             conn.commit()
             return row
         except HTTPException:
@@ -597,37 +682,73 @@ def register_crm_module(app, deps):
             conn.close()
 
     @app.put("/crm/documents/{doc_id}")
-    def crm_update_document(doc_id: int, data: dict, _current_user: dict = Depends(crm_access)):
+    def crm_update_document(
+        doc_id: int,
+        data: dict,
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(crm_access),
+    ):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""
-            UPDATE crm_lead_documents SET doc_type=%s,title=%s,file_url=%s,status=%s,number=%s,doc_date=%s,confidential=%s,notes=%s
-            WHERE id=%s RETURNING *
-        """, (
-            _text(data.get("docType"), 100), _text(data.get("title")), data.get("fileUrl") or "",
-            _text(data.get("status") or "Загружен", 80), _text(data.get("number"), 100),
-            _text(data.get("docDate"), 50), _bool(data.get("confidential")), data.get("notes") or "", doc_id,
-        ))
-        row = cur.fetchone()
-        if not row:
+        try:
+            owner = fetch_stored_child_owner(cur, "crm_lead_documents", doc_id, "Документ CRM не найден")
+            authorize_owner(cur, current_user, owner, "update", x_company_id, x_company_mode)
+            cur.execute("""
+                UPDATE crm_lead_documents SET doc_type=%s,title=%s,file_url=%s,status=%s,number=%s,doc_date=%s,confidential=%s,notes=%s
+                WHERE id=%s AND lead_id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s
+                RETURNING *
+            """, (
+                _text(data.get("docType"), 100), _text(data.get("title")), data.get("fileUrl") or "",
+                _text(data.get("status") or "Загружен", 80), _text(data.get("number"), 100),
+                _text(data.get("docDate"), 50), _bool(data.get("confidential")), data.get("notes") or "",
+                doc_id, owner["leadId"], owner["companyId"], owner["projectId"],
+            ))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Документ CRM не найден")
+            conn.commit()
+            return _doc_dict(row)
+        except HTTPException:
             conn.rollback()
+            raise
+        except Exception as error:
+            conn.rollback()
+            raise HTTPException(status_code=400, detail=str(error))
+        finally:
             cur.close()
             conn.close()
-            raise HTTPException(status_code=404, detail="Документ CRM не найден")
-        conn.commit()
-        cur.close()
-        conn.close()
-        return _doc_dict(row)
 
     @app.delete("/crm/documents/{doc_id}")
-    def crm_delete_document(doc_id: int, _current_user: dict = Depends(crm_access)):
+    def crm_delete_document(
+        doc_id: int,
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(crm_access),
+    ):
         conn = get_db()
-        cur = conn.cursor()
-        cur.execute("DELETE FROM crm_lead_documents WHERE id=%s", (doc_id,))
-        conn.commit()
-        cur.close()
-        conn.close()
-        return {"ok": True}
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            owner = fetch_stored_child_owner(cur, "crm_lead_documents", doc_id, "Документ CRM не найден")
+            authorize_owner(cur, current_user, owner, "delete", x_company_id, x_company_mode)
+            cur.execute(
+                """DELETE FROM crm_lead_documents
+                    WHERE id=%s AND lead_id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s""",
+                (doc_id, owner["leadId"], owner["companyId"], owner["projectId"]),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Документ CRM не найден")
+            conn.commit()
+            return {"ok": True}
+        except HTTPException:
+            conn.rollback()
+            raise
+        except Exception as error:
+            conn.rollback()
+            raise HTTPException(status_code=400, detail=str(error))
+        finally:
+            cur.close()
+            conn.close()
 
     @app.post("/crm/leads/{lead_id}/tasks")
     def crm_create_task(
@@ -640,7 +761,7 @@ def register_crm_module(app, deps):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            lead = fetch_lead(cur, lead_id)
+            lead = fetch_lead(cur, lead_id, for_update=True)
             owner = child_owner(cur, current_user, lead, "create", x_company_id, x_company_mode)
             cur.execute("""
                 INSERT INTO crm_lead_tasks (company_id,project_id,lead_id,title,due_date,status,assigned_to,notes,created_by)
@@ -665,38 +786,73 @@ def register_crm_module(app, deps):
             conn.close()
 
     @app.put("/crm/tasks/{task_id}")
-    def crm_update_task(task_id: int, data: dict, _current_user: dict = Depends(crm_access)):
+    def crm_update_task(
+        task_id: int,
+        data: dict,
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(crm_access),
+    ):
         completed_sql = ",completed_at=NOW()" if data.get("status") == "Закрыта" else ""
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute(f"""
-            UPDATE crm_lead_tasks SET title=%s,due_date=%s,status=%s,assigned_to=%s,notes=%s{completed_sql}
-            WHERE id=%s RETURNING *
-        """, (
-            _text(data.get("title") or "Следующий шаг"), _text(data.get("dueDate"), 50),
-            _text(data.get("status") or "Новая", 80), _text(data.get("assignedTo")),
-            data.get("notes") or "", task_id,
-        ))
-        row = cur.fetchone()
-        if not row:
+        try:
+            owner = fetch_stored_child_owner(cur, "crm_lead_tasks", task_id, "Задача CRM не найдена")
+            authorize_owner(cur, current_user, owner, "update", x_company_id, x_company_mode)
+            cur.execute(f"""
+                UPDATE crm_lead_tasks SET title=%s,due_date=%s,status=%s,assigned_to=%s,notes=%s{completed_sql}
+                WHERE id=%s AND lead_id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s
+                RETURNING *
+            """, (
+                _text(data.get("title") or "Следующий шаг"), _text(data.get("dueDate"), 50),
+                _text(data.get("status") or "Новая", 80), _text(data.get("assignedTo")),
+                data.get("notes") or "", task_id, owner["leadId"], owner["companyId"], owner["projectId"],
+            ))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Задача CRM не найдена")
+            conn.commit()
+            return _task_dict(row)
+        except HTTPException:
             conn.rollback()
+            raise
+        except Exception as error:
+            conn.rollback()
+            raise HTTPException(status_code=400, detail=str(error))
+        finally:
             cur.close()
             conn.close()
-            raise HTTPException(status_code=404, detail="Задача CRM не найдена")
-        conn.commit()
-        cur.close()
-        conn.close()
-        return _task_dict(row)
 
     @app.delete("/crm/tasks/{task_id}")
-    def crm_delete_task(task_id: int, _current_user: dict = Depends(crm_access)):
+    def crm_delete_task(
+        task_id: int,
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(crm_access),
+    ):
         conn = get_db()
-        cur = conn.cursor()
-        cur.execute("DELETE FROM crm_lead_tasks WHERE id=%s", (task_id,))
-        conn.commit()
-        cur.close()
-        conn.close()
-        return {"ok": True}
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            owner = fetch_stored_child_owner(cur, "crm_lead_tasks", task_id, "Задача CRM не найдена")
+            authorize_owner(cur, current_user, owner, "delete", x_company_id, x_company_mode)
+            cur.execute(
+                """DELETE FROM crm_lead_tasks
+                    WHERE id=%s AND lead_id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s""",
+                (task_id, owner["leadId"], owner["companyId"], owner["projectId"]),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Задача CRM не найдена")
+            conn.commit()
+            return {"ok": True}
+        except HTTPException:
+            conn.rollback()
+            raise
+        except Exception as error:
+            conn.rollback()
+            raise HTTPException(status_code=400, detail=str(error))
+        finally:
+            cur.close()
+            conn.close()
 
     @app.post("/crm/leads/{lead_id}/approve-supplier")
     def crm_approve_supplier(lead_id: int, data: dict = None, current_user: dict = Depends(crm_access)):
