@@ -16,8 +16,9 @@ describe('EstimateSectionsEditor', () => {
               type: 'work',
               name: 'Монтаж шкафа',
               unit: 'шт',
-              quantity: 1,
+              quantity: 5,
               priceWork: 2000,
+              doneQuantity: 2,
               brigadeName: 'Старая бригада',
               executionPricePerUnit: 800,
             }],
@@ -44,5 +45,8 @@ describe('EstimateSectionsEditor', () => {
     expect(screen.getByRole('columnheader', {name: 'Цена'})).toBeInTheDocument();
     expect(screen.queryByRole('columnheader', {name: 'Кому'})).not.toBeInTheDocument();
     expect(screen.queryByRole('columnheader', {name: 'Внутр.'})).not.toBeInTheDocument();
+    const completedValue = screen.getByLabelText('Выполнено: Монтаж шкафа');
+    expect(completedValue.tagName).toBe('SPAN');
+    expect(completedValue).toHaveTextContent('2 шт');
   });
 });

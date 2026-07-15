@@ -174,7 +174,6 @@ export default function EstimateSectionsEditor({
                         const done = isWork ? Number(item.doneQuantity) || 0 : 0;
                         const remain = Math.max(0, qty - done);
                         const qtyNorm = normalizeMeasure(qty, item.unit);
-                        const doneNorm = normalizeMeasure(done, item.unit);
                         const rowDomId = estimateIssueDomId(selectedEstimate.id, si, item._idx);
                         const isIssueFocused = estimateIssueFocusKey === rowDomId;
                         const rowStickyBg = isIssueFocused ? C.warningLight : C.bgWhite;
@@ -203,7 +202,15 @@ export default function EstimateSectionsEditor({
                             <td style={estimateTblC}>{autoPill(basisMeta.icon, isWork ? basisMeta.label : '—', !isWork)}</td>
                             <td style={estimateTblC}>{autoPill('', qtyNorm.unit || item.unit || 'шт')}</td>
                             <td style={estimateTblC}><input type="number" step="any" inputMode="decimal" value={qtyNorm.qty || ''} onChange={e => updateItem(item._idx, 'quantity', denormalizeMeasure(e.target.value, item.unit))} onBlur={persist} style={inpCell} /></td>
-                            <td style={estimateTblC}><input disabled={!isWork} type="number" step="any" inputMode="decimal" value={isWork ? (doneNorm.qty || '') : ''} onChange={e => {const raw = denormalizeMeasure(e.target.value, item.unit); if (qty > 0 && raw > qty) {alert('Сделано не может быть больше плана (' + fmtMeasure(qty, item.unit) + ')'); return;} updateItem(item._idx, 'doneQuantity', raw);}} onBlur={persist} style={{...inpCell, color: done > 0 ? C.success : C.text, opacity: isWork ? 1 : 0.55}} /></td>
+                            <td style={estimateTblC}>
+                              <span
+                                aria-label={`Выполнено: ${item.name || 'работа'}`}
+                                title="Факт формируется из подтвержденного ЖПР"
+                                style={{display: 'block', color: done > 0 ? C.success : C.textMuted, fontWeight: '700'}}
+                              >
+                                {isWork && done > 0 ? fmtMeasure(done, item.unit) : '—'}
+                              </span>
+                            </td>
                             <td style={{...estimateTblC, color: isWork ? (qty > 0 && remain === 0 ? C.success : remain > 0 ? C.warning : C.textMuted) : C.textMuted, fontWeight: '600'}}>{isWork && qty > 0 ? fmtMeasure(remain, item.unit) : '—'}</td>
                             <td style={estimateTblC}>{item.isImported ? <div title={importMeta || ''} style={{...inpCell, backgroundColor: C.bg, whiteSpace: 'normal', lineHeight: 1.15}}><b style={{color: C.success}}>{Math.round(importedLineTotal).toLocaleString('ru-RU')} ₽</b><div style={{color: C.textMuted, fontSize: '9px', marginTop: '1px'}}>≈ {importedUnitPrice ? importedUnitPrice.toLocaleString('ru-RU', {maximumFractionDigits: 2}) : 0} ₽/{qtyNorm.unit || item.unit || 'ед.'}</div></div> : <input type="number" step="any" inputMode="decimal" title="Цена за единицу" value={item[priceField] || ''} onChange={e => updateItem(item._idx, priceField, e.target.value)} onBlur={persist} style={inpCell} />}</td>
                             <td style={{...estimateTblC, ...stickySumStyle, backgroundColor: rowStickyBg, fontWeight: '700', color: C.success, whiteSpace: 'nowrap', fontSize: '12px'}}>{sumOf(item).toLocaleString('ru-RU') + ' ₽'}</td>
