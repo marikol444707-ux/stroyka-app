@@ -161,6 +161,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M7f2: Reads, mutations, approvals/invites/transfers and both project-creation URLs enforce stored ownership. Runtime `f8c66354`, protected CRM smoke (`projectCreationOwnershipChecked=true`, six foreign workflow `403`) and strict audit passed.
 - [x] Task M7f2a-legacy: Compatibility `GET /crm-leads` is scoped through effective CRM company roles; negative production smoke confirmed legacy isolation.
 - [x] Task M7g: Register `file_ownership` and `public_lead_uploads`; production read-only audit verified all `11/11` rows with zero unresolved/mismatched and coverage dropped to `82` unregistered tables.
+- [ ] Task M7h: Register `company_supplier_links` and audit exact company/global-supplier/optional platform-account ownership without reading supplier or contract data. Implemented locally; production dry-run pending.
 
 ### Checkpoint: SaaS Boundary
 

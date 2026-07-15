@@ -2047,6 +2047,30 @@
 
 **Estimated scope:** S
 
+## Task M7h: Audit Company-Supplier Link Ownership
+
+**Description:** Register `company_supplier_links` and classify its exact company, global supplier and optional platform-account parents before changing supplier visibility or link writers.
+
+**Status:** Implemented locally. Production read-only report is pending; no schema, writer or read-path change is included.
+
+**Acceptance criteria:**
+- [x] Every link requires an existing stored company and existing global supplier.
+- [x] Optional stored `platform_account_id` must exist and equal the company's platform account; absent optional account does not replace or weaken the company owner.
+- [x] Missing parents are unresolved and cross-account links are mismatched; neither is guessed or repaired.
+- [x] Loader reads only IDs and owner relations, never contract terms, rating, category, source, status or supplier details.
+- [x] Report runs read-only, rolls back and reports `writesAttempted=0`.
+- [ ] Production dry-run provides exact verified/unresolved/mismatched counts and review reasons.
+- [ ] Registry coverage confirms `company_supplier_links` leaves the unregistered set.
+
+**Verification:**
+- [x] `python3 -m unittest backend.features.supplier_link_ownership.test_ownership_report` (`7` tests).
+- [ ] `npm run audit:supplier-link-ownership` on production.
+- [ ] `npm run audit:tenant-registry-coverage` on production.
+
+**Dependencies:** Task M7g production completion
+
+**Estimated scope:** S
+
 ## Task 12: Extract Auth Helpers
 
 **Description:** Move auth/session helper functions from `backend/main.py` into `backend/auth.py` without changing behavior.
