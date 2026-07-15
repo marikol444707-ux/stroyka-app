@@ -12,6 +12,7 @@ import { EMPTY_ESTIMATE_CHANGE, isApprovedEstimateChangeStatus, signedEstimateCh
 import {
   activeEstimateFromList,
   applyEstimateActivationState,
+  buildEstimateMaterialSummary,
   buildEstimateWorkSummary,
   enrichEstimateMeasurementBasis,
   estimateDisplayVersion,
@@ -390,6 +391,7 @@ export function buildAppRenderContext({
     _sectionsOfEst,
     activeEstimateFromList,
     applyEstimateActivationState,
+    buildEstimateMaterialSummary,
     buildEstimateWorkSummary,
     cableTypeOf,
     calcDoorArea,

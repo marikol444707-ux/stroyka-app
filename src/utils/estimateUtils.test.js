@@ -1,4 +1,5 @@
 import {
+  buildEstimateMaterialSummary,
   isEstimateMaterialItem,
   isEstimateWorkItem,
   normalizeEstimateWorkingItem,
@@ -51,5 +52,45 @@ describe('estimateUtils imported item typing', () => {
 
     expect(material.itemType).toBe('material');
     expect(isEstimateMaterialItem(material, 'Тестовый раздел')).toBe(true);
+  });
+});
+
+describe('estimate material summary', () => {
+  test('groups repeated positive materials without changing source rows', () => {
+    const estimate = {
+      id: 25,
+      workPackage: 'Электрика',
+      sections: [
+        {
+          name: 'Первый этаж',
+          items: [
+            {type: 'material', name: 'Краска акриловая', unit: 'кг', quantity: 10, priceMaterial: 100},
+            {type: 'work', name: 'Окраска стен', unit: 'м2', quantity: 20, priceWork: 300},
+          ],
+        },
+        {
+          name: 'Второй этаж',
+          items: [
+            {type: 'material', name: 'краска акриловая.', unit: 'кг', quantity: 5, priceMaterial: 100},
+            {type: 'material', name: 'Краска акриловая', unit: 'л', quantity: 2, priceMaterial: 120},
+            {type: 'material', name: 'Краска акриловая', unit: 'кг', quantity: -1, priceMaterial: 100},
+          ],
+        },
+      ],
+    };
+
+    const summary = buildEstimateMaterialSummary(estimate);
+    const duplicate = summary.groups.find(group => group.sourceCount === 2);
+
+    expect(summary.duplicateGroups).toBe(1);
+    expect(duplicate).toMatchObject({
+      name: 'Краска акриловая',
+      unit: 'кг',
+      quantity: 15,
+      materialSum: 1500,
+      sourceCount: 2,
+    });
+    expect(estimate.sections[0].items[0].quantity).toBe(10);
+    expect(summary.totalSourceRows).toBe(3);
   });
 });

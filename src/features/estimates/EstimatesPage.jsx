@@ -5,7 +5,7 @@ export default function EstimatesPage({ ctx }) {
   const {
     acceptMaterialNormSuggestion, acceptMaterialNormSuggestionAsOverride, activeEstimateFromList, activeMaterialNormSuggestions, addEstimateMaterialFromCoverage, allBrigadeItems, API, applyEstimateActivationState,
     autoReconcileEstimateChanges, badge, brigadeContracts, btnB, btnG, btnGr, btnO, btnR,
-    btnState, buildEstimateDiffContent, buildEstimateWorkSummary, buildMaterialNormCoverageContent, C, canCreateSupplyRequestFromNorm, canEditMaterialNorms, card,
+    btnState, buildEstimateDiffContent, buildEstimateMaterialSummary, buildEstimateWorkSummary, buildMaterialNormCoverageContent, C, canCreateSupplyRequestFromNorm, canEditMaterialNorms, card,
     createBatchSupplyRequestFromNormCoverage, createEstimateFromNormSuggestions, createEstimateReconciliation, createMaterialNormCoverageTask, createSupplyRequestFromNormCoverage, createTaskFromMaterialNormSuggestion, deleteEstimateRemote, disableMaterialNorm,
     editingMaterialNormId, editMaterialNorm, enrichEstimateMeasurementBasis, ESTIMATE_PACKAGES, EstimateAddSectionForm, EstimateCreateActions, EstimateCreateFormFields, estimateDiffBaseFor,
     estimateDisplayVersion, EstimateDuplicateWorkSummaryPanel, estimateGroupKey, EstimateImportValidationBanner, EstimateImportView, estimateIssueDomId, estimateIssueFocusKey,
@@ -169,6 +169,7 @@ export default function EstimatesPage({ ctx }) {
                   setShowEstimateWorkSummary={setShowEstimateWorkSummary}
                   setShowEstimateIssuesOnly={setShowEstimateIssuesOnly}
                   setMobileExpandedRenderLists={setMobileExpandedRenderLists}
+                  buildEstimateMaterialSummary={buildEstimateMaterialSummary}
                   buildEstimateWorkSummary={buildEstimateWorkSummary}
                   estimateIssueDomId={estimateIssueDomId}
                 />

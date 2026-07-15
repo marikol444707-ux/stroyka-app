@@ -502,6 +502,87 @@ export const buildEstimateWorkSummary = (estimate={}) => {
     totalWorkSum: groups.reduce((sum, group) => sum + group.workSum, 0),
   };
 };
+export const buildEstimateMaterialSummary = (estimate={}) => {
+  const groupsByKey = new Map();
+  const estimateId = estimate?.id || '';
+  const estimateName = estimate?.name || '';
+  const estimateVersion = estimate?.version || estimate?.versionLabel || estimate?.displayVersion || '';
+  const workPackage = estimate?.workPackage || estimate?.package || 'Основная';
+  (estimate?.sections || []).forEach((section, sectionIndex) => {
+    const sectionName = section?.name || '';
+    (section?.items || []).forEach((rawItem, itemIndex) => {
+      const item = normalizeEstimateWorkingItem({...rawItem, sectionName}, sectionName);
+      if (!isEstimateMaterialItem(item, sectionName) || estimateItemLooksResourceAdjustment(item, sectionName)) return;
+      const name = String(item.name || '').trim();
+      const quantity = toNum(item.quantity);
+      if (!name || quantity <= 0) return;
+      const unit = _normalizeUnit(normalizeMeasure(1, item.unit).unit || item.unit || '') || String(item.unit || '').trim();
+      const nameKey = estimateTextKey(name);
+      const groupKey = [estimateId, workPackage, 'material', nameKey, unit].map(value => String(value || '')).join('|');
+      const materialSum = estimateItemMaterialSum({...item, sectionName});
+      const unitPrice = materialSum ? materialSum / quantity : 0;
+      const source = {
+        estimateId,
+        estimateName,
+        estimateVersion,
+        workPackage,
+        sectionName,
+        sectionIndex,
+        itemIndex,
+        rowNumber: item.rowNumber || item.number || item.sourceRow || itemIndex + 1,
+        name,
+        originalName: rawItem?.name || name,
+        quantity,
+        unit,
+        priceMaterial: toNum(item.priceMaterial),
+        materialSum,
+      };
+      if (!groupsByKey.has(groupKey)) {
+        groupsByKey.set(groupKey, {
+          key: groupKey,
+          name,
+          nameKey,
+          unit,
+          workPackage,
+          quantity: 0,
+          materialSum: 0,
+          sourceCount: 0,
+          sectionNames: new Set(),
+          priceMin: unitPrice || 0,
+          priceMax: unitPrice || 0,
+          sources: [],
+        });
+      }
+      const group = groupsByKey.get(groupKey);
+      group.quantity += quantity;
+      group.materialSum += materialSum;
+      group.sourceCount += 1;
+      if (sectionName) group.sectionNames.add(sectionName);
+      if (unitPrice) {
+        group.priceMin = group.priceMin ? Math.min(group.priceMin, unitPrice) : unitPrice;
+        group.priceMax = Math.max(group.priceMax, unitPrice);
+      }
+      group.sources.push(source);
+    });
+  });
+  const groups = Array.from(groupsByKey.values()).map(group => ({
+    ...group,
+    unitPriceAvg: group.quantity > 0 ? group.materialSum / group.quantity : 0,
+    sectionNames: Array.from(group.sectionNames),
+  })).sort((a, b) => {
+    if ((b.sourceCount > 1) !== (a.sourceCount > 1)) return (b.sourceCount > 1 ? 1 : 0) - (a.sourceCount > 1 ? 1 : 0);
+    if (b.sourceCount !== a.sourceCount) return b.sourceCount - a.sourceCount;
+    return a.name.localeCompare(b.name, 'ru');
+  });
+  return {
+    groups,
+    totalGroups: groups.length,
+    duplicateGroups: groups.filter(group => group.sourceCount > 1).length,
+    totalSourceRows: groups.reduce((sum, group) => sum + group.sourceCount, 0),
+    totalQuantity: groups.reduce((sum, group) => sum + group.quantity, 0),
+    totalMaterialSum: groups.reduce((sum, group) => sum + group.materialSum, 0),
+  };
+};
 export const estimateItemDoneTotal = (it) => {
   const q = toNum(it?.quantity);
   const d = toNum(it?.doneQuantity);
