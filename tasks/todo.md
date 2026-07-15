@@ -1878,7 +1878,7 @@
 
 **Description:** Compare every PostgreSQL `public` base table with the M6 registry before treating the 41 registered resources as complete. Report unregistered tables and their ownership-signal columns without reading counts or business rows. This closes the discovered blind spot where CRM tables and their project-creation writers were outside the tenant readiness report.
 
-**Status:** Production report completed read-only. After CRM and public-file slices: `127` schema tables, `45` registered physical tables plus one surface and `82` unregistered tables (`29 critical`, `26 high`, `27 unclassified`). Registered-table drift and duplicate registry entries are zero.
+**Status:** Production report completed read-only. After CRM, public-file, supplier-link and core-supply registration slices: `127` schema tables, `49` registered physical tables plus one surface and `78` unregistered tables (`25 critical`, `26 high`, `27 unclassified`). Registered-table drift and duplicate registry entries are zero. Core-supply registration is visible, but its separate row audit remains pending.
 
 **Acceptance criteria:**
 - [x] Collector reads only `information_schema` table/column metadata in a read-only transaction and rolls back.
@@ -1891,7 +1891,7 @@
 
 **Verification:**
 - [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.tenant_readiness.test_coverage_report`
-- [x] `npm run audit:tenant-registry-coverage` on production: `82` unregistered, zero missing/duplicate entries.
+- [x] `npm run audit:tenant-registry-coverage` on production: `78` unregistered, zero missing/duplicate entries.
 
 **Dependencies:** Task M7a; independent of M7b index apply
 
@@ -2051,7 +2051,7 @@
 
 **Description:** Register `company_supplier_links` and classify its exact company, global supplier and optional platform-account parents before changing supplier visibility or link writers.
 
-**Status:** Implemented locally. Production read-only report is pending; no schema, writer or read-path change is included.
+**Status:** Completed in production read-only. The table currently has zero rows; the report returned `readyForStrictRuntime=true`, `unresolved=0`, `mismatched=0`, `writesAttempted=0`, `needsReview=[]` and rolled back without changing data.
 
 **Acceptance criteria:**
 - [x] Every link requires an existing stored company and existing global supplier.
@@ -2059,13 +2059,13 @@
 - [x] Missing parents are unresolved and cross-account links are mismatched; neither is guessed or repaired.
 - [x] Loader reads only IDs and owner relations, never contract terms, rating, category, source, status or supplier details.
 - [x] Report runs read-only, rolls back and reports `writesAttempted=0`.
-- [ ] Production dry-run provides exact verified/unresolved/mismatched counts and review reasons.
-- [ ] Registry coverage confirms `company_supplier_links` leaves the unregistered set.
+- [x] Production dry-run provides exact verified/unresolved/mismatched counts and review reasons.
+- [x] Registry coverage confirms `company_supplier_links` leaves the unregistered set.
 
 **Verification:**
 - [x] `python3 -m unittest backend.features.supplier_link_ownership.test_ownership_report` (`7` tests).
-- [ ] `npm run audit:supplier-link-ownership` on production.
-- [ ] `npm run audit:tenant-registry-coverage` on production.
+- [x] `npm run audit:supplier-link-ownership` on production: `0` rows, zero unresolved/mismatched and zero writes.
+- [x] `npm run audit:tenant-registry-coverage` on production: `78` unregistered tables and zero registry drift.
 
 **Dependencies:** Task M7g production completion
 
@@ -2085,12 +2085,12 @@
 - [x] Loader reads only IDs and owner relations; procurement content and supplier/commercial fields are excluded.
 - [x] Report runs read-only, rolls back and reports `writesAttempted=0`.
 - [ ] Production dry-run provides exact verified/unresolved/ambiguous/mismatched counts and review reasons.
-- [ ] Registry coverage confirms the three tables leave the unregistered set.
+- [x] Registry coverage confirms the three tables leave the unregistered set.
 
 **Verification:**
 - [x] `python3 -m unittest backend.features.supply_ownership.test_ownership_report` (`10` tests).
 - [ ] `npm run audit:supply-ownership` on production.
-- [ ] `npm run audit:tenant-registry-coverage` on production.
+- [x] `npm run audit:tenant-registry-coverage` on production: all three tables are registered; `78` tables remain outside the registry.
 
 **Dependencies:** Task M7g production completion; independent of M7h supplier-link audit and any future supply backfill or runtime change
 
