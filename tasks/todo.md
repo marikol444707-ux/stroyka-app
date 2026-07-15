@@ -2117,6 +2117,31 @@
 
 **Estimated scope:** S
 
+## Task M7j: Audit Supply Invoice And Delivery Ownership
+
+**Description:** Register and audit the next procurement chain slice: `supplier_invoices -> supply_deliveries`. Verify stored company/project ownership and optional or required request/offer parents without reading invoice, supplier, material, quantity, price, file or delivery content.
+
+**Status:** Implemented locally. Production read-only report pending; no schema, backfill, writer or runtime change is included.
+
+**Acceptance criteria:**
+- [x] A direct supplier invoice is verified only by an existing stored company and exactly one same-company project matching its legacy project field.
+- [x] When an invoice stores `request_id` or `offer_id`, every stored parent must exist and match the same company/project/request chain.
+- [x] A supply delivery requires both exact request and offer parents, and both must match its stored company and exact same-company project.
+- [x] Missing parents are unresolved, duplicate same-company project names are ambiguous, and cross-company/project/request links are mismatched.
+- [x] Loader reads only record and owner-parent IDs plus the legacy project fields needed for classification; commercial and delivery content is excluded.
+- [x] Report runs in a PostgreSQL read-only transaction, rolls back and reports `writesAttempted=0`.
+- [ ] Production dry-run provides exact verified/unresolved/ambiguous/mismatched counts and review reasons.
+- [ ] Registry coverage confirms both tables leave the unregistered set.
+
+**Verification:**
+- [x] `python3 -m unittest backend.features.supply_execution_ownership.test_ownership_report` (`12` tests).
+- [ ] `npm run audit:supply-execution-ownership` on production.
+- [ ] `npm run audit:tenant-registry-coverage` on production.
+
+**Dependencies:** Task M7i report implementation; independent of M7h production result and later warehouse ownership audit
+
+**Estimated scope:** S
+
 ## Task 12: Extract Auth Helpers
 
 **Description:** Move auth/session helper functions from `backend/main.py` into `backend/auth.py` without changing behavior.
