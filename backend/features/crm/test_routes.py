@@ -1,5 +1,6 @@
 import unittest
 
+import psycopg2.extras
 from fastapi import HTTPException
 
 from .routes import register_crm_module
@@ -50,11 +51,13 @@ class FakeCursor:
 class FakeConnection:
     def __init__(self, cursor):
         self.cursor_value = cursor
+        self.cursor_kwargs = []
         self.commits = 0
         self.rollbacks = 0
         self.closed = False
 
-    def cursor(self, **_kwargs):
+    def cursor(self, **kwargs):
+        self.cursor_kwargs.append(kwargs)
         return self.cursor_value
 
     def commit(self):
@@ -110,7 +113,7 @@ class CrmRouteOwnershipTests(unittest.TestCase):
         return app, route_connection, resolver_calls, resource_calls
 
     def test_create_stores_selected_company_and_server_actor(self):
-        cursor = FakeCursor(fetchone_values=[(77,)])
+        cursor = FakeCursor(fetchone_values=[{"id": 77}])
         app, connection, resolver_calls, _ = self.build_app(cursor)
 
         response = app.routes[("POST", "/crm/leads")](
@@ -127,6 +130,7 @@ class CrmRouteOwnershipTests(unittest.TestCase):
         self.assertEqual(params[8], "Директор")
         self.assertEqual(resolver_calls, [(None, "create", {"x_company_id": "4", "x_company_mode": "company"})])
         self.assertEqual(response, {"ok": True, "id": 77})
+        self.assertIs(connection.cursor_kwargs[0].get("cursor_factory"), psycopg2.extras.RealDictCursor)
         self.assertEqual(connection.commits, 1)
 
     def test_create_rejects_all_companies_before_insert(self):

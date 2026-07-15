@@ -21981,12 +21981,13 @@ def create_crm_lead(
     _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm")),
 ):
     conn = get_db()
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         owner = _resolve_crm_create_owner(cur, _current_user, x_company_id, x_company_mode)
         cur.execute("INSERT INTO crm_leads (company_id,name,phone,email,source,budget,notes,stage,created_by,created_at,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
             (owner["companyId"], data.get("name",""), data.get("phone",""), data.get("email",""), data.get("source",""), data.get("budget") or 0, data.get("notes",""), data.get("stage","Новый"), _current_user.get("name", ""), data.get("createdAt",""), data.get("photoUrl","")))
-        new_id = cur.fetchone()[0]
+        created = cur.fetchone()
+        new_id = created.get("id") if isinstance(created, dict) else created[0]
         conn.commit()
         return {"ok": True, "id": new_id}
     except HTTPException:

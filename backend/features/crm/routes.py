@@ -307,7 +307,7 @@ def register_crm_module(app, deps):
         current_user: dict = Depends(crm_access),
     ):
         conn = get_db()
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             owner = create_owner(cur, current_user, x_company_id, x_company_mode)
             cur.execute("""
@@ -344,7 +344,8 @@ def register_crm_module(app, deps):
                 _text(data.get("documentStatus") or "Не собраны", 80),
                 _text(data.get("reviewStatus") or "Новая", 80),
             ))
-            lead_id = cur.fetchone()[0]
+            created = cur.fetchone()
+            lead_id = created.get("id") if isinstance(created, dict) else created[0]
             conn.commit()
             if log_audit:
                 log_audit(current_user.get("name", ""), current_user.get("role", ""), "create", "crm_lead", lead_id, "Создана CRM-заявка", "")
