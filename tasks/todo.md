@@ -2100,17 +2100,17 @@
 
 **Description:** Determine why the `25` production recipients/offers reference missing supply requests and whether downstream invoices, deliveries, messages or other records still depend on them. Produce only IDs, relation types and exact counts; do not expose procurement content.
 
-**Status:** Pending implementation. The `M7i` review list is complete and provides the exact starting set.
+**Status:** Implemented locally. The read-only report is pinned to the exact `25`-row source set and SHA `99f5b9b8a3e7d45bbea2042e12dfbadf727447e58996975243f36f5cf0f001e8`; production dry-run is pending.
 
 **Acceptance criteria:**
-- [ ] The report starts from the exact `17` recipient and `8` offer rows identified by `M7i` and fails closed if the set changes.
-- [ ] It distinguishes deleted/test request residue from rows that still have downstream business references without guessing a replacement request.
-- [ ] It reads and outputs only IDs, company ownership and relation types; materials, suppliers, prices, terms, messages and notes remain excluded.
-- [ ] It runs read-only, rolls back and reports `writesAttempted=0`.
+- [x] The report starts from the exact `17` recipient and `8` offer rows identified by `M7i` and fails closed if the set changes.
+- [x] It distinguishes deleted/test request residue from rows that still have downstream business references without guessing a replacement request.
+- [x] It reads and outputs only IDs, company ownership and relation types; materials, suppliers, prices, terms, messages and notes remain excluded.
+- [x] It runs read-only, rolls back and reports `writesAttempted=0`.
 - [ ] Any future cleanup/backfill is a separate guarded apply with exact expected count and plan SHA.
 
 **Verification:**
-- [ ] Focused unit tests cover stale request IDs, downstream references, changed-set failure and zero-write rollback.
+- [x] Focused unit tests cover stale request IDs, downstream references, changed-set failure and zero-write rollback (`5` tests; `15` combined supply-audit tests).
 - [ ] Production dry-run captures exact classifications and review reasons.
 
 **Dependencies:** Task M7i production dry-run

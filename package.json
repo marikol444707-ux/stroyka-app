@@ -53,6 +53,7 @@
     "audit:public-file-ownership": "python3 -m backend.features.public_file_ownership.ownership_report",
     "audit:supplier-link-ownership": "python3 -m backend.features.supplier_link_ownership.ownership_report",
     "audit:supply-ownership": "python3 -m backend.features.supply_ownership.ownership_report",
+    "audit:supply-orphans": "python3 -m backend.features.supply_ownership.orphan_report",
     "smoke:api-error-ownership": "python3 scripts/smoke-api-error-ownership.py",
     "smoke:telegram-expense": "python3 scripts/smoke-telegram-own-expense.py",
     "smoke:max-warehouse": "python3 scripts/smoke-max-warehouse-invoice.py",
