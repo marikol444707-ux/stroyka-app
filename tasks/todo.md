@@ -1832,7 +1832,7 @@
 
 **Description:** Add one fail-closed operator report that combines the M6 tenant registry with technical database ownership facts. The report must identify registry gaps, pending runtime releases, missing owner columns/indexes, null or invalid scopes, orphan companies/projects, and project-company mismatches before any M7 constraint is designed or applied.
 
-**Status:** Implemented locally. Production execution of `npm run audit:tenant-readiness` is still required; a blocked result is expected while M4-M6 registry gaps remain and is not permission to apply constraints.
+**Status:** Initial production report completed read-only: `41` registry entries, `13` stored tables, `35` registry blockers, zero orphan companies/projects or project-company mismatches. The initial two index findings were split into an optional empty `messages.project_id` false positive and one real `work_journal.company_id` gap. Constraints and the pilot remain blocked.
 
 **Acceptance criteria:**
 - [x] Report uses a PostgreSQL read-only transaction, performs zero writes, and always rolls back.
@@ -1840,13 +1840,37 @@
 - [x] `missing`, `legacy_default`, `public_surface`, and `pending/local` registry states fail closed.
 - [x] Stored tables are checked for `company_id`, relevant indexes, null owners, invalid scopes, orphan parents, and project-company mismatches.
 - [x] Constraint candidates are informational only; no `ALTER`, backfill, guessed mapping, or pilot-company creation is included.
-- [ ] Production report is captured and its blockers are split into independent M7 follow-up slices.
+- [x] Production report is captured and its blockers are split into independent M7 follow-up slices.
 
 **Verification:**
 - [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.tenant_readiness.test_report`
-- [ ] `npm run audit:tenant-readiness` on production.
+- [x] `npm run audit:tenant-readiness` on production: read-only transaction rolled back, no business rows changed.
 
 **Dependencies:** Tasks M4-M6 and the current `docs/m6-tenant-registry.json`
+
+**Estimated scope:** S
+
+## Task M7b: Guarded Work-Journal Tenant Index
+
+**Description:** Correct the generic readiness rule so an optional `project_id` column requires an index only when project-owned rows exist, then add one guarded additive index for the confirmed ЖПР query path: `work_journal(company_id, project)`. Do not add constraints, alter business rows, or touch the 35 unresolved registry/runtime scopes.
+
+**Status:** Implemented locally. Production must first run `npm run audit:tenant-indexes`, then apply only the exact reported `missingCount` and `planSha256`, and finally rerun both M7 audits.
+
+**Acceptance criteria:**
+- [x] Empty optional project scope no longer produces a false `project_index_missing` blocker.
+- [x] Project rows without a usable project index still fail closed.
+- [x] Dry-run uses a read-only transaction and always rolls back.
+- [x] Apply requires exact confirmation, missing-index count and SHA-256 plan.
+- [x] Migration creates only `idx_work_journal_company_project` on `(company_id, project)` with short lock/statement timeouts.
+- [x] Report exposes exact rollback SQL; no backfill, `NOT NULL`, FK, CHECK or pilot data is included.
+- [ ] Production index apply and post-audits pass.
+
+**Verification:**
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m unittest backend.features.tenant_readiness.test_index_migration backend.features.tenant_readiness.test_report`
+- [ ] `npm run audit:tenant-indexes` on production.
+- [ ] `npm run audit:tenant-readiness` after apply.
+
+**Dependencies:** Task M7a production report
 
 **Estimated scope:** S
 
