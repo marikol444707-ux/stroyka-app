@@ -1993,7 +1993,7 @@
 
 **Description:** After M7f1 is live, scope list/detail/update/delete/approve/invite/transfer routes and both CRM project-creation writers through stored lead/child ownership. Project creation must persist the lead's exact company instead of relying on a database default or UI context.
 
-**Status:** In progress. Reads, mutations, approvals, invitations and document transfer are complete in production. Both project-creation URLs now use one stored-owner implementation locally; production deploy and protected verification remain.
+**Status:** Complete in production. Reads, mutations, approvals, invitations, document transfer and both project-creation URLs enforce stored CRM ownership.
 
 **Acceptance criteria:**
 - [x] Lead summaries use only companies where the effective actor has a CRM role; aggregate mode never broadens access beyond those memberships.
@@ -2007,7 +2007,7 @@
 **Verification:**
 - [x] Focused CRM tests (`41`) and full backend suite (`642`).
 - [x] Production deploy smoke, `smoke:platform-crm` with `foreignLeadHidden=true`, `ownMutationsChecked=true`, six foreign mutation `403` responses, `ownWorkflowOwnershipChecked=true` and four foreign workflow `403` responses, plus strict post-audit with zero legacy/unresolved/mismatched rows.
-- [ ] Deploy project creation runtime and confirm `projectCreationOwnershipChecked=true`, both foreign project-creation URLs reject access, and strict CRM audit remains clean.
+- [x] Runtime `f8c66354`: `projectCreationOwnershipChecked=true`, both foreign project-creation URLs reject access, six foreign workflows return `403`, and strict CRM audit is clean.
 
 ### Task M7f2a-legacy: Scope Compatibility CRM List
 
