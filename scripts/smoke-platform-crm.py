@@ -890,6 +890,8 @@ def check_crm(crm_token, foreign_company_id):
     _, invite = api_json("POST", f"/crm/leads/{supplier_lead_id}/create-invite", token=crm_token, expected=200, data={"role": "поставщик"})
     if not invite.get("link"):
         raise RuntimeError(f"CRM invite returned invalid body: {invite}")
+    if int(invite.get("invite", {}).get("company_id") or 0) != 1:
+        raise RuntimeError(f"CRM invite did not inherit lead company: {invite}")
     _, transfer = api_json(
         "POST",
         f"/crm/leads/{supplier_lead_id}/transfer-documents-to-project",
@@ -919,7 +921,15 @@ def check_crm(crm_token, foreign_company_id):
         },
     )
     worker_lead_id = worker_lead.get("id")
-    api_json("POST", f"/crm/leads/{worker_lead_id}/approve-worker", token=crm_token, expected=200, data={"role": "мастер"})
+    _, approved_worker = api_json(
+        "POST",
+        f"/crm/leads/{worker_lead_id}/approve-worker",
+        token=crm_token,
+        expected=200,
+        data={"role": "мастер"},
+    )
+    if int(approved_worker.get("staff", {}).get("company_id") or 0) != 1:
+        raise RuntimeError(f"approved CRM worker did not inherit lead company: {approved_worker}")
 
     client_name = f"{PREFIX} Client Lead"
     _, client_lead = api_json(
@@ -1039,6 +1049,22 @@ def check_crm(crm_token, foreign_company_id):
         if status not in (403, 404):
             raise RuntimeError(f"{method} {path} did not reject foreign CRM owner: status={status} body={body}")
         foreign_mutation_statuses.append(status)
+    foreign_workflow_mutations = (
+        ("POST", f"/crm/leads/{foreign_lead_id}/approve-supplier", {}),
+        ("POST", f"/crm/leads/{foreign_lead_id}/approve-worker", {"role": "мастер"}),
+        ("POST", f"/crm/leads/{foreign_lead_id}/create-invite", {"role": "мастер"}),
+        (
+            "POST",
+            f"/crm/leads/{foreign_lead_id}/transfer-documents-to-project",
+            {"projectName": PROJECT_NAME, "documentIds": [foreign_document_id]},
+        ),
+    )
+    foreign_workflow_statuses = []
+    for method, path, data in foreign_workflow_mutations:
+        status, body = api_json(method, path, token=crm_token, data=data)
+        if status not in (403, 404):
+            raise RuntimeError(f"{method} {path} did not reject foreign CRM workflow: status={status} body={body}")
+        foreign_workflow_statuses.append(status)
 
     _, disposable_lead = api_json(
         "POST",
@@ -1144,6 +1170,8 @@ def check_crm(crm_token, foreign_company_id):
         "foreignLeadHidden": True,
         "ownMutationsChecked": True,
         "foreignMutationStatuses": foreign_mutation_statuses,
+        "ownWorkflowOwnershipChecked": True,
+        "foreignWorkflowStatuses": foreign_workflow_statuses,
         "publicLeadId": public_lead_ids[0],
         "publicPartnerLeadIds": public_lead_ids[1:],
     }
@@ -1186,6 +1214,7 @@ def main():
                 "crm read isolation between companies",
                 "crm lead/document/task mutation isolation",
                 "legacy crm list read isolation",
+                "crm approval/invite/transfer isolation",
                 "crm documents and tasks",
                 "supplier approval",
                 "worker approval",

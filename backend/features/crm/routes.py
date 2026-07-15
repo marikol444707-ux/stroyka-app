@@ -307,6 +307,25 @@ def register_crm_module(app, deps):
             raise HTTPException(status_code=404, detail="CRM-заявка не найдена")
         return _lead_dict(row)
 
+    def company_platform_account_id(cur, company_id):
+        cur.execute("SELECT platform_account_id FROM companies WHERE id=%s", (company_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=409, detail="Компания CRM-заявки не найдена")
+        return row.get("platform_account_id")
+
+    def validate_company_projects(cur, company_id, project_names):
+        requested = sorted({_text(name, 255) for name in (project_names or []) if _text(name, 255)})
+        if not requested:
+            return
+        cur.execute(
+            "SELECT name FROM projects WHERE company_id=%s AND name = ANY(%s)",
+            (company_id, requested),
+        )
+        found = {row.get("name") for row in (cur.fetchall() or [])}
+        if found != set(requested):
+            raise HTTPException(status_code=404, detail="Один из выбранных объектов не найден в компании CRM-заявки")
+
     def invite_role_for_lead(lead, data):
         requested = _text(data.get("role"), 80)
         if requested:
@@ -321,10 +340,11 @@ def register_crm_module(app, deps):
         }.get(lead_type, "")
 
     def supplier_id_for_lead(cur, lead, data):
-        if data.get("supplierId"):
-            return int(data.get("supplierId") or 0) or None
         supplier_payload = {
             **(data or {}),
+            "id": None,
+            "supplierId": None,
+            "supplier_id": None,
             "name": lead.get("name") or "",
             "supplierName": lead.get("name") or "",
             "phone": lead.get("phone") or "",
@@ -855,14 +875,24 @@ def register_crm_module(app, deps):
             conn.close()
 
     @app.post("/crm/leads/{lead_id}/approve-supplier")
-    def crm_approve_supplier(lead_id: int, data: dict = None, current_user: dict = Depends(crm_access)):
+    def crm_approve_supplier(
+        lead_id: int,
+        data: dict = None,
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(crm_access),
+    ):
         data = data or {}
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            lead = fetch_lead(cur, lead_id)
+            lead = fetch_lead(cur, lead_id, for_update=True)
+            owner = child_owner(cur, current_user, lead, "update", x_company_id, x_company_mode)
             supplier_payload = {
                 **(data or {}),
+                "id": None,
+                "supplierId": None,
+                "supplier_id": None,
                 "name": lead.get("name") or "",
                 "supplierName": lead.get("name") or "",
                 "phone": lead.get("phone") or "",
@@ -921,8 +951,10 @@ def register_crm_module(app, deps):
                 UPDATE crm_leads
                    SET lead_type='Поставщик', review_status='Одобрен как поставщик',
                        stage='Одобрен как поставщик', document_status=COALESCE(document_status,'Не собраны')
-                 WHERE id=%s
-            """, (lead_id,))
+                 WHERE id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s
+            """, (lead_id, owner["companyId"], owner["projectId"]))
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="CRM-заявка не найдена")
             conn.commit()
             if log_audit:
                 log_audit(current_user.get("name", ""), current_user.get("role", ""), "create", "supplier", supplier["id"], "Поставщик создан/связан из CRM-заявки #" + str(lead_id), "")
@@ -938,7 +970,13 @@ def register_crm_module(app, deps):
             conn.close()
 
     @app.post("/crm/leads/{lead_id}/approve-worker")
-    def crm_approve_worker(lead_id: int, data: dict = None, current_user: dict = Depends(crm_access)):
+    def crm_approve_worker(
+        lead_id: int,
+        data: dict = None,
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(crm_access),
+    ):
         data = data or {}
         role = _text(data.get("role") or "", 80)
         if role not in ("мастер", "бригадир", "субподрядчик"):
@@ -946,25 +984,30 @@ def register_crm_module(app, deps):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            lead = fetch_lead(cur, lead_id)
+            lead = fetch_lead(cur, lead_id, for_update=True)
+            owner = child_owner(cur, current_user, lead, "update", x_company_id, x_company_mode)
+            worker_project_name = _text(data.get("projectName"), 255)
+            validate_company_projects(cur, owner["companyId"], [worker_project_name])
             cur.execute("""
                 SELECT * FROM staff
-                WHERE LOWER(COALESCE(name,''))=LOWER(%s)
+                WHERE company_id=%s AND (
+                       LOWER(COALESCE(name,''))=LOWER(%s)
                    OR (%s<>'' AND COALESCE(phone,'')=%s)
                    OR (%s<>'' AND LOWER(COALESCE(email_personal,''))=LOWER(%s))
+                )
                 ORDER BY id LIMIT 1
-            """, (lead["name"], lead["phone"], lead["phone"], lead["email"], lead["email"]))
+            """, (owner["companyId"], lead["name"], lead["phone"], lead["phone"], lead["email"], lead["email"]))
             staff = cur.fetchone()
             if not staff:
                 cur.execute("""
                     INSERT INTO staff (
-                        name,role,phone,salary,project,pay_type,email_personal,address,
+                        company_id,name,role,phone,salary,project,pay_type,email_personal,address,
                         inn,specialization,category,employment_type,status,bank_account,bank_name,
                         bank_bik,bank_corr,notes
-                    ) VALUES (%s,%s,%s,0,%s,'сдельная',%s,%s,%s,%s,%s,%s,'На проверке',%s,%s,%s,%s,%s)
+                    ) VALUES (%s,%s,%s,%s,0,%s,'сдельная',%s,%s,%s,%s,%s,%s,'На проверке',%s,%s,%s,%s,%s)
                     RETURNING *
                 """, (
-                    lead["name"], role, lead["phone"], data.get("projectName") or "",
+                    owner["companyId"], lead["name"], role, lead["phone"], worker_project_name,
                     lead["email"], lead.get("address"), lead.get("inn"), lead.get("workType"),
                     lead.get("counterpartyType"), lead.get("legalForm"), lead.get("bankAccount"),
                     lead.get("bank"), lead.get("bik"), lead.get("corrAccount"),
@@ -974,8 +1017,13 @@ def register_crm_module(app, deps):
             cur.execute("""
                 UPDATE crm_leads
                    SET lead_type=%s, review_status='Одобрен как исполнитель', stage='Одобрен как исполнитель'
-                 WHERE id=%s
-            """, ("Бригадир" if role == "бригадир" else ("Субподрядчик" if role == "субподрядчик" else "Мастер"), lead_id))
+                 WHERE id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s
+            """, (
+                "Бригадир" if role == "бригадир" else ("Субподрядчик" if role == "субподрядчик" else "Мастер"),
+                lead_id, owner["companyId"], owner["projectId"],
+            ))
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="CRM-заявка не найдена")
             conn.commit()
             if log_audit:
                 log_audit(current_user.get("name", ""), current_user.get("role", ""), "create", "staff", staff["id"], "Исполнитель создан/связан из CRM-заявки #" + str(lead_id), staff.get("project") or "")
@@ -991,12 +1039,20 @@ def register_crm_module(app, deps):
             conn.close()
 
     @app.post("/crm/leads/{lead_id}/create-invite")
-    def crm_create_invite(lead_id: int, data: dict = None, current_user: dict = Depends(crm_access)):
+    def crm_create_invite(
+        lead_id: int,
+        data: dict = None,
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(crm_access),
+    ):
         data = data or {}
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            lead = fetch_lead(cur, lead_id)
+            lead = fetch_lead(cur, lead_id, for_update=True)
+            owner = child_owner(cur, current_user, lead, "update", x_company_id, x_company_mode)
+            platform_account_id = company_platform_account_id(cur, owner["companyId"])
             role = invite_role_for_lead(lead, data)
             if role not in ("поставщик", "мастер", "бригадир", "субподрядчик", "заказчик"):
                 raise HTTPException(status_code=400, detail="Для этой заявки нельзя создать приглашение без роли")
@@ -1007,6 +1063,11 @@ def register_crm_module(app, deps):
                 assigned_projects, assigned_packages = prepare_user_access_scope(
                     cur, role, project_name, assigned_projects, assigned_packages,
                 )
+            validate_company_projects(
+                cur,
+                owner["companyId"],
+                [project_name, *assigned_projects],
+            )
             supplier_id = supplier_id_for_lead(cur, lead, data) if role == "поставщик" else None
             expires_in_days = int(data.get("expiresInDays") or 14)
             expires_at = dt.datetime.now() + dt.timedelta(days=expires_in_days)
@@ -1014,8 +1075,8 @@ def register_crm_module(app, deps):
             cur.execute("""
                 INSERT INTO invite_codes (
                     code,role,supplier_id,preset_name,preset_category,created_by,expires_at,
-                    project_name,assigned_projects,assigned_packages
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb)
+                    project_name,assigned_projects,assigned_packages,company_id,platform_account_id
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s)
                 RETURNING *
             """, (
                 code, role, supplier_id, lead.get("name") or "",
@@ -1023,18 +1084,21 @@ def register_crm_module(app, deps):
                 current_user.get("name") or "", expires_at, project_name,
                 json.dumps(assigned_projects, ensure_ascii=False),
                 json.dumps(assigned_packages, ensure_ascii=False),
+                owner["companyId"], platform_account_id,
             ))
             invite = dict(cur.fetchone())
             cur.execute("""
                 UPDATE crm_leads
                    SET review_status=%s,
                        notes=LEFT(COALESCE(notes,'') || %s, 4000)
-                 WHERE id=%s
+                 WHERE id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s
             """, (
                 "Приглашение создано",
                 "\n\nСоздано приглашение " + role + ": " + code,
-                lead_id,
+                lead_id, owner["companyId"], owner["projectId"],
             ))
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="CRM-заявка не найдена")
             conn.commit()
             link = (app_public_url or "").rstrip("/") + "/?invite=" + code if app_public_url else "/?invite=" + code
             if log_audit:
@@ -1051,30 +1115,59 @@ def register_crm_module(app, deps):
             conn.close()
 
     @app.post("/crm/leads/{lead_id}/transfer-documents-to-project")
-    def crm_transfer_documents_to_project(lead_id: int, data: dict = None, current_user: dict = Depends(crm_access)):
+    def crm_transfer_documents_to_project(
+        lead_id: int,
+        data: dict = None,
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(crm_access),
+    ):
         data = data or {}
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            lead = fetch_lead(cur, lead_id)
+            lead = fetch_lead(cur, lead_id, for_update=True)
+            owner = child_owner(cur, current_user, lead, "update", x_company_id, x_company_mode)
             project_name = _text(data.get("projectName"), 255)
-            if not project_name and lead.get("projectId"):
-                cur.execute("SELECT name FROM projects WHERE id=%s", (lead.get("projectId"),))
-                project = cur.fetchone()
-                project_name = project.get("name") if project else ""
-            if not project_name:
+            if project_name:
+                cur.execute(
+                    "SELECT id,name,company_id FROM projects WHERE name=%s AND company_id=%s LIMIT 1",
+                    (project_name, owner["companyId"]),
+                )
+            elif lead.get("projectId"):
+                cur.execute(
+                    "SELECT id,name,company_id FROM projects WHERE id=%s AND company_id=%s LIMIT 1",
+                    (lead.get("projectId"), owner["companyId"]),
+                )
+            else:
                 raise HTTPException(status_code=400, detail="Сначала укажите или создайте объект")
-            cur.execute("SELECT id,name FROM projects WHERE name=%s LIMIT 1", (project_name,))
-            if not cur.fetchone():
+            project = cur.fetchone()
+            if not project:
                 raise HTTPException(status_code=404, detail="Объект не найден")
-            doc_ids = data.get("documentIds") if isinstance(data.get("documentIds"), list) else []
-            params = [lead_id]
-            where = "lead_id=%s"
+            project_name = project.get("name") or ""
+            raw_doc_ids = data.get("documentIds")
+            if raw_doc_ids is not None and not isinstance(raw_doc_ids, list):
+                raise HTTPException(status_code=400, detail="documentIds должен быть списком")
+            doc_ids = raw_doc_ids or []
+            normalized_doc_ids = []
+            for raw_id in doc_ids:
+                try:
+                    doc_id = int(raw_id)
+                except (TypeError, ValueError):
+                    raise HTTPException(status_code=400, detail="documentIds должен содержать целые положительные ID")
+                if doc_id <= 0:
+                    raise HTTPException(status_code=400, detail="documentIds должен содержать целые положительные ID")
+                if doc_id not in normalized_doc_ids:
+                    normalized_doc_ids.append(doc_id)
+            params = [lead_id, owner["companyId"], owner["projectId"]]
+            where = "lead_id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s"
             if doc_ids:
                 where += " AND id = ANY(%s)"
-                params.append([int(x) for x in doc_ids if str(x).isdigit()])
-            cur.execute("SELECT * FROM crm_lead_documents WHERE " + where + " ORDER BY id", tuple(params))
+                params.append(normalized_doc_ids)
+            cur.execute("SELECT * FROM crm_lead_documents WHERE " + where + " ORDER BY id FOR UPDATE", tuple(params))
             docs = cur.fetchall()
+            if normalized_doc_ids and {int(doc.get("id") or 0) for doc in docs} != set(normalized_doc_ids):
+                raise HTTPException(status_code=404, detail="Один из документов не найден в CRM-заявке")
             created = []
             skipped = []
             side = data.get("side") or ("customer" if lead.get("leadType") == "Клиент" else "contractor")
@@ -1103,10 +1196,22 @@ def register_crm_module(app, deps):
                 ))
                 project_doc_id = cur.fetchone()["id"]
                 created.append(project_doc_id)
-                cur.execute("UPDATE crm_lead_documents SET status='Передан в объект' WHERE id=%s", (doc.get("id"),))
+                cur.execute(
+                    """UPDATE crm_lead_documents SET status='Передан в объект'
+                        WHERE id=%s AND lead_id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s""",
+                    (doc.get("id"), lead_id, owner["companyId"], owner["projectId"]),
+                )
+                if cur.rowcount == 0:
+                    raise HTTPException(status_code=404, detail="Документ CRM не найден")
             cur.execute("""
-                UPDATE crm_leads SET document_status=%s WHERE id=%s
-            """, ("Переданы в объект" if created else lead.get("documentStatus") or "Есть документы", lead_id))
+                UPDATE crm_leads SET document_status=%s
+                 WHERE id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s
+            """, (
+                "Переданы в объект" if created else lead.get("documentStatus") or "Есть документы",
+                lead_id, owner["companyId"], owner["projectId"],
+            ))
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="CRM-заявка не найдена")
             conn.commit()
             if log_audit:
                 log_audit(current_user.get("name", ""), current_user.get("role", ""), "create", "project_document", created[0] if created else None, "CRM-документы переданы в объект из заявки #" + str(lead_id), project_name)

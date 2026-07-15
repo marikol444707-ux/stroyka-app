@@ -77,6 +77,13 @@ def lead_row(company_id=4, project_id=21):
         "companyId": company_id,
         "projectId": project_id,
         "name": "Лид",
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "leadType": "Клиент",
+        "counterpartyType": "",
+        "workType": "",
+        "documentStatus": "Не собраны",
         "budget": 0,
         "area": 0,
         "documentsCount": 0,
@@ -378,6 +385,185 @@ class CrmRouteOwnershipTests(unittest.TestCase):
         self.assertFalse(any(sql.startswith("DELETE FROM crm_lead_tasks") for sql, _ in cursor.calls))
         self.assertEqual(connection.rollbacks, 1)
         self.assertTrue(connection.closed)
+
+    def test_supplier_approval_rejects_foreign_lead_before_supplier_lookup(self):
+        cursor = FakeCursor(fetchone_values=[lead_row(company_id=8)])
+        app, connection, _, resource_calls = self.build_app(cursor)
+
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("POST", "/crm/leads/{lead_id}/approve-supplier")](
+                10,
+                {},
+                x_company_id="4",
+                x_company_mode="company",
+                current_user={"id": 9, "role": "директор"},
+            )
+
+        self.assertEqual(raised.exception.status_code, 404)
+        self.assertEqual(resource_calls[0][:2], (8, "update"))
+        self.assertFalse(any("FROM suppliers" in sql or "INTO suppliers" in sql for sql, _ in cursor.calls))
+        self.assertEqual(connection.rollbacks, 1)
+
+    def test_supplier_approval_scopes_lead_status_update(self):
+        supplier = {"id": 71, "name": "Лид"}
+        cursor = FakeCursor(fetchone_values=[lead_row(), None, supplier])
+        app, connection, _, resource_calls = self.build_app(cursor)
+
+        response = app.routes[("POST", "/crm/leads/{lead_id}/approve-supplier")](
+            10,
+            {},
+            x_company_id="4",
+            x_company_mode="company",
+            current_user={"id": 9, "role": "директор"},
+        )
+
+        sql, params = next(call for call in cursor.calls if call[0].startswith("UPDATE crm_leads SET lead_type='Поставщик'"))
+        self.assertIn("company_id=%s", sql)
+        self.assertIn("project_id IS NOT DISTINCT FROM %s", sql)
+        self.assertEqual(params, (10, 4, 21))
+        self.assertEqual(resource_calls[0][:2], (4, "update"))
+        self.assertEqual(response["supplier"]["id"], 71)
+        self.assertEqual(connection.commits, 1)
+
+    def test_worker_approval_creates_staff_inside_lead_company(self):
+        staff = {"id": 81, "name": "Лид", "project": ""}
+        cursor = FakeCursor(fetchone_values=[lead_row(), None, staff])
+        app, connection, _, resource_calls = self.build_app(cursor)
+
+        response = app.routes[("POST", "/crm/leads/{lead_id}/approve-worker")](
+            10,
+            {"role": "мастер"},
+            x_company_id="4",
+            x_company_mode="company",
+            current_user={"id": 9, "role": "директор"},
+        )
+
+        lookup_sql, lookup_params = next(call for call in cursor.calls if "SELECT * FROM staff" in call[0])
+        self.assertIn("company_id=%s", lookup_sql)
+        self.assertEqual(lookup_params[0], 4)
+        insert_sql, insert_params = next(call for call in cursor.calls if call[0].startswith("INSERT INTO staff"))
+        self.assertIn("company_id,name", insert_sql)
+        self.assertEqual(insert_params[0], 4)
+        self.assertEqual(resource_calls[0][:2], (4, "update"))
+        self.assertEqual(response["staff"]["id"], 81)
+        self.assertEqual(connection.commits, 1)
+
+    def test_worker_approval_rejects_project_outside_lead_company(self):
+        cursor = FakeCursor(fetchone_values=[lead_row()], fetchall_values=[[]])
+        app, connection, _, _ = self.build_app(cursor)
+
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("POST", "/crm/leads/{lead_id}/approve-worker")](
+                10,
+                {"role": "мастер", "projectName": "Чужой объект"},
+                x_company_id="4",
+                x_company_mode="company",
+                current_user={"id": 9, "role": "директор"},
+            )
+
+        self.assertEqual(raised.exception.status_code, 404)
+        self.assertFalse(any("INTO staff" in sql for sql, _ in cursor.calls))
+        self.assertEqual(connection.rollbacks, 1)
+
+    def test_invite_stores_server_resolved_company_and_account(self):
+        invite = {"id": 91, "code": "ABC12345", "company_id": 4, "platform_account_id": 14}
+        cursor = FakeCursor(fetchone_values=[lead_row(project_id=None), {"platform_account_id": 14}, invite])
+        app, connection, _, resource_calls = self.build_app(cursor)
+
+        response = app.routes[("POST", "/crm/leads/{lead_id}/create-invite")](
+            10,
+            {"role": "мастер", "companyId": 999},
+            x_company_id="4",
+            x_company_mode="company",
+            current_user={"id": 9, "name": "Директор", "role": "директор"},
+        )
+
+        sql, params = next(call for call in cursor.calls if call[0].startswith("INSERT INTO invite_codes"))
+        self.assertIn("company_id,platform_account_id", sql)
+        self.assertEqual(params[-2:], (4, 14))
+        self.assertEqual(resource_calls[0][:2], (4, "update"))
+        self.assertEqual(response["invite"]["company_id"], 4)
+        self.assertEqual(connection.commits, 1)
+
+    def test_invite_rejects_project_outside_lead_company(self):
+        cursor = FakeCursor(
+            fetchone_values=[lead_row(project_id=None), {"platform_account_id": 14}],
+            fetchall_values=[[]],
+        )
+        app, connection, _, _ = self.build_app(cursor)
+
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("POST", "/crm/leads/{lead_id}/create-invite")](
+                10,
+                {"role": "мастер", "projectName": "Чужой объект"},
+                x_company_id="4",
+                x_company_mode="company",
+                current_user={"id": 9, "role": "директор"},
+            )
+
+        self.assertEqual(raised.exception.status_code, 404)
+        self.assertFalse(any(sql.startswith("INSERT INTO invite_codes") for sql, _ in cursor.calls))
+        self.assertEqual(connection.rollbacks, 1)
+
+    def test_document_transfer_requires_same_company_project_and_documents(self):
+        document = {
+            **child_owner_row(31),
+            "file_url": "/uploads/contract.pdf",
+            "doc_type": "Договор",
+            "number": "1",
+            "doc_date": None,
+            "status": "Загружен",
+            "notes": "",
+        }
+        cursor = FakeCursor(
+            fetchone_values=[lead_row(project_id=None), {"id": 21, "name": "Объект", "company_id": 4}, None, {"id": 101}],
+            fetchall_values=[[document]],
+        )
+        app, connection, _, resource_calls = self.build_app(cursor)
+
+        response = app.routes[("POST", "/crm/leads/{lead_id}/transfer-documents-to-project")](
+            10,
+            {"projectName": "Объект", "documentIds": [31]},
+            x_company_id="4",
+            x_company_mode="company",
+            current_user={"id": 9, "name": "Директор", "role": "директор"},
+        )
+
+        project_sql, project_params = next(call for call in cursor.calls if "FROM projects" in call[0])
+        self.assertIn("company_id=%s", project_sql)
+        self.assertEqual(project_params, ("Объект", 4))
+        docs_sql, docs_params = next(call for call in cursor.calls if call[0].startswith("SELECT * FROM crm_lead_documents"))
+        self.assertIn("company_id=%s", docs_sql)
+        self.assertIn("project_id IS NOT DISTINCT FROM %s", docs_sql)
+        self.assertEqual(docs_params, (10, 4, None, [31]))
+        source_update_sql, source_update_params = next(
+            call for call in cursor.calls if call[0].startswith("UPDATE crm_lead_documents SET status='Передан в объект'")
+        )
+        self.assertIn("company_id=%s", source_update_sql)
+        self.assertEqual(source_update_params, (31, 10, 4, None))
+        self.assertEqual(resource_calls[0][:2], (4, "update"))
+        self.assertEqual(response["created"], [101])
+        self.assertEqual(connection.commits, 1)
+
+    def test_document_transfer_rejects_document_outside_exact_lead_owner(self):
+        cursor = FakeCursor(
+            fetchone_values=[lead_row(project_id=None), {"id": 21, "name": "Объект", "company_id": 4}],
+            fetchall_values=[[]],
+        )
+        app, connection, _, _ = self.build_app(cursor)
+
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("POST", "/crm/leads/{lead_id}/transfer-documents-to-project")](
+                10,
+                {"projectName": "Объект", "documentIds": [999]},
+                x_company_id="4",
+                x_company_mode="company",
+                current_user={"id": 9, "role": "директор"},
+            )
+
+        self.assertEqual(raised.exception.status_code, 404)
+        self.assertFalse(any(sql.startswith("INSERT INTO project_documents") for sql, _ in cursor.calls))
+        self.assertEqual(connection.rollbacks, 1)
 
     def test_create_rejects_all_companies_before_insert(self):
         cursor = FakeCursor()
