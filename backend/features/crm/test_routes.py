@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 import psycopg2.extras
 from fastapi import HTTPException
@@ -101,6 +102,10 @@ def child_owner_row(record_id, company_id=4, project_id=21, lead_id=10):
 
 
 class CrmRouteOwnershipTests(unittest.TestCase):
+    def test_canonical_supplier_approval_has_no_legacy_duplicate(self):
+        main_source = (Path(__file__).resolve().parents[2] / "main.py").read_text(encoding="utf-8")
+        self.assertNotIn('@app.post("/crm/leads/{id}/approve-supplier")', main_source)
+
     def build_app(self, route_cursor, *, context=None, actors=None):
         schema_connection = FakeConnection(FakeCursor())
         route_connection = FakeConnection(route_cursor)
