@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Trash2, UserCheck } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Trash2 } from 'lucide-react';
 import {
   assignmentsForEstimate,
   contractName,
@@ -18,11 +18,9 @@ export default function WorkAssignmentStatusPanel({
   C,
   card,
   btnG,
-  btnO,
   btnR,
   isMobile,
   showLeadership,
-  onOpenWorkAssignment,
 }) {
   const [busyId, setBusyId] = useState(null);
   const rows = useMemo(
@@ -67,20 +65,16 @@ export default function WorkAssignmentStatusPanel({
 
   return (
     <div style={{...card, padding: '14px', marginBottom: '14px', border: '1.5px solid ' + (stats.unassignedRows ? C.warningBorder : C.successBorder), backgroundColor: stats.unassignedRows ? C.warningLight : C.successLight}}>
-      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px', flexWrap: 'wrap', marginBottom: '12px'}}>
+      <div style={{marginBottom: '12px'}}>
         <div>
           <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
             {stats.unassignedRows ? <AlertTriangle size={17} color={C.warning} /> : <CheckCircle2 size={17} color={C.success} />}
-            <b style={{color: C.text, fontSize: '14px'}}>Выдача работ мастерам</b>
+            <b style={{color: C.text, fontSize: '14px'}}>Назначенные работы</b>
           </div>
           <p style={{color: C.textSec, fontSize: '12px', margin: '4px 0 0'}}>
-            Здесь видно, какие строки сметы уже попали в наряды и что мастер увидит в своем кабинете.
+            Контроль строк, которые уже выданы исполнителям, и оставшихся неназначенных работ.
           </p>
         </div>
-        <button type="button" onClick={onOpenWorkAssignment} style={btnO}>
-          <UserCheck size={14} />
-          Назначить
-        </button>
       </div>
 
       <div style={{display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,minmax(0,1fr))' : 'repeat(6,minmax(0,1fr))', gap: '8px', marginBottom: '12px'}}>

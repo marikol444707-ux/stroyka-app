@@ -8,11 +8,11 @@ export default function EstimatesPage({ ctx }) {
     btnState, buildEstimateDiffContent, buildEstimateWorkSummary, buildMaterialNormCoverageContent, C, canCreateSupplyRequestFromNorm, canEditMaterialNorms, card,
     createBatchSupplyRequestFromNormCoverage, createEstimateFromNormSuggestions, createEstimateReconciliation, createMaterialNormCoverageTask, createSupplyRequestFromNormCoverage, createTaskFromMaterialNormSuggestion, deleteEstimateRemote, disableMaterialNorm,
     editingMaterialNormId, editMaterialNorm, enrichEstimateMeasurementBasis, ESTIMATE_PACKAGES, EstimateAddSectionForm, EstimateCreateActions, EstimateCreateFormFields, estimateDiffBaseFor,
-    estimateDisplayVersion, EstimateDuplicateWorkSummaryPanel, EstimateExecutionPricingPanel, estimateGroupKey, EstimateImportValidationBanner, EstimateImportView, estimateIssueDomId, estimateIssueFocusKey,
+    estimateDisplayVersion, EstimateDuplicateWorkSummaryPanel, estimateGroupKey, EstimateImportValidationBanner, EstimateImportView, estimateIssueDomId, estimateIssueFocusKey,
     estimateItemTotal, estimateKind, estimateNormCoverageRows, estimatePackage, estimateProjectFilter, estimateQualityRows, estimateSearch, EstimateSearchResults,
     EstimateSectionsEditor, EstimateSelectedToolbar, estimatesList, EstimatesListToolbar, EstimatesListView, estimatesPage, estimatesTab, EstimatesTabsNav,
-    estimateStatusView, estimateTotal, EstimateTotalCard, estimateTypeIcon, estimateUpdatedTs, estimateVersionChain, executionPriceFillPercent, exportToExcel,
-    fillSelectedEstimateExecutionPrices, fmtMeasure, generateMaterialNormSuggestions, handleDetectEstimateHiddenWorks, handleEstimateAiAnalysis, handleEstimateImportFile, handleExportSelectedEstimate, handleNormalizeSelectedEstimateImport,
+    estimateStatusView, estimateTotal, EstimateTotalCard, estimateTypeIcon, estimateUpdatedTs, estimateVersionChain, exportToExcel,
+    fmtMeasure, generateMaterialNormSuggestions, handleDetectEstimateHiddenWorks, handleEstimateAiAnalysis, handleEstimateImportFile, handleExportSelectedEstimate, handleNormalizeSelectedEstimateImport,
     handleOpenEstimateDistribute, handleOpenSelectedEstimateHistory, handleOpenWorkAssignment, handlePreviewSelectedEstimate, handleShowSelectedEstimateDiff, handleToggleSelectedEstimateTemplate, importValidating,
     importValidationWarnings, inp, isArchivedEstimate, isGlobalEstimateTemplate, isMobile, jumpToEstimateIssue,
     loadAll, loadMaterialNormsPage, markEstimateWorkNoMaterialFromCoverage, materialNormCanCreateSupply, materialNormCoverageComment, materialNormCoverageDisplayRows, materialNormCoverageExportRows, materialNormCoverageMeta,
@@ -20,8 +20,8 @@ export default function EstimatesPage({ ctx }) {
     materialNormRuleForCalc, materialNorms, materialNormSearch, MaterialNormsHeader, MaterialNormsListPanel, materialNormsPage, materialNormSuggestionLoading, MaterialNormSuggestionsPanel,
     materialNormSupplyRequestExists, materialTitleForNormRule, mobileExpandedRenderLists, newEstimate, newEstimateItem, newEstimateSection, newMaterialNorm, nextEstimateVersionFor,
     openEstimateDetail, persistEstimate, projects, queueEstimateDiffReviewTask, queueEstimateNormReviewTask, queueEstimateQualityReviewTask, readApiResult, refreshData,
-    rejectMaterialNormSuggestion, resetMaterialNormForm, sameEstimateGroup, saveMaterialNorm, saveMaterialNormOverrideFromCoverage, selectedEstimate, selectedEstimateExecutionPriceStats, setActivePage,
-    setEstimateProjectFilter, setEstimateSearch, setEstimatesList, setEstimatesTab, setEstimateStatusRemote, setExecutionPriceFillPercent, setGenerateForm, setImportValidationWarnings,
+    rejectMaterialNormSuggestion, resetMaterialNormForm, sameEstimateGroup, saveMaterialNorm, saveMaterialNormOverrideFromCoverage, selectedEstimate, setActivePage,
+    setEstimateProjectFilter, setEstimateSearch, setEstimatesList, setEstimatesTab, setEstimateStatusRemote, setGenerateForm, setImportValidationWarnings,
     setMaterialNormCoverageProject, setMaterialNormNotice, setMaterialNormPreviewSuggestions, setMaterialNormSearch, setMobileExpandedRenderLists, setNewEstimate, setNewEstimateItem, setNewEstimateSection,
     setNewMaterialNorm, setSelectedEstimate, setShowArchivedEstimates, setShowEstimateIssuesOnly, setShowEstimateWorkSummary, setShowForm, setShowGenerateEstimate, showArchivedEstimates,
     companyContext, showEstimateIssuesOnly, showEstimateWorkSummary, showForm, showPreview, user, visibleActiveProjects, visibleEstimatesForCurrentUser, WORK_MATERIAL_NORM_RULES,
@@ -148,15 +148,6 @@ export default function EstimatesPage({ ctx }) {
                   showLeadership={isLeadershipUser}
 	                  showEstimateIssuesOnly={showEstimateIssuesOnly}
 	                />
-		                {isLeadershipUser && (
-		                  <EstimateExecutionPricingPanel
-		                    priceStats={selectedEstimateExecutionPriceStats()}
-		                    executionPriceFillPercent={executionPriceFillPercent}
-		                    setExecutionPriceFillPercent={setExecutionPriceFillPercent}
-		                    fillSelectedEstimateExecutionPrices={fillSelectedEstimateExecutionPrices}
-		                    isMobile={isMobile}
-		                  />
-		                )}
                 <WorkAssignmentStatusPanel
                   selectedEstimate={selectedEstimate}
                   brigadeContracts={brigadeContracts}
@@ -166,11 +157,9 @@ export default function EstimatesPage({ ctx }) {
                   C={C}
                   card={card}
                   btnG={btnG}
-                  btnO={btnO}
                   btnR={btnR}
                   isMobile={isMobile}
                   showLeadership={isLeadershipUser}
-                  onOpenWorkAssignment={handleOpenWorkAssignment}
                 />
                 <EstimateDuplicateWorkSummaryPanel
                   selectedEstimate={selectedEstimate}

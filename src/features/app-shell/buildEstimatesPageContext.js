@@ -2,7 +2,6 @@ import EstimateAddSectionForm from '../../components/EstimateAddSectionForm';
 import EstimateCreateActions from '../../components/EstimateCreateActions';
 import EstimateCreateFormFields from '../../components/EstimateCreateFormFields';
 import EstimateDuplicateWorkSummaryPanel from '../../components/EstimateDuplicateWorkSummaryPanel';
-import EstimateExecutionPricingPanel from '../../components/EstimateExecutionPricingPanel';
 import EstimateImportValidationBanner from '../../components/EstimateImportValidationBanner';
 import EstimateImportView from '../../components/EstimateImportView';
 import EstimateSearchResults from '../../components/EstimateSearchResults';
@@ -55,7 +54,6 @@ export function buildEstimatesPageContext({
     EstimateCreateActions,
     EstimateCreateFormFields,
     EstimateDuplicateWorkSummaryPanel,
-    EstimateExecutionPricingPanel,
     EstimateImportValidationBanner,
     EstimateImportView,
     EstimateSearchResults,
