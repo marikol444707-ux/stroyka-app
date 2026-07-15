@@ -13,7 +13,7 @@ export default function EstimatesPage({ ctx }) {
     EstimateSectionsEditor, EstimateSelectedToolbar, estimatesList, EstimatesListToolbar, EstimatesListView, estimatesPage, estimatesTab, EstimatesTabsNav,
     estimateStatusView, estimateTotal, EstimateTotalCard, estimateTypeIcon, estimateUpdatedTs, estimateVersionChain, executionPriceFillPercent, exportToExcel,
     fillSelectedEstimateExecutionPrices, fmtMeasure, generateMaterialNormSuggestions, handleDetectEstimateHiddenWorks, handleEstimateAiAnalysis, handleEstimateImportFile, handleExportSelectedEstimate, handleNormalizeSelectedEstimateImport,
-    handleOpenEstimateDistribute, handleOpenSelectedEstimateChat, handleOpenSelectedEstimateHistory, handleOpenWorkAssignment, handlePreviewSelectedEstimate, handleShowSelectedEstimateDiff, handleToggleSelectedEstimateTemplate, importValidating,
+    handleOpenEstimateDistribute, handleOpenSelectedEstimateHistory, handleOpenWorkAssignment, handlePreviewSelectedEstimate, handleShowSelectedEstimateDiff, handleToggleSelectedEstimateTemplate, importValidating,
     importValidationWarnings, inp, isArchivedEstimate, isGlobalEstimateTemplate, isMobile, jumpToEstimateIssue,
     loadAll, loadMaterialNormsPage, markEstimateWorkNoMaterialFromCoverage, materialNormCanCreateSupply, materialNormCoverageComment, materialNormCoverageDisplayRows, materialNormCoverageExportRows, materialNormCoverageMeta,
     materialNormCoverageProject, MaterialNormCoverageSection, MaterialNormFormPanel, materialNormNotice, MaterialNormNotice, materialNormOverrides, MaterialNormOverridesPanel, materialNormPreviewSuggestions,
@@ -135,7 +135,6 @@ export default function EstimatesPage({ ctx }) {
                   onExport={handleExportSelectedEstimate}
                   onHistory={handleOpenSelectedEstimateHistory}
                   onNormalize={handleNormalizeSelectedEstimateImport}
-                  onOpenChat={handleOpenSelectedEstimateChat}
                   onOpenDistribute={handleOpenEstimateDistribute}
                   onOpenWorkAssignment={handleOpenWorkAssignment}
                   onCreateReconciliation={()=>{const base=estimateDiffBaseFor(selectedEstimate);if(base)createEstimateReconciliation(base,selectedEstimate);}}
