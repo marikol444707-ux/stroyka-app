@@ -38,16 +38,21 @@ describe('public project actions', () => {
     expect(document.getElementById('selected-project-preview').scrollIntoView).toHaveBeenCalled();
   });
 
-  test('opens the next similar project at the preview', () => {
+  test('shows similar projects and opens the selected option at the preview', () => {
     render(<PublicSitePage onLogin={jest.fn()} />);
     const initialTitle = document.querySelector('.public-project-spec-column h3').textContent;
 
-    fireEvent.click(screen.getByRole('button', { name: /Похожие по виду/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Похожие проекты (2)' }));
+
+    const similarProjects = screen.getByRole('region', { name: 'Похожие проекты' });
+    expect(document.querySelector('.public-project-spec-column h3')).toHaveTextContent(initialTitle);
+    fireEvent.click(within(similarProjects).getByRole('button', { name: /H1-02.*Дом 116 м2 с кухней-гостиной/ }));
     flushActions();
 
-    expect(document.querySelector('.public-project-spec-column h3')).not.toHaveTextContent(initialTitle);
+    expect(document.querySelector('.public-project-spec-column h3')).toHaveTextContent('Дом 116 м2 с кухней-гостиной');
     expect(screen.getByRole('status')).toHaveTextContent('Открыт похожий проект');
     expect(document.getElementById('selected-project-preview').scrollIntoView).toHaveBeenCalled();
+    expect(screen.queryByRole('region', { name: 'Похожие проекты' })).not.toBeInTheDocument();
   });
 
   test('compares projects and selects one for the calculation', () => {
@@ -326,7 +331,10 @@ describe('public project actions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Добавить в заявку' }));
     flushActions();
     fireEvent.click(screen.getByRole('button', { name: 'Показать зеркальный вариант' }));
-    fireEvent.click(screen.getByRole('button', { name: /Похожие по виду/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Похожие проекты (2)' }));
+    fireEvent.click(within(screen.getByRole('region', { name: 'Похожие проекты' })).getByRole('button', {
+      name: /H1-02.*Дом 116 м2 с кухней-гостиной/,
+    }));
     flushActions();
 
     expect(screen.getByRole('button', { name: 'Показать зеркальный вариант' })).toHaveAttribute('aria-pressed', 'false');

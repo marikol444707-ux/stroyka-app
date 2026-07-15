@@ -3868,6 +3868,59 @@
   color: var(--site-green-dark);
 }
 
+.public-project-similar-list {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--site-line);
+  border-radius: 6px;
+  background: #f7faf8;
+}
+
+.public-project-similar-list > strong {
+  color: var(--site-ink);
+  font-size: 12px;
+}
+
+.public-project-similar-list button {
+  min-width: 0;
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #dce7e3;
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--site-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.public-project-similar-list button:hover {
+  border-color: var(--site-green);
+}
+
+.public-project-similar-list button span,
+.public-project-similar-list button small {
+  color: var(--site-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.public-project-similar-list button b {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.public-project-similar-list button svg {
+  color: var(--site-green);
+}
+
 .public-project-editor {
   border: 1px solid #0891b2;
   background: #0891b2;

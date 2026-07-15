@@ -75,6 +75,7 @@ const PublicSitePage = ({ onLogin }) => {
   const [isReferenceMirrored, setIsReferenceMirrored] = useState(false);
   const [referenceActionMessage, setReferenceActionMessage] = useState('');
   const [isLayoutRequestOpen, setIsLayoutRequestOpen] = useState(false);
+  const [isSimilarProjectsOpen, setIsSimilarProjectsOpen] = useState(false);
   const [layoutPreferences, setLayoutPreferences] = useState(null);
   const [plotCheck, setPlotCheck] = useState(publicPlotCheckDefaults);
   const [comparedProjectCodes, setComparedProjectCodes] = useState([]);
@@ -109,6 +110,9 @@ const PublicSitePage = ({ onLogin }) => {
   const selectedReference = referenceDirections.find((item) => item.id === selectedReferenceId) || referenceDirections[0];
   const selectedReferenceProjects = getReferenceProjectCards(selectedReference);
   const selectedReferenceProject = selectedReferenceProjects.find((project) => project.title === selectedReferenceExample) || selectedReferenceProjects[0];
+  const similarReferenceProjects = selectedReferenceProjects.filter((project) => (
+    project.code !== selectedReferenceProject?.code
+  ));
   const selectedReferenceIsHouse = (selectedReferenceProject?.calcPatch?.type || selectedReference.calcPatch?.type) === 'house';
   const selectedReferencePackage = selectedReferenceIsHouse
     ? getPublicProjectHousePackage(selectedHousePackage)
@@ -313,6 +317,7 @@ const PublicSitePage = ({ onLogin }) => {
     setSelectedReferenceMediaId('render-front');
     setIsReferenceMirrored(false);
     setIsLayoutRequestOpen(false);
+    setIsSimilarProjectsOpen(false);
     setLayoutPreferences(null);
     setSelectedFinancing(null);
     setSelectedHousePackage(nextPackage?.value || 'turnkey');
@@ -360,11 +365,9 @@ const PublicSitePage = ({ onLogin }) => {
     setComparedProjectCodes([]);
   }, [selectedReferenceId]);
 
-  const chooseSimilarReferenceProject = () => {
-    const currentIndex = selectedReferenceProjects.findIndex((project) => project.title === selectedReferenceProject?.title);
-    const nextProject = selectedReferenceProjects[(currentIndex + 1) % selectedReferenceProjects.length] || selectedReferenceProjects[0];
-    chooseReference(selectedReference, nextProject);
-    setReferenceActionMessage(`Открыт похожий проект: ${nextProject.title}`);
+  const selectSimilarReferenceProject = (project) => {
+    chooseReference(selectedReference, project);
+    setReferenceActionMessage(`Открыт похожий проект: ${project.title}`);
     setTimeout(() => scrollTo('selected-project-preview'), 0);
   };
 
@@ -1162,9 +1165,37 @@ const PublicSitePage = ({ onLogin }) => {
                       onCancel={() => setIsLayoutRequestOpen(false)}
                     />
                   )}
-                  <button className="public-project-outline" type="button" onClick={chooseSimilarReferenceProject}>
-                    Похожие по виду ({Math.max(3, selectedReferenceProjects.length)})
+                  <button
+                    className="public-project-outline"
+                    type="button"
+                    aria-expanded={isSimilarProjectsOpen}
+                    aria-controls="public-similar-projects"
+                    onClick={() => setIsSimilarProjectsOpen((current) => !current)}
+                  >
+                    Похожие проекты ({similarReferenceProjects.length})
                   </button>
+                  {isSimilarProjectsOpen && (
+                    <div
+                      id="public-similar-projects"
+                      className="public-project-similar-list"
+                      role="region"
+                      aria-label="Похожие проекты"
+                    >
+                      <strong>Выберите другой вариант</strong>
+                      {similarReferenceProjects.map((project) => (
+                        <button
+                          key={project.code || project.title}
+                          type="button"
+                          onClick={() => selectSimilarReferenceProject(project)}
+                        >
+                          <span>{project.code}</span>
+                          <b>{project.title}</b>
+                          <small>{project.area}</small>
+                          <ChevronRight size={16} />
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <p className="public-project-action-status" role="status" aria-live="polite">
                     {referenceActionMessage}
                   </p>
