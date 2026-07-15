@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Trash2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 import {
   assignmentsForEstimate,
   contractName,
@@ -23,11 +23,13 @@ export default function WorkAssignmentStatusPanel({
   showLeadership,
 }) {
   const [busyId, setBusyId] = useState(null);
+  const [expandedEstimateId, setExpandedEstimateId] = useState(null);
   const rows = useMemo(
     () => assignmentsForEstimate(selectedEstimate, brigadeContractItems, brigadeContracts),
     [selectedEstimate, brigadeContractItems, brigadeContracts]
   );
   const stats = useMemo(() => workAssignmentStats(rows), [rows]);
+  const rowsExpanded = selectedEstimate?.id != null && String(expandedEstimateId) === String(selectedEstimate.id);
 
   if (!showLeadership || !selectedEstimate || !rows.length) return null;
 
@@ -92,7 +94,17 @@ export default function WorkAssignmentStatusPanel({
         </div>
       )}
 
-      <div style={{display: 'grid', gap: '7px', maxHeight: '310px', overflowY: 'auto'}}>
+      <button
+        type="button"
+        aria-expanded={rowsExpanded}
+        onClick={() => setExpandedEstimateId(rowsExpanded ? null : selectedEstimate.id)}
+        style={{...btnG, width: '100%', justifyContent: 'center', marginBottom: rowsExpanded ? '10px' : 0}}
+      >
+        {rowsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        {rowsExpanded ? 'Скрыть строки' : `Показать строки (${stats.totalRows})`}
+      </button>
+
+      {rowsExpanded && <div style={{display: 'grid', gap: '7px', maxHeight: '310px', overflowY: 'auto'}}>
         {rows.map(row => {
           const assigned = row.assignments.length > 0;
           return (
@@ -134,7 +146,7 @@ export default function WorkAssignmentStatusPanel({
             </div>
           );
         })}
-      </div>
+      </div>}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import WorkAssignmentStatusPanel from './WorkAssignmentStatusPanel';
 
 describe('WorkAssignmentStatusPanel', () => {
@@ -44,7 +44,12 @@ describe('WorkAssignmentStatusPanel', () => {
     );
 
     expect(screen.getByText('Назначенные работы')).toBeInTheDocument();
-    expect(screen.getByText('Монтаж шкафа')).toBeInTheDocument();
     expect(screen.queryByRole('button', {name: 'Назначить'})).not.toBeInTheDocument();
+    expect(screen.queryByText('Монтаж шкафа')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', {name: 'Показать строки (1)'}));
+
+    expect(screen.getByText('Монтаж шкафа')).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Скрыть строки'})).toBeInTheDocument();
   });
 });
