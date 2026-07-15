@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { CheckSquare, UserCheck, X } from 'lucide-react';
+import { CheckSquare, RotateCcw, UserCheck, X } from 'lucide-react';
 import { formatMoney, formatQty, toNumber, workRowsForEstimate } from './workAssignmentUtils';
 import { findUserForStaff, normalizePersonKey } from '../../utils/performerUtils';
 
@@ -71,9 +71,14 @@ export default function WorkAssignmentModal({
   const selectedPerformer = performers.find(item => String(item.contractorId || item.id) === String(contractorId));
   const brigadeName = (selectedPerformer?.name || manualName || '').trim();
   const coef = Math.max(0, toNumber(coefficient));
+  const hasManualPrice = rowId => Object.prototype.hasOwnProperty.call(manualPrices, rowId);
+  const priceForRow = row => (
+    priceMode === 'manual' || hasManualPrice(row.id)
+      ? toNumber(manualPrices[row.id])
+      : row.priceSmeta * coef
+  );
   const selectedTotal = selectedRows.reduce((sum, row) => {
-    const price = priceMode === 'manual' ? toNumber(manualPrices[row.id]) : row.priceSmeta * coef;
-    return sum + row.quantity * price;
+    return sum + row.quantity * priceForRow(row);
   }, 0);
 
   if (!show || !selectedEstimate) return null;
@@ -100,7 +105,9 @@ export default function WorkAssignmentModal({
       alert('Коэффициент должен быть больше нуля');
       return;
     }
-    if (priceMode === 'manual' && selectedRows.some(row => toNumber(manualPrices[row.id]) <= 0)) {
+    if (selectedRows.some(row => (
+      (priceMode === 'manual' || hasManualPrice(row.id)) && toNumber(manualPrices[row.id]) <= 0
+    ))) {
       alert('Для ручной цены заполните цену исполнителю по каждой выбранной строке');
       return;
     }
@@ -114,17 +121,20 @@ export default function WorkAssignmentModal({
         },
         priceMode,
         coefficient: coef,
-        items: selectedRows.map(row => ({
-          sectionIndex: row.sectionIndex,
-          itemIndex: row.itemIndex,
-          section: row.section,
-          name: row.name,
-          unit: row.unit,
-          estimateItemKey: row.estimateItemKey,
-          coefficient: coef,
-          priceMode,
-          manualPrice: priceMode === 'manual' ? toNumber(manualPrices[row.id]) : undefined,
-        })),
+        items: selectedRows.map(row => {
+          const rowUsesManualPrice = priceMode === 'manual' || hasManualPrice(row.id);
+          return {
+            sectionIndex: row.sectionIndex,
+            itemIndex: row.itemIndex,
+            section: row.section,
+            name: row.name,
+            unit: row.unit,
+            estimateItemKey: row.estimateItemKey,
+            coefficient: coef,
+            priceMode: rowUsesManualPrice ? 'manual' : 'coefficient',
+            manualPrice: rowUsesManualPrice ? toNumber(manualPrices[row.id]) : undefined,
+          };
+        }),
       };
       const token = localStorage.getItem('authToken');
       const headers = token ? {'Content-Type': 'application/json', Authorization: 'Bearer ' + token} : {'Content-Type': 'application/json'};
@@ -208,7 +218,9 @@ export default function WorkAssignmentModal({
             <div style={{maxHeight: isMobile ? '48vh' : '420px', overflowY: 'auto'}}>
               {rows.map(row => {
                 const checked = !!selectedIds[row.id];
-                const masterPrice = priceMode === 'manual' ? toNumber(manualPrices[row.id]) : row.priceSmeta * coef;
+                const rowHasManualPrice = hasManualPrice(row.id);
+                const masterPrice = priceForRow(row);
+                const displayedPrice = rowHasManualPrice ? manualPrices[row.id] : Math.round(row.priceSmeta * coef * 100) / 100;
                 return (
                   <div key={row.id} style={{display: 'grid', gridTemplateColumns: rowGrid, gap: '8px', alignItems: 'center', padding: '10px', borderTop: '1px solid ' + C.border, backgroundColor: checked ? C.accentLight : C.bgWhite}}>
                     <input type="checkbox" checked={checked} onChange={event => setSelectedIds(prev => ({...prev, [row.id]: event.target.checked}))} style={{width: '16px', height: '16px', accentColor: C.accent}} />
@@ -218,11 +230,35 @@ export default function WorkAssignmentModal({
                     </div>
                     <span style={{color: C.textSec, fontSize: '12px'}}>{formatQty(row.quantity, row.unit)}</span>
                     <span style={{color: C.textSec, fontSize: '12px'}}>{formatMoney(row.priceSmeta)}</span>
-                    {priceMode === 'manual' ? (
-                      <input type="number" step="any" inputMode="decimal" disabled={!checked} value={manualPrices[row.id] || ''} onChange={event => setManualPrices(prev => ({...prev, [row.id]: event.target.value}))} placeholder="₽/ед." style={{...inp, marginBottom: 0, padding: '6px 8px', fontSize: '12px'}} />
-                    ) : (
-                      <span style={{color: C.accent, fontSize: '12px', fontWeight: 700}}>{formatMoney(masterPrice)}</span>
-                    )}
+                    <div style={{display: 'grid', gridTemplateColumns: rowHasManualPrice && priceMode === 'coefficient' ? 'minmax(0,1fr) 26px' : 'minmax(0,1fr)', gap: '4px', alignItems: 'center'}}>
+                      <input
+                        aria-label={'Цена исполнителю: ' + row.name}
+                        type="number"
+                        min="0.01"
+                        step="any"
+                        inputMode="decimal"
+                        disabled={!checked}
+                        value={priceMode === 'manual' && !rowHasManualPrice ? '' : displayedPrice}
+                        onChange={event => setManualPrices(prev => ({...prev, [row.id]: event.target.value}))}
+                        placeholder="₽/ед."
+                        style={{...inp, width: '100%', minWidth: 0, marginBottom: 0, padding: '6px 7px', fontSize: '12px', borderColor: rowHasManualPrice ? C.warning : C.border}}
+                      />
+                      {rowHasManualPrice && priceMode === 'coefficient' && (
+                        <button
+                          type="button"
+                          aria-label={'Вернуть цену по коэффициенту: ' + row.name}
+                          title="Вернуть цену по коэффициенту"
+                          onClick={() => setManualPrices(prev => {
+                            const next = {...prev};
+                            delete next[row.id];
+                            return next;
+                          })}
+                          style={{...btnG, width: '26px', height: '28px', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center'}}
+                        >
+                          <RotateCcw size={13} />
+                        </button>
+                      )}
+                    </div>
                     <span style={{color: C.success, fontSize: '12px', fontWeight: 800}}>{checked ? formatMoney(row.quantity * masterPrice) : '—'}</span>
                   </div>
                 );

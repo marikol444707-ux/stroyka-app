@@ -37,6 +37,12 @@ class FakeCursor:
                     "quantity": 12,
                     "priceWork": 1000,
                     "estimateItemKey": "work-1",
+                }, {
+                    "name": "Грунтовка",
+                    "unit": "м2",
+                    "quantity": 12,
+                    "priceWork": 200,
+                    "estimateItemKey": "work-2",
                 }],
             }]
             self.result = (9, "Смета", 19, "Лицей", "Отделка", json.dumps(sections), "Активная")
@@ -219,6 +225,44 @@ class WorkAssignmentTenantRouteTests(unittest.TestCase):
         self.assertIn("id=%s AND company_id=%s AND project_id=%s", update_sql)
         self.assertEqual(update_params[-3:], (77, 4, 19))
         self.assertFalse(any("INSERT INTO brigade_contracts" in call[0] for call in connection.cursor_value.calls))
+
+    def test_assignment_accepts_manual_override_for_one_coefficient_row(self):
+        connection = FakeConnection()
+        handler, _resolver_calls, _contractor_calls, _grant_calls = self._register(connection)
+
+        response = handler(
+            9,
+            {
+                "assignee": {"contractorId": 41, "brigadeName": "Иван Иванов"},
+                "priceMode": "coefficient",
+                "coefficient": 0.4,
+                "items": [
+                    {
+                        "sectionIndex": 0,
+                        "itemIndex": 0,
+                        "estimateItemKey": "work-1",
+                        "priceMode": "manual",
+                        "manualPrice": 700,
+                    },
+                    {
+                        "sectionIndex": 0,
+                        "itemIndex": 1,
+                        "estimateItemKey": "work-2",
+                        "priceMode": "coefficient",
+                    },
+                ],
+            },
+            x_company_id="4",
+            x_company_mode="company",
+            current_user={"id": 5, "role": "директор"},
+        )
+
+        inserted_items = [
+            params for sql, params in connection.cursor_value.calls
+            if "INSERT INTO brigade_contract_items" in sql
+        ]
+        self.assertEqual(response["inserted"], 2)
+        self.assertEqual([params[8] for params in inserted_items], [700, 80.0])
 
     def test_non_finite_coefficient_is_rejected_before_database_write(self):
         connection = FakeConnection()
