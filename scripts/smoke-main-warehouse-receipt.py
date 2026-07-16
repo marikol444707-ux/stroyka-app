@@ -83,10 +83,23 @@ def totp_code(secret):
     return str(code).zfill(6)
 
 
-def login(email, password):
-    body = api_json("POST", "/login", data={"email": email, "password": password})
-    if body.get("authToken"):
-        return body["authToken"]
+def token_from_login_response(body, email):
+    token = body.get("authToken")
+    if token:
+        return token
+    if body.get("twoFactorSetupRequired"):
+        setup_token = body.get("setupToken")
+        secret = body.get("manualKey") or env_value("SMOKE_TOTP_SECRET")
+        if not setup_token or not secret:
+            raise SystemExit(f"FAIL login {email}: 2FA setup не вернул setupToken/manualKey")
+        confirmed = api_json(
+            "POST",
+            "/login/2fa/setup-confirm",
+            data={"setupToken": setup_token, "code": totp_code(secret)},
+        )
+        if confirmed.get("authToken"):
+            return confirmed["authToken"]
+        raise RuntimeError("authToken не получен после настройки 2FA")
     if body.get("twoFactorRequired"):
         code = env_value("SMOKE_2FA_CODE")
         if not code and env_value("SMOKE_TOTP_SECRET"):
@@ -101,6 +114,11 @@ def login(email, password):
         if verified.get("authToken"):
             return verified["authToken"]
     raise RuntimeError("authToken не получен")
+
+
+def login(email, password):
+    body = api_json("POST", "/login", data={"email": email, "password": password})
+    return token_from_login_response(body, email)
 
 
 def cleanup(invoice_id=None):
