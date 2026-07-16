@@ -2481,12 +2481,13 @@
 
 **Description:** Compare old and corrected projections and prepare review-only cleanup candidates for existing requests.
 
-**Status:** Started with a local read-only comparison kernel. It accepts already calculated legacy/corrected rows, reports quantity and identity changes plus legacy aggregate splits, and never mutates source rows or business data. Production input collection and the request review list remain pending.
+**Status:** The local read-only kernel is now connected to the opened project's material-control screen. It reconstructs the previous broad auto-grouping from estimate source rows and shows old/new quantities, exact split identities and added/removed rows without exposing an apply action. Production deployment, all-project collection and the existing-request review list remain pending.
 
 **Verification:**
 - [x] Comparator unit tests cover quantity changes, added/removed identities, split aggregates and input immutability.
+- [x] UI test covers collapsed/expanded comparison, split quantities, read-only notice and absence of mutation controls.
 - [x] Production frontend build passes.
-- [x] Material calculation regression suites pass after the build: 4 suites / 21 tests.
+- [x] Material calculation regression suites pass after the build: 5 suites / 23 tests.
 
 **Dependencies:** Task P2
 

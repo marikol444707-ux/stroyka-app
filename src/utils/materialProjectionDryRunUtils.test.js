@@ -1,4 +1,4 @@
-import { buildMaterialProjectionDryRun } from './materialProjectionDryRunUtils';
+import { buildLegacyMaterialProjection, buildMaterialProjectionDryRun } from './materialProjectionDryRunUtils';
 
 const row = (name, planQty, overrides = {}) => ({
   name,
@@ -10,6 +10,23 @@ const row = (name, planQty, overrides = {}) => ({
 });
 
 describe('buildMaterialProjectionDryRun', () => {
+  test('reconstructs unsafe legacy family aggregation from corrected source rows', () => {
+    const correctedRows = [
+      row('Дюбель распорный 8х60', 100, {
+        planDetails: [{estimateId: 10, packageName: 'Электрика', sectionName: 'Крепёж', materialName: 'Дюбель распорный 8х60', qty: 100, unit: 'шт'}],
+      }),
+      row('Шуруп самонарезающий 3,5х35', 200, {
+        planDetails: [{estimateId: 10, packageName: 'Электрика', sectionName: 'Крепёж', materialName: 'Шуруп самонарезающий 3,5х35', qty: 200, unit: 'шт'}],
+      }),
+    ];
+
+    const legacyRows = buildLegacyMaterialProjection(correctedRows);
+
+    expect(legacyRows).toHaveLength(1);
+    expect(legacyRows[0]).toMatchObject({planQty: 300, unit: 'шт', workPackage: 'Электрика'});
+    expect(legacyRows[0].planDetails).toHaveLength(2);
+  });
+
   test('compares quantities without mutating either projection', () => {
     const legacyRows = [row('Кабель ВВГ 3х1,5', 100)];
     const correctedRows = [row('Кабель ВВГ 3х1,5', 80)];
@@ -59,6 +76,10 @@ describe('buildMaterialProjectionDryRun', () => {
     expect(report.projects[0].changes.map(change => change.status)).toEqual([
       'corrected_only',
       'legacy_only',
+    ]);
+    expect(report.projects[0].changes).toEqual([
+      expect.objectContaining({status: 'corrected_only', correctedQty: 7}),
+      expect.objectContaining({status: 'legacy_only', legacyQty: 5}),
     ]);
   });
 

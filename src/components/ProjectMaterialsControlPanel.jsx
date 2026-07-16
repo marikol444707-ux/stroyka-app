@@ -1,5 +1,6 @@
 import React from 'react';
 import { ChevronDown, ChevronRight, ShoppingCart } from 'lucide-react';
+import MaterialProjectionDryRunPanel from './MaterialProjectionDryRunPanel';
 import {
   EstimateSourceTrace,
   MaterialsControlHeader,
@@ -191,6 +192,14 @@ export default function ProjectMaterialsControlPanel({
       />
 
       <MaterialsMetricsGrid C={C} metrics={metrics}/>
+
+      <MaterialProjectionDryRunPanel
+        projectName={projectName}
+        rows={rows}
+        C={C}
+        fmtMeasure={fmtMeasure}
+        isMobile={isMobile}
+      />
 
       <div style={{
         marginBottom: '12px',
