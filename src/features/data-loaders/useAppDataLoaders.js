@@ -1,15 +1,5 @@
 import { useCallback, useEffect } from 'react';
-
-const ESTIMATES_SUMMARY_PATH = '/estimates?summary=true';
-const PEOPLE_DATA_ROLES = ['директор', 'зам_директора', 'бухгалтер', 'прораб', 'главный_инженер', 'сметчик', 'кладовщик', 'снабженец', 'стройконтроль'];
-const USER_DIRECTORY_ROLES = ['директор', 'зам_директора', 'бухгалтер', 'прораб', 'главный_инженер', 'сметчик'];
-const ACCOUNTING_DATA_ROLES = ['директор', 'зам_директора', 'бухгалтер', 'прораб', 'главный_инженер'];
-const SYSTEM_ASSIGNMENT_ROLES = ['директор', 'зам_директора'];
-
-const canLoadPeopleDataForRole = (role) => PEOPLE_DATA_ROLES.includes(role);
-const canLoadUserDirectoryForRole = (role) => USER_DIRECTORY_ROLES.includes(role);
-const canLoadAccountingDataForRole = (role) => ACCOUNTING_DATA_ROLES.includes(role);
-const assignmentsPathForRole = (role) => SYSTEM_ASSIGNMENT_ROLES.includes(role) ? '/assignments?include_system=true' : '/assignments';
+import { createDataLoadPolicy } from './dataLoadPolicy';
 
 export const useAppDataLoaders = (ctx) => {
   const {
@@ -30,10 +20,12 @@ export const useAppDataLoaders = (ctx) => {
     setWarehouses, setWarrantyDefects, setWorkJournal, setWorkJournalPage, user, WORK_JOURNAL_PAGE_LIMIT,
   } = ctx;
 
-  const roleFlags = () => roleFlagsForUser(user);
-  const canLoadEstimatesForUser = (targetUser = user) => {
+  const dataLoadPolicyForUser = (targetUser = user) => {
     const flags = roleFlagsForUser(targetUser);
-    return flags.canSeeProjectDocs || canAccessRole(targetUser, 'estimates', ROLES);
+    return createDataLoadPolicy({
+      flags,
+      canAccessEstimates: canAccessRole(targetUser, 'estimates', ROLES),
+    });
   };
   const markEstimatesLoading = (enabled) => {
     setEstimatesPage(prev => ({...prev, loading:enabled, error:enabled ? '' : prev.error}));
@@ -205,21 +197,19 @@ export const useAppDataLoaders = (ctx) => {
   const loadMobileInitial = async () => {
     try {
       await loadMobileScopeOnce('mobile:init', async () => {
-        const {role,isLeadershipRole,isFinanceRole,isSupplyRole,isInternalRole,canSeeProjectDocs} = roleFlags();
-        const isWorkerRole = ['мастер','субподрядчик','бригадир'].includes(role);
-        const canLoadEstimates = canLoadEstimatesForUser();
-        const estimatesLoadPath = isWorkerRole ? '/estimates' : ESTIMATES_SUMMARY_PATH;
-        const shouldLoadPeopleAtBoot = canLoadPeopleDataForRole(role);
-        const shouldLoadUsersAtBoot = canLoadUserDirectoryForRole(role) || isLeadershipRole;
-        const shouldLoadAccountingAtBoot = canLoadAccountingDataForRole(role) || isFinanceRole;
-        const shouldLoadBrigadeAtBoot = shouldLoadPeopleAtBoot || shouldLoadAccountingAtBoot || isWorkerRole;
+        const {
+          role, isFinanceRole, isSupplyRole, isInternalRole, canSeeProjectDocs,
+          canLoadEstimates, estimatesLoadPath, canLoadPeopleData: shouldLoadPeopleAtBoot,
+          canLoadUserDirectory: shouldLoadUsersAtBoot, canLoadAccountingData: shouldLoadAccountingAtBoot,
+          canLoadBrigadeData: shouldLoadBrigadeAtBoot, assignmentsPath,
+        } = dataLoadPolicyForUser();
         const [
           p,u,sr,ait,oe,pp,wm,wj,s,pw,ct,ia,mp,bc,abi,est,er,hwa,mij,cbj,sva,pdocs,pmeas
         ] = await Promise.all([
           role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
           shouldLoadUsersAtBoot ? getApi('/users') : Promise.resolve([]),
           isSupplyRole ? getApi('/supply-requests') : Promise.resolve([]),
-          canSeeProjectDocs ? getApi(assignmentsPathForRole(role)) : Promise.resolve([]),
+          canSeeProjectDocs ? getApi(assignmentsPath) : Promise.resolve([]),
           isInternalRole ? getApi('/own-expenses') : Promise.resolve([]),
           isFinanceRole ? getApi('/project-payments') : Promise.resolve([]),
           role === 'кладовщик' ? getApi('/warehouse-main') : Promise.resolve([]),
@@ -273,19 +263,16 @@ export const useAppDataLoaders = (ctx) => {
 
   const loadMobilePageData = async (page = activePage) => {
     if (!user) return;
-    const {role,isLeadershipRole,isFinanceRole,isWarehouseRole,isSupplyRole,canSeeSupplierInvoices,isInternalRole,canSeeProjectDocs} = roleFlags();
-    const isWorkerRole = ['мастер','субподрядчик','бригадир'].includes(role);
-    const canLoadPeopleData = canLoadPeopleDataForRole(role);
-    const canLoadUserDirectory = canLoadUserDirectoryForRole(role) || isLeadershipRole;
-    const canLoadAccountingData = canLoadAccountingDataForRole(role) || isFinanceRole;
-    const canLoadBrigadeData = canLoadPeopleData || canLoadAccountingData || isWorkerRole;
-    const canLoadBrigadePayments = isFinanceRole || isWorkerRole;
-    const canLoadEstimates = canLoadEstimatesForUser();
-    const estimatesLoadPath = isWorkerRole ? '/estimates' : ESTIMATES_SUMMARY_PATH;
+    const {
+      role, isLeadershipRole, isFinanceRole, isWarehouseRole, isSupplyRole, canSeeSupplierInvoices,
+      isInternalRole, canSeeProjectDocs, isWorkerRole, canLoadPeopleData, canLoadUserDirectory,
+      canLoadAccountingData, canLoadBrigadeData, canLoadBrigadePayments, canLoadEstimates,
+      estimatesLoadPath, assignmentsPath,
+    } = dataLoadPolicyForUser();
     if (page === 'dashboard') return loadMobileScopeOnce('mobile:dashboard', async () => {
       const [aif,ait,sh,sd,scat] = await Promise.all([
         canSeeProjectDocs ? getApi('/ai-findings') : Promise.resolve([]),
-        canSeeProjectDocs ? getApi(assignmentsPathForRole(role)) : Promise.resolve([]),
+        canSeeProjectDocs ? getApi(assignmentsPath) : Promise.resolve([]),
         (isSupplyRole || isWarehouseRole || isFinanceRole) ? getApi('/supply-history') : Promise.resolve([]),
         isSupplyRole ? getApi('/supply-deliveries') : Promise.resolve([]),
         (isSupplyRole || isWarehouseRole || isFinanceRole || role === 'поставщик') ? getApi('/supplier-catalog') : Promise.resolve([]),
@@ -299,7 +286,7 @@ export const useAppDataLoaders = (ctx) => {
     if (page === 'assignments') return loadMobileScopeOnce('mobile:assignments', async () => {
       const [p, ait, u] = await Promise.all([
         role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
-        canSeeProjectDocs ? getApi(assignmentsPathForRole(role)) : Promise.resolve([]),
+        canSeeProjectDocs ? getApi(assignmentsPath) : Promise.resolve([]),
         canLoadUserDirectory ? getApi('/users') : Promise.resolve([]),
       ]);
       setProjects(Array.isArray(p)?p:[]);
@@ -558,15 +545,15 @@ export const useAppDataLoaders = (ctx) => {
         canSeeSupplierInvoices,
         isInternalRole,
         canSeeProjectDocs,
-      } = roleFlagsForUser(user);
-      const isWorkerRole = ['мастер','субподрядчик','бригадир'].includes(role);
-      const canLoadPeopleData = canLoadPeopleDataForRole(role);
-      const canLoadUserDirectory = canLoadUserDirectoryForRole(role) || isLeadershipRole;
-      const canLoadAccountingData = canLoadAccountingDataForRole(role) || isFinanceRole;
-      const canLoadBrigadeData = canLoadPeopleData || canLoadAccountingData || isWorkerRole;
-      const canLoadBrigadePayments = isFinanceRole || isWorkerRole;
-      const canLoadEstimates = canLoadEstimatesForUser(user);
-      const estimatesLoadPath = isWorkerRole ? '/estimates' : ESTIMATES_SUMMARY_PATH;
+        canLoadPeopleData,
+        canLoadUserDirectory,
+        canLoadAccountingData,
+        canLoadBrigadeData,
+        canLoadBrigadePayments,
+        canLoadEstimates,
+        estimatesLoadPath,
+        assignmentsPath,
+      } = dataLoadPolicyForUser(user);
       if (canLoadEstimates) markEstimatesLoading(true);
       const token = localStorage.getItem('authToken');
       const LOAD_FAILED = Symbol('LOAD_FAILED');
@@ -639,7 +626,7 @@ export const useAppDataLoaders = (ctx) => {
         (isSupplyRole || isWarehouseRole || isFinanceRole || role === 'поставщик') ? get('/supplier-catalog') : skip([]),
         isSupplyRole ? get('/supply-request-templates') : skip([]),
         canSeeProjectDocs ? get('/ai-findings') : skip([]),
-        canSeeProjectDocs ? get(assignmentsPathForRole(role)) : skip([]),
+        canSeeProjectDocs ? get(assignmentsPath) : skip([]),
         canSeeProjectDocs ? get(pagedPath('/material-norms', {limit: MATERIAL_NORMS_PAGE_LIMIT})) : skip([]),
         canSeeProjectDocs ? get('/material-aliases') : skip([]),
         canSeeProjectDocs ? get('/material-norms/overrides') : skip([]),
