@@ -182,7 +182,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [ ] Task 13: Extract audit/client-error route group into a small backend feature module.
 - [ ] Task 14: Move one low-risk `init_db()` schema slice into Alembic.
 - [ ] Task 15: Add a minimal CI workflow for backend compile, frontend tests, and frontend build.
-- [x] Task 15.1: Apply only SemVer-compatible frontend security updates without `--force`; deployed in `0d95c3d5`, critical audit findings removed, public production smoke passed.
+- [x] Task 15.1: Apply only compatible frontend security updates without `--force`; latest lock refresh pins transitive `websocket-driver@0.7.5`, with clean `npm ci` reporting zero critical findings and `28` total advisories.
 - [x] Task 15.2: Build the frontend outside the live nginx directory, publish assets before an atomic `index.html` swap, and reject overlapping deploys. Deployed through `3e20b60e`; the Linux publisher tests, production smoke, lock probe, and a 180-second zero-error monitor passed.
 
 ### Checkpoint: Backend Shape

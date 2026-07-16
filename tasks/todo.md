@@ -2304,13 +2304,14 @@
 
 **Description:** Update only vulnerable transitive frontend packages that fit the existing dependency ranges. Do not change React, `react-scripts`, or `xlsx`, and do not use `npm audit fix --force` in this step.
 
-**Status:** Deployed in `0d95c3d5`; public production smoke passed.
+**Status:** Original refresh deployed in `0d95c3d5`. The follow-up compatible override pins transitive `websocket-driver@0.7.5`; clean `npm ci` and audit report `critical=0`, `total=28`, pending production deploy.
 
 **Acceptance criteria:**
-- [x] `package.json` and direct dependency versions remain unchanged.
+- [x] Direct dependency versions remain unchanged; `package.json` contains only the exact transitive security override `websocket-driver@0.7.5`.
 - [x] `package-lock.json` receives only SemVer-compatible updates calculated by `npm audit fix` without `--force`.
 - [x] `deploy.sh` installs the exact lock-file tree with `npm ci` before building and restarting the service.
 - [x] The critical `shell-quote` advisory is removed; audit totals fall from `40` to `29` and critical findings from `1` to `0`.
+- [x] The later `websocket-driver` advisory is removed reproducibly by clean `npm ci`; audit returns to `28` total and `0` critical findings.
 - [x] Remaining `react-scripts` and `xlsx` advisories stay visible as separate migration work instead of being hidden by breaking overrides.
 
 **Verification:**

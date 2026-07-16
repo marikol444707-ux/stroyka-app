@@ -115,6 +115,9 @@
       "last 1 safari version"
     ]
   },
+  "overrides": {
+    "websocket-driver": "0.7.5"
+  },
   "devDependencies": {
     "yaml": "^2.9.0"
   }
