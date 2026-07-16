@@ -130,6 +130,7 @@ def build_report_from_rows(
     with_references = sum(
         item["classification"] == "has_downstream_references" for item in orphan_rows
     )
+    cleanup_complete = expected_source_count is not None and expected_source_count > 0 and not sources
     return {
         "ok": True,
         "dryRun": True,
@@ -139,6 +140,7 @@ def build_report_from_rows(
         "sourceCount": len(sources),
         "sourceSha256": source_sha256,
         "sourceSetMatchesExpected": source_set_matches,
+        "cleanupComplete": cleanup_complete,
         "readyForRemediationPlanning": source_set_matches and owner_mismatch_links == 0,
         "reportConsistent": len(orphan_rows) == len(sources),
         "summary": {
@@ -150,6 +152,10 @@ def build_report_from_rows(
         },
         "orphanRows": orphan_rows,
     }
+
+
+def _report_exit_ok(result):
+    return bool(result.get("sourceSetMatchesExpected") or result.get("cleanupComplete"))
 
 
 def load_orphan_rows(cur):
@@ -266,7 +272,7 @@ def main():
         expected_source_sha256=EXPECTED_SOURCE_SHA256,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0 if result["sourceSetMatchesExpected"] else 1
+    return 0 if _report_exit_ok(result) else 1
 
 
 if __name__ == "__main__":

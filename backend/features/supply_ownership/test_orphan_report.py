@@ -86,6 +86,19 @@ class SupplyOrphanReportTests(unittest.TestCase):
         self.assertFalse(report["readyForRemediationPlanning"])
         self.assertEqual(report["expectedSourceCount"], 25)
 
+    def test_empty_snapshot_reports_completed_cleanup(self):
+        report = build_report_from_rows(
+            base_rows(),
+            expected_source_count=25,
+            expected_source_sha256=EXPECTED_SHA,
+        )
+
+        self.assertFalse(report["sourceSetMatchesExpected"])
+        self.assertFalse(report["readyForRemediationPlanning"])
+        self.assertTrue(report["cleanupComplete"])
+        self.assertEqual(report["summary"]["orphanRows"], 0)
+        self.assertTrue(orphan_report_module._report_exit_ok(report))
+
     def test_loader_reads_only_ids_and_relation_columns(self):
         cur = Mock()
         cur.fetchall.side_effect = [

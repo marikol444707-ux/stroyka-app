@@ -2075,7 +2075,7 @@
 
 **Description:** Register and audit only the first stored procurement chain: `supply_requests -> supply_request_recipients -> supplier_offers`. Prove company and project/request ownership without reading materials, quantities, suppliers, prices, terms, messages or notes.
 
-**Status:** Production read-only report completed but strict readiness is blocked. It found `25` unresolved child rows in company `1`: `17 supply_request_recipients` and `8 supplier_offers`, all with `request_parent_not_found`. The transaction rolled back and did not change data. No automatic deletion or company-based reassignment is allowed.
+**Status:** Complete in production. Guarded cleanup removed the exact `25` orphan child rows and strict post-audit verified all `1628/1628` retained core-supply rows with no unresolved, ambiguous or mismatched owners.
 
 **Acceptance criteria:**
 - [x] A supply request is verified only by an existing stored company and exactly one same-company project matching its legacy project field.
@@ -2121,7 +2121,7 @@
 
 **Description:** Prepare an exact cleanup plan for the `17` orphan recipients and `8` orphan offers whose requests no longer exist. Preserve the five already-terminal legacy MAX outbox rows and do not touch valid requests, invoices, deliveries, claims, warehouse documents or supply history.
 
-**Status:** Implemented locally. M7i1 proved there are no business-document or cross-company dependencies and fixed the source SHA. Production must run only the default dry-run before any apply decision.
+**Status:** Complete in production. Exact count/SHA guarded apply deleted `17 supply_request_recipients` and `8 supplier_offers`, preserved MAX outbox `30/32/34/36/38`, left zero orphan rows and passed supply/messenger post-audits plus public smoke.
 
 **Acceptance criteria:**
 - [x] Dry-run requires source count `25` and SHA `99f5b9b8a3e7d45bbea2042e12dfbadf727447e58996975243f36f5cf0f001e8`; changed input fails closed.
@@ -2143,7 +2143,7 @@
 
 **Description:** Register and audit the next procurement chain slice: `supplier_invoices -> supply_deliveries`. Verify stored company/project ownership and optional or required request/offer parents without reading invoice, supplier, material, quantity, price, file or delivery content.
 
-**Status:** Production read-only report completed: `52/53` rows verified, with one projectless supplier invoice `#15` unresolved and no ambiguous/mismatched rows. Owner-only diagnosis proved it is reciprocally linked to main-warehouse invoice `#37` in the same company. The exact reciprocal main-warehouse classification is fixed locally and awaits production re-run. No data, schema, writer or runtime change is included.
+**Status:** Complete in production read-only. The reciprocal main-warehouse classification verified supplier invoice `#15`; final report is `53/53` with zero unresolved, ambiguous or mismatched rows and `readyForStrictRuntime=true`.
 
 **Acceptance criteria:**
 - [x] A direct supplier invoice is verified only by an existing stored company and exactly one same-company project matching its legacy project field.
@@ -2168,7 +2168,7 @@
 
 **Description:** Register and audit `warehouse_invoices -> warehouse_history`. Verify exact stored company/project or explicit main-warehouse scope and validate optional request, delivery and supplier-invoice parents without reading warehouse or commercial content.
 
-**Status:** Production read-only report completed: `403/404` rows verified, all `359` warehouse-history rows clean and only warehouse invoice `#37` unresolved because its linked supplier invoice `#15` lacked a project. Exact reciprocal main-warehouse ownership is fixed locally and awaits production re-run. No data, schema, writer, stock or runtime change is included.
+**Status:** Complete in production read-only. The reciprocal document chain verified warehouse invoice `#37`; final report is `404/404`, including all `359` warehouse-history rows, with zero unresolved, ambiguous or mismatched rows and `readyForStrictRuntime=true`.
 
 **Acceptance criteria:**
 - [x] An object warehouse invoice is verified only by an existing stored company and exactly one same-company project resolved from its project/location scope.
@@ -2195,7 +2195,7 @@
 
 **Description:** Allow a director or deputy director to receive material into the main warehouse without a supplier document or payable, while preserving the existing supplier-backed invoice chain.
 
-**Status:** Implemented locally. Production deploy and `smoke:main-warehouse-receipt` remain pending.
+**Status:** Deployed in production runtime `ff1262579f0a`; public smoke passed. Protected `smoke:main-warehouse-receipt` remains pending because the documented smoke users require initial 2FA setup.
 
 **Safety:**
 - The inventory-only mode is explicit, main-warehouse-only and revalidated on the backend for `директор` or `зам_директора`.
