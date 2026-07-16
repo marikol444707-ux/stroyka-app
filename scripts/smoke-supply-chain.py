@@ -1626,6 +1626,7 @@ def assert_supplier_documents_group_scope(token, supplier_id, stamp, created):
         if not supplier_row:
             raise RuntimeError("Не найден тестовый поставщик для проверки документов группы")
         supplier_name = supplier_row[0]
+        duplicate_supplier_name = "CODEX QA ручной дубль поставщика " + stamp
         cur.execute(
             """
             INSERT INTO suppliers
@@ -1633,9 +1634,17 @@ def assert_supplier_documents_group_scope(token, supplier_id, stamp, created):
             VALUES (%s,%s,'','CODEX QA','Материалы',5,'Активный','smoke_supplier_duplicate',%s)
             RETURNING id
             """,
-            ("CODEX QA ручной дубль поставщика " + stamp, "+7999000" + str(stamp)[-4:], TEST_NOTE_PREFIX),
+            (duplicate_supplier_name, "+7999000" + str(stamp)[-4:], TEST_NOTE_PREFIX),
         )
         duplicate_supplier_id = cur.fetchone()[0]
+        cur.execute(
+            """
+            INSERT INTO supplier_aliases
+                (supplier_id,alias_name,alias_key,source,confidence)
+            VALUES (%s,%s,%s,'warehouse_invoice',0.70)
+            """,
+            (supplier_id, duplicate_supplier_name, duplicate_supplier_name.lower()),
+        )
         for sid, title in [
             (supplier_id, "CODEX QA основной документ поставщика"),
             (duplicate_supplier_id, "CODEX QA документ дубля поставщика"),
@@ -1668,6 +1677,24 @@ def assert_supplier_documents_group_scope(token, supplier_id, stamp, created):
     related_ids = [int(x) for x in (linked.get("relatedSupplierIds") or [])]
     if int(duplicate_supplier_id) not in related_ids:
         raise RuntimeError(f"Связка дубля поставщика не вернула общий supplier scope: {linked}")
+
+    _, suppliers = api_json("GET", "/suppliers", token=token, expected=200)
+    linked_rows = [
+        supplier for supplier in suppliers
+        if int(supplier.get("id") or 0) in {int(supplier_id), int(duplicate_supplier_id)}
+    ]
+    if len(linked_rows) != 2:
+        raise RuntimeError(f"GET /suppliers потерял карточку из связанной группы: {linked_rows}")
+    expected_related_ids = {int(supplier_id), int(duplicate_supplier_id)}
+    for supplier in linked_rows:
+        row_related_ids = {int(value) for value in (supplier.get("relatedSupplierIds") or [])}
+        if not expected_related_ids.issubset(row_related_ids):
+            raise RuntimeError(
+                "GET /suppliers не вернул metadata ручной группы дублей: "
+                + json.dumps(linked_rows, ensure_ascii=False)
+            )
+        if int(supplier.get("duplicateCount") or 0) < 2:
+            raise RuntimeError(f"GET /suppliers не вернул счетчик дублей: {supplier}")
 
     _, documents = api_json(
         "GET",
@@ -2060,6 +2087,7 @@ def main():
                 "targeted supplier document backfill marks name-only legacy links as needs_review",
                 "supplier accounting dedupe annuls repeated primary document without losing warehouse link",
                 "supplier documents endpoint returns documents from the whole duplicate supplier group",
+                "supplier list exposes one manual duplicate group to supply and accounting UI",
             ],
         }, ensure_ascii=False, indent=2))
     except Exception as exc:

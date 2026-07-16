@@ -34,6 +34,15 @@ describe('groupSuppliers', () => {
     expect(group.deliveriesCount).toBe(4);
   });
 
+  it('keeps the most complete display name for legacy strong-identity groups', () => {
+    const [group] = groupSuppliers([
+      { id: 17, name: 'Сатурн', inn: '2635000000' },
+      { id: 25, name: 'АО «САТУРН ЮГ»', inn: '2635000000' },
+    ]);
+
+    expect(group.name).toBe('АО «САТУРН ЮГ»');
+  });
+
   it('matches documents to any supplier id in a duplicate group', () => {
     const [group] = groupSuppliers([
       { id: 17, name: 'АО «САТУРН ЮГ»', inn: '2635000000' },
@@ -45,6 +54,42 @@ describe('groupSuppliers', () => {
     expect(supplierMatchesRecord(group, { supplierId: 99, supplierName: 'Другой поставщик' })).toBe(false);
   });
 
+  it('does not attach an id-less document by a fuzzy supplier name', () => {
+    const [group] = groupSuppliers([{ id: 17, name: 'ООО Альянс' }]);
+
+    expect(supplierMatchesRecord(group, { supplierName: 'ООО Альянс Строй' })).toBe(false);
+    expect(supplierMatchesRecord(group, { supplierName: 'ООО «Альянс»' })).toBe(true);
+  });
+
+  it('keeps legacy display selection when only one row has singleton server metadata', () => {
+    const [group] = groupSuppliers([
+      { id: 1, name: 'Сатурн', inn: '2635000000', relatedSupplierIds: [1], canonicalSupplierId: 1 },
+      { id: 2, name: 'АО «САТУРН ЮГ»', inn: '2635000000' },
+    ]);
+
+    expect(group.name).toBe('АО «САТУРН ЮГ»');
+  });
+
+  it.each([
+    ['legacy first', [
+      { id: 99, name: 'Сатурн legacy', inn: '2635000000' },
+      { id: 17, name: 'АО «САТУРН ЮГ»', inn: '2635000000', relatedSupplierIds: [17, 25], canonicalSupplierId: 17 },
+      { id: 25, name: 'Сатурн из накладной', relatedSupplierIds: [17, 25], canonicalSupplierId: 17 },
+    ]],
+    ['server relation first', [
+      { id: 17, name: 'АО «САТУРН ЮГ»', inn: '2635000000', relatedSupplierIds: [17, 25], canonicalSupplierId: 17 },
+      { id: 25, name: 'Сатурн из накладной', relatedSupplierIds: [17, 25], canonicalSupplierId: 17 },
+      { id: 99, name: 'Сатурн legacy', inn: '2635000000' },
+    ]],
+  ])('merges mixed server and legacy identity rows regardless of order: %s', (_label, rows) => {
+    const groups = groupSuppliers(rows);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].id).toBe(17);
+    expect(groups[0].name).toBe('АО «САТУРН ЮГ»');
+    expect(groups[0]._supplierIds).toEqual([17, 25, 99]);
+  });
+
   it('does not merge supplier cards by name alone', () => {
     const groups = groupSuppliers([
       { id: 17, name: 'АО «САТУРН ЮГ»', sourceType: 'manual' },
@@ -53,6 +98,54 @@ describe('groupSuppliers', () => {
 
     expect(groups).toHaveLength(2);
     expect(groups.map(group => group._supplierIds)).toEqual([[17], [25]]);
+  });
+
+  it('merges manually linked supplier cards from server relation metadata', () => {
+    const groups = groupSuppliers([
+      {
+        id: 51,
+        name: 'АО ТД Электромонтаж',
+        relatedSupplierIds: [51, 52],
+        canonicalSupplierId: 51,
+        duplicateCount: 2,
+      },
+      {
+        id: 52,
+        name: 'АО "ТД "Электротехмонтаж"',
+        relatedSupplierIds: [51, 52],
+        canonicalSupplierId: 51,
+        duplicateCount: 2,
+      },
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].id).toBe(51);
+    expect(groups[0].name).toBe('АО ТД Электромонтаж');
+    expect(groups[0]._supplierIds).toEqual([51, 52]);
+    expect(groups[0]._duplicateCount).toBe(2);
+  });
+
+  it('uses the server canonical supplier even when the duplicate is listed first', () => {
+    const groups = groupSuppliers([
+      {
+        id: 12,
+        name: 'ИП Литашов Денис Владимирович',
+        relatedSupplierIds: [11, 12],
+        canonicalSupplierId: 11,
+      },
+      {
+        id: 11,
+        name: 'ИП Литашов Д. В., ИНН 261908121534',
+        inn: '261908121534',
+        relatedSupplierIds: [11, 12],
+        canonicalSupplierId: 11,
+      },
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].id).toBe(11);
+    expect(groups[0].name).toBe('ИП Литашов Д. В., ИНН 261908121534');
+    expect(groups[0].inn).toBe('261908121534');
   });
 
   it('flags name-only supplier cards as possible duplicates for manual review', () => {

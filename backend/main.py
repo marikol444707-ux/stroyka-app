@@ -147,6 +147,11 @@ except ModuleNotFoundError:
     )
 
 try:
+    from backend.features.supplier_duplicates.grouping import build_supplier_relation_metadata
+except ModuleNotFoundError:
+    from features.supplier_duplicates.grouping import build_supplier_relation_metadata
+
+try:
     from backend.features.project_payment_access.service import project_payment_visibility_filter
 except ModuleNotFoundError:
     from features.project_payment_access.service import project_payment_visibility_filter
@@ -1124,6 +1129,67 @@ def _remember_supplier_alias(cur, supplier_id: int, payload: dict, source: str =
         (source or "")[:100], confidence,
     ))
 
+
+def _remember_supplier_duplicate_alias(cur, supplier_id: int, related_supplier_id: int, payload: dict):
+    """Persist an explicit director-approved name link even if a weaker alias exists."""
+    if not supplier_id or not related_supplier_id:
+        return
+    req = _supplier_extract_requisites(payload or {})
+    cur.execute(
+        """
+        SELECT id
+          FROM supplier_aliases
+         WHERE supplier_id=%s
+           AND (
+             related_supplier_id=%s
+             OR (%s<>'' AND alias_key=%s)
+           )
+         ORDER BY id
+         LIMIT 1
+        """,
+        (supplier_id, related_supplier_id, req["nameKey"], req["nameKey"]),
+    )
+    existing = cur.fetchone()
+    if existing:
+        cur.execute(
+            """
+            UPDATE supplier_aliases
+               SET alias_name=%s,
+                   inn=CASE WHEN COALESCE(inn,'')='' THEN %s ELSE inn END,
+                   kpp=CASE WHEN COALESCE(kpp,'')='' THEN %s ELSE kpp END,
+                   ogrn=CASE WHEN COALESCE(ogrn,'')='' THEN %s ELSE ogrn END,
+                   related_supplier_id=%s,
+                   source='manual_supplier_duplicate_link',
+                   confidence=GREATEST(COALESCE(confidence,0),0.99)
+             WHERE id=%s
+            """,
+            (
+                req["name"],
+                req["inn"],
+                req["kpp"],
+                req["ogrn"],
+                related_supplier_id,
+                _row_get(existing, "id", 0, 0),
+            ),
+        )
+        return
+    cur.execute(
+        """
+        INSERT INTO supplier_aliases
+            (supplier_id,related_supplier_id,alias_name,alias_key,inn,kpp,ogrn,source,confidence)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,'manual_supplier_duplicate_link',0.99)
+        """,
+        (
+            supplier_id,
+            related_supplier_id,
+            req["name"],
+            req["nameKey"],
+            req["inn"],
+            req["kpp"],
+            req["ogrn"],
+        ),
+    )
+
 def _update_supplier_missing_fields(cur, supplier_id: int, payload: dict, user_id=None):
     payload = payload or {}
     req = _supplier_extract_requisites(payload)
@@ -1238,88 +1304,73 @@ def supplier_related_ids(cur, supplier_id: int):
     if not supplier_id:
         return []
 
-    def row_payload(row):
-        return {
-            "name": _row_get(row, "name", 1, ""),
-            "phone": _row_get(row, "phone", 2, ""),
-            "email": _row_get(row, "email", 3, ""),
-            "inn": _row_get(row, "inn", 4, ""),
-            "kpp": _row_get(row, "kpp", 5, ""),
-            "ogrn": _row_get(row, "ogrn", 6, ""),
-        }
+    metadata = _load_supplier_relation_metadata(cur)
+    return metadata.get(supplier_id, {}).get("relatedSupplierIds") or [supplier_id]
 
-    def alias_keys(alias):
-        keys = set()
-        alias_key = _row_get(alias, "alias_key", 1, "") or ""
-        alias_inn = _supplier_digits(_row_get(alias, "inn", 2, ""))
-        alias_ogrn = _supplier_digits(_row_get(alias, "ogrn", 3, ""))
-        if alias_inn and len(alias_inn) >= 10:
-            keys.add("inn:" + alias_inn)
-        if alias_ogrn and len(alias_ogrn) >= 13:
-            keys.add("ogrn:" + alias_ogrn)
-        return keys
 
-    def alias_manual_name_key(alias):
-        source = (_row_get(alias, "source", 4, "") or "").strip()
-        alias_key = _row_get(alias, "alias_key", 1, "") or ""
-        if source == "manual_supplier_duplicate_link" and alias_key:
-            return alias_key
-        return ""
+def _supplier_relation_identity_keys(row):
+    row = row or {}
+    return _supplier_identity_keys({
+        "name": row.get("name") or "",
+        "phone": row.get("phone") or "",
+        "email": row.get("email") or "",
+        "inn": row.get("inn") or "",
+        "kpp": row.get("kpp") or "",
+        "ogrn": row.get("ogrn") or "",
+    })
 
-    cur.execute("SELECT id,name,phone,email,inn,kpp,ogrn FROM suppliers ORDER BY id")
-    supplier_rows = cur.fetchall() or []
-    supplier_by_id = {int(_row_get(row, "id", 0, 0) or 0): row for row in supplier_rows}
-    base = supplier_by_id.get(supplier_id)
-    if not base:
-        return [supplier_id]
-    ids = {int(supplier_id)}
-    known_keys = set(_supplier_identity_keys(row_payload(base)))
-    known_manual_name_keys = set()
 
-    cur.execute("SELECT supplier_id,alias_key,inn,ogrn,source FROM supplier_aliases ORDER BY id")
-    aliases = cur.fetchall() or []
+def _relation_rows_as_dicts(rows, columns):
+    return [
+        dict(row) if isinstance(row, dict) else dict(zip(columns, row))
+        for row in (rows or [])
+    ]
 
-    changed = True
-    while changed:
-        changed = False
-        for row in supplier_rows:
-            row_id = int(_row_get(row, "id", 0, 0) or 0)
-            if not row_id:
-                continue
-            row_keys = _supplier_identity_keys(row_payload(row))
-            row_name_key = _normalize_supplier_name_key(_row_get(row, "name", 1, "") or "")
-            if row_id in ids:
-                before = len(known_keys)
-                known_keys.update(row_keys)
-                changed = changed or len(known_keys) != before
-            elif known_keys.intersection(row_keys) or (row_name_key and row_name_key in known_manual_name_keys):
-                ids.add(row_id)
-                known_keys.update(row_keys)
-                changed = True
-        for alias in aliases:
-            alias_supplier_id = int(_row_get(alias, "supplier_id", 0, 0) or 0)
-            if not alias_supplier_id:
-                continue
-            keys = alias_keys(alias)
-            if alias_supplier_id in ids:
-                before = len(known_keys)
-                known_keys.update(keys)
-                changed = changed or len(known_keys) != before
-                manual_name_key = alias_manual_name_key(alias)
-                if manual_name_key and manual_name_key not in known_manual_name_keys:
-                    known_manual_name_keys.add(manual_name_key)
-                    changed = True
-            elif known_keys.intersection(keys):
-                ids.add(alias_supplier_id)
-                known_keys.update(keys)
-                changed = True
-    return sorted(ids)
+
+def _load_supplier_relation_metadata(cur):
+    columns = [
+        "id", "name", "phone", "email", "inn", "kpp", "ogrn", "user_id",
+        "registered_at", "status", "legal_address", "actual_address", "website",
+        "specialization",
+    ]
+    cur.execute(
+        """
+        SELECT id,name,phone,email,inn,kpp,ogrn,user_id,registered_at,status,
+               legal_address,actual_address,website,specialization
+          FROM suppliers
+         ORDER BY id
+        """
+    )
+    supplier_rows = _relation_rows_as_dicts(cur.fetchall() or [], columns)
+    return _supplier_relation_metadata(cur, supplier_rows)
+
+
+def _supplier_relation_metadata(cur, supplier_rows):
+    alias_columns = [
+        "supplier_id", "related_supplier_id", "name", "alias_key", "inn", "kpp",
+        "ogrn", "source",
+    ]
+    cur.execute(
+        """
+        SELECT supplier_id,related_supplier_id,alias_name AS name,alias_key,inn,kpp,ogrn,source
+          FROM supplier_aliases
+         ORDER BY id
+        """
+    )
+    aliases = _relation_rows_as_dicts(cur.fetchall() or [], alias_columns)
+    return build_supplier_relation_metadata(
+        supplier_rows,
+        aliases,
+        identity_keys=_supplier_relation_identity_keys,
+        normalize_name_key=_normalize_supplier_name_key,
+    )
 
 def supplier_group_scope_ids(cur, supplier_ids) -> list:
     ids = []
     seen = set()
+    relation_metadata = _load_supplier_relation_metadata(cur)
     for supplier_id in _normalize_supplier_ids(supplier_ids):
-        related_ids = supplier_related_ids(cur, supplier_id) or [supplier_id]
+        related_ids = relation_metadata.get(supplier_id, {}).get("relatedSupplierIds") or [supplier_id]
         for related_id in related_ids:
             try:
                 related_id = int(related_id or 0)
@@ -1334,24 +1385,17 @@ def supplier_offer_targets_for_groups(cur, supplier_ids, ai_ids=None) -> list:
     ai_ids = {int(x) for x in (ai_ids or []) if int(x) > 0}
     targets = []
     seen = set()
+    relation_metadata = _load_supplier_relation_metadata(cur)
     for supplier_id in _normalize_supplier_ids(supplier_ids):
-        scope_ids = supplier_related_ids(cur, supplier_id) or [supplier_id]
+        scope_ids = relation_metadata.get(supplier_id, {}).get("relatedSupplierIds") or [supplier_id]
         scope_ids = [int(x) for x in scope_ids if int(x or 0) > 0]
         if not scope_ids or any(sid in seen for sid in scope_ids):
             continue
         seen.update(scope_ids)
-        cur.execute("""
-            SELECT id
-              FROM suppliers
-             WHERE id = ANY(%s)
-             ORDER BY
-               CASE WHEN user_id IS NOT NULL THEN 0 ELSE 1 END,
-               CASE WHEN registered_at IS NOT NULL THEN 0 ELSE 1 END,
-               id
-             LIMIT 1
-        """, (scope_ids,))
-        row = cur.fetchone()
-        target_id = int(_row_get(row, "id", 0, supplier_id) or supplier_id)
+        target_id = int(
+            relation_metadata.get(supplier_id, {}).get("canonicalSupplierId")
+            or supplier_id
+        )
         targets.append({
             "requested_id": supplier_id,
             "target_id": target_id,
@@ -4002,6 +4046,8 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_supplier_aliases_alias_key ON supplier_aliases(alias_key);
         CREATE INDEX IF NOT EXISTS idx_supplier_aliases_inn ON supplier_aliases(inn);
         CREATE INDEX IF NOT EXISTS idx_supplier_aliases_ogrn ON supplier_aliases(ogrn);
+        ALTER TABLE supplier_aliases ADD COLUMN IF NOT EXISTS related_supplier_id INT;
+        CREATE INDEX IF NOT EXISTS idx_supplier_aliases_related_supplier_id ON supplier_aliases(related_supplier_id);
         ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS supplier_id INT;
         ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS preset_name VARCHAR(255);
         ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS preset_category VARCHAR(255);
@@ -9042,8 +9088,15 @@ def get_suppliers(current_user: dict = Depends(get_current_user)):
         cur.close(); conn.close()
         return []
     rows = cur.fetchall()
+    relation_metadata = _supplier_relation_metadata(cur, rows)
+    payload = []
+    for row in rows:
+        supplier = dict(row)
+        supplier.update(relation_metadata.get(int(supplier.get("id") or 0), {}))
+        payload.append(supplier)
+    cur.close()
     conn.close()
-    return [dict(r) for r in rows]
+    return payload
 
 @app.post("/suppliers")
 def create_supplier(s: SupplierModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "бухгалтер"))):
@@ -9297,8 +9350,8 @@ def link_supplier_duplicate(id: int, data: dict, current_user: dict = Depends(re
         if not duplicate:
             raise HTTPException(status_code=404, detail="Карточка-дубль поставщика не найдена")
 
-        _remember_supplier_alias(cur, id, duplicate, source="manual_supplier_duplicate_link", confidence=0.99)
-        _remember_supplier_alias(cur, duplicate_id, canonical, source="manual_supplier_duplicate_link", confidence=0.99)
+        _remember_supplier_duplicate_alias(cur, id, duplicate_id, duplicate)
+        _remember_supplier_duplicate_alias(cur, duplicate_id, id, canonical)
         conn.commit()
         related_ids = supplier_related_ids(cur, id)
         log_audit(
@@ -12177,21 +12230,37 @@ def get_supply_request_recipients(
         except Exception:
             cur.close(); conn.close()
             raise
+        offer_supplier_ids = [
+            int(_row_get(offer, "supplier_id", 3, 0) or 0)
+            for offer in offer_rows
+            if int(_row_get(offer, "supplier_id", 3, 0) or 0) > 0
+        ]
+        offer_targets = supplier_offer_targets_for_groups(cur, offer_supplier_ids)
+        target_by_requested_id = {
+            int(target.get("requested_id") or 0): target
+            for target in offer_targets
+        }
+        target_ids = [int(target.get("target_id") or 0) for target in offer_targets if int(target.get("target_id") or 0) > 0]
         target_names = {}
+        if target_ids:
+            cur.execute("SELECT id,name FROM suppliers WHERE id = ANY(%s)", (target_ids,))
+            target_names = {
+                int(_row_get(row, "id", 0, 0) or 0): _row_get(row, "name", 1, "") or ""
+                for row in (cur.fetchall() or [])
+            }
         recipient_map = {}
         for offer in offer_rows:
             supplier_id = int(_row_get(offer, "supplier_id", 3, 0) or 0)
             if not supplier_id:
                 continue
-            targets = supplier_offer_targets_for_groups(cur, [supplier_id])
-            target = targets[0] if targets else {"requested_id": supplier_id, "target_id": supplier_id, "scope_ids": [supplier_id]}
+            target = target_by_requested_id.get(supplier_id) or {
+                "requested_id": supplier_id,
+                "target_id": supplier_id,
+                "scope_ids": [supplier_id],
+            }
             target_id = int(target.get("target_id") or supplier_id)
             scope_ids = _normalize_supplier_ids(target.get("scope_ids") or [supplier_id])
             visibility = _supplier_visibility_for_scope(cur, scope_ids)
-            if target_id not in target_names:
-                cur.execute("SELECT name FROM suppliers WHERE id=%s LIMIT 1", (target_id,))
-                target_row = cur.fetchone()
-                target_names[target_id] = _row_get(target_row, "name", 0, "") if target_row else ""
             group_key = tuple(sorted(scope_ids)) or (target_id,)
             offer_status = _row_get(offer, "status", 4, "") or "Ожидает ответа"
             offer_status_row = {

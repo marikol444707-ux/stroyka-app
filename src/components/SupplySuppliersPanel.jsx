@@ -460,6 +460,7 @@ function SupplySuppliersPanel({
 
   const openDuplicateLinkSupplier = (supplier, event) => {
     event?.stopPropagation();
+    setOpenedSupplierId(supplier.id);
     setDuplicateLinkingSupplierId(prev => (prev === supplier.id ? null : supplier.id));
     setDuplicateSupplierId('');
   };

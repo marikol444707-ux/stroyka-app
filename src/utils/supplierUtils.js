@@ -59,6 +59,13 @@ export const normalizeSupplierDigits = value => String(value || '').replace(/\D/
 
 export const normalizeSupplierEmail = value => String(value || '').trim().toLowerCase();
 
+export const normalizeSupplierRecordName = value => String(value || '')
+  .toLowerCase()
+  .replace(/ё/g, 'е')
+  .replace(/[.,;:()«»"'`/\\]+/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+
 export const supplierKeysMatch = (left, right) => {
   if (!left || !right) return false;
   if (left === right) return true;
@@ -153,8 +160,8 @@ export const supplierMatchesRecord = (supplier, record) => {
   const ids = new Set((supplier?._supplierIds || [supplier?.id]).map(id => Number(id)).filter(Boolean));
   const recordId = Number(record?.supplierId || record?.supplier_id || 0);
   if (recordId && ids.has(recordId)) return true;
-  const key = normalizeSupplierNameKey(record?.supplierName || record?.supplier_name || record?.supplier || '');
-  return key && (supplier?._supplierKeys || []).some(supplierKey => supplierKeysMatch(supplierKey, key));
+  const recordName = normalizeSupplierRecordName(record?.supplierName || record?.supplier_name || record?.supplier || '');
+  return Boolean(recordName && (supplier?._supplierRecordNames || []).includes(recordName));
 };
 
 export const supplierSourceInfo = (supplier, stats = {}) => {
@@ -281,12 +288,45 @@ export const groupSuppliers = suppliers => {
   const groups = new Map();
   const keyIndex = new Map();
 
-  (suppliers || []).forEach(supplier => {
+  const relationInfo = supplier => {
+    const explicitIds = supplier?.relatedSupplierIds || supplier?.related_supplier_ids || [];
+    const explicitCanonicalId = Number(
+      supplier?.canonicalSupplierId || supplier?.canonical_supplier_id || 0
+    );
+    const ids = Array.from(new Set([
+      ...explicitIds,
+      supplier?.id,
+    ].map(id => Number(id)).filter(Boolean))).sort((a, b) => a - b);
+    const canonicalId = Number(
+      explicitCanonicalId
+      || (ids.length > 1 ? ids[0] : supplier?.id)
+      || 0
+    );
+    return {
+      ids,
+      canonicalId,
+      explicit: (explicitIds.length > 0 || explicitCanonicalId > 0) && ids.length > 1,
+    };
+  };
+
+  const orderedSuppliers = [...(suppliers || [])].sort((left, right) => {
+    const leftRelation = relationInfo(left);
+    const rightRelation = relationInfo(right);
+    const leftCanonical = Number(left?.id) === leftRelation.canonicalId ? 0 : 1;
+    const rightCanonical = Number(right?.id) === rightRelation.canonicalId ? 0 : 1;
+    return leftCanonical - rightCanonical;
+  });
+
+  orderedSuppliers.forEach(supplier => {
     const identityKeys = supplierIdentityKeys(supplier);
     const nameKey = normalizeSupplierNameKey(supplier?.name || supplier?.supplierName || '');
     const fallbackKey = supplier?.id ? 'id:' + supplier.id : 'row:' + groups.size;
-    const matchedKey = identityKeys.find(key => keyIndex.has(key));
-    const groupKey = matchedKey ? keyIndex.get(matchedKey) : (identityKeys[0] || fallbackKey);
+    const relation = relationInfo(supplier);
+    const relationKey = relation.ids.length > 1 ? 'relation:' + relation.canonicalId : '';
+    const existingRelationKey = relationKey ? keyIndex.get(relationKey) : '';
+    const identityMatch = identityKeys.find(key => keyIndex.has(key));
+    const existingIdentityKey = identityMatch ? keyIndex.get(identityMatch) : '';
+    const groupKey = existingRelationKey || existingIdentityKey || relationKey || identityKeys[0] || fallbackKey;
 
     if (!groups.has(groupKey)) {
       const sourceType = supplier.sourceType || supplier.source_type || '';
@@ -299,22 +339,44 @@ export const groupSuppliers = suppliers => {
         aiRecommend: Boolean(supplier.aiRecommend),
         deliveriesCount: Number(supplier.deliveriesCount || 0),
         category: supplier.category || 'Прочее',
-        _supplierIds: [supplier.id],
+        _supplierIds: relation.ids.length ? relation.ids : [supplier.id],
         _supplierKeys: nameKey ? [nameKey] : [],
         _supplierNames: [supplier.name || supplier.supplierName || ''],
+        _supplierRecordNames: [normalizeSupplierRecordName(supplier.name || supplier.supplierName || '')].filter(Boolean),
         _supplierIdentityKeys: [...identityKeys],
         _supplierSourceTypes: sourceType ? [sourceType] : [],
         _supplierSourceDetails: sourceDetail ? [sourceDetail] : [],
-        _duplicateCount: 1,
+        _canonicalSupplierId: relation.explicit ? relation.canonicalId : 0,
+        _duplicateCount: relation.ids.length || 1,
       });
+      if (relationKey) keyIndex.set(relationKey, groupKey);
       identityKeys.forEach(key => keyIndex.set(key, groupKey));
       return;
     }
 
     const group = groups.get(groupKey);
-    group._supplierIds.push(supplier.id);
+    if (relationKey) keyIndex.set(relationKey, groupKey);
+    const isServerCanonical = relation.explicit && Number(supplier.id) === relation.canonicalId;
+    if (isServerCanonical && Number(group.id) !== Number(supplier.id)) {
+      group.id = supplier.id;
+      group.name = supplier.name || group.name;
+      group.phone = supplier.phone || group.phone;
+      group.email = supplier.email || group.email;
+      group.inn = supplier.inn || group.inn;
+      group.kpp = supplier.kpp || group.kpp;
+      group.ogrn = supplier.ogrn || group.ogrn;
+    }
+    group._supplierIds = Array.from(new Set([
+      ...group._supplierIds,
+      ...relation.ids,
+      supplier.id,
+    ].map(id => Number(id)).filter(Boolean))).sort((a, b) => a - b);
     group._supplierNames.push(supplier.name || supplier.supplierName || '');
-    group._duplicateCount += 1;
+    const supplierRecordName = normalizeSupplierRecordName(supplier.name || supplier.supplierName || '');
+    if (supplierRecordName && !group._supplierRecordNames.includes(supplierRecordName)) {
+      group._supplierRecordNames.push(supplierRecordName);
+    }
+    group._duplicateCount = group._supplierIds.length;
     const sourceType = supplier.sourceType || supplier.source_type || '';
     const sourceDetail = supplier.sourceDetail || supplier.source_detail || '';
     if (sourceType && !group._supplierSourceTypes.includes(sourceType)) group._supplierSourceTypes.push(sourceType);
@@ -325,7 +387,13 @@ export const groupSuppliers = suppliers => {
       keyIndex.set(key, groupKey);
     });
 
-    if (!group.name || String(supplier.name || '').length > String(group.name || '').length) group.name = supplier.name;
+    if (!group._canonicalSupplierId && relation.explicit && relation.canonicalId) {
+      group._canonicalSupplierId = relation.canonicalId;
+    }
+    if (
+      !group._canonicalSupplierId
+      && (!group.name || String(supplier.name || '').length > String(group.name || '').length)
+    ) group.name = supplier.name;
     if (!group.phone && supplier.phone) group.phone = supplier.phone;
     if (!group.email && supplier.email) group.email = supplier.email;
     if (!group.inn && supplier.inn) group.inn = supplier.inn;

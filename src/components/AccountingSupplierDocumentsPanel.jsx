@@ -4,7 +4,7 @@ import { API } from '../api';
 import { buildAccountingInvoiceRows } from '../utils/accountingInvoices';
 import {
   groupSuppliers,
-  normalizeSupplierNameKey,
+  normalizeSupplierRecordName,
   sourceMeta,
   supplierMatchesRecord,
   supplierSourceInfo,
@@ -83,7 +83,7 @@ export default function AccountingSupplierDocumentsPanel({
         ? `group:${supplierGroup.id}`
         : supplierId
           ? `id:${supplierId}`
-          : `name:${normalizeSupplierNameKey(name) || normalizeKey(name) || 'unknown'}`;
+          : `name:${normalizeSupplierRecordName(name) || normalizeKey(name) || 'unknown'}`;
       if (!map.has(key)) {
         map.set(key, {
           key,
