@@ -167,7 +167,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M7i2: Guarded production cleanup deleted the exact `17` orphan recipients and `8` orphan offers, preserved terminal legacy MAX outbox `30/32/34/36/38`, and passed strict post-audits.
 - [x] Task M7j: Register and audit `supplier_invoices` and `supply_deliveries`; production read-only post-audit verified `53/53` rows with no review rows.
 - [x] Task M7k: Register and audit `warehouse_invoices` and `warehouse_history`; production read-only post-audit verified `404/404` rows with no review rows.
-- [ ] Task M7k1: Separate supplier documents from inventory-only main-warehouse receipts. Local backend policy, director/deputy UI, accounting exclusion and targeted production smoke are complete; production deploy and smoke remain pending.
+- [x] Task M7k1: Separate supplier documents from inventory-only main-warehouse receipts. Production runtime `2f5ac37717cb` passed public and protected smoke; the temporary receipt, stock, history and supplier rows were removed and the QA user was disabled.
 
 ### Checkpoint: SaaS Boundary
 

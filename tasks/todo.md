@@ -2195,7 +2195,7 @@
 
 **Description:** Allow a director or deputy director to receive material into the main warehouse without a supplier document or payable, while preserving the existing supplier-backed invoice chain.
 
-**Status:** Deployed in production runtime `ff1262579f0a`; public smoke passed. Protected `smoke:main-warehouse-receipt` remains pending because the documented smoke users require initial 2FA setup.
+**Status:** Completed in production runtime `2f5ac37717cb`. Public smoke and protected `smoke:main-warehouse-receipt` passed; initial QA 2FA setup is supported, all temporary receipt rows were removed, and the QA user was disabled after the run.
 
 **Safety:**
 - The inventory-only mode is explicit, main-warehouse-only and revalidated on the backend for `директор` or `зам_директора`.
@@ -2208,9 +2208,10 @@
 - [x] Backend policy unit tests.
 - [x] Frontend accounting-policy unit tests.
 - [x] Python compilation and production frontend build.
-- [ ] Production deploy.
-- [ ] Protected `npm run smoke:main-warehouse-receipt` with director 2FA.
-- [ ] `npm run smoke:prod` and both ownership audits after deploy.
+- [x] Production deploy.
+- [x] Protected `npm run smoke:main-warehouse-receipt` with deputy-director 2FA.
+- [x] `npm run smoke:prod` after deploy.
+- [x] Both ownership audits after the protected smoke: supplier invoices/deliveries `59/59`, warehouse invoices/history `404/404`, with zero unresolved, ambiguous or mismatched rows.
 
 **Estimated scope:** S
 
