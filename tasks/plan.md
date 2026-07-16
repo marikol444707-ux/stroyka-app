@@ -242,6 +242,7 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 
 ### Phase P3: Production Dry-Run
 
+- [x] Add a pure no-write comparator for legacy and corrected projection rows, including quantity, added/removed identity and legacy aggregate split detection.
 - [ ] Compare old/new quantities and row identities for every active project without changing business records.
 - [ ] Produce a review list for existing requests created from obsolete or ambiguous calculation rows.
 - [ ] Keep all cleanup actions preview-only until director confirmation.
