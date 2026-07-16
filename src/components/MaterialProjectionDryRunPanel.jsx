@@ -1,12 +1,24 @@
 import React from 'react';
 import { ChevronDown, ChevronRight, GitCompareArrows, ShieldCheck } from 'lucide-react';
-import { buildLegacyMaterialProjection, buildMaterialProjectionDryRun } from '../utils/materialProjectionDryRunUtils';
+import {
+  buildLegacyMaterialProjection,
+  buildMaterialProjectionDryRun,
+  buildSupplyRequestProjectionReview,
+} from '../utils/materialProjectionDryRunUtils';
 
 const changeLabel = {
   quantity_changed: 'Изменилось количество',
   split: 'Разделено на точные позиции',
   corrected_only: 'Новая позиция',
   legacy_only: 'Осталась только в старом расчёте',
+};
+
+const requestReasonLabel = {
+  legacy_aggregate_split: 'Старая объединённая позиция',
+  material_not_in_projection: 'Нет в текущем расчёте',
+  ambiguous_material_identity: 'Неоднозначное наименование',
+  unit_mismatch: 'Не совпадает единица измерения',
+  package_mismatch: 'Не совпадает пакет работ',
 };
 
 const countLabel = count => {
@@ -16,14 +28,27 @@ const countLabel = count => {
   return `${count} ${word}`;
 };
 
-export default function MaterialProjectionDryRunPanel({projectName, rows = [], C, fmtMeasure, isMobile = false}) {
+export default function MaterialProjectionDryRunPanel({
+  projectName,
+  rows = [],
+  supplyRequests = [],
+  parseSupplyItems,
+  C,
+  fmtMeasure,
+  isMobile = false,
+}) {
   const [expanded, setExpanded] = React.useState(false);
-  const report = React.useMemo(() => {
+  const analysis = React.useMemo(() => {
     if (!expanded) return null;
     const correctedRows = (rows || []).filter(row => Number(row.planQty || 0) > 0);
     const legacyRows = buildLegacyMaterialProjection(correctedRows);
-    return buildMaterialProjectionDryRun([{projectName, legacyRows, correctedRows}]);
-  }, [expanded, projectName, rows]);
+    return {
+      projection: buildMaterialProjectionDryRun([{projectName, legacyRows, correctedRows}]),
+      requests: buildSupplyRequestProjectionReview({projectName, requests:supplyRequests, correctedRows, parseSupplyItems}),
+    };
+  }, [expanded, parseSupplyItems, projectName, rows, supplyRequests]);
+  const report = analysis?.projection;
+  const requestReview = analysis?.requests || {summary:{},needsReview:[]};
   const projectReport = report?.projects?.[0] || {changes: [], summary: {}};
   const changes = projectReport.changes || [];
   const summary = projectReport.summary || {};
@@ -91,6 +116,32 @@ export default function MaterialProjectionDryRunPanel({projectName, rows = [], C
               </div>)}
             </div>
           )}
+
+          <div style={{marginTop:'14px',paddingTop:'12px',borderTop:'1px solid '+C.border}}>
+            <div style={{display:'flex',justifyContent:'space-between',gap:'10px',alignItems:'baseline',flexWrap:'wrap'}}>
+              <b style={{color:C.text,fontSize:'12px'}}>Проверка действующих заявок</b>
+              <span style={{color:C.textSec,fontSize:'10px'}}>
+                Активных: {requestReview.summary.activeRequests||0} · точно совпали: {requestReview.summary.ready||0} · проверить: {requestReview.summary.needsReview||0}
+              </span>
+            </div>
+            {(requestReview.needsReview||[]).length===0 ? (
+              <p role="status" style={{color:C.success,fontSize:'11px',margin:'8px 0 0'}}>Активные заявки соответствуют текущим точным позициям.</p>
+            ) : (
+              <div style={{marginTop:'8px'}}>
+                {(requestReview.needsReview||[]).slice(0,40).map(item=><div key={`${item.requestId}-${item.itemIndex}`} style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'100px minmax(180px,1fr) minmax(170px,1fr)',gap:'8px',padding:'9px 0',borderBottom:'1px solid '+C.border}}>
+                  <b style={{color:C.text,fontSize:'11px'}}>Заявка #{item.requestId}</b>
+                  <div style={{minWidth:0}}>
+                    <span style={{display:'block',color:C.text,fontSize:'11px',fontWeight:'700',overflowWrap:'anywhere'}}>{item.materialName}</span>
+                    <span style={{display:'block',color:C.textSec,fontSize:'10px',marginTop:'2px'}}>{fmtMeasure(item.quantity,item.unit)}{item.workPackage?' · '+item.workPackage:''}</span>
+                  </div>
+                  <div style={{minWidth:0}}>
+                    <span style={{display:'block',color:C.warning,fontSize:'10px',fontWeight:'700'}}>{requestReasonLabel[item.reason]||item.reason}</span>
+                    {(item.candidateNames||[]).length>0&&<span style={{display:'block',color:C.textSec,fontSize:'10px',marginTop:'2px',overflowWrap:'anywhere'}}>Сверить с: {(item.candidateNames||[]).join('; ')}</span>}
+                  </div>
+                </div>)}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </section>

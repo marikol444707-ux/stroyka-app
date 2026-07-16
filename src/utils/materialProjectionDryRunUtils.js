@@ -1,5 +1,6 @@
 import { materialAutoMatchSafe, materialLookupText, materialNameMatchScore } from './materialMatchUtils';
 import { _normalizeUnit, toNum } from './measureUtils';
+import { isActiveSupplyRequestStatus } from './supplyUtils';
 
 const rowIdentity = (row = {}) => [
   materialLookupText(row.materialKey || row.name || ''),
@@ -88,6 +89,116 @@ export const buildLegacyMaterialProjection = (correctedRows = []) => {
   });
 
   return legacyRows;
+};
+
+const packageIdentity = value => materialLookupText(value || 'Основная');
+
+const requestItems = (request, parseSupplyItems) => {
+  const parsed = typeof parseSupplyItems === 'function' ? parseSupplyItems(request) : [];
+  if (Array.isArray(parsed) && parsed.length) return parsed;
+  return [{
+    materialName: request.materialName || '',
+    quantity: request.quantity,
+    unit: request.unit || '',
+    workPackage: request.workPackage || request.work_package || '',
+  }];
+};
+
+export const buildSupplyRequestProjectionReview = ({
+  projectName = '',
+  requests = [],
+  correctedRows = [],
+  parseSupplyItems,
+} = {}) => {
+  const currentRows = (correctedRows || []).filter(row => toNum(row.planQty) > 0);
+  const legacyRows = buildLegacyMaterialProjection(currentRows);
+  const projection = buildMaterialProjectionDryRun([{projectName, legacyRows, correctedRows: currentRows}]);
+  const splitChanges = (projection.projects[0]?.changes || []).filter(change => change.status === 'split');
+  const activeRequests = (requests || []).filter(request => (
+    request?.project === projectName && isActiveSupplyRequestStatus(request?.status)
+  ));
+  const ready = [];
+  const needsReview = [];
+  const counts = {legacyAggregate: 0, unmatched: 0, ambiguous: 0, unitMismatch: 0, packageMismatch: 0};
+
+  activeRequests.forEach(request => requestItems(request, parseSupplyItems).forEach((item, itemIndex) => {
+    const materialName = item?.materialName || item?.material_name || item?.name || request.materialName || '';
+    const materialKey = materialLookupText(materialName);
+    const unit = item?.unit || request.unit || '';
+    const unitKey = _normalizeUnit(unit);
+    const workPackage = item?.workPackage || item?.work_package || request.workPackage || request.work_package || '';
+    const packageKey = packageIdentity(workPackage);
+    const quantity = toNum(item?.quantity ?? item?.qty ?? request.quantity);
+    const base = {
+      requestId: request.id,
+      requestStatus: request.status || 'Новая',
+      itemIndex,
+      materialName,
+      quantity,
+      unit,
+      workPackage,
+    };
+    const nameMatches = currentRows.filter(row => {
+      const exact = materialLookupText(row.materialKey || row.name) === materialKey;
+      const confirmedAlias = (row.aliasIds || []).length > 0 && (row.aliases || []).some(alias => materialLookupText(alias) === materialKey);
+      return exact || confirmedAlias;
+    });
+    const exactMatches = nameMatches.filter(row => (
+      packageIdentity(row.workPackage || row.packageName) === packageKey
+      && (!unitKey || !_normalizeUnit(row.unit) || _normalizeUnit(row.unit) === unitKey)
+    ));
+    const split = splitChanges.find(change => (
+      materialLookupText(change.legacyName) === materialKey
+      && packageIdentity(change.correctedRows?.[0]?.workPackage) === packageKey
+      && (!unitKey || !_normalizeUnit(change.unit) || _normalizeUnit(change.unit) === unitKey)
+    ));
+    const fromMaterialControl = String(request.notes || '').includes('Создано из контроля материалов');
+    const exceedsExactPlan = exactMatches.length === 1 && quantity > toNum(exactMatches[0].planQty) + 0.0001;
+    if (split && (fromMaterialControl || exceedsExactPlan)) {
+      counts.legacyAggregate += 1;
+      needsReview.push({...base, status: 'needs_review', reason: 'legacy_aggregate_split', candidateNames: split.correctedNames || []});
+      return;
+    }
+    if (exactMatches.length === 1) {
+      ready.push({...base, status: 'ready', reason: 'exact_projection_identity', projectionName: exactMatches[0].name});
+      return;
+    }
+    if (nameMatches.length) {
+      const samePackage = nameMatches.filter(row => packageIdentity(row.workPackage || row.packageName) === packageKey);
+      const reason = samePackage.length ? 'unit_mismatch' : 'package_mismatch';
+      counts[reason === 'unit_mismatch' ? 'unitMismatch' : 'packageMismatch'] += 1;
+      needsReview.push({...base, status: 'needs_review', reason, candidateNames: nameMatches.map(row => row.name)});
+      return;
+    }
+    const fuzzyMatches = currentRows.filter(row => {
+      if (packageIdentity(row.workPackage || row.packageName) !== packageKey) return false;
+      if (unitKey && _normalizeUnit(row.unit) && _normalizeUnit(row.unit) !== unitKey) return false;
+      const score = materialNameMatchScore(materialName, row.name);
+      return materialAutoMatchSafe(materialName, row.name, score);
+    });
+    if (fuzzyMatches.length) {
+      counts.ambiguous += 1;
+      needsReview.push({...base, status: 'needs_review', reason: 'ambiguous_material_identity', candidateNames: fuzzyMatches.map(row => row.name)});
+      return;
+    }
+    counts.unmatched += 1;
+    needsReview.push({...base, status: 'needs_review', reason: 'material_not_in_projection', candidateNames: []});
+  }));
+
+  return {
+    ok: true,
+    dryRun: true,
+    writesAttempted: 0,
+    summary: {
+      activeRequests: activeRequests.length,
+      items: ready.length + needsReview.length,
+      ready: ready.length,
+      needsReview: needsReview.length,
+      ...counts,
+    },
+    ready,
+    needsReview,
+  };
 };
 
 const compareProject = ({projectId = null, projectName = '', legacyRows = [], correctedRows = []} = {}) => {

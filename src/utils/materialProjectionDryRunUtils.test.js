@@ -1,4 +1,8 @@
-import { buildLegacyMaterialProjection, buildMaterialProjectionDryRun } from './materialProjectionDryRunUtils';
+import {
+  buildLegacyMaterialProjection,
+  buildMaterialProjectionDryRun,
+  buildSupplyRequestProjectionReview,
+} from './materialProjectionDryRunUtils';
 
 const row = (name, planQty, overrides = {}) => ({
   name,
@@ -107,5 +111,53 @@ describe('buildMaterialProjectionDryRun', () => {
         correctedNames: ['Кабель ВВГ 3х1,5', 'Кабель ВВГ 3х2,5'],
       }),
     ]);
+  });
+
+  test('reviews active requests created from a split legacy aggregate without changing requests', () => {
+    const sourceA = {estimateId: 10, packageName: 'Электрика', sectionName: 'Крепёж', materialName: 'Дюбель распорный 8х60', qty: 100, unit: 'шт'};
+    const sourceB = {estimateId: 10, packageName: 'Электрика', sectionName: 'Крепёж', materialName: 'Шуруп самонарезающий 3,5х35', qty: 200, unit: 'шт'};
+    const correctedRows = [
+      row('Дюбель распорный 8х60', 100, {planDetails: [sourceA]}),
+      row('Шуруп самонарезающий 3,5х35', 200, {planDetails: [sourceB]}),
+      row('Кабель ВВГ 3х1,5', 80, {unit: 'м'}),
+    ];
+    const requests = [
+      {id: 21, project: 'Лицей', status: 'Новая', materialName: 'Дюбель распорный 8х60', quantity: 300, unit: 'шт', workPackage: 'Электрика', notes: 'Создано из контроля материалов: строка `Докупить`.'},
+      {id: 22, project: 'Лицей', status: 'Утверждена', materialName: 'Кабель ВВГ 3х1,5', quantity: 20, unit: 'м', workPackage: 'Электрика'},
+      {id: 23, project: 'Лицей', status: 'Новая', materialName: 'Неизвестный материал', quantity: 5, unit: 'шт', workPackage: 'Электрика'},
+      {id: 24, project: 'Лицей', status: 'Доставлено', materialName: 'Старый закрытый материал', quantity: 1, unit: 'шт'},
+    ];
+    const snapshot = JSON.stringify(requests);
+
+    const review = buildSupplyRequestProjectionReview({
+      projectName: 'Лицей',
+      requests,
+      correctedRows,
+      parseSupplyItems: request => [{
+        materialName: request.materialName,
+        quantity: request.quantity,
+        unit: request.unit,
+        workPackage: request.workPackage,
+      }],
+    });
+
+    expect(review).toMatchObject({
+      ok: true,
+      dryRun: true,
+      writesAttempted: 0,
+      summary: {
+        activeRequests: 3,
+        items: 3,
+        ready: 1,
+        needsReview: 2,
+        legacyAggregate: 1,
+        unmatched: 1,
+      },
+    });
+    expect(review.needsReview).toEqual([
+      expect.objectContaining({requestId: 21, reason: 'legacy_aggregate_split'}),
+      expect.objectContaining({requestId: 23, reason: 'material_not_in_projection'}),
+    ]);
+    expect(JSON.stringify(requests)).toBe(snapshot);
   });
 });

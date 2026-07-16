@@ -34,6 +34,8 @@ export default function ProjectMaterialsControlPanel({
   buildMaterialRequirementContent,
   onIssueMaterial,
   onCreateSupplyForRows,
+  supplyRequests = [],
+  parseSupplyItems,
   isMobile = false,
 }) {
   const [query, setQuery] = React.useState('');
@@ -196,6 +198,8 @@ export default function ProjectMaterialsControlPanel({
       <MaterialProjectionDryRunPanel
         projectName={projectName}
         rows={rows}
+        supplyRequests={supplyRequests}
+        parseSupplyItems={parseSupplyItems}
         C={C}
         fmtMeasure={fmtMeasure}
         isMobile={isMobile}

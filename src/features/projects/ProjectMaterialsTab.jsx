@@ -10,7 +10,7 @@ export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagno
     buildMaterialRequirementContent, card, convertUnits, createBatchSupplyRequestFromMaterialControl,
     estimatePackage, estimateWorkNormRequirementRows, fmtMeasure, history, inp, isLeadership,
     isMobile, materialControlStatus, materialNormControlSummaryForProject,
-    loadEstimateDetail, materialReconciliationRows, materialTransfers, materials, renderMaterialAliasControls,
+    loadEstimateDetail, materialReconciliationRows, materialTransfers, materials, parseSupplyItems, renderMaterialAliasControls,
     renderMaterialSupplyAction, setMaterialTransfers, setMaterials, setNewTransfer,
     setShowTransferForm, setWarehouseMain, showPreview, showTransferForm, staff, supplyRequests,
     tbl, tblC, tblH, user, visibleActiveProjects, warehouseMain, workJournal, projects,
@@ -81,6 +81,8 @@ export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagno
         buildRowsForPackage={(workPackage)=>materialReconciliationRows(p.name, workPackage)}
         buildNormRowsForPackage={(workPackage)=>estimateWorkNormRequirementRows(p.name, workPackage)}
         buildNormCtrlForPackage={(workPackage)=>materialNormControlSummaryForProject(p.name, workPackage)}
+        supplyRequests={supplyRequests}
+        parseSupplyItems={parseSupplyItems}
         isMobile={isMobile}
         C={C}
         card={card}

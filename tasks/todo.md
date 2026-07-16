@@ -2481,11 +2481,12 @@
 
 **Description:** Compare old and corrected projections and prepare review-only cleanup candidates for existing requests.
 
-**Status:** Deployed in production runtime `73ec5c34bd8f`. The opened project's material-control screen reconstructs the previous broad auto-grouping on demand and shows old/new quantities, exact split identities and added/removed rows without exposing an apply action. All-project collection and the existing-request review list remain pending.
+**Status:** Runtime `73ec5c34bd8f` contains the first read-only projection comparison. The next local slice also reviews active request items for the opened project and flags only proven legacy aggregates or unresolved identity/unit/package matches. Production deployment of this slice and all-project collection remain pending.
 
 **Verification:**
 - [x] Comparator unit tests cover quantity changes, added/removed identities, split aggregates and input immutability.
 - [x] UI test covers collapsed/expanded comparison, split quantities, read-only notice and absence of mutation controls.
+- [x] Request-review tests cover active/terminal status handling, exact matches, legacy split provenance, missing identities and input immutability.
 - [x] Production frontend build passes.
 - [x] Material calculation regression suites pass after the build: 5 suites / 23 tests.
 - [x] Production deploy and public smoke pass on runtime `73ec5c34bd8f`.
