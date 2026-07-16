@@ -2304,7 +2304,7 @@
 
 **Description:** Update only vulnerable transitive frontend packages that fit the existing dependency ranges. Do not change React, `react-scripts`, or `xlsx`, and do not use `npm audit fix --force` in this step.
 
-**Status:** Original refresh deployed in `0d95c3d5`. The follow-up compatible override pins transitive `websocket-driver@0.7.5`; clean `npm ci` and audit report `critical=0`, `total=28`, pending production deploy.
+**Status:** Original refresh deployed in `0d95c3d5`. The follow-up compatible override pins transitive `websocket-driver@0.7.5`; production runtime `8c16af0d4d36` passed clean `npm ci`, build and public smoke with audit `critical=0`, `total=28`.
 
 **Acceptance criteria:**
 - [x] Direct dependency versions remain unchanged; `package.json` contains only the exact transitive security override `websocket-driver@0.7.5`.
