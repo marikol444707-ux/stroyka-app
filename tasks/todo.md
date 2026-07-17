@@ -2215,6 +2215,19 @@
 
 **Estimated scope:** S
 
+## Task M7l: Isolate Tools And Inventory By Company
+
+**Description:** Add a read-only ownership report for `tools`, `tool_history`, `inventory`, and inventory children, resolve exact company/project parents, then add stored tenant ownership and selected-company runtime filtering in guarded slices.
+
+**Status:** Pending. Runtime `2af7b25bb333` fixes immediate post-save visibility and error handling only. Production currently contains three tool rows, and the tables remain global without `company_id`; do not treat this UI fix as multi-company isolation.
+
+**Safety:**
+- Start with a no-write production report and exact parent/reference counts.
+- Do not infer company from a tool name, master name, or empty project.
+- Keep current tools visible to the pilot company until ownership is proven and migrated.
+
+**Estimated scope:** M
+
 ## Task 12: Extract Auth Helpers
 
 **Description:** Move auth/session helper functions from `backend/main.py` into `backend/auth.py` without changing behavior.
