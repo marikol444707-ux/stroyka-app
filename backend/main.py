@@ -28840,29 +28840,6 @@ def get_document_version(vid: int, _current_user: dict = Depends(require_roles(*
             "snapshot":snap,"changedBy":r[5] or "","changeReason":r[6] or "",
             "createdAt":str(r[7])}
 
-# Хранилище онлайн статусов
-online_users = {}
-
-@app.post("/online")
-def update_online(data: dict, current_user: dict = Depends(get_current_user)):
-    user_id = current_user.get("id")
-    if user_id:
-        online_users[str(user_id)] = {
-            "userId": user_id,
-            "userName": current_user.get("name",""),
-            "userRole": current_user.get("role",""),
-            "lastSeen": data.get("lastSeen",""),
-            "page": data.get("page","")
-        }
-    return {"ok": True}
-
-@app.get("/online")
-def get_online(_current_user: dict = Depends(get_current_user)):
-    import time
-    now = time.time()
-    # Возвращаем пользователей активных за последние 2 минуты
-    return list(online_users.values())
-
 @app.get("/project-payments")
 def get_project_payments(
     project_name: str = "",
@@ -31306,6 +31283,15 @@ register_tool_inventory_module(app, {
     "require_project_access": require_project_access,
     "require_tool_access": require_tool_access,
     "require_inventory_access": require_inventory_access,
+})
+
+try:
+    from backend.features.online_status import register_online_status_module
+except ModuleNotFoundError:
+    from features.online_status import register_online_status_module
+
+register_online_status_module(app, {
+    "get_current_user": get_current_user,
 })
 
 try:
