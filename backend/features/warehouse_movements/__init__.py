@@ -1,0 +1,1 @@
+"""Warehouse movement business rules."""

@@ -39,3 +39,35 @@ test('saveTool refreshes the warehouse after a successful save', async () => {
   expect(saved).toBe(true);
   expect(refreshData).toHaveBeenCalledWith('warehouse');
 });
+
+test('applyWarehouseMovement reports positions that need estimate review', async () => {
+  global.fetch = jest
+    .fn()
+    .mockResolvedValueOnce({ok: true, json: async () => ({estimateControl: {needsReview: true}})})
+    .mockResolvedValueOnce({ok: true, json: async () => ({estimateControl: {needsReview: false}})});
+  const notify = jest.fn();
+  const refreshData = jest.fn();
+  const setNewMovement = jest.fn();
+  const actions = createActions({
+    newMovement: {
+      fromLocation: 'Основной склад',
+      toLocation: 'Объект 1',
+      notes: 'Согласовано с заказчиком',
+      selectedMaterials: [
+        {name: 'Грунтовка', quantity: 5, unit: 'кг', workPackage: 'Отделка'},
+        {name: 'Кабель', quantity: 20, unit: 'м', workPackage: 'Электрика'},
+      ],
+    },
+    notify,
+    refreshData,
+    setNewMovement,
+    user: {name: 'Кладовщик'},
+  });
+
+  await actions.applyWarehouseMovement();
+
+  expect(global.fetch).toHaveBeenCalledTimes(2);
+  expect(notify).toHaveBeenCalledWith('Перемещение выполнено · требуют сметного разбора: 1', 'ai');
+  expect(refreshData).toHaveBeenCalled();
+  expect(setNewMovement).toHaveBeenCalled();
+});
