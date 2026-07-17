@@ -6461,10 +6461,6 @@ class InterimActModel(BaseModel):
     contractId: Optional[int] = None
     workJournalIds: list[int] = []
 
-class TimesheetModel(BaseModel):
-    staffId: int
-    day: str
-
 class CopyPricelistModel(BaseModel):
     name: str
 
@@ -16993,51 +16989,6 @@ def delete_interim_act(id: int, _current_user: dict = Depends(require_roles(*LEA
     )
     conn.close()
     return {"ok": True}
-
-@app.get("/timesheet/{staff_id}")
-def get_timesheet(staff_id: int, _current_user: dict = Depends(require_roles(*STAFF_VIEW_ROLES))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT day FROM timesheet WHERE staff_id=%s", (staff_id,))
-    rows = cur.fetchall()
-    conn.close()
-    return {"days": [r['day'] for r in rows]}
-
-@app.post("/timesheet")
-def toggle_timesheet(data: TimesheetModel, _current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES, "прораб", "главный_инженер"))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM timesheet WHERE staff_id=%s AND day=%s", (data.staffId,data.day))
-    existing = cur.fetchone()
-    if existing:
-        cur.execute("DELETE FROM timesheet WHERE staff_id=%s AND day=%s", (data.staffId,data.day))
-        action = "timesheet_remove"
-    else:
-        cur.execute("INSERT INTO timesheet (staff_id,day) VALUES (%s,%s)", (data.staffId,data.day))
-        action = "timesheet_add"
-    cur.execute("SELECT name, COALESCE(project,'') FROM staff WHERE id=%s", (data.staffId,))
-    staff_row = cur.fetchone()
-    conn.commit()
-    log_audit(
-        _current_user.get("name", ""),
-        _current_user.get("role", ""),
-        action,
-        "timesheet",
-        data.staffId,
-        ("Табель: " + str(staff_row[0] if staff_row else data.staffId) + ", день " + str(data.day))[:250],
-        (staff_row[1] if staff_row else "") or "",
-    )
-    conn.close()
-    return {"ok": True}
-
-@app.get("/timesheet")
-def get_timesheet_all(_current_user: dict = Depends(require_roles(*STAFF_VIEW_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT staff_id, day FROM timesheet")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [{"staffId": r[0], "day": r[1]} for r in rows]
 
 @app.get("/rooms")
 def get_rooms(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
@@ -31197,6 +31148,19 @@ register_warranty_defects_module(app, {
     "require_row_project_access": require_row_project_access,
     "visible_project_names": visible_project_names,
     "user_project_names": user_project_names,
+})
+
+try:
+    from backend.features.timesheet import register_timesheet_module
+except ModuleNotFoundError:
+    from features.timesheet import register_timesheet_module
+
+register_timesheet_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "staff_view_roles": STAFF_VIEW_ROLES,
+    "staff_manage_roles": STAFF_MANAGE_ROLES,
+    "log_audit": log_audit,
 })
 
 try:
