@@ -43,7 +43,7 @@ test('saveTool refreshes the warehouse after a successful save', async () => {
 test('applyWarehouseMovement reports positions that need estimate review', async () => {
   global.fetch = jest
     .fn()
-    .mockResolvedValueOnce({ok: true, json: async () => ({estimateControl: {needsReview: true}})})
+    .mockResolvedValueOnce({ok: true, json: async () => ({estimateControl: {needsReview: true}, estimateReviewTaskId: 81})})
     .mockResolvedValueOnce({ok: true, json: async () => ({estimateControl: {needsReview: false}})});
   const notify = jest.fn();
   const refreshData = jest.fn();
@@ -67,7 +67,7 @@ test('applyWarehouseMovement reports positions that need estimate review', async
   await actions.applyWarehouseMovement();
 
   expect(global.fetch).toHaveBeenCalledTimes(2);
-  expect(notify).toHaveBeenCalledWith('Перемещение выполнено · требуют сметного разбора: 1', 'ai');
+  expect(notify).toHaveBeenCalledWith('Перемещение выполнено · требуют сметного разбора: 1 · задачи созданы: 1', 'ai');
   expect(refreshData).toHaveBeenCalled();
   expect(setNewMovement).toHaveBeenCalled();
 });

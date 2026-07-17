@@ -212,6 +212,7 @@ export const createWarehouseCrudActions = ({
     const selected = newMovement.selectedMaterials||[];
     if (selected.length===0) { alert('Выберите материалы'); return; }
     let reviewRequired = 0;
+    let reviewTasksCreated = 0;
     for (const item of selected) {
       if (!item.quantity||Number(item.quantity)<=0) continue;
       const itemWorkPackage = item.workPackage || item.work_package || newMovement.workPackage || '';
@@ -223,10 +224,11 @@ export const createWarehouseCrudActions = ({
       }
       const movement = await res.json().catch(()=>({}));
       if (movement?.estimateControl?.needsReview) reviewRequired += 1;
+      if (movement?.estimateReviewTaskId) reviewTasksCreated += 1;
     }
     notify(
       reviewRequired
-        ? 'Перемещение выполнено · требуют сметного разбора: ' + reviewRequired
+        ? 'Перемещение выполнено · требуют сметного разбора: ' + reviewRequired + (reviewTasksCreated ? ' · задачи созданы: ' + reviewTasksCreated : '')
         : 'Перемещение выполнено',
       reviewRequired ? 'ai' : 'material'
     );

@@ -1,6 +1,9 @@
 import unittest
 
-from .estimate_control import build_movement_estimate_control
+from .estimate_control import (
+    build_movement_estimate_control,
+    build_movement_review_task,
+)
 
 
 class WarehouseMovementEstimateControlTests(unittest.TestCase):
@@ -66,6 +69,42 @@ class WarehouseMovementEstimateControlTests(unittest.TestCase):
         self.assertEqual(result["status"], "not_applicable")
         self.assertFalse(result["needsReview"])
         self.assertEqual(result["items"], [])
+
+    def test_review_task_links_the_movement_and_explains_outside_estimate(self):
+        task = build_movement_review_task(
+            movement_id=41,
+            project_name="Школа",
+            actor_name="Кладовщик",
+            estimate_control={
+                "status": "review_required",
+                "needsReview": True,
+                "issues": ["no_estimate_material"],
+                "items": [{
+                    "materialName": "Грунтовка",
+                    "quantity": 5,
+                    "unit": "кг",
+                    "workPackage": "Отделка",
+                    "plannedQuantity": 0,
+                    "remainingBeforeMovement": 0,
+                    "remainingAfterMovement": -5,
+                }],
+            },
+        )
+
+        self.assertEqual(task["dedupeKey"], "WAREHOUSE_MOVEMENT_ESTIMATE:41")
+        self.assertEqual(task["assignedRole"], "сметчик")
+        self.assertEqual(task["actionPayload"]["movementId"], 41)
+        self.assertIn("добавить материал", task["description"].lower())
+
+    def test_matched_movement_does_not_create_review_task(self):
+        task = build_movement_review_task(
+            movement_id=42,
+            project_name="Школа",
+            actor_name="Кладовщик",
+            estimate_control={"status": "matched", "needsReview": False, "items": []},
+        )
+
+        self.assertIsNone(task)
 
 
 if __name__ == "__main__":
