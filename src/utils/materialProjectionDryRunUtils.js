@@ -290,3 +290,66 @@ export const buildMaterialProjectionDryRun = (projectInputs = []) => {
   });
   return {ok: true, dryRun: true, writesAttempted: 0, summary, projects};
 };
+
+export const buildAllProjectsMaterialProjectionReview = (projectInputs = [], parseSupplyItems) => {
+  const projects = (projectInputs || []).map(input => {
+    const correctedRows = (input.correctedRows || []).filter(row => toNum(row.planQty) > 0);
+    const legacyRows = buildLegacyMaterialProjection(correctedRows);
+    const projection = buildMaterialProjectionDryRun([{
+      projectId: input.projectId,
+      projectName: input.projectName,
+      legacyRows,
+      correctedRows,
+    }]).projects[0];
+    const requestReview = buildSupplyRequestProjectionReview({
+      projectName: input.projectName,
+      requests: input.requests || [],
+      correctedRows,
+      parseSupplyItems,
+    });
+    const projectionChanges = (projection.changes || []).length;
+    const requestItemsNeedingReview = requestReview.summary.needsReview || 0;
+    return {
+      projectId: input.projectId,
+      projectName: input.projectName || '',
+      projectionChanges,
+      requestItemsNeedingReview,
+      activeRequests: requestReview.summary.activeRequests || 0,
+      requestItems: requestReview.summary.items || 0,
+      requestItemsReady: requestReview.summary.ready || 0,
+      splitRows: projection.summary.splitRows || 0,
+      quantityChanged: projection.summary.quantityChanged || 0,
+      correctedOnly: projection.summary.correctedOnly || 0,
+      legacyOnly: projection.summary.legacyOnly || 0,
+      needsReview: projectionChanges > 0 || requestItemsNeedingReview > 0,
+    };
+  }).sort((left, right) => (
+    Number(right.needsReview) - Number(left.needsReview)
+    || right.requestItemsNeedingReview - left.requestItemsNeedingReview
+    || right.projectionChanges - left.projectionChanges
+    || left.projectName.localeCompare(right.projectName, 'ru')
+  ));
+
+  const summary = projects.reduce((totals, project) => {
+    totals.projects += 1;
+    totals.projectsNeedingReview += Number(project.needsReview);
+    totals.projectionChanges += project.projectionChanges;
+    totals.activeRequests += project.activeRequests;
+    totals.requestItems += project.requestItems;
+    totals.requestItemsReady += project.requestItemsReady;
+    totals.requestItemsNeedingReview += project.requestItemsNeedingReview;
+    totals.splitRows += project.splitRows;
+    return totals;
+  }, {
+    projects: 0,
+    projectsNeedingReview: 0,
+    projectionChanges: 0,
+    activeRequests: 0,
+    requestItems: 0,
+    requestItemsReady: 0,
+    requestItemsNeedingReview: 0,
+    splitRows: 0,
+  });
+
+  return {ok: true, dryRun: true, writesAttempted: 0, summary, projects};
+};

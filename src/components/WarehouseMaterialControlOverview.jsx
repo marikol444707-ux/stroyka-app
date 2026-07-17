@@ -1,5 +1,6 @@
 import React from 'react';
 import { Download, Eye, Printer } from 'lucide-react';
+import AllProjectsMaterialProjectionReview from './AllProjectsMaterialProjectionReview';
 
 export default function WarehouseMaterialControlOverview({
   C,
@@ -10,13 +11,16 @@ export default function WarehouseMaterialControlOverview({
   card,
   exportToExcel,
   isFinanceRole,
+  isMobile,
   isLeadership,
   materialControlSummaryForProject,
   materialReconciliationRows,
+  parseSupplyItems,
   projects,
   setSelectedWarehouseProject,
   setWarehouseTab,
   showPreview,
+  supplyRequests,
   visibleActiveProjects,
 }) {
   const isFinanceUser = typeof isFinanceRole === 'function' ? isFinanceRole() : Boolean(isFinanceRole);
@@ -32,6 +36,14 @@ export default function WarehouseMaterialControlOverview({
         </div>
         <button onClick={()=>exportToExcel(activeProjects.flatMap(p=>materialReconciliationRows(p.name).map(r=>({Объект:p.name,Материал:r.name,Ед:r.unit,'План по смете':r.planQty,'Норма по работам':r.normPlanQty,'Контрольная потребность':r.controlPlanQty,'Норма выше сметы':r.normOverEstimateQty,'Расход сверх контроля':r.usedOverControlQty,'Строк сметы':r.planSourceCount||(r.planDetails||[]).length,'Строк норм':r.normSourceCount||(r.normDetails||[]).length,Разделы:(r.sections||[]).join('; '),'Работы-основания':(r.workRefs||[]).join('; '),Заявки:r.requested,'В пути':r.inTransit,Накладные:r.invoiceReceived,Поставки:r.supplyReceived,Перемещено:r.movedNet,'Всего получено':r.supplied,Выдано:r.issued,Списано:r.used,'У мастеров':r.masterBalance,Остаток:r.stock,'Расчётный остаток':r.expectedStock,'Расхождение склада':r.stockDiff,Докупить:r.toBuy,Статус:r.stockMismatch?'Расхождение склада':r.issued>0&&r.usedWithoutIssue>0?'Списано сверх выдачи':r.usedOverControlQty>0?'Расход сверх нормы':r.isOutsideEstimate?'Вне сметы':r.normOverEstimateQty>0?'Норма выше сметы':r.toBuy>0?'Докупить':r.shortage>0?'Закрывается':r.masterBalance>0?'У мастеров':r.over>0?'Сверх контроля':'Закрыто'}))),'Контроль_материалов')} style={btnG}><Download size={14}/>Excel</button>
       </div>
+      <AllProjectsMaterialProjectionReview
+        projects={activeProjects}
+        materialReconciliationRows={materialReconciliationRows}
+        supplyRequests={supplyRequests}
+        parseSupplyItems={parseSupplyItems}
+        C={C}
+        isMobile={isMobile}
+      />
       {activeProjects.map(p=>{const s=materialControlSummaryForProject(p.name);const hasIssue=s.toBuyRows.length||s.outsideRows.length||s.mismatchRows.length||s.stockMismatchRows.length;return(<div key={p.id||p.name} style={{...card,padding:'14px',marginBottom:'10px',borderLeft:'4px solid '+(s.stockMismatchRows.length?C.danger:s.toBuyRows.length?C.warning:s.outsideRows.length?C.danger:hasIssue?C.info:C.success)}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
           <div style={{flex:1,minWidth:'240px'}}>

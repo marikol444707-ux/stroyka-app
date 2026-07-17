@@ -192,6 +192,7 @@ export default function AppOperationsPages({ activePage, ui, constants, state, a
           isLeadership={isLeadership}
           materialControlSummaryForProject={materialControlSummaryForProject}
           materialReconciliationRows={materialReconciliationRows}
+          parseSupplyItems={parseSupplyItems}
           projects={projects}
           getProjectWorkPackageOptions={getProjectWorkPackageOptions}
           getProjectEstimateWorkOptions={getProjectEstimateWorkOptions}

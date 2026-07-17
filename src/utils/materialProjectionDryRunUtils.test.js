@@ -1,4 +1,5 @@
 import {
+  buildAllProjectsMaterialProjectionReview,
   buildLegacyMaterialProjection,
   buildMaterialProjectionDryRun,
   buildSupplyRequestProjectionReview,
@@ -159,5 +160,60 @@ describe('buildMaterialProjectionDryRun', () => {
       expect.objectContaining({requestId: 23, reason: 'material_not_in_projection'}),
     ]);
     expect(JSON.stringify(requests)).toBe(snapshot);
+  });
+
+  test('summarizes every active project and sorts projects needing review first', () => {
+    const sourceA = {estimateId: 10, packageName: 'Электрика', sectionName: 'Крепёж', materialName: 'Дюбель распорный 8х60', qty: 100, unit: 'шт'};
+    const sourceB = {estimateId: 10, packageName: 'Электрика', sectionName: 'Крепёж', materialName: 'Шуруп самонарезающий 3,5х35', qty: 200, unit: 'шт'};
+    const inputs = [
+      {
+        projectId: 2,
+        projectName: 'Школа',
+        correctedRows: [
+          row('Дюбель распорный 8х60', 100, {planDetails: [sourceA]}),
+          row('Шуруп самонарезающий 3,5х35', 200, {planDetails: [sourceB]}),
+        ],
+        requests: [{id: 31, project: 'Школа', status: 'Новая', materialName: 'Дюбель распорный 8х60', quantity: 300, unit: 'шт', workPackage: 'Электрика', notes: 'Создано из контроля материалов'}],
+      },
+      {
+        projectId: 1,
+        projectName: 'Лицей',
+        correctedRows: [row('Кабель ВВГ 3х1,5', 80, {unit: 'м'})],
+        requests: [{id: 32, project: 'Лицей', status: 'Утверждена', materialName: 'Кабель ВВГ 3х1,5', quantity: 20, unit: 'м', workPackage: 'Электрика'}],
+      },
+      {projectId: 3, projectName: 'Пустой объект', correctedRows: [], requests: []},
+    ];
+    const snapshot = JSON.stringify(inputs);
+
+    const report = buildAllProjectsMaterialProjectionReview(inputs, request => [{
+      materialName: request.materialName,
+      quantity: request.quantity,
+      unit: request.unit,
+      workPackage: request.workPackage,
+    }]);
+
+    expect(report).toMatchObject({
+      ok: true,
+      dryRun: true,
+      writesAttempted: 0,
+      summary: {
+        projects: 3,
+        projectsNeedingReview: 1,
+        activeRequests: 2,
+        requestItems: 2,
+        requestItemsReady: 1,
+        requestItemsNeedingReview: 1,
+        splitRows: 1,
+      },
+    });
+    expect(report.projects.map(project => project.projectName)).toEqual(['Школа', 'Лицей', 'Пустой объект']);
+    expect(report.projects[0]).toMatchObject({
+      projectId: 2,
+      projectionChanges: 1,
+      requestItemsNeedingReview: 1,
+      needsReview: true,
+    });
+    expect(report.projects[2]).toMatchObject({projectionChanges: 0, requestItemsNeedingReview: 0, needsReview: false});
+    expect(JSON.stringify(inputs)).toBe(snapshot);
   });
 });

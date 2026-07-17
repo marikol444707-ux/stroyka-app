@@ -25,6 +25,7 @@ export default function WarehousePage(props) {
     isLeadership,
     materialControlSummaryForProject,
     materialReconciliationRows,
+    parseSupplyItems,
     projects,
     setSelectedWarehouseProject,
     visibleActiveProjects,
@@ -139,12 +140,15 @@ export default function WarehousePage(props) {
           exportToExcel={exportToExcel}
           isFinanceRole={isFinanceRole}
           isLeadership={isLeadership}
+          isMobile={isMobile}
           materialControlSummaryForProject={materialControlSummaryForProject}
           materialReconciliationRows={materialReconciliationRows}
+          parseSupplyItems={parseSupplyItems}
           projects={projects}
           setSelectedWarehouseProject={setSelectedWarehouseProject}
           setWarehouseTab={setWarehouseTab}
           showPreview={showPreview}
+          supplyRequests={supplyRequests}
           visibleActiveProjects={visibleActiveProjects}
         />
       )}
