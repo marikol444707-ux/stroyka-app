@@ -28782,64 +28782,6 @@ register_audit_log_module(app, {
     "allowed_roles": (*LEADERSHIP_ROLES, "бухгалтер"),
 })
 
-def save_doc_version(document_type, document_id, snapshot_json, changed_by="", change_reason=""):
-    """Сохранить snapshot документа в document_versions. Возвращает label новой версии."""
-    try:
-        import json as _j
-        from datetime import datetime as _dt
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM document_versions WHERE document_type=%s AND document_id=%s",
-                    (document_type, document_id))
-        count = cur.fetchone()[0]
-        label = "v" + str(count+1) + "_" + _dt.now().strftime("%Y%m%d_%H%M%S")
-        snap = snapshot_json if isinstance(snapshot_json, str) else _j.dumps(snapshot_json, ensure_ascii=False, default=str)
-        cur.execute("""INSERT INTO document_versions (document_type, document_id, version_label, snapshot_json, changed_by, change_reason)
-                       VALUES (%s,%s,%s,%s,%s,%s)""",
-                    (document_type, document_id, label, snap, changed_by, change_reason))
-        conn.commit()
-        cur.close(); conn.close()
-        return label
-    except Exception as e:
-        print("VERSION SAVE ERROR:", str(e))
-        return None
-
-@app.get("/document-versions")
-def list_document_versions(document_type: str = None, document_id: int = None, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    cols = "id, document_type, document_id, version_label, changed_by, change_reason, created_at"
-    if document_type and document_id is not None:
-        cur.execute(f"SELECT {cols} FROM document_versions WHERE document_type=%s AND document_id=%s ORDER BY created_at DESC",
-                    (document_type, document_id))
-    elif document_type:
-        cur.execute(f"SELECT {cols} FROM document_versions WHERE document_type=%s ORDER BY created_at DESC LIMIT 200",
-                    (document_type,))
-    else:
-        cur.execute(f"SELECT {cols} FROM document_versions ORDER BY created_at DESC LIMIT 200")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [{"id":r[0],"documentType":r[1],"documentId":r[2],"versionLabel":r[3],
-             "changedBy":r[4] or "","changeReason":r[5] or "","createdAt":str(r[6])} for r in rows]
-
-@app.get("/document-versions/{vid}")
-def get_document_version(vid: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    import json as _j
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""SELECT id, document_type, document_id, version_label, snapshot_json,
-                          changed_by, change_reason, created_at
-                   FROM document_versions WHERE id=%s""", (vid,))
-    r = cur.fetchone()
-    cur.close(); conn.close()
-    if not r:
-        return {"error": "not found"}
-    try: snap = _j.loads(r[4]) if r[4] else {}
-    except: snap = {}
-    return {"id":r[0],"documentType":r[1],"documentId":r[2],"versionLabel":r[3],
-            "snapshot":snap,"changedBy":r[5] or "","changeReason":r[6] or "",
-            "createdAt":str(r[7])}
-
 @app.get("/project-payments")
 def get_project_payments(
     project_name: str = "",
@@ -30186,9 +30128,14 @@ def update_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depen
         cur.execute("SELECT row_to_json(t) FROM hidden_works_acts t WHERE id=%s", (act_id,))
         prev_row = cur.fetchone()
         if prev_row and prev_row[0]:
-            save_doc_version("hidden_works_act", act_id, prev_row[0],
-                             changed_by=data.get("_actor","—"),
-                             change_reason="PUT /hidden-works-acts/"+str(act_id))
+            save_document_version(
+                get_db,
+                "hidden_works_act",
+                act_id,
+                prev_row[0],
+                changed_by=data.get("_actor", "—"),
+                change_reason="PUT /hidden-works-acts/" + str(act_id),
+            )
     except Exception as e:
         print("VERSION snapshot skipped:", str(e))
     # Подписи помогают контролю, но не являются обязательным стоп-краном.
@@ -31292,6 +31239,23 @@ except ModuleNotFoundError:
 
 register_online_status_module(app, {
     "get_current_user": get_current_user,
+})
+
+try:
+    from backend.features.document_versions import (
+        register_document_versions_module,
+        save_document_version,
+    )
+except ModuleNotFoundError:
+    from features.document_versions import (
+        register_document_versions_module,
+        save_document_version,
+    )
+
+register_document_versions_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "project_document_roles": PROJECT_DOCUMENT_ROLES,
 })
 
 try:
