@@ -235,14 +235,26 @@ export const createWarehouseCrudActions = ({
   };
 
   const saveTool = async () => {
-    if (!newTool.name) return;
+    if (!newTool.name) return false;
     const data = {...newTool, cost: Number(newTool.cost), masterId: newTool.masterId ? Number(newTool.masterId) : null};
-    if (editingItem) await fetch(API + '/tools/' + editingItem.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});
-    else await fetch(API + '/tools', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});
-    await refreshData();
+    try {
+      const response = editingItem
+        ? await fetch(API + '/tools/' + editingItem.id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)})
+        : await fetch(API + '/tools', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+      if (!response.ok) {
+        const error = await response.json().catch(()=>({}));
+        alert(error.detail || 'Не удалось сохранить инструмент');
+        return false;
+      }
+    } catch (_error) {
+      alert('Не удалось сохранить инструмент. Проверьте соединение и повторите попытку.');
+      return false;
+    }
+    await refreshData('warehouse');
     setNewTool(createToolForm());
     setEditingItem(null);
     setShowForm(false);
+    return true;
   };
 
   const deleteTool = async (id) => {

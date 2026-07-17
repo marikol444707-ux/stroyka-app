@@ -388,7 +388,7 @@ export const useAppDataLoaders = (ctx) => {
       setAllBrigadePayments(Array.isArray(abp)?abp:[]);
     });
     if (['warehouse','materials'].includes(page)) return loadMobileScopeOnce('mobile:warehouse', async () => {
-      const [m,winv,wm,wmov,h,wh,mt,mij,cbj,sr,sh,sd] = await Promise.all([
+      const [m,winv,wm,wmov,h,wh,mt,mij,cbj,sr,sh,sd,tl,th,inv] = await Promise.all([
         role === 'поставщик' ? Promise.resolve([]) : getApi(pagedPath('/materials', {limit: MATERIALS_PAGE_LIMIT})),
         (isWarehouseRole || isFinanceRole) ? getApi('/warehouse-invoices') : Promise.resolve([]),
         (isWarehouseRole || isFinanceRole) ? getApi('/warehouse-main') : Promise.resolve([]),
@@ -401,6 +401,9 @@ export const useAppDataLoaders = (ctx) => {
         isSupplyRole ? getApi('/supply-requests') : Promise.resolve([]),
         (isSupplyRole || isWarehouseRole || isFinanceRole) ? getApi('/supply-history') : Promise.resolve([]),
         isSupplyRole ? getApi('/supply-deliveries') : Promise.resolve([]),
+        isInternalRole ? getApi('/tools') : Promise.resolve([]),
+        isInternalRole ? getApi('/tool-history') : Promise.resolve([]),
+        isInternalRole ? getApi('/inventory') : Promise.resolve([]),
       ]);
       setMaterials(Array.isArray(m)?m:[]); resetMaterialsPage(m); setInvoices(Array.isArray(winv)?winv:[]);
       setWarehouseMain(Array.isArray(wm)?wm:[]); setWarehouseMovements(Array.isArray(wmov)?wmov:[]);
@@ -410,6 +413,9 @@ export const useAppDataLoaders = (ctx) => {
       setSupplyRequests(Array.isArray(sr)?sr:[]);
       setSupplyHistory(Array.isArray(sh)?sh:[]);
       setSupplyDeliveries(Array.isArray(sd)?sd:[]);
+      setTools(Array.isArray(tl)?tl:[]);
+      setToolHistory(Array.isArray(th)?th:[]);
+      setInventory(Array.isArray(inv)?inv:[]);
     });
     if (['supply','suppliers'].includes(page)) return loadMobileScopeOnce('mobile:supply', async () => {
       const [sup,sr,so,sh,sd,sc,supI,scat,stpl,winv] = await Promise.all([
