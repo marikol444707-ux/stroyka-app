@@ -2494,13 +2494,19 @@
 
 **Description:** Compare old and corrected projections and prepare review-only cleanup candidates for existing requests.
 
-**Status:** Deployed in production runtime `58e52ceb2f91`. The opened-project report keeps detailed old/new rows and active-request findings. The warehouse material-control overview now adds an on-demand read-only summary across every active project, sorts risky projects first and can filter to `Требует проверки`. A consolidated item-level review list across all projects remains pending; no cleanup action is exposed.
+**Status:** The deployed runtime `58e52ceb2f91` contains the opened-project comparison and the on-demand read-only summary across active projects. The next local slice is complete and awaiting deployment: the warehouse material-control overview now includes a consolidated item-level list of active requests that require review, with exact reasons and fail-closed project/request identity handling. Roles without supply-request access see an explicit unavailable state instead of false zero/success. No cleanup, apply, delete or business-record mutation action is exposed.
 
 **Verification:**
 - [x] Comparator unit tests cover quantity changes, added/removed identities, split aggregates and input immutability.
 - [x] UI test covers collapsed/expanded comparison, split quantities, read-only notice and absence of mutation controls.
 - [x] Request-review tests cover active/terminal status handling, exact matches, legacy split provenance, missing identities and input immutability.
 - [x] All-project tests cover totals, empty projects, risk sorting, input immutability, review-only filtering and absence of mutation controls.
+- [x] Item-level tests cover estimate/material-projection provenance, manual-request exclusion, global request deduplication, conflicting duplicates, missing/malformed IDs as distinct review occurrences, inactive/ambiguous/missing project identity, active-before-dedupe status handling and zero-active-project reporting.
+- [x] Role tests cover explicit unavailable states in both opened-project and all-project review without false zero/success.
+- [x] Pagination tests cover the 50-row boundary, unrelated rerenders, semantic resets, candidate identity changes and A -> B -> A content changes.
+- [x] Focused local regression: 3 suites / 28 tests passed.
+- [x] Full local frontend regression after adversarial fixes: 60 suites / 237 tests passed.
+- [x] Local production build passes after the final review fixes.
 - [x] Production frontend build passes.
 - [x] Material calculation and adjacent supplier regression suites pass after the build: 7 suites / 46 tests.
 - [x] Production deploy and full public smoke pass on runtime `58e52ceb2f91`.

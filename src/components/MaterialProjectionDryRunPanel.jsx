@@ -19,6 +19,8 @@ const requestReasonLabel = {
   ambiguous_material_identity: 'Неоднозначное наименование',
   unit_mismatch: 'Не совпадает единица измерения',
   package_mismatch: 'Не совпадает пакет работ',
+  missing_request_id: 'У заявки нет ID',
+  conflicting_request_duplicates: 'Дубли заявки расходятся',
 };
 
 const countLabel = count => {
@@ -36,6 +38,7 @@ export default function MaterialProjectionDryRunPanel({
   C,
   fmtMeasure,
   isMobile = false,
+  canReviewSupplyRequests = true,
 }) {
   const [expanded, setExpanded] = React.useState(false);
   const analysis = React.useMemo(() => {
@@ -44,9 +47,11 @@ export default function MaterialProjectionDryRunPanel({
     const legacyRows = buildLegacyMaterialProjection(correctedRows);
     return {
       projection: buildMaterialProjectionDryRun([{projectName, legacyRows, correctedRows}]),
-      requests: buildSupplyRequestProjectionReview({projectName, requests:supplyRequests, correctedRows, parseSupplyItems}),
+      requests: canReviewSupplyRequests
+        ? buildSupplyRequestProjectionReview({projectName, requests:supplyRequests, correctedRows, parseSupplyItems})
+        : null,
     };
-  }, [expanded, parseSupplyItems, projectName, rows, supplyRequests]);
+  }, [canReviewSupplyRequests, expanded, parseSupplyItems, projectName, rows, supplyRequests]);
   const report = analysis?.projection;
   const requestReview = analysis?.requests || {summary:{},needsReview:[]};
   const projectReport = report?.projects?.[0] || {changes: [], summary: {}};
@@ -120,16 +125,18 @@ export default function MaterialProjectionDryRunPanel({
           <div style={{marginTop:'14px',paddingTop:'12px',borderTop:'1px solid '+C.border}}>
             <div style={{display:'flex',justifyContent:'space-between',gap:'10px',alignItems:'baseline',flexWrap:'wrap'}}>
               <b style={{color:C.text,fontSize:'12px'}}>Проверка действующих заявок</b>
-              <span style={{color:C.textSec,fontSize:'10px'}}>
+              {canReviewSupplyRequests && <span style={{color:C.textSec,fontSize:'10px'}}>
                 Активных: {requestReview.summary.activeRequests||0} · точно совпали: {requestReview.summary.ready||0} · проверить: {requestReview.summary.needsReview||0}
-              </span>
+              </span>}
             </div>
-            {(requestReview.needsReview||[]).length===0 ? (
+            {!canReviewSupplyRequests ? (
+              <p role="status" style={{color:C.textSec,fontSize:'11px',margin:'8px 0 0'}}>Проверка заявок недоступна для этой роли.</p>
+            ) : (requestReview.needsReview||[]).length===0 ? (
               <p role="status" style={{color:C.success,fontSize:'11px',margin:'8px 0 0'}}>Активные заявки соответствуют текущим точным позициям.</p>
             ) : (
               <div style={{marginTop:'8px'}}>
-                {(requestReview.needsReview||[]).slice(0,40).map(item=><div key={`${item.requestId}-${item.itemIndex}`} style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'100px minmax(180px,1fr) minmax(170px,1fr)',gap:'8px',padding:'9px 0',borderBottom:'1px solid '+C.border}}>
-                  <b style={{color:C.text,fontSize:'11px'}}>Заявка #{item.requestId}</b>
+                {(requestReview.needsReview||[]).slice(0,40).map(item=><div key={`${item.requestKey||item.requestId||'missing'}-${item.itemIndex}`} style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'100px minmax(180px,1fr) minmax(170px,1fr)',gap:'8px',padding:'9px 0',borderBottom:'1px solid '+C.border}}>
+                  <b style={{color:C.text,fontSize:'11px'}}>{item.requestId===null||item.requestId===undefined?'Заявка без ID':`Заявка #${item.requestId}`}</b>
                   <div style={{minWidth:0}}>
                     <span style={{display:'block',color:C.text,fontSize:'11px',fontWeight:'700',overflowWrap:'anywhere'}}>{item.materialName}</span>
                     <span style={{display:'block',color:C.textSec,fontSize:'10px',marginTop:'2px'}}>{fmtMeasure(item.quantity,item.unit)}{item.workPackage?' · '+item.workPackage:''}</span>

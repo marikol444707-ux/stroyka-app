@@ -247,7 +247,7 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [x] Show the read-only comparison inside the opened project's material control, with old/new quantities and split source identities; no apply action is exposed.
 - [x] Add a read-only review of active supply-request items for the opened project, flagging proven legacy aggregates, missing identities, ambiguous names and unit/package mismatches.
 - [x] Compare old/new quantities and row identities for every active project without changing business records.
-- [ ] Produce a review list for existing requests created from obsolete or ambiguous calculation rows.
+- [x] Produce a read-only, item-level review list for existing active requests created from obsolete or ambiguous calculation rows.
 - [x] Keep all cleanup actions preview-only until director confirmation.
 
 ### Phase P4: Supply Reconnection

@@ -13,6 +13,7 @@ export default function WarehouseMaterialControlOverview({
   isFinanceRole,
   isMobile,
   isLeadership,
+  canReviewSupplyRequests = true,
   materialControlSummaryForProject,
   materialReconciliationRows,
   parseSupplyItems,
@@ -38,11 +39,13 @@ export default function WarehouseMaterialControlOverview({
       </div>
       <AllProjectsMaterialProjectionReview
         projects={activeProjects}
+        projectIdentityCandidates={projects}
         materialReconciliationRows={materialReconciliationRows}
         supplyRequests={supplyRequests}
         parseSupplyItems={parseSupplyItems}
         C={C}
         isMobile={isMobile}
+        canReviewSupplyRequests={canReviewSupplyRequests}
       />
       {activeProjects.map(p=>{const s=materialControlSummaryForProject(p.name);const hasIssue=s.toBuyRows.length||s.outsideRows.length||s.mismatchRows.length||s.stockMismatchRows.length;return(<div key={p.id||p.name} style={{...card,padding:'14px',marginBottom:'10px',borderLeft:'4px solid '+(s.stockMismatchRows.length?C.danger:s.toBuyRows.length?C.warning:s.outsideRows.length?C.danger:hasIssue?C.info:C.success)}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>

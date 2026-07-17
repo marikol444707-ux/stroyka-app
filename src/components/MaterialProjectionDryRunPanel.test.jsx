@@ -57,3 +57,22 @@ test('shows a read-only material calculation comparison and expands details', ()
   expect(screen.getByText('Старая объединённая позиция')).toBeInTheDocument();
   expect(screen.queryByRole('button', {name: /применить|исправить/i})).not.toBeInTheDocument();
 });
+
+test('does not show a false zero when supply requests are unavailable for the role', () => {
+  render(
+    <MaterialProjectionDryRunPanel
+      projectName="Лицей"
+      rows={[materialRow('Материал', 10)]}
+      supplyRequests={[]}
+      canReviewSupplyRequests={false}
+      C={colors}
+      fmtMeasure={(qty, unit) => `${qty} ${unit}`}
+    />,
+  );
+
+  fireEvent.click(screen.getByRole('button', {name: 'Открыть проверку расчёта'}));
+
+  expect(screen.getByText('Проверка заявок недоступна для этой роли.')).toBeInTheDocument();
+  expect(screen.queryByText(/Активных: 0/)).not.toBeInTheDocument();
+  expect(screen.queryByText('Активные заявки соответствуют текущим точным позициям.')).not.toBeInTheDocument();
+});

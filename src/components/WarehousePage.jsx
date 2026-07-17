@@ -7,6 +7,7 @@ import WarehouseOperationsPanel from './WarehouseOperationsPanel';
 import WarehouseObjectsPanel from './WarehouseObjectsPanel';
 import WarehouseTabsNav from './WarehouseTabsNav';
 import WarehouseMaterialControlOverview from './WarehouseMaterialControlOverview';
+import { roleFlagsForUser } from '../utils/accessUtils';
 
 export default function WarehousePage(props) {
   const {
@@ -117,6 +118,7 @@ export default function WarehousePage(props) {
     refreshData,
     isMobile,
   } = props;
+  const canReviewSupplyRequests = roleFlagsForUser(user).isSupplyRole;
 
   return (
     <div style={{width:'100%',maxWidth:'100%',minWidth:0,overflowX:'hidden'}}>
@@ -140,6 +142,7 @@ export default function WarehousePage(props) {
           exportToExcel={exportToExcel}
           isFinanceRole={isFinanceRole}
           isLeadership={isLeadership}
+          canReviewSupplyRequests={canReviewSupplyRequests}
           isMobile={isMobile}
           materialControlSummaryForProject={materialControlSummaryForProject}
           materialReconciliationRows={materialReconciliationRows}

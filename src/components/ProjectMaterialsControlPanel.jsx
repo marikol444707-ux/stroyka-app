@@ -37,6 +37,7 @@ export default function ProjectMaterialsControlPanel({
   supplyRequests = [],
   parseSupplyItems,
   isMobile = false,
+  canReviewSupplyRequests = true,
 }) {
   const [query, setQuery] = React.useState('');
   const [filter, setFilter] = React.useState('all');
@@ -203,6 +204,7 @@ export default function ProjectMaterialsControlPanel({
         C={C}
         fmtMeasure={fmtMeasure}
         isMobile={isMobile}
+        canReviewSupplyRequests={canReviewSupplyRequests}
       />
 
       <div style={{

@@ -1,6 +1,7 @@
 import React from 'react';
 import { createMaterialTransferForm } from '../warehouse/warehouseInitialForms';
 import { projectMaterialEstimateDetailsToLoad } from './projectMaterialsUtils';
+import { roleFlagsForUser } from '../../utils/accessUtils';
 
 export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagnostics }) {
   const p = project;
@@ -18,6 +19,7 @@ export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagno
     newTransfer,
   } = ctx;
   const currentUser = user || {};
+  const canReviewSupplyRequests = roleFlagsForUser(currentUser).isSupplyRole;
   const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
   const [estimateLoadError, setEstimateLoadError] = React.useState('');
   const [estimateLoadRetry, setEstimateLoadRetry] = React.useState(0);
@@ -83,6 +85,7 @@ export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagno
         buildNormCtrlForPackage={(workPackage)=>materialNormControlSummaryForProject(p.name, workPackage)}
         supplyRequests={supplyRequests}
         parseSupplyItems={parseSupplyItems}
+        canReviewSupplyRequests={canReviewSupplyRequests}
         isMobile={isMobile}
         C={C}
         card={card}
