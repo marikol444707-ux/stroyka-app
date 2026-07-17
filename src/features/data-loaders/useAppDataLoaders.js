@@ -1,4 +1,5 @@
 import { useCallback, useEffect } from 'react';
+import { createDataLoadRequestClient } from './dataLoadRequestClient';
 import { createDataLoadPolicy } from './dataLoadPolicy';
 import { createFullDataLoader } from './fullDataLoader';
 import { createMobileInitialDataLoader } from './mobileInitialDataLoader';
@@ -38,35 +39,18 @@ export const useAppDataLoaders = (ctx) => {
       });
     }
   };
-  const handleApiUnauthorized = () => {
-    try {
-      localStorage.removeItem('authToken');
-      localStorage.removeItem('user');
-    } catch (e) {}
-    mobileLoadedScopesRef.current.clear();
-    mobileApiRequestsRef.current.clear();
-    setInitialDataLoaded(false);
-    setUser(null);
-  };
-
-  const getApi = (path, fallback = []) => {
-    if (mobileApiRequestsRef.current.has(path)) return mobileApiRequestsRef.current.get(path);
-    const token = localStorage.getItem('authToken');
-    const request = fetch(API + path, token ? {headers: {Authorization: 'Bearer ' + token}} : undefined)
-      .then(r => {
-        if (r.ok) return r.json();
-        if (r.status === 401) handleApiUnauthorized();
-        return fallback;
-      })
-      .catch(() => fallback)
-      .finally(() => mobileApiRequestsRef.current.delete(path));
-    mobileApiRequestsRef.current.set(path, request);
-    return request;
-  };
-  const apiAuthHeaders = (headers={}) => {
-    const token = localStorage.getItem('authToken');
-    return token ? {...headers, Authorization: 'Bearer ' + token} : headers;
-  };
+  const {
+    apiAuthHeaders,
+    getApi,
+    handleApiUnauthorized,
+    loadMobileScopeOnce,
+  } = createDataLoadRequestClient({
+    API,
+    mobileApiRequestsRef,
+    mobileLoadedScopesRef,
+    setInitialDataLoaded,
+    setUser,
+  });
 
   const pagedPath = (path, params = {}) => buildPagedPath(path, params);
 
@@ -178,16 +162,6 @@ export const useAppDataLoaders = (ctx) => {
     }, search ? 300 : 0);
     return () => clearTimeout(timer);
   }, [user, activePage, estimatesTab, materialNormSearch, loadMaterialNormsPage]);
-
-  const loadMobileScopeOnce = async (scope, loader) => {
-    if (mobileLoadedScopesRef.current.has('full') || mobileLoadedScopesRef.current.has(scope)) return;
-    mobileLoadedScopesRef.current.add(scope);
-    try { await loader(); }
-    catch(e) {
-      console.error(`loadMobileScopeOnce failed: ${scope}`, e);
-      mobileLoadedScopesRef.current.delete(scope);
-    }
-  };
 
   const loadMobileInitial = createMobileInitialDataLoader({
     ...ctx,
