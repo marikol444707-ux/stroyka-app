@@ -2481,15 +2481,16 @@
 
 **Description:** Compare old and corrected projections and prepare review-only cleanup candidates for existing requests.
 
-**Status:** Deployed in production runtime `67f28b275ecf`. The opened-project report compares old/new projection rows and reviews active request items, flagging only proven legacy aggregates or unresolved identity/unit/package matches. All-project collection remains pending.
+**Status:** Deployed in production runtime `58e52ceb2f91`. The opened-project report keeps detailed old/new rows and active-request findings. The warehouse material-control overview now adds an on-demand read-only summary across every active project, sorts risky projects first and can filter to `Требует проверки`. A consolidated item-level review list across all projects remains pending; no cleanup action is exposed.
 
 **Verification:**
 - [x] Comparator unit tests cover quantity changes, added/removed identities, split aggregates and input immutability.
 - [x] UI test covers collapsed/expanded comparison, split quantities, read-only notice and absence of mutation controls.
 - [x] Request-review tests cover active/terminal status handling, exact matches, legacy split provenance, missing identities and input immutability.
+- [x] All-project tests cover totals, empty projects, risk sorting, input immutability, review-only filtering and absence of mutation controls.
 - [x] Production frontend build passes.
-- [x] Material calculation regression suites pass after the build: 5 suites / 24 tests.
-- [x] Production deploy and public smoke pass on runtime `67f28b275ecf`.
+- [x] Material calculation and adjacent supplier regression suites pass after the build: 7 suites / 46 tests.
+- [x] Production deploy and full public smoke pass on runtime `58e52ceb2f91`.
 
 **Dependencies:** Task P2
 

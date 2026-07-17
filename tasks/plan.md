@@ -245,9 +245,9 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [x] Add a pure no-write comparator for legacy and corrected projection rows, including quantity, added/removed identity and legacy aggregate split detection.
 - [x] Show the read-only comparison inside the opened project's material control, with old/new quantities and split source identities; no apply action is exposed.
 - [x] Add a read-only review of active supply-request items for the opened project, flagging proven legacy aggregates, missing identities, ambiguous names and unit/package mismatches.
-- [ ] Compare old/new quantities and row identities for every active project without changing business records.
+- [x] Compare old/new quantities and row identities for every active project without changing business records.
 - [ ] Produce a review list for existing requests created from obsolete or ambiguous calculation rows.
-- [ ] Keep all cleanup actions preview-only until director confirmation.
+- [x] Keep all cleanup actions preview-only until director confirmation.
 
 ### Phase P4: Supply Reconnection
 
