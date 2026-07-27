@@ -33,8 +33,8 @@ export default function ProjectFinanceTab({
   showBalanceDetails,
   user,
 }) {
-  if (!isFinanceRole) return <div />;
   const [view, setView] = useState('finance');
+  if (!isFinanceRole) return <div />;
 
   return (
     <div>
