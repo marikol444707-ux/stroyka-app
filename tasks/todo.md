@@ -3101,9 +3101,9 @@
 
 ## Task 13.1: Extract Next Route Groups From Backend Main
 
-**Description:** After Task 13 proves the extraction pattern on the audit/client-error group, continue moving route groups out of `backend/main.py` (currently ~31,600 lines) into `backend/features/<domain>/` one domain per slice, smallest and lowest-risk first (candidates: weather, notifications, activity-log reads). Each slice keeps endpoint paths, auth behavior, and response shapes identical and follows the existing `routes.py`/`service.py` convention.
+**Description:** After Task 13 proves the extraction pattern on the audit/client-error group, continue moving route groups out of `backend/main.py` into `backend/features/<domain>/` one domain per slice, smallest and lowest-risk first. Each slice keeps endpoint paths, auth behavior, and response shapes identical and follows the existing `routes.py`/`service.py` convention. Reality note 2026-07-27: the originally guessed candidates weather/notifications have no backend routes (frontend-only); pick slices from the real route inventory (`grep '@app\.' backend/main.py`).
 
-**Status:** Planned.
+**Status:** In progress. Slices released in production 2026-07-27 (runtime `6549357`): `/online` presence pair → `backend/features/online_presence/`, `/document-versions` read pair → `backend/features/document_versions/` (write helper `save_doc_version` stays with its callers in `main.py`). Both verified: deploy smoke OK, direct route checks return `401` through nginx, zero new tracebacks, `766` backend tests green. `main.py` is down to `31,224` lines; ~305 routes remain — next smallest coherent groups: `/expenses`, `/company-requisites`, `/demo-requests`.
 
 **Safety:**
 - One domain per slice; no route path or response format changes.
