@@ -3046,3 +3046,75 @@
 - [x] Production `npm run smoke:api-error-ownership`, strict migration audit and `npm run smoke:prod`.
 
 **Estimated scope:** S
+
+## Task U1: Show Clear Expired-Session State
+
+**Description:** When a stored token or cookie session is no longer valid, authenticated pages currently render with empty and zeroed data, which users read as total data loss. Intercept authentication failures centrally in the authenticated fetch layer (`installAuthFetch` in `src/api.js`), set an "expired" flag once, and show a blocking plain-language notice with a re-login action. Keep locally stored drafts and the selected-company context untouched. Do not trigger on public-site, login, or register routes, and guard against repeated notices from parallel failed requests.
+
+**Status:** Planned.
+
+**Safety:**
+- Frontend-only slice; no backend contract changes.
+- Both Bearer and cookie sessions keep working; compatible with the Task 5 cookie-first direction.
+- A single-flight guard turns any number of parallel `401` responses into one notice.
+- No automatic data clearing and no logout side effects beyond showing the notice.
+
+**Verification:**
+- [ ] Jest test: a `401` on an authenticated route sets the expired state exactly once; public routes stay untouched.
+- [ ] `CI=true npm test -- --watchAll=false` and `npm run build` pass.
+- [ ] Manual smoke: expire the token, open the dashboard, see the notice, re-login and see data return.
+
+**Dependencies:** None.
+
+**Files likely touched:**
+- `src/api.js`
+- `src/features/app-shell/` shell state
+- New test file.
+
+**Estimated scope:** S
+
+## Task U2: Warn On Unparseable Numbers In Estimate Import
+
+**Description:** `toNum()` silently coerces unparseable numeric strings to `0`, so a broken quantity cell imports as zero without a trace. During estimate import, detect source cells whose raw value is non-empty but yields no finite number, and emit warning rows into the existing import validation banner with row and section context. Warning-only: stored values, import flow, and `toNum()` itself stay unchanged.
+
+**Status:** Planned.
+
+**Safety:**
+- `src/utils/measureUtils.js` is not modified; 21 sections depend on its exact behavior.
+- Detection lives in import validation utilities only and never blocks the import.
+
+**Verification:**
+- [ ] Unit tests: Russian decimal formats pass silently; non-numeric text yields a warning; empty values stay silent.
+- [ ] `CI=true npm test -- --watchAll=false` and `npm run build` pass.
+
+**Dependencies:** None.
+
+**Files likely touched:**
+- Estimate import validation utilities and `EstimateImportValidationBanner`
+- New tests.
+
+**Estimated scope:** S
+
+## Task 13.1: Extract Next Route Groups From Backend Main
+
+**Description:** After Task 13 proves the extraction pattern on the audit/client-error group, continue moving route groups out of `backend/main.py` (currently ~31,600 lines) into `backend/features/<domain>/` one domain per slice, smallest and lowest-risk first (candidates: weather, notifications, activity-log reads). Each slice keeps endpoint paths, auth behavior, and response shapes identical and follows the existing `routes.py`/`service.py` convention.
+
+**Status:** Planned.
+
+**Safety:**
+- One domain per slice; no route path or response format changes.
+- `py_compile`, the full backend suite, and the route-duplication check run after every slice.
+- Releases go through the existing atomic deploy and production smoke.
+
+**Verification:**
+- [ ] Full backend unittest suite stays green after each slice.
+- [ ] Route inventory diff shows only moved definitions, no added or removed endpoints.
+- [ ] `backend/main.py` line count decreases with each slice.
+
+**Dependencies:** Task 13 establishes the pattern.
+
+**Files likely touched:**
+- `backend/main.py`
+- New `backend/features/<domain>/` packages with tests.
+
+**Estimated scope:** M overall; S per slice.

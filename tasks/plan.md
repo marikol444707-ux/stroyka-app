@@ -182,7 +182,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [ ] Task 12: Extract auth/session helpers from `backend/main.py` into `backend/auth.py`.
 - [ ] Task 13: Extract audit/client-error route group into a small backend feature module.
 - [ ] Task 14: Move one low-risk `init_db()` schema slice into Alembic.
-- [ ] Task 15: Add a minimal CI workflow for backend compile, frontend tests, and frontend build.
+- [x] Task 15: Add a minimal CI workflow for backend compile, frontend tests, and frontend build. Completed 2026-07-27: `ci.yml` now also runs full backend unittest discovery (`755` tests) and the frontend jest suite (`247` tests) on every push and pull request; first extended run finished green on `8540cf56`.
 - [x] Task 15.1: Apply only compatible frontend security updates without `--force`; latest lock refresh pins transitive `websocket-driver@0.7.5`, with clean `npm ci` reporting zero critical findings and `28` total advisories.
 - [x] Task 15.2: Build the frontend outside the live nginx directory, publish assets before an atomic `index.html` swap, and reject overlapping deploys. Deployed through `3e20b60e`; the Linux publisher tests, production smoke, lock probe, and a 180-second zero-error monitor passed.
 
@@ -204,6 +204,20 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [ ] Relevant smoke scripts pass.
 - [ ] Production deploy checklist is ready.
 - [ ] Rollback path is explicit.
+
+### Phase 5: Session UX And Data-Entry Guardrails (added 2026-07-27)
+
+Priority note: the tenant-isolation queue (M6.6f, M6.7, M6.8a, M7l) stays first. The tasks below are independent, small, and can be picked up between isolation slices.
+
+- [ ] Task U1: Show a clear expired-session state in the frontend instead of silent zeroed data; offer re-login without wiping local state.
+- [ ] Task U2: Warn on unparseable numbers during estimate import instead of silently coercing them to `0`.
+- [ ] Task 13.1: Continue extracting route groups from `backend/main.py` domain by domain after Task 13 proves the pattern; smallest domains first, one domain per slice.
+
+### Checkpoint: Guardrails
+
+- [ ] Expired session shows an explicit message and a re-login path in a manual smoke.
+- [ ] Import of a file with a non-numeric quantity produces a visible warning row, not a silent `0`.
+- [ ] `backend/main.py` line count decreases with each extraction slice while the full backend suite stays green.
 
 ## Risks and Mitigations
 
