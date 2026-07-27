@@ -24456,6 +24456,16 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
                 item = _apply_material_alias_to_invoice_item(cur, target_project, item)
             normalized_invoice_items.append(item)
         items_list = normalized_invoice_items
+        try:
+            from backend.features.material_packaging import normalize_invoice_packaging_items
+        except ModuleNotFoundError:
+            from features.material_packaging import normalize_invoice_packaging_items
+        items_list = normalize_invoice_packaging_items(
+            cur,
+            items_list,
+            company_id=company_id,
+            supplier_id=data.get("supplierId") or data.get("supplier_id"),
+        )
         if target_project:
             items_list = _attach_supply_estimate_control(cur, target_project, items_list)
             items_list = _canonicalize_invoice_items_from_estimate_control(items_list)
@@ -29975,6 +29985,20 @@ register_project_events_module(app, {
     "effective_company_actors": effective_company_actors,
     "read_roles": FINANCE_ROLES,
     "full_view_roles": FINANCE_ROLES,
+})
+
+try:
+    from backend.features.material_packaging import register_material_packaging_module
+except ModuleNotFoundError:
+    from features.material_packaging import register_material_packaging_module
+
+register_material_packaging_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "read_roles": WAREHOUSE_ROLES,
+    "write_roles": MAIN_WAREHOUSE_WRITE_ROLES,
 })
 
 try:
