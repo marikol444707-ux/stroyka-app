@@ -3077,15 +3077,15 @@
 
 **Description:** `toNum()` silently coerces unparseable numeric strings to `0`, so a broken quantity cell imports as zero without a trace. During estimate import, detect source cells whose raw value is non-empty but yields no finite number, and emit warning rows into the existing import validation banner with row and section context. Warning-only: stored values, import flow, and `toNum()` itself stay unchanged.
 
-**Status:** Planned.
+**Status:** Complete (2026-07-27). Implemented in the deterministic quality engine rather than a separate import-only utility: `estimateUnreadableQuantityText` in `src/utils/estimateReviewUtils.js` upgrades the zero-quantity branch of `estimateQualityRows` to a critical `Нечитаемое количество` row that quotes the original cell text (working value, raw item value and `rawQuantity` are all inspected). The warning therefore appears in the import banner, on every later open of the estimate and in quality review tasks. Import is never blocked and `toNum()` is untouched.
 
 **Safety:**
 - `src/utils/measureUtils.js` is not modified; 21 sections depend on its exact behavior.
-- Detection lives in import validation utilities only and never blocks the import.
+- Detection never blocks the import; a recovered quantity (non-zero) produces no warning.
 
 **Verification:**
-- [ ] Unit tests: Russian decimal formats pass silently; non-numeric text yields a warning; empty values stay silent.
-- [ ] `CI=true npm test -- --watchAll=false` and `npm run build` pass.
+- [x] Unit tests: Russian decimal formats pass silently; non-numeric text yields a warning; empty values stay silent (`src/utils/estimateReviewUtils.test.js`, 6 tests).
+- [x] `CI=true npm test -- --watchAll=false` (62 suites, 254 tests) and `npm run build` pass.
 
 **Dependencies:** None.
 

@@ -14,6 +14,20 @@ const fmtReviewMoney = (value) => (Math.round(Number(value || 0) * 100) / 100).t
 export const estimatePieceUnitKeys = new Set(['шт', 'компл', 'комплект', 'пара', 'набор', 'секция', 'труба', 'лист', 'рулон', 'упак', 'упаковка', 'пачка', 'ящик', 'бухта', 'мешок']);
 export const estimateNormReviewIssueStatuses = ['Некорректное количество', 'Нехватка материала по норме', 'Нет материала в смете', 'Материал без количества', 'Материал без работы', 'Нет нормы'];
 
+// Текст, который toNum() молча превратил бы в 0: непустой, не число и не «настоящий ноль».
+const zeroLikeQuantityText = /^[+-]?[0\s ]*(?:[.,][0\s ]*)?$/;
+export const estimateUnreadableQuantityText = (...values) => {
+  for (const value of values) {
+    if (typeof value === 'number') continue;
+    const text = String(value ?? '').trim();
+    if (!text) continue;
+    if (toNum(text) !== 0) continue;
+    if (zeroLikeQuantityText.test(text)) continue;
+    return text;
+  }
+  return '';
+};
+
 export const estimateQualityRows = (est) => {
   if (!est?.id) return [];
   const rows = [];
@@ -67,7 +81,12 @@ export const estimateQualityRows = (est) => {
         push('Отрицательное количество', section, item, sectionIdx, itemIdx, 'Количество меньше нуля. Такая строка ломает сумму сметы, остатки и сопоставление с новой редакцией.', 'critical');
       }
     } else if (qty === 0) {
-      push('Нулевое количество', section, item, sectionIdx, itemIdx, 'Количество равно 0. Если строка нужна, укажите объём; если не нужна — перенесите в исключение/архив.', 'warning');
+      const unreadableQtyText = estimateUnreadableQuantityText(item?.quantity, rawItem?.quantity, item?.rawQuantity);
+      if (unreadableQtyText) {
+        push('Нечитаемое количество', section, item, sectionIdx, itemIdx, 'Количество «' + unreadableQtyText + '» не удалось прочитать как число, поэтому строка учтена с объёмом 0. Исправьте значение в смете или в исходном файле импорта.', 'critical');
+      } else {
+        push('Нулевое количество', section, item, sectionIdx, itemIdx, 'Количество равно 0. Если строка нужна, укажите объём; если не нужна — перенесите в исключение/архив.', 'warning');
+      }
     }
     if (qty > 0 && estimatePieceUnitKeys.has(normUnitKey) && Math.abs(normalized.qty - Math.round(normalized.qty)) > 0.001) {
       push('Дробное количество шт', section, item, sectionIdx, itemIdx, 'Штучная единица после нормализации получилась дробной: ' + fmtMeasure(qty, unit) + '. Проверьте, не должна ли единица быть «100 шт»/«компл.» или другое основание.', 'warning');

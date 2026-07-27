@@ -210,7 +210,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 Priority note: the tenant-isolation queue (M6.6f, M6.7, M6.8a, M7l) stays first. The tasks below are independent, small, and can be picked up between isolation slices.
 
 - [x] Task U1: Show a clear expired-session state in the frontend instead of silent zeroed data; offer re-login without wiping local state. Found already implemented during the 2026-07-27 review (`expireFrontendSession` in `src/api.js` plus the login-screen notice in `useAppShellState.js`); the review added the missing double-401 expiry jest test.
-- [ ] Task U2: Warn on unparseable numbers during estimate import instead of silently coercing them to `0`.
+- [x] Task U2: Warn on unparseable numbers during estimate import instead of silently coercing them to `0`. Completed 2026-07-27 inside the deterministic quality engine (`estimateQualityRows`): a non-numeric quantity now yields a critical `Нечитаемое количество` row quoting the original text, at import time and on every later open of the estimate; `toNum()` itself is untouched.
 - [ ] Task 13.1: Continue extracting route groups from `backend/main.py` domain by domain after Task 13 proves the pattern; smallest domains first, one domain per slice.
 
 ### Checkpoint: Guardrails
