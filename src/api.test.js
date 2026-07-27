@@ -105,6 +105,33 @@ describe('installAuthFetch', () => {
     expect(requestHeaders.has('Authorization')).toBe(false);
   });
 
+  it('expires the frontend session once when cookie and Bearer auth are both rejected', async () => {
+    localStorage.setItem('authToken', 'legacy-token');
+    localStorage.setItem('user', JSON.stringify({ id: 42, email: 'director@example.test' }));
+    const nativeFetch = jest.fn().mockResolvedValue(new Response('{}', { status: 401 }));
+    window.fetch = nativeFetch;
+    const originalLocation = window.location;
+    delete window.location;
+    window.location = { ...originalLocation, origin: 'http://localhost', reload: jest.fn() };
+
+    try {
+      installAuthFetch();
+      const response = await window.fetch('/users');
+
+      expect(response.status).toBe(401);
+      expect(nativeFetch).toHaveBeenCalledTimes(2);
+      expect(localStorage.getItem('authToken')).toBeNull();
+      expect(localStorage.getItem('user')).toBeNull();
+      expect(sessionStorage.getItem('authExpiredNotice')).toBe('1');
+      expect(window.location.reload).toHaveBeenCalledTimes(1);
+
+      await window.fetch('/users');
+      expect(window.location.reload).toHaveBeenCalledTimes(1);
+    } finally {
+      window.location = originalLocation;
+    }
+  });
+
   it.each(['/login', '/password-reset-request'])(
     'does not add protected-request headers to public auth path %s',
     async (path) => {

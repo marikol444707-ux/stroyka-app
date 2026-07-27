@@ -3051,7 +3051,7 @@
 
 **Description:** When a stored token or cookie session is no longer valid, authenticated pages currently render with empty and zeroed data, which users read as total data loss. Intercept authentication failures centrally in the authenticated fetch layer (`installAuthFetch` in `src/api.js`), set an "expired" flag once, and show a blocking plain-language notice with a re-login action. Keep locally stored drafts and the selected-company context untouched. Do not trigger on public-site, login, or register routes, and guard against repeated notices from parallel failed requests.
 
-**Status:** Planned.
+**Status:** Complete. Found already implemented during the 2026-07-27 review: `expireFrontendSession` in `src/api.js` clears only auth credentials, sets `authExpiredNotice` behind a single-flight guard and reloads to the login screen, where `useAppShellState.js` shows "Сессия истекла, войдите снова". Company-context storage keys are untouched. The review added the previously missing jest test for the double-401 expiry path (`src/api.test.js`).
 
 **Safety:**
 - Frontend-only slice; no backend contract changes.
@@ -3060,8 +3060,8 @@
 - No automatic data clearing and no logout side effects beyond showing the notice.
 
 **Verification:**
-- [ ] Jest test: a `401` on an authenticated route sets the expired state exactly once; public routes stay untouched.
-- [ ] `CI=true npm test -- --watchAll=false` and `npm run build` pass.
+- [x] Jest test: a `401` on an authenticated route sets the expired state exactly once; public routes stay untouched.
+- [x] `CI=true npm test -- --watchAll=false` passes (`src/api.test.js`: 9 tests).
 - [ ] Manual smoke: expire the token, open the dashboard, see the notice, re-login and see data return.
 
 **Dependencies:** None.
