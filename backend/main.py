@@ -29964,6 +29964,20 @@ register_ai_tasks_module(app, {
 })
 
 try:
+    from backend.features.project_events import register_project_events_module
+except ModuleNotFoundError:
+    from features.project_events import register_project_events_module
+
+register_project_events_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "read_roles": FINANCE_ROLES,
+    "full_view_roles": FINANCE_ROLES,
+})
+
+try:
     from backend.features.ai_control import register_ai_control_module
     from backend.features.ai_findings.service import resolve_project_owner as resolve_ai_control_project_owner
 except ModuleNotFoundError:

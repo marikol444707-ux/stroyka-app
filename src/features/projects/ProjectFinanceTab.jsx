@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import ProjectEventsPanel from './ProjectEventsPanel';
 
 export default function ProjectFinanceTab({
   C,
@@ -33,10 +34,15 @@ export default function ProjectFinanceTab({
   user,
 }) {
   if (!isFinanceRole) return <div />;
+  const [view, setView] = useState('finance');
 
   return (
     <div>
-      <ProjectFinancePanel
+      <div style={{display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12}}>
+        <button onClick={() => setView('finance')} style={{...btnG, opacity: view === 'finance' ? 1 : 0.68}}>Финансы</button>
+        <button onClick={() => setView('events')} style={{...btnG, opacity: view === 'events' ? 1 : 0.68}}>События объекта</button>
+      </div>
+      {view === 'finance' && <ProjectFinancePanel
         C={C}
         accountablePayments={accountablePayments}
         btnB={btnB}
@@ -66,7 +72,15 @@ export default function ProjectFinanceTab({
         showBalanceDetails={showBalanceDetails}
         showProfit={isLeadership}
         user={user}
-      />
+      />}
+      {view === 'events' && <ProjectEventsPanel
+        C={C}
+        card={card}
+        btnG={btnG}
+        fileSrc={fileSrc}
+        projectName={project.name}
+        setShowPhotoModal={setShowPhotoModal}
+      />}
     </div>
   );
 }
