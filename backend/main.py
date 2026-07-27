@@ -2524,68 +2524,6 @@ def _latest_backup_status() -> dict:
         status["error"] = exc.__class__.__name__
     return status
 
-@app.post("/client-errors")
-def log_client_error(data: dict, request: Request):
-    if not CLIENT_ERROR_LOGGING_ENABLED:
-        return {"ok": True, "disabled": True}
-    client_ip = request.client.host if request.client else ""
-    path = _clip_api_error_text(data.get("path") or data.get("url") or "client", 255)
-    error_type = _clip_api_error_text(data.get("type") or data.get("name") or "ClientError", 120)
-    message = _clip_api_error_text(data.get("message") or "", 450)
-    stack = _clip_api_error_text(data.get("stack") or "", 900)
-    now = time.time()
-    rate_key = "|".join([client_ip, path, error_type])
-    last = CLIENT_ERROR_LAST_SUBMIT.get(rate_key, 0)
-    if now - last < max(1, CLIENT_ERROR_RATE_LIMIT_SECONDS):
-        return {"ok": True, "rateLimited": True}
-    CLIENT_ERROR_LAST_SUBMIT[rate_key] = now
-    if len(CLIENT_ERROR_LAST_SUBMIT) > 2000:
-        cutoff = now - 3600
-        for key, ts in list(CLIENT_ERROR_LAST_SUBMIT.items())[:500]:
-            if ts < cutoff:
-                CLIENT_ERROR_LAST_SUBMIT.pop(key, None)
-    conn = None
-    cur = None
-    try:
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        user = _request_user_snapshot(request, cur)
-        owner = resolve_api_error_write_owner(
-            cur,
-            user,
-            _resolve_work_company_context,
-            x_company_id=request.headers.get("x-company-id"),
-            x_company_mode=request.headers.get("x-company-mode"),
-        )
-        insert_api_error(
-            cur,
-            method="CLIENT",
-            path=path,
-            status_code=499,
-            error_type=error_type,
-            error_message=_clip_api_error_text((message + ("\n" + stack if stack else "")).strip(), 1000),
-            user_id=user.get("user_id"),
-            user_name=user.get("user_name") or "",
-            user_role=user.get("user_role") or "",
-            owner=owner,
-        )
-        conn.commit()
-        return {"ok": True}
-    except Exception as exc:
-        print("CLIENT ERROR LOG ERROR:", str(exc))
-        return {"ok": False, "error": exc.__class__.__name__}
-    finally:
-        try:
-            if cur:
-                cur.close()
-        except Exception:
-            pass
-        try:
-            if conn:
-                conn.close()
-        except Exception:
-            pass
-
 def _git_dir_path() -> str:
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     dot_git = os.path.join(root, ".git")
@@ -2671,171 +2609,6 @@ def health():
         "version": _app_version(),
         "db": db,
     }
-
-@app.get("/system-status")
-def system_status(
-    api_errors_since: Optional[float] = None,
-    api_errors_hours: int = 24,
-    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
-    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
-    current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "system_owner")),
-):
-    started = time.time()
-    try:
-        api_errors_hours = max(1, min(int(api_errors_hours or 24), 168))
-    except (TypeError, ValueError):
-        api_errors_hours = 24
-    if api_errors_since:
-        api_errors_where = "created_at >= (to_timestamp(%s) AT TIME ZONE 'UTC')"
-        api_errors_params = (api_errors_since,)
-        api_errors_window = "since"
-    else:
-        api_errors_where = "created_at >= NOW() - (%s || ' hours')::interval"
-        api_errors_params = (api_errors_hours,)
-        api_errors_window = f"last_{api_errors_hours}h"
-    status = {
-        "ok": True,
-        "service": "stroyka-backend",
-        "time": _utc_now_iso(),
-        "version": _app_version(),
-        "storage": {
-            "backend": STORAGE_BACKEND,
-            "s3Configured": _s3_enabled(),
-            "s3Missing": _s3_missing_config_keys(),
-            "s3Required": STORAGE_BACKEND == "s3",
-            "s3EndpointConfigured": bool(S3_ENDPOINT_URL),
-            "s3BucketConfigured": bool(S3_BUCKET),
-            "s3PublicUrlConfigured": bool(S3_PUBLIC_URL),
-            "prefix": S3_PREFIX,
-            "maxUploadMb": round(MAX_UPLOAD_BYTES / 1024 / 1024, 1),
-            "uploads": _limited_dir_stats(UPLOAD_DIR),
-        },
-        "backup": _latest_backup_status(),
-        "counts": {},
-        "recentAudit": [],
-        "apiErrors": [],
-        "apiErrorsWindow": api_errors_window,
-    }
-    conn = None
-    cur = None
-    scope_cur = None
-    try:
-        conn = get_db()
-        scope_cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        api_error_scope = resolve_api_error_read_scope(
-            scope_cur,
-            current_user,
-            _resolve_work_company_context,
-            effective_company_actors,
-            allowed_roles=LEADERSHIP_ROLES,
-            x_company_id=x_company_id,
-            x_company_mode=x_company_mode,
-        )
-        scope_cur.close()
-        scope_cur = None
-        cur = conn.cursor()
-        status["counts"]["projects"] = _count_table(cur, "projects")
-        status["counts"]["activeProjects"] = _count_table(cur, "projects", "COALESCE(status,'') <> 'Завершён'")
-        status["counts"]["users"] = _count_table(cur, "users")
-        status["counts"]["activeUsers"] = _count_table(cur, "users", "COALESCE(active, TRUE)=TRUE")
-        status["counts"]["inactiveUsers"] = _count_table(cur, "users", "COALESCE(active, TRUE)=FALSE")
-        status["counts"]["estimates"] = _count_table(cur, "estimates")
-        status["counts"]["workJournal"] = _count_table(cur, "work_journal")
-        status["counts"]["materials"] = _count_table(cur, "materials")
-        status["counts"]["warehouseMain"] = _count_table(cur, "warehouse_main")
-        status["counts"]["supplyRequests"] = _count_table(cur, "supply_requests")
-        status["counts"]["openAiTasks"] = _count_table(cur, "ai_tasks", "COALESCE(status,'') NOT IN ('Закрыто','Готово','Отменено')")
-        api_scope_where, api_scope_params = scoped_api_error_filter(api_error_scope)
-        api_errors_count = _count_table(cur, "api_errors", api_scope_where, api_scope_params)
-        if api_errors_count is not None:
-            status["counts"]["apiErrors"] = api_errors_count
-            last_24h_where, last_24h_params = scoped_api_error_filter(
-                api_error_scope,
-                "created_at >= NOW() - INTERVAL '24 hours'",
-            )
-            client_last_24h_where, client_last_24h_params = scoped_api_error_filter(
-                api_error_scope,
-                "method='CLIENT' AND created_at >= NOW() - INTERVAL '24 hours'",
-            )
-            shown_where, shown_params = scoped_api_error_filter(
-                api_error_scope,
-                api_errors_where,
-                api_errors_params,
-            )
-            status["counts"]["apiErrorsLast24h"] = _count_table(
-                cur, "api_errors", last_24h_where, last_24h_params
-            )
-            status["counts"]["clientErrorsLast24h"] = _count_table(
-                cur, "api_errors", client_last_24h_where, client_last_24h_params
-            )
-            cur.execute("SELECT COUNT(*) FROM api_errors WHERE " + shown_where, shown_params)
-            status["counts"]["apiErrorsShown"] = int((cur.fetchone() or [0])[0] or 0)
-            cur.execute("""SELECT id, method, path, status_code, error_type, error_message,
-                                  user_name, user_role, created_at, owner_scope, company_id, project_id
-                           FROM api_errors
-                           WHERE """ + shown_where + """
-                           ORDER BY id DESC LIMIT 20""", shown_params)
-            status["apiErrors"] = [
-                {
-                    "id": r[0],
-                    "method": r[1] or "",
-                    "path": r[2] or "",
-                    "statusCode": r[3] or 500,
-                    "errorType": r[4] or "",
-                    "message": r[5] or "",
-                    "user": r[6] or "",
-                    "role": r[7] or "",
-                    "createdAt": str(r[8]) if r[8] else "",
-                    "ownerScope": r[9] or "",
-                    "companyId": r[10],
-                    "projectId": r[11],
-                }
-                for r in cur.fetchall()
-            ]
-        if _count_table(cur, "audit_log") is not None:
-            audit_scope_where, audit_scope_params = scoped_api_error_filter(api_error_scope)
-            cur.execute("""SELECT user_name, user_role, action, entity_type, description, created_at,
-                                  owner_scope, company_id, project_id
-                           FROM audit_log
-                           WHERE """ + audit_scope_where + """
-                           ORDER BY id DESC LIMIT 8""", audit_scope_params)
-            status["recentAudit"] = [
-                {
-                    "user": r[0] or "",
-                    "role": r[1] or "",
-                    "action": r[2] or "",
-                    "entityType": r[3] or "",
-                    "description": r[4] or "",
-                    "createdAt": str(r[5]) if r[5] else "",
-                    "ownerScope": r[6] or "",
-                    "companyId": r[7],
-                    "projectId": r[8],
-                }
-                for r in cur.fetchall()
-            ]
-        status["db"] = {"ok": True, "latencyMs": round((time.time() - started) * 1000, 1)}
-    except HTTPException:
-        raise
-    except Exception as e:
-        status["ok"] = False
-        status["db"] = {"ok": False, "error": e.__class__.__name__}
-    finally:
-        try:
-            if scope_cur:
-                scope_cur.close()
-        except Exception:
-            pass
-        try:
-            if cur:
-                cur.close()
-        except Exception:
-            pass
-        try:
-            if conn:
-                conn.close()
-        except Exception:
-            pass
-    return status
 
 DIRECTOR_AGENT_ROLES = ("директор", "system_owner")
 DIRECTOR_AGENT_MAX_STEPS = 4
@@ -28895,6 +28668,39 @@ register_audit_log_module(app, {
     "resolve_work_company_context": _resolve_work_company_context,
     "effective_company_actors": effective_company_actors,
     "allowed_roles": (*LEADERSHIP_ROLES, "бухгалтер"),
+})
+
+try:
+    from backend.features.api_error_ownership.routes import register_api_errors_module
+except ModuleNotFoundError:
+    from features.api_error_ownership.routes import register_api_errors_module
+
+
+register_api_errors_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "leadership_roles": LEADERSHIP_ROLES,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "client_error_logging_enabled": CLIENT_ERROR_LOGGING_ENABLED,
+    "client_error_last_submit": CLIENT_ERROR_LAST_SUBMIT,
+    "client_error_rate_limit_seconds": CLIENT_ERROR_RATE_LIMIT_SECONDS,
+    "clip_api_error_text": _clip_api_error_text,
+    "request_user_snapshot": _request_user_snapshot,
+    "utc_now_iso": _utc_now_iso,
+    "app_version": _app_version,
+    "count_table": _count_table,
+    "storage_backend": STORAGE_BACKEND,
+    "s3_enabled": _s3_enabled,
+    "s3_missing_config_keys": _s3_missing_config_keys,
+    "s3_endpoint_url": S3_ENDPOINT_URL,
+    "s3_bucket": S3_BUCKET,
+    "s3_public_url": S3_PUBLIC_URL,
+    "s3_prefix": S3_PREFIX,
+    "max_upload_bytes": MAX_UPLOAD_BYTES,
+    "upload_dir": UPLOAD_DIR,
+    "limited_dir_stats": _limited_dir_stats,
+    "latest_backup_status": _latest_backup_status,
 })
 
 def save_doc_version(document_type, document_id, snapshot_json, changed_by="", change_reason=""):
