@@ -450,6 +450,36 @@ describe('buildMaterialProjectionDryRun', () => {
     ]);
   });
 
+  test('recognizes versioned estimate lineage without legacy notes or estimate control', () => {
+    const report = buildAllProjectsMaterialProjectionReview(
+      [{
+        projectId: 14,
+        projectName: 'Школа',
+        correctedRows: [row('Точный материал', 2)],
+        requests: [{
+          id: 81,
+          project: 'Школа',
+          status: 'Новая',
+          items: [{
+            materialName: 'Сметный материал',
+            quantity: 1,
+            unit: 'шт',
+            estimateLineage: {
+              version: 1,
+              sources: [{estimateId: 10, sectionIndex: 2, itemIndex: 0}],
+            },
+          }],
+        }],
+      }],
+      request => request.items,
+    );
+
+    expect(report.summary).toMatchObject({activeRequests: 1, requestsNeedingReview: 1});
+    expect(report.reviewItems).toEqual([
+      expect.objectContaining({requestId: 81, materialName: 'Сметный материал'}),
+    ]);
+  });
+
   test('fails closed for null candidates and malformed request project values', () => {
     const report = buildAllProjectsMaterialProjectionReview(
       [{projectId: 15, projectName: 'Школа', correctedRows: [row('Материал', 2)], requests: []}],

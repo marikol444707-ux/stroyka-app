@@ -2494,7 +2494,7 @@
 
 **Description:** Compare old and corrected projections and prepare review-only cleanup candidates for existing requests.
 
-**Status:** The deployed runtime `58e52ceb2f91` contains the opened-project comparison and the on-demand read-only summary across active projects. The next local slice is complete and awaiting deployment: the warehouse material-control overview now includes a consolidated item-level list of active requests that require review, with exact reasons and fail-closed project/request identity handling. Roles without supply-request access see an explicit unavailable state instead of false zero/success. No cleanup, apply, delete or business-record mutation action is exposed.
+**Status:** Completed in production on runtime `b672315033c3`. The warehouse material-control overview includes the opened-project comparison, the on-demand summary across active projects and a consolidated item-level list of active requests that require review. Project/request identity is fail-closed, roles without supply-request access see an explicit unavailable state, and no cleanup, apply, delete or business-record mutation action is exposed.
 
 **Verification:**
 - [x] Comparator unit tests cover quantity changes, added/removed identities, split aggregates and input immutability.
@@ -2509,7 +2509,7 @@
 - [x] Local production build passes after the final review fixes.
 - [x] Production frontend build passes.
 - [x] Material calculation and adjacent supplier regression suites pass after the build: 7 suites / 46 tests.
-- [x] Production deploy and full public smoke pass on runtime `58e52ceb2f91`.
+- [x] Production deploy and full public smoke pass on runtime `b672315033c3`.
 
 **Dependencies:** Task P2
 
@@ -2518,6 +2518,25 @@
 ## Task P4: Reconnect Confirmed Material Rows To Supply
 
 **Description:** Restore batch request creation with lineage and idempotency, then verify the complete supplier chain.
+
+**Status:** P4.1 is implemented and fully verified locally; production deployment is pending. P4.2 idempotency and P4.3 end-to-end supplier-chain verification remain separate follow-up slices.
+
+**P4.1 acceptance criteria:**
+- [x] Every single or batch request created from material control carries `requestSource=estimate_material_control`.
+- [x] Every request item stores versioned project/package lineage and exact estimate/section/item coordinates.
+- [x] Backend rechecks company, project, active estimate, estimate type, package, source coordinates, material identity, unit and source quantity before creating the request.
+- [x] Confirmed material aliases are accepted through the existing canonical resolver; broad family/name matching is not accepted as lineage.
+- [x] A stale cached material-control payload without the new lineage is rejected with an update/refresh instruction instead of falling back to broad estimate control.
+- [x] Manual, invoice-control and norm-based request paths remain unchanged.
+- [x] Existing estimates and supply requests are not migrated, rewritten or deleted.
+- [x] P3 request review recognizes the new nested `estimateLineage` without relying on legacy notes.
+
+**P4.1 verification:**
+- [x] Backend lineage unit tests: 11 passed.
+- [x] Full backend regression: 748 passed.
+- [x] Full frontend regression: 60 suites / 242 tests passed.
+- [x] Python compilation and `git diff --check` pass.
+- [ ] Production build, deploy, protected material-control smoke and public smoke.
 
 **Dependencies:** Task P3
 

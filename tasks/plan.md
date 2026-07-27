@@ -252,7 +252,8 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 
 ### Phase P4: Supply Reconnection
 
-- [ ] Create requests only from confirmed material identities with project, package, estimate, and source-row lineage.
+- [x] Create requests only from confirmed material identities with project, package, estimate, and source-row lineage; local implementation and full regression are complete, production deploy is pending.
+- [ ] Deploy the strict lineage slice and verify single/batch material-control request creation against production estimates.
 - [ ] Add an idempotency key for batch creation and prevent repeated requests for the same uncovered quantity.
 - [ ] Verify supplier, KP, delivery, invoice, warehouse, and accounting linkage end to end.
 

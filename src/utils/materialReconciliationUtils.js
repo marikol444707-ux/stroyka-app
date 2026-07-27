@@ -229,7 +229,7 @@ export const buildMaterialReconciliationRows = ({
   const activeEstimates = materialControlEstimatesForProject(project, activeEstimatesForProject);
   activeEstimates
     .filter(est => packageMatches(estimatePackage(est), workPackage))
-    .forEach(est => estimateSectionsOf(est).forEach(s => (s.items || []).forEach(rawIt => {
+    .forEach(est => estimateSectionsOf(est).forEach((s, sectionIndex) => (s.items || []).forEach((rawIt, itemIndex) => {
       const it = normalizeEstimateWorkingItem(rawIt, s.name);
       if (!isEstimateMaterialItem(it, s.name)) return;
       if (toNum(estimateImportedPlanMeasure(it).qty) <= 0) return;
@@ -266,6 +266,8 @@ export const buildMaterialReconciliationRows = ({
           estimateId: est.id,
           estimateName: est.name || '',
           packageName: estimatePackage(est),
+          sectionIndex,
+          itemIndex,
           sectionName: s.name || '',
           materialName: it.name || '',
           workName: it.parentWorkName || '',
@@ -286,6 +288,8 @@ export const buildMaterialReconciliationRows = ({
         estimateId: est.id,
         estimateName: est.name || '',
         packageName: estimatePackage(est),
+        sectionIndex,
+        itemIndex,
         sectionName: s.name || '',
         materialName: it.name || '',
         workName: it.parentWorkName || '',

@@ -194,6 +194,25 @@ except ModuleNotFoundError:
         resolve_brigade_contractor_user,
     )
 
+try:
+    from backend.features.supply_lineage.service import (
+        MATERIAL_CONTROL_REQUEST_SOURCE,
+        MaterialControlLineageError,
+        load_material_control_estimates,
+        material_control_estimate_ids,
+        material_control_request_intent,
+        validate_material_control_request_lineage,
+    )
+except ModuleNotFoundError:
+    from features.supply_lineage.service import (
+        MATERIAL_CONTROL_REQUEST_SOURCE,
+        MaterialControlLineageError,
+        load_material_control_estimates,
+        material_control_estimate_ids,
+        material_control_request_intent,
+        validate_material_control_request_lineage,
+    )
+
 def _startup_num(v) -> float:
     try:
         return float(str(v if v is not None else 0).replace(" ", "").replace(",", "."))
@@ -6325,6 +6344,7 @@ class SupplyRequestModel(BaseModel):
     requestedById: Optional[int] = None
     urgency: str = "обычная"
     category: str = ""
+    requestSource: str = ""
     # Многопозиционная заявка: массив объектов {materialName, quantity, unit}
     items: List[dict] = []
 
@@ -10788,6 +10808,43 @@ def create_supply_request(
         cur.close(); conn.close()
         raise HTTPException(status_code=400, detail="Выбранная компания не совпадает с компанией объекта. Переключите компанию в шапке или выберите другой объект.")
     selected_suppliers = supplier_group_scope_ids(cur, selected_suppliers)
+    if material_control_request_intent(r.requestSource, r.notes):
+        lineage_material_keys = {}
+
+        def resolve_lineage_material_key(project, name, unit):
+            cache_key = (project or "", name or "", unit or "")
+            if cache_key not in lineage_material_keys:
+                lineage_material_keys[cache_key] = _material_control_key_resolved(
+                    cur, project, name, unit
+                )
+            return lineage_material_keys[cache_key]
+
+        try:
+            items = validate_material_control_request_lineage(
+                request_source=r.requestSource,
+                request_notes=r.notes,
+                project_name=project_name,
+                company_id=company_id,
+                work_package=request_package,
+                items=items,
+                estimates_by_id=load_material_control_estimates(
+                    cur,
+                    material_control_estimate_ids(items),
+                ),
+                parse_sections=_estimate_sections,
+                item_type=_estimate_item_type_backend,
+                item_plan_issue=_estimate_material_plan_issue_backend,
+                material_key=resolve_lineage_material_key,
+                normalize_unit=_norm_base_unit,
+                item_quantity=_estimate_imported_quantity,
+            )
+        except MaterialControlLineageError as exc:
+            cur.close()
+            conn.close()
+            raise HTTPException(
+                status_code=400,
+                detail="Заявка из контроля материалов отклонена: " + str(exc),
+            ) from exc
     items = _attach_supply_estimate_control(cur, project_name, items)
     if project_name != "Основной склад":
         _enforce_supply_estimate_control(items, source="заявка")

@@ -138,6 +138,9 @@ describe('buildMaterialReconciliationRows material identity', () => {
       normalizedQty: 1000,
       normalizedUnit: 'кг',
       conversionApplied: true,
+      estimateId: 10,
+      sectionIndex: 0,
+      itemIndex: 0,
     });
   });
 

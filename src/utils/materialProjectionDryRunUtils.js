@@ -134,6 +134,7 @@ const requestHasProjectionLineage = (request, parseSupplyItems) => {
   return requestItems(request, parseSupplyItems).some(item => (
     lineageFields.some(field => stablePositiveDecimalId(item?.[field]) !== null)
     || Boolean(item?.estimateControl || item?.estimate_control)
+    || Boolean(item?.estimateLineage?.sources?.length || item?.estimate_lineage?.sources?.length)
   ));
 };
 

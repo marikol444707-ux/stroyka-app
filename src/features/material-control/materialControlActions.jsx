@@ -20,6 +20,55 @@ import {
   materialControlRequestItems,
 } from '../../utils/supplyUtils';
 
+export const MATERIAL_CONTROL_REQUEST_SOURCE = 'estimate_material_control';
+
+const nonNegativeInteger = value => (
+  value !== null
+  && value !== undefined
+  && value !== ''
+  && typeof value !== 'boolean'
+  && Number.isInteger(Number(value))
+  && Number(value) >= 0
+);
+
+const materialControlLineageSources = row => (row?.planDetails || [])
+  .filter(detail => (
+    detail?.sourceType === 'estimate_material'
+    && detail?.includedInProcurement !== false
+    && Number.isInteger(Number(detail?.estimateId))
+    && Number(detail.estimateId) > 0
+    && nonNegativeInteger(detail?.sectionIndex)
+    && nonNegativeInteger(detail?.itemIndex)
+  ))
+  .map(detail => ({
+    estimateId: Number(detail.estimateId),
+    estimateName: detail.estimateName || '',
+    sectionIndex: Number(detail.sectionIndex),
+    itemIndex: Number(detail.itemIndex),
+    sectionName: detail.sectionName || '',
+    materialName: detail.materialName || row?.name || '',
+    unit: detail.normalizedUnit || detail.unit || row?.unit || '',
+    quantity: Number(detail.normalizedQty ?? detail.qty) || 0,
+  }))
+  .filter(source => source.materialName && source.unit && source.quantity > 0);
+
+export const buildMaterialControlSupplyItem = (projectName, row, quantity) => {
+  const workPackage = row?.workPackage || row?.packageName || 'Основная';
+  return {
+    materialName: row?.name || '',
+    quantity: Number(quantity) || 0,
+    unit: row?.unit || 'шт',
+    workPackage,
+    sourceType: MATERIAL_CONTROL_REQUEST_SOURCE,
+    estimateLineage: {
+      version: 1,
+      projectName: projectName || '',
+      workPackage,
+      sources: materialControlLineageSources(row),
+    },
+  };
+};
+
 export const materialControlRowCanCreateSupply = (row, toNumber = Number) => (
   !!row?.name
   && toNumber(row.toBuy) > 0
@@ -27,10 +76,7 @@ export const materialControlRowCanCreateSupply = (row, toNumber = Number) => (
   && !row.reviewRequired
   && row.procurementEligible !== false
   && row.planningSource === 'estimate'
-  && (row.planDetails || []).some(detail => (
-    detail?.sourceType === 'estimate_material'
-    && detail?.includedInProcurement !== false
-  ))
+  && materialControlLineageSources(row).length > 0
 );
 
 export function createMaterialControlActions({
@@ -193,7 +239,8 @@ export function createMaterialControlActions({
         quantity: qty,
         unit,
         workPackage: rowPackage,
-        items: [{ materialName: row.name, quantity: qty, unit, workPackage: rowPackage }],
+        requestSource: MATERIAL_CONTROL_REQUEST_SOURCE,
+        items: [buildMaterialControlSupplyItem(projectName, row, qty)],
         project: projectName,
         createdBy: currentUser.name || '',
         date: new Date().toISOString().split('T')[0],
@@ -232,12 +279,11 @@ export function createMaterialControlActions({
     if (!window.confirm('Создать ' + groupNames.length + ' заявк. снабжения на ' + candidates.length + ' позиций по текущему фильтру?')) return;
     let createdItems = 0;
     for (const [requestPackage, groupRows] of Object.entries(groups)) {
-      const items = groupRows.map(row => ({
-        materialName: row.name,
-        quantity: Math.round(toNum(row.toBuy) * 1000) / 1000,
-        unit: row.unit || 'шт',
-        workPackage: requestPackage
-      }));
+      const items = groupRows.map(row => buildMaterialControlSupplyItem(
+        projectName,
+        {...row, workPackage: requestPackage},
+        Math.round(toNum(row.toBuy) * 1000) / 1000,
+      ));
       const notes = [
         'Создано из контроля материалов: массовая заявка по текущему фильтру.',
         'Объект: ' + projectName,
@@ -259,6 +305,7 @@ export function createMaterialControlActions({
           quantity: items.length,
           unit: 'поз.',
           workPackage: requestPackage,
+          requestSource: MATERIAL_CONTROL_REQUEST_SOURCE,
           items,
           project: projectName,
           createdBy: currentUser.name || '',
