@@ -1,10 +1,136 @@
 import React from 'react';
-import { Plus, Search } from 'lucide-react';
+import { PackagePlus, Plus, RefreshCw, Search } from 'lucide-react';
+import { API } from '../api';
 import { WarehouseInvoiceCard, WarehouseInvoiceForm } from './warehouse/WarehouseInvoicesParts';
 import { createMaterialTransferForm } from '../features/warehouse/warehouseInitialForms';
 
 const INVOICE_VISIBLE_DESKTOP = 30;
 const INVOICE_VISIBLE_MOBILE = 12;
+
+const PACKAGING_RULE_ROLES = ['директор', 'зам_директора', 'кладовщик', 'снабженец'];
+
+function PackagingRulesPanel({ user, suppliers, C, card, inp, btnB, btnG, isMobile }) {
+  const [isOpen, setIsOpen] = React.useState(false);
+  const [isLoading, setIsLoading] = React.useState(false);
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [error, setError] = React.useState('');
+  const [rules, setRules] = React.useState([]);
+  const [form, setForm] = React.useState({ materialName:'', supplierId:'', documentUnit:'уп', contentQuantity:'', baseUnit:'м', note:'' });
+  const canManage = PACKAGING_RULE_ROLES.includes(String(user?.role || ''));
+
+  const loadRules = React.useCallback(async () => {
+    setIsLoading(true);
+    setError('');
+    try {
+      const response = await fetch(API + '/material-packaging-rules');
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.detail || 'Не удалось загрузить правила упаковок');
+      setRules(Array.isArray(data) ? data : []);
+    } catch (requestError) {
+      setError(requestError?.message || 'Не удалось загрузить правила упаковок');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (isOpen) loadRules();
+  }, [isOpen, loadRules]);
+
+  const saveRule = async (event) => {
+    event.preventDefault();
+    setIsSaving(true);
+    setError('');
+    try {
+      const response = await fetch(API + '/material-packaging-rules', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          materialName:form.materialName,
+          supplierId:form.supplierId || null,
+          documentUnit:form.documentUnit,
+          contentQuantity:form.contentQuantity,
+          baseUnit:form.baseUnit,
+          note:form.note,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.detail || 'Не удалось сохранить правило упаковки');
+      setForm({ materialName:'', supplierId:'', documentUnit:'уп', contentQuantity:'', baseUnit:'м', note:'' });
+      await loadRules();
+    } catch (requestError) {
+      setError(requestError?.message || 'Не удалось сохранить правило упаковки');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const supplierName = (supplierId) => (suppliers || []).find(item => String(item.id) === String(supplierId))?.name || '';
+
+  return (
+    <section style={{...card,padding:isMobile?'12px':'14px',marginBottom:'12px'}}>
+      <div style={{display:'flex',gap:'10px',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap'}}>
+        <div>
+          <b style={{color:C.text,fontSize:'13px'}}>Упаковки и единицы учёта</b>
+          <p style={{margin:'3px 0 0',color:C.textSec,fontSize:'11px',lineHeight:1.4}}>
+            Подтверждённое правило переводит упаковку в базовую единицу только при новых приходах.
+          </p>
+        </div>
+        <button type="button" onClick={() => setIsOpen(value => !value)} style={btnB}>
+          <PackagePlus size={14}/>{isOpen ? 'Скрыть' : 'Настроить'}
+        </button>
+      </div>
+      {isOpen && (
+        <div style={{marginTop:'12px',borderTop:'1px solid '+C.border,paddingTop:'12px'}}>
+          {canManage ? (
+            <form onSubmit={saveRule} style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(200px,2fr) minmax(130px,1fr) 90px 90px 90px auto',gap:'8px',alignItems:'end'}}>
+              <label style={{fontSize:'11px',color:C.textSec}}>Материал
+                <input required value={form.materialName} onChange={event => setForm({...form,materialName:event.target.value})} placeholder="Кабель ВВГнг-LS 3х2.5" style={{...inp,margin:'4px 0 0',width:'100%',boxSizing:'border-box'}}/>
+              </label>
+              <label style={{fontSize:'11px',color:C.textSec}}>Поставщик
+                <select value={form.supplierId} onChange={event => setForm({...form,supplierId:event.target.value})} style={{...inp,margin:'4px 0 0',width:'100%',boxSizing:'border-box'}}>
+                  <option value="">Любой</option>
+                  {(suppliers || []).map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
+                </select>
+              </label>
+              <label style={{fontSize:'11px',color:C.textSec}}>В документе
+                <input required value={form.documentUnit} onChange={event => setForm({...form,documentUnit:event.target.value})} placeholder="уп" style={{...inp,margin:'4px 0 0',width:'100%',boxSizing:'border-box'}}/>
+              </label>
+              <label style={{fontSize:'11px',color:C.textSec}}>Содержит
+                <input required type="number" min="0.0001" step="any" inputMode="decimal" value={form.contentQuantity} onChange={event => setForm({...form,contentQuantity:event.target.value})} placeholder="100" style={{...inp,margin:'4px 0 0',width:'100%',boxSizing:'border-box'}}/>
+              </label>
+              <label style={{fontSize:'11px',color:C.textSec}}>В учёте
+                <input required value={form.baseUnit} onChange={event => setForm({...form,baseUnit:event.target.value})} placeholder="м" style={{...inp,margin:'4px 0 0',width:'100%',boxSizing:'border-box'}}/>
+              </label>
+              <button type="submit" disabled={isSaving} style={{...btnG,justifyContent:'center',opacity:isSaving?0.65:1}}>{isSaving ? 'Сохраняю…' : 'Сохранить'}</button>
+              <label style={{gridColumn:isMobile?undefined:'span 6',fontSize:'11px',color:C.textSec}}>Примечание
+                <input value={form.note} onChange={event => setForm({...form,note:event.target.value})} placeholder="Например: бухта 100 м по прайсу поставщика" style={{...inp,margin:'4px 0 0',width:'100%',boxSizing:'border-box'}}/>
+              </label>
+            </form>
+          ) : (
+            <p style={{margin:'0 0 10px',fontSize:'12px',color:C.textSec}}>Создавать правила могут директор, заместитель, кладовщик или снабженец.</p>
+          )}
+          {error && <p style={{color:C.danger,fontSize:'12px',margin:'10px 0 0'}}>{error}</p>}
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'8px',marginTop:'12px'}}>
+            <b style={{color:C.text,fontSize:'12px'}}>Подтверждённые правила: {rules.length}</b>
+            <button type="button" onClick={loadRules} disabled={isLoading} style={{...btnB,fontSize:'11px',padding:'5px 8px'}}><RefreshCw size={12}/>{isLoading ? 'Загрузка…' : 'Обновить'}</button>
+          </div>
+          {rules.length > 0 && (
+            <div style={{display:'grid',gap:'6px',marginTop:'8px'}}>
+              {rules.map(rule => (
+                <div key={rule.id} style={{display:'flex',gap:'8px',justifyContent:'space-between',alignItems:'center',padding:'8px',backgroundColor:C.bg,border:'1px solid '+C.border,borderRadius:'8px',flexWrap:'wrap'}}>
+                  <span style={{color:C.text,fontSize:'12px',fontWeight:'700'}}>{rule.materialName}</span>
+                  <span style={{color:C.success,fontSize:'12px',fontWeight:'800'}}>{rule.documentUnit} × {rule.contentQuantity} = {rule.baseUnit}</span>
+                  <span style={{color:C.textMuted,fontSize:'11px'}}>{rule.supplierId ? supplierName(rule.supplierId) || 'Поставщик #' + rule.supplierId : 'Все поставщики'}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
 
 export default function WarehouseInvoicesPanel({
   user,
@@ -329,6 +455,17 @@ export default function WarehouseInvoicesPanel({
           Всего сохранённых строк по накладным: {totalPositions}. Детальная сверка считается только для показанных карточек.
         </p>
       )}
+
+      <PackagingRulesPanel
+        user={user}
+        suppliers={suppliers}
+        C={C}
+        card={card}
+        inp={inp}
+        btnB={btnB}
+        btnG={btnG}
+        isMobile={isMobile}
+      />
 
       <div style={{position:'relative',marginBottom:'12px'}}>
         <Search size={14} style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',color:C.textMuted}} />
