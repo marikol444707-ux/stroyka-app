@@ -2232,14 +2232,16 @@
 
 **Description:** Move auth/session helper functions from `backend/main.py` into `backend/auth.py` without changing behavior.
 
+**Status:** Implemented locally 2026-07-27. 37 pure primitives (password hashing, TOTP/2FA, signed flow tokens, bearer tokens, session records, CSRF, session cookies) moved verbatim into `backend/auth.py`; `main.py` imports them back, so no call site changed. DB-touching user resolution (`get_current_user`, `public_user`, role dependencies) intentionally stays in `main.py` for a later slice. Production `npm run smoke:auth-session` pending the next deploy.
+
 **Acceptance criteria:**
-- [ ] Route behavior is unchanged.
-- [ ] `backend/main.py` imports auth helpers.
-- [ ] No schema or business logic changes are mixed into this extraction.
+- [x] Route behavior is unchanged (no call-site edits; full backend suite of 755 tests green; pyflakes undefined-name parity with the pre-change file).
+- [x] `backend/main.py` imports auth helpers.
+- [x] No schema or business logic changes are mixed into this extraction.
 
 **Verification:**
-- [ ] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py backend/auth.py`
-- [ ] `npm run smoke:auth-session`
+- [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py backend/auth.py`
+- [ ] `npm run smoke:auth-session` (with the next production deploy)
 
 **Dependencies:** Task 5
 

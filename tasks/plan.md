@@ -179,7 +179,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 
 ### Phase 3: Backend Reliability
 
-- [ ] Task 12: Extract auth/session helpers from `backend/main.py` into `backend/auth.py`.
+- [ ] Task 12: Extract auth/session helpers from `backend/main.py` into `backend/auth.py`. Implemented locally 2026-07-27: 37 pure auth/session primitives moved verbatim to `backend/auth.py` (−170 lines in `main.py`), call sites untouched via import-back; `py_compile`, full backend suite (755) and a pyflakes undefined-name parity check pass. `npm run smoke:auth-session` runs with the next production deploy.
 - [ ] Task 13: Extract audit/client-error route group into a small backend feature module.
 - [ ] Task 14: Move one low-risk `init_db()` schema slice into Alembic.
 - [x] Task 15: Add a minimal CI workflow for backend compile, frontend tests, and frontend build. Completed 2026-07-27: `ci.yml` now also runs full backend unittest discovery (`755` tests) and the frontend jest suite (`247` tests) on every push and pull request; first extended run finished green on `8540cf56`.
