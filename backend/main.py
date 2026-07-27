@@ -28761,28 +28761,15 @@ def get_document_version(vid: int, _current_user: dict = Depends(require_roles(*
             "snapshot":snap,"changedBy":r[5] or "","changeReason":r[6] or "",
             "createdAt":str(r[7])}
 
-# Хранилище онлайн статусов
-online_users = {}
+try:
+    from backend.features.online_presence.routes import register_online_presence_module
+except ModuleNotFoundError:
+    from features.online_presence.routes import register_online_presence_module
 
-@app.post("/online")
-def update_online(data: dict, current_user: dict = Depends(get_current_user)):
-    user_id = current_user.get("id")
-    if user_id:
-        online_users[str(user_id)] = {
-            "userId": user_id,
-            "userName": current_user.get("name",""),
-            "userRole": current_user.get("role",""),
-            "lastSeen": data.get("lastSeen",""),
-            "page": data.get("page","")
-        }
-    return {"ok": True}
 
-@app.get("/online")
-def get_online(_current_user: dict = Depends(get_current_user)):
-    import time
-    now = time.time()
-    # Возвращаем пользователей активных за последние 2 минуты
-    return list(online_users.values())
+register_online_presence_module(app, {
+    "get_current_user": get_current_user,
+})
 
 @app.get("/project-payments")
 def get_project_payments(
