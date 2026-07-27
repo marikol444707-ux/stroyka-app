@@ -2255,14 +2255,16 @@
 
 **Description:** Move low-coupling audit/client-error endpoints into a feature module while preserving route paths.
 
+**Status:** Complete in production 2026-07-27 (runtime `b8c0fb5`). Scope note: `/audit-log` routes were already extracted earlier by M6.8a3 into `backend/features/audit_ownership/routes.py`; this slice moved the remaining pair — `POST /client-errors` and `GET /system-status` — verbatim into `backend/features/api_error_ownership/routes.py` (`register_api_errors_module`, deps-injection like the messenger/audit modules) instead of the originally guessed `features/ops`. Deploy smoke passed (`client errors route 422`), `/system-status` answers `401` through nginx, zero new tracebacks. `smoke:activity-log` needs provisioned `SMOKE_EMAIL`/`SMOKE_PASSWORD` and exercises audit routes untouched by this slice — left for a conveyor run with smoke credentials.
+
 **Acceptance criteria:**
-- [ ] Existing audit/client-error endpoints keep the same URLs.
-- [ ] Logging still writes the same payload fields.
-- [ ] `backend/main.py` only registers the module.
+- [x] Existing audit/client-error endpoints keep the same URLs.
+- [x] Logging still writes the same payload fields (covered by new route tests asserting the exact insert payload and owner scope).
+- [x] `backend/main.py` only registers the module.
 
 **Verification:**
-- [ ] Backend compile passes.
-- [ ] `npm run smoke:activity-log`
+- [x] Backend compile passes; full suite `760` tests green (5 new in `test_routes.py`).
+- [ ] `npm run smoke:activity-log` (needs SMOKE_EMAIL/SMOKE_PASSWORD; audit routes not part of this slice)
 
 **Dependencies:** Task 12
 

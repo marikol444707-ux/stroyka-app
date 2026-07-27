@@ -180,7 +180,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 ### Phase 3: Backend Reliability
 
 - [x] Task 12: Extract auth/session helpers from `backend/main.py` into `backend/auth.py`. Released and verified in production 2026-07-27 (runtime `a82edc9`): 37 pure auth/session primitives moved verbatim (−170 lines in `main.py`), call sites untouched via import-back; `py_compile`, full backend suite (755), pyflakes parity, `smoke:prod` and full `smoke:auth-session` all pass.
-- [ ] Task 13: Extract audit/client-error route group into a small backend feature module.
+- [x] Task 13: Extract audit/client-error route group into a small backend feature module. Released 2026-07-27 (runtime `b8c0fb5`): `/audit-log` was already extracted by M6.8a3; this slice moved `POST /client-errors` and `GET /system-status` into `backend/features/api_error_ownership/routes.py` with deps-injection registration; deploy smoke and direct route checks pass, `main.py` is down to 31,263 lines (−362 today).
 - [ ] Task 14: Move one low-risk `init_db()` schema slice into Alembic.
 - [x] Task 15: Add a minimal CI workflow for backend compile, frontend tests, and frontend build. Completed 2026-07-27: `ci.yml` now also runs full backend unittest discovery (`755` tests) and the frontend jest suite (`247` tests) on every push and pull request; first extended run finished green on `8540cf56`.
 - [x] Task 15.1: Apply only compatible frontend security updates without `--force`; latest lock refresh pins transitive `websocket-driver@0.7.5`, with clean `npm ci` reporting zero critical findings and `28` total advisories.
