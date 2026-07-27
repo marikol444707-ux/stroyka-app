@@ -2232,7 +2232,7 @@
 
 **Description:** Move auth/session helper functions from `backend/main.py` into `backend/auth.py` without changing behavior.
 
-**Status:** Implemented locally 2026-07-27. 37 pure primitives (password hashing, TOTP/2FA, signed flow tokens, bearer tokens, session records, CSRF, session cookies) moved verbatim into `backend/auth.py`; `main.py` imports them back, so no call site changed. DB-touching user resolution (`get_current_user`, `public_user`, role dependencies) intentionally stays in `main.py` for a later slice. Production `npm run smoke:auth-session` pending the next deploy.
+**Status:** Complete in production 2026-07-27 (runtime `a82edc9`). 37 pure primitives (password hashing, TOTP/2FA, signed flow tokens, bearer tokens, session records, CSRF, session cookies) moved verbatim into `backend/auth.py`; `main.py` imports them back, so no call site changed. DB-touching user resolution (`get_current_user`, `public_user`, role dependencies) intentionally stays in `main.py` for a later slice. Deploy ran the standard atomic procedure; `smoke:prod` passed after the nginx location sync for the new finance/packaging routes, and `smoke:auth-session` passed fully (login, cookie + CSRF logout, Bearer fallback, every session-revocation scenario).
 
 **Acceptance criteria:**
 - [x] Route behavior is unchanged (no call-site edits; full backend suite of 755 tests green; pyflakes undefined-name parity with the pre-change file).
@@ -2241,7 +2241,7 @@
 
 **Verification:**
 - [x] `PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py backend/auth.py`
-- [ ] `npm run smoke:auth-session` (with the next production deploy)
+- [x] `npm run smoke:auth-session` — passed in production 2026-07-27 on runtime `a82edc9`.
 
 **Dependencies:** Task 5
 
