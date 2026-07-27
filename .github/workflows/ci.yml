@@ -26,6 +26,9 @@ jobs:
       - name: Compile backend
         run: PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python -m py_compile backend/main.py backend/config.py backend/db.py backend/__init__.py migrations/env.py migrations/versions/0001_baseline_inline_init_db.py
 
+      - name: Run backend tests
+        run: PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python -m unittest discover -s backend -p "test_*.py" -t .
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -34,6 +37,9 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+
+      - name: Run frontend tests
+        run: npm test -- --watchAll=false
 
       - name: Build frontend
         run: npm run build
