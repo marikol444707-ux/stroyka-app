@@ -3107,7 +3107,9 @@
 - 2026-07-27 (runtime `6549357`): `/online` presence pair → `backend/features/online_presence/`, `/document-versions` read pair → `backend/features/document_versions/` (write helper `save_doc_version` stays with its callers in `main.py`).
 - 2026-07-28 (runtime `4917758`): `/expenses` pair → `backend/features/expenses/`, demo-request trio → `backend/features/demo_requests/` (platform audit imported from `platform_admin`), `/company-requisites` pair → `backend/features/company_requisites/` (selected-company checks preserved).
 
-All verified the same way: full backend suite green (`778` tests, 18 new across the five slices), deploy smoke OK, every moved route answers `401` through nginx, zero new tracebacks. `main.py` is down to `31,097` lines with `298` routes remaining. Do not verify public write endpoints with a real POST (it creates junk rows; one accidental empty demo request was created and surgically deleted on 2026-07-28) — check an unsupported method instead.
+- 2026-07-28 (runtime `aabd8f6`): accountable payments/expenses quartet → `backend/features/accountable_payments/` (the unreachable duplicate return with an undefined name was dropped during the move — pyflakes now reports zero undefined names backend-wide), `/project-chat` pair → `backend/features/project_chat/` (access helper injected).
+
+All verified the same way: full backend suite green (`786` tests, 26 new across seven slices), deploy smoke OK, every moved route answers with an API code through nginx, zero new tracebacks. `main.py` is down to `31,052` lines with `292` routes remaining. Lessons recorded: do not verify public write endpoints with a real POST (one accidental empty demo request was created and surgically deleted on 2026-07-28) — check an unsupported method instead; after each slice curl the route through the site and treat an `<!doctype` body as a missing nginx proxy entry (a full audit on 2026-07-28 found and fixed seven historically unproxied routes — see ONBOARDING).
 
 **Safety:**
 - One domain per slice; no route path or response format changes.
