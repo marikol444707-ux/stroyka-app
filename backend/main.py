@@ -6051,17 +6051,6 @@ class WorkJournalModel(BaseModel):
     estimateItemKey: str = ""
     contractItemId: int | None = None
 
-class MasterProfileModel(BaseModel):
-    userId: int
-    fullName: str
-    passport: str = ""
-    inn: str = ""
-    contractType: str = "ГПХ"
-    bankAccount: str = ""
-    bankName: str = ""
-    phone: str = ""
-    specialization: str = ""
-    ogrnip: str = ""
 
 class ContractModel(BaseModel):
     masterId: int
@@ -16055,101 +16044,6 @@ def ai_detect_hidden_works(id: int, _current_user: dict = Depends(require_roles(
     cur.close(); conn.close()
     return {"ok": True, "count": count, "detected": len(hidden_set), "sections": sections, "method": method}
 
-@app.get("/master-profiles")
-def get_master_profiles(current_user: dict = Depends(get_current_user)):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    def _public_master_profile(row):
-        data = dict(row)
-        for key in ("passport", "inn", "bankAccount", "bankName", "ogrnip"):
-            data.pop(key, None)
-        return data
-    if current_user.get("role") in FINANCE_ROLES:
-        cur.execute("SELECT id,user_id as \"userId\",full_name as \"fullName\",passport,inn,contract_type as \"contractType\",bank_account as \"bankAccount\",bank_name as \"bankName\",phone,specialization,ogrnip,profile_completed as \"profileCompleted\" FROM master_profiles")
-    elif current_user.get("role") in ("прораб", "главный_инженер"):
-        allowed_projects = user_project_names(current_user)
-        if not allowed_projects:
-            cur.close(); conn.close()
-            return []
-        cur.execute("""
-            SELECT mp.id,mp.user_id as "userId",mp.full_name as "fullName",mp.passport,mp.inn,
-                   mp.contract_type as "contractType",mp.bank_account as "bankAccount",
-                   mp.bank_name as "bankName",mp.phone,mp.specialization,mp.ogrnip,
-                   mp.profile_completed as "profileCompleted"
-            FROM master_profiles mp
-            JOIN users u ON u.id=mp.user_id
-            WHERE COALESCE(u.project_name,'') = ANY(%s)
-               OR EXISTS (
-                   SELECT 1 FROM jsonb_array_elements_text(COALESCE(u.assigned_projects,'[]'::jsonb)) ap(project_name)
-                   WHERE ap.project_name = ANY(%s)
-               )
-            ORDER BY mp.id DESC
-        """, (allowed_projects, allowed_projects))
-    elif current_user.get("role") in WORKER_EXECUTION_ROLES:
-        cur.execute("SELECT id,user_id as \"userId\",full_name as \"fullName\",passport,inn,contract_type as \"contractType\",bank_account as \"bankAccount\",bank_name as \"bankName\",phone,specialization,ogrnip,profile_completed as \"profileCompleted\" FROM master_profiles WHERE user_id=%s", (current_user.get("id"),))
-    else:
-        cur.close(); conn.close()
-        return []
-    rows = cur.fetchall()
-    conn.close()
-    if current_user.get("role") in ("прораб", "главный_инженер"):
-        return [_public_master_profile(r) for r in rows]
-    return [dict(r) for r in rows]
-
-@app.get("/master-profile/{user_id}")
-def get_master_profile(user_id: int, current_user: dict = Depends(get_current_user)):
-    if current_user.get("id") != user_id and current_user.get("role") not in FINANCE_ROLES and current_user.get("role") not in ("прораб", "главный_инженер"):
-        raise HTTPException(status_code=403, detail="Нет доступа к профилю")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    if current_user.get("id") != user_id and current_user.get("role") in ("прораб", "главный_инженер"):
-        allowed_projects = user_project_names(current_user)
-        cur.execute("""
-            SELECT 1 FROM users u
-            WHERE u.id=%s AND (
-                COALESCE(u.project_name,'') = ANY(%s)
-                OR EXISTS (
-                    SELECT 1 FROM jsonb_array_elements_text(COALESCE(u.assigned_projects,'[]'::jsonb)) ap(project_name)
-                    WHERE ap.project_name = ANY(%s)
-                )
-            )
-        """, (user_id, allowed_projects, allowed_projects))
-        if not cur.fetchone():
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Нет доступа к профилю исполнителя другого объекта")
-    cur.execute("SELECT id,user_id as \"userId\",full_name as \"fullName\",passport,inn,contract_type as \"contractType\",bank_account as \"bankAccount\",bank_name as \"bankName\",phone,specialization,ogrnip,profile_completed as \"profileCompleted\" FROM master_profiles WHERE user_id=%s", (user_id,))
-    row = cur.fetchone()
-    conn.close()
-    if not row:
-        return {"userId": user_id, "fullName": "", "profileCompleted": False}
-    if current_user.get("id") != user_id and current_user.get("role") in ("прораб", "главный_инженер"):
-        data = dict(row)
-        for key in ("passport", "inn", "bankAccount", "bankName", "ogrnip"):
-            data.pop(key, None)
-        return data
-    return dict(row)
-
-@app.post("/master-profile")
-def create_master_profile(p: MasterProfileModel, current_user: dict = Depends(get_current_user)):
-    if current_user.get("id") != p.userId and current_user.get("role") not in FINANCE_ROLES:
-        raise HTTPException(status_code=403, detail="Можно редактировать только свой профиль")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("""
-        INSERT INTO master_profiles (user_id,full_name,passport,inn,contract_type,bank_account,bank_name,phone,specialization,ogrnip,profile_completed)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE)
-        ON CONFLICT (user_id) DO UPDATE SET
-            full_name=EXCLUDED.full_name,passport=EXCLUDED.passport,inn=EXCLUDED.inn,
-            contract_type=EXCLUDED.contract_type,bank_account=EXCLUDED.bank_account,
-            bank_name=EXCLUDED.bank_name,phone=EXCLUDED.phone,
-            specialization=EXCLUDED.specialization,ogrnip=EXCLUDED.ogrnip,profile_completed=TRUE
-        RETURNING id,user_id as "userId",full_name as "fullName",passport,inn,
-            contract_type as "contractType",bank_account as "bankAccount",
-            bank_name as "bankName",phone,specialization,ogrnip,profile_completed as "profileCompleted"
-    """, (p.userId,p.fullName,p.passport,p.inn,p.contractType,p.bankAccount,p.bankName,p.phone,p.specialization,p.ogrnip))
-    row = cur.fetchone()
-    conn.close()
-    return dict(row)
 
 @app.get("/contracts")
 def get_contracts(_current_user: dict = Depends(require_roles(*CONTRACT_ROLES))):
@@ -23541,148 +23435,6 @@ def _apply_supplier_invoice_template_metadata(payload: dict, current_user: dict 
     payload["scanRecognition"] = recognition
     return payload
 
-@app.get("/supplier-invoice-templates")
-def list_supplier_invoice_templates(current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "бухгалтер"))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("""SELECT *
-                   FROM supplier_invoice_templates
-                   WHERE active=TRUE
-                   ORDER BY updated_at DESC, id DESC""")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [_supplier_invoice_template_row(row) for row in rows]
-
-@app.post("/supplier-invoice-templates/learn")
-def learn_supplier_invoice_template(data: dict, current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "бухгалтер"))):
-    supplier_name = (
-        data.get("supplierName")
-        or data.get("supplier")
-        or data.get("newSupplierName")
-        or _scan_invoice_supplier_name(data)
-    )
-    supplier_name = str(supplier_name or "").strip()
-    if not supplier_name:
-        raise HTTPException(status_code=400, detail="Укажите поставщика, чтобы сохранить правило распознавания")
-    supplier_key = _supplier_invoice_template_key(supplier_name)
-    if not supplier_key:
-        raise HTTPException(status_code=400, detail="Не удалось нормализовать название поставщика")
-    document_type = str(data.get("documentType") or data.get("scanDocumentType") or "supplier_invoice").strip() or "supplier_invoice"
-    items = data.get("items") if isinstance(data.get("items"), list) else []
-    sample = {
-        "number": data.get("number") or data.get("invoiceNumber") or "",
-        "date": data.get("date") or "",
-        "supplierName": supplier_name,
-        "documentType": document_type,
-        "vat": data.get("vat") or "",
-        "totalBase": data.get("totalBase") or 0,
-        "totalVat": data.get("totalVat") or 0,
-        "totalWithVat": data.get("totalWithVat") or 0,
-        "items": items[:60],
-    }
-    keywords = [supplier_name]
-    recognition = data.get("recognition") if isinstance(data.get("recognition"), dict) else data.get("scanRecognition")
-    if isinstance(recognition, dict):
-        for value in (recognition.get("supplierName"), recognition.get("templateName")):
-            if value and str(value) not in keywords:
-                keywords.append(str(value))
-    for value in data.get("matchKeywords") or []:
-        if value and str(value) not in keywords:
-            keywords.append(str(value))
-    column_map = {
-        "source": "scan_preview_correction",
-        "columns": {
-            "name": "name",
-            "quantity": "quantity",
-            "unit": "unit",
-            "price": "price",
-            "lineTotal": "lineTotal",
-        },
-        "lastCorrectionAt": dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
-    }
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    supplier_id = data.get("supplierId") or 0
-    try:
-        supplier_id = int(supplier_id or 0)
-    except Exception:
-        supplier_id = 0
-    if not supplier_id:
-        supplier = _find_supplier_by_name_key(cur, supplier_name)
-        if supplier:
-            supplier_id = supplier["id"]
-            supplier_name = supplier["name"] or supplier_name
-    cur.execute("""SELECT *
-                   FROM supplier_invoice_templates
-                   WHERE active=TRUE AND supplier_key=%s AND COALESCE(document_type,'')=%s
-                   ORDER BY id DESC LIMIT 1""", (supplier_key, document_type))
-    row = cur.fetchone()
-    if row:
-        cur.execute("""UPDATE supplier_invoice_templates
-                       SET supplier_id=%s,
-                           supplier_name=%s,
-                           template_name=%s,
-                           match_keywords=%s,
-                           column_map=%s,
-                           sample_json=%s,
-                           updated_by=%s,
-                           updated_at=NOW()
-                       WHERE id=%s
-                       RETURNING *""", (
-            supplier_id or None,
-            supplier_name,
-            data.get("templateName") or ("Счет/накладная " + supplier_name),
-            json.dumps(keywords, ensure_ascii=False),
-            json.dumps(column_map, ensure_ascii=False),
-            json.dumps(sample, ensure_ascii=False),
-            current_user.get("name", ""),
-            row["id"],
-        ))
-    else:
-        cur.execute("""INSERT INTO supplier_invoice_templates (
-                           supplier_id, supplier_key, supplier_name, template_name, document_type,
-                           match_keywords, column_map, sample_json, active, usage_count,
-                           updated_by, updated_at, created_at
-                       )
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,TRUE,0,%s,NOW(),NOW())
-                       RETURNING *""", (
-            supplier_id or None,
-            supplier_key,
-            supplier_name,
-            data.get("templateName") or ("Счет/накладная " + supplier_name),
-            document_type,
-            json.dumps(keywords, ensure_ascii=False),
-            json.dumps(column_map, ensure_ascii=False),
-            json.dumps(sample, ensure_ascii=False),
-            current_user.get("name", ""),
-        ))
-    saved = cur.fetchone()
-    conn.commit()
-    cur.close(); conn.close()
-    template = _supplier_invoice_template_row(saved)
-    log_audit(
-        user_name=current_user.get("name", ""),
-        user_role=current_user.get("role", ""),
-        action="learn",
-        entity_type="supplier_invoice_template",
-        entity_id=template["id"],
-        description="Обновлен шаблон распознавания поставщика " + template["supplierName"],
-        project_name=data.get("project") or data.get("projectName") or "",
-    )
-    return {
-        "ok": True,
-        "template": template,
-        "recognition": {
-            "method": "template",
-            "label": "Распознано по шаблону поставщика",
-            "templateId": template["id"],
-            "templateName": template["templateName"],
-            "supplierId": template["supplierId"],
-            "supplierName": template["supplierName"],
-            "confidence": 1,
-            "warnings": [],
-        }
-    }
 
 @app.get("/warehouse-invoices")
 def get_warehouse_invoices(
@@ -28574,6 +28326,37 @@ register_api_errors_module(app, {
     "upload_dir": UPLOAD_DIR,
     "limited_dir_stats": _limited_dir_stats,
     "latest_backup_status": _latest_backup_status,
+})
+
+try:
+    from backend.features.master_profiles.routes import register_master_profiles_module
+except ModuleNotFoundError:
+    from features.master_profiles.routes import register_master_profiles_module
+
+
+register_master_profiles_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "finance_roles": FINANCE_ROLES,
+    "worker_execution_roles": WORKER_EXECUTION_ROLES,
+    "user_project_names": user_project_names,
+})
+
+try:
+    from backend.features.supplier_invoice_templates.routes import register_supplier_invoice_templates_module
+except ModuleNotFoundError:
+    from features.supplier_invoice_templates.routes import register_supplier_invoice_templates_module
+
+
+register_supplier_invoice_templates_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "warehouse_roles": WAREHOUSE_ROLES,
+    "supplier_invoice_template_row": _supplier_invoice_template_row,
+    "supplier_invoice_template_key": _supplier_invoice_template_key,
+    "scan_invoice_supplier_name": _scan_invoice_supplier_name,
+    "find_supplier_by_name_key": _find_supplier_by_name_key,
+    "log_audit": log_audit,
 })
 
 def save_doc_version(document_type, document_id, snapshot_json, changed_by="", change_reason=""):
