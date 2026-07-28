@@ -5985,13 +5985,6 @@ class MaterialNormModel(BaseModel):
     label: str = ""
     active: bool = True
 
-class MaterialAliasModel(BaseModel):
-    projectName: str = ""
-    aliasName: str
-    canonicalName: str
-    canonicalUnit: str = ""
-    source: str = "manual"
-    active: bool = True
 
 class MaterialNormOverrideModel(BaseModel):
     baseNormId: Optional[int] = None
@@ -22740,58 +22733,17 @@ def material_price_history(material: str = "", _current_user: dict = Depends(req
                  "avg": round(sum(prices) / len(prices), 2), "count": len(prices)}
     return {"history": history, "catalog": catalog, "stats": stats}
 
-# === Сн.5: шаблоны заявок на материалы (общие на компанию) ===
-@app.get("/supply-request-templates")
-def get_supply_request_templates(_current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id,name,category,items_json,created_by,created_by_id,created_at "
-                "FROM supply_request_templates ORDER BY name")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    import json as _json
-    out = []
-    for r in rows:
-        try:
-            items = _json.loads(r[3]) if r[3] else []
-        except Exception:
-            items = []
-        out.append({"id": r[0], "name": r[1] or "", "category": r[2] or "", "items": items,
-                    "createdBy": r[4] or "", "createdById": r[5], "createdAt": str(r[6]) if r[6] else ""})
-    return out
+try:
+    from backend.features.supply_request_templates.routes import register_supply_request_templates_module
+except ModuleNotFoundError:
+    from features.supply_request_templates.routes import register_supply_request_templates_module
 
-@app.post("/supply-request-templates")
-def create_supply_request_template(data: dict, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
-    import json as _json
-    name = (data.get("name") or "").strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="Укажите название шаблона")
-    items = [it for it in (data.get("items") or [])
-             if (it or {}).get("materialName") and float((it or {}).get("quantity") or 0) > 0]
-    if not items:
-        raise HTTPException(status_code=400, detail="Шаблон должен содержать хотя бы одну позицию")
-    items = [{"materialName": it["materialName"], "quantity": float(it.get("quantity") or 0),
-              "unit": it.get("unit") or "шт",
-              "workPackage": (it.get("workPackage") or it.get("work_package") or "").strip()} for it in items]
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("INSERT INTO supply_request_templates (name,category,items_json,created_by,created_by_id) "
-                "VALUES (%s,%s,%s,%s,%s) RETURNING id",
-                (name, data.get("category", ""), _json.dumps(items, ensure_ascii=False),
-                 data.get("createdBy", ""), data.get("createdById")))
-    new_id = cur.fetchone()[0]
-    conn.commit()
-    cur.close(); conn.close()
-    return {"id": new_id, "ok": True}
 
-@app.delete("/supply-request-templates/{id}")
-def delete_supply_request_template(id: int, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM supply_request_templates WHERE id=%s", (id,))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True}
+register_supply_request_templates_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "supply_roles": SUPPLY_ROLES,
+})
 
 @app.put("/suppliers/{id}/requisites")
 def update_supplier_requisites(id: int, data: dict, current_user: dict = Depends(get_current_user)):
@@ -24834,29 +24786,6 @@ def _material_norm_override_values(data: MaterialNormOverrideModel, user_name: s
         user_name or "",
     )
 
-def _material_alias_row(row):
-    return {
-        "id": row["id"],
-        "projectName": row["project_name"] or "",
-        "aliasName": row["alias_name"] or "",
-        "canonicalName": row["canonical_name"] or "",
-        "canonicalUnit": row["canonical_unit"] or "",
-        "source": row["source"] or "manual",
-        "active": bool(row["active"]),
-        "updatedBy": row["updated_by"] or "",
-        "updatedAt": str(row["updated_at"]) if row["updated_at"] else "",
-    }
-
-def _material_alias_values(data: MaterialAliasModel, user_name: str):
-    return (
-        (data.projectName or "").strip(),
-        (data.aliasName or "").strip(),
-        (data.canonicalName or "").strip(),
-        (data.canonicalUnit or "").strip(),
-        (data.source or "manual").strip()[:50],
-        bool(data.active),
-        user_name or "",
-    )
 
 def _material_norm_confidence_value(value) -> float:
     try:
@@ -24867,78 +24796,20 @@ def _material_norm_confidence_value(value) -> float:
         confidence = confidence / 100
     return max(0.0, min(1.0, confidence))
 
-@app.get("/material-aliases")
-def list_material_aliases(project_name: str = None, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    where = ["active=TRUE"]
-    params = []
-    if project_name:
-        require_project_access(current_user, project_name)
-        where.append("(project_name=%s OR COALESCE(project_name,'')='')")
-        params.append(project_name)
-    else:
-        allowed = visible_project_names(current_user)
-        if allowed is not None:
-            if not allowed:
-                where.append("COALESCE(project_name,'')=''")
-            else:
-                where.append("(project_name = ANY(%s) OR COALESCE(project_name,'')='')")
-                params.append(allowed)
-    cur.execute(f"""SELECT *
-                    FROM material_aliases
-                    WHERE {' AND '.join(where)}
-                    ORDER BY COALESCE(project_name,'') DESC, alias_name, id""", tuple(params))
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [_material_alias_row(r) for r in rows]
+try:
+    from backend.features.material_aliases.routes import register_material_aliases_module
+except ModuleNotFoundError:
+    from features.material_aliases.routes import register_material_aliases_module
 
-@app.post("/material-aliases")
-def create_material_alias(data: MaterialAliasModel, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик", "снабженец", "кладовщик"))):
-    project_name = (data.projectName or "").strip()
-    alias_name = (data.aliasName or "").strip()
-    canonical_name = (data.canonicalName or "").strip()
-    if not alias_name or not canonical_name:
-        raise HTTPException(status_code=400, detail="Укажите исходное и сметное название материала")
-    if project_name:
-        require_project_access(current_user, project_name)
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    vals = _material_alias_values(data, current_user.get("name", ""))
-    cur.execute("""
-        UPDATE material_aliases
-        SET active=FALSE, updated_by=%s, updated_at=NOW()
-        WHERE active=TRUE
-          AND COALESCE(project_name,'')=%s
-          AND LOWER(TRIM(alias_name))=LOWER(TRIM(%s))
-    """, (current_user.get("name", ""), project_name, alias_name))
-    cur.execute("""
-        INSERT INTO material_aliases (
-            project_name, alias_name, canonical_name, canonical_unit,
-            source, active, updated_by, updated_at, created_at
-        )
-        VALUES (%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
-        RETURNING *
-    """, vals)
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return _material_alias_row(row)
 
-@app.delete("/material-aliases/{id}")
-def delete_material_alias(id: int, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик", "снабженец", "кладовщик"))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT project_name FROM material_aliases WHERE id=%s", (id,))
-    row = cur.fetchone()
-    if not row:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Сопоставление материала не найдено")
-    project_name = row["project_name"] or ""
-    if project_name:
-        require_project_access(current_user, project_name)
-    cur.execute("UPDATE material_aliases SET active=FALSE, updated_by=%s, updated_at=NOW() WHERE id=%s", (current_user.get("name", ""), id))
-    cur.close(); conn.close()
-    return {"ok": True}
+register_material_aliases_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "read_roles": PROJECT_DOCUMENT_ROLES,
+    "write_roles": (*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик", "снабженец", "кладовщик"),
+    "require_project_access": require_project_access,
+    "visible_project_names": visible_project_names,
+})
 
 @app.get("/material-norms")
 def list_material_norms(
