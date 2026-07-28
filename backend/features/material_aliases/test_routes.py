@@ -63,12 +63,13 @@ ROW = {"id": 1, "project_name": "Объект", "alias_name": "Цемент М50
 def build(cursor, visible=None, access_calls=None):
     app = FakeApp()
     connection = FakeConnection(cursor)
+    access_log = access_calls if access_calls is not None else []
     register_material_aliases_module(app, {
         "get_db": lambda: connection,
         "require_roles": lambda *roles: (lambda: None),
         "read_roles": ("директор",),
         "write_roles": ("директор",),
-        "require_project_access": lambda user, project: (access_calls or []).append(project),
+        "require_project_access": lambda user, project: access_log.append(project),
         "visible_project_names": lambda user: visible,
     })
     return app, connection

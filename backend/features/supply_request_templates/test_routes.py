@@ -102,9 +102,11 @@ class SupplyRequestTemplatesRoutesTest(unittest.TestCase):
         )
         self.assertEqual(result, {"id": 7, "ok": True})
         self.assertTrue(connection.committed)
-        sql, params = cursor.calls[0]
-        self.assertIn('"quantity": 5.0', params[2])
-        self.assertNotIn('""', params[2])
+        import json
+        stored_items = json.loads(cursor.calls[0][1][2])
+        self.assertEqual(len(stored_items), 1)
+        self.assertEqual(stored_items[0]["materialName"], "цемент")
+        self.assertEqual(stored_items[0]["quantity"], 5.0)
 
 
 if __name__ == "__main__":
