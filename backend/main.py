@@ -8611,58 +8611,17 @@ def list_companies(_current_user: dict = Depends(get_current_user)):
 # === SaaS: Кабинет системы (только для system_owner) ===
 # Маршруты /system/* зарегистрированы из backend/features/platform_admin/routes.py.
 
-@app.get("/demo-requests")
-def list_demo_requests(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "system_owner", "platform_admin"))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM demo_requests ORDER BY created_at DESC LIMIT 200")
-    rows = [dict(r) for r in cur.fetchall()]
-    conn.close()
-    return rows
+try:
+    from backend.features.demo_requests.routes import register_demo_requests_module
+except ModuleNotFoundError:
+    from features.demo_requests.routes import register_demo_requests_module
 
-@app.post("/demo-request")
-def create_demo_request(data: dict):
-    """Публичный endpoint — приходит с лендинга / формы на сайте."""
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("""INSERT INTO demo_requests (company_name, contact_name, phone, email,
-                                                employees_count, projects_count, comment, source)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-        (data.get('companyName'), data.get('contactName'), data.get('phone'),
-         data.get('email'), data.get('employeesCount'), data.get('projectsCount'),
-         data.get('comment'), data.get('source') or 'landing'))
-    new_id = cur.fetchone()['id']
-    conn.close()
-    return {"id": new_id, "ok": True, "message": "Заявка принята, с вами свяжутся в течение рабочего дня"}
 
-@app.put("/demo-requests/{id}")
-def update_demo_request(id: int, data: dict, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "system_owner", "platform_admin"))):
-    from datetime import datetime
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM demo_requests WHERE id=%s", (id,))
-    before = cur.fetchone()
-    if not before:
-        conn.close()
-        raise HTTPException(status_code=404, detail="demo request not found")
-    sets, vals = [], []
-    for k, c in [('status','status'),('notes','notes'),('assignedCompanyId','assigned_company_id')]:
-        if k in data:
-            sets.append(c + "=%s"); vals.append(data[k])
-    if data.get('status') in ('Обработана','Отклонена'):
-        sets.append("processed_at=%s"); vals.append(datetime.now())
-    if not sets:
-        conn.close()
-        return {"ok": False}
-    vals.append(id)
-    cur.execute("UPDATE demo_requests SET " + ", ".join(sets) + " WHERE id=%s", vals)
-    cur.execute("SELECT * FROM demo_requests WHERE id=%s", (id,))
-    after = cur.fetchone()
-    write_platform_audit(cur, current_user, "demo_request_updated", "demo_request", id,
-        after.get("company_name"), company_id=after.get("assigned_company_id"),
-        details={"request": data, "beforeStatus": before.get("status"), "afterStatus": after.get("status")})
-    conn.close()
-    return {"ok": True}
+register_demo_requests_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "leadership_roles": LEADERSHIP_ROLES,
+})
 
 @app.get("/invite-codes/{code}/info")
 def invite_code_info(code: str):
@@ -18584,96 +18543,20 @@ def delete_warehouse(id: int, _current_user: dict = Depends(require_roles(*WAREH
     cur.close(); conn.close()
     return {"ok":True}
 
-@app.get("/company-requisites")
-def get_company_requisites(
-    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
-    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
-    _current_user: dict = Depends(get_current_user),
-):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        company_context = _resolve_work_company_context(
-            cur,
-            _current_user,
-            None,
-            "read",
-            x_company_id=x_company_id,
-            x_company_mode=x_company_mode,
-        )
-        if company_context.get("mode") != "company":
-            return {"companyId": None, "requiresCompanySelection": True}
-        company_id = _positive_int_or_none(company_context.get("companyId"))
-        if not company_id:
-            raise HTTPException(status_code=409, detail="Компания для реквизитов не определена")
-        cur.execute("""SELECT id,company_id,full_name,short_name,inn,kpp,ogrn,legal_address,
-                              actual_address,phone,email,director_name,director_position,basis,
-                              bank_name,bik,rs,ks
-                       FROM company_requisites WHERE company_id=%s ORDER BY id LIMIT 1""", (company_id,))
-        row = cur.fetchone()
-        if not row:
-            return {"companyId": company_id}
-        return {
-            "id": row.get("id"), "companyId": row.get("company_id"),
-            "fullName": row.get("full_name") or "", "shortName": row.get("short_name") or "",
-            "inn": row.get("inn") or "", "kpp": row.get("kpp") or "", "ogrn": row.get("ogrn") or "",
-            "legalAddress": row.get("legal_address") or "", "actualAddress": row.get("actual_address") or "",
-            "phone": row.get("phone") or "", "email": row.get("email") or "",
-            "directorName": row.get("director_name") or "", "directorPosition": row.get("director_position") or "",
-            "basis": row.get("basis") or "", "bankName": row.get("bank_name") or "",
-            "bik": row.get("bik") or "", "rs": row.get("rs") or "", "ks": row.get("ks") or "",
-        }
-    finally:
-        cur.close(); conn.close()
+try:
+    from backend.features.company_requisites.routes import register_company_requisites_module
+except ModuleNotFoundError:
+    from features.company_requisites.routes import register_company_requisites_module
 
-@app.post("/company-requisites")
-def save_company_requisites(
-    data: dict,
-    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
-    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
-    _current_user: dict = Depends(get_current_user),
-):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        claimed_company_id = data.get("companyId") if "companyId" in data else data.get("company_id")
-        company_context = _resolve_work_company_context(
-            cur,
-            _current_user,
-            claimed_company_id,
-            "write",
-            x_company_id=x_company_id,
-            x_company_mode=x_company_mode,
-        )
-        company_id = _positive_int_or_none(company_context.get("companyId"))
-        actors = effective_company_actors(_current_user, company_context)
-        actor = actors[0] if len(actors) == 1 else {}
-        if not company_id or not actor:
-            raise HTTPException(status_code=409, detail="Компания для реквизитов не определена")
-        if (actor.get("role") or "") not in FINANCE_ROLES:
-            raise HTTPException(status_code=403, detail="Роль в выбранной компании не позволяет менять реквизиты")
-        cur.execute("""INSERT INTO company_requisites
-                           (company_id,full_name,short_name,inn,kpp,ogrn,legal_address,actual_address,
-                            phone,email,director_name,director_position,basis,bank_name,bik,rs,ks)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                       ON CONFLICT (company_id) DO UPDATE SET
-                           full_name=EXCLUDED.full_name, short_name=EXCLUDED.short_name,
-                           inn=EXCLUDED.inn, kpp=EXCLUDED.kpp, ogrn=EXCLUDED.ogrn,
-                           legal_address=EXCLUDED.legal_address, actual_address=EXCLUDED.actual_address,
-                           phone=EXCLUDED.phone, email=EXCLUDED.email,
-                           director_name=EXCLUDED.director_name, director_position=EXCLUDED.director_position,
-                           basis=EXCLUDED.basis, bank_name=EXCLUDED.bank_name,
-                           bik=EXCLUDED.bik, rs=EXCLUDED.rs, ks=EXCLUDED.ks
-                       RETURNING id,company_id""",
-                    (company_id,data.get("fullName",""),data.get("shortName",""),data.get("inn",""),data.get("kpp",""),data.get("ogrn",""),data.get("legalAddress",""),data.get("actualAddress",""),data.get("phone",""),data.get("email",""),data.get("directorName",""),data.get("directorPosition",""),data.get("basis",""),data.get("bankName",""),data.get("bik",""),data.get("rs",""),data.get("ks","")))
-        row = cur.fetchone()
-        conn.commit()
-        return {"id": row.get("id"), "companyId": row.get("company_id"), "ok": True}
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        cur.close(); conn.close()
+
+register_company_requisites_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "positive_int_or_none": _positive_int_or_none,
+    "finance_roles": FINANCE_ROLES,
+})
 
 @app.get("/company-documents")
 def get_company_documents(current_user: dict = Depends(get_current_user)):
@@ -29510,27 +29393,17 @@ def delete_own_expense(id: int, _current_user: dict = Depends(require_roles(*FIN
     cur.close(); conn.close()
     return {"ok": True}
 
-@app.get("/expenses")
-def get_expenses(project: str = "", _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    if project:
-        cur.execute("SELECT id,project,category,amount,note,date,added_by,own_expense_id,source,photo_url FROM expenses WHERE project=%s ORDER BY id DESC", (project,))
-    else:
-        cur.execute("SELECT id,project,category,amount,note,date,added_by,own_expense_id,source,photo_url FROM expenses ORDER BY id DESC")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [{"id":r[0],"project":r[1],"category":r[2],"amount":float(r[3] or 0),"note":r[4] or "","date":str(r[5]) if r[5] else "","addedBy":r[6] or "","ownExpenseId":r[7],"source":r[8] or "","photoUrl":r[9] or ""} for r in rows]
+try:
+    from backend.features.expenses.routes import register_expenses_module
+except ModuleNotFoundError:
+    from features.expenses.routes import register_expenses_module
 
-@app.post("/expenses")
-def create_expense(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("INSERT INTO expenses (project,category,amount,note,date,added_by,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-        (data.get("project",""),data.get("category","other"),data.get("amount",0),data.get("note",""),data.get("date") or None,data.get("addedBy",""),data.get("photoUrl") or data.get("photo_url") or ""))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok":True}
+
+register_expenses_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "finance_roles": FINANCE_ROLES,
+})
 
 try:
     from backend.features.ai_findings import register_ai_findings_module
