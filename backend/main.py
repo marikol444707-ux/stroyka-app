@@ -18350,127 +18350,52 @@ register_company_requisites_module(app, {
     "finance_roles": FINANCE_ROLES,
 })
 
-@app.get("/company-documents")
-def get_company_documents(current_user: dict = Depends(get_current_user)):
-    if current_user.get("role") not in FINANCE_ROLES:
-        return []
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id,company_id,name,doc_type,file_url,expires_at,uploaded_by FROM company_documents ORDER BY id")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [{"id":r[0],"companyId":r[1],"name":r[2],"docType":r[3],"fileUrl":r[4],"expiresAt":r[5],"uploadedBy":r[6]} for r in rows]
+try:
+    from backend.features.company_documents.routes import register_company_documents_module
+except ModuleNotFoundError:
+    from features.company_documents.routes import register_company_documents_module
 
-@app.post("/company-documents")
-def create_company_document(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("INSERT INTO company_documents (company_id,name,doc_type,file_url,expires_at,uploaded_by) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("companyId"),data.get("name",""),data.get("docType",""),data.get("fileUrl",""),data.get("expiresAt",""),data.get("uploadedBy","")))
-    conn.commit()
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return {"id":row[0],"ok":True}
 
-@app.delete("/company-documents/{id}")
-def delete_company_document(id: int, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM company_documents WHERE id=%s",(id,))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok":True}
+register_company_documents_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "require_roles": require_roles,
+    "finance_roles": FINANCE_ROLES,
+})
 
-@app.get("/project-stages")
-def get_project_stages(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    allowed_projects = visible_project_names(current_user)
-    if allowed_projects is not None:
-        if not allowed_projects:
-            cur.close(); conn.close()
-            return []
-        cur.execute("SELECT id,project_id,project_name,name,status,start_date,end_date,progress,responsible,notes,order_num FROM project_stages WHERE project_name = ANY(%s) ORDER BY order_num,id", (allowed_projects,))
-    else:
-        cur.execute("SELECT id,project_id,project_name,name,status,start_date,end_date,progress,responsible,notes,order_num FROM project_stages ORDER BY order_num,id")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [{"id":r[0],"projectId":r[1],"projectName":r[2],"name":r[3],"status":r[4],"startDate":r[5],"endDate":r[6],"progress":r[7],"responsible":r[8],"notes":r[9],"orderNum":r[10]} for r in rows]
+try:
+    from backend.features.project_stages.routes import register_project_stages_module
+except ModuleNotFoundError:
+    from features.project_stages.routes import register_project_stages_module
 
-@app.post("/project-stages")
-def create_project_stage(data: dict, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    project_name = project_name_from_payload(cur, data)
-    require_project_access(_current_user, project_name)
-    cur.execute("INSERT INTO project_stages (project_id,project_name,name,status,start_date,end_date,progress,responsible,notes,order_num) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("projectId"),project_name,data.get("name",""),data.get("status","Не начат"),data.get("startDate",""),data.get("endDate",""),int(data.get("progress",0)),data.get("responsible",""),data.get("notes",""),int(data.get("orderNum",0))))
-    conn.commit()
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return {"id":row[0],"ok":True}
 
-@app.put("/project-stages/{id}")
-def update_project_stage(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    require_row_project_access(cur, "project_stages", id, _current_user, "project_name")
-    cur.execute("UPDATE project_stages SET name=%s,status=%s,start_date=%s,end_date=%s,progress=%s,responsible=%s,notes=%s WHERE id=%s",
-        (data.get("name",""),data.get("status",""),data.get("startDate",""),data.get("endDate",""),int(data.get("progress",0)),data.get("responsible",""),data.get("notes",""),id))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok":True}
+register_project_stages_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "read_roles": PROJECT_DOCUMENT_ROLES,
+    "write_roles": PROJECT_WRITE_ROLES,
+    "visible_project_names": visible_project_names,
+    "project_name_from_payload": project_name_from_payload,
+    "require_project_access": require_project_access,
+    "require_row_project_access": require_row_project_access,
+})
 
-@app.delete("/project-stages/{id}")
-def delete_project_stage(id: int, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    require_row_project_access(cur, "project_stages", id, _current_user, "project_name")
-    cur.execute("DELETE FROM project_stages WHERE id=%s",(id,))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok":True}
+try:
+    from backend.features.project_checklists.routes import register_project_checklists_module
+except ModuleNotFoundError:
+    from features.project_checklists.routes import register_project_checklists_module
 
-@app.get("/project-checklists")
-def get_project_checklists(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    allowed_projects = visible_project_names(current_user)
-    if allowed_projects is not None:
-        if not allowed_projects:
-            cur.close(); conn.close()
-            return []
-        cur.execute("SELECT id,project_id,project_name,name,template,status,created_by,created_at FROM project_checklists WHERE project_name = ANY(%s) ORDER BY id", (allowed_projects,))
-    else:
-        cur.execute("SELECT id,project_id,project_name,name,template,status,created_by,created_at FROM project_checklists ORDER BY id")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [{"id":r[0],"projectId":r[1],"projectName":r[2],"name":r[3],"template":r[4],"status":r[5],"createdBy":r[6],"createdAt":str(r[7])} for r in rows]
 
-@app.post("/project-checklists")
-def create_project_checklist(data: dict, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    project_name = project_name_from_payload(cur, data)
-    require_project_access(_current_user, project_name)
-    cur.execute("INSERT INTO project_checklists (project_id,project_name,name,template,status,created_by,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("projectId"),project_name,data.get("name",""),data.get("template",""),data.get("status","В работе"),data.get("createdBy",""),data.get("createdAt","")))
-    conn.commit()
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return {"id":row[0],"ok":True}
-
-@app.delete("/project-checklists/{id}")
-def delete_project_checklist(id: int, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    require_row_project_access(cur, "project_checklists", id, _current_user, "project_name")
-    cur.execute("DELETE FROM checklist_items WHERE checklist_id=%s",(id,))
-    cur.execute("DELETE FROM project_checklists WHERE id=%s",(id,))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok":True}
-
+register_project_checklists_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "read_roles": PROJECT_DOCUMENT_ROLES,
+    "write_roles": PROJECT_WRITE_ROLES,
+    "visible_project_names": visible_project_names,
+    "project_name_from_payload": project_name_from_payload,
+    "require_project_access": require_project_access,
+    "require_row_project_access": require_row_project_access,
+})
 try:
     from backend.features.checklist_items.routes import register_checklist_items_module
 except ModuleNotFoundError:
