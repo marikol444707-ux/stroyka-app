@@ -6173,11 +6173,6 @@ class InventoryItemModel(BaseModel):
     difference: float
     notes: str = ""
 
-class PdConsentModel(BaseModel):
-    userId: int
-    signedAt: str = ""
-    scanUrl: str = ""
-    uploadedBy: str = ""
 
 @app.post("/login")
 def login(data: LoginModel, response: Response, request: Request):
@@ -17939,39 +17934,18 @@ def create_inventory_item_for_inventory(id: int, data: dict, _current_user: dict
     conn.close()
     return dict(row)
 
-@app.get("/pd-consents")
-def get_pd_consents(_current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,user_id as \"userId\",signed_at as \"signedAt\",scan_url as \"scanUrl\",uploaded_by as \"uploadedBy\" FROM pd_consents")
-    rows = cur.fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+try:
+    from backend.features.pd_consents.routes import register_pd_consents_module
+except ModuleNotFoundError:
+    from features.pd_consents.routes import register_pd_consents_module
 
-@app.post("/pd-consents")
-def create_pd_consent(p: PdConsentModel, _current_user: dict = Depends(get_current_user)):
-    if _current_user.get("role") not in STAFF_MANAGE_ROLES and int(p.userId) != int(_current_user.get("id") or 0):
-        raise HTTPException(status_code=403, detail="Можно подписать только своё согласие")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("""
-        INSERT INTO pd_consents (user_id,signed_at,scan_url,uploaded_by)
-        VALUES (%s,%s,%s,%s)
-        ON CONFLICT (user_id) DO UPDATE SET
-            signed_at=EXCLUDED.signed_at,scan_url=EXCLUDED.scan_url,uploaded_by=EXCLUDED.uploaded_by
-        RETURNING id,user_id as "userId",signed_at as "signedAt",scan_url as "scanUrl",uploaded_by as "uploadedBy"
-    """, (p.userId,p.signedAt,p.scanUrl,p.uploadedBy))
-    row = cur.fetchone()
-    conn.close()
-    return dict(row)
 
-@app.delete("/pd-consents/{user_id}")
-def delete_pd_consent(user_id: int, _current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM pd_consents WHERE user_id=%s", (user_id,))
-    conn.close()
-    return {"ok": True}
+register_pd_consents_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "require_roles": require_roles,
+    "staff_manage_roles": STAFF_MANAGE_ROLES,
+})
 
 @app.post("/upload-photo")
 async def upload_photo(
@@ -18526,38 +18500,20 @@ def delete_project_checklist(id: int, _current_user: dict = Depends(require_role
     cur.close(); conn.close()
     return {"ok":True}
 
-@app.get("/checklist-items/{checklist_id}")
-def get_checklist_items(checklist_id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    require_checklist_access(cur, checklist_id, _current_user)
-    cur.execute("SELECT id,checklist_id,name,checked,checked_by,checked_at,order_num FROM checklist_items WHERE checklist_id=%s ORDER BY order_num,id",(checklist_id,))
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [{"id":r[0],"checklistId":r[1],"name":r[2],"checked":r[3],"checkedBy":r[4],"checkedAt":r[5],"orderNum":r[6]} for r in rows]
+try:
+    from backend.features.checklist_items.routes import register_checklist_items_module
+except ModuleNotFoundError:
+    from features.checklist_items.routes import register_checklist_items_module
 
-@app.post("/checklist-items")
-def create_checklist_item(data: dict, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    require_checklist_access(cur, int(data.get("checklistId") or 0), _current_user)
-    cur.execute("INSERT INTO checklist_items (checklist_id,name,checked,checked_by,checked_at,order_num) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("checklistId"),data.get("name",""),data.get("checked",False),data.get("checkedBy",""),data.get("checkedAt",""),int(data.get("orderNum",0))))
-    conn.commit()
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return {"id":row[0],"ok":True}
 
-@app.put("/checklist-items/{id}")
-def update_checklist_item(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES, "технадзор", "стройконтроль"))):
-    conn = get_db()
-    cur = conn.cursor()
-    require_checklist_item_access(cur, id, _current_user)
-    cur.execute("UPDATE checklist_items SET checked=%s,checked_by=%s,checked_at=%s WHERE id=%s",
-        (data.get("checked",False),data.get("checkedBy",""),data.get("checkedAt",""),id))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok":True}
+register_checklist_items_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "project_document_roles": PROJECT_DOCUMENT_ROLES,
+    "project_write_roles": PROJECT_WRITE_ROLES,
+    "require_checklist_access": require_checklist_access,
+    "require_checklist_item_access": require_checklist_item_access,
+})
 
 @app.get("/prescriptions")
 def get_prescriptions(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
