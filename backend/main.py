@@ -5952,17 +5952,6 @@ class SupplierOfferModel(BaseModel):
     deliveryDays: int = 0
     notes: str = ""
 
-class SupplyHistoryModel(BaseModel):
-    supplierId: int
-    materialName: str
-    quantity: float
-    unit: str = ""
-    pricePerUnit: float
-    totalPrice: float
-    project: str = ""
-    date: str = ""
-    status: str = "Ожидает поставки"
-    workPackage: str = ""
 
 class MaterialNormModel(BaseModel):
     ruleKey: str = ""
@@ -6038,14 +6027,6 @@ class WorkJournalModel(BaseModel):
     contractItemId: int | None = None
 
 
-class ContractModel(BaseModel):
-    masterId: int
-    masterName: str
-    contractType: str = "ГПХ"
-    contractNumber: str
-    project: str
-    startDate: str = ""
-    endDate: str = ""
 
 class InterimActModel(BaseModel):
     masterId: int
@@ -14032,89 +14013,29 @@ def update_supply_claim(id: int, data: dict, _current_user: dict = Depends(requi
     cur.close(); conn.close()
     return {"ok": True}
 
-@app.get("/supply-history")
-def get_supply_history(limit: Optional[int] = None, offset: int = 0, current_user: dict = Depends(get_current_user)):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    _ensure_supply_runtime_columns(cur)
-    conn.commit()
-    role = current_user.get("role")
-    page_sql, page_params = limit_offset_sql(limit, offset)
-    select_sql = ("SELECT id,company_id as \"companyId\",supplier_id as \"supplierId\",material_name as \"materialName\",quantity,unit,"
-                  "price_per_unit as \"pricePerUnit\",total_price as \"totalPrice\",project,date,status,"
-                  "confirmed_by as \"confirmedBy\",COALESCE(work_package,'') as \"workPackage\" "
-                  "FROM supply_history")
-    if can_see_all_company_data(current_user):
-        cur.execute(select_sql + " ORDER BY id DESC" + page_sql, page_params)
-    elif role in ("снабженец", "кладовщик"):
-        project_sql, project_params = scoped_project_where(current_user, "project")
-        cur.execute(select_sql + project_sql + " ORDER BY id DESC" + page_sql, project_params + page_params)
-    elif role == "поставщик":
-        supplier_ids = current_supplier_ids(cur, current_user)
-        if not supplier_ids:
-            cur.close(); conn.close()
-            return []
-        cur.execute(select_sql + " WHERE supplier_id = ANY(%s) ORDER BY id DESC" + page_sql, [supplier_ids] + page_params)
-    elif role == "прораб":
-        projects = user_project_names(current_user)
-        if not projects:
-            cur.close(); conn.close()
-            return []
-        package_sql, package_params = package_access_filter(current_user)
-        cur.execute(select_sql + " WHERE project = ANY(%s)" + package_sql + " ORDER BY id DESC" + page_sql, [projects] + package_params + page_params)
-    elif role in WORKER_EXECUTION_ROLES:
-        cur.close(); conn.close()
-        return []
-    else:
-        cur.close(); conn.close()
-        return []
-    rows = cur.fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+try:
+    from backend.features.supply_history.routes import register_supply_history_module
+except ModuleNotFoundError:
+    from features.supply_history.routes import register_supply_history_module
 
-@app.post("/supply-history")
-def create_supply_history(d: SupplyHistoryModel, _current_user: dict = Depends(require_roles("директор", "зам_директора", "снабженец", "кладовщик"))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    _ensure_supply_runtime_columns(cur)
-    conn.commit()
-    if d.project:
-        require_project_or_warehouse_access(_current_user, d.project)
-    if not has_package_access(_current_user, d.workPackage or ""):
-        cur.close(); conn.close()
-        raise HTTPException(status_code=403, detail="Нет доступа к этому пакету работ")
-    company_id = _company_id_for_project_or_user(cur, d.project or "", _current_user)
-    cur.execute("""INSERT INTO supply_history
-                   (company_id,supplier_id,material_name,quantity,unit,price_per_unit,total_price,project,date,status,work_package)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
-                (company_id,d.supplierId,d.materialName,d.quantity,d.unit,d.pricePerUnit,d.totalPrice,d.project,d.date,d.status,d.workPackage or ""))
-    row = cur.fetchone()
-    conn.commit()
-    conn.close()
-    return dict(row)
 
-@app.put("/supply-history/{id}")
-def update_supply_history(id: int, data: dict, _current_user: dict = Depends(require_roles("директор", "зам_директора", "снабженец", "кладовщик"))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    _ensure_supply_runtime_columns(cur)
-    conn.commit()
-    cur.execute("SELECT project, COALESCE(NULLIF(work_package,''),'Основная') AS work_package FROM supply_history WHERE id=%s", (id,))
-    row = cur.fetchone()
-    if not row:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Запись истории поставок не найдена")
-    if row.get("project"):
-        require_project_or_warehouse_access(_current_user, row.get("project") or "")
-    if not has_package_access(_current_user, row.get("work_package") or "Основная"):
-        cur.close(); conn.close()
-        raise HTTPException(status_code=403, detail="Нет доступа к пакету поставки")
-    status = data.get('status','')
-    confirmed_by = data.get('confirmedBy','')
-    cur.execute("UPDATE supply_history SET status=%s,confirmed_by=%s WHERE id=%s", (status,confirmed_by,id))
-    conn.commit()
-    conn.close()
-    return {"ok": True}
+register_supply_history_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "require_roles": require_roles,
+    "write_roles": ("директор", "зам_директора", "снабженец", "кладовщик"),
+    "worker_execution_roles": WORKER_EXECUTION_ROLES,
+    "limit_offset_sql": limit_offset_sql,
+    "ensure_supply_runtime_columns": _ensure_supply_runtime_columns,
+    "can_see_all_company_data": can_see_all_company_data,
+    "scoped_project_where": scoped_project_where,
+    "current_supplier_ids": current_supplier_ids,
+    "user_project_names": user_project_names,
+    "package_access_filter": package_access_filter,
+    "has_package_access": has_package_access,
+    "require_project_or_warehouse_access": require_project_or_warehouse_access,
+    "company_id_for_project_or_user": _company_id_for_project_or_user,
+})
 
 @app.get("/work-journal")
 def get_work_journal(
@@ -16008,52 +15929,23 @@ def ai_detect_hidden_works(id: int, _current_user: dict = Depends(require_roles(
     return {"ok": True, "count": count, "detected": len(hidden_set), "sections": sections, "method": method}
 
 
-@app.get("/contracts")
-def get_contracts(_current_user: dict = Depends(require_roles(*CONTRACT_ROLES))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    allowed_projects = visible_project_names(_current_user)
-    if allowed_projects is not None and not allowed_projects:
-        conn.close()
-        return []
-    where, params = [], []
-    if allowed_projects is not None:
-        where.append("project = ANY(%s)")
-        params.append(allowed_projects)
-    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
-        where.append("(COALESCE(master_id,0)=%s OR (COALESCE(master_id,0)=0 AND master_name=%s))")
-        params.extend([_current_user.get("id"), _current_user.get("name") or ""])
-    q = "SELECT id,master_id as \"masterId\",master_name as \"masterName\",contract_type as \"contractType\",contract_number as \"contractNumber\",project,start_date as \"startDate\",end_date as \"endDate\",status FROM contracts"
-    if where:
-        q += " WHERE " + " AND ".join(where)
-    q += " ORDER BY id DESC"
-    cur.execute(q, tuple(params))
-    rows = cur.fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+try:
+    from backend.features.contracts.routes import register_contracts_module
+except ModuleNotFoundError:
+    from features.contracts.routes import register_contracts_module
 
-@app.post("/contracts")
-def create_contract(c: ContractModel, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
-    require_project_access(_current_user, c.project)
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("INSERT INTO contracts (master_id,master_name,contract_type,contract_number,project,start_date,end_date) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-                (c.masterId,c.masterName,c.contractType,c.contractNumber,c.project,c.startDate,c.endDate))
-    row = cur.fetchone()
-    conn.commit()
-    cur.close()
-    conn.close()
-    return dict(row)
 
-@app.delete("/contracts/{id}")
-def delete_contract(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "бухгалтер"))):
-    conn = get_db()
-    cur = conn.cursor()
-    require_row_project_access(cur, "contracts", id, _current_user, "project")
-    cur.execute("UPDATE contracts SET status='Аннулирован' WHERE id=%s", (id,))
-    conn.commit()
-    conn.close()
-    return {"ok": True}
+register_contracts_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "contract_roles": CONTRACT_ROLES,
+    "create_roles": (*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"),
+    "delete_roles": (*LEADERSHIP_ROLES, "бухгалтер"),
+    "worker_execution_roles": WORKER_EXECUTION_ROLES,
+    "visible_project_names": visible_project_names,
+    "require_project_access": require_project_access,
+    "require_row_project_access": require_row_project_access,
+})
 
 @app.get("/interim-acts")
 def get_interim_acts(_current_user: dict = Depends(require_roles(*CONTRACT_ROLES))):
