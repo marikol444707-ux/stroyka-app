@@ -6073,9 +6073,6 @@ class InterimActModel(BaseModel):
     contractId: Optional[int] = None
     workJournalIds: list[int] = []
 
-class TimesheetModel(BaseModel):
-    staffId: int
-    day: str
 
 class CopyPricelistModel(BaseModel):
     name: str
@@ -16548,50 +16545,6 @@ def delete_interim_act(id: int, _current_user: dict = Depends(require_roles(*LEA
     conn.close()
     return {"ok": True}
 
-@app.get("/timesheet/{staff_id}")
-def get_timesheet(staff_id: int, _current_user: dict = Depends(require_roles(*STAFF_VIEW_ROLES))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT day FROM timesheet WHERE staff_id=%s", (staff_id,))
-    rows = cur.fetchall()
-    conn.close()
-    return {"days": [r['day'] for r in rows]}
-
-@app.post("/timesheet")
-def toggle_timesheet(data: TimesheetModel, _current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES, "прораб", "главный_инженер"))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM timesheet WHERE staff_id=%s AND day=%s", (data.staffId,data.day))
-    existing = cur.fetchone()
-    if existing:
-        cur.execute("DELETE FROM timesheet WHERE staff_id=%s AND day=%s", (data.staffId,data.day))
-        action = "timesheet_remove"
-    else:
-        cur.execute("INSERT INTO timesheet (staff_id,day) VALUES (%s,%s)", (data.staffId,data.day))
-        action = "timesheet_add"
-    cur.execute("SELECT name, COALESCE(project,'') FROM staff WHERE id=%s", (data.staffId,))
-    staff_row = cur.fetchone()
-    conn.commit()
-    log_audit(
-        _current_user.get("name", ""),
-        _current_user.get("role", ""),
-        action,
-        "timesheet",
-        data.staffId,
-        ("Табель: " + str(staff_row[0] if staff_row else data.staffId) + ", день " + str(data.day))[:250],
-        (staff_row[1] if staff_row else "") or "",
-    )
-    conn.close()
-    return {"ok": True}
-
-@app.get("/timesheet")
-def get_timesheet_all(_current_user: dict = Depends(require_roles(*STAFF_VIEW_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT staff_id, day FROM timesheet")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [{"staffId": r[0], "day": r[1]} for r in rows]
 
 @app.get("/rooms")
 def get_rooms(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
@@ -21446,34 +21399,17 @@ def delete_brigade_payment(
         cur.close()
         conn.close()
 
-@app.get("/salary-payments")
-def get_salary_payments(_current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id,staff_id,staff_name,month,amount,paid_by,paid_date,note,created_at FROM salary_payments ORDER BY id DESC")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [{"id":r[0],"staffId":r[1],"staffName":r[2] or "","month":r[3] or "","amount":float(r[4] or 0),"paidBy":r[5] or "","paidDate":r[6] or "","note":r[7] or "","createdAt":str(r[8])} for r in rows]
+try:
+    from backend.features.salary_payments.routes import register_salary_payments_module
+except ModuleNotFoundError:
+    from features.salary_payments.routes import register_salary_payments_module
 
-@app.post("/salary-payments")
-def create_salary_payment(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("INSERT INTO salary_payments (staff_id,staff_name,month,amount,paid_by,paid_date,note) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("staffId"), data.get("staffName",""), data.get("month",""), data.get("amount") or 0, data.get("paidBy",""), data.get("paidDate") or "", data.get("note","")))
-    new_id = cur.fetchone()[0]
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True, "id": new_id}
 
-@app.delete("/salary-payments/{id}")
-def delete_salary_payment(id: int, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM salary_payments WHERE id=%s",(id,))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True}
+register_salary_payments_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "finance_roles": FINANCE_ROLES,
+})
 
 @app.get("/crm-leads")
 def get_crm_leads(
@@ -28340,6 +28276,20 @@ register_master_profiles_module(app, {
     "finance_roles": FINANCE_ROLES,
     "worker_execution_roles": WORKER_EXECUTION_ROLES,
     "user_project_names": user_project_names,
+})
+
+try:
+    from backend.features.timesheet.routes import register_timesheet_module
+except ModuleNotFoundError:
+    from features.timesheet.routes import register_timesheet_module
+
+
+register_timesheet_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "staff_view_roles": STAFF_VIEW_ROLES,
+    "staff_manage_roles": STAFF_MANAGE_ROLES,
+    "log_audit": log_audit,
 })
 
 try:
