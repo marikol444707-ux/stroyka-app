@@ -3103,7 +3103,11 @@
 
 **Description:** After Task 13 proves the extraction pattern on the audit/client-error group, continue moving route groups out of `backend/main.py` into `backend/features/<domain>/` one domain per slice, smallest and lowest-risk first. Each slice keeps endpoint paths, auth behavior, and response shapes identical and follows the existing `routes.py`/`service.py` convention. Reality note 2026-07-27: the originally guessed candidates weather/notifications have no backend routes (frontend-only); pick slices from the real route inventory (`grep '@app\.' backend/main.py`).
 
-**Status:** In progress. Slices released in production 2026-07-27 (runtime `6549357`): `/online` presence pair → `backend/features/online_presence/`, `/document-versions` read pair → `backend/features/document_versions/` (write helper `save_doc_version` stays with its callers in `main.py`). Both verified: deploy smoke OK, direct route checks return `401` through nginx, zero new tracebacks, `766` backend tests green. `main.py` is down to `31,224` lines; ~305 routes remain — next smallest coherent groups: `/expenses`, `/company-requisites`, `/demo-requests`.
+**Status:** In progress. Released slices:
+- 2026-07-27 (runtime `6549357`): `/online` presence pair → `backend/features/online_presence/`, `/document-versions` read pair → `backend/features/document_versions/` (write helper `save_doc_version` stays with its callers in `main.py`).
+- 2026-07-28 (runtime `4917758`): `/expenses` pair → `backend/features/expenses/`, demo-request trio → `backend/features/demo_requests/` (platform audit imported from `platform_admin`), `/company-requisites` pair → `backend/features/company_requisites/` (selected-company checks preserved).
+
+All verified the same way: full backend suite green (`778` tests, 18 new across the five slices), deploy smoke OK, every moved route answers `401` through nginx, zero new tracebacks. `main.py` is down to `31,097` lines with `298` routes remaining. Do not verify public write endpoints with a real POST (it creates junk rows; one accidental empty demo request was created and surgically deleted on 2026-07-28) — check an unsupported method instead.
 
 **Safety:**
 - One domain per slice; no route path or response format changes.
