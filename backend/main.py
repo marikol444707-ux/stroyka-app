@@ -5886,13 +5886,6 @@ class PricelistModel(BaseModel):
     forWho: str = ""
     coefficient: float = 1.0
 
-class PricelistItemModel(BaseModel):
-    pricelistId: int
-    name: str
-    unit: str = "м2"
-    price: float = 0
-    category: str = ""
-    specialization: str = ""
 
 class InviteCodeModel(BaseModel):
     role: str
@@ -8483,32 +8476,17 @@ def get_pricelist_items(id: int, _current_user: dict = Depends(get_current_user)
     conn.close()
     return [dict(r) for r in rows]
 
-@app.post("/pricelist-items")
-def create_pricelist_item(item: PricelistItemModel, _current_user: dict = Depends(require_roles(*PRICELIST_MANAGE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("INSERT INTO pricelist_items (pricelist_id,name,unit,price,category,specialization) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id,pricelist_id as \"pricelistId\",name,unit,price,category,specialization",
-                (item.pricelistId,item.name,item.unit,item.price,item.category,item.specialization))
-    row = cur.fetchone()
-    conn.close()
-    return dict(row)
+try:
+    from backend.features.pricelist_items.routes import register_pricelist_items_module
+except ModuleNotFoundError:
+    from features.pricelist_items.routes import register_pricelist_items_module
 
-@app.put("/pricelist-items/{id}")
-def update_pricelist_item(id: int, item: PricelistItemModel, _current_user: dict = Depends(require_roles(*PRICELIST_MANAGE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("UPDATE pricelist_items SET name=%s,unit=%s,price=%s,category=%s,specialization=%s WHERE id=%s",
-                (item.name,item.unit,item.price,item.category,item.specialization,id))
-    conn.close()
-    return {"ok": True}
 
-@app.delete("/pricelist-items/{id}")
-def delete_pricelist_item(id: int, _current_user: dict = Depends(require_roles(*PRICELIST_MANAGE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM pricelist_items WHERE id=%s", (id,))
-    conn.close()
-    return {"ok": True}
+register_pricelist_items_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "manage_roles": PRICELIST_MANAGE_ROLES,
+})
 
 @app.get("/invite-codes")
 def get_invite_codes(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "system_owner"))):
