@@ -17995,72 +17995,22 @@ register_checklist_items_module(app, {
     "require_checklist_item_access": require_checklist_item_access,
 })
 
-@app.get("/prescriptions")
-def get_prescriptions(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    allowed_projects = visible_project_names(current_user)
-    if allowed_projects is not None:
-        if not allowed_projects:
-            cur.close(); conn.close()
-            return []
-        cur.execute("SELECT id,project_name,number,issued_by,issued_by_role,violation,deadline,responsible,status,photo_url,fix_photo_url,fix_notes FROM prescriptions WHERE project_name = ANY(%s) AND COALESCE(status,'') <> 'Аннулировано' ORDER BY id DESC", (allowed_projects,))
-    else:
-        cur.execute("SELECT id,project_name,number,issued_by,issued_by_role,violation,deadline,responsible,status,photo_url,fix_photo_url,fix_notes FROM prescriptions WHERE COALESCE(status,'') <> 'Аннулировано' ORDER BY id DESC")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [{"id":r[0],"projectName":r[1],"number":r[2],"issuedBy":r[3],"issuedByRole":r[4],"violation":r[5],"deadline":r[6],"responsible":r[7],"status":r[8],"photoUrl":r[9],"fixPhotoUrl":r[10],"fixNotes":r[11]} for r in rows]
+try:
+    from backend.features.prescriptions.routes import register_prescriptions_module
+except ModuleNotFoundError:
+    from features.prescriptions.routes import register_prescriptions_module
 
-@app.post("/prescriptions")
-def create_prescription(data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "заказчик"))):
-    project_name = data.get("projectName", "")
-    require_project_access(current_user, project_name)
-    issued_by = data.get("issuedBy","")
-    issued_by_role = data.get("issuedByRole","")
-    if current_user.get("role") == "заказчик":
-        issued_by = current_user.get("name") or issued_by
-        issued_by_role = "Заказчик"
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("INSERT INTO prescriptions (project_name,number,issued_by,issued_by_role,violation,deadline,responsible,status,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (project_name,data.get("number",""),issued_by,issued_by_role,data.get("violation",""),data.get("deadline",""),data.get("responsible",""),data.get("status","Открыто"),data.get("photoUrl","")))
-    conn.commit()
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return {"id":row[0],"ok":True}
 
-@app.put("/prescriptions/{id}")
-def update_prescription(id: int, data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    require_row_project_access(cur, "prescriptions", id, current_user, "project_name")
-    role = current_user.get("role")
-    new_status = data.get("status","")
-    if role in (*WORKER_EXECUTION_ROLES, "кладовщик", "снабженец") and new_status not in ("На проверке", ""):
-        cur.close(); conn.close()
-        raise HTTPException(status_code=403, detail="Можно только отправить предписание на проверку")
-    if role == "заказчик":
-        cur.execute("SELECT issued_by, issued_by_role FROM prescriptions WHERE id=%s", (id,))
-        row = cur.fetchone()
-        if not row or (row[0] != current_user.get("name") and row[1] != "Заказчик"):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Нет доступа к изменению предписания")
-    cur.execute("UPDATE prescriptions SET status=%s,fix_photo_url=%s,fix_notes=%s WHERE id=%s",
-        (data.get("status",""),data.get("fixPhotoUrl",""),data.get("fixNotes",""),id))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok":True}
-
-@app.delete("/prescriptions/{id}")
-def delete_prescription(id: int, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    require_row_project_access(cur, "prescriptions", id, current_user, "project_name")
-    cur.execute("UPDATE prescriptions SET status='Аннулировано' WHERE id=%s", (id,))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True}
-
+register_prescriptions_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "read_roles": PROJECT_DOCUMENT_ROLES,
+    "write_roles": PROJECT_DOCUMENT_WRITE_ROLES,
+    "worker_execution_roles": WORKER_EXECUTION_ROLES,
+    "visible_project_names": visible_project_names,
+    "require_project_access": require_project_access,
+    "require_row_project_access": require_row_project_access,
+})
 try:
     from backend.features.project_chat.routes import register_project_chat_module
 except ModuleNotFoundError:
@@ -26216,83 +26166,21 @@ def ai_suggest_cable_journal(id: int, _current_user: dict = Depends(require_role
     cur.close(); conn.close()
     return {"ok": True, "normatives": full_normatives, "minInsulation": min_insulation, "recommendations": recommendations, "aiFilled": True}
 
-@app.get("/supervisor-acts")
-def list_supervisor_acts(project_name: str = None, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    cols = "id, project_name, act_number, act_type, description, findings, recommendations, issued_by, issued_by_role, date, photo_url, file_url, status, created_at"
-    if project_name:
-        require_project_access(current_user, project_name)
-        cur.execute(f"SELECT {cols} FROM supervisor_acts WHERE project_name=%s ORDER BY id DESC", (project_name,))
-    elif visible_project_names(current_user) is not None:
-        allowed_projects = visible_project_names(current_user)
-        if not allowed_projects:
-            cur.close(); conn.close()
-            return []
-        cur.execute(f"SELECT {cols} FROM supervisor_acts WHERE project_name = ANY(%s) ORDER BY id DESC", (allowed_projects,))
-    else:
-        cur.execute(f"SELECT {cols} FROM supervisor_acts ORDER BY id DESC")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [{"id":r[0],"projectName":r[1] or "","actNumber":r[2] or "","actType":r[3] or "",
-             "description":r[4] or "","findings":r[5] or "","recommendations":r[6] or "",
-             "issuedBy":r[7] or "","issuedByRole":r[8] or "",
-             "date":str(r[9]) if r[9] else "","photoUrl":r[10] or "","fileUrl":r[11] or "",
-             "status":r[12] or "Открыт","createdAt":str(r[13])} for r in rows]
+try:
+    from backend.features.supervisor_acts.routes import register_supervisor_acts_module
+except ModuleNotFoundError:
+    from features.supervisor_acts.routes import register_supervisor_acts_module
 
-@app.post("/supervisor-acts")
-def create_supervisor_act(data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
-    require_project_access(current_user, data.get("projectName", ""))
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""INSERT INTO supervisor_acts
-                   (project_name, act_number, act_type, description, findings, recommendations,
-                    issued_by, issued_by_role, date, photo_url, file_url, status)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                (data.get("projectName",""), data.get("actNumber","") or ("САО-"+str(int(__import__("datetime").datetime.now().timestamp()))[-6:]),
-                 data.get("actType","Осмотр"), data.get("description",""), data.get("findings",""),
-                 data.get("recommendations",""),
-                 data.get("issuedBy",""), data.get("issuedByRole","Технадзор"),
-                 data.get("date") or None, data.get("photoUrl",""), data.get("fileUrl",""),
-                 data.get("status","Открыт")))
-    conn.commit()
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return {"id": row[0], "ok": True}
 
-@app.put("/supervisor-acts/{id}")
-def update_supervisor_act(id: int, data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    require_row_project_access(cur, "supervisor_acts", id, current_user, "project_name")
-    fields_map = [
-        ('actType','act_type'),('description','description'),('findings','findings'),
-        ('recommendations','recommendations'),('photoUrl','photo_url'),('fileUrl','file_url'),
-        ('status','status'),
-    ]
-    sets, vals = [], []
-    for js_key, db_col in fields_map:
-        if js_key in data:
-            sets.append(db_col + "=%s")
-            vals.append(data[js_key])
-    if not sets:
-        cur.close(); conn.close()
-        return {"ok": True}
-    vals.append(id)
-    cur.execute("UPDATE supervisor_acts SET " + ", ".join(sets) + " WHERE id=%s", vals)
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True}
-
-@app.delete("/supervisor-acts/{id}")
-def delete_supervisor_act(id: int, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    require_row_project_access(cur, "supervisor_acts", id, current_user, "project_name")
-    cur.execute("DELETE FROM supervisor_acts WHERE id=%s", (id,))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True}
+register_supervisor_acts_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "read_roles": PROJECT_DOCUMENT_ROLES,
+    "write_roles": PROJECT_DOCUMENT_WRITE_ROLES,
+    "visible_project_names": visible_project_names,
+    "require_project_access": require_project_access,
+    "require_row_project_access": require_row_project_access,
+})
 
 @app.get("/tb-journal")
 def list_tb_journal(project_name: str = None, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
