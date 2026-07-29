@@ -21468,103 +21468,21 @@ def delete_brigade_contract_item(
         cur.close()
         conn.close()
 
-@app.get("/brigade-acts")
-def get_brigade_acts(
-    contract_id: int = None,
-    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
-    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
-    current_user: dict = Depends(get_current_user),
-):
-    conn = get_db()
-    try:
-        allowed_roles = (*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик")
-        visibility_sql, params, _actors = _brigade_contract_read_scope(
-            conn,
-            current_user,
-            allowed_roles,
-            x_company_id=x_company_id,
-            x_company_mode=x_company_mode,
-        )
-        if visibility_sql == "FALSE":
-            return []
-        where = [visibility_sql]
-        if contract_id:
-            where.append("bc.id=%s")
-            params.append(contract_id)
-        cur = conn.cursor()
-        try:
-            cur.execute("""SELECT ba.id,ba.contract_id,ba.project_name,ba.brigade_name,
-                                  ba.period_from,ba.period_to,ba.total_amount,ba.status,
-                                  ba.created_at,bc.company_id
-                           FROM brigade_acts ba
-                           JOIN brigade_contracts bc ON bc.id=ba.contract_id
-                           WHERE """ + " AND ".join(where) + " ORDER BY ba.id DESC", tuple(params))
-            rows = cur.fetchall()
-        finally:
-            cur.close()
-        return [{
-            "id": row[0], "contractId": row[1], "projectName": row[2],
-            "brigadeName": row[3], "periodFrom": str(row[4]) if row[4] else "",
-            "periodTo": str(row[5]) if row[5] else "", "totalAmount": float(row[6] or 0),
-            "status": row[7], "createdAt": str(row[8]), "companyId": row[9],
-        } for row in rows]
-    finally:
-        conn.close()
+try:
+    from backend.features.brigade_access.act_routes import register_brigade_acts_module
+except ModuleNotFoundError:
+    from features.brigade_access.act_routes import register_brigade_acts_module
 
-@app.post("/brigade-acts")
-def create_brigade_act(
-    data: dict,
-    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
-    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
-    current_user: dict = Depends(get_current_user),
-):
-    conn = get_db()
-    conn.autocommit = False
-    cur = conn.cursor()
-    try:
-        contract, actor, project = _resolve_brigade_contract_actor(
-            cur,
-            current_user,
-            data.get("contractId"),
-            (*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"),
-            claimed_company_id=data.get("companyId") if "companyId" in data else data.get("company_id"),
-            x_company_id=x_company_id,
-            x_company_mode=x_company_mode,
-            for_update=True,
-        )
-        if data.get("projectName") and (data.get("projectName") or "").strip() != contract["projectName"]:
-            raise HTTPException(status_code=403, detail="Договор бригады относится к другому объекту")
-        if not has_package_access(actor, contract["workPackage"]):
-            raise HTTPException(status_code=403, detail="Нет доступа к пакету работ договора")
-        total_amount = float(data.get("totalAmount") or 0)
-        cur.execute("""SELECT COALESCE((
-                                   SELECT SUM(CASE WHEN COALESCE(quantity,0)>0
-                                                   THEN GREATEST(0, LEAST(COALESCE(done_quantity,0), COALESCE(quantity,0))) * COALESCE(price_brigade,0)
-                                                   ELSE 0 END)
-                                     FROM brigade_contract_items WHERE contract_id=%s
-                               ),0) AS done_amount,
-                               COALESCE((
-                                   SELECT SUM(COALESCE(total_amount,0))
-                                     FROM brigade_acts
-                                    WHERE contract_id=%s AND COALESCE(status,'') <> 'Аннулирован'
-                               ),0) AS acted_amount""", (contract["id"], contract["id"]))
-        totals = cur.fetchone()
-        available_to_act = max(0, float(_row_get(totals, "done_amount", 0, 0) or 0) - float(_row_get(totals, "acted_amount", 1, 0) or 0))
-        if total_amount <= 0:
-            raise HTTPException(status_code=400, detail="Сумма акта должна быть больше нуля")
-        if total_amount > available_to_act + 0.01:
-            raise HTTPException(status_code=400, detail=f"Сумма акта превышает выполненный неактированный объём. Доступно к акту: {available_to_act:.2f} ₽")
-        cur.execute("INSERT INTO brigade_acts (contract_id,project_name,brigade_name,period_from,period_to,total_amount,status) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (contract["id"], contract["projectName"], contract["brigadeName"] or data.get("brigadeName",""), data.get("periodFrom") or None, data.get("periodTo") or None, total_amount, data.get("status","Черновик")))
-        row = cur.fetchone()
-        conn.commit()
-        return {"id": _row_get(row, "id", 0), "ok": True, "companyId": contract["companyId"], "projectId": project["id"]}
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        cur.close()
-        conn.close()
+
+register_brigade_acts_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "finance_roles": FINANCE_ROLES,
+    "brigade_contract_read_scope": _brigade_contract_read_scope,
+    "resolve_brigade_contract_actor": _resolve_brigade_contract_actor,
+    "has_package_access": has_package_access,
+    "row_get": _row_get,
+})
 
 @app.get("/material-transfers")
 def get_material_transfers(
@@ -26282,74 +26200,21 @@ def ai_generate_tb_instruction(data: dict, current_user: dict = Depends(require_
         raise HTTPException(status_code=502, detail="AI вернул пустой ответ: " + str(err))
     return {"ok": True, "instructionText": answer.strip()}
 
-@app.get("/inspection-orders")
-def list_inspection_orders(project_name: str = None, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    cols = "id, project_name, order_number, body, inspector, description, recommendations, deadline, status, photo_url, file_url, date, response, response_date, created_at"
-    if project_name:
-        require_project_access(current_user, project_name)
-        cur.execute(f"SELECT {cols} FROM inspection_orders WHERE project_name=%s AND COALESCE(status,'') <> 'Аннулировано' ORDER BY id DESC", (project_name,))
-    elif visible_project_names(current_user) is not None:
-        allowed_projects = visible_project_names(current_user)
-        if not allowed_projects:
-            cur.close(); conn.close()
-            return []
-        cur.execute(f"SELECT {cols} FROM inspection_orders WHERE project_name = ANY(%s) AND COALESCE(status,'') <> 'Аннулировано' ORDER BY id DESC", (allowed_projects,))
-    else:
-        cur.execute(f"SELECT {cols} FROM inspection_orders WHERE COALESCE(status,'') <> 'Аннулировано' ORDER BY id DESC")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [{"id":r[0],"projectName":r[1] or "","orderNumber":r[2] or "","body":r[3] or "",
-             "inspector":r[4] or "","description":r[5] or "","recommendations":r[6] or "",
-             "deadline":str(r[7]) if r[7] else "","status":r[8] or "Открыто",
-             "photoUrl":r[9] or "","fileUrl":r[10] or "",
-             "date":str(r[11]) if r[11] else "","response":r[12] or "",
-             "responseDate":str(r[13]) if r[13] else "",
-             "createdAt":str(r[14])} for r in rows]
+try:
+    from backend.features.inspection_orders.routes import register_inspection_orders_module
+except ModuleNotFoundError:
+    from features.inspection_orders.routes import register_inspection_orders_module
 
-@app.post("/inspection-orders")
-def create_inspection_order(data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
-    require_project_access(current_user, data.get("projectName", ""))
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""INSERT INTO inspection_orders
-                   (project_name, order_number, body, inspector, description, recommendations,
-                    deadline, status, photo_url, file_url, date)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                (data.get("projectName",""), data.get("orderNumber","") or ("ГСН-"+str(int(__import__("datetime").datetime.now().timestamp()))[-6:]),
-                 data.get("body","ГСН"), data.get("inspector",""), data.get("description",""),
-                 data.get("recommendations",""), data.get("deadline") or None,
-                 data.get("status","Открыто"), data.get("photoUrl",""),
-                 data.get("fileUrl",""), data.get("date") or None))
-    conn.commit()
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return {"id": row[0], "ok": True}
 
-@app.put("/inspection-orders/{id}")
-def update_inspection_order(id: int, data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    require_row_project_access(cur, "inspection_orders", id, current_user, "project_name")
-    fields_map = [('status','status'),('response','response'),('responseDate','response_date'),
-                  ('recommendations','recommendations'),('photoUrl','photo_url'),('fileUrl','file_url')]
-    sets, vals = [], []
-    for js_key, db_col in fields_map:
-        if js_key in data:
-            sets.append(db_col + "=%s")
-            v = data[js_key]
-            if js_key == 'responseDate' and not v:
-                v = None
-            vals.append(v)
-    if not sets:
-        cur.close(); conn.close()
-        return {"ok": True}
-    vals.append(id)
-    cur.execute("UPDATE inspection_orders SET " + ", ".join(sets) + " WHERE id=%s", vals)
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True}
+register_inspection_orders_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "read_roles": PROJECT_DOCUMENT_ROLES,
+    "write_roles": PROJECT_DOCUMENT_WRITE_ROLES,
+    "visible_project_names": visible_project_names,
+    "require_project_access": require_project_access,
+    "require_row_project_access": require_row_project_access,
+})
 
 @app.get("/expense-reports")
 def list_expense_reports(employee_id: int = None, project_name: str = None, current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
@@ -27118,15 +26983,6 @@ def delete_warranty_defect(id: int, current_user: dict = Depends(require_roles(*
     cur.close(); conn.close()
     return {"ok": True}
 
-@app.delete("/inspection-orders/{id}")
-def delete_inspection_order(id: int, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    require_row_project_access(cur, "inspection_orders", id, current_user, "project_name")
-    cur.execute("UPDATE inspection_orders SET status='Аннулировано' WHERE id=%s", (id,))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True}
 
 def log_audit(
     user_name="",
