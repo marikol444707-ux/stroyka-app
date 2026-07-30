@@ -3132,6 +3132,8 @@ Slice 35 released 2026-07-28 (runtime `d1080b5`): the materials quartet → `bac
 
 Slice 36 released 2026-07-28 (runtime `e17bd8f`): the projects quartet — the first core family — → `backend/features/projects/` (model moved; company-scoped visibility, budget/warranty hiding, archive/close prohibition, disabled delete; five tests). Process note: the pyflakes gate caught a registration placed above log_audit's definition before it could ship — registrations that need late-file helpers always go to the grouped zone. `main.py`: `28191` lines, `190` routes; suite `902` tests.
 
+Slice 37 released 2026-07-28 (runtime `6acd98f`): the measurement domain — rooms quartet plus room-windows and room-doors (12 routes) → `backend/features/rooms/` (model moved; cascade child deletion and the injected AI recalc hook unchanged; six tests). `main.py`: `27990` lines, `178` routes; suite `908` tests.
+
 Process note 2026-07-28: one commit briefly landed with two red tests because the old commit chain gated on grep output instead of the unittest exit code — production was never exposed (the deploy gate requires an explicit CI success), tests were fixed in the next commit, and every commit chain now gates on the exit code. Lessons recorded: do not verify public write endpoints with a real POST (one accidental empty demo request was created and surgically deleted on 2026-07-28) — check an unsupported method instead; after each slice curl the route through the site and treat an `<!doctype` body as a missing nginx proxy entry (a full audit on 2026-07-28 found and fixed seven historically unproxied routes — see ONBOARDING).
 
 **Safety:**
