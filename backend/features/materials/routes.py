@@ -148,9 +148,9 @@ def register_materials_module(app, deps):
             _current_user.get("name", ""),
             _current_user.get("role", ""),
             "create",
-            "interim_act",
+            "material",
             row.get("id"),
-            ("Акт исполнителя: " + str(row.get("master_name") or "") + ", сумма " + str(row.get("total_amount") or ""))[:250],
+            ("Материал создан: " + str(row.get("name") or "") + ", " + str(row.get("quantity") or 0) + " " + str(row.get("unit") or ""))[:250],
             row.get("project") or "",
         )
         conn.close()
