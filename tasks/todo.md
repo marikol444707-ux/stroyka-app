@@ -3126,6 +3126,8 @@ Slice 29 released 2026-07-28 (runtime `4f919ab`): the deferred own-expenses clus
 
 Slices 30-33 released 2026-07-28 (runtimes `9498f2d`, `27e7390`): expense reports quartet → `backend/features/expense_reports/` (idempotent soft-cancel), invite codes quartet incl. the public code-info endpoint → `backend/features/invite_codes/`, clients quartet → `backend/features/clients/` (model moved, worker price hiding), crm-leads quartet → `backend/features/crm/lead_routes.py` (company-scoped read + create-owner resolution). `main.py`: `28735` lines, `203` routes; suite `882` tests.
 
+Slice 34 released 2026-07-28 (runtime `04f4cf1`): the five brigade contract item routes → `backend/features/brigade_access/item_routes.py` via scripted verbatim move (done-quantity clamping, worker price hiding, contract total recalculation preserved; six tests). The brigade_access family is now complete: contracts scope service, payments, acts and items all live together. `main.py`: `28486` lines, `198` routes; suite `888` tests.
+
 Process note 2026-07-28: one commit briefly landed with two red tests because the old commit chain gated on grep output instead of the unittest exit code — production was never exposed (the deploy gate requires an explicit CI success), tests were fixed in the next commit, and every commit chain now gates on the exit code. Lessons recorded: do not verify public write endpoints with a real POST (one accidental empty demo request was created and surgically deleted on 2026-07-28) — check an unsupported method instead; after each slice curl the route through the site and treat an `<!doctype` body as a missing nginx proxy entry (a full audit on 2026-07-28 found and fixed seven historically unproxied routes — see ONBOARDING).
 
 **Safety:**
