@@ -5752,12 +5752,6 @@ public_updated_at as "publicUpdatedAt"
 def _public_text(value, limit: int = 255) -> str:
     return str(value or "").strip()[:limit]
 
-class ClientModel(BaseModel):
-    name: str
-    phone: str = ""
-    email: str = ""
-    status: str = "Активный"
-    notes: str = ""
 
 class MaterialModel(BaseModel):
     name: str
@@ -6872,45 +6866,18 @@ def update_project(
 def delete_project(id: int, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     raise HTTPException(status_code=405, detail="Удаление и архивирование объекта отключены. Объект может закрыть только директор отдельной процедурой закрытия.")
 
-@app.get("/clients")
-def get_clients(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm"))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM clients")
-    rows = cur.fetchall()
-    conn.close()
-    result = [dict(r) for r in rows]
-    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
-        for row in result:
-            row["price"] = 0
-    return result
+try:
+    from backend.features.clients.routes import register_clients_module
+except ModuleNotFoundError:
+    from features.clients.routes import register_clients_module
 
-@app.post("/clients")
-def create_client(c: ClientModel, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("INSERT INTO clients (name,phone,email,status,notes) VALUES (%s,%s,%s,%s,%s) RETURNING *",
-                (c.name,c.phone,c.email,c.status,c.notes))
-    row = cur.fetchone()
-    conn.close()
-    return dict(row)
 
-@app.put("/clients/{id}")
-def update_client(id: int, c: ClientModel, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("UPDATE clients SET name=%s,phone=%s,email=%s,status=%s,notes=%s WHERE id=%s",
-                (c.name,c.phone,c.email,c.status,c.notes,id))
-    conn.close()
-    return {"ok": True}
-
-@app.delete("/clients/{id}")
-def delete_client(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM clients WHERE id=%s", (id,))
-    conn.close()
-    return {"ok": True}
+register_clients_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "admin_roles": LEADERSHIP_ROLES,
+    "worker_execution_roles": WORKER_EXECUTION_ROLES,
+})
 
 @app.get("/materials")
 def get_materials(
@@ -20501,102 +20468,20 @@ register_salary_payments_module(app, {
     "finance_roles": FINANCE_ROLES,
 })
 
-@app.get("/crm-leads")
-def get_crm_leads(
-    x_company_id: str = Header(default=None, alias="X-Company-Id"),
-    x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
-    current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm")),
-):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        company_context = _resolve_work_company_context(
-            cur,
-            current_user,
-            None,
-            "read",
-            x_company_id=x_company_id,
-            x_company_mode=x_company_mode,
-        )
-        company_context = restrict_crm_read_context(
-            company_context,
-            effective_company_actors(current_user, company_context),
-            allowed_roles=(*LEADERSHIP_ROLES, "менеджер_crm"),
-        )
-        company_sql, company_params = company_id_scope_filter(company_context, "crm_leads.company_id")
-        cur.execute("""
-            SELECT id,company_id AS "companyId",name,phone,email,source,budget,notes,stage,
-                   created_by AS "createdBy",created_at AS "createdAt",project_id AS "projectId",
-                   photo_url AS "photoUrl"
-            FROM crm_leads
-            WHERE TRUE
-        """ + company_sql + " ORDER BY id DESC", company_params)
-        rows = cur.fetchall()
-        return [
-            {
-                **dict(row),
-                "name": row.get("name") or "",
-                "phone": row.get("phone") or "",
-                "email": row.get("email") or "",
-                "source": row.get("source") or "",
-                "budget": float(row.get("budget") or 0),
-                "notes": row.get("notes") or "",
-                "stage": row.get("stage") or "Новый",
-                "createdBy": row.get("createdBy") or "",
-                "createdAt": row.get("createdAt") or "",
-                "photoUrl": row.get("photoUrl") or "",
-            }
-            for row in rows
-        ]
-    finally:
-        cur.close()
-        conn.close()
+try:
+    from backend.features.crm.lead_routes import register_crm_leads_module
+except ModuleNotFoundError:
+    from features.crm.lead_routes import register_crm_leads_module
 
-@app.post("/crm-leads")
-def create_crm_lead(
-    data: dict,
-    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
-    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
-    _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm")),
-):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        owner = _resolve_crm_create_owner(cur, _current_user, x_company_id, x_company_mode)
-        cur.execute("INSERT INTO crm_leads (company_id,name,phone,email,source,budget,notes,stage,created_by,created_at,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (owner["companyId"], data.get("name",""), data.get("phone",""), data.get("email",""), data.get("source",""), data.get("budget") or 0, data.get("notes",""), data.get("stage","Новый"), _current_user.get("name", ""), data.get("createdAt",""), data.get("photoUrl","")))
-        created = cur.fetchone()
-        new_id = created.get("id") if isinstance(created, dict) else created[0]
-        conn.commit()
-        return {"ok": True, "id": new_id}
-    except HTTPException:
-        conn.rollback()
-        raise
-    except Exception as error:
-        conn.rollback()
-        raise HTTPException(status_code=400, detail=str(error))
-    finally:
-        cur.close()
-        conn.close()
 
-@app.put("/crm-leads/{id}")
-def update_crm_lead(id: int, data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm"))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("UPDATE crm_leads SET name=%s,phone=%s,email=%s,source=%s,budget=%s,notes=%s,stage=%s,photo_url=%s WHERE id=%s",
-        (data.get("name",""), data.get("phone",""), data.get("email",""), data.get("source",""), data.get("budget") or 0, data.get("notes",""), data.get("stage","Новый"), data.get("photoUrl",""), id))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True}
-
-@app.delete("/crm-leads/{id}")
-def delete_crm_lead(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm"))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM crm_leads WHERE id=%s",(id,))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True}
+register_crm_leads_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "admin_roles": LEADERSHIP_ROLES,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "resolve_crm_create_owner": _resolve_crm_create_owner,
+})
 
 @app.post("/brigade-contracts")
 def create_brigade_contract(
