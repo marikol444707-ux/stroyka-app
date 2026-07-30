@@ -236,6 +236,16 @@ Priority note: the tenant-isolation queue (M6.6f, M6.7, M6.8a, M7l) stays first.
 - Should CI run only local build/tests first, or also selected smoke scripts against a disposable local DB?
 - Which five or six pilot companies should be modeled as independent accounts, and which belong to one holding with shared summary access?
 
+## Focused Track: Bank Sync Platform (T-Bank pilot)
+
+Full plan: docs/tbank-integration-plan.md. Multi-tenant bank statement sync as a platform feature: per-company connection (director enters a read-only-scope token in company settings), adapter architecture (T-Bank first, Tochka/Modulbank/Alfa/Sber later, converging on the CBR Open API standards mandated from 2026), unified bank_operations table with company_id scoping, matching engine (counterparty INN / payment purpose markers / amount+date) driving auto project_payments and paid-status on acts and supplier invoices.
+
+- [ ] Task B1: Sandbox module `backend/features/bank_sync/` — adapter interface, T-API client against the sandbox, additive schema (company_bank_connections, bank_operations), tests. No production access, no owner action needed.
+- [ ] Task B2: Company connection UI + manual statement pull (write-only token field in company settings; requires owner's T-Business token to go live).
+- [ ] Task B3: Matching v1 + unmatched-operations screen + auto project_payments (DB-additive; confirm with owner before prod migration).
+- [ ] Task B4: Webhook real-time sync (nginx location!) + auto paid-statuses + per-project bank line on dashboard.
+- [ ] Task B5+: self-employed receipts (НПД), then payment drafts — each gated on explicit owner approval.
+
 ## Focused Track: Safe Estimate Material Calculation
 
 ### Goal
