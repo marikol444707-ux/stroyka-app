@@ -1,5 +1,6 @@
 import json
 import re
+from datetime import datetime
 from typing import Optional
 
 import psycopg2.extras
@@ -79,6 +80,65 @@ def build_packaging_correction_preview(item, rule):
         "reason": (
             "Автоматическая корректировка отключена: сначала нужно проверить выдачи и расходы, "
             "которые могли быть сделаны после этого прихода."
+        ),
+    }
+
+
+def _date_sort_key(value):
+    raw = _text(value, 100)
+    for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%Y-%m-%d %H:%M:%S", "%d.%m.%Y, %H:%M"):
+        try:
+            return datetime.strptime(raw, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def build_packaging_dependency_check(*, storage_location, stored_unit, invoice_date, current_balance, history_rows, movement_rows):
+    """Summarize only possible post-receipt dependencies; never prove a relation by name alone."""
+    receipt_date = _date_sort_key(invoice_date)
+
+    def is_after_receipt(value):
+        row_date = _date_sort_key(value)
+        return row_date is None or receipt_date is None or row_date >= receipt_date
+
+    possible_history = [
+        {
+            "id": row.get("id"),
+            "type": row.get("type") or "",
+            "quantity": _number(row.get("quantity"), 0),
+            "unit": row.get("unit") or stored_unit,
+            "date": str(row.get("date") or ""),
+            "issuedTo": row.get("issued_to") or "",
+            "issuedBy": row.get("issued_by") or "",
+        }
+        for row in (history_rows or [])
+        if not str(row.get("type") or "").strip().lower().startswith("приход") and is_after_receipt(row.get("date"))
+    ]
+    possible_movements = [
+        {
+            "id": row.get("id"),
+            "fromLocation": row.get("from_location") or "",
+            "toLocation": row.get("to_location") or "",
+            "quantity": _number(row.get("quantity"), 0),
+            "unit": row.get("unit") or stored_unit,
+            "date": str(row.get("date") or ""),
+        }
+        for row in (movement_rows or [])
+        if is_after_receipt(row.get("date"))
+    ]
+    count = len(possible_history) + len(possible_movements)
+    return {
+        "storageLocation": storage_location,
+        "currentBalance": {"quantity": _number(current_balance, 0), "unit": stored_unit},
+        "possibleHistoryRows": possible_history[:20],
+        "possibleMovementRows": possible_movements[:20],
+        "possibleDependencyCount": count,
+        "requiresManualReconciliation": True,
+        "reason": (
+            "Найдены возможные движения после прихода; сначала сверяйте их вручную."
+            if count else
+            "Совпадающих движений не найдено, но старая история не содержит прямой связи со строкой накладной."
         ),
     }
 
@@ -335,6 +395,52 @@ def register_material_packaging_module(app, deps):
             rule = next((row for row in rules if row["materialKey"] == material_key(name) and _normalize_unit(row["documentUnit"]) == document_unit), None)
             if not rule:
                 raise HTTPException(status_code=409, detail="Для этой строки пока нет подтвержденного правила упаковки")
+            stored_unit = _text(item.get("unit") or item.get("documentUnit") or "шт", 50) or "шт"
+            storage_location = invoice.get("project") or invoice.get("location") or "Основной склад"
+            cur.execute(
+                """SELECT id,type,quantity,unit,date,issued_to,issued_by
+                     FROM warehouse_history
+                    WHERE company_id=%s AND project=%s
+                      AND LOWER(TRIM(material))=LOWER(TRIM(%s))
+                      AND LOWER(TRIM(COALESCE(unit,'')))=LOWER(TRIM(%s))
+                    ORDER BY id DESC""",
+                (company_id, storage_location, name, stored_unit),
+            )
+            history_rows = [dict(row) for row in cur.fetchall() or []]
+            cur.execute(
+                """SELECT id,from_location,to_location,quantity,unit,date
+                     FROM warehouse_movements
+                    WHERE company_id=%s
+                      AND (from_location=%s OR to_location=%s)
+                      AND LOWER(TRIM(material_name))=LOWER(TRIM(%s))
+                      AND LOWER(TRIM(COALESCE(unit,'')))=LOWER(TRIM(%s))
+                    ORDER BY id DESC""",
+                (company_id, storage_location, storage_location, name, stored_unit),
+            )
+            movement_rows = [dict(row) for row in cur.fetchall() or []]
+            if storage_location == "Основной склад":
+                cur.execute(
+                    """SELECT COALESCE(SUM(quantity),0) AS quantity FROM warehouse_main
+                         WHERE company_id=%s AND LOWER(TRIM(name))=LOWER(TRIM(%s))
+                           AND LOWER(TRIM(COALESCE(unit,'')))=LOWER(TRIM(%s))""",
+                    (company_id, name, stored_unit),
+                )
+            else:
+                cur.execute(
+                    """SELECT COALESCE(SUM(quantity),0) AS quantity FROM materials
+                         WHERE company_id=%s AND project=%s AND LOWER(TRIM(name))=LOWER(TRIM(%s))
+                           AND LOWER(TRIM(COALESCE(unit,'')))=LOWER(TRIM(%s))""",
+                    (company_id, storage_location, name, stored_unit),
+                )
+            current_balance_row = cur.fetchone() or {}
+            dependency_check = build_packaging_dependency_check(
+                storage_location=storage_location,
+                stored_unit=stored_unit,
+                invoice_date=invoice.get("date"),
+                current_balance=current_balance_row.get("quantity"),
+                history_rows=history_rows,
+                movement_rows=movement_rows,
+            )
             return {
                 "ok": True,
                 "warehouseInvoiceId": invoice_id,
@@ -346,6 +452,7 @@ def register_material_packaging_module(app, deps):
                 },
                 "materialName": name,
                 "preview": build_packaging_correction_preview(item, rule),
+                "dependencyCheck": dependency_check,
             }
         finally:
             cur.close(); conn.close()

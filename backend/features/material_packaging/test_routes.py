@@ -1,6 +1,6 @@
 import unittest
 
-from .routes import build_packaging_correction_preview, normalize_invoice_packaging_items
+from .routes import build_packaging_correction_preview, build_packaging_dependency_check, normalize_invoice_packaging_items
 
 
 class FakeCursor:
@@ -58,6 +58,27 @@ class MaterialPackagingRulesTest(unittest.TestCase):
         self.assertEqual(preview["proposed"], {"quantity": 2500.0, "unit": "м"})
         self.assertFalse(preview["canApply"])
         self.assertEqual(preview["status"], "preview_only")
+
+    def test_dependency_check_marks_only_possible_post_receipt_movements(self):
+        report = build_packaging_dependency_check(
+            storage_location="Объект А",
+            stored_unit="уп",
+            invoice_date="2026-07-10",
+            current_balance=8,
+            history_rows=[
+                {"id": 1, "type": "приход", "quantity": 10, "unit": "уп", "date": "2026-07-10"},
+                {"id": 2, "type": "выдача", "quantity": 2, "unit": "уп", "date": "2026-07-11", "issued_to": "Мастер"},
+                {"id": 3, "type": "расход", "quantity": 1, "unit": "уп", "date": "2026-07-09"},
+            ],
+            movement_rows=[
+                {"id": 4, "from_location": "Объект А", "to_location": "Склад", "quantity": 1, "unit": "уп", "date": "дата не распознана"},
+            ],
+        )
+        self.assertEqual(report["currentBalance"], {"quantity": 8.0, "unit": "уп"})
+        self.assertEqual(report["possibleDependencyCount"], 2)
+        self.assertEqual([row["id"] for row in report["possibleHistoryRows"]], [2])
+        self.assertEqual([row["id"] for row in report["possibleMovementRows"]], [4])
+        self.assertTrue(report["requiresManualReconciliation"])
 
     def test_packaging_label_with_its_content_uses_packaging_rule(self):
         cursor = FakeCursor([{

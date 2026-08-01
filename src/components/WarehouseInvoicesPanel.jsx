@@ -137,6 +137,11 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
                     Было на складе: {correctionPreviews[row.key].preview.stored.quantity} {correctionPreviews[row.key].preview.stored.unit} → по правилу: {correctionPreviews[row.key].preview.proposed.quantity} {correctionPreviews[row.key].preview.proposed.unit}. {correctionPreviews[row.key].preview.reason}
                   </p>
                 )}
+                {correctionPreviews[row.key]?.dependencyCheck && (
+                  <p style={{color:correctionPreviews[row.key].dependencyCheck.possibleDependencyCount ? C.warning : C.textSec,fontSize:'11px',margin:'5px 0 0',lineHeight:1.4}}>
+                    {correctionPreviews[row.key].dependencyCheck.reason} Текущий остаток в исходной единице: {correctionPreviews[row.key].dependencyCheck.currentBalance.quantity} {correctionPreviews[row.key].dependencyCheck.currentBalance.unit}.
+                  </p>
+                )}
               </div>
             ))}
           </div>
