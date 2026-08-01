@@ -17,6 +17,10 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
   const [rules, setRules] = React.useState([]);
   const [form, setForm] = React.useState({ materialName:'', supplierId:'', documentUnit:'уп', contentQuantity:'', baseUnit:'м', note:'' });
   const canManage = PACKAGING_RULE_ROLES.includes(String(user?.role || ''));
+  const canPreviewHistoricalCorrection = ['директор', 'зам_директора'].includes(String(user?.role || ''));
+  const [correctionPreviews, setCorrectionPreviews] = React.useState({});
+  const [correctionError, setCorrectionError] = React.useState('');
+  const [correctionLoadingKey, setCorrectionLoadingKey] = React.useState('');
 
   const loadRules = React.useCallback(async () => {
     setIsLoading(true);
@@ -77,6 +81,24 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
       note:'Правило создано по накладной № ' + (row.invoice?.number || row.invoice?.id || ''),
     });
   };
+  const previewHistoricalCorrection = async (row) => {
+    setCorrectionError('');
+    setCorrectionLoadingKey(row.key);
+    try {
+      const response = await fetch(API + '/material-packaging-corrections/preview', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({warehouseInvoiceId:row.invoice?.id, itemIndex:row.itemIndex}),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.detail || 'Не удалось рассчитать корректировку');
+      setCorrectionPreviews(current => ({...current, [row.key]:data}));
+    } catch (requestError) {
+      setCorrectionError(requestError?.message || 'Не удалось рассчитать корректировку');
+    } finally {
+      setCorrectionLoadingKey('');
+    }
+  };
 
   return (
     <section style={{...card,padding:isMobile?'12px':'14px',marginBottom:'12px'}}>
@@ -99,15 +121,26 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
           </div>
           <div style={{display:'grid',gap:'6px',marginTop:'8px'}}>
             {reviewItems.slice(0, 10).map(row => (
-              <div key={row.key} style={{display:'flex',gap:'8px',justifyContent:'space-between',alignItems:'center',padding:'8px',backgroundColor:C.bgWhite,border:'1px solid '+C.warningBorder,borderRadius:'8px',flexWrap:'wrap'}}>
+              <div key={row.key} style={{padding:'8px',backgroundColor:C.bgWhite,border:'1px solid '+C.warningBorder,borderRadius:'8px'}}>
+                <div style={{display:'flex',gap:'8px',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap'}}>
                 <div style={{minWidth:0}}>
                   <b style={{display:'block',color:C.text,fontSize:'12px',overflowWrap:'anywhere'}}>{row.item?.name || 'Материал'}</b>
                   <span style={{color:C.textSec,fontSize:'11px'}}>Накладная № {row.invoice?.number || row.invoice?.id} · {row.item?.documentQuantity ?? row.item?.quantity} {row.item?.documentUnit || row.item?.unit || ''}{row.invoice?.supplierName ? ' · ' + row.invoice.supplierName : ''}</span>
                 </div>
-                {canManage && <button type="button" onClick={() => startRuleForReview(row)} style={{...btnB,fontSize:'11px',padding:'5px 8px'}}><PackagePlus size={12}/>Создать правило</button>}
+                <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
+                  {canManage && <button type="button" onClick={() => startRuleForReview(row)} style={{...btnB,fontSize:'11px',padding:'5px 8px'}}><PackagePlus size={12}/>Создать правило</button>}
+                  {canPreviewHistoricalCorrection && <button type="button" onClick={() => previewHistoricalCorrection(row)} disabled={correctionLoadingKey === row.key} style={{...btnB,fontSize:'11px',padding:'5px 8px',opacity:correctionLoadingKey === row.key ? 0.65 : 1}}>{correctionLoadingKey === row.key ? 'Считаю…' : 'Предпросмотр'}</button>}
+                </div>
+                </div>
+                {correctionPreviews[row.key]?.preview && (
+                  <p style={{color:C.info,fontSize:'11px',margin:'7px 0 0',lineHeight:1.4}}>
+                    Было на складе: {correctionPreviews[row.key].preview.stored.quantity} {correctionPreviews[row.key].preview.stored.unit} → по правилу: {correctionPreviews[row.key].preview.proposed.quantity} {correctionPreviews[row.key].preview.proposed.unit}. {correctionPreviews[row.key].preview.reason}
+                  </p>
+                )}
               </div>
             ))}
           </div>
+          {correctionError && <p style={{color:C.danger,fontSize:'11px',margin:'8px 0 0'}}>{correctionError}</p>}
           {reviewItems.length > 10 && <p style={{color:C.textSec,fontSize:'11px',margin:'8px 0 0'}}>Показаны первые 10 строк из текущего списка накладных.</p>}
         </div>
       )}
@@ -429,12 +462,12 @@ export default function WarehouseInvoicesPanel({
   );
   const packagingReviewItems = React.useMemo(
     () => (invoices || []).flatMap(inv => invoiceQuickItems(inv)
-      .filter(item => item?.conversionStatus === 'needs_review')
-      .map((item, index) => ({
-        key:String(inv.id || inv.number || 'invoice') + ':' + index,
+      .flatMap((item, itemIndex) => item?.conversionStatus === 'needs_review' ? [{
+        key:String(inv.id || inv.number || 'invoice') + ':' + itemIndex,
         invoice:inv,
         item,
-      }))),
+        itemIndex,
+      }] : [])),
     [invoices, invoiceQuickItems],
   );
   const filteredPositions = filteredInvoiceRows.reduce((sum, row) => sum + row.quickPositionCount, 0);

@@ -1,3 +1,4 @@
+import json
 import re
 from typing import Optional
 
@@ -55,6 +56,31 @@ def is_packaging_unit(value):
         r"^(уп(?:ак)?|пач(?:ка)?|кор(?:об(?:ка)?)?|бухт(?:а)?|бобин(?:а)?|палет(?:а)?|рулон)\.?($|\s|\d)",
         unit,
     ))
+
+
+def build_packaging_correction_preview(item, rule):
+    """Describe a historical conversion without changing invoice or stock data."""
+    document_quantity = _number(item.get("documentQuantity", item.get("quantity")), 0)
+    document_unit = _text(item.get("documentUnit") or item.get("unit") or "шт", 50) or "шт"
+    stored_quantity = _number(item.get("quantity"), 0)
+    stored_unit = _text(item.get("unit") or document_unit, 50) or document_unit
+    base_quantity = round(document_quantity * _number(rule.get("contentQuantity"), 0), 6)
+    return {
+        "document": {"quantity": document_quantity, "unit": document_unit},
+        "stored": {"quantity": stored_quantity, "unit": stored_unit},
+        "proposed": {"quantity": base_quantity, "unit": rule.get("baseUnit") or ""},
+        "rule": {
+            "id": rule.get("id"),
+            "contentQuantity": _number(rule.get("contentQuantity"), 0),
+            "baseUnit": rule.get("baseUnit") or "",
+        },
+        "canApply": False,
+        "status": "preview_only",
+        "reason": (
+            "Автоматическая корректировка отключена: сначала нужно проверить выдачи и расходы, "
+            "которые могли быть сделаны после этого прихода."
+        ),
+    }
 
 
 def ensure_packaging_schema(cur):
@@ -169,6 +195,7 @@ def register_material_packaging_module(app, deps):
     effective_company_actors = deps["effective_company_actors"]
     read_roles = {str(role or "").strip() for role in deps["read_roles"]}
     write_roles = {str(role or "").strip() for role in deps["write_roles"]}
+    correction_roles = {"директор", "зам_директора"}
 
     def selected_actor(cur, current_user, mode, x_company_id, x_company_mode):
         context = resolve_work_company_context(cur, current_user, None, mode, x_company_id=x_company_id, x_company_mode=x_company_mode)
@@ -252,5 +279,73 @@ def register_material_packaging_module(app, deps):
             return _rule_row(row)
         except Exception:
             conn.rollback(); raise
+        finally:
+            cur.close(); conn.close()
+
+    @app.post("/material-packaging-corrections/preview")
+    def preview_material_packaging_correction(
+        data: dict,
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
+        invoice_id = _positive_int((data or {}).get("warehouseInvoiceId") or (data or {}).get("warehouse_invoice_id"))
+        try:
+            item_index = int((data or {}).get("itemIndex") if (data or {}).get("itemIndex") is not None else (data or {}).get("item_index"))
+        except (TypeError, ValueError):
+            item_index = -1
+        if not invoice_id or item_index < 0:
+            raise HTTPException(status_code=400, detail="Укажите накладную и строку для предпросмотра")
+        conn = get_db(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            actor, company_id = selected_actor(cur, current_user, "write", x_company_id, x_company_mode)
+            if _text(actor.get("role"), 100) not in correction_roles:
+                raise HTTPException(status_code=403, detail="Предпросмотр корректировки старого прихода доступен директору или заместителю")
+            ensure_packaging_schema(cur)
+            cur.execute(
+                """SELECT id,company_id,number,date,supplier_id,supplier_name,items,status
+                     FROM warehouse_invoices
+                    WHERE id=%s AND company_id=%s AND COALESCE(status,'Принята') <> 'Аннулирована'""",
+                (invoice_id, company_id),
+            )
+            invoice = cur.fetchone()
+            if not invoice:
+                raise HTTPException(status_code=404, detail="Накладная не найдена в выбранной компании")
+            try:
+                items = json.loads(invoice.get("items") or "[]")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                items = []
+            if not isinstance(items, list) or item_index >= len(items) or not isinstance(items[item_index], dict):
+                raise HTTPException(status_code=404, detail="Строка накладной не найдена")
+            item = dict(items[item_index])
+            if item.get("conversionStatus") == "confirmed":
+                raise HTTPException(status_code=409, detail="Эта строка уже была переведена по подтвержденному правилу")
+            name = _text(item.get("name"), 1000)
+            document_unit = _document_unit_key(item.get("documentUnit") or item.get("unit") or "шт")
+            if not name or not is_packaging_unit(item.get("documentUnit") or item.get("unit")):
+                raise HTTPException(status_code=409, detail="Строка не является упаковкой для пересчета")
+            cur.execute(
+                """SELECT * FROM material_packaging_rules
+                     WHERE company_id=%s AND status='confirmed'
+                       AND (supplier_id IS NULL OR supplier_id=%s)
+                     ORDER BY CASE WHEN supplier_id=%s THEN 0 ELSE 1 END, id DESC""",
+                (company_id, invoice.get("supplier_id"), invoice.get("supplier_id")),
+            )
+            rules = [_rule_row(row) for row in cur.fetchall() or []]
+            rule = next((row for row in rules if row["materialKey"] == material_key(name) and _normalize_unit(row["documentUnit"]) == document_unit), None)
+            if not rule:
+                raise HTTPException(status_code=409, detail="Для этой строки пока нет подтвержденного правила упаковки")
+            return {
+                "ok": True,
+                "warehouseInvoiceId": invoice_id,
+                "itemIndex": item_index,
+                "invoice": {
+                    "number": invoice.get("number") or "",
+                    "date": str(invoice.get("date")) if invoice.get("date") else "",
+                    "supplierName": invoice.get("supplier_name") or "",
+                },
+                "materialName": name,
+                "preview": build_packaging_correction_preview(item, rule),
+            }
         finally:
             cur.close(); conn.close()

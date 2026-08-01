@@ -1,6 +1,6 @@
 import unittest
 
-from .routes import normalize_invoice_packaging_items
+from .routes import build_packaging_correction_preview, normalize_invoice_packaging_items
 
 
 class FakeCursor:
@@ -48,6 +48,16 @@ class MaterialPackagingRulesTest(unittest.TestCase):
         cursor = FakeCursor([])
         source = {"name": "Муфта противопожарная", "quantity": 10, "unit": "шт", "price": 500}
         self.assertEqual(normalize_invoice_packaging_items(cursor, [source], company_id=1), [source])
+
+    def test_historical_correction_preview_never_changes_stock_automatically(self):
+        preview = build_packaging_correction_preview(
+            {"name": "Кабель", "quantity": 25, "unit": "уп"},
+            {"id": 12, "contentQuantity": 100, "baseUnit": "м"},
+        )
+        self.assertEqual(preview["stored"], {"quantity": 25.0, "unit": "уп"})
+        self.assertEqual(preview["proposed"], {"quantity": 2500.0, "unit": "м"})
+        self.assertFalse(preview["canApply"])
+        self.assertEqual(preview["status"], "preview_only")
 
     def test_packaging_label_with_its_content_uses_packaging_rule(self):
         cursor = FakeCursor([{
