@@ -79,7 +79,7 @@ def classify_rows(rows):
     for table in ("warehouse_movements", "warehouse_history"):
         for row in (rows.get(table) or []):
             row = dict(row or {})
-            if table == "warehouse_history":
+            if table in ("warehouse_movements", "warehouse_history"):
                 invoice_id = _positive_int(row.get("source_invoice_id"))
                 line_index = row.get("source_invoice_line_index")
                 try:
@@ -136,7 +136,7 @@ def load_rows(cur):
     queries = {
         "warehouse_invoices": "SELECT id,company_id,items FROM warehouse_invoices ORDER BY id",
         "material_transfers": "SELECT id,company_id,invoice_id,invoice_line_index FROM material_transfers ORDER BY id",
-        "warehouse_movements": "SELECT id,company_id FROM warehouse_movements ORDER BY id",
+        "warehouse_movements": "SELECT id,company_id,source_invoice_id,source_invoice_line_index FROM warehouse_movements ORDER BY id",
         "warehouse_history": "SELECT id,company_id,source_invoice_id,source_invoice_line_index FROM warehouse_history ORDER BY id",
     }
     result = {}

@@ -332,6 +332,7 @@ export default function WarehousePage(props) {
           visibleActiveProjects={visibleActiveProjects}
           warehouseMain={warehouseMain}
           materials={materials}
+          warehouseInvoices={invoices}
           warehouseMovements={warehouseMovements}
           newMovement={newMovement}
           setNewMovement={setNewMovement}

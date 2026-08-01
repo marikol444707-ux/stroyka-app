@@ -5022,6 +5022,8 @@ def init_db():
         );
         ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS work_package VARCHAR(255);
         ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS source_invoice_id INT;
+        ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS source_invoice_line_index INT;
         UPDATE warehouse_movements SET company_id=1 WHERE company_id IS NULL;
         ALTER TABLE warehouse_movements ALTER COLUMN material_name TYPE TEXT;
         CREATE TABLE IF NOT EXISTS inventory (
@@ -5780,6 +5782,8 @@ class WarehouseMovementModel(BaseModel):
     date: str = ""
     createdBy: str = ""
     notes: str = ""
+    invoiceId: Optional[int] = None
+    invoiceLineIndex: Optional[int] = None
 
 class PieceworkModel(BaseModel):
     staffId: str
@@ -6749,7 +6753,7 @@ def get_warehouse_movements(
     except Exception:
         cur.close(); conn.close()
         raise
-    select_sql = "SELECT wm.id,wm.material_name as \"materialName\",wm.from_location as \"fromLocation\",wm.to_location as \"toLocation\",wm.quantity,wm.unit,wm.work_package as \"workPackage\",wm.date,wm.created_by as \"createdBy\",wm.notes FROM warehouse_movements wm WHERE TRUE"
+    select_sql = "SELECT wm.id,wm.material_name as \"materialName\",wm.from_location as \"fromLocation\",wm.to_location as \"toLocation\",wm.quantity,wm.unit,wm.work_package as \"workPackage\",wm.date,wm.created_by as \"createdBy\",wm.notes,wm.source_invoice_id as \"sourceInvoiceId\",wm.source_invoice_line_index as \"sourceInvoiceLineIndex\" FROM warehouse_movements wm WHERE TRUE"
     if current_user.get("role") == "прораб":
         projects = user_project_names(current_user)
         if not projects:
@@ -6831,6 +6835,49 @@ def create_warehouse_movement(
         raise HTTPException(status_code=409, detail="Компания перемещения не определена")
     conn.autocommit = False
     try:
+        source_invoice_id = m.invoiceId
+        source_invoice_line_index = m.invoiceLineIndex
+        if source_invoice_id is not None or source_invoice_line_index is not None:
+            cur.execute("""SELECT id,number,project,location,items
+                           FROM warehouse_invoices
+                           WHERE id=%s AND company_id=%s
+                             AND COALESCE(status,'Принята') <> 'Аннулирована'""", (source_invoice_id, company_id))
+            invoice_row = cur.fetchone()
+            try:
+                from backend.features.material_traceability.service import ensure_source_quantity_available, resolve_invoice_line_source
+            except ModuleNotFoundError:
+                from features.material_traceability.service import ensure_source_quantity_available, resolve_invoice_line_source
+            try:
+                source_reference = resolve_invoice_line_source(source_invoice_id, source_invoice_line_index, invoice_row)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
+            invoice_location = (invoice_row.get("project") or "").strip() or (invoice_row.get("location") or "").strip()
+            if invoice_location != from_location:
+                raise HTTPException(status_code=400, detail="Выбранная строка накладной относится к другому складу или объекту")
+            try:
+                invoice_items = json.loads(invoice_row.get("items") or "[]")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                invoice_items = []
+            source_item = invoice_items[source_reference["invoiceLineIndex"]]
+            source_item_name = str((source_item or {}).get("name") or "").strip().lower()
+            source_item_unit = _norm_base_unit((source_item or {}).get("unit") or "шт") or "шт"
+            requested_unit = _norm_base_unit(m.unit or "") if (m.unit or "").strip() else source_item_unit
+            if source_item_name != material_name.lower() or source_item_unit != requested_unit:
+                raise HTTPException(status_code=400, detail="Выбранная строка накладной не совпадает с перемещаемым материалом")
+            cur.execute("""SELECT COALESCE(SUM(quantity),0) AS allocated_quantity
+                           FROM warehouse_movements
+                           WHERE company_id=%s AND source_invoice_id=%s AND source_invoice_line_index=%s""",
+                        (company_id, source_reference["invoiceId"], source_reference["invoiceLineIndex"]))
+            allocated_quantity = float((cur.fetchone() or {}).get("allocated_quantity") or 0)
+            try:
+                ensure_source_quantity_available(source_item, allocated_quantity, qty)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail="По выбранной строке накладной доступно " + str(exc) + " " + source_item_unit,
+                )
+            source_invoice_id = source_reference["invoiceId"]
+            source_invoice_line_index = source_reference["invoiceLineIndex"]
         source_price = 0
         source_category = ""
         source_unit = _norm_base_unit(m.unit or "") if (m.unit or "").strip() else ""
@@ -6918,23 +6965,30 @@ def create_warehouse_movement(
                             (material_name, source_unit, qty, source_price, 0, to_location, source_category, work_package, company_id))
 
         cur.execute("""INSERT INTO warehouse_movements
-                          (material_name,from_location,to_location,quantity,unit,work_package,date,created_by,notes,company_id)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING
+                          (material_name,from_location,to_location,quantity,unit,work_package,date,created_by,notes,company_id,
+                           source_invoice_id,source_invoice_line_index)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING
                           id,material_name as "materialName",from_location as "fromLocation",
                           to_location as "toLocation",quantity,unit,work_package as "workPackage",
-                          date,created_by as "createdBy",notes""",
-                    (material_name, from_location, to_location, qty, source_unit, work_package, m.date, m.createdBy or _current_user.get("name",""), m.notes, company_id))
+                          date,created_by as "createdBy",notes,source_invoice_id as "sourceInvoiceId",
+                          source_invoice_line_index as "sourceInvoiceLineIndex""",
+                    (material_name, from_location, to_location, qty, source_unit, work_package, m.date, m.createdBy or _current_user.get("name",""), m.notes, company_id,
+                     source_invoice_id, source_invoice_line_index))
         row = cur.fetchone()
         actor_name = m.createdBy or _current_user.get("name","")
         date_time = dt.datetime.now().strftime("%d.%m.%Y, %H:%M")
         cur.execute("""INSERT INTO warehouse_history
-                          (material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (material_name, "перемещение: списание", qty, source_unit, m.date or None, from_location, to_location, actor_name, work_package, date_time))
+                          (company_id,material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time,
+                           source_type,source_id,source_invoice_id,source_invoice_line_index)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (company_id, material_name, "перемещение: списание", qty, source_unit, m.date or None, from_location, to_location, actor_name, work_package, date_time,
+                     "warehouse_movement", row["id"], source_invoice_id, source_invoice_line_index))
         cur.execute("""INSERT INTO warehouse_history
-                          (material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (material_name, "перемещение: приход", qty, source_unit, m.date or None, to_location, from_location, actor_name, work_package, date_time))
+                          (company_id,material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time,
+                           source_type,source_id,source_invoice_id,source_invoice_line_index)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (company_id, material_name, "перемещение: приход", qty, source_unit, m.date or None, to_location, from_location, actor_name, work_package, date_time,
+                     "warehouse_movement", row["id"], source_invoice_id, source_invoice_line_index))
         conn.commit()
     except Exception:
         conn.rollback()

@@ -14,13 +14,16 @@ class MaterialTraceabilityReportTest(unittest.TestCase):
                 {"id": 2, "company_id": 1, "invoice_id": None, "invoice_line_index": None},
                 {"id": 3, "company_id": 1, "invoice_id": 10, "invoice_line_index": 3},
             ],
-            "warehouse_movements": [{"id": 4, "company_id": 1}],
+            "warehouse_movements": [
+                {"id": 4, "company_id": 1},
+                {"id": 7, "company_id": 1, "source_invoice_id": 10, "source_invoice_line_index": 0},
+            ],
             "warehouse_history": [
                 {"id": 5, "company_id": 1},
                 {"id": 6, "company_id": 1, "source_invoice_id": 10, "source_invoice_line_index": 0},
             ],
         })
-        self.assertEqual(report["summary"], {"totalRows": 6, "linked": 2, "unlinked": 3, "broken": 1})
+        self.assertEqual(report["summary"], {"totalRows": 7, "linked": 3, "unlinked": 3, "broken": 1})
         self.assertFalse(report["readyForStockCorrection"])
         self.assertEqual(report["writesAttempted"], 0)
         self.assertEqual(report["blockers"][0]["reason"], "receipt_not_selected")

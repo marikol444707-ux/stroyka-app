@@ -23,6 +23,7 @@ export default function WarehouseOperationsPanel({
   visibleActiveProjects,
   warehouseMain,
   materials,
+  warehouseInvoices = [],
   warehouseMovements,
   newMovement,
   setNewMovement,
@@ -66,6 +67,22 @@ export default function WarehouseOperationsPanel({
       ? warehouseMain
       : materials.filter(material => material.project === newMovement.fromLocation);
     const visibleSourceMaterials = compactRows ? sourceMaterials.slice(0, 40) : sourceMaterials;
+    const normalizeSourceText = (value) => String(value || '').trim().toLocaleLowerCase('ru-RU');
+    const sourceCandidatesForMaterial = (material) => (warehouseInvoices || []).flatMap((invoice) => {
+      const invoiceLocation = invoice.project || invoice.location || '';
+      if (invoiceLocation !== newMovement.fromLocation || invoice.status === 'Аннулирована') return [];
+      return (Array.isArray(invoice.items) ? invoice.items : []).flatMap((item, itemIndex) => (
+        normalizeSourceText(item?.name) === normalizeSourceText(material?.name)
+          && normalizeSourceText(item?.unit) === normalizeSourceText(material?.unit)
+          ? [{
+            key: `${invoice.id}:${itemIndex}`,
+            invoiceId: invoice.id,
+            invoiceLineIndex: itemIndex,
+            label: `Накладная № ${invoice.number || invoice.id} · ${item.quantity} ${item.unit || ''}`,
+          }]
+          : []
+      ));
+    });
     const movementMaterialKey = (material = {}) => [
       material.id || '',
       material.name || '',
@@ -122,6 +139,7 @@ export default function WarehouseOperationsPanel({
           {visibleSourceMaterials.map(material => {
             const materialKey = movementMaterialKey(material);
             const selected = newMovement.selectedMaterials?.find(item => movementMaterialKey(item) === materialKey);
+            const sourceCandidates = selected ? sourceCandidatesForMaterial(material) : [];
             return (
               <div
                 key={material.id}
@@ -146,7 +164,7 @@ export default function WarehouseOperationsPanel({
                       if (e.target.checked) {
                         setNewMovement(prev => ({
                           ...prev,
-                          selectedMaterials: [...(prev.selectedMaterials || []), { ...material, quantity: '' }],
+                          selectedMaterials: [...(prev.selectedMaterials || []), { ...material, quantity: '', invoiceId: null, invoiceLineIndex: null }],
                         }));
                         return;
                       }
@@ -169,7 +187,7 @@ export default function WarehouseOperationsPanel({
                     )}
                   </span>
                 </label>
-                {selected && (
+                {selected && <div style={{display:'grid',gap:'6px',width:compactRows ? '100%' : '190px',flex:'0 0 auto'}}>
                   <input
                     placeholder="Кол-во"
                     type="number"
@@ -183,15 +201,29 @@ export default function WarehouseOperationsPanel({
                       )),
                     }))}
                     style={{
-                      width: compactRows ? '100%' : '100px',
-                      boxSizing:'border-box',
-                      padding: '5px 8px',
-                      border: '1.5px solid ' + C.accent,
-                      borderRadius: '6px',
-                      fontSize: '12px',
+                      width: '100%', boxSizing:'border-box', padding: '5px 8px',
+                      border: '1.5px solid ' + C.accent, borderRadius: '6px', fontSize: '12px',
                     }}
                   />
-                )}
+                  {sourceCandidates.length > 0 && <select
+                    value={selected.invoiceId != null && selected.invoiceLineIndex != null ? `${selected.invoiceId}:${selected.invoiceLineIndex}` : ''}
+                    onChange={e => {
+                      const candidate = sourceCandidates.find(item => item.key === e.target.value);
+                      setNewMovement(prev => ({
+                        ...prev,
+                        selectedMaterials: prev.selectedMaterials.map(item => (
+                          movementMaterialKey(item) === materialKey
+                            ? {...item, invoiceId:candidate?.invoiceId ?? null, invoiceLineIndex:candidate?.invoiceLineIndex ?? null}
+                            : item
+                        )),
+                      }));
+                    }}
+                    style={{...inp,margin:0,padding:'5px 8px',fontSize:'11px',width:'100%',boxSizing:'border-box'}}
+                  >
+                    <option value="">Источник прихода: не выбран</option>
+                    {sourceCandidates.map(candidate => <option key={candidate.key} value={candidate.key}>{candidate.label}</option>)}
+                  </select>}
+                </div>}
               </div>
             );
           })}

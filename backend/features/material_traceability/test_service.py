@@ -1,6 +1,6 @@
 import unittest
 
-from .service import resolve_invoice_line_source
+from .service import ensure_source_quantity_available, resolve_invoice_line_source
 
 
 class InvoiceLineSourceTest(unittest.TestCase):
@@ -29,6 +29,11 @@ class InvoiceLineSourceTest(unittest.TestCase):
             resolve_invoice_line_source(12, None, None)
         with self.assertRaisesRegex(ValueError, "Строка материала"):
             resolve_invoice_line_source(12, 1, {"items": "[]"})
+
+    def test_rejects_reusing_more_than_the_receipt_line_quantity(self):
+        with self.assertRaisesRegex(ValueError, "25.0"):
+            ensure_source_quantity_available({"quantity": 100}, 75, 25.001)
+        self.assertEqual(ensure_source_quantity_available({"quantity": 100}, 75, 25), 25)
 
 
 if __name__ == "__main__":

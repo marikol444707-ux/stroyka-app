@@ -214,7 +214,7 @@ export const createWarehouseCrudActions = ({
     for (const item of selected) {
       if (!item.quantity||Number(item.quantity)<=0) continue;
       const itemWorkPackage = item.workPackage || item.work_package || newMovement.workPackage || '';
-      const res = await fetch(API+'/warehouse-movements',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({materialName:item.name,fromLocation:newMovement.fromLocation,toLocation:newMovement.toLocation,quantity:Number(item.quantity),unit:item.unit,workPackage:itemWorkPackage,date:new Date().toISOString().split('T')[0],createdBy:user.name,notes:newMovement.notes})});
+      const res = await fetch(API+'/warehouse-movements',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({materialName:item.name,fromLocation:newMovement.fromLocation,toLocation:newMovement.toLocation,quantity:Number(item.quantity),unit:item.unit,workPackage:itemWorkPackage,date:new Date().toISOString().split('T')[0],createdBy:user.name,notes:newMovement.notes,invoiceId:item.invoiceId ?? null,invoiceLineIndex:item.invoiceLineIndex ?? null})});
       if (!res.ok) {
         const err = await res.json().catch(()=>({}));
         alert(err.detail || 'Не удалось выполнить перемещение материала');

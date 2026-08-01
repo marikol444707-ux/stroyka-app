@@ -33,3 +33,16 @@ def resolve_invoice_line_source(invoice_id, invoice_line_index, invoice):
         "invoiceLineKey": f"warehouse_invoice:{invoice_id}:item:{invoice_line_index}",
         "invoiceNumber": str(invoice.get("number") or "").strip(),
     }
+
+
+def ensure_source_quantity_available(invoice_item, allocated_quantity, requested_quantity):
+    try:
+        line_quantity = float((invoice_item or {}).get("quantity") or 0)
+        allocated_quantity = float(allocated_quantity or 0)
+        requested_quantity = float(requested_quantity or 0)
+    except (TypeError, ValueError):
+        raise ValueError("Не удалось определить доступное количество по строке накладной")
+    available_quantity = max(0, line_quantity - allocated_quantity)
+    if requested_quantity > available_quantity + 0.000001:
+        raise ValueError(str(round(available_quantity, 6)))
+    return available_quantity

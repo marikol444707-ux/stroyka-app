@@ -278,6 +278,7 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [ ] Add a stock-affecting packaging correction only after future movements obtain a direct invoice-line link and a separate reconciliation design is approved.
 - [x] Add a read-only receipt-to-movement traceability report before changing warehouse movement schemas or stock data.
 - [x] Persist a verified receipt-line source for new object/main warehouse receipts and invoice-selected transfers; protected smoke verifies the main-warehouse receipt path. Generic warehouse movements remain a separate source-linking slice.
+- [x] Add an optional explicit receipt-line selection to new warehouse movements, with server validation of company, source location, material, unit and remaining linked quantity. Old movements remain untouched.
 
 ### Phase P4: Supply Reconnection
 
