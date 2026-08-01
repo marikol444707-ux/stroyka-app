@@ -276,6 +276,8 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [x] Route recognized supplier containers (cable coils, metal bundles, bags, boxes, drums and canisters) through one confirmed packaging rule with normalized base units; old receipts remain preview-only.
 - [x] Add director/deputy manual review confirmation with server-recomputed evidence and audit log; it never changes stock, invoices or history.
 - [ ] Add a stock-affecting packaging correction only after future movements obtain a direct invoice-line link and a separate reconciliation design is approved.
+- [x] Add a read-only receipt-to-movement traceability report before changing warehouse movement schemas or stock data.
+- [ ] Persist a verified receipt-line source for new object/main warehouse movements and transfers, then prove it with a protected smoke.
 
 ### Phase P4: Supply Reconnection
 
