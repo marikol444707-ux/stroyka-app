@@ -274,7 +274,8 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [x] Produce a read-only, item-level review list for existing active requests created from obsolete or ambiguous calculation rows.
 - [x] Keep all cleanup actions preview-only until director confirmation.
 - [x] Route recognized supplier containers (cable coils, metal bundles, bags, boxes, drums and canisters) through one confirmed packaging rule with normalized base units; old receipts remain preview-only.
-- [ ] Add an explicitly confirmed, audit-logged packaging correction only after the director reconciles every possible dependent movement.
+- [x] Add director/deputy manual review confirmation with server-recomputed evidence and audit log; it never changes stock, invoices or history.
+- [ ] Add a stock-affecting packaging correction only after future movements obtain a direct invoice-line link and a separate reconciliation design is approved.
 
 ### Phase P4: Supply Reconnection
 

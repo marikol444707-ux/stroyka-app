@@ -23324,6 +23324,7 @@ register_material_packaging_module(app, {
     "get_current_user": get_current_user,
     "resolve_work_company_context": _resolve_work_company_context,
     "effective_company_actors": effective_company_actors,
+    "log_audit": log_audit,
     "read_roles": WAREHOUSE_ROLES,
     "write_roles": MAIN_WAREHOUSE_WRITE_ROLES,
 })

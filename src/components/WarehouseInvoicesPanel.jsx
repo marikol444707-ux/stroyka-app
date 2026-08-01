@@ -19,6 +19,9 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
   const canManage = PACKAGING_RULE_ROLES.includes(String(user?.role || ''));
   const canPreviewHistoricalCorrection = ['директор', 'зам_директора'].includes(String(user?.role || ''));
   const [correctionPreviews, setCorrectionPreviews] = React.useState({});
+  const [reviewNotes, setReviewNotes] = React.useState({});
+  const [reviewConfirmations, setReviewConfirmations] = React.useState({});
+  const [reviewSubmittingKey, setReviewSubmittingKey] = React.useState('');
   const [correctionError, setCorrectionError] = React.useState('');
   const [correctionLoadingKey, setCorrectionLoadingKey] = React.useState('');
 
@@ -99,6 +102,24 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
       setCorrectionLoadingKey('');
     }
   };
+  const confirmHistoricalReview = async (row) => {
+    setCorrectionError('');
+    setReviewSubmittingKey(row.key);
+    try {
+      const response = await fetch(API + '/material-packaging-corrections/reviews', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({warehouseInvoiceId:row.invoice?.id, itemIndex:row.itemIndex, reviewNote:reviewNotes[row.key] || ''}),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.detail || 'Не удалось зафиксировать сверку');
+      setReviewConfirmations(current => ({...current, [row.key]:data}));
+    } catch (requestError) {
+      setCorrectionError(requestError?.message || 'Не удалось зафиксировать сверку');
+    } finally {
+      setReviewSubmittingKey('');
+    }
+  };
 
   return (
     <section style={{...card,padding:isMobile?'12px':'14px',marginBottom:'12px'}}>
@@ -142,6 +163,13 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
                     {correctionPreviews[row.key].dependencyCheck.reason} Текущий остаток в исходной единице: {correctionPreviews[row.key].dependencyCheck.currentBalance.quantity} {correctionPreviews[row.key].dependencyCheck.currentBalance.unit}.
                   </p>
                 )}
+                {correctionPreviews[row.key]?.preview && !reviewConfirmations[row.key] && (
+                  <div style={{display:'flex',gap:'6px',marginTop:'7px',alignItems:'center',flexWrap:'wrap'}}>
+                    <input value={reviewNotes[row.key] || ''} onChange={event => setReviewNotes(current => ({...current,[row.key]:event.target.value}))} placeholder="Итог ручной сверки" style={{...inp,flex:'1 1 220px',fontSize:'11px',padding:'6px 8px'}}/>
+                    <button type="button" onClick={() => confirmHistoricalReview(row)} disabled={reviewSubmittingKey === row.key} style={{...btnB,fontSize:'11px',padding:'5px 8px',opacity:reviewSubmittingKey === row.key ? 0.65 : 1}}>{reviewSubmittingKey === row.key ? 'Фиксирую…' : 'Зафиксировать сверку'}</button>
+                  </div>
+                )}
+                {reviewConfirmations[row.key] && <p style={{color:C.success,fontSize:'11px',margin:'6px 0 0'}}>Сверка сохранена. Остатки и накладная не изменены.</p>}
               </div>
             ))}
           </div>

@@ -4,6 +4,7 @@ from .routes import (
     _normalize_unit,
     build_packaging_correction_preview,
     build_packaging_dependency_check,
+    build_packaging_review_snapshot,
     normalize_invoice_packaging_items,
 )
 
@@ -117,6 +118,22 @@ class MaterialPackagingRulesTest(unittest.TestCase):
         self.assertEqual([row["id"] for row in report["possibleHistoryRows"]], [2])
         self.assertEqual([row["id"] for row in report["possibleMovementRows"]], [4])
         self.assertTrue(report["requiresManualReconciliation"])
+
+    def test_review_snapshot_preserves_evidence_without_a_stock_operation(self):
+        preview = build_packaging_correction_preview(
+            {"quantity": 2, "unit": "бухта"}, {"id": 14, "contentQuantity": 100, "baseUnit": "м"},
+        )
+        dependency = build_packaging_dependency_check(
+            storage_location="Основной склад", stored_unit="бухта", invoice_date="2026-07-10", current_balance=2,
+            history_rows=[], movement_rows=[],
+        )
+        snapshot = build_packaging_review_snapshot(
+            invoice={"id": 20, "number": "ПР-20", "date": "2026-07-10", "supplier_name": "Поставщик"},
+            item_index=1, material_name="Кабель", preview=preview, dependency_check=dependency,
+        )
+        self.assertEqual(snapshot["warehouseInvoiceId"], 20)
+        self.assertEqual(snapshot["preview"]["status"], "preview_only")
+        self.assertTrue(snapshot["dependencyCheck"]["requiresManualReconciliation"])
 
     def test_packaging_label_with_its_content_uses_packaging_rule(self):
         cursor = FakeCursor([{

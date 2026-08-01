@@ -169,6 +169,20 @@ def build_packaging_dependency_check(*, storage_location, stored_unit, invoice_d
     }
 
 
+def build_packaging_review_snapshot(*, invoice, item_index, material_name, preview, dependency_check):
+    """Keep immutable evidence of a manual review without creating a stock operation."""
+    return {
+        "warehouseInvoiceId": invoice.get("id"),
+        "invoiceNumber": invoice.get("number") or "",
+        "invoiceDate": str(invoice.get("date") or ""),
+        "supplierName": invoice.get("supplier_name") or "",
+        "itemIndex": item_index,
+        "materialName": material_name,
+        "preview": preview,
+        "dependencyCheck": dependency_check,
+    }
+
+
 def ensure_packaging_schema(cur):
     cur.execute(
         """CREATE TABLE IF NOT EXISTS material_packaging_rules (
@@ -190,6 +204,25 @@ def ensure_packaging_schema(cur):
     cur.execute(
         """CREATE UNIQUE INDEX IF NOT EXISTS idx_material_packaging_rule_identity
             ON material_packaging_rules(company_id, COALESCE(supplier_id, 0), material_key, document_unit)
+        """
+    )
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS material_packaging_reviews (
+            id SERIAL PRIMARY KEY,
+            company_id INT NOT NULL,
+            warehouse_invoice_id INT NOT NULL,
+            item_index INT NOT NULL,
+            packaging_rule_id INT NOT NULL,
+            status VARCHAR(40) NOT NULL DEFAULT 'reviewed_no_stock_change',
+            review_note TEXT NOT NULL,
+            snapshot JSONB NOT NULL,
+            reviewed_by VARCHAR(255),
+            reviewed_at TIMESTAMP DEFAULT NOW()
+        )"""
+    )
+    cur.execute(
+        """CREATE INDEX IF NOT EXISTS idx_material_packaging_reviews_invoice
+            ON material_packaging_reviews(company_id, warehouse_invoice_id, item_index, reviewed_at DESC)
         """
     )
 
@@ -281,6 +314,7 @@ def register_material_packaging_module(app, deps):
     get_current_user = deps["get_current_user"]
     resolve_work_company_context = deps["resolve_work_company_context"]
     effective_company_actors = deps["effective_company_actors"]
+    log_audit = deps["log_audit"]
     read_roles = {str(role or "").strip() for role in deps["read_roles"]}
     write_roles = {str(role or "").strip() for role in deps["write_roles"]}
     correction_roles = {"директор", "зам_директора"}
@@ -302,6 +336,90 @@ def register_material_packaging_module(app, deps):
         if mode != "read" and role not in write_roles:
             raise HTTPException(status_code=403, detail="Роль не позволяет менять правила упаковок")
         return actor, company_id
+
+    def correction_context(cur, company_id, invoice_id, item_index):
+        ensure_packaging_schema(cur)
+        cur.execute(
+            """SELECT id,company_id,number,date,supplier_id,supplier_name,items,status,project,location
+                 FROM warehouse_invoices
+                WHERE id=%s AND company_id=%s AND COALESCE(status,'Принята') <> 'Аннулирована'""",
+            (invoice_id, company_id),
+        )
+        invoice = cur.fetchone()
+        if not invoice:
+            raise HTTPException(status_code=404, detail="Накладная не найдена в выбранной компании")
+        try:
+            items = json.loads(invoice.get("items") or "[]")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            items = []
+        if not isinstance(items, list) or item_index >= len(items) or not isinstance(items[item_index], dict):
+            raise HTTPException(status_code=404, detail="Строка накладной не найдена")
+        item = dict(items[item_index])
+        if item.get("conversionStatus") == "confirmed":
+            raise HTTPException(status_code=409, detail="Эта строка уже была переведена по подтвержденному правилу")
+        name = _text(item.get("name"), 1000)
+        document_unit = _document_unit_key(item.get("documentUnit") or item.get("unit") or "шт")
+        if not name or not is_packaging_unit(item.get("documentUnit") or item.get("unit")):
+            raise HTTPException(status_code=409, detail="Строка не является упаковкой для пересчета")
+        cur.execute(
+            """SELECT * FROM material_packaging_rules
+                 WHERE company_id=%s AND status='confirmed'
+                   AND (supplier_id IS NULL OR supplier_id=%s)
+                 ORDER BY CASE WHEN supplier_id=%s THEN 0 ELSE 1 END, id DESC""",
+            (company_id, invoice.get("supplier_id"), invoice.get("supplier_id")),
+        )
+        rules = [_rule_row(row) for row in cur.fetchall() or []]
+        rule = next((row for row in rules if row["materialKey"] == material_key(name) and _normalize_unit(row["documentUnit"]) == document_unit), None)
+        if not rule:
+            raise HTTPException(status_code=409, detail="Для этой строки пока нет подтвержденного правила упаковки")
+        stored_unit = _text(item.get("unit") or item.get("documentUnit") or "шт", 50) or "шт"
+        storage_location = invoice.get("project") or invoice.get("location") or "Основной склад"
+        cur.execute(
+            """SELECT id,type,quantity,unit,date,issued_to,issued_by
+                 FROM warehouse_history
+                WHERE company_id=%s AND project=%s
+                  AND LOWER(TRIM(material))=LOWER(TRIM(%s))
+                  AND LOWER(TRIM(COALESCE(unit,'')))=LOWER(TRIM(%s))
+                ORDER BY id DESC""",
+            (company_id, storage_location, name, stored_unit),
+        )
+        history_rows = [dict(row) for row in cur.fetchall() or []]
+        cur.execute(
+            """SELECT id,from_location,to_location,quantity,unit,date
+                 FROM warehouse_movements
+                WHERE company_id=%s
+                  AND (from_location=%s OR to_location=%s)
+                  AND LOWER(TRIM(material_name))=LOWER(TRIM(%s))
+                  AND LOWER(TRIM(COALESCE(unit,'')))=LOWER(TRIM(%s))
+                ORDER BY id DESC""",
+            (company_id, storage_location, storage_location, name, stored_unit),
+        )
+        movement_rows = [dict(row) for row in cur.fetchall() or []]
+        if storage_location == "Основной склад":
+            cur.execute(
+                """SELECT COALESCE(SUM(quantity),0) AS quantity FROM warehouse_main
+                     WHERE company_id=%s AND LOWER(TRIM(name))=LOWER(TRIM(%s))
+                       AND LOWER(TRIM(COALESCE(unit,'')))=LOWER(TRIM(%s))""",
+                (company_id, name, stored_unit),
+            )
+        else:
+            cur.execute(
+                """SELECT COALESCE(SUM(quantity),0) AS quantity FROM materials
+                     WHERE company_id=%s AND project=%s AND LOWER(TRIM(name))=LOWER(TRIM(%s))
+                       AND LOWER(TRIM(COALESCE(unit,'')))=LOWER(TRIM(%s))""",
+                (company_id, storage_location, name, stored_unit),
+            )
+        current_balance_row = cur.fetchone() or {}
+        dependency_check = build_packaging_dependency_check(
+            storage_location=storage_location,
+            stored_unit=stored_unit,
+            invoice_date=invoice.get("date"),
+            current_balance=current_balance_row.get("quantity"),
+            history_rows=history_rows,
+            movement_rows=movement_rows,
+        )
+        preview = build_packaging_correction_preview(item, rule)
+        return {"invoice": invoice, "item": item, "materialName": name, "rule": rule, "preview": preview, "dependencyCheck": dependency_check}
 
     @app.get("/material-packaging-rules")
     def list_material_packaging_rules(
@@ -389,86 +507,8 @@ def register_material_packaging_module(app, deps):
             actor, company_id = selected_actor(cur, current_user, "write", x_company_id, x_company_mode)
             if _text(actor.get("role"), 100) not in correction_roles:
                 raise HTTPException(status_code=403, detail="Предпросмотр корректировки старого прихода доступен директору или заместителю")
-            ensure_packaging_schema(cur)
-            cur.execute(
-                """SELECT id,company_id,number,date,supplier_id,supplier_name,items,status
-                     FROM warehouse_invoices
-                    WHERE id=%s AND company_id=%s AND COALESCE(status,'Принята') <> 'Аннулирована'""",
-                (invoice_id, company_id),
-            )
-            invoice = cur.fetchone()
-            if not invoice:
-                raise HTTPException(status_code=404, detail="Накладная не найдена в выбранной компании")
-            try:
-                items = json.loads(invoice.get("items") or "[]")
-            except (TypeError, ValueError, json.JSONDecodeError):
-                items = []
-            if not isinstance(items, list) or item_index >= len(items) or not isinstance(items[item_index], dict):
-                raise HTTPException(status_code=404, detail="Строка накладной не найдена")
-            item = dict(items[item_index])
-            if item.get("conversionStatus") == "confirmed":
-                raise HTTPException(status_code=409, detail="Эта строка уже была переведена по подтвержденному правилу")
-            name = _text(item.get("name"), 1000)
-            document_unit = _document_unit_key(item.get("documentUnit") or item.get("unit") or "шт")
-            if not name or not is_packaging_unit(item.get("documentUnit") or item.get("unit")):
-                raise HTTPException(status_code=409, detail="Строка не является упаковкой для пересчета")
-            cur.execute(
-                """SELECT * FROM material_packaging_rules
-                     WHERE company_id=%s AND status='confirmed'
-                       AND (supplier_id IS NULL OR supplier_id=%s)
-                     ORDER BY CASE WHEN supplier_id=%s THEN 0 ELSE 1 END, id DESC""",
-                (company_id, invoice.get("supplier_id"), invoice.get("supplier_id")),
-            )
-            rules = [_rule_row(row) for row in cur.fetchall() or []]
-            rule = next((row for row in rules if row["materialKey"] == material_key(name) and _normalize_unit(row["documentUnit"]) == document_unit), None)
-            if not rule:
-                raise HTTPException(status_code=409, detail="Для этой строки пока нет подтвержденного правила упаковки")
-            stored_unit = _text(item.get("unit") or item.get("documentUnit") or "шт", 50) or "шт"
-            storage_location = invoice.get("project") or invoice.get("location") or "Основной склад"
-            cur.execute(
-                """SELECT id,type,quantity,unit,date,issued_to,issued_by
-                     FROM warehouse_history
-                    WHERE company_id=%s AND project=%s
-                      AND LOWER(TRIM(material))=LOWER(TRIM(%s))
-                      AND LOWER(TRIM(COALESCE(unit,'')))=LOWER(TRIM(%s))
-                    ORDER BY id DESC""",
-                (company_id, storage_location, name, stored_unit),
-            )
-            history_rows = [dict(row) for row in cur.fetchall() or []]
-            cur.execute(
-                """SELECT id,from_location,to_location,quantity,unit,date
-                     FROM warehouse_movements
-                    WHERE company_id=%s
-                      AND (from_location=%s OR to_location=%s)
-                      AND LOWER(TRIM(material_name))=LOWER(TRIM(%s))
-                      AND LOWER(TRIM(COALESCE(unit,'')))=LOWER(TRIM(%s))
-                    ORDER BY id DESC""",
-                (company_id, storage_location, storage_location, name, stored_unit),
-            )
-            movement_rows = [dict(row) for row in cur.fetchall() or []]
-            if storage_location == "Основной склад":
-                cur.execute(
-                    """SELECT COALESCE(SUM(quantity),0) AS quantity FROM warehouse_main
-                         WHERE company_id=%s AND LOWER(TRIM(name))=LOWER(TRIM(%s))
-                           AND LOWER(TRIM(COALESCE(unit,'')))=LOWER(TRIM(%s))""",
-                    (company_id, name, stored_unit),
-                )
-            else:
-                cur.execute(
-                    """SELECT COALESCE(SUM(quantity),0) AS quantity FROM materials
-                         WHERE company_id=%s AND project=%s AND LOWER(TRIM(name))=LOWER(TRIM(%s))
-                           AND LOWER(TRIM(COALESCE(unit,'')))=LOWER(TRIM(%s))""",
-                    (company_id, storage_location, name, stored_unit),
-                )
-            current_balance_row = cur.fetchone() or {}
-            dependency_check = build_packaging_dependency_check(
-                storage_location=storage_location,
-                stored_unit=stored_unit,
-                invoice_date=invoice.get("date"),
-                current_balance=current_balance_row.get("quantity"),
-                history_rows=history_rows,
-                movement_rows=movement_rows,
-            )
+            context = correction_context(cur, company_id, invoice_id, item_index)
+            invoice = context["invoice"]
             return {
                 "ok": True,
                 "warehouseInvoiceId": invoice_id,
@@ -478,9 +518,61 @@ def register_material_packaging_module(app, deps):
                     "date": str(invoice.get("date")) if invoice.get("date") else "",
                     "supplierName": invoice.get("supplier_name") or "",
                 },
-                "materialName": name,
-                "preview": build_packaging_correction_preview(item, rule),
-                "dependencyCheck": dependency_check,
+                "materialName": context["materialName"],
+                "preview": context["preview"],
+                "dependencyCheck": context["dependencyCheck"],
             }
         finally:
             cur.close(); conn.close()
+
+    @app.post("/material-packaging-corrections/reviews")
+    def confirm_material_packaging_review(
+        data: dict,
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
+        invoice_id = _positive_int((data or {}).get("warehouseInvoiceId") or (data or {}).get("warehouse_invoice_id"))
+        try:
+            item_index = int((data or {}).get("itemIndex") if (data or {}).get("itemIndex") is not None else (data or {}).get("item_index"))
+        except (TypeError, ValueError):
+            item_index = -1
+        review_note = _text((data or {}).get("reviewNote") or (data or {}).get("review_note"), 2000)
+        if not invoice_id or item_index < 0:
+            raise HTTPException(status_code=400, detail="Укажите накладную и строку для сверки")
+        if len(review_note) < 8:
+            raise HTTPException(status_code=400, detail="Опишите результат ручной сверки не менее чем в 8 символах")
+        conn = get_db(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            actor, company_id = selected_actor(cur, current_user, "write", x_company_id, x_company_mode)
+            if _text(actor.get("role"), 100) not in correction_roles:
+                raise HTTPException(status_code=403, detail="Фиксировать сверку старого прихода может директор или заместитель")
+            context = correction_context(cur, company_id, invoice_id, item_index)
+            snapshot = build_packaging_review_snapshot(
+                invoice=context["invoice"], item_index=item_index, material_name=context["materialName"],
+                preview=context["preview"], dependency_check=context["dependencyCheck"],
+            )
+            cur.execute(
+                """INSERT INTO material_packaging_reviews
+                    (company_id,warehouse_invoice_id,item_index,packaging_rule_id,review_note,snapshot,reviewed_by)
+                   VALUES (%s,%s,%s,%s,%s,%s::jsonb,%s) RETURNING id,reviewed_at""",
+                (company_id, invoice_id, item_index, context["rule"]["id"], review_note,
+                 json.dumps(snapshot, ensure_ascii=False), _text(actor.get("name") or actor.get("email"), 255)),
+            )
+            review = cur.fetchone(); conn.commit()
+        except Exception:
+            conn.rollback(); raise
+        finally:
+            cur.close(); conn.close()
+        log_audit(
+            user_name=_text(actor.get("name") or actor.get("email"), 255), user_role=_text(actor.get("role"), 100),
+            action="review", entity_type="material_packaging_review", entity_id=review.get("id"),
+            description="Зафиксирована ручная сверка упаковки без изменения остатка", project_name=context["invoice"].get("project") or "",
+            company_id=company_id,
+        )
+        return {
+            "ok": True,
+            "review": {"id": review.get("id"), "status": "reviewed_no_stock_change", "reviewedAt": review.get("reviewed_at").isoformat() if review.get("reviewed_at") else ""},
+            "message": "Сверка зафиксирована. Остатки, накладная и история движений не изменены.",
+            "preview": context["preview"], "dependencyCheck": context["dependencyCheck"],
+        }
