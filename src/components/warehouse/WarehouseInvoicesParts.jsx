@@ -389,6 +389,7 @@ export function WarehouseInvoiceCard({
   isMobile = false,
 }) {
   const items = invoiceRows.items;
+  const packagingReviewItems = items.filter(item => item?.conversionStatus === 'needs_review');
   const isPdfUrl = (url) => /\.pdf(?:$|[?#])/i.test(String(url || ''));
   const toNum = value => {
     const parsed = Number(String(value ?? '').replace(',', '.').replace(/\s+/g, ''));
@@ -459,6 +460,7 @@ export function WarehouseInvoiceCard({
           <p style={{color:C.textSec,margin:'0',fontSize:'12px'}}>{'Принял: '+inv.acceptedBy+' · '+inv.vat+' · позиций: '+items.length}</p>
           {inv.accountingRequired === false && <p style={{color:C.success,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>Без поставщика · не является документом к оплате</p>}
           {inv.status && <p style={{color:inv.status==='Аннулирована'?C.danger:C.textSec,margin:'2px 0 0',fontSize:'11px',fontWeight:'700'}}>{'Статус: '+inv.status}</p>}
+          {packagingReviewItems.length > 0 && <p style={{color:C.warning,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>Упаковок на проверке: {packagingReviewItems.length} · пока учтена единица документа</p>}
           {isSupplyDeliveryInvoice(inv) && <p style={{color:C.success,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>Из поставки снабжения #{inv.supplyDeliveryId||inv.sourceId}{inv.supplyRequestId?' · заявка #'+inv.supplyRequestId:''}</p>}
           {inv.sourceType === 'manual_project_invoice' && <p style={{color:C.info,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>Ручной приход на объект · прямой заказ / распоряжение директора</p>}
           {invoiceRows.reconstructed && <p style={{color:C.warning,margin:'2px 0 0',fontSize:'11px'}}>Строки восстановлены из {invoiceRows.source}</p>}
@@ -509,6 +511,7 @@ export function WarehouseInvoiceCard({
                       {renderControlBadge(ctrl)}
                     </div>
                     {item.invoiceOriginalName && item.invoiceOriginalName !== item.name && <p style={{color:C.textMuted,fontSize:'11px',margin:'2px 0 0'}}>Из накладной: {item.invoiceOriginalName}</p>}
+                    {item.conversionStatus === 'needs_review' && <p style={{color:C.warning,fontSize:'11px',margin:'2px 0 0',fontWeight:'700'}}>Проверить упаковку: {item.documentQuantity ?? item.quantity} {item.documentUnit || item.unit || ''} · {item.conversionReviewReason || 'Нет подтвержденного правила'}</p>}
                     {ctrl.canonicalName && ctrl.canonicalName !== item.name && <p style={{color:C.info,fontSize:'11px',margin:'2px 0 0'}}>Смета: {ctrl.canonicalName}</p>}
                     {ctrl.planSourceCount > 0 && <p style={{color:C.textMuted,fontSize:'11px',margin:'2px 0 0'}}>Сгруппировано из {ctrl.planSourceCount} строк сметы</p>}
                     {ctrl.sectionsList?.length > 0 && <p style={{color:C.textMuted,fontSize:'11px',margin:'2px 0 0'}}>{ctrl.sectionsList.slice(0,2).join(' · ')}{ctrl.sectionsList.length > 2 ? '…' : ''}</p>}
@@ -559,6 +562,7 @@ export function WarehouseInvoiceCard({
                         <td style={tblC}>
                           <b style={{fontSize:'11px'}}>{item.name || ''}</b>
                           {item.invoiceOriginalName && item.invoiceOriginalName !== item.name && <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>Из накладной: {item.invoiceOriginalName}</p>}
+                          {item.conversionStatus === 'needs_review' && <p style={{color:C.warning,fontSize:'10px',margin:'2px 0 0',fontWeight:'700'}}>Проверить упаковку: {item.documentQuantity ?? item.quantity} {item.documentUnit || item.unit || ''} · {item.conversionReviewReason || 'Нет подтвержденного правила'}</p>}
                           {ctrl.canonicalName && ctrl.canonicalName !== item.name && <p style={{color:C.info,fontSize:'10px',margin:'2px 0 0'}}>Смета: {ctrl.canonicalName}</p>}
                           {ctrl.planSourceCount > 0 && <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>Сгруппировано из {ctrl.planSourceCount} строк сметы</p>}
                           {ctrl.sectionsList?.length > 0 && <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{ctrl.sectionsList.slice(0,2).join(' · ')}{ctrl.sectionsList.length > 2 ? '…' : ''}</p>}

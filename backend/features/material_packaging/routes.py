@@ -48,6 +48,15 @@ def _document_unit_key(value):
     return aliases.get(match.group(1).rstrip("."), match.group(1).rstrip("."))
 
 
+def is_packaging_unit(value):
+    """Return true only for document units that explicitly describe a package."""
+    unit = _normalize_unit(value)
+    return bool(re.match(
+        r"^(уп(?:ак)?|пач(?:ка)?|кор(?:об(?:ка)?)?|бухт(?:а)?|бобин(?:а)?|палет(?:а)?|рулон)\.?($|\s|\d)",
+        unit,
+    ))
+
+
 def ensure_packaging_schema(cur):
     cur.execute(
         """CREATE TABLE IF NOT EXISTS material_packaging_rules (
@@ -118,6 +127,18 @@ def normalize_invoice_packaging_items(cur, items, *, company_id, supplier_id=Non
         quantity = _number(item.get("quantity"), 0)
         rule = lookup.get((material_key(name), document_unit_key))
         if not rule or quantity <= 0:
+            # Preserve the received stock in its document unit. A package cannot
+            # silently close an estimate need expressed in meters, kilograms, etc.
+            if quantity > 0 and is_packaging_unit(document_unit):
+                document_price = _number(item.get("price"), 0)
+                item.update({
+                    "documentQuantity": quantity,
+                    "documentUnit": document_unit,
+                    "documentPrice": document_price,
+                    "conversionStatus": "needs_review",
+                    "conversionSource": "packaging_rule_missing",
+                    "conversionReviewReason": "Не найдено подтвержденное правило содержимого упаковки",
+                })
             normalized.append(item)
             continue
         base_quantity = round(quantity * rule["contentQuantity"], 6)

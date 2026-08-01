@@ -389,6 +389,13 @@ export default function WarehouseInvoicesPanel({
     () => (invoices || []).reduce((sum, inv) => sum + invoiceQuickItems(inv).length, 0),
     [invoices, invoiceQuickItems],
   );
+  const packagingReviewCount = React.useMemo(
+    () => (invoices || []).reduce(
+      (sum, inv) => sum + invoiceQuickItems(inv).filter(item => item?.conversionStatus === 'needs_review').length,
+      0,
+    ),
+    [invoices, invoiceQuickItems],
+  );
   const filteredPositions = filteredInvoiceRows.reduce((sum, row) => sum + row.quickPositionCount, 0);
 
   React.useEffect(() => {
@@ -432,7 +439,7 @@ export default function WarehouseInvoicesPanel({
         <button onClick={() => setShowForm(!showForm)} style={btnO}><Plus size={14}/>Новая накладная</button>
       </div>
 
-      <div style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,minmax(0,1fr))':'repeat(4,minmax(0,1fr))',gap:'8px',marginBottom:'12px'}}>
+      <div style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,minmax(0,1fr))':'repeat(5,minmax(0,1fr))',gap:'8px',marginBottom:'12px'}}>
         <div style={{padding:'10px',border:'1px solid '+C.border,borderRadius:'10px',backgroundColor:C.bg}}>
           <p style={{margin:'0 0 3px',fontSize:'10px',color:C.textSec}}>Накладных</p>
           <b style={{color:C.text,fontSize:'15px'}}>{filteredInvoiceRows.length}</b>
@@ -449,11 +456,22 @@ export default function WarehouseInvoicesPanel({
           <p style={{margin:'0 0 3px',fontSize:'10px',color:C.textSec}}>Показано</p>
           <b style={{color:C.text,fontSize:'15px'}}>{preparedInvoices.length}/{filteredInvoiceRows.length}</b>
         </div>
+        <div style={{padding:'10px',border:'1px solid '+(packagingReviewCount ? C.warningBorder : C.border),borderRadius:'10px',backgroundColor:packagingReviewCount ? C.warningLight : C.bg}}>
+          <p style={{margin:'0 0 3px',fontSize:'10px',color:C.textSec}}>Упаковок проверить</p>
+          <b style={{color:packagingReviewCount ? C.warning : C.success,fontSize:'15px'}}>{packagingReviewCount}</b>
+        </div>
       </div>
       {totalPositions > 0 && (
-        <p style={{color:C.textMuted,fontSize:'11px',margin:'-6px 0 10px'}}>
-          Всего сохранённых строк по накладным: {totalPositions}. Детальная сверка считается только для показанных карточек.
-        </p>
+        <div style={{margin:'-6px 0 10px'}}>
+          <p style={{color:C.textMuted,fontSize:'11px',margin:0}}>
+            Всего сохранённых строк по накладным: {totalPositions}. Детальная сверка считается только для показанных карточек.
+          </p>
+          {packagingReviewCount > 0 && (
+            <p style={{color:C.warning,fontSize:'11px',margin:'4px 0 0',fontWeight:'700'}}>
+              Строки с неизвестной упаковкой остаются в единице документа и не закрывают метры, килограммы или тонны по смете до подтверждения правила.
+            </p>
+          )}
+        </div>
       )}
 
       <PackagingRulesPanel

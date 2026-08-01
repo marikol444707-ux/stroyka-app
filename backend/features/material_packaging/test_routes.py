@@ -35,9 +35,18 @@ class MaterialPackagingRulesTest(unittest.TestCase):
         self.assertEqual(item["total"], 30000)
         self.assertEqual(item["conversionStatus"], "confirmed")
 
-    def test_unknown_or_unconfirmed_item_stays_as_in_document(self):
+    def test_unknown_packaging_stays_in_document_unit_and_requires_review(self):
         cursor = FakeCursor([])
         source = {"name": "Арматура A500C", "quantity": 4, "unit": "пач", "price": 50000}
+        item = normalize_invoice_packaging_items(cursor, [source], company_id=1)[0]
+        self.assertEqual(item["quantity"], 4)
+        self.assertEqual(item["unit"], "пач")
+        self.assertEqual(item["conversionStatus"], "needs_review")
+        self.assertEqual(item["conversionReviewReason"], "Не найдено подтвержденное правило содержимого упаковки")
+
+    def test_direct_non_packaged_item_does_not_enter_packaging_review(self):
+        cursor = FakeCursor([])
+        source = {"name": "Муфта противопожарная", "quantity": 10, "unit": "шт", "price": 500}
         self.assertEqual(normalize_invoice_packaging_items(cursor, [source], company_id=1), [source])
 
     def test_packaging_label_with_its_content_uses_packaging_rule(self):
