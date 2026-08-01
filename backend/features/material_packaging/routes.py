@@ -228,6 +228,32 @@ def build_packaging_review_snapshot(*, invoice, item_index, material_name, previ
     }
 
 
+def packaging_review_row(row):
+    snapshot = row.get("snapshot") or {}
+    if isinstance(snapshot, str):
+        try:
+            snapshot = json.loads(snapshot)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            snapshot = {}
+    if not isinstance(snapshot, dict):
+        snapshot = {}
+    traceability = snapshot.get("traceabilityStatus") or {}
+    return {
+        "id": row.get("id"),
+        "warehouseInvoiceId": row.get("warehouse_invoice_id"),
+        "invoiceNumber": row.get("number") or snapshot.get("invoiceNumber") or "",
+        "supplierName": row.get("supplier_name") or snapshot.get("supplierName") or "",
+        "itemIndex": row.get("item_index"),
+        "materialName": snapshot.get("materialName") or "",
+        "packagingRuleId": row.get("packaging_rule_id"),
+        "status": row.get("status") or "reviewed_no_stock_change",
+        "reviewNote": row.get("review_note") or "",
+        "reviewedBy": row.get("reviewed_by") or "",
+        "reviewedAt": row.get("reviewed_at").isoformat() if row.get("reviewed_at") else "",
+        "traceabilityState": traceability.get("state") or "unknown",
+    }
+
+
 def ensure_packaging_schema(cur):
     cur.execute(
         """CREATE TABLE IF NOT EXISTS material_packaging_rules (
@@ -492,6 +518,32 @@ def register_material_packaging_module(app, deps):
                 where.append("supplier_id=%s"); params.append(supplier_id)
             cur.execute("SELECT * FROM material_packaging_rules WHERE " + " AND ".join(where) + " ORDER BY material_name,id", tuple(params))
             return [_rule_row(row) for row in cur.fetchall() or []]
+        finally:
+            cur.close(); conn.close()
+
+    @app.get("/material-packaging-reviews")
+    def list_material_packaging_reviews(
+        limit: int = 30,
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
+        conn = get_db(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            actor, company_id = selected_actor(cur, current_user, "read", x_company_id, x_company_mode)
+            if _text(actor.get("role"), 100) not in correction_roles:
+                raise HTTPException(status_code=403, detail="Реестр ручных сверок упаковок доступен директору или заместителю")
+            ensure_packaging_schema(cur); conn.commit()
+            cur.execute(
+                """SELECT r.*,wi.number,wi.supplier_name
+                     FROM material_packaging_reviews r
+                     LEFT JOIN warehouse_invoices wi ON wi.id=r.warehouse_invoice_id AND wi.company_id=r.company_id
+                    WHERE r.company_id=%s
+                    ORDER BY r.reviewed_at DESC,r.id DESC
+                    LIMIT %s""",
+                (company_id, min(max(int(limit or 30), 1), 100)),
+            )
+            return [packaging_review_row(row) for row in cur.fetchall() or []]
         finally:
             cur.close(); conn.close()
 

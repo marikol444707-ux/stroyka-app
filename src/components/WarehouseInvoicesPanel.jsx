@@ -21,6 +21,7 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
   const [correctionPreviews, setCorrectionPreviews] = React.useState({});
   const [reviewNotes, setReviewNotes] = React.useState({});
   const [reviewConfirmations, setReviewConfirmations] = React.useState({});
+  const [savedReviews, setSavedReviews] = React.useState([]);
   const [reviewSubmittingKey, setReviewSubmittingKey] = React.useState('');
   const [correctionError, setCorrectionError] = React.useState('');
   const [correctionLoadingKey, setCorrectionLoadingKey] = React.useState('');
@@ -40,9 +41,24 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
     }
   }, []);
 
+  const loadSavedReviews = React.useCallback(async () => {
+    if (!canPreviewHistoricalCorrection) return;
+    try {
+      const response = await fetch(API + '/material-packaging-reviews?limit=20');
+      const data = await response.json().catch(() => ([]));
+      if (!response.ok) throw new Error(data?.detail || 'Не удалось загрузить реестр сверок');
+      setSavedReviews(Array.isArray(data) ? data : []);
+    } catch (requestError) {
+      setError(requestError?.message || 'Не удалось загрузить реестр сверок');
+    }
+  }, [canPreviewHistoricalCorrection]);
+
   React.useEffect(() => {
-    if (isOpen) loadRules();
-  }, [isOpen, loadRules]);
+    if (isOpen) {
+      loadRules();
+      loadSavedReviews();
+    }
+  }, [isOpen, loadRules, loadSavedReviews]);
 
   const saveRule = async (event) => {
     event.preventDefault();
@@ -114,6 +130,7 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.detail || 'Не удалось зафиксировать сверку');
       setReviewConfirmations(current => ({...current, [row.key]:data}));
+      await loadSavedReviews();
     } catch (requestError) {
       setCorrectionError(requestError?.message || 'Не удалось зафиксировать сверку');
     } finally {
@@ -229,6 +246,25 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
                   <span style={{color:C.textMuted,fontSize:'11px'}}>{rule.supplierId ? supplierName(rule.supplierId) || 'Поставщик #' + rule.supplierId : 'Все поставщики'}</span>
                 </div>
               ))}
+            </div>
+          )}
+          {canPreviewHistoricalCorrection && (
+            <div style={{marginTop:'14px',paddingTop:'12px',borderTop:'1px solid '+C.border}}>
+              <b style={{color:C.text,fontSize:'12px'}}>Ручные сверки без изменения остатков: {savedReviews.length}</b>
+              {savedReviews.length === 0 ? (
+                <p style={{color:C.textSec,fontSize:'11px',margin:'6px 0 0'}}>Зафиксированных сверок пока нет.</p>
+              ) : (
+                <div style={{display:'grid',gap:'6px',marginTop:'8px'}}>
+                  {savedReviews.map(review => (
+                    <div key={review.id} style={{padding:'8px',backgroundColor:C.bg,border:'1px solid '+C.border,borderRadius:'8px'}}>
+                      <b style={{display:'block',color:C.text,fontSize:'12px',overflowWrap:'anywhere'}}>{review.materialName || 'Материал'} · накладная № {review.invoiceNumber || review.warehouseInvoiceId}</b>
+                      <span style={{display:'block',color:C.textSec,fontSize:'11px',marginTop:'3px'}}>Проверил: {review.reviewedBy || 'не указан'} · {review.reviewedAt ? new Date(review.reviewedAt).toLocaleString('ru-RU') : 'дата не указана'}</span>
+                      <span style={{display:'block',color:C.warning,fontSize:'11px',marginTop:'3px'}}>Статус цепочки: {review.traceabilityState}. Остатки не изменены.</span>
+                      <span style={{display:'block',color:C.textSec,fontSize:'11px',marginTop:'3px',overflowWrap:'anywhere'}}>{review.reviewNote}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

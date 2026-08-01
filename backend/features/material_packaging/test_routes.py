@@ -6,6 +6,7 @@ from .routes import (
     build_packaging_dependency_check,
     build_packaging_traceability_status,
     build_packaging_review_snapshot,
+    packaging_review_row,
     normalize_invoice_packaging_items,
 )
 
@@ -164,6 +165,19 @@ class MaterialPackagingRulesTest(unittest.TestCase):
         self.assertEqual(snapshot["warehouseInvoiceId"], 20)
         self.assertEqual(snapshot["preview"]["status"], "preview_only")
         self.assertTrue(snapshot["dependencyCheck"]["requiresManualReconciliation"])
+
+    def test_packaging_review_row_exposes_only_manual_review_evidence(self):
+        row = packaging_review_row({
+            "id": 7, "warehouse_invoice_id": 20, "item_index": 1,
+            "packaging_rule_id": 14, "status": "reviewed_no_stock_change",
+            "review_note": "Сверили документ и остаток вручную.", "reviewed_by": "Директор",
+            "reviewed_at": None, "number": "ПР-20", "supplier_name": "Поставщик",
+            "snapshot": {"materialName": "Кабель", "traceabilityStatus": {"state": "legacy_unlinked"}},
+        })
+        self.assertEqual(row["warehouseInvoiceId"], 20)
+        self.assertEqual(row["materialName"], "Кабель")
+        self.assertEqual(row["traceabilityState"], "legacy_unlinked")
+        self.assertEqual(row["status"], "reviewed_no_stock_change")
 
     def test_packaging_label_with_its_content_uses_packaging_rule(self):
         cursor = FakeCursor([{

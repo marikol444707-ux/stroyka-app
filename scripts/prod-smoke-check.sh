@@ -177,6 +177,7 @@ check_not_spa_fallback "AI task reports route" "$BASE_URL/ai-tasks/1/reports" "4
 check_not_spa_fallback "project events route" "$BASE_URL/project-events?project_name=smoke" "401 403"
 check_not_spa_fallback "material packaging rules route" "$BASE_URL/material-packaging-rules" "401 403"
 check_post_not_spa_fallback "material packaging correction preview route" "$BASE_URL/material-packaging-corrections/preview" "401 403 422 429"
+check_not_spa_fallback "material packaging reviews route" "$BASE_URL/material-packaging-reviews" "401 403"
 check_not_spa_fallback "AI control single run route" "$BASE_URL/ai-control/run" "405"
 check_not_spa_fallback "AI findings generate route" "$BASE_URL/ai-findings/generate" "405"
 check_not_spa_fallback "AI control run-all route" "$BASE_URL/ai-control/run-all" "405"

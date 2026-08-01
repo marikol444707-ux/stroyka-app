@@ -280,6 +280,7 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [x] Persist a verified receipt-line source for new object/main warehouse receipts and invoice-selected transfers; protected smoke verifies the main-warehouse receipt path. Generic warehouse movements remain a separate source-linking slice.
 - [x] Add an optional explicit receipt-line selection to new warehouse movements, with server validation of company, source location, material, unit and remaining linked quantity. Old movements remain untouched.
 - [x] Show read-only packaging traceability state in the historical correction preview; a matching name never substitutes for a saved invoice-line source.
+- [x] Add a director/deputy read-only registry of historical packaging reviews with immutable review evidence.
 
 ### Phase P4: Supply Reconnection
 
