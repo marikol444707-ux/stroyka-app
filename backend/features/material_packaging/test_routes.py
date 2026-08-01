@@ -4,6 +4,7 @@ from .routes import (
     _normalize_unit,
     build_packaging_correction_preview,
     build_packaging_dependency_check,
+    build_packaging_traceability_status,
     build_packaging_review_snapshot,
     normalize_invoice_packaging_items,
 )
@@ -119,6 +120,34 @@ class MaterialPackagingRulesTest(unittest.TestCase):
         self.assertEqual([row["id"] for row in report["possibleMovementRows"]], [4])
         self.assertTrue(report["requiresManualReconciliation"])
 
+    def test_traceability_status_never_treats_legacy_name_match_as_invoice_link(self):
+        status = build_packaging_traceability_status(
+            invoice_id=20,
+            item_index=1,
+            history_rows=[
+                {"id": 3, "type": "приход", "source_invoice_id": None, "source_invoice_line_index": None},
+                {"id": 4, "type": "выдача", "source_invoice_id": None, "source_invoice_line_index": None},
+            ],
+            movement_rows=[],
+        )
+        self.assertEqual(status["state"], "legacy_unlinked")
+        self.assertFalse(status["receiptSourceLinked"])
+        self.assertTrue(status["requiresManualReconciliation"])
+
+    def test_traceability_status_marks_linked_receipt_with_untraced_followup(self):
+        status = build_packaging_traceability_status(
+            invoice_id=20,
+            item_index=1,
+            history_rows=[
+                {"id": 3, "type": "приход", "source_invoice_id": 20, "source_invoice_line_index": 1},
+                {"id": 4, "type": "выдача", "source_invoice_id": None, "source_invoice_line_index": None},
+            ],
+            movement_rows=[],
+        )
+        self.assertEqual(status["state"], "linked_with_untraced_dependencies")
+        self.assertTrue(status["receiptSourceLinked"])
+        self.assertEqual(status["untracedDependencyCount"], 1)
+
     def test_review_snapshot_preserves_evidence_without_a_stock_operation(self):
         preview = build_packaging_correction_preview(
             {"quantity": 2, "unit": "бухта"}, {"id": 14, "contentQuantity": 100, "baseUnit": "м"},
@@ -130,6 +159,7 @@ class MaterialPackagingRulesTest(unittest.TestCase):
         snapshot = build_packaging_review_snapshot(
             invoice={"id": 20, "number": "ПР-20", "date": "2026-07-10", "supplier_name": "Поставщик"},
             item_index=1, material_name="Кабель", preview=preview, dependency_check=dependency,
+            traceability_status={"state": "legacy_unlinked", "requiresManualReconciliation": True},
         )
         self.assertEqual(snapshot["warehouseInvoiceId"], 20)
         self.assertEqual(snapshot["preview"]["status"], "preview_only")

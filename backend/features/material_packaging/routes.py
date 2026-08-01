@@ -169,7 +169,51 @@ def build_packaging_dependency_check(*, storage_location, stored_unit, invoice_d
     }
 
 
-def build_packaging_review_snapshot(*, invoice, item_index, material_name, preview, dependency_check):
+def build_packaging_traceability_status(*, invoice_id, item_index, history_rows, movement_rows):
+    """Classify evidence links without inferring a legacy chain from matching names."""
+    def has_exact_source(row):
+        return (
+            _positive_int(row.get("source_invoice_id")) == invoice_id
+            and row.get("source_invoice_line_index") == item_index
+        )
+
+    receipt_source_linked = any(
+        str(row.get("type") or "").strip().lower().startswith("приход") and has_exact_source(row)
+        for row in (history_rows or [])
+    )
+    if not receipt_source_linked:
+        return {
+            "state": "legacy_unlinked",
+            "receiptSourceLinked": False,
+            "untracedDependencyCount": None,
+            "requiresManualReconciliation": True,
+            "reason": "Старая строка: прямой источник в истории не сохранен. Автоматическая корректировка запрещена; нужна ручная сверка.",
+        }
+
+    untraced_history = [
+        row for row in (history_rows or [])
+        if not str(row.get("type") or "").strip().lower().startswith("приход") and not has_exact_source(row)
+    ]
+    untraced_movements = [row for row in (movement_rows or []) if not has_exact_source(row)]
+    untraced_count = len(untraced_history) + len(untraced_movements)
+    if untraced_count:
+        return {
+            "state": "linked_with_untraced_dependencies",
+            "receiptSourceLinked": True,
+            "untracedDependencyCount": untraced_count,
+            "requiresManualReconciliation": True,
+            "reason": "Приход связан со строкой накладной, но есть последующие движения без прямой ссылки на нее. Нужна ручная сверка.",
+        }
+    return {
+        "state": "linked_complete",
+        "receiptSourceLinked": True,
+        "untracedDependencyCount": 0,
+        "requiresManualReconciliation": True,
+        "reason": "Цепочка нового прихода прослеживается, но изменение исторических остатков все равно отключено до отдельного решения по сверке.",
+    }
+
+
+def build_packaging_review_snapshot(*, invoice, item_index, material_name, preview, dependency_check, traceability_status):
     """Keep immutable evidence of a manual review without creating a stock operation."""
     return {
         "warehouseInvoiceId": invoice.get("id"),
@@ -180,6 +224,7 @@ def build_packaging_review_snapshot(*, invoice, item_index, material_name, previ
         "materialName": material_name,
         "preview": preview,
         "dependencyCheck": dependency_check,
+        "traceabilityStatus": traceability_status,
     }
 
 
@@ -375,7 +420,7 @@ def register_material_packaging_module(app, deps):
         stored_unit = _text(item.get("unit") or item.get("documentUnit") or "шт", 50) or "шт"
         storage_location = invoice.get("project") or invoice.get("location") or "Основной склад"
         cur.execute(
-            """SELECT id,type,quantity,unit,date,issued_to,issued_by
+            """SELECT id,type,quantity,unit,date,issued_to,issued_by,source_invoice_id,source_invoice_line_index
                  FROM warehouse_history
                 WHERE company_id=%s AND project=%s
                   AND LOWER(TRIM(material))=LOWER(TRIM(%s))
@@ -385,7 +430,7 @@ def register_material_packaging_module(app, deps):
         )
         history_rows = [dict(row) for row in cur.fetchall() or []]
         cur.execute(
-            """SELECT id,from_location,to_location,quantity,unit,date
+            """SELECT id,from_location,to_location,quantity,unit,date,source_invoice_id,source_invoice_line_index
                  FROM warehouse_movements
                 WHERE company_id=%s
                   AND (from_location=%s OR to_location=%s)
@@ -419,7 +464,17 @@ def register_material_packaging_module(app, deps):
             movement_rows=movement_rows,
         )
         preview = build_packaging_correction_preview(item, rule)
-        return {"invoice": invoice, "item": item, "materialName": name, "rule": rule, "preview": preview, "dependencyCheck": dependency_check}
+        traceability_status = build_packaging_traceability_status(
+            invoice_id=invoice_id,
+            item_index=item_index,
+            history_rows=history_rows,
+            movement_rows=movement_rows,
+        )
+        return {
+            "invoice": invoice, "item": item, "materialName": name, "rule": rule,
+            "preview": preview, "dependencyCheck": dependency_check,
+            "traceabilityStatus": traceability_status,
+        }
 
     @app.get("/material-packaging-rules")
     def list_material_packaging_rules(
@@ -521,6 +576,7 @@ def register_material_packaging_module(app, deps):
                 "materialName": context["materialName"],
                 "preview": context["preview"],
                 "dependencyCheck": context["dependencyCheck"],
+                "traceabilityStatus": context["traceabilityStatus"],
             }
         finally:
             cur.close(); conn.close()
@@ -551,6 +607,7 @@ def register_material_packaging_module(app, deps):
             snapshot = build_packaging_review_snapshot(
                 invoice=context["invoice"], item_index=item_index, material_name=context["materialName"],
                 preview=context["preview"], dependency_check=context["dependencyCheck"],
+                traceability_status=context["traceabilityStatus"],
             )
             cur.execute(
                 """INSERT INTO material_packaging_reviews
@@ -575,4 +632,5 @@ def register_material_packaging_module(app, deps):
             "review": {"id": review.get("id"), "status": "reviewed_no_stock_change", "reviewedAt": review.get("reviewed_at").isoformat() if review.get("reviewed_at") else ""},
             "message": "Сверка зафиксирована. Остатки, накладная и история движений не изменены.",
             "preview": context["preview"], "dependencyCheck": context["dependencyCheck"],
+            "traceabilityStatus": context["traceabilityStatus"],
         }

@@ -163,6 +163,11 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
                     {correctionPreviews[row.key].dependencyCheck.reason} Текущий остаток в исходной единице: {correctionPreviews[row.key].dependencyCheck.currentBalance.quantity} {correctionPreviews[row.key].dependencyCheck.currentBalance.unit}.
                   </p>
                 )}
+                {correctionPreviews[row.key]?.traceabilityStatus && (
+                  <p style={{color:C.warning,fontSize:'11px',margin:'5px 0 0',lineHeight:1.4,fontWeight:'700'}}>
+                    Прослеживаемость: {correctionPreviews[row.key].traceabilityStatus.reason}
+                  </p>
+                )}
                 {correctionPreviews[row.key]?.preview && !reviewConfirmations[row.key] && (
                   <div style={{display:'flex',gap:'6px',marginTop:'7px',alignItems:'center',flexWrap:'wrap'}}>
                     <input value={reviewNotes[row.key] || ''} onChange={event => setReviewNotes(current => ({...current,[row.key]:event.target.value}))} placeholder="Итог ручной сверки" style={{...inp,flex:'1 1 220px',fontSize:'11px',padding:'6px 8px'}}/>
