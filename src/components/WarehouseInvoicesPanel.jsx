@@ -9,7 +9,7 @@ const INVOICE_VISIBLE_MOBILE = 12;
 
 const PACKAGING_RULE_ROLES = ['директор', 'зам_директора', 'кладовщик', 'снабженец'];
 
-function PackagingRulesPanel({ user, suppliers, C, card, inp, btnB, btnG, isMobile }) {
+function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, btnB, btnG, isMobile }) {
   const [isOpen, setIsOpen] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
@@ -66,6 +66,17 @@ function PackagingRulesPanel({ user, suppliers, C, card, inp, btnB, btnG, isMobi
   };
 
   const supplierName = (supplierId) => (suppliers || []).find(item => String(item.id) === String(supplierId))?.name || '';
+  const startRuleForReview = (row) => {
+    setIsOpen(true);
+    setForm({
+      materialName:row.item?.name || '',
+      supplierId:row.invoice?.supplierId ? String(row.invoice.supplierId) : '',
+      documentUnit:row.item?.documentUnit || row.item?.unit || 'уп',
+      contentQuantity:'',
+      baseUnit:'',
+      note:'Правило создано по накладной № ' + (row.invoice?.number || row.invoice?.id || ''),
+    });
+  };
 
   return (
     <section style={{...card,padding:isMobile?'12px':'14px',marginBottom:'12px'}}>
@@ -80,6 +91,26 @@ function PackagingRulesPanel({ user, suppliers, C, card, inp, btnB, btnG, isMobi
           <PackagePlus size={14}/>{isOpen ? 'Скрыть' : 'Настроить'}
         </button>
       </div>
+      {reviewItems.length > 0 && (
+        <div style={{marginTop:'12px',padding:'10px',border:'1.5px solid '+C.warningBorder,borderRadius:'10px',backgroundColor:C.warningLight}}>
+          <div style={{display:'flex',gap:'8px',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap'}}>
+            <b style={{color:C.warning,fontSize:'12px'}}>Очередь проверки упаковок: {reviewItems.length}</b>
+            <span style={{color:C.textSec,fontSize:'11px'}}>История не меняется автоматически</span>
+          </div>
+          <div style={{display:'grid',gap:'6px',marginTop:'8px'}}>
+            {reviewItems.slice(0, 10).map(row => (
+              <div key={row.key} style={{display:'flex',gap:'8px',justifyContent:'space-between',alignItems:'center',padding:'8px',backgroundColor:C.bgWhite,border:'1px solid '+C.warningBorder,borderRadius:'8px',flexWrap:'wrap'}}>
+                <div style={{minWidth:0}}>
+                  <b style={{display:'block',color:C.text,fontSize:'12px',overflowWrap:'anywhere'}}>{row.item?.name || 'Материал'}</b>
+                  <span style={{color:C.textSec,fontSize:'11px'}}>Накладная № {row.invoice?.number || row.invoice?.id} · {row.item?.documentQuantity ?? row.item?.quantity} {row.item?.documentUnit || row.item?.unit || ''}{row.invoice?.supplierName ? ' · ' + row.invoice.supplierName : ''}</span>
+                </div>
+                {canManage && <button type="button" onClick={() => startRuleForReview(row)} style={{...btnB,fontSize:'11px',padding:'5px 8px'}}><PackagePlus size={12}/>Создать правило</button>}
+              </div>
+            ))}
+          </div>
+          {reviewItems.length > 10 && <p style={{color:C.textSec,fontSize:'11px',margin:'8px 0 0'}}>Показаны первые 10 строк из текущего списка накладных.</p>}
+        </div>
+      )}
       {isOpen && (
         <div style={{marginTop:'12px',borderTop:'1px solid '+C.border,paddingTop:'12px'}}>
           {canManage ? (
@@ -396,6 +427,16 @@ export default function WarehouseInvoicesPanel({
     ),
     [invoices, invoiceQuickItems],
   );
+  const packagingReviewItems = React.useMemo(
+    () => (invoices || []).flatMap(inv => invoiceQuickItems(inv)
+      .filter(item => item?.conversionStatus === 'needs_review')
+      .map((item, index) => ({
+        key:String(inv.id || inv.number || 'invoice') + ':' + index,
+        invoice:inv,
+        item,
+      }))),
+    [invoices, invoiceQuickItems],
+  );
   const filteredPositions = filteredInvoiceRows.reduce((sum, row) => sum + row.quickPositionCount, 0);
 
   React.useEffect(() => {
@@ -477,6 +518,7 @@ export default function WarehouseInvoicesPanel({
       <PackagingRulesPanel
         user={user}
         suppliers={suppliers}
+        reviewItems={packagingReviewItems}
         C={C}
         card={card}
         inp={inp}
