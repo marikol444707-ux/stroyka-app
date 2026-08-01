@@ -79,6 +79,27 @@ def classify_rows(rows):
     for table in ("warehouse_movements", "warehouse_history"):
         for row in (rows.get(table) or []):
             row = dict(row or {})
+            if table == "warehouse_history":
+                invoice_id = _positive_int(row.get("source_invoice_id"))
+                line_index = row.get("source_invoice_line_index")
+                try:
+                    line_index = int(line_index) if line_index is not None else None
+                except (TypeError, ValueError):
+                    line_index = None
+                base = {"companyId": _positive_int(row.get("company_id")), "warehouseInvoiceId": invoice_id, "invoiceLineIndex": line_index}
+                if invoice_id and line_index is not None:
+                    invoice = invoices.get(invoice_id)
+                    if not invoice:
+                        classified.append(_item(table, row.get("id"), "broken", "receipt_not_found", **base))
+                        continue
+                    if base["companyId"] != _positive_int(invoice.get("company_id")):
+                        classified.append(_item(table, row.get("id"), "broken", "receipt_company_mismatch", **base))
+                        continue
+                    if 0 <= line_index < len(_invoice_items(invoice)):
+                        classified.append(_item(table, row.get("id"), "linked", "verified_receipt_line", **base))
+                        continue
+                    classified.append(_item(table, row.get("id"), "broken", "receipt_line_not_found", **base))
+                    continue
             classified.append(_item(
                 table, row.get("id"), "unlinked", "receipt_reference_not_stored",
                 companyId=_positive_int(row.get("company_id")),
@@ -116,7 +137,7 @@ def load_rows(cur):
         "warehouse_invoices": "SELECT id,company_id,items FROM warehouse_invoices ORDER BY id",
         "material_transfers": "SELECT id,company_id,invoice_id,invoice_line_index FROM material_transfers ORDER BY id",
         "warehouse_movements": "SELECT id,company_id FROM warehouse_movements ORDER BY id",
-        "warehouse_history": "SELECT id,company_id FROM warehouse_history ORDER BY id",
+        "warehouse_history": "SELECT id,company_id,source_invoice_id,source_invoice_line_index FROM warehouse_history ORDER BY id",
     }
     result = {}
     for name, query in queries.items():

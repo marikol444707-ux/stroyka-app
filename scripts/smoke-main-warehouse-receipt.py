@@ -234,8 +234,17 @@ def main():
         if not any(row.get("name") == MATERIAL_NAME and float(row.get("quantity") or 0) >= 0.001 for row in main_stock):
             raise RuntimeError("Материал не появился на основном складе")
         history = api_json("GET", "/warehouse-history", token=token, headers=headers)
-        if not any(row.get("material") == MATERIAL_NAME and row.get("type") == "приход" for row in history):
+        receipt_history = next(
+            (row for row in history if row.get("material") == MATERIAL_NAME and row.get("type") == "приход"),
+            None,
+        )
+        if not receipt_history:
             raise RuntimeError("Приход не появился в истории склада")
+        if (
+            int(receipt_history.get("sourceInvoiceId") or 0) != invoice_id
+            or int(receipt_history.get("sourceInvoiceLineIndex") or -1) != 0
+        ):
+            raise RuntimeError("Приход не сохранил ссылку на точную строку накладной")
 
         print(json.dumps({
             "ok": True,
@@ -248,6 +257,7 @@ def main():
                 "supplier invoice is not created or listed",
                 "accounting status mutation is blocked",
                 "main warehouse history records the receipt",
+                "receipt history stores exact warehouse invoice line source",
             ],
         }, ensure_ascii=False, indent=2))
     finally:

@@ -3291,7 +3291,14 @@ def init_db():
         ALTER TABLE warehouse_history ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE warehouse_history ADD COLUMN IF NOT EXISTS work_package VARCHAR(255);
         ALTER TABLE warehouse_history ADD COLUMN IF NOT EXISTS unit VARCHAR(50);
+        ALTER TABLE warehouse_history ADD COLUMN IF NOT EXISTS source_type VARCHAR(100);
+        ALTER TABLE warehouse_history ADD COLUMN IF NOT EXISTS source_id INT;
+        ALTER TABLE warehouse_history ADD COLUMN IF NOT EXISTS source_invoice_id INT;
+        ALTER TABLE warehouse_history ADD COLUMN IF NOT EXISTS source_invoice_line_index INT;
         ALTER TABLE warehouse_history ALTER COLUMN material TYPE TEXT;
+        CREATE INDEX IF NOT EXISTS idx_warehouse_history_source_invoice
+            ON warehouse_history(company_id, source_invoice_id, source_invoice_line_index)
+            WHERE source_invoice_id IS NOT NULL;
         CREATE TABLE IF NOT EXISTS staff (
             id SERIAL PRIMARY KEY,
             name VARCHAR(255),
@@ -6958,7 +6965,7 @@ def get_warehouse_history(
     except Exception:
         cur.close(); conn.close()
         raise
-    select_sql = "SELECT wh.id,wh.material,wh.type,wh.quantity,wh.date,wh.project,wh.issued_to as \"issuedTo\",wh.issued_by as \"issuedBy\",wh.work_package as \"workPackage\",wh.date_time as \"dateTime\" FROM warehouse_history wh WHERE TRUE"
+    select_sql = "SELECT wh.id,wh.material,wh.type,wh.quantity,wh.date,wh.project,wh.issued_to as \"issuedTo\",wh.issued_by as \"issuedBy\",wh.work_package as \"workPackage\",wh.date_time as \"dateTime\",wh.source_type as \"sourceType\",wh.source_id as \"sourceId\",wh.source_invoice_id as \"sourceInvoiceId\",wh.source_invoice_line_index as \"sourceInvoiceLineIndex\" FROM warehouse_history wh WHERE TRUE"
     role = current_user.get("role")
     if role == "прораб":
         projects = user_project_names(current_user)
@@ -17726,28 +17733,34 @@ def create_material_transfer(
         try:
             invoice_id = int(invoice_id) if str(invoice_id or "").strip() else None
         except Exception:
-            invoice_id = None
-        invoice_line_key = str(data.get("invoiceLineKey") or data.get("invoice_line_key") or "").strip()
-        invoice_number = str(data.get("invoiceNumber") or data.get("invoice_number") or "").strip()
+            raise HTTPException(status_code=400, detail="Неверная ссылка на накладную")
         invoice_line_index = data.get("invoiceLineIndex")
         if invoice_line_index is None:
             invoice_line_index = data.get("invoice_line_index")
         try:
-            invoice_line_index = int(invoice_line_index) if str(invoice_line_index or "").strip() else None
+            invoice_line_index = int(invoice_line_index) if invoice_line_index is not None and str(invoice_line_index).strip() else None
         except Exception:
-            invoice_line_index = None
+            raise HTTPException(status_code=400, detail="Неверная ссылка на строку накладной")
         try:
             to_user_id = int(to_user_id) if str(to_user_id or "").strip() else None
         except Exception:
             to_user_id = None
         if not to_person:
             raise HTTPException(status_code=400, detail="Укажите получателя материала")
-        if invoice_id:
-            cur.execute("""SELECT number, project, location
+        if invoice_id or invoice_line_index is not None:
+            cur.execute("""SELECT id, number, project, location, items
                            FROM warehouse_invoices
                            WHERE id=%s AND company_id=%s
                              AND COALESCE(status,'Принята') <> 'Аннулирована'""", (invoice_id, company_id))
             invoice_row = cur.fetchone()
+            try:
+                from backend.features.material_traceability.service import resolve_invoice_line_source
+            except ModuleNotFoundError:
+                from features.material_traceability.service import resolve_invoice_line_source
+            try:
+                invoice_source = resolve_invoice_line_source(invoice_id, invoice_line_index, invoice_row)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
             if not invoice_row:
                 raise HTTPException(status_code=400, detail="Накладная для выдачи не найдена или аннулирована")
             invoice_project = (invoice_row.get("project") or "").strip() or (
@@ -17757,7 +17770,13 @@ def create_material_transfer(
             )
             if invoice_project and invoice_project != project_name:
                 raise HTTPException(status_code=400, detail="Накладная относится к другому объекту: " + invoice_project)
-            invoice_number = invoice_number or (invoice_row.get("number") or "")
+            invoice_id = invoice_source["invoiceId"]
+            invoice_line_index = invoice_source["invoiceLineIndex"]
+            invoice_line_key = invoice_source["invoiceLineKey"]
+            invoice_number = invoice_source["invoiceNumber"]
+        else:
+            invoice_line_key = ""
+            invoice_number = ""
         if to_person_role in ("мастер", "субподрядчик", "бригадир"):
             to_user_id = _resolve_staff_or_user_id(cur, to_user_id, to_person)
         if to_person_role in ("мастер", "субподрядчик", "бригадир"):
@@ -17843,10 +17862,12 @@ def create_material_transfer(
         new_id = cur.fetchone().get("id")
 
         cur.execute("""INSERT INTO warehouse_history
-                       (company_id,material,type,quantity,unit,date,project,issued_by,work_package,date_time)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                       (company_id,material,type,quantity,unit,date,project,issued_by,work_package,date_time,
+                        source_type,source_id,source_invoice_id,source_invoice_line_index)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (company_id, material_name, "расход", qty, unit, data.get("transferDate") or None,
-             from_location, created_by, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+             from_location, created_by, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M"),
+             "material_transfer", new_id, invoice_id, invoice_line_index))
 
         conn.commit()
         _run_project_ai_control_safely(project_name, "material_transfer:create")
@@ -18759,9 +18780,11 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
 
             stock_rows_added += 1
             cur.execute("""INSERT INTO warehouse_history
-                              (company_id,material,type,quantity,unit,date,project,issued_by,work_package,date_time)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                        (company_id, name, "приход", qty, unit, rcv_date, history_project, accepted_by, work_package, date_time))
+                              (company_id,material,type,quantity,unit,date,project,issued_by,work_package,date_time,
+                               source_type,source_id,source_invoice_id,source_invoice_line_index)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        (company_id, name, "приход", qty, unit, rcv_date, history_project, accepted_by, work_package, date_time,
+                         source_type or "warehouse_invoice", invoice_id, invoice_id, item_index))
             history_added += 1
 
             if target_project:
