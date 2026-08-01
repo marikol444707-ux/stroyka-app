@@ -34,18 +34,30 @@ def material_key(value):
 
 def _normalize_unit(value):
     unit = _text(value, 50).lower().replace("²", "2").replace("³", "3")
-    aliases = {"метр": "м", "метры": "м", "m": "м", "шт.": "шт", "штук": "шт", "тонна": "т", "тонн": "т"}
-    return aliases.get(unit, unit)
+    compact = re.sub(r"[.\s_-]+", " ", unit).strip()
+    aliases = {
+        "м": "м", "метр": "м", "метры": "м", "m": "м", "пог м": "м", "п м": "м", "погонный метр": "м",
+        "шт": "шт", "шт.": "шт", "штук": "шт", "штука": "шт",
+        "кг": "кг", "килограмм": "кг", "килограммы": "кг", "килограммов": "кг",
+        "т": "т", "тн": "т", "тонна": "т", "тонны": "т", "тонн": "т",
+        "м2": "м2", "м кв": "м2", "кв м": "м2", "квадратный метр": "м2", "квадратных метров": "м2",
+        "м3": "м3", "м куб": "м3", "куб м": "м3", "кубический метр": "м3", "кубических метров": "м3",
+        "л": "л", "литр": "л", "литры": "л", "литров": "л",
+        "компл": "компл", "комплект": "компл", "комплекты": "компл",
+    }
+    return aliases.get(compact, unit)
 
 
 def _document_unit_key(value):
     unit = _normalize_unit(value)
-    match = re.match(r"^(уп(?:ак)?|пач(?:ка)?|кор(?:об(?:ка)?)?|бухт(?:а)?|бобин(?:а)?|палет(?:а)?|рулон)\.?\s*\d", unit)
+    match = re.match(r"^(уп(?:ак)?|пач(?:ка)?|кор(?:об(?:ка)?)?|бухт(?:а)?|бобин(?:а)?|палет(?:а)?|рулон|меш(?:ок)?|ящик|ведр(?:о)?|канистр(?:а)?|бочк(?:а)?|баллон|катушк(?:а)?)\.?\s*\d", unit)
     if not match:
         return unit
     aliases = {
         "уп": "уп", "упак": "уп", "пач": "пач", "пачка": "пач", "кор": "кор", "короб": "кор", "коробка": "кор",
         "бухт": "бухта", "бухта": "бухта", "бобин": "бобина", "бобина": "бобина", "палет": "палета", "палета": "палета", "рулон": "рулон",
+        "меш": "меш", "мешок": "меш", "ящик": "ящик", "ведр": "ведро", "ведро": "ведро", "канистр": "канистра", "канистра": "канистра",
+        "бочк": "бочка", "бочка": "бочка", "баллон": "баллон", "катушк": "катушка", "катушка": "катушка",
     }
     return aliases.get(match.group(1).rstrip("."), match.group(1).rstrip("."))
 
@@ -54,9 +66,23 @@ def is_packaging_unit(value):
     """Return true only for document units that explicitly describe a package."""
     unit = _normalize_unit(value)
     return bool(re.match(
-        r"^(уп(?:ак)?|пач(?:ка)?|кор(?:об(?:ка)?)?|бухт(?:а)?|бобин(?:а)?|палет(?:а)?|рулон)\.?($|\s|\d)",
+        r"^(уп(?:ак)?|пач(?:ка)?|кор(?:об(?:ка)?)?|бухт(?:а)?|бобин(?:а)?|палет(?:а)?|рулон|меш(?:ок)?|ящик|ведр(?:о)?|канистр(?:а)?|бочк(?:а)?|баллон|катушк(?:а)?)\.?($|\s|\d)",
         unit,
     ))
+
+
+def base_unit_kind(value):
+    unit = _normalize_unit(value)
+    return {
+        "м": "длина",
+        "кг": "масса",
+        "т": "масса",
+        "м2": "площадь",
+        "м3": "объем",
+        "л": "жидкость",
+        "шт": "количество",
+        "компл": "комплект",
+    }.get(unit, "другая единица")
 
 
 def build_packaging_correction_preview(item, rule):
@@ -169,6 +195,7 @@ def ensure_packaging_schema(cur):
 
 
 def _rule_row(row):
+    base_unit = row.get("base_unit") or ""
     return {
         "id": row.get("id"),
         "companyId": row.get("company_id"),
@@ -176,7 +203,8 @@ def _rule_row(row):
         "materialName": row.get("material_name") or "",
         "materialKey": row.get("material_key") or "",
         "documentUnit": row.get("document_unit") or "",
-        "baseUnit": row.get("base_unit") or "",
+        "baseUnit": base_unit,
+        "baseUnitKind": base_unit_kind(base_unit),
         "contentQuantity": float(row.get("content_quantity") or 0),
         "status": row.get("status") or "confirmed",
         "note": row.get("note") or "",

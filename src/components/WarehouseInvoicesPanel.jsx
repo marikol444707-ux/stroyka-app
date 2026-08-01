@@ -169,7 +169,7 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
                 <input required type="number" min="0.0001" step="any" inputMode="decimal" value={form.contentQuantity} onChange={event => setForm({...form,contentQuantity:event.target.value})} placeholder="100" style={{...inp,margin:'4px 0 0',width:'100%',boxSizing:'border-box'}}/>
               </label>
               <label style={{fontSize:'11px',color:C.textSec}}>В учёте
-                <input required value={form.baseUnit} onChange={event => setForm({...form,baseUnit:event.target.value})} placeholder="м" style={{...inp,margin:'4px 0 0',width:'100%',boxSizing:'border-box'}}/>
+                <input required list="packaging-base-units" value={form.baseUnit} onChange={event => setForm({...form,baseUnit:event.target.value})} placeholder="м" style={{...inp,margin:'4px 0 0',width:'100%',boxSizing:'border-box'}}/>
               </label>
               <button type="submit" disabled={isSaving} style={{...btnG,justifyContent:'center',opacity:isSaving?0.65:1}}>{isSaving ? 'Сохраняю…' : 'Сохранить'}</button>
               <label style={{gridColumn:isMobile?undefined:'span 6',fontSize:'11px',color:C.textSec}}>Примечание
@@ -179,6 +179,9 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
           ) : (
             <p style={{margin:'0 0 10px',fontSize:'12px',color:C.textSec}}>Создавать правила могут директор, заместитель, кладовщик или снабженец.</p>
           )}
+          <datalist id="packaging-base-units">
+            <option value="м"/><option value="кг"/><option value="т"/><option value="м2"/><option value="м3"/><option value="л"/><option value="шт"/><option value="компл"/>
+          </datalist>
           {error && <p style={{color:C.danger,fontSize:'12px',margin:'10px 0 0'}}>{error}</p>}
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'8px',marginTop:'12px'}}>
             <b style={{color:C.text,fontSize:'12px'}}>Подтверждённые правила: {rules.length}</b>
@@ -189,7 +192,7 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
               {rules.map(rule => (
                 <div key={rule.id} style={{display:'flex',gap:'8px',justifyContent:'space-between',alignItems:'center',padding:'8px',backgroundColor:C.bg,border:'1px solid '+C.border,borderRadius:'8px',flexWrap:'wrap'}}>
                   <span style={{color:C.text,fontSize:'12px',fontWeight:'700'}}>{rule.materialName}</span>
-                  <span style={{color:C.success,fontSize:'12px',fontWeight:'800'}}>{rule.documentUnit} × {rule.contentQuantity} = {rule.baseUnit}</span>
+                  <span style={{color:C.success,fontSize:'12px',fontWeight:'800'}}>{rule.documentUnit} × {rule.contentQuantity} = {rule.baseUnit} · {rule.baseUnitKind}</span>
                   <span style={{color:C.textMuted,fontSize:'11px'}}>{rule.supplierId ? supplierName(rule.supplierId) || 'Поставщик #' + rule.supplierId : 'Все поставщики'}</span>
                 </div>
               ))}

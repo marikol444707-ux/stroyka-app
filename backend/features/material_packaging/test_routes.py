@@ -1,6 +1,11 @@
 import unittest
 
-from .routes import build_packaging_correction_preview, build_packaging_dependency_check, normalize_invoice_packaging_items
+from .routes import (
+    _normalize_unit,
+    build_packaging_correction_preview,
+    build_packaging_dependency_check,
+    normalize_invoice_packaging_items,
+)
 
 
 class FakeCursor:
@@ -43,6 +48,39 @@ class MaterialPackagingRulesTest(unittest.TestCase):
         self.assertEqual(item["unit"], "пач")
         self.assertEqual(item["conversionStatus"], "needs_review")
         self.assertEqual(item["conversionReviewReason"], "Не найдено подтвержденное правило содержимого упаковки")
+
+    def test_mixture_and_liquid_containers_require_confirmation(self):
+        cursor = FakeCursor([])
+        rows = normalize_invoice_packaging_items(cursor, [
+            {"name": "Смесь штукатурная", "quantity": 30, "unit": "мешок", "price": 450},
+            {"name": "Грунтовка", "quantity": 2, "unit": "канистра", "price": 1800},
+        ], company_id=1)
+        self.assertEqual([item["conversionStatus"] for item in rows], ["needs_review", "needs_review"])
+        self.assertEqual([item["unit"] for item in rows], ["мешок", "канистра"])
+
+    def test_metal_package_normalizes_tonnes_and_profile_rule_normalizes_linear_meters(self):
+        cursor = FakeCursor([
+            {
+                "id": 10, "company_id": 1, "supplier_id": None,
+                "material_key": "арматура a500c", "material_name": "Арматура A500C",
+                "document_unit": "пачка", "base_unit": "т", "content_quantity": 1.5,
+                "status": "confirmed", "note": "", "created_by": "", "created_at": None, "updated_at": None,
+            },
+            {
+                "id": 11, "company_id": 1, "supplier_id": None,
+                "material_key": "профиль направляющий", "material_name": "Профиль направляющий",
+                "document_unit": "шт", "base_unit": "м", "content_quantity": 3,
+                "status": "confirmed", "note": "", "created_by": "", "created_at": None, "updated_at": None,
+            },
+        ])
+        rows = normalize_invoice_packaging_items(cursor, [
+            {"name": "Арматура A500C", "quantity": 4, "unit": "пачка", "price": 50000},
+            {"name": "Профиль направляющий", "quantity": 12, "unit": "шт", "price": 300},
+        ], company_id=1)
+        self.assertEqual((rows[0]["quantity"], rows[0]["unit"]), (6, "т"))
+        self.assertEqual((rows[1]["quantity"], rows[1]["unit"]), (36, "м"))
+        self.assertEqual(_normalize_unit("пог. м"), "м")
+        self.assertEqual(_normalize_unit("тонны"), "т")
 
     def test_direct_non_packaged_item_does_not_enter_packaging_review(self):
         cursor = FakeCursor([])
