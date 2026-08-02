@@ -1,5 +1,6 @@
 import json
 import re
+from collections.abc import Mapping
 from typing import List
 
 from fastapi import HTTPException
@@ -29,6 +30,19 @@ def _json_list(value):
         except Exception:
             return []
     return []
+
+
+def _cursor_row_mapping(cur, row) -> dict:
+    """Normalize rows from both RealDictCursor and the default tuple cursor."""
+    if isinstance(row, Mapping):
+        return dict(row)
+    keys = getattr(row, "keys", None)
+    if callable(keys):
+        return {key: row[key] for key in keys()}
+    columns = [column[0] for column in (getattr(cur, "description", None) or [])]
+    if isinstance(row, (list, tuple)) and len(columns) == len(row):
+        return dict(zip(columns, row))
+    raise TypeError("Company context query returned a row without column mapping")
 
 
 def _strict_header_company_id(value):
@@ -222,7 +236,7 @@ def user_company_memberships(
         ORDER BY COALESCE(m.is_default,FALSE) DESC, c.name NULLS LAST, m.company_id
     """, tuple(values))
     rows = [
-        _company_context_row(row, client_account_roles=client_account_roles)
+        _company_context_row(_cursor_row_mapping(cur, row), client_account_roles=client_account_roles)
         for row in cur.fetchall()
     ]
     if rows:
@@ -237,7 +251,7 @@ def user_company_memberships(
     company = cur.fetchone()
     if not company:
         return []
-    legacy = dict(company)
+    legacy = _cursor_row_mapping(cur, company)
     legacy.update({
         "membership_id": None,
         "role": user.get("role") or "",
@@ -255,7 +269,7 @@ def account_company_contexts(cur, user: dict, *, client_account_roles=()) -> Lis
     if not account_id and company_id:
         cur.execute("SELECT platform_account_id FROM companies WHERE id=%s", (company_id,))
         company = cur.fetchone()
-        account_id = _as_int((company or {}).get("platform_account_id"))
+        account_id = _as_int(_cursor_row_mapping(cur, company).get("platform_account_id")) if company else None
     if not account_id:
         return []
     cur.execute("""SELECT c.id AS company_id, c.platform_account_id, c.name AS company_name,
@@ -265,14 +279,14 @@ def account_company_contexts(cur, user: dict, *, client_account_roles=()) -> Lis
                    ORDER BY c.name NULLS LAST, c.id""", (account_id,))
     rows = []
     for row in cur.fetchall():
-        item = dict(row)
+        item = _cursor_row_mapping(cur, row)
         item.update({
             "membership_id": None,
             "role": user.get("role") or "",
             "assigned_projects": [],
             "assigned_packages": [],
             "active": True,
-            "is_default": _as_int(row.get("company_id")) == company_id,
+            "is_default": _as_int(item.get("company_id")) == company_id,
         })
         rows.append(_company_context_row(
             item,
@@ -445,10 +459,10 @@ def build_company_context_response(
         cur.execute("""SELECT c.id AS company_id, c.platform_account_id, c.name AS company_name,
                               c.short_name, COALESCE(c.active,TRUE) AS company_active
                        FROM companies c
-                       WHERE COALESCE(c.active,TRUE)=TRUE
+        WHERE COALESCE(c.active,TRUE)=TRUE
                        ORDER BY c.platform_account_id NULLS LAST, c.name NULLS LAST, c.id""")
         for row in cur.fetchall():
-            item = dict(row)
+            item = _cursor_row_mapping(cur, row)
             item.update({
                 "membership_id": None,
                 "role": role,

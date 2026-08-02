@@ -40,6 +40,29 @@ class MembershipCursor:
         return self.row
 
 
+class TupleMembershipCursor:
+    columns = [
+        "membership_id", "user_id", "company_id", "platform_account_id", "role",
+        "assigned_projects", "assigned_packages", "active", "is_default",
+        "company_name", "short_name", "company_active",
+    ]
+
+    def __init__(self, row):
+        self.row = tuple(row[key] for key in self.columns)
+        self.description = []
+
+    def execute(self, query, params=()):
+        if "FROM user_company_roles m" not in query:
+            raise AssertionError("Unexpected SQL in tuple cursor test")
+        self.description = [(column,) for column in self.columns]
+
+    def fetchall(self):
+        return [self.row]
+
+    def fetchone(self):
+        return None
+
+
 def membership(
     *,
     account_id=5,
@@ -428,6 +451,19 @@ class ResolveRequestCompanyContextTests(unittest.TestCase):
         self.assertEqual(context["effectiveRole"], "снабженец")
         self.assertEqual(context["requestedMode"], "company")
         self.assertEqual(context["companyIds"], [7])
+
+    def test_resolves_membership_from_default_tuple_cursor(self):
+        context = resolve_request_company_context(
+            TupleMembershipCursor(membership(role="снабженец")),
+            user(),
+            requested_company_id=7,
+            action_mode="create",
+            x_company_mode="company",
+            x_company_id="7",
+        )
+
+        self.assertEqual(context["companyId"], 7)
+        self.assertEqual(context["effectiveRole"], "снабженец")
 
     def test_resolves_all_companies_to_memberships_inside_the_account(self):
         cur = MembershipCursor([
