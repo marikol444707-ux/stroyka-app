@@ -25,6 +25,7 @@
     "smoke:public-site": "python3 scripts/check-public-site-static.py",
     "smoke:browser-prod": "node scripts/smoke-browser-prod.js",
     "smoke:browser-estimates-prod": "BROWSER_SMOKE_ESTIMATES=1 BROWSER_SMOKE_URLS=/app node scripts/smoke-browser-prod.js",
+    "smoke:browser-materials-prod": "BROWSER_SMOKE_MATERIALS=1 BROWSER_SMOKE_URLS=/app node scripts/smoke-browser-prod.js",
     "generate:public-plans": "node scripts/generate-public-project-plan-assets.js",
     "smoke:data-guard": "python3 scripts/smoke-data-guard.py",
     "audit:m6": "python3 scripts/check-m6-tenant-registry.py",

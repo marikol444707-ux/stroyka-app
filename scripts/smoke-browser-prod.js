@@ -23,7 +23,10 @@ const AUTH_PASSWORD = process.env.BROWSER_SMOKE_PASSWORD || process.env.SMOKE_PA
 const AUTH_2FA_CODE = (process.env.BROWSER_SMOKE_2FA_CODE || process.env.SMOKE_2FA_CODE || '').trim();
 const AUTH_DATA_JSON = process.env.BROWSER_SMOKE_AUTH_DATA_JSON || '';
 const RUN_ESTIMATES_SCENARIO = process.env.BROWSER_SMOKE_ESTIMATES === '1';
+const RUN_MATERIALS_SCENARIO = process.env.BROWSER_SMOKE_MATERIALS === '1';
 const ESTIMATE_TARGET_NAME = (process.env.BROWSER_SMOKE_ESTIMATE_NAME || process.env.SMOKE_ESTIMATE_NAME || '').trim();
+const MATERIALS_TARGET_PROJECT = (process.env.BROWSER_SMOKE_PROJECT_NAME || process.env.SMOKE_PROJECT_NAME || '').trim();
+const MATERIALS_MAX_LOAD_MS = Number(process.env.BROWSER_SMOKE_MATERIALS_MAX_LOAD_MS || 0);
 const STRICT_ESTIMATE_TOTAL = process.env.BROWSER_SMOKE_STRICT_TOTAL === '1';
 const DEFAULT_URLS = ['/', '/app'];
 const FORBIDDEN_RENDER_MARKERS = [
@@ -289,6 +292,21 @@ function chooseEstimateForBrowserSmoke(estimates) {
   return [...rows].sort((a, b) => {
     const activeBias = (String(b.status || '') === 'Активная' ? 1 : 0) - (String(a.status || '') === 'Активная' ? 1 : 0);
     return activeBias || estimateTotalValue(b) - estimateTotalValue(a) || Number(b.id || 0) - Number(a.id || 0);
+  })[0];
+}
+
+function chooseProjectForMaterialsBrowserSmoke(projects) {
+  const rows = Array.isArray(projects) ? projects : [];
+  if (!rows.length) throw new Error('materials browser smoke: /projects returned empty list');
+  if (MATERIALS_TARGET_PROJECT) {
+    const needle = normalizeForSearch(MATERIALS_TARGET_PROJECT).toLowerCase();
+    const selected = rows.find((project) => normalizeForSearch(project.name).toLowerCase().includes(needle));
+    if (!selected) throw new Error(`materials browser smoke: target project not found: ${MATERIALS_TARGET_PROJECT}`);
+    return selected;
+  }
+  return [...rows].sort((a, b) => {
+    const activeBias = Boolean(a.archived) - Boolean(b.archived);
+    return activeBias || Number(b.id || 0) - Number(a.id || 0);
   })[0];
 }
 
@@ -619,6 +637,77 @@ async function runAuthenticatedEstimateScenario(port, authData) {
   }
 }
 
+async function runAuthenticatedMaterialsScenario(port, authData) {
+  if (!authData?.authToken) throw new Error('materials browser smoke requires authToken');
+  const projects = await fetchJson('/projects', authData.authToken);
+  const target = chooseProjectForMaterialsBrowserSmoke(projects);
+  const targetName = normalizeForSearch(target.name);
+
+  const targetResponse = await fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent('about:blank')}`, { method: 'PUT' });
+  if (!targetResponse.ok) throw new Error(`cannot create Chrome target: HTTP ${targetResponse.status}`);
+  const chromeTarget = await targetResponse.json();
+  const client = new CdpClient(chromeTarget.webSocketDebuggerUrl);
+  await client.connect();
+  try {
+    await client.send('Runtime.enable');
+    await client.send('Page.enable');
+    await client.send('Log.enable');
+    await client.send('Network.enable');
+    await client.send('Emulation.setDeviceMetricsOverride', {
+      width: 1440,
+      height: 1100,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    await client.send('Page.addScriptToEvaluateOnNewDocument', {
+      source: `
+        try {
+          localStorage.setItem('authToken', ${JSON.stringify(authData.authToken || '')});
+          localStorage.setItem('user', ${JSON.stringify(JSON.stringify(authData))});
+          sessionStorage.removeItem('authExpiredNotice');
+        } catch (error) {}
+      `,
+    });
+    const appUrl = `${BASE_URL}/app`;
+    await client.send('Page.navigate', { url: appUrl }, 45000);
+    validatePage(`${appUrl} [auth:${authData.role || authData.email || authData.name || 'user'}:materials-scenario]`, await waitForRenderedPage(client));
+
+    await clickVisibleText(client, 'Объекты', { exact: true });
+    await waitForBodyText(client, (text) => text.includes(targetName), `projects list containing ${targetName}`, Math.max(WAIT_MS, 12000));
+    await clickVisibleText(client, targetName);
+    await waitForBodyText(client, (text) => text.includes(targetName) && text.includes('Общее'), `opened project ${targetName}`);
+
+    const startedAt = Date.now();
+    await clickVisibleText(client, 'Материалы', { exact: true });
+    const materialsInfo = await waitForBodyText(
+      client,
+      (text) => text.includes('Материалы по смете') && !text.includes('Загружаем материалы активных смет объекта...'),
+      `materials tab for ${targetName}`,
+      Math.max(WAIT_MS, 20000)
+    );
+    validatePage(`${appUrl}#project-materials`, materialsInfo);
+    const elapsedMs = Date.now() - startedAt;
+    const rendered = await evaluateValue(client, `
+      (() => {
+        const text = document.body?.innerText || '';
+        const match = text.match(/Показано\\s+(\\d+)\\s+из\\s+(\\d+)/);
+        return {
+          shownRows: match ? Number(match[1]) : null,
+          totalRows: match ? Number(match[2]) : null,
+          tableRows: document.querySelectorAll('table tbody tr').length,
+        };
+      })()
+    `);
+    if (MATERIALS_MAX_LOAD_MS > 0 && elapsedMs > MATERIALS_MAX_LOAD_MS) {
+      throw new Error(`materials browser smoke: ${targetName} opened in ${elapsedMs}ms, limit is ${MATERIALS_MAX_LOAD_MS}ms`);
+    }
+    console.log(`OK   browser materials scenario: ${targetName} · ${elapsedMs}ms · shown=${rendered?.shownRows ?? 'n/a'} total=${rendered?.totalRows ?? 'n/a'} tableRows=${rendered?.tableRows ?? 'n/a'}`);
+  } finally {
+    client.close();
+    await fetch(`http://127.0.0.1:${port}/json/close/${chromeTarget.id}`).catch(() => {});
+  }
+}
+
 async function main() {
   if (typeof WebSocketCtor !== 'function') {
     throw new Error('WebSocket client is not available. Install dependencies so the ws package is present, or use Node 22+.');
@@ -664,6 +753,9 @@ async function main() {
       validatePage(`${authUrl} [auth:${authData.role || authData.email || authData.name || 'user'}]`, info);
       if (RUN_ESTIMATES_SCENARIO) {
         await runAuthenticatedEstimateScenario(port, authData);
+      }
+      if (RUN_MATERIALS_SCENARIO) {
+        await runAuthenticatedMaterialsScenario(port, authData);
       }
     }
     console.log('Browser smoke OK');
