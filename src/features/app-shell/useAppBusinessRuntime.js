@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import MaterialWriteoffStatus from '../../components/MaterialWriteoffStatus';
 import { createAiReviewQueueActions } from '../ai-control/aiReviewQueueActions';
 import { createAiTaskActions } from '../ai-control/aiTaskActions';
@@ -6,7 +7,7 @@ import { createProjectDashboardRuntime } from '../dashboard/projectDashboardRunt
 import { createEstimateWorkflowActions } from '../estimates/estimateWorkflowActions';
 import { createProjectEstimateRuntime } from '../estimates/projectEstimateRuntime';
 import { createMaterialControlActions } from '../material-control/materialControlActions';
-import { createMaterialRuntime } from '../material-control/materialRuntime';
+import { createMaterialRuntime, createMaterialRuntimeCache } from '../material-control/materialRuntime';
 import { createMaterialNormActions } from '../material-norms/materialNormActions';
 import { createMaterialNormCoverageActions } from '../material-norms/materialNormCoverageActions';
 import { createMaterialWriteoffActions } from '../material-writeoff/materialWriteoffActions';
@@ -259,6 +260,25 @@ export function useAppBusinessRuntime({
     includableEstimateChanges,
     projectPlanDone
   } = projectEstimateRuntime;
+  const materialRuntimeCache = useMemo(() => createMaterialRuntimeCache(), [
+    estimatesList,
+    history,
+    invoices,
+    materialAliases,
+    materialInspections,
+    materialNormOverrides,
+    materialNorms,
+    materials,
+    materialTransfers,
+    projects,
+    supplyDeliveries,
+    supplyHistory,
+    supplyRequests,
+    user,
+    warehouseMain,
+    warehouseMovements,
+    workJournal,
+  ]);
   const materialRuntime = createMaterialRuntime({
     activeEstimatesForProject,
     canonicalCompanyName: companyName,
@@ -279,7 +299,8 @@ export function useAppBusinessRuntime({
     user,
     warehouseMain,
     warehouseMovements,
-    workJournal
+    workJournal,
+    cache: materialRuntimeCache,
   });
   const {
     canonicalMaterialMeta,

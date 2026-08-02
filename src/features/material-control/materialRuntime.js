@@ -31,6 +31,13 @@ import {
 import { buildMaterialNormCoverageDocContent } from '../../utils/printDocumentBuilders';
 import { toNum } from '../../utils/measureUtils';
 
+export function createMaterialRuntimeCache() {
+  return {
+    reconciliationRows: new Map(),
+    controlSummaries: new Map(),
+  };
+}
+
 export function createMaterialRuntime({
   activeEstimatesForProject,
   canonicalCompanyName,
@@ -53,6 +60,7 @@ export function createMaterialRuntime({
   warehouseMain,
   warehouseMovements,
   workJournal,
+  cache = null,
 }) {
   const warehouseInvoiceItems = (inv) => buildWarehouseInvoiceItems(inv, {
     materials,
@@ -103,29 +111,41 @@ export function createMaterialRuntime({
     materialNameKey,
   }));
 
-  const materialReconciliationRows = (projectName, workPackage = '') => buildMaterialReconciliationRows({
-    projectName,
-    workPackage,
-    projects,
-    invoices,
-    supplyDeliveries,
-    supplyHistory,
-    warehouseMovements,
-    materialTransfers,
-    workJournal,
-    history,
-    materials,
-    supplyRequests,
-    activeEstimatesForProject,
-    canonicalMaterialMeta,
-    warehouseInvoiceItems,
-    isSupplyDeliveryInvoice,
-    estimateWorkNormRequirementRows,
-    parseSupplyItems,
-    materialNameLookupKey,
-  });
+  const materialReconciliationRows = (projectName, workPackage = '') => {
+    const key = `${projectName || ''}\u0000${workPackage || ''}`;
+    if (cache?.reconciliationRows?.has(key)) return cache.reconciliationRows.get(key);
+    const rows = buildMaterialReconciliationRows({
+      projectName,
+      workPackage,
+      projects,
+      invoices,
+      supplyDeliveries,
+      supplyHistory,
+      warehouseMovements,
+      materialTransfers,
+      workJournal,
+      history,
+      materials,
+      supplyRequests,
+      activeEstimatesForProject,
+      canonicalMaterialMeta,
+      warehouseInvoiceItems,
+      isSupplyDeliveryInvoice,
+      estimateWorkNormRequirementRows,
+      parseSupplyItems,
+      materialNameLookupKey,
+    });
+    cache?.reconciliationRows?.set(key, rows);
+    return rows;
+  };
 
-  const materialControlSummaryForProject = (projectName) => buildMaterialControlSummary(materialReconciliationRows(projectName));
+  const materialControlSummaryForProject = (projectName) => {
+    const key = projectName || '';
+    if (cache?.controlSummaries?.has(key)) return cache.controlSummaries.get(key);
+    const summary = buildMaterialControlSummary(materialReconciliationRows(projectName));
+    cache?.controlSummaries?.set(key, summary);
+    return summary;
+  };
 
   const warehouseInvoiceEstimateControl = (inv) => buildWarehouseInvoiceEstimateControl({
     inv,
