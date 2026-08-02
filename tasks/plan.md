@@ -171,7 +171,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [ ] Task M7l: Audit and migrate `tools`, `tool_history`, and inventory ownership before a second company uses the shared warehouse module.
 - [x] Task M7l1: Add a no-write ownership report for `tools`, `tool_history`, `inventory`, and `inventory_items`; it accepts only exact project/parent chains and leaves empty or ambiguous legacy scope for review. Production audit found three company-wide main-warehouse tools, explicitly confirmed for company `1`.
 - [x] Task M7l2: Add the guarded schema/backfill migration for explicitly confirmed company-wide tools, then run the production dry-run and apply only with its exact row count and SHA-256 plan. Production applied 2026-08-03: `tools` 3 stored rows, child tables empty, zero unresolved/ambiguous/mismatched rows.
-- [ ] Task M7l3: Enforce selected-company owner filtering and owner-stamped writes for tools, history and inventory without altering operational status/location data.
+- [x] Task M7l3: Enforce selected-company owner filtering and owner-stamped writes for tools, history and inventory without altering operational status/location data. Local backend suite and frontend build passed; production deploy and protected smoke remain.
 
 ### Checkpoint: SaaS Boundary
 

@@ -15092,6 +15092,41 @@ def create_inventory_item_for_inventory(id: int, data: dict, _current_user: dict
     conn.close()
     return dict(row)
 
+_inventory_runtime_paths = {
+    "/tools", "/tools/{id}", "/tool-history", "/inventory", "/inventory/{id}",
+    "/inventory/{id}/items", "/inventory-items",
+}
+app.router.routes[:] = [
+    route for route in app.router.routes
+    if not (
+        getattr(route, "path", None) in _inventory_runtime_paths
+        and getattr(getattr(route, "endpoint", None), "__module__", "") == __name__
+    )
+]
+try:
+    from backend.features.inventory.routes import register_inventory_module
+except ModuleNotFoundError:
+    from features.inventory.routes import register_inventory_module
+
+
+register_inventory_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "company_id_scope_filter": company_id_scope_filter,
+    "can_see_all_company_data": can_see_all_company_data,
+    "require_project_access": require_project_access,
+    "user_project_names": user_project_names,
+    "warehouse_roles": WAREHOUSE_ROLES,
+    "project_document_roles": PROJECT_DOCUMENT_ROLES,
+    "worker_execution_roles": WORKER_EXECUTION_ROLES,
+    "tool_model": ToolModel,
+    "tool_history_model": ToolHistoryModel,
+    "inventory_model": InventoryModel,
+    "inventory_item_model": InventoryItemModel,
+})
+
 try:
     from backend.features.pd_consents.routes import register_pd_consents_module
 except ModuleNotFoundError:
