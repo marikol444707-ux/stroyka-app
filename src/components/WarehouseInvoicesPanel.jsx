@@ -152,6 +152,10 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
     document_required:'нужен первичный документ',
     legacy_unclassified:'старое решение без классификации',
   }[decision] || decision || 'не классифицировано');
+  const actionReviews = React.useMemo(
+    () => savedReviews.filter(review => ['discrepancy', 'document_required'].includes(review.decision)),
+    [savedReviews],
+  );
 
   return (
     <section style={{...card,padding:isMobile?'12px':'14px',marginBottom:'12px'}}>
@@ -278,6 +282,14 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
           {canPreviewHistoricalCorrection && (
             <div style={{marginTop:'14px',paddingTop:'12px',borderTop:'1px solid '+C.border}}>
               <b style={{color:C.text,fontSize:'12px'}}>Ручные сверки без изменения остатков: {savedReviews.length}</b>
+              {actionReviews.length > 0 && (
+                <div style={{marginTop:'7px',padding:'8px',border:'1px solid '+C.warningBorder,borderRadius:'8px',backgroundColor:C.warningLight}}>
+                  <b style={{display:'block',color:C.warning,fontSize:'11px'}}>Требуют действия: {actionReviews.length}</b>
+                  <span style={{display:'block',color:C.textSec,fontSize:'11px',marginTop:'3px'}}>
+                    {actionReviews.slice(0, 3).map(review => `${review.materialName || 'Материал'}: ${decisionLabel(review.decision)}`).join(' · ')}{actionReviews.length > 3 ? ' …' : ''}
+                  </span>
+                </div>
+              )}
               {savedReviews.length === 0 ? (
                 <p style={{color:C.textSec,fontSize:'11px',margin:'6px 0 0'}}>Зафиксированных сверок пока нет.</p>
               ) : (
