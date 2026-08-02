@@ -31,6 +31,7 @@ export default function AccountingIncomingDocumentsPanel({
   inp,
   invoices,
   supplierInvoices = [],
+  suppliers = [],
   warehouseInvoiceEstimateControl,
   fileSrc,
   setShowPhotoModal,
@@ -45,6 +46,7 @@ export default function AccountingIncomingDocumentsPanel({
   const [openedId, setOpenedId] = React.useState(null);
   const [busyId, setBusyId] = React.useState(null);
   const [visibleRows, setVisibleRows] = React.useState(30);
+  const [selectedSupplierByInvoice, setSelectedSupplierByInvoice] = React.useState({});
   const rowsStep = 30;
 
   const rows = React.useMemo(
@@ -231,6 +233,15 @@ export default function AccountingIncomingDocumentsPanel({
     await updateAccounting(row, { supplierInvoiceId: supplierInvoice.id });
   };
 
+  const linkSupplier = async (row) => {
+    const supplierId = Number(selectedSupplierByInvoice[row.invoice.id] || 0);
+    if (supplierId <= 0) return;
+    const linked = await updateAccounting(row, { supplierId });
+    if (linked) {
+      setSelectedSupplierByInvoice(current => ({ ...current, [row.invoice.id]: '' }));
+    }
+  };
+
   const recognitionCommentFromResult = (result, current = '') => {
     const extracted = result?.extracted || {};
     const parts = [
@@ -320,6 +331,10 @@ export default function AccountingIncomingDocumentsPanel({
     const inv = row.invoice;
     const linkedSupplierInvoice = getLinkedSupplierInvoice(row);
     const supplierInvoiceCandidates = getSupplierInvoiceCandidates(row);
+    const hasSupplier = Number(inv.supplierId || inv.supplier_id || linkedSupplierInvoice?.supplierId || linkedSupplierInvoice?.supplier_id || 0) > 0;
+    const supplierOptions = (suppliers || [])
+      .filter(supplier => Number(supplier?.id || 0) > 0)
+      .sort((left, right) => String(left.name || '').localeCompare(String(right.name || ''), 'ru'));
     return (
       <div style={{ ...card, padding: '14px', marginBottom: '14px', backgroundColor: C.bg, border: '1.5px solid ' + C.accentBorder }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '12px' }}>
@@ -363,6 +378,32 @@ export default function AccountingIncomingDocumentsPanel({
             <p style={{ color: C.textMuted, fontSize: '12px', margin: '6px 0 0' }}>Подходящий счёт не найден. Создайте счёт из КП или проверьте поставщика/сумму.</p>
           )}
         </div>
+
+        {!hasSupplier && (
+          <div style={{ padding: '10px', borderRadius: '8px', border: '1px solid ' + C.warningBorder, backgroundColor: C.warningLight, marginBottom: '12px' }}>
+            <b style={{ color: C.warning, fontSize: '12px', display: 'block', marginBottom: '5px' }}>Поставщик не определен</b>
+            <p style={{ color: C.textSec, fontSize: '11px', margin: '0 0 8px' }}>Выберите существующую карточку после проверки фото и реквизитов. Новая карточка создается отдельно только с ИНН или ОГРН.</p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px,1fr) auto', gap: '8px', alignItems: 'center' }}>
+              <select
+                value={selectedSupplierByInvoice[inv.id] || ''}
+                onChange={event => setSelectedSupplierByInvoice(current => ({ ...current, [inv.id]: event.target.value }))}
+                style={{ ...inp, marginBottom: 0 }}
+              >
+                <option value="">Выберите поставщика</option>
+                {supplierOptions.map(supplier => (
+                  <option key={supplier.id} value={supplier.id}>
+                    {supplier.name}{supplier.inn ? ' · ИНН ' + supplier.inn : ''}
+                  </option>
+                ))}
+              </select>
+              <button
+                disabled={busyId === inv.id || !selectedSupplierByInvoice[inv.id]}
+                onClick={() => linkSupplier(row)}
+                style={{ ...btnB, padding: '9px 12px' }}
+              ><Link2 size={13} />Связать поставщика</button>
+            </div>
+          </div>
+        )}
 
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
           {row.photos.map((url, index) => (

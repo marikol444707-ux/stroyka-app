@@ -170,6 +170,7 @@ export default function AccountingPage(props) {
           inp={inp}
           invoices={invoices}
           supplierInvoices={supplierInvoices}
+          suppliers={suppliers}
           warehouseInvoiceEstimateControl={warehouseInvoiceEstimateControl}
           fileSrc={fileSrc}
           setShowPhotoModal={setShowPhotoModal}

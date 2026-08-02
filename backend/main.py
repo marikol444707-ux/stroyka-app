@@ -19690,6 +19690,24 @@ def update_warehouse_invoice_accounting(
         if target_project:
             require_project_access(_current_user, target_project)
 
+        supplier_payload_present = "supplierId" in data or "supplier_id" in data
+        requested_supplier_id = None
+        requested_supplier = None
+        if supplier_payload_present:
+            raw_supplier_id = data.get("supplierId")
+            if raw_supplier_id is None:
+                raw_supplier_id = data.get("supplier_id")
+            requested_supplier_id = _positive_int_or_none(raw_supplier_id)
+            if not requested_supplier_id:
+                raise HTTPException(status_code=400, detail="Выберите существующую карточку поставщика")
+            cur.execute("SELECT id,name FROM suppliers WHERE id=%s LIMIT 1", (requested_supplier_id,))
+            requested_supplier = cur.fetchone()
+            if not requested_supplier:
+                raise HTTPException(status_code=404, detail="Карточка поставщика не найдена")
+            current_supplier_id = _positive_int_or_none(row.get("supplier_id"))
+            if current_supplier_id and current_supplier_id != requested_supplier_id:
+                raise HTTPException(status_code=409, detail="У накладной уже указан другой поставщик")
+
         link_payload_present = "supplierInvoiceId" in data or "supplier_invoice_id" in data
         current_supplier_invoice_id = row.get("supplier_invoice_id")
         linked_supplier_invoice_id = current_supplier_invoice_id
@@ -19716,6 +19734,9 @@ def update_warehouse_invoice_accounting(
             existing_warehouse_invoice_id = supplier_invoice_row.get("warehouse_invoice_id")
             if existing_warehouse_invoice_id and int(existing_warehouse_invoice_id) != int(id):
                 raise HTTPException(status_code=409, detail="Счёт поставщика уже связан с другой складской накладной")
+            invoice_supplier_id = _positive_int_or_none(supplier_invoice_row.get("supplier_id"))
+            if requested_supplier_id and invoice_supplier_id and invoice_supplier_id != requested_supplier_id:
+                raise HTTPException(status_code=409, detail="Счёт поставщика связан с другой карточкой поставщика")
 
         requested_status = str(
             data.get("accountingStatus")
@@ -19750,7 +19771,8 @@ def update_warehouse_invoice_accounting(
         if not current_photos and not next_status:
             next_status = "Нет фото"
         resolved_supplier_id = (
-            _positive_int_or_none(row.get("supplier_id"))
+            requested_supplier_id
+            or _positive_int_or_none(row.get("supplier_id"))
             or _positive_int_or_none((supplier_invoice_row or {}).get("supplier_id"))
         )
         if next_status in ("К оплате", "Частично оплачена", "Оплачена") and not resolved_supplier_id:
@@ -19767,6 +19789,14 @@ def update_warehouse_invoice_accounting(
         if comment is None:
             comment = row.get("accounting_comment") or ""
         comment = str(comment or "").strip()
+        if requested_supplier:
+            selected_supplier_name = str(requested_supplier.get("name") or "").strip()
+            original_supplier_name = str(row.get("supplier_name") or "").strip()
+            audit_note = "Поставщик выбран вручную: " + selected_supplier_name
+            if original_supplier_name and original_supplier_name != selected_supplier_name:
+                audit_note += " (в накладной: " + original_supplier_name + ")"
+            if audit_note not in comment:
+                comment = (comment + "\n" if comment else "") + audit_note
 
         paid_amount_before = _float_or_zero(row.get("paid_amount"))
         payment_amount = _float_or_zero(data.get("paymentAmount") or data.get("payment_amount"))
@@ -19840,7 +19870,7 @@ def update_warehouse_invoice_accounting(
                            paid_at=CASE WHEN %s > 0 THEN %s ELSE paid_at END,
                            paid_by=CASE WHEN %s > 0 THEN %s ELSE paid_by END,
                            supplier_id=COALESCE(supplier_id,%s),
-                           supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
+                           supplier_name=CASE WHEN %s IS NOT NULL THEN %s ELSE supplier_name END,
                            supplier_invoice_id=%s
                        WHERE id=%s""",
                     (
@@ -19855,7 +19885,8 @@ def update_warehouse_invoice_accounting(
                         payment_amount,
                         actor_name,
                         resolved_supplier_id,
-                        (supplier_invoice_row or {}).get("supplier_name") or "",
+                        requested_supplier_id,
+                        (requested_supplier or {}).get("name") or (supplier_invoice_row or {}).get("supplier_name") or "",
                         linked_supplier_invoice_id,
                         id,
                     ))
@@ -19866,6 +19897,9 @@ def update_warehouse_invoice_accounting(
         if linked_supplier_invoice_id:
             supplier_sets = ["warehouse_invoice_id=%s"]
             supplier_vals = [id]
+            if requested_supplier_id:
+                supplier_sets += ["supplier_id=%s", "supplier_name=%s"]
+                supplier_vals += [requested_supplier_id, (requested_supplier or {}).get("name") or ""]
             if payment_amount > 0:
                 supplier_amount = _float_or_zero(supplier_invoice_row.get("amount") if supplier_invoice_row else 0)
                 supplier_paid_before = _float_or_zero(supplier_invoice_row.get("paid_amount") if supplier_invoice_row else 0)

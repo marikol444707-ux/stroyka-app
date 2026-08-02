@@ -1522,6 +1522,16 @@ def assert_name_only_warehouse_invoice_does_not_link_supplier(token, candidate, 
     if "поставщика" not in str(payment_block.get("detail") or "").lower():
         raise RuntimeError(f"Name-only накладная заблокирована без понятной причины: {payment_block}")
 
+    _, manual_link = api_json(
+        "PUT",
+        f"/warehouse-invoices/{invoice_id}/accounting",
+        token=token,
+        data={"supplierId": existing_supplier_id},
+        expected=200,
+    )
+    if not manual_link.get("ok"):
+        raise RuntimeError(f"Не удалось вручную связать спорную накладную с поставщиком: {manual_link}")
+
     conn = db_conn()
     try:
         cur = conn.cursor()
@@ -1531,20 +1541,16 @@ def assert_name_only_warehouse_invoice_does_not_link_supplier(token, candidate, 
             raise RuntimeError("Name-only складская накладная не найдена после создания")
         warehouse_supplier_id = int(warehouse_row[0] or 0)
         linked_supplier_invoice_id = int(warehouse_row[1] or 0)
-        if warehouse_supplier_id == int(existing_supplier_id):
-            raise RuntimeError("Складская накладная привязалась к существующему поставщику только по названию")
-        if warehouse_supplier_id:
-            raise RuntimeError("Name-only складская накладная создала или привязала карточку поставщика")
+        if warehouse_supplier_id != int(existing_supplier_id):
+            raise RuntimeError("Ручной выбор не связал складскую накладную с выбранным поставщиком")
         if linked_supplier_invoice_id:
             created["nameOnlySupplierInvoiceId"] = linked_supplier_invoice_id
             cur.execute("SELECT supplier_id, status FROM supplier_invoices WHERE id=%s", (linked_supplier_invoice_id,))
             invoice_row = cur.fetchone()
-            if invoice_row and int(invoice_row[0] or 0) == int(existing_supplier_id):
-                raise RuntimeError("Первичка поставщика привязалась к существующему поставщику только по названию")
+            if not invoice_row or int(invoice_row[0] or 0) != int(existing_supplier_id):
+                raise RuntimeError("Ручной выбор не связал первичку с выбранным поставщиком")
             if invoice_row and invoice_row[1] != "Нужно уточнение":
                 raise RuntimeError(f"Name-only первичка не получила статус Нужно уточнение: {invoice_row[1]}")
-            if invoice_row and int(invoice_row[0] or 0):
-                raise RuntimeError("Name-only первичка создала карточку поставщика")
         cur.execute("SELECT COUNT(*) FROM suppliers WHERE name=%s", (supplier_name,))
         if int((cur.fetchone() or [0])[0] or 0) != 1:
             raise RuntimeError("Name-only накладная создала дублирующую карточку поставщика")
