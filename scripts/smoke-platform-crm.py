@@ -706,7 +706,7 @@ def check_selected_company_boundary(system_token, platform_result):
     api_json(
         "POST", "/tools", token=token,
         headers={"X-Company-Mode": "all_companies"},
-        data={"name": f"{PREFIX} Aggregate write"}, expected=409,
+        data={"name": f"{PREFIX} Aggregate write"}, expected=400,
     )
 
     _, inventory_b = api_json(
@@ -721,7 +721,7 @@ def check_selected_company_boundary(system_token, platform_result):
         "POST", "/inventory-items", token=token,
         headers={"X-Company-Mode": "all_companies"},
         data={"inventoryId": inventory_b_id, "materialName": "blocked", "unit": "шт", "expected": 0, "actual": 0, "difference": 0},
-        expected=409,
+        expected=400,
     )
 
     _, lead_a = api_json(
