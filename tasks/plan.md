@@ -293,8 +293,8 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 
 ### Phase P5: Performance And Cutover
 
-- [ ] Calculate the projection once per estimate/material/norm revision and cache it outside React render paths.
-- [ ] Load large projects by work package and paginate detail rows.
+- [x] Calculate the projection once per estimate/material/norm revision and cache it outside React render paths. Production runtime `b111c476` includes `28a4a7bf`; focused cache tests and build passed.
+- [x] Load large projects by work package and paginate detail rows. Production browser smoke on 2026-08-02 opened `Кисловодск Лицей 4` with `889` material positions while rendering the first `80` only.
 - [ ] Run shadow comparison, profile browser responsiveness, deploy incrementally, and switch only after smoke checks pass.
 
 ### Safety Rules

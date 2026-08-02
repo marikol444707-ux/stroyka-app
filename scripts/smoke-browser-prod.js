@@ -712,11 +712,9 @@ async function runAuthenticatedMaterialsScenario(port, authData) {
     }
     const elapsedMs = Date.now() - startedAt;
     const shownMatch = materialsText.match(/Показано\s+(\d+)\s+из\s+(\d+)/);
-    const tableRows = await evaluateValue(client, 'document.querySelectorAll("table tbody tr").length');
     const rendered = {
       shownRows: shownMatch ? Number(shownMatch[1]) : null,
       totalRows: shownMatch ? Number(shownMatch[2]) : null,
-      tableRows: Number(tableRows || 0),
     };
     if (!Number.isFinite(rendered.shownRows) || !Number.isFinite(rendered.totalRows) || rendered.totalRows < 1) {
       throw new Error(`materials browser smoke: material table was not rendered for ${targetName}; ${materialsText.slice(-500)}`);
@@ -724,7 +722,7 @@ async function runAuthenticatedMaterialsScenario(port, authData) {
     if (MATERIALS_MAX_LOAD_MS > 0 && elapsedMs > MATERIALS_MAX_LOAD_MS) {
       throw new Error(`materials browser smoke: ${targetName} opened in ${elapsedMs}ms, limit is ${MATERIALS_MAX_LOAD_MS}ms`);
     }
-    console.log(`OK   browser materials scenario: ${targetName} · ${elapsedMs}ms · shown=${rendered?.shownRows ?? 'n/a'} total=${rendered?.totalRows ?? 'n/a'} tableRows=${rendered?.tableRows ?? 'n/a'}`);
+    console.log(`OK   browser materials scenario: ${targetName} · ${elapsedMs}ms · shown=${rendered?.shownRows ?? 'n/a'} total=${rendered?.totalRows ?? 'n/a'}`);
   } finally {
     client.close();
     await fetch(`http://127.0.0.1:${port}/json/close/${chromeTarget.id}`).catch(() => {});
