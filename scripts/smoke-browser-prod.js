@@ -694,11 +694,22 @@ async function runAuthenticatedMaterialsScenario(port, authData) {
     await clickVisibleText(client, 'Материалы', { exact: true });
     const materialsInfo = await waitForBodyText(
       client,
-      (text) => text.includes('Материалы по смете') && !text.includes('Загружаем материалы активных смет объекта...'),
+      (text) => text.includes('Материалы по смете') && (
+        text.includes('Выборка:')
+        || text.includes('Нет сметных материалов и движений')
+        || text.includes('Не удалось загрузить материалы активных смет объекта.')
+      ),
       `materials tab for ${targetName}`,
       Math.max(WAIT_MS, 20000)
     );
     validatePage(`${appUrl}#project-materials`, materialsInfo);
+    const materialsText = normalizeForSearch(materialsInfo.bodyText);
+    if (materialsText.includes('Не удалось загрузить материалы активных смет объекта.')) {
+      throw new Error(`materials browser smoke: active estimate materials did not load for ${targetName}`);
+    }
+    if (materialsText.includes('Нет сметных материалов и движений')) {
+      throw new Error(`materials browser smoke: ${targetName} has no material control rows`);
+    }
     const elapsedMs = Date.now() - startedAt;
     const rendered = await evaluateValue(client, `
       (() => {
@@ -711,6 +722,9 @@ async function runAuthenticatedMaterialsScenario(port, authData) {
         };
       })()
     `);
+    if (!Number.isFinite(rendered?.shownRows) || !Number.isFinite(rendered?.totalRows) || rendered.totalRows < 1) {
+      throw new Error(`materials browser smoke: material table was not rendered for ${targetName}`);
+    }
     if (MATERIALS_MAX_LOAD_MS > 0 && elapsedMs > MATERIALS_MAX_LOAD_MS) {
       throw new Error(`materials browser smoke: ${targetName} opened in ${elapsedMs}ms, limit is ${MATERIALS_MAX_LOAD_MS}ms`);
     }
