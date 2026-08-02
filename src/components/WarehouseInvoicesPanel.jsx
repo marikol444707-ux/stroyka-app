@@ -153,8 +153,9 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
     legacy_unclassified:'старое решение без классификации',
   }[decision] || decision || 'не классифицировано');
   const actionReviews = React.useMemo(
-    () => savedReviews.filter(review => ['discrepancy', 'document_required'].includes(review.decision)),
-    [savedReviews],
+    () => Array.from(latestReviewByItem.values())
+      .filter(review => ['discrepancy', 'document_required'].includes(review.decision)),
+    [latestReviewByItem],
   );
 
   return (
