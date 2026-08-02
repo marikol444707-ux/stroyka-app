@@ -45,7 +45,7 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
   const loadSavedReviews = React.useCallback(async () => {
     if (!canPreviewHistoricalCorrection) return;
     try {
-      const response = await fetch(API + '/material-packaging-reviews?limit=20');
+      const response = await fetch(API + '/material-packaging-reviews?limit=100');
       const data = await response.json().catch(() => ([]));
       if (!response.ok) throw new Error(data?.detail || 'Не удалось загрузить реестр сверок');
       setSavedReviews(Array.isArray(data) ? data : []);
@@ -138,6 +138,20 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
       setReviewSubmittingKey('');
     }
   };
+  const latestReviewByItem = React.useMemo(() => {
+    const result = new Map();
+    for (const review of savedReviews) {
+      const key = String(review.warehouseInvoiceId || '') + ':' + String(review.itemIndex ?? '');
+      if (!result.has(key)) result.set(key, review);
+    }
+    return result;
+  }, [savedReviews]);
+  const decisionLabel = (decision) => ({
+    confirmed:'подтверждено',
+    discrepancy:'найдено расхождение',
+    document_required:'нужен первичный документ',
+    legacy_unclassified:'старое решение без классификации',
+  }[decision] || decision || 'не классифицировано');
 
   return (
     <section style={{...card,padding:isMobile?'12px':'14px',marginBottom:'12px'}}>
@@ -161,14 +175,18 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
           <div style={{display:'grid',gap:'6px',marginTop:'8px'}}>
             {reviewItems.slice(0, 10).map(row => (
               <div key={row.key} style={{padding:'8px',backgroundColor:C.bgWhite,border:'1px solid '+C.warningBorder,borderRadius:'8px'}}>
+                {(() => {
+                  const latestReview = latestReviewByItem.get(String(row.invoice?.id || '') + ':' + String(row.itemIndex));
+                  return <>
                 <div style={{display:'flex',gap:'8px',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap'}}>
                 <div style={{minWidth:0}}>
                   <b style={{display:'block',color:C.text,fontSize:'12px',overflowWrap:'anywhere'}}>{row.item?.name || 'Материал'}</b>
                   <span style={{color:C.textSec,fontSize:'11px'}}>Накладная № {row.invoice?.number || row.invoice?.id} · {row.item?.documentQuantity ?? row.item?.quantity} {row.item?.documentUnit || row.item?.unit || ''}{row.invoice?.supplierName ? ' · ' + row.invoice.supplierName : ''}</span>
+                  {latestReview && <span style={{display:'block',color:C.success,fontSize:'11px',marginTop:'3px'}}>Последняя сверка: {decisionLabel(latestReview.decision)} · {latestReview.reviewedBy || 'автор не указан'}</span>}
                 </div>
                 <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
                   {canManage && <button type="button" onClick={() => startRuleForReview(row)} style={{...btnB,fontSize:'11px',padding:'5px 8px'}}><PackagePlus size={12}/>Создать правило</button>}
-                  {canPreviewHistoricalCorrection && <button type="button" onClick={() => previewHistoricalCorrection(row)} disabled={correctionLoadingKey === row.key} style={{...btnB,fontSize:'11px',padding:'5px 8px',opacity:correctionLoadingKey === row.key ? 0.65 : 1}}>{correctionLoadingKey === row.key ? 'Считаю…' : 'Предпросмотр'}</button>}
+                  {canPreviewHistoricalCorrection && <button type="button" onClick={() => previewHistoricalCorrection(row)} disabled={correctionLoadingKey === row.key} style={{...btnB,fontSize:'11px',padding:'5px 8px',opacity:correctionLoadingKey === row.key ? 0.65 : 1}}>{correctionLoadingKey === row.key ? 'Считаю…' : latestReview ? 'Повторная сверка' : 'Предпросмотр'}</button>}
                 </div>
                 </div>
                 {correctionPreviews[row.key]?.preview && (
@@ -199,6 +217,8 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
                   </div>
                 )}
                 {reviewConfirmations[row.key] && <p style={{color:C.success,fontSize:'11px',margin:'6px 0 0'}}>Сверка сохранена. Остатки и накладная не изменены.</p>}
+                  </>;
+                })()}
               </div>
             ))}
           </div>
