@@ -282,6 +282,7 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [x] Show read-only packaging traceability state in the historical correction preview; a matching name never substitutes for a saved invoice-line source.
 - [x] Add a director/deputy read-only registry of historical packaging reviews with immutable review evidence.
 - [x] Require an explicit non-stock decision for each new historical packaging review; legacy reviews remain unclassified.
+- [x] Add protected smoke coverage proving a packaging review records the decision without changing stock or the invoice item.
 
 ### Phase P4: Supply Reconnection
 
