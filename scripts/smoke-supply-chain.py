@@ -727,6 +727,76 @@ def assert_supplier_invoice_scope(admin_token, supplier_token, candidate, offer_
     return invoice
 
 
+def assert_supply_company_lineage(candidate, offer_id, supplier_invoice_id, delivery_id, warehouse_invoice_id):
+    """Require every row produced by one receipt to keep the request company."""
+    expected_company_id = int(
+        (candidate.get("request") or {}).get("companyId")
+        or (candidate.get("request") or {}).get("company_id")
+        or 0
+    )
+    if expected_company_id <= 0:
+        raise RuntimeError("Заявка smoke не сохранила компанию для проверки цепочки")
+    conn = db_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute(
+            """SELECT r.company_id AS request_company_id,
+                      o.company_id AS offer_company_id,
+                      si.company_id AS supplier_invoice_company_id,
+                      d.company_id AS delivery_company_id,
+                      wi.company_id AS warehouse_invoice_company_id
+                 FROM supply_requests r
+                 JOIN supplier_offers o ON o.id=%s AND o.request_id=r.id
+                 JOIN supplier_invoices si ON si.id=%s AND si.offer_id=o.id
+                 JOIN supply_deliveries d ON d.id=%s AND d.request_id=r.id AND d.offer_id=o.id
+                 JOIN warehouse_invoices wi ON wi.id=%s
+                    AND wi.supply_request_id=r.id
+                    AND wi.supply_delivery_id=d.id
+                    AND wi.supplier_invoice_id=si.id
+                WHERE r.id=%s""",
+            (offer_id, supplier_invoice_id, delivery_id, warehouse_invoice_id, candidate["requestId"]),
+        )
+        chain = cur.fetchone()
+        if not chain:
+            raise RuntimeError("Не найдена полная цепочка заявка -> КП -> счёт -> поставка -> накладная")
+        owner_values = {
+            key: int(value or 0)
+            for key, value in dict(chain).items()
+        }
+        if any(value != expected_company_id for value in owner_values.values()):
+            raise RuntimeError(f"Документы поставки сохранили разные компании: {owner_values}")
+
+        cur.execute(
+            """SELECT company_id,request_id,delivery_id
+                 FROM supply_history
+                WHERE delivery_id=%s AND request_id=%s""",
+            (delivery_id, candidate["requestId"]),
+        )
+        supply_history = cur.fetchone()
+        if not supply_history or int(supply_history.get("company_id") or 0) != expected_company_id:
+            raise RuntimeError(f"История снабжения не унаследовала компанию поставки: {supply_history}")
+
+        cur.execute(
+            """SELECT company_id,source_type,source_id,source_invoice_id
+                 FROM warehouse_history
+                WHERE source_type='supply_delivery'
+                  AND source_id=%s
+                  AND source_invoice_id=%s""",
+            (delivery_id, warehouse_invoice_id),
+        )
+        warehouse_history = cur.fetchone()
+        if not warehouse_history or int(warehouse_history.get("company_id") or 0) != expected_company_id:
+            raise RuntimeError(f"Складская история не унаследовала компанию и источник поставки: {warehouse_history}")
+        return {
+            "companyId": expected_company_id,
+            "supplyHistorySource": int(supply_history.get("delivery_id") or 0),
+            "warehouseHistorySource": int(warehouse_history.get("source_id") or 0),
+        }
+    finally:
+        cur.close()
+        conn.close()
+
+
 def assert_supplier_offer_withdraw_and_resubmit(admin_token, supplier_token, supplier_id, candidate, stamp, created):
     extra = dict(candidate)
     request, error = create_supply_request_for_candidate(admin_token, supplier_id, extra, stamp + "-withdraw")
@@ -2039,6 +2109,7 @@ def main():
         created["deliveryId"] = delivery_id
         created["invoiceId"] = invoice_id
         supplier_invoice_view = assert_supplier_invoice_scope(token, supplier_token, candidate, offer_id, supplier_invoice_id, invoice_id)
+        company_lineage = assert_supply_company_lineage(candidate, offer_id, supplier_invoice_id, delivery_id, invoice_id)
         assert_supplier_offer_withdraw_and_resubmit(token, supplier_token, supplier_id, candidate, stamp, created)
         assert_unlinked_supplier_recipient_diagnostics(token, candidate, stamp, created)
         manual_invoice_id, manual_material_name = assert_visible_chain(token, candidate, delivery_id, invoice_id)
@@ -2077,6 +2148,7 @@ def main():
             "deliveryId": delivery_id,
             "invoiceId": invoice_id,
             "supplierWarehouseInvoiceNumber": supplier_invoice_view.get("warehouseInvoiceNumber"),
+            "companyLineage": company_lineage,
             "manualInvoiceId": manual_invoice_id,
             "manualMaterial": manual_material_name,
             "cableInvoiceId": cable_invoice_id,
@@ -2110,6 +2182,7 @@ def main():
                 "supplier invoice creation is tenant-scoped, idempotent and recorded in offer history",
                 "supplier invoice list keeps internal company scope and supplier cross-client identity scope",
                 "linked delivery and warehouse document stay in the supplier invoice company",
+                "request, KP, supplier invoice, delivery, warehouse invoice and histories keep one company and exact receipt source",
                 "supplier shipment created",
                 "receipt created automatic invoice",
                 "supplier cabinet sees linked invoice, warehouse receipt, received quantity and receipt items",

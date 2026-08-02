@@ -177,7 +177,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 
 - [x] One user with two companies cannot mutate in `Все компании`. Production `smoke:platform-crm` passed on 2026-08-03: selected-company isolation for tools, inventory and CRM was verified across two companies in one `platform_account`; aggregate writes were rejected.
 - [ ] Two independent `platform_account` tenants cannot see or address each other's companies.
-- [ ] Supply request, KP recipient, supplier invoice, delivery, warehouse invoice, and warehouse history keep the same `company_id`.
+- [ ] Supply request, KP recipient, supplier invoice, delivery, warehouse invoice, and warehouse history keep the same `company_id`. Runtime source lineage and production smoke are implemented; production deploy/run is pending.
 - [ ] Old records remain readable under legacy fallback.
 
 ### Phase 3: Backend Reliability

@@ -10653,7 +10653,19 @@ def _detect_cable_info(name):
                 section = float(m2.group(2).replace(",", "."))
     return {"isCable": is_cable, "cableType": cable_type, "cores": cores, "section": section}
 
-def _add_project_material(cur, name, unit, qty, price, project, work_package="", company_id=1):
+def _add_project_material(
+    cur,
+    name,
+    unit,
+    qty,
+    price,
+    project,
+    work_package="",
+    company_id=1,
+    source_type="",
+    source_id=None,
+    source_invoice_id=None,
+):
     if not name or not project or qty <= 0:
         return
     package_name = (work_package or "").strip()
@@ -10672,8 +10684,27 @@ def _add_project_material(cur, name, unit, qty, price, project, work_package="",
         cur.execute("""INSERT INTO materials (name, unit, quantity, price, min_quantity, project, category, work_package)
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
                     (name, unit_name, qty, price or 0, 0, project, "Закупка", package_name))
-    cur.execute("INSERT INTO warehouse_history (company_id,material,type,quantity,unit,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                (company_id or 1, name, "приход (поставка)", qty, unit_name, __import__("datetime").date.today().isoformat(), project, "Снабжение", package_name, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+    cur.execute(
+        """INSERT INTO warehouse_history
+               (company_id,material,type,quantity,unit,date,project,issued_by,work_package,date_time,
+                source_type,source_id,source_invoice_id)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+        (
+            company_id or 1,
+            name,
+            "приход (поставка)",
+            qty,
+            unit_name,
+            __import__("datetime").date.today().isoformat(),
+            project,
+            "Снабжение",
+            package_name,
+            __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M"),
+            source_type or None,
+            source_id,
+            source_invoice_id,
+        ),
+    )
 
 def _create_delivery_quality_records(cur, delivery):
     name = (delivery.get('material_name') or '').strip()
@@ -11547,7 +11578,9 @@ def receive_supply_delivery(id: int, data: dict, _current_user: dict = Depends(r
         _add_project_material(cur, delivery['material_name'], delivery['unit'], received_qty,
                               _float_or_zero(delivery['price_per_unit']), delivery['project'],
                               delivery.get('work_package') or delivery.get('workPackage') or "",
-                              delivery.get('company_id') or delivery.get('companyId') or 1)
+                              delivery.get('company_id') or delivery.get('companyId') or 1,
+                              source_type="supply_delivery", source_id=id,
+                              source_invoice_id=invoice_id)
     _update_supply_flow_status_after_delivery(cur, delivery['request_id'], delivery['offer_id'])
     cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (id,))
     row = cur.fetchone()

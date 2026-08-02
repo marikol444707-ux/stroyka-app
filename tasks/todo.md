@@ -2227,6 +2227,8 @@
 
 **Boundary checkpoint:** `smoke:platform-crm` provisions two companies under one SaaS account and a temporary director with memberships in both. It verifies selected-company isolation for tools, inventory and CRM, rejects direct mutations of a record while another company is selected, and rejects writes in `all_companies` mode. Production run passed on 2026-08-03 (`companyAId=5`, `companyBId=6`); cleanup completed.
 
+**Supply lineage checkpoint:** A received supply delivery now writes `warehouse_history.source_type=supply_delivery`, the exact delivery ID and generated warehouse-invoice ID in addition to its stored company. `smoke:supply-chain` verifies one company across request, offer, supplier invoice, delivery, warehouse invoice, supply history and the exact linked warehouse-history row. Production deploy and protected run are pending.
+
 **Safety:**
 - Start with a no-write production report and exact parent/reference counts.
 - Do not infer company from a tool name, master name, or empty project.
