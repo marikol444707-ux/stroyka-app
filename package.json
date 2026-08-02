@@ -77,6 +77,7 @@
     "smoke:work-doc-chain": "python3 scripts/smoke-work-doc-chain.py",
     "smoke:supply-chain": "python3 scripts/smoke-supply-chain.py",
     "smoke:main-warehouse-receipt": "python3 scripts/smoke-main-warehouse-receipt.py",
+    "smoke:inventory-ownership": "python3 scripts/smoke-inventory-ownership.py",
     "smoke:material-packaging-review": "python3 scripts/smoke-material-packaging-review.py",
     "smoke:material-control-lineage": "python3 scripts/smoke-material-control-lineage.py",
     "smoke:core-chains": "python3 scripts/smoke-core-chains.py",
