@@ -40,6 +40,9 @@ const HANGING_RENDER_MARKERS = [
   'Загружаю данные объекта',
   'Сейчас подтягиваются сметы',
 ];
+const OPTIONAL_BOOT_RATE_LIMIT_PATHS = [
+  '/master-profiles',
+];
 
 const urls = (process.env.BROWSER_SMOKE_URLS || DEFAULT_URLS.join(','))
   .split(',')
@@ -350,6 +353,10 @@ function relevantConsoleErrors(events) {
     })
     .filter((message) => {
       const text = String(message || '');
+      const optionalBootRateLimited = OPTIONAL_BOOT_RATE_LIMIT_PATHS.some((pathname) =>
+        /(?:HTTP|status of) 429/i.test(text) && text.includes(pathname)
+      );
+      if (optionalBootRateLimited) return false;
       if (/Failed to load resource: the server responded with a status of 404/i.test(text)) return false;
       if (/Failed to load resource: the server responded with a status of 405/i.test(text)) return false;
       if (/Failed to load resource: the server responded with a status of 401/i.test(text)) return false;
