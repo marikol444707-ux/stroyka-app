@@ -2223,7 +2223,7 @@
 
 **Progress:** M7l1 adds a read-only report over `tools`, `tool_history`, `inventory`, and `inventory_items`. It accepts only a globally unique project owner or an exact verified parent; names of tools/masters and empty project fields never infer ownership. Production found three empty-project tools in the main warehouse; owner confirmed all three as company-wide for company `1`. M7l2 applied on 2026-08-03 with exact SHA/count guards: all three tools now store company `1` with company-wide scope; `tool_history`, `inventory` and `inventory_items` have the guarded schema but contain no legacy rows.
 
-**M7l3 implementation:** `/tools`, `/tool-history`, `/inventory` and inventory-item mutations now resolve the request company server-side, filter every read by stored `company_id`, require one selected company for writes, and inherit child/history ownership from the verified tool or inventory parent. Payloads cannot select owner columns. Existing operational fields (`status`, `location`, master and project text) are preserved; production smoke is the remaining gate.
+**M7l3 implementation:** `/tools`, `/tool-history`, `/inventory` and inventory-item mutations now resolve the request company server-side, filter every read by stored `company_id`, require one selected company for writes, and inherit child/history ownership from the verified tool or inventory parent. Payloads cannot select owner columns. Existing operational fields (`status`, `location`, master and project text) are preserved. Production runtime `5ff69f3d` passed the protected self-cleaning smoke and strict post-audit on 2026-08-03.
 
 **Safety:**
 - Start with a no-write production report and exact parent/reference counts.
