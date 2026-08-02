@@ -295,7 +295,7 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 
 - [x] Calculate the projection once per estimate/material/norm revision and cache it outside React render paths. Production runtime `b111c476` includes `28a4a7bf`; focused cache tests and build passed.
 - [x] Load large projects by work package and paginate detail rows. Production browser smoke on 2026-08-02 opened `Кисловодск Лицей 4` with `889` material positions while rendering the first `80` only.
-- [x] Run shadow comparison, profile browser responsiveness, deploy incrementally, and switch only after smoke checks pass. Production browser smoke on 2026-08-02 verified identical cold/warm projections for `Кисловодск Лицей 4` (`80/889` rows); the first opening took `21.727 s`, and the cached repeat took `1.489 s`.
+- [x] Run shadow comparison, profile browser responsiveness, deploy incrementally, and switch only after smoke checks pass. Production browser smoke on 2026-08-02 verified identical cold/warm projections for `Кисловодск Лицей 4` (`80/889` rows). After the protected detail batch in `a9ef55af`, the cold opening was `3.923 s`, warm repeat `3.697 s`, and the only post-click estimate request was `/estimates` (`308 ms`), replacing the prior fan-out of per-estimate requests.
 
 ### Safety Rules
 
