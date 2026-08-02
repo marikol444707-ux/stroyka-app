@@ -45,6 +45,30 @@ class InventoryOwnershipReportTests(unittest.TestCase):
 
         self.assertEqual(report["needsReview"][0]["reason"], "project_owner_missing")
 
+    def test_explicit_company_mapping_only_applies_to_the_named_tool(self):
+        rows = base_rows()
+        rows["tools"] = [{"id": 21, "project": ""}, {"id": 22, "project": ""}]
+
+        report = build_report_from_rows(rows, {21: 3})
+
+        verified = report["verifiedPreview"]
+        self.assertEqual(verified[0]["recordId"], 21)
+        self.assertEqual(verified[0]["ownerScope"], "company")
+        self.assertEqual(verified[0]["companyId"], 3)
+        self.assertEqual(report["needsReview"][0]["recordId"], 22)
+
+    def test_stored_company_wide_tool_is_verified_without_a_manual_mapping(self):
+        rows = base_rows()
+        rows["tools"] = [{
+            "id": 21, "project": "", "stored_owner_scope": "company",
+            "stored_company_id": 3, "stored_project_id": None,
+        }]
+
+        report = build_report_from_rows(rows)
+
+        self.assertTrue(report["readyForStrictRuntime"])
+        self.assertEqual(report["verifiedPreview"][0]["reason"], "stored_company_owner")
+
     def test_duplicate_project_name_is_ambiguous_without_stored_company(self):
         rows = base_rows()
         rows["projects"].append({"id": 13, "company_id": 4, "name": "Object A"})
@@ -76,6 +100,7 @@ class InventoryOwnershipReportTests(unittest.TestCase):
     def test_loader_reads_only_ids_and_owner_relations(self):
         cur = Mock()
         cur.fetchall.side_effect = [
+            [], [], [], [],
             [{"id": 3}], [{"id": 11, "company_id": 3, "name": "Object A"}],
             [{"id": 21, "project": "Object A"}], [{"id": 22, "tool_id": 21, "project": "Object A"}],
             [{"id": 31, "project": "Object A"}], [{"id": 32, "inventory_id": 31}],

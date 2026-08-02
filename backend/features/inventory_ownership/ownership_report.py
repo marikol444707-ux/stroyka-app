@@ -1,5 +1,6 @@
 """Read-only ownership report for tools, tool history and inventory records."""
 
+import argparse
 import hashlib
 import json
 from collections import Counter, defaultdict
@@ -9,6 +10,7 @@ import psycopg2.extras
 
 PREVIEW_LIMIT = 100
 TABLES = ("tools", "tool_history", "inventory", "inventory_items")
+OWNER_COLUMNS = ("owner_scope", "company_id", "project_id")
 
 
 def _positive_int(value):
@@ -23,7 +25,7 @@ def _text(value):
     return str(value or "").strip()
 
 
-def _item(table, record_id, status, reason, company_id=None, project_id=None, tool_id=None, inventory_id=None):
+def _item(table, record_id, status, reason, company_id=None, project_id=None, tool_id=None, inventory_id=None, owner_scope=None):
     return {
         "table": table,
         "recordId": _positive_int(record_id),
@@ -33,7 +35,21 @@ def _item(table, record_id, status, reason, company_id=None, project_id=None, to
         "projectId": _positive_int(project_id),
         "toolId": _positive_int(tool_id),
         "inventoryId": _positive_int(inventory_id),
+        "ownerScope": _text(owner_scope) or None,
     }
+
+
+def _stored_owner(table, record_id, row, company_ids, **relations):
+    scope = _text(row.get("stored_owner_scope"))
+    company_id = _positive_int(row.get("stored_company_id"))
+    project_id = _positive_int(row.get("stored_project_id"))
+    if not scope and not company_id and not project_id:
+        return None
+    if scope == "company" and company_id in company_ids and not project_id:
+        return _item(table, record_id, "verified", "stored_company_owner", company_id, None, owner_scope=scope, **relations)
+    if scope == "project" and company_id in company_ids and project_id:
+        return _item(table, record_id, "verified", "stored_project_owner", company_id, project_id, owner_scope=scope, **relations)
+    return _item(table, record_id, "mismatched", "stored_owner_invalid", company_id, project_id, owner_scope=scope, **relations)
 
 
 def _project_owner(table, record_id, project_name, company_ids, projects_by_name, **relations):
@@ -56,8 +72,7 @@ def _project_owner(table, record_id, project_name, company_ids, projects_by_name
         record_id,
         "verified",
         "verified_unique_project",
-        company_id=company_id,
-        project_id=project.get("id"),
+        company_id=company_id, project_id=project.get("id"), owner_scope="project",
         **relations,
     )
 
@@ -94,11 +109,11 @@ def _classify_tool_history(row, tools, tool_rows):
     if history_project and history_project != parent_project:
         return _item(
             "tool_history", row.get("id"), "mismatched", "tool_project_mismatch",
-            company_id=parent.get("companyId"), project_id=parent.get("projectId"), tool_id=tool_id,
+            company_id=parent.get("companyId"), project_id=parent.get("projectId"), tool_id=tool_id, owner_scope=parent.get("ownerScope"),
         )
     return _item(
         "tool_history", row.get("id"), "verified", "verified_tool_parent",
-        company_id=parent.get("companyId"), project_id=parent.get("projectId"), tool_id=tool_id,
+        company_id=parent.get("companyId"), project_id=parent.get("projectId"), tool_id=tool_id, owner_scope=parent.get("ownerScope"),
     )
 
 
@@ -115,7 +130,7 @@ def _classify_inventory_item(row, inventories):
         return failure
     return _item(
         "inventory_items", row.get("id"), "verified", "verified_inventory_parent",
-        company_id=parent.get("companyId"), project_id=parent.get("projectId"), inventory_id=inventory_id,
+        company_id=parent.get("companyId"), project_id=parent.get("projectId"), inventory_id=inventory_id, owner_scope=parent.get("ownerScope"),
     )
 
 
@@ -131,7 +146,8 @@ def _plan_sha256(classified):
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def build_report_from_rows(rows):
+def build_report_from_rows(rows, manual_tool_owners=None):
+    manual_tool_owners = manual_tool_owners or {}
     company_ids = {
         company_id
         for row in (rows.get("companies") or [])
@@ -148,7 +164,17 @@ def build_report_from_rows(rows):
     tool_rows = {}
     for row in rows.get("tools") or []:
         row = dict(row or {})
-        item = _project_owner("tools", row.get("id"), row.get("project"), company_ids, projects_by_name)
+        tool_id = _positive_int(row.get("id"))
+        item = _stored_owner("tools", tool_id, row, company_ids)
+        if item is None:
+            owner = _positive_int(manual_tool_owners.get(tool_id))
+            if owner:
+                if owner in company_ids:
+                    item = _item("tools", tool_id, "verified", "explicit_company_owner", owner, owner_scope="company")
+                else:
+                    item = _item("tools", tool_id, "unresolved", "manual_company_not_found", owner, owner_scope="company")
+            else:
+                item = _project_owner("tools", tool_id, row.get("project"), company_ids, projects_by_name)
         if item["recordId"]:
             tools[item["recordId"]] = item
             tool_rows[item["recordId"]] = row
@@ -156,7 +182,9 @@ def build_report_from_rows(rows):
     inventories = {}
     for row in rows.get("inventory") or []:
         row = dict(row or {})
-        item = _project_owner("inventory", row.get("id"), row.get("project"), company_ids, projects_by_name)
+        item = _stored_owner("inventory", row.get("id"), row, company_ids)
+        if item is None:
+            item = _project_owner("inventory", row.get("id"), row.get("project"), company_ids, projects_by_name)
         if item["recordId"]:
             inventories[item["recordId"]] = item
 
@@ -198,14 +226,32 @@ def build_report_from_rows(rows):
     }
 
 
+def _table_columns(cur, table):
+    cur.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema='public' "
+        "AND table_name=%s AND column_name IN ('owner_scope','company_id','project_id')",
+        (table,),
+    )
+    return {str(row.get("column_name") if isinstance(row, dict) else row[0]) for row in (cur.fetchall() or [])}
+
+
+def _owner_select(columns):
+    return ",".join(
+        (column if column in columns else "NULL::" + ("TEXT" if column == "owner_scope" else "INT"))
+        + " AS stored_" + column
+        for column in OWNER_COLUMNS
+    )
+
+
 def load_ownership_rows(cur):
+    columns = {table: _table_columns(cur, table) for table in TABLES}
     queries = {
         "companies": "SELECT id FROM companies ORDER BY id",
         "projects": "SELECT id,company_id,name FROM projects ORDER BY id",
-        "tools": "SELECT id,project FROM tools ORDER BY id",
-        "tool_history": "SELECT id,tool_id,project FROM tool_history ORDER BY id",
-        "inventory": "SELECT id,project FROM inventory ORDER BY id",
-        "inventory_items": "SELECT id,inventory_id FROM inventory_items ORDER BY id",
+        "tools": "SELECT id,project," + _owner_select(columns["tools"]) + " FROM tools ORDER BY id",
+        "tool_history": "SELECT id,tool_id,project," + _owner_select(columns["tool_history"]) + " FROM tool_history ORDER BY id",
+        "inventory": "SELECT id,project," + _owner_select(columns["inventory"]) + " FROM inventory ORDER BY id",
+        "inventory_items": "SELECT id,inventory_id," + _owner_select(columns["inventory_items"]) + " FROM inventory_items ORDER BY id",
     }
     rows = {}
     for table, query in queries.items():
@@ -214,13 +260,13 @@ def load_ownership_rows(cur):
     return rows
 
 
-def run_ownership_report(get_db):
+def run_ownership_report(get_db, manual_tool_owners=None):
     conn = get_db()
     try:
         conn.set_session(readonly=True, autocommit=False)
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            result = build_report_from_rows(load_ownership_rows(cur))
+            result = build_report_from_rows(load_ownership_rows(cur), manual_tool_owners)
             conn.rollback()
             result["rolledBack"] = True
             return result
@@ -233,12 +279,34 @@ def run_ownership_report(get_db):
         conn.close()
 
 
-def main():
+def _tool_owner_map(values):
+    owners = {}
+    for value in values or []:
+        parts = str(value or "").strip().split(":")
+        if len(parts) != 2:
+            raise ValueError("tool owner must use TOOL_ID:COMPANY_ID")
+        tool_id, company_id = _positive_int(parts[0]), _positive_int(parts[1])
+        if not tool_id or not company_id:
+            raise ValueError("tool owner IDs must be positive integers")
+        if tool_id in owners:
+            raise ValueError("duplicate --tool-owner for tool " + str(tool_id))
+        owners[tool_id] = company_id
+    return owners
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Read-only inventory ownership report")
+    parser.add_argument("--tool-owner", action="append", default=[])
+    args = parser.parse_args(argv)
+    try:
+        owners = _tool_owner_map(args.tool_owner)
+    except ValueError as exc:
+        parser.error(str(exc))
     try:
         from backend.db import get_db
     except ModuleNotFoundError:
         from db import get_db
-    print(json.dumps(run_ownership_report(get_db), ensure_ascii=False, indent=2))
+    print(json.dumps(run_ownership_report(get_db, owners), ensure_ascii=False, indent=2))
     return 0
 
 

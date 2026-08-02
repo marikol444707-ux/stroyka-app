@@ -2221,7 +2221,7 @@
 
 **Status:** Pending. Runtime `2af7b25bb333` fixes immediate post-save visibility and error handling only. Production currently contains three tool rows, and the tables remain global without `company_id`; do not treat this UI fix as multi-company isolation.
 
-**Progress:** M7l1 adds `npm run audit:inventory-ownership`: a read-only report over `tools`, `tool_history`, `inventory`, and `inventory_items`. It accepts only a globally unique project owner or an exact verified parent; names of tools/masters and empty project fields never infer ownership. Production dry-run is the next step.
+**Progress:** M7l1 adds a read-only report over `tools`, `tool_history`, `inventory`, and `inventory_items`. It accepts only a globally unique project owner or an exact verified parent; names of tools/masters and empty project fields never infer ownership. Production found three empty-project tools in the main warehouse; owner confirmed all three as company-wide for company `1`. M7l2 adds a SHA-guarded backfill path that accepts only explicit `--tool-owner TOOL_ID:COMPANY_ID` mappings, writes no operational fields and leaves empty child tables untouched.
 
 **Safety:**
 - Start with a no-write production report and exact parent/reference counts.

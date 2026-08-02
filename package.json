@@ -59,7 +59,7 @@
     "migrate:supply-orphans": "python3 -m backend.features.supply_ownership.remediation --dry-run",
     "audit:supply-execution-ownership": "python3 -m backend.features.supply_execution_ownership.ownership_report",
     "audit:warehouse-ownership": "python3 -m backend.features.warehouse_ownership.ownership_report",
-    "audit:inventory-ownership": "python3 -m backend.features.inventory_ownership.ownership_report",
+    "audit:inventory-ownership": "python3 -m backend.features.inventory_ownership.migration",
     "audit:material-traceability": "python3 -m backend.features.material_traceability.report",
     "smoke:api-error-ownership": "python3 scripts/smoke-api-error-ownership.py",
     "smoke:telegram-expense": "python3 scripts/smoke-telegram-own-expense.py",
