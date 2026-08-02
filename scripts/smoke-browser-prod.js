@@ -56,6 +56,9 @@ const chromeCandidates = [
   '/usr/bin/chromium',
   '/usr/bin/chromium-browser',
 ].filter(Boolean);
+const chromeSandboxArgs = typeof process.getuid === 'function' && process.getuid() === 0
+  ? ['--no-sandbox']
+  : [];
 
 function commandPath(name) {
   const result = spawnSync('which', [name], { encoding: 'utf8' });
@@ -721,6 +724,7 @@ async function main() {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'stroyka-browser-smoke-'));
   const chromeProcess = spawn(chrome, [
     '--headless=new',
+    ...chromeSandboxArgs,
     '--disable-gpu',
     '--disable-dev-shm-usage',
     '--no-first-run',
@@ -741,6 +745,7 @@ async function main() {
   try {
     console.log(`Browser smoke: ${BASE_URL}`);
     console.log(`INFO chrome=${chrome}`);
+    if (chromeSandboxArgs.length) console.log('INFO Chromium sandbox disabled for root smoke process');
     await waitForChrome(port, START_TIMEOUT_MS);
     for (const url of urls) {
       const info = await inspectPage(port, url);
