@@ -690,39 +690,54 @@ async function runAuthenticatedMaterialsScenario(port, authData) {
     await clickVisibleText(client, targetName);
     await waitForBodyText(client, (text) => text.includes(targetName) && text.includes('Общее'), `opened project ${targetName}`);
 
-    const startedAt = Date.now();
-    await clickVisibleText(client, 'Материалы', { exact: true });
-    const materialsInfo = await waitForBodyText(
-      client,
-      (text) => text.includes('Материалы по смете') && (
-        text.includes('Выборка:')
-        || text.includes('Нет сметных материалов и движений')
-        || text.includes('Не удалось загрузить материалы активных смет объекта.')
-      ),
-      `materials tab for ${targetName}`,
-      Math.max(WAIT_MS, 20000)
-    );
-    validatePage(`${appUrl}#project-materials`, materialsInfo);
-    const materialsText = normalizeForSearch(materialsInfo.bodyText);
-    if (materialsText.includes('Не удалось загрузить материалы активных смет объекта.')) {
-      throw new Error(`materials browser smoke: active estimate materials did not load for ${targetName}`);
-    }
-    if (materialsText.includes('Нет сметных материалов и движений')) {
-      throw new Error(`materials browser smoke: ${targetName} has no material control rows`);
-    }
-    const elapsedMs = Date.now() - startedAt;
-    const shownMatch = materialsText.match(/Показано\s+(\d+)\s+из\s+(\d+)/);
-    const rendered = {
-      shownRows: shownMatch ? Number(shownMatch[1]) : null,
-      totalRows: shownMatch ? Number(shownMatch[2]) : null,
+    const openMaterials = async (label) => {
+      const startedAt = Date.now();
+      await clickVisibleText(client, 'Материалы', { exact: true });
+      const materialsInfo = await waitForBodyText(
+        client,
+        (text) => text.includes('Материалы по смете') && (
+          text.includes('Выборка:')
+          || text.includes('Нет сметных материалов и движений')
+          || text.includes('Не удалось загрузить материалы активных смет объекта.')
+        ),
+        `${label} materials tab for ${targetName}`,
+        Math.max(WAIT_MS, 20000)
+      );
+      validatePage(`${appUrl}#project-materials-${label}`, materialsInfo);
+      const materialsText = normalizeForSearch(materialsInfo.bodyText);
+      if (materialsText.includes('Не удалось загрузить материалы активных смет объекта.')) {
+        throw new Error(`materials browser smoke: active estimate materials did not load for ${targetName}`);
+      }
+      if (materialsText.includes('Нет сметных материалов и движений')) {
+        throw new Error(`materials browser smoke: ${targetName} has no material control rows`);
+      }
+      const shownMatch = materialsText.match(/Показано\s+(\d+)\s+из\s+(\d+)/);
+      const rendered = {
+        shownRows: shownMatch ? Number(shownMatch[1]) : null,
+        totalRows: shownMatch ? Number(shownMatch[2]) : null,
+      };
+      if (!Number.isFinite(rendered.shownRows) || !Number.isFinite(rendered.totalRows) || rendered.totalRows < 1) {
+        throw new Error(`materials browser smoke: material table was not rendered for ${targetName}; ${materialsText.slice(-500)}`);
+      }
+      return { elapsedMs: Date.now() - startedAt, rendered };
     };
-    if (!Number.isFinite(rendered.shownRows) || !Number.isFinite(rendered.totalRows) || rendered.totalRows < 1) {
-      throw new Error(`materials browser smoke: material table was not rendered for ${targetName}; ${materialsText.slice(-500)}`);
+
+    const cold = await openMaterials('cold');
+    if (MATERIALS_MAX_LOAD_MS > 0 && cold.elapsedMs > MATERIALS_MAX_LOAD_MS) {
+      throw new Error(`materials browser smoke: ${targetName} opened in ${cold.elapsedMs}ms, limit is ${MATERIALS_MAX_LOAD_MS}ms`);
     }
-    if (MATERIALS_MAX_LOAD_MS > 0 && elapsedMs > MATERIALS_MAX_LOAD_MS) {
-      throw new Error(`materials browser smoke: ${targetName} opened in ${elapsedMs}ms, limit is ${MATERIALS_MAX_LOAD_MS}ms`);
+
+    await clickVisibleText(client, 'Общее', { exact: true });
+    await waitForBodyText(
+      client,
+      (text) => text.includes(targetName) && text.includes('Общее') && !text.includes('Материалы по смете'),
+      `project overview ${targetName}`
+    );
+    const warm = await openMaterials('warm');
+    if (cold.rendered.shownRows !== warm.rendered.shownRows || cold.rendered.totalRows !== warm.rendered.totalRows) {
+      throw new Error(`materials browser smoke: warm projection differs for ${targetName}; cold=${cold.rendered.shownRows}/${cold.rendered.totalRows} warm=${warm.rendered.shownRows}/${warm.rendered.totalRows}`);
     }
-    console.log(`OK   browser materials scenario: ${targetName} · ${elapsedMs}ms · shown=${rendered?.shownRows ?? 'n/a'} total=${rendered?.totalRows ?? 'n/a'}`);
+    console.log(`OK   browser materials scenario: ${targetName} · cold=${cold.elapsedMs}ms warm=${warm.elapsedMs}ms · shown=${cold.rendered.shownRows} total=${cold.rendered.totalRows}`);
   } finally {
     client.close();
     await fetch(`http://127.0.0.1:${port}/json/close/${chromeTarget.id}`).catch(() => {});
