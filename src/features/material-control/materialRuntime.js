@@ -31,8 +31,9 @@ import {
 import { buildMaterialNormCoverageDocContent } from '../../utils/printDocumentBuilders';
 import { toNum } from '../../utils/measureUtils';
 
-export function createMaterialRuntimeCache() {
+export function createMaterialRuntimeCache(sourceSnapshot = []) {
   return {
+    sourceSnapshot,
     reconciliationRows: new Map(),
     controlSummaries: new Map(),
   };

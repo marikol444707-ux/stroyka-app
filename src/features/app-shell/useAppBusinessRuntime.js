@@ -260,7 +260,25 @@ export function useAppBusinessRuntime({
     includableEstimateChanges,
     projectPlanDone
   } = projectEstimateRuntime;
-  const materialRuntimeCache = useMemo(() => createMaterialRuntimeCache(), [
+  const materialRuntimeCache = useMemo(() => createMaterialRuntimeCache([
+    estimatesList,
+    history,
+    invoices,
+    materialAliases,
+    materialInspections,
+    materialNormOverrides,
+    materialNorms,
+    materials,
+    materialTransfers,
+    projects,
+    supplyDeliveries,
+    supplyHistory,
+    supplyRequests,
+    user,
+    warehouseMain,
+    warehouseMovements,
+    workJournal,
+  ]), [
     estimatesList,
     history,
     invoices,
