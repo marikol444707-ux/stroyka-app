@@ -745,6 +745,37 @@ def check_selected_company_boundary(system_token, platform_result):
     if status not in (403, 404, 409):
         raise RuntimeError(f"foreign selected-company CRM mutation was not rejected: status={status} body={body}")
 
+    conn = db_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute(
+            """SELECT id,platform_account_id
+                 FROM companies
+                WHERE platform_account_id<>%s AND COALESCE(active,TRUE)=TRUE
+                ORDER BY id LIMIT 1""",
+            (platform_account_id,),
+        )
+        foreign_company = cur.fetchone()
+        if not foreign_company:
+            raise RuntimeError("no independent platform-account company available for boundary smoke")
+        foreign_company_id = int(foreign_company["id"])
+        foreign_account_id = int(foreign_company["platform_account_id"] or 0)
+        if foreign_account_id <= 0:
+            raise RuntimeError("independent company has no platform account")
+        cur.execute(
+            """INSERT INTO user_company_roles
+                   (user_id,platform_account_id,company_id,role,assigned_projects,assigned_packages,active,is_default)
+               VALUES (%s,%s,%s,'директор','[]'::jsonb,'[]'::jsonb,TRUE,FALSE)""",
+            (director["id"], foreign_account_id, foreign_company_id),
+        )
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+    foreign_headers = company_headers(foreign_company_id)
+    api_json("GET", "/tools", token=token, headers=foreign_headers, expected=403)
+    api_json("GET", "/crm/lead-summaries", token=token, headers=foreign_headers, expected=403)
+
     return {
         "companyAId": company_a_id,
         "companyBId": company_b_id,
@@ -753,6 +784,7 @@ def check_selected_company_boundary(system_token, platform_result):
         "inventoryBId": inventory_b_id,
         "leadAId": lead_a_id,
         "leadBId": lead_b_id,
+        "blockedForeignCompanyId": foreign_company_id,
     }
 
 
@@ -1440,6 +1472,7 @@ def main():
                 "same-account selected-company inventory isolation",
                 "same-account selected-company CRM isolation",
                 "all-companies mutation rejection",
+                "cross-platform-account company selection rejection",
             ],
             "platform": platform_result,
             "tenantBoundary": tenant_boundary_result,
