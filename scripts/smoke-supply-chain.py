@@ -1426,11 +1426,11 @@ def assert_backfill_uncertain_supplier_review(token, candidate, stamp, created):
     if not result_item.get("needsReview") or result_item.get("accountingStatus") != "Нужно уточнение":
         raise RuntimeError(f"Backfill не перевел спорную связь в Нужно уточнение: {result_item}")
     review_reason = str(result_item.get("reviewReason") or "").lower()
-    if not any(fragment in review_reason for fragment in ["назв", "старой накладной", "не подтвержден"]):
+    if not any(fragment in review_reason for fragment in ["назв", "старой накладной", "не подтвержден", "поставщик не определен"]):
         raise RuntimeError(f"Backfill не объяснил причину уточнения: {result_item}")
     backfill_created_supplier_id = int(result_item.get("supplierId") or 0)
     if backfill_created_supplier_id:
-        created["backfillCreatedSupplierId"] = backfill_created_supplier_id
+        raise RuntimeError("Backfill со спорным поставщиком создал или привязал карточку без ИНН/ОГРН")
 
     conn = db_conn()
     try:
@@ -1441,9 +1441,11 @@ def assert_backfill_uncertain_supplier_review(token, candidate, stamp, created):
             raise RuntimeError("Складская накладная после backfill не получила статус Нужно уточнение")
         cur.execute("SELECT status, supplier_id FROM supplier_invoices WHERE id=%s", (supplier_invoice_id,))
         supplier_invoice_row = cur.fetchone()
-        expected_supplier_id = backfill_created_supplier_id or supplier_id
-        if not supplier_invoice_row or supplier_invoice_row[0] != "Нужно уточнение" or int(supplier_invoice_row[1] or 0) != int(expected_supplier_id):
+        if not supplier_invoice_row or supplier_invoice_row[0] != "Нужно уточнение" or int(supplier_invoice_row[1] or 0):
             raise RuntimeError("Первичка поставщика после спорного backfill не получила статус Нужно уточнение")
+        cur.execute("SELECT COUNT(*) FROM suppliers WHERE name=%s", (supplier_name,))
+        if int((cur.fetchone() or [0])[0] or 0) != 1:
+            raise RuntimeError("Backfill со спорным поставщиком создал дубль карточки")
         cur.close()
     finally:
         conn.close()
