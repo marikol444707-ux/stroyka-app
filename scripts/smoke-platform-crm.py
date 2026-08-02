@@ -429,8 +429,10 @@ def check_platform(system_token):
             "contactName": "CODEX QA",
             "contactPhone": "+70000000000",
             "contactEmail": f"platform-client-{RUN_ID}@stroyka.local",
-            "plan": "demo",
-            "trialDays": 14,
+            # The boundary scenario below provisions a second legal entity in
+            # this same temporary account; `pro` is the first tariff with two
+            # included companies.
+            "plan": "pro",
             "createdBy": f"{PREFIX} system_owner",
         },
     )
