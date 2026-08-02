@@ -228,6 +228,14 @@ def build_packaging_review_snapshot(*, invoice, item_index, material_name, previ
     }
 
 
+REVIEW_DECISIONS = {"confirmed", "discrepancy", "document_required"}
+
+
+def normalize_review_decision(value):
+    decision = _text(value, 50).lower()
+    return decision if decision in REVIEW_DECISIONS else None
+
+
 def packaging_review_row(row):
     snapshot = row.get("snapshot") or {}
     if isinstance(snapshot, str):
@@ -247,6 +255,7 @@ def packaging_review_row(row):
         "materialName": snapshot.get("materialName") or "",
         "packagingRuleId": row.get("packaging_rule_id"),
         "status": row.get("status") or "reviewed_no_stock_change",
+        "decision": row.get("review_decision") or "legacy_unclassified",
         "reviewNote": row.get("review_note") or "",
         "reviewedBy": row.get("reviewed_by") or "",
         "reviewedAt": row.get("reviewed_at").isoformat() if row.get("reviewed_at") else "",
@@ -290,6 +299,10 @@ def ensure_packaging_schema(cur):
             reviewed_by VARCHAR(255),
             reviewed_at TIMESTAMP DEFAULT NOW()
         )"""
+    )
+    cur.execute(
+        """ALTER TABLE material_packaging_reviews
+               ADD COLUMN IF NOT EXISTS review_decision VARCHAR(40) NOT NULL DEFAULT 'legacy_unclassified'"""
     )
     cur.execute(
         """CREATE INDEX IF NOT EXISTS idx_material_packaging_reviews_invoice
@@ -646,10 +659,13 @@ def register_material_packaging_module(app, deps):
         except (TypeError, ValueError):
             item_index = -1
         review_note = _text((data or {}).get("reviewNote") or (data or {}).get("review_note"), 2000)
+        review_decision = normalize_review_decision((data or {}).get("reviewDecision") or (data or {}).get("review_decision"))
         if not invoice_id or item_index < 0:
             raise HTTPException(status_code=400, detail="Укажите накладную и строку для сверки")
         if len(review_note) < 8:
             raise HTTPException(status_code=400, detail="Опишите результат ручной сверки не менее чем в 8 символах")
+        if not review_decision:
+            raise HTTPException(status_code=400, detail="Выберите результат ручной сверки")
         conn = get_db(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             actor, company_id = selected_actor(cur, current_user, "write", x_company_id, x_company_mode)
@@ -661,12 +677,13 @@ def register_material_packaging_module(app, deps):
                 preview=context["preview"], dependency_check=context["dependencyCheck"],
                 traceability_status=context["traceabilityStatus"],
             )
+            snapshot["reviewDecision"] = review_decision
             cur.execute(
                 """INSERT INTO material_packaging_reviews
-                    (company_id,warehouse_invoice_id,item_index,packaging_rule_id,review_note,snapshot,reviewed_by)
-                   VALUES (%s,%s,%s,%s,%s,%s::jsonb,%s) RETURNING id,reviewed_at""",
-                (company_id, invoice_id, item_index, context["rule"]["id"], review_note,
-                 json.dumps(snapshot, ensure_ascii=False), _text(actor.get("name") or actor.get("email"), 255)),
+                    (company_id,warehouse_invoice_id,item_index,packaging_rule_id,review_decision,review_note,snapshot,reviewed_by)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s) RETURNING id,reviewed_at""",
+                (company_id, invoice_id, item_index, context["rule"]["id"], review_decision,
+                 review_note, json.dumps(snapshot, ensure_ascii=False), _text(actor.get("name") or actor.get("email"), 255)),
             )
             review = cur.fetchone(); conn.commit()
         except Exception:
@@ -681,7 +698,7 @@ def register_material_packaging_module(app, deps):
         )
         return {
             "ok": True,
-            "review": {"id": review.get("id"), "status": "reviewed_no_stock_change", "reviewedAt": review.get("reviewed_at").isoformat() if review.get("reviewed_at") else ""},
+            "review": {"id": review.get("id"), "status": "reviewed_no_stock_change", "decision": review_decision, "reviewedAt": review.get("reviewed_at").isoformat() if review.get("reviewed_at") else ""},
             "message": "Сверка зафиксирована. Остатки, накладная и история движений не изменены.",
             "preview": context["preview"], "dependencyCheck": context["dependencyCheck"],
             "traceabilityStatus": context["traceabilityStatus"],

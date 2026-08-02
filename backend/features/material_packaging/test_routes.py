@@ -7,6 +7,7 @@ from .routes import (
     build_packaging_traceability_status,
     build_packaging_review_snapshot,
     packaging_review_row,
+    normalize_review_decision,
     normalize_invoice_packaging_items,
 )
 
@@ -178,6 +179,14 @@ class MaterialPackagingRulesTest(unittest.TestCase):
         self.assertEqual(row["materialName"], "Кабель")
         self.assertEqual(row["traceabilityState"], "legacy_unlinked")
         self.assertEqual(row["status"], "reviewed_no_stock_change")
+
+    def test_review_decision_is_explicit_and_legacy_rows_stay_unclassified(self):
+        self.assertEqual(normalize_review_decision("confirmed"), "confirmed")
+        self.assertEqual(normalize_review_decision("discrepancy"), "discrepancy")
+        self.assertEqual(normalize_review_decision("document_required"), "document_required")
+        self.assertIsNone(normalize_review_decision("apply_stock_change"))
+        legacy = packaging_review_row({"id": 8, "snapshot": {}})
+        self.assertEqual(legacy["decision"], "legacy_unclassified")
 
     def test_packaging_label_with_its_content_uses_packaging_rule(self):
         cursor = FakeCursor([{

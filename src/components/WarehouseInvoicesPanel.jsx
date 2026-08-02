@@ -20,6 +20,7 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
   const canPreviewHistoricalCorrection = ['директор', 'зам_директора'].includes(String(user?.role || ''));
   const [correctionPreviews, setCorrectionPreviews] = React.useState({});
   const [reviewNotes, setReviewNotes] = React.useState({});
+  const [reviewDecisions, setReviewDecisions] = React.useState({});
   const [reviewConfirmations, setReviewConfirmations] = React.useState({});
   const [savedReviews, setSavedReviews] = React.useState([]);
   const [reviewSubmittingKey, setReviewSubmittingKey] = React.useState('');
@@ -125,7 +126,7 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
       const response = await fetch(API + '/material-packaging-corrections/reviews', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({warehouseInvoiceId:row.invoice?.id, itemIndex:row.itemIndex, reviewNote:reviewNotes[row.key] || ''}),
+        body:JSON.stringify({warehouseInvoiceId:row.invoice?.id, itemIndex:row.itemIndex, reviewNote:reviewNotes[row.key] || '', reviewDecision:reviewDecisions[row.key] || ''}),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.detail || 'Не удалось зафиксировать сверку');
@@ -187,8 +188,14 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
                 )}
                 {correctionPreviews[row.key]?.preview && !reviewConfirmations[row.key] && (
                   <div style={{display:'flex',gap:'6px',marginTop:'7px',alignItems:'center',flexWrap:'wrap'}}>
+                    <select value={reviewDecisions[row.key] || ''} onChange={event => setReviewDecisions(current => ({...current,[row.key]:event.target.value}))} style={{...inp,flex:'0 1 210px',fontSize:'11px',padding:'6px 8px'}}>
+                      <option value="">Результат сверки</option>
+                      <option value="confirmed">Подтверждено по документу</option>
+                      <option value="discrepancy">Найдено расхождение</option>
+                      <option value="document_required">Нужен первичный документ</option>
+                    </select>
                     <input value={reviewNotes[row.key] || ''} onChange={event => setReviewNotes(current => ({...current,[row.key]:event.target.value}))} placeholder="Итог ручной сверки" style={{...inp,flex:'1 1 220px',fontSize:'11px',padding:'6px 8px'}}/>
-                    <button type="button" onClick={() => confirmHistoricalReview(row)} disabled={reviewSubmittingKey === row.key} style={{...btnB,fontSize:'11px',padding:'5px 8px',opacity:reviewSubmittingKey === row.key ? 0.65 : 1}}>{reviewSubmittingKey === row.key ? 'Фиксирую…' : 'Зафиксировать сверку'}</button>
+                    <button type="button" onClick={() => confirmHistoricalReview(row)} disabled={reviewSubmittingKey === row.key || !reviewDecisions[row.key]} style={{...btnB,fontSize:'11px',padding:'5px 8px',opacity:reviewSubmittingKey === row.key || !reviewDecisions[row.key] ? 0.65 : 1}}>{reviewSubmittingKey === row.key ? 'Фиксирую…' : 'Зафиксировать сверку'}</button>
                   </div>
                 )}
                 {reviewConfirmations[row.key] && <p style={{color:C.success,fontSize:'11px',margin:'6px 0 0'}}>Сверка сохранена. Остатки и накладная не изменены.</p>}
@@ -259,7 +266,8 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
                     <div key={review.id} style={{padding:'8px',backgroundColor:C.bg,border:'1px solid '+C.border,borderRadius:'8px'}}>
                       <b style={{display:'block',color:C.text,fontSize:'12px',overflowWrap:'anywhere'}}>{review.materialName || 'Материал'} · накладная № {review.invoiceNumber || review.warehouseInvoiceId}</b>
                       <span style={{display:'block',color:C.textSec,fontSize:'11px',marginTop:'3px'}}>Проверил: {review.reviewedBy || 'не указан'} · {review.reviewedAt ? new Date(review.reviewedAt).toLocaleString('ru-RU') : 'дата не указана'}</span>
-                      <span style={{display:'block',color:C.warning,fontSize:'11px',marginTop:'3px'}}>Статус цепочки: {review.traceabilityState}. Остатки не изменены.</span>
+                      <span style={{display:'block',color:C.warning,fontSize:'11px',marginTop:'3px'}}>Решение: {{confirmed:'подтверждено',discrepancy:'найдено расхождение',document_required:'нужен первичный документ',legacy_unclassified:'старое решение без классификации'}[review.decision] || review.decision}. Остатки не изменены.</span>
+                      <span style={{display:'block',color:C.textSec,fontSize:'11px',marginTop:'3px'}}>Статус цепочки: {review.traceabilityState}.</span>
                       <span style={{display:'block',color:C.textSec,fontSize:'11px',marginTop:'3px',overflowWrap:'anywhere'}}>{review.reviewNote}</span>
                     </div>
                   ))}
