@@ -9,6 +9,7 @@ in main.py and are injected; the delete reference summary helpers
 move along — the delete route was their only caller.
 """
 
+import re
 from typing import Optional
 
 import psycopg2.extras
@@ -44,6 +45,13 @@ class SupplierModel(BaseModel):
     notes: Optional[str] = ""
     sourceType: Optional[str] = ""
     sourceDetail: Optional[str] = ""
+
+
+def _has_legal_supplier_identity(inn: str = "", ogrn: str = "") -> bool:
+    """A new supplier card needs a stable legal identifier, not a display name."""
+    inn_digits = re.sub(r"\D", "", str(inn or ""))
+    ogrn_digits = re.sub(r"\D", "", str(ogrn or ""))
+    return len(inn_digits) in (10, 12) or len(ogrn_digits) in (13, 15)
 
 
 def register_supplier_directory_module(app, deps):
@@ -149,6 +157,12 @@ def register_supplier_directory_module(app, deps):
             remember_supplier_alias(cur, existing["id"], payload, source="manual_supplier")
             cur.close(); conn.close()
             return dict(row)
+        if not _has_legal_supplier_identity(s.inn, s.ogrn):
+            cur.close(); conn.close()
+            raise HTTPException(
+                status_code=422,
+                detail="Для новой карточки поставщика укажите ИНН (10 или 12 цифр) либо ОГРН/ОГРНИП (13 или 15 цифр)",
+            )
         cur.execute("""
             INSERT INTO suppliers (
                 name,phone,email,specialization,category,rating,status,

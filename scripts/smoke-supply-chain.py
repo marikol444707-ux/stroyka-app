@@ -44,6 +44,10 @@ def test_supplier_phone(stamp):
     return "+7" + digits
 
 
+def test_supplier_inn(stamp):
+    return "7701" + re.sub(r"\D", "", str(stamp or ""))[-6:].rjust(6, "0")
+
+
 def test_unlinked_supplier_name(stamp):
     return f"{TEST_SUPPLIER_PREFIX} без кабинета {stamp}"
 
@@ -373,6 +377,7 @@ def create_supplier(token, stamp):
             "name": supplier_name,
             "phone": test_supplier_phone(stamp),
             "email": supplier_email,
+            "inn": test_supplier_inn(stamp),
             "specialization": "CODEX QA",
             "category": "Материалы",
             "rating": 5,
@@ -398,6 +403,18 @@ def create_supplier(token, stamp):
             )
         )
     return supplier_id
+
+
+def assert_manual_supplier_requires_legal_identity(token, stamp):
+    _, body = api_json(
+        "POST",
+        "/suppliers",
+        token=token,
+        data={"name": f"{TEST_SUPPLIER_PREFIX} без реквизитов {stamp}"},
+        expected=422,
+    )
+    if "ИНН" not in str(body.get("detail") or ""):
+        raise RuntimeError(f"Ручное создание поставщика без реквизитов вернуло неясную ошибку: {body}")
 
 
 def create_unlinked_supplier_record(stamp):
@@ -1997,6 +2014,7 @@ def main():
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d%H%M%S")
     created = {}
     try:
+        assert_manual_supplier_requires_legal_identity(token, stamp)
         supplier_id = create_supplier(token, stamp)
         supplier_name = test_supplier_name(stamp)
         supplier_email = test_supplier_email(stamp)
@@ -2082,6 +2100,7 @@ def main():
             "supplierDocumentDuplicateSupplierId": document_duplicate_supplier_id,
             "supplierDocumentIds": supplier_document_ids,
             "checked": [
+                "manual supplier creation rejects name-only card without legal identity",
                 "positive estimate material selected",
                 "supply request passed estimate control",
                 "selected supplier received KP request",

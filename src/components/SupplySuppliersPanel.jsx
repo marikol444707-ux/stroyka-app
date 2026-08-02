@@ -7,6 +7,7 @@ import {
   SOURCE_FILTERS,
   SUPPLIER_SOURCE_META,
   groupSuppliers,
+  hasSupplierLegalIdentity,
   normalizeSupplierNameKey,
   sourceMeta,
   supplierNameDuplicateReason,
@@ -128,6 +129,7 @@ function SupplySuppliersPanel({
   const [collapsedCategories, setCollapsedCategories] = React.useState(() => new Set());
   const canEditSuppliers = ['директор','зам_директора','кладовщик','снабженец'].includes(user?.role || '');
   const canLinkSupplierUsers = ['директор','зам_директора'].includes(user?.role || '');
+  const canSaveNewSupplier = Boolean(newSupplier?.name?.trim()) && hasSupplierLegalIdentity(newSupplier);
   const supplierUsers = React.useMemo(
     () => (users || []).filter(item => item?.role === 'поставщик'),
     [users],
@@ -546,9 +548,9 @@ function SupplySuppliersPanel({
               {Object.entries(SUPPLIER_SOURCE_META).map(([value, meta])=><option key={value} value={value}>{meta.label}</option>)}
             </select>
             <input placeholder="Детали источника" value={newSupplier.sourceDetail || ''} onChange={e=>setNewSupplier({...newSupplier,sourceDetail:e.target.value})} style={{...inp,marginBottom:0}}/>
-            <input placeholder="ИНН" value={newSupplier.inn || ''} onChange={e=>setNewSupplier({...newSupplier,inn:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input placeholder="ИНН (10 или 12 цифр) *" value={newSupplier.inn || ''} onChange={e=>setNewSupplier({...newSupplier,inn:e.target.value})} style={{...inp,marginBottom:0}}/>
             <input placeholder="КПП" value={newSupplier.kpp || ''} onChange={e=>setNewSupplier({...newSupplier,kpp:e.target.value})} style={{...inp,marginBottom:0}}/>
-            <input placeholder="ОГРН / ОГРНИП" value={newSupplier.ogrn || ''} onChange={e=>setNewSupplier({...newSupplier,ogrn:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input placeholder="ОГРН / ОГРНИП (13 или 15 цифр) *" value={newSupplier.ogrn || ''} onChange={e=>setNewSupplier({...newSupplier,ogrn:e.target.value})} style={{...inp,marginBottom:0}}/>
             <input placeholder="Банк" value={newSupplier.bank || ''} onChange={e=>setNewSupplier({...newSupplier,bank:e.target.value})} style={{...inp,marginBottom:0}}/>
             <input placeholder="БИК" value={newSupplier.bik || ''} onChange={e=>setNewSupplier({...newSupplier,bik:e.target.value})} style={{...inp,marginBottom:0}}/>
             <input placeholder="Расчетный счет" value={newSupplier.account || ''} onChange={e=>setNewSupplier({...newSupplier,account:e.target.value})} style={{...inp,marginBottom:0}}/>
@@ -579,7 +581,11 @@ function SupplySuppliersPanel({
             createRecognizedDocumentLabel="Добавить в документы поставщика"
           />
           <div style={{display:'flex',gap:'8px',marginTop:'12px'}}>
-            <button onClick={saveSupplier} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button>
+            <button
+              onClick={saveSupplier}
+              disabled={!editingItem?.id && !canSaveNewSupplier}
+              style={{...btnO, opacity: !editingItem?.id && !canSaveNewSupplier ? 0.55 : 1, cursor: !editingItem?.id && !canSaveNewSupplier ? 'not-allowed' : btnO.cursor}}
+            ><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button>
             <button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button>
           </div>
         </div>

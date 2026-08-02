@@ -57,6 +57,12 @@ export const normalizeSupplierNameKey = value => String(value || '')
 
 export const normalizeSupplierDigits = value => String(value || '').replace(/\D/g, '');
 
+export const hasSupplierLegalIdentity = supplier => {
+  const inn = normalizeSupplierDigits(supplier?.inn || supplier?.supplierInn || supplier?.supplier_inn);
+  const ogrn = normalizeSupplierDigits(supplier?.ogrn || supplier?.supplierOgrn || supplier?.supplier_ogrn);
+  return [10, 12].includes(inn.length) || [13, 15].includes(ogrn.length);
+};
+
 export const normalizeSupplierEmail = value => String(value || '').trim().toLowerCase();
 
 export const normalizeSupplierRecordName = value => String(value || '')

@@ -146,6 +146,24 @@ class SupplierDirectoryTest(unittest.TestCase):
             app.routes[("POST", "/suppliers")](SupplierModel(name="  "), _current_user={})
         self.assertEqual(ctx.exception.status_code, 400)
 
+    def test_create_requires_legal_identity_for_new_supplier(self):
+        cursor = FakeCursor()
+        app, _conn = build(cursor)
+        with self.assertRaises(HTTPException) as ctx:
+            app.routes[("POST", "/suppliers")](SupplierModel(name="ООО Без реквизитов"), _current_user={})
+        self.assertEqual(ctx.exception.status_code, 422)
+        self.assertIn("ИНН", ctx.exception.detail)
+        self.assertEqual(cursor.calls, [])
+
+    def test_create_accepts_ogrn_for_new_supplier(self):
+        cursor = FakeCursor(fetchone_results=[{"id": 8, "name": "ООО Поставка"}])
+        app, _conn = build(cursor)
+        result = app.routes[("POST", "/suppliers")](
+            SupplierModel(name="ООО Поставка", ogrn="1162375052839"), _current_user={}
+        )
+        self.assertEqual(result["id"], 8)
+        self.assertIn("INSERT INTO suppliers", cursor.calls[0][0])
+
     def test_link_user_rejects_non_supplier_role(self):
         cursor = FakeCursor(fetchone_results=[{"id": 3, "name": "ООО"}, {"id": 42, "name": "Тест", "email": "a@b", "role": "мастер"}])
         app, connection = build(cursor)

@@ -1,4 +1,5 @@
 import {
+  hasSupplierLegalIdentity,
   groupSuppliers,
   supplierNameDuplicateReason,
   supplierMatchesRecord,
@@ -6,6 +7,16 @@ import {
   supplierSourceInfo,
   warehouseInvoiceDocumentKey,
 } from './supplierUtils';
+
+describe('hasSupplierLegalIdentity', () => {
+  it('accepts only INN or OGRN lengths used for a new supplier card', () => {
+    expect(hasSupplierLegalIdentity({ inn: '2312254452' })).toBe(true);
+    expect(hasSupplierLegalIdentity({ inn: '123' })).toBe(false);
+    expect(hasSupplierLegalIdentity({ ogrn: '1162375052839' })).toBe(true);
+    expect(hasSupplierLegalIdentity({ ogrn: '123' })).toBe(false);
+    expect(hasSupplierLegalIdentity({ email: 'supplier@example.test' })).toBe(false);
+  });
+});
 
 describe('groupSuppliers', () => {
   it('keeps request and recommendation flags when linked supplier cards are merged', () => {

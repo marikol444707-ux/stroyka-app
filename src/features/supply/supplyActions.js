@@ -1,4 +1,4 @@
-import { emptySupplierForm, normalizeSupplierPayload } from '../../utils/supplierUtils';
+import { emptySupplierForm, hasSupplierLegalIdentity, normalizeSupplierPayload } from '../../utils/supplierUtils';
 import { createRequestForm, createSupplierOfferForm } from './supplyInitialForms';
 
 export const createSupplyActions = ({
@@ -67,19 +67,29 @@ export const createSupplyActions = ({
 
   const saveSupplier = async () => {
     if (!newSupplier.name) return;
+    if (!editingItem?.id && !hasSupplierLegalIdentity(newSupplier)) {
+      alert('Для новой карточки поставщика укажите ИНН (10 или 12 цифр) либо ОГРН/ОГРНИП (13 или 15 цифр).');
+      return;
+    }
     const payload = normalizeSupplierPayload(newSupplier);
+    let res;
     if (editingItem && editingItem.id) {
-      await fetch(API + '/suppliers/' + editingItem.id, {
+      res = await fetch(API + '/suppliers/' + editingItem.id, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
     } else {
-      await fetch(API + '/suppliers', {
+      res = await fetch(API + '/suppliers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.detail || data.error) {
+      alert(data.detail || data.error || 'Не удалось сохранить поставщика.');
+      return;
     }
     await refreshData();
     setNewSupplier(emptySupplierForm());
