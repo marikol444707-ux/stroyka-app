@@ -1510,6 +1510,16 @@ def assert_name_only_warehouse_invoice_does_not_link_supplier(token, candidate, 
     created["nameOnlyInvoiceId"] = invoice_id
     created["nameOnlySupplierInvoiceId"] = supplier_invoice_id
 
+    _, payment_block = api_json(
+        "PUT",
+        f"/warehouse-invoices/{invoice_id}/accounting",
+        token=token,
+        data={"accountingStatus": "К оплате"},
+        expected=409,
+    )
+    if "поставщика" not in str(payment_block.get("detail") or "").lower():
+        raise RuntimeError(f"Name-only накладная заблокирована без понятной причины: {payment_block}")
+
     conn = db_conn()
     try:
         cur = conn.cursor()

@@ -281,6 +281,18 @@ export default function AccountingIncomingDocumentsPanel({
 
   const renderActions = (row) => {
     const disabled = busyId === row.invoice.id;
+    const linkedSupplierInvoice = getLinkedSupplierInvoice(row);
+    const supplierId = Number(
+      row.invoice.supplierId
+      || row.invoice.supplier_id
+      || linkedSupplierInvoice?.supplierId
+      || linkedSupplierInvoice?.supplier_id
+      || 0,
+    );
+    const paymentBlocked = supplierId <= 0;
+    const paymentBlockedTitle = paymentBlocked
+      ? 'Сначала укажите поставщика или свяжите накладную со счётом поставщика'
+      : '';
     return (
       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
         <button disabled={disabled} onClick={() => setOpenedId(openedId === row.invoice.id ? null : row.invoice.id)} style={{ ...btnB, padding: '6px 10px', fontSize: '11px' }}><Eye size={12} />Открыть</button>
@@ -289,13 +301,13 @@ export default function AccountingIncomingDocumentsPanel({
           <input type="file" accept="image/*" multiple disabled={disabled} onChange={event => { attachPhotos(row, event.target.files); event.target.value = ''; }} style={{ display: 'none' }} />
         </label>
         {(row.status === 'На проверке' || row.status === 'Нужно уточнение') && (
-          <button disabled={disabled || row.photos.length === 0} onClick={() => markStatus(row, 'К оплате')} style={{ ...btnGr, padding: '6px 10px', fontSize: '11px' }}><CheckCircle2 size={12} />К оплате</button>
+          <button title={paymentBlockedTitle} disabled={disabled || row.photos.length === 0 || paymentBlocked} onClick={() => markStatus(row, 'К оплате')} style={{ ...btnGr, padding: '6px 10px', fontSize: '11px' }}><CheckCircle2 size={12} />К оплате</button>
         )}
         {(row.status === 'На проверке' || row.status === 'К оплате') && (
           <button disabled={disabled} onClick={() => markStatus(row, 'Нужно уточнение')} style={{ ...btnG, padding: '6px 10px', fontSize: '11px' }}><MessageSquare size={12} />Уточнить</button>
         )}
         {(row.status === 'К оплате' || row.status === 'Частично оплачена') && row.debt > 0 && (
-          <button disabled={disabled} onClick={() => payInvoice(row)} style={{ ...btnO, padding: '6px 10px', fontSize: '11px' }}><CreditCard size={12} />Оплатить</button>
+          <button title={paymentBlockedTitle} disabled={disabled || paymentBlocked} onClick={() => payInvoice(row)} style={{ ...btnO, padding: '6px 10px', fontSize: '11px' }}><CreditCard size={12} />Оплатить</button>
         )}
         {row.status !== 'Оплачена' && row.status !== 'Отклонена' && (
           <button disabled={disabled} onClick={() => markStatus(row, 'Отклонена')} style={{ ...btnR, padding: '6px 10px', fontSize: '11px' }}><XCircle size={12} /></button>

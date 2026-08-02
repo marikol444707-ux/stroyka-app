@@ -19700,7 +19700,7 @@ def update_warehouse_invoice_accounting(
                 raw_supplier_invoice_id = data.get("supplier_invoice_id")
             linked_supplier_invoice_id = int(raw_supplier_invoice_id or 0) or None
         if linked_supplier_invoice_id:
-            cur.execute("""SELECT id, project_name, supplier_name, amount, paid_amount,
+            cur.execute("""SELECT id, supplier_id, project_name, supplier_name, amount, paid_amount,
                                   status, warehouse_invoice_id, company_id
                            FROM supplier_invoices
                            WHERE id=%s AND COALESCE(status,'') <> 'Аннулирован'
@@ -19749,6 +19749,15 @@ def update_warehouse_invoice_accounting(
             next_status = "На проверке"
         if not current_photos and not next_status:
             next_status = "Нет фото"
+        resolved_supplier_id = (
+            _positive_int_or_none(row.get("supplier_id"))
+            or _positive_int_or_none((supplier_invoice_row or {}).get("supplier_id"))
+        )
+        if next_status in ("К оплате", "Частично оплачена", "Оплачена") and not resolved_supplier_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Перед оплатой нужно определить поставщика: выберите существующий счёт поставщика или уточните реквизиты накладной",
+            )
         if next_status in ("К оплате", "Частично оплачена", "Оплачена") and not current_photos:
             raise HTTPException(status_code=400, detail="Перед оплатой нужно прикрепить фото накладной")
 
@@ -19830,6 +19839,8 @@ def update_warehouse_invoice_accounting(
                            paid_amount=%s,
                            paid_at=CASE WHEN %s > 0 THEN %s ELSE paid_at END,
                            paid_by=CASE WHEN %s > 0 THEN %s ELSE paid_by END,
+                           supplier_id=COALESCE(supplier_id,%s),
+                           supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
                            supplier_invoice_id=%s
                        WHERE id=%s""",
                     (
@@ -19843,6 +19854,8 @@ def update_warehouse_invoice_accounting(
                         paid_at,
                         payment_amount,
                         actor_name,
+                        resolved_supplier_id,
+                        (supplier_invoice_row or {}).get("supplier_name") or "",
                         linked_supplier_invoice_id,
                         id,
                     ))
