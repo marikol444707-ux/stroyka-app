@@ -809,7 +809,13 @@ def _supplier_match_dict(row):
         "status": _row_get(row, "status", 7, ""),
     }
 
-def _supplier_find_match(cur, payload: dict, allow_name_match: bool = False, allow_alias_name_match: bool = True):
+def _supplier_find_match(
+    cur,
+    payload: dict,
+    allow_name_match: bool = False,
+    allow_alias_name_match: bool = True,
+    allow_contact_match: bool = True,
+):
     req = _supplier_extract_requisites(payload)
     try:
         explicit_id = int(_supplier_payload_text(payload, "supplierId", "supplier_id", "id") or 0)
@@ -852,7 +858,7 @@ def _supplier_find_match(cur, payload: dict, allow_name_match: bool = False, all
         row = cur.fetchone()
         if row:
             return _supplier_match_dict(row)
-    if req["email"]:
+    if allow_contact_match and req["email"]:
         cur.execute(f"""SELECT {SUPPLIER_MATCH_SELECT}
                         FROM suppliers
                         WHERE LOWER(COALESCE(email,''))=LOWER(%s)
@@ -860,7 +866,7 @@ def _supplier_find_match(cur, payload: dict, allow_name_match: bool = False, all
         row = cur.fetchone()
         if row:
             return _supplier_match_dict(row)
-    if req["phone"] and len(req["phone"]) >= 7:
+    if allow_contact_match and req["phone"] and len(req["phone"]) >= 7:
         cur.execute(f"""SELECT {SUPPLIER_MATCH_SELECT}
                         FROM suppliers
                         WHERE regexp_replace(COALESCE(phone,''), '\\D', '', 'g')=%s
@@ -18443,7 +18449,7 @@ def _apply_supplier_invoice_template_metadata(payload: dict, current_user: dict 
             "supplierName": recognition["supplierName"],
             "supplier": recognition["supplierName"] or payload.get("supplier") or "",
         }
-        supplier = _supplier_find_match(cur, supplier_lookup_payload)
+        supplier = _supplier_find_match(cur, supplier_lookup_payload, allow_contact_match=False)
         if supplier:
             recognition["supplierId"] = supplier["id"]
             recognition["supplierName"] = supplier["name"] or recognition["supplierName"]
@@ -18698,7 +18704,7 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
             "supplierName": supplier_name or data.get("supplier") or "",
             "supplier": data.get("supplier") or supplier_name,
         }
-        matched_supplier = _supplier_find_match(cur, supplier_lookup_payload)
+        matched_supplier = _supplier_find_match(cur, supplier_lookup_payload, allow_contact_match=False)
         if matched_supplier:
             data["supplierId"] = matched_supplier["id"]
             data["supplierName"] = matched_supplier["name"] or supplier_name
@@ -19029,7 +19035,7 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
             supplier_payload["supplierId"] = warehouse_invoice.get("supplier_id")
 
         supplier_id = warehouse_invoice.get("supplier_id")
-        matched_supplier = _supplier_find_match(cur, supplier_payload)
+        matched_supplier = _supplier_find_match(cur, supplier_payload, allow_contact_match=False)
         created_supplier = False
         if matched_supplier:
             supplier_id = matched_supplier["id"]
@@ -19038,37 +19044,33 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
             _remember_supplier_alias(cur, supplier_id, supplier_payload, source="warehouse_accounting")
         elif supplier_name:
             req = _supplier_extract_requisites(supplier_payload)
-            supplier_review_status = "На проверке" if (req.get("inn") or req.get("ogrn") or req.get("email") or req.get("phone")) else "Нужно уточнение"
-            cur.execute(
-                """
-                INSERT INTO suppliers
-                    (name,phone,email,specialization,category,rating,status,
-                     inn,kpp,ogrn,notes,source_type,source_detail)
-                VALUES (%s,'','','','Материалы',5.0,%s,%s,%s,%s,%s,%s,%s)
-                RETURNING id,name
-                """,
-                (
-                    supplier_name,
-                    supplier_review_status,
-                    req.get("inn") or "",
-                    req.get("kpp") or "",
-                    req.get("ogrn") or "",
+            if req.get("inn") or req.get("ogrn"):
+                cur.execute(
+                    """
+                    INSERT INTO suppliers
+                        (name,phone,email,specialization,category,rating,status,
+                         inn,kpp,ogrn,notes,source_type,source_detail)
+                    VALUES (%s,'','','','Материалы',5.0,'На проверке',%s,%s,%s,%s,%s,%s)
+                    RETURNING id,name
+                    """,
                     (
-                        "Создано из складской накладной #" + str(warehouse_invoice_id)
-                        + ("; нет ИНН/ОГРН/email/телефона, требуется ручная проверка" if supplier_review_status == "Нужно уточнение" else "")
+                        supplier_name,
+                        req.get("inn") or "",
+                        req.get("kpp") or "",
+                        req.get("ogrn") or "",
+                        "Создано из складской накладной #" + str(warehouse_invoice_id),
+                        supplier_payload["sourceType"],
+                        supplier_payload["sourceDetail"],
                     ),
-                    supplier_payload["sourceType"],
-                    supplier_payload["sourceDetail"],
-                ),
-            )
-            supplier_row = cur.fetchone()
-            supplier_id = supplier_row.get("id")
-            supplier_name = supplier_row.get("name") or supplier_name
-            created_supplier = True
-            _remember_supplier_alias(cur, supplier_id, supplier_payload, source="warehouse_accounting")
+                )
+                supplier_row = cur.fetchone()
+                supplier_id = supplier_row.get("id")
+                supplier_name = supplier_row.get("name") or supplier_name
+                created_supplier = True
+                _remember_supplier_alias(cur, supplier_id, supplier_payload, source="warehouse_accounting")
 
         review_state = {"needsReview": False, "reviewReason": "", "accountingStatus": "На проверке", "supplierInvoiceStatus": "На утверждении"}
-        if review_uncertain_supplier_match:
+        if review_uncertain_supplier_match or (supplier_name and not supplier_id):
             review_state = _supplier_backfill_review_state(
                 cur,
                 warehouse_invoice,

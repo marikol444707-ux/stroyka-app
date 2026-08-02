@@ -1521,6 +1521,8 @@ def assert_name_only_warehouse_invoice_does_not_link_supplier(token, candidate, 
         linked_supplier_invoice_id = int(warehouse_row[1] or 0)
         if warehouse_supplier_id == int(existing_supplier_id):
             raise RuntimeError("Складская накладная привязалась к существующему поставщику только по названию")
+        if warehouse_supplier_id:
+            raise RuntimeError("Name-only складская накладная создала или привязала карточку поставщика")
         if linked_supplier_invoice_id:
             created["nameOnlySupplierInvoiceId"] = linked_supplier_invoice_id
             cur.execute("SELECT supplier_id, status FROM supplier_invoices WHERE id=%s", (linked_supplier_invoice_id,))
@@ -1530,7 +1532,10 @@ def assert_name_only_warehouse_invoice_does_not_link_supplier(token, candidate, 
             if invoice_row and invoice_row[1] != "Нужно уточнение":
                 raise RuntimeError(f"Name-only первичка не получила статус Нужно уточнение: {invoice_row[1]}")
             if invoice_row and int(invoice_row[0] or 0):
-                created["nameOnlyCreatedSupplierId"] = int(invoice_row[0] or 0)
+                raise RuntimeError("Name-only первичка создала карточку поставщика")
+        cur.execute("SELECT COUNT(*) FROM suppliers WHERE name=%s", (supplier_name,))
+        if int((cur.fetchone() or [0])[0] or 0) != 1:
+            raise RuntimeError("Name-only накладная создала дублирующую карточку поставщика")
         cur.close()
     finally:
         conn.close()
