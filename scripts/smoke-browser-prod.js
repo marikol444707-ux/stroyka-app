@@ -353,6 +353,9 @@ function relevantConsoleErrors(events) {
       if (/Failed to load resource: the server responded with a status of 404/i.test(text)) return false;
       if (/Failed to load resource: the server responded with a status of 405/i.test(text)) return false;
       if (/Failed to load resource: the server responded with a status of 401/i.test(text)) return false;
+      // The app intentionally tries cookie auth first, then retries once with the stored Bearer token.
+      // CDP records that expected first 401 as a Network.responseReceived event.
+      if (/^HTTP 401\b/.test(text)) return false;
       return true;
     })
     .filter(Boolean);
