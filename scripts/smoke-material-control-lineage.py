@@ -198,7 +198,15 @@ def post_request(token, headers, candidates, label):
 
 
 def assert_saved_lineage(request, expected_count):
-    items = request.get("items") or []
+    raw_items = request.get("items")
+    if raw_items is None:
+        raw_items = request.get("itemsJson")
+    if isinstance(raw_items, str):
+        try:
+            raw_items = json.loads(raw_items)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("Заявка вернула нечитаемый itemsJson") from exc
+    items = raw_items if isinstance(raw_items, list) else []
     if len(items) != expected_count:
         raise RuntimeError(f"Заявка сохранила {len(items)} позиций вместо {expected_count}")
     for item in items:

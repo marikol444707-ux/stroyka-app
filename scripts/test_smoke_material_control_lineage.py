@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import unittest
 from pathlib import Path
 
@@ -52,6 +53,19 @@ class MaterialControlLineageSmokeTests(unittest.TestCase):
         self.assertEqual(payload["quantity"], 2)
         self.assertEqual(payload["unit"], "поз.")
         self.assertEqual(len(payload["items"]), 2)
+
+    def test_saved_lineage_reads_backend_items_json(self):
+        request = {
+            "itemsJson": json.dumps([{
+                "estimateLineage": {
+                    "validated": True,
+                    "sourceCount": 1,
+                    "sources": [{"validated": True}],
+                },
+            }]),
+        }
+
+        MODULE.assert_saved_lineage(request, 1)
 
 
 if __name__ == "__main__":
