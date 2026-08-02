@@ -495,6 +495,31 @@ async function waitForActiveProjectTab(client, label, timeoutMs = WAIT_MS) {
   throw new Error(`materials browser smoke: project tab did not become active: ${label}`);
 }
 
+async function materialApiProfile(client, startedAt) {
+  const resources = await evaluateValue(client, `
+    (() => performance.getEntriesByType('resource')
+      .filter((entry) => entry.startTime >= ${JSON.stringify(startedAt)})
+      .map((entry) => {
+        try {
+          const url = new URL(entry.name);
+          return {
+            path: url.origin === location.origin ? url.pathname : url.origin,
+            duration: Math.round(entry.duration),
+            initiatorType: entry.initiatorType || '',
+          };
+        } catch (_error) {
+          return null;
+        }
+      })
+      .filter(Boolean)
+      .filter((entry) => entry.initiatorType === 'fetch' || entry.initiatorType === 'xmlhttprequest')
+      .sort((left, right) => right.duration - left.duration)
+      .slice(0, 6)
+    )()
+  `);
+  return Array.isArray(resources) ? resources : [];
+}
+
 async function waitForRenderedPage(client) {
   const deadline = Date.now() + WAIT_MS;
   let info = { bodyText: '', title: '', href: '', readyState: '', events: [] };
@@ -714,6 +739,7 @@ async function runAuthenticatedMaterialsScenario(port, authData) {
 
     const openMaterials = async (label) => {
       const startedAt = Date.now();
+      const browserStartedAt = await evaluateValue(client, 'performance.now()');
       await clickVisibleText(client, 'Материалы', { exact: true });
       const materialsInfo = await waitForBodyText(
         client,
@@ -741,7 +767,11 @@ async function runAuthenticatedMaterialsScenario(port, authData) {
       if (!Number.isFinite(rendered.shownRows) || !Number.isFinite(rendered.totalRows) || rendered.totalRows < 1) {
         throw new Error(`materials browser smoke: material table was not rendered for ${targetName}; ${materialsText.slice(-500)}`);
       }
-      return { elapsedMs: Date.now() - startedAt, rendered };
+      return {
+        elapsedMs: Date.now() - startedAt,
+        rendered,
+        apiProfile: await materialApiProfile(client, browserStartedAt),
+      };
     };
 
     const cold = await openMaterials('cold');
@@ -755,7 +785,11 @@ async function runAuthenticatedMaterialsScenario(port, authData) {
     if (cold.rendered.shownRows !== warm.rendered.shownRows || cold.rendered.totalRows !== warm.rendered.totalRows) {
       throw new Error(`materials browser smoke: warm projection differs for ${targetName}; cold=${cold.rendered.shownRows}/${cold.rendered.totalRows} warm=${warm.rendered.shownRows}/${warm.rendered.totalRows}`);
     }
+    const coldApiProfile = cold.apiProfile.length
+      ? cold.apiProfile.map((entry) => `${entry.path}:${entry.duration}ms`).join(', ')
+      : 'no API requests after click';
     console.log(`OK   browser materials scenario: ${targetName} · cold=${cold.elapsedMs}ms warm=${warm.elapsedMs}ms · shown=${cold.rendered.shownRows} total=${cold.rendered.totalRows}`);
+    console.log(`INFO materials cold API profile: ${coldApiProfile}`);
   } finally {
     client.close();
     await fetch(`http://127.0.0.1:${port}/json/close/${chromeTarget.id}`).catch(() => {});
