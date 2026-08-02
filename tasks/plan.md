@@ -169,6 +169,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M7k: Register and audit `warehouse_invoices` and `warehouse_history`; production read-only post-audit verified `404/404` rows with no review rows.
 - [x] Task M7k1: Separate supplier documents from inventory-only main-warehouse receipts. Production runtime `2f5ac37717cb` passed public and protected smoke; the temporary receipt, stock, history and supplier rows were removed and the QA user was disabled.
 - [ ] Task M7l: Audit and migrate `tools`, `tool_history`, and inventory ownership before a second company uses the shared warehouse module.
+- [x] Task M7l1: Add a no-write ownership report for `tools`, `tool_history`, `inventory`, and `inventory_items`; it accepts only exact project/parent chains and leaves empty or ambiguous legacy scope for review. Production audit pending.
 
 ### Checkpoint: SaaS Boundary
 
