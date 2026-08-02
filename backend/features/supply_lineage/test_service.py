@@ -4,6 +4,8 @@ import unittest
 from backend.features.supply_lineage.service import (
     MATERIAL_CONTROL_REQUEST_SOURCE,
     MaterialControlLineageError,
+    material_control_lineage_conflicts,
+    material_control_lineage_keys,
     validate_material_control_request_lineage,
 )
 
@@ -193,6 +195,30 @@ class SupplyLineageServiceTests(unittest.TestCase):
                 material_key=lambda *_args: ("", ""),
                 normalize_unit=lambda value: value,
             )
+
+    def test_lineage_key_is_exact_estimate_source_coordinate(self):
+        item = request_item()
+        item["estimateLineage"]["sources"].append({
+            **item["estimateLineage"]["sources"][0],
+            "itemIndex": 1,
+        })
+
+        self.assertEqual(material_control_lineage_keys([item]), {(14, 2, 0), (14, 2, 1)})
+
+    def test_reports_only_active_request_with_same_source_coordinate(self):
+        incoming = request_item()
+        same_source = request_item()
+        different_source = request_item()
+        different_source["estimateLineage"]["sources"][0]["itemIndex"] = 7
+        active_requests = [
+            {"id": 31, "items_json": json.dumps([same_source])},
+            {"id": 32, "items_json": json.dumps([different_source])},
+        ]
+
+        self.assertEqual(
+            material_control_lineage_conflicts(incoming and [incoming], active_requests, json.loads),
+            [{"requestId": 31, "estimateId": 14, "sectionIndex": 2, "itemIndex": 0}],
+        )
 
 
 if __name__ == "__main__":

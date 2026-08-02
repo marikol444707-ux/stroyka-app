@@ -280,7 +280,9 @@ try:
         MATERIAL_CONTROL_REQUEST_SOURCE,
         MaterialControlLineageError,
         load_material_control_estimates,
+        material_control_lineage_conflicts,
         material_control_estimate_ids,
+        material_control_lineage_keys,
         material_control_request_intent,
         validate_material_control_request_lineage,
     )
@@ -289,7 +291,9 @@ except ModuleNotFoundError:
         MATERIAL_CONTROL_REQUEST_SOURCE,
         MaterialControlLineageError,
         load_material_control_estimates,
+        material_control_lineage_conflicts,
         material_control_estimate_ids,
+        material_control_lineage_keys,
         material_control_request_intent,
         validate_material_control_request_lineage,
     )
@@ -9052,6 +9056,45 @@ def create_supply_request(
                 status_code=400,
                 detail="Заявка из контроля материалов отклонена: " + str(exc),
             ) from exc
+        lineage_keys = material_control_lineage_keys(items)
+        # The source estimate row is the idempotency key. Advisory transaction locks
+        # make two simultaneous clicks serialize before either request is inserted.
+        for estimate_id, section_index, item_index in sorted(lineage_keys):
+            cur.execute(
+                "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                (f"material-control-lineage:{company_id}:{project_name}:{estimate_id}:{section_index}:{item_index}",),
+            )
+        cur.execute(
+            """
+            SELECT id, items_json
+              FROM supply_requests
+             WHERE company_id=%s
+               AND project=%s
+               AND COALESCE(status,'') IN (
+                   'Новая', 'Подтверждена прорабом', 'Утверждена', 'КП запрошены',
+                   'В пути', 'Частично поставлено', 'Проблема поставки', 'Утверждено'
+               )
+             FOR UPDATE
+            """,
+            (company_id, project_name),
+        )
+        conflicts = material_control_lineage_conflicts(
+            items,
+            [dict(row) for row in cur.fetchall()],
+            _json_list_or_empty,
+        )
+        if conflicts:
+            request_ids = sorted({row["requestId"] for row in conflicts if row.get("requestId")})
+            cur.close()
+            conn.close()
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "По этой строке активной сметы уже создана заявка"
+                    + (" #" + ", #".join(str(request_id) for request_id in request_ids) if request_ids else "")
+                    + ". Отмените её или дождитесь поставки, затем обновите контроль материалов."
+                ),
+            )
     items = _attach_supply_estimate_control(cur, project_name, items)
     if project_name != "Основной склад":
         _enforce_supply_estimate_control(items, source="заявка")

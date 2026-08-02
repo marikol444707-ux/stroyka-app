@@ -85,6 +85,53 @@ def material_control_estimate_ids(items: list[dict]) -> list[int]:
     return sorted(estimate_ids)
 
 
+def material_control_lineage_keys(items: list[dict]) -> set[tuple[int, int, int]]:
+    """Return the deterministic source-row keys used to deduplicate control requests."""
+    keys: set[tuple[int, int, int]] = set()
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        lineage = item.get("estimateLineage")
+        if not isinstance(lineage, dict):
+            continue
+        for source in lineage.get("sources") or []:
+            if not isinstance(source, dict):
+                continue
+            estimate_id = _positive_int(source.get("estimateId"))
+            section_index = _non_negative_int(source.get("sectionIndex"))
+            item_index = _non_negative_int(source.get("itemIndex"))
+            if estimate_id is not None and section_index is not None and item_index is not None:
+                keys.add((estimate_id, section_index, item_index))
+    return keys
+
+
+def material_control_lineage_conflicts(
+    items: list[dict],
+    active_requests: list[dict],
+    parse_items: Callable[[Any], list],
+) -> list[dict]:
+    """Find active requests which already own an exact estimate source row."""
+    incoming_keys = material_control_lineage_keys(items)
+    if not incoming_keys:
+        return []
+    conflicts = []
+    for request in active_requests or []:
+        if not isinstance(request, dict):
+            continue
+        existing_items = parse_items(request.get("items_json") or request.get("itemsJson"))
+        if not isinstance(existing_items, list):
+            continue
+        overlap = incoming_keys.intersection(material_control_lineage_keys(existing_items))
+        for estimate_id, section_index, item_index in sorted(overlap):
+            conflicts.append({
+                "requestId": _positive_int(request.get("id")),
+                "estimateId": estimate_id,
+                "sectionIndex": section_index,
+                "itemIndex": item_index,
+            })
+    return conflicts
+
+
 def load_material_control_estimates(cur, estimate_ids: list[int]) -> dict[int, dict]:
     if not estimate_ids:
         return {}

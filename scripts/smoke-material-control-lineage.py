@@ -270,6 +270,12 @@ def main():
             raise RuntimeError("Не создана одиночная заявка из сметы. Последние ошибки: " + " | ".join(errors[-5:]))
         assert_saved_lineage(single_request, 1)
 
+        duplicate_status, duplicate_body = post_request(
+            token, headers, [single_candidate], "повтор одиночной заявки",
+        )
+        if duplicate_status != 409 or "уже создана заявка" not in str(duplicate_body.get("detail") or ""):
+            raise RuntimeError(f"Повторная заявка по той же строке сметы не заблокирована: {duplicate_status} {duplicate_body}")
+
         by_package = defaultdict(list)
         for candidate in candidates:
             if candidate == single_candidate:
@@ -305,6 +311,7 @@ def main():
             "workPackage": single_candidate["workPackage"],
             "checked": [
                 "single request stores validated exact estimate lineage",
+                "duplicate request for the same estimate row is rejected",
                 "multi-item request stores validated lineage for every item",
                 "stale estimate coordinates are rejected before request creation",
                 "smoke requests have no suppliers and are removed after verification",
