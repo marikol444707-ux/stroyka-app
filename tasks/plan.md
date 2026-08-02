@@ -175,7 +175,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 
 ### Checkpoint: SaaS Boundary
 
-- [ ] One user with two companies cannot mutate in `Все компании`. Automated coverage is added to `smoke:platform-crm`; production run is pending.
+- [x] One user with two companies cannot mutate in `Все компании`. Production `smoke:platform-crm` passed on 2026-08-03: selected-company isolation for tools, inventory and CRM was verified across two companies in one `platform_account`; aggregate writes were rejected.
 - [ ] Two independent `platform_account` tenants cannot see or address each other's companies.
 - [ ] Supply request, KP recipient, supplier invoice, delivery, warehouse invoice, and warehouse history keep the same `company_id`.
 - [ ] Old records remain readable under legacy fallback.
