@@ -2227,6 +2227,8 @@
 
 **Boundary checkpoint:** `smoke:platform-crm` provisions two companies under one SaaS account and a temporary director with memberships in both. It verifies selected-company isolation for tools, inventory and CRM, rejects direct mutations of a record while another company is selected, and rejects writes in `all_companies` mode. Production run passed on 2026-08-03 (`companyAId=5`, `companyBId=6`); cleanup completed.
 
+**Cross-account checkpoint:** The same smoke adds a deliberately invalid membership from a temporary director to an active company belonging to a different `platform_account`. Selected-company reads of tools and CRM are rejected with `403` before data is returned. Production passed on 2026-08-03 (`companyAId=2`, `companyBId=3`, rejected foreign `companyId=1`); cleanup completed.
+
 **Supply lineage checkpoint:** A received supply delivery writes `warehouse_history.source_type=supply_delivery`, the exact delivery ID and generated warehouse-invoice ID in addition to its stored company. `smoke:supply-chain` verifies one company across request, offer, supplier invoice, delivery, warehouse invoice, supply history and the exact linked warehouse-history row. Production runtime `97fc1dd8` passed the protected run on 2026-08-03 (`companyId=1`, `deliveryId=15`, `warehouseInvoiceId=138`); cleanup completed.
 
 **Safety:**
