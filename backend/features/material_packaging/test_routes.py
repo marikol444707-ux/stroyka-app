@@ -8,6 +8,7 @@ from .routes import (
     build_packaging_review_snapshot,
     packaging_review_row,
     normalize_review_decision,
+    parse_invoice_items,
     normalize_invoice_packaging_items,
 )
 
@@ -90,6 +91,12 @@ class MaterialPackagingRulesTest(unittest.TestCase):
         cursor = FakeCursor([])
         source = {"name": "Муфта противопожарная", "quantity": 10, "unit": "шт", "price": 500}
         self.assertEqual(normalize_invoice_packaging_items(cursor, [source], company_id=1), [source])
+
+    def test_invoice_items_accepts_database_json_value_or_json_text(self):
+        items = [{"name": "Кабель", "quantity": 2, "unit": "бухта"}]
+        self.assertEqual(parse_invoice_items(items), items)
+        self.assertEqual(parse_invoice_items('[{"name":"Кабель","quantity":2,"unit":"бухта"}]'), items)
+        self.assertEqual(parse_invoice_items("broken"), [])
 
     def test_historical_correction_preview_never_changes_stock_automatically(self):
         preview = build_packaging_correction_preview(

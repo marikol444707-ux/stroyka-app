@@ -26,6 +26,19 @@ def _number(value, default=0.0):
         return default
 
 
+def parse_invoice_items(value):
+    """Accept PostgreSQL JSON values as decoded lists or serialized JSON text."""
+    if isinstance(value, list):
+        return value
+    if not isinstance(value, str):
+        return []
+    try:
+        parsed = json.loads(value or "[]")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
 def material_key(value):
     normalized = _text(value, 1000).lower().replace("ё", "е")
     normalized = re.sub(r"[^a-zа-я0-9]+", " ", normalized)
@@ -432,10 +445,7 @@ def register_material_packaging_module(app, deps):
         invoice = cur.fetchone()
         if not invoice:
             raise HTTPException(status_code=404, detail="Накладная не найдена в выбранной компании")
-        try:
-            items = json.loads(invoice.get("items") or "[]")
-        except (TypeError, ValueError, json.JSONDecodeError):
-            items = []
+        items = parse_invoice_items(invoice.get("items"))
         if not isinstance(items, list) or item_index >= len(items) or not isinstance(items[item_index], dict):
             raise HTTPException(status_code=404, detail="Строка накладной не найдена")
         item = dict(items[item_index])
