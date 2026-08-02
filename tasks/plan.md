@@ -286,9 +286,9 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 
 ### Phase P4: Supply Reconnection
 
-- [x] Create requests only from confirmed material identities with project, package, estimate, and source-row lineage; local implementation and full regression are complete, production deploy is pending.
-- [ ] Deploy the strict lineage slice and verify single/batch material-control request creation against production estimates.
-- [ ] Add an idempotency key for batch creation and prevent repeated requests for the same uncovered quantity.
+- [x] Create requests only from confirmed material identities with project, package, estimate, and source-row lineage. Production runtime `30563c87` passed protected single/batch smoke against active estimates, including stale-line rejection and cleanup.
+- [x] Deploy the strict lineage slice and verify single/batch material-control request creation against production estimates.
+- [x] Add an idempotency key for batch creation and prevent repeated requests for the same uncovered quantity. The exact estimate source coordinate is transaction-locked while an active request exists; protected production smoke verifies the `409` duplicate rejection.
 - [ ] Verify supplier, KP, delivery, invoice, warehouse, and accounting linkage end to end.
 
 ### Phase P5: Performance And Cutover
