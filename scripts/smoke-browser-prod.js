@@ -711,19 +711,15 @@ async function runAuthenticatedMaterialsScenario(port, authData) {
       throw new Error(`materials browser smoke: ${targetName} has no material control rows`);
     }
     const elapsedMs = Date.now() - startedAt;
-    const rendered = await evaluateValue(client, `
-      (() => {
-        const text = document.body?.innerText || '';
-        const match = text.match(/Показано\\s+(\\d+)\\s+из\\s+(\\d+)/);
-        return {
-          shownRows: match ? Number(match[1]) : null,
-          totalRows: match ? Number(match[2]) : null,
-          tableRows: document.querySelectorAll('table tbody tr').length,
-        };
-      })()
-    `);
-    if (!Number.isFinite(rendered?.shownRows) || !Number.isFinite(rendered?.totalRows) || rendered.totalRows < 1) {
-      throw new Error(`materials browser smoke: material table was not rendered for ${targetName}`);
+    const shownMatch = materialsText.match(/Показано\s+(\d+)\s+из\s+(\d+)/);
+    const tableRows = await evaluateValue(client, 'document.querySelectorAll("table tbody tr").length');
+    const rendered = {
+      shownRows: shownMatch ? Number(shownMatch[1]) : null,
+      totalRows: shownMatch ? Number(shownMatch[2]) : null,
+      tableRows: Number(tableRows || 0),
+    };
+    if (!Number.isFinite(rendered.shownRows) || !Number.isFinite(rendered.totalRows) || rendered.totalRows < 1) {
+      throw new Error(`materials browser smoke: material table was not rendered for ${targetName}; ${materialsText.slice(-500)}`);
     }
     if (MATERIALS_MAX_LOAD_MS > 0 && elapsedMs > MATERIALS_MAX_LOAD_MS) {
       throw new Error(`materials browser smoke: ${targetName} opened in ${elapsedMs}ms, limit is ${MATERIALS_MAX_LOAD_MS}ms`);
