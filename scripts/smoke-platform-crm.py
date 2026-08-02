@@ -33,6 +33,7 @@ CLIENT_ACCOUNT_EMAILS = {
     "account_owner": f"platform-crm-account-owner-{RUN_ID}@stroyka.local",
     "account_admin": f"platform-crm-account-admin-{RUN_ID}@stroyka.local",
 }
+TENANT_BOUNDARY_EMAIL = f"platform-crm-boundary-director-{RUN_ID}@stroyka.local"
 PROJECT_NAME = f"{PREFIX} Project"
 PROJECT_CREATE_NAME = f"{PREFIX} Created Project"
 PUBLIC_SITE_LEAD_CASES = (
@@ -157,7 +158,7 @@ def api_json(method, path, token=None, data=None, expected=None, headers=None):
         return status, {"raw": text}
 
 
-def prepare_user_record(email, role, name):
+def prepare_user_record(email, role, name, *, company_id=1, platform_account_id=None):
     password = secrets.token_urlsafe(12)
     conn = db_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -165,12 +166,12 @@ def prepare_user_record(email, role, name):
     cur.execute(
         """
         INSERT INTO users
-            (name,email,password,role,project_id,project_name,assigned_projects,assigned_packages,active,two_factor_required,two_factor_enabled,company_id)
+            (name,email,password,role,project_id,project_name,assigned_projects,assigned_packages,active,two_factor_required,two_factor_enabled,company_id,platform_account_id)
         VALUES
-            (%s,%s,%s,%s,NULL,'','[]'::jsonb,'[]'::jsonb,TRUE,FALSE,FALSE,1)
+            (%s,%s,%s,%s,NULL,'','[]'::jsonb,'[]'::jsonb,TRUE,FALSE,FALSE,%s,%s)
         RETURNING id, name, email, role
         """,
-        (name, email, hash_password(password), role),
+        (name, email, hash_password(password), role, company_id, platform_account_id),
     )
     row = dict(cur.fetchone())
     conn.commit()
@@ -264,9 +265,13 @@ def cleanup():
     conn = db_conn()
     cur = conn.cursor()
     like_prefix = PREFIX + "%"
-    emails = [SYSTEM_EMAIL, CRM_EMAIL, *PLATFORM_ROLE_EMAILS.values(), *CLIENT_ACCOUNT_EMAILS.values()]
+    emails = [SYSTEM_EMAIL, CRM_EMAIL, TENANT_BOUNDARY_EMAIL, *PLATFORM_ROLE_EMAILS.values(), *CLIENT_ACCOUNT_EMAILS.values()]
     try:
         cleanup_audit_log(cur)
+        cur.execute("DELETE FROM tool_history WHERE tool_name LIKE %s OR created_by LIKE %s", (like_prefix, like_prefix))
+        cur.execute("DELETE FROM tools WHERE name LIKE %s", (like_prefix,))
+        cur.execute("DELETE FROM inventory_items WHERE inventory_id IN (SELECT id FROM inventory WHERE notes LIKE %s)", ("%" + PREFIX + "%",))
+        cur.execute("DELETE FROM inventory WHERE notes LIKE %s", ("%" + PREFIX + "%",))
         cur.execute("DELETE FROM ai_tasks WHERE title LIKE %s", (like_prefix,))
         cur.execute("DELETE FROM project_documents WHERE project_name LIKE %s OR notes LIKE %s", (like_prefix, "%" + PREFIX + "%"))
         cur.execute("DELETE FROM projects WHERE name LIKE %s", (like_prefix,))
@@ -322,6 +327,7 @@ def cleanup():
         """, ("%" + PREFIX + "%", like_prefix, like_prefix, like_prefix, like_prefix))
         cur.execute("DELETE FROM companies WHERE name LIKE %s", (like_prefix,))
         cur.execute("DELETE FROM platform_accounts WHERE name LIKE %s", (like_prefix,))
+        cur.execute("DELETE FROM user_company_roles WHERE user_id IN (SELECT id FROM users WHERE LOWER(email)=ANY(%s))", ([email.lower() for email in emails],))
         cur.execute("DELETE FROM users WHERE LOWER(email)=ANY(%s)", ([email.lower() for email in emails],))
         conn.commit()
     finally:
@@ -598,6 +604,153 @@ def check_platform(system_token):
         "followupId": followup_id,
         "providerEventId": provider_event_id,
         "providerEventPaymentId": confirmed_event.get("paymentId"),
+    }
+
+
+def company_headers(company_id):
+    return {"X-Company-Id": str(company_id), "X-Company-Mode": "company"}
+
+
+def assert_hidden(items, record_id, label):
+    if any(item.get("id") == record_id for item in items or []):
+        raise RuntimeError(f"{label} другой компании попал в выбранную компанию")
+
+
+def check_selected_company_boundary(system_token, platform_result):
+    """Exercise selected-company scoping inside one SaaS account."""
+    company_a_id = int(platform_result["companyId"])
+    platform_account_id = int(platform_result["platformAccountId"] or 0)
+    if not platform_account_id:
+        raise RuntimeError("platform company has no platform account")
+
+    _, created_company_b = api_json(
+        "POST",
+        "/system/companies",
+        token=system_token,
+        expected=200,
+        data={
+            "platformAccountId": platform_account_id,
+            "name": f"{PREFIX} Boundary Company",
+            "shortName": "BOUNDARY",
+            "contactName": "CODEX QA",
+            "contactPhone": "+70000000009",
+            "contactEmail": f"platform-boundary-{RUN_ID}@stroyka.local",
+            "createdBy": f"{PREFIX} system_owner",
+        },
+    )
+    company_b_id = int(created_company_b.get("id") or 0)
+    if not company_b_id:
+        raise RuntimeError(f"boundary company create returned invalid body: {created_company_b}")
+
+    director = prepare_user_record(
+        TENANT_BOUNDARY_EMAIL,
+        "директор",
+        f"{PREFIX} Boundary Director",
+        company_id=company_a_id,
+        platform_account_id=platform_account_id,
+    )
+    conn = db_conn()
+    cur = conn.cursor()
+    project_a = f"{PREFIX} Boundary Project A"
+    project_b = f"{PREFIX} Boundary Project B"
+    try:
+        cur.execute(
+            """INSERT INTO user_company_roles
+                   (user_id,platform_account_id,company_id,role,assigned_projects,assigned_packages,active,is_default)
+               VALUES (%s,%s,%s,'директор','[]'::jsonb,'[]'::jsonb,TRUE,TRUE),
+                      (%s,%s,%s,'директор','[]'::jsonb,'[]'::jsonb,TRUE,FALSE)""",
+            (director["id"], platform_account_id, company_a_id, director["id"], platform_account_id, company_b_id),
+        )
+        cur.execute(
+            """INSERT INTO projects (name,client,status,budget,deadline,progress,tasks,pricelist_id,company_id)
+               VALUES (%s,%s,'В работе',0,'2026-12-31',0,'{}'::text[],NULL,%s),
+                      (%s,%s,'В работе',0,'2026-12-31',0,'{}'::text[],NULL,%s)""",
+            (project_a, f"{PREFIX} Client A", company_a_id, project_b, f"{PREFIX} Client B", company_b_id),
+        )
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
+    token = director["token"]
+    headers_a = company_headers(company_a_id)
+    headers_b = company_headers(company_b_id)
+    _, context = api_json("GET", "/users/company-context", token=token, expected=200)
+    context_ids = {int(item.get("companyId") or 0) for item in context.get("companies") or []}
+    if {company_a_id, company_b_id} - context_ids:
+        raise RuntimeError(f"director does not have both selected-company memberships: {context}")
+
+    _, tool_a = api_json(
+        "POST", "/tools", token=token, expected=200, headers=headers_a,
+        data={"name": f"{PREFIX} Tool A", "inventoryNumber": f"A-{RUN_ID}"},
+    )
+    _, tool_b = api_json(
+        "POST", "/tools", token=token, expected=200, headers=headers_b,
+        data={"name": f"{PREFIX} Tool B", "inventoryNumber": f"B-{RUN_ID}"},
+    )
+    tool_a_id, tool_b_id = int(tool_a["id"]), int(tool_b["id"])
+    _, tools_a = api_json("GET", "/tools", token=token, expected=200, headers=headers_a)
+    _, tools_b = api_json("GET", "/tools", token=token, expected=200, headers=headers_b)
+    if not any(item.get("id") == tool_a_id for item in tools_a):
+        raise RuntimeError("selected company did not return its tool")
+    assert_hidden(tools_a, tool_b_id, "Инструмент")
+    if not any(item.get("id") == tool_b_id for item in tools_b):
+        raise RuntimeError("second selected company did not return its tool")
+    assert_hidden(tools_b, tool_a_id, "Инструмент")
+    api_json(
+        "PUT", f"/tools/{tool_b_id}", token=token, headers=headers_a,
+        data={"name": f"{PREFIX} Tool B blocked"}, expected=404,
+    )
+    api_json(
+        "POST", "/tools", token=token,
+        headers={"X-Company-Mode": "all_companies"},
+        data={"name": f"{PREFIX} Aggregate write"}, expected=409,
+    )
+
+    _, inventory_b = api_json(
+        "POST", "/inventory", token=token, expected=200, headers=headers_b,
+        data={"project": project_b, "date": "2026-08-03", "createdBy": director["name"], "notes": PREFIX},
+    )
+    inventory_b_id = int(inventory_b["id"])
+    _, inventories_a = api_json("GET", "/inventory", token=token, expected=200, headers=headers_a)
+    assert_hidden(inventories_a, inventory_b_id, "Инвентаризация")
+    api_json("GET", f"/inventory/{inventory_b_id}/items", token=token, headers=headers_a, expected=404)
+    api_json(
+        "POST", "/inventory-items", token=token,
+        headers={"X-Company-Mode": "all_companies"},
+        data={"inventoryId": inventory_b_id, "materialName": "blocked", "unit": "шт", "expected": 0, "actual": 0, "difference": 0},
+        expected=409,
+    )
+
+    _, lead_a = api_json(
+        "POST", "/crm/leads", token=token, expected=200, headers=headers_a,
+        data={"name": f"{PREFIX} Boundary Lead A", "leadType": "Клиент"},
+    )
+    _, lead_b = api_json(
+        "POST", "/crm/leads", token=token, expected=200, headers=headers_b,
+        data={"name": f"{PREFIX} Boundary Lead B", "leadType": "Клиент"},
+    )
+    lead_a_id, lead_b_id = int(lead_a["id"]), int(lead_b["id"])
+    _, leads_a = api_json("GET", "/crm/lead-summaries", token=token, expected=200, headers=headers_a)
+    if not any(item.get("id") == lead_a_id for item in leads_a):
+        raise RuntimeError("selected company did not return its CRM lead")
+    assert_hidden(leads_a, lead_b_id, "CRM-заявка")
+    api_json("GET", f"/crm/leads/{lead_b_id}/details", token=token, headers=headers_a, expected=404)
+    status, body = api_json(
+        "PUT", f"/crm/leads/{lead_b_id}", token=token, headers=headers_a,
+        data={"name": f"{PREFIX} Boundary Lead B blocked"},
+    )
+    if status not in (403, 404, 409):
+        raise RuntimeError(f"foreign selected-company CRM mutation was not rejected: status={status} body={body}")
+
+    return {
+        "companyAId": company_a_id,
+        "companyBId": company_b_id,
+        "toolAId": tool_a_id,
+        "toolBId": tool_b_id,
+        "inventoryBId": inventory_b_id,
+        "leadAId": lead_a_id,
+        "leadBId": lead_b_id,
     }
 
 
@@ -1243,6 +1396,7 @@ def main():
         system_token = system_user["token"]
         crm_token = login(CRM_EMAIL, crm_password)
         platform_result = check_platform(system_token)
+        tenant_boundary_result = check_selected_company_boundary(system_token, platform_result)
         platform_roles_result = check_platform_roles(system_token, platform_result)
         crm_result = check_crm(crm_token, platform_result["companyId"])
         summary = {
@@ -1280,8 +1434,13 @@ def main():
                 "crm lead to project",
                 "crm document transfer to project documents",
                 "public client and partner lead routing",
+                "same-account selected-company tool isolation",
+                "same-account selected-company inventory isolation",
+                "same-account selected-company CRM isolation",
+                "all-companies mutation rejection",
             ],
             "platform": platform_result,
+            "tenantBoundary": tenant_boundary_result,
             "platformRoles": platform_roles_result,
             "crm": crm_result,
         }

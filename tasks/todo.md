@@ -2225,6 +2225,8 @@
 
 **M7l3 implementation:** `/tools`, `/tool-history`, `/inventory` and inventory-item mutations now resolve the request company server-side, filter every read by stored `company_id`, require one selected company for writes, and inherit child/history ownership from the verified tool or inventory parent. Payloads cannot select owner columns. Existing operational fields (`status`, `location`, master and project text) are preserved. Production runtime `5ff69f3d` passed the protected self-cleaning smoke and strict post-audit on 2026-08-03.
 
+**Next boundary checkpoint:** `smoke:platform-crm` now provisions two companies under one SaaS account and a temporary director with memberships in both. It verifies selected-company isolation for tools, inventory and CRM, rejects direct mutations of a record while another company is selected, and rejects writes in `all_companies` mode. The first production run is required before this checkpoint can be closed.
+
 **Safety:**
 - Start with a no-write production report and exact parent/reference counts.
 - Do not infer company from a tool name, master name, or empty project.
