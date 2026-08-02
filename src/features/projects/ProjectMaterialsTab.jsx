@@ -11,7 +11,7 @@ export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagno
     buildMaterialRequirementContent, card, convertUnits, createBatchSupplyRequestFromMaterialControl,
     estimatePackage, estimateWorkNormRequirementRows, fmtMeasure, history, inp, isLeadership,
     isMobile, materialControlStatus, materialNormControlSummaryForProject,
-    loadEstimateDetail, materialReconciliationRows, materialTransfers, materials, parseSupplyItems, renderMaterialAliasControls,
+    loadEstimateDetail, loadEstimateDetails, materialReconciliationRows, materialTransfers, materials, parseSupplyItems, renderMaterialAliasControls,
     renderMaterialSupplyAction, setMaterialTransfers, setMaterials, setNewTransfer,
     setShowTransferForm, setWarehouseMain, showPreview, showTransferForm, staff, supplyRequests,
     tbl, tblC, tblH, user, visibleActiveProjects, warehouseMain, workJournal, projects,
@@ -25,6 +25,8 @@ export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagno
   const [estimateLoadRetry, setEstimateLoadRetry] = React.useState(0);
   const loadEstimateDetailRef = React.useRef(loadEstimateDetail);
   loadEstimateDetailRef.current = loadEstimateDetail;
+  const loadEstimateDetailsRef = React.useRef(loadEstimateDetails);
+  loadEstimateDetailsRef.current = loadEstimateDetails;
   const estimatesToLoad = projectMaterialEstimateDetailsToLoad({
     project: p,
     activeEstimatesForProject,
@@ -36,7 +38,11 @@ export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagno
     if (!estimatesToLoadKey || typeof loadEstimateDetailRef.current !== 'function') return undefined;
     let active = true;
     setEstimateLoadError('');
-    Promise.all(estimatesToLoad.map(estimate => loadEstimateDetailRef.current(estimate)))
+    const loader = loadEstimateDetailsRef.current;
+    const request = typeof loader === 'function'
+      ? loader(estimatesToLoad)
+      : Promise.all(estimatesToLoad.map(estimate => loadEstimateDetailRef.current(estimate)));
+    Promise.resolve(request)
       .catch(() => {
         if (active) setEstimateLoadError('Не удалось загрузить материалы активных смет.');
       });

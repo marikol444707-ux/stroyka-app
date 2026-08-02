@@ -15718,6 +15718,7 @@ def _estimate_response_payload_from_row(r, sections, *, sections_loaded: bool, t
 @app.get("/estimates")
 def get_estimates(
     summary: bool = False,
+    ids: Optional[str] = None,
     x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
     x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
     current_user: dict = Depends(get_current_user),
@@ -15726,6 +15727,16 @@ def get_estimates(
         from backend.features.estimate_access.service import estimate_visibility_filter
     except ModuleNotFoundError:
         from features.estimate_access.service import estimate_visibility_filter
+    requested_ids = []
+    if ids:
+        try:
+            requested_ids = [int(value) for value in ids.split(",") if value.strip()]
+        except ValueError:
+            raise HTTPException(status_code=422, detail="ids должен содержать числовые идентификаторы смет")
+        if not requested_ids or any(value < 1 for value in requested_ids) or len(requested_ids) > 50:
+            raise HTTPException(status_code=422, detail="ids должен содержать от 1 до 50 идентификаторов смет")
+        requested_ids = list(dict.fromkeys(requested_ids))
+
     conn = get_db()
     context_cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     company_context = _resolve_work_company_context(
@@ -15752,9 +15763,14 @@ def get_estimates(
                    (SELECT COUNT(*) FROM estimate_versions ev WHERE ev.estimate_id=e.id) as version_count,
                    (SELECT MAX(ev.created_at) FROM estimate_versions ev WHERE ev.estimate_id=e.id) as latest_version_at,
                    e.company_id"""
+    where_sql = visibility_sql
+    query_params = list(visibility_params)
+    if requested_ids:
+        where_sql = f"({visibility_sql}) AND e.id = ANY(%s)"
+        query_params.append(requested_ids)
     cur.execute(
-        f"SELECT {base_cols} FROM estimates e WHERE {visibility_sql} ORDER BY e.id DESC",
-        visibility_params,
+        f"SELECT {base_cols} FROM estimates e WHERE {where_sql} ORDER BY e.id DESC",
+        query_params,
     )
     rows = cur.fetchall()
     actors_by_company = {

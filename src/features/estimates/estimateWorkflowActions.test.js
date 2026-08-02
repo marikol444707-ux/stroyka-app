@@ -5,7 +5,7 @@ describe('estimate workflow detail loading', () => {
     const setEstimatesList = jest.fn();
     const fetchFn = jest.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({
+      json: async () => ([{
         id: 7,
         projectName: 'Лицей',
         status: 'Активная',
@@ -14,7 +14,7 @@ describe('estimate workflow detail loading', () => {
           name: 'Общестрой',
           items: [{ id: 1, name: 'Цемент', itemType: 'material', unit: 'кг', quantity: 100 }],
         }],
-      }),
+      }]),
     });
     const actions = createEstimateWorkflowActions({
       API: 'https://example.test',
@@ -33,7 +33,7 @@ describe('estimate workflow detail loading', () => {
       sections: [],
     });
 
-    expect(fetchFn).toHaveBeenCalledWith('https://example.test/estimates/7', undefined);
+    expect(fetchFn).toHaveBeenCalledWith('https://example.test/estimates?ids=7', undefined);
     expect(result.sectionsLoaded).toBe(true);
     expect(result.sections[0].items[0]).toMatchObject({
       name: 'Цемент',
@@ -57,5 +57,34 @@ describe('estimate workflow detail loading', () => {
 
     await expect(actions.loadEstimateDetail(loaded)).resolves.toBe(loaded);
     expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('loads several estimate details through one company-scoped request', async () => {
+    const setEstimatesList = jest.fn();
+    const fetchFn = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ([
+        { id: 8, sectionsLoaded: true, sections: [{ name: 'Электрика', items: [] }] },
+        { id: 7, sectionsLoaded: true, sections: [{ name: 'Общестрой', items: [] }] },
+      ]),
+    });
+    const actions = createEstimateWorkflowActions({
+      API: 'https://example.test',
+      estimatesList: [],
+      setEstimatesList,
+      setSelectedEstimate: jest.fn(),
+      setEstimateReconciliations: jest.fn(),
+      fetchFn,
+      localStorageRef: { getItem: () => '' },
+    });
+
+    const loaded = await actions.loadEstimateDetails([
+      { id: 7, sectionsLoaded: false, sections: [] },
+      { id: 8, sectionsLoaded: false, sections: [] },
+    ]);
+
+    expect(fetchFn).toHaveBeenCalledWith('https://example.test/estimates?ids=7%2C8', undefined);
+    expect(loaded.map(estimate => estimate.sectionsLoaded)).toEqual([true, true]);
+    expect(setEstimatesList).toHaveBeenCalledTimes(1);
   });
 });

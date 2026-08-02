@@ -42,16 +42,33 @@ export const createEstimateWorkflowActions = ({
   confirmFn = window.confirm,
   localStorageRef = window.localStorage,
 }) => {
+  const mergeEstimateDetail = (estimate, fullRaw) => {
+    const normalized = normalizeEstimateList([fullRaw])[0] || fullRaw;
+    return {...estimate, ...normalized, sectionsLoaded:true};
+  };
+
+  const loadEstimateDetails = async (estimates) => {
+    const pending = (estimates || []).filter(estimate => estimate?.id && !estimateHasLoadedSections(estimate));
+    if (!pending.length) return estimates || [];
+    const token = localStorageRef?.getItem?.('authToken');
+    const ids = [...new Set(pending.map(estimate => Number(estimate.id)).filter(Number.isInteger))];
+    if (!ids.length) return estimates || [];
+    const res = await fetchFn(API + '/estimates?ids=' + encodeURIComponent(ids.join(',')), token ? {headers:{Authorization:'Bearer '+token}} : undefined);
+    if (!res.ok) throw new Error(await res.text());
+    const details = await res.json();
+    const byId = new Map((Array.isArray(details) ? details : []).map(detail => [String(detail?.id), detail]));
+    if (pending.some(estimate => !byId.has(String(estimate.id)))) {
+      throw new Error('Сервер не вернул все запрошенные сметы');
+    }
+    const mergedById = new Map(pending.map(estimate => [String(estimate.id), mergeEstimateDetail(estimate, byId.get(String(estimate.id)))]));
+    setEstimatesList(prev => (prev||[]).map(estimate => mergedById.get(String(estimate.id)) || estimate));
+    return (estimates || []).map(estimate => mergedById.get(String(estimate?.id)) || estimate);
+  };
+
   const loadEstimateDetail = async (estimate) => {
     if (!estimate?.id || estimateHasLoadedSections(estimate)) return estimate;
-    const token = localStorageRef?.getItem?.('authToken');
-    const res = await fetchFn(API + '/estimates/' + encodeURIComponent(estimate.id), token ? {headers:{Authorization:'Bearer '+token}} : undefined);
-    if (!res.ok) throw new Error(await res.text());
-    const fullRaw = await res.json();
-    const normalized = normalizeEstimateList([fullRaw])[0] || fullRaw;
-    const merged = {...estimate, ...normalized, sectionsLoaded:true};
-    setEstimatesList(prev => (prev||[]).map(e => String(e.id)===String(merged.id) ? {...e, ...merged} : e));
-    return merged;
+    const [loaded] = await loadEstimateDetails([estimate]);
+    return loaded || estimate;
   };
 
   const openEstimateDetail = async (estimate) => {
@@ -284,6 +301,7 @@ export const createEstimateWorkflowActions = ({
 
   return {
     loadEstimateDetail,
+    loadEstimateDetails,
     openEstimateDetail,
     estimateDiffBaseFor,
     buildEstimateDiffContent,
