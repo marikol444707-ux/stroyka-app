@@ -473,6 +473,28 @@ async function clickVisibleText(client, label, { exact = false, timeoutMs = WAIT
   throw new Error(`estimate browser smoke: could not click "${label}". Last visible text: ${lastResult?.visibleText || ''}`);
 }
 
+async function waitForActiveProjectTab(client, label, timeoutMs = WAIT_MS) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const active = await evaluateValue(client, `
+      (() => {
+        const label = ${JSON.stringify(label)};
+        const normalize = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
+        return Array.from(document.querySelectorAll('button')).some((button) => {
+          if (normalize(button.innerText || button.textContent) !== label) return false;
+          const style = window.getComputedStyle(button);
+          return style.display !== 'none'
+            && style.visibility !== 'hidden'
+            && Number(style.fontWeight || 0) >= 600;
+        });
+      })()
+    `);
+    if (active) return;
+    await sleep(250);
+  }
+  throw new Error(`materials browser smoke: project tab did not become active: ${label}`);
+}
+
 async function waitForRenderedPage(client) {
   const deadline = Date.now() + WAIT_MS;
   let info = { bodyText: '', title: '', href: '', readyState: '', events: [] };
@@ -728,11 +750,7 @@ async function runAuthenticatedMaterialsScenario(port, authData) {
     }
 
     await clickVisibleText(client, 'Общее', { exact: true });
-    await waitForBodyText(
-      client,
-      (text) => text.includes(targetName) && text.includes('Общее') && !text.includes('Материалы по смете'),
-      `project overview ${targetName}`
-    );
+    await waitForActiveProjectTab(client, 'Общее');
     const warm = await openMaterials('warm');
     if (cold.rendered.shownRows !== warm.rendered.shownRows || cold.rendered.totalRows !== warm.rendered.totalRows) {
       throw new Error(`materials browser smoke: warm projection differs for ${targetName}; cold=${cold.rendered.shownRows}/${cold.rendered.totalRows} warm=${warm.rendered.shownRows}/${warm.rendered.totalRows}`);
