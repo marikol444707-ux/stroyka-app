@@ -39,11 +39,12 @@ def build_report_from_rows(rows):
         if row.get("source") == "manual_supplier_duplicate_link" and row.get("related_supplier_id")
     })
     exact = []
-    for kind, field, formatter in (("inn", "inn", normalize_digits), ("ogrn", "ogrn", normalize_digits), ("email", "email", lambda value: str(value or "").strip().lower())):
+    for kind, field, formatter in (("inn", "inn", normalize_digits), ("ogrn", "ogrn", normalize_digits)):
         exact.extend(_group(suppliers, kind, lambda row, f=field, fn=formatter: fn(row.get(f))))
     exact_ids = {supplier_id for group in exact for supplier_id in group["supplierIds"]}
     name_candidates = _group(suppliers, "name", lambda row: normalize_name(row.get("name")))
     name_candidates = [group for group in name_candidates if not set(group["supplierIds"]).issubset(exact_ids)]
+    contact_candidates = _group(suppliers, "email", lambda row: str(row.get("email") or "").strip().lower())
     return {
         "ok": True,
         "dryRun": True,
@@ -53,11 +54,13 @@ def build_report_from_rows(rows):
             "manualLinkedPairs": len(linked_pairs),
             "strongIdentityGroups": len(exact),
             "nameOnlyCandidateGroups": len(name_candidates),
+            "sharedContactCandidateGroups": len(contact_candidates),
         },
         "manualLinkedPairs": [{"supplierIds": list(pair)} for pair in linked_pairs[:PREVIEW_LIMIT]],
         "strongIdentityGroups": exact[:PREVIEW_LIMIT],
         "nameOnlyCandidateGroups": name_candidates[:PREVIEW_LIMIT],
-        "previewTruncated": any(len(items) > PREVIEW_LIMIT for items in (linked_pairs, exact, name_candidates)),
+        "sharedContactCandidateGroups": contact_candidates[:PREVIEW_LIMIT],
+        "previewTruncated": any(len(items) > PREVIEW_LIMIT for items in (linked_pairs, exact, name_candidates, contact_candidates)),
         "rolledBack": True,
     }
 
