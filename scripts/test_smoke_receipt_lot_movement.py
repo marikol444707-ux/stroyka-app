@@ -31,6 +31,12 @@ class ReceiptLotMovementSmokeTests(unittest.TestCase):
         self.assertIn('item.get("materialName")', source)
         self.assertIn("storedItems", source)
 
+    def test_backend_rechecks_invoice_items_before_receipt_lot_creation(self):
+        backend_source = (SCRIPT_PATH.parents[1] / "backend" / "main.py").read_text(encoding="utf-8")
+
+        self.assertIn("Не удалось сохранить строки накладной", backend_source)
+        self.assertIn("UPDATE warehouse_invoices SET items=%s", backend_source)
+
 
 if __name__ == "__main__":
     unittest.main()

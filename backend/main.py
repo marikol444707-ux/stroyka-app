@@ -18949,6 +18949,23 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
                        RETURNING id""",
             (company_id,data.get("number",""),data.get("date") or None,data.get("supplierId") or None,data.get("supplierName",""),data.get("acceptedBy",""),target_location,target_project,invoice_vat,j.dumps(items_list,ensure_ascii=False),total_base,total_vat,total_with_vat,data.get("status","Принята"),data.get("addedBy",""),first_photo_url,source_type,source_id,supply_delivery_id,supply_request_id,j.dumps(photo_urls,ensure_ascii=False),pages_count,warehouse_target,selected_action,j.dumps(material_match,ensure_ascii=False),supplier_invoice_id))
         invoice_id = cur.fetchone()[0]
+        # A few long-lived database schemas have an INSERT-side normalizer. Verify
+        # that it did not drop the source lines before stock/history derives from them.
+        if items_list:
+            cur.execute("SELECT items FROM warehouse_invoices WHERE id=%s FOR UPDATE", (invoice_id,))
+            stored_invoice_items = _json_list_or_empty(_row_get(cur.fetchone(), "items", 0, ""))
+            if not stored_invoice_items:
+                cur.execute(
+                    "UPDATE warehouse_invoices SET items=%s WHERE id=%s",
+                    (j.dumps(items_list, ensure_ascii=False), invoice_id),
+                )
+                cur.execute("SELECT items FROM warehouse_invoices WHERE id=%s", (invoice_id,))
+                stored_invoice_items = _json_list_or_empty(_row_get(cur.fetchone(), "items", 0, ""))
+                if not stored_invoice_items:
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Не удалось сохранить строки накладной; приход отменён до изменения остатков",
+                    )
         ensure_receipt_lot_schema(cur)
         project_id = None
         if target_project:
