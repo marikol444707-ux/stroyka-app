@@ -22,11 +22,12 @@ class ReceiptLotMovementSmokeTests(unittest.TestCase):
 
         self.assertIn("ARRAY[]::TEXT[]", source)
 
-    def test_smoke_reads_saved_invoice_line_before_moving_it(self):
+    def test_smoke_uses_saved_invoice_line_before_moving_it(self):
         source = SCRIPT_PATH.read_text(encoding="utf-8")
 
         self.assertIn("SELECT items FROM warehouse_invoices", source)
         self.assertIn("source_line_index", source)
+        self.assertIn("source_material_name", source)
 
 
 if __name__ == "__main__":

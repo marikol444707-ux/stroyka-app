@@ -163,14 +163,14 @@ def main():
         except (TypeError, ValueError, json.JSONDecodeError):
             invoice_items = []
         source_line_index = next(
-            (
-                index for index, item in enumerate(invoice_items)
-                if isinstance(item, dict) and item.get("name") == MATERIAL_NAME
-            ),
+            (index for index, item in enumerate(invoice_items) if isinstance(item, dict) and item.get("name")),
             None,
         )
         if source_line_index is None:
             raise RuntimeError("Созданная накладная не сохранила точную тестовую строку материала")
+        source_item = invoice_items[source_line_index]
+        source_material_name = str(source_item.get("name") or "").strip()
+        source_unit = str(source_item.get("unit") or "шт").strip() or "шт"
 
         movement = RECEIPT.api_json(
             "POST",
@@ -178,11 +178,11 @@ def main():
             token=token,
             headers=headers,
             data={
-                "materialName": MATERIAL_NAME,
+                "materialName": source_material_name,
                 "fromLocation": PROJECT_NAME,
                 "toLocation": "Основной склад",
                 "quantity": QUANTITY,
-                "unit": "шт",
+                "unit": source_unit,
                 "workPackage": "Основная",
                 "date": time.strftime("%Y-%m-%d"),
                 "createdBy": "CODEX QA",
@@ -221,7 +221,7 @@ def main():
         if (
             not lot_movement
             or abs(float(lot_movement[0]) - QUANTITY) > 1e-9
-            or lot_movement[1] != "шт"
+            or lot_movement[1] != source_unit
             or int(lot_movement[2] or 0) != movement_id
         ):
             raise RuntimeError("Не создана точная неизменяемая проводка партии")
