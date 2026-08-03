@@ -17,6 +17,11 @@ class ReceiptLotMovementSmokeTests(unittest.TestCase):
         self.assertEqual(sections[0]["items"][0]["unit"], "шт")
         self.assertEqual(sections[0]["items"][0]["type"], "material")
 
+    def test_temporary_project_uses_postgres_text_array_for_tasks(self):
+        source = SCRIPT_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("ARRAY[]::TEXT[]", source)
+
 
 if __name__ == "__main__":
     unittest.main()

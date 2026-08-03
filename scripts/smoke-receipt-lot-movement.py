@@ -58,9 +58,9 @@ def setup_project_and_estimate(company_id):
         cur.execute(
             """INSERT INTO projects
                 (company_id,name,client,status,budget,deadline,progress,tasks,pricelist_id,floors,liters)
-               VALUES (%s,%s,%s,%s,0,NULL,0,%s,NULL,1,'')
+               VALUES (%s,%s,%s,%s,0,NULL,0,ARRAY[]::TEXT[],NULL,1,'')
                RETURNING id""",
-            (company_id, PROJECT_NAME, "CODEX QA", "В работе", json.dumps([])),
+            (company_id, PROJECT_NAME, "CODEX QA", "В работе"),
         )
         project_id = int(cur.fetchone()[0])
         cur.execute(
