@@ -87,4 +87,25 @@ describe('estimate workflow detail loading', () => {
     expect(loaded.map(estimate => estimate.sectionsLoaded)).toEqual([true, true]);
     expect(setEstimatesList).toHaveBeenCalledTimes(1);
   });
+
+  it('deletes a confirmed unused draft through the explicit hard-delete endpoint', async () => {
+    const setEstimatesList = jest.fn();
+    const setSelectedEstimate = jest.fn();
+    const fetchFn = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, id: 7 }) });
+    const actions = createEstimateWorkflowActions({
+      API: 'https://example.test',
+      estimatesList: [{ id: 7, name: 'Лишний черновик', status: 'Черновик' }],
+      setEstimatesList,
+      setSelectedEstimate,
+      setEstimateReconciliations: jest.fn(),
+      fetchFn,
+      confirmFn: () => true,
+    });
+
+    await actions.deleteEstimateRemote({ id: 7, name: 'Лишний черновик', status: 'Черновик' });
+
+    expect(fetchFn).toHaveBeenCalledWith('https://example.test/estimates/7?hard=true', { method: 'DELETE' });
+    expect(setEstimatesList).toHaveBeenCalled();
+    expect(setSelectedEstimate).toHaveBeenCalled();
+  });
 });

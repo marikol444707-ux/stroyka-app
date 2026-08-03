@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle, ChevronDown, ChevronRight, ChevronUp, FileText, GitBranch } from 'lucide-react';
+import { CheckCircle, ChevronDown, ChevronRight, ChevronUp, FileText, GitBranch, Trash2 } from 'lucide-react';
 
 export default function EstimateProjectGroupCard({
   C,
@@ -30,6 +30,8 @@ export default function EstimateProjectGroupCard({
   buildEstimateDiffContent,
   onCreateReconciliation,
   isLeadership,
+  canHardDeleteEstimate,
+  deleteEstimateRemote,
 }) {
   const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
   const projectGroups = (groups || []).map(([key, items]) => {
@@ -122,6 +124,7 @@ export default function EstimateProjectGroupCard({
                       {diffBase && onCreateReconciliation && <button onClick={e => { e.stopPropagation(); onCreateReconciliation(diffBase, est); }} style={{ ...(btnO || btnB), padding: '4px 8px', fontSize: '11px' }}><GitBranch size={11} />Сверка</button>}
                       {isLeadershipUser && est.status !== 'Активная' && <button onClick={e => { e.stopPropagation(); setEstimateStatusRemote(est, 'Активная'); }} style={{ ...btnGr, padding: '4px 8px', fontSize: '11px' }}><CheckCircle size={11} />Активной</button>}
                       {isLeadershipUser && est.status === 'Активная' && <button onClick={e => { e.stopPropagation(); setEstimateStatusRemote(est, 'Черновик'); }} style={{ ...btnG, padding: '4px 8px', fontSize: '11px' }}>Снять активность</button>}
+                      {canHardDeleteEstimate && est.status === 'Черновик' && <button onClick={e => { e.stopPropagation(); deleteEstimateRemote(est); }} title="Удалить неиспользуемый черновик" style={{ ...btnR, padding: '4px 8px', fontSize: '11px' }}><Trash2 size={11} />Удалить</button>}
                       <ChevronRight size={16} color={C.textMuted} />
                     </div>
                   </div>

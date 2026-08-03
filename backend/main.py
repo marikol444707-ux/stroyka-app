@@ -17251,11 +17251,74 @@ register_estimate_versions_module(app, {
 })
 
 @app.delete("/estimates/{id}")
-def delete_estimate(id: int, hard: bool = False, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
-    raise HTTPException(
-        status_code=405,
-        detail="Физическое удаление смет отключено. Сметы хранятся как версии объекта; лишнюю редакцию нужно снимать из активных или переводить в черновик отдельным действием без потери истории.",
+def delete_estimate(
+    id: int,
+    hard: bool = False,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
+    if not hard:
+        raise HTTPException(status_code=400, detail="Для удаления сметы требуется явное подтверждение")
+    conn = get_db()
+    conn.autocommit = False
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        context = _resolve_work_company_context(
+            cur, current_user, None, "write", x_company_id=x_company_id, x_company_mode=x_company_mode,
+        )
+        actor = next((item for item in effective_company_actors(current_user, context) if item.get("role") == "директор"), None)
+        if not actor:
+            raise HTTPException(status_code=403, detail="Удалять неиспользуемые сметы может только директор выбранной компании")
+        estimate = resolve_estimate_parent(cur, actor, id, for_update=True, allow_template=True)
+        cur.execute(
+            "SELECT COALESCE(status,'Черновик') AS status FROM estimates WHERE id=%s AND company_id=%s FOR UPDATE",
+            (estimate["id"], estimate["companyId"]),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Смета не найдена")
+        if (row.get("status") or "Черновик") != "Черновик":
+            raise HTTPException(status_code=409, detail="Удалять можно только черновик. Активную смету сначала снимите с активности.")
+        try:
+            from backend.features.estimate_deletion.service import find_estimate_delete_blockers
+        except ModuleNotFoundError:
+            from features.estimate_deletion.service import find_estimate_delete_blockers
+        blockers = find_estimate_delete_blockers(
+            cur,
+            estimate_id=estimate["id"],
+            company_id=estimate["companyId"],
+            project_name=estimate["projectName"],
+        )
+        if blockers:
+            raise HTTPException(
+                status_code=409,
+                detail="Смета уже используется: " + ", ".join(blockers) + ". Оставьте её в архиве, чтобы не потерять историю объекта.",
+            )
+        cur.execute("DELETE FROM estimates WHERE id=%s AND company_id=%s", (estimate["id"], estimate["companyId"]))
+        if cur.rowcount != 1:
+            raise HTTPException(status_code=409, detail="Смету не удалось удалить: запись изменилась, обновите список")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+    log_audit(
+        user_name=actor.get("name") or current_user.get("name") or "",
+        user_role="директор",
+        action="estimate_delete",
+        entity_type="estimate",
+        entity_id=id,
+        description="Удалён неиспользуемый черновик сметы",
+        project_name=estimate.get("projectName") or "",
+        user_id=actor.get("id") or current_user.get("id"),
+        owner_scope="company",
+        company_id=estimate["companyId"],
+        project_id=estimate.get("projectId"),
     )
+    return {"ok": True, "id": id}
 
 @app.get("/brigade-contracts")
 def get_brigade_contracts(
