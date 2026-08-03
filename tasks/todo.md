@@ -2259,7 +2259,7 @@
 
 **Safety:** The existing aggregate stock update and invoice-line allocation validation remain in force. A race or closed/invalid lot rolls back the whole movement. This slice does not enable packaging stock corrections, reversals, or alteration of historic receipts.
 
-**Verification:** Local unit tests cover the missing-lot compatibility path, available-balance guard and immutable lot event. Full backend suite passed locally: `991` tests.
+**Verification:** Local unit tests cover the missing-lot compatibility path, available-balance guard and immutable lot event. `npm run smoke:receipt-lot-movement` creates an isolated temporary project and active estimate, receives one object invoice line, moves it to the main warehouse by explicit invoice source, asserts the depleted lot and exact immutable event, then removes every test row. Full backend suite passed locally: `991` tests.
 
 **Safety:**
 - Start with a no-write production report and exact parent/reference counts.
