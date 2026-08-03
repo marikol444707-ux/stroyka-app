@@ -6865,10 +6865,7 @@ def create_warehouse_movement(
             invoice_location = (invoice_row.get("project") or "").strip() or (invoice_row.get("location") or "").strip()
             if invoice_location != from_location:
                 raise HTTPException(status_code=400, detail="Выбранная строка накладной относится к другому складу или объекту")
-            try:
-                invoice_items = json.loads(invoice_row.get("items") or "[]")
-            except (TypeError, ValueError, json.JSONDecodeError):
-                invoice_items = []
+            invoice_items = _json_list_or_empty(invoice_row.get("items"))
             source_item = invoice_items[source_reference["invoiceLineIndex"]]
             source_item_name = str(
                 (source_item or {}).get("name")

@@ -3,6 +3,25 @@
 import json
 
 
+def _invoice_items_as_list(value):
+    """Accept legacy TEXT and PostgreSQL JSON/JSONB driver values."""
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        return [value]
+    if isinstance(value, (bytes, bytearray)):
+        value = value.decode("utf-8", "replace")
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    if isinstance(parsed, list):
+        return parsed
+    return [parsed] if isinstance(parsed, dict) else []
+
+
 def resolve_invoice_line_source(invoice_id, invoice_line_index, invoice):
     """Return a canonical source reference, or ``None`` when no source was selected."""
     if invoice_id is None and invoice_line_index is None:
@@ -20,10 +39,7 @@ def resolve_invoice_line_source(invoice_id, invoice_line_index, invoice):
     if not invoice:
         raise ValueError("Накладная для выдачи не найдена или аннулирована")
 
-    try:
-        items = json.loads(invoice.get("items") or "[]")
-    except (TypeError, ValueError, json.JSONDecodeError):
-        items = []
+    items = _invoice_items_as_list(invoice.get("items"))
     if not isinstance(items, list) or invoice_line_index >= len(items):
         raise ValueError("Строка материала в накладной не найдена")
 

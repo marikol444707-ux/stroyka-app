@@ -24,6 +24,10 @@ class InvoiceLineSourceTest(unittest.TestCase):
         source = resolve_invoice_line_source(12, 0, {"number": "UPD-12", "items": '[{"name":"Кабель"}]'})
         self.assertEqual(source["invoiceLineIndex"], 0)
 
+    def test_accepts_jsonb_values_deserialized_by_psycopg(self):
+        source = resolve_invoice_line_source(12, 0, {"number": "UPD-12", "items": [{"name": "Кабель"}]})
+        self.assertEqual(source["invoiceLineIndex"], 0)
+
     def test_rejects_partial_or_out_of_range_source(self):
         with self.assertRaisesRegex(ValueError, "укажите накладную и строку"):
             resolve_invoice_line_source(12, None, None)
