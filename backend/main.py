@@ -7008,10 +7008,11 @@ def create_warehouse_movement(
                           id,material_name as "materialName",from_location as "fromLocation",
                           to_location as "toLocation",quantity,unit,work_package as "workPackage",
                           date,created_by as "createdBy",notes,source_invoice_id as "sourceInvoiceId",
-                          source_invoice_line_index as "sourceInvoiceLineIndex""",
+                          source_invoice_line_index""",
                     (material_name, from_location, to_location, qty, source_unit, work_package, m.date, m.createdBy or _current_user.get("name",""), m.notes, company_id,
                      source_invoice_id, source_invoice_line_index))
         row = cur.fetchone()
+        row["sourceInvoiceLineIndex"] = row.pop("source_invoice_line_index", None)
         actor_name = m.createdBy or _current_user.get("name","")
         if selected_receipt_lot:
             try:
