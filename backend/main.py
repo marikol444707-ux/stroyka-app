@@ -17270,14 +17270,23 @@ def delete_estimate(
         actor = next((item for item in effective_company_actors(current_user, context) if item.get("role") == "директор"), None)
         if not actor:
             raise HTTPException(status_code=403, detail="Удалять неиспользуемые сметы может только директор выбранной компании")
-        estimate = resolve_estimate_parent(cur, actor, id, for_update=True, allow_template=True)
         cur.execute(
-            "SELECT COALESCE(status,'Черновик') AS status FROM estimates WHERE id=%s AND company_id=%s FOR UPDATE",
-            (estimate["id"], estimate["companyId"]),
+            """SELECT id,company_id,project_id,COALESCE(project_name,'') AS project_name,
+                      COALESCE(status,'Черновик') AS status
+                 FROM estimates
+                WHERE id=%s AND company_id=%s
+                FOR UPDATE""",
+            (id, actor["companyId"]),
         )
         row = cur.fetchone()
         if not row:
-            raise HTTPException(status_code=404, detail="Смета не найдена")
+            raise HTTPException(status_code=404, detail="Смета не найдена в выбранной компании")
+        estimate = {
+            "id": int(row["id"]),
+            "companyId": int(row["company_id"]),
+            "projectId": row.get("project_id"),
+            "projectName": row.get("project_name") or "",
+        }
         if (row.get("status") or "Черновик") != "Черновик":
             raise HTTPException(status_code=409, detail="Удалять можно только черновик. Активную смету сначала снимите с активности.")
         try:
