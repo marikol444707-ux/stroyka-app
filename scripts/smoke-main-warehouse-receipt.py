@@ -241,9 +241,11 @@ def main():
         )
         if not receipt_history:
             raise RuntimeError("Приход не появился в истории склада")
+        source_line_index = receipt_history.get("sourceInvoiceLineIndex")
         if (
             int(receipt_history.get("sourceInvoiceId") or 0) != invoice_id
-            or int(receipt_history.get("sourceInvoiceLineIndex") or -1) != 0
+            or source_line_index is None
+            or int(source_line_index) != 0
         ):
             raise RuntimeError("Приход не сохранил ссылку на точную строку накладной")
 
