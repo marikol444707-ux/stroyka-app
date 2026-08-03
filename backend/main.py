@@ -6847,6 +6847,7 @@ def create_warehouse_movement(
     try:
         source_invoice_id = m.invoiceId
         source_invoice_line_index = m.invoiceLineIndex
+        selected_receipt_lot = None
         if source_invoice_id is not None or source_invoice_line_index is not None:
             cur.execute("""SELECT id,number,project,location,items
                            FROM warehouse_invoices
@@ -6888,6 +6889,30 @@ def create_warehouse_movement(
                 )
             source_invoice_id = source_reference["invoiceId"]
             source_invoice_line_index = source_reference["invoiceLineIndex"]
+            try:
+                from backend.features.material_traceability.receipt_lots import (
+                    ensure_receipt_lot_schema,
+                    lock_receipt_lot_for_movement,
+                )
+            except ModuleNotFoundError:
+                from features.material_traceability.receipt_lots import (
+                    ensure_receipt_lot_schema,
+                    lock_receipt_lot_for_movement,
+                )
+            ensure_receipt_lot_schema(cur)
+            try:
+                selected_receipt_lot = lock_receipt_lot_for_movement(
+                    cur,
+                    company_id=company_id,
+                    warehouse_invoice_id=source_invoice_id,
+                    invoice_line_index=source_invoice_line_index,
+                    warehouse_location=from_location,
+                    material_name=material_name,
+                    unit=requested_unit,
+                    requested_quantity=qty,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
         source_price = 0
         source_category = ""
         source_unit = _norm_base_unit(m.unit or "") if (m.unit or "").strip() else ""
@@ -6986,6 +7011,23 @@ def create_warehouse_movement(
                      source_invoice_id, source_invoice_line_index))
         row = cur.fetchone()
         actor_name = m.createdBy or _current_user.get("name","")
+        if selected_receipt_lot:
+            try:
+                from backend.features.material_traceability.receipt_lots import consume_receipt_lot
+            except ModuleNotFoundError:
+                from features.material_traceability.receipt_lots import consume_receipt_lot
+            try:
+                consume_receipt_lot(
+                    cur,
+                    lot=selected_receipt_lot,
+                    warehouse_movement_id=row["id"],
+                    quantity=qty,
+                    from_location=from_location,
+                    to_location=to_location,
+                    created_by=actor_name,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=409, detail=str(exc))
         date_time = dt.datetime.now().strftime("%d.%m.%Y, %H:%M")
         cur.execute("""INSERT INTO warehouse_history
                           (company_id,material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time,

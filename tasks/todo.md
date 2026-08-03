@@ -2253,6 +2253,14 @@
 
 **Production result:** Runtime `9a90bf19` passed protected `smoke:main-warehouse-receipt` on 2026-08-03. The temporary inventory-only main-warehouse receipt created one exact available receipt lot in company `1`, retained the invoice-line link in history, did not create a supplier invoice or accounting obligation, and cleanup removed the generated rows. `smoke:prod` passed afterwards.
 
+## Task P3c: Consume Exact Receipt Lots On New Movements
+
+**Description:** When a warehouse movement explicitly selects an invoice line and that line has a future receipt lot, lock the exact lot in the same transaction, reject an unavailable balance, reduce only that lot's available quantity, and add an immutable `warehouse_lot_movements` record linked to the warehouse movement. Historical selected invoice lines without a lot retain the existing aggregate movement path and are not backfilled.
+
+**Safety:** The existing aggregate stock update and invoice-line allocation validation remain in force. A race or closed/invalid lot rolls back the whole movement. This slice does not enable packaging stock corrections, reversals, or alteration of historic receipts.
+
+**Verification:** Local unit tests cover the missing-lot compatibility path, available-balance guard and immutable lot event. Full backend suite passed locally: `991` tests.
+
 **Safety:**
 - Start with a no-write production report and exact parent/reference counts.
 - Do not infer company from a tool name, master name, or empty project.
