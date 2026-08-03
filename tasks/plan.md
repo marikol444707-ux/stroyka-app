@@ -178,7 +178,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] One user with two companies cannot mutate in `Все компании`. Production `smoke:platform-crm` passed on 2026-08-03: selected-company isolation for tools, inventory and CRM was verified across two companies in one `platform_account`; aggregate writes were rejected.
 - [x] Two independent `platform_account` tenants cannot see or address each other's companies. Production `smoke:platform-crm` passed on 2026-08-03: a temporary director of account `2` was given a deliberately invalid membership in company `1` of another account; both tools and CRM rejected selected-company access with `403`.
 - [x] Supply request, KP recipient, supplier invoice, delivery, warehouse invoice, and warehouse history keep the same `company_id`. Production runtime `97fc1dd8` passed protected `smoke:supply-chain` on 2026-08-03; the exact receipt lineage was company `1`, delivery `15`, warehouse invoice `138` and both linked history rows.
-- [ ] Old records remain readable under legacy fallback.
+- [ ] Audit remaining legacy fallback rows before any strict cutover. The new read-only `npm run audit:legacy-fallback` checks projects, staff, estimates, brigade contracts and acts against stored company and exact parent ownership; it never changes data or runtime routes.
 
 ### Phase 3: Backend Reliability
 

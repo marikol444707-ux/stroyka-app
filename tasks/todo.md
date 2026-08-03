@@ -2231,6 +2231,14 @@
 
 **Supply lineage checkpoint:** A received supply delivery writes `warehouse_history.source_type=supply_delivery`, the exact delivery ID and generated warehouse-invoice ID in addition to its stored company. `smoke:supply-chain` verifies one company across request, offer, supplier invoice, delivery, warehouse invoice, supply history and the exact linked warehouse-history row. Production runtime `97fc1dd8` passed the protected run on 2026-08-03 (`companyId=1`, `deliveryId=15`, `warehouseInvoiceId=138`); cleanup completed.
 
+## Task M7l4: Audit Remaining Legacy Fallbacks
+
+**Description:** Add one read-only report over the remaining legacy-default critical tables: `projects`, `staff`, `estimates`, `brigade_contracts`, `interim_acts` and `hidden_works_acts`. It checks the stored `company_id` against an existing company and, where an exact parent ID exists, verifies that the parent is in the same company. A row without stored company but with an exact verified parent is reported as an explicit fallback; missing, deleted or mismatched ownership remains review-only.
+
+**Safety:** `npm run audit:legacy-fallback` opens a read-only transaction, returns only IDs and ownership classifications, rolls back, and does not change schema, data, route filtering or legacy visibility.
+
+**Next production step:** Run the audit after deploy. Strict cutover is allowed only when `fallback=0`, `unresolved=0` and the report is consistent; otherwise retain the current compatibility behavior and investigate exact review rows.
+
 **Safety:**
 - Start with a no-write production report and exact parent/reference counts.
 - Do not infer company from a tool name, master name, or empty project.
