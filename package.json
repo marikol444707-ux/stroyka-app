@@ -62,6 +62,7 @@
     "audit:warehouse-ownership": "python3 -m backend.features.warehouse_ownership.ownership_report",
     "audit:inventory-ownership": "python3 -m backend.features.inventory_ownership.migration",
     "audit:material-traceability": "python3 -m backend.features.material_traceability.report",
+    "audit:material-stock-correction-readiness": "python3 -m backend.features.material_traceability.stock_correction_readiness",
     "smoke:api-error-ownership": "python3 scripts/smoke-api-error-ownership.py",
     "smoke:telegram-expense": "python3 scripts/smoke-telegram-own-expense.py",
     "smoke:max-warehouse": "python3 scripts/smoke-max-warehouse-invoice.py",

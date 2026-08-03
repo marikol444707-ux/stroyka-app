@@ -2239,6 +2239,12 @@
 
 **Production result:** `npm run audit:legacy-fallback` passed on 2026-08-03 without writes: all `39/39` rows were verified (`projects=4`, `staff=7`, `estimates=21`, `brigade_contracts=4`, `interim_acts=2`, `hidden_works_acts=1`), with `fallback=0`, `unresolved=0` and empty review lists. The legacy-fallback SaaS checkpoint is closed.
 
+## Task P3a: Packaging Stock-Correction Readiness
+
+**Description:** Before adding receipt lots or a stock-changing endpoint, report the exact traceability and schema blockers. `npm run audit:material-stock-correction-readiness` reuses the receipt-to-movement evidence, verifies that `warehouse_receipt_lots` exists, and remains false until both the future lot schema and direct receipt references are clean.
+
+**Safety:** The command is read-only, rolls back, does not create the future tables and never proposes an apply operation for historical aggregate balances.
+
 **Safety:**
 - Start with a no-write production report and exact parent/reference counts.
 - Do not infer company from a tool name, master name, or empty project.

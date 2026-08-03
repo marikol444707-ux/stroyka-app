@@ -223,6 +223,9 @@ npm run smoke:material-packaging-review
 # material-control -> заявка с исходной сметной строкой
 npm run smoke:material-control-lineage
 
+# готовность к будущей корректировке упаковок, без изменений данных
+npm run audit:material-stock-correction-readiness
+
 # audit supplier candidates, без изменений
 npm run audit:supplier-duplicates
 ```
