@@ -2237,7 +2237,7 @@
 
 **Safety:** `npm run audit:legacy-fallback` opens a read-only transaction, returns only IDs and ownership classifications, rolls back, and does not change schema, data, route filtering or legacy visibility.
 
-**Next production step:** Run the audit after deploy. Strict cutover is allowed only when `fallback=0`, `unresolved=0` and the report is consistent; otherwise retain the current compatibility behavior and investigate exact review rows.
+**Production result:** `npm run audit:legacy-fallback` passed on 2026-08-03 without writes: all `39/39` rows were verified (`projects=4`, `staff=7`, `estimates=21`, `brigade_contracts=4`, `interim_acts=2`, `hidden_works_acts=1`), with `fallback=0`, `unresolved=0` and empty review lists. The legacy-fallback SaaS checkpoint is closed.
 
 **Safety:**
 - Start with a no-write production report and exact parent/reference counts.
