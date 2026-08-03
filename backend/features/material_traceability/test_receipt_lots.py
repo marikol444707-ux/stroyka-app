@@ -5,6 +5,7 @@ from .receipt_lots import (
     create_receipt_lot,
     ensure_receipt_lot_schema,
     lock_receipt_lot_for_movement,
+    restore_receipt_lot,
 )
 
 
@@ -101,3 +102,17 @@ class ReceiptLotTests(unittest.TestCase):
         self.assertIn("UPDATE warehouse_receipt_lots", cur.statements[0][0])
         self.assertIn("INSERT INTO warehouse_lot_movements", cur.statements[1][0])
         self.assertEqual(cur.statements[1][1][:5], (7, 1, 55, 25, "м"))
+
+    def test_restoring_lot_appends_compensating_event(self):
+        cur = FakeCursor(rows=[{"available_quantity": 100}])
+
+        remaining = restore_receipt_lot(
+            cur, lot_id=7, company_id=1, warehouse_movement_id=56,
+            original_lot_movement_id=99, quantity=25, unit="м",
+            from_location="Объект", to_location="Основной склад", created_by="Директор",
+        )
+
+        self.assertEqual(remaining, 100)
+        self.assertIn("available_quantity=available_quantity+%s", cur.statements[0][0])
+        self.assertIn("warehouse_movement_reversal", cur.statements[1][0])
+        self.assertEqual(cur.statements[1][1][-1], 99)

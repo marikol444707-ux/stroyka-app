@@ -44,6 +44,7 @@ def ensure_receipt_lot_schema(cur):
             from_location VARCHAR(255) NOT NULL,
             to_location VARCHAR(255) NOT NULL,
             created_by VARCHAR(255),
+            reversal_of_id INT,
             created_at TIMESTAMP DEFAULT NOW()
         )"""
     )
@@ -55,6 +56,7 @@ def ensure_receipt_lot_schema(cur):
         """CREATE INDEX IF NOT EXISTS idx_warehouse_lot_movement_company
               ON warehouse_lot_movements(company_id,lot_id,created_at DESC)"""
     )
+    cur.execute("ALTER TABLE warehouse_lot_movements ADD COLUMN IF NOT EXISTS reversal_of_id INT")
 
 
 def create_receipt_lot(
@@ -175,5 +177,46 @@ def consume_receipt_lot(
            ON CONFLICT (lot_id,warehouse_movement_id,operation_type) DO NOTHING""",
         (lot_id, company_id, int(warehouse_movement_id), quantity, unit,
          str(from_location or ""), str(to_location or ""), str(created_by or "")),
+    )
+    return remaining.get("available_quantity") if isinstance(remaining, dict) else remaining[0]
+
+
+def restore_receipt_lot(
+    cur,
+    *,
+    lot_id,
+    company_id,
+    warehouse_movement_id,
+    original_lot_movement_id,
+    quantity,
+    unit,
+    from_location,
+    to_location,
+    created_by,
+):
+    """Append a compensating lot event without deleting the original consumption."""
+    quantity = float(quantity or 0)
+    if quantity <= 0:
+        raise ValueError("Для возврата партии нужно положительное количество")
+    cur.execute(
+        """UPDATE warehouse_receipt_lots
+              SET available_quantity=available_quantity+%s
+            WHERE id=%s AND company_id=%s
+          RETURNING available_quantity""",
+        (quantity, int(lot_id), int(company_id)),
+    )
+    remaining = cur.fetchone()
+    if not remaining:
+        raise ValueError("Партия исходного движения не найдена")
+    cur.execute(
+        """INSERT INTO warehouse_lot_movements
+            (lot_id,company_id,warehouse_movement_id,operation_type,quantity,unit,
+             from_location,to_location,created_by,reversal_of_id)
+           VALUES (%s,%s,%s,'warehouse_movement_reversal',%s,%s,%s,%s,%s,%s,%s)""",
+        (
+            int(lot_id), int(company_id), int(warehouse_movement_id), quantity, str(unit or ""),
+            str(from_location or ""), str(to_location or ""), str(created_by or ""),
+            int(original_lot_movement_id),
+        ),
     )
     return remaining.get("available_quantity") if isinstance(remaining, dict) else remaining[0]
