@@ -153,6 +153,24 @@ def main():
         invoice_id = int(created.get("id") or 0)
         if not invoice_id:
             raise RuntimeError("Тестовая объектная накладная не создана")
+        conn = psycopg2.connect(**RECEIPT.db_config())
+        cur = conn.cursor()
+        cur.execute("SELECT items FROM warehouse_invoices WHERE id=%s AND company_id=%s", (invoice_id, company_id))
+        invoice_row = cur.fetchone()
+        cur.close(); conn.close()
+        try:
+            invoice_items = json.loads((invoice_row or [""])[0] or "[]")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            invoice_items = []
+        source_line_index = next(
+            (
+                index for index, item in enumerate(invoice_items)
+                if isinstance(item, dict) and item.get("name") == MATERIAL_NAME
+            ),
+            None,
+        )
+        if source_line_index is None:
+            raise RuntimeError("Созданная накладная не сохранила точную тестовую строку материала")
 
         movement = RECEIPT.api_json(
             "POST",
@@ -170,7 +188,7 @@ def main():
                 "createdBy": "CODEX QA",
                 "notes": "Проверка точного списания партии",
                 "invoiceId": invoice_id,
-                "invoiceLineIndex": 0,
+                "invoiceLineIndex": source_line_index,
             },
         )
         movement_id = int(movement.get("id") or 0)
@@ -178,7 +196,7 @@ def main():
             not movement_id
             or int(movement.get("sourceInvoiceId") or 0) != invoice_id
             or movement.get("sourceInvoiceLineIndex") is None
-            or int(movement["sourceInvoiceLineIndex"]) != 0
+            or int(movement["sourceInvoiceLineIndex"]) != source_line_index
         ):
             raise RuntimeError("Перемещение не сохранило точную ссылку на строку накладной")
 
@@ -186,8 +204,8 @@ def main():
         cur = conn.cursor()
         cur.execute(
             """SELECT id,available_quantity FROM warehouse_receipt_lots
-                 WHERE company_id=%s AND warehouse_invoice_id=%s AND invoice_line_index=0""",
-            (company_id, invoice_id),
+                 WHERE company_id=%s AND warehouse_invoice_id=%s AND invoice_line_index=%s""",
+            (company_id, invoice_id, source_line_index),
         )
         lot = cur.fetchone()
         if not lot or abs(float(lot[1])) > 1e-9:
