@@ -17,6 +17,10 @@ class ReceiptLotMovementSmokeTests(unittest.TestCase):
         self.assertEqual(sections[0]["items"][0]["unit"], "шт")
         self.assertEqual(sections[0]["items"][0]["type"], "material")
 
+    def test_invoice_items_accept_text_and_jsonb_values(self):
+        self.assertEqual(MODULE.invoice_items_as_list('[{"name":"Кабель"}]'), [{"name": "Кабель"}])
+        self.assertEqual(MODULE.invoice_items_as_list([{"name": "Кабель"}]), [{"name": "Кабель"}])
+
     def test_temporary_project_uses_postgres_text_array_for_tasks(self):
         source = SCRIPT_PATH.read_text(encoding="utf-8")
 
@@ -30,7 +34,7 @@ class ReceiptLotMovementSmokeTests(unittest.TestCase):
         self.assertIn("source_material_name", source)
         self.assertIn('item.get("materialName")', source)
         self.assertIn("storedItems", source)
-        self.assertIn("RECEIPT._json_list_or_empty", source)
+        self.assertIn("invoice_items_as_list", source)
 
     def test_backend_rechecks_invoice_items_before_receipt_lot_creation(self):
         backend_source = (SCRIPT_PATH.parents[1] / "backend" / "main.py").read_text(encoding="utf-8")

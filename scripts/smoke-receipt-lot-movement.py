@@ -22,6 +22,22 @@ MATERIAL_NAME = f"CODEX QA партия материал {RUN_ID}"
 QUANTITY = 0.001
 
 
+def invoice_items_as_list(value):
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        return [value]
+    if isinstance(value, (bytes, bytearray)):
+        value = value.decode("utf-8", "replace")
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    return parsed if isinstance(parsed, list) else ([parsed] if isinstance(parsed, dict) else [])
+
+
 def estimate_sections():
     return [{
         "name": "CODEX QA",
@@ -158,10 +174,7 @@ def main():
         cur.execute("SELECT items FROM warehouse_invoices WHERE id=%s AND company_id=%s", (invoice_id, company_id))
         invoice_row = cur.fetchone()
         cur.close(); conn.close()
-        # PostgreSQL installations may expose this column as TEXT or JSON/JSONB.
-        # psycopg2 deserializes JSON values to Python lists, so do not parse them
-        # a second time and accidentally turn a valid source line into an empty list.
-        invoice_items = RECEIPT._json_list_or_empty((invoice_row or [""])[0])
+        invoice_items = invoice_items_as_list((invoice_row or [""])[0])
         source_line_index = next(
             (
                 index for index, item in enumerate(invoice_items)
