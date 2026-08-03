@@ -253,6 +253,17 @@ except ModuleNotFoundError:
     )
 
 try:
+    from backend.features.warehouse_movements.estimate_control import (
+        build_movement_estimate_control,
+        build_movement_review_task,
+    )
+except ModuleNotFoundError:
+    from features.warehouse_movements.estimate_control import (
+        build_movement_estimate_control,
+        build_movement_review_task,
+    )
+
+try:
     from backend.features.brigade_access.service import (
         brigade_contract_project_reference,
         brigade_contract_visibility_filter,
@@ -5034,6 +5045,9 @@ def init_db():
         ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS source_invoice_id INT;
         ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS source_invoice_line_index INT;
+        ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS estimate_control_status VARCHAR(50) NOT NULL DEFAULT 'not_checked';
+        ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS estimate_control JSONB NOT NULL DEFAULT '{}'::jsonb;
+        ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS estimate_review_task_id INT;
         UPDATE warehouse_movements SET company_id=1 WHERE company_id IS NULL;
         ALTER TABLE warehouse_movements ALTER COLUMN material_name TYPE TEXT;
         CREATE TABLE IF NOT EXISTS inventory (
@@ -6763,7 +6777,7 @@ def get_warehouse_movements(
     except Exception:
         cur.close(); conn.close()
         raise
-    select_sql = "SELECT wm.id,wm.material_name as \"materialName\",wm.from_location as \"fromLocation\",wm.to_location as \"toLocation\",wm.quantity,wm.unit,wm.work_package as \"workPackage\",wm.date,wm.created_by as \"createdBy\",wm.notes,wm.source_invoice_id as \"sourceInvoiceId\",wm.source_invoice_line_index as \"sourceInvoiceLineIndex\" FROM warehouse_movements wm WHERE TRUE"
+    select_sql = "SELECT wm.id,wm.material_name as \"materialName\",wm.from_location as \"fromLocation\",wm.to_location as \"toLocation\",wm.quantity,wm.unit,wm.work_package as \"workPackage\",wm.date,wm.created_by as \"createdBy\",wm.notes,wm.source_invoice_id as \"sourceInvoiceId\",wm.source_invoice_line_index as \"sourceInvoiceLineIndex\",wm.estimate_control_status as \"estimateControlStatus\",wm.estimate_control as \"estimateControl\",wm.estimate_review_task_id as \"estimateReviewTaskId\" FROM warehouse_movements wm WHERE TRUE"
     if current_user.get("role") == "прораб":
         projects = user_project_names(current_user)
         if not projects:
@@ -6845,6 +6859,7 @@ def create_warehouse_movement(
         raise HTTPException(status_code=409, detail="Компания перемещения не определена")
     conn.autocommit = False
     try:
+        movement_estimate_control = build_movement_estimate_control([])
         source_invoice_id = m.invoiceId
         source_invoice_line_index = m.invoiceLineIndex
         selected_receipt_lot = None
@@ -6959,7 +6974,7 @@ def create_warehouse_movement(
                 "workPackage": work_package,
             }]
             _attach_supply_estimate_control(cur, to_location, movement_control_items)
-            _enforce_supply_estimate_control(movement_control_items, source="перемещение")
+            movement_estimate_control = build_movement_estimate_control(movement_control_items)
             work_package = _supply_work_package(movement_control_items[0].get("workPackage") or work_package)
 
         if to_location == "Основной склад":
@@ -7003,16 +7018,18 @@ def create_warehouse_movement(
 
         cur.execute("""INSERT INTO warehouse_movements
                           (material_name,from_location,to_location,quantity,unit,work_package,date,created_by,notes,company_id,
-                           source_invoice_id,source_invoice_line_index)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING
+                           source_invoice_id,source_invoice_line_index,estimate_control_status,estimate_control)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING
                           id,material_name as "materialName",from_location as "fromLocation",
                           to_location as "toLocation",quantity,unit,work_package as "workPackage",
                           date,created_by as "createdBy",notes,source_invoice_id as "sourceInvoiceId",
                           source_invoice_line_index""",
                     (material_name, from_location, to_location, qty, source_unit, work_package, m.date, m.createdBy or _current_user.get("name",""), m.notes, company_id,
-                     source_invoice_id, source_invoice_line_index))
+                     source_invoice_id, source_invoice_line_index, movement_estimate_control["status"], psycopg2.extras.Json(movement_estimate_control)))
         row = cur.fetchone()
         row["sourceInvoiceLineIndex"] = row.pop("source_invoice_line_index", None)
+        row["estimateControlStatus"] = movement_estimate_control["status"]
+        row["estimateControl"] = movement_estimate_control
         actor_name = m.createdBy or _current_user.get("name","")
         if selected_receipt_lot:
             try:
@@ -7050,8 +7067,18 @@ def create_warehouse_movement(
         raise
     finally:
         cur.close(); conn.close()
+    movement_result = dict(row)
+    review_task = _create_warehouse_movement_review_task_safely(
+        movement_result,
+        to_location,
+        company_id,
+        _current_user,
+    )
+    if review_task.get("taskId"):
+        movement_result["estimateReviewTaskId"] = review_task["taskId"]
+        movement_result["estimateReviewTaskCreated"] = bool(review_task.get("created"))
     _run_project_ai_control_safely(to_location if to_location != "Основной склад" else from_location, "warehouse_movement:create")
-    return dict(row)
+    return movement_result
 
 @app.get("/warehouse-history")
 def get_warehouse_history(
@@ -14365,6 +14392,85 @@ def _upsert_ai_task(cur, data: dict, current_user: dict, task_owner: dict = None
             return task_id, False
     task_id = _insert_ai_task(cur, data, current_user, owner)
     return task_id, True
+
+
+def _create_warehouse_movement_review_task_safely(
+    movement: dict,
+    project_name: str,
+    company_id: int,
+    current_user: dict,
+):
+    """Create one idempotent estimate-review task after a completed movement."""
+    if not (movement.get("estimateControl") or {}).get("needsReview"):
+        return {}
+    conn = None
+    cur = None
+    try:
+        task = build_movement_review_task(
+            movement_id=movement.get("id"),
+            project_name=project_name,
+            actor_name=movement.get("createdBy") or current_user.get("name") or "",
+            estimate_control=movement.get("estimateControl") or {},
+        )
+        if not task:
+            return {}
+        conn = get_db()
+        conn.autocommit = False
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            "SELECT id,name,company_id FROM projects WHERE name=%s AND company_id=%s ORDER BY id LIMIT 1",
+            (project_name, company_id),
+        )
+        project = cur.fetchone()
+        if not project:
+            raise ValueError("Объект перемещения не найден в выбранной компании")
+        assigned_role, assigned_to = "директор", ""
+        for candidate_role in ("сметчик", "директор", "зам_директора"):
+            cur.execute(
+                """SELECT u.name,m.role
+                     FROM user_company_roles m
+                     JOIN users u ON u.id=m.user_id
+                    WHERE m.company_id=%s
+                      AND m.role=%s
+                      AND COALESCE(m.active,TRUE)=TRUE
+                      AND COALESCE(u.active,TRUE)=TRUE
+                      AND (COALESCE(m.assigned_projects,'[]'::jsonb)='[]'::jsonb
+                           OR COALESCE(m.assigned_projects,'[]'::jsonb) ? %s)
+                    ORDER BY COALESCE(m.is_default,FALSE) DESC,m.id
+                    LIMIT 1""",
+                (company_id, candidate_role, project_name),
+            )
+            assignee = cur.fetchone()
+            if assignee:
+                assigned_role = assignee.get("role") or candidate_role
+                assigned_to = assignee.get("name") or ""
+                break
+        task["assignedRole"] = assigned_role
+        task["assignedTo"] = assigned_to
+        task["actionPayload"] = _ai_payload(task.get("actionPayload") or {})
+        task_owner = {
+            "scope": "company",
+            "companyId": int(company_id),
+            "projectId": int(project.get("id")),
+            "projectName": project.get("name") or project_name,
+        }
+        task_id, created = _upsert_ai_task(cur, task, current_user, task_owner)
+        cur.execute(
+            "UPDATE warehouse_movements SET estimate_review_task_id=%s WHERE id=%s AND company_id=%s",
+            (task_id, movement.get("id"), company_id),
+        )
+        conn.commit()
+        return {"taskId": task_id, "created": created}
+    except Exception as exc:
+        if conn:
+            conn.rollback()
+        print("WAREHOUSE MOVEMENT REVIEW TASK ERROR:", movement.get("id"), str(exc))
+        return {}
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 def _close_stale_ai_findings(cur, project_name: str, categories: list[str], active_keys: set[str], actor: str = "ИИ-контроль", project_owner: dict = None) -> int:
     if not project_name or not categories:
