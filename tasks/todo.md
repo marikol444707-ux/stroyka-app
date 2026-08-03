@@ -2261,6 +2261,8 @@
 
 **Verification:** Local unit tests cover the missing-lot compatibility path, available-balance guard and immutable lot event. `npm run smoke:receipt-lot-movement` creates an isolated temporary project and active estimate, receives one object invoice line, moves it to the main warehouse by explicit invoice source, asserts the depleted lot and exact immutable event, then removes every test row. Full backend suite passed locally: `991` tests.
 
+**Production result:** Runtime `821c24f0` passed protected `smoke:receipt-lot-movement` on 2026-08-03. The smoke created a temporary project receipt, then moved it from the object to the main warehouse by the selected invoice line. The exact lot balance became zero and one immutable `warehouse_lot_movements` row referenced the same warehouse movement; cleanup removed all generated rows.
+
 **Safety:**
 - Start with a no-write production report and exact parent/reference counts.
 - Do not infer company from a tool name, master name, or empty project.
