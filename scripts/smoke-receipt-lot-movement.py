@@ -170,7 +170,21 @@ def main():
             None,
         )
         if source_line_index is None:
-            raise RuntimeError("Созданная накладная не сохранила точную тестовую строку материала")
+            raise RuntimeError(
+                "Созданная накладная не сохранила точную тестовую строку материала: "
+                + json.dumps(
+                    {
+                        "invoiceId": invoice_id,
+                        "storedItems": invoice_items,
+                        "receiptResult": {
+                            "stockRowsAdded": created.get("stockRowsAdded"),
+                            "historyAdded": created.get("historyAdded"),
+                            "receiptLotsAdded": created.get("receiptLotsAdded"),
+                        },
+                    },
+                    ensure_ascii=False,
+                )
+            )
         source_item = invoice_items[source_line_index]
         source_material_name = str(
             source_item.get("name") or source_item.get("materialName") or source_item.get("title") or ""
