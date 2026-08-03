@@ -286,6 +286,7 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [x] Add a director/deputy read-only registry of historical packaging reviews with immutable review evidence.
 - [x] Require an explicit non-stock decision for each new historical packaging review; legacy reviews remain unclassified.
 - [x] Add protected smoke coverage proving a packaging review records the decision without changing stock or the invoice item.
+- [x] Start receipt lots for new warehouse receipts without rewriting historical stock. Production runtime `9a90bf19` passed protected `smoke:main-warehouse-receipt`: a temporary inventory-only receipt created a company-owned lot with the exact invoice line, normalized quantity and available balance; cleanup removed the smoke rows.
 
 ### Phase P4: Supply Reconnection
 

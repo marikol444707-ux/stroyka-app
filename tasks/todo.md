@@ -2251,6 +2251,8 @@
 
 **Safety:** The receipt transaction creates the lot together with its existing stock/history writes. Duplicate source lines are ignored by a unique `(company_id, warehouse_invoice_id, invoice_line_index)` index. No movement consumes a lot in this slice; that requires a separate guarded slice.
 
+**Production result:** Runtime `9a90bf19` passed protected `smoke:main-warehouse-receipt` on 2026-08-03. The temporary inventory-only main-warehouse receipt created one exact available receipt lot in company `1`, retained the invoice-line link in history, did not create a supplier invoice or accounting obligation, and cleanup removed the generated rows. `smoke:prod` passed afterwards.
+
 **Safety:**
 - Start with a no-write production report and exact parent/reference counts.
 - Do not infer company from a tool name, master name, or empty project.
