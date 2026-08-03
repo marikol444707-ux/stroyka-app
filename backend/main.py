@@ -6870,7 +6870,12 @@ def create_warehouse_movement(
             except (TypeError, ValueError, json.JSONDecodeError):
                 invoice_items = []
             source_item = invoice_items[source_reference["invoiceLineIndex"]]
-            source_item_name = str((source_item or {}).get("name") or "").strip().lower()
+            source_item_name = str(
+                (source_item or {}).get("name")
+                or (source_item or {}).get("materialName")
+                or (source_item or {}).get("title")
+                or ""
+            ).strip().lower()
             source_item_unit = _norm_base_unit((source_item or {}).get("unit") or "шт") or "шт"
             requested_unit = _norm_base_unit(m.unit or "") if (m.unit or "").strip() else source_item_unit
             if source_item_name != material_name.lower() or source_item_unit != requested_unit:

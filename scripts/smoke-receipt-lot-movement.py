@@ -163,13 +163,18 @@ def main():
         except (TypeError, ValueError, json.JSONDecodeError):
             invoice_items = []
         source_line_index = next(
-            (index for index, item in enumerate(invoice_items) if isinstance(item, dict) and item.get("name")),
+            (
+                index for index, item in enumerate(invoice_items)
+                if isinstance(item, dict) and (item.get("name") or item.get("materialName") or item.get("title"))
+            ),
             None,
         )
         if source_line_index is None:
             raise RuntimeError("Созданная накладная не сохранила точную тестовую строку материала")
         source_item = invoice_items[source_line_index]
-        source_material_name = str(source_item.get("name") or "").strip()
+        source_material_name = str(
+            source_item.get("name") or source_item.get("materialName") or source_item.get("title") or ""
+        ).strip()
         source_unit = str(source_item.get("unit") or "шт").strip() or "шт"
 
         movement = RECEIPT.api_json(

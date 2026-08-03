@@ -28,6 +28,7 @@ class ReceiptLotMovementSmokeTests(unittest.TestCase):
         self.assertIn("SELECT items FROM warehouse_invoices", source)
         self.assertIn("source_line_index", source)
         self.assertIn("source_material_name", source)
+        self.assertIn('item.get("materialName")', source)
 
 
 if __name__ == "__main__":
