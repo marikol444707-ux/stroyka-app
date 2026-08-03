@@ -30,6 +30,7 @@ class ReceiptLotMovementSmokeTests(unittest.TestCase):
         self.assertIn("source_material_name", source)
         self.assertIn('item.get("materialName")', source)
         self.assertIn("storedItems", source)
+        self.assertIn("RECEIPT._json_list_or_empty", source)
 
     def test_backend_rechecks_invoice_items_before_receipt_lot_creation(self):
         backend_source = (SCRIPT_PATH.parents[1] / "backend" / "main.py").read_text(encoding="utf-8")
