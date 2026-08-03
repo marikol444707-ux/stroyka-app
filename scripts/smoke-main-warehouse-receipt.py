@@ -136,6 +136,7 @@ def cleanup(invoice_id=None):
         supplier_invoice_ids = []
         if invoice_ids:
             invoice_id_list = sorted(invoice_ids)
+            cur.execute("DELETE FROM warehouse_receipt_lots WHERE warehouse_invoice_id = ANY(%s)", (invoice_id_list,))
             cur.execute(
                 "SELECT id FROM supplier_invoices WHERE warehouse_invoice_id = ANY(%s) OR material_name=%s",
                 (invoice_id_list, MATERIAL_NAME),
@@ -246,6 +247,19 @@ def main():
         ):
             raise RuntimeError("Приход не сохранил ссылку на точную строку накладной")
 
+        conn = psycopg2.connect(**db_config())
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT received_quantity,available_quantity,unit,document_quantity,document_unit
+                 FROM warehouse_receipt_lots
+                WHERE company_id=%s AND warehouse_invoice_id=%s AND invoice_line_index=0""",
+            (company_id, invoice_id),
+        )
+        lot = cur.fetchone()
+        cur.close(); conn.close()
+        if not lot or float(lot[0]) != 0.001 or float(lot[1]) != 0.001 or lot[2] != "шт":
+            raise RuntimeError("Новый приход не создал точную партию строки накладной")
+
         print(json.dumps({
             "ok": True,
             "companyId": company_id,
@@ -258,6 +272,7 @@ def main():
                 "accounting status mutation is blocked",
                 "main warehouse history records the receipt",
                 "receipt history stores exact warehouse invoice line source",
+                "new receipt creates an exact available receipt lot",
             ],
         }, ensure_ascii=False, indent=2))
     finally:

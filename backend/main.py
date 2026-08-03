@@ -18809,6 +18809,16 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
             from backend.features.material_packaging import normalize_invoice_packaging_items
         except ModuleNotFoundError:
             from features.material_packaging import normalize_invoice_packaging_items
+        try:
+            from backend.features.material_traceability.receipt_lots import (
+                create_receipt_lot,
+                ensure_receipt_lot_schema,
+            )
+        except ModuleNotFoundError:
+            from features.material_traceability.receipt_lots import (
+                create_receipt_lot,
+                ensure_receipt_lot_schema,
+            )
         items_list = normalize_invoice_packaging_items(
             cur,
             items_list,
@@ -18892,6 +18902,12 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
                        RETURNING id""",
             (company_id,data.get("number",""),data.get("date") or None,data.get("supplierId") or None,data.get("supplierName",""),data.get("acceptedBy",""),target_location,target_project,invoice_vat,j.dumps(items_list,ensure_ascii=False),total_base,total_vat,total_with_vat,data.get("status","Принята"),data.get("addedBy",""),first_photo_url,source_type,source_id,supply_delivery_id,supply_request_id,j.dumps(photo_urls,ensure_ascii=False),pages_count,warehouse_target,selected_action,j.dumps(material_match,ensure_ascii=False),supplier_invoice_id))
         invoice_id = cur.fetchone()[0]
+        ensure_receipt_lot_schema(cur)
+        project_id = None
+        if target_project:
+            cur.execute("SELECT id FROM projects WHERE name=%s AND company_id=%s ORDER BY id LIMIT 1", (target_project, company_id))
+            project_row = cur.fetchone()
+            project_id = _positive_int_or_none(_row_get(project_row, "id", 0))
         if supplier_invoice_id:
             cur.execute("UPDATE supplier_invoices SET company_id=%s, warehouse_invoice_id=%s WHERE id=%s", (company_id, invoice_id, supplier_invoice_id))
 
@@ -18903,6 +18919,7 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
         cables_added = 0
         stock_rows_added = 0
         history_added = 0
+        lot_rows_added = 0
         restricted_packages = user_package_names(current_user) if current_user.get("role") in PACKAGE_LIMIT_ROLES else []
 
         for item_index, it in enumerate(items_list):
@@ -18973,6 +18990,23 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
                         (company_id, name, "приход", qty, unit, rcv_date, history_project, accepted_by, work_package, date_time,
                          source_type or "warehouse_invoice", invoice_id, invoice_id, item_index))
             history_added += 1
+            if create_receipt_lot(
+                cur,
+                company_id=company_id,
+                project_id=project_id,
+                project_name=target_project,
+                warehouse_location=history_project,
+                warehouse_target=warehouse_target,
+                warehouse_invoice_id=invoice_id,
+                invoice_line_index=item_index,
+                material_name=name,
+                document_quantity=it.get("documentQuantity", qty),
+                document_unit=it.get("documentUnit") or unit,
+                received_quantity=qty,
+                unit=unit,
+                created_by=accepted_by,
+            ):
+                lot_rows_added += 1
 
             if target_project:
                 source_item_key = _journal_item_key(name, unit, qty, work_package, item_index)
@@ -19021,6 +19055,7 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
         "accountingRequired": accounting_required,
         "stockRowsAdded": stock_rows_added,
         "historyAdded": history_added,
+        "receiptLotsAdded": lot_rows_added,
         "inspectionsAdded": inspections_added,
         "cablesAdded": cables_added,
     }

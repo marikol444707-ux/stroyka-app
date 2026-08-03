@@ -2245,6 +2245,12 @@
 
 **Safety:** The command is read-only, rolls back, does not create the future tables and never proposes an apply operation for historical aggregate balances.
 
+## Task P3b: Receipt Lots For New Warehouse Receipts
+
+**Description:** Add `warehouse_receipt_lots` only as an additive companion to newly accepted warehouse-invoice lines. Each lot preserves document and normalized quantity, available quantity, exact company, location, invoice ID and line index. Existing invoices, balances, movements and history are not backfilled or rewritten.
+
+**Safety:** The receipt transaction creates the lot together with its existing stock/history writes. Duplicate source lines are ignored by a unique `(company_id, warehouse_invoice_id, invoice_line_index)` index. No movement consumes a lot in this slice; that requires a separate guarded slice.
+
 **Safety:**
 - Start with a no-write production report and exact parent/reference counts.
 - Do not infer company from a tool name, master name, or empty project.
