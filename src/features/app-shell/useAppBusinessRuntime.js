@@ -170,6 +170,7 @@ export function useAppBusinessRuntime({
     estimateDiffBaseFor: (...args) => estimateDiffBaseFor(...args),
     estimatesList,
     navigateTo: (...args) => navigateTo(...args),
+    openEstimateDiffPreview: (...args) => openEstimateDiffPreview(...args),
     openEstimateDetail: (...args) => openEstimateDetail(...args),
     projects,
     refreshData,
@@ -219,6 +220,7 @@ export function useAppBusinessRuntime({
   });
   const {
     openEstimateDetail,
+    openEstimateDiffPreview,
     estimateDiffBaseFor,
     buildEstimateDiffContent,
     estimateReconciliationsForProject,

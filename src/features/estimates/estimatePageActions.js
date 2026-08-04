@@ -65,6 +65,7 @@ export function createEstimatePageActions({
   nextEstimateVersionFor,
   normalizeEstimateImportSections,
   normalizeEstimateItemType,
+  openEstimateDiffPreview,
   persistEstimate,
   projects,
   queueEstimateDiffReviewTask,
@@ -469,7 +470,7 @@ export function createEstimatePageActions({
 
   const handleShowSelectedEstimateDiff = () => {
     const base = estimateDiffBaseFor(selectedEstimate);
-    if (base) showPreview(buildEstimateDiffContent(base, selectedEstimate), 'Сопоставительная ведомость');
+    if (base) openEstimateDiffPreview(base, selectedEstimate, 'Сопоставительная ведомость');
   };
 
   const handleExportSelectedEstimate = () => {

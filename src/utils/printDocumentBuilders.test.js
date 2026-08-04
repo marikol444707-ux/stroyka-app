@@ -1,4 +1,8 @@
-import { buildMaterialRequirementDocContent } from './printDocumentBuilders';
+import {
+  buildEstimateDiffDocContent,
+  buildEstimateReconciliationDocContent,
+  buildMaterialRequirementDocContent,
+} from './printDocumentBuilders';
 
 const reconciliationRow = (overrides = {}) => ({
   name: 'Смесь штукатурная',
@@ -95,5 +99,53 @@ describe('buildMaterialRequirementDocContent', () => {
     expect(html).toContain('Расшифровка нормативного расчёта');
     expect(html).toContain('100 м2 x 0,2 кг/м2 = 20 кг');
     expect(html).toContain('Нормативная подсказка, не закупать автоматически');
+  });
+});
+
+describe('estimate comparison documents', () => {
+  const changed = {
+    base: { section: 'Отделка', name: 'Штукатурка', unit: 'м2', qty: 10, unitPrice: 100, sum: 1000 },
+    next: { section: 'Отделка', name: 'Штукатурка', unit: 'м2', qty: 12, unitPrice: 100, sum: 1200 },
+    impact: 200,
+  };
+
+  test('shows plus, minus, reasons and the explained row balance in the comparison statement', () => {
+    const html = buildEstimateDiffDocContent({
+      diff: {
+        baseTotal: 1500,
+        nextTotal: 1600,
+        impact: 100,
+        changed: [changed],
+        added: [],
+        removed: [{ section: 'Отделка', name: 'Грунтовка', unit: 'л', qty: 1, unitPrice: 100, sum: 100, impact: -100 }],
+      },
+    });
+
+    expect(html).toContain('Почему изменилась сумма');
+    expect(html).toContain('Плюсовые изменения');
+    expect(html).toContain('+200 ₽');
+    expect(html).toContain('Минусовые изменения');
+    expect(html).toContain('-100 ₽');
+    expect(html).toContain('Изменился объём');
+    expect(html).toContain('Позиция исключена');
+    expect(html).toContain('Разница полностью объяснена позициями');
+  });
+
+  test('warns when the reconciliation total cannot be explained by its rows', () => {
+    const html = buildEstimateReconciliationDocContent({
+      baseTotal: 1000,
+      nextTotal: 1200,
+      impact: 200,
+      items: [{
+        itemType: 'changed', sectionName: 'Отделка', itemName: 'Штукатурка', unit: 'м2',
+        baseQuantity: 10, nextQuantity: 11, baseUnitPrice: 100, nextUnitPrice: 100,
+        baseTotal: 1000, nextTotal: 1100, impact: 100, decision: 'Сопоставлено',
+      }],
+    });
+
+    expect(html).toContain('Почему изменилась сумма');
+    expect(html).toContain('Не распределено по позициям');
+    expect(html).toContain('+100 ₽');
+    expect(html).toContain('Проверьте итоговые строки');
   });
 });

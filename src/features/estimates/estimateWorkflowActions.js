@@ -98,6 +98,21 @@ export const createEstimateWorkflowActions = ({
     estimateChangeAutoDecision,
   }));
 
+  const openEstimateDiffPreview = async (baseEst, nextEst, title = 'Сопоставительная ведомость') => {
+    if (!baseEst?.id || !nextEst?.id) {
+      alertFn('Не найдена базовая и новая смета для сравнения');
+      return false;
+    }
+    try {
+      const [fullBase, fullNext] = await loadEstimateDetails([baseEst, nextEst]);
+      showPreview(buildEstimateDiffContent(fullBase, fullNext), title);
+      return true;
+    } catch (err) {
+      alertFn('Не удалось построить ведомость: ' + (err?.message || err));
+      return false;
+    }
+  };
+
   const estimateReconciliationsForProject = (projectName) => (estimateReconciliations||[])
     .filter(r=>r.projectName===projectName)
     .sort((a,b)=>Number(b.id||0)-Number(a.id||0));
@@ -325,6 +340,7 @@ export const createEstimateWorkflowActions = ({
     openEstimateDetail,
     estimateDiffBaseFor,
     buildEstimateDiffContent,
+    openEstimateDiffPreview,
     estimateReconciliationsForProject,
     openEstimateReconciliationPreview,
     createEstimateReconciliation,

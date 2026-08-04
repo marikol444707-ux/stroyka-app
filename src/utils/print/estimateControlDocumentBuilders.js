@@ -2,6 +2,111 @@ import { docEsc } from '../documentFormatUtils';
 import { fmtMeasure } from '../measureUtils';
 import { companyTitle, directorDocStyles, fmtDocMoney } from '../printDocumentShared';
 
+const ESTIMATE_IMPACT_TOLERANCE = 0.5;
+
+const looksLikeEstimateAdjustment = (row = {}) => (
+  row.itemType === 'adjustment'
+  || /корректир|округлен|округлён|итог(?:овая|овый)?\s+(?:смет|файл)|до\s+всего/i.test(String(row.name || row.itemName || ''))
+);
+
+const estimateImpactReason = (row = {}) => {
+  if (looksLikeEstimateAdjustment(row)) return 'Корректировка общего итога исходного файла';
+  if (row.kind === 'added') return 'Позиция добавлена';
+  if (row.kind === 'removed') return 'Позиция исключена';
+  const quantityChanged = Math.abs(Number(row.nextQty || 0) - Number(row.baseQty || 0)) > 0.0001;
+  const priceChanged = Math.abs(Number(row.nextUnitPrice || 0) - Number(row.baseUnitPrice || 0)) > 0.01;
+  if (quantityChanged && priceChanged) return 'Изменились объём и цена';
+  if (quantityChanged) return 'Изменился объём';
+  if (priceChanged) return 'Изменилась цена';
+  return 'Изменился итог строки или коэффициент';
+};
+
+const estimateImpactAnalysis = (rows = [], totalImpact = 0) => {
+  const meaningfulRows = rows
+    .filter((row) => Math.abs(Number(row.impact || 0)) > 0.005)
+    .map((row) => ({ ...row, reason: estimateImpactReason(row) }))
+    .sort((left, right) => Math.abs(Number(right.impact || 0)) - Math.abs(Number(left.impact || 0)));
+  const positive = meaningfulRows.reduce((sum, row) => sum + Math.max(0, Number(row.impact || 0)), 0);
+  const negative = meaningfulRows.reduce((sum, row) => sum + Math.min(0, Number(row.impact || 0)), 0);
+  const explained = positive + negative;
+  return {
+    rows: meaningfulRows,
+    positive,
+    negative,
+    explained,
+    residual: Number(totalImpact || 0) - explained,
+  };
+};
+
+const diffImpactRows = (diff = {}) => [
+  ...(diff.changed || []).map(({ base = {}, next = {}, impact = 0 }) => ({
+    kind: 'changed',
+    section: next.section || base.section || '',
+    name: next.name || base.name || '',
+    unit: next.unit || base.unit || '',
+    itemType: next.itemType || base.itemType || '',
+    baseQty: base.qty,
+    nextQty: next.qty,
+    baseUnitPrice: base.unitPrice,
+    nextUnitPrice: next.unitPrice,
+    impact,
+  })),
+  ...(diff.added || []).map((row) => ({
+    kind: 'added', section: row.section, name: row.name, unit: row.unit, itemType: row.itemType,
+    baseQty: 0, nextQty: row.qty, baseUnitPrice: 0, nextUnitPrice: row.unitPrice, impact: row.impact,
+  })),
+  ...(diff.removed || []).map((row) => ({
+    kind: 'removed', section: row.section, name: row.name, unit: row.unit, itemType: row.itemType,
+    baseQty: row.qty, nextQty: 0, baseUnitPrice: row.unitPrice, nextUnitPrice: 0, impact: row.impact,
+  })),
+];
+
+const reconciliationImpactRows = (items = []) => (items || [])
+  .filter((item) => ['changed', 'added', 'removed'].includes(item.itemType))
+  .map((item) => ({
+    kind: item.itemType,
+    section: item.sectionName,
+    name: item.itemName,
+    unit: item.unit,
+    baseQty: item.baseQuantity,
+    nextQty: item.nextQuantity,
+    baseUnitPrice: item.baseUnitPrice,
+    nextUnitPrice: item.nextUnitPrice,
+    impact: item.impact,
+  }));
+
+const renderEstimateImpactAnalysis = ({ analysis, classPrefix, fmtQty, signMoney, diffColor }) => {
+  const quantityLabel = (row, side) => {
+    const value = side === 'base' ? row.baseQty : row.nextQty;
+    const missing = (row.kind === 'added' && side === 'base') || (row.kind === 'removed' && side === 'next');
+    if (missing) return '—';
+    return `${fmtQty(value)}${row.unit ? ` ${row.unit}` : ''}`;
+  };
+  const rowsHtml = analysis.rows.map((row) => '<tr>'
+    + `<td style="color:${diffColor(row.impact)};font-weight:700">${row.impact > 0 ? 'Плюс' : 'Минус'}</td>`
+    + `<td>${docEsc(row.section || '')}</td>`
+    + `<td>${docEsc(row.name || '')}</td>`
+    + `<td>${docEsc(row.reason)}</td>`
+    + `<td class="num">${docEsc(quantityLabel(row, 'base'))}</td>`
+    + `<td class="num">${docEsc(quantityLabel(row, 'next'))}</td>`
+    + `<td class="num" style="color:${diffColor(row.impact)};font-weight:700">${signMoney(row.impact)}</td>`
+    + '</tr>').join('');
+  const residualIsMaterial = Math.abs(analysis.residual) > ESTIMATE_IMPACT_TOLERANCE;
+  const balanceHtml = residualIsMaterial
+    ? `<div class="${classPrefix}-balance ${classPrefix}-balance-warn"><b>Не распределено по позициям: ${signMoney(analysis.residual)}</b><span>Проверьте итоговые строки, индексы, коэффициенты и округления исходного файла.</span></div>`
+    : `<div class="${classPrefix}-balance ${classPrefix}-balance-ok"><b>Разница полностью объяснена позициями</b><span>Баланс строк: ${signMoney(analysis.explained)}.</span></div>`;
+  return `<div class="${classPrefix}-h">Почему изменилась сумма</div>`
+    + `<div class="${classPrefix}-grid">`
+    + `<div class="${classPrefix}-card"><span>Плюсовые изменения</span><b style="color:${diffColor(analysis.positive)}">${signMoney(analysis.positive)}</b></div>`
+    + `<div class="${classPrefix}-card"><span>Минусовые изменения</span><b style="color:${diffColor(analysis.negative)}">${signMoney(analysis.negative)}</b></div>`
+    + `<div class="${classPrefix}-card"><span>Баланс позиций</span><b style="color:${diffColor(analysis.explained)}">${signMoney(analysis.explained)}</b></div>`
+    + '</div>'
+    + balanceHtml
+    + `<table class="${classPrefix}-table"><tr><th>Знак</th><th>Раздел</th><th>Позиция</th><th>Причина</th><th>Было</th><th>Стало</th><th>Влияние</th></tr>`
+    + (rowsHtml || `<tr><td colspan="7" style="text-align:center;color:#64748b">Нет финансовых изменений по распознанным позициям</td></tr>`)
+    + '</table>';
+};
+
 export const buildEstimateReconciliationDocContent = (rec = {}) => {
   const items = rec?.items || [];
   const fmtMoney = (value) => `${(Math.round(Number(value || 0) * 100) / 100).toLocaleString('ru-RU')} ₽`;
@@ -42,6 +147,7 @@ export const buildEstimateReconciliationDocContent = (rec = {}) => {
   const reviewCount = rec.reviewCount ?? items.filter((item) => (
     String(item.decision || '').startsWith('Проверить') || item.decision === 'На проверке'
   )).length;
+  const impactAnalysis = estimateImpactAnalysis(reconciliationImpactRows(items), rec?.impact);
 
   let html = '<style>'
     + '.erec-title{text-align:center;font-size:18px;font-weight:700;margin:0 0 4px}'
@@ -51,6 +157,8 @@ export const buildEstimateReconciliationDocContent = (rec = {}) => {
     + '.erec-card span{display:block;color:#64748b;font-size:10px}.erec-card b{font-size:14px}'
     + '.erec-table{font-size:10px;table-layout:fixed}.erec-table th{font-size:9px}.erec-table td,.erec-table th{vertical-align:top;word-break:break-word}'
     + '.erec-table .num{text-align:right;white-space:nowrap}.erec-h{font-size:13px;font-weight:700;margin:16px 0 6px}'
+    + '.erec-balance{display:flex;justify-content:space-between;gap:12px;border:1px solid;padding:8px;margin:0 0 8px;font-size:10px}.erec-balance span{color:#475569}'
+    + '.erec-balance-ok{border-color:#86efac;background:#f0fdf4}.erec-balance-warn{border-color:#f59e0b;background:#fffbeb;color:#92400e}'
     + '</style>';
   html += `<div class="erec-title">АКТ / ВЕДОМОСТЬ СВЕРКИ СМЕТ № ${docEsc(rec?.id || '')}</div>`;
   html += `<div class="erec-sub">Объект: ${docEsc(rec?.projectName || '')} · Тип: ${docEsc(rec?.smetaType || 'Заказчик')} · Пакет: ${docEsc(rec?.workPackage || 'Основная')} · Статус: ${docEsc(rec?.status || 'Черновик')}</div>`;
@@ -65,6 +173,7 @@ export const buildEstimateReconciliationDocContent = (rec = {}) => {
     + `<div class="erec-card"><span>Разница</span><b style="color:${diffColor(rec?.impact)}">${signMoney(rec?.impact)}</b></div>`
     + `<div class="erec-card"><span>Спорные / проверить</span><b style="color:#b45309">${reviewCount}</b></div>`
     + '</div>';
+  html += renderEstimateImpactAnalysis({ analysis: impactAnalysis, classPrefix: 'erec', fmtQty, signMoney, diffColor });
   html += '<div class="erec-h">Изменён объём или цена</div><table class="erec-table"><tr><th>Раздел</th><th>Позиция</th><th>Ед.</th><th>Было кол.</th><th>Стало кол.</th><th>Было цена</th><th>Стало цена</th><th>Было сумма</th><th>Стало сумма</th><th>Влияние</th><th>Решение</th></tr>'
     + (rowsOf('changed').map(rowChanged).join('') || empty(11))
     + '</table>';
@@ -433,6 +542,7 @@ export const buildEstimateDiffDocContent = (data = {}) => {
     + `<td class="num" style="color:${diffColor(impact)};font-weight:700">${signMoney(impact)}</td>`
     + '</tr>').join('');
   const empty = (cols) => `<tr><td colspan="${cols}" style="text-align:center;color:#6b7280">Нет изменений</td></tr>`;
+  const impactAnalysis = estimateImpactAnalysis(diffImpactRows(diff), diff.impact);
 
   let html = '<style>'
     + '.ediff-title{text-align:center;font-size:18px;font-weight:700;margin:0 0 4px}'
@@ -443,6 +553,8 @@ export const buildEstimateDiffDocContent = (data = {}) => {
     + '.ediff-table{font-size:10px;table-layout:fixed}.ediff-table th{font-size:9px}.ediff-table td,.ediff-table th{vertical-align:top;word-break:break-word}'
     + '.ediff-table .num{text-align:right;white-space:nowrap}'
     + '.ediff-h{font-size:13px;font-weight:700;margin:16px 0 6px}'
+    + '.ediff-balance{display:flex;justify-content:space-between;gap:12px;border:1px solid;padding:8px;margin:0 0 8px;font-size:10px}.ediff-balance span{color:#475569}'
+    + '.ediff-balance-ok{border-color:#86efac;background:#f0fdf4}.ediff-balance-warn{border-color:#f59e0b;background:#fffbeb;color:#92400e}'
     + '@media print{.ediff-grid{grid-template-columns:repeat(3,1fr)}.ediff-table{font-size:9px}}'
     + '</style>';
   html += '<div class="ediff-title">СОПОСТАВИТЕЛЬНАЯ ВЕДОМОСТЬ СМЕТ</div>';
@@ -458,6 +570,7 @@ export const buildEstimateDiffDocContent = (data = {}) => {
     + `<div class="ediff-card"><span>Добавлено позиций</span><b>${(diff.added || []).length}</b></div>`
     + `<div class="ediff-card"><span>Исключено позиций</span><b>${(diff.removed || []).length}</b></div>`
     + '</div>';
+  html += renderEstimateImpactAnalysis({ analysis: impactAnalysis, classPrefix: 'ediff', fmtQty, signMoney, diffColor });
   if (changeSummary.total) {
     html += '<div class="ediff-grid">'
       + `<div class="ediff-card"><span>Изменений к смете</span><b>${changeSummary.total}</b></div>`

@@ -88,6 +88,53 @@ describe('estimate workflow detail loading', () => {
     expect(setEstimatesList).toHaveBeenCalledTimes(1);
   });
 
+  it('loads both full estimates before building the comparison statement', async () => {
+    const showPreview = jest.fn();
+    const buildEstimateDiffDocContent = jest.fn(() => '<div>comparison</div>');
+    const fetchFn = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ([
+        {
+          id: 7,
+          sectionsLoaded: true,
+          summaryTotal: 1000,
+          sections: [{ name: 'Отделка', items: [{ name: 'Штукатурка', type: 'work', isImported: true, unit: 'м2', quantity: 10, lineTotal: 1000, totalWork: 1000 }] }],
+        },
+        {
+          id: 8,
+          sectionsLoaded: true,
+          summaryTotal: 1200,
+          sections: [{ name: 'Отделка', items: [{ name: 'Штукатурка', type: 'work', isImported: true, unit: 'м2', quantity: 12, lineTotal: 1200, totalWork: 1200 }] }],
+        },
+      ]),
+    });
+    const actions = createEstimateWorkflowActions({
+      API: 'https://example.test',
+      estimatesList: [],
+      setEstimatesList: jest.fn(),
+      setSelectedEstimate: jest.fn(),
+      setEstimateReconciliations: jest.fn(),
+      fetchFn,
+      localStorageRef: { getItem: () => '' },
+      showPreview,
+      buildEstimateDiffDocContent,
+    });
+
+    await expect(actions.openEstimateDiffPreview(
+      { id: 7, sectionsLoaded: false, sections: [], summaryTotal: 1000 },
+      { id: 8, sectionsLoaded: false, sections: [], summaryTotal: 1200 },
+    )).resolves.toBe(true);
+
+    expect(fetchFn).toHaveBeenCalledWith('https://example.test/estimates?ids=7%2C8', undefined);
+    expect(buildEstimateDiffDocContent).toHaveBeenCalledWith(expect.objectContaining({
+      diff: expect.objectContaining({
+        impact: 200,
+        changed: [expect.objectContaining({ impact: 200 })],
+      }),
+    }));
+    expect(showPreview).toHaveBeenCalledWith('<div>comparison</div>', 'Сопоставительная ведомость');
+  });
+
   it('deletes a confirmed unused draft through the explicit hard-delete endpoint', async () => {
     const setEstimatesList = jest.fn();
     const setSelectedEstimate = jest.fn();

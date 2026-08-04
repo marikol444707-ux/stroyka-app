@@ -16215,7 +16215,14 @@ def _estimate_reconciliation_item_sums(item, section_name=""):
         item_type = _estimate_item_type_backend(item, section_name)
     except Exception:
         item_type = str(item.get("itemType") or item.get("type") or "").strip().lower() or "work"
-    if item_type in ("adjustment", "note"):
+    if item_type == "note":
+        return 0.0, 0.0, 0.0
+    if item_type == "adjustment":
+        for field in ("lineTotal", "currentTotal", "total", "sum", "amount", "totalSum", "estimatedCost"):
+            if item.get(field) is not None:
+                total = _safe_float(item.get(field))
+                if total:
+                    return 0.0, 0.0, total
         return 0.0, 0.0, 0.0
     if item.get("isImported"):
         work_total = _safe_float(item.get("totalWork") or item.get("workTotal") or item.get("workSum"))
@@ -16253,7 +16260,7 @@ def _estimate_reconciliation_rows(estimate_id, sections):
                 item_type = _estimate_item_type_backend(item, section_name)
             except Exception:
                 item_type = str(item.get("itemType") or item.get("type") or "").strip().lower() or "work"
-            if item_type in ("adjustment", "note"):
+            if item_type == "note":
                 continue
             qty = _safe_float(item.get("quantity"))
             work_sum, material_sum, total = _estimate_reconciliation_item_sums(item, section_name)
@@ -16268,6 +16275,7 @@ def _estimate_reconciliation_rows(estimate_id, sections):
                 "key": key,
                 "section": section_name,
                 "name": name,
+                "itemType": item_type,
                 "unit": unit,
                 "qty": qty,
                 "workSum": work_sum,

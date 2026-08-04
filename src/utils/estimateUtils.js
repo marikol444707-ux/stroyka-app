@@ -772,18 +772,19 @@ export const estimateRowsForDiff = (estimate) => {
   const grouped = new Map();
   estimateSectionsOf(estimate).forEach((section, sectionIdx) => (section.items || []).forEach((item, itemIdx) => {
     const itemType = normalizeEstimateItemType(item, section.name);
-    if (['adjustment', 'note'].includes(itemType)) return;
+    if (itemType === 'note') return;
     const rawQty = toNum(item.quantity);
     const normalized = normalizeMeasure(rawQty, item.unit);
     const qty = normalized.qty;
     const workSum = estimateItemWorkSum(item);
     const materialSum = estimateItemMaterialSum(item);
-    const sum = workSum + materialSum;
+    const sum = itemType === 'adjustment' ? estimateItemTotal(item) : workSum + materialSum;
     const key = estimateDiffItemKey(section.name, item) || ['row', sectionIdx, itemIdx].join('|');
     const row = {
       key,
       section: section.name || 'Без раздела',
       name: item.name || 'Без названия',
+      itemType,
       unit: normalized.unit || item.unit || '',
       qty,
       workSum,

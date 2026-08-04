@@ -9,6 +9,7 @@ export const createAiTaskActions = ({
   estimateDiffBaseFor,
   estimatesList = [],
   navigateTo,
+  openEstimateDiffPreview,
   openEstimateDetail,
   projects = [],
   refreshData,
@@ -191,7 +192,11 @@ export const createAiTaskActions = ({
         alertFn('Не удалось открыть ведомость: одна из смет не найдена');
         return;
       }
-      showPreview(buildEstimateDiffContent(base, next), 'Сопоставительная ведомость');
+      if (openEstimateDiffPreview) {
+        await openEstimateDiffPreview(base, next, 'Сопоставительная ведомость');
+      } else {
+        showPreview(buildEstimateDiffContent(base, next), 'Сопоставительная ведомость');
+      }
       await moveTaskToWorkIfNeeded(task);
       return;
     }

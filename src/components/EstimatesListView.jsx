@@ -34,8 +34,7 @@ export default function EstimatesListView({
   estimateVersionChain,
   setEstimateStatusRemote,
   deleteEstimateRemote,
-  showPreview,
-  buildEstimateDiffContent,
+  openEstimateDiffPreview,
   onCreateReconciliation,
   isLeadership,
   canHardDeleteEstimate,
@@ -135,8 +134,7 @@ export default function EstimatesListView({
           isArchivedEstimate={isArchivedEstimate}
           setEstimateStatusRemote={setEstimateStatusRemote}
           deleteEstimateRemote={deleteEstimateRemote}
-          showPreview={showPreview}
-          buildEstimateDiffContent={buildEstimateDiffContent}
+          openEstimateDiffPreview={openEstimateDiffPreview}
           onCreateReconciliation={onCreateReconciliation}
           isLeadership={isLeadership}
           canHardDeleteEstimate={canHardDeleteEstimate}

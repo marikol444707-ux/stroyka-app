@@ -1,9 +1,44 @@
 import {
+  buildEstimateDiff,
   buildEstimateMaterialSummary,
   isEstimateMaterialItem,
   isEstimateWorkItem,
   normalizeEstimateWorkingItem,
 } from './estimateUtils';
+
+describe('estimate difference rows', () => {
+  test('explains imported total adjustments instead of leaving an unexplained total difference', () => {
+    const base = {
+      sections: [{
+        name: 'Отделка',
+        items: [{ type: 'work', isImported: true, name: 'Штукатурка', unit: 'м2', quantity: 10, totalWork: 1000, lineTotal: 1000 }],
+      }],
+    };
+    const next = {
+      sections: [{
+        name: 'Отделка',
+        items: [
+          { type: 'work', isImported: true, name: 'Штукатурка', unit: 'м2', quantity: 12, totalWork: 1200, lineTotal: 1200 },
+          { type: 'adjustment', name: 'Корректировка итога исходного файла', unit: '', quantity: 1, lineTotal: 50, total: 50 },
+        ],
+      }],
+    };
+
+    const diff = buildEstimateDiff(base, next);
+
+    expect(diff.impact).toBe(250);
+    expect(diff.changed).toEqual([expect.objectContaining({ impact: 200 })]);
+    expect(diff.added).toEqual([expect.objectContaining({
+      name: 'Корректировка итога исходного файла',
+      impact: 50,
+    })]);
+    expect([
+      ...diff.changed.map(row => row.impact),
+      ...diff.added.map(row => row.impact),
+      ...diff.removed.map(row => row.impact),
+    ].reduce((sum, value) => sum + value, 0)).toBe(diff.impact);
+  });
+});
 
 describe('estimateUtils imported item typing', () => {
   test('keeps imported work rows with material-like names in the work estimate', () => {
