@@ -166,8 +166,13 @@ def register_smeta_parser_module(app, deps):
                         elif "всего" in compact:
                             if "учет" in compact and "коэффициент" in compact:
                                 columns["quantity_final"] = idx
-                            elif idx > columns.get("quantity_final", 6) and "cost_total" not in columns:
-                                columns["cost_total"] = idx
+                            elif idx > columns.get("quantity_final", 6):
+                                if "текущ" in compact:
+                                    columns["cost_current_total"] = idx
+                                elif "базис" in compact:
+                                    columns["cost_total"] = idx
+                                elif "cost_total" not in columns and "cost_current_total" not in columns:
+                                    columns["cost_total"] = idx
                         elif "коэффициент" in compact and "сметн" not in compact:
                             if idx < columns.get("quantity_final", 6):
                                 columns["quantity_coeff"] = idx
@@ -181,12 +186,12 @@ def register_smeta_parser_module(app, deps):
                     columns["cost_unit"] = qf + 1
                 if "cost_coeff" not in columns:
                     columns["cost_coeff"] = columns["cost_unit"] + 1
-                if "cost_total" not in columns:
+                if "cost_total" not in columns and "cost_current_total" not in columns:
                     columns["cost_total"] = columns["cost_coeff"] + 1
                 if "cost_index" not in columns:
-                    columns["cost_index"] = columns["cost_total"] + 1
+                    columns["cost_index"] = columns.get("cost_total", columns["cost_unit"]) + 1
                 if "cost_current_total" not in columns:
-                    columns["cost_current_total"] = columns["cost_index"] + 1
+                    columns["cost_current_total"] = columns.get("cost_total", columns["cost_index"] + 1)
                 return columns
 
             lsr_columns = _detect_lsr_columns(header_rows, lsr_header_row_idx) if file_type == "lsr" else {}
@@ -284,44 +289,29 @@ def register_smeta_parser_module(app, deps):
                 except Exception:
                     return None
 
-            def _money_candidates_from_text(value):
-                text = str(value or "").replace("\xa0", " ")
-                candidates = []
-                for match in re.finditer(r"(?<!\d)(?:\d[\d\s]{3,}\d)(?:[,.]\d{1,2})?(?!\d)", text):
-                    raw = match.group(0).replace(" ", "").replace(",", ".")
-                    try:
-                        amount = abs(float(raw))
-                    except Exception:
-                        continue
-                    if 1000 <= amount < 1000000000000:
-                        candidates.append(amount)
-                for match in re.finditer(r"(?<![\w-])(?:\d{1,3}(?:\s+\d{3})+|\d{5,})(?:[,.]\d{1,2})?(?![\w-])", text):
-                    raw = match.group(0).replace(" ", "").replace(",", ".")
-                    try:
-                        amount = abs(float(raw))
-                    except Exception:
-                        continue
-                    if 1000 <= amount < 1000000000000:
-                        candidates.append(amount)
-                return candidates
-
             def _extract_declared_estimate_total():
-                file_candidates = _money_candidates_from_text(file.filename or "")
-                if file_candidates:
-                    return round(max(file_candidates), 2), "filename"
-                summary_candidates = []
-                summary_tokens = ("сметн", "итого", "всего", "стоимость", "стоимост", "руб")
-                for row in ws.iter_rows(values_only=True):
+                grand_total_candidates = []
+                estimate_cost_candidates = []
+                for row_index, row in enumerate(ws.iter_rows(values_only=True), start=1):
                     row_text = " ".join(str(v) for v in row if v is not None).lower().replace("ё", "е")
-                    if not any(token in row_text for token in summary_tokens):
+                    numeric_cells = []
+                    for cell_index, value in enumerate(row):
+                        number = _row_float(value)
+                        if number is not None and 0.0001 < abs(number) < 1000000000000:
+                            numeric_cells.append((cell_index, abs(float(number))))
+                    if not numeric_cells:
                         continue
-                    for value in row:
-                        if isinstance(value, (int, float)) and 1000 <= abs(float(value)) < 1000000000000:
-                            summary_candidates.append(abs(float(value)))
-                        elif isinstance(value, str):
-                            summary_candidates.extend(_money_candidates_from_text(value))
-                if summary_candidates:
-                    return round(max(summary_candidates), 2), "workbook"
+                    amount = numeric_cells[-1][1]
+                    if "всего по смете" in row_text or "итого по смете" in row_text or "стоимость всего" in row_text:
+                        grand_total_candidates.append((row_index, amount))
+                    elif "сметная стоимость" in row_text:
+                        if "тыс" in row_text and "руб" in row_text:
+                            amount *= 1000
+                        estimate_cost_candidates.append((row_index, amount))
+                if grand_total_candidates:
+                    return round(grand_total_candidates[-1][1], 2), "workbook_grand_total"
+                if estimate_cost_candidates:
+                    return round(estimate_cost_candidates[-1][1], 2), "workbook_estimate_cost"
                 return 0, ""
 
             def _lsr_items_total(items):
@@ -560,12 +550,16 @@ def register_smeta_parser_module(app, deps):
             def _lsr_cost_kind(name_value):
                 key = _lsr_text_key(name_value)
                 compact = key.replace(" ", "")
-                if compact in ("от",):
+                if compact in ("от", "от(зт)"):
                     return "labor"
+                if compact in ("отм", "отм(зтм)"):
+                    return "machine_labor"
                 if compact in ("эм",):
                     return "machine"
                 if compact == "м":
                     return "material_total"
+                if "вспомогательные ненормируемые материальные ресурсы" in key:
+                    return "auxiliary_material"
                 if key.startswith("нр "):
                     return "overhead"
                 if key.startswith("сп "):
@@ -663,7 +657,7 @@ def register_smeta_parser_module(app, deps):
                             continue
 
                         cost_kind = _lsr_cost_kind(name_col)
-                        if not num_is_main and current_work_ref and cost_kind:
+                        if current_work_ref and cost_kind and (not num_is_main or cost_kind == "auxiliary_material"):
                             if cost_kind == "skip":
                                 continue
                             money = _lsr_money_with_index(row, lsr_columns, None, cost_kind, name_col, obosn)

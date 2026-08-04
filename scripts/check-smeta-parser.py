@@ -3,74 +3,54 @@ import asyncio
 import glob
 import re
 import sys
+from io import BytesIO
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MAIN = ROOT / "backend" / "main.py"
+PARSER_ROUTES = ROOT / "backend" / "features" / "smeta_parser" / "routes.py"
 
 
-def _parse_smeta_route_block(src):
-    match = re.search(
-        r'@app\.post\("/parse-smeta"\)\n(.*?)\n\n@app\.get\("/estimates"\)',
-        src,
-        re.S,
-    )
-    if not match:
-        raise RuntimeError("parse_smeta block not found")
-    return match.group(1)
-
-
-def _assert_parse_smeta_route_hardened(src, block):
-    route_header = block.split("\n", 1)[0]
-    if "Depends(get_current_user)" not in route_header:
+def _assert_parse_smeta_route_hardened(src):
+    if "Depends(get_current_user)" not in src:
         raise RuntimeError("parse_smeta route must require get_current_user")
     required_guards = (
         "SMETA_PARSE_MAX_BYTES",
         "SMETA_PARSE_ALLOWED_EXTENSIONS",
         "filename",
     )
-    missing = [name for name in required_guards if name not in block]
+    missing = [name for name in required_guards if name not in src]
     if missing:
         raise RuntimeError("parse_smeta upload guard missing: " + ", ".join(missing))
 
 
 def _load_parse_smeta():
-    src = MAIN.read_text()
-    block = _parse_smeta_route_block(src)
-    _assert_parse_smeta_route_hardened(src, block)
-    shim = """
-class HTTPException(Exception):
-    def __init__(self, status_code=None, detail=None):
-        self.status_code = status_code
-        self.detail = detail
+    src = PARSER_ROUTES.read_text()
+    _assert_parse_smeta_route_hardened(src)
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from backend.features.smeta_parser.routes import register_smeta_parser_module
 
-def File(*args, **kwargs):
-    return None
+    class App:
+        def __init__(self):
+            self.routes = {}
 
-def Depends(*args, **kwargs):
-    return None
+        def post(self, path):
+            def decorator(handler):
+                self.routes[path] = handler
+                return handler
+            return decorator
 
-def get_current_user(*args, **kwargs):
-    return {"id": 1, "role": "директор", "name": "Parser Test"}
-
-class UploadFile:
-    pass
-
-app = type("A", (), {"post": lambda self, *a, **k: (lambda f: f)})()
-"""
-    namespace = {}
-    exec(shim + block, namespace)
-    return namespace["parse_smeta"]
+    app = App()
+    register_smeta_parser_module(app, {"get_current_user": lambda: {}})
+    return app.routes["/parse-smeta"]
 
 
 class FakeUpload:
     def __init__(self, path):
         self.path = Path(path)
         self.filename = self.path.name
-
-    async def read(self):
-        return self.path.read_bytes()
+        self.file = BytesIO(self.path.read_bytes())
 
 
 def _num(value):
@@ -200,7 +180,7 @@ def _check_known_regressions(file_name, items, errors):
 
 
 async def _check_file(parse_smeta, path):
-    data = await parse_smeta(FakeUpload(path))
+    data = parse_smeta(file=FakeUpload(path), _current_user={})
     if data.get("error"):
         return [f"{Path(path).name}: parser error: {data['error']}"]
 
