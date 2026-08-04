@@ -28,4 +28,11 @@ describe('DashboardTopBar', () => {
 
     expect(container.firstChild.style.overflow).toBe('visible');
   });
+
+  it('uses compact spacing on mobile', () => {
+    const { container } = render(<DashboardTopBar {...props} isMobile />);
+
+    expect(container.firstChild.style.marginBottom).toBe('12px');
+    expect(container.firstChild.style.gap).toBe('8px');
+  });
 });

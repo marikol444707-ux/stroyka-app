@@ -151,6 +151,26 @@ html[data-theme="dark"] body {
 html, body { max-width: 100vw; overflow-x: hidden; -webkit-text-size-adjust: 100%; }
 button { touch-action: manipulation; }
 
+@media (max-width: 700px) {
+  .accounting-tabs-nav {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px !important;
+    margin-bottom: 16px !important;
+  }
+
+  .accounting-tabs-nav > button {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    justify-content: center;
+    padding: 8px 10px !important;
+    line-height: 1.2;
+    white-space: normal;
+    text-align: center;
+  }
+}
+
 .auth-screen {
   width: 100vw;
   max-width: 100vw;

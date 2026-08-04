@@ -22,7 +22,7 @@ export default function MobileBottomNav({activePage, isMobile, unreadMessagesCou
     openPage(pageId);
   };
   return (
-    <div style={{position:'fixed',bottom:0,left:0,right:0,backgroundColor:activePage==='dashboard'?'rgba(15,23,42,0.95)':'white',borderTop:activePage==='dashboard'?'1px solid rgba(148,163,184,0.18)':'1.5px solid #e5e7eb',display:isMobile?'flex':'none',justifyContent:'space-around',padding:'8px 0 calc(env(safe-area-inset-bottom, 0px) + 12px)',zIndex:200,boxShadow:'0 -4px 20px rgba(0,0,0,0.06)'}}>
+    <div className="mobile-bottom-nav" style={{position:'fixed',bottom:0,left:0,right:0,backgroundColor:activePage==='dashboard'?'rgba(15,23,42,0.95)':'white',borderTop:activePage==='dashboard'?'1px solid rgba(148,163,184,0.18)':'1.5px solid #e5e7eb',display:isMobile?'flex':'none',justifyContent:'space-around',padding:'6px 0 calc(env(safe-area-inset-bottom, 0px) + 8px)',zIndex:200,boxShadow:'0 -4px 20px rgba(0,0,0,0.06)'}}>
       {visibleItems.map(item=>(
         <div key={item.id} onClick={()=>{
           if(item.id==='more'){

@@ -83,7 +83,7 @@ export default function AppAuthenticatedShell({
   const theme = C || DEFAULT_C;
   const safePreviewProps = previewProps || {};
   return (
-    <div style={{display:'flex',height:'100vh',backgroundColor:theme.bg,position:'relative',overflow:'hidden'}}>
+    <div className="app-authenticated-shell" style={{display:'flex',height:'100dvh',backgroundColor:theme.bg,position:'relative',overflow:'hidden'}}>
       {safePreviewProps.content && (
         <PreviewModal
           content={safePreviewProps.content}
@@ -104,7 +104,7 @@ export default function AppAuthenticatedShell({
       <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',width:'100%',minWidth:0,marginLeft:isMobile?0:'240px'}}>
         <AppHeaderBar {...(headerProps || {})} />
         <MaxAppReturnBar {...(maxAppReturnProps || {})} isMobile={isMobile} />
-        <div style={{flex:1,overflowY:'auto',backgroundColor:activePage==='dashboard'?'#0b1120':theme.bg,padding:activePage==='dashboard'?'0':'24px'}}>
+        <div className="app-scroll-content" style={{flex:1,overflowY:'auto',backgroundColor:activePage==='dashboard'?'#0b1120':theme.bg,padding:activePage==='dashboard'?(isMobile?'0 0 calc(76px + env(safe-area-inset-bottom, 0px))':'0'):(isMobile?'16px 16px calc(92px + env(safe-area-inset-bottom, 0px))':'24px'),scrollPaddingBottom:isMobile?'calc(92px + env(safe-area-inset-bottom, 0px))':undefined}}>
           <React.Suspense fallback={pageFallback}>
             {activePage === 'dashboard' && <DashboardPage {...(dashboardProps || {})} />}
             {activePage === 'projects' && canOpenProjects && <ProjectsPage ctx={projectsPageContext} />}

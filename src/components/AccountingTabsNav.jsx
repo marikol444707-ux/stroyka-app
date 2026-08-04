@@ -27,7 +27,7 @@ export default function AccountingTabsNav({
     .filter(tab => tab !== 'audit' || isLeadership);
 
   return (
-    <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
+    <div className="accounting-tabs-nav" style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
       {tabs.map(tab => (
         <button
           key={tab}
