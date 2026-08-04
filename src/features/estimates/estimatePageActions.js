@@ -239,7 +239,7 @@ export function createEstimatePageActions({
         name: fileName || newEstimate.name || 'Смета — ' + projName,
         projectId: newEstimate.projectId,
         projectName: projName,
-        version: newEstimate.version || nextEstimateVersionFor(estDraft),
+        version: nextEstimateVersionFor(estDraft),
         smetaType: newEstimate.smetaType || 'Заказчик',
         workPackage: resolvedWorkPackage,
         status: estimateStatus,

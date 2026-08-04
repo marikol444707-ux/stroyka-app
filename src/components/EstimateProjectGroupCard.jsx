@@ -101,8 +101,8 @@ export default function EstimateProjectGroupCard({
                 const diffBase = (group.active && group.active.id !== est.id) ? group.active : group.sorted.find(other => other.id !== est.id);
                 return (
                   <div key={est.id} onClick={() => setSelectedEstimate(est)} style={{ padding: '7px 6px', borderBottom: '1px solid ' + C.border, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', cursor: 'pointer', opacity: isArchivedEstimate(est) ? 0.72 : 1 }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <b style={{ color: C.text, fontSize: '13px' }}>{isUsed ? '✓ ' : ''}{est.name}</b>
+                    <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                      <b title={est.name} style={{ color: C.text, fontSize: '13px', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{isUsed ? '✓ ' : ''}{est.name}</b>
                       <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', marginTop: '3px' }}>
                         <span style={badge(st.color, st.bg, st.border)}>{st.label}</span>
                         <span style={badge(C.textSec, C.bgGray, C.border)}>{estimateDisplayVersion(est, group.sorted)}</span>
@@ -110,7 +110,7 @@ export default function EstimateProjectGroupCard({
                         {est.createdAt && <span style={{ color: C.textMuted, fontSize: '11px', alignSelf: 'center' }}>{String(est.createdAt).slice(0, 10)}</span>}
                       </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
                       <b style={{ color: C.success, fontSize: '13px' }}>{Math.round(estimateTotal(est)).toLocaleString('ru-RU') + ' ₽'}</b>
                       {diffBase && <button onClick={e => { e.stopPropagation(); showPreview(buildEstimateDiffContent(diffBase, est), 'Сопоставительная ведомость'); }} style={{ ...btnB, padding: '4px 8px', fontSize: '11px' }}><FileText size={11} />Ведомость</button>}
                       {diffBase && onCreateReconciliation && <button onClick={e => { e.stopPropagation(); onCreateReconciliation(diffBase, est); }} style={{ ...(btnO || btnB), padding: '4px 8px', fontSize: '11px' }}><GitBranch size={11} />Сверка</button>}

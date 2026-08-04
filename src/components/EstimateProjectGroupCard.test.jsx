@@ -37,7 +37,9 @@ describe('EstimateProjectGroupCard', () => {
       />,
     );
 
-    expect(screen.getByText(/Объектная смета/)).toBeInTheDocument();
+    const estimateName = screen.getByText(/Объектная смета/);
+    expect(estimateName).toBeInTheDocument();
+    expect(estimateName).toHaveStyle({whiteSpace:'nowrap', textOverflow:'ellipsis'});
     expect(screen.queryByText(/Сейчас в расчётах/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Цепочка:/)).not.toBeInTheDocument();
   });
