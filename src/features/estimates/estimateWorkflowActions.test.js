@@ -111,6 +111,46 @@ describe('estimate workflow detail loading', () => {
     expect(setEstimateReconciliations).toHaveBeenCalled();
   });
 
+  it('finishes estimate deactivation after the server accepts the status change', async () => {
+    const setEstimatesList = jest.fn();
+    const setSelectedEstimate = jest.fn();
+    const notify = jest.fn();
+    const fetchFn = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, status: 'Черновик' }) });
+    const estimate = { id: 7, name: 'Ошибочная смета', status: 'Активная' };
+    const actions = createEstimateWorkflowActions({
+      API: 'https://example.test',
+      estimatesList: [estimate],
+      setEstimatesList,
+      setSelectedEstimate,
+      setEstimateReconciliations: jest.fn(),
+      fetchFn,
+      notify,
+    });
+
+    await expect(actions.setEstimateStatusRemote(estimate, 'Черновик')).resolves.toBe(true);
+
+    expect(setEstimatesList).toHaveBeenCalledWith([{ ...estimate, status: 'Черновик' }]);
+    expect(setSelectedEstimate).toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining('Черновик'), 'estimate');
+  });
+
+  it('shows a useful message when the status request cannot reach the server', async () => {
+    const alertFn = jest.fn();
+    const estimate = { id: 7, name: 'Ошибочная смета', status: 'Активная' };
+    const actions = createEstimateWorkflowActions({
+      API: 'https://example.test',
+      estimatesList: [estimate],
+      setEstimatesList: jest.fn(),
+      setSelectedEstimate: jest.fn(),
+      setEstimateReconciliations: jest.fn(),
+      fetchFn: jest.fn().mockRejectedValue(new Error('network timeout')),
+      alertFn,
+    });
+
+    await expect(actions.setEstimateStatusRemote(estimate, 'Черновик')).resolves.toBe(false);
+    expect(alertFn).toHaveBeenCalledWith(expect.stringContaining('network timeout'));
+  });
+
   it('shows a useful message when the delete request cannot reach the server', async () => {
     const alertFn = jest.fn();
     const actions = createEstimateWorkflowActions({

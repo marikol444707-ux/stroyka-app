@@ -17214,6 +17214,7 @@ def update_estimate(
 def update_estimate_status(
     id: int,
     data: dict,
+    background_tasks: BackgroundTasks,
     x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
     x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
     current_user: dict = Depends(get_current_user),
@@ -17262,7 +17263,8 @@ def update_estimate_status(
         )
     conn.commit()
     cur.close(); conn.close()
-    _run_project_ai_control_safely(project_name, "estimate:status")
+    if project_name:
+        background_tasks.add_task(_run_project_ai_control_safely, project_name, "estimate:status")
     return {"ok": True, "status": status, "supplyControlRefresh": supply_refresh}
 
 

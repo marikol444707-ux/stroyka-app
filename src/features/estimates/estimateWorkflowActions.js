@@ -257,19 +257,25 @@ export const createEstimateWorkflowActions = ({
   };
 
   const setEstimateStatusRemote = async (est, status) => {
-    if (!est?.id) return;
+    if (!est?.id) return false;
     const diffBase = status === 'Активная'
       ? activeEstimateFromList((estimatesList || []).filter(e => !isGlobalEstimateTemplate(e) && e.id !== est.id && sameEstimateGroup(e, est) && e.status === 'Активная'))
       : null;
-    const res = await fetchFn(API + '/estimates/' + est.id + '/status', {
-      method: 'PUT',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({status}),
-    });
+    let res;
+    try {
+      res = await fetchFn(API + '/estimates/' + est.id + '/status', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({status}),
+      });
+    } catch (error) {
+      alertFn('Не удалось связаться с сервером для изменения статуса сметы: ' + (error?.message || error));
+      return false;
+    }
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      alertFn(data.detail || 'Не удалось изменить статус сметы');
-      return;
+      alertFn(data.detail || 'Не удалось изменить статус сметы' + (res.status ? ' (HTTP ' + res.status + ')' : ''));
+      return false;
     }
     const updated = {...est, status};
     const nextEstimates = applyEstimateActivationState((estimatesList || []).map(e => e.id === est.id ? updated : e), updated);
@@ -283,6 +289,8 @@ export const createEstimateWorkflowActions = ({
       await queueEstimateQualityReviewTask(updated, 'Смета активирована');
       await queueEstimateNormReviewTask(updated, 'Смета активирована', nextEstimates);
     }
+    notify('Статус сметы изменён: ' + status, 'estimate');
+    return true;
   };
 
   const deleteEstimateRemote = async (est) => {
