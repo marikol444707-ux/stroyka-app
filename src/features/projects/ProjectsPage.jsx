@@ -118,6 +118,34 @@ export default function ProjectsPage({ ctx }) {
   const currentRole = currentUser.role || '';
   const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
   const isFinanceUser = typeof isFinanceRole === 'function' ? isFinanceRole() : Boolean(isFinanceRole);
+  const canArchiveProjects = currentRole === 'директор';
+
+  const archiveProject = async (project) => {
+    try {
+      const checkResponse = await fetch(API + '/projects/' + project.id + '/closure-check');
+      const check = await checkResponse.json();
+      if (!checkResponse.ok) throw new Error(check.detail || 'Не удалось проверить объект перед архивированием');
+
+      const warnings = check.warnings || [];
+      const warningText = warnings.length
+        ? warnings.map(item => '- ' + item.label + ': ' + item.count).join('\n')
+        : 'Открытых хвостов не найдено.';
+      const confirmed = window.confirm(
+        'Завершить и отправить объект «' + project.name + '» в архив?\n\n'
+        + warningText
+        + '\n\nЭто только предупреждения. Все данные останутся в системе, объект можно архивировать всё равно.'
+      );
+      if (!confirmed) return;
+
+      const archiveResponse = await fetch(API + '/projects/' + project.id + '/archive', {method: 'POST'});
+      const archiveResult = await archiveResponse.json();
+      if (!archiveResponse.ok) throw new Error(archiveResult.detail || 'Не удалось отправить объект в архив');
+      setExpandedProject(null);
+      await loadAll();
+    } catch (error) {
+      window.alert(error.message || 'Не удалось отправить объект в архив');
+    }
+  };
 
   return (
 <div>
@@ -162,8 +190,10 @@ export default function ProjectsPage({ ctx }) {
                   total={total}
                   canSeeFinance={isFinanceUser}
                   canManage={isLeadershipUser}
+                  canArchive={canArchiveProjects && !p.archived}
                   onToggle={async()=>{if(isOpen){setExpandedProject(null);}else{setExpandedProject(p.id);setActiveProjectTab('Общее');if(user&&['директор','зам_директора','бухгалтер','прораб'].includes(user.role)&&!projectAiSummaries[p.name]){try{const r=await fetch(API+'/project-ai-summary/'+encodeURIComponent(p.name));const d=await r.json();if(d&&d.exists)setProjectAiSummaries(prev=>({...prev,[p.name]:d}));}catch(e){}}}}}
                   onEdit={()=>editProject(p)}
+                  onArchive={()=>archiveProject(p)}
                 />
                 {isOpen&&(<div style={{borderTop:'1.5px solid '+C.border}}>
                   <div style={{borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,padding:'18px 16px 10px'}}>

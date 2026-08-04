@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronDown, ChevronUp, Edit2 } from 'lucide-react';
+import { Archive, ChevronDown, ChevronUp, Edit2 } from 'lucide-react';
 
 function ProjectCardHeader({
   C,
@@ -11,8 +11,10 @@ function ProjectCardHeader({
   total,
   canSeeFinance,
   canManage,
+  canArchive,
   onToggle,
   onEdit,
+  onArchive,
 }) {
   const statusStyle = statusColors[project.status] || statusColors['Планирование'];
 
@@ -34,6 +36,7 @@ function ProjectCardHeader({
         </div>
         <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
           {canManage&&<button onClick={e=>{e.stopPropagation();onEdit();}} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}><Edit2 size={11}/></button>}
+          {canArchive&&<button onClick={e=>{e.stopPropagation();onArchive();}} title="Завершить и отправить объект в архив" style={{...btnG,padding:'5px 10px',fontSize:'11px'}}><Archive size={11}/></button>}
           {isOpen?<ChevronUp size={18} color={C.textMuted}/>:<ChevronDown size={18} color={C.textMuted}/>}
         </div>
       </div>

@@ -199,6 +199,72 @@ def register_projects_module(app, deps):
                       action=action, entity_type="project", entity_id=id, description="Обновлён объект", project_name=row["name"])
         return {"ok": True}
 
+    def _director_project_actor(cur, current_user, project_id, x_company_id, x_company_mode):
+        cur.execute("SELECT id,company_id,name FROM projects WHERE id=%s", (project_id,))
+        project = cur.fetchone()
+        if not project:
+            raise HTTPException(status_code=404, detail="Объект не найден")
+        context = resolve_work_company_context(
+            cur, current_user, project.get("company_id"), "write",
+            x_company_id=x_company_id, x_company_mode=x_company_mode,
+        )
+        actor = next((item for item in effective_company_actors(current_user, context)
+                      if item.get("role") == "директор" and int(item.get("companyId") or 0) == int(project.get("company_id") or 0)), None)
+        if not actor:
+            raise HTTPException(status_code=403, detail="Завершать и архивировать объект может только директор выбранной компании")
+        return project, actor
+
+    def _project_closure_warnings(cur, project):
+        name, company_id = project.get("name") or "", project.get("company_id")
+        checks = (
+            ("stock", "На объекте остались материалы", "SELECT COUNT(*) AS count FROM materials WHERE company_id=%s AND project=%s AND COALESCE(quantity,0)>0"),
+            ("supply", "Есть незакрытые заявки снабжения", "SELECT COUNT(*) AS count FROM supply_requests WHERE company_id=%s AND project=%s AND COALESCE(status,'') NOT IN ('Поставлено','Отменена','Отклонена','Отменена с откатом')"),
+            ("journal", "Есть незакрытые записи ЖПР", "SELECT COUNT(*) AS count FROM work_journal WHERE company_id=%s AND project=%s AND COALESCE(status,'') NOT IN ('Подтверждено','Оплачено','Аннулировано')"),
+            ("tasks", "Есть открытые задачи", "SELECT COUNT(*) AS count FROM ai_tasks WHERE company_id=%s AND project_name=%s AND COALESCE(status,'') NOT IN ('Закрыто','Отменено')"),
+        )
+        warnings = []
+        for code, label, query in checks:
+            cur.execute(query, (company_id, name))
+            count = int((cur.fetchone() or {}).get("count") or 0)
+            if count:
+                warnings.append({"code": code, "label": label, "count": count})
+        return warnings
+
+    @app.get("/projects/{id}/closure-check")
+    def project_closure_check(
+        id: int,
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
+        conn = get_db(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            project, _actor = _director_project_actor(cur, current_user, id, x_company_id, x_company_mode)
+            return {"projectId": project["id"], "projectName": project["name"], "warnings": _project_closure_warnings(cur, project)}
+        finally:
+            cur.close(); conn.close()
+
+    @app.post("/projects/{id}/archive")
+    def archive_project(
+        id: int,
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
+        conn = get_db(); conn.autocommit = False; cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            project, actor = _director_project_actor(cur, current_user, id, x_company_id, x_company_mode)
+            warnings = _project_closure_warnings(cur, project)
+            cur.execute("UPDATE projects SET archived=TRUE,archived_at=NOW(),status='Завершён' WHERE id=%s AND company_id=%s", (id, project["company_id"]))
+            conn.commit()
+        except Exception:
+            conn.rollback(); raise
+        finally:
+            cur.close(); conn.close()
+        log_audit(user_name=actor.get("name", ""), user_role="директор", action="archive", entity_type="project", entity_id=id,
+                  description="Объект завершён и отправлен в архив", project_name=project.get("name", ""))
+        return {"ok": True, "archived": True, "warnings": warnings}
+
     @app.delete("/projects/{id}")
     def delete_project(id: int, current_user: dict = Depends(require_roles(*leadership_roles))):
         raise HTTPException(status_code=405, detail="Удаление и архивирование объекта отключены. Объект может закрыть только директор отдельной процедурой закрытия.")

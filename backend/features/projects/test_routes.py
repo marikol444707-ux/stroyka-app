@@ -98,7 +98,8 @@ class ProjectsRoutesTest(unittest.TestCase):
     def test_all_urls_registered(self):
         app, _conn = build(FakeCursor())
         for key in [("GET", "/projects"), ("POST", "/projects"),
-                    ("PUT", "/projects/{id}"), ("DELETE", "/projects/{id}")]:
+                    ("PUT", "/projects/{id}"), ("GET", "/projects/{id}/closure-check"),
+                    ("POST", "/projects/{id}/archive"), ("DELETE", "/projects/{id}")]:
             self.assertIn(key, app.routes)
 
     def test_worker_sees_no_budget_or_warranty(self):
@@ -146,6 +147,41 @@ class ProjectsRoutesTest(unittest.TestCase):
         with self.assertRaises(HTTPException) as ctx:
             app.routes[("DELETE", "/projects/{id}")](id=1, current_user={})
         self.assertEqual(ctx.exception.status_code, 405)
+
+    def test_director_can_archive_with_warnings_without_deleting_data(self):
+        cursor = FakeCursor(fetchone_results=[
+            {"id": 1, "company_id": 3, "name": "Объект"},
+            {"count": 2}, {"count": 1}, {"count": 0}, {"count": 4},
+        ])
+        audit = []
+        app, connection = build(cursor, audit_calls=audit)
+
+        result = app.routes[("POST", "/projects/{id}/archive")](
+            id=1, x_company_id="3", x_company_mode="company", current_user={}
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["archived"])
+        self.assertEqual(result["warnings"], [
+            {"code": "stock", "label": "На объекте остались материалы", "count": 2},
+            {"code": "supply", "label": "Есть незакрытые заявки снабжения", "count": 1},
+            {"code": "tasks", "label": "Есть открытые задачи", "count": 4},
+        ])
+        self.assertTrue(connection.committed)
+        self.assertTrue(any("UPDATE projects SET archived=TRUE" in sql for sql, _params in cursor.calls))
+        self.assertFalse(any("DELETE" in sql for sql, _params in cursor.calls))
+        self.assertEqual(audit[0]["action"], "archive")
+
+    def test_archive_is_director_only(self):
+        cursor = FakeCursor(fetchone_results=[{"id": 1, "company_id": 3, "name": "Объект"}])
+        app, _connection = build(cursor, actors=[{"companyId": 3, "role": "зам_директора"}])
+
+        with self.assertRaises(HTTPException) as ctx:
+            app.routes[("GET", "/projects/{id}/closure-check")](
+                id=1, x_company_id="3", x_company_mode="company", current_user={}
+            )
+
+        self.assertEqual(ctx.exception.status_code, 403)
 
 
 if __name__ == "__main__":
