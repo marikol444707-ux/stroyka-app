@@ -309,3 +309,12 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - Incoming warehouse documents remain receivable when matching is uncertain; uncertainty becomes review state.
 - Raw estimate resource rows remain immutable and available as the audit source.
 - Each phase is an independent commit and rollback point.
+
+## Focused Track: Estimate Revision Lineage
+
+- [x] Task E1: Compare full old/new estimate rows, print only changed positions, and add one project-wide summary across estimate packages.
+- [x] Task E2: When an existing draft is activated, save a server reconciliation before background AI comparison; direct imports also load full revisions before comparison.
+- [ ] Task E3: Add immutable source estimate/version ownership to brigade assignment rows and prevent a new revision from overwriting historical quantities or manual brigade prices.
+- [ ] Task E4: Build a reviewed `old row -> new row` transfer that moves only uncompleted assignment and open-request balances; never move confirmed JPR, signed acts, warehouse history or payments.
+- [ ] Task E5: Make active-estimate material control use stored `company_id + project_id` throughout instead of project name, then add cross-company collision tests.
+- [ ] Task E6: Add an explicit approved budget-adjustment event so a new estimate total can update project economics without rewriting accounting history.

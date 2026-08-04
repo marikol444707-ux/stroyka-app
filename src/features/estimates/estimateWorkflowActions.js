@@ -7,7 +7,10 @@ import {
   normalizeEstimateList,
   sameEstimateGroup,
 } from '../../utils/estimateUtils';
-import { buildEstimateDiffDocumentPayload } from '../../utils/estimateDiffDocumentUtils';
+import {
+  buildEstimateDiffDocumentPayload,
+  buildProjectEstimateDiffSummaryPayload,
+} from '../../utils/estimateDiffDocumentUtils';
 import { signedEstimateChangeTotal } from '../../utils/estimateChangeUtils';
 import { estimateChangeAutoDecision } from '../../utils/estimateReviewUtils';
 import { fmtMeasure, toNum } from '../../utils/measureUtils';
@@ -23,6 +26,7 @@ export const createEstimateWorkflowActions = ({
   isApprovedEstimateChangeStatus,
   buildEstimateDiffDocContent,
   buildEstimateReconciliationDocContent,
+  buildProjectEstimateDiffSummaryDocContent,
   apiAuthHeaders,
   showPreview,
   refreshData,
@@ -109,6 +113,29 @@ export const createEstimateWorkflowActions = ({
       return true;
     } catch (err) {
       alertFn('Не удалось построить ведомость: ' + (err?.message || err));
+      return false;
+    }
+  };
+
+  const openProjectEstimateDiffSummary = async (projectName, pairs = []) => {
+    const validPairs = (pairs || []).filter(pair => pair?.base?.id && pair?.next?.id);
+    if (!validPairs.length) {
+      alertFn('Для объекта пока нет пар предыдущих и активных смет');
+      return false;
+    }
+    try {
+      const sourceEstimates = validPairs.flatMap(pair => [pair.base, pair.next]);
+      const loaded = await loadEstimateDetails(sourceEstimates);
+      const byId = new Map(loaded.map(estimate => [String(estimate.id), estimate]));
+      const fullPairs = validPairs.map(pair => ({
+        base: byId.get(String(pair.base.id)) || pair.base,
+        next: byId.get(String(pair.next.id)) || pair.next,
+      }));
+      const payload = buildProjectEstimateDiffSummaryPayload({ projectName, pairs: fullPairs });
+      showPreview(buildProjectEstimateDiffSummaryDocContent(payload), 'Свод изменений смет по объекту');
+      return true;
+    } catch (err) {
+      alertFn('Не удалось построить свод изменений: ' + (err?.message || err));
       return false;
     }
   };
@@ -273,9 +300,20 @@ export const createEstimateWorkflowActions = ({
 
   const setEstimateStatusRemote = async (est, status) => {
     if (!est?.id) return false;
-    const diffBase = status === 'Активная'
+    let diffBase = status === 'Активная'
       ? activeEstimateFromList((estimatesList || []).filter(e => !isGlobalEstimateTemplate(e) && e.id !== est.id && sameEstimateGroup(e, est) && e.status === 'Активная'))
       : null;
+    let fullEstimate = est;
+    if (status === 'Активная') {
+      try {
+        const loaded = await loadEstimateDetails(diffBase ? [diffBase, est] : [est]);
+        if (diffBase) diffBase = loaded[0] || diffBase;
+        fullEstimate = loaded[diffBase ? 1 : 0] || est;
+      } catch (error) {
+        alertFn('Не удалось загрузить строки редакций перед активацией: ' + (error?.message || error));
+        return false;
+      }
+    }
     let res;
     try {
       res = await fetchFn(API + '/estimates/' + est.id + '/status', {
@@ -292,12 +330,24 @@ export const createEstimateWorkflowActions = ({
       alertFn(data.detail || 'Не удалось изменить статус сметы' + (res.status ? ' (HTTP ' + res.status + ')' : ''));
       return false;
     }
-    const updated = {...est, status};
-    const nextEstimates = applyEstimateActivationState((estimatesList || []).map(e => e.id === est.id ? updated : e), updated);
+    const updated = {...fullEstimate, status};
+    const detailedById = new Map([diffBase, updated].filter(Boolean).map(item => [String(item.id), item]));
+    const sourceEstimates = (estimatesList || []).map(item => detailedById.get(String(item.id)) || item);
+    const nextEstimates = applyEstimateActivationState(sourceEstimates.map(e => e.id === est.id ? updated : e), updated);
     setEstimatesList(nextEstimates);
     setSelectedEstimate(prev => prev && prev.id === est.id ? updated : prev);
     if (status === 'Активная') {
       if (diffBase) {
+        const existingReconciliation = (estimateReconciliations || []).find(rec => (
+          Number(rec?.baseEstimateId || 0) === Number(diffBase.id)
+          && Number(rec?.nextEstimateId || 0) === Number(updated.id)
+        ));
+        if (!existingReconciliation) {
+          const reconciliation = await createEstimateReconciliation(diffBase, updated, { silent: true, preview: false });
+          if (!reconciliation) {
+            alertFn('Смета активирована, но серверную сверку редакций создать не удалось. Откройте объект → Изменения к смете и повторите сверку.');
+          }
+        }
         await queueEstimateDiffReviewTask(diffBase, updated, 'Смета активирована');
         await autoReconcileEstimateChanges(diffBase, updated, 'Смета активирована');
       }
@@ -341,6 +391,7 @@ export const createEstimateWorkflowActions = ({
     estimateDiffBaseFor,
     buildEstimateDiffContent,
     openEstimateDiffPreview,
+    openProjectEstimateDiffSummary,
     estimateReconciliationsForProject,
     openEstimateReconciliationPreview,
     createEstimateReconciliation,

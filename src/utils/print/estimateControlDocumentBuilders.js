@@ -1,4 +1,5 @@
 import { docEsc } from '../documentFormatUtils';
+import { estimateDiffChangedRows } from '../estimateDiffDocumentUtils';
 import { fmtMeasure } from '../measureUtils';
 import { companyTitle, directorDocStyles, fmtDocMoney } from '../printDocumentShared';
 
@@ -23,7 +24,12 @@ const estimateImpactReason = (row = {}) => {
 
 const estimateImpactAnalysis = (rows = [], totalImpact = 0) => {
   const meaningfulRows = rows
-    .filter((row) => Math.abs(Number(row.impact || 0)) > 0.005)
+    .filter((row) => row.kind === 'changed'
+      || Math.abs(Number(row.baseQty || 0)) > 0.0001
+      || Math.abs(Number(row.nextQty || 0)) > 0.0001
+      || Math.abs(Number(row.baseSum || 0)) > 0.005
+      || Math.abs(Number(row.nextSum || 0)) > 0.005
+      || Math.abs(Number(row.impact || 0)) > 0.005)
     .map((row) => ({ ...row, reason: estimateImpactReason(row) }))
     .sort((left, right) => Math.abs(Number(right.impact || 0)) - Math.abs(Number(left.impact || 0)));
   const positive = meaningfulRows.reduce((sum, row) => sum + Math.max(0, Number(row.impact || 0)), 0);
@@ -38,29 +44,6 @@ const estimateImpactAnalysis = (rows = [], totalImpact = 0) => {
   };
 };
 
-const diffImpactRows = (diff = {}) => [
-  ...(diff.changed || []).map(({ base = {}, next = {}, impact = 0 }) => ({
-    kind: 'changed',
-    section: next.section || base.section || '',
-    name: next.name || base.name || '',
-    unit: next.unit || base.unit || '',
-    itemType: next.itemType || base.itemType || '',
-    baseQty: base.qty,
-    nextQty: next.qty,
-    baseUnitPrice: base.unitPrice,
-    nextUnitPrice: next.unitPrice,
-    impact,
-  })),
-  ...(diff.added || []).map((row) => ({
-    kind: 'added', section: row.section, name: row.name, unit: row.unit, itemType: row.itemType,
-    baseQty: 0, nextQty: row.qty, baseUnitPrice: 0, nextUnitPrice: row.unitPrice, impact: row.impact,
-  })),
-  ...(diff.removed || []).map((row) => ({
-    kind: 'removed', section: row.section, name: row.name, unit: row.unit, itemType: row.itemType,
-    baseQty: row.qty, nextQty: 0, baseUnitPrice: row.unitPrice, nextUnitPrice: 0, impact: row.impact,
-  })),
-];
-
 const reconciliationImpactRows = (items = []) => (items || [])
   .filter((item) => ['changed', 'added', 'removed'].includes(item.itemType))
   .map((item) => ({
@@ -72,10 +55,13 @@ const reconciliationImpactRows = (items = []) => (items || [])
     nextQty: item.nextQuantity,
     baseUnitPrice: item.baseUnitPrice,
     nextUnitPrice: item.nextUnitPrice,
+    baseSum: item.baseTotal,
+    nextSum: item.nextTotal,
     impact: item.impact,
+    decision: item.decision,
   }));
 
-const renderEstimateImpactAnalysis = ({ analysis, classPrefix, fmtQty, signMoney, diffColor }) => {
+const renderEstimateImpactAnalysis = ({ analysis, classPrefix, fmtMoney, fmtQty, signMoney, diffColor, showPackage = false, showImpactCards = true }) => {
   const quantityLabel = (row, side) => {
     const value = side === 'base' ? row.baseQty : row.nextQty;
     const missing = (row.kind === 'added' && side === 'base') || (row.kind === 'removed' && side === 'next');
@@ -83,27 +69,33 @@ const renderEstimateImpactAnalysis = ({ analysis, classPrefix, fmtQty, signMoney
     return `${fmtQty(value)}${row.unit ? ` ${row.unit}` : ''}`;
   };
   const rowsHtml = analysis.rows.map((row) => '<tr>'
-    + `<td style="color:${diffColor(row.impact)};font-weight:700">${row.impact > 0 ? 'Плюс' : 'Минус'}</td>`
+    + `<td style="color:${diffColor(row.impact)};font-weight:700">${row.impact > 0 ? 'Плюс' : row.impact < 0 ? 'Минус' : 'Без изменения суммы'}</td>`
+    + (showPackage ? `<td>${docEsc(row.workPackage || '')}</td>` : '')
     + `<td>${docEsc(row.section || '')}</td>`
     + `<td>${docEsc(row.name || '')}</td>`
     + `<td>${docEsc(row.reason)}</td>`
     + `<td class="num">${docEsc(quantityLabel(row, 'base'))}</td>`
     + `<td class="num">${docEsc(quantityLabel(row, 'next'))}</td>`
+    + `<td class="num">${fmtMoney(row.baseSum)}</td>`
+    + `<td class="num">${fmtMoney(row.nextSum)}</td>`
     + `<td class="num" style="color:${diffColor(row.impact)};font-weight:700">${signMoney(row.impact)}</td>`
     + '</tr>').join('');
   const residualIsMaterial = Math.abs(analysis.residual) > ESTIMATE_IMPACT_TOLERANCE;
   const balanceHtml = residualIsMaterial
     ? `<div class="${classPrefix}-balance ${classPrefix}-balance-warn"><b>Не распределено по позициям: ${signMoney(analysis.residual)}</b><span>Проверьте итоговые строки, индексы, коэффициенты и округления исходного файла.</span></div>`
     : `<div class="${classPrefix}-balance ${classPrefix}-balance-ok"><b>Разница полностью объяснена позициями</b><span>Баланс строк: ${signMoney(analysis.explained)}.</span></div>`;
-  return `<div class="${classPrefix}-h">Почему изменилась сумма</div>`
-    + `<div class="${classPrefix}-grid">`
-    + `<div class="${classPrefix}-card"><span>Плюсовые изменения</span><b style="color:${diffColor(analysis.positive)}">${signMoney(analysis.positive)}</b></div>`
-    + `<div class="${classPrefix}-card"><span>Минусовые изменения</span><b style="color:${diffColor(analysis.negative)}">${signMoney(analysis.negative)}</b></div>`
-    + `<div class="${classPrefix}-card"><span>Баланс позиций</span><b style="color:${diffColor(analysis.explained)}">${signMoney(analysis.explained)}</b></div>`
-    + '</div>'
+  const impactCards = showImpactCards
+    ? `<div class="${classPrefix}-grid">`
+      + `<div class="${classPrefix}-card"><span>Плюсовые изменения</span><b style="color:${diffColor(analysis.positive)}">${signMoney(analysis.positive)}</b></div>`
+      + `<div class="${classPrefix}-card"><span>Минусовые изменения</span><b style="color:${diffColor(analysis.negative)}">${signMoney(analysis.negative)}</b></div>`
+      + `<div class="${classPrefix}-card"><span>Баланс позиций</span><b style="color:${diffColor(analysis.explained)}">${signMoney(analysis.explained)}</b></div>`
+      + '</div>'
+    : '';
+  return `<div class="${classPrefix}-h">Изменённые позиции. Почему изменилась сумма</div>`
+    + impactCards
     + balanceHtml
-    + `<table class="${classPrefix}-table"><tr><th>Знак</th><th>Раздел</th><th>Позиция</th><th>Причина</th><th>Было</th><th>Стало</th><th>Влияние</th></tr>`
-    + (rowsHtml || `<tr><td colspan="7" style="text-align:center;color:#64748b">Нет финансовых изменений по распознанным позициям</td></tr>`)
+    + `<table class="${classPrefix}-table"><tr><th>Знак</th>${showPackage ? '<th>Смета / пакет</th>' : ''}<th>Раздел</th><th>Позиция</th><th>Причина</th><th>Было объём</th><th>Стало объём</th><th>Было сумма</th><th>Стало сумма</th><th>Разница</th></tr>`
+    + (rowsHtml || `<tr><td colspan="${showPackage ? 10 : 9}" style="text-align:center;color:#64748b">Изменённых позиций нет</td></tr>`)
     + '</table>';
 };
 
@@ -122,32 +114,10 @@ export const buildEstimateReconciliationDocContent = (rec = {}) => {
     if (Number(value || 0) < 0) return '#047857';
     return '#374151';
   };
-  const rowsOf = (type) => items.filter((item) => item.itemType === type);
-  const empty = (cols) => `<tr><td colspan="${cols}" style="text-align:center;color:#64748b">Нет строк</td></tr>`;
-  const rowChanged = (item) => '<tr>'
-    + `<td>${docEsc(item.sectionName)}</td><td>${docEsc(item.itemName)}</td><td>${docEsc(item.unit)}</td>`
-    + `<td class="num">${docEsc(fmtQty(item.baseQuantity))}</td><td class="num">${docEsc(fmtQty(item.nextQuantity))}</td>`
-    + `<td class="num">${fmtMoney(item.baseUnitPrice)}</td><td class="num">${fmtMoney(item.nextUnitPrice)}</td>`
-    + `<td class="num">${fmtMoney(item.baseTotal)}</td><td class="num">${fmtMoney(item.nextTotal)}</td>`
-    + `<td class="num" style="color:${diffColor(item.impact)};font-weight:700">${signMoney(item.impact)}</td>`
-    + `<td>${docEsc(item.decision)}</td></tr>`;
-  const rowSimple = (item) => '<tr>'
-    + `<td>${docEsc(item.sectionName)}</td><td>${docEsc(item.itemName)}</td><td>${docEsc(item.unit)}</td>`
-    + `<td class="num">${docEsc(fmtQty(item.itemType === 'removed' ? item.baseQuantity : item.nextQuantity))}</td>`
-    + `<td class="num">${fmtMoney(item.itemType === 'removed' ? item.baseUnitPrice : item.nextUnitPrice)}</td>`
-    + `<td class="num">${fmtMoney(item.itemType === 'removed' ? item.baseTotal : item.nextTotal)}</td>`
-    + `<td class="num" style="color:${diffColor(item.impact)};font-weight:700">${signMoney(item.impact)}</td>`
-    + `<td>${docEsc(item.decision)}</td></tr>`;
-  const rowChange = (item) => '<tr>'
-    + `<td>${docEsc(item.itemName)}</td><td>${docEsc(item.unit)}</td>`
-    + `<td class="num">${docEsc(fmtQty(item.baseQuantity))}</td><td class="num">${docEsc(fmtQty(item.nextQuantity))}</td>`
-    + `<td class="num" style="color:${diffColor(item.impact)};font-weight:700">${signMoney(item.impact)}</td>`
-    + `<td>${docEsc(item.decision)}</td><td class="num">${docEsc(item.confidence ? `${Math.round(item.confidence * 100)}%` : '—')}</td>`
-    + `<td>${docEsc(item.notes || '')}</td></tr>`;
-  const reviewCount = rec.reviewCount ?? items.filter((item) => (
+  const impactAnalysis = estimateImpactAnalysis(reconciliationImpactRows(items), rec?.impact);
+  const reviewCount = impactAnalysis.rows.filter((item) => (
     String(item.decision || '').startsWith('Проверить') || item.decision === 'На проверке'
   )).length;
-  const impactAnalysis = estimateImpactAnalysis(reconciliationImpactRows(items), rec?.impact);
 
   let html = '<style>'
     + '.erec-title{text-align:center;font-size:18px;font-weight:700;margin:0 0 4px}'
@@ -173,19 +143,7 @@ export const buildEstimateReconciliationDocContent = (rec = {}) => {
     + `<div class="erec-card"><span>Разница</span><b style="color:${diffColor(rec?.impact)}">${signMoney(rec?.impact)}</b></div>`
     + `<div class="erec-card"><span>Спорные / проверить</span><b style="color:#b45309">${reviewCount}</b></div>`
     + '</div>';
-  html += renderEstimateImpactAnalysis({ analysis: impactAnalysis, classPrefix: 'erec', fmtQty, signMoney, diffColor });
-  html += '<div class="erec-h">Изменён объём или цена</div><table class="erec-table"><tr><th>Раздел</th><th>Позиция</th><th>Ед.</th><th>Было кол.</th><th>Стало кол.</th><th>Было цена</th><th>Стало цена</th><th>Было сумма</th><th>Стало сумма</th><th>Влияние</th><th>Решение</th></tr>'
-    + (rowsOf('changed').map(rowChanged).join('') || empty(11))
-    + '</table>';
-  html += '<div class="erec-h">Добавлено в новую смету</div><table class="erec-table"><tr><th>Раздел</th><th>Позиция</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th><th>Влияние</th><th>Решение</th></tr>'
-    + (rowsOf('added').map(rowSimple).join('') || empty(8))
-    + '</table>';
-  html += '<div class="erec-h">Исключено из новой сметы</div><table class="erec-table"><tr><th>Раздел</th><th>Позиция</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th><th>Влияние</th><th>Решение</th></tr>'
-    + (rowsOf('removed').map(rowSimple).join('') || empty(8))
-    + '</table>';
-  html += '<div class="erec-h">Утверждённые изменения к смете</div><table class="erec-table"><tr><th>Изменение</th><th>Ед.</th><th>Было</th><th>Найдено в новой</th><th>Сумма</th><th>Решение</th><th>Увер.</th><th>Примечание</th></tr>'
-    + (rowsOf('estimate_change').map(rowChange).join('') || empty(8))
-    + '</table>';
+  html += renderEstimateImpactAnalysis({ analysis: impactAnalysis, classPrefix: 'erec', fmtMoney, fmtQty, signMoney, diffColor });
   html += '<p style="font-size:10px;color:#555;margin-top:16px">Сверка фиксирует снимок старой и новой сметы. Строки со статусом проверки должны быть разобраны до закрытия КС, чтобы одна и та же работа не попала и в новую смету, и отдельной допработой.</p>';
   return html;
 };
@@ -488,8 +446,6 @@ export const buildEstimateDiffDocContent = (data = {}) => {
     estimateType = '',
     workPackage = '',
     diff = { added: [], removed: [], changed: [], baseTotal: 0, nextTotal: 0, impact: 0 },
-    changeRows = [],
-    changeSummary = { total: 0, covered: 0, review: 0, outside: 0, outsideSum: 0 },
   } = data;
   const fmtMoney = (value) => `${(Math.round(Number(value || 0) * 100) / 100).toLocaleString('ru-RU')} ₽`;
   const fmtQty = (value) => {
@@ -504,45 +460,8 @@ export const buildEstimateDiffDocContent = (data = {}) => {
     if (Number(value || 0) < 0) return '#047857';
     return '#374151';
   };
-  const rowBase = (row, impact = null) => '<tr>'
-    + `<td>${docEsc(row.section)}</td>`
-    + `<td>${docEsc(row.name)}</td>`
-    + `<td>${docEsc(row.unit)}</td>`
-    + `<td class="num">${docEsc(fmtQty(row.qty))}</td>`
-    + `<td class="num">${fmtMoney(row.unitPrice)}</td>`
-    + `<td class="num">${fmtMoney(row.sum)}</td>`
-    + (impact !== null ? `<td class="num" style="color:${diffColor(impact)};font-weight:700">${signMoney(impact)}</td>` : '')
-    + '</tr>';
-  const changeRowsHtml = changeRows.map((row) => {
-    const change = row.change || {};
-    const candidate = row.candidate;
-    const required = row.required || {};
-    return '<tr>'
-      + `<td>${docEsc(change.changeType || 'Изменение')}</td>`
-      + `<td>${docEsc((change.sectionName ? `${change.sectionName} / ` : '') + (change.estimateItemName || change.description || ''))}</td>`
-      + `<td class="num">${docEsc(fmtQty(required.qty))}</td>`
-      + `<td>${docEsc(required.unit || change.unit || '')}</td>`
-      + `<td class="num" style="color:${diffColor(row.amount)};font-weight:700">${signMoney(row.amount)}</td>`
-      + `<td>${docEsc(candidate ? `${candidate.section} / ${candidate.name}` : 'Не найдено')}</td>`
-      + `<td class="num">${docEsc(candidate ? fmtQty(candidate.qty) : '—')}</td>`
-      + `<td>${docEsc(row.status)}</td>`
-      + `<td class="num">${docEsc(row.score ? `${Math.round(row.score * 100)}%` : '—')}</td>`
-      + '</tr>';
-  }).join('');
-  const changedRows = (diff.changed || []).map(({ base, next, impact }) => '<tr>'
-    + `<td>${docEsc(next.section)}</td>`
-    + `<td>${docEsc(next.name)}</td>`
-    + `<td>${docEsc(next.unit)}</td>`
-    + `<td class="num">${docEsc(fmtQty(base.qty))}</td>`
-    + `<td class="num">${docEsc(fmtQty(next.qty))}</td>`
-    + `<td class="num">${fmtMoney(base.unitPrice)}</td>`
-    + `<td class="num">${fmtMoney(next.unitPrice)}</td>`
-    + `<td class="num">${fmtMoney(base.sum)}</td>`
-    + `<td class="num">${fmtMoney(next.sum)}</td>`
-    + `<td class="num" style="color:${diffColor(impact)};font-weight:700">${signMoney(impact)}</td>`
-    + '</tr>').join('');
-  const empty = (cols) => `<tr><td colspan="${cols}" style="text-align:center;color:#6b7280">Нет изменений</td></tr>`;
-  const impactAnalysis = estimateImpactAnalysis(diffImpactRows(diff), diff.impact);
+  const changedPositionRows = estimateDiffChangedRows(diff);
+  const impactAnalysis = estimateImpactAnalysis(changedPositionRows, diff.impact);
 
   let html = '<style>'
     + '.ediff-title{text-align:center;font-size:18px;font-weight:700;margin:0 0 4px}'
@@ -566,25 +485,66 @@ export const buildEstimateDiffDocContent = (data = {}) => {
     + `<div class="ediff-card"><span>Разница</span><b style="color:${diffColor(diff.impact)}">${signMoney(diff.impact)}</b></div>`
     + '</div>';
   html += '<div class="ediff-grid">'
-    + `<div class="ediff-card"><span>Изменено позиций</span><b>${(diff.changed || []).length}</b></div>`
-    + `<div class="ediff-card"><span>Добавлено позиций</span><b>${(diff.added || []).length}</b></div>`
-    + `<div class="ediff-card"><span>Исключено позиций</span><b>${(diff.removed || []).length}</b></div>`
+    + `<div class="ediff-card"><span>Изменено позиций</span><b>${changedPositionRows.filter(row => row.kind === 'changed').length}</b></div>`
+    + `<div class="ediff-card"><span>Добавлено позиций</span><b>${changedPositionRows.filter(row => row.kind === 'added').length}</b></div>`
+    + `<div class="ediff-card"><span>Исключено позиций</span><b>${changedPositionRows.filter(row => row.kind === 'removed').length}</b></div>`
     + '</div>';
-  html += renderEstimateImpactAnalysis({ analysis: impactAnalysis, classPrefix: 'ediff', fmtQty, signMoney, diffColor });
-  if (changeSummary.total) {
-    html += '<div class="ediff-grid">'
-      + `<div class="ediff-card"><span>Изменений к смете</span><b>${changeSummary.total}</b></div>`
-      + `<div class="ediff-card"><span>Закрыто новой сметой</span><b style="color:#047857">${changeSummary.covered}</b></div>`
-      + `<div class="ediff-card"><span>Остаётся/проверить</span><b style="color:${diffColor(changeSummary.outsideSum)}">${changeSummary.outside} · ${signMoney(changeSummary.outsideSum)}</b></div>`
-      + '</div>';
-    if (changeSummary.review) {
-      html += `<p style="font-size:10px;color:#92400e;margin:0 0 8px">Есть спорные совпадения: ${changeSummary.review}. Их нужно проверить сметчику/директору, чтобы не задвоить объём в КС.</p>`;
-    }
-  }
-  html += `<div class="ediff-h">Изменён объём или цена</div><table class="ediff-table"><tr><th>Раздел</th><th>Позиция</th><th>Ед.</th><th>Было кол.</th><th>Стало кол.</th><th>Было цена/ед.</th><th>Стало цена/ед.</th><th>Было сумма</th><th>Стало сумма</th><th>Влияние</th></tr>${changedRows || empty(10)}</table>`;
-  html += `<div class="ediff-h">Добавлено в новую смету</div><table class="ediff-table"><tr><th>Раздел</th><th>Позиция</th><th>Ед.</th><th>Кол-во</th><th>Цена/ед.</th><th>Сумма</th><th>Влияние</th></tr>${(diff.added || []).map((row) => rowBase(row, row.impact)).join('') || empty(7)}</table>`;
-  html += `<div class="ediff-h">Исключено из новой сметы</div><table class="ediff-table"><tr><th>Раздел</th><th>Позиция</th><th>Ед.</th><th>Кол-во</th><th>Цена/ед.</th><th>Сумма</th><th>Влияние</th></tr>${(diff.removed || []).map((row) => rowBase(row, row.impact)).join('') || empty(7)}</table>`;
-  html += `<div class="ediff-h">Сопоставление утверждённых изменений к смете</div><table class="ediff-table"><tr><th>Тип</th><th>Изменение / исходная строка</th><th>Кол-во</th><th>Ед.</th><th>Сумма</th><th>Кандидат в новой смете</th><th>Кол-во новой</th><th>Решение</th><th>Увер.</th></tr>${changeRowsHtml || empty(9)}</table>`;
-  html += '<p style="font-size:10px;color:#555;margin-top:16px">Документ сформирован автоматически по строкам старой и новой сметы. Раздел сопоставления показывает, какие утверждённые работы вне/сверх сметы уже отражены в новой редакции, а какие остаются отдельной допработой для ДС/КС. После подтверждения включённые изменения не должны повторно попадать в КС отдельным блоком.</p>';
+  html += renderEstimateImpactAnalysis({ analysis: impactAnalysis, classPrefix: 'ediff', fmtMoney, fmtQty, signMoney, diffColor });
+  html += '<p style="font-size:10px;color:#555;margin-top:16px">Документ показывает только позиции, которые изменились между выбранными редакциями сметы. Неизменённые и пустые технические строки не выводятся.</p>';
+  return html;
+};
+
+export const buildProjectEstimateDiffSummaryDocContent = (data = {}) => {
+  const {
+    projectName = '',
+    packageCount = 0,
+    changedPackageCount = 0,
+    baseTotal = 0,
+    nextTotal = 0,
+    impact = 0,
+    rows = [],
+  } = data;
+  const fmtMoney = (value) => `${(Math.round(Number(value || 0) * 100) / 100).toLocaleString('ru-RU')} ₽`;
+  const signMoney = (value) => `${Number(value || 0) > 0 ? '+' : ''}${fmtMoney(value)}`;
+  const fmtQty = (value) => {
+    const quantity = Number(value || 0);
+    return Math.abs(quantity - Math.round(quantity)) < 0.001
+      ? String(Math.round(quantity))
+      : quantity.toLocaleString('ru-RU', { maximumFractionDigits: 3 });
+  };
+  const diffColor = (value) => {
+    if (Number(value || 0) > 0) return '#b45309';
+    if (Number(value || 0) < 0) return '#047857';
+    return '#374151';
+  };
+  const analysis = estimateImpactAnalysis(rows, impact);
+  let html = '<style>'
+    + '.eps-title{text-align:center;font-size:18px;font-weight:700;margin:0 0 4px}'
+    + '.eps-sub{text-align:center;color:#555;font-size:11px;margin:0 0 14px}'
+    + '.eps-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0 14px}'
+    + '.eps-card{border:1px solid #cbd5e1;border-radius:8px;padding:8px;background:#f8fafc}'
+    + '.eps-card span{display:block;color:#64748b;font-size:10px}.eps-card b{font-size:14px}'
+    + '.eps-table{font-size:9px;table-layout:fixed}.eps-table th{font-size:8px}.eps-table td,.eps-table th{vertical-align:top;word-break:break-word}'
+    + '.eps-table .num{text-align:right;white-space:nowrap}.eps-h{font-size:13px;font-weight:700;margin:16px 0 6px}'
+    + '.eps-balance{display:flex;justify-content:space-between;gap:12px;border:1px solid;padding:8px;margin:0 0 8px;font-size:10px}.eps-balance span{color:#475569}'
+    + '.eps-balance-ok{border-color:#86efac;background:#f0fdf4}.eps-balance-warn{border-color:#f59e0b;background:#fffbeb;color:#92400e}'
+    + '@media print{.eps-grid{grid-template-columns:repeat(4,1fr)}.eps-table{font-size:8px}}'
+    + '</style>';
+  html += '<div class="eps-title">СВОД ИЗМЕНЕНИЙ СМЕТ ПО ОБЪЕКТУ</div>';
+  html += `<div class="eps-sub">Объект: ${docEsc(projectName)} · сравниваются предыдущие и активные редакции каждого пакета</div>`;
+  html += '<div class="eps-grid">'
+    + `<div class="eps-card"><span>Пакетов сравнено</span><b>${packageCount}</b></div>`
+    + `<div class="eps-card"><span>Пакетов с изменениями</span><b>${changedPackageCount}</b></div>`
+    + `<div class="eps-card"><span>Изменённых позиций</span><b>${rows.length}</b></div>`
+    + `<div class="eps-card"><span>Общая разница</span><b style="color:${diffColor(impact)}">${signMoney(impact)}</b></div>`
+    + '</div>';
+  html += '<div class="eps-grid">'
+    + `<div class="eps-card"><span>Было по пакетам</span><b>${fmtMoney(baseTotal)}</b></div>`
+    + `<div class="eps-card"><span>Стало по пакетам</span><b>${fmtMoney(nextTotal)}</b></div>`
+    + `<div class="eps-card"><span>Плюсовые позиции</span><b style="color:${diffColor(analysis.positive)}">${signMoney(analysis.positive)}</b></div>`
+    + `<div class="eps-card"><span>Минусовые позиции</span><b style="color:${diffColor(analysis.negative)}">${signMoney(analysis.negative)}</b></div>`
+    + '</div>';
+  html += renderEstimateImpactAnalysis({ analysis, classPrefix: 'eps', fmtMoney, fmtQty, signMoney, diffColor, showPackage: true, showImpactCards: false });
+  html += '<p style="font-size:10px;color:#555;margin-top:16px">В свод входят только позиции, изменившиеся между предыдущей и активной редакциями каждого пакета смет объекта. Неизменённые пакеты и пустые технические строки в таблицу не попадают.</p>';
   return html;
 };

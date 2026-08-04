@@ -14,7 +14,12 @@ import { createMaterialWriteoffActions } from '../material-writeoff/materialWrit
 import { createRoomMeasurementRuntime } from '../project-measurements/roomMeasurementRuntime';
 import { canCreateSupplyRequestFromNormForUser, canEditMaterialNormsForUser } from '../../utils/accessUtils';
 import { invoiceControlMaterialName, invoiceControlNeedsReview, invoiceControlProjectName, invoiceControlReviewReason } from '../../utils/aiControlDescriptionUtils';
-import { buildEstimateDiffDocContent, buildEstimateReconciliationDocContent, fmtDocMoney } from '../../utils/printDocumentBuilders';
+import {
+  buildEstimateDiffDocContent,
+  buildEstimateReconciliationDocContent,
+  buildProjectEstimateDiffSummaryDocContent,
+  fmtDocMoney,
+} from '../../utils/printDocumentBuilders';
 import { estimateChangeAutoDecision, estimateChangeReconcileDescription, estimateChangeReconcileMarker, estimateDiffReviewDescription, estimateDiffReviewMarker, estimateNormReviewDescription, estimateNormReviewIssueStatuses, estimateNormReviewMarker, estimateQualityDescription, estimateQualityReviewMarker, estimateQualityRows } from '../../utils/estimateReviewUtils';
 import { buildEstimateDiff, estimateKind, estimatePackage, isArchivedEstimate, isGlobalEstimateTemplate, normalizeEstimateList, sameEstimateGroup } from '../../utils/estimateUtils';
 import { isActiveSupplyRequestStatus } from '../../utils/supplyUtils';
@@ -203,6 +208,7 @@ export function useAppBusinessRuntime({
     isApprovedEstimateChangeStatus,
     buildEstimateDiffDocContent,
     buildEstimateReconciliationDocContent,
+    buildProjectEstimateDiffSummaryDocContent,
     apiAuthHeaders,
     showPreview,
     refreshData,
@@ -221,6 +227,7 @@ export function useAppBusinessRuntime({
   const {
     openEstimateDetail,
     openEstimateDiffPreview,
+    openProjectEstimateDiffSummary,
     estimateDiffBaseFor,
     buildEstimateDiffContent,
     estimateReconciliationsForProject,
@@ -246,6 +253,7 @@ export function useAppBusinessRuntime({
     estimateReconciliationsForProject,
     estimatesList,
     openEstimateReconciliationPreview,
+    openProjectEstimateDiffSummary,
     projects,
     rooms,
     roomDoors,

@@ -1,30 +1,23 @@
 import React from 'react';
-import { Check, Eye, GitBranch, Printer } from 'lucide-react';
+import { Check, Eye, FileSpreadsheet, GitBranch, Printer } from 'lucide-react';
 import { C, badge, btnB, btnGr, btnO, card } from '../constants/uiTheme';
+import { projectEstimateRevisionPairs } from '../utils/estimateDiffDocumentUtils';
 import { estimateReconciliationStatusView } from '../utils/statusMetaUtils';
 
 export default function EstimateReconciliationsPanel({
   project,
   reconciliations,
   projectEstimates,
-  estimateDiffBaseFor,
   estimatePackage,
   estimateTotal,
-  estimateUpdatedTs,
   canApprove,
   onApprove,
   onCreate,
   onOpenPreview,
+  onOpenProjectSummary,
 }) {
   const recs = reconciliations || [];
-  const pairMap = new Map();
-  (projectEstimates || []).forEach(est => {
-    const base = estimateDiffBaseFor(est);
-    if (!base || base.projectName !== project.name || Number(base.id) === Number(est.id)) return;
-    const key = String(base.id) + '|' + String(est.id);
-    if (!pairMap.has(key)) pairMap.set(key, {base, next: est});
-  });
-  const pairs = Array.from(pairMap.values()).sort((a,b)=>(estimateUpdatedTs(b.next)||Number(b.next.id||0))-(estimateUpdatedTs(a.next)||Number(a.next.id||0)));
+  const pairs = projectEstimateRevisionPairs({ project, estimates: projectEstimates, reconciliations: recs });
   const fmtMoney = (n) => (Number(n||0)>0?'+':'')+Math.round(Number(n||0)).toLocaleString('ru-RU')+' ₽';
 
   return (
@@ -34,7 +27,10 @@ export default function EstimateReconciliationsPanel({
           <b style={{color:C.text,fontSize:'15px'}}>Сверки смет</b>
           <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'12px'}}>Сравнение редакций сметы с фиксацией спорных позиций и связью с реестром документов.</p>
         </div>
-        <span style={badge(C.info,C.infoLight,C.infoBorder)}>{recs.length+' док.'}</span>
+        <div style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}>
+          {pairs.length>0&&<button onClick={()=>onOpenProjectSummary(project.name,pairs)} style={{...btnB,padding:'7px 10px',fontSize:'12px'}}><FileSpreadsheet size={13}/>Свод изменений</button>}
+          <span style={badge(C.info,C.infoLight,C.infoBorder)}>{recs.length+' док.'}</span>
+        </div>
       </div>
       {pairs.length>0&&(
         <div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:C.bg}}>

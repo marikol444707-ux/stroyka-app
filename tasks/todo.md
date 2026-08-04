@@ -3205,3 +3205,16 @@ Process note 2026-07-28: one commit briefly landed with two red tests because th
 - New `backend/features/<domain>/` packages with tests.
 
 **Estimated scope:** M overall; S per slice.
+
+## Task E1-E2: Estimate Revision Comparison And Activation Guard
+
+**Status:** Implemented locally, pending deployment verification.
+
+- [x] Individual comparison and saved reconciliation documents contain one compact table with only changed, added or removed positions.
+- [x] Added one project summary across the previous and active revision of every customer estimate package.
+- [x] Empty zero-value technical rows are hidden; a real quantity/price change remains visible even when its monetary impact is zero.
+- [x] Existing-draft activation loads full old/new rows and saves a server reconciliation before AI comparison.
+- [x] Direct Excel import saves the reconciliation first and loads the full old revision before background comparison.
+- [x] Focused Jest coverage passes for pair selection, payload aggregation, compact documents, activation and import ordering.
+
+**Known next risks:** brigade assignment rows do not yet store their source `estimate_id`; imported row keys change between revisions; active-estimate material control still has project-name-only queries that must be made company/project scoped before multi-company pilots.

@@ -413,6 +413,7 @@ export {
   buildSupplyControlReportDocContent,
   buildEstimateControlReportDocContent,
   buildEstimateDiffDocContent,
+  buildProjectEstimateDiffSummaryDocContent,
 } from './print/estimateControlDocumentBuilders';
 
 export {

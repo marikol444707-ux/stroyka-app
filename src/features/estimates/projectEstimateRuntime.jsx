@@ -8,7 +8,6 @@ import {
   estimatePackage,
   estimateSectionsOf,
   estimateTotal,
-  estimateUpdatedTs,
   estimateWorkKeyForItem,
   isArchivedEstimate,
   isGlobalEstimateTemplate,
@@ -42,10 +41,10 @@ export function createProjectEstimateRuntime({
   createEstimateChangeFromComparisonRow,
   createEstimateReconciliation,
   estimateChangeForComparisonRow,
-  estimateDiffBaseFor,
   estimateReconciliationsForProject,
   estimatesList,
   openEstimateReconciliationPreview,
+  openProjectEstimateDiffSummary,
   projects,
   rooms,
   roomDoors,
@@ -85,14 +84,13 @@ export function createProjectEstimateRuntime({
         project={p}
         reconciliations={recs}
         projectEstimates={projectEstimates}
-        estimateDiffBaseFor={estimateDiffBaseFor}
         estimatePackage={estimatePackage}
         estimateTotal={estimateTotal}
-        estimateUpdatedTs={estimateUpdatedTs}
         canApprove={isLeadershipUser(user)}
         onApprove={approveEstimateReconciliation}
         onCreate={createEstimateReconciliation}
         onOpenPreview={openEstimateReconciliationPreview}
+        onOpenProjectSummary={openProjectEstimateDiffSummary}
       />
     );
   };

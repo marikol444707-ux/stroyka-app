@@ -60,6 +60,7 @@ export function createEstimatePageActions({
   isGlobalEstimateTemplate,
   isLeadership,
   isEstimateWorkItem,
+  loadEstimateDetails = async (estimates) => estimates,
   materials,
   newEstimate,
   nextEstimateVersionFor,
@@ -278,9 +279,10 @@ export function createEstimatePageActions({
       void (async () => {
         try {
           if (diffBase) {
-            await queueEstimateDiffReviewTask(diffBase, estWithId, 'Импорт сметы');
-            await autoReconcileEstimateChanges(diffBase, estWithId, 'Импорт сметы');
             await createEstimateReconciliation(diffBase, estWithId, {silent: true});
+            const [fullBase, fullNext] = await loadEstimateDetails([diffBase, estWithId]);
+            await queueEstimateDiffReviewTask(fullBase || diffBase, fullNext || estWithId, 'Импорт сметы');
+            await autoReconcileEstimateChanges(fullBase || diffBase, fullNext || estWithId, 'Импорт сметы');
           }
           await queueEstimateQualityReviewTask(estWithId, 'Импорт сметы');
           await queueEstimateNormReviewTask(estWithId, 'Импорт сметы', nextEstimates);

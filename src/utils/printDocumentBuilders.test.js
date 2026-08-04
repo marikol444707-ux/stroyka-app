@@ -2,6 +2,7 @@ import {
   buildEstimateDiffDocContent,
   buildEstimateReconciliationDocContent,
   buildMaterialRequirementDocContent,
+  buildProjectEstimateDiffSummaryDocContent,
 } from './printDocumentBuilders';
 
 const reconciliationRow = (overrides = {}) => ({
@@ -147,5 +148,52 @@ describe('estimate comparison documents', () => {
     expect(html).toContain('Не распределено по позициям');
     expect(html).toContain('+100 ₽');
     expect(html).toContain('Проверьте итоговые строки');
+  });
+
+  test('omits zero technical rows but keeps a changed volume with zero financial impact', () => {
+    const html = buildEstimateDiffDocContent({
+      diff: {
+        baseTotal: 1000,
+        nextTotal: 1000,
+        impact: 0,
+        changed: [{
+          base: { section: 'Отделка', name: 'Работа с новой ценой', unit: 'м2', qty: 10, unitPrice: 100, sum: 1000 },
+          next: { section: 'Отделка', name: 'Работа с новой ценой', unit: 'м2', qty: 20, unitPrice: 50, sum: 1000 },
+          impact: 0,
+        }],
+        added: [{ section: 'Итоги', name: 'Пустая техническая строка', unit: '', qty: 0, unitPrice: 0, sum: 0, impact: 0 }],
+        removed: [],
+      },
+    });
+
+    expect(html).toContain('Работа с новой ценой');
+    expect(html).toContain('Изменились объём и цена');
+    expect(html).not.toContain('Пустая техническая строка');
+    expect(html).not.toContain('Добавлено в новую смету');
+    expect(html).not.toContain('Исключено из новой сметы');
+  });
+
+  test('prints one compact project table with the estimate package on each changed row', () => {
+    const html = buildProjectEstimateDiffSummaryDocContent({
+      projectName: 'Лицей',
+      packageCount: 2,
+      changedPackageCount: 1,
+      baseTotal: 100000,
+      nextTotal: 110000,
+      impact: 10000,
+      rows: [{
+        kind: 'changed', workPackage: 'Отделка', section: 'Стены', name: 'Штукатурка', unit: 'м2',
+        baseQty: 80, nextQty: 90, baseUnitPrice: 1000, nextUnitPrice: 1000,
+        baseSum: 80000, nextSum: 90000, impact: 10000,
+      }],
+    });
+
+    expect(html).toContain('СВОД ИЗМЕНЕНИЙ СМЕТ ПО ОБЪЕКТУ');
+    expect(html).toContain('Отделка');
+    expect(html).toContain('Штукатурка');
+    expect(html).toContain('80 м2');
+    expect(html).toContain('90 м2');
+    expect(html).toContain('80 000 ₽');
+    expect(html).toContain('90 000 ₽');
   });
 });

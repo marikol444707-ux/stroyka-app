@@ -64,6 +64,130 @@ const signedEstimateChangeAmount = (change) => (
   Number(change?.total || 0) * (change?.changeType === 'Исключение объёма' ? -1 : 1)
 );
 
+const estimateDiffRowHasValue = (row = {}) => (
+  Math.abs(Number(row.qty || 0)) > 0.0001 || Math.abs(Number(row.sum || 0)) > 0.005
+);
+
+export const estimateDiffChangedRows = (diff = {}, meta = {}) => [
+  ...(diff.changed || []).map(({ base = {}, next = {}, impact = 0 }) => ({
+    kind: 'changed',
+    ...meta,
+    section: next.section || base.section || '',
+    name: next.name || base.name || '',
+    unit: next.unit || base.unit || '',
+    itemType: next.itemType || base.itemType || '',
+    baseQty: Number(base.qty || 0),
+    nextQty: Number(next.qty || 0),
+    baseUnitPrice: Number(base.unitPrice || 0),
+    nextUnitPrice: Number(next.unitPrice || 0),
+    baseSum: Number(base.sum || 0),
+    nextSum: Number(next.sum || 0),
+    impact: Number(impact || 0),
+  })),
+  ...(diff.added || []).filter(estimateDiffRowHasValue).map((row) => ({
+    kind: 'added',
+    ...meta,
+    section: row.section || '',
+    name: row.name || '',
+    unit: row.unit || '',
+    itemType: row.itemType || '',
+    baseQty: 0,
+    nextQty: Number(row.qty || 0),
+    baseUnitPrice: 0,
+    nextUnitPrice: Number(row.unitPrice || 0),
+    baseSum: 0,
+    nextSum: Number(row.sum || 0),
+    impact: Number(row.impact || 0),
+  })),
+  ...(diff.removed || []).filter(estimateDiffRowHasValue).map((row) => ({
+    kind: 'removed',
+    ...meta,
+    section: row.section || '',
+    name: row.name || '',
+    unit: row.unit || '',
+    itemType: row.itemType || '',
+    baseQty: Number(row.qty || 0),
+    nextQty: 0,
+    baseUnitPrice: Number(row.unitPrice || 0),
+    nextUnitPrice: 0,
+    baseSum: Number(row.sum || 0),
+    nextSum: 0,
+    impact: Number(row.impact || 0),
+  })),
+];
+
+export const buildProjectEstimateDiffSummaryPayload = ({ projectName = '', pairs = [] } = {}) => {
+  const packageDiffs = (pairs || []).map(({ base, next }) => {
+    const diff = buildEstimateDiff(base, next);
+    const workPackage = estimatePackage(next || base);
+    return {
+      base,
+      next,
+      workPackage,
+      diff,
+      rows: estimateDiffChangedRows(diff, {
+        workPackage,
+        baseEstimateName: base?.name || '',
+        nextEstimateName: next?.name || '',
+        baseVersion: base?.version || base?.versionLabel || '',
+        nextVersion: next?.version || next?.versionLabel || '',
+      }),
+    };
+  });
+  const rows = packageDiffs.flatMap(item => item.rows)
+    .sort((left, right) => String(left.workPackage || '').localeCompare(String(right.workPackage || ''), 'ru')
+      || Math.abs(Number(right.impact || 0)) - Math.abs(Number(left.impact || 0)));
+  return {
+    projectName: projectName || packageDiffs[0]?.next?.projectName || packageDiffs[0]?.base?.projectName || '',
+    packageCount: packageDiffs.length,
+    changedPackageCount: packageDiffs.filter(item => item.rows.length > 0).length,
+    baseTotal: packageDiffs.reduce((sum, item) => sum + Number(item.diff.baseTotal || 0), 0),
+    nextTotal: packageDiffs.reduce((sum, item) => sum + Number(item.diff.nextTotal || 0), 0),
+    impact: packageDiffs.reduce((sum, item) => sum + Number(item.diff.impact || 0), 0),
+    rows,
+    packageDiffs,
+  };
+};
+
+export const projectEstimateRevisionPairs = ({ project = {}, estimates = [], reconciliations = [] } = {}) => {
+  const projectId = Number(project?.id || 0);
+  const projectName = String(project?.name || '');
+  const scoped = (estimates || []).filter((estimate) => {
+    const estimateProjectId = Number(estimate?.projectId || 0);
+    return projectId && estimateProjectId
+      ? projectId === estimateProjectId
+      : String(estimate?.projectName || estimate?.project || '') === projectName;
+  });
+  const groups = new Map();
+  scoped.forEach((estimate) => {
+    const key = `${estimateKind(estimate)}|${estimatePackage(estimate)}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(estimate);
+  });
+  const pairs = [];
+  groups.forEach((group) => {
+    const activeRows = group.filter(estimate => estimate.status === 'Активная')
+      .sort((left, right) => Number(right.id || 0) - Number(left.id || 0));
+    if (activeRows.length !== 1) return;
+    const next = activeRows[0];
+    const latestReconciliation = (reconciliations || [])
+      .filter(rec => Number(rec?.nextEstimateId || 0) === Number(next.id || 0))
+      .sort((left, right) => Number(right.id || 0) - Number(left.id || 0))[0];
+    const reconciledBase = latestReconciliation
+      ? group.find(estimate => Number(estimate.id || 0) === Number(latestReconciliation.baseEstimateId || 0))
+      : null;
+    const fallbackCandidates = group
+      .filter(estimate => Number(estimate.id || 0) !== Number(next.id || 0));
+    const fallbackBase = fallbackCandidates
+      .filter(estimate => Number(estimate.id || 0) < Number(next.id || 0))
+      .sort((left, right) => Number(right.id || 0) - Number(left.id || 0))[0]
+      || fallbackCandidates.sort((left, right) => Number(right.id || 0) - Number(left.id || 0))[0];
+    const base = reconciledBase || fallbackBase;
+    if (base) pairs.push({ base, next });
+  });
+  return pairs.sort((left, right) => estimatePackage(left.next).localeCompare(estimatePackage(right.next), 'ru'));
+};
+
 export const buildEstimateDiffDocumentPayload = ({
   baseEstimate,
   nextEstimate,

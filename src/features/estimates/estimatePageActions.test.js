@@ -48,4 +48,70 @@ describe('estimate import versioning', () => {
     const saveCall = fetchFn.mock.calls.find(([url]) => url.endsWith('/estimates'));
     expect(JSON.parse(saveCall[1].body).version).toBe('3.0');
   });
+
+  test('saves the reconciliation and loads full revisions before background comparison', async () => {
+    const fetchFn = jest.fn(async url => {
+      if (url.endsWith('/parse-smeta')) return {data:{items:[{section:'Стены',name:'Штукатурка',unit:'м2',quantity:90,type:'work'}],count:1,meta:{}}};
+      if (url.endsWith('/estimates')) return {data:{id:22}};
+      return {json:async()=>({response:'{"warnings":[]}'})};
+    });
+    const backgroundDone = {};
+    backgroundDone.promise = new Promise(resolve => { backgroundDone.resolve = resolve; });
+    const queueEstimateDiffReviewTask = jest.fn();
+    const autoReconcileEstimateChanges = jest.fn(async () => backgroundDone.resolve());
+    const createEstimateReconciliation = jest.fn(async () => ({id:44}));
+    const baseSummary = {
+      id: 21,
+      projectId: 1,
+      projectName: 'Объект',
+      workPackage: 'Отделка',
+      smetaType: 'Заказчик',
+      status: 'Активная',
+      sectionsLoaded: false,
+      sections: [],
+    };
+    const fullBase = {
+      ...baseSummary,
+      sectionsLoaded: true,
+      sections: [{name:'Стены',items:[{name:'Штукатурка',unit:'м2',quantity:80}]}],
+    };
+    const loadEstimateDetails = jest.fn(async estimates => [fullBase, estimates[1]]);
+    const noop = jest.fn();
+    const actions = createEstimatePageActions({
+      API:'', ROLE_LABELS:{}, applyEstimateActivationState:rows=>rows, aiMessages:[], autoReconcileEstimateChanges,
+      brigadeContracts:[], buildEstimateDiffContent:noop, contracts:[], createEstimateReconciliation,
+      enrichEstimateMeasurementBasis:sections=>sections, estimateDiffBaseFor:noop, estimateItemMaterialSum:noop,
+      estimateItemTotal:noop, estimateItemTypeMeta:noop, estimateItemWorkSum:noop, estimateQualityRows:()=>[],
+      executionPriceFillPercent:0, exportToExcel:noop, estimatesList:[baseSummary], isGlobalEstimateTemplate:()=>false,
+      isLeadership:true, isEstimateWorkItem:()=>true, loadEstimateDetails, materials:[], newEstimate:{projectId:'1',projectName:'Объект',version:'1.0',smetaType:'Заказчик',workPackage:'Отделка',status:'Активная'},
+      nextEstimateVersionFor:()=> '2.0', normalizeEstimateImportSections:sections=>sections, normalizeEstimateItemType:value=>value,
+      projects:[{id:1,name:'Объект'}], queueEstimateDiffReviewTask, queueEstimateNormReviewTask:noop,
+      queueEstimateQualityReviewTask:noop, readApiResult:async response=>response.data, sameEstimateGroup:()=>true,
+      setAiInput:noop, setAiLoading:noop, setAiMessages:noop, setDistributeAssignments:noop, setDistributeBrigades:noop,
+      setEstimateChatHistoryLoading:noop, setEstimateChatInput:noop, setEstimateChatLoading:noop, setEstimateChatMessages:noop,
+      setEstimateVersions:noop, setEstimatesList:noop, setEstimatesTab:noop, setExecutionPriceFillPercent:noop,
+      setImportValidating:noop, setImportValidationWarnings:noop, setSelectedEstimate:noop, setSelectedVersionsToCompare:noop,
+      setShowAiChat:noop, setShowDistribute:noop, setShowEstimateChat:noop, setShowVersionHistory:noop, setShowWorkAssignment:noop,
+      showPreview:noop, staff:[], toNum:Number, user:{role:'директор'}, fetchFn, alertFn:noop,
+    });
+    const target = {files:[new File(['x'], 'Отделка.xlsx')], value:'selected'};
+
+    await actions.handleEstimateImportFile({target});
+    await backgroundDone.promise;
+
+    expect(createEstimateReconciliation).toHaveBeenCalledWith(
+      baseSummary,
+      expect.objectContaining({id:22, status:'Активная'}),
+      {silent:true},
+    );
+    expect(loadEstimateDetails).toHaveBeenCalledWith([
+      baseSummary,
+      expect.objectContaining({id:22}),
+    ]);
+    expect(queueEstimateDiffReviewTask).toHaveBeenCalledWith(
+      fullBase,
+      expect.objectContaining({id:22}),
+      'Импорт сметы',
+    );
+  });
 });
