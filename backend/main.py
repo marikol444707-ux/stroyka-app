@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header, Form, Request, Response, Body
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header, Form, Request, Response, Body, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -16551,6 +16551,7 @@ register_estimate_reconciliations_module(app, {
 @app.post("/estimates")
 def create_estimate(
     data: dict,
+    background_tasks: BackgroundTasks,
     x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
     x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
     current_user: dict = Depends(get_current_user),
@@ -16628,7 +16629,8 @@ def create_estimate(
         supply_refresh = _refresh_open_supply_controls_for_estimate(cur, project_name, company_id)
     conn.commit()
     cur.close(); conn.close()
-    _run_project_ai_control_safely(project_name, "estimate:create")
+    if project_name:
+        background_tasks.add_task(_run_project_ai_control_safely, project_name, "estimate:create")
     return {"id":row.get("id"),"ok":True,"supplyControlRefresh":supply_refresh}
 
 @app.put("/estimates/{id}")
