@@ -8483,6 +8483,7 @@ def _material_units_compatible(unit_a: str = "", unit_b: str = "") -> bool:
     return not base_a or not base_b or base_a == base_b
 
 def _supply_material_estimate_control(cur, project: str, material_name: str, unit: str = "", work_package: str = "", exclude_request_id=None, exclude_stock_qty: float = 0.0):
+    from backend.features.estimate_material_plan.service import is_resource_adjustment, material_plan_contribution
     project = (project or "").strip()
     material_name = (material_name or "").strip()
     if not project or not material_name:
@@ -8513,18 +8514,25 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
         for section in _estimate_sections(est.get("sections_json")):
             section_name = section.get("name") or ""
             for item in section.get("items") or []:
-                if _estimate_item_type_backend(item, section_name) != "material":
-                    continue
-                if _estimate_material_plan_issue_backend(item, section_name):
-                    continue
-                raw_qty = _float_or_zero(item.get("quantity"))
+                is_material = _estimate_item_type_backend(item, section_name) == "material"
                 imported_qty = _estimate_imported_quantity(item)
-                imported_line_total = _estimate_import_line_total_backend(item)
+                is_adjustment = is_resource_adjustment(
+                    item,
+                    imported_quantity=imported_qty,
+                    line_total=_estimate_import_line_total_backend(item),
+                )
                 material_sum = _estimate_material_sum_backend(item)
-                if raw_qty <= 0 and imported_qty <= 0:
+                contribution = material_plan_contribution(
+                    is_material=is_material,
+                    is_adjustment=is_adjustment,
+                    imported_quantity=imported_qty,
+                    material_sum=material_sum,
+                    item_sum=_estimate_item_sum_backend(item),
+                    plan_issue=_estimate_material_plan_issue_backend(item, section_name),
+                )
+                if contribution is None:
                     continue
-                if raw_qty < 0 or imported_qty < 0 or imported_line_total < 0 or material_sum < 0:
-                    continue
+                qty, plan_sum, _ = contribution
                 item_name = (item.get("name") or "").strip()
                 item_unit = item.get("unit") or ""
                 item_key = _material_control_key_resolved(cur, project, item_name, item_unit)
@@ -8535,11 +8543,8 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
                 if not exact_match and not fuzzy_match:
                     continue
                 match_score = 1.0 if exact_match else fuzzy_score
-                qty = imported_qty
-                if qty <= 0:
-                    qty = raw_qty
                 planned_qty += qty
-                planned_sum += material_sum if material_sum > 0 else _estimate_item_sum_backend(item)
+                planned_sum += plan_sum
                 matched_rows += 1
                 if fuzzy_match:
                     fuzzy_matched_rows += 1

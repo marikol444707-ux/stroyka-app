@@ -1,4 +1,4 @@
-import { estimateImportedPlanMeasure, estimateItemMaterialSum, estimateMaterialPlanIssue, estimatePackage, estimateSectionsOf, isEstimateMaterialItem, normalizeEstimateWorkingItem } from './estimateUtils';
+import { estimateImportedLineTotalRaw, estimateImportedPlanMeasure, estimateItemLooksResourceAdjustment, estimateItemMaterialSum, estimateMaterialPlanIssue, estimatePackage, estimateSectionsOf, isEstimateMaterialItem, normalizeEstimateWorkingItem } from './estimateUtils';
 import { materialLookupText, materialNameMatchScore } from './materialMatchUtils';
 import { normalizeMeasure, toNum, _normalizeUnit } from './measureUtils';
 import { packageMatches } from './materialDocumentUtils';
@@ -43,16 +43,17 @@ export const buildEstimateMaterialPlanRows = ({
   const activeEstimates = materialControlEstimatesForProject(project, activeEstimatesForProject);
   activeEstimates.forEach(est => estimateSectionsOf(est).forEach(s => (s.items || []).forEach(rawIt => {
     const it = normalizeEstimateWorkingItem(rawIt, s.name);
-    if (!isEstimateMaterialItem(it, s.name)) return;
-    if (toNum(estimateImportedPlanMeasure(it).qty) <= 0) return;
-    if (estimateMaterialPlanIssue(it, s.name)) return;
+    const isAdjustment = estimateItemLooksResourceAdjustment(it, s.name);
+    if (!isEstimateMaterialItem(it, s.name) && !isAdjustment) return;
+    if (!isAdjustment && toNum(estimateImportedPlanMeasure(it).qty) <= 0) return;
+    if (!isAdjustment && estimateMaterialPlanIssue(it, s.name)) return;
     const sectionLabel = (estimatePackage(est) !== 'Основная' ? estimatePackage(est) + ' / ' : '') + (s.name || '');
     const planMeasure = estimateImportedPlanMeasure(it);
     const r = ensure(it.name, planMeasure.unit || it.unit, sectionLabel);
     if (!r) return;
     if (it.parentWorkName && !r.workRefs.includes(it.parentWorkName)) r.workRefs.push(it.parentWorkName);
     r.planQty += toNum(planMeasure.qty);
-    r.planSum += estimateItemMaterialSum(it);
+    r.planSum += isAdjustment ? estimateImportedLineTotalRaw(it) : estimateItemMaterialSum(it);
   })));
   return Object.values(rows).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
 };
@@ -231,17 +232,18 @@ export const buildMaterialReconciliationRows = ({
     .filter(est => packageMatches(estimatePackage(est), workPackage))
     .forEach(est => estimateSectionsOf(est).forEach((s, sectionIndex) => (s.items || []).forEach((rawIt, itemIndex) => {
       const it = normalizeEstimateWorkingItem(rawIt, s.name);
-      if (!isEstimateMaterialItem(it, s.name)) return;
-      if (toNum(estimateImportedPlanMeasure(it).qty) <= 0) return;
+      const isAdjustment = estimateItemLooksResourceAdjustment(it, s.name);
+      if (!isEstimateMaterialItem(it, s.name) && !isAdjustment) return;
+      if (!isAdjustment && toNum(estimateImportedPlanMeasure(it).qty) <= 0) return;
       const r = ensure(it.name, it.unit, estimatePackage(est));
       if (!r) return;
       const planMeasure = estimateImportedPlanMeasure(it);
       const converted = materialQty(planMeasure.qty, planMeasure.unit || it.unit || r.unit);
-      const planSum = estimateItemMaterialSum(it);
+      const planSum = isAdjustment ? estimateImportedLineTotalRaw(it) : estimateItemMaterialSum(it);
       const sectionLabel = (estimatePackage(est) !== 'Основная' ? estimatePackage(est) + ' / ' : '') + (s.name || '');
       if (sectionLabel && !r.sections.includes(sectionLabel)) r.sections.push(sectionLabel);
       if (it.parentWorkName && !r.workRefs.includes(it.parentWorkName)) r.workRefs.push(it.parentWorkName);
-      const planIssue = estimateMaterialPlanIssue(it, s.name);
+      const planIssue = isAdjustment ? '' : estimateMaterialPlanIssue(it, s.name);
       const sourceQty = Number(it.quantity || 0);
       const sourceUnit = it.unit || '';
       const hasRawQty = it.rawQuantity !== undefined && it.rawQuantity !== null && it.rawQuantity !== '';
@@ -249,7 +251,7 @@ export const buildMaterialReconciliationRows = ({
       const traceSourceUnit = it.rawUnit || sourceUnit;
       const normalizedUnit = converted.unit || it.unit || r.unit;
       const trace = {
-        sourceType: 'estimate_material',
+        sourceType: isAdjustment ? 'estimate_adjustment' : 'estimate_material',
         sourceQty,
         sourceUnit,
         normalizedQty: converted.qty,

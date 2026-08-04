@@ -1,4 +1,4 @@
-import { buildMaterialControlSummary, buildMaterialReconciliationRows } from './materialReconciliationUtils';
+import { buildEstimateMaterialPlanRows, buildMaterialControlSummary, buildMaterialReconciliationRows } from './materialReconciliationUtils';
 
 const materialItem = (name, quantity, unit = 'шт') => ({
   itemType: 'material',
@@ -80,6 +80,65 @@ describe('buildMaterialReconciliationRows material identity', () => {
       planQty: 200,
       planSourceCount: 2,
     });
+  });
+
+  test('subtracts a negative resource correction from the material plan', () => {
+    const rows = buildRows([
+      {
+        ...materialItem('Доски необрезные хвойных пород 32-40 мм, III сорта', 41.4, 'м3'),
+        isImported: true,
+        sourceCode: '102-0053',
+      },
+      {
+        itemType: 'adjustment',
+        name: 'Доски необрезные хвойных пород 32-40 мм, III сорта',
+        quantity: -41.4,
+        unit: 'м3',
+        isImported: true,
+        sourceCode: '102-0053',
+        lineTotal: -1000,
+      },
+    ]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      planQty: 0,
+      toBuy: 0,
+    });
+    expect(rows[0].planDetails).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceType: 'estimate_adjustment', normalizedQty: -41.4 }),
+    ]));
+
+    const planRows = buildEstimateMaterialPlanRows({
+      projectName: 'Тестовый объект',
+      projects: [{ id: 1, name: 'Тестовый объект' }],
+      activeEstimatesForProject: (_project, kind) => kind === 'Заказчик' ? [{
+        id: 10,
+        name: 'Активная смета',
+        status: 'Активная',
+        smetaType: 'Заказчик',
+        workPackage: 'Общестрой',
+        sections: [{ name: 'Раздел 1', items: [
+          {
+            ...materialItem('Доски необрезные хвойных пород 32-40 мм, III сорта', 41.4, 'м3'),
+            isImported: true,
+            sourceCode: '102-0053',
+          },
+          {
+            itemType: 'adjustment',
+            name: 'Доски необрезные хвойных пород 32-40 мм, III сорта',
+            quantity: -41.4,
+            unit: 'м3',
+            isImported: true,
+            sourceCode: '102-0053',
+            lineTotal: -1000,
+          },
+        ] }],
+      }] : [],
+    });
+
+    expect(planRows).toHaveLength(1);
+    expect(planRows[0].planQty).toBe(0);
   });
 
   test('merges different source names only through a confirmed alias', () => {
