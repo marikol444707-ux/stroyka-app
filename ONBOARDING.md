@@ -233,6 +233,9 @@ npm run smoke:material-packaging-review
 # material-control -> заявка с исходной сметной строкой
 npm run smoke:material-control-lineage
 
+# только чтение: подозрительные объёмы и ошибочно помеченные материалы в активных сметах
+npm run audit:estimate-material-volumes
+
 # готовность к будущей корректировке упаковок, без изменений данных
 npm run audit:material-stock-correction-readiness
 
