@@ -191,7 +191,7 @@ def register_smeta_parser_module(app, deps):
                 if "cost_index" not in columns:
                     columns["cost_index"] = columns.get("cost_total", columns["cost_unit"]) + 1
                 if "cost_current_total" not in columns:
-                    columns["cost_current_total"] = columns.get("cost_total", columns["cost_index"] + 1)
+                    columns["cost_current_total"] = columns["cost_index"] + 1
                 return columns
 
             lsr_columns = _detect_lsr_columns(header_rows, lsr_header_row_idx) if file_type == "lsr" else {}

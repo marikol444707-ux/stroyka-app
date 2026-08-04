@@ -108,6 +108,44 @@ class SmetaParserRouteTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cable["total"], 300)
         self.assertFalse(any(item.get("importKind") == "reconciliation" for item in result["items"]))
 
+    def test_uses_separate_current_total_column_in_legacy_grand_smeta(self):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        headers = {
+            "A3": "№ п/п",
+            "B3": "Обоснование",
+            "C3": "Наименование работ и затрат",
+            "F3": "Единица измерения",
+            "G3": "Количество",
+            "J3": "Сметная стоимость в базисном уровне цен, руб.",
+            "M3": "Индексы",
+            "N3": "Сметная стоимость в текущем уровне цен, руб.",
+            "G4": "на единицу",
+            "H4": "коэффициенты",
+            "I4": "всего с учетом коэффициентов",
+            "J4": "на единицу",
+            "K4": "коэффициенты",
+            "L4": "всего",
+        }
+        for cell, value in headers.items():
+            sheet[cell] = value
+        sheet.append([1, "ГЭСНм08-01", "Монтаж оборудования", None, None, "шт", 1, 1, 1])
+        sheet.append([None, "Пр/812", "НР Монтажные работы", None, None, "%", 95, None, 95, None, None, 100, None, 3704])
+        sheet.append([None, None, "Всего по позиции", None, None, None, None, None, None, None, None, 100, None, 3704])
+        sheet.append([None, None, "ВСЕГО по смете", None, None, None, None, None, None, None, None, 100, None, 3704])
+        content = BytesIO()
+        workbook.save(content)
+
+        handler = self.app.routes[("POST", "/parse-smeta")]
+        result = handler(file=FakeUpload("старая-гранд-смета.xlsx", content.getvalue()), _current_user={})
+
+        self.assertNotIn("error", result)
+        work = next(item for item in result["items"] if item["name"] == "Монтаж оборудования")
+        self.assertEqual(work["total"], 3704)
+        self.assertEqual(result["meta"]["declaredTotal"], 3704)
+        self.assertEqual(result["meta"]["parsedTotal"], 3704)
+        self.assertFalse(any(item.get("importKind") == "reconciliation" for item in result["items"]))
+
 
 if __name__ == "__main__":
     unittest.main()
