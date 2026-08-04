@@ -13,7 +13,9 @@ export default function EstimateImportView({
   nextEstimateVersionFor,
   estimatePackages,
   onFileChange,
+  importValidating = false,
 }) {
+  const projectSelected = Boolean(newEstimate.projectId);
   return (
     <div>
       <h3 style={{ color: C.text, marginBottom: '15px', fontSize: '15px', fontWeight: '700' }}>
@@ -31,7 +33,13 @@ export default function EstimateImportView({
           nextEstimateVersionFor={nextEstimateVersionFor}
           estimatePackages={estimatePackages}
         />
-        <EstimateImportUploadButton C={C} onFileChange={onFileChange} />
+        <EstimateImportUploadButton
+          C={C}
+          onFileChange={onFileChange}
+          disabled={!projectSelected || importValidating}
+          disabledReason={!projectSelected ? 'Сначала выберите объект' : ''}
+          loading={importValidating}
+        />
         <EstimateImportSupportedFormat C={C} />
       </div>
     </div>

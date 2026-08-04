@@ -248,6 +248,7 @@ export default function EstimatesPage({ ctx }) {
                 nextEstimateVersionFor={nextEstimateVersionFor}
                 estimatePackages={ESTIMATE_PACKAGES}
                 onFileChange={handleEstimateImportFile}
+                importValidating={importValidating}
               />
             )}
 

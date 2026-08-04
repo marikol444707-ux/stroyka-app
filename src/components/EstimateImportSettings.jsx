@@ -19,7 +19,7 @@ export default function EstimateImportSettings({
         }}
         style={{...inp,maxWidth:'400px'}}
       >
-        <option value="">Привязать к проекту (необязательно)</option>
+        <option value="">Выберите объект (обязательно)</option>
         {projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
       </select>
       <select

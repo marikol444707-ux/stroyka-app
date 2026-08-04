@@ -6,6 +6,19 @@ import {
 import { createEstimateChatActions } from './estimateChatActions';
 import { createEstimateVersionActions } from './estimateVersionActions';
 
+export const ESTIMATE_IMPORT_MAX_BYTES = 15 * 1024 * 1024;
+
+export const estimateImportFileError = (file) => {
+  const name = String(file?.name || '');
+  if (!/\.(xlsx|xlsm)$/i.test(name)) {
+    return 'Поддерживаются файлы .xlsx и .xlsm. Старый файл .xls сначала сохраните в Excel как .xlsx.';
+  }
+  if (Number(file?.size || 0) > ESTIMATE_IMPORT_MAX_BYTES) {
+    return 'Файл сметы больше 15 МБ. Разделите его или загрузите как документ без импорта.';
+  }
+  return '';
+};
+
 export function createEstimatePageActions({
   API,
   ROLE_LABELS,
@@ -138,6 +151,12 @@ export function createEstimatePageActions({
   const handleEstimateImportFile = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    const fileError = estimateImportFileError(file);
+    if (fileError) {
+      alertFn(fileError);
+      e.target.value = '';
+      return;
+    }
     if (!newEstimate.projectId) {
       alertFn('Сначала выберите проект — без привязки смета не сохранится');
       e.target.value = '';
@@ -145,6 +164,7 @@ export function createEstimatePageActions({
     }
     const fd = new FormData();
     fd.append('file', file);
+    setImportValidating(true);
     try {
       const data = await readApiResult(await fetchFn(API + '/parse-smeta', {method: 'POST', body: fd}));
       if (data.error) throw new Error(data.error);
@@ -197,7 +217,7 @@ export function createEstimatePageActions({
       });
 
       const projName = newEstimate.projectName || ((projects || []).find(p => p.id === Number(newEstimate.projectId))?.name || '');
-      const fileName = file.name.replace('.xlsx', '').replace('.xls', '');
+      const fileName = file.name.replace(/\.(xlsx|xlsm)$/i, '');
       const resolvedWorkPackage = resolveEstimatePackage(newEstimate.workPackage, fileName, newEstimate.name);
       const estimateStatus = isLeadershipUser ? (newEstimate.status || 'Активная') : 'Черновик';
       const estDraft = {
@@ -234,51 +254,61 @@ export function createEstimatePageActions({
       setEstimatesList(nextEstimates);
       setSelectedEstimate(estWithId);
       setEstimatesTab('list');
-      if (diffBase) {
-        await queueEstimateDiffReviewTask(diffBase, estWithId, 'Импорт сметы');
-        await autoReconcileEstimateChanges(diffBase, estWithId, 'Импорт сметы');
-        await createEstimateReconciliation(diffBase, estWithId, {silent: true});
-      }
-      await queueEstimateQualityReviewTask(estWithId, 'Импорт сметы');
-      await queueEstimateNormReviewTask(estWithId, 'Импорт сметы', nextEstimates);
       const qualityWarnings = estimateQualityRows(estWithId).map(row => ({
         type: 'качество',
         where: (row.sectionName || '') + ' / ' + (row.itemName || ''),
         message: row.status + ': ' + row.message,
         severity: row.severity === 'critical' ? 'критично' : row.severity === 'info' ? 'совет' : 'внимание',
       }));
-      setImportValidating(true);
       setImportValidationWarnings(qualityWarnings);
-      try {
-        const items = Object.values(sections).flatMap(s => (s.items || []).map(i => ({
-          section: s.name,
-          name: i.name,
-          unit: i.unit,
-          qty: Number(i.quantity || 0),
-        })));
-        const valPrompt = 'Проверь смету "' + est.name + '" на типовые проблемы при импорте из Гранд Сметы. Позиции:\n' + JSON.stringify(items, null, 1) + '\n\nИЩИ:\n- Забытые сопутствующие работы (например штукатурка без грунтовки)\n- Возможные дубликаты позиций\n- Подозрительно большие или маленькие объёмы\n- Странные единицы измерения\n\nОТВЕТЬ СТРОГО JSON:\n{"warnings":[{"type":"забыто|дубль|объём|единица|другое","where":"раздел или позиция","message":"что не так","severity":"критично|внимание|совет"}]}\nЕсли всё хорошо — пиши {"warnings":[]}. Только JSON.';
-        const r = await fetchFn(API + '/ai-chat', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({messages: [{role: 'user', content: valPrompt}], jsonOnly: true}),
-        });
-        const d = await r.json();
-        const raw = (d.response || '').trim();
-        const clean = raw.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
-        const s = clean.indexOf('{');
-        const en = clean.lastIndexOf('}');
-        if (s >= 0 && en > s) {
-          const p = JSON.parse(clean.slice(s, en + 1));
-          if (Array.isArray(p.warnings)) setImportValidationWarnings([...qualityWarnings, ...p.warnings]);
-        }
-      } catch (err) {}
-      setImportValidating(false);
       const meta = data.meta || {};
       const mismatchText = meta.totalMismatch
         ? '\n\nВнимание: итог файла ' + Number(meta.declaredTotal || 0).toLocaleString('ru-RU') + ' ₽, сумма разобранных строк ' + Number(meta.parsedTotal || 0).toLocaleString('ru-RU') + ' ₽. Строки НЕ умножались общим коэффициентом, чтобы не ломать оплату мастерам. Нужно разобрать итоговый блок/индексы работ и материалов отдельно.'
         : '';
       alertFn('Импортировано ' + data.count + ' позиций! ИИ проверяет смету в фоне — результат появится сверху.' + mismatchText);
+      void (async () => {
+        try {
+          if (diffBase) {
+            await queueEstimateDiffReviewTask(diffBase, estWithId, 'Импорт сметы');
+            await autoReconcileEstimateChanges(diffBase, estWithId, 'Импорт сметы');
+            await createEstimateReconciliation(diffBase, estWithId, {silent: true});
+          }
+          await queueEstimateQualityReviewTask(estWithId, 'Импорт сметы');
+          await queueEstimateNormReviewTask(estWithId, 'Импорт сметы', nextEstimates);
+          const items = Object.values(sections).flatMap(s => (s.items || []).map(i => ({
+            section: s.name,
+            name: i.name,
+            unit: i.unit,
+            qty: Number(i.quantity || 0),
+          })));
+          const valPrompt = 'Проверь смету "' + est.name + '" на типовые проблемы при импорте из Гранд Сметы. Позиции:\n' + JSON.stringify(items, null, 1) + '\n\nИЩИ:\n- Забытые сопутствующие работы (например штукатурка без грунтовки)\n- Возможные дубликаты позиций\n- Подозрительно большие или маленькие объёмы\n- Странные единицы измерения\n\nОТВЕТЬ СТРОГО JSON:\n{"warnings":[{"type":"забыто|дубль|объём|единица|другое","where":"раздел или позиция","message":"что не так","severity":"критично|внимание|совет"}]}\nЕсли всё хорошо — пиши {"warnings":[]}. Только JSON.';
+          const r = await fetchFn(API + '/ai-chat', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({messages: [{role: 'user', content: valPrompt}], jsonOnly: true}),
+          });
+          const d = await r.json();
+          const raw = (d.response || '').trim();
+          const clean = raw.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+          const s = clean.indexOf('{');
+          const en = clean.lastIndexOf('}');
+          if (s >= 0 && en > s) {
+            const p = JSON.parse(clean.slice(s, en + 1));
+            if (Array.isArray(p.warnings)) setImportValidationWarnings([...qualityWarnings, ...p.warnings]);
+          }
+        } catch (err) {
+          setImportValidationWarnings(prev => [...(prev || []), {
+            type: 'проверка',
+            where: est.name,
+            message: 'Смета сохранена, но фоновая проверка завершилась с ошибкой: ' + (err?.message || err),
+            severity: 'внимание',
+          }]);
+        } finally {
+          setImportValidating(false);
+        }
+      })();
     } catch (err) {
+      setImportValidating(false);
       alertFn('Ошибка импорта: ' + (err.message || err));
     } finally {
       e.target.value = '';
