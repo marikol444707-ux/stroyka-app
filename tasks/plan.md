@@ -321,10 +321,21 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 
 ## Focused Track: Safe Agent Automation
 
-- [x] Task A0: Make every existing director-agent read tool fail closed and constrain projects, warehouse, supply, estimates, finances, staff and AI tasks to the server-resolved company context. Implemented locally; manual production deploy and protected smoke remain pending.
-- [ ] Task A1: Add a durable background job/outbox with tenant context, idempotency, retries, audit and no direct model access to the database.
-- [ ] Task A2: Build a read-only director daily brief from deterministic tools; the model explains exceptions but cannot mutate business records.
-- [ ] Task A3: Add one `Требует внимания` queue so automatic checks replace separate AI/recalculate/reconcile buttons without hiding history or exports.
-- [ ] Task A4: Run estimate-revision impact analysis in shadow mode after Tasks E3-E6 provide stable assignment, supply and budget lineage.
-- [ ] Task A5: Add preview-only supply, warehouse, journal and accounting agent actions; every stock, payment, signed-document or estimate mutation remains human-confirmed.
-- [ ] Task A6: Put model access behind one provider-neutral AI gateway; use the current cloud model first and keep a later local model as a replaceable backend.
+- [x] ~~Task A0.1: Make every existing director-agent read tool fail closed and constrain projects, warehouse, supply, estimates, finances, staff and AI tasks to the server-resolved company context. Focused tests, full backend suite, frontend tests/build and a manual no-write dry-run passed.~~
+- [ ] Task A0.2: Manually deploy A0.1 and run a protected two-company production smoke, including the empty-context no-query case.
+- [ ] Task A1: Add a durable background job/outbox with tenant context, idempotency, retries, status, audit and failure isolation from normal application work.
+- [ ] Task A2: Define the agent execution contract: allowed tools, minimal model payload, time/cost limits and no direct model access to the database.
+- [ ] Task A3: Build a deterministic read-only director daily brief for each company/group: overdue work, shortages, documents, estimate deviations, payments and tasks.
+- [ ] Task A4: Add model explanations and in-app/MAX delivery to the daily brief without business-record mutations.
+- [ ] Task A5: Add one `Требует внимания` queue with reason, priority, owner, project and the next safe action.
+- [ ] Task A6: Run checks automatically after data changes and keep only resolve/approve commands visible; move history, export and rare actions to an overflow menu.
+- [ ] Task A7: After Tasks E3-E6, run estimate-revision impact analysis in shadow mode across assignments, materials, supply, warehouse and project economics.
+- [ ] Task A8: Add preview-only supply recommendations and RFQ drafts with exact source lineage.
+- [ ] Task A9: Add preview-only warehouse anomaly and reconciliation recommendations without automatic stock movement.
+- [ ] Task A10: Add preview-only assignment and daily-work-report drafts from confirmed source data.
+- [ ] Task A11: Add read-only accounting exception checks without creating or executing payments.
+- [ ] Task A12: Add controlled `preview -> human approval -> apply -> audit` actions; stock, payments, signed documents and estimates remain human-confirmed.
+- [ ] Task A13: Run the worker separately on the current rented server and monitor queue depth, errors, duration and cost.
+- [ ] Task A14: Put model access behind a provider-neutral gateway; keep the cloud model first and evaluate a local model only after quality/load/cost measurements.
+
+Close and strike through a task only after applicable focused tests, full backend/frontend verification, manual browser checks, tenant/role isolation and production smoke. Record the evidence in `tasks/todo.md`.
