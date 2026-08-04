@@ -1,11 +1,23 @@
 import {
   splitSupplierOffersByStatus,
+  supplyEstimateControlSnapshotLabel,
   supplyRequestEstimateGroupLabel,
   supplyRequestListGroup,
   supplyRequestSourceBucket,
   supplierRecipientLinkAction,
   supplierRecipientStatusSummary,
 } from './supplyUtils';
+
+describe('supplyEstimateControlSnapshotLabel', () => {
+  it('marks legacy control values as a creation-time snapshot', () => {
+    expect(supplyEstimateControlSnapshotLabel({})).toBe('Снимок расчёта на дату создания заявки');
+  });
+
+  it('shows that a timestamped control was recalculated', () => {
+    expect(supplyEstimateControlSnapshotLabel({ calculatedAt: '2026-08-04T10:15:00Z' }))
+      .toContain('Пересчитано:');
+  });
+});
 
 describe('splitSupplierOffersByStatus', () => {
   it('keeps working KP offers separate from withdrawn and rejected history', () => {

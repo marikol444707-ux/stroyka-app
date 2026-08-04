@@ -2,6 +2,7 @@ import React from 'react';
 import { Bot, Check, X } from 'lucide-react';
 import {
   splitSupplierOffersByStatus,
+  supplyEstimateControlSnapshotLabel,
   supplierRecipientLinkAction,
   supplierRecipientStatusSummary,
 } from '../../utils/supplyUtils';
@@ -203,7 +204,12 @@ function SupplyEstimateControlBlock({ C, items }) {
 
   return (
     <div style={{ marginTop: '10px', padding: '10px', borderRadius: '8px', border: '1.5px solid ' + C.border, backgroundColor: C.bg }}>
-      <b style={{ display: 'block', color: C.text, fontSize: '12px', marginBottom: '8px' }}>📐 Контроль по смете</b>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
+        <b style={{ color: C.text, fontSize: '12px' }}>📐 Контроль по смете</b>
+        <span style={{ color: C.textMuted, fontSize: '10px' }}>
+          {supplyEstimateControlSnapshotLabel(rows[0].control)}
+        </span>
+      </div>
       <div style={{ display: 'grid', gap: '6px' }}>
         {rows.map(({ item, control }, i) => {
           const [color, bg, border] = statusStyle(control.status);

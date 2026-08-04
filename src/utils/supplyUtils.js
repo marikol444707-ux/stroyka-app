@@ -100,6 +100,20 @@ export const supplyRequestHasReviewIssue = (req) => {
   });
 };
 
+export const supplyEstimateControlSnapshotLabel = (control = {}) => {
+  const raw = control.calculatedAt || control.calculated_at || '';
+  if (!raw) return 'Снимок расчёта на дату создания заявки';
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return 'Снимок расчёта на дату создания заявки';
+  return 'Пересчитано: ' + date.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
 export const supplyRequestSourceBucket = (req) => {
   if (supplyRequestHasReviewIssue(req)) return 'review';
   return supplyRequestOrigin(req) ? 'estimate' : 'manual';

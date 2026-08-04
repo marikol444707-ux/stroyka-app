@@ -8810,9 +8810,11 @@ def _supply_linked_work_estimate_control(cur, project: str, item: dict, work_pac
     return None
 
 def _attach_supply_estimate_control(cur, project: str, items: list, exclude_request_id=None, exclude_stock_by_key=None):
+    from datetime import datetime, timezone
     if not project:
         return items
     exclude_stock_by_key = exclude_stock_by_key or {}
+    calculated_at = datetime.now(timezone.utc).isoformat()
     for item in items or []:
         if not isinstance(item, dict):
             continue
@@ -8852,6 +8854,7 @@ def _attach_supply_estimate_control(cur, project: str, items: list, exclude_requ
         control["remainingAfterRequest"] = round(remaining_after, 6)
         if control["matchedRows"] > 0 and remaining_after < -max(0.01, control["plannedQty"] * 0.05):
             control["status"] = "over_estimate_need"
+        control["calculatedAt"] = calculated_at
         item["estimateControl"] = control
     return items
 
