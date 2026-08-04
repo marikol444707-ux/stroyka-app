@@ -24,6 +24,19 @@ class EstimatePostCreateBackgroundTest(unittest.TestCase):
 
         self.assertEqual(direct_calls, [])
         self.assertTrue(scheduled_calls)
+        scheduled_names = {
+            call.args[0].id
+            for call in scheduled_calls
+            if call.args and isinstance(call.args[0], ast.Name)
+        }
+        self.assertIn("_run_project_ai_control_safely", scheduled_names)
+        self.assertIn("_refresh_open_supply_controls_after_estimate_change", scheduled_names)
+        refresh_calls = [
+            node for node in ast.walk(create_estimate)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            and node.func.id == "_refresh_open_supply_controls_for_estimate"
+        ]
+        self.assertEqual(refresh_calls, [])
 
 
 if __name__ == "__main__":

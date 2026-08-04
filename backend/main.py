@@ -8873,6 +8873,29 @@ def _refresh_open_supply_controls_for_estimate(cur, project_name: str, company_i
         attach_control=_attach_supply_estimate_control,
     )
 
+def _refresh_open_supply_controls_after_estimate_change(project_name: str, company_id):
+    conn = None
+    cur = None
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        result = _refresh_open_supply_controls_for_estimate(cur, project_name, company_id)
+        conn.commit()
+        return result
+    except Exception as exc:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        print("SUPPLY CONTROL BACKGROUND REFRESH ERROR:", project_name, str(exc))
+        return {"scanned": 0, "updated": 0, "error": str(exc)}
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
 def _enforce_supply_estimate_control(
     items: list,
     *,
@@ -16624,11 +16647,11 @@ def create_estimate(
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
         (company_id,project_id,project_name,data.get("name",""),data.get("version","1.0"),j.dumps(sections,ensure_ascii=False),smeta_type,work_package,status))
     row = cur.fetchone()
-    supply_refresh = {"scanned": 0, "updated": 0}
-    if status == "Активная" and project_name:
-        supply_refresh = _refresh_open_supply_controls_for_estimate(cur, project_name, company_id)
+    supply_refresh = {"scanned": 0, "updated": 0, "pending": status == "Активная" and bool(project_name)}
     conn.commit()
     cur.close(); conn.close()
+    if status == "Активная" and project_name:
+        background_tasks.add_task(_refresh_open_supply_controls_after_estimate_change, project_name, company_id)
     if project_name:
         background_tasks.add_task(_run_project_ai_control_safely, project_name, "estimate:create")
     return {"id":row.get("id"),"ok":True,"supplyControlRefresh":supply_refresh}
