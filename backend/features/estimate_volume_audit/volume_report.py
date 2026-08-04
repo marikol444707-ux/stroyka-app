@@ -1,6 +1,7 @@
 """Read-only report for estimate rows that can distort procurement demand."""
 
 import json
+import os
 import re
 from collections import Counter, defaultdict
 
@@ -13,6 +14,7 @@ WORK_PREFIXES = (
     "прокладка", "замена", "подключение", "снятие", "ремонт",
 )
 MATERIAL_TYPES = {"material", "материал", "materials", "материалы"}
+MATERIAL_HINTS = ("затир", "доск", "кабель", "провод", "труба", "дюб", "смесь", "краск", "кирпич", "блок", "ввг")
 VOLUME_LIMITS = {
     "т": 1000,
     "м3": 10000,
@@ -69,6 +71,17 @@ def is_work_name(name):
     return any(text == prefix or text.startswith(prefix + " ") for prefix in WORK_PREFIXES)
 
 
+def is_material_candidate(item, name, raw_type):
+    if raw_type in MATERIAL_TYPES:
+        return True
+    if is_work_name(name):
+        return False
+    code = str(item.get("sourceCode") or item.get("obosn") or item.get("code") or "").strip()
+    resource_code = bool(re.match(r"^\d{2,}[-/]\d+|^\d{3,}$|^(ТЦ_|ФСБЦ|ФССЦ)", code, re.I))
+    text = name.lower()
+    return resource_code or any(hint in text for hint in MATERIAL_HINTS)
+
+
 def inspect_estimate_rows(estimates):
     findings = []
     material_rows = []
@@ -81,7 +94,7 @@ def inspect_estimate_rows(estimates):
                     continue
                 name = str(item.get("name") or "").strip()
                 raw_type = str(item.get("itemType") or item.get("type") or item.get("kind") or "").strip().lower()
-                if not name or raw_type not in MATERIAL_TYPES:
+                if not name or not is_material_candidate(item, name, raw_type):
                     continue
                 raw_qty, source_field = source_quantity(item)
                 factor, base_unit = unit_info(item.get("rawUnit") or item.get("unit"))
@@ -120,12 +133,44 @@ def inspect_estimate_rows(estimates):
                 row["reasons"].append("multiple_active_estimates")
                 if row not in findings:
                     findings.append(row)
-    return findings
+    return findings, material_rows
 
 
-def build_report(rows):
-    findings = inspect_estimate_rows(rows)
+def material_totals(material_rows):
+    grouped = defaultdict(list)
+    for row in material_rows:
+        key = (row["projectName"], row["workPackage"], row["name"].lower(), row["normalizedUnit"])
+        grouped[key].append(row)
+    totals = []
+    for same_rows in grouped.values():
+        first = same_rows[0]
+        total = sum(row["normalizedQuantity"] for row in same_rows)
+        totals.append({
+            "projectName": first["projectName"], "workPackage": first["workPackage"],
+            "name": first["name"], "unit": first["normalizedUnit"],
+            "totalQuantity": total, "sourceRowCount": len(same_rows), "sourceRows": same_rows[:30],
+        })
+    return totals
+
+
+def build_report(rows, search_terms=()):
+    findings, material_rows = inspect_estimate_rows(rows)
+    totals = material_totals(material_rows)
+    for total in totals:
+        limit = VOLUME_LIMITS.get(total["unit"], float("inf"))
+        if total["totalQuantity"] > limit:
+            findings.append({
+                "estimateId": None, "estimateName": "", "projectName": total["projectName"],
+                "workPackage": total["workPackage"], "sectionIndex": None, "sectionName": "",
+                "itemIndex": None, "name": total["name"], "itemType": "aggregate",
+                "sourceCode": "", "sourceQuantity": total["totalQuantity"], "sourceField": "sum",
+                "sourceUnit": total["unit"], "unitFactor": 1,
+                "normalizedQuantity": total["totalQuantity"], "normalizedUnit": total["unit"],
+                "reasons": ["aggregate_suspicious_volume"], "sourceRows": total["sourceRows"],
+            })
     reason_counts = Counter(reason for row in findings for reason in row["reasons"])
+    search_terms = tuple(term.strip().lower() for term in search_terms if term.strip())
+    matches = [total for total in totals if not search_terms or any(term in total["name"].lower() for term in search_terms)]
     return {
         "ok": True,
         "dryRun": True,
@@ -134,10 +179,11 @@ def build_report(rows):
         "byReason": dict(sorted(reason_counts.items())),
         "needsReview": findings[:PREVIEW_LIMIT],
         "reviewListTruncated": len(findings) > PREVIEW_LIMIT,
+        "matches": matches if search_terms else [],
     }
 
 
-def run_report(get_db):
+def run_report(get_db, search_terms=()):
     conn = get_db()
     try:
         conn.set_session(readonly=True, autocommit=False)
@@ -148,7 +194,7 @@ def run_report(get_db):
                           WHERE COALESCE(status,'Активная')='Активная'
                             AND COALESCE(smeta_type,'Заказчик') IN ('Заказчик','Материалы')
                           ORDER BY project_name,id""")
-            return build_report([dict(row) for row in cur.fetchall()])
+            return build_report([dict(row) for row in cur.fetchall()], search_terms=search_terms)
         finally:
             cur.close()
     finally:
@@ -160,7 +206,11 @@ def main():
         from backend.db import get_db
     except ModuleNotFoundError:
         from db import get_db
-    print(json.dumps(run_report(get_db), ensure_ascii=False, indent=2))
+    terms = os.getenv("ESTIMATE_VOLUME_AUDIT_FIND", "").split(",")
+    report = run_report(get_db, search_terms=terms)
+    if os.getenv("ESTIMATE_VOLUME_AUDIT_ONLY_MATCHES", "").lower() in {"1", "true", "yes"}:
+        report = {"ok": report["ok"], "dryRun": True, "writesAttempted": 0, "matches": report["matches"]}
+    print(json.dumps(report, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@ class EstimateVolumeAuditTest(unittest.TestCase):
             ]}]},
         ]
 
-        report = build_report(rows)
+        report = build_report(rows, search_terms=("затир",))
         by_name = {row["name"]: row for row in report["needsReview"] if row["estimateId"] == 1}
 
         self.assertIn("work_name_marked_as_material", by_name["Установка сплит-системы"]["reasons"])
@@ -24,6 +24,9 @@ class EstimateVolumeAuditTest(unittest.TestCase):
         self.assertIn("scaled_unit", by_name["Затирка"]["reasons"])
         self.assertIn("suspicious_volume", by_name["Затирка"]["reasons"])
         self.assertIn("multiple_active_estimates", by_name["Затирка"]["reasons"])
+        self.assertEqual(report["matches"][0]["totalQuantity"], 131207.113)
+        self.assertEqual(report["matches"][0]["sourceRowCount"], 2)
+        self.assertEqual(len(report["matches"][0]["sourceRows"]), 2)
         self.assertEqual(report["writesAttempted"], 0)
 
 
