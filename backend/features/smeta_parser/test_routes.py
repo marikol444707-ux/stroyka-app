@@ -1,4 +1,6 @@
 import unittest
+from io import BytesIO
+from inspect import iscoroutinefunction
 
 from backend.features.smeta_parser.routes import register_smeta_parser_module
 
@@ -17,10 +19,7 @@ class FakeApp:
 class FakeUpload:
     def __init__(self, filename, content=b""):
         self.filename = filename
-        self._content = content
-
-    async def read(self):
-        return self._content
+        self.file = BytesIO(content)
 
 
 class SmetaParserRouteTest(unittest.IsolatedAsyncioTestCase):
@@ -30,16 +29,17 @@ class SmetaParserRouteTest(unittest.IsolatedAsyncioTestCase):
 
     def test_registers_same_url(self):
         self.assertIn(("POST", "/parse-smeta"), self.app.routes)
+        self.assertFalse(iscoroutinefunction(self.app.routes[("POST", "/parse-smeta")]))
 
-    async def test_rejects_non_excel_extension(self):
+    def test_rejects_non_excel_extension(self):
         handler = self.app.routes[("POST", "/parse-smeta")]
-        result = await handler(file=FakeUpload("smeta.xls"), _current_user={})
+        result = handler(file=FakeUpload("smeta.xls"), _current_user={})
         self.assertIn("error", result)
         self.assertIn(".xlsx", result["error"])
 
-    async def test_rejects_oversized_file(self):
+    def test_rejects_oversized_file(self):
         handler = self.app.routes[("POST", "/parse-smeta")]
-        result = await handler(file=FakeUpload("smeta.xlsx", b"x" * (15 * 1024 * 1024 + 1)), _current_user={})
+        result = handler(file=FakeUpload("smeta.xlsx", b"x" * (15 * 1024 * 1024 + 1)), _current_user={})
         self.assertIn("error", result)
         self.assertIn("15", result["error"])
 

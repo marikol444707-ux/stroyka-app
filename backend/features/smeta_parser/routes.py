@@ -13,7 +13,7 @@ def register_smeta_parser_module(app, deps):
     get_current_user = deps["get_current_user"]
 
     @app.post("/parse-smeta")
-    async def parse_smeta(file: UploadFile = File(...), _current_user: dict = Depends(get_current_user)):
+    def parse_smeta(file: UploadFile = File(...), _current_user: dict = Depends(get_current_user)):
         import tempfile, os, re
         try:
             import openpyxl
@@ -27,7 +27,9 @@ def register_smeta_parser_module(app, deps):
         if ext not in SMETA_PARSE_ALLOWED_EXTENSIONS:
             return {"error": "Поддерживаются только Excel-файлы .xlsx/.xlsm. Старый .xls сначала сохраните как .xlsx."}
 
-        contents = await file.read()
+        # A sync FastAPI handler runs in its worker thread. openpyxl is synchronous,
+        # so this keeps a large estimate from blocking health checks and other users.
+        contents = file.file.read()
         if len(contents) > SMETA_PARSE_MAX_BYTES:
             return {"error": "Файл сметы превышает лимит 15 МБ. Разделите смету или загрузите документом без импорта."}
 
@@ -920,4 +922,3 @@ def register_smeta_parser_module(app, deps):
             except:
                 pass
             return {"error": str(e)}
-

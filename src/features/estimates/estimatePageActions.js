@@ -19,6 +19,14 @@ export const estimateImportFileError = (file) => {
   return '';
 };
 
+export const estimateImportRequestError = (error) => {
+  const raw = String(error?.message || error || '');
+  if (/504|gateway time-?out/i.test(raw)) {
+    return 'Сервер не успел разобрать Excel. Смета не сохранена. Повторите загрузку один раз; если ошибка повторится, сообщите название файла.';
+  }
+  return raw;
+};
+
 export function createEstimatePageActions({
   API,
   ROLE_LABELS,
@@ -309,7 +317,7 @@ export function createEstimatePageActions({
       })();
     } catch (err) {
       setImportValidating(false);
-      alertFn('Ошибка импорта: ' + (err.message || err));
+      alertFn('Ошибка импорта: ' + estimateImportRequestError(err));
     } finally {
       e.target.value = '';
     }
