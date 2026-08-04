@@ -318,3 +318,13 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [ ] Task E4: Build a reviewed `old row -> new row` transfer that moves only uncompleted assignment and open-request balances; never move confirmed JPR, signed acts, warehouse history or payments.
 - [ ] Task E5: Make active-estimate material control use stored `company_id + project_id` throughout instead of project name, then add cross-company collision tests.
 - [ ] Task E6: Add an explicit approved budget-adjustment event so a new estimate total can update project economics without rewriting accounting history.
+
+## Focused Track: Safe Agent Automation
+
+- [x] Task A0: Make every existing director-agent read tool fail closed and constrain projects, warehouse, supply, estimates, finances, staff and AI tasks to the server-resolved company context. Implemented locally; manual production deploy and protected smoke remain pending.
+- [ ] Task A1: Add a durable background job/outbox with tenant context, idempotency, retries, audit and no direct model access to the database.
+- [ ] Task A2: Build a read-only director daily brief from deterministic tools; the model explains exceptions but cannot mutate business records.
+- [ ] Task A3: Add one `Требует внимания` queue so automatic checks replace separate AI/recalculate/reconcile buttons without hiding history or exports.
+- [ ] Task A4: Run estimate-revision impact analysis in shadow mode after Tasks E3-E6 provide stable assignment, supply and budget lineage.
+- [ ] Task A5: Add preview-only supply, warehouse, journal and accounting agent actions; every stock, payment, signed-document or estimate mutation remains human-confirmed.
+- [ ] Task A6: Put model access behind one provider-neutral AI gateway; use the current cloud model first and keep a later local model as a replaceable backend.

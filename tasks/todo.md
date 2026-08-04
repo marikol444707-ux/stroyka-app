@@ -3218,3 +3218,26 @@ Process note 2026-07-28: one commit briefly landed with two red tests because th
 - [x] Focused Jest coverage passes for pair selection, payload aggregation, compact documents, activation and import ordering.
 
 **Known next risks:** brigade assignment rows do not yet store their source `estimate_id`; imported row keys change between revisions; active-estimate material control still has project-name-only queries that must be made company/project scoped before multi-company pilots.
+
+## Task A0: Tenant-Scope Director Agent Read Tools
+
+**Description:** Keep the existing director assistant read-only while passing the server-resolved selected-company list into every tool. Projects, main/object warehouse, supply requests/deliveries/claims, estimates, finances, staff memberships and AI tasks must fail closed when no company is selected and must never fall back to a global query.
+
+**Status:** Implemented locally on 2026-08-05. Manual production deploy and protected read-only smoke remain pending.
+
+**Safety:**
+- The model still has no write tools and no direct database access.
+- Empty or malformed company IDs produce empty payloads and execute no business queries.
+- Supply claims are scoped through their stored request or delivery parent because the legacy claim table has no direct `company_id`.
+- Staff role totals come from active `user_company_roles` memberships, not the legacy single `users.company_id` field.
+- The route passes the same normalized company list to every registered tool, so future tools cannot rely on a special-case dispatch branch.
+
+**Verification:**
+- [x] Regression tests first failed against the unscoped implementation, then passed after the fix (`3` tests).
+- [x] Related company-context, AI, supply and warehouse suites pass (`80` tests).
+- [x] Full backend discovery passes (`1020` tests) and `backend/main.py` compiles.
+- [x] Full frontend Jest command exits successfully and the production build compiles.
+- [x] Manual no-write dry-run inspected every generated query with company `4`; empty scope executed `0` queries.
+- [ ] After manual deploy, run a protected two-company read-only smoke and verify no foreign project, estimate, stock, request or staff row reaches the model.
+
+**Estimated scope:** S

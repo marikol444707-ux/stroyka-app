@@ -2651,6 +2651,17 @@ def _director_agent_json(value, fallback=None):
     except Exception:
         return fallback
 
+def _director_agent_company_ids(values) -> list[int]:
+    company_ids = set()
+    for value in values or []:
+        try:
+            company_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if company_id > 0:
+            company_ids.add(company_id)
+    return sorted(company_ids)
+
 def _director_agent_query(sql: str, params: tuple = ()) -> list[dict]:
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -2660,16 +2671,19 @@ def _director_agent_query(sql: str, params: tuple = ()) -> list[dict]:
     finally:
         cur.close(); conn.close()
 
-def _director_agent_tool_projects(args):
+def _director_agent_tool_projects(args, company_ids=None):
+    company_ids = _director_agent_company_ids(company_ids)
+    if not company_ids:
+        return []
     search = str((args or {}).get("search") or "").strip()
-    params = []
-    where = ""
+    params = [company_ids]
+    where = ["company_id = ANY(%s)"]
     if search:
-        where = "WHERE name ILIKE %s OR client ILIKE %s"
-        params = ["%" + search + "%", "%" + search + "%"]
+        where.append("(name ILIKE %s OR client ILIKE %s)")
+        params.extend(["%" + search + "%", "%" + search + "%"])
     rows = _director_agent_query(
         f"""SELECT name, client, status, budget, progress, deadline
-            FROM projects {where}
+            FROM projects WHERE {' AND '.join(where)}
             ORDER BY archived ASC NULLS FIRST, id DESC
             LIMIT 40""",
         tuple(params),
@@ -2686,23 +2700,26 @@ def _director_agent_tool_projects(args):
         for r in rows
     ]
 
-def _director_agent_tool_warehouse(args):
+def _director_agent_tool_warehouse(args, company_ids=None):
+    company_ids = _director_agent_company_ids(company_ids)
+    if not company_ids:
+        return {"mainWarehouse": [], "objectMaterials": []}
     search = str((args or {}).get("search") or "").strip()
-    params = []
-    where = ""
+    params = [company_ids]
+    where = ["company_id = ANY(%s)"]
     if search:
-        where = "WHERE name ILIKE %s"
-        params = ["%" + search + "%"]
+        where.append("name ILIKE %s")
+        params.append("%" + search + "%")
     main_rows = _director_agent_query(
         f"""SELECT name, quantity, unit, price, min_quantity, category
-            FROM warehouse_main {where}
+            FROM warehouse_main WHERE {' AND '.join(where)}
             ORDER BY COALESCE(quantity,0) ASC, name
             LIMIT 40""",
         tuple(params),
     )
     object_rows = _director_agent_query(
         f"""SELECT name, quantity, unit, price, project, category
-            FROM materials {where}
+            FROM materials WHERE {' AND '.join(where)}
             ORDER BY project, name
             LIMIT 60""",
         tuple(params),
@@ -2730,23 +2747,40 @@ def _director_agent_tool_warehouse(args):
         ],
     }
 
-def _director_agent_tool_supply(args):
+def _director_agent_tool_supply(args, company_ids=None):
+    company_ids = _director_agent_company_ids(company_ids)
+    if not company_ids:
+        return {"requestStatusCounts": {}, "recentRequests": [], "recentDeliveries": [], "openClaims": []}
     request_rows = _director_agent_query(
         """SELECT id, project, material_name, quantity, unit, status, urgency,
                   created_by, created_at, items_json
            FROM supply_requests
-           ORDER BY id DESC LIMIT 60"""
+           WHERE company_id = ANY(%s)
+           ORDER BY id DESC LIMIT 60""",
+        (company_ids,),
     )
     delivery_rows = _director_agent_query(
         """SELECT id, project, material_name, planned_quantity, shipped_quantity,
                   received_quantity, unit, supplier_name, status, quality_status, created_at
            FROM supply_deliveries
-           ORDER BY id DESC LIMIT 50"""
+           WHERE company_id = ANY(%s)
+           ORDER BY id DESC LIMIT 50""",
+        (company_ids,),
     )
     claim_rows = _director_agent_query(
-        """SELECT id, project, material_name, claim_type, status, shortage_quantity, created_at
-           FROM supply_claims
-           ORDER BY id DESC LIMIT 30"""
+        """SELECT c.id, c.project, c.material_name, c.claim_type, c.status,
+                  c.shortage_quantity, c.created_at
+           FROM supply_claims c
+           WHERE EXISTS (
+                   SELECT 1 FROM supply_requests r
+                   WHERE r.id=c.request_id AND r.company_id = ANY(%s)
+               )
+              OR EXISTS (
+                   SELECT 1 FROM supply_deliveries d
+                   WHERE d.id=c.delivery_id AND d.company_id = ANY(%s)
+               )
+           ORDER BY c.id DESC LIMIT 30""",
+        (company_ids, company_ids),
     )
     status_counts = {}
     for r in request_rows:
@@ -2802,12 +2836,17 @@ def _director_agent_tool_supply(args):
         ][:20],
     }
 
-def _director_agent_tool_estimates(args):
+def _director_agent_tool_estimates(args, company_ids=None):
+    company_ids = _director_agent_company_ids(company_ids)
+    if not company_ids:
+        return []
     rows = _director_agent_query(
         """SELECT id, name, project_name, version, status, smeta_type, work_package, sections_json, created_at
            FROM estimates
-           WHERE COALESCE(is_template,FALSE)=FALSE
-           ORDER BY id DESC LIMIT 30"""
+           WHERE company_id = ANY(%s)
+             AND COALESCE(is_template,FALSE)=FALSE
+           ORDER BY id DESC LIMIT 30""",
+        (company_ids,),
     )
     out = []
     for r in rows:
@@ -2850,12 +2889,7 @@ def _director_agent_tool_estimates(args):
     return out
 
 def _director_agent_tool_finances(args, company_ids=None):
-    company_ids = sorted({
-        company_id
-        for value in company_ids or []
-        for company_id in [_positive_int_or_none(value)]
-        if company_id
-    })
+    company_ids = _director_agent_company_ids(company_ids)
     if not company_ids:
         return []
     project = str((args or {}).get("project") or "").strip()
@@ -2898,18 +2932,27 @@ def _director_agent_tool_finances(args, company_ids=None):
         for p in projects
     ]
 
-def _director_agent_tool_staff(args):
+def _director_agent_tool_staff(args, company_ids=None):
+    company_ids = _director_agent_company_ids(company_ids)
+    if not company_ids:
+        return {"roleCounts": [], "staff": []}
     staff_rows = _director_agent_query(
         """SELECT name, role, project, specialization
            FROM staff
-           ORDER BY project, role, name LIMIT 80"""
+           WHERE company_id = ANY(%s)
+           ORDER BY project, role, name LIMIT 80""",
+        (company_ids,),
     )
     user_rows = _director_agent_query(
-        """SELECT role, COUNT(*) AS cnt
-           FROM users
-           WHERE COALESCE(active, TRUE)=TRUE
-           GROUP BY role
-           ORDER BY role"""
+        """SELECT m.role, COUNT(DISTINCT m.user_id) AS cnt
+           FROM user_company_roles m
+           JOIN users u ON u.id=m.user_id
+           WHERE m.company_id = ANY(%s)
+             AND COALESCE(m.active, TRUE)=TRUE
+             AND COALESCE(u.active, TRUE)=TRUE
+           GROUP BY m.role
+           ORDER BY m.role""",
+        (company_ids,),
     )
     return {
         "roleCounts": [{"role": r.get("role") or "", "count": int(r.get("cnt") or 0)} for r in user_rows],
@@ -2925,14 +2968,7 @@ def _director_agent_tool_staff(args):
     }
 
 def _director_agent_tool_ai_tasks(args, company_ids=None):
-    scoped_company_ids = []
-    for value in company_ids or []:
-        try:
-            company_id = int(value)
-        except (TypeError, ValueError):
-            continue
-        if company_id > 0 and company_id not in scoped_company_ids:
-            scoped_company_ids.append(company_id)
+    scoped_company_ids = _director_agent_company_ids(company_ids)
     if not scoped_company_ids:
         return {"openStatusCounts": {}, "tasks": []}
     rows = _director_agent_query(
@@ -3086,10 +3122,7 @@ def director_agent_ask(
             return {"answer": "Неизвестный инструмент: " + str(tool), "steps": steps, "model": "yandexgpt-lite"}
         args = parsed.get("args") or {}
         try:
-            if tool in ("finances", "ai_tasks"):
-                result = DIRECTOR_AGENT_TOOLS[tool]["fn"](args, request_company_ids)
-            else:
-                result = DIRECTOR_AGENT_TOOLS[tool]["fn"](args)
+            result = DIRECTOR_AGENT_TOOLS[tool]["fn"](args, request_company_ids)
         except Exception as e:
             result = {"error": str(e)}
         steps.append({"tool": tool, "args": args})
