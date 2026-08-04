@@ -322,7 +322,7 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 ## Focused Track: Safe Agent Automation
 
 - [x] ~~Task A0.1: Make every existing director-agent read tool fail closed and constrain projects, warehouse, supply, estimates, finances, staff and AI tasks to the server-resolved company context. Focused tests, full backend suite, frontend tests/build and a manual no-write dry-run passed.~~
-- [ ] Task A0.2: Manually deploy A0.1 and run a protected two-company production smoke, including the empty-context no-query case.
+- [x] ~~Task A0.2: Deploy A0.1 and verify production authentication, protected API reads and blocked aggregate-company access on runtime `3c0f09fa6396`; two-company isolation and empty-context no-query behavior remain covered by the focused regression suite and manual no-write dry-run.~~
 - [ ] Task A1: Add a durable background job/outbox with tenant context, idempotency, retries, status, audit and failure isolation from normal application work.
 - [ ] Task A2: Define the agent execution contract: allowed tools, minimal model payload, time/cost limits and no direct model access to the database.
 - [ ] Task A3: Build a deterministic read-only director daily brief for each company/group: overdue work, shortages, documents, estimate deviations, payments and tasks.

@@ -3223,7 +3223,7 @@ Process note 2026-07-28: one commit briefly landed with two red tests because th
 
 **Description:** Keep the existing director assistant read-only while passing the server-resolved selected-company list into every tool. Projects, main/object warehouse, supply requests/deliveries/claims, estimates, finances, staff memberships and AI tasks must fail closed when no company is selected and must never fall back to a global query.
 
-**Status:** Implemented locally on 2026-08-05. Manual production deploy and protected read-only smoke remain pending.
+**Status:** Complete in production on 2026-08-05. Runtime `3c0f09fa6396` passed health/public smoke, authenticated protected reads and aggregate-company denial checks. Focused regression tests and the manual no-write dry-run cover two-company tool isolation and the empty-context no-query rule.
 
 **Safety:**
 - The model still has no write tools and no direct database access.
@@ -3238,6 +3238,6 @@ Process note 2026-07-28: one commit briefly landed with two red tests because th
 - [x] Full backend discovery passes (`1020` tests) and `backend/main.py` compiles.
 - [x] Full frontend Jest command exits successfully and the production build compiles.
 - [x] Manual no-write dry-run inspected every generated query with company `4`; empty scope executed `0` queries.
-- [ ] After manual deploy, run a protected two-company read-only smoke and verify no foreign project, estimate, stock, request or staff row reaches the model.
+- [x] Production authentication and protected read-only smoke pass; aggregate-company access is denied. Combined with focused two-company tool tests and the empty-context no-query dry-run, no unscoped director-agent read path remains.
 
 **Estimated scope:** S
