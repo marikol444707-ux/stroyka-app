@@ -238,6 +238,11 @@ except ModuleNotFoundError:
     from features.project_payment_access.service import project_payment_visibility_filter
 
 try:
+    from backend.features.agent_jobs.schema import ensure_agent_jobs_schema
+except ModuleNotFoundError:
+    from features.agent_jobs.schema import ensure_agent_jobs_schema
+
+try:
     from backend.features.warehouse_receipts.policy import (
         WarehouseReceiptPolicyError,
         build_internal_receipt_number,
@@ -5777,6 +5782,7 @@ def init_db():
     conn.close()
 
 init_db()
+ensure_agent_jobs_schema(get_db)
 
 PROJECT_PUBLIC_SELECT = """
 COALESCE(public_show_on_site,false) as "publicShowOnSite",

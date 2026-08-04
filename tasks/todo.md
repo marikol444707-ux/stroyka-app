@@ -3241,3 +3241,42 @@ Process note 2026-07-28: one commit briefly landed with two red tests because th
 - [x] Production authentication and protected read-only smoke pass; aggregate-company access is denied. Combined with focused two-company tool tests and the empty-context no-query dry-run, no unscoped director-agent read path remains.
 
 **Estimated scope:** S
+
+## Task A1.1: Tenant-Scoped Agent Job Kernel
+
+**Description:** Add the durable storage and enqueue boundary for future agent
+work without starting a worker or calling an AI model. A job belongs to exactly
+one company and optionally one project; repeated requests in different projects
+cannot collide.
+
+**Status:** Local implementation complete on 2026-08-05. Production deployment
+and the read-only schema audit remain open as Task A1.2.
+
+**Safety:**
+- `agent_jobs` is separate from MAX delivery outbox and existing business
+  tables; this slice does not execute jobs or mutate estimates, warehouse,
+  supply, assignments or accounting records.
+- Company and project ownership are mandatory and validated before insert.
+  Human authors require an active matching `user_company_roles` membership.
+- Idempotency is unique per company, project scope, job type and key, so a
+  repeated request returns its existing job without resetting attempts/status.
+- Payload is JSON-only, limited to 64 KiB and rejects nested password, token,
+  secret, cookie, authorization, API-key and private-key fields.
+- Queue fields already reserve bounded attempts, run time, lease, heartbeat,
+  result, error and correlation data for the next worker slice.
+
+**Verification:**
+- [x] Regression tests failed before project-scoped idempotency and actor
+  membership validation, then passed after implementation (`15` focused tests).
+- [x] Full backend discovery passes (`1035` tests).
+- [x] Full frontend Jest passes (`289` tests) and the production build compiles.
+- [x] Independent review finding for cross-project idempotency collision is
+  fixed; sensitive payload rejection is covered by regression tests.
+- [x] The new `agent_jobs` tenant-registry entry passes registry rules; the
+  global `audit:m6` remains red only for four pre-existing `M7l` stage entries
+  (`tools`, `tool_history`, `inventory`, `inventory_items`).
+- [ ] After deployment, run `npm run audit:agent-jobs` and require
+  `tableExists=true`, empty `missingColumns`/`missingIndexes`/
+  `missingConstraints`, zero invalid rows and `readyForWorker=true`.
+
+**Estimated scope:** S
