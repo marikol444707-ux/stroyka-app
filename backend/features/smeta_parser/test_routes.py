@@ -2,6 +2,8 @@ import unittest
 from io import BytesIO
 from inspect import iscoroutinefunction
 
+import openpyxl
+
 from backend.features.smeta_parser.routes import register_smeta_parser_module
 
 
@@ -42,6 +44,21 @@ class SmetaParserRouteTest(unittest.IsolatedAsyncioTestCase):
         result = handler(file=FakeUpload("smeta.xlsx", b"x" * (15 * 1024 * 1024 + 1)), _current_user={})
         self.assertIn("error", result)
         self.assertIn("15", result["error"])
+
+    def test_rejects_completed_work_act_as_estimate(self):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet["A1"] = "Акт о приемке выполненных работ № 7"
+        sheet["A2"] = "Наименование работ"
+        content = BytesIO()
+        workbook.save(content)
+
+        handler = self.app.routes[("POST", "/parse-smeta")]
+        result = handler(file=FakeUpload("выполнение.xlsx", content.getvalue()), _current_user={})
+
+        self.assertIn("error", result)
+        self.assertIn("акт", result["error"].lower())
+        self.assertIn("ЛСР", result["error"])
 
 
 if __name__ == "__main__":

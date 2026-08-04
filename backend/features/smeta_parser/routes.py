@@ -45,6 +45,19 @@ def register_smeta_parser_module(app, deps):
             data_start_row = 1
             file_type = "unknown"
             header_rows = list(ws.iter_rows(max_row=80, values_only=True))
+            document_header_text = " ".join(
+                str(value)
+                for row in header_rows[:15]
+                for value in row
+                if value is not None
+            ).lower().replace("ё", "е")
+            if "акт о приемке выполненных работ" in document_header_text:
+                os.unlink(tmp_path)
+                return {
+                    "error": "Выбран акт о приемке выполненных работ, а не смета. "
+                             "Не загружайте выполненные объемы как новый план. "
+                             "Для пересчета сметы выберите исходный файл ЛСР/СК с откорректированными плановыми объемами."
+                }
             lsr_header_row_idx = None
         
             for i, row in enumerate(header_rows[:60]):
