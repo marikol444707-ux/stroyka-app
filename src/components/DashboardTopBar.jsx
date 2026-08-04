@@ -62,7 +62,7 @@ export default function DashboardTopBar({
   };
 
   return (
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:phoneLike?'flex-start':'center',marginBottom:phoneLike?'18px':'28px',flexWrap:'wrap',gap:phoneLike?'10px':'12px',width:'100%',minWidth:0,boxSizing:'border-box',overflowX:'hidden'}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:phoneLike?'flex-start':'center',marginBottom:phoneLike?'18px':'28px',flexWrap:'wrap',gap:phoneLike?'10px':'12px',width:'100%',minWidth:0,boxSizing:'border-box',overflow:phoneLike?'hidden':'visible'}}>
       <div style={{width:phoneLike?'100%':'auto',minWidth:0}}>
         <h1 style={{fontSize:phoneLike?'23px':'28px',lineHeight:1.08,fontWeight:'800',letterSpacing:0,margin:0,color:'#f8fafc',overflowWrap:'anywhere'}}>Центр управления стройкой</h1>
         <p style={{color:'#94a3b8',margin:'6px 0 0',fontSize:phoneLike?'13px':'14px',lineHeight:1.35,overflowWrap:'anywhere'}}>Контроль объектов, финансов, склада и рисков</p>
