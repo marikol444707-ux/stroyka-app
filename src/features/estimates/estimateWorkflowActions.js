@@ -286,17 +286,29 @@ export const createEstimateWorkflowActions = ({
   };
 
   const deleteEstimateRemote = async (est) => {
-    if (!est?.id) return;
+    if (!est?.id) return false;
     const title = est.name || 'смету';
-    if (!confirmFn('Удалить смету "' + title + '" безвозвратно? Это действие доступно только директору. Если смета уже связана с ЖПР, АОСР, договорными позициями или материалами, сервер не даст удалить ее, чтобы не потерять историю объекта.')) return;
-    const res = await fetchFn(API + '/estimates/' + est.id + '?hard=true', {method: 'DELETE'});
+    if (!confirmFn('Удалить смету "' + title + '" безвозвратно? Это действие доступно только директору. Если смета уже связана с ЖПР, АОСР, договорными позициями или материалами, сервер не даст удалить ее, чтобы не потерять историю объекта.')) return false;
+    let res;
+    try {
+      res = await fetchFn(API + '/estimates/' + est.id + '?hard=true', {method: 'DELETE'});
+    } catch (error) {
+      alertFn('Не удалось связаться с сервером для удаления сметы: ' + (error?.message || error));
+      return false;
+    }
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      alertFn(data.detail || 'Не удалось удалить смету');
-      return;
+      alertFn(data.detail || 'Не удалось удалить смету' + (res.status ? ' (HTTP ' + res.status + ')' : ''));
+      return false;
     }
     setEstimatesList(prev => (prev || []).filter(e => e.id !== est.id));
     setSelectedEstimate(prev => prev && prev.id === est.id ? null : prev);
+    setEstimateReconciliations(prev => (prev || []).filter(rec =>
+      Number(rec?.baseEstimateId || 0) !== Number(est.id)
+      && Number(rec?.nextEstimateId || 0) !== Number(est.id)
+    ));
+    notify('Черновик сметы удалён: ' + title, 'estimate');
+    return true;
   };
 
   return {

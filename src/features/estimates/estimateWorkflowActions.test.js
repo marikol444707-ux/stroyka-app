@@ -91,13 +91,14 @@ describe('estimate workflow detail loading', () => {
   it('deletes a confirmed unused draft through the explicit hard-delete endpoint', async () => {
     const setEstimatesList = jest.fn();
     const setSelectedEstimate = jest.fn();
+    const setEstimateReconciliations = jest.fn();
     const fetchFn = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, id: 7 }) });
     const actions = createEstimateWorkflowActions({
       API: 'https://example.test',
       estimatesList: [{ id: 7, name: 'Лишний черновик', status: 'Черновик' }],
       setEstimatesList,
       setSelectedEstimate,
-      setEstimateReconciliations: jest.fn(),
+      setEstimateReconciliations,
       fetchFn,
       confirmFn: () => true,
     });
@@ -107,5 +108,23 @@ describe('estimate workflow detail loading', () => {
     expect(fetchFn).toHaveBeenCalledWith('https://example.test/estimates/7?hard=true', { method: 'DELETE' });
     expect(setEstimatesList).toHaveBeenCalled();
     expect(setSelectedEstimate).toHaveBeenCalled();
+    expect(setEstimateReconciliations).toHaveBeenCalled();
+  });
+
+  it('shows a useful message when the delete request cannot reach the server', async () => {
+    const alertFn = jest.fn();
+    const actions = createEstimateWorkflowActions({
+      API: 'https://example.test',
+      estimatesList: [{ id: 7, name: 'Лишний черновик', status: 'Черновик' }],
+      setEstimatesList: jest.fn(),
+      setSelectedEstimate: jest.fn(),
+      setEstimateReconciliations: jest.fn(),
+      fetchFn: jest.fn().mockRejectedValue(new Error('network timeout')),
+      alertFn,
+      confirmFn: () => true,
+    });
+
+    await expect(actions.deleteEstimateRemote({ id: 7, name: 'Лишний черновик', status: 'Черновик' })).resolves.toBe(false);
+    expect(alertFn).toHaveBeenCalledWith(expect.stringContaining('network timeout'));
   });
 });

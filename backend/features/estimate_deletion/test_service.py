@@ -1,6 +1,10 @@
 import unittest
 
-from .service import _contains_estimate_lineage, find_estimate_delete_blockers
+from .service import (
+    _contains_estimate_lineage,
+    delete_estimate_technical_records,
+    find_estimate_delete_blockers,
+)
 
 
 class Cursor:
@@ -8,8 +12,10 @@ class Cursor:
         self.counts = iter(counts)
         self.supply_rows = list(supply_rows)
         self.last_supply = False
+        self.calls = []
 
-    def execute(self, query, _params):
+    def execute(self, query, params):
+        self.calls.append((" ".join(query.split()), params))
         self.last_supply = "FROM supply_requests" in query
 
     def fetchone(self):
@@ -21,13 +27,34 @@ class Cursor:
 
 class EstimateDeletePolicyTests(unittest.TestCase):
     def test_unused_draft_has_no_blockers(self):
-        blockers = find_estimate_delete_blockers(Cursor([0] * 8), estimate_id=17, company_id=1, project_name="Школа")
+        blockers = find_estimate_delete_blockers(Cursor([0] * 7), estimate_id=17, company_id=1, project_name="Школа")
         self.assertEqual(blockers, [])
 
+    def test_technical_version_history_does_not_block_unused_draft_deletion(self):
+        cursor = Cursor([0] * 7)
+        blockers = find_estimate_delete_blockers(cursor, estimate_id=17, company_id=1, project_name="Школа")
+        self.assertEqual(blockers, [])
+        self.assertFalse(any("FROM estimate_versions" in query for query, _params in cursor.calls))
+
+    def test_non_draft_reconciliation_blocks_deletion(self):
+        blockers = find_estimate_delete_blockers(Cursor([1] + [0] * 6), estimate_id=17, company_id=1, project_name="Школа")
+        self.assertEqual(blockers, ["сверки смет на проверке или утверждении"])
+
     def test_work_document_blocks_deletion(self):
-        blockers = find_estimate_delete_blockers(Cursor([0, 0, 0, 1, 0, 0, 0, 0]), estimate_id=17, company_id=1, project_name="Школа")
+        blockers = find_estimate_delete_blockers(Cursor([0, 0, 1, 0, 0, 0, 0]), estimate_id=17, company_id=1, project_name="Школа")
         self.assertEqual(blockers, ["записи ЖПР"])
 
     def test_nested_supply_lineage_blocks_deletion(self):
         self.assertTrue(_contains_estimate_lineage({"estimateLineage": {"estimateId": 17}}, 17))
         self.assertFalse(_contains_estimate_lineage({"estimateLineage": {"estimateId": 18}}, 17))
+
+    def test_deletes_only_technical_history_and_draft_reconciliations(self):
+        cursor = Cursor([])
+
+        delete_estimate_technical_records(cursor, estimate_id=17)
+
+        statements = [query for query, _params in cursor.calls]
+        self.assertTrue(any("DELETE FROM project_documents" in query for query in statements))
+        self.assertTrue(any("DELETE FROM estimate_reconciliations" in query for query in statements))
+        self.assertTrue(any("DELETE FROM estimate_versions" in query for query in statements))
+        self.assertTrue(all("Черновик" in query or "estimate_versions" in query for query in statements))

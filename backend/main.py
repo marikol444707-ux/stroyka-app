@@ -17361,9 +17361,15 @@ def delete_estimate(
         if (row.get("status") or "Черновик") != "Черновик":
             raise HTTPException(status_code=409, detail="Удалять можно только черновик. Активную смету сначала снимите с активности.")
         try:
-            from backend.features.estimate_deletion.service import find_estimate_delete_blockers
+            from backend.features.estimate_deletion.service import (
+                delete_estimate_technical_records,
+                find_estimate_delete_blockers,
+            )
         except ModuleNotFoundError:
-            from features.estimate_deletion.service import find_estimate_delete_blockers
+            from features.estimate_deletion.service import (
+                delete_estimate_technical_records,
+                find_estimate_delete_blockers,
+            )
         blockers = find_estimate_delete_blockers(
             cur,
             estimate_id=estimate["id"],
@@ -17375,6 +17381,7 @@ def delete_estimate(
                 status_code=409,
                 detail="Смета уже используется: " + ", ".join(blockers) + ". Оставьте её в архиве, чтобы не потерять историю объекта.",
             )
+        delete_estimate_technical_records(cur, estimate_id=estimate["id"])
         cur.execute("DELETE FROM estimates WHERE id=%s AND company_id=%s", (estimate["id"], estimate["companyId"]))
         if cur.rowcount != 1:
             raise HTTPException(status_code=409, detail="Смету не удалось удалить: запись изменилась, обновите список")
