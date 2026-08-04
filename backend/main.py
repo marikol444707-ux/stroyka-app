@@ -8483,7 +8483,10 @@ def _material_units_compatible(unit_a: str = "", unit_b: str = "") -> bool:
     return not base_a or not base_b or base_a == base_b
 
 def _supply_material_estimate_control(cur, project: str, material_name: str, unit: str = "", work_package: str = "", exclude_request_id=None, exclude_stock_qty: float = 0.0):
-    from backend.features.estimate_material_plan.service import is_resource_adjustment, material_plan_contribution
+    try:
+        from backend.features.estimate_material_plan.service import is_resource_adjustment, material_plan_contribution
+    except ModuleNotFoundError:
+        from features.estimate_material_plan.service import is_resource_adjustment, material_plan_contribution
     project = (project or "").strip()
     material_name = (material_name or "").strip()
     if not project or not material_name:
@@ -8857,6 +8860,18 @@ def _attach_supply_estimate_control(cur, project: str, items: list, exclude_requ
         control["calculatedAt"] = calculated_at
         item["estimateControl"] = control
     return items
+
+def _refresh_open_supply_controls_for_estimate(cur, project_name: str, company_id):
+    try:
+        from backend.features.supply_estimate_refresh.service import refresh_open_supply_request_controls
+    except ModuleNotFoundError:
+        from features.supply_estimate_refresh.service import refresh_open_supply_request_controls
+    return refresh_open_supply_request_controls(
+        cur,
+        project_name=project_name,
+        company_id=company_id,
+        attach_control=_attach_supply_estimate_control,
+    )
 
 def _enforce_supply_estimate_control(
     items: list,
@@ -16607,11 +16622,14 @@ def create_estimate(
                    (company_id,project_id,project_name,name,version,sections_json,smeta_type,work_package,status)
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
         (company_id,project_id,project_name,data.get("name",""),data.get("version","1.0"),j.dumps(sections,ensure_ascii=False),smeta_type,work_package,status))
-    conn.commit()
     row = cur.fetchone()
+    supply_refresh = {"scanned": 0, "updated": 0}
+    if status == "Активная" and project_name:
+        supply_refresh = _refresh_open_supply_controls_for_estimate(cur, project_name, company_id)
+    conn.commit()
     cur.close(); conn.close()
     _run_project_ai_control_safely(project_name, "estimate:create")
-    return {"id":row.get("id"),"ok":True}
+    return {"id":row.get("id"),"ok":True,"supplyControlRefresh":supply_refresh}
 
 @app.put("/estimates/{id}")
 def update_estimate(
@@ -17149,10 +17167,23 @@ def update_estimate(
     except Exception as e:
         print("BRIGADE-SYNC ERROR:", str(e))
 
+    supply_refresh = {"scanned": 0, "updated": 0}
+    estimate_materials_changed = not _sections_equal_except_done(old_sections, new_sections)
+    estimate_scope_changed = (
+        new_status != prev_status
+        or new_smeta_type != (prev[4] or "Заказчик")
+        or new_work_package != current_work_package
+    )
+    if new_status == "Активная" and project_name and (estimate_materials_changed or estimate_scope_changed):
+        supply_refresh = _refresh_open_supply_controls_for_estimate(
+            cur,
+            project_name,
+            estimate_scope["companyId"],
+        )
     conn.commit()
     cur.close(); conn.close()
     _run_project_ai_control_safely(project_name, "estimate:update")
-    return {"ok": True, "journalEntries": journal_added, "hiddenWorkActs": acts_added, "brigadeItemsSynced": brigade_synced}
+    return {"ok": True, "journalEntries": journal_added, "hiddenWorkActs": acts_added, "brigadeItemsSynced": brigade_synced, "supplyControlRefresh": supply_refresh}
 
 @app.put("/estimates/{id}/status")
 def update_estimate_status(
@@ -17197,10 +17228,17 @@ def update_estimate_status(
                          AND status='Активная'""",
                     (id, estimate["companyId"], project_name, smeta_type, work_package))
     cur.execute("UPDATE estimates SET status=%s WHERE id=%s AND company_id=%s", (status, id, estimate["companyId"]))
+    supply_refresh = {"scanned": 0, "updated": 0}
+    if status == "Активная" and project_name:
+        supply_refresh = _refresh_open_supply_controls_for_estimate(
+            cur,
+            project_name,
+            estimate["companyId"],
+        )
     conn.commit()
     cur.close(); conn.close()
     _run_project_ai_control_safely(project_name, "estimate:status")
-    return {"ok": True, "status": status}
+    return {"ok": True, "status": status, "supplyControlRefresh": supply_refresh}
 
 
 @app.put("/estimates/{id}/toggle-template")
