@@ -161,6 +161,10 @@ describe_auth_failure() {
   fi
 }
 
+public_smoke_checks_enabled() {
+  [[ "${SMOKE_PROTECTED_ONLY:-0}" != "1" ]]
+}
+
 echo "Smoke-check: $BASE_URL"
 
 check_code "frontend /" "$BASE_URL/"
@@ -173,44 +177,48 @@ if [[ -n "$health_version" ]]; then
   echo "INFO version=$health_version"
 fi
 
-check_json_predicate "site pricing" "$BASE_URL/site/pricing" 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if isinstance(data.get("rules"), list) else 1)'
-check_json_predicate "site projects" "$BASE_URL/site/projects" 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if isinstance(data, list) else 1)'
-check_json_predicate "site publications" "$BASE_URL/site/publications?limit=1" 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if isinstance(data, list) else 1)'
-check_not_spa_fallback "site leads route" "$BASE_URL/site/leads" "405 429"
-check_post_not_spa_fallback "site lead files route" "$BASE_URL/site/lead-files" "422 429"
-check_not_spa_fallback "site price rules route" "$BASE_URL/site-price-rules" "401 403 429"
-check_not_spa_fallback "tenant files route" "$BASE_URL/tenant-files/1" "401 403"
-check_not_spa_fallback "tenant file content route" "$BASE_URL/tenant-files/1/content" "401 403"
-check_not_spa_fallback "company messages route" "$BASE_URL/messages" "401 403"
-check_not_spa_fallback "estimate versions route" "$BASE_URL/estimates/1/versions" "401 403"
-check_not_spa_fallback "estimate version detail route" "$BASE_URL/estimate-version/1" "401 403"
-check_not_spa_fallback "estimate chat history route" "$BASE_URL/estimates/1/chat-history" "401 403"
-check_not_spa_fallback "estimate chat post route" "$BASE_URL/estimate-chat" "405"
-check_not_spa_fallback "project AI summary route" "$BASE_URL/project-ai-summary/smoke" "401 403"
-check_not_spa_fallback "project AI summary post route" "$BASE_URL/project-ai-summary" "405"
-check_not_spa_fallback "AI findings route" "$BASE_URL/ai-findings" "401 403"
-check_not_spa_fallback "agent jobs route" "$BASE_URL/agent-jobs" "401 403"
-check_not_spa_fallback "agent job detail route" "$BASE_URL/agent-jobs/1" "401 403"
-check_not_spa_fallback "AI tasks route" "$BASE_URL/ai-tasks" "401 403"
-check_not_spa_fallback "assignments route" "$BASE_URL/assignments" "401 403"
-check_not_spa_fallback "AI task reports route" "$BASE_URL/ai-tasks/1/reports" "401 403"
-check_not_spa_fallback "project events route" "$BASE_URL/project-events?project_name=smoke" "401 403"
-check_not_spa_fallback "material packaging rules route" "$BASE_URL/material-packaging-rules" "401 403"
-check_post_not_spa_fallback "material packaging correction preview route" "$BASE_URL/material-packaging-corrections/preview" "401 403 422 429"
-check_not_spa_fallback "material packaging reviews route" "$BASE_URL/material-packaging-reviews" "401 403"
-check_not_spa_fallback "AI control single run route" "$BASE_URL/ai-control/run" "405"
-check_not_spa_fallback "AI findings generate route" "$BASE_URL/ai-findings/generate" "405"
-check_not_spa_fallback "AI control run-all route" "$BASE_URL/ai-control/run-all" "405"
-check_not_spa_fallback "messenger channels route" "$BASE_URL/messenger-channels" "401 403"
-check_not_spa_fallback "messenger accounts route" "$BASE_URL/messenger-accounts" "401 403"
-check_post_not_spa_fallback "messenger channels post route" "$BASE_URL/messenger-channels" "401 403 422"
-check_post_not_spa_fallback "messenger accounts post route" "$BASE_URL/messenger-accounts" "401 403 422"
-check_not_spa_fallback "messenger outbox route" "$BASE_URL/messenger-outbox" "401 403"
-check_not_spa_fallback "MAX outbox worker route" "$BASE_URL/max/outbox" "401 403"
-check_post_not_spa_fallback "MAX outbox dispatch route" "$BASE_URL/max/outbox/dispatch?dry_run=true" "401 403"
-check_not_spa_fallback "marketing publications route" "$BASE_URL/marketing-publications" "401 403"
-check_post_not_spa_fallback "marketing publications post route" "$BASE_URL/marketing-publications" "401 403 422"
-check_post_not_spa_fallback "client errors route" "$BASE_URL/client-errors" "200 422 429"
+if public_smoke_checks_enabled; then
+  check_json_predicate "site pricing" "$BASE_URL/site/pricing" 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if isinstance(data.get("rules"), list) else 1)'
+  check_json_predicate "site projects" "$BASE_URL/site/projects" 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if isinstance(data, list) else 1)'
+  check_json_predicate "site publications" "$BASE_URL/site/publications?limit=1" 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if isinstance(data, list) else 1)'
+  check_not_spa_fallback "site leads route" "$BASE_URL/site/leads" "405 429"
+  check_post_not_spa_fallback "site lead files route" "$BASE_URL/site/lead-files" "422 429"
+  check_not_spa_fallback "site price rules route" "$BASE_URL/site-price-rules" "401 403 429"
+  check_not_spa_fallback "tenant files route" "$BASE_URL/tenant-files/1" "401 403"
+  check_not_spa_fallback "tenant file content route" "$BASE_URL/tenant-files/1/content" "401 403"
+  check_not_spa_fallback "company messages route" "$BASE_URL/messages" "401 403"
+  check_not_spa_fallback "estimate versions route" "$BASE_URL/estimates/1/versions" "401 403"
+  check_not_spa_fallback "estimate version detail route" "$BASE_URL/estimate-version/1" "401 403"
+  check_not_spa_fallback "estimate chat history route" "$BASE_URL/estimates/1/chat-history" "401 403"
+  check_not_spa_fallback "estimate chat post route" "$BASE_URL/estimate-chat" "405"
+  check_not_spa_fallback "project AI summary route" "$BASE_URL/project-ai-summary/smoke" "401 403"
+  check_not_spa_fallback "project AI summary post route" "$BASE_URL/project-ai-summary" "405"
+  check_not_spa_fallback "AI findings route" "$BASE_URL/ai-findings" "401 403"
+  check_not_spa_fallback "agent jobs route" "$BASE_URL/agent-jobs" "401 403"
+  check_not_spa_fallback "agent job detail route" "$BASE_URL/agent-jobs/1" "401 403"
+  check_not_spa_fallback "AI tasks route" "$BASE_URL/ai-tasks" "401 403"
+  check_not_spa_fallback "assignments route" "$BASE_URL/assignments" "401 403"
+  check_not_spa_fallback "AI task reports route" "$BASE_URL/ai-tasks/1/reports" "401 403"
+  check_not_spa_fallback "project events route" "$BASE_URL/project-events?project_name=smoke" "401 403"
+  check_not_spa_fallback "material packaging rules route" "$BASE_URL/material-packaging-rules" "401 403"
+  check_post_not_spa_fallback "material packaging correction preview route" "$BASE_URL/material-packaging-corrections/preview" "401 403 422 429"
+  check_not_spa_fallback "material packaging reviews route" "$BASE_URL/material-packaging-reviews" "401 403"
+  check_not_spa_fallback "AI control single run route" "$BASE_URL/ai-control/run" "405"
+  check_not_spa_fallback "AI findings generate route" "$BASE_URL/ai-findings/generate" "405"
+  check_not_spa_fallback "AI control run-all route" "$BASE_URL/ai-control/run-all" "405"
+  check_not_spa_fallback "messenger channels route" "$BASE_URL/messenger-channels" "401 403"
+  check_not_spa_fallback "messenger accounts route" "$BASE_URL/messenger-accounts" "401 403"
+  check_post_not_spa_fallback "messenger channels post route" "$BASE_URL/messenger-channels" "401 403 422"
+  check_post_not_spa_fallback "messenger accounts post route" "$BASE_URL/messenger-accounts" "401 403 422"
+  check_not_spa_fallback "messenger outbox route" "$BASE_URL/messenger-outbox" "401 403"
+  check_not_spa_fallback "MAX outbox worker route" "$BASE_URL/max/outbox" "401 403"
+  check_post_not_spa_fallback "MAX outbox dispatch route" "$BASE_URL/max/outbox/dispatch?dry_run=true" "401 403"
+  check_not_spa_fallback "marketing publications route" "$BASE_URL/marketing-publications" "401 403"
+  check_post_not_spa_fallback "marketing publications post route" "$BASE_URL/marketing-publications" "401 403 422"
+  check_post_not_spa_fallback "client errors route" "$BASE_URL/client-errors" "200 422 429"
+else
+  echo "INFO protected-only smoke: unauthenticated API route checks skipped"
+fi
 
 if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
   login_payload="$(python3 -c 'import json,os; print(json.dumps({"email": os.environ["SMOKE_EMAIL"], "password": os.environ["SMOKE_PASSWORD"]}, ensure_ascii=False))')"

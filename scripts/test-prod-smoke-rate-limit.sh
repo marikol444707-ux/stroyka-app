@@ -52,4 +52,12 @@ summary="$(describe_auth_failure "401" '{"detail":"Неверный email или
 summary="$(describe_auth_failure "000" '')"
 [[ "$summary" == "HTTP 000: пустой или недоступный ответ" ]]
 
+unset SMOKE_PROTECTED_ONLY
+public_smoke_checks_enabled
+SMOKE_PROTECTED_ONLY=1
+if public_smoke_checks_enabled; then
+  echo "protected-only mode must skip unauthenticated route checks" >&2
+  exit 1
+fi
+
 echo "prod smoke rate-limit checks OK"

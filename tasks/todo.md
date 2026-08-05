@@ -139,6 +139,9 @@ verification remains open as Task A1.4.2.
   and regression checks for both `/agent-jobs` and `/agent-jobs/{id}`.
 - [x] Runtime `1e04e1075409` returns backend `401` for unauthenticated
   `/agent-jobs` and `/agent-jobs/1`; the SPA fallback is closed.
+- [x] Add a tested `SMOKE_PROTECTED_ONLY=1` mode after the full smoke proved
+  that shared Nginx `login_limit` traffic could rate-limit `/login` before the
+  authenticated checks started; production security limits are unchanged.
 - [ ] Require authenticated leadership read to return `200`, and
   `X-Company-Mode: all_companies` to return `400/403/409`.
 

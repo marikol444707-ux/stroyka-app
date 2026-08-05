@@ -451,10 +451,13 @@ npm run smoke:public-api
 ```
 
 После изменения защищённого сценария выполнить соответствующий protected
-smoke с паролем и свежим 2FA-кодом. Если smoke сообщает nginx HTML вместо
-backend JSON, сначала добавить точный `location ^~ /<api-prefix>` в активный
-server block nginx, затем `nginx -t && systemctl reload nginx` и повторить
-оба smoke.
+smoke с паролем и свежим 2FA-кодом. Если полный smoke уже подтвердил публичные
+маршруты, повторную авторизованную проверку запускать с
+`SMOKE_PROTECTED_ONLY=1 npm run smoke:prod`: так предварительные анонимные
+запросы не расходуют общий Nginx rate limit перед `/login`. Если smoke сообщает
+nginx HTML вместо backend JSON, сначала добавить точный
+`location ^~ /<api-prefix>` в активный server block nginx, затем
+`nginx -t && systemctl reload nginx` и повторить оба smoke.
 
 Для API статусов фоновых заданий готова безопасная повторяемая команда:
 
