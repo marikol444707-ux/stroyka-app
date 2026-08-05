@@ -94,15 +94,14 @@ as Task A1.4.4.
 - [x] Full backend discovery passes (`1073` tests).
 - [x] Full frontend Jest passes (`289` tests), Python compile, smoke-script
   syntax and production build pass.
-- [ ] Production public/protected and transactional cancellation smoke remain in
-  Task A1.4.4.
+- [x] Production protected and transactional cancellation smoke passed in Task
+  A1.4.4 on runtime `baa79b6bc6d3`.
 
 **Estimated scope:** S
 
 ## Task A1.4.4: Production Cancellation Verification
 
-**Status:** Verification harness is implemented locally; production deploy and
-server execution are pending.
+**Status:** Complete in production on 2026-08-05, runtime `baa79b6bc6d3`.
 
 **Prepared checks:**
 - Protected production smoke posts only to a non-existent job ID and confirms
@@ -121,8 +120,13 @@ server execution are pending.
 - [x] A local manual invocation produces a structured failure with
   `rolledBack=true` because the intentionally minimal local PostgreSQL lacks
   the production tenant tables; no local records were written.
-- [ ] Deploy and run protected API plus rollback-only PostgreSQL smoke on the
-  production schema.
+- [x] Protected production smoke passed: login and agent-job reads returned
+  `200`; aggregate reads returned `409`; foreign company returned `403`;
+  cancellation returned aggregate `400`, foreign `403` and missing job `404`;
+  the public field allowlist remained valid and `apiErrorsShown=0`.
+- [x] Rollback-only PostgreSQL smoke passed with
+  `steps=[cancel_queued,audit,protect_running]`, `rolledBack=true`,
+  `persistedAgentJobs=0` and `persistedAuditRows=0`.
 
 **Estimated scope:** S
 

@@ -330,11 +330,11 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [x] ~~Task A1.3.1: Add the local transactional lifecycle kernel: allowlisted `SKIP LOCKED` claim, one-use lease token, owner-only heartbeat/complete/fail, bounded exponential retries, batched stale recovery, safe result/error storage and rollback smoke.~~
 - [x] ~~Task A1.3.2: Deploy the lease schema, rerun the readiness audit and verify the real-PostgreSQL claim/heartbeat/retry/complete/recovery lifecycle with `rolledBack=true` and `persistedRows=0`.~~
 - [ ] Task A1.3.3: After A2, run the lifecycle through a separate handler-registry worker process; never execute model work inside an HTTP request.
-- [ ] Task A1.4: Add tenant-scoped status/audit reads and safe cancellation for jobs that have not completed.
+- [x] ~~Task A1.4: Add tenant-scoped status/audit reads and safe cancellation for jobs that have not completed.~~
 - [x] ~~Task A1.4.1: Add leadership-only, single-company, cursor-paginated read APIs with an explicit public field allowlist that excludes payload, model result, worker identity and lease token.~~
 - [x] ~~Task A1.4.2: Deploy the read API and verify authenticated production access plus fail-closed all-companies behavior on runtime `44984a91030f`; leadership read returned `200`, all-companies `409`, foreign company `403`, and the public field allowlist passed.~~
 - [x] ~~Task A1.4.3: Add leadership-only, single-company audited queued-job cancellation with restricted reason codes and same-transaction audit; keep running jobs unchanged until cooperative cancellation exists. Focused/full backend tests, frontend tests and production build pass locally.~~
-- [ ] Task A1.4.4: Deploy queued-job cancellation and verify the API route, tenant denial paths, transactional audit, queued success and running conflict in production. Rollback-only database smoke and non-mutating protected API checks are ready; deployment is pending.
+- [x] ~~Task A1.4.4: Deploy queued-job cancellation on runtime `baa79b6bc6d3`; protected API checks blocked aggregate/foreign context and returned `404` for a missing job, while rollback smoke proved queued cancellation, tenant audit, running protection and zero persisted test rows.~~
 - [ ] Task A2: Define the agent execution contract: allowed tools, minimal model payload, time/cost limits and no direct model access to the database.
 - [ ] Task A3: Build a deterministic read-only director daily brief for each company/group: overdue work, shortages, documents, estimate deviations, payments and tasks.
 - [ ] Task A4: Add model explanations and in-app/MAX delivery to the daily brief without business-record mutations.
