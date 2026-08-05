@@ -177,8 +177,8 @@ rollback-only lifecycle smoke are verified.
 **Description:** Execute the existing queue lifecycle in a process that is
 separate from FastAPI and dispatch only explicitly registered handlers.
 
-**Status:** Implemented locally on 2026-08-05. Production one-cycle verification
-remains Task A1.3.4; a permanent service remains blocked on A3.
+**Status:** Complete in production on 2026-08-05 as Task A1.3.4. A permanent
+service remains blocked on A3.
 
 **Safety:**
 - The immutable registry is the exact claim allowlist. Unknown and future job
@@ -205,11 +205,29 @@ remains Task A1.3.4; a permanent service remains blocked on A3.
   database connection or HTTP application import.
 - [x] Full backend discovery passes (`1104` tests), frontend Jest passes and
   the production build compiles successfully.
-- [ ] Production readiness plus one-cycle runner check in Task A1.3.4.
+- [x] Production readiness plus one-cycle runner check passed in Task A1.3.4.
 
 **Operations:** `docs/agent-job-runner.md`
 
 **Estimated scope:** M
+
+## Task A1.3.4: Production Runner Verification
+
+**Status:** Complete on 2026-08-05 for runtime `82ba1b63f9ce`.
+
+**Verification:**
+- [x] Production deploy and full public smoke passed; health reported the exact
+  new runtime and a healthy database.
+- [x] `npm run audit:agent-jobs` reported the complete table, indexes and
+  constraints, `total=0`, zero invalid owner/status/lease rows and
+  `readyForWorker=true` without writes.
+- [x] Exactly one `npm run worker:agent-jobs -- --once` cycle started with only
+  `system.worker_probe` allowed, found no queued work and stopped with
+  `processed=false`, `status=idle`.
+- [x] No daemon or permanent worker service was enabled; `director.daily_brief`
+  remains unavailable until A3.
+
+**Estimated scope:** XS
 
 ## Task A1.4.1: Tenant-Scoped Agent Job Status API
 
