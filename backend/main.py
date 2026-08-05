@@ -23917,8 +23917,14 @@ register_expenses_module(app, {
 
 try:
     from backend.features.agent_jobs import register_agent_jobs_module
+    from backend.features.audit_ownership.runtime import (
+        insert_audit_event as insert_agent_job_audit_event,
+    )
 except ModuleNotFoundError:
     from features.agent_jobs import register_agent_jobs_module
+    from features.audit_ownership.runtime import (
+        insert_audit_event as insert_agent_job_audit_event,
+    )
 
 register_agent_jobs_module(app, {
     "get_db": get_db,
@@ -23926,6 +23932,8 @@ register_agent_jobs_module(app, {
     "resolve_work_company_context": _resolve_work_company_context,
     "effective_company_actors": effective_company_actors,
     "read_roles": LEADERSHIP_ROLES,
+    "cancel_roles": LEADERSHIP_ROLES,
+    "insert_audit_event": insert_agent_job_audit_event,
 })
 
 try:

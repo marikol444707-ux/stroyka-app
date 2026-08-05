@@ -19,6 +19,7 @@ PLATFORM_ACTIONS = {
 
 # Every identifier below is static application metadata, never user input.
 ENTITY_SPECS = (
+    ("agent_job", "agent_jobs", "id", "company_id", "project_id", None),
     ("staff", "staff", "id", "company_id", None, "project"),
     ("timesheet", "staff", "id", "company_id", None, "project"),
     ("supply_request", "supply_requests", "id", "company_id", "project_id", "project"),

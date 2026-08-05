@@ -64,6 +64,41 @@
 
 **Estimated scope:** S
 
+## Task A1.4.3: Audited Queued Agent Job Cancellation
+
+**Description:** Allow company leadership to cancel an agent job only while it
+is still waiting in the queue. A claimed or completed job must not be relabelled
+as cancelled.
+
+**Status:** Implemented locally on 2026-08-05; production verification remains
+as Task A1.4.4.
+
+**Safety:**
+- `POST /agent-jobs/{id}/cancel` resolves exactly one selected company in update
+  mode and rejects aggregate-company or non-leadership access before touching
+  the queue.
+- One parameterized `UPDATE` requires matching `id + company_id + queued`, so a
+  concurrent worker claim wins safely and produces `409` instead of a false
+  cancellation.
+- Cancellation accepts only predefined reason codes; arbitrary text and secrets
+  cannot enter the audit description.
+- The cancellation and company/project-owned audit record share one database
+  transaction. Audit failure or ownership mismatch rolls back the status change.
+- The response reuses the existing public allowlist and never returns payload,
+  model result, worker identity, lease token or idempotency key.
+
+**Verification:**
+- [x] Red tests failed before the cancellation service and route existed.
+- [x] Agent-job focused suite passes (`50` tests); audit ownership focused tests
+  also cover `agent_job` as a stored company/project parent.
+- [x] Full backend discovery passes (`1071` tests).
+- [x] Full frontend Jest passes (`289` tests), Python compile, smoke-script
+  syntax and production build pass.
+- [ ] Production public/protected and transactional cancellation smoke remain in
+  Task A1.4.4.
+
+**Estimated scope:** S
+
 ## Task A1.3.1: Agent Job Worker Lifecycle Kernel
 
 **Description:** Add the transaction-level worker controls without starting a

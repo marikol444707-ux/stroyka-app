@@ -196,6 +196,7 @@ if public_smoke_checks_enabled; then
   check_not_spa_fallback "AI findings route" "$BASE_URL/ai-findings" "401 403"
   check_not_spa_fallback "agent jobs route" "$BASE_URL/agent-jobs" "401 403"
   check_not_spa_fallback "agent job detail route" "$BASE_URL/agent-jobs/1" "401 403"
+  check_post_not_spa_fallback "agent job cancel route" "$BASE_URL/agent-jobs/1/cancel" "401 403"
   check_not_spa_fallback "AI tasks route" "$BASE_URL/ai-tasks" "401 403"
   check_not_spa_fallback "assignments route" "$BASE_URL/assignments" "401 403"
   check_not_spa_fallback "AI task reports route" "$BASE_URL/ai-tasks/1/reports" "401 403"

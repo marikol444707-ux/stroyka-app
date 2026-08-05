@@ -89,6 +89,31 @@ class AuditOwnershipReportTests(unittest.TestCase):
         self.assertTrue(report["readyForMigration"])
         self.assertEqual(report["readyByCompany"], {"4": 1})
 
+    def test_agent_job_is_a_supported_company_project_parent(self):
+        rows = self.base_rows()
+        rows["projects"] = [{"id": 12, "name": "Лицей", "company_id": 4}]
+        rows["entity_owners"] = [{
+            "entity_type": "agent_job",
+            "entity_id": 41,
+            "company_id": 4,
+            "project_id": 12,
+            "project_name": None,
+        }]
+        rows["audit_log"] = [{
+            "id": 10,
+            "user_id": 7,
+            "action": "cancel",
+            "entity_type": "agent_job",
+            "entity_id": 41,
+            "project_name": "",
+        }]
+
+        report = build_report_from_rows(rows)
+
+        self.assertTrue(report["readyForMigration"])
+        self.assertEqual(report["readyByCompany"], {"4": 1})
+        self.assertEqual(report["needsReview"], [])
+
     def test_conflicting_project_and_entity_owner_is_mismatched(self):
         rows = self.base_rows()
         rows["projects"] = [
