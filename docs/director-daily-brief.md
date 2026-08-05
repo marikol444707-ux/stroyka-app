@@ -107,6 +107,11 @@ operation (`npm run worker:agent-jobs -- --once`) until scheduling and worker
 operations are reviewed. Repeating the same company/date reports the existing
 job instead of creating a duplicate. There is no all-companies option.
 
+Runtime `3210bbe905f7` verified this boundary with company `1`: dry-run returned
+`would_enqueue` with zero write attempts, explicit apply created job `8`, one
+runner cycle completed that exact job as `succeeded`, and the repeat returned
+the same existing job. The permanent worker remained disabled.
+
 Repeat production verification for exactly one leadership company with the
 controlled smoke (set `SMOKE_COMPANY_ID` too when the account leads more than
 one company):

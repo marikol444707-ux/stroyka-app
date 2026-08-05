@@ -3650,8 +3650,8 @@ scheduling and delivery remain separate decisions.
 
 ## Task A4.2.1: Explicit Single-Company Daily Brief Producer
 
-**Status:** Complete locally on branch `codex/director-brief-producer` on
-2026-08-05. Not deployed or scheduled.
+**Status:** Complete in production on runtime `3210bbe905f7` on 2026-08-05.
+Not scheduled; permanent worker remains disabled.
 
 **Behavior:**
 - `npm run enqueue:director-daily-brief -- --company-id <id> --brief-date
@@ -3681,4 +3681,7 @@ scheduling and delivery remain separate decisions.
   scope, PostgreSQL read-only dry-run and metadata-only errors are confirmed.
 - [x] Feature commit `3154f3cf` is pushed to
   `codex/director-brief-producer`.
-- [ ] Production dry-run/apply/runner verification requires separate approval.
+- [x] Production company `1` dry-run returned `would_enqueue` with
+  `writesAttempted=0`; apply created queued job `8`; one runner cycle claimed
+  and completed that exact job as `succeeded` in `206 ms`; repeat returned
+  `existing` for job `8` with zero writes.
