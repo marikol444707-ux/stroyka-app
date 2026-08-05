@@ -332,7 +332,7 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [ ] Task A1.3.3: After A2, run the lifecycle through a separate handler-registry worker process; never execute model work inside an HTTP request.
 - [ ] Task A1.4: Add tenant-scoped status/audit reads and safe cancellation for jobs that have not completed.
 - [x] ~~Task A1.4.1: Add leadership-only, single-company, cursor-paginated read APIs with an explicit public field allowlist that excludes payload, model result, worker identity and lease token.~~
-- [ ] Task A1.4.2: Deploy the read API and verify authenticated production access plus fail-closed all-companies behavior.
+- [x] ~~Task A1.4.2: Deploy the read API and verify authenticated production access plus fail-closed all-companies behavior on runtime `44984a91030f`; leadership read returned `200`, all-companies `409`, foreign company `403`, and the public field allowlist passed.~~
 - [ ] Task A1.4.3: Add audited queued-job cancellation; do not pretend a running external call is cancelled until cooperative cancellation exists.
 - [ ] Task A2: Define the agent execution contract: allowed tools, minimal model payload, time/cost limits and no direct model access to the database.
 - [ ] Task A3: Build a deterministic read-only director daily brief for each company/group: overdue work, shortages, documents, estimate deviations, payments and tasks.

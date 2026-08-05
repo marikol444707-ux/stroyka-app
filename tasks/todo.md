@@ -112,8 +112,7 @@ rollback-only lifecycle smoke are verified.
 connecting a UI or AI provider. Leadership may inspect only one selected
 company at a time.
 
-**Status:** Local implementation complete on 2026-08-05. Production route
-verification remains open as Task A1.4.2.
+**Status:** Production verification complete on 2026-08-05 as Task A1.4.2.
 
 **Safety:**
 - `GET /agent-jobs` and `GET /agent-jobs/{id}` resolve the server-side company
@@ -142,8 +141,9 @@ verification remains open as Task A1.4.2.
 - [x] Add a tested `SMOKE_PROTECTED_ONLY=1` mode after the full smoke proved
   that shared Nginx `login_limit` traffic could rate-limit `/login` before the
   authenticated checks started; production security limits are unchanged.
-- [ ] Require authenticated leadership read to return `200`, and
-  `X-Company-Mode: all_companies` to return `400/403/409`.
+- [x] Runtime `44984a91030f` passed protected smoke: leadership read returned
+  `200`, `X-Company-Mode: all_companies` was blocked with `409`, a foreign
+  company was blocked with `403`, and the public field policy passed.
 
 **Estimated scope:** S
 
