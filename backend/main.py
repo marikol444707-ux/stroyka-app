@@ -23916,6 +23916,19 @@ register_expenses_module(app, {
 })
 
 try:
+    from backend.features.agent_jobs import register_agent_jobs_module
+except ModuleNotFoundError:
+    from features.agent_jobs import register_agent_jobs_module
+
+register_agent_jobs_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "read_roles": LEADERSHIP_ROLES,
+})
+
+try:
     from backend.features.ai_findings import register_ai_findings_module
 except ModuleNotFoundError:
     from features.ai_findings import register_ai_findings_module

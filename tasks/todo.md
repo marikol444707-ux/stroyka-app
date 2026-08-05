@@ -106,6 +106,38 @@ rollback-only lifecycle smoke are verified.
 
 **Estimated scope:** S
 
+## Task A1.4.1: Tenant-Scoped Agent Job Status API
+
+**Description:** Add a read-only operational view of background jobs before
+connecting a UI or AI provider. Leadership may inspect only one selected
+company at a time.
+
+**Status:** Local implementation complete on 2026-08-05. Production route
+verification remains open as Task A1.4.2.
+
+**Safety:**
+- `GET /agent-jobs` and `GET /agent-jobs/{id}` resolve the server-side company
+  actor and reject aggregate-company mode before querying `agent_jobs`.
+- Access is limited to company leadership roles; a job from another company is
+  returned as not found.
+- The query always starts with stored `company_id` and supports only validated
+  status, project, cursor and a bounded `1..100` page size.
+- The public response is an explicit field allowlist. It does not expose
+  `payload_json`, `result_json`, `locked_by`, `lease_token` or idempotency keys.
+- This slice is read-only: no job, AI, estimate, warehouse, supply or accounting
+  record is mutated.
+
+**Verification:**
+- [x] Agent-job focused suite passes (`40` tests), including cross-company 404,
+  all-companies rejection, role denial, field redaction and pagination.
+- [x] Full backend discovery passes (`1060` tests).
+- [x] Full frontend Jest passes (`289` tests) and production build compiles.
+- [ ] After deployment, require unauthenticated `/agent-jobs` to return
+  `401/403`, authenticated leadership read to return `200`, and
+  `X-Company-Mode: all_companies` to return `400/403/409`.
+
+**Estimated scope:** S
+
 ## Task 4: Add Smeta Access Smoke
 
 **Description:** Add or extend a smoke check that proves the parser access rule from Task 3 does not regress.

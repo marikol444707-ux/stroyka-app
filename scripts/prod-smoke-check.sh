@@ -171,6 +171,7 @@ check_not_spa_fallback "estimate chat post route" "$BASE_URL/estimate-chat" "405
 check_not_spa_fallback "project AI summary route" "$BASE_URL/project-ai-summary/smoke" "401 403"
 check_not_spa_fallback "project AI summary post route" "$BASE_URL/project-ai-summary" "405"
 check_not_spa_fallback "AI findings route" "$BASE_URL/ai-findings" "401 403"
+check_not_spa_fallback "agent jobs route" "$BASE_URL/agent-jobs" "401 403"
 check_not_spa_fallback "AI tasks route" "$BASE_URL/ai-tasks" "401 403"
 check_not_spa_fallback "assignments route" "$BASE_URL/assignments" "401 403"
 check_not_spa_fallback "AI task reports route" "$BASE_URL/ai-tasks/1/reports" "401 403"
@@ -245,6 +246,7 @@ if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
       "/supervisor-acts"
       "/expenses"
       "/ai-findings"
+      "/agent-jobs"
       "/ai-tasks"
       "/assignments"
     )
@@ -317,6 +319,48 @@ for row in rows if isinstance(rows, list) else []:
       echo "FAIL /messages all-companies got=$company_messages_all_code expected=400/403"
       failures+=("/messages all-companies got=$company_messages_all_code expected=400/403")
     fi
+
+    agent_jobs_all_code="$(curl -skS -o /dev/null -w '%{http_code}' "$BASE_URL/agent-jobs" -H "Authorization: Bearer $token" -H 'X-Company-Mode: all_companies' || true)"
+    if [[ "$agent_jobs_all_code" == "400" || "$agent_jobs_all_code" == "403" || "$agent_jobs_all_code" == "409" ]]; then
+      echo "OK   /agent-jobs all-companies blocked $agent_jobs_all_code"
+    else
+      echo "FAIL /agent-jobs all-companies got=$agent_jobs_all_code expected=400/403/409"
+      failures+=("/agent-jobs all-companies got=$agent_jobs_all_code expected=400/403/409")
+    fi
+
+    agent_jobs_foreign_code="$(curl -skS -o /dev/null -w '%{http_code}' "$BASE_URL/agent-jobs" -H "Authorization: Bearer $token" -H 'X-Company-Id: 2147483647' || true)"
+    if [[ "$agent_jobs_foreign_code" == "400" || "$agent_jobs_foreign_code" == "403" || "$agent_jobs_foreign_code" == "404" || "$agent_jobs_foreign_code" == "409" ]]; then
+      echo "OK   /agent-jobs foreign company blocked $agent_jobs_foreign_code"
+    else
+      echo "FAIL /agent-jobs foreign company got=$agent_jobs_foreign_code expected=400/403/404/409"
+      failures+=("/agent-jobs foreign company got=$agent_jobs_foreign_code expected=400/403/404/409")
+    fi
+
+    agent_jobs_file="$(mktemp)"
+    agent_jobs_code="$(curl -skS -o "$agent_jobs_file" -w '%{http_code}' "$BASE_URL/agent-jobs" -H "Authorization: Bearer $token" || true)"
+    if [[ "$agent_jobs_code" == "200" ]] && python3 - "$agent_jobs_file" <<'PY'
+import json
+import sys
+
+data = json.load(open(sys.argv[1]))
+items = data.get("items") if isinstance(data, dict) else None
+forbidden = {
+    "payload", "payloadJson", "payload_json", "result", "resultJson",
+    "result_json", "lockedBy", "locked_by", "leaseToken", "lease_token",
+    "idempotencyKey", "idempotency_key",
+}
+ok = isinstance(items, list) and all(
+    isinstance(item, dict) and not (forbidden & set(item)) for item in items
+)
+raise SystemExit(0 if ok else 1)
+PY
+    then
+      echo "OK   /agent-jobs public field policy 200"
+    else
+      echo "FAIL /agent-jobs public field policy got=$agent_jobs_code"
+      failures+=("/agent-jobs public field policy")
+    fi
+    rm -f "$agent_jobs_file"
 
     estimate_chat_all_write_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/estimate-chat" -H "Authorization: Bearer $token" -H 'X-Company-Mode: all_companies' -H 'Content-Type: application/json' -d '{"estimateId":2147483647,"message":"scope-smoke"}' || true)"
     if [[ "$estimate_chat_all_write_code" == "400" || "$estimate_chat_all_write_code" == "403" || "$estimate_chat_all_write_code" == "409" ]]; then
