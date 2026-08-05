@@ -13,22 +13,24 @@ each use a new short transaction.
 
 ## Current scope
 
-The production registry currently contains only `system.worker_probe`. This is
-a deterministic operational handler that does not read business tables, call a
-model or change business data. `director.daily_brief` deliberately remains
-unregistered until Task A3 provides its deterministic read-only implementation
-and tests.
+The local registry contains `system.worker_probe` and the A3
+`director.daily_brief` handler. The brief reads one company through the shared
+tenant-scoped read-tool registry, deterministically aggregates bounded facts
+and does not call a model or change business data. Its detailed boundary is in
+`docs/director-daily-brief.md`.
 
-Do not enable a permanent production worker service before the A3 handler is
-registered and its production verification step is approved. The safe current
-check is a single cycle:
+Production still runs the previously deployed probe-only runtime. Do not enable
+a permanent production worker service, enqueue a production brief or run a
+post-deploy cycle until the separate A3 production verification step is
+approved. After deployment, the safe verification remains a single cycle:
 
 ```bash
 npm run worker:agent-jobs -- --once
 ```
 
-That command recovers expired `system.worker_probe` leases and processes at
-most one due probe. Other job types are not claimed.
+That command recovers leases for registered types and processes at most one due
+job. Inspect the queue first: after A3 is deployed, `--once` may claim a queued
+daily brief as well as a probe.
 
 ## Handler boundary
 

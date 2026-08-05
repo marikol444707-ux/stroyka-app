@@ -3541,3 +3541,50 @@ business-table mutation is part of this step.
 This gap does not block A2: the step adds no new authenticated route and the
 full protected smoke passed on the preceding A1.4 runtime. It must be rerun with
 credentials after the next protected API or runner integration.
+
+## Task A3.1: Deterministic Read-Only Director Daily Brief
+
+**Status:** Complete locally on 2026-08-05. Production rollout remains Task
+A3.2; no production job, deploy or permanent worker was started in this slice.
+
+**Behavior:**
+- `director.daily_brief` is now an explicit runner handler beside
+  `system.worker_probe`.
+- The queue payload contains only an ISO `briefDate`; company scope comes only
+  from the claimed row. Project-scoped, aggregate-company and payload-selected
+  company requests fail before a business read.
+- One company read uses the same immutable seven-tool registry as the HTTP
+  director assistant and one rolled-back PostgreSQL read-only transaction.
+- The pure aggregator returns six ordered sections: overdue, shortages,
+  documents, estimate deviations, payment facts and open/unassigned tasks.
+- The result is deterministic, strips internal/unknown fields, caps each
+  section at 12 records and stays below the queue's 64 KiB result limit even at
+  every tool policy's maximum input size.
+- Payment output reports only project budget and net `project_payments` facts;
+  it does not infer debt or overspending. Current document/estimate findings
+  are explicitly limited to evidence in the existing seven-tool contract.
+- A group of companies must fan out into separate company-owned jobs. The
+  handler never combines tenants.
+
+**Safety:**
+- No model/provider, arbitrary SQL, HTTP route, business-table write, message
+  delivery or daemon was added.
+- All SQL is server-owned, parameterized and validated as one `SELECT` before
+  execution. The read transaction is rolled back on both success and failure.
+- HTTP `/director-agent/ask` and the runner now share one read implementation;
+  the duplicate block was removed from `backend/main.py`.
+- Queue logs still contain metadata only and public job APIs still exclude
+  payload/result/worker/lease fields.
+
+**Verification:**
+- [x] Service/handler/read-boundary tests were written red before each new
+  module or registry connection; focused suite passes (`49` tests).
+- [x] Worst-case sanitized input first exceeded 64 KiB, then passed after the
+  per-section/text caps were enforced.
+- [x] Full backend discovery passes (`1119` tests).
+- [x] Full frontend Jest passes (`289` tests) and production build compiles.
+- [x] Python compile and `git diff --check` pass.
+- [ ] Production deploy, readiness audit, protected smoke and one controlled
+  test-company brief job remain Task A3.2.
+
+**Specification:** `docs/director-daily-brief.md`
