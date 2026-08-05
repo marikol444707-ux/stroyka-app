@@ -137,8 +137,9 @@ verification remains open as Task A1.4.2.
   protected API response.
 - [x] Add exact list/detail Nginx locations, an idempotent backup-first installer
   and regression checks for both `/agent-jobs` and `/agent-jobs/{id}`.
-- [ ] After deployment, require unauthenticated `/agent-jobs` to return
-  `401/403`, authenticated leadership read to return `200`, and
+- [x] Runtime `1e04e1075409` returns backend `401` for unauthenticated
+  `/agent-jobs` and `/agent-jobs/1`; the SPA fallback is closed.
+- [ ] Require authenticated leadership read to return `200`, and
   `X-Company-Mode: all_companies` to return `400/403/409`.
 
 **Estimated scope:** S

@@ -143,6 +143,24 @@ check_post_not_spa_fallback() {
   rm -f "$body_file"
 }
 
+describe_auth_failure() {
+  local code="$1"
+  local body="$2"
+  local detail
+  detail="$(printf '%s' "$body" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("detail", ""))' 2>/dev/null || true)"
+  if [[ -n "$detail" ]]; then
+    echo "HTTP $code: $detail"
+  elif [[ "$code" == "429" || "$code" == "503" ]]; then
+    echo "HTTP $code: временный лимит Nginx/CDN"
+  elif [[ -z "$body" || "$code" == "000" ]]; then
+    echo "HTTP $code: пустой или недоступный ответ"
+  elif printf '%s' "$body" | head -c 200 | grep -qiE '<!doctype|<html'; then
+    echo "HTTP $code: Nginx/CDN вернул HTML вместо JSON"
+  else
+    echo "HTTP $code: неожиданный ответ без описания ошибки"
+  fi
+}
+
 echo "Smoke-check: $BASE_URL"
 
 check_code "frontend /" "$BASE_URL/"
@@ -196,7 +214,10 @@ check_post_not_spa_fallback "client errors route" "$BASE_URL/client-errors" "200
 
 if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
   login_payload="$(python3 -c 'import json,os; print(json.dumps({"email": os.environ["SMOKE_EMAIL"], "password": os.environ["SMOKE_PASSWORD"]}, ensure_ascii=False))')"
-  login_body="$(curl -skS -X POST "$BASE_URL/login" -H 'Content-Type: application/json' -d "$login_payload" || true)"
+  login_response_file="$(mktemp)"
+  login_code="$(curl -skS -X POST -o "$login_response_file" -w '%{http_code}' "$BASE_URL/login" -H 'Content-Type: application/json' -d "$login_payload" || true)"
+  login_body="$(cat "$login_response_file")"
+  rm -f "$login_response_file"
   token="$(printf '%s' "$login_body" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("authToken",""))' 2>/dev/null || true)"
   if [[ -z "$token" ]]; then
     two_factor_required="$(printf '%s' "$login_body" | python3 -c 'import json,sys; data=json.load(sys.stdin); print("1" if data.get("twoFactorRequired") else "")' 2>/dev/null || true)"
@@ -209,10 +230,13 @@ if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
       fi
       if [[ -n "$two_factor_code" ]]; then
         verify_payload="$(CHALLENGE_TOKEN="$challenge_token" TWO_FACTOR_CODE="$two_factor_code" python3 -c 'import json,os; print(json.dumps({"challengeToken": os.environ["CHALLENGE_TOKEN"], "code": os.environ["TWO_FACTOR_CODE"]}, ensure_ascii=False))')"
-        verify_body="$(curl -skS -X POST "$BASE_URL/login/2fa/verify" -H 'Content-Type: application/json' -d "$verify_payload" || true)"
+        verify_response_file="$(mktemp)"
+        verify_code="$(curl -skS -X POST -o "$verify_response_file" -w '%{http_code}' "$BASE_URL/login/2fa/verify" -H 'Content-Type: application/json' -d "$verify_payload" || true)"
+        verify_body="$(cat "$verify_response_file")"
+        rm -f "$verify_response_file"
         token="$(printf '%s' "$verify_body" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("authToken",""))' 2>/dev/null || true)"
         if [[ -z "$token" ]]; then
-          echo "FAIL login 2FA"
+          echo "FAIL login 2FA: $(describe_auth_failure "$verify_code" "$verify_body")"
           failures+=("login 2FA")
         fi
       else
@@ -221,8 +245,7 @@ if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
     elif [[ -n "$two_factor_setup_required" ]]; then
       echo "SKIP protected checks: login requires initial 2FA setup"
     else
-      login_detail="$(printf '%s' "$login_body" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("detail",""))' 2>/dev/null || true)"
-      echo "FAIL login${login_detail:+: $login_detail}"
+      echo "FAIL login: $(describe_auth_failure "$login_code" "$login_body")"
       failures+=("login")
     fi
   fi

@@ -43,4 +43,13 @@ FAKE_BODY='{"detail":"validation error"}'
 check_post_not_spa_fallback "JSON backend error" "https://example.test/route" "422 429" >/dev/null
 [[ ${#failures[@]} -eq 0 ]]
 
+summary="$(describe_auth_failure "503" '<html><body>rate limited</body></html>')"
+[[ "$summary" == "HTTP 503: временный лимит Nginx/CDN" ]]
+
+summary="$(describe_auth_failure "401" '{"detail":"Неверный email или пароль"}')"
+[[ "$summary" == "HTTP 401: Неверный email или пароль" ]]
+
+summary="$(describe_auth_failure "000" '')"
+[[ "$summary" == "HTTP 000: пустой или недоступный ответ" ]]
+
 echo "prod smoke rate-limit checks OK"
