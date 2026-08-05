@@ -4,6 +4,10 @@ import psycopg2.extras
 from fastapi import Depends, Header, HTTPException
 from pydantic import BaseModel
 
+from ..director_daily_brief.query_service import (
+    DirectorDailyBriefQueryError,
+    get_latest_director_daily_brief,
+)
 from .cancellation_service import (
     AgentJobCancellationError,
     cancel_queued_agent_job,
@@ -115,6 +119,37 @@ def register_agent_jobs_module(app, deps):
                 )
             except AgentJobQueryError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
+        finally:
+            cur.close()
+            conn.close()
+
+    @app.get("/agent-jobs/director-daily-brief/latest")
+    def latest_director_daily_brief_route(
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            actor = selected_actor(
+                cur,
+                current_user,
+                x_company_id,
+                x_company_mode,
+                action_mode="read",
+                allowed_roles=read_roles,
+            )
+            try:
+                return get_latest_director_daily_brief(
+                    cur,
+                    company_id=actor["companyId"],
+                )
+            except DirectorDailyBriefQueryError as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Последняя сводка недоступна: требуется повторное формирование",
+                ) from exc
         finally:
             cur.close()
             conn.close()

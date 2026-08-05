@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -92,7 +93,9 @@ class AgentJobRouteTests(unittest.TestCase):
         source = " ".join(smoke_path.read_text(encoding="utf-8").split())
 
         self.assertIn("/agent-jobs/2147483647/cancel", source)
+        self.assertIn("/agent-jobs/director-daily-brief/latest", source)
         self.assertIn("agent job cancel all-companies blocked", source)
+        self.assertIn("director daily brief all-companies blocked", source)
         self.assertIn("agent job cancel missing", source)
 
     def build_app(self, cursor, *, actors=None, mode="company", audit=None):
@@ -142,6 +145,72 @@ class AgentJobRouteTests(unittest.TestCase):
 
         self.assertEqual(result, {"items": [], "nextBeforeId": None})
         self.assertEqual(cursor.calls[0][1], (4, 26))
+        self.assertTrue(cursor.closed)
+        self.assertTrue(conn.closed)
+
+    def test_latest_daily_brief_uses_selected_company_and_static_route(self):
+        cursor = FakeCursor([None])
+        app, conn, _audit_calls = self.build_app(cursor)
+
+        route_key = ("GET", "/agent-jobs/director-daily-brief/latest")
+        result = app.routes[route_key]("4", "company", {"id": 7})
+
+        self.assertEqual(result, {"available": False})
+        self.assertEqual(cursor.calls[0][1], (4, "director.daily_brief"))
+        route_keys = list(app.routes)
+        self.assertLess(route_keys.index(route_key), route_keys.index(("GET", "/agent-jobs/{id}")))
+        self.assertTrue(cursor.closed)
+        self.assertTrue(conn.closed)
+
+    def test_latest_daily_brief_rejects_all_companies_before_query(self):
+        cursor = FakeCursor()
+        app, _conn, _audit_calls = self.build_app(
+            cursor,
+            actors=[actor(4), actor(8)],
+            mode="all_companies",
+        )
+
+        with self.assertRaises(HTTPException) as caught:
+            app.routes[("GET", "/agent-jobs/director-daily-brief/latest")](
+                None, "all_companies", {"id": 7},
+            )
+
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertEqual(cursor.calls, [])
+
+    def test_latest_daily_brief_rejects_non_leadership_before_query(self):
+        cursor = FakeCursor()
+        app, _conn, _audit_calls = self.build_app(
+            cursor,
+            actors=[actor(4, "мастер")],
+        )
+
+        with self.assertRaises(HTTPException) as caught:
+            app.routes[("GET", "/agent-jobs/director-daily-brief/latest")](
+                "4", "company", {"id": 7},
+            )
+
+        self.assertEqual(caught.exception.status_code, 403)
+        self.assertEqual(cursor.calls, [])
+
+    def test_latest_daily_brief_hides_malformed_stored_result(self):
+        cursor = FakeCursor([{
+            "id": 17,
+            "completed_at": datetime(2026, 8, 5, 11, 30, 0),
+            "result_json": {},
+        }])
+        app, conn, _audit_calls = self.build_app(cursor)
+
+        with self.assertRaises(HTTPException) as caught:
+            app.routes[("GET", "/agent-jobs/director-daily-brief/latest")](
+                "4", "company", {"id": 7},
+            )
+
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertEqual(
+            caught.exception.detail,
+            "Последняя сводка недоступна: требуется повторное формирование",
+        )
         self.assertTrue(cursor.closed)
         self.assertTrue(conn.closed)
 

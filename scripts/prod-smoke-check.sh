@@ -195,6 +195,7 @@ if public_smoke_checks_enabled; then
   check_not_spa_fallback "project AI summary post route" "$BASE_URL/project-ai-summary" "405"
   check_not_spa_fallback "AI findings route" "$BASE_URL/ai-findings" "401 403"
   check_not_spa_fallback "agent jobs route" "$BASE_URL/agent-jobs" "401 403"
+  check_not_spa_fallback "director daily brief latest route" "$BASE_URL/agent-jobs/director-daily-brief/latest" "401 403"
   check_not_spa_fallback "agent job detail route" "$BASE_URL/agent-jobs/1" "401 403"
   check_post_not_spa_fallback "agent job cancel route" "$BASE_URL/agent-jobs/1/cancel" "401 403"
   check_not_spa_fallback "AI tasks route" "$BASE_URL/ai-tasks" "401 403"
@@ -361,6 +362,14 @@ for row in rows if isinstance(rows, list) else []:
       failures+=("/agent-jobs all-companies got=$agent_jobs_all_code expected=400/403/409")
     fi
 
+    director_daily_brief_all_code="$(curl -skS -o /dev/null -w '%{http_code}' "$BASE_URL/agent-jobs/director-daily-brief/latest" -H "Authorization: Bearer $token" -H 'X-Company-Mode: all_companies' || true)"
+    if [[ "$director_daily_brief_all_code" == "400" || "$director_daily_brief_all_code" == "403" || "$director_daily_brief_all_code" == "409" ]]; then
+      echo "OK   director daily brief all-companies blocked $director_daily_brief_all_code"
+    else
+      echo "FAIL director daily brief all-companies got=$director_daily_brief_all_code expected=400/403/409"
+      failures+=("director daily brief all-companies got=$director_daily_brief_all_code expected=400/403/409")
+    fi
+
     agent_jobs_foreign_code="$(curl -skS -o /dev/null -w '%{http_code}' "$BASE_URL/agent-jobs" -H "Authorization: Bearer $token" -H 'X-Company-Id: 2147483647' || true)"
     if [[ "$agent_jobs_foreign_code" == "400" || "$agent_jobs_foreign_code" == "403" || "$agent_jobs_foreign_code" == "404" || "$agent_jobs_foreign_code" == "409" ]]; then
       echo "OK   /agent-jobs foreign company blocked $agent_jobs_foreign_code"
@@ -418,6 +427,49 @@ PY
       failures+=("/agent-jobs public field policy")
     fi
     rm -f "$agent_jobs_file"
+
+    director_daily_brief_file="$(mktemp)"
+    director_daily_brief_code="$(curl -skS -o "$director_daily_brief_file" -w '%{http_code}' "$BASE_URL/agent-jobs/director-daily-brief/latest" -H "Authorization: Bearer $token" || true)"
+    if [[ "$director_daily_brief_code" == "200" ]] && python3 - "$director_daily_brief_file" <<'PY'
+import json
+import sys
+
+data = json.load(open(sys.argv[1]))
+forbidden = {
+    "payload", "payloadJson", "payload_json", "result", "resultJson",
+    "result_json", "lockedBy", "locked_by", "leaseToken", "lease_token",
+    "idempotencyKey", "idempotency_key", "correlationId", "correlation_id",
+}
+
+def has_forbidden(value):
+    if isinstance(value, dict):
+        return bool(forbidden & set(value)) or any(has_forbidden(item) for item in value.values())
+    if isinstance(value, list):
+        return any(has_forbidden(item) for item in value)
+    return False
+
+ok = isinstance(data, dict) and not has_forbidden(data)
+if ok and data.get("available") is True:
+    brief = data.get("brief")
+    ok = (
+        isinstance(data.get("jobId"), int)
+        and isinstance(brief, dict)
+        and brief.get("schemaVersion") == 1
+        and brief.get("mode") == "deterministic_read_only"
+        and isinstance(brief.get("summary"), dict)
+        and isinstance(brief.get("sections"), list)
+    )
+elif ok:
+    ok = data == {"available": False}
+raise SystemExit(0 if ok else 1)
+PY
+    then
+      echo "OK   /agent-jobs/director-daily-brief/latest public field policy 200"
+    else
+      echo "FAIL /agent-jobs/director-daily-brief/latest public field policy got=$director_daily_brief_code"
+      failures+=("/agent-jobs/director-daily-brief/latest public field policy")
+    fi
+    rm -f "$director_daily_brief_file"
 
     estimate_chat_all_write_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/estimate-chat" -H "Authorization: Bearer $token" -H 'X-Company-Mode: all_companies' -H 'Content-Type: application/json' -d '{"estimateId":2147483647,"message":"scope-smoke"}' || true)"
     if [[ "$estimate_chat_all_write_code" == "400" || "$estimate_chat_all_write_code" == "403" || "$estimate_chat_all_write_code" == "409" ]]; then
