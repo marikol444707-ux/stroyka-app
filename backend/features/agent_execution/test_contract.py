@@ -1,7 +1,5 @@
-import ast
 import json
 import unittest
-from pathlib import Path
 
 from backend.features.agent_execution.contract import (
     AgentExecutionContractError,
@@ -10,43 +8,19 @@ from backend.features.agent_execution.contract import (
     sanitize_director_agent_tool_result,
 )
 from backend.features.director_agent.policy import DIRECTOR_AGENT_READ_TOOLS
-
-
-MAIN_PATH = Path(__file__).resolve().parents[2] / "main.py"
+from backend.features.director_agent.read_tools import DIRECTOR_AGENT_TOOLS
 
 
 class AgentExecutionContractTests(unittest.TestCase):
     def test_tool_policy_matches_live_director_agent_registry(self):
-        tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"), filename=str(MAIN_PATH))
-        assignment = next(
-            node
-            for node in tree.body
-            if isinstance(node, ast.Assign)
-            and any(isinstance(target, ast.Name) and target.id == "DIRECTOR_AGENT_TOOLS" for target in node.targets)
-        )
-        self.assertIsInstance(assignment.value, ast.Call)
-        self.assertEqual(assignment.value.func.id, "MappingProxyType")
-        registry = assignment.value.args[0]
-        registered_tools = tuple(key.value for key in registry.keys)
-
-        self.assertEqual(registered_tools, DIRECTOR_AGENT_READ_TOOLS)
+        self.assertEqual(tuple(DIRECTOR_AGENT_TOOLS), DIRECTOR_AGENT_READ_TOOLS)
         self.assertTrue(all(
-            isinstance(value, ast.Call)
-            and isinstance(value.func, ast.Name)
-            and value.func.id == "MappingProxyType"
-            for value in registry.values
+            callable(DIRECTOR_AGENT_TOOLS[tool_name]["fn"])
+            and DIRECTOR_AGENT_TOOLS[tool_name]["desc"]
+            for tool_name in DIRECTOR_AGENT_READ_TOOLS
         ))
-        for tool_name, value in zip(registered_tools, registry.values):
-            metadata = value.args[0]
-            fn_index = next(
-                index
-                for index, key in enumerate(metadata.keys)
-                if key.value == "fn"
-            )
-            self.assertEqual(
-                metadata.values[fn_index].id,
-                "_director_agent_tool_" + tool_name,
-            )
+        with self.assertRaises(TypeError):
+            DIRECTOR_AGENT_TOOLS["projects"]["fn"] = lambda *_: []
 
     def test_daily_brief_contract_is_read_only_and_bounded(self):
         contract = get_execution_contract("director.daily_brief")

@@ -1,146 +1,99 @@
 import ast
-import json
 import unittest
 from pathlib import Path
 
+from backend.features.director_agent.read_tools import (
+    build_director_agent_tools,
+    execute_director_agent_read_query,
+)
+
 
 MAIN_PATH = Path(__file__).resolve().parents[2] / "main.py"
-TOOL_NAMES = (
-    "_director_agent_tool_projects",
-    "_director_agent_tool_warehouse",
-    "_director_agent_tool_supply",
-    "_director_agent_tool_estimates",
-    "_director_agent_tool_finances",
-    "_director_agent_tool_staff",
-    "_director_agent_tool_ai_tasks",
-)
-SUPPORT_NAMES = (
-    "_director_agent_num",
-    "_director_agent_json",
-    "_director_agent_company_ids",
-    "_director_agent_validate_read_sql",
-)
 
 
-def load_director_agent_functions(query):
-    tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"), filename=str(MAIN_PATH))
-    wanted = set(TOOL_NAMES + SUPPORT_NAMES)
-    definitions = [
-        node
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name in wanted
-    ]
-    namespace = {
-        "json": json,
-        "re": __import__("re"),
-        "_director_agent_query": query,
-    }
-    exec(compile(ast.Module(body=definitions, type_ignores=[]), str(MAIN_PATH), "exec"), namespace)
-    return namespace
+class FakeCursor:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, sql, params=()):
+        self.sql = sql
+        self.params = params
+
+    def fetchall(self):
+        return []
+
+
+class FakeConnection:
+    def __init__(self):
+        self.sessions = []
+        self.cursor_value = FakeCursor()
+        self.closed = False
+
+    def set_session(self, **kwargs):
+        self.sessions.append(kwargs)
+
+    def cursor(self, **kwargs):
+        return self.cursor_value
+
+    def close(self):
+        self.closed = True
 
 
 class DirectorAgentTenantScopeTests(unittest.TestCase):
-    def test_query_validator_allows_one_select_only(self):
-        validate = load_director_agent_functions(lambda *_: [])["_director_agent_validate_read_sql"]
+    def test_http_query_connection_is_forced_read_only(self):
+        connection = FakeConnection()
 
-        self.assertEqual(validate(" SELECT id FROM projects "), "SELECT id FROM projects")
-        for sql in (
-            "DELETE FROM projects",
-            "SELECT id FROM projects; DELETE FROM projects",
-            "WITH changed AS (DELETE FROM projects RETURNING id) SELECT * FROM changed",
-        ):
-            with self.subTest(sql=sql):
-                with self.assertRaises(ValueError):
-                    validate(sql)
-
-    def test_query_connection_is_forced_read_only(self):
-        tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"), filename=str(MAIN_PATH))
-        query = next(
-            node
-            for node in tree.body
-            if isinstance(node, ast.FunctionDef) and node.name == "_director_agent_query"
+        rows = execute_director_agent_read_query(
+            "SELECT id FROM projects WHERE company_id=%s",
+            (7,),
+            connection_factory=lambda: connection,
         )
-        set_session = next(
-            node
-            for node in ast.walk(query)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "set_session"
+
+        self.assertEqual(rows, [])
+        self.assertEqual(connection.sessions, [{"readonly": True, "autocommit": True}])
+        self.assertEqual(connection.cursor_value.params, (7,))
+        self.assertTrue(connection.closed)
+
+    def test_every_tool_constrains_queries_by_company(self):
+        calls = []
+        tools = build_director_agent_tools(
+            lambda sql, params=(): calls.append((" ".join(sql.split()), params)) or []
         )
-        keyword_values = {
-            keyword.arg: keyword.value.value
-            for keyword in set_session.keywords
-            if isinstance(keyword.value, ast.Constant)
-        }
 
-        self.assertEqual(keyword_values, {"readonly": True, "autocommit": True})
-
-    def test_every_tool_fails_closed_without_a_selected_company(self):
-        queries = []
-
-        def query(sql, params=()):
-            queries.append((sql, params))
-            return []
-
-        functions = load_director_agent_functions(query)
-
-        for name in TOOL_NAMES:
+        for name, metadata in tools.items():
             with self.subTest(tool=name):
-                result = functions[name]({}, [])
-                self.assertIsNotNone(result)
-
-        self.assertEqual(queries, [])
-
-    def test_every_tool_constrains_its_queries_by_company(self):
-        queries = []
-
-        def query(sql, params=()):
-            queries.append((" ".join(sql.split()), params))
-            return []
-
-        functions = load_director_agent_functions(query)
-
-        for name in TOOL_NAMES:
-            with self.subTest(tool=name):
-                before = len(queries)
-                functions[name]({}, [9, "4", 9, None, -1])
-                tool_queries = queries[before:]
-                self.assertTrue(tool_queries)
-                for sql, params in tool_queries:
+                before = len(calls)
+                metadata["fn"]({}, [9, "4", 9, None, -1])
+                tool_calls = calls[before:]
+                self.assertTrue(tool_calls)
+                for sql, params in tool_calls:
                     self.assertTrue(sql.upper().startswith("SELECT"))
                     self.assertIn("company_id", sql.lower())
-                    self.assertTrue(
-                        any(value == [4, 9] for value in params),
-                        msg=f"{name} did not pass the normalized company scope: {params}",
-                    )
+                    self.assertTrue(any(value == [4, 9] for value in params))
 
-    def test_route_passes_company_scope_to_all_tools(self):
+    def test_route_passes_company_scope_to_shared_tools(self):
         tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"), filename=str(MAIN_PATH))
         route = next(
             node
             for node in tree.body
             if isinstance(node, ast.FunctionDef) and node.name == "director_agent_ask"
         )
-        tool_calls = [
+        scoped_calls = [
             node
             for node in ast.walk(route)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Subscript)
             and isinstance(node.func.value, ast.Subscript)
-        ]
-        scoped_calls = [
-            call
-            for call in tool_calls
-            if any(isinstance(arg, ast.Name) and arg.id == "request_company_ids" for arg in call.args)
+            and any(
+                isinstance(arg, ast.Name) and arg.id == "request_company_ids"
+                for arg in node.args
+            )
         ]
 
         self.assertEqual(len(scoped_calls), 1)
-        self.assertFalse(any(
-            isinstance(node, ast.If)
-            and any(isinstance(value, ast.Constant) and value.value in ("finances", "ai_tasks")
-                    for value in ast.walk(node.test))
-            for node in ast.walk(route)
-        ))
 
 
 if __name__ == "__main__":

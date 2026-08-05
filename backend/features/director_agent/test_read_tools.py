@@ -65,9 +65,9 @@ class DirectorAgentReadToolsTests(unittest.TestCase):
             )
         ]
 
-        self.assertGreaterEqual(len(assignments), 2)
-        self.assertIsInstance(assignments[-1].value, ast.Name)
-        self.assertEqual(assignments[-1].value.id, "SHARED_DIRECTOR_AGENT_TOOLS")
+        self.assertEqual(len(assignments), 1)
+        self.assertIsInstance(assignments[0].value, ast.Name)
+        self.assertEqual(assignments[0].value.id, "SHARED_DIRECTOR_AGENT_TOOLS")
 
     def test_registry_is_immutable_and_matches_the_execution_allowlist(self):
         tools = build_director_agent_tools(lambda sql, params=(): [])
