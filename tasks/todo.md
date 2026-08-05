@@ -92,10 +92,10 @@ upgrade, readiness audit and rollback smoke remain open as Task A1.3.2.
   accounting mutation is connected in this slice.
 
 **Verification:**
-- [x] Worker/schema/readiness/enqueue focused suite passes (`29` tests), with
+- [x] Worker/schema/readiness/enqueue focused suite passes (`30` tests), with
   red tests recorded before lease expiry, one-use token, PostgreSQL array,
   secret redaction and bounded recovery fixes.
-- [x] Full backend discovery passes (`1049` tests).
+- [x] Full backend discovery passes (`1050` tests).
 - [x] Full frontend Jest passes (`289` tests); production build and Python
   compile pass.
 - [ ] After deployment, require `npm run audit:agent-jobs` to report the new

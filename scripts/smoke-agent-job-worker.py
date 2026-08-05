@@ -34,14 +34,10 @@ def _require(condition, message):
 def _test_company_id(cur):
     cur.execute(
         """
-        SELECT company_id
-          FROM user_company_roles
-         WHERE active IS TRUE AND company_id>0
-        UNION
         SELECT id AS company_id
-          FROM managed_companies
-         WHERE id>0
-         ORDER BY company_id
+          FROM companies
+         WHERE id>0 AND active IS TRUE
+         ORDER BY id
          LIMIT 1
         """
     )

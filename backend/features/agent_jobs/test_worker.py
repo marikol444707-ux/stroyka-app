@@ -1,5 +1,6 @@
 import json
 import unittest
+from pathlib import Path
 
 from backend.features.agent_jobs.worker import (
     AgentJobWorkerError,
@@ -32,6 +33,17 @@ class FakeCursor:
 
 
 class AgentJobWorkerTests(unittest.TestCase):
+    def test_production_smoke_uses_the_canonical_companies_table(self):
+        smoke_path = (
+            Path(__file__).resolve().parents[3]
+            / "scripts"
+            / "smoke-agent-job-worker.py"
+        )
+        source = " ".join(smoke_path.read_text(encoding="utf-8").split())
+
+        self.assertIn("FROM companies", source)
+        self.assertNotIn("managed_companies", source)
+
     def test_claim_is_skip_locked_leased_and_handler_allowlisted(self):
         row = {
             "id": 41,
