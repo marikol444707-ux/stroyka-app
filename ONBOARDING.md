@@ -243,6 +243,11 @@ smoke. Если код готов локально, но ещё не прове�
   допускает один `SELECT` в read-only session. Профильные тесты `16/16`, полный
   backend `1086/1086`, frontend `289/289`, production build и ручной no-model
   fail-closed прогон прошли. Runner и модель не запускались.~~
+- [x] ~~A2.2. Развернуть контракт и read-only границу на production runtime
+  `0d2754bcfe4f`. Atomic deploy и public smoke прошли полностью; `/health`
+  подтвердил backend и БД, `/director-agent/tools` без авторизации вернул `401`
+  вместо SPA. Protected smoke был пропущен, потому что при deploy не задали
+  `SMOKE_EMAIL` и `SMOKE_PASSWORD`; изменения не добавляют новый protected API.~~
 
 #### 1. Помощник директора без изменения данных
 

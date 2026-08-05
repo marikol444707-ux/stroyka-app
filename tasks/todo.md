@@ -3468,3 +3468,19 @@ business-table mutation is part of this step.
   multi-statement SQL risks; final review reported no blockers.
 
 **Specification:** `docs/agent-execution-contract.md`
+
+## Task A2.2: Production Contract Verification
+
+**Status:** Complete on 2026-08-05 for runtime `0d2754bcfe4f`.
+
+**Verification:**
+- [x] Atomic frontend/backend deploy completed.
+- [x] Public smoke passed every health, site and protected-route boundary check.
+- [x] `/health` returned the expected runtime and a healthy database.
+- [x] Unauthenticated `/director-agent/tools` returned `401`, not SPA HTML.
+- [ ] Authenticated production smoke was not run because `SMOKE_EMAIL` and
+  `SMOKE_PASSWORD` were not supplied to the deployment shell.
+
+This gap does not block A2: the step adds no new authenticated route and the
+full protected smoke passed on the preceding A1.4 runtime. It must be rerun with
+credentials after the next protected API or runner integration.
