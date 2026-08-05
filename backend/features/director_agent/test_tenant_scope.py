@@ -18,6 +18,7 @@ SUPPORT_NAMES = (
     "_director_agent_num",
     "_director_agent_json",
     "_director_agent_company_ids",
+    "_director_agent_validate_read_sql",
 )
 
 
@@ -31,6 +32,7 @@ def load_director_agent_functions(query):
     ]
     namespace = {
         "json": json,
+        "re": __import__("re"),
         "_director_agent_query": query,
     }
     exec(compile(ast.Module(body=definitions, type_ignores=[]), str(MAIN_PATH), "exec"), namespace)
@@ -38,6 +40,41 @@ def load_director_agent_functions(query):
 
 
 class DirectorAgentTenantScopeTests(unittest.TestCase):
+    def test_query_validator_allows_one_select_only(self):
+        validate = load_director_agent_functions(lambda *_: [])["_director_agent_validate_read_sql"]
+
+        self.assertEqual(validate(" SELECT id FROM projects "), "SELECT id FROM projects")
+        for sql in (
+            "DELETE FROM projects",
+            "SELECT id FROM projects; DELETE FROM projects",
+            "WITH changed AS (DELETE FROM projects RETURNING id) SELECT * FROM changed",
+        ):
+            with self.subTest(sql=sql):
+                with self.assertRaises(ValueError):
+                    validate(sql)
+
+    def test_query_connection_is_forced_read_only(self):
+        tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"), filename=str(MAIN_PATH))
+        query = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "_director_agent_query"
+        )
+        set_session = next(
+            node
+            for node in ast.walk(query)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "set_session"
+        )
+        keyword_values = {
+            keyword.arg: keyword.value.value
+            for keyword in set_session.keywords
+            if isinstance(keyword.value, ast.Constant)
+        }
+
+        self.assertEqual(keyword_values, {"readonly": True, "autocommit": True})
+
     def test_every_tool_fails_closed_without_a_selected_company(self):
         queries = []
 
@@ -70,6 +107,7 @@ class DirectorAgentTenantScopeTests(unittest.TestCase):
                 tool_queries = queries[before:]
                 self.assertTrue(tool_queries)
                 for sql, params in tool_queries:
+                    self.assertTrue(sql.upper().startswith("SELECT"))
                     self.assertIn("company_id", sql.lower())
                     self.assertTrue(
                         any(value == [4, 9] for value in params),

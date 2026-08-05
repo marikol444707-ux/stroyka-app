@@ -24,6 +24,7 @@ import subprocess
 import tempfile
 import urllib.parse
 import urllib.request
+from types import MappingProxyType
 from email.message import EmailMessage
 
 try:
@@ -2667,14 +2668,25 @@ def _director_agent_company_ids(values) -> list[int]:
             company_ids.add(company_id)
     return sorted(company_ids)
 
+def _director_agent_validate_read_sql(sql: str) -> str:
+    statement = str(sql or "").strip()
+    if not re.match(r"^SELECT\b", statement, flags=re.IGNORECASE) or ";" in statement:
+        raise ValueError("director agent tools allow one SELECT statement only")
+    return statement
+
 def _director_agent_query(sql: str, params: tuple = ()) -> list[dict]:
+    sql = _director_agent_validate_read_sql(sql)
     conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute(sql, params)
-        return [dict(r) for r in cur.fetchall()]
+        conn.set_session(readonly=True, autocommit=True)
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            cur.execute(sql, params)
+            return [dict(r) for r in cur.fetchall()]
+        finally:
+            cur.close()
     finally:
-        cur.close(); conn.close()
+        conn.close()
 
 def _director_agent_tool_projects(args, company_ids=None):
     company_ids = _director_agent_company_ids(company_ids)
@@ -3004,15 +3016,15 @@ def _director_agent_tool_ai_tasks(args, company_ids=None):
         ],
     }
 
-DIRECTOR_AGENT_TOOLS = {
-    "projects": {"fn": _director_agent_tool_projects, "desc": "Объекты: статус, бюджет, прогресс, сроки. args: {search?: текст}"},
-    "warehouse": {"fn": _director_agent_tool_warehouse, "desc": "Склад и материалы на объектах. args: {search?: материал}"},
-    "supply": {"fn": _director_agent_tool_supply, "desc": "Снабжение: заявки, поставки, претензии. args: {}"},
-    "estimates": {"fn": _director_agent_tool_estimates, "desc": "Сметы: редакции, типы строк, сумма, объект. args: {}"},
-    "finances": {"fn": _director_agent_tool_finances, "desc": "Финансовая сводка по объектам. args: {project?: название объекта}"},
-    "staff": {"fn": _director_agent_tool_staff, "desc": "Персонал и активные роли. args: {}"},
-    "ai_tasks": {"fn": _director_agent_tool_ai_tasks, "desc": "Открытые задачи ИИ-контроля. args: {}"},
-}
+DIRECTOR_AGENT_TOOLS = MappingProxyType({
+    "projects": MappingProxyType({"fn": _director_agent_tool_projects, "desc": "Объекты: статус, бюджет, прогресс, сроки. args: {search?: текст}"}),
+    "warehouse": MappingProxyType({"fn": _director_agent_tool_warehouse, "desc": "Склад и материалы на объектах. args: {search?: материал}"}),
+    "supply": MappingProxyType({"fn": _director_agent_tool_supply, "desc": "Снабжение: заявки, поставки, претензии. args: {}"}),
+    "estimates": MappingProxyType({"fn": _director_agent_tool_estimates, "desc": "Сметы: редакции, типы строк, сумма, объект. args: {}"}),
+    "finances": MappingProxyType({"fn": _director_agent_tool_finances, "desc": "Финансовая сводка по объектам. args: {project?: название объекта}"}),
+    "staff": MappingProxyType({"fn": _director_agent_tool_staff, "desc": "Персонал и активные роли. args: {}"}),
+    "ai_tasks": MappingProxyType({"fn": _director_agent_tool_ai_tasks, "desc": "Открытые задачи ИИ-контроля. args: {}"}),
+})
 
 def _director_agent_extract_json(text: str):
     t = (text or "").strip()

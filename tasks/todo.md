@@ -3430,3 +3430,41 @@ reported the complete empty schema, zero invalid rows and
   invalid owner/status rows and `readyForWorker=true`.
 
 **Estimated scope:** S
+
+## Task A2.1: Fail-Closed Agent Execution Contract
+
+**Description:** Define the first machine-readable execution policy for
+`director.daily_brief` before any runner can call a model. The policy must allow
+only existing tenant-scoped read tools, keep tenant selection server-side,
+restrict model data and carry fixed execution/cost limits.
+
+**Status:** Complete locally on 2026-08-05. No runner, model call, route or
+business-table mutation is part of this step.
+
+**Safety:**
+- Unknown job types and tools fail closed.
+- SQL, direct database access and write tools are not model capabilities.
+- Model payload fields are allowlisted, sensitive keys are rejected and the
+  serialized input is capped at 32 KiB.
+- Runtime callers cannot enlarge the contract limits.
+- Execution is bound to one positive owner company from the claimed queue row;
+  aggregate-company mode is not representable in the prepared request.
+- Every tool result has an explicit field/type/count schema. Unknown fields,
+  including the financial tool's internal `companyId`, are removed before the
+  model boundary; incomplete records fail closed.
+- The existing tool registry and nested metadata are immutable. Registry tests
+  bind every public tool name to its expected function, and the shared query
+  adapter allows one `SELECT` in a PostgreSQL read-only session.
+
+**Verification:**
+- [x] Contract tests failed before implementation and pass afterwards (`11`).
+- [x] Tool policy stays identical to the existing director-agent registry;
+  tenant/read-only tests pass (`5`).
+- [x] Full backend `1086/1086`, frontend `289/289` and production build pass.
+- [x] Manual no-model check accepted one sanitized company-scoped request and
+  blocked unknown job, aggregate company, SQL tool and incomplete fact input.
+- [x] Independent code/security review found and closed tenant binding,
+  mutable registry, raw finance `companyId`, missing result-schema and
+  multi-statement SQL risks; final review reported no blockers.
+
+**Specification:** `docs/agent-execution-contract.md`
