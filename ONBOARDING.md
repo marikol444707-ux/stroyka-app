@@ -208,9 +208,17 @@ smoke. Если код готов локально, но ещё не прове�
   `rolledBack=true` и `persistedRows=0`. Production подтвердил полный lifecycle:
   claim, heartbeat, retry, complete и recover expired; тестовые строки не
   сохранились.~~
-- [ ] A1.3.3. После контракта A2 добавить отдельный runner-процесс с реестром
-  разрешённых обработчиков; HTTP-приложение не выполняет AI-задачу внутри
-  пользовательского запроса.
+- [x] ~~A1.3.3. Добавить отдельный однопоточный runner-процесс с immutable
+  реестром обработчиков. Claim фиксируется и соединение закрывается до вызова
+  handler; heartbeat, complete/fail и recovery используют отдельные короткие
+  транзакции. Handler получает только immutable tenant-контекст без cursor,
+  worker ID и lease-token. JSON-логи не содержат payload/result/correlation или
+  текст исключения. В текущем реестре только безопасный `system.worker_probe`;
+  `director.daily_brief` не запускается до A3. Профильные тесты `32/32` и CLI
+  `--help` прошли.~~
+- [ ] A1.3.4. После merge/deploy повторить readiness audit и запустить runner
+  один раз через `npm run worker:agent-jobs -- --once`. Постоянный systemd
+  сервис включать только после реализации и проверки A3 handler.
 - [x] ~~A1.4. Добавить tenant-scoped просмотр статуса, ошибок и аудита, а также
   безопасную отмену ещё не выполненной задачи.~~
 - [x] ~~A1.4.1. Локальный read-only API `GET /agent-jobs` и

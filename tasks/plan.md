@@ -329,7 +329,8 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [ ] Task A1.3: Add a separate claim/lease worker with heartbeat, bounded retry/backoff and stale-job recovery so AI failure cannot block HTTP work.
 - [x] ~~Task A1.3.1: Add the local transactional lifecycle kernel: allowlisted `SKIP LOCKED` claim, one-use lease token, owner-only heartbeat/complete/fail, bounded exponential retries, batched stale recovery, safe result/error storage and rollback smoke.~~
 - [x] ~~Task A1.3.2: Deploy the lease schema, rerun the readiness audit and verify the real-PostgreSQL claim/heartbeat/retry/complete/recovery lifecycle with `rolledBack=true` and `persistedRows=0`.~~
-- [ ] Task A1.3.3: After A2, run the lifecycle through a separate handler-registry worker process; never execute model work inside an HTTP request.
+- [x] ~~Task A1.3.3: Add a separate single-job runner with an immutable handler registry, short claim/heartbeat/completion/recovery transactions, graceful stop and metadata-only JSON logs. The default registry exposes only a deterministic `system.worker_probe`; `director.daily_brief` stays unregistered until A3.~~
+- [ ] Task A1.3.4: Deploy the runner code, rerun queue readiness and execute one `npm run worker:agent-jobs -- --once` cycle. Do not enable a permanent service until the A3 read-only handler is ready.
 - [x] ~~Task A1.4: Add tenant-scoped status/audit reads and safe cancellation for jobs that have not completed.~~
 - [x] ~~Task A1.4.1: Add leadership-only, single-company, cursor-paginated read APIs with an explicit public field allowlist that excludes payload, model result, worker identity and lease token.~~
 - [x] ~~Task A1.4.2: Deploy the read API and verify authenticated production access plus fail-closed all-companies behavior on runtime `44984a91030f`; leadership read returned `200`, all-companies `409`, foreign company `403`, and the public field allowlist passed.~~

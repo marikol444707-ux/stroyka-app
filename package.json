@@ -53,6 +53,7 @@
     "audit:tenant-registry-coverage": "python3 -m backend.features.tenant_readiness.coverage_report",
     "audit:legacy-fallback": "python3 -m backend.features.legacy_fallback.audit",
     "audit:agent-jobs": "python3 -m backend.features.agent_jobs.readiness_report",
+    "worker:agent-jobs": "python3 -m backend.features.agent_jobs.runner",
     "smoke:agent-job-worker": "python3 scripts/smoke-agent-job-worker.py",
     "smoke:agent-job-cancellation": "python3 scripts/smoke-agent-job-cancellation.py",
     "audit:crm-ownership": "python3 -m backend.features.crm_ownership.migration",

@@ -172,6 +172,45 @@ rollback-only lifecycle smoke are verified.
 
 **Estimated scope:** S
 
+## Task A1.3.3: Separate Agent Job Runner
+
+**Description:** Execute the existing queue lifecycle in a process that is
+separate from FastAPI and dispatch only explicitly registered handlers.
+
+**Status:** Implemented locally on 2026-08-05. Production one-cycle verification
+remains Task A1.3.4; a permanent service remains blocked on A3.
+
+**Safety:**
+- The immutable registry is the exact claim allowlist. Unknown and future job
+  types stay queued instead of reaching a fallback handler.
+- Claim commits and closes before handler work. Heartbeat, completion, retry and
+  stale recovery each open a separate bounded transaction.
+- The handler receives one immutable company-owned context and no database
+  connection, cursor, worker identity or lease token.
+- A dedicated thread renews the lease during long work. A stale worker cannot
+  store a result after lease loss; existing bounded retry/recovery remains the
+  source of truth.
+- Handler errors store only the error class. Structured logs omit payload,
+  result, correlation value, exception text, credentials and lease token.
+- The default registry contains only deterministic `system.worker_probe`,
+  which does not read or mutate business data and does not call a model.
+  `director.daily_brief` remains unavailable until A3.
+- `SIGTERM`/`SIGINT` stop new polling while an active handler finishes. Normal
+  HTTP work never imports or invokes the runner.
+
+**Verification:**
+- [x] Registry and runner tests failed before the modules existed.
+- [x] Focused registry/runner/lifecycle suite passes (`32` tests).
+- [x] `python3 -m backend.features.agent_jobs.runner --help` succeeds without a
+  database connection or HTTP application import.
+- [x] Full backend discovery passes (`1104` tests), frontend Jest passes and
+  the production build compiles successfully.
+- [ ] Production readiness plus one-cycle runner check in Task A1.3.4.
+
+**Operations:** `docs/agent-job-runner.md`
+
+**Estimated scope:** M
+
 ## Task A1.4.1: Tenant-Scoped Agent Job Status API
 
 **Description:** Add a read-only operational view of background jobs before
