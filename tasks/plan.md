@@ -341,7 +341,7 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [x] ~~Task A2.2: Deploy runtime `0d2754bcfe4f`; atomic publish and public smoke pass, health confirms the backend/database and unauthenticated `/director-agent/tools` is protected with `401` rather than SPA fallback. Authenticated smoke remains skipped because deployment credentials were not supplied.~~
 - [ ] Task A3: Build a deterministic read-only director daily brief for each company/group: overdue work, shortages, documents, estimate deviations, payments and tasks.
 - [x] ~~Task A3.1: Add the local deterministic `director.daily_brief` handler on the existing queue/runner. Read all seven immutable tenant-scoped tools for exactly one queue-owned company in one rolled-back read-only transaction, validate/cap the result, and keep models plus business mutations out. Focused `49/49`, backend `1119/1119`, frontend `289/289` and production build pass.~~
-- [ ] Task A3.2: Deploy A3.1, run readiness/public/protected verification and one controlled test-company brief job; keep the permanent daemon and bulk scheduling disabled.
+- [ ] Task A3.2: Deploy A3.1, run readiness/public/protected verification and one controlled test-company brief job with `smoke:director-daily-brief`; keep the permanent daemon and bulk scheduling disabled.
 - [ ] Task A4: Add model explanations and in-app/MAX delivery to the daily brief without business-record mutations.
 - [ ] Task A5: Add one `Требует внимания` queue with reason, priority, owner, project and the next safe action.
 - [ ] Task A6: Run checks automatically after data changes and keep only resolve/approve commands visible; move history, export and rare actions to an overflow menu.

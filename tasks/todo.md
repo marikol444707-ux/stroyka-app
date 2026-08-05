@@ -3587,4 +3587,14 @@ A3.2; no production job, deploy or permanent worker was started in this slice.
 - [ ] Production deploy, readiness audit, protected smoke and one controlled
   test-company brief job remain Task A3.2.
 
+**A3.2 verification command prepared locally:**
+- `SMOKE_EMAIL='<director email>' npm run smoke:director-daily-brief` resolves
+  exactly one active leadership membership (or requires `SMOKE_COMPANY_ID`),
+  refuses to run alongside an active brief, executes only its own
+  max-attempts-one job and deletes the exact queue row in `finally`.
+- The smoke reports only company/job metadata and section keys/statuses/counts;
+  it does not print the brief body or business values. Focused coverage is
+  `55/55`; full backend `1122/1122` and the production build pass. Production
+  execution remains unchecked until the manual deploy.
+
 **Specification:** `docs/director-daily-brief.md`

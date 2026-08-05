@@ -64,3 +64,17 @@ The local registry contains `system.worker_probe` and
 production brief until the A3 production verification step is explicitly
 approved. A4 will add human-facing explanation/delivery and still must not
 mutate business records.
+
+After the A3 deploy, verify exactly one leadership company with the controlled
+smoke (set `SMOKE_COMPANY_ID` too when the account leads more than one company):
+
+```bash
+SMOKE_EMAIL='director@example.com' npm run smoke:director-daily-brief
+```
+
+The smoke refuses to run when that company already has a queued/running daily
+brief. It enqueues one unique max-attempts-one job, runs a registry containing
+only `director.daily_brief`, validates the fixed result contract and removes
+its exact queue row in `finally`. It prints section keys/statuses/counts only;
+business subjects, financial values and the result body are not logged. The
+permanent daemon remains off.
