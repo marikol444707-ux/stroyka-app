@@ -328,7 +328,7 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [x] ~~Task A1.2: Deploy the schema and verify `npm run audit:agent-jobs` reports the complete empty schema, zero invalid rows and `readyForWorker=true`.~~
 - [ ] Task A1.3: Add a separate claim/lease worker with heartbeat, bounded retry/backoff and stale-job recovery so AI failure cannot block HTTP work.
 - [x] ~~Task A1.3.1: Add the local transactional lifecycle kernel: allowlisted `SKIP LOCKED` claim, one-use lease token, owner-only heartbeat/complete/fail, bounded exponential retries, batched stale recovery, safe result/error storage and rollback smoke.~~
-- [ ] Task A1.3.2: Deploy the lease schema, rerun the readiness audit and require the real-PostgreSQL lifecycle smoke to roll back every test row.
+- [x] ~~Task A1.3.2: Deploy the lease schema, rerun the readiness audit and verify the real-PostgreSQL claim/heartbeat/retry/complete/recovery lifecycle with `rolledBack=true` and `persistedRows=0`.~~
 - [ ] Task A1.3.3: After A2, run the lifecycle through a separate handler-registry worker process; never execute model work inside an HTTP request.
 - [ ] Task A1.4: Add tenant-scoped status/audit reads and safe cancellation for jobs that have not completed.
 - [ ] Task A2: Define the agent execution contract: allowed tools, minimal model payload, time/cost limits and no direct model access to the database.

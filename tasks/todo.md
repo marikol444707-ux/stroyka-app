@@ -70,8 +70,8 @@
 daemon or calling an AI model. A worker may claim only registered job types;
 the lease owner alone may heartbeat, finish or retry a still-valid lease.
 
-**Status:** Local implementation complete on 2026-08-05. Production schema
-upgrade, readiness audit and rollback smoke remain open as Task A1.3.2.
+**Status:** Complete on 2026-08-05. Production schema, readiness audit and
+rollback-only lifecycle smoke are verified.
 
 **Safety:**
 - Claim uses one atomic `FOR UPDATE SKIP LOCKED` statement, so concurrent
@@ -98,9 +98,9 @@ upgrade, readiness audit and rollback smoke remain open as Task A1.3.2.
 - [x] Full backend discovery passes (`1050` tests).
 - [x] Full frontend Jest passes (`289` tests); production build and Python
   compile pass.
-- [ ] After deployment, require `npm run audit:agent-jobs` to report the new
+- [x] After deployment, `npm run audit:agent-jobs` reports the new
   lease column/index with `readyForWorker=true`.
-- [ ] Run `npm run smoke:agent-job-worker` on production and require
+- [x] `npm run smoke:agent-job-worker` on production reports
   `steps=[claim, heartbeat, retry, complete, recover_expired]`,
   `rolledBack=true`, `persistedRows=0` and `ok=true`.
 
