@@ -57,6 +57,17 @@ Its dry-run omits `--apply`. The producer transaction commits before exact
 execution, so a process stop between the two steps leaves a recoverable queued
 job instead of losing the request.
 
+The prepared daily schedule also uses this exact controlled cycle. It is a
+`Type=oneshot` service for one explicit company, not the generic runner daemon:
+
+```bash
+npm run schedule:director-daily-brief -- --company-id 1 --apply
+```
+
+The repository timer is disabled by default and is not installed by
+`deploy.sh`. It must pass Linux unit validation and one manual one-shot before
+a separately approved production enablement.
+
 ## Handler boundary
 
 A handler receives an immutable `AgentJobContext` with one positive company

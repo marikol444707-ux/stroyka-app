@@ -3752,3 +3752,41 @@ Not scheduled.
   allowlisted and unexpected exception text is suppressed.
 - [x] Runtime `ed11051bb8d8` and the full public production smoke pass; no new
   HTTP route required protected smoke.
+
+## Task A4.2.4: One-Company Daily Brief Schedule
+
+**Status:** Implemented and verified locally on 2026-08-05. The production
+units are not installed or enabled.
+
+**Behavior:**
+- `npm run schedule:director-daily-brief -- --company-id <id>` plans one cycle
+  for the current `Europe/Moscow` date and stays read-only.
+- Adding `--apply` delegates to the existing controlled producer plus exact
+  runner. It does not start the generic worker or process a neighboring job.
+- The prepared `systemd` timer targets company `1` once each morning at
+  `07:10 Europe/Moscow`; `Persistent=true` performs at most one catch-up run,
+  while the company/day idempotency key prevents a duplicate brief.
+
+**Safety:**
+- The timezone-aware scheduler rejects a naive clock and verifies the returned
+  company, date, immutable job type, dry-run state and zero-business-write
+  boundary before emitting an allowlisted report.
+- The service is `Type=oneshot`, bounded to ten minutes and hardened with a
+  private temporary directory, read-only system paths and no new privileges.
+  It has no all-company mode, date override, model or MAX delivery.
+- `deploy.sh` intentionally contains no timer install/enable step. A normal
+  application deployment therefore cannot activate the schedule.
+
+**Verification:**
+- [x] Tests were written red before the scheduler module and unit templates.
+- [x] Scheduler/systemd contract tests pass (`13/13`); all daily-brief tests
+  pass (`51/51`).
+- [x] Full backend discovery passes (`1172/1172`), frontend Jest passes
+  (`299/299`) and the production frontend build compiles.
+- [x] Module compile, package `--help` and `git diff --check` pass.
+- [ ] Validate both units with Linux `systemd-analyze verify` on production.
+- [ ] Run one manual one-shot for company `1` and inspect journal metadata.
+- [ ] Install and enable the timer only after separate explicit approval, then
+  verify its next-run time and production health/smoke.
+
+**Estimated scope:** S

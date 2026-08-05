@@ -1,0 +1,27 @@
+[Unit]
+Description=Build one Stroyka director daily brief
+Wants=network-online.target
+After=network-online.target stroyka.service
+ConditionPathExists=/var/www/stroyka-app/package.json
+
+[Service]
+Type=oneshot
+WorkingDirectory=/var/www/stroyka-app
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=HOME=/tmp
+Environment=NPM_CONFIG_CACHE=/tmp/npm-cache
+Environment=NPM_CONFIG_UPDATE_NOTIFIER=false
+ExecStart=/usr/bin/npm run schedule:director-daily-brief -- --company-id 1 --apply
+TimeoutStartSec=10min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+UMask=0077
+StandardOutput=journal
+StandardError=journal

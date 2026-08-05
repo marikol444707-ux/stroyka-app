@@ -134,6 +134,28 @@ report goes to stdout. The report always states `businessWritesAttempted: 0`;
 only queue lifecycle metadata may change. This command is not a schedule and
 does not enable a daemon, model call, MAX delivery or company fan-out.
 
+A4.2.4 prepares a narrow scheduler adapter around that same controlled cycle:
+
+```bash
+npm run schedule:director-daily-brief -- --company-id 1
+npm run schedule:director-daily-brief -- --company-id 1 --apply
+```
+
+The adapter does not accept a date from `systemd`. It derives the current
+business date from the timezone-aware clock and converts it to
+`Europe/Moscow`, so the VPS UTC date cannot create the previous or next day's
+brief around midnight. The default command is still read-only. Explicit apply
+validates that the controlled result belongs to the same company, Moscow date
+and immutable job type, requires zero business writes and emits only an
+allowlisted operational report.
+
+The repository contains a disabled one-shot service and timer for company `1`
+at `07:10 Europe/Moscow`. The service does not run the generic worker and the
+normal `deploy.sh` does not copy, install or enable either unit. Before a later
+approved rollout, validate the units on the Linux host, run one manual
+one-shot, inspect metadata-only journal output, and only then enable the timer.
+The permanent worker, model, MAX delivery and multi-company fan-out remain off.
+
 Repeat production verification for exactly one leadership company with the
 controlled smoke (set `SMOKE_COMPANY_ID` too when the account leads more than
 one company):

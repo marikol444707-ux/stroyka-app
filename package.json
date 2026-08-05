@@ -56,6 +56,7 @@
     "worker:agent-jobs": "python3 -m backend.features.agent_jobs.runner",
     "enqueue:director-daily-brief": "python3 -m backend.features.director_daily_brief.producer",
     "run:director-daily-brief": "python3 -m backend.features.director_daily_brief.controlled_cycle",
+    "schedule:director-daily-brief": "python3 -m backend.features.director_daily_brief.schedule",
     "smoke:agent-job-worker": "python3 scripts/smoke-agent-job-worker.py",
     "smoke:director-daily-brief": "python3 -m backend.features.director_daily_brief.smoke",
     "smoke:agent-job-cancellation": "python3 scripts/smoke-agent-job-cancellation.py",
