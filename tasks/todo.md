@@ -3679,5 +3679,6 @@ scheduling and delivery remain separate decisions.
   errors expose only their class, not exception text.
 - [x] Final diff/security review passes; parameterized SQL, explicit company
   scope, PostgreSQL read-only dry-run and metadata-only errors are confirmed.
-- [ ] Commit and branch push.
+- [x] Feature commit `3154f3cf` is pushed to
+  `codex/director-brief-producer`.
 - [ ] Production dry-run/apply/runner verification requires separate approval.
