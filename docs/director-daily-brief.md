@@ -149,12 +149,13 @@ validates that the controlled result belongs to the same company, Moscow date
 and immutable job type, requires zero business writes and emits only an
 allowlisted operational report.
 
-The repository contains a disabled one-shot service and timer for company `1`
+The repository contains a one-shot service and timer template for company `1`
 at `07:10 Europe/Moscow`. The service does not run the generic worker and the
-normal `deploy.sh` does not copy, install or enable either unit. Before a later
-approved rollout, validate the units on the Linux host, run one manual
-one-shot, inspect metadata-only journal output, and only then enable the timer.
-The permanent worker, model, MAX delivery and multi-company fan-out remain off.
+normal `deploy.sh` does not copy, install or enable either unit. Runtime
+`2e14a3a2ca3c` passed Linux unit validation and public smoke; a manual one-shot
+completed job `9` for company `1` and Moscow date `2026-08-06` with zero
+business writes. The production timer is now installed and enabled. The
+permanent worker, model, MAX delivery and multi-company fan-out remain off.
 
 Repeat production verification for exactly one leadership company with the
 controlled smoke (set `SMOKE_COMPANY_ID` too when the account leads more than

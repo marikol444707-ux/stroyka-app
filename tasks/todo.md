@@ -3755,8 +3755,7 @@ Not scheduled.
 
 ## Task A4.2.4: One-Company Daily Brief Schedule
 
-**Status:** Implemented and verified locally on 2026-08-05. The production
-units are not installed or enabled.
+**Status:** Complete in production on runtime `2e14a3a2ca3c` on 2026-08-06.
 
 **Behavior:**
 - `npm run schedule:director-daily-brief -- --company-id <id>` plans one cycle
@@ -3784,9 +3783,14 @@ units are not installed or enabled.
 - [x] Full backend discovery passes (`1172/1172`), frontend Jest passes
   (`299/299`) and the production frontend build compiles.
 - [x] Module compile, package `--help` and `git diff --check` pass.
-- [ ] Validate both units with Linux `systemd-analyze verify` on production.
-- [ ] Run one manual one-shot for company `1` and inspect journal metadata.
-- [ ] Install and enable the timer only after separate explicit approval, then
-  verify its next-run time and production health/smoke.
+- [x] Linux unit verification passed before service start.
+- [x] Manual one-shot created company `1` job `9` for Moscow date
+  `2026-08-06`; it succeeded in `268 ms` with
+  `businessWritesAttempted=0`, and journal output contained operational
+  metadata only.
+- [x] Runtime `2e14a3a2ca3c` and full public production smoke pass. Protected
+  checks were skipped because credentials were not supplied.
+- [x] Timer is installed and enabled; `systemctl list-timers` reports the next
+  Moscow-morning run. The generic daemon remains disabled.
 
 **Estimated scope:** S

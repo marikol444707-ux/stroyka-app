@@ -65,8 +65,9 @@ npm run schedule:director-daily-brief -- --company-id 1 --apply
 ```
 
 The repository timer is disabled by default and is not installed by
-`deploy.sh`. It must pass Linux unit validation and one manual one-shot before
-a separately approved production enablement.
+`deploy.sh`. Production runtime `2e14a3a2ca3c` passed Linux unit validation,
+one manual company `1` one-shot and public smoke before the timer was enabled.
+The generic runner daemon remains disabled.
 
 ## Handler boundary
 
