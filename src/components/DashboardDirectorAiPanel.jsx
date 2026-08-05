@@ -1,8 +1,10 @@
 import React from 'react';
 import { Bot } from 'lucide-react';
+import DirectorDailyBriefPanel from './DirectorDailyBriefPanel';
 
 export default function DashboardDirectorAiPanel({
   isLeadership,
+  latestDailyBriefState,
   directorSkillCards,
   dailyReportDate,
   setDailyReportDate,
@@ -30,11 +32,12 @@ export default function DashboardDirectorAiPanel({
     <div style={{marginBottom:'20px'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'12px'}}>
         <div>
-          <h2 style={{margin:0,fontSize:'18px',color:'#f8fafc',display:'flex',alignItems:'center',gap:'8px'}}><Bot size={18} color='#fdba74'/>ИИ-контроль директора</h2>
-          <p style={{color:'#94a3b8',fontSize:'12px',margin:'3px 0 0'}}>Автопроверки по данным программы</p>
+          <h2 style={{margin:0,fontSize:'18px',color:'#f8fafc',display:'flex',alignItems:'center',gap:'8px'}}><Bot size={18} color='#fdba74'/>Контроль директора</h2>
+          <p style={{color:'#94a3b8',fontSize:'12px',margin:'3px 0 0'}}>Сводка и проверки по данным программы</p>
         </div>
         <input type='date' value={dailyReportDate || ''} onChange={e=>changeDailyReportDate(e.target.value)} style={{height:'34px',padding:'6px 8px',borderRadius:'8px',border:'1px solid rgba(148,163,184,.32)',background:'rgba(15,23,42,.72)',color:'#f8fafc',fontSize:'12px',boxSizing:'border-box'}}/>
       </div>
+      <DirectorDailyBriefPanel state={latestDailyBriefState} isMobile={isMobile}/>
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:'12px'}}>
         {cards.map((k,i)=>(
           <button key={i} onClick={typeof k.onClick === 'function' ? k.onClick : undefined} style={{textAlign:'left',padding:'14px',borderRadius:'16px',background:k.bg,border:'1px solid '+k.border,cursor:'pointer',transition:'transform 0.15s, background 0.15s',color:'#f8fafc',display:'flex',flexDirection:'column',gap:'10px',minHeight:'116px'}} onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.background='rgba(30,41,59,.75)';}} onMouseLeave={e=>{e.currentTarget.style.transform='';e.currentTarget.style.background=k.bg;}}>

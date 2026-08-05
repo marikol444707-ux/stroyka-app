@@ -3607,3 +3607,43 @@ Permanent worker and bulk scheduling remain disabled.
   compatibility hotfix restored health before protected or brief verification.
 
 **Specification:** `docs/director-daily-brief.md`
+
+## Task A4.1: Latest Daily Brief In The Director Dashboard
+
+**Status:** Complete on branch `codex/director-brief-dashboard` on 2026-08-05.
+Not deployed.
+
+**Behavior:**
+- Leadership can read `GET /agent-jobs/director-daily-brief/latest` only for one
+  selected company. All-companies and roles outside the leadership allowlist
+  fail before the brief query.
+- The endpoint selects only the latest successful company-scoped
+  `director.daily_brief` row and returns an explicit `{available:false}` when
+  none exists.
+- A schema-v1 validator rebuilds an allowlisted public projection. Raw queue
+  payload/result JSON, correlation, worker identity, lease data and provider
+  errors are not exposed.
+- The dashboard shows date, critical/warning/info totals, all six section
+  counts and at most three bounded subjects per section. Loading, empty,
+  selected-company and error states are explicit.
+
+**Safety:**
+- This step is read-only. It adds no enqueue button, business-table mutation,
+  model/provider call, MAX message, bulk schedule or permanent worker.
+- The controlled A3 production smoke deletes its own job, so the production
+  dashboard will remain empty until a real persisted brief is deliberately
+  scheduled in a later step.
+
+**Verification:**
+- [x] Backend query/route and tenant-role tests pass (`35` focused tests).
+- [x] Frontend hook/view tests pass (`10` focused tests).
+- [x] Production React build compiles and smoke shell syntax passes.
+- [x] Mocked Playwright checks pass on desktop and 390 px mobile width with no
+  console errors or text overlap.
+- [x] Full repository suites pass (`1131` backend tests and `299` frontend
+  tests); final correctness, tenant-isolation and field-exposure review passes.
+- [ ] Production deploy and protected smoke for the new endpoint.
+
+**Next:** A4.2 must be discussed before implementation: choose a controlled
+manual/scheduled producer and delivery channel without enabling a general
+autonomous daemon.

@@ -10,6 +10,7 @@ import {
   DashboardSupplyPanel,
 } from '../../app/lazyComponents';
 import { isOpenAiStatus } from '../../utils/statusMetaUtils';
+import {useLatestDirectorDailyBrief} from './useLatestDirectorDailyBrief';
 
 export default function DashboardPage({
   actions = {},
@@ -173,6 +174,16 @@ export default function DashboardPage({
     unreadNotifications,
     user,
   };
+  const currentUserRole = user?.role || '';
+  const isLeadershipUser = typeof isLeadership === 'function'
+    ? isLeadership
+    : () => ['директор', 'зам_директора'].includes(currentUserRole);
+  const latestDailyBriefState = useLatestDirectorDailyBrief({
+    API,
+    enabled: Boolean(initialDataLoaded && isLeadershipUser()),
+    companyContext,
+    fallbackCompanyId: user?.companyId || user?.company_id,
+  });
 
   if (!initialDataLoaded) {
     return (
@@ -186,7 +197,6 @@ export default function DashboardPage({
     );
   }
 
-  const currentUserRole = user?.role || '';
   const isApprovedEstimateChange = typeof isApprovedEstimateChangeStatus === 'function'
     ? isApprovedEstimateChangeStatus
     : () => false;
@@ -199,9 +209,6 @@ export default function DashboardPage({
   const getProjectRealProgress = typeof projectRealProgress === 'function'
     ? projectRealProgress
     : (project) => Math.max(0, Math.min(100, Number(project?.progress || 0)));
-  const isLeadershipUser = typeof isLeadership === 'function'
-    ? isLeadership
-    : () => ['директор', 'зам_директора'].includes(currentUserRole);
   const formatDocDate = typeof normalizeDocDate === 'function'
     ? normalizeDocDate
     : (value) => String(value || '').split('T')[0] || '';
@@ -304,7 +311,7 @@ export default function DashboardPage({
     <div style={{minHeight:'100%',padding:isMobile?'calc(env(safe-area-inset-top, 0px) + 12px) 16px 16px':'28px',background:'radial-gradient(circle at 15% 0%,rgba(249,115,22,.15),transparent 32%),linear-gradient(135deg,#0b1120 0%,#111827 100%)',color:'#f8fafc'}}>
       <DashboardTopBar {...topBarProps}/>
       <DashboardStatsGrid dashboardProjects={dashboardProjects} avgProg={avgProg} totalDone={totalDone} totalExpenses={dashboardAccountingExpenses} setActivePage={safeSetActivePage} navigateTo={safeNavigateTo} setAccountingTab={safeSetAccountingTab}/>
-      {showDashboardExtra&&<DashboardDirectorAiPanel isLeadership={isLeadershipUser} directorSkillCards={directorSkillCards} dailyReportDate={dailyReportDate} setDailyReportDate={safeSetDailyReportDate} canUseDirectorAgent={canUseDirectorAgent} directorAgentLoading={directorAgentLoading} askDirectorAgent={safeAskDirectorAgent} directorAgentQuestion={directorAgentQuestion} setDirectorAgentQuestion={safeSetDirectorAgentQuestion} isMobile={isMobile} directorAgentAnswer={directorAgentAnswer} directorAgentError={directorAgentError} directorAgentSteps={directorAgentSteps}/>}
+      {showDashboardExtra&&<DashboardDirectorAiPanel isLeadership={isLeadershipUser} latestDailyBriefState={latestDailyBriefState} directorSkillCards={directorSkillCards} dailyReportDate={dailyReportDate} setDailyReportDate={safeSetDailyReportDate} canUseDirectorAgent={canUseDirectorAgent} directorAgentLoading={directorAgentLoading} askDirectorAgent={safeAskDirectorAgent} directorAgentQuestion={directorAgentQuestion} setDirectorAgentQuestion={safeSetDirectorAgentQuestion} isMobile={isMobile} directorAgentAnswer={directorAgentAnswer} directorAgentError={directorAgentError} directorAgentSteps={directorAgentSteps}/>}
       {showDashboardExtra&&<DashboardSupplyPanel showSupplyDashboard={showSupplyDashboard} user={user} openSupplyDashboard={openSupplyDashboard} supplyPendingRequests={supplyPendingRequests} supplyOffersToReview={supplyOffersToReview} supplyInvoicesToPay={supplyInvoicesToPay} supplyInvoiceDebt={supplyInvoiceDebt}/>}
       <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1.3fr 0.7fr',gap:'16px'}}>
         <div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>

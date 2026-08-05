@@ -57,6 +57,24 @@ seven-tool contract can prove. Signed acts, supplier invoices, contracts and
 line-level estimate reconciliation need separately reviewed read contracts;
 the brief must not guess those states.
 
+## In-app read model
+
+`GET /agent-jobs/director-daily-brief/latest` exposes the latest succeeded
+company-scoped result to leadership for one selected company. Aggregate-company
+mode and roles outside the leadership allowlist fail before the query. A
+missing completed brief returns `{ "available": false }`.
+
+The endpoint does not reuse the generic job detail projection and does not
+return raw queue internals. It validates the stored schema-v1 result and builds
+a new allowlisted copy containing only `jobId`, `completedAt` and the bounded
+brief fields. Malformed stored data fails closed and must be regenerated.
+
+The director dashboard renders this read model as a compact block with the
+brief date, severity totals, all six section counts and up to three subjects per
+section. It has explicit loading, empty, selected-company and error states and
+contains no start/retry/mutation command. The company switch reloads the block
+and clears the previous company's result before the next response arrives.
+
 ## Operations
 
 The production registry contains `system.worker_probe` and
@@ -64,6 +82,11 @@ The production registry contains `system.worker_probe` and
 public/protected smoke and one controlled company brief with exact queue
 cleanup. The permanent worker and bulk scheduling remain disabled. A4 will add
 human-facing explanation/delivery and still must not mutate business records.
+
+A4.1 adds only the in-app read surface. The controlled production smoke removes
+its own queue row, so this screen can legitimately stay empty until a later,
+explicitly approved producer persists real daily briefs. A model, MAX delivery,
+bulk scheduling and a permanent daemon are still disabled.
 
 Repeat production verification for exactly one leadership company with the
 controlled smoke (set `SMOKE_COMPANY_ID` too when the account leads more than
