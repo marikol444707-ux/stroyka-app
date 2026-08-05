@@ -89,13 +89,40 @@ as Task A1.4.4.
 
 **Verification:**
 - [x] Red tests failed before the cancellation service and route existed.
-- [x] Agent-job focused suite passes (`50` tests); audit ownership focused tests
+- [x] Agent-job focused suite passes (`52` tests); audit ownership focused tests
   also cover `agent_job` as a stored company/project parent.
-- [x] Full backend discovery passes (`1071` tests).
+- [x] Full backend discovery passes (`1073` tests).
 - [x] Full frontend Jest passes (`289` tests), Python compile, smoke-script
   syntax and production build pass.
 - [ ] Production public/protected and transactional cancellation smoke remain in
   Task A1.4.4.
+
+**Estimated scope:** S
+
+## Task A1.4.4: Production Cancellation Verification
+
+**Status:** Verification harness is implemented locally; production deploy and
+server execution are pending.
+
+**Prepared checks:**
+- Protected production smoke posts only to a non-existent job ID and confirms
+  aggregate-company denial, foreign-company denial and selected-company `404`.
+- `npm run smoke:agent-job-cancellation` creates one queued and one running job
+  in a single database transaction, cancels only queued, stores company audit,
+  preserves the previous diagnostic and proves running remains unchanged.
+- The script always rolls back, reconnects and requires zero matching
+  `agent_jobs` and zero matching `audit_log` rows.
+
+**Verification:**
+- [x] Static red tests were added before the smoke script and API checks.
+- [x] Agent-job suite passes (`52` tests), full backend passes (`1073` tests),
+  frontend Jest passes (`289` tests), script compile/syntax and production build
+  pass.
+- [x] A local manual invocation produces a structured failure with
+  `rolledBack=true` because the intentionally minimal local PostgreSQL lacks
+  the production tenant tables; no local records were written.
+- [ ] Deploy and run protected API plus rollback-only PostgreSQL smoke on the
+  production schema.
 
 **Estimated scope:** S
 

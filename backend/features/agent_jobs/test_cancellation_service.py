@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from backend.features.agent_jobs.cancellation_service import (
     AgentJobCancellationError,
@@ -35,6 +36,21 @@ def job(status="cancelled"):
 
 
 class AgentJobCancellationServiceTests(unittest.TestCase):
+    def test_production_smoke_is_rollback_only_and_verifies_audit_cleanup(self):
+        smoke_path = (
+            Path(__file__).resolve().parents[3]
+            / "scripts"
+            / "smoke-agent-job-cancellation.py"
+        )
+        source = " ".join(smoke_path.read_text(encoding="utf-8").split())
+
+        self.assertIn("cancel_queued_agent_job", source)
+        self.assertIn("insert_audit_event", source)
+        self.assertIn("conn.rollback()", source)
+        self.assertIn("persistedAgentJobs", source)
+        self.assertIn("persistedAuditRows", source)
+        self.assertIn("status == \"running\"", source)
+
     def test_cancels_only_a_queued_job_in_the_selected_company(self):
         cur = FakeCursor([job()])
 

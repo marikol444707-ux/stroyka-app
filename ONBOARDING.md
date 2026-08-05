@@ -478,6 +478,18 @@ nginx -t && systemctl reload nginx
 создаёт резервную копию в `/etc/nginx/backups` и ничего не дублирует при
 повторном запуске.
 
+После деплоя отмены фоновых заданий выполнить:
+
+```bash
+SMOKE_PROTECTED_ONLY=1 npm run smoke:prod
+npm run smoke:agent-job-cancellation
+```
+
+Вторая команда создаёт queued/running задания и запись аудита только внутри
+одной транзакции. Успех обязан содержать `steps=[cancel_queued, audit,
+protect_running]`, `rolledBack=true`, `persistedAgentJobs=0` и
+`persistedAuditRows=0`.
+
 ## Документация
 
 - `tasks/plan.md` - порядок работ и контрольные точки.

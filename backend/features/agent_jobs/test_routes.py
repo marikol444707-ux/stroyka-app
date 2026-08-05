@@ -83,6 +83,18 @@ class AgentJobRouteTests(unittest.TestCase):
         self.assertIn('"cancel_roles": LEADERSHIP_ROLES', source)
         self.assertIn('"insert_audit_event": insert_agent_job_audit_event', source)
 
+    def test_production_smoke_covers_safe_cancel_route_denials(self):
+        smoke_path = (
+            Path(__file__).resolve().parents[3]
+            / "scripts"
+            / "prod-smoke-check.sh"
+        )
+        source = " ".join(smoke_path.read_text(encoding="utf-8").split())
+
+        self.assertIn("/agent-jobs/2147483647/cancel", source)
+        self.assertIn("agent job cancel all-companies blocked", source)
+        self.assertIn("agent job cancel missing", source)
+
     def build_app(self, cursor, *, actors=None, mode="company", audit=None):
         app = FakeApp()
         conn = FakeConnection(cursor)

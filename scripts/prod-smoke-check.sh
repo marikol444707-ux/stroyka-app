@@ -369,6 +369,30 @@ for row in rows if isinstance(rows, list) else []:
       failures+=("/agent-jobs foreign company got=$agent_jobs_foreign_code expected=400/403/404/409")
     fi
 
+    agent_job_cancel_all_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/agent-jobs/2147483647/cancel" -H "Authorization: Bearer $token" -H 'X-Company-Mode: all_companies' -H 'Content-Type: application/json' -d '{"reasonCode":"user_request"}' || true)"
+    if [[ "$agent_job_cancel_all_code" == "400" || "$agent_job_cancel_all_code" == "403" || "$agent_job_cancel_all_code" == "409" ]]; then
+      echo "OK   agent job cancel all-companies blocked $agent_job_cancel_all_code"
+    else
+      echo "FAIL agent job cancel all-companies got=$agent_job_cancel_all_code expected=400/403/409"
+      failures+=("agent job cancel all-companies got=$agent_job_cancel_all_code expected=400/403/409")
+    fi
+
+    agent_job_cancel_foreign_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/agent-jobs/2147483647/cancel" -H "Authorization: Bearer $token" -H 'X-Company-Id: 2147483647' -H 'Content-Type: application/json' -d '{"reasonCode":"user_request"}' || true)"
+    if [[ "$agent_job_cancel_foreign_code" == "400" || "$agent_job_cancel_foreign_code" == "403" || "$agent_job_cancel_foreign_code" == "404" || "$agent_job_cancel_foreign_code" == "409" ]]; then
+      echo "OK   agent job cancel foreign company blocked $agent_job_cancel_foreign_code"
+    else
+      echo "FAIL agent job cancel foreign company got=$agent_job_cancel_foreign_code expected=400/403/404/409"
+      failures+=("agent job cancel foreign company got=$agent_job_cancel_foreign_code expected=400/403/404/409")
+    fi
+
+    agent_job_cancel_missing_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/agent-jobs/2147483647/cancel" -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d '{"reasonCode":"user_request"}' || true)"
+    if [[ "$agent_job_cancel_missing_code" == "404" ]]; then
+      echo "OK   agent job cancel missing $agent_job_cancel_missing_code"
+    else
+      echo "FAIL agent job cancel missing got=$agent_job_cancel_missing_code expected=404"
+      failures+=("agent job cancel missing got=$agent_job_cancel_missing_code expected=404")
+    fi
+
     agent_jobs_file="$(mktemp)"
     agent_jobs_code="$(curl -skS -o "$agent_jobs_file" -w '%{http_code}' "$BASE_URL/agent-jobs" -H "Authorization: Bearer $token" || true)"
     if [[ "$agent_jobs_code" == "200" ]] && python3 - "$agent_jobs_file" <<'PY'
