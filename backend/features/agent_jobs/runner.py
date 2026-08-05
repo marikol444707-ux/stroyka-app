@@ -28,6 +28,7 @@ from backend.features.agent_jobs.handler_registry import (
 from backend.features.agent_jobs.worker import (
     AgentJobWorkerError,
     WORKER_ID_RE,
+    claim_agent_job_by_id,
     claim_next_agent_job,
     complete_agent_job,
     fail_agent_job,
@@ -278,7 +279,18 @@ class AgentJobRunner:
             **fields,
         )
 
-    def _claim_once(self):
+    def _claim_once(self, *, job_id=None):
+        if job_id is not None:
+            return _run_transaction(
+                self.connection_factory,
+                lambda cur: claim_agent_job_by_id(
+                    cur,
+                    job_id=job_id,
+                    worker_id=self.config.worker_id,
+                    allowed_job_types=self.registry.job_types,
+                    lease_seconds=self.config.lease_seconds,
+                ),
+            )
         return _run_transaction(
             self.connection_factory,
             lambda cur: claim_next_agent_job(
@@ -315,8 +327,8 @@ class AgentJobRunner:
         )
         return AgentJobRunOutcome(True, status, job["id"])
 
-    def run_once(self):
-        job = self._claim_once()
+    def run_once(self, *, job_id=None):
+        job = self._claim_once(job_id=job_id)
         if job is None:
             return AgentJobRunOutcome(False, "idle")
         started_at = self.monotonic()
@@ -427,8 +439,14 @@ def _environment_number(name, default, caster):
 def _parse_args(argv):
     parser = argparse.ArgumentParser(description="Run the separate agent job worker")
     parser.add_argument("--once", action="store_true", help="recover and process at most one job")
+    parser.add_argument("--job-id", type=int, help="process only this queued job; requires --once")
     parser.add_argument("--worker-id", default=os.getenv("AGENT_JOB_WORKER_ID") or build_worker_id())
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.job_id is not None and args.job_id <= 0:
+        parser.error("--job-id must be a positive integer")
+    if args.job_id is not None and not args.once:
+        parser.error("--job-id requires --once")
+    return args
 
 
 def main(argv=None):
@@ -464,11 +482,13 @@ def main(argv=None):
         "runner_started",
         worker_id=config.worker_id,
         allowed_job_types=registry.job_types,
+        job_id=args.job_id,
     )
     if args.once:
         try:
-            runner.recover_once()
-            outcome = runner.run_once()
+            if args.job_id is None:
+                runner.recover_once()
+            outcome = runner.run_once(job_id=args.job_id)
         except Exception as exc:
             emit_json_event("runner_cycle_error", error_type=type(exc).__name__)
             emit_json_event(
@@ -478,13 +498,15 @@ def main(argv=None):
                 status="error",
             )
             return 1
+        exact_job_not_claimed = args.job_id is not None and not outcome.processed
         emit_json_event(
             "runner_stopped",
             worker_id=config.worker_id,
             processed=outcome.processed,
-            status=outcome.status,
+            status="not_claimed" if exact_job_not_claimed else outcome.status,
+            job_id=getattr(outcome, "job_id", None) or args.job_id,
         )
-        return 0
+        return 2 if exact_job_not_claimed else 0
     runner.run_forever(stop_event=stop_event)
     emit_json_event("runner_stopped", worker_id=config.worker_id)
     return 0

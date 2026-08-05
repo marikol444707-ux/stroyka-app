@@ -207,6 +207,26 @@ class AgentJobRunnerTests(unittest.TestCase):
         self.assertEqual(claim_params[0], ["system.worker_probe"])
         self.assertEqual(len(connections.created), 1)
 
+    def test_runner_claims_only_the_requested_job_id(self):
+        claim_connection = FakeConnection(None)
+        runner = AgentJobRunner(
+            registry=AgentJobHandlerRegistry(
+                (("director.daily_brief", lambda context: {}),)
+            ),
+            connection_factory=ConnectionSequence(claim_connection),
+            config=self.config(),
+            emit_event=lambda *args, **kwargs: None,
+        )
+
+        outcome = runner.run_once(job_id=73)
+
+        self.assertFalse(outcome.processed)
+        self.assertEqual(outcome.status, "idle")
+        sql, params = claim_connection.cursor_value.calls[0]
+        self.assertIn("WHERE id=%s", sql)
+        self.assertEqual(params[0], 73)
+        self.assertEqual(params[1], ["director.daily_brief"])
+
     def test_lost_lease_does_not_store_handler_result(self):
         claim_connection = FakeConnection(claimed_row())
         complete_connection = FakeConnection(None)
@@ -389,6 +409,71 @@ class RunnerLoopTests(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertIn("RuntimeError", output.getvalue())
         self.assertNotIn("must-not-be-printed", output.getvalue())
+
+    def test_exact_once_skips_global_recovery_and_passes_job_id(self):
+        fake_registry = SimpleNamespace(job_types=("director.daily_brief",))
+
+        class ExactRunner:
+            recovery_calls = 0
+            requested_job_ids = []
+
+            def recover_once(self):
+                self.recovery_calls += 1
+
+            def run_once(self, *, job_id=None):
+                self.requested_job_ids.append(job_id)
+                return SimpleNamespace(processed=True, status="succeeded")
+
+        fake_runner = ExactRunner()
+
+        with patch(
+            "backend.features.agent_jobs.runner.build_default_handler_registry",
+            return_value=fake_registry,
+        ), patch(
+            "backend.features.agent_jobs.runner.AgentJobRunner",
+            return_value=fake_runner,
+        ), patch("backend.features.agent_jobs.runner.signal.signal"):
+            exit_code = main(
+                ["--once", "--job-id", "73", "--worker-id", "agent-worker:test"]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(fake_runner.recovery_calls, 0)
+        self.assertEqual(fake_runner.requested_job_ids, [73])
+
+    def test_exact_once_returns_nonzero_when_target_cannot_be_claimed(self):
+        fake_registry = SimpleNamespace(job_types=("director.daily_brief",))
+
+        class IdleRunner:
+            def run_once(self, *, job_id=None):
+                return SimpleNamespace(processed=False, status="idle")
+
+        output = io.StringIO()
+        with patch(
+            "backend.features.agent_jobs.runner.build_default_handler_registry",
+            return_value=fake_registry,
+        ), patch(
+            "backend.features.agent_jobs.runner.AgentJobRunner",
+            return_value=IdleRunner(),
+        ), patch("backend.features.agent_jobs.runner.signal.signal"), redirect_stdout(output):
+            exit_code = main(
+                ["--once", "--job-id", "73", "--worker-id", "agent-worker:test"]
+            )
+
+        self.assertEqual(exit_code, 2)
+        stopped = [
+            json.loads(line)
+            for line in output.getvalue().splitlines()
+            if '"event":"runner_stopped"' in line
+        ][0]
+        self.assertEqual(stopped["jobId"], 73)
+        self.assertEqual(stopped["status"], "not_claimed")
+
+    def test_job_id_is_rejected_without_once_mode(self):
+        with self.assertRaises(SystemExit) as raised:
+            main(["--job-id", "73", "--worker-id", "agent-worker:test"])
+
+        self.assertEqual(raised.exception.code, 2)
 
 
 if __name__ == "__main__":

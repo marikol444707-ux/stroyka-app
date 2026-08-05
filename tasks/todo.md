@@ -3685,3 +3685,34 @@ Not scheduled; permanent worker remains disabled.
   `writesAttempted=0`; apply created queued job `8`; one runner cycle claimed
   and completed that exact job as `succeeded` in `206 ms`; repeat returned
   `existing` for job `8` with zero writes.
+
+## Task A4.2.2: Exact Agent Job Runner Handoff
+
+**Status:** Complete locally on 2026-08-05. Not deployed; no scheduler or
+permanent worker is enabled.
+
+**Behavior:**
+- `npm run worker:agent-jobs -- --once --job-id <id>` processes only the
+  requested queue row. It never falls back to the next eligible row.
+- Exact mode accepts only a positive ID and is rejected unless `--once` is
+  present.
+- If the row cannot be claimed, the process reports metadata-only
+  `not_claimed` and exits with code `2` instead of silently succeeding.
+
+**Safety:**
+- The atomic claim requires `queued`, due `run_after`, remaining attempts and
+  a job type in the runner's immutable handler registry, with `FOR UPDATE SKIP
+  LOCKED` for concurrent workers.
+- Exact mode skips global expired-lease recovery, so a targeted run cannot
+  mutate or consume a neighboring job or another registered job type.
+- No HTTP action, scheduler, daemon, model, MAX delivery or business-table
+  mutation is added.
+
+**Verification:**
+- [x] Worker and runner tests were written red before implementation.
+- [x] Focused agent-job suite passes (`80` tests).
+- [x] Full backend discovery passes (`1145` tests).
+- [x] Final security and diff review passes: exact ID and every SQL value are
+  parameterized, handler allowlist/status/attempt/time guards remain inside the
+  atomic claim, logs expose metadata only and ordinary `--once` keeps its
+  existing recovery-plus-next-job behavior.

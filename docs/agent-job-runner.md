@@ -32,6 +32,19 @@ That command recovers leases for registered types and processes at most one due
 job. Inspect the queue first: after A3 is deployed, `--once` may claim a queued
 daily brief as well as a probe.
 
+For controlled producer or scheduler hand-off, use the exact queued job ID:
+
+```bash
+npm run worker:agent-jobs -- --once --job-id <job-id>
+```
+
+Exact mode does not run global expired-lease recovery and never falls through
+to another queue row. It atomically claims only that ID when it is queued, due,
+below its attempt limit and present in the immutable handler allowlist. A
+missing, locked, delayed, completed or disallowed target exits with code `2`
+and metadata-only status `not_claimed`. `--job-id` is rejected without
+`--once` so it cannot accidentally start a permanent process.
+
 ## Handler boundary
 
 A handler receives an immutable `AgentJobContext` with one positive company

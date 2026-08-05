@@ -162,6 +162,53 @@ def claim_next_agent_job(
     return _public_row(cur.fetchone())
 
 
+def claim_agent_job_by_id(
+    cur,
+    *,
+    job_id,
+    worker_id,
+    allowed_job_types,
+    lease_seconds=120,
+):
+    job_id = _job_id(job_id)
+    worker_id = _worker_id(worker_id)
+    allowed_job_types = _allowed_job_types(allowed_job_types)
+    lease_seconds = _lease_seconds(lease_seconds)
+    lease_token = uuid.uuid4().hex
+    cur.execute(
+        """
+        WITH candidate AS (
+            SELECT id
+              FROM agent_jobs
+             WHERE id=%s
+               AND status='queued'
+               AND run_after<=NOW()
+               AND attempts < max_attempts
+               AND job_type = ANY(%s::text[])
+             FOR UPDATE SKIP LOCKED
+             LIMIT 1
+        )
+        UPDATE agent_jobs AS job
+           SET status='running',
+               attempts=job.attempts+1,
+               locked_by=%s,
+               locked_at=NOW(),
+               heartbeat_at=NOW(),
+               lease_token=%s,
+               lease_expires_at=NOW() + (%s * INTERVAL '1 second'),
+               started_at=COALESCE(job.started_at,NOW()),
+               completed_at=NULL,
+               last_error='',
+               updated_at=NOW()
+          FROM candidate
+         WHERE job.id=candidate.id
+        RETURNING job.*
+        """,
+        (job_id, allowed_job_types, worker_id, lease_token, lease_seconds),
+    )
+    return _public_row(cur.fetchone())
+
+
 def heartbeat_agent_job(
     cur,
     *,

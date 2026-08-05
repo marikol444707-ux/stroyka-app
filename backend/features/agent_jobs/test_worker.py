@@ -4,6 +4,7 @@ from pathlib import Path
 
 from backend.features.agent_jobs.worker import (
     AgentJobWorkerError,
+    claim_agent_job_by_id,
     claim_next_agent_job,
     complete_agent_job,
     fail_agent_job,
@@ -84,6 +85,52 @@ class AgentJobWorkerTests(unittest.TestCase):
                 cur,
                 worker_id="worker-1",
                 allowed_job_types=(),
+            )
+
+        self.assertEqual(cur.calls, [])
+
+    def test_claim_by_id_is_atomic_skip_locked_and_handler_allowlisted(self):
+        row = {
+            "id": 73,
+            "company_id": 7,
+            "job_type": "director.daily_brief",
+            "status": "running",
+            "attempts": 1,
+            "locked_by": "worker-1",
+            "lease_token": LEASE_TOKEN,
+        }
+        cur = FakeCursor([row])
+
+        claimed = claim_agent_job_by_id(
+            cur,
+            job_id=73,
+            worker_id="worker-1",
+            allowed_job_types=("director.daily_brief",),
+            lease_seconds=120,
+        )
+
+        self.assertEqual(claimed, row)
+        sql, params = cur.calls[0]
+        self.assertIn("WHERE id=%s", sql)
+        self.assertIn("FOR UPDATE SKIP LOCKED", sql)
+        self.assertIn("status='queued'", sql)
+        self.assertIn("attempts < max_attempts", sql)
+        self.assertIn("job_type = ANY(%s::text[])", sql)
+        self.assertEqual(params[0], 73)
+        self.assertEqual(params[1], ["director.daily_brief"])
+        self.assertEqual(params[2], "worker-1")
+        self.assertRegex(params[3], r"^[a-f0-9]{32}$")
+        self.assertEqual(params[4], 120)
+
+    def test_claim_by_id_rejects_invalid_id_before_sql(self):
+        cur = FakeCursor()
+
+        with self.assertRaises(AgentJobWorkerError):
+            claim_agent_job_by_id(
+                cur,
+                job_id=0,
+                worker_id="worker-1",
+                allowed_job_types=("director.daily_brief",),
             )
 
         self.assertEqual(cur.calls, [])
