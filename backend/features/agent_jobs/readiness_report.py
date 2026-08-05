@@ -28,6 +28,8 @@ REQUIRED_COLUMNS = (
     "run_after",
     "locked_at",
     "locked_by",
+    "lease_token",
+    "lease_expires_at",
     "heartbeat_at",
     "started_at",
     "completed_at",
@@ -37,6 +39,7 @@ REQUIRED_COLUMNS = (
 )
 REQUIRED_INDEXES = (
     "idx_agent_jobs_claim",
+    "idx_agent_jobs_lease",
     "idx_agent_jobs_owner",
     "idx_agent_jobs_correlation",
 )
@@ -65,7 +68,12 @@ def build_report(cur):
         "missingColumns": missing_columns,
         "missingIndexes": list(REQUIRED_INDEXES),
         "missingConstraints": list(REQUIRED_CONSTRAINTS),
-        "summary": {"total": 0, "invalidOwner": 0, "invalidStatus": 0},
+        "summary": {
+            "total": 0,
+            "invalidOwner": 0,
+            "invalidStatus": 0,
+            "invalidLeaseState": 0,
+        },
         "readyForWorker": False,
     }
     if missing_columns:
@@ -103,7 +111,28 @@ def build_report(cur):
                ) AS invalid_owner,
                COUNT(*) FILTER (
                    WHERE status NOT IN ('queued','running','succeeded','failed','cancelled')
-               ) AS invalid_status
+               ) AS invalid_status,
+               COUNT(*) FILTER (
+                   WHERE (
+                       status='running'
+                       AND (
+                           COALESCE(locked_by,'')=''
+                           OR COALESCE(lease_token,'')=''
+                           OR locked_at IS NULL
+                           OR heartbeat_at IS NULL
+                           OR lease_expires_at IS NULL
+                       )
+                   ) OR (
+                       status<>'running'
+                       AND (
+                           locked_by IS NOT NULL
+                           OR lease_token IS NOT NULL
+                           OR locked_at IS NOT NULL
+                           OR heartbeat_at IS NOT NULL
+                           OR lease_expires_at IS NOT NULL
+                       )
+                   )
+               ) AS invalid_lease_state
           FROM agent_jobs
         """
     )
@@ -112,6 +141,7 @@ def build_report(cur):
         "total": int(row.get("total") or 0),
         "invalidOwner": int(row.get("invalid_owner") or 0),
         "invalidStatus": int(row.get("invalid_status") or 0),
+        "invalidLeaseState": int(row.get("invalid_lease_state") or 0),
     }
     base.update({
         "missingIndexes": missing_indexes,
@@ -120,7 +150,8 @@ def build_report(cur):
         "readyForWorker": not missing_indexes
         and not missing_constraints
         and summary["invalidOwner"] == 0
-        and summary["invalidStatus"] == 0,
+        and summary["invalidStatus"] == 0
+        and summary["invalidLeaseState"] == 0,
     })
     return base
 

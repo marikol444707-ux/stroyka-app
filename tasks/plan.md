@@ -327,6 +327,9 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [x] ~~Task A1.1: Add the local `agent_jobs` schema, company/project-scoped idempotent enqueue validation, actor membership and sensitive-payload guards, plus a read-only readiness report. Focused tests, full backend/frontend tests and production build pass.~~
 - [x] ~~Task A1.2: Deploy the schema and verify `npm run audit:agent-jobs` reports the complete empty schema, zero invalid rows and `readyForWorker=true`.~~
 - [ ] Task A1.3: Add a separate claim/lease worker with heartbeat, bounded retry/backoff and stale-job recovery so AI failure cannot block HTTP work.
+- [x] ~~Task A1.3.1: Add the local transactional lifecycle kernel: allowlisted `SKIP LOCKED` claim, one-use lease token, owner-only heartbeat/complete/fail, bounded exponential retries, batched stale recovery, safe result/error storage and rollback smoke.~~
+- [ ] Task A1.3.2: Deploy the lease schema, rerun the readiness audit and require the real-PostgreSQL lifecycle smoke to roll back every test row.
+- [ ] Task A1.3.3: After A2, run the lifecycle through a separate handler-registry worker process; never execute model work inside an HTTP request.
 - [ ] Task A1.4: Add tenant-scoped status/audit reads and safe cancellation for jobs that have not completed.
 - [ ] Task A2: Define the agent execution contract: allowed tools, minimal model payload, time/cost limits and no direct model access to the database.
 - [ ] Task A3: Build a deterministic read-only director daily brief for each company/group: overdue work, shortages, documents, estimate deviations, payments and tasks.

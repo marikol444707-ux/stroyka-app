@@ -24,6 +24,8 @@ def ensure_agent_jobs_schema(get_db):
                 run_after TIMESTAMP NOT NULL DEFAULT NOW(),
                 locked_at TIMESTAMP,
                 locked_by VARCHAR(120),
+                lease_token VARCHAR(64),
+                lease_expires_at TIMESTAMP,
                 heartbeat_at TIMESTAMP,
                 started_at TIMESTAMP,
                 completed_at TIMESTAMP,
@@ -43,9 +45,16 @@ def ensure_agent_jobs_schema(get_db):
                 CONSTRAINT uq_agent_jobs_idempotency
                     UNIQUE (company_id, project_scope_id, job_type, idempotency_key)
             );
+            ALTER TABLE agent_jobs
+                ADD COLUMN IF NOT EXISTS lease_token VARCHAR(64);
+            ALTER TABLE agent_jobs
+                ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMP;
             CREATE INDEX IF NOT EXISTS idx_agent_jobs_claim
                 ON agent_jobs(status, run_after, priority, id)
                 WHERE status='queued';
+            CREATE INDEX IF NOT EXISTS idx_agent_jobs_lease
+                ON agent_jobs(lease_expires_at, id)
+                WHERE status='running';
             CREATE INDEX IF NOT EXISTS idx_agent_jobs_owner
                 ON agent_jobs(company_id, project_id, created_at DESC, id DESC);
             CREATE INDEX IF NOT EXISTS idx_agent_jobs_correlation

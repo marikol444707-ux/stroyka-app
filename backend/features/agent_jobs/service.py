@@ -72,19 +72,19 @@ def _bounded_int(value, field, minimum, maximum, default):
     return normalized
 
 
-def _json_payload(payload):
-    if payload is None:
-        payload = {}
-    if not isinstance(payload, dict):
-        raise AgentJobValidationError("payload must be an object")
-    if _contains_sensitive_key(payload):
-        raise AgentJobValidationError("payload contains a sensitive field")
+def serialize_safe_json_object(value, field="payload"):
+    if value is None:
+        value = {}
+    if not isinstance(value, dict):
+        raise AgentJobValidationError(f"{field} must be an object")
+    if _contains_sensitive_key(value):
+        raise AgentJobValidationError(f"{field} contains a sensitive field")
     try:
-        serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        serialized = json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
     except (TypeError, ValueError) as exc:
-        raise AgentJobValidationError("payload must be JSON serializable") from exc
+        raise AgentJobValidationError(f"{field} must be JSON serializable") from exc
     if len(serialized.encode("utf-8")) > MAX_PAYLOAD_BYTES:
-        raise AgentJobValidationError("payload is too large")
+        raise AgentJobValidationError(f"{field} is too large")
     return serialized
 
 
@@ -119,7 +119,7 @@ def enqueue_agent_job(
             "requested_by_user_id is required for a human role"
         )
     correlation_id = _bounded_text(correlation_id, "correlation_id", 80) or str(uuid.uuid4())
-    payload_json = _json_payload(payload)
+    payload_json = serialize_safe_json_object(payload)
     priority = _bounded_int(priority, "priority", 1, 10, 5)
     max_attempts = _bounded_int(max_attempts, "max_attempts", 1, 10, 3)
 

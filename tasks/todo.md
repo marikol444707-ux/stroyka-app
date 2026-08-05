@@ -64,6 +64,48 @@
 
 **Estimated scope:** S
 
+## Task A1.3.1: Agent Job Worker Lifecycle Kernel
+
+**Description:** Add the transaction-level worker controls without starting a
+daemon or calling an AI model. A worker may claim only registered job types;
+the lease owner alone may heartbeat, finish or retry a still-valid lease.
+
+**Status:** Local implementation complete on 2026-08-05. Production schema
+upgrade, readiness audit and rollback smoke remain open as Task A1.3.2.
+
+**Safety:**
+- Claim uses one atomic `FOR UPDATE SKIP LOCKED` statement, so concurrent
+  workers do not wait on or receive the same queued row.
+- Claim and stale recovery both require an explicit job-type allowlist.
+- Heartbeat, success and failure require the matching worker, one-use
+  lease-token and a lease that has not expired; even a stale run with the same
+  worker name cannot overwrite a recovered job.
+- Attempts increment only on claim. Failure/recovery requeues below the limit
+  with bounded exponential backoff and becomes terminal `failed` at the
+  configured maximum.
+- Stale recovery is ordered, `SKIP LOCKED` and capped at `500` rows per batch.
+- Results reuse the 64 KiB sensitive-key guard. Error summaries are capped and
+  redact obvious password/token/authorization/cookie/API-key values.
+- The production smoke writes only inside one transaction, always rolls back,
+  then verifies by correlation IDs that zero test rows persisted.
+- No route, UI, AI provider, estimate, warehouse, supply, assignment or
+  accounting mutation is connected in this slice.
+
+**Verification:**
+- [x] Worker/schema/readiness/enqueue focused suite passes (`29` tests), with
+  red tests recorded before lease expiry, one-use token, PostgreSQL array,
+  secret redaction and bounded recovery fixes.
+- [x] Full backend discovery passes (`1049` tests).
+- [x] Full frontend Jest passes (`289` tests); production build and Python
+  compile pass.
+- [ ] After deployment, require `npm run audit:agent-jobs` to report the new
+  lease column/index with `readyForWorker=true`.
+- [ ] Run `npm run smoke:agent-job-worker` on production and require
+  `steps=[claim, heartbeat, retry, complete, recover_expired]`,
+  `rolledBack=true`, `persistedRows=0` and `ok=true`.
+
+**Estimated scope:** S
+
 ## Task 4: Add Smeta Access Smoke
 
 **Description:** Add or extend a smoke check that proves the parser access rule from Task 3 does not regress.

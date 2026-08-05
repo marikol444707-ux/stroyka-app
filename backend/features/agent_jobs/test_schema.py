@@ -49,11 +49,14 @@ class AgentJobSchemaTests(unittest.TestCase):
         self.assertIn("max_attempts INT NOT NULL DEFAULT 3", sql)
         self.assertIn("locked_at TIMESTAMP", sql)
         self.assertIn("locked_by VARCHAR(120)", sql)
+        self.assertIn("ADD COLUMN IF NOT EXISTS lease_token VARCHAR(64)", sql)
+        self.assertIn("ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMP", sql)
         self.assertIn(
             "UNIQUE (company_id, project_scope_id, job_type, idempotency_key)",
             sql,
         )
         self.assertIn("idx_agent_jobs_claim", sql)
+        self.assertIn("idx_agent_jobs_lease", sql)
         self.assertIn("idx_agent_jobs_owner", sql)
         self.assertTrue(connection.committed)
         self.assertTrue(connection.cursor_value.closed)

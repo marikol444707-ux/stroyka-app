@@ -23,6 +23,8 @@ REQUIRED_COLUMNS = (
     "run_after",
     "locked_at",
     "locked_by",
+    "lease_token",
+    "lease_expires_at",
     "heartbeat_at",
     "started_at",
     "completed_at",
@@ -55,11 +57,17 @@ class AgentJobReadinessReportTests(unittest.TestCase):
             [{"column_name": name} for name in REQUIRED_COLUMNS],
             [
                 {"indexname": "idx_agent_jobs_claim"},
+                {"indexname": "idx_agent_jobs_lease"},
                 {"indexname": "idx_agent_jobs_owner"},
                 {"indexname": "idx_agent_jobs_correlation"},
             ],
             [{"constraint_name": "uq_agent_jobs_idempotency"}],
-            {"total": 0, "invalid_owner": 0, "invalid_status": 0},
+            {
+                "total": 0,
+                "invalid_owner": 0,
+                "invalid_status": 0,
+                "invalid_lease_state": 0,
+            },
         ])
 
         report = build_report(cur)
@@ -69,6 +77,7 @@ class AgentJobReadinessReportTests(unittest.TestCase):
         self.assertEqual(report["writesAttempted"], 0)
         self.assertTrue(report["readyForWorker"])
         self.assertEqual(report["summary"]["total"], 0)
+        self.assertEqual(report["summary"]["invalidLeaseState"], 0)
         self.assertTrue(all(call[0].startswith("SELECT") for call in cur.calls))
 
     def test_missing_idempotency_constraint_is_not_ready(self):
@@ -76,11 +85,17 @@ class AgentJobReadinessReportTests(unittest.TestCase):
             [{"column_name": name} for name in REQUIRED_COLUMNS],
             [
                 {"indexname": "idx_agent_jobs_claim"},
+                {"indexname": "idx_agent_jobs_lease"},
                 {"indexname": "idx_agent_jobs_owner"},
                 {"indexname": "idx_agent_jobs_correlation"},
             ],
             [],
-            {"total": 0, "invalid_owner": 0, "invalid_status": 0},
+            {
+                "total": 0,
+                "invalid_owner": 0,
+                "invalid_status": 0,
+                "invalid_lease_state": 0,
+            },
         ])
 
         report = build_report(cur)
@@ -99,6 +114,29 @@ class AgentJobReadinessReportTests(unittest.TestCase):
         self.assertFalse(report["readyForWorker"])
         self.assertEqual(report["missingColumns"], list(REQUIRED_COLUMNS))
         self.assertEqual(len(cur.calls), 1)
+
+    def test_inconsistent_running_lease_is_not_ready(self):
+        cur = FakeCursor([
+            [{"column_name": name} for name in REQUIRED_COLUMNS],
+            [
+                {"indexname": "idx_agent_jobs_claim"},
+                {"indexname": "idx_agent_jobs_lease"},
+                {"indexname": "idx_agent_jobs_owner"},
+                {"indexname": "idx_agent_jobs_correlation"},
+            ],
+            [{"constraint_name": "uq_agent_jobs_idempotency"}],
+            {
+                "total": 1,
+                "invalid_owner": 0,
+                "invalid_status": 0,
+                "invalid_lease_state": 1,
+            },
+        ])
+
+        report = build_report(cur)
+
+        self.assertFalse(report["readyForWorker"])
+        self.assertEqual(report["summary"]["invalidLeaseState"], 1)
 
 
 if __name__ == "__main__":
