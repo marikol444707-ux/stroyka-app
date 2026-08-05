@@ -3610,8 +3610,8 @@ Permanent worker and bulk scheduling remain disabled.
 
 ## Task A4.1: Latest Daily Brief In The Director Dashboard
 
-**Status:** Complete on branch `codex/director-brief-dashboard` on 2026-08-05.
-Not deployed.
+**Status:** Deployed as runtime `7d8c615c09a3` on 2026-08-05. Public smoke
+passed; protected director smoke remains pending.
 
 **Behavior:**
 - Leadership can read `GET /agent-jobs/director-daily-brief/latest` only for one
@@ -3642,8 +3642,42 @@ Not deployed.
   console errors or text overlap.
 - [x] Full repository suites pass (`1131` backend tests and `299` frontend
   tests); final correctness, tenant-isolation and field-exposure review passes.
-- [ ] Production deploy and protected smoke for the new endpoint.
+- [x] Production deploy and public endpoint smoke pass on `7d8c615c09a3`.
+- [ ] Protected director smoke for the latest-brief endpoint.
 
-**Next:** A4.2 must be discussed before implementation: choose a controlled
-manual/scheduled producer and delivery channel without enabling a general
-autonomous daemon.
+**Next:** A4.2.1 implements only the previously selected controlled producer;
+scheduling and delivery remain separate decisions.
+
+## Task A4.2.1: Explicit Single-Company Daily Brief Producer
+
+**Status:** Complete locally on branch `codex/director-brief-producer` on
+2026-08-05. Not deployed or scheduled.
+
+**Behavior:**
+- `npm run enqueue:director-daily-brief -- --company-id <id> --brief-date
+  <YYYY-MM-DD>` performs a read-only plan and rolls back.
+- Adding `--apply` enqueues one `director.daily_brief` with the existing queue
+  service. The company/date idempotency key returns the existing job on repeat.
+- The company must exist and be active. There is no aggregate-company or
+  implicit-company mode.
+
+**Safety:**
+- The producer uses only server-owned parameterized SQL and the existing
+  validated enqueue boundary. Payload is fixed to `briefDate`; the author is
+  `system`, project scope is absent and the result exposes only job id/status.
+- Dry-run uses a PostgreSQL read-only transaction, attempts zero writes and
+  ends in rollback. `--apply` attempts one queue write; it does not call the
+  handler or runner.
+- No HTTP button, business mutation, scheduler, permanent daemon, model, MAX
+  delivery or company fan-out is included.
+
+**Verification:**
+- [x] Producer tests were written red before the module existed.
+- [x] Focused producer/queue/handler suite passes (`32` tests).
+- [x] Full backend discovery passes (`1139` tests).
+- [x] Module `--help` works without a database connection; unexpected CLI
+  errors expose only their class, not exception text.
+- [x] Final diff/security review passes; parameterized SQL, explicit company
+  scope, PostgreSQL read-only dry-run and metadata-only errors are confirmed.
+- [ ] Commit and branch push.
+- [ ] Production dry-run/apply/runner verification requires separate approval.

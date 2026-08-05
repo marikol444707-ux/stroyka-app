@@ -88,6 +88,25 @@ its own queue row, so this screen can legitimately stay empty until a later,
 explicitly approved producer persists real daily briefs. A model, MAX delivery,
 bulk scheduling and a permanent daemon are still disabled.
 
+The A4.2.1 producer keeps that boundary explicit. It requires one active
+`company_id` and one ISO `brief_date`, checks the existing company/day job and
+uses the queue's unique idempotency constraint. Without `--apply` it only reads
+inside a PostgreSQL read-only transaction and rolls back. With `--apply` it
+writes at most one system-owned queued job:
+
+```bash
+npm run enqueue:director-daily-brief -- \
+  --company-id 1 --brief-date 2026-08-05
+
+npm run enqueue:director-daily-brief -- \
+  --company-id 1 --brief-date 2026-08-05 --apply
+```
+
+The command does not execute the job. Processing remains a separate explicit
+operation (`npm run worker:agent-jobs -- --once`) until scheduling and worker
+operations are reviewed. Repeating the same company/date reports the existing
+job instead of creating a duplicate. There is no all-companies option.
+
 Repeat production verification for exactly one leadership company with the
 controlled smoke (set `SMOKE_COMPANY_ID` too when the account leads more than
 one company):
