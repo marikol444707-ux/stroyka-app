@@ -214,8 +214,8 @@ def _estimate_deviations(estimates):
         if abs(delta) < 0.01:
             continue
         items.append(_item(
-            "estimate.total_changed",
-            "warning",
+            "estimate.total_difference_candidate",
+            "info",
             current["name"],
             project=current["project"],
             status=current["status"],

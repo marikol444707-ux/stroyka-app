@@ -157,6 +157,14 @@ class DirectorDailyBriefServiceTests(unittest.TestCase):
             200.0,
         )
         self.assertEqual(
+            items_by_section["estimateDeviations"][0]["code"],
+            "estimate.total_difference_candidate",
+        )
+        self.assertEqual(
+            items_by_section["estimateDeviations"][0]["severity"],
+            "info",
+        )
+        self.assertEqual(
             {item["code"] for item in items_by_section["payments"]},
             {"finance.overview", "finance.project_fact"},
         )
