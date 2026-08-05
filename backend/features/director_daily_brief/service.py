@@ -23,7 +23,7 @@ SECTION_ORDER = (
     ("payments", "Платежи"),
     ("tasks", "Задачи"),
 )
-MAX_SECTION_ITEMS = 20
+MAX_SECTION_ITEMS = 12
 _SEVERITY_ORDER = {"critical": 0, "warning": 1, "info": 2}
 _TERMINAL_PROJECT_STATUSES = {
     "архив",
@@ -78,7 +78,7 @@ def _item(code, severity, subject, **fields):
     item = {
         "code": code,
         "severity": severity,
-        "subject": str(subject or "")[:500],
+        "subject": str(subject or "")[:240],
     }
     allowed = {
         "project",
@@ -89,9 +89,15 @@ def _item(code, severity, subject, **fields):
         "previousValue",
         "currentValue",
     }
+    text_limits = {
+        "project": 200,
+        "status": 80,
+        "dueDate": 40,
+        "metricUnit": 32,
+    }
     for key, value in fields.items():
         if key in allowed and value not in (None, ""):
-            item[key] = value
+            item[key] = str(value)[:text_limits[key]] if key in text_limits else value
     return item
 
 
@@ -234,28 +240,17 @@ def _payments(finances):
         currentValue=total_payments,
     )]
     for row in finances:
-        if row["paymentsNet"] < 0:
-            items.append(_item(
-                "finance.negative_payments",
-                "critical",
-                row["project"],
-                project=row["project"],
-                status=row["status"],
-                metricValue=round(row["paymentsNet"], 2),
-                metricUnit="RUB",
-            ))
-        elif row["budget"] > 0 and row["paymentsNet"] > row["budget"]:
-            items.append(_item(
-                "finance.over_budget",
-                "warning",
-                row["project"],
-                project=row["project"],
-                status=row["status"],
-                metricValue=round(row["paymentsNet"] - row["budget"], 2),
-                metricUnit="RUB",
-                previousValue=round(row["budget"], 2),
-                currentValue=round(row["paymentsNet"], 2),
-            ))
+        items.append(_item(
+            "finance.project_fact",
+            "info",
+            row["project"],
+            project=row["project"],
+            status=row["status"],
+            metricValue=round(row["paymentsNet"] - row["budget"], 2),
+            metricUnit="RUB",
+            previousValue=round(row["budget"], 2),
+            currentValue=round(row["paymentsNet"], 2),
+        ))
     return items
 
 

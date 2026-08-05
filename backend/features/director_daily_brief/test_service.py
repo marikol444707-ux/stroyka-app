@@ -158,8 +158,12 @@ class DirectorDailyBriefServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             {item["code"] for item in items_by_section["payments"]},
-            {"finance.overview", "finance.over_budget"},
+            {"finance.overview", "finance.project_fact"},
         )
+        self.assertTrue(all(
+            item["severity"] == "info"
+            for item in items_by_section["payments"]
+        ))
         self.assertEqual(
             {item["code"] for item in items_by_section["tasks"]},
             {"task.open_status", "task.unassigned"},
@@ -235,6 +239,93 @@ class DirectorDailyBriefServiceTests(unittest.TestCase):
 
         self.assertLessEqual(len(shortages["items"]), 20)
         self.assertTrue(shortages["truncated"])
+        self.assertLess(len(json.dumps(brief, ensure_ascii=False).encode("utf-8")), 64 * 1024)
+
+    def test_maximum_sanitized_inputs_still_fit_the_job_result_limit(self):
+        facts = valid_facts()
+        facts["projects"] = [
+            {
+                "name": f"{index:02d}" + "P" * 298,
+                "status": "В работе",
+                "budget": 1,
+                "progress": 1,
+                "deadline": "2026-08-01",
+            }
+            for index in range(40)
+        ]
+        facts["warehouse"]["mainWarehouse"] = [
+            {
+                "name": f"{index:02d}" + "M" * 298,
+                "qty": 0,
+                "unit": "unit" * 10,
+                "minQty": 100,
+                "category": "C" * 120,
+            }
+            for index in range(40)
+        ]
+        facts["supply"]["requestStatusCounts"] = {
+            f"{index:02d}" + "S" * 98: 1
+            for index in range(40)
+        }
+        facts["supply"]["openClaims"] = [
+            {
+                "project": "P" * 300,
+                "material": f"{index:02d}" + "C" * 298,
+                "type": "shortage",
+                "status": "Открыта",
+                "shortage": 1,
+            }
+            for index in range(20)
+        ]
+        facts["estimates"] = [
+            {
+                "name": f"{index:02d}" + "E" * 298,
+                "project": f"Project {index // 2}",
+                "version": f"v{index}",
+                "status": "Черновик",
+                "type": "Заказчик",
+                "package": "Package",
+                "items": 1,
+                "workItems": 1,
+                "materialItems": 0,
+                "total": 1000 + index,
+            }
+            for index in range(30)
+        ]
+        facts["finances"] = [
+            {
+                "project": f"{index:02d}" + "F" * 298,
+                "status": "В работе",
+                "budget": 1000,
+                "paymentsNet": 500,
+                "manualExpenses": None,
+                "manualExpensesScoped": False,
+            }
+            for index in range(40)
+        ]
+        facts["ai_tasks"] = {
+            "openStatusCounts": {
+                f"{index:02d}" + "T" * 98: 1
+                for index in range(40)
+            },
+            "tasks": [
+                {
+                    "project": "P" * 300,
+                    "title": f"{index:02d}" + "T" * 498,
+                    "assignedRole": "R" * 100,
+                    "assignedTo": "",
+                    "status": "Новая",
+                    "dueDate": "2026-08-01",
+                }
+                for index in range(30)
+            ],
+        }
+
+        brief = build_director_daily_brief(
+            brief_date="2026-08-05",
+            tool_results=facts,
+        )
+
         self.assertLess(len(json.dumps(brief, ensure_ascii=False).encode("utf-8")), 64 * 1024)
 
 

@@ -54,7 +54,7 @@ class AgentJobHandlerRegistryTests(unittest.TestCase):
             context.payload["options"]["days"] = 30
         self.assertNotIn("lease_token", context.__dataclass_fields__)
 
-    def test_default_registry_only_exposes_the_non_business_probe(self):
+    def test_default_registry_exposes_probe_and_read_only_daily_brief(self):
         registry = build_default_handler_registry()
         context = AgentJobContext.from_claimed_row({
             "id": 41,
@@ -69,12 +69,20 @@ class AgentJobHandlerRegistryTests(unittest.TestCase):
             "max_attempts": 1,
         })
 
-        self.assertEqual(registry.job_types, ("system.worker_probe",))
+        self.assertEqual(
+            registry.job_types,
+            ("system.worker_probe", "director.daily_brief"),
+        )
         self.assertEqual(
             registry.get("system.worker_probe")(context),
             {"ok": True, "workerReady": True},
         )
-        self.assertIsNone(registry.get("director.daily_brief"))
+        daily_brief = registry.get("director.daily_brief")
+        self.assertTrue(callable(daily_brief))
+        self.assertEqual(
+            daily_brief.__module__,
+            "backend.features.director_daily_brief.handler",
+        )
 
 
 if __name__ == "__main__":

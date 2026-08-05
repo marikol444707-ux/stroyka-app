@@ -95,6 +95,15 @@ except ModuleNotFoundError:
     from db import get_db, limit_offset_sql
 
 try:
+    from backend.features.director_agent.read_tools import (
+        DIRECTOR_AGENT_TOOLS as SHARED_DIRECTOR_AGENT_TOOLS,
+    )
+except ModuleNotFoundError:
+    from features.director_agent.read_tools import (
+        DIRECTOR_AGENT_TOOLS as SHARED_DIRECTOR_AGENT_TOOLS,
+    )
+
+try:
     from backend.auth import (
         AUTH_SESSION_COOKIE_NAME,
         AUTH_SESSION_COOKIE_SAMESITE,
@@ -3025,6 +3034,9 @@ DIRECTOR_AGENT_TOOLS = MappingProxyType({
     "staff": MappingProxyType({"fn": _director_agent_tool_staff, "desc": "Персонал и активные роли. args: {}"}),
     "ai_tasks": MappingProxyType({"fn": _director_agent_tool_ai_tasks, "desc": "Открытые задачи ИИ-контроля. args: {}"}),
 })
+
+# Keep the HTTP assistant and the background runner on one immutable read path.
+DIRECTOR_AGENT_TOOLS = SHARED_DIRECTOR_AGENT_TOOLS
 
 def _director_agent_extract_json(text: str):
     t = (text or "").strip()

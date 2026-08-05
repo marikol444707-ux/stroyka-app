@@ -1,7 +1,11 @@
 import unittest
 from types import MappingProxyType
+from unittest.mock import patch
 
-from backend.features.agent_jobs.handler_registry import AgentJobContext
+from backend.features.agent_jobs.handler_registry import (
+    AgentJobContext,
+    build_default_handler_registry,
+)
 from backend.features.director_daily_brief.handler import (
     DirectorDailyBriefHandlerError,
     build_director_daily_brief_handler,
@@ -72,6 +76,19 @@ class DirectorDailyBriefHandlerTests(unittest.TestCase):
         dependency["read"] = lambda company_id: MappingProxyType({})
 
         self.assertEqual(handler(job_context())["briefDate"], "2026-08-05")
+
+    def test_default_runner_registry_uses_the_read_only_result_loader(self):
+        seen = []
+
+        with patch(
+            "backend.features.director_agent.read_tools.read_director_agent_tool_results",
+            side_effect=lambda *, company_id: seen.append(company_id) or valid_facts(),
+        ):
+            handler = build_default_handler_registry().get("director.daily_brief")
+            result = handler(job_context())
+
+        self.assertEqual(seen, [7])
+        self.assertEqual(result["mode"], "deterministic_read_only")
 
 
 if __name__ == "__main__":

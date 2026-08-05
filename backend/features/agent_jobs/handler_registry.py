@@ -11,6 +11,7 @@ from backend.features.agent_jobs.service import (
     AgentJobValidationError,
     serialize_safe_json_object,
 )
+from backend.features.director_daily_brief.handler import handle_director_daily_brief
 
 
 class AgentJobHandlerRegistryError(ValueError):
@@ -134,4 +135,7 @@ def _worker_probe_handler(context):
 
 def build_default_handler_registry():
     """Return only handlers that are safe to execute in the current release."""
-    return AgentJobHandlerRegistry((("system.worker_probe", _worker_probe_handler),))
+    return AgentJobHandlerRegistry((
+        ("system.worker_probe", _worker_probe_handler),
+        ("director.daily_brief", handle_director_daily_brief),
+    ))
