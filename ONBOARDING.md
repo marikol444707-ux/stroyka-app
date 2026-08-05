@@ -456,6 +456,17 @@ backend JSON, сначала добавить точный `location ^~ /<api-pr
 server block nginx, затем `nginx -t && systemctl reload nginx` и повторить
 оба smoke.
 
+Для API статусов фоновых заданий готова безопасная повторяемая команда:
+
+```bash
+python3 scripts/ensure_agent_jobs_nginx_route.py /etc/nginx/sites-enabled/stroyka
+nginx -t && systemctl reload nginx
+```
+
+Скрипт добавляет отдельно `/agent-jobs` и `/agent-jobs/{id}`, перед изменением
+создаёт резервную копию в `/etc/nginx/backups` и ничего не дублирует при
+повторном запуске.
+
 ## Документация
 
 - `tasks/plan.md` - порядок работ и контрольные точки.

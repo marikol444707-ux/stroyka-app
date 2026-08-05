@@ -172,6 +172,7 @@ check_not_spa_fallback "project AI summary route" "$BASE_URL/project-ai-summary/
 check_not_spa_fallback "project AI summary post route" "$BASE_URL/project-ai-summary" "405"
 check_not_spa_fallback "AI findings route" "$BASE_URL/ai-findings" "401 403"
 check_not_spa_fallback "agent jobs route" "$BASE_URL/agent-jobs" "401 403"
+check_not_spa_fallback "agent job detail route" "$BASE_URL/agent-jobs/1" "401 403"
 check_not_spa_fallback "AI tasks route" "$BASE_URL/ai-tasks" "401 403"
 check_not_spa_fallback "assignments route" "$BASE_URL/assignments" "401 403"
 check_not_spa_fallback "AI task reports route" "$BASE_URL/ai-tasks/1/reports" "401 403"

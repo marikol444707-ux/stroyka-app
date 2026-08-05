@@ -132,6 +132,11 @@ verification remains open as Task A1.4.2.
   all-companies rejection, role denial, field redaction and pagination.
 - [x] Full backend discovery passes (`1060` tests).
 - [x] Full frontend Jest passes (`289` tests) and production build compiles.
+- [x] Backend deployed as runtime `124796b581aa`; the first public smoke proved
+  that Nginx still returned SPA `index.html` for `/agent-jobs` instead of the
+  protected API response.
+- [x] Add exact list/detail Nginx locations, an idempotent backup-first installer
+  and regression checks for both `/agent-jobs` and `/agent-jobs/{id}`.
 - [ ] After deployment, require unauthenticated `/agent-jobs` to return
   `401/403`, authenticated leadership read to return `200`, and
   `X-Company-Mode: all_companies` to return `400/403/409`.
