@@ -3688,8 +3688,8 @@ Not scheduled; permanent worker remains disabled.
 
 ## Task A4.2.2: Exact Agent Job Runner Handoff
 
-**Status:** Complete locally on 2026-08-05. Not deployed; no scheduler or
-permanent worker is enabled.
+**Status:** Complete in production on runtime `ed11051bb8d8` on 2026-08-05.
+No scheduler or permanent worker is enabled.
 
 **Behavior:**
 - `npm run worker:agent-jobs -- --once --job-id <id>` processes only the
@@ -3716,10 +3716,12 @@ permanent worker is enabled.
   parameterized, handler allowlist/status/attempt/time guards remain inside the
   atomic claim, logs expose metadata only and ordinary `--once` keeps its
   existing recovery-plus-next-job behavior.
+- [x] Runtime `ed11051bb8d8` and the full public production smoke pass.
 
 ## Task A4.2.3: Controlled Single-Company Daily Brief Cycle
 
-**Status:** Complete locally on 2026-08-05. Not deployed and not scheduled.
+**Status:** Complete in production on runtime `ed11051bb8d8` on 2026-08-05.
+Not scheduled.
 
 **Behavior:**
 - `npm run run:director-daily-brief -- --company-id <id> --brief-date
@@ -3748,3 +3750,5 @@ permanent worker is enabled.
 - [x] Final diff/security review passes: company/date/type and exact processed
   job ID are verified, the dedicated registry exposes one handler, stdout is
   allowlisted and unexpected exception text is suppressed.
+- [x] Runtime `ed11051bb8d8` and the full public production smoke pass; no new
+  HTTP route required protected smoke.
