@@ -6,12 +6,20 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Optional
 
-from backend.features.agent_jobs.service import (
-    JOB_TYPE_RE,
-    AgentJobValidationError,
-    serialize_safe_json_object,
-)
-from backend.features.director_daily_brief.handler import handle_director_daily_brief
+try:
+    from backend.features.agent_jobs.service import (
+        JOB_TYPE_RE,
+        AgentJobValidationError,
+        serialize_safe_json_object,
+    )
+    from backend.features.director_daily_brief.handler import handle_director_daily_brief
+except ModuleNotFoundError:
+    from features.agent_jobs.service import (
+        JOB_TYPE_RE,
+        AgentJobValidationError,
+        serialize_safe_json_object,
+    )
+    from features.director_daily_brief.handler import handle_director_daily_brief
 
 
 class AgentJobHandlerRegistryError(ValueError):

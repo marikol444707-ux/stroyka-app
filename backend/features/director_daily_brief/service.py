@@ -4,11 +4,18 @@ from collections import defaultdict
 from collections.abc import Mapping
 from datetime import date
 
-from backend.features.director_agent.policy import DIRECTOR_AGENT_READ_TOOLS
-from backend.features.director_agent.result_policy import (
-    DirectorAgentResultPolicyError,
-    sanitize_director_agent_tool_result,
-)
+try:
+    from backend.features.director_agent.policy import DIRECTOR_AGENT_READ_TOOLS
+    from backend.features.director_agent.result_policy import (
+        DirectorAgentResultPolicyError,
+        sanitize_director_agent_tool_result,
+    )
+except ModuleNotFoundError:
+    from features.director_agent.policy import DIRECTOR_AGENT_READ_TOOLS
+    from features.director_agent.result_policy import (
+        DirectorAgentResultPolicyError,
+        sanitize_director_agent_tool_result,
+    )
 
 
 class DirectorDailyBriefError(ValueError):

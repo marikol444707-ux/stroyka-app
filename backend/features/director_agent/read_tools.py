@@ -6,8 +6,12 @@ from types import MappingProxyType
 
 from psycopg2.extras import RealDictCursor
 
-from backend.db import get_db
-from backend.features.director_agent.policy import DIRECTOR_AGENT_READ_TOOLS
+try:
+    from backend.db import get_db
+    from backend.features.director_agent.policy import DIRECTOR_AGENT_READ_TOOLS
+except ModuleNotFoundError:
+    from db import get_db
+    from features.director_agent.policy import DIRECTOR_AGENT_READ_TOOLS
 
 
 def _number(value):

@@ -1,4 +1,7 @@
 import ast
+import os
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -52,6 +55,33 @@ class FakeConnection:
 
 
 class DirectorAgentReadToolsTests(unittest.TestCase):
+    def test_production_top_level_feature_imports_work_from_backend_directory(self):
+        backend_root = Path(__file__).resolve().parents[2]
+        env = dict(os.environ)
+        env.pop("PYTHONPATH", None)
+
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "from features.director_agent.read_tools import DIRECTOR_AGENT_TOOLS; "
+                    "from features.agent_jobs.handler_registry import "
+                    "build_default_handler_registry; "
+                    "assert tuple(DIRECTOR_AGENT_TOOLS); "
+                    "assert 'director.daily_brief' in "
+                    "build_default_handler_registry().job_types"
+                ),
+            ],
+            cwd=backend_root,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
     def test_http_director_agent_uses_the_shared_read_tool_registry(self):
         main_path = Path(__file__).resolve().parents[2] / "main.py"
         tree = ast.parse(main_path.read_text(encoding="utf-8"), filename=str(main_path))

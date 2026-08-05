@@ -2,7 +2,10 @@
 
 from collections.abc import Mapping
 
-from backend.features.director_daily_brief.service import build_director_daily_brief
+try:
+    from backend.features.director_daily_brief.service import build_director_daily_brief
+except ModuleNotFoundError:
+    from features.director_daily_brief.service import build_director_daily_brief
 
 
 class DirectorDailyBriefHandlerError(ValueError):
@@ -10,7 +13,12 @@ class DirectorDailyBriefHandlerError(ValueError):
 
 
 def _default_read_results(company_id):
-    from backend.features.director_agent.read_tools import read_director_agent_tool_results
+    try:
+        from backend.features.director_agent.read_tools import (
+            read_director_agent_tool_results,
+        )
+    except ModuleNotFoundError:
+        from features.director_agent.read_tools import read_director_agent_tool_results
 
     return read_director_agent_tool_results(company_id=company_id)
 

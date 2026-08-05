@@ -1,7 +1,10 @@
 import math
 from types import MappingProxyType
 
-from backend.features.director_agent.policy import DIRECTOR_AGENT_READ_TOOLS
+try:
+    from backend.features.director_agent.policy import DIRECTOR_AGENT_READ_TOOLS
+except ModuleNotFoundError:
+    from features.director_agent.policy import DIRECTOR_AGENT_READ_TOOLS
 
 
 class DirectorAgentResultPolicyError(ValueError):
