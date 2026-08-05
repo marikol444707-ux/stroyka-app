@@ -59,14 +59,15 @@ the brief must not guess those states.
 
 ## Operations
 
-The local registry contains `system.worker_probe` and
-`director.daily_brief`. Do not start a permanent production worker or enqueue a
-production brief until the A3 production verification step is explicitly
-approved. A4 will add human-facing explanation/delivery and still must not
-mutate business records.
+The production registry contains `system.worker_probe` and
+`director.daily_brief`. Runtime `a3ab56bb6f29` passed readiness,
+public/protected smoke and one controlled company brief with exact queue
+cleanup. The permanent worker and bulk scheduling remain disabled. A4 will add
+human-facing explanation/delivery and still must not mutate business records.
 
-After the A3 deploy, verify exactly one leadership company with the controlled
-smoke (set `SMOKE_COMPANY_ID` too when the account leads more than one company):
+Repeat production verification for exactly one leadership company with the
+controlled smoke (set `SMOKE_COMPANY_ID` too when the account leads more than
+one company):
 
 ```bash
 SMOKE_EMAIL='director@example.com' npm run smoke:director-daily-brief

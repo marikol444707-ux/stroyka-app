@@ -3544,8 +3544,8 @@ credentials after the next protected API or runner integration.
 
 ## Task A3.1: Deterministic Read-Only Director Daily Brief
 
-**Status:** Complete locally on 2026-08-05. Production rollout remains Task
-A3.2; no production job, deploy or permanent worker was started in this slice.
+**Status:** Complete in production on 2026-08-05, runtime `a3ab56bb6f29`.
+Permanent worker and bulk scheduling remain disabled.
 
 **Behavior:**
 - `director.daily_brief` is now an explicit runner handler beside
@@ -3581,11 +3581,12 @@ A3.2; no production job, deploy or permanent worker was started in this slice.
   module or registry connection; focused suite passes (`49` tests).
 - [x] Worst-case sanitized input first exceeded 64 KiB, then passed after the
   per-section/text caps were enforced.
-- [x] Full backend discovery passes (`1119` tests).
+- [x] Full backend discovery passes (`1123` tests after the production-import
+  regression).
 - [x] Full frontend Jest passes (`289` tests) and production build compiles.
 - [x] Python compile and `git diff --check` pass.
-- [ ] Production deploy, readiness audit, protected smoke and one controlled
-  test-company brief job remain Task A3.2.
+- [x] Production deploy, readiness audit, protected smoke and one controlled
+  test-company brief job completed in Task A3.2.
 
 **A3.2 verification command prepared locally:**
 - `SMOKE_EMAIL='<director email>' npm run smoke:director-daily-brief` resolves
@@ -3594,7 +3595,15 @@ A3.2; no production job, deploy or permanent worker was started in this slice.
   max-attempts-one job and deletes the exact queue row in `finally`.
 - The smoke reports only company/job metadata and section keys/statuses/counts;
   it does not print the brief body or business values. Focused coverage is
-  `55/55`; full backend `1122/1122` and the production build pass. Production
-  execution remains unchecked until the manual deploy.
+  `55/55`; the final compatibility regression brings full backend coverage to
+  `1123/1123`, and the production build passes.
+- Production readiness returned `readyForWorker=true`; public and protected
+  smoke passed on `a3ab56bb6f29`. The controlled company `1` job returned all
+  six sections and cleanup confirmed `persistedAgentJobs=0` with no business
+  writes.
+- The first backend restart exposed package-only imports that did not work with
+  systemd's top-level `uvicorn main:app` launch. Release verification stopped,
+  the exact mode was reproduced, a subprocess regression was added and the
+  compatibility hotfix restored health before protected or brief verification.
 
 **Specification:** `docs/director-daily-brief.md`
