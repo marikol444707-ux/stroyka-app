@@ -45,6 +45,18 @@ missing, locked, delayed, completed or disallowed target exits with code `2`
 and metadata-only status `not_claimed`. `--job-id` is rejected without
 `--once` so it cannot accidentally start a permanent process.
 
+The controlled one-company daily-brief cycle uses this exact boundary without
+starting a daemon:
+
+```bash
+npm run run:director-daily-brief -- \
+  --company-id <company-id> --brief-date <YYYY-MM-DD> --apply
+```
+
+Its dry-run omits `--apply`. The producer transaction commits before exact
+execution, so a process stop between the two steps leaves a recoverable queued
+job instead of losing the request.
+
 ## Handler boundary
 
 A handler receives an immutable `AgentJobContext` with one positive company

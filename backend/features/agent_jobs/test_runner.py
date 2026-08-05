@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import threading
 import unittest
 from contextlib import redirect_stdout
@@ -12,6 +13,7 @@ from backend.features.agent_jobs.runner import (
     AgentJobRunner,
     AgentJobRunnerConfig,
     LeaseHeartbeat,
+    build_runner_config_from_environment,
     build_worker_id,
     emit_json_event,
     main,
@@ -335,6 +337,27 @@ class AgentJobRunnerTests(unittest.TestCase):
         self.assertEqual(config.worker_id, "agent-worker:test")
         self.assertEqual(config.lease_seconds, 60)
         self.assertEqual(config.poll_interval_seconds, 0.5)
+
+    def test_runner_config_is_built_from_bounded_environment_values(self):
+        with patch.dict(os.environ, {
+            "AGENT_JOB_LEASE_SECONDS": "90",
+            "AGENT_JOB_HEARTBEAT_SECONDS": "20",
+            "AGENT_JOB_POLL_SECONDS": "0.25",
+            "AGENT_JOB_RETRY_SECONDS": "45",
+            "AGENT_JOB_RECOVERY_SECONDS": "75",
+            "AGENT_JOB_RECOVERY_LIMIT": "30",
+        }, clear=False):
+            config = build_runner_config_from_environment(
+                worker_id="agent-worker:controlled-cycle"
+            )
+
+        self.assertEqual(config.worker_id, "agent-worker:controlled-cycle")
+        self.assertEqual(config.lease_seconds, 90)
+        self.assertEqual(config.heartbeat_interval_seconds, 20)
+        self.assertEqual(config.poll_interval_seconds, 0.25)
+        self.assertEqual(config.retry_delay_seconds, 45)
+        self.assertEqual(config.recovery_interval_seconds, 75)
+        self.assertEqual(config.recovery_limit, 30)
 
 
 class LeaseHeartbeatTests(unittest.TestCase):

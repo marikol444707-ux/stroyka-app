@@ -436,23 +436,9 @@ def _environment_number(name, default, caster):
     return caster(value) if value not in (None, "") else default
 
 
-def _parse_args(argv):
-    parser = argparse.ArgumentParser(description="Run the separate agent job worker")
-    parser.add_argument("--once", action="store_true", help="recover and process at most one job")
-    parser.add_argument("--job-id", type=int, help="process only this queued job; requires --once")
-    parser.add_argument("--worker-id", default=os.getenv("AGENT_JOB_WORKER_ID") or build_worker_id())
-    args = parser.parse_args(argv)
-    if args.job_id is not None and args.job_id <= 0:
-        parser.error("--job-id must be a positive integer")
-    if args.job_id is not None and not args.once:
-        parser.error("--job-id requires --once")
-    return args
-
-
-def main(argv=None):
-    args = _parse_args(argv)
-    config = AgentJobRunnerConfig(
-        worker_id=args.worker_id,
+def build_runner_config_from_environment(*, worker_id=None):
+    return AgentJobRunnerConfig(
+        worker_id=worker_id or os.getenv("AGENT_JOB_WORKER_ID") or build_worker_id(),
         lease_seconds=_environment_number("AGENT_JOB_LEASE_SECONDS", 120, int),
         heartbeat_interval_seconds=_environment_number(
             "AGENT_JOB_HEARTBEAT_SECONDS",
@@ -468,6 +454,24 @@ def main(argv=None):
         ),
         recovery_limit=_environment_number("AGENT_JOB_RECOVERY_LIMIT", 100, int),
     )
+
+
+def _parse_args(argv):
+    parser = argparse.ArgumentParser(description="Run the separate agent job worker")
+    parser.add_argument("--once", action="store_true", help="recover and process at most one job")
+    parser.add_argument("--job-id", type=int, help="process only this queued job; requires --once")
+    parser.add_argument("--worker-id", default=os.getenv("AGENT_JOB_WORKER_ID") or build_worker_id())
+    args = parser.parse_args(argv)
+    if args.job_id is not None and args.job_id <= 0:
+        parser.error("--job-id must be a positive integer")
+    if args.job_id is not None and not args.once:
+        parser.error("--job-id requires --once")
+    return args
+
+
+def main(argv=None):
+    args = _parse_args(argv)
+    config = build_runner_config_from_environment(worker_id=args.worker_id)
     registry = build_default_handler_registry()
     runner = AgentJobRunner(registry=registry, config=config)
     stop_event = threading.Event()

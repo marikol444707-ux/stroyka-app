@@ -3716,3 +3716,35 @@ permanent worker is enabled.
   parameterized, handler allowlist/status/attempt/time guards remain inside the
   atomic claim, logs expose metadata only and ordinary `--once` keeps its
   existing recovery-plus-next-job behavior.
+
+## Task A4.2.3: Controlled Single-Company Daily Brief Cycle
+
+**Status:** Complete locally on 2026-08-05. Not deployed and not scheduled.
+
+**Behavior:**
+- `npm run run:director-daily-brief -- --company-id <id> --brief-date
+  <YYYY-MM-DD>` is read-only and reports the producer plan.
+- Adding `--apply` commits the idempotent producer job and passes only the
+  returned `jobId` into exact one-shot runner execution.
+- Existing `succeeded` work is returned without rerun. Any other nonqueued or
+  unclaimable state returns a nonzero result for operator review.
+
+**Safety:**
+- The cycle validates producer company, date and immutable job type before
+  runner execution. A mismatched producer result never reaches the runner;
+  its dedicated registry contains only `director.daily_brief`.
+- A process stop after producer commit leaves a recoverable queued job. There
+  is no global recovery or fallback claim in the exact execution step.
+- Final stdout is an allowlisted report with `businessWritesAttempted=0`;
+  metadata-only runner events use stderr. No schedule, daemon, model, MAX,
+  business mutation or multi-company fan-out is added.
+
+**Verification:**
+- [x] Cycle and runner-config tests were written red before implementation.
+- [x] Focused daily-brief suite passes (`38` tests).
+- [x] Focused agent-job suite passes (`81` tests).
+- [x] Package command `--help` succeeds without a database connection.
+- [x] Full backend discovery passes (`1159` tests).
+- [x] Final diff/security review passes: company/date/type and exact processed
+  job ID are verified, the dedicated registry exposes one handler, stdout is
+  allowlisted and unexpected exception text is suppressed.

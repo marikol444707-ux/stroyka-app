@@ -103,14 +103,36 @@ npm run enqueue:director-daily-brief -- \
 ```
 
 The command does not execute the job. Processing remains a separate explicit
-operation (`npm run worker:agent-jobs -- --once`) until scheduling and worker
-operations are reviewed. Repeating the same company/date reports the existing
-job instead of creating a duplicate. There is no all-companies option.
+operation. A4.2.2 added an exact `--once --job-id <id>` runner hand-off;
+repeating the same company/date reports the existing job instead of creating a
+duplicate. There is no all-companies option.
 
 Runtime `3210bbe905f7` verified this boundary with company `1`: dry-run returned
 `would_enqueue` with zero write attempts, explicit apply created job `8`, one
 runner cycle completed that exact job as `succeeded`, and the repeat returned
 the same existing job. The permanent worker remained disabled.
+
+A4.2.3 combines those two reviewed boundaries into one controlled command:
+
+```bash
+npm run run:director-daily-brief -- \
+  --company-id 1 --brief-date 2026-08-05
+
+npm run run:director-daily-brief -- \
+  --company-id 1 --brief-date 2026-08-05 --apply
+```
+
+The default remains read-only. Explicit apply commits the idempotent producer
+transaction first, then opens the exact runner cycle only for the returned job
+ID. The cycle validates that the producer result still belongs to the requested
+company/date and expected job type. It never recovers or falls through to
+another queue row, and its registry contains only `director.daily_brief`. An
+existing successful job is not rerun; running, failed,
+cancelled, delayed, locked or otherwise unclaimable work fails closed for
+operator review. Runner metadata events go to stderr and the final allowlisted
+report goes to stdout. The report always states `businessWritesAttempted: 0`;
+only queue lifecycle metadata may change. This command is not a schedule and
+does not enable a daemon, model call, MAX delivery or company fan-out.
 
 Repeat production verification for exactly one leadership company with the
 controlled smoke (set `SMOKE_COMPANY_ID` too when the account leads more than
