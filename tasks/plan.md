@@ -325,7 +325,7 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [x] ~~Task A0.2: Deploy A0.1 and verify production authentication, protected API reads and blocked aggregate-company access on runtime `3c0f09fa6396`; two-company isolation and empty-context no-query behavior remain covered by the focused regression suite and manual no-write dry-run.~~
 - [ ] Task A1: Add a durable background job/outbox with tenant context, idempotency, retries, status, audit and failure isolation from normal application work.
 - [x] ~~Task A1.1: Add the local `agent_jobs` schema, company/project-scoped idempotent enqueue validation, actor membership and sensitive-payload guards, plus a read-only readiness report. Focused tests, full backend/frontend tests and production build pass.~~
-- [ ] Task A1.2: Deploy the schema and require `npm run audit:agent-jobs` to report `readyForWorker=true` before enabling a worker.
+- [x] ~~Task A1.2: Deploy the schema and verify `npm run audit:agent-jobs` reports the complete empty schema, zero invalid rows and `readyForWorker=true`.~~
 - [ ] Task A1.3: Add a separate claim/lease worker with heartbeat, bounded retry/backoff and stale-job recovery so AI failure cannot block HTTP work.
 - [ ] Task A1.4: Add tenant-scoped status/audit reads and safe cancellation for jobs that have not completed.
 - [ ] Task A2: Define the agent execution contract: allowed tools, minimal model payload, time/cost limits and no direct model access to the database.

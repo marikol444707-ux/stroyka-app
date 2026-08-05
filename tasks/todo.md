@@ -3242,15 +3242,16 @@ Process note 2026-07-28: one commit briefly landed with two red tests because th
 
 **Estimated scope:** S
 
-## Task A1.1: Tenant-Scoped Agent Job Kernel
+## Task A1.1-A1.2: Tenant-Scoped Agent Job Kernel
 
 **Description:** Add the durable storage and enqueue boundary for future agent
 work without starting a worker or calling an AI model. A job belongs to exactly
 one company and optionally one project; repeated requests in different projects
 cannot collide.
 
-**Status:** Local implementation complete on 2026-08-05. Production deployment
-and the read-only schema audit remain open as Task A1.2.
+**Status:** Complete in production on 2026-08-05. The read-only schema audit
+reported the complete empty schema, zero invalid rows and
+`readyForWorker=true`.
 
 **Safety:**
 - `agent_jobs` is separate from MAX delivery outbox and existing business
@@ -3275,8 +3276,8 @@ and the read-only schema audit remain open as Task A1.2.
 - [x] The new `agent_jobs` tenant-registry entry passes registry rules; the
   global `audit:m6` remains red only for four pre-existing `M7l` stage entries
   (`tools`, `tool_history`, `inventory`, `inventory_items`).
-- [ ] After deployment, run `npm run audit:agent-jobs` and require
-  `tableExists=true`, empty `missingColumns`/`missingIndexes`/
-  `missingConstraints`, zero invalid rows and `readyForWorker=true`.
+- [x] Production `npm run audit:agent-jobs` reported `tableExists=true`, empty
+  `missingColumns`/`missingIndexes`/`missingConstraints`, `total=0`, zero
+  invalid owner/status rows and `readyForWorker=true`.
 
 **Estimated scope:** S
