@@ -16244,6 +16244,27 @@ register_estimate_reconciliations_module(app, {
 })
 
 try:
+    from backend.features.estimate_row_transfer import register_estimate_row_transfer_module
+except ModuleNotFoundError:
+    from features.estimate_row_transfer import register_estimate_row_transfer_module
+
+
+register_estimate_row_transfer_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "require_project_write_actor": require_estimate_change_write_actor,
+    "resolve_project_parent": resolve_estimate_change_project,
+    "require_project_parent_access": require_estimate_change_project_access,
+    "has_package_access": has_package_access,
+    "estimate_write_roles": ESTIMATE_WRITE_ROLES,
+    "approval_roles": LEADERSHIP_ROLES,
+    "full_view_roles": BRIGADE_FULL_VIEW_ROLES,
+    "package_limit_roles": PACKAGE_LIMIT_ROLES,
+})
+
+try:
     from backend.features.agent_change_dispatch.handoff import (
         handoff_estimate_activation_transition,
     )

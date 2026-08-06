@@ -35,6 +35,8 @@
     "audit:estimate-material-volumes": "python3 -m backend.features.estimate_volume_audit.volume_report",
     "audit:brigade-lineage": "python3 -m backend.features.brigade_lineage.readiness_report",
     "audit:estimate-row-transfer": "python3 -m backend.features.estimate_row_transfer.audit",
+    "audit:estimate-row-transfer-schema": "python3 -m backend.features.estimate_row_transfer.schema",
+    "migrate:estimate-row-transfer-schema": "python3 -m backend.features.estimate_row_transfer.schema --apply",
     "migrate:brigade-lineage": "python3 -m backend.features.brigade_lineage.migration",
     "migrate:brigade-lineage-strict": "python3 -m backend.features.brigade_lineage.strict_migration",
     "audit:work-journal": "python3 -m backend.features.work_journal.ownership_report",
