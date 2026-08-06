@@ -538,6 +538,16 @@ def classify_target_mapping(reconciliation, mapping):
             "state": "blocked",
             "reasonCode": "mapping_source_identity_invalid",
         }
+    request_item_index = None
+    if source_kind == "supply":
+        request_item_index = _non_negative_int((mapping or {}).get("requestItemIndex"))
+        if request_item_index is None:
+            return {
+                "sourceKind": source_kind,
+                "sourceId": source_id,
+                "state": "blocked",
+                "reasonCode": "mapping_request_item_invalid",
+            }
     quantity = _finite_number((mapping or {}).get("quantity"))
     if quantity is None or quantity <= 0:
         return {
@@ -560,7 +570,7 @@ def classify_target_mapping(reconciliation, mapping):
             "state": "blocked",
             "reasonCode": "target_" + resolution_error.replace("source_", "", 1),
         }
-    return {
+    result = {
         "sourceKind": source_kind,
         "sourceId": source_id,
         "state": "verified",
@@ -574,6 +584,9 @@ def classify_target_mapping(reconciliation, mapping):
             "sectionsSha256": context["targetSectionsSha256"],
         },
     }
+    if request_item_index is not None:
+        result["requestItemIndex"] = request_item_index
+    return result
 
 
 def build_impact_report(
@@ -670,6 +683,13 @@ def build_impact_report(
             "projectId": context["projectId"],
             "baseEstimateId": context["baseEstimateId"],
             "targetEstimateId": context["targetEstimateId"],
+            "workPackage": context["workPackage"],
+            "smetaType": context["smetaType"],
+        },
+        "baseSnapshot": {
+            "estimateId": context["baseEstimateId"],
+            "sectionsSha256": context["baseSectionsSha256"],
+            "rowCount": _row_count(context["baseSections"]),
         },
         "targetSnapshot": {
             "estimateId": context["targetEstimateId"],
