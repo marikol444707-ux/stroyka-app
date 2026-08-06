@@ -213,6 +213,68 @@ partial uniqueness and mutation-rejection triggers enforce one approved plan
 per reconciliation, immutable entries and a single `draft -> approved`
 transition.
 
+## E4.3 Assignment Apply API Contract
+
+E4.3 adds one explicit action to an already approved E4.2 plan:
+
+- `POST /estimate-row-transfer-plans/{id}/assignment-apply`
+
+The body must contain exactly one field with the approved lowercase digest:
+
+```json
+{"planSha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+```
+
+Only a director or deputy director acting in one selected stored company may
+call the action. The route locks the immutable plan and runs at
+`SERIALIZABLE` isolation with bounded lock and statement timeouts. The request
+hash, approved hash and recomputed canonical hash must agree before any
+business row can change.
+
+For assignment entries only, the transaction locks contracts, all their item
+rows, source JPR rows and the exact target estimate snapshot in deterministic
+ID order. It recomputes owner/package/lineage, current source quantity,
+confirmed JPR, stored contract total and target price. Any drift, cross-owner
+row, existing target lineage, protected-balance violation or partial receipt
+fails the whole transaction. Supply entries remain untouched for E4.4.
+
+The source row keeps its ID, immutable lineage, progress, status and prices;
+only its quantity is reduced. The new target row receives the selected
+quantity, exact target snapshot lineage and current target estimate price,
+while preserving the source's negotiated brigade price. Source quantity must
+remain at or above both confirmed JPR and stored progress. The rounded brigade
+contract total must remain unchanged.
+
+Success returns no descriptions or prices:
+
+```json
+{
+  "planId": 5,
+  "planSha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "state": "assignment_applied",
+  "assignmentCount": 1,
+  "transfers": [
+    {"entryId": 8, "sourceItemId": 41, "targetItemId": 101, "quantity": "3"}
+  ],
+  "appliedAt": "2026-08-07 12:00:00+03:00",
+  "idempotent": false
+}
+```
+
+The first call stores one immutable receipt per assignment entry. A later
+exact call reads those receipts and rolls back its transaction without
+business writes, returning the same transfers with `idempotent=true`.
+Malformed bodies return `422`; missing plans return `404`; authorization,
+stale-state, integrity, lock and serialization failures use bounded `403` or
+`409` details. Unexpected database errors remain server errors and never
+commit a partial split.
+
+The receipt table and guard are part of the existing separately reviewed
+schema command. The database rejects update/delete, duplicate entry receipts,
+and inserts that do not match the exact approved plan, owner, quantities,
+lineage, package, prices, status, contract total and current confirmed JPR.
+Neither deploy nor application initialization applies this DDL automatically.
+
 ## Threat Model And Abuse Cases
 
 ### Trust boundaries
@@ -304,7 +366,7 @@ E4.1 read-only impact audit:
 npm run audit:estimate-row-transfer -- --reconciliation-id <id>
 ```
 
-E4.2 schema dry-run and separately guarded apply:
+E4.2/E4.3 schema dry-run and separately guarded apply:
 
 ```bash
 npm run audit:estimate-row-transfer-schema

@@ -4683,31 +4683,70 @@ unconfirmed quantity, insert an exact target-lineage row with the target
 estimate price and source brigade price, and store immutable before/after
 evidence. Supply entries remain untouched for E4.4.
 
+**Status:** Implemented and verified locally on 2026-08-07. No production DDL
+or assignment balance was changed. The guarded production schema dry-run,
+deploy and any owner-approved apply remain separate release actions.
+
 **Acceptance criteria:**
 
-- [ ] A separately guarded additive schema creates an immutable assignment
+- [x] A separately guarded additive schema creates an immutable assignment
   transfer receipt linked to the exact plan/entry/company/project. Partial,
   mismatched or manually mutated evidence fails at the database boundary.
-- [ ] Only stored-company leadership may call the exact-hash apply endpoint;
+- [x] Only stored-company leadership may call the exact-hash apply endpoint;
   draft, stale, cross-owner, mixed-state, over-balance, existing-target and
   target-snapshot conflicts fail before business mutation.
-- [ ] Source quantity never falls below recomputed confirmed JPR; JPR links,
+- [x] Source quantity never falls below recomputed confirmed JPR; JPR links,
   source progress/lineage, acts, payments and all supply/warehouse/accounting
   rows remain unchanged. Target quantity equals the transfer, target estimate
   price is current and negotiated brigade price is preserved.
-- [ ] Contract brigade total is unchanged within the existing numeric
+- [x] Contract brigade total is unchanged within the existing numeric
   tolerance, the first apply is atomic and a repeated exact apply is a
   read-only idempotent response.
 
 **Verification:**
 
-- [ ] RED unit/route/schema tests fail before each new behavior exists, then
+- [x] RED unit/route/schema tests fail before each new behavior exists, then
   focused E4 and brigade-writer suites pass.
-- [ ] Opt-in real PostgreSQL proves rollback, concurrent double-apply, exact
+- [x] Opt-in real PostgreSQL proves rollback, concurrent double-apply, exact
   receipt evidence and unchanged protected-table rows.
-- [ ] Full backend regression, Python compilation, static writer audit,
+- [x] Full backend regression, Python compilation, static writer audit,
   frontend tests/build and `git diff --check` pass before release review.
 
 **Boundaries:** No automatic schema apply, no background worker, no UI, no
 supply allocation, and no production DDL or assignment mutation in this local
 implementation checkpoint.
+
+**API:** `POST /estimate-row-transfer-plans/{plan_id}/assignment-apply` accepts
+only `{"planSha256":"<approved-lowercase-sha256>"}`. The route requires one
+selected company and a director/deputy director, locks the exact approved plan
+in a `SERIALIZABLE` transaction and returns a bounded receipt with only plan,
+entry, source/target item IDs, transferred quantity, timestamp and idempotency
+state. It never returns work descriptions or prices.
+
+**Local verification:** Two independent disposable PostgreSQL clusters each
+passed the complete opt-in `5/5` suite and were stopped and removed. The real
+database proof split assignment quantity `10 -> 7 + 3`, kept confirmed JPR and
+source progress at `4`, used target estimate price `900`, preserved negotiated
+brigade price `700`, and left contract total `7000` unchanged. The exact
+receipt is immutable; a sequential repeat writes nothing, two concurrent
+calls leave one target and one receipt, and JPR drift rolls every apply write
+back. Row snapshots for work journal, hidden acts, brigade acts/payments,
+supply requests/offers/invoices/deliveries/history/claims and warehouse
+invoice/history remained byte-for-byte unchanged.
+
+Focused E4 discovery passes `81` tests with five expected opt-in PostgreSQL
+skips outside the fixture. The neighboring writer/assignment route suites pass
+`32` tests. Full backend discovery passes `1406/1406` with the same five
+skips; frontend Jest passes `304/304`; Python compilation, smoke shell/rate
+limit checks, production frontend build and `git diff --check` pass. No new
+dependency was added.
+
+**Review result:** Code review found and fixed two required money/progress
+boundaries before completion: stored contract totals must match the locked
+item sum using PostgreSQL-compatible positive rounding, and preserved source
+progress may not exceed the post-transfer quantity. The database guard now
+also binds receipt before/protected quantities, package, compatibility keys
+and source status to the exact approved plan and live rows. No Critical or
+Required finding remains.
+
+**Implementation commits:** `f2b84e57`, `ec482f7b`, `75d8cad9`, `63ca9371`.
