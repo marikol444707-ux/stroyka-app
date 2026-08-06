@@ -16254,6 +16254,15 @@ register_estimate_reconciliations_module(app, {
     "customer_roles": ("заказчик",),
 })
 
+try:
+    from backend.features.agent_change_dispatch.shadow import (
+        observe_estimate_activation_transition_shadow,
+    )
+except ModuleNotFoundError:
+    from features.agent_change_dispatch.shadow import (
+        observe_estimate_activation_transition_shadow,
+    )
+
 
 
 @app.post("/estimates")
@@ -16332,14 +16341,27 @@ def create_estimate(
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
         (company_id,project_id,project_name,data.get("name",""),data.get("version","1.0"),j.dumps(sections,ensure_ascii=False),smeta_type,work_package,status))
     row = cur.fetchone()
+    new_estimate_id = row.get("id")
     supply_refresh = {"scanned": 0, "updated": 0, "pending": status == "Активная" and bool(project_name)}
     conn.commit()
     cur.close(); conn.close()
+    agent_dispatch_shadow = observe_estimate_activation_transition_shadow(
+        previous_status=None,
+        next_status=status,
+        company_id=company_id,
+        project_id=project_id,
+        estimate_id=new_estimate_id,
+        version=data.get("version") or "1.0",
+        sections=sections,
+    )
     if status == "Активная" and project_name:
         background_tasks.add_task(_refresh_open_supply_controls_after_estimate_change, project_name, company_id)
     if project_name:
         background_tasks.add_task(_run_project_ai_control_safely, project_name, "estimate:create")
-    return {"id":row.get("id"),"ok":True,"supplyControlRefresh":supply_refresh}
+    response = {"id":new_estimate_id,"ok":True,"supplyControlRefresh":supply_refresh}
+    if agent_dispatch_shadow is not None:
+        response["agentDispatchShadow"] = agent_dispatch_shadow
+    return response
 
 @app.put("/estimates/{id}")
 def update_estimate(
@@ -16892,8 +16914,20 @@ def update_estimate(
         )
     conn.commit()
     cur.close(); conn.close()
+    agent_dispatch_shadow = observe_estimate_activation_transition_shadow(
+        previous_status=prev_status,
+        next_status=new_status,
+        company_id=estimate_scope["companyId"],
+        project_id=estimate_scope.get("projectId"),
+        estimate_id=id,
+        version=new_version,
+        sections=new_sections,
+    )
     _run_project_ai_control_safely(project_name, "estimate:update")
-    return {"ok": True, "journalEntries": journal_added, "hiddenWorkActs": acts_added, "brigadeItemsSynced": brigade_synced, "supplyControlRefresh": supply_refresh}
+    response = {"ok": True, "journalEntries": journal_added, "hiddenWorkActs": acts_added, "brigadeItemsSynced": brigade_synced, "supplyControlRefresh": supply_refresh}
+    if agent_dispatch_shadow is not None:
+        response["agentDispatchShadow"] = agent_dispatch_shadow
+    return response
 
 @app.put("/estimates/{id}/status")
 def update_estimate_status(
@@ -16921,13 +16955,24 @@ def update_estimate_status(
         conn.rollback(); conn.close()
         raise HTTPException(status_code=403, detail="Активировать смету может только директор или замдиректора")
     cur = conn.cursor()
-    cur.execute("""SELECT project_name, COALESCE(smeta_type,'Заказчик'), COALESCE(work_package,'Основная')
+    cur.execute("""SELECT project_id, project_name, COALESCE(smeta_type,'Заказчик'),
+                          COALESCE(work_package,'Основная'), COALESCE(version,'1.0'),
+                          sections_json, COALESCE(status,'Черновик')
                      FROM estimates WHERE id=%s AND company_id=%s""", (id, estimate["companyId"]))
     row = cur.fetchone()
     if not row:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Смета не найдена")
-    project_name, smeta_type, work_package = row[0] or "", row[1] or "Заказчик", row[2] or "Основная"
+    project_id = row[0]
+    project_name = row[1] or ""
+    smeta_type = row[2] or "Заказчик"
+    work_package = row[3] or "Основная"
+    estimate_version = row[4] or "1.0"
+    previous_status = row[6] or "Черновик"
+    try:
+        estimate_sections = json.loads(row[5]) if row[5] else []
+    except Exception:
+        estimate_sections = None
     if status == "Активная":
         cur.execute("""UPDATE estimates
                        SET status='Черновик'
@@ -16948,9 +16993,21 @@ def update_estimate_status(
         )
     conn.commit()
     cur.close(); conn.close()
+    agent_dispatch_shadow = observe_estimate_activation_transition_shadow(
+        previous_status=previous_status,
+        next_status=status,
+        company_id=estimate["companyId"],
+        project_id=project_id,
+        estimate_id=id,
+        version=estimate_version,
+        sections=estimate_sections,
+    )
     if project_name:
         background_tasks.add_task(_run_project_ai_control_safely, project_name, "estimate:status")
-    return {"ok": True, "status": status, "supplyControlRefresh": supply_refresh}
+    response = {"ok": True, "status": status, "supplyControlRefresh": supply_refresh}
+    if agent_dispatch_shadow is not None:
+        response["agentDispatchShadow"] = agent_dispatch_shadow
+    return response
 
 
 @app.put("/estimates/{id}/toggle-template")

@@ -3879,5 +3879,48 @@ pending.
 - [ ] Add the separate A6.2 shadow hook after estimate activation; it must
   report the planned dispatch without enqueueing or changing business data.
 
-**Next:** Deploy this inert contract only after explicit approval, then take
-A6.2 as a separate small shadow-mode change.
+**Next:** A6.2 is prepared as a separate stacked commit below. Deploy both
+inert/shadow slices only after explicit approval.
+
+## Task A6.2: Estimate Activation Shadow Wiring
+
+**Status:** Local implementation complete on branch
+`codex/agent-change-dispatch-shadow`; production deploy and manual production
+activation are pending.
+
+**Behavior:**
+- Observe all three committed transitions into `Активная`: create an active
+  estimate, update a draft into active state, and use the dedicated status
+  endpoint.
+- Return a bounded `agentDispatchShadow` report. A planned report contains the
+  exact company/project/source IDs, target job type and Moscow business date;
+  a rejected report contains only a fixed reason code.
+- Ignore active-to-active updates, deactivation and draft saves so they do not
+  create false activation observations.
+
+**Safety:**
+- Observation runs only after the estimate transaction commits. Its own clock,
+  validation or logger failure cannot change the completed business action.
+- The source revision is calculated from canonical estimate version/sections,
+  but source rows, revision, idempotency key, correlation ID and exception text
+  are excluded from logs and API output.
+- Rejections expose only fixed reason codes. The observer performs no SQL,
+  queue insert, runner/model/network call or business mutation and explicitly
+  reports zero enqueue/write attempts.
+
+**Verification:**
+- [x] Shadow tests were written red before implementation.
+- [x] Focused contract/shadow tests pass (`17/17`).
+- [x] Import works both from repository root and the production-style
+  `backend` working directory.
+- [x] Full backend discovery passes (`1196/1196`).
+- [x] Full frontend Jest passes (`299/299`).
+- [x] Python compile, static side-effect search, `git diff --check` and the
+  production React build pass.
+- [ ] Deploy the stacked A6.1/A6.2 commits and run public/protected smoke.
+- [ ] Manually activate one expendable draft and confirm
+  `agentDispatchShadow.state=planned` while no new `agent_jobs` row appears.
+
+**Next:** After production shadow evidence, decide separately whether A6.3 may
+enqueue exactly one allowlisted job and execute it only through the existing
+controlled one-shot runner.
