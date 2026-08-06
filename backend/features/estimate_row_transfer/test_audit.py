@@ -1,0 +1,322 @@
+import json
+import math
+import unittest
+
+from backend.features.brigade_lineage.canonical import sections_sha256
+from backend.features.estimate_row_transfer.audit import (
+    PREVIEW_LIMIT,
+    build_impact_report,
+    classify_target_mapping,
+)
+
+
+def _sections(item_key, *, name="Работа", unit="м2", quantity=10):
+    return [{
+        "name": "Раздел",
+        "items": [{
+            "name": name,
+            "unit": unit,
+            "quantity": quantity,
+            "estimateItemKey": item_key,
+            "priceWork": 900,
+            "commercialNote": "must-not-leak",
+        }],
+    }]
+
+
+def reconciliation_row(**overrides):
+    base_sections = _sections("old-row")
+    target_sections = _sections("new-row")
+    row = {
+        "reconciliation_exists": True,
+        "reconciliation_id": 9,
+        "reconciliation_status": "Утверждена",
+        "reconciliation_work_package": "Отделка",
+        "reconciliation_smeta_type": "Заказчик",
+        "project_exists": True,
+        "project_id": 3,
+        "project_company_id": 1,
+        "base_estimate_id": 14,
+        "base_company_id": 1,
+        "base_project_id": 3,
+        "base_work_package": "Отделка",
+        "base_smeta_type": "Заказчик",
+        "base_sections_json": json.dumps(base_sections, ensure_ascii=False),
+        "target_estimate_id": 15,
+        "target_company_id": 1,
+        "target_project_id": 3,
+        "target_work_package": "Отделка",
+        "target_smeta_type": "Заказчик",
+        "target_sections_json": json.dumps(target_sections, ensure_ascii=False),
+    }
+    row.update(overrides)
+    return row
+
+
+def assignment_row(**overrides):
+    sections = _sections("old-row")
+    row = {
+        "contract_item_id": 41,
+        "contract_id": 7,
+        "contract_company_id": 1,
+        "contract_project_id": 3,
+        "contract_work_package": "Отделка",
+        "source_type": "estimate",
+        "source_estimate_id": 14,
+        "source_estimate_version_id": 71,
+        "source_section_index": 0,
+        "source_item_index": 0,
+        "source_item_key": "old-row",
+        "snapshot_sections_json": json.dumps(sections, ensure_ascii=False),
+        "snapshot_sections_sha256": sections_sha256(sections),
+        "assignment_quantity": 10,
+        "confirmed_quantity": 4,
+        "journal_count": 3,
+        "confirmed_journal_count": 2,
+        "hidden_act_count": 1,
+        "brigade_act_count": 1,
+        "brigade_payment_count": 2,
+        "description": "must-not-leak",
+        "price_smeta": 900,
+        "price_brigade": 700,
+    }
+    row.update(overrides)
+    return row
+
+
+def supply_request_row(**overrides):
+    items = [{
+        "materialName": "Смесь",
+        "quantity": 10,
+        "unit": "кг",
+        "workPackage": "Отделка",
+        "sourceType": "estimate_material_control",
+        "estimateLineage": {
+            "version": 1,
+            "validated": True,
+            "projectName": "Школа",
+            "workPackage": "Отделка",
+            "sources": [{
+                "estimateId": 14,
+                "sectionIndex": 0,
+                "itemIndex": 0,
+                "materialName": "Смесь",
+                "unit": "кг",
+                "quantity": 10,
+                "validated": True,
+            }],
+        },
+        "notes": "must-not-leak",
+    }]
+    row = {
+        "request_id": 61,
+        "request_company_id": 1,
+        "request_status": "В пути",
+        "request_work_package": "Отделка",
+        "items_json": json.dumps(items, ensure_ascii=False),
+    }
+    row.update(overrides)
+    return row
+
+
+def supply_reconciliation_row(**overrides):
+    row = reconciliation_row(
+        reconciliation_smeta_type="Материалы",
+        base_smeta_type="Материалы",
+        target_smeta_type="Материалы",
+        base_sections_json=json.dumps(_sections("old-material", name="Смесь", unit="кг"), ensure_ascii=False),
+        target_sections_json=json.dumps(_sections("new-material", name="Смесь", unit="кг"), ensure_ascii=False),
+    )
+    row.update(overrides)
+    return row
+
+
+class EstimateRowTransferPureAuditTests(unittest.TestCase):
+    def test_exact_assignment_reports_only_transferable_balance_and_counts(self):
+        report = build_impact_report(reconciliation_row(), [assignment_row()], [], [])
+
+        self.assertTrue(report["ok"])
+        self.assertFalse(report["readyForMapping"])
+        self.assertEqual(report["summary"]["assignmentCandidates"], 1)
+        self.assertEqual(report["assignmentCandidates"][0]["transferableQuantity"], 6.0)
+        self.assertEqual(report["assignmentCandidates"][0]["confirmedQuantity"], 4.0)
+        self.assertEqual(report["assignmentCandidates"][0]["protectedHistoryCounts"], {
+            "journalRows": 3,
+            "confirmedJournalRows": 2,
+            "hiddenActs": 1,
+            "brigadeActs": 1,
+            "brigadePayments": 2,
+        })
+        serialized = json.dumps(report, ensure_ascii=False)
+        self.assertNotIn("must-not-leak", serialized)
+        self.assertNotIn("price_smeta", serialized)
+        self.assertNotIn("price_brigade", serialized)
+
+    def test_assignment_rejects_overcompleted_and_non_finite_balances(self):
+        rows = [
+            assignment_row(contract_item_id=41, confirmed_quantity=11),
+            assignment_row(contract_item_id=42, assignment_quantity=math.inf),
+        ]
+
+        report = build_impact_report(reconciliation_row(), rows, [], [])
+
+        self.assertEqual(report["summary"]["assignmentCandidates"], 0)
+        self.assertEqual(report["reasonCounts"], {
+            "assignment_quantity_non_finite": 1,
+            "confirmed_quantity_exceeds_assignment": 1,
+            "exact_target_mapping_required": 1,
+        })
+
+    def test_assignment_rejects_stale_snapshot_hash(self):
+        report = build_impact_report(
+            reconciliation_row(),
+            [assignment_row(snapshot_sections_sha256="0" * 64)],
+            [],
+            [],
+        )
+
+        self.assertEqual(report["needsReview"][0]["reasonCode"], "source_snapshot_hash_mismatch")
+
+    def test_cross_owner_reconciliation_blocks_before_candidates_are_used(self):
+        report = build_impact_report(
+            reconciliation_row(target_company_id=2),
+            [assignment_row()],
+            [],
+            [],
+        )
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["reasonCounts"], {"reconciliation_owner_mismatch": 1})
+        self.assertEqual(report["assignmentCandidates"], [])
+
+    def test_no_descriptive_reconciliation_mapping_is_inferred(self):
+        report = build_impact_report(reconciliation_row(), [assignment_row()], [], [])
+
+        self.assertEqual(report["reasonCounts"]["exact_target_mapping_required"], 1)
+        self.assertEqual(report["targetSnapshot"], {
+            "estimateId": 15,
+            "sectionsSha256": sections_sha256(_sections("new-row")),
+            "rowCount": 1,
+        })
+
+    def test_exact_target_mapping_is_validated_against_current_target_snapshot(self):
+        result = classify_target_mapping(
+            reconciliation_row(),
+            {
+                "sourceKind": "assignment",
+                "sourceId": 41,
+                "targetSectionIndex": 0,
+                "targetItemIndex": 0,
+                "targetItemKey": "new-row",
+                "quantity": 3,
+            },
+        )
+
+        self.assertEqual(result["state"], "verified")
+        self.assertEqual(result["target"], {
+            "estimateId": 15,
+            "sectionIndex": 0,
+            "itemIndex": 0,
+            "itemKey": "new-row",
+            "sectionsSha256": sections_sha256(_sections("new-row")),
+        })
+
+    def test_target_mapping_rejects_fuzzy_or_wrong_key(self):
+        result = classify_target_mapping(
+            reconciliation_row(),
+            {
+                "sourceKind": "assignment",
+                "sourceId": 41,
+                "targetSectionIndex": 0,
+                "targetItemIndex": 0,
+                "targetItemKey": "similar-name-is-not-identity",
+                "quantity": 3,
+            },
+        )
+
+        self.assertEqual(result, {
+            "sourceKind": "assignment",
+            "sourceId": 41,
+            "state": "blocked",
+            "reasonCode": "target_item_key_mismatch",
+        })
+
+    def test_open_supply_item_reports_unreceived_balance_but_requires_snapshot_review(self):
+        deliveries = [{
+            "delivery_id": 81,
+            "request_id": 61,
+            "delivery_company_id": 1,
+            "material_name": "Смесь",
+            "unit": "кг",
+            "received_quantity": 4,
+        }]
+
+        report = build_impact_report(
+            supply_reconciliation_row(),
+            [],
+            [supply_request_row()],
+            deliveries,
+        )
+
+        self.assertEqual(report["summary"]["supplyCandidates"], 1)
+        candidate = report["supplyCandidates"][0]
+        self.assertEqual(candidate["transferableQuantity"], 6.0)
+        self.assertEqual(candidate["receivedQuantity"], 4.0)
+        self.assertEqual(candidate["reasonCode"], "supply_source_snapshot_missing")
+        self.assertEqual(candidate["protectedHistoryCounts"], {"deliveries": 1})
+
+    def test_ambiguous_supply_delivery_allocation_fails_closed(self):
+        items = json.loads(supply_request_row()["items_json"])
+        items.append(dict(items[0]))
+        request = supply_request_row(items_json=json.dumps(items, ensure_ascii=False))
+
+        report = build_impact_report(
+            supply_reconciliation_row(),
+            [],
+            [request],
+            [{
+                "delivery_id": 81,
+                "request_id": 61,
+                "delivery_company_id": 1,
+                "material_name": "Смесь",
+                "unit": "кг",
+                "received_quantity": 4,
+            }],
+        )
+
+        self.assertEqual(report["summary"]["supplyCandidates"], 0)
+        self.assertEqual(report["needsReview"][0]["reasonCode"], "supply_delivery_allocation_ambiguous")
+
+    def test_malformed_supply_json_fails_closed_without_echoing_content(self):
+        report = build_impact_report(
+            supply_reconciliation_row(),
+            [],
+            [supply_request_row(items_json='[{"notes":"secret"}')],
+            [],
+        )
+
+        self.assertEqual(report["needsReview"][0], {
+            "sourceKind": "supply",
+            "sourceId": 61,
+            "reasonCode": "supply_items_json_invalid",
+        })
+        self.assertNotIn("secret", json.dumps(report))
+
+    def test_preview_is_bounded_and_count_is_not_truncated(self):
+        rows = [
+            assignment_row(
+                contract_item_id=index + 1,
+                source_type="manual",
+            )
+            for index in range(PREVIEW_LIMIT + 7)
+        ]
+
+        report = build_impact_report(reconciliation_row(), rows, [], [])
+
+        self.assertEqual(report["summary"]["needsReview"], PREVIEW_LIMIT + 8)
+        self.assertEqual(len(report["needsReview"]), PREVIEW_LIMIT)
+        self.assertTrue(report["needsReviewTruncated"])
+
+
+if __name__ == "__main__":
+    unittest.main()
