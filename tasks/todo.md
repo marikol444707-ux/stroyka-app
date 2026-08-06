@@ -4190,3 +4190,66 @@ explicit `manual`/`pricelist` origins, make exact repeats idempotent and stop
 estimate/JPR synchronization from rewriting issued quantity or manual brigade
 price. Do not remove the temporary legacy default or enable E3.4 constraints
 until the complete writer audit passes.
+
+## Task E3.3.2: Atomic Brigade Assignment Writer Cutover
+
+**Status:** Local implementation complete on 2026-08-06. Production still runs
+`857b0b622de9`; E3.3 remains open until this slice is deployed and the
+production writer audit passes.
+
+**Behavior:**
+
+- `POST /estimates/{id}/work-assignment` and
+  `POST /estimates/{id}/distribute` resolve one tenant-bound immutable snapshot
+  per estimate batch and persist the exact section index, item index and item
+  key. A repeat of the same complete lineage reuses the stored assignment and
+  never rewrites its issued quantity or brigade price.
+- `/distribute` now accepts server-validated exact coordinates instead of
+  identifying estimate rows by descriptive fields. Its contract and item
+  writes are one transaction, including pricelist autoload.
+- Generic brigade item POST creates only `manual` rows, rejects client-owned
+  lineage and starts confirmed progress at zero. PUT cannot mutate lineage and
+  ignores client-supplied progress while preserving/clamping the stored value
+  when an authorized plan edit changes the quantity.
+- Pricelist autoload writes explicit `pricelist` lineage with no estimate
+  coordinate. It does not infer quantity from an estimate name or work label.
+- Estimate saves no longer synchronize assignment quantity or price. Confirmed
+  ЖПР remains the only progress source and updates `done_quantity` by the exact
+  stored `contract_item_id` rather than a name match.
+- The frontend sends exact distribute coordinates and no longer offers the old
+  generic "load estimate" path. Assignment status matches the exact
+  compatibility key only; names, sections and units are not lineage.
+- One shared source-item policy is used by both estimate-derived routes. The
+  static writer audit allowlists exactly three assignment INSERT statements
+  and three progress/manual-plan UPDATE statements, requires explicit source
+  classification and rejects source mutation, descriptive lookup and unsafe
+  estimate synchronization.
+
+**Verification:**
+
+- [x] Focused tests were written red before each writer cutover and all
+  lineage, route, payload and status tests pass.
+- [x] Full backend discovery passes (`1293/1293`); full frontend Jest passes
+  (`304/304`, `76` suites).
+- [x] Both backend import modes, isolated-cache Python compile,
+  `git diff --check`, the production React build and deploy publisher tests
+  (`3/3`) pass.
+- [x] Desktop and 320 px Playwright checks load the production build and show
+  the expected accessible page structure. The only console failures are the
+  two expected public API calls because the isolated local browser run did not
+  start the backend.
+- [x] Final writer audit reports three allowlisted INSERT writers, three
+  allowlisted UPDATE writers and no violation in its regression tests.
+- [ ] Production deploy and `npm run --silent audit:brigade-lineage` confirm
+  `writerAuditIncluded=true`, `writersReady=true` and no writer violations.
+
+**Known dependency gate:** `npm audit --audit-level=high` currently reports
+`31` inherited dependency findings (`16` high), dominated by the existing
+Create React App/Jest toolchain. Its proposed complete fix installs the
+breaking `react-scripts@0.0.0`; dependency modernization must be a separate,
+tested change and was not mixed into this lineage cutover.
+
+**Next:** Fast-forward this reviewed slice to `main`, deploy it without any
+E3.4 schema enforcement, and require the production writer audit plus the
+normal smoke check. Keep the temporary `source_type='legacy'` default until
+E3.4 adds and verifies FK/CHECK/index/immutability/deletion gates.

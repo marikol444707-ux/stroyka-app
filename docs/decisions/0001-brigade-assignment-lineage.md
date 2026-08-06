@@ -2,10 +2,11 @@
 
 ## Status
 
-Accepted. E3.1 established the production baseline. E3.2 adds only the
-nullable storage contract and an explicit legacy classification. E3.3.1 adds
-an inert exact snapshot resolver; runtime writers and strict constraints remain
-deferred to E3.3.2 and E3.4.
+Accepted. E3.1 established the production baseline. E3.2 added only the
+nullable storage contract and an explicit legacy classification. E3.3.1 added
+the inert exact snapshot resolver. E3.3.2 cuts all local runtime writers over
+to explicit, exact lineage; production verification and E3.4 strict
+constraints remain pending.
 
 ## Date
 
@@ -144,22 +145,43 @@ than client dictionaries. Future routes must copy only the three allowlisted
 coordinate fields into those records after their normal authentication and
 tenant-context checks. No existing writer imports the resolver in E3.3.1.
 
-## Required writer changes before enforcement
+## Fourth delivery slice
 
-- `POST /estimates/{id}/work-assignment`: remove name fallback and destructive
-  overwrite; exact repeat becomes idempotent and a new revision creates a new
-  row. Preserve whether the brigade price was manually negotiated; automatic
-  assignment must never overwrite it.
-- `POST /estimates/{id}/distribute`: persist the exact revision coordinate and
-  add idempotency.
-- Generic brigade item POST/PUT: never accept or mutate server-owned lineage;
-  manual and pricelist origins remain explicit.
-- Estimate update synchronization: change execution progress only; never
-  rewrite issued quantity or brigade price.
-- ЖПР synchronization: `done_quantity` remains derived from confirmed work and
-  cannot identify assignments by name.
-- Estimate deletion: reject deletion through the stored revision relationship,
-  including rows whose source key is not generated from an estimate ID.
+E3.3.2 connects both estimate-derived assignment routes to the shared
+tenant-bound snapshot resolver. `/work-assignment` and `/distribute` accept
+only exact section/item coordinates plus the canonical item key, lock existing
+assignments once per contract/version, and reuse an exact full-lineage match.
+They never identify a row by name, section label, unit, generic ID or code, and
+they never update an already issued quantity or brigade price.
+
+Generic brigade item POST creates only explicit `manual` rows and rejects
+client-owned source fields. Generic PUT cannot mutate source fields and changes
+only editable plan fields while preserving/clamping server-stored progress.
+Pricelist autoload
+creates explicit `pricelist` rows with no estimate coordinate and participates
+in the surrounding contract transaction. Estimate saves no longer rewrite
+assignment state; confirmed ЖПР may update only `done_quantity` through the
+exact stored contract-item ID.
+
+The frontend distribute payload now carries the three exact coordinate fields,
+and the obsolete generic estimate-loader is removed. A bounded static audit is
+part of `npm run audit:brigade-lineage`: it allowlists every INSERT/UPDATE site,
+requires explicit source classification, and rejects source mutation,
+descriptive assignment lookup and unsafe quantity synchronization. Runtime
+writer readiness is reported separately from data and constraint readiness.
+
+## Writer changes completed locally before enforcement
+
+- `POST /estimates/{id}/work-assignment` and `/distribute` now persist the exact
+  revision coordinate and make exact repeats idempotent without destructive
+  overwrite.
+- Generic brigade item POST/PUT cannot accept or mutate server-owned lineage;
+  manual and pricelist origins are explicit.
+- Estimate synchronization does not rewrite issued quantity or brigade price.
+  ЖПР progress is derived from confirmed work by exact contract-item ID.
+- E3.4 still must enforce estimate deletion restrictions through the stored
+  revision relationship, including rows whose source key is not generated
+  from an estimate ID.
 
 ## Alternatives considered
 
@@ -182,7 +204,7 @@ Unproven rows remain visible for human review.
 - The next schema change stays additive and nullable.
 - Current row origin is not guessed; E3.2 writes only the explicit `legacy`
   classification to the exact guarded ID set.
-- Strict constraints and writer cutover require separate, rollback-friendly
-  releases.
+- Strict constraints remain a separate, rollback-friendly E3.4 release after
+  production writer verification.
 - E4 revision transfer can later operate on confirmed immutable source rows
   instead of fuzzy names.
