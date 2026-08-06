@@ -7,6 +7,8 @@ from backend.features.estimate_row_transfer.audit import (
     PREVIEW_LIMIT,
     build_impact_report,
     classify_target_mapping,
+    parse_reconciliation_id,
+    run_impact_audit,
 )
 
 
@@ -114,6 +116,13 @@ def supply_request_row(**overrides):
         "request_status": "В пути",
         "request_work_package": "Отделка",
         "items_json": json.dumps(items, ensure_ascii=False),
+        "offer_count": 2,
+        "supplier_invoice_count": 1,
+        "warehouse_invoice_count": 1,
+        "warehouse_history_count": 3,
+        "supply_history_count": 2,
+        "claim_count": 1,
+        "paid_invoice_count": 1,
     }
     row.update(overrides)
     return row
@@ -263,7 +272,16 @@ class EstimateRowTransferPureAuditTests(unittest.TestCase):
         self.assertEqual(candidate["transferableQuantity"], 6.0)
         self.assertEqual(candidate["receivedQuantity"], 4.0)
         self.assertEqual(candidate["reasonCode"], "supply_source_snapshot_missing")
-        self.assertEqual(candidate["protectedHistoryCounts"], {"deliveries": 1})
+        self.assertEqual(candidate["protectedHistoryCounts"], {
+            "deliveries": 1,
+            "offers": 2,
+            "supplierInvoices": 1,
+            "warehouseInvoices": 1,
+            "warehouseHistoryRows": 3,
+            "supplyHistoryRows": 2,
+            "claims": 1,
+            "paidInvoices": 1,
+        })
 
     def test_ambiguous_supply_delivery_allocation_fails_closed(self):
         items = json.loads(supply_request_row()["items_json"])
@@ -316,6 +334,116 @@ class EstimateRowTransferPureAuditTests(unittest.TestCase):
         self.assertEqual(report["summary"]["needsReview"], PREVIEW_LIMIT + 8)
         self.assertEqual(len(report["needsReview"]), PREVIEW_LIMIT)
         self.assertTrue(report["needsReviewTruncated"])
+
+
+class FakeCursor:
+    def __init__(self, results, fail_at=None):
+        self.results = list(results)
+        self.fail_at = fail_at
+        self.calls = []
+        self.current = None
+        self.closed = False
+
+    def execute(self, sql, params=None):
+        normalized = " ".join(sql.split())
+        self.calls.append((normalized, params))
+        if self.fail_at is not None and len(self.calls) == self.fail_at:
+            raise RuntimeError("database read failed")
+        self.current = self.results.pop(0)
+
+    def fetchone(self):
+        return self.current
+
+    def fetchall(self):
+        return self.current
+
+    def close(self):
+        self.closed = True
+
+
+class FakeConnection:
+    def __init__(self, cursor):
+        self.fake_cursor = cursor
+        self.session = None
+        self.rollback_count = 0
+        self.commit_count = 0
+        self.closed = False
+
+    def set_session(self, **kwargs):
+        self.session = kwargs
+
+    def cursor(self, **_kwargs):
+        return self.fake_cursor
+
+    def rollback(self):
+        self.rollback_count += 1
+
+    def commit(self):
+        self.commit_count += 1
+
+    def close(self):
+        self.closed = True
+
+
+class EstimateRowTransferDatabaseBoundaryTests(unittest.TestCase):
+    def test_reconciliation_id_parser_is_strict_and_positive(self):
+        self.assertEqual(parse_reconciliation_id("17"), 17)
+        for value in (None, "", "0", "-1", "1.0", True, " 17 "):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "reconciliation_id_invalid"):
+                    parse_reconciliation_id(value)
+
+    def test_runner_uses_read_only_repeatable_read_and_always_rolls_back(self):
+        cursor = FakeCursor([
+            reconciliation_row(project_name="Школа", project_name_owner_count=1),
+            [assignment_row()],
+            [],
+        ])
+        connection = FakeConnection(cursor)
+
+        report = run_impact_audit(lambda: connection, 9)
+
+        self.assertTrue(report["rolledBack"])
+        self.assertTrue(report["readOnlyTransaction"])
+        self.assertEqual(report["writesAttempted"], 0)
+        self.assertEqual(connection.session, {
+            "readonly": True,
+            "autocommit": False,
+            "isolation_level": "REPEATABLE READ",
+        })
+        self.assertEqual(connection.rollback_count, 1)
+        self.assertEqual(connection.commit_count, 0)
+        self.assertTrue(cursor.closed)
+        self.assertTrue(connection.closed)
+
+        self.assertTrue(cursor.calls)
+        self.assertTrue(all(sql.startswith("SELECT") for sql, _params in cursor.calls))
+        self.assertTrue(all(params is not None for _sql, params in cursor.calls))
+        self.assertFalse(any("estimate_reconciliation_items" in sql for sql, _params in cursor.calls))
+        self.assertTrue(any("COUNT(*)" in sql and "hidden_works_acts" in sql for sql, _ in cursor.calls))
+
+    def test_runner_rolls_back_and_closes_when_a_read_fails(self):
+        cursor = FakeCursor(
+            [reconciliation_row(project_name="Школа", project_name_owner_count=1)],
+            fail_at=2,
+        )
+        connection = FakeConnection(cursor)
+
+        with self.assertRaisesRegex(RuntimeError, "database read failed"):
+            run_impact_audit(lambda: connection, 9)
+
+        self.assertEqual(connection.rollback_count, 1)
+        self.assertEqual(connection.commit_count, 0)
+        self.assertTrue(cursor.closed)
+        self.assertTrue(connection.closed)
+
+    def test_invalid_id_is_rejected_before_database_connection(self):
+        calls = []
+
+        with self.assertRaisesRegex(ValueError, "reconciliation_id_invalid"):
+            run_impact_audit(lambda: calls.append("connected"), "9 OR 1=1")
+
+        self.assertEqual(calls, [])
 
 
 if __name__ == "__main__":

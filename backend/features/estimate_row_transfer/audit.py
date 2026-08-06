@@ -1,9 +1,12 @@
 """Read-only, fail-closed impact audit for reviewed estimate row transfer."""
 
+import argparse
 import json
 import math
 import re
 from collections import Counter, defaultdict
+
+import psycopg2.extras
 
 from backend.features.brigade_lineage.canonical import parse_sections, sections_sha256
 from backend.features.brigade_lineage.snapshot_service import (
@@ -27,6 +30,18 @@ def _positive_int(value):
     except (TypeError, ValueError, OverflowError):
         return None
     return result if result > 0 else None
+
+
+def parse_reconciliation_id(value):
+    if isinstance(value, bool):
+        raise ValueError("reconciliation_id_invalid")
+    if isinstance(value, int):
+        if value > 0:
+            return value
+        raise ValueError("reconciliation_id_invalid")
+    if not isinstance(value, str) or not re.fullmatch(r"[1-9][0-9]*", value):
+        raise ValueError("reconciliation_id_invalid")
+    return int(value)
 
 
 def _non_negative_int(value):
@@ -161,6 +176,8 @@ def _reconciliation_context(row):
         "smetaType": smeta_type,
         "baseEstimateId": base_estimate_id,
         "targetEstimateId": target_estimate_id,
+        "projectName": _text(item.get("project_name")),
+        "projectNameOwnerCount": _count(item.get("project_name_owner_count", 1)),
         "baseSections": base_sections,
         "baseSectionsSha256": base_hash,
         "targetSections": target_sections,
@@ -459,7 +476,16 @@ def _supply_descriptors(context, request, deliveries):
             "requestedQuantity": descriptor["quantity"],
             "receivedQuantity": received,
             "transferableQuantity": transferable,
-            "protectedHistoryCounts": {"deliveries": len(matching_deliveries)},
+            "protectedHistoryCounts": {
+                "deliveries": len(matching_deliveries),
+                "offers": _count(request.get("offer_count")),
+                "supplierInvoices": _count(request.get("supplier_invoice_count")),
+                "warehouseInvoices": _count(request.get("warehouse_invoice_count")),
+                "warehouseHistoryRows": _count(request.get("warehouse_history_count")),
+                "supplyHistoryRows": _count(request.get("supply_history_count")),
+                "claims": _count(request.get("claim_count")),
+                "paidInvoices": _count(request.get("paid_invoice_count")),
+            },
         })
     return candidates, blockers
 
@@ -571,15 +597,22 @@ def build_impact_report(
     for delivery in delivery_rows or []:
         deliveries_by_request[_positive_int((delivery or {}).get("request_id"))].append(dict(delivery or {}))
     supply_candidates = []
-    for request in supply_request_rows or []:
-        request_id = _positive_int((request or {}).get("request_id"))
-        candidates, request_blockers = _supply_descriptors(
-            context,
-            dict(request or {}),
-            deliveries_by_request.get(request_id, []),
-        )
-        supply_candidates.extend(candidates)
-        blockers.extend(request_blockers)
+    if context["projectNameOwnerCount"] != 1:
+        blockers.append(_blocked(
+            "supply",
+            context["projectId"],
+            "supply_project_identity_ambiguous",
+        ))
+    else:
+        for request in supply_request_rows or []:
+            request_id = _positive_int((request or {}).get("request_id"))
+            candidates, request_blockers = _supply_descriptors(
+                context,
+                dict(request or {}),
+                deliveries_by_request.get(request_id, []),
+            )
+            supply_candidates.extend(candidates)
+            blockers.extend(request_blockers)
     blockers.extend(
         _blocked("supply", item["sourceId"], item["reasonCode"])
         for item in supply_candidates
@@ -638,3 +671,219 @@ def build_impact_report(
         ),
     })
     return base_report
+
+
+def _load_reconciliation(cur, reconciliation_id):
+    cur.execute(
+        """SELECT TRUE AS reconciliation_exists,
+                  r.id AS reconciliation_id,
+                  r.status AS reconciliation_status,
+                  COALESCE(NULLIF(r.work_package,''),'Основная')
+                      AS reconciliation_work_package,
+                  COALESCE(NULLIF(r.smeta_type,''),'Заказчик')
+                      AS reconciliation_smeta_type,
+                  p.id IS NOT NULL AS project_exists,
+                  p.id AS project_id,
+                  p.company_id AS project_company_id,
+                  p.name AS project_name,
+                  (SELECT COUNT(*)
+                     FROM public.projects project_name_owner
+                    WHERE project_name_owner.company_id=p.company_id
+                      AND project_name_owner.name=p.name)
+                      AS project_name_owner_count,
+                  b.id AS base_estimate_id,
+                  b.company_id AS base_company_id,
+                  b.project_id AS base_project_id,
+                  COALESCE(NULLIF(b.work_package,''),'Основная')
+                      AS base_work_package,
+                  COALESCE(NULLIF(b.smeta_type,''),'Заказчик') AS base_smeta_type,
+                  b.sections_json AS base_sections_json,
+                  n.id AS target_estimate_id,
+                  n.company_id AS target_company_id,
+                  n.project_id AS target_project_id,
+                  COALESCE(NULLIF(n.work_package,''),'Основная')
+                      AS target_work_package,
+                  COALESCE(NULLIF(n.smeta_type,''),'Заказчик') AS target_smeta_type,
+                  n.sections_json AS target_sections_json
+             FROM public.estimate_reconciliations r
+             LEFT JOIN public.estimates b ON b.id=r.base_estimate_id
+             LEFT JOIN public.estimates n ON n.id=r.next_estimate_id
+             LEFT JOIN public.projects p ON p.id=b.project_id
+            WHERE r.id=%s""",
+        (reconciliation_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return {
+            "reconciliation_exists": False,
+            "reconciliation_id": reconciliation_id,
+        }
+    return dict(row)
+
+
+def _load_assignment_rows(cur, base_estimate_id):
+    cur.execute(
+        """SELECT bci.id AS contract_item_id,
+                  bci.contract_id,
+                  bc.company_id AS contract_company_id,
+                  bc.project_id AS contract_project_id,
+                  COALESCE(NULLIF(bci.work_package,''),'Основная')
+                      AS contract_work_package,
+                  bci.source_type,
+                  ev.estimate_id AS source_estimate_id,
+                  bci.source_estimate_version_id,
+                  bci.source_section_index,
+                  bci.source_item_index,
+                  bci.source_item_key,
+                  ev.sections_json AS snapshot_sections_json,
+                  ev.sections_sha256 AS snapshot_sections_sha256,
+                  bci.quantity AS assignment_quantity,
+                  COALESCE((SELECT SUM(wj.quantity)
+                              FROM public.work_journal wj
+                             WHERE wj.contract_item_id=bci.id
+                               AND wj.status='Подтверждено'),0)
+                      AS confirmed_quantity,
+                  (SELECT COUNT(*) FROM public.work_journal wj
+                    WHERE wj.contract_item_id=bci.id) AS journal_count,
+                  (SELECT COUNT(*) FROM public.work_journal wj
+                    WHERE wj.contract_item_id=bci.id
+                      AND wj.status='Подтверждено') AS confirmed_journal_count,
+                  (SELECT COUNT(*)
+                     FROM public.hidden_works_acts hwa
+                     JOIN public.work_journal wj ON wj.id=hwa.work_journal_id
+                    WHERE wj.contract_item_id=bci.id) AS hidden_act_count,
+                  (SELECT COUNT(*) FROM public.brigade_acts ba
+                    WHERE ba.contract_id=bci.contract_id) AS brigade_act_count,
+                  (SELECT COUNT(*) FROM public.brigade_payments bp
+                    WHERE bp.contract_id=bci.contract_id) AS brigade_payment_count
+             FROM public.brigade_contract_items bci
+             JOIN public.brigade_contracts bc ON bc.id=bci.contract_id
+             JOIN public.estimate_versions ev
+               ON ev.id=bci.source_estimate_version_id
+            WHERE ev.estimate_id=%s
+            ORDER BY bci.id""",
+        (base_estimate_id,),
+    )
+    return [dict(row) for row in (cur.fetchall() or [])]
+
+
+def _load_supply_request_rows(cur, context):
+    if context["projectNameOwnerCount"] != 1 or not context["projectName"]:
+        return []
+    cur.execute(
+        """SELECT sr.id AS request_id,
+                  sr.company_id AS request_company_id,
+                  sr.status AS request_status,
+                  COALESCE(NULLIF(sr.work_package,''),'Основная')
+                      AS request_work_package,
+                  sr.items_json,
+                  (SELECT COUNT(*) FROM public.supplier_offers so
+                    WHERE so.request_id=sr.id) AS offer_count,
+                  (SELECT COUNT(*) FROM public.supplier_invoices si
+                    WHERE si.request_id=sr.id) AS supplier_invoice_count,
+                  (SELECT COUNT(*) FROM public.warehouse_invoices wi
+                    WHERE wi.supply_request_id=sr.id) AS warehouse_invoice_count,
+                  (SELECT COUNT(*)
+                     FROM public.warehouse_history wh
+                     JOIN public.warehouse_invoices wi
+                       ON wi.id=wh.source_invoice_id
+                    WHERE wi.supply_request_id=sr.id) AS warehouse_history_count,
+                  (SELECT COUNT(*) FROM public.supply_history sh
+                    WHERE sh.request_id=sr.id) AS supply_history_count,
+                  (SELECT COUNT(*) FROM public.supply_claims sc
+                    WHERE sc.request_id=sr.id) AS claim_count,
+                  (SELECT COUNT(*) FROM public.supplier_invoices paid
+                    WHERE paid.request_id=sr.id
+                      AND (paid.paid_at IS NOT NULL
+                           OR COALESCE(paid.paid_amount,0)<>0)) AS paid_invoice_count
+             FROM public.supply_requests sr
+            WHERE sr.company_id=%s
+              AND sr.project=%s
+              AND COALESCE(NULLIF(sr.work_package,''),'Основная')=%s
+            ORDER BY sr.id""",
+        (context["companyId"], context["projectName"], context["workPackage"]),
+    )
+    return [dict(row) for row in (cur.fetchall() or [])]
+
+
+def _load_delivery_rows(cur, request_ids):
+    normalized_ids = sorted({
+        request_id
+        for request_id in (_positive_int(value) for value in request_ids)
+        if request_id
+    })
+    if not normalized_ids:
+        return []
+    cur.execute(
+        """SELECT d.id AS delivery_id,
+                  d.request_id,
+                  d.company_id AS delivery_company_id,
+                  d.material_name,
+                  d.unit,
+                  d.received_quantity
+             FROM public.supply_deliveries d
+            WHERE d.request_id=ANY(%s)
+            ORDER BY d.request_id,d.id""",
+        (normalized_ids,),
+    )
+    return [dict(row) for row in (cur.fetchall() or [])]
+
+
+def collect_transfer_impact(cur, reconciliation_id):
+    reconciliation_id = parse_reconciliation_id(reconciliation_id)
+    reconciliation = _load_reconciliation(cur, reconciliation_id)
+    context, reconciliation_error = _reconciliation_context(reconciliation)
+    if reconciliation_error:
+        return build_impact_report(reconciliation, [], [], [])
+    assignments = _load_assignment_rows(cur, context["baseEstimateId"])
+    requests = _load_supply_request_rows(cur, context)
+    deliveries = _load_delivery_rows(
+        cur,
+        [request.get("request_id") for request in requests],
+    )
+    return build_impact_report(reconciliation, assignments, requests, deliveries)
+
+
+def run_impact_audit(get_db, reconciliation_id):
+    reconciliation_id = parse_reconciliation_id(reconciliation_id)
+    conn = get_db()
+    cur = None
+    try:
+        conn.set_session(
+            readonly=True,
+            autocommit=False,
+            isolation_level="REPEATABLE READ",
+        )
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        report = collect_transfer_impact(cur, reconciliation_id)
+        conn.rollback()
+        report["readOnlyTransaction"] = True
+        report["rolledBack"] = True
+        return report
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        if cur is not None:
+            cur.close()
+        conn.close()
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Read-only exact estimate row transfer impact audit",
+    )
+    parser.add_argument("--reconciliation-id", required=True)
+    args = parser.parse_args(argv)
+    reconciliation_id = parse_reconciliation_id(args.reconciliation_id)
+    try:
+        from backend.db import get_db
+    except ModuleNotFoundError:
+        from db import get_db
+    report = run_impact_audit(get_db, reconciliation_id)
+    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if report.get("ok") else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
