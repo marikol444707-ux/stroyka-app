@@ -25246,8 +25246,10 @@ register_public_site_routes(app, {
 
 try:
     from backend.features.work_assignment import register_work_assignment_module
+    from backend.features.brigade_lineage.snapshot_service import ensure_estimate_snapshot_lineages
 except ModuleNotFoundError:
     from features.work_assignment import register_work_assignment_module
+    from features.brigade_lineage.snapshot_service import ensure_estimate_snapshot_lineages
 
 register_work_assignment_module(app, {
     "get_db": get_db,
@@ -25255,6 +25257,7 @@ register_work_assignment_module(app, {
     "resolve_estimate_mutation_actor": _resolve_estimate_mutation_actor,
     "resolve_brigade_contractor_user": resolve_brigade_contractor_user,
     "grant_brigade_contractor_scope": grant_brigade_contractor_scope,
+    "ensure_estimate_snapshot_lineages": ensure_estimate_snapshot_lineages,
     "assign_roles": LEADERSHIP_ROLES,
     "project_scoped_roles": PROJECT_SCOPED_ACCESS_ROLES,
     "package_required_roles": WORK_PACKAGE_REQUIRED_ACCESS_ROLES,

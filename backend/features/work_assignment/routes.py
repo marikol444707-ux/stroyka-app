@@ -1,8 +1,18 @@
-import json
 import math
 from typing import Optional
 
 from fastapi import Depends, Header, HTTPException
+
+try:
+    from backend.features.brigade_lineage.snapshot_service import (
+        LineageResolutionError,
+        SnapshotItemCoordinate,
+    )
+except ModuleNotFoundError:
+    from features.brigade_lineage.snapshot_service import (
+        LineageResolutionError,
+        SnapshotItemCoordinate,
+    )
 
 
 def _text(value, limit=255):
@@ -15,13 +25,6 @@ def _num(value):
         return result if math.isfinite(result) else 0.0
     except Exception:
         return 0.0
-
-
-def _json_sections(raw):
-    try:
-        return json.loads(raw) if isinstance(raw, str) else (raw or [])
-    except Exception:
-        return []
 
 
 def _is_work_item(item):
@@ -60,50 +63,6 @@ def _unit_price(item):
     return 0
 
 
-def _item_keys(estimate_id, section_idx, item_idx, item):
-    keys = []
-    for field in ("estimateItemKey", "estimate_item_key", "itemKey", "workKey", "key", "id", "code", "sourceCode", "obosn"):
-        value = _text((item or {}).get(field), 200)
-        if value and value not in keys:
-            keys.append(value)
-    generated = f"{estimate_id}:{section_idx}:{item_idx}"
-    if generated not in keys:
-        keys.append(generated)
-    return keys
-
-
-def _find_estimate_item(estimate_id, sections, assignment):
-    target_key = _text(assignment.get("estimateItemKey") or assignment.get("estimate_item_key"), 200)
-    section_index = assignment.get("sectionIndex")
-    item_index = assignment.get("itemIndex")
-    try:
-        section_index = int(section_index)
-        item_index = int(item_index)
-        section = sections[section_index]
-        item = (section.get("items") or [])[item_index]
-        return section_index, item_index, section, item, _item_keys(estimate_id, section_index, item_index, item)[0]
-    except Exception:
-        pass
-    target_name = _text(assignment.get("name") or assignment.get("description"), 500).lower()
-    target_section = _text(assignment.get("section") or assignment.get("estimateSection"), 500).lower()
-    fallback = None
-    for si, section in enumerate(sections or []):
-        section_name = _text((section or {}).get("name"), 500)
-        for ii, item in enumerate((section or {}).get("items") or []):
-            keys = _item_keys(estimate_id, si, ii, item)
-            name_match = target_name and _text((item or {}).get("name") or (item or {}).get("description"), 500).lower() == target_name
-            section_match = not target_section or section_name.lower() == target_section
-            if target_key and target_key in keys:
-                return si, ii, section, item, target_key
-            if name_match and section_match:
-                return si, ii, section, item, keys[0]
-            if name_match and fallback is None:
-                fallback = (si, ii, section, item, keys[0])
-    if fallback:
-        return fallback
-    raise HTTPException(status_code=400, detail="Строка сметы не найдена: " + (_text(assignment.get("name"), 120) or target_key or "без названия"))
-
-
 def _contract_match_sql(contractor_user_id):
     if contractor_user_id:
         return "COALESCE(contractor_id,0)=%s", [contractor_user_id]
@@ -116,6 +75,7 @@ def register_work_assignment_module(app, deps):
     resolve_estimate_mutation_actor = deps["resolve_estimate_mutation_actor"]
     resolve_brigade_contractor_user = deps["resolve_brigade_contractor_user"]
     grant_brigade_contractor_scope = deps["grant_brigade_contractor_scope"]
+    ensure_estimate_snapshot_lineages = deps["ensure_estimate_snapshot_lineages"]
     log_audit = deps.get("log_audit")
     assign_roles = deps.get("assign_roles") or ()
     project_scoped_roles = deps.get("project_scoped_roles") or ()
@@ -158,21 +118,45 @@ def register_work_assignment_module(app, deps):
                 x_company_mode=x_company_mode,
             )
             company_id = int(estimate_scope["companyId"])
+            project_id = estimate_scope.get("projectId")
+            if not project_id:
+                raise HTTPException(status_code=409, detail="Смета не привязана к точному объекту выбранной компании")
+            coordinates = []
+            for assignment in assignments:
+                if not isinstance(assignment, dict):
+                    raise HTTPException(status_code=400, detail="Некорректная строка назначения")
+                coordinates.append(SnapshotItemCoordinate(
+                    assignment.get("sectionIndex"),
+                    assignment.get("itemIndex"),
+                    assignment.get("estimateItemKey", assignment.get("estimate_item_key")),
+                ))
+            try:
+                lineages = ensure_estimate_snapshot_lineages(
+                    cur,
+                    estimate_id=estimate_id,
+                    company_id=company_id,
+                    project_id=int(project_id),
+                    coordinates=coordinates,
+                    created_by=actor.get("name") or current_user.get("name") or "",
+                )
+            except (LineageResolutionError, ValueError) as exc:
+                code = getattr(exc, "code", "source_coordinate_invalid")
+                status_code = 409 if code.startswith("snapshot_") or code == "estimate_owner_mismatch" else 400
+                raise HTTPException(status_code=status_code, detail="Не удалось подтвердить точную строку версии сметы")
             cur.execute(
                 """SELECT id, name, project_id, project_name, COALESCE(NULLIF(work_package,''),'Основная'), sections_json, status
-                   FROM estimates WHERE id=%s AND company_id=%s FOR UPDATE""",
+                   FROM estimates WHERE id=%s AND company_id=%s""",
                 (estimate_id, company_id),
             )
             estimate = cur.fetchone()
             if not estimate:
                 raise HTTPException(status_code=404, detail="Смета не найдена")
             estimate_name = estimate[1] or ""
-            project_id = estimate[2]
-            if not project_id or int(project_id) != int(estimate_scope.get("projectId") or 0):
+            stored_project_id = estimate[2]
+            if not stored_project_id or int(stored_project_id) != int(project_id):
                 raise HTTPException(status_code=409, detail="Смета не привязана к точному объекту выбранной компании")
             project_name = estimate_scope.get("projectName") or estimate[3] or ""
             work_package = estimate_scope.get("workPackage") or estimate[4] or "Основная"
-            sections = _json_sections(estimate[5])
             contractor_user_id = resolve_brigade_contractor_user(
                 cur,
                 company_id,
@@ -234,9 +218,12 @@ def register_work_assignment_module(app, deps):
 
             inserted = 0
             updated = 0
+            reused = 0
             result_items = []
-            for assignment in assignments:
-                si, ii, section, item, estimate_item_key = _find_estimate_item(estimate_id, sections, assignment)
+            for assignment, lineage in zip(assignments, lineages):
+                section = lineage.section
+                item = lineage.item
+                estimate_item_key = lineage.source_item_key
                 if not _is_work_item(item):
                     continue
                 qty = _num(item.get("quantity"))
@@ -260,37 +247,53 @@ def register_work_assignment_module(app, deps):
                 item_name = _text(item.get("name") or item.get("description"), 500)
                 unit = _text(item.get("unit") or "шт", 80)
                 cur.execute(
-                    """SELECT id FROM brigade_contract_items
+                    """SELECT id, estimate_section, description, unit, quantity,
+                              price_smeta, price_brigade, estimate_item_key
+                         FROM brigade_contract_items
                        WHERE contract_id=%s
-                         AND (
-                           (%s<>'' AND COALESCE(estimate_item_key,'')=%s)
-                           OR (
-                             LOWER(TRIM(COALESCE(description,'')))=LOWER(TRIM(%s))
-                             AND LOWER(TRIM(COALESCE(estimate_section,'')))=LOWER(TRIM(%s))
-                             AND COALESCE(NULLIF(work_package,''),'Основная')=%s
-                           )
-                         )
-                       LIMIT 1""",
-                    (contract_id, estimate_item_key, estimate_item_key, item_name, section_name, work_package),
+                         AND source_type='estimate'
+                         AND source_estimate_version_id=%s
+                         AND source_section_index=%s
+                         AND source_item_index=%s
+                         AND source_item_key=%s
+                       LIMIT 1 FOR UPDATE""",
+                    (
+                        contract_id,
+                        lineage.source_estimate_version_id,
+                        lineage.source_section_index,
+                        lineage.source_item_index,
+                        lineage.source_item_key,
+                    ),
                 )
                 existing = cur.fetchone()
                 if existing:
-                    cur.execute(
-                        """UPDATE brigade_contract_items
-                           SET estimate_section=%s, description=%s, work_package=%s, estimate_item_key=%s,
-                               unit=%s, quantity=%s, price_smeta=%s, price_brigade=%s
-                           WHERE id=%s AND contract_id=%s""",
-                        (section_name, item_name, work_package, estimate_item_key, unit, qty, price_smeta, price_brigade, existing[0], contract_id),
-                    )
-                    updated += 1
                     item_id = existing[0]
+                    section_name = existing[1] or section_name
+                    item_name = existing[2] or item_name
+                    unit = existing[3] or unit
+                    qty = _num(existing[4])
+                    price_smeta = _num(existing[5])
+                    price_brigade = _num(existing[6])
+                    estimate_item_key = existing[7] or estimate_item_key
+                    if estimate_item_key != lineage.source_item_key:
+                        raise HTTPException(status_code=409, detail="Сохранённая строка назначения имеет несовместимый ключ источника")
+                    reused += 1
                 else:
                     cur.execute(
                         """INSERT INTO brigade_contract_items
-                             (contract_id, estimate_section, description, work_package, estimate_item_key, unit, quantity, price_smeta, price_brigade, done_quantity)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                             (contract_id, estimate_section, description, work_package, estimate_item_key,
+                              unit, quantity, price_smeta, price_brigade, done_quantity,
+                              source_type, source_estimate_version_id, source_section_index,
+                              source_item_index, source_item_key)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                            RETURNING id""",
-                        (contract_id, section_name, item_name, work_package, estimate_item_key, unit, qty, price_smeta, price_brigade, 0),
+                        (
+                            contract_id, section_name, item_name, work_package, estimate_item_key,
+                            unit, qty, price_smeta, price_brigade, 0,
+                            "estimate", lineage.source_estimate_version_id,
+                            lineage.source_section_index, lineage.source_item_index,
+                            lineage.source_item_key,
+                        ),
                     )
                     item_id = cur.fetchone()[0]
                     inserted += 1
@@ -331,9 +334,9 @@ def register_work_assignment_module(app, deps):
         except HTTPException:
             conn.rollback()
             raise
-        except Exception as exc:
+        except Exception:
             conn.rollback()
-            raise HTTPException(status_code=500, detail="Не удалось назначить работы: " + str(exc))
+            raise HTTPException(status_code=500, detail="Не удалось назначить работы")
         finally:
             cur.close()
             conn.close()
@@ -353,6 +356,7 @@ def register_work_assignment_module(app, deps):
             "createdContract": created_contract,
             "inserted": inserted,
             "updated": updated,
+            "reused": reused,
             "brigadeName": brigade_name,
             "contractorId": contractor_user_id,
             "projectName": project_name,

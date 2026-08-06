@@ -3,6 +3,7 @@ import unittest
 
 from fastapi import HTTPException
 
+from backend.features.brigade_lineage.snapshot_service import EstimateSnapshotLineage
 from backend.features.work_assignment.routes import register_work_assignment_module
 
 
@@ -19,16 +20,17 @@ class FakeApp:
 
 
 class FakeCursor:
-    def __init__(self, existing_contract_id=None):
+    def __init__(self, existing_contract_id=None, existing_item=None):
         self.calls = []
         self.result = None
         self.closed = False
         self.existing_contract_id = existing_contract_id
+        self.existing_item = existing_item
 
     def execute(self, sql, params=()):
         self.calls.append((sql, params))
         normalized = " ".join(sql.split())
-        if "FROM estimates WHERE id=%s AND company_id=%s FOR UPDATE" in normalized:
+        if "FROM estimates WHERE id=%s AND company_id=%s" in normalized:
             sections = [{
                 "name": "Отделка",
                 "items": [{
@@ -52,8 +54,8 @@ class FakeCursor:
             self.result = (self.existing_contract_id,) if self.existing_contract_id else None
         elif "INSERT INTO brigade_contracts" in normalized:
             self.result = (77,)
-        elif normalized.startswith("SELECT id FROM brigade_contract_items"):
-            self.result = None
+        elif normalized.startswith("SELECT id") and "FROM brigade_contract_items" in normalized:
+            self.result = self.existing_item
         elif "INSERT INTO brigade_contract_items" in normalized:
             self.result = (88,)
         else:
@@ -67,9 +69,12 @@ class FakeCursor:
 
 
 class FakeConnection:
-    def __init__(self, existing_contract_id=None):
+    def __init__(self, existing_contract_id=None, existing_item=None):
         self.autocommit = True
-        self.cursor_value = FakeCursor(existing_contract_id=existing_contract_id)
+        self.cursor_value = FakeCursor(
+            existing_contract_id=existing_contract_id,
+            existing_item=existing_item,
+        )
         self.committed = False
         self.rolled_back = False
         self.closed = False
@@ -88,11 +93,12 @@ class FakeConnection:
 
 
 class WorkAssignmentTenantRouteTests(unittest.TestCase):
-    def _register(self, connection, *, resolver=None):
+    def _register(self, connection, *, resolver=None, lineage_version_id=71):
         app = FakeApp()
         resolver_calls = []
         contractor_calls = []
         grant_calls = []
+        lineage_calls = []
 
         def resolve_estimate_mutation_actor(conn, user, estimate_id, roles, **headers):
             resolver_calls.append((conn, user, estimate_id, roles, headers))
@@ -116,12 +122,49 @@ class WorkAssignmentTenantRouteTests(unittest.TestCase):
         def grant_scope(cur, company_id, user_id, project_name, work_package, **roles):
             grant_calls.append((company_id, user_id, project_name, work_package, roles))
 
+        def resolve_lineages(cur, **kwargs):
+            lineage_calls.append((cur, kwargs))
+            sections = [{
+                "name": "Отделка",
+                "items": [{
+                    "name": "Штукатурка",
+                    "unit": "м2",
+                    "quantity": 12,
+                    "priceWork": 1000,
+                    "estimateItemKey": "work-1",
+                }, {
+                    "name": "Грунтовка",
+                    "unit": "м2",
+                    "quantity": 12,
+                    "priceWork": 200,
+                    "estimateItemKey": "work-2",
+                }],
+            }]
+            result = []
+            for coordinate in kwargs["coordinates"]:
+                item = sections[coordinate.section_index]["items"][coordinate.item_index]
+                if coordinate.expected_item_key != item["estimateItemKey"]:
+                    raise ValueError("source_item_key_mismatch")
+                result.append(EstimateSnapshotLineage(
+                    source_type="estimate",
+                    source_estimate_version_id=lineage_version_id,
+                    source_section_index=coordinate.section_index,
+                    source_item_index=coordinate.item_index,
+                    source_item_key=coordinate.expected_item_key,
+                    sections_sha256="a" * 64,
+                    section=sections[coordinate.section_index],
+                    item=item,
+                    snapshot_created=True,
+                ))
+            return result
+
         register_work_assignment_module(app, {
             "get_db": lambda: connection,
             "get_current_user": lambda: None,
             "resolve_estimate_mutation_actor": resolve_estimate_mutation_actor,
             "resolve_brigade_contractor_user": resolve_contractor,
             "grant_brigade_contractor_scope": grant_scope,
+            "ensure_estimate_snapshot_lineages": resolve_lineages,
             "assign_roles": ("директор", "зам_директора"),
             "project_scoped_roles": ("мастер", "бригадир"),
             "package_required_roles": ("мастер", "бригадир"),
@@ -132,11 +175,12 @@ class WorkAssignmentTenantRouteTests(unittest.TestCase):
             resolver_calls,
             contractor_calls,
             grant_calls,
+            lineage_calls,
         )
 
     def test_assignment_uses_estimate_company_for_contract_and_contractor(self):
         connection = FakeConnection()
-        handler, resolver_calls, contractor_calls, grant_calls = self._register(connection)
+        handler, resolver_calls, contractor_calls, grant_calls, lineage_calls = self._register(connection)
         payload = {
             "assignee": {
                 "contractorId": 41,
@@ -163,6 +207,9 @@ class WorkAssignmentTenantRouteTests(unittest.TestCase):
         self.assertEqual(resolver_calls[0][4], {"x_company_id": "4", "x_company_mode": "company"})
         self.assertEqual(contractor_calls, [(4, 41, "Иван Иванов")])
         self.assertEqual(grant_calls[0][:4], (4, 41, "Лицей", "Отделка"))
+        self.assertEqual(lineage_calls[0][1]["estimate_id"], 9)
+        self.assertEqual(lineage_calls[0][1]["company_id"], 4)
+        self.assertEqual(lineage_calls[0][1]["project_id"], 19)
 
         lookup_sql, lookup_params = next(
             call for call in connection.cursor_value.calls
@@ -179,13 +226,20 @@ class WorkAssignmentTenantRouteTests(unittest.TestCase):
         self.assertIn("company_id, project_id", insert_sql)
         self.assertEqual(insert_params[:3], (4, 19, "Лицей"))
 
+        item_sql, item_params = next(
+            call for call in connection.cursor_value.calls
+            if "INSERT INTO brigade_contract_items" in call[0]
+        )
+        self.assertIn("source_type", item_sql)
+        self.assertEqual(item_params[10:], ("estimate", 71, 0, 0, "work-1"))
+
     def test_resolver_rejection_rolls_back_and_closes_connection(self):
         connection = FakeConnection()
 
         def reject(*_args, **_kwargs):
             raise HTTPException(status_code=400, detail="Для изменения данных выберите конкретную компанию")
 
-        handler, _resolver_calls, _contractor_calls, _grant_calls = self._register(
+        handler, _resolver_calls, _contractor_calls, _grant_calls, _lineage_calls = self._register(
             connection,
             resolver=reject,
         )
@@ -204,13 +258,13 @@ class WorkAssignmentTenantRouteTests(unittest.TestCase):
 
     def test_existing_contract_update_keeps_company_and_project_guards(self):
         connection = FakeConnection(existing_contract_id=77)
-        handler, _resolver_calls, _contractor_calls, _grant_calls = self._register(connection)
+        handler, _resolver_calls, _contractor_calls, _grant_calls, _lineage_calls = self._register(connection)
 
         response = handler(
             9,
             {
                 "assignee": {"contractorId": 41, "brigadeName": "Иван Иванов"},
-                "items": [{"sectionIndex": 0, "itemIndex": 0}],
+                "items": [{"sectionIndex": 0, "itemIndex": 0, "estimateItemKey": "work-1"}],
             },
             x_company_id="4",
             x_company_mode="company",
@@ -228,7 +282,7 @@ class WorkAssignmentTenantRouteTests(unittest.TestCase):
 
     def test_assignment_accepts_manual_override_for_one_coefficient_row(self):
         connection = FakeConnection()
-        handler, _resolver_calls, _contractor_calls, _grant_calls = self._register(connection)
+        handler, _resolver_calls, _contractor_calls, _grant_calls, _lineage_calls = self._register(connection)
 
         response = handler(
             9,
@@ -264,9 +318,60 @@ class WorkAssignmentTenantRouteTests(unittest.TestCase):
         self.assertEqual(response["inserted"], 2)
         self.assertEqual([params[8] for params in inserted_items], [700, 80.0])
 
+    def test_exact_repeat_reuses_row_without_overwriting_issued_values(self):
+        existing = (88, "Отделка", "Штукатурка", "м2", 7.5, 1000, 777, "work-1")
+        connection = FakeConnection(existing_contract_id=77, existing_item=existing)
+        handler, *_ = self._register(connection)
+
+        response = handler(
+            9,
+            {
+                "assignee": {"contractorId": 41, "brigadeName": "Иван Иванов"},
+                "priceMode": "coefficient",
+                "coefficient": 0.1,
+                "items": [{"sectionIndex": 0, "itemIndex": 0, "estimateItemKey": "work-1"}],
+            },
+            x_company_id="4",
+            x_company_mode="company",
+            current_user={"id": 5, "role": "директор"},
+        )
+
+        self.assertEqual(response["inserted"], 0)
+        self.assertEqual(response["updated"], 0)
+        self.assertEqual(response["reused"], 1)
+        self.assertEqual(response["items"][0]["quantity"], 7.5)
+        self.assertEqual(response["items"][0]["priceBrigade"], 777)
+        self.assertFalse(any(
+            "UPDATE brigade_contract_items" in sql
+            for sql, _params in connection.cursor_value.calls
+        ))
+
+    def test_mismatched_exact_key_stops_before_contract_write(self):
+        connection = FakeConnection()
+        handler, *_ = self._register(connection)
+
+        with self.assertRaises(HTTPException) as raised:
+            handler(
+                9,
+                {
+                    "assignee": {"brigadeName": "Бригада"},
+                    "items": [{"sectionIndex": 0, "itemIndex": 0, "estimateItemKey": "wrong"}],
+                },
+                x_company_id="4",
+                x_company_mode="company",
+                current_user={"id": 5, "role": "директор"},
+            )
+
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertTrue(connection.rolled_back)
+        self.assertFalse(any(
+            "INSERT INTO brigade_contracts" in sql
+            for sql, _params in connection.cursor_value.calls
+        ))
+
     def test_non_finite_coefficient_is_rejected_before_database_write(self):
         connection = FakeConnection()
-        handler, _resolver_calls, _contractor_calls, _grant_calls = self._register(connection)
+        handler, _resolver_calls, _contractor_calls, _grant_calls, _lineage_calls = self._register(connection)
 
         with self.assertRaises(HTTPException) as raised:
             handler(
@@ -287,7 +392,7 @@ class WorkAssignmentTenantRouteTests(unittest.TestCase):
 
     def test_zero_coefficient_is_rejected_instead_of_using_default(self):
         connection = FakeConnection()
-        handler, _resolver_calls, _contractor_calls, _grant_calls = self._register(connection)
+        handler, _resolver_calls, _contractor_calls, _grant_calls, _lineage_calls = self._register(connection)
 
         with self.assertRaises(HTTPException) as raised:
             handler(
@@ -308,7 +413,7 @@ class WorkAssignmentTenantRouteTests(unittest.TestCase):
 
     def test_zero_item_coefficient_does_not_fall_back_to_request_coefficient(self):
         connection = FakeConnection()
-        handler, _resolver_calls, _contractor_calls, _grant_calls = self._register(connection)
+        handler, _resolver_calls, _contractor_calls, _grant_calls, _lineage_calls = self._register(connection)
 
         with self.assertRaises(HTTPException) as raised:
             handler(
@@ -317,7 +422,7 @@ class WorkAssignmentTenantRouteTests(unittest.TestCase):
                     "assignee": {"brigadeName": "Бригада"},
                     "priceMode": "coefficient",
                     "coefficient": 0.6,
-                    "items": [{"sectionIndex": 0, "itemIndex": 0, "coefficient": 0}],
+                    "items": [{"sectionIndex": 0, "itemIndex": 0, "estimateItemKey": "work-1", "coefficient": 0}],
                 },
                 x_company_id="4",
                 x_company_mode="company",
