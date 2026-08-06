@@ -2,36 +2,10 @@ import React from 'react';
 import { Bot, X } from 'lucide-react';
 import EstimateDistributeBrigadesPanel from './EstimateDistributeBrigadesPanel';
 import EstimateDistributeItemsTable from './EstimateDistributeItemsTable';
-
-function isDistributableWorkItem(item) {
-  const rawType = String(item?.itemType || item?.type || item?.kind || 'work').toLowerCase();
-  const priceWork = Number(item?.priceWork || 0);
-  const priceMaterial = Number(item?.priceMaterial || 0);
-  if (['material', 'материал', 'materials', 'материалы', 'equipment', 'оборудование', 'delivery', 'доставка', 'other', 'прочее'].some(t => rawType.includes(t))) return false;
-  if (priceWork <= 0 && priceMaterial > 0) return false;
-  return true;
-}
-
-function getDistributableWorkRows(estimate) {
-  const rows = [];
-  const workPackage = estimate?.workPackage || estimate?.work_package || 'Основная';
-  (estimate?.sections || []).forEach((section, sectionIndex) => {
-    (section.items || []).forEach((item, itemIndex) => {
-      if (isDistributableWorkItem(item)) {
-        rows.push({
-          section,
-          sectionIndex,
-          item,
-          itemIndex,
-          key: sectionIndex + '-' + itemIndex,
-          workPackage,
-          estimateItemKey: item.estimateItemKey || item.estimate_item_key || (String(estimate.id || '') + ':' + sectionIndex + ':' + itemIndex),
-        });
-      }
-    });
-  });
-  return rows;
-}
+import {
+  buildEstimateDistributionAssignments,
+  getDistributableWorkRows,
+} from '../features/estimates/estimateDistributionPayload';
 
 export default function EstimateDistributeModal({
   showDistribute,
@@ -79,14 +53,11 @@ export default function EstimateDistributeModal({
   };
 
   const createContracts = async () => {
-    const assignments=[];
-    workRows.forEach(({section:s,item:it,key,workPackage,estimateItemKey})=>{
-      const bname=distributeAssignments[key];
-      if(bname){
-        const bdata=distributeBrigades.find(b=>b.name===bname);
-        assignments.push({section:s.name,name:it.name,unit:it.unit||'шт',quantity:Number(it.quantity||0),priceSmeta:Number(it.priceWork||0),itemType:it.type||it.itemType||'work',workPackage,estimateItemKey,brigadeName:bname,contractorType:bdata?.contractorType||'Своя бригада',contractorId:bdata?.contractorId||null,pricelistId:bdata?.pricelistId||null});
-      }
-    });
+    const assignments = buildEstimateDistributionAssignments(
+      workRows,
+      distributeAssignments,
+      distributeBrigades,
+    );
     if(!assignments.length){alert('Ничего не назначено');return;}
     setDistributing(true);
     try{

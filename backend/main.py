@@ -17296,9 +17296,15 @@ register_crm_leads_module(app, {
 })
 
 try:
-    from backend.features.brigade_lineage.writer_service import insert_pricelist_contract_item
+    from backend.features.brigade_lineage.writer_service import (
+        insert_pricelist_contract_item,
+        write_estimate_contract_item,
+    )
 except ModuleNotFoundError:
-    from features.brigade_lineage.writer_service import insert_pricelist_contract_item
+    from features.brigade_lineage.writer_service import (
+        insert_pricelist_contract_item,
+        write_estimate_contract_item,
+    )
 
 @app.post("/brigade-contracts")
 def create_brigade_contract(
@@ -17571,149 +17577,6 @@ def delete_brigade_contract(
     finally:
         cur.close()
         conn.close()
-
-
-@app.post("/estimates/{estimate_id}/distribute")
-def distribute_estimate_to_brigades(
-    estimate_id: int,
-    data: dict,
-    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
-    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
-    _current_user: dict = Depends(get_current_user),
-):
-    import json as _json
-    assignments = data.get("assignments") or []
-    default_coef = float(data.get("defaultCoefficient") or 1.0)
-    if not assignments:
-        raise HTTPException(status_code=400, detail="Нет распределений")
-
-    conn = get_db()
-    conn.autocommit = False
-    actor, estimate_scope = _resolve_estimate_mutation_actor(
-        conn,
-        _current_user,
-        estimate_id,
-        LEADERSHIP_ROLES,
-        x_company_id=x_company_id,
-        x_company_mode=x_company_mode,
-    )
-    cur = conn.cursor()
-    cur.execute("""SELECT name,project_id,project_name,COALESCE(work_package,'Основная')
-                     FROM estimates WHERE id=%s AND company_id=%s FOR UPDATE""",
-                (estimate_id, estimate_scope["companyId"]))
-    est = cur.fetchone()
-    if not est:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Смета не найдена")
-    estimate_name, project_id, project_name, estimate_work_package = est[0] or "", est[1], est[2] or "", est[3] or "Основная"
-    if not _positive_int_or_none(project_id):
-        cur.close(); conn.close()
-        raise HTTPException(status_code=409, detail="Смета не привязана к точному объекту")
-    company_id = int(estimate_scope["companyId"])
-
-    # group assignments by brigade
-    brigades_map = {}
-    for a in assignments:
-        bname = (a.get("brigadeName") or "").strip()
-        if not bname:
-            continue
-        assigned_package = (a.get("workPackage") or a.get("work_package") or estimate_work_package or "Основная").strip() or "Основная"
-        if assigned_package != (estimate_work_package or "Основная"):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Пакет строки распределения не совпадает с пакетом сметы")
-        estimate_item = _load_estimate_work_item(
-            cur,
-            estimate_id,
-            project_name=project_name,
-            work_package=estimate_work_package,
-            estimate_item_key=a.get("estimateItemKey") or a.get("estimate_item_key") or "",
-            section_name=a.get("section") or a.get("estimateSection") or "",
-            item_name=a.get("name") or a.get("description") or "",
-        )
-        qty = float(estimate_item.get("quantity") or 0)
-        price_smeta = float(estimate_item.get("pricePerUnit") or 0)
-        if qty <= 0:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="В сметной строке нулевой объем: " + (estimate_item.get("name") or ""))
-        if price_smeta <= 0:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="В сметной строке нет цены: " + (estimate_item.get("name") or ""))
-        server_assignment = {
-            **a,
-            "section": estimate_item.get("sectionName") or "",
-            "name": estimate_item.get("name") or "",
-            "unit": estimate_item.get("unit") or "шт",
-            "quantity": qty,
-            "priceSmeta": price_smeta,
-            "workPackage": estimate_item.get("workPackage") or estimate_work_package,
-            "estimateItemKey": estimate_item.get("estimateItemKey") or "",
-        }
-        key = bname.lower()
-        if key not in brigades_map:
-            brigades_map[key] = {
-                "brigadeName": bname,
-                "contractorType": a.get("contractorType") or "Своя бригада",
-                "contractorId": a.get("contractorId"),
-                "pricelistId": a.get("pricelistId"),
-                "workPackage": estimate_work_package,
-                "items": [],
-            }
-        brigades_map[key]["items"].append(server_assignment)
-
-    if not brigades_map:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail="Нет рабочих позиций для распределения")
-
-    # Load pricelists once for coefficient lookup
-    cur.execute("SELECT id, coefficient FROM pricelists")
-    pl_coef = {r[0]: float(r[1] or 1.0) for r in cur.fetchall()}
-
-    created = []
-    for bdata in brigades_map.values():
-        contractor_user_id = resolve_brigade_contractor_user(
-            cur,
-            company_id,
-            bdata.get("contractorId"),
-            bdata.get("brigadeName", ""),
-        )
-        # find coefficient
-        pl_id = bdata.get("pricelistId")
-        try:
-            pl_id = int(pl_id) if pl_id else None
-        except Exception:
-            pl_id = None
-        coef = pl_coef.get(pl_id, default_coef) if pl_id else default_coef
-        # create brigade_contract
-        cur.execute("""INSERT INTO brigade_contracts
-                              (company_id,project_id,project_name,work_package,brigade_name,contractor_type,
-                               contractor_id,total_amount,status,notes,pricelist_id)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-            (company_id, project_id, project_name, estimate_work_package, bdata["brigadeName"], bdata["contractorType"], contractor_user_id or None, 0, "Черновик", "Создан из сметы: " + estimate_name, pl_id))
-        contract_id = cur.fetchone()[0]
-        total = 0
-        for it in bdata["items"]:
-            qty = float(it.get("quantity") or 0)
-            price_smeta = float(it.get("priceSmeta") or it.get("priceWork") or 0)
-            price_brigade = round(price_smeta * coef, 2)
-            cur.execute("""INSERT INTO brigade_contract_items (contract_id, estimate_section, description, work_package, estimate_item_key, unit, quantity, price_smeta, price_brigade, done_quantity)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                (contract_id, it.get("section",""), it.get("name",""), estimate_work_package, it.get("estimateItemKey") or it.get("estimate_item_key") or "", it.get("unit","шт"), qty, price_smeta, price_brigade, 0))
-            total += qty * price_brigade
-        cur.execute("UPDATE brigade_contracts SET total_amount=%s WHERE id=%s", (round(total, 2), contract_id))
-        grant_brigade_contractor_scope(
-            cur,
-            company_id,
-            contractor_user_id,
-            project_name,
-            estimate_work_package,
-            project_scoped_roles=PROJECT_SCOPED_ACCESS_ROLES,
-            package_required_roles=WORK_PACKAGE_REQUIRED_ACCESS_ROLES,
-        )
-        created.append({"id": contract_id, "brigadeName": bdata["brigadeName"], "contractorId": contractor_user_id, "totalAmount": round(total, 2), "itemsCount": len(bdata["items"])})
-
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True, "createdContracts": created, "companyId": company_id, "projectId": project_id}
 
 @app.post("/estimates/{estimate_id}/ai-distribute-suggest")
 def ai_suggest_distribution(estimate_id: int, data: dict, _current_user: dict = Depends(require_roles(*ESTIMATE_WRITE_ROLES))):
@@ -25221,9 +25084,11 @@ register_public_site_routes(app, {
 })
 
 try:
+    from backend.features.estimate_distribution import register_estimate_distribution_module
     from backend.features.work_assignment import register_work_assignment_module
     from backend.features.brigade_lineage.snapshot_service import ensure_estimate_snapshot_lineages
 except ModuleNotFoundError:
+    from features.estimate_distribution import register_estimate_distribution_module
     from features.work_assignment import register_work_assignment_module
     from features.brigade_lineage.snapshot_service import ensure_estimate_snapshot_lineages
 
@@ -25238,6 +25103,19 @@ register_work_assignment_module(app, {
     "project_scoped_roles": PROJECT_SCOPED_ACCESS_ROLES,
     "package_required_roles": WORK_PACKAGE_REQUIRED_ACCESS_ROLES,
     "log_audit": log_audit,
+})
+
+register_estimate_distribution_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_estimate_mutation_actor": _resolve_estimate_mutation_actor,
+    "resolve_brigade_contractor_user": resolve_brigade_contractor_user,
+    "grant_brigade_contractor_scope": grant_brigade_contractor_scope,
+    "ensure_estimate_snapshot_lineages": ensure_estimate_snapshot_lineages,
+    "write_estimate_contract_item": write_estimate_contract_item,
+    "assign_roles": LEADERSHIP_ROLES,
+    "project_scoped_roles": PROJECT_SCOPED_ACCESS_ROLES,
+    "package_required_roles": WORK_PACKAGE_REQUIRED_ACCESS_ROLES,
 })
 
 try:

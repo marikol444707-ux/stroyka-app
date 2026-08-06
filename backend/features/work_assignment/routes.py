@@ -14,6 +14,17 @@ except ModuleNotFoundError:
         SnapshotItemCoordinate,
     )
 
+try:
+    from backend.features.brigade_lineage.writer_service import (
+        LineageWriteConflict,
+        write_estimate_contract_item,
+    )
+except ModuleNotFoundError:
+    from features.brigade_lineage.writer_service import (
+        LineageWriteConflict,
+        write_estimate_contract_item,
+    )
+
 
 def _text(value, limit=255):
     return str(value or "").strip()[:limit]
@@ -246,57 +257,33 @@ def register_work_assignment_module(app, deps):
                 section_name = _text(section.get("name"), 500)
                 item_name = _text(item.get("name") or item.get("description"), 500)
                 unit = _text(item.get("unit") or "шт", 80)
-                cur.execute(
-                    """SELECT id, estimate_section, description, unit, quantity,
-                              price_smeta, price_brigade, estimate_item_key
-                         FROM brigade_contract_items
-                       WHERE contract_id=%s
-                         AND source_type='estimate'
-                         AND source_estimate_version_id=%s
-                         AND source_section_index=%s
-                         AND source_item_index=%s
-                         AND source_item_key=%s
-                       LIMIT 1 FOR UPDATE""",
-                    (
-                        contract_id,
-                        lineage.source_estimate_version_id,
-                        lineage.source_section_index,
-                        lineage.source_item_index,
-                        lineage.source_item_key,
-                    ),
-                )
-                existing = cur.fetchone()
-                if existing:
-                    item_id = existing[0]
-                    section_name = existing[1] or section_name
-                    item_name = existing[2] or item_name
-                    unit = existing[3] or unit
-                    qty = _num(existing[4])
-                    price_smeta = _num(existing[5])
-                    price_brigade = _num(existing[6])
-                    estimate_item_key = existing[7] or estimate_item_key
-                    if estimate_item_key != lineage.source_item_key:
-                        raise HTTPException(status_code=409, detail="Сохранённая строка назначения имеет несовместимый ключ источника")
-                    reused += 1
-                else:
-                    cur.execute(
-                        """INSERT INTO brigade_contract_items
-                             (contract_id, estimate_section, description, work_package, estimate_item_key,
-                              unit, quantity, price_smeta, price_brigade, done_quantity,
-                              source_type, source_estimate_version_id, source_section_index,
-                              source_item_index, source_item_key)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                           RETURNING id""",
-                        (
-                            contract_id, section_name, item_name, work_package, estimate_item_key,
-                            unit, qty, price_smeta, price_brigade, 0,
-                            "estimate", lineage.source_estimate_version_id,
-                            lineage.source_section_index, lineage.source_item_index,
-                            lineage.source_item_key,
-                        ),
+                try:
+                    written = write_estimate_contract_item(
+                        cur,
+                        contract_id=contract_id,
+                        work_package=work_package,
+                        lineage=lineage,
+                        section_name=section_name,
+                        name=item_name,
+                        unit=unit,
+                        quantity=qty,
+                        price_smeta=price_smeta,
+                        price_brigade=price_brigade,
                     )
-                    item_id = cur.fetchone()[0]
+                except LineageWriteConflict:
+                    raise HTTPException(status_code=409, detail="Сохранённая строка назначения имеет несовместимый ключ источника")
+                item_id = written["id"]
+                section_name = written["section"]
+                item_name = written["name"]
+                unit = written["unit"]
+                qty = written["quantity"]
+                price_smeta = written["priceSmeta"]
+                price_brigade = written["priceBrigade"]
+                estimate_item_key = written["estimateItemKey"]
+                if written["inserted"]:
                     inserted += 1
+                else:
+                    reused += 1
                 result_items.append({
                     "id": item_id,
                     "section": section_name,
