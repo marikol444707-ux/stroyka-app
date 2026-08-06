@@ -4386,8 +4386,9 @@ E3.4.2b.
 
 ## Task E3.4.2b: Guarded Strict Lineage Schema
 
-**Status:** Implementation in progress on 2026-08-06. No production DDL has
-been authorized or executed.
+**Status:** Local implementation and review complete on 2026-08-06. Deployment
+of the inert runner and its production dry-run are pending. No production DDL
+has been authorized or executed.
 
 **Objective:** Add the exact six constraints, three partial indexes, two
 trigger/function guards, remove the temporary `source_type='legacy'` default
@@ -4415,3 +4416,29 @@ historical class; do not infer estimate lineage or rewrite business data.
 steps. Before apply, preserve the reviewed dry-run JSON. If runtime verification
 fails after a committed apply, deploy the previous runtime and execute the
 generated reverse-order rollback statements only after a fresh data audit.
+
+**Local verification:** RED began with the absent migration module and later
+proved that canonical snapshot/content drift must block apply even when all
+aggregate SQL counters are zero. The final focused migration set passes
+`15/15`; the complete brigade-lineage package passes `103/103`, estimate-delete
+tests pass `9/9`, and full backend discovery passes `1323/1323`. Frontend Jest
+passes `304/304` across 76 suites, the production build compiles, publisher
+regressions pass `3/3`, isolated Python compilation and `git diff --check` pass.
+
+A disposable PostgreSQL 15.17 schema with 151 legacy rows completed a real
+dry-run (`13` planned changes, zero writes, rollback), transactional apply (`15`
+DDL statements), structural/data postcheck and repeated apply (`0` writes).
+The database rejected an unhashed estimate source, cross-owner source, lineage
+mutation, snapshot mutation, referenced-version delete and referenced-estimate
+delete. The final existing readiness report returned
+`constraintsReady=true`, `writersReady=true`,
+`deleteRestrictionsReady=true`, `readyForStrictRuntime=true`, empty data issues
+and all 151 explicit legacy rows preserved.
+
+**Review result:** No Critical or Required issue remains across correctness,
+architecture, security or performance. Apply SQL is a static allowlist; CLI
+count/SHA/token inputs are validated and never interpolated into SQL. Existing
+same-name functions are not replaced, all locks/timeouts are bounded, writer
+and exact-delete audits plus canonical lineage validity are repeated under the
+same transaction, and every failure before commit rolls back the complete DDL
+set. No dependency changed; inherited CRA/Jest audit debt remains unchanged.

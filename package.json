@@ -35,6 +35,7 @@
     "audit:estimate-material-volumes": "python3 -m backend.features.estimate_volume_audit.volume_report",
     "audit:brigade-lineage": "python3 -m backend.features.brigade_lineage.readiness_report",
     "migrate:brigade-lineage": "python3 -m backend.features.brigade_lineage.migration",
+    "migrate:brigade-lineage-strict": "python3 -m backend.features.brigade_lineage.strict_migration",
     "audit:work-journal": "python3 -m backend.features.work_journal.ownership_report",
     "audit:ai-ownership": "python3 -m backend.features.ai_ownership.ownership_report",
     "audit:ai-summary-ownership": "python3 -m backend.features.ai_summary_ownership.migration --dry-run",
