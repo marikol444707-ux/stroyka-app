@@ -17295,6 +17295,11 @@ register_crm_leads_module(app, {
     "resolve_crm_create_owner": _resolve_crm_create_owner,
 })
 
+try:
+    from backend.features.brigade_lineage.writer_service import insert_pricelist_contract_item
+except ModuleNotFoundError:
+    from features.brigade_lineage.writer_service import insert_pricelist_contract_item
+
 @app.post("/brigade-contracts")
 def create_brigade_contract(
     data: dict,
@@ -17365,26 +17370,28 @@ def create_brigade_contract(
             project_scoped_roles=PROJECT_SCOPED_ACCESS_ROLES,
             package_required_roles=WORK_PACKAGE_REQUIRED_ACCESS_ROLES,
         )
-        conn.commit()
 
         inserted = 0
         if pricelist_id:
-            try:
-                pl_id_int = int(pricelist_id)
-                cur.execute("SELECT coefficient FROM pricelists WHERE id=%s", (pl_id_int,))
-                cr = cur.fetchone()
-                coef = float(cr[0] or 1.0) if cr else 1.0
-                cur.execute("SELECT name, unit, price, category FROM pricelist_items WHERE pricelist_id=%s AND (item_type IS NULL OR item_type='work')", (pl_id_int,))
-                for it in cur.fetchall():
-                    price = float(it[2] or 0)
-                    cur.execute("INSERT INTO brigade_contract_items (contract_id, estimate_section, description, work_package, estimate_item_key, unit, quantity, price_smeta, price_brigade, done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                        (new_id, it[3] or "", it[0], work_package, "", it[1] or "шт", 0, price, round(price * coef, 2), 0))
-                    inserted += 1
-                recalc_brigade_contract_total(cur, new_id)
-                conn.commit()
-            except Exception as e:
-                conn.rollback()
-                print("AUTO-LOAD FROM PRICELIST ERROR:", str(e))
+            pl_id_int = int(pricelist_id)
+            cur.execute("SELECT coefficient FROM pricelists WHERE id=%s", (pl_id_int,))
+            cr = cur.fetchone()
+            coef = float(cr[0] or 1.0) if cr else 1.0
+            cur.execute("SELECT name, unit, price, category FROM pricelist_items WHERE pricelist_id=%s AND (item_type IS NULL OR item_type='work')", (pl_id_int,))
+            for it in cur.fetchall():
+                insert_pricelist_contract_item(
+                    cur,
+                    contract_id=new_id,
+                    work_package=work_package,
+                    name=it[0],
+                    unit=it[1],
+                    price=it[2],
+                    category=it[3],
+                    coefficient=coef,
+                )
+                inserted += 1
+            recalc_brigade_contract_total(cur, new_id)
+        conn.commit()
         return {
             "id": new_id,
             "ok": True,
@@ -17411,7 +17418,6 @@ def load_brigade_items_from_pricelist(
     x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
     _current_user: dict = Depends(get_current_user),
 ):
-    import json as _json
     conn = get_db()
     conn.autocommit = False
     cur = conn.cursor()
@@ -17437,33 +17443,6 @@ def load_brigade_items_from_pricelist(
         cr = cur.fetchone()
         coef = float(_row_get(cr, "coefficient", 0, 1.0) or 1.0) if cr else 1.0
 
-        estimate_lookup = {}
-        cur.execute("""SELECT sections_json FROM estimates
-                       WHERE company_id=%s AND project_id=%s
-                         AND COALESCE(smeta_type,'Заказчик')='Заказчик'
-                         AND status='Активная'
-                       ORDER BY COALESCE(work_package,'Основная'), id DESC""",
-                    (contract["companyId"], project["id"]))
-        est_rows = cur.fetchall()
-        if not est_rows:
-            cur.execute("""SELECT sections_json FROM estimates
-                           WHERE company_id=%s AND project_id=%s
-                           ORDER BY id DESC LIMIT 1""", (contract["companyId"], project["id"]))
-            est_rows = cur.fetchall()
-        for est_row in est_rows:
-            raw_sections = _row_get(est_row, "sections_json", 0)
-            if not raw_sections:
-                continue
-            try:
-                sections = _json.loads(raw_sections)
-                for section in sections:
-                    for item in (section.get("items") or []):
-                        name_key = (item.get("name") or "").strip().lower()
-                        if name_key:
-                            estimate_lookup[name_key] = estimate_lookup.get(name_key, 0) + float(item.get("quantity") or 0)
-            except Exception:
-                continue
-
         cur.execute("SELECT description FROM brigade_contract_items WHERE contract_id=%s", (contract["id"],))
         existing_names = {_row_get(row, "description", 0) for row in cur.fetchall()}
         if with_materials:
@@ -17472,27 +17451,24 @@ def load_brigade_items_from_pricelist(
             cur.execute("SELECT name, unit, price, category, item_type FROM pricelist_items WHERE pricelist_id=%s AND (item_type IS NULL OR item_type='work')", (pl_id,))
         rows = cur.fetchall()
         inserted = 0
-        matched = 0
         for item in rows:
             item_name = _row_get(item, "name", 0)
             if item_name in existing_names:
                 continue
-            price = float(_row_get(item, "price", 2, 0) or 0)
-            name_key = (item_name or "").strip().lower()
-            quantity = estimate_lookup.get(name_key, 0)
-            if not quantity and estimate_lookup:
-                for estimate_name, estimate_quantity in estimate_lookup.items():
-                    if estimate_name and (name_key in estimate_name or estimate_name in name_key):
-                        quantity = estimate_quantity
-                        break
-            if quantity:
-                matched += 1
-            cur.execute("INSERT INTO brigade_contract_items (contract_id, estimate_section, description, work_package, estimate_item_key, unit, quantity, price_smeta, price_brigade, done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                (contract["id"], _row_get(item, "category", 3, "") or "", item_name, contract["workPackage"], "", _row_get(item, "unit", 1, "шт") or "шт", quantity, price, round(price * coef, 2), 0))
+            insert_pricelist_contract_item(
+                cur,
+                contract_id=contract["id"],
+                work_package=contract["workPackage"],
+                name=item_name,
+                unit=_row_get(item, "unit", 1, "шт"),
+                price=_row_get(item, "price", 2, 0),
+                category=_row_get(item, "category", 3, ""),
+                coefficient=coef,
+            )
             inserted += 1
         recalc_brigade_contract_total(cur, contract["id"])
         conn.commit()
-        return {"ok": True, "itemsLoaded": inserted, "matchedFromEstimate": matched, "companyId": contract["companyId"], "projectId": project["id"]}
+        return {"ok": True, "itemsLoaded": inserted, "matchedFromEstimate": 0, "companyId": contract["companyId"], "projectId": project["id"]}
     except Exception:
         conn.rollback()
         raise
