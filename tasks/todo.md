@@ -3844,9 +3844,8 @@ future resolve/apply flow requires a separate
 
 ## Task A6.1: Safe Agent Change Dispatch Contract
 
-**Status:** Local implementation complete on branch
-`codex/agent-change-dispatch-contract`; production deploy and runtime wiring are
-pending.
+**Status:** Complete and deployed in production runtime `61187fa63f69`; public
+smoke passes. The separate shadow-wiring verification remains tracked in A6.2.
 
 **Behavior:**
 - Accept exactly one versioned event shape with explicit company, project,
@@ -3875,18 +3874,17 @@ pending.
   pass.
 - [x] Static safety search finds no database, queue, model, HTTP or process
   execution calls in the new module.
-- [ ] Deploy the inert contract and run production smoke.
-- [ ] Add the separate A6.2 shadow hook after estimate activation; it must
+- [x] Deploy the inert contract and run public production smoke.
+- [x] Add the separate A6.2 shadow hook after estimate activation; it must
   report the planned dispatch without enqueueing or changing business data.
 
-**Next:** A6.2 is prepared as a separate stacked commit below. Deploy both
-inert/shadow slices only after explicit approval.
+**Next:** A6.2 was deployed and verified separately as tracked below.
 
 ## Task A6.2: Estimate Activation Shadow Wiring
 
-**Status:** Local implementation complete on branch
-`codex/agent-change-dispatch-shadow`; production deploy and manual production
-activation are pending.
+**Status:** Complete and deployed in production runtime `61187fa63f69`; public
+smoke and the targeted authenticated manual activation pass. Full protected
+smoke remains a separate production-wide check.
 
 **Behavior:**
 - Observe all three committed transitions into `Активная`: create an active
@@ -3917,10 +3915,15 @@ activation are pending.
 - [x] Full frontend Jest passes (`299/299`).
 - [x] Python compile, static side-effect search, `git diff --check` and the
   production React build pass.
-- [ ] Deploy the stacked A6.1/A6.2 commits and run public/protected smoke.
-- [ ] Manually activate one expendable draft and confirm
+- [x] Deploy the stacked A6.1/A6.2 commits and run public smoke.
+- [ ] Run the separate production-wide protected smoke for the deployed runtime.
+- [x] Manually activate one expendable draft and confirm
   `agentDispatchShadow.state=planned` while no new `agent_jobs` row appears.
 
-**Next:** After production shadow evidence, decide separately whether A6.3 may
-enqueue exactly one allowlisted job and execute it only through the existing
-controlled one-shot runner.
+Production evidence on 2026-08-06: estimate `84`, company `1`, project `2`
+reported `state=planned`, `enqueueAttempted=false`, `writesAttempted=0`; the
+`agent_jobs` count remained `2` before and after activation.
+
+**Next:** Keep automatic enqueue disabled. Design A6.3 separately before it may
+enqueue exactly one allowlisted job through the existing controlled one-shot
+runner.
