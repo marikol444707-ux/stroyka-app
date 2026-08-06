@@ -4459,8 +4459,10 @@ back. Reviewed dry-run and apply outputs are preserved under
 ## Task E4: Reviewed Estimate Row Balance Transfer
 
 **Status:** Contract approved by the user on 2026-08-06. E4.1 is complete in
-production runtime `2c816ccb789e`; E4.2 remains pending. No E4 schema, route or
-business-data writer exists.
+production runtime `2c816ccb789e`. E4.2 is locally implemented and verified on
+`feature/estimate-row-transfer-ledger`; its guarded production schema review,
+apply, deploy and protected API smoke remain pending. No E4 balance writer
+exists and production has not received E4 DDL.
 
 **Contract:** `docs/estimate-row-transfer-contract.md` is authoritative. The
 operation uses an approved exact source/target mapping and explicit quantities.
@@ -4554,3 +4556,88 @@ changed or force-fixed in this backend-only release.
 - [x] Exact local candidates and the production approval blocker are
   sufficient to design inert E4.2 without
   fuzzy or descriptive inference.
+
+### Task E4.2: Inert Reviewed Mapping Ledger
+
+**Description:** Persist a bounded, immutable review plan for one approved
+reconciliation. Resolve exact owners, authoritative source/target snapshots,
+current protected/available balances and explicit selected quantities inside
+one repeatable-read transaction. Estimate writers may create or review a
+draft; only a director or deputy director in the stored company may approve
+the unchanged deterministic hash. Approval remains ledger-only and moves no
+assignment or supply balance.
+
+**Status:** Local implementation complete. Production remains unchanged until
+the separately guarded schema dry-run is reviewed and its exact change count
+and SHA-256 are explicitly supplied to the apply command.
+
+**Acceptance criteria:**
+
+- [x] Strict payload allowlists accept 1–100 exact entries and reject unknown
+  fields, duplicate sources, fractional IDs/indexes, non-canonical keys,
+  non-finite quantities and quantities with more than six decimal places.
+- [x] The server recomputes company/project/package/type, reconciliation,
+  source/target snapshots, exact coordinates and current balances; fuzzy,
+  ambiguous, stale, cross-owner and truncated inputs fail closed.
+- [x] A minimal stored owner preflight authorizes company, project and package
+  before any full assignment/supply impact scan; foreign reconciliation IDs
+  return not-found without scanning their snapshots or dependent rows.
+- [x] `planSha256` covers the exact owner/snapshot/coordinate/balance/quantity
+  plan in deterministic source order and excludes actor metadata, descriptions,
+  notes and prices.
+- [x] Draft/read routes are tenant-bound to estimate writers; approval is
+  leadership-only, locks and recomputes the plan, and repeated approval of the
+  same hash is a read-only idempotent result.
+- [x] Database constraints, partial uniqueness and triggers make entries
+  immutable and permit only one `draft -> approved` transition and one
+  approved plan per reconciliation.
+- [x] Runtime DML is limited to inserting ledger plans/entries and updating
+  plan approval metadata. Assignment, request, delivery, warehouse,
+  accounting, JPR, act and payment rows have no E4.2 mutation path.
+- [x] Schema DDL is absent from `init_db()` and `deploy.sh`; same-name objects
+  with incompatible constraint/index/function/trigger definitions block the
+  guarded migration.
+
+**API:**
+
+- `POST /estimate-row-transfer-plans`
+- `GET /estimate-row-transfer-plans/{id}`
+- `POST /estimate-row-transfer-plans/{id}/approval`
+
+**Operator commands:**
+
+```bash
+npm run audit:estimate-row-transfer-schema
+npm run migrate:estimate-row-transfer-schema -- \
+  --expected-change-count <count> \
+  --expected-plan-sha256 <sha256>
+```
+
+The first command is rolled back and reports zero writes. The second command
+must use the exact count and hash from the reviewed dry-run; any catalog drift
+or mismatched guard aborts before DDL.
+
+**Local verification:** RED tests began with the absent plan/schema/API and
+later proved that a same-name but weakened guard function must block schema
+readiness. Focused discovery passes `58/58` with two expected opt-in
+PostgreSQL skips; full backend discovery passes `1381/1381` with the same two
+expected skips. A disposable PostgreSQL cluster passes the opt-in `2/2` suite:
+guarded schema apply reaches strict readiness; one real draft and leadership
+approval leave every measured business-table count unchanged; the database
+rejects entry mutation. Temporary clusters were stopped and removed.
+
+The local frontend production build, Python compilation, smoke-script syntax
+and rate-limit regressions passed during the implementation review. The
+inherited CRA/Jest dependency audit remains unchanged at zero critical
+findings; E4.2 adds no dependency.
+
+**Implementation commits:** `6cfe4bbc`, `c906208d`, `f7872fb7`, `7ed33f11`,
+`349d411c`, `919cd023`, `ad1a4dcc`, `b237a28b`.
+
+### Checkpoint Before E4.2 Production Apply
+
+- [x] No production DDL or E4 business balance write was executed locally.
+- [x] Disposable PostgreSQL proves the guarded schema and inert API storage.
+- [ ] Review production schema dry-run count, changes and SHA-256.
+- [ ] Apply only that exact plan, deploy, run public/protected smoke and repeat
+  the read-only schema audit before closing E4.2.

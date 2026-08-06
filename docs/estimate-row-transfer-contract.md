@@ -8,6 +8,12 @@ inert reviewed-mapping ledger and its tenant-bound draft/review/approve API.
 This does not authorize production DDL or any assignment, request, delivery,
 warehouse, accounting or payment mutation.
 
+The E4.2 implementation is locally complete on
+`feature/estimate-row-transfer-ledger`. Its guarded schema and inert storage
+passed disposable-PostgreSQL verification. Production remains on E4.1 until a
+separate schema dry-run is reviewed, applied with its exact count/hash guards,
+deployed and smoke-checked.
+
 ## Confirmed Decisions
 
 1. Every transfer stores an explicit positive quantity. The server never
@@ -186,6 +192,11 @@ and the explicitly selected transfer quantity. Those values, sorted by source
 identity and serialized canonically, form `planSha256`. Actor names and
 timestamps are audit metadata and are not part of the hash.
 
+Before the full impact scan, the create route loads only the reconciliation's
+stored base-estimate company, project and package. It authorizes that minimal
+scope against the selected actor first, so a foreign reconciliation cannot be
+used to scan snapshots, assignments or supply rows in another scope.
+
 Estimate writers may create drafts. Only a stored-company `director` or
 `deputy director` may approve. Approval locks the plan, recomputes the exact
 plan from current authoritative rows, and requires the request hash, stored
@@ -285,11 +296,24 @@ npm test -- --watchAll=false
 npm run build
 ```
 
-Read-only audit command planned for E4.1:
+E4.1 read-only impact audit:
 
 ```bash
 npm run audit:estimate-row-transfer -- --reconciliation-id <id>
 ```
+
+E4.2 schema dry-run and separately guarded apply:
+
+```bash
+npm run audit:estimate-row-transfer-schema
+npm run migrate:estimate-row-transfer-schema -- \
+  --expected-change-count <count> \
+  --expected-plan-sha256 <sha256>
+```
+
+The audit verifies not only catalog names but the expected definitions of
+constraints, indexes, guard functions and triggers. The apply refuses a
+changed catalog or mismatched count/hash before executing DDL.
 
 ## Testing Strategy
 
