@@ -1,0 +1,152 @@
+import unittest
+
+from backend.features.estimate_row_transfer.schema import (
+    PLAN_SHA256_RE,
+    SchemaMigrationError,
+    build_schema_plan,
+    run_schema_migration,
+    schema_plan_sha256,
+)
+
+
+class FakeCursor:
+    def __init__(self, catalog_rows):
+        self.catalog_rows = list(catalog_rows)
+        self.calls = []
+        self.current = None
+        self.closed = False
+
+    def execute(self, sql, params=None):
+        self.calls.append((" ".join(sql.split()), params))
+        if sql.lstrip().startswith("SELECT") and "pg_advisory_xact_lock" not in sql:
+            self.current = self.catalog_rows.pop(0)
+
+    def fetchone(self):
+        return self.current
+
+    def close(self):
+        self.closed = True
+
+
+class FakeConnection:
+    def __init__(self, catalog_rows):
+        self.cursor_value = FakeCursor(catalog_rows)
+        self.session = None
+        self.commits = 0
+        self.rollbacks = 0
+        self.closed = False
+
+    def set_session(self, **kwargs):
+        self.session = kwargs
+
+    def cursor(self, **_kwargs):
+        return self.cursor_value
+
+    def commit(self):
+        self.commits += 1
+
+    def rollback(self):
+        self.rollbacks += 1
+
+    def close(self):
+        self.closed = True
+
+
+def empty_catalog_row():
+    return {
+        "plans_table": False,
+        "entries_table": False,
+        "plan_columns": [],
+        "entry_columns": [],
+        "constraints": [],
+        "indexes": [],
+        "functions": [],
+        "triggers": [],
+    }
+
+
+def ready_catalog_row():
+    plan = build_schema_plan(empty_catalog_row())
+    catalog = empty_catalog_row()
+    catalog.update({
+        "plans_table": True,
+        "entries_table": True,
+        "plan_columns": sorted(plan["expected"]["planColumns"]),
+        "entry_columns": sorted(plan["expected"]["entryColumns"]),
+        "constraints": sorted(plan["expected"]["constraints"]),
+        "indexes": sorted(plan["expected"]["indexes"]),
+        "functions": sorted(plan["expected"]["functions"]),
+        "triggers": sorted(plan["expected"]["triggers"]),
+    })
+    return catalog
+
+
+class EstimateRowTransferSchemaPlanTests(unittest.TestCase):
+    def test_fresh_plan_is_deterministic_and_contains_only_schema_changes(self):
+        first = build_schema_plan(empty_catalog_row())
+        second = build_schema_plan(empty_catalog_row())
+
+        self.assertTrue(first["readyForApply"])
+        self.assertEqual(first["changes"], second["changes"])
+        self.assertEqual(schema_plan_sha256(first["changes"]), schema_plan_sha256(second["changes"]))
+        self.assertRegex(schema_plan_sha256(first["changes"]), PLAN_SHA256_RE)
+        sql = "\n".join(item["sql"] for item in first["changes"])
+        self.assertIn("CREATE TABLE public.estimate_row_transfer_plans", sql)
+        self.assertIn("CREATE TABLE public.estimate_row_transfer_entries", sql)
+        self.assertIn("source_available_quantity", sql)
+        self.assertIn("quantity<=source_available_quantity", "".join(sql.split()))
+        self.assertIn("estimate_row_transfer_entry_immutable", sql)
+        self.assertIn("estimate_row_transfer_plan_guard", sql)
+        self.assertNotIn("UPDATE brigade_contract_items", sql)
+        self.assertNotIn("UPDATE supply_requests", sql)
+
+    def test_existing_partial_table_fails_closed_instead_of_silent_repair(self):
+        catalog = ready_catalog_row()
+        catalog["plan_columns"].remove("plan_sha256")
+
+        plan = build_schema_plan(catalog)
+
+        self.assertFalse(plan["readyForApply"])
+        self.assertEqual(plan["blockers"], ["plan_columns_invalid"])
+
+    def test_ready_catalog_has_no_changes(self):
+        plan = build_schema_plan(ready_catalog_row())
+
+        self.assertTrue(plan["schemaReady"])
+        self.assertTrue(plan["readyForApply"])
+        self.assertEqual(plan["changes"], [])
+
+
+class EstimateRowTransferSchemaRunnerTests(unittest.TestCase):
+    def test_dry_run_is_rolled_back_and_attempts_no_writes(self):
+        connection = FakeConnection([empty_catalog_row()])
+
+        report = run_schema_migration(lambda: connection)
+
+        self.assertTrue(report["dryRun"])
+        self.assertTrue(report["rolledBack"])
+        self.assertEqual(report["writesAttempted"], 0)
+        self.assertGreater(report["changeCount"], 0)
+        self.assertEqual(connection.commits, 0)
+        self.assertEqual(connection.rollbacks, 1)
+        self.assertTrue(connection.cursor_value.closed)
+        self.assertTrue(connection.closed)
+
+    def test_apply_requires_exact_count_and_hash_before_ddl(self):
+        connection = FakeConnection([empty_catalog_row()])
+
+        with self.assertRaisesRegex(SchemaMigrationError, "schema_apply_guard_mismatch"):
+            run_schema_migration(
+                lambda: connection,
+                apply=True,
+                expected_change_count=999,
+                expected_plan_sha256="0" * 64,
+            )
+
+        self.assertFalse(any(call[0].startswith("CREATE") for call in connection.cursor_value.calls))
+        self.assertEqual(connection.commits, 0)
+        self.assertEqual(connection.rollbacks, 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

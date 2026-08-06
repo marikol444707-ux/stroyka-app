@@ -183,6 +183,8 @@ def _valid_context(reconciliation, base_snapshot, target_snapshot):
         return False
     if target_snapshot.get("estimateId") != reconciliation["targetEstimateId"]:
         return False
+    if _exact_int(target_snapshot.get("estimateVersionId"), positive=True) is None:
+        return False
     return all(
         isinstance(snapshot.get("sectionsSha256"), str)
         and _SHA256_RE.fullmatch(snapshot["sectionsSha256"])

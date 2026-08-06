@@ -31,13 +31,15 @@ def assignment_mapping(source_id=41, quantity="3", target_key="new-row"):
 
 def assignment_report(*, mapping=None, row=None):
     selected_mapping = mapping or assignment_mapping()
-    return build_impact_report(
+    report = build_impact_report(
         reconciliation_row(),
         [row or assignment_row()],
         [],
         [],
         [selected_mapping],
     )
+    report["targetSnapshot"]["estimateVersionId"] = 72
+    return report
 
 
 def supply_mapping(quantity="3"):
@@ -55,13 +57,15 @@ def supply_mapping(quantity="3"):
 
 def supply_report(mapping=None):
     selected = mapping or supply_mapping()
-    return build_impact_report(
+    report = build_impact_report(
         supply_reconciliation_row(),
         [],
         [supply_request_row()],
         [],
         [selected],
     )
+    report["targetSnapshot"]["estimateVersionId"] = 72
+    return report
 
 
 class EstimateRowTransferDraftPayloadTests(unittest.TestCase):
@@ -159,6 +163,7 @@ class EstimateRowTransferPlanTests(unittest.TestCase):
             [],
             mappings,
         )
+        report["targetSnapshot"]["estimateVersionId"] = 72
         first = normalize_draft_payload({"reconciliationId": 9, "entries": mappings})["entries"]
         second = list(reversed(copy.deepcopy(first)))
 
@@ -192,6 +197,17 @@ class EstimateRowTransferPlanTests(unittest.TestCase):
     def test_rejects_invalid_authoritative_context(self):
         report = assignment_report()
         report["reconciliation"]["companyId"] = None
+        entries = normalize_draft_payload({
+            "reconciliationId": 9,
+            "entries": [assignment_mapping()],
+        })["entries"]
+
+        with self.assertRaisesRegex(PlanValidationError, "impact_context_invalid"):
+            build_reviewed_plan(report, entries)
+
+    def test_rejects_target_snapshot_without_immutable_version_id(self):
+        report = assignment_report()
+        report["targetSnapshot"].pop("estimateVersionId")
         entries = normalize_draft_payload({
             "reconciliationId": 9,
             "entries": [assignment_mapping()],
