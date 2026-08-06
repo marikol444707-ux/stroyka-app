@@ -82,6 +82,19 @@ def stored_plan(status="draft"):
 
 
 class EstimateRowTransferRouteTests(unittest.TestCase):
+    def test_production_smoke_covers_assignment_apply_route(self):
+        smoke_path = (
+            Path(__file__).resolve().parents[3]
+            / "scripts"
+            / "prod-smoke-check.sh"
+        )
+        source = " ".join(smoke_path.read_text(encoding="utf-8").split())
+
+        self.assertIn(
+            "/estimate-row-transfer-plans/1/assignment-apply",
+            source,
+        )
+
     def test_module_imports_from_backend_working_directory(self):
         backend_root = Path(__file__).resolve().parents[2]
         environment = dict(os.environ)
@@ -119,6 +132,7 @@ class EstimateRowTransferRouteTests(unittest.TestCase):
         current_plan=None,
         reconciliation_scope=None,
         calls=None,
+        apply_result=None,
     ):
         app = FakeApp()
         connection = FakeConnection()
@@ -150,6 +164,23 @@ class EstimateRowTransferRouteTests(unittest.TestCase):
                 }
             return True
 
+        def apply_stub(*_args, **_kwargs):
+            calls.append("apply")
+            return copy.deepcopy(apply_result or {
+                "planId": 5,
+                "planSha256": reviewed_plan()["planSha256"],
+                "state": "assignment_applied",
+                "assignmentCount": 1,
+                "transfers": [{
+                    "entryId": 8,
+                    "sourceItemId": 41,
+                    "targetItemId": 101,
+                    "quantity": "3",
+                }],
+                "appliedAt": "2026-08-07 12:00:00+03",
+                "idempotent": False,
+            })
+
         def require_actor(actors, roles):
             candidate = dict(list(actors)[0])
             if candidate["role"] not in set(roles):
@@ -178,6 +209,7 @@ class EstimateRowTransferRouteTests(unittest.TestCase):
             "load_stored_plan": lambda _cur, _id, _company, **_kwargs: copy.deepcopy(stored_value),
             "approve_plan": approve_stub,
             "find_other_approved_plan": lambda *_args, **_kwargs: None,
+            "apply_assignment_plan": apply_stub,
         })
         return app, connection, calls
 
@@ -326,6 +358,116 @@ class EstimateRowTransferRouteTests(unittest.TestCase):
 
         self.assertEqual(result["id"], 5)
         self.assertEqual(connection.commits, 0)
+        self.assertEqual(connection.rollbacks, 1)
+
+    def test_leadership_applies_only_an_approved_exact_hash_plan(self):
+        stored = stored_plan("approved")
+        app, connection, calls = self._register(
+            actor={
+                "id": 2, "companyId": 1, "name": "Директор",
+                "role": "директор",
+            },
+            stored=stored,
+        )
+
+        result = app.routes[(
+            "POST",
+            "/estimate-row-transfer-plans/{plan_id}/assignment-apply",
+        )](
+            5,
+            {"planSha256": stored["canonicalPlan"]["planSha256"]},
+            x_company_id="1",
+            x_company_mode="company",
+            current_user={"id": 2},
+        )
+
+        self.assertEqual(result["state"], "assignment_applied")
+        self.assertFalse(result["idempotent"])
+        self.assertEqual(calls, ["apply"])
+        self.assertEqual(connection.session["isolation_level"], "SERIALIZABLE")
+        self.assertEqual(connection.commits, 1)
+        self.assertEqual(connection.rollbacks, 0)
+
+    def test_repeated_assignment_apply_is_returned_with_transaction_rollback(self):
+        stored = stored_plan("approved")
+        repeated = {
+            "planId": 5,
+            "planSha256": stored["canonicalPlan"]["planSha256"],
+            "state": "assignment_applied",
+            "assignmentCount": 1,
+            "transfers": [],
+            "appliedAt": "2026-08-07 12:00:00+03",
+            "idempotent": True,
+        }
+        app, connection, calls = self._register(
+            actor={
+                "id": 2, "companyId": 1, "name": "Директор",
+                "role": "директор",
+            },
+            stored=stored,
+            apply_result=repeated,
+        )
+
+        result = app.routes[(
+            "POST",
+            "/estimate-row-transfer-plans/{plan_id}/assignment-apply",
+        )](
+            5,
+            {"planSha256": stored["canonicalPlan"]["planSha256"]},
+            x_company_id="1",
+            x_company_mode="company",
+            current_user={"id": 2},
+        )
+
+        self.assertTrue(result["idempotent"])
+        self.assertEqual(calls, ["apply"])
+        self.assertEqual(connection.commits, 0)
+        self.assertEqual(connection.rollbacks, 1)
+
+    def test_draft_or_wrong_hash_never_reaches_assignment_writer(self):
+        draft = stored_plan("draft")
+        app, connection, calls = self._register(
+            actor={
+                "id": 2, "companyId": 1, "name": "Директор",
+                "role": "директор",
+            },
+            stored=draft,
+        )
+
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[(
+                "POST",
+                "/estimate-row-transfer-plans/{plan_id}/assignment-apply",
+            )](
+                5,
+                {"planSha256": draft["canonicalPlan"]["planSha256"]},
+                x_company_id="1",
+                x_company_mode="company",
+                current_user={"id": 2},
+            )
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(raised.exception.detail, "assignment_plan_not_approved")
+        self.assertNotIn("apply", calls)
+        self.assertEqual(connection.rollbacks, 1)
+
+    def test_non_leadership_cannot_apply_assignment_plan(self):
+        app, connection, calls = self._register(stored=stored_plan("approved"))
+
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[(
+                "POST",
+                "/estimate-row-transfer-plans/{plan_id}/assignment-apply",
+            )](
+                5,
+                {"planSha256": reviewed_plan()["planSha256"]},
+                x_company_id="1",
+                x_company_mode="company",
+                current_user={"id": 12},
+            )
+
+        self.assertEqual(raised.exception.status_code, 403)
+        self.assertNotIn("apply", calls)
         self.assertEqual(connection.rollbacks, 1)
 
 

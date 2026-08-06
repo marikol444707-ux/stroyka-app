@@ -8,13 +8,15 @@ from pathlib import Path
 
 _INSERT_TOKEN = "insert into brigade_contract_items"
 _UPDATE_TOKEN = "update brigade_contract_items"
-_EXPECTED_INSERT_STATEMENTS = 3
-_EXPECTED_UPDATE_STATEMENTS = 3
+_EXPECTED_INSERT_STATEMENTS = 4
+_EXPECTED_UPDATE_STATEMENTS = 5
 _INSERT_WRITERS = {
     "backend/features/brigade_access/item_routes.py",
     "backend/features/brigade_lineage/writer_service.py",
+    "backend/features/estimate_row_transfer/assignment_apply.py",
 }
 _UPDATE_COLUMNS = {
+    "backend/features/brigade_lineage/migration.py": {"source_type"},
     "backend/main.py": {"done_quantity"},
     "backend/features/brigade_access/item_routes.py": {
         "quantity",
@@ -23,6 +25,7 @@ _UPDATE_COLUMNS = {
         "done_quantity",
         "work_package",
     },
+    "backend/features/estimate_row_transfer/assignment_apply.py": {"quantity"},
 }
 _SET_RE = re.compile(r"\bset\b(.*?)\bwhere\b", re.IGNORECASE | re.DOTALL)
 _ASSIGNMENT_RE = re.compile(r"(?:^|,)\s*([a-z_][a-z0-9_]*)\s*=", re.IGNORECASE)
@@ -58,7 +61,11 @@ def _sql_calls(path, source, violations):
         if not isinstance(sql_node, ast.Constant) or not isinstance(sql_node.value, str):
             continue
         normalized = " ".join(sql_node.value.split())
-        lowered = normalized.lower()
+        lowered = re.sub(
+            r"\b(insert\s+into|update)\s+public\.",
+            lambda match: match.group(1) + " ",
+            normalized.lower(),
+        )
         if _INSERT_TOKEN in lowered or _UPDATE_TOKEN in lowered:
             calls.append((node.lineno, normalized, lowered))
     return calls

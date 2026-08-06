@@ -7,6 +7,11 @@ import psycopg2
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException
 
+from .assignment_apply import (
+    AssignmentApplyError,
+    apply_assignment_plan,
+    normalize_assignment_apply_payload,
+)
 from .plan import (
     PlanValidationError,
     calculate_plan_sha256,
@@ -68,10 +73,11 @@ def register_estimate_row_transfer_module(app, deps):
     load_plan = deps.get("load_stored_plan", load_stored_plan)
     approve_stored = deps.get("approve_plan", approve_plan)
     find_other_approved = deps.get("find_other_approved_plan", find_other_approved_plan)
+    apply_assignments = deps.get("apply_assignment_plan", apply_assignment_plan)
 
-    def open_transaction():
+    def open_transaction(isolation_level="REPEATABLE READ"):
         conn = get_db()
-        conn.set_session(autocommit=False, isolation_level="REPEATABLE READ")
+        conn.set_session(autocommit=False, isolation_level=isolation_level)
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("SET LOCAL lock_timeout='5s'")
         cur.execute("SET LOCAL statement_timeout='30s'")
@@ -308,6 +314,68 @@ def register_estimate_row_transfer_module(app, deps):
         except psycopg2.IntegrityError:
             conn.rollback()
             raise HTTPException(status_code=409, detail="transfer_plan_approval_conflict")
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+
+    @app.post("/estimate-row-transfer-plans/{plan_id}/assignment-apply")
+    def apply_transfer_plan_assignments(
+        plan_id: int,
+        data: dict,
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
+        if not _positive_int(plan_id):
+            raise HTTPException(status_code=422, detail="assignment_apply_payload_invalid")
+        try:
+            payload = normalize_assignment_apply_payload(data)
+        except AssignmentApplyError as exc:
+            raise HTTPException(status_code=422, detail=exc.code)
+        conn, cur = open_transaction("SERIALIZABLE")
+        try:
+            actor = selected_actor(
+                cur, current_user, x_company_id, x_company_mode,
+                approval_roles, "approve",
+            )
+            stored = load_plan(cur, plan_id, actor["companyId"], for_update=True)
+            if not stored:
+                abort(404, "transfer_plan_not_found")
+            canonical = require_stored_integrity(stored)
+            authorize_scope(cur, actor, canonical)
+            if (
+                stored.get("status") != "approved"
+                or stored.get("approvedPlanSha256") != canonical.get("planSha256")
+            ):
+                abort(409, "assignment_plan_not_approved")
+            if payload["planSha256"] != canonical.get("planSha256"):
+                abort(409, "assignment_plan_hash_mismatch")
+            try:
+                result = apply_assignments(cur, stored=stored, actor=actor)
+            except AssignmentApplyError as exc:
+                abort(409, exc.code)
+            if result.get("idempotent") is True:
+                conn.rollback()
+            else:
+                conn.commit()
+            return result
+        except HTTPException:
+            conn.rollback()
+            raise
+        except psycopg2.errors.UndefinedTable:
+            conn.rollback()
+            raise HTTPException(status_code=503, detail="transfer_plan_schema_not_ready")
+        except (
+            psycopg2.IntegrityError,
+            psycopg2.errors.SerializationFailure,
+            psycopg2.errors.DeadlockDetected,
+            psycopg2.errors.LockNotAvailable,
+        ):
+            conn.rollback()
+            raise HTTPException(status_code=409, detail="assignment_apply_write_conflict")
         except Exception:
             conn.rollback()
             raise

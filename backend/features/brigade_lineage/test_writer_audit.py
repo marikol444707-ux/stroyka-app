@@ -14,8 +14,8 @@ class BrigadeContractItemWriterAuditTests(unittest.TestCase):
         self.assertTrue(report["ok"], report["violations"])
         self.assertTrue(report["dryRun"])
         self.assertEqual(report["writesAttempted"], 0)
-        self.assertEqual(report["insertStatements"], 3)
-        self.assertEqual(report["updateStatements"], 3)
+        self.assertEqual(report["insertStatements"], 4)
+        self.assertEqual(report["updateStatements"], 5)
         self.assertEqual(report["violations"], [])
 
     def test_audit_detects_legacy_quantity_sync_and_missing_source_type(self):
@@ -57,6 +57,25 @@ class BrigadeContractItemWriterAuditTests(unittest.TestCase):
             {item["code"] for item in report["violations"]},
             {"insert_writer_count_mismatch", "update_writer_count_mismatch"},
         )
+
+    def test_schema_qualified_e43_writer_is_counted_and_narrowly_allowlisted(self):
+        report = audit_brigade_contract_item_writers(source_files={
+            "backend/features/estimate_row_transfer/assignment_apply.py": """
+                cur.execute(
+                    "UPDATE public.brigade_contract_items SET quantity=%s WHERE id=%s",
+                    (7, 41),
+                )
+                cur.execute(
+                    "INSERT INTO public.brigade_contract_items "
+                    "(contract_id,source_type) VALUES (%s,'estimate')",
+                    (7,),
+                )
+            """,
+        })
+
+        self.assertTrue(report["ok"], report["violations"])
+        self.assertEqual(report["insertStatements"], 1)
+        self.assertEqual(report["updateStatements"], 1)
 
 
 if __name__ == "__main__":
