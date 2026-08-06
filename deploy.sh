@@ -15,6 +15,11 @@ git reset --hard HEAD
 git pull --ff-only
 echo "HEAD: $(git rev-parse --short HEAD)"
 PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py
+(
+  cd "$APP_ROOT/backend"
+  PYTHONPATH=. PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache \
+    python3 -c 'import features.estimate_row_transfer'
+)
 npm ci
 
 FRONTEND_BUILD_DIR="$(mktemp -d "$APP_ROOT/.frontend-build.XXXXXX")"

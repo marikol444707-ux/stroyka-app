@@ -8,12 +8,12 @@ from collections import Counter, defaultdict
 
 import psycopg2.extras
 
-from backend.features.brigade_lineage.canonical import parse_sections, sections_sha256
-from backend.features.brigade_lineage.snapshot_service import (
+from ..brigade_lineage.canonical import parse_sections, sections_sha256
+from ..brigade_lineage.snapshot_service import (
     LineageResolutionError,
     resolve_snapshot_item,
 )
-from backend.features.supply_estimate_refresh.service import OPEN_SUPPLY_STATUSES
+from ..supply_estimate_refresh.service import OPEN_SUPPLY_STATUSES
 
 
 PREVIEW_LIMIT = 100

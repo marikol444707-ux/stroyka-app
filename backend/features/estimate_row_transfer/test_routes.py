@@ -1,4 +1,7 @@
 import copy
+import os
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -79,6 +82,35 @@ def stored_plan(status="draft"):
 
 
 class EstimateRowTransferRouteTests(unittest.TestCase):
+    def test_module_imports_from_backend_working_directory(self):
+        backend_root = Path(__file__).resolve().parents[2]
+        environment = dict(os.environ)
+        environment.update({
+            "PYTHONPATH": ".",
+            "PYTHONPYCACHEPREFIX": "/tmp/stroyka-transfer-import-test-pycache",
+        })
+
+        result = subprocess.run(
+            [sys.executable, "-c", "import features.estimate_row_transfer"],
+            cwd=backend_root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_deploy_checks_production_import_before_restart(self):
+        deploy = (Path(__file__).resolve().parents[3] / "deploy.sh").read_text(
+            encoding="utf-8"
+        )
+
+        import_gate = "import features.estimate_row_transfer"
+        self.assertIn(import_gate, deploy)
+        self.assertLess(deploy.index(import_gate), deploy.index("systemctl restart stroyka"))
+
     def _register(
         self,
         *,

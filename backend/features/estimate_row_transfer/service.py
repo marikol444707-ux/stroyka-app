@@ -3,13 +3,13 @@
 import json
 import re
 
-from backend.features.brigade_lineage.canonical import parse_sections, sections_sha256
-from backend.features.brigade_lineage.snapshot_service import (
+from ..brigade_lineage.canonical import parse_sections, sections_sha256
+from ..brigade_lineage.snapshot_service import (
     LineageResolutionError,
     resolve_snapshot_item,
 )
-from backend.features.estimate_row_transfer.audit import collect_transfer_impact
-from backend.features.estimate_row_transfer.plan import (
+from .audit import collect_transfer_impact
+from .plan import (
     PlanValidationError,
     build_reviewed_plan,
 )
