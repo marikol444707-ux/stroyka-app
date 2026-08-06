@@ -286,6 +286,34 @@ class ConstraintAuditTests(unittest.TestCase):
         ])
         self.assertNotIn("sections_json", str(report))
 
+    def test_current_pre_enforcement_shape_has_bounded_missing_gate_lists(self):
+        facts = complete_facts()
+        source_column = next(
+            row for row in facts["columns"]
+            if row["table_name"] == "brigade_contract_items"
+            and row["column_name"] == "source_type"
+        )
+        source_column["is_nullable"] = "YES"
+        source_column["column_default"] = "'legacy'::character varying"
+        facts["constraints"] = []
+        facts["indexes"] = []
+        facts["triggers"] = []
+        facts["data"]["explicit_legacy"] = 151
+
+        report = build_constraint_audit(facts)
+
+        self.assertFalse(report["constraintsReady"])
+        self.assertTrue(report["dataReadyForConstraints"])
+        self.assertEqual(report["invalidColumns"], [
+            "brigade_contract_items.source_type.noDefault",
+            "brigade_contract_items.source_type.notNull",
+        ])
+        self.assertEqual(len(report["missingConstraints"]), 6)
+        self.assertEqual(len(report["missingIndexes"]), 3)
+        self.assertEqual(len(report["missingTriggers"]), 2)
+        self.assertEqual(report["data"]["explicitLegacy"], 151)
+        self.assertNotIn("legacy_item_key", str(report))
+
 
 class Cursor:
     def __init__(self, responses):

@@ -4261,8 +4261,9 @@ expected boundary after E3.3; do not interpret them as writer failure.
 
 ## Task E3.4.1: Strict Brigade Lineage Readiness Audit
 
-**Status:** In progress. This is a diagnostic-only release; no DDL, data write,
-route mutation or default removal belongs in this slice.
+**Status:** Local implementation complete on 2026-08-06; production deployment
+and read-only evidence are pending. This is a diagnostic-only release; no DDL,
+data write, route mutation or default removal belongs in this slice.
 
 **Objective:** Extend `npm run audit:brigade-lineage` with a bounded,
 repeatable-read preflight that proves whether production can safely enter the
@@ -4305,13 +4306,13 @@ class, but it is never promoted to verified estimate lineage.
 
 **Verification:**
 
-- [ ] RED tests prove missing/wrong/unvalidated catalog objects and the current
+- [x] RED tests prove missing/wrong/unvalidated catalog objects and the current
   fuzzy delete blocker fail closed.
-- [ ] Complete synthetic facts produce `constraintsReady=true`; the current
+- [x] Complete synthetic facts produce `constraintsReady=true`; the current
   pre-enforcement schema produces a bounded missing-gate list.
-- [ ] The database runner uses one read-only repeatable-read transaction,
+- [x] The database runner uses one read-only repeatable-read transaction,
   attempts zero writes, rolls back and closes resources.
-- [ ] Focused lineage and estimate-deletion tests, full backend discovery,
+- [x] Focused lineage and estimate-deletion tests, full backend discovery,
   frontend Jest, compile/import modes, build and `git diff --check` pass.
 
 **Dependencies:** E3.3 production writer readiness on `6f5ab8a4430a`.
@@ -4319,3 +4320,21 @@ class, but it is never promoted to verified estimate lineage.
 **Expected files:** `backend/features/brigade_lineage/constraint_audit.py`,
 its tests, the existing readiness report/tests, a static delete-policy audit,
 this plan and ADR-0001. E3.4.2 migration files are explicitly out of scope.
+
+**Local evidence:** The focused package and deletion-policy set passes, full
+backend discovery passes (`1305/1305`), frontend Jest passes (`304/304`, `76`
+suites), both readiness import modes and isolated-cache compile pass, the
+production React build compiles, and deploy publisher regressions pass (`3/3`).
+The static audit reports the current deletion gap only as
+`exactEstimateVersionBlockerMissing + legacyFallbackNotScoped`; it executes no
+route and changes no deletion behavior. Five-axis review found no remaining
+Critical or Required correctness, architecture, security or performance issue.
+No dependency changed; the inherited CRA/Jest audit debt recorded in E3.3.2 is
+unchanged and remains a separate modernization task.
+
+**Production evidence gate:** Deploy this diagnostic, run
+`npm run --silent audit:brigade-lineage`, and require top-level `ok=true`,
+`dryRun=true`, `writesAttempted=0`, `rolledBack=true`, writer readiness still
+green, aggregate lineage data free of invalid rows, and bounded catalog/delete
+gaps with `readyForStrictRuntime=false`. Do not start E3.4.2 until that exact
+read-only output is reviewed.

@@ -210,6 +210,15 @@ catalog, aggregate-data and deletion-policy gates together. E3.4.1 reports the
 missing gates and performs no repair. E3.4.2 remains a separately reviewed,
 guarded and rollback-friendly enforcement release.
 
+The readiness JSON extension is additive, so the existing report version and
+all prior fields remain stable. A completed run sets
+`constraintAuditIncluded=true` and `deleteRestrictionAuditIncluded=true`, then
+publishes the bounded `constraintAudit`, `constraintsReady`,
+`deleteRestrictionAudit`, `deleteRestrictionsReady` and
+`readyForStrictRuntime` fields. The top-level `ok` continues to mean that the
+diagnostic completed; missing enforcement is expressed by false readiness
+gates and fixed missing/invalid object names rather than an exception.
+
 ## Writer changes completed in production before enforcement
 
 - `POST /estimates/{id}/work-assignment` and `/distribute` now persist the exact
