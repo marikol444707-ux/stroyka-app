@@ -3794,3 +3794,49 @@ Not scheduled.
   Moscow-morning run. The generic daemon remains disabled.
 
 **Estimated scope:** S
+
+## Task A5.1: Read-Only Director Attention Queue
+
+**Status:** Locally complete on branch `codex/director-attention-queue-readonly`.
+Production deploy and protected selected-company verification remain pending.
+
+**Behavior:**
+- `GET /agent-jobs/director-daily-brief/latest` keeps the existing validated
+  brief and adds one bounded `attentionQueue` projection.
+- The queue includes only `critical` and `warning` findings. Critical items
+  come first, source order is deterministic, the public list is capped at 12,
+  and its count uses the complete brief severity totals even when a section is
+  truncated.
+- Every row shows priority, category, reason, subject, project, responsible
+  state and one next safe review step. The dashboard shows at most six rows on
+  desktop and four on mobile before directing the user to the full brief.
+
+**Safety:**
+- Reasons, destinations and next steps come only from an immutable server
+  policy. Arbitrary `nextAction` or URL-like fields in stored data are ignored;
+  an unknown source code receives a fixed manual-review fallback.
+- The queue is read-only and adds no button, navigation, enqueue, retry,
+  mutation, model request, message delivery, SQL or new database table.
+- The existing leadership-role and exact single-company endpoint boundary is
+  unchanged. Raw queue payload/result, worker identity and lease data remain
+  excluded.
+
+**Verification:**
+- [x] Backend projection and query tests were written red before implementation.
+- [x] Focused daily-brief tests pass (`58/58`); targeted projection/query tests
+  pass (`11/11`).
+- [x] Focused frontend hook/panel tests pass (`10/10`).
+- [x] Full backend discovery passes (`1179/1179`) and full frontend Jest passes
+  (`299/299`).
+- [x] Python compile with an isolated cache, `git diff --check` and production
+  React build pass.
+- [x] Manual Chrome renders from the current component source pass on desktop
+  and a 390 px content width. Long subjects wrap, rows do not overlap and the
+  block contains no buttons.
+- [ ] Production deploy and public smoke.
+- [ ] Protected director smoke for one selected company, including the real
+  `attentionQueue` response and dashboard rendering.
+
+**Next:** Deploy only after explicit approval. Do not add automatic actions in
+this release; any future resolve/apply flow requires a separate
+`preview -> human approval -> apply -> audit` task.

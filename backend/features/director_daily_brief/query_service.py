@@ -4,6 +4,7 @@ import math
 from collections.abc import Mapping
 from datetime import date
 
+from .attention_queue import build_attention_queue
 from .service import MAX_SECTION_ITEMS, SECTION_ORDER
 
 
@@ -212,9 +213,11 @@ def get_latest_director_daily_brief(cur, *, company_id):
     row = cur.fetchone()
     if not row:
         return {"available": False}
+    brief = public_director_daily_brief(row.get("result_json"))
     return {
         "available": True,
         "jobId": _positive_int(row.get("id"), "job_id"),
         "completedAt": _time(row.get("completed_at")),
-        "brief": public_director_daily_brief(row.get("result_json")),
+        "brief": brief,
+        "attentionQueue": build_attention_queue(brief),
     }

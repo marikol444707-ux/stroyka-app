@@ -24,6 +24,37 @@ describe('DirectorDailyBriefPanel', () => {
             },
           ],
         },
+        attentionQueue: {
+          readOnly: true,
+          count: 2,
+          truncated: false,
+          items: [
+            {
+              id: 'overdue:project.deadline_overdue:0',
+              priority: 'critical',
+              category: 'Просрочки',
+              reason: 'Просрочен срок объекта',
+              subject: 'Школа',
+              project: 'Школа',
+              owner: 'Не указан',
+              nextAction: 'Проверить срок и ответственного по объекту',
+              destination: 'projects',
+              sourceCode: 'project.deadline_overdue',
+            },
+            {
+              id: 'shortages:warehouse.below_minimum:0',
+              priority: 'warning',
+              category: 'Дефициты',
+              reason: 'Остаток ниже минимума',
+              subject: 'Кабель',
+              project: 'Вся компания',
+              owner: 'Не указан',
+              nextAction: 'Проверить остаток и потребность склада',
+              destination: 'warehouse',
+              sourceCode: 'warehouse.below_minimum',
+            },
+          ],
+        },
       },
     }} isMobile={false}/>);
 
@@ -31,8 +62,13 @@ describe('DirectorDailyBriefPanel', () => {
     expect(screen.getByText(/05\.08\.2026/)).toBeInTheDocument();
     expect(screen.getByText('Критично: 1')).toBeInTheDocument();
     expect(screen.getByText('Просрочки')).toBeInTheDocument();
-    expect(screen.getByText('Школа')).toBeInTheDocument();
+    expect(screen.getAllByText('Школа').length).toBeGreaterThan(0);
     expect(screen.getByText('3 дн.')).toBeInTheDocument();
+    expect(screen.getByText('Требует внимания')).toBeInTheDocument();
+    expect(screen.getByText('Просрочен срок объекта')).toBeInTheDocument();
+    expect(screen.getAllByText(/Ответственный: Не указан/)).toHaveLength(2);
+    expect(screen.getByText('Проверить срок и ответственного по объекту')).toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
   test('explains that one company must be selected', () => {

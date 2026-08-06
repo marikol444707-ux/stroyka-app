@@ -8,6 +8,11 @@ const STATUS_META = {
   clear: {color: '#6ee7b7', border: 'rgba(16,185,129,.28)', background: 'rgba(6,78,59,.16)'},
 };
 
+const PRIORITY_META = {
+  critical: {label: 'Критично', color: '#fca5a5', border: 'rgba(239,68,68,.30)'},
+  warning: {label: 'Внимание', color: '#fbbf24', border: 'rgba(245,158,11,.30)'},
+};
+
 const formatDate = (value) => {
   const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
   return match ? `${match[3]}.${match[2]}.${match[1]}` : String(value || '');
@@ -55,6 +60,9 @@ export default function DirectorDailyBriefPanel({state = {}, isMobile = false}) 
   const brief = data?.brief || null;
   const summary = brief?.summary || {};
   const sections = Array.isArray(brief?.sections) ? brief.sections : [];
+  const attentionQueue = data?.attentionQueue?.readOnly === true ? data.attentionQueue : null;
+  const attentionItems = Array.isArray(attentionQueue?.items) ? attentionQueue.items : [];
+  const visibleAttentionItems = attentionItems.slice(0, isMobile ? 4 : 6);
   const completedTime = formatCompletedAt(data?.completedAt);
 
   return (
@@ -83,6 +91,43 @@ export default function DirectorDailyBriefPanel({state = {}, isMobile = false}) 
               <span style={{fontSize:'11px',fontWeight:800,color:'#fbbf24',border:'1px solid rgba(245,158,11,.30)',borderRadius:'999px',padding:'4px 8px'}}>Внимание: {Number(summary.warning || 0)}</span>
               <span style={{fontSize:'11px',fontWeight:800,color:'#7dd3fc',border:'1px solid rgba(14,165,233,.28)',borderRadius:'999px',padding:'4px 8px'}}>Информация: {Number(summary.info || 0)}</span>
             </div>
+            {attentionQueue&&(
+              <div aria-label="Требует внимания" style={{marginTop:'12px',padding:'10px 0',borderTop:'1px solid rgba(148,163,184,.18)',borderBottom:'1px solid rgba(148,163,184,.18)'}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'8px'}}>
+                  <span style={{display:'inline-flex',alignItems:'center',gap:'6px',fontSize:'13px',fontWeight:900,color:'#f8fafc'}}>
+                    <AlertTriangle size={15} color="#fbbf24"/>Требует внимания
+                  </span>
+                  <span style={{fontSize:'12px',fontWeight:900,color:'#fbbf24'}}>{Number(attentionQueue.count || 0)}</span>
+                </div>
+                {visibleAttentionItems.length===0
+                  ? <div style={{paddingTop:'8px',fontSize:'12px',color:'#6ee7b7'}}>Критичных пунктов нет.</div>
+                  : (
+                    <div style={{marginTop:'6px'}}>
+                      {visibleAttentionItems.map((item) => {
+                        const priority = PRIORITY_META[item.priority] || PRIORITY_META.warning;
+                        return (
+                          <div key={item.id} style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(0,1.35fr) minmax(210px,.65fr)',gap:isMobile?'6px':'14px',padding:'9px 0',borderTop:'1px solid rgba(148,163,184,.14)'}}>
+                            <div style={{minWidth:0}}>
+                              <div style={{display:'flex',alignItems:'center',gap:'7px',flexWrap:'wrap'}}>
+                                <span style={{fontSize:'10px',fontWeight:900,color:priority.color,border:`1px solid ${priority.border}`,borderRadius:'999px',padding:'2px 6px'}}>{priority.label}</span>
+                                <b style={{fontSize:'12px',lineHeight:1.35,color:'#f8fafc',overflowWrap:'anywhere'}}>{item.reason}</b>
+                              </div>
+                              <div style={{marginTop:'4px',fontSize:'12px',lineHeight:1.4,color:'#cbd5e1',overflowWrap:'anywhere'}}>{item.subject}</div>
+                              <div style={{marginTop:'2px',fontSize:'11px',lineHeight:1.35,color:'#94a3b8',overflowWrap:'anywhere'}}>{item.project} · Ответственный: {item.owner}</div>
+                            </div>
+                            <div style={{alignSelf:'center',minWidth:0,fontSize:'11px',lineHeight:1.4,color:'#cbd5e1',overflowWrap:'anywhere'}}>
+                              <span style={{color:'#94a3b8'}}>Следующий шаг: </span>{item.nextAction}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {(attentionQueue.truncated || Number(attentionQueue.count || 0) > visibleAttentionItems.length)&&(
+                        <div style={{paddingTop:'3px',fontSize:'10px',color:'#94a3b8'}}>Показана часть пунктов. Полный список остаётся в сводке.</div>
+                      )}
+                    </div>
+                  )}
+              </div>
+            )}
             <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(2,minmax(0,1fr))',gap:'8px',marginTop:'10px'}}>
               {sections.map((section) => {
                 const meta = STATUS_META[section.status] || STATUS_META.info;

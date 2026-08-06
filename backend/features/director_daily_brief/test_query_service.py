@@ -91,6 +91,13 @@ class DirectorDailyBriefQueryTests(unittest.TestCase):
         self.assertEqual(result["completedAt"], "2026-08-05T11:30:00")
         self.assertEqual(result["brief"]["briefDate"], "2026-08-05")
         self.assertEqual(result["brief"]["sections"][0]["items"][0]["subject"], "Школа")
+        self.assertEqual(result["attentionQueue"]["count"], 2)
+        self.assertEqual(
+            result["attentionQueue"]["items"][0]["reason"],
+            "Просрочен срок объекта",
+        )
+        self.assertEqual(result["attentionQueue"]["items"][1]["project"], "Вся компания")
+        self.assertTrue(result["attentionQueue"]["readOnly"])
         self.assertNotIn("payload_json", result)
         self.assertNotIn("result_json", result)
         self.assertNotIn("locked_by", result)

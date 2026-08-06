@@ -75,6 +75,28 @@ section. It has explicit loading, empty, selected-company and error states and
 contains no start/retry/mutation command. The company switch reloads the block
 and clears the previous company's result before the next response arrives.
 
+### Read-only attention queue
+
+The same latest-brief response also contains `attentionQueue`. This is a
+bounded projection of the already validated brief, not a separate query or
+business workflow. It includes only `critical` and `warning` findings, sorts
+critical items first and returns at most 12 visible rows. The count comes from
+the full brief severity totals, so a truncated source section cannot silently
+reduce it.
+
+Each queue row contains a fixed priority, category, reason, subject, project,
+responsible state and next safe review step. Reason, destination and next step
+come from an immutable server policy keyed by the allowlisted finding code.
+Unknown codes receive a fixed manual-review fallback. Fields such as an
+arbitrary action, URL or command from stored result data are never copied into
+the public queue.
+
+The dashboard shows this queue before the six existing detail sections. It is
+read-only and has no button or navigation side effect. Missing responsible data
+is shown truthfully as `Не указан`; `task.unassigned` is shown as
+`Не назначен`. Enriching responsible names requires a separately reviewed read
+contract and is not inferred from unrelated fields.
+
 ## Operations
 
 The production registry contains `system.worker_probe` and
