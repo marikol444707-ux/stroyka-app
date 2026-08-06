@@ -4459,10 +4459,10 @@ back. Reviewed dry-run and apply outputs are preserved under
 ## Task E4: Reviewed Estimate Row Balance Transfer
 
 **Status:** Contract approved by the user on 2026-08-06. E4.1 is complete in
-production runtime `2c816ccb789e`. E4.2 is locally implemented and verified on
-`feature/estimate-row-transfer-ledger`; its guarded production schema review,
-apply, deploy and protected API smoke remain pending. No E4 balance writer
-exists and production has not received E4 DDL.
+production runtime `2c816ccb789e`. E4.2 runtime `c700e043` and its reviewed
+11-change additive schema are live and pass public smoke/post-audit. No E4
+balance writer exists. An authenticated fail-closed API smoke remains pending
+because production credentials and POST checks require separate authorization.
 
 **Contract:** `docs/estimate-row-transfer-contract.md` is authoritative. The
 operation uses an approved exact source/target mapping and explicit quantities.
@@ -4567,9 +4567,10 @@ draft; only a director or deputy director in the stored company may approve
 the unchanged deterministic hash. Approval remains ledger-only and moves no
 assignment or supply balance.
 
-**Status:** Local implementation complete. Production remains unchanged until
-the separately guarded schema dry-run is reviewed and its exact change count
-and SHA-256 are explicitly supplied to the apply command.
+**Status:** Runtime and schema are live in production. The separately guarded
+schema plan applied successfully with its exact count/SHA-256; only an
+explicitly authorized authenticated fail-closed API smoke remains before the
+task is closed.
 
 **Acceptance criteria:**
 
@@ -4619,8 +4620,8 @@ or mismatched guard aborts before DDL.
 
 **Local verification:** RED tests began with the absent plan/schema/API and
 later proved that a same-name but weakened guard function must block schema
-readiness. Focused discovery passes `58/58` with two expected opt-in
-PostgreSQL skips; full backend discovery passes `1381/1381` with the same two
+readiness. Focused discovery passes `59/59` with two expected opt-in
+PostgreSQL skips; full backend discovery passes `1382/1382` with the same two
 expected skips. A disposable PostgreSQL cluster passes the opt-in `2/2` suite:
 guarded schema apply reaches strict readiness; one real draft and leadership
 approval leave every measured business-table count unchanged; the database
@@ -4632,12 +4633,32 @@ inherited CRA/Jest dependency audit remains unchanged at zero critical
 findings; E4.2 adds no dependency.
 
 **Implementation commits:** `6cfe4bbc`, `c906208d`, `f7872fb7`, `7ed33f11`,
-`349d411c`, `919cd023`, `ad1a4dcc`, `b237a28b`.
+`349d411c`, `919cd023`, `ad1a4dcc`, `b237a28b`, `a5935b5d`, `c700e043`.
+
+**Production evidence:** The first restart exposed a production-only import
+path gap and left nginx returning `502`; hotfix `a5935b5d` converted the new
+package to relative imports and added a pre-restart production-import gate.
+The healthy backend then exposed the separately missing nginx allowlist;
+hotfix `c700e043` added exact collection/detail proxy routes through an
+idempotent updater that backs up the active config. Final public smoke is fully
+green on runtime `c700e043`, including all three transfer-plan routes at `401`.
+
+The reviewed production schema dry-run reported exactly `11` additive changes,
+zero blockers/writes, rollback and plan SHA-256
+`683b69acd90e196a1310b008acc7d6c43efb43ecaf520c43496ba937a9fba85e`.
+Guarded apply committed those exact `11/11` changes. The repeated read-only
+audit reports `schemaReady=true`, `changeCount=0`, `changes=[]`,
+`writesAttempted=0`, rollback and empty-plan SHA-256
+`4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945`.
+No assignment, request, delivery, warehouse, accounting, JPR, act or payment
+balance was changed.
 
 ### Checkpoint Before E4.2 Production Apply
 
 - [x] No production DDL or E4 business balance write was executed locally.
 - [x] Disposable PostgreSQL proves the guarded schema and inert API storage.
-- [ ] Review production schema dry-run count, changes and SHA-256.
-- [ ] Apply only that exact plan, deploy, run public/protected smoke and repeat
-  the read-only schema audit before closing E4.2.
+- [x] Production dry-run count, changes and SHA-256 were reviewed.
+- [x] The exact plan applied; runtime, nginx routing, public smoke and repeated
+  read-only schema audit are green.
+- [ ] Run the separately authorized authenticated fail-closed GET/draft/approve
+  smoke without manufacturing an approved reconciliation or business data.

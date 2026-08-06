@@ -8,11 +8,11 @@ inert reviewed-mapping ledger and its tenant-bound draft/review/approve API.
 This does not authorize production DDL or any assignment, request, delivery,
 warehouse, accounting or payment mutation.
 
-The E4.2 implementation is locally complete on
-`feature/estimate-row-transfer-ledger`. Its guarded schema and inert storage
-passed disposable-PostgreSQL verification. Production remains on E4.1 until a
-separate schema dry-run is reviewed, applied with its exact count/hash guards,
-deployed and smoke-checked.
+The E4.2 runtime and reviewed 11-change additive schema are live in production
+at `c700e043`. Guarded apply and the repeated read-only schema audit are green,
+and public smoke reaches all three API routes. Authenticated fail-closed API
+smoke remains a separate credentialed checkpoint; no approved reconciliation
+or business data will be manufactured for it.
 
 ## Confirmed Decisions
 
