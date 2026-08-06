@@ -315,6 +315,10 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [x] Task E1: Compare full old/new estimate rows, print only changed positions, and add one project-wide summary across estimate packages.
 - [x] Task E2: When an existing draft is activated, save a server reconciliation before background AI comparison; direct imports also load full revisions before comparison.
 - [ ] Task E3: Add immutable source estimate/version ownership to brigade assignment rows and prevent a new revision from overwriting historical quantities or manual brigade prices.
+  - [x] Task E3.1: Add a read-only, rolled-back lineage audit and record the minimal immutable source contract; do not change schema or runtime writers.
+  - [ ] Task E3.2: Add nullable lineage/snapshot columns, explicit legacy classification and production data audit without enabling strict runtime; verify/hash each distinct snapshot once and fail closed on excessively nested snapshot JSON.
+  - [ ] Task E3.3: Cut every assignment writer over atomically, preserve issued quantity/manual brigade price, remove fuzzy matching and add idempotency.
+  - [ ] Task E3.4: Add FK/CHECK/index/immutability and delete-restriction gates, then prove writer and constraint readiness before enforcement.
 - [ ] Task E4: Build a reviewed `old row -> new row` transfer that moves only uncompleted assignment and open-request balances; never move confirmed JPR, signed acts, warehouse history or payments.
 - [ ] Task E5: Make active-estimate material control use stored `company_id + project_id` throughout instead of project name, then add cross-company collision tests.
 - [ ] Task E6: Add an explicit approved budget-adjustment event so a new estimate total can update project economics without rewriting accounting history.

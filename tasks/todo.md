@@ -4030,3 +4030,46 @@ manual test window and were removed immediately after verification.
 **Next:** Execute only exact queued job `10` in a separately approved
 `--once --job-id 10` canary, then verify its bounded read-only result. Do not
 start the generic runner or daemon.
+
+## Task E3.1: Read-Only Brigade Assignment Lineage Audit
+
+**Status:** Local implementation complete on 2026-08-06. No database schema,
+HTTP route or runtime writer is changed in this slice.
+
+**Behavior:**
+
+- `npm run audit:brigade-lineage` opens a read-only transaction, inspects only
+  allowlisted schema/data fields, rolls back and closes the connection.
+- Pre-migration keys are reported as unproven legacy data. They are never
+  promoted from names, codes or fuzzy matches.
+- The proposed complete contract verifies contract/project ownership, exact
+  estimate version, zero-based row coordinates, canonical full-snapshot hash
+  and one exact item key.
+- Output is bounded to contract-item IDs and fixed reason codes; descriptions,
+  prices and snapshot content are not emitted.
+- The report explicitly leaves constraint and writer audits false, so this
+  slice cannot claim strict runtime readiness.
+
+**Verification:**
+
+- [x] Focused lineage tests pass (`23/23`), including cross-company,
+  pre-migration, hash tampering, ambiguous-key and compatibility-key cases.
+- [x] Full backend discovery passes (`1232/1232`).
+- [x] Full frontend Jest passes (`299/299`).
+- [x] Python compile, `git diff --check`, package-script lookup and the
+  production React build pass.
+- [x] The local real-PostgreSQL run detected the intentionally older local
+  schema as `base_incomplete`, returned `lineageDataReady=false`, reported
+  `writesAttempted=0` and confirmed `rolledBack=true`.
+- [ ] Deploy the audit-only slice and capture the production pre-migration
+  baseline after the separate exact job `10` canary is resolved.
+
+**Next:** Design E3.2 as an additive, nullable and rollback-friendly migration.
+Do not change assignment writers or enable constraints in the same release.
+
+**Review gates before E3.2:**
+
+- Load and hash each distinct estimate-version snapshot once instead of
+  repeating its full `sections_json` for every assignment row.
+- Treat excessively nested snapshot JSON as an invalid snapshot with a bounded
+  reason code instead of allowing `RecursionError` to abort the complete audit.
