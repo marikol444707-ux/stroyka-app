@@ -404,6 +404,8 @@ def prepare_assignment_operations(
             "assignment_source_progress_invalid",
             minimum=Decimal(0),
         )
+        if done > after:
+            raise AssignmentApplyError("assignment_source_progress_protected")
         source_price_smeta = _decimal(
             source_row.get("price_smeta"),
             "assignment_source_price_invalid",

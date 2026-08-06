@@ -122,8 +122,15 @@ class EstimateRowTransferSchemaPlanTests(unittest.TestCase):
         self.assertIn("source_quantity_before", sql)
         self.assertIn("source_quantity_after", sql)
         self.assertIn("confirmed_quantity", sql)
+        self.assertIn(
+            "source_done_quantity<=source_quantity_after",
+            "".join(sql.split()),
+        )
         self.assertIn("contract_total_before", sql)
         self.assertIn("contract_total_after", sql)
+        self.assertIn("e.source_total_quantity=NEW.source_quantity_before", sql)
+        self.assertIn("e.source_protected_quantity=NEW.confirmed_quantity", sql)
+        self.assertIn("source_item.status=NEW.source_status", sql)
         self.assertNotIn("UPDATE brigade_contract_items", sql)
         self.assertNotIn("UPDATE supply_requests", sql)
 

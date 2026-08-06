@@ -216,6 +216,13 @@ class AssignmentApplyPreparationTests(unittest.TestCase):
         with self.assertRaisesRegex(AssignmentApplyError, "assignment_plan_stale"):
             self._prepare(journal_rows=journal_rows("5"))
 
+    def test_source_progress_cannot_exceed_the_remaining_quantity(self):
+        with self.assertRaisesRegex(
+            AssignmentApplyError,
+            "assignment_source_progress_protected",
+        ):
+            self._prepare(contract_items=[source_item(done_quantity=Decimal("8"))])
+
     def test_existing_exact_target_lineage_is_a_conflict_not_a_merge(self):
         existing_target = source_item(
             id=42,

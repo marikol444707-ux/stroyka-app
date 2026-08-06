@@ -227,6 +227,7 @@ CONSTRAINT_SIGNATURES = {
         "source_done_quantity >= 0", "confirmed_quantity >= 0",
         "transfer_quantity > 0",
         "source_quantity_after = source_quantity_before - transfer_quantity",
+        "source_done_quantity <= source_quantity_after",
         "confirmed_quantity <= source_quantity_after",
     ),
     "ck_erat_prices": (
@@ -288,7 +289,9 @@ FUNCTION_SIGNATURES = {
         "estimate_row_assignment_transfer_immutable",
         "estimate_row_assignment_transfer_invalid", "source_kind", "assignment",
         "approved_plan_sha256", "brigade_contract_items", "work_journal",
-        "source_quantity_after", "target_price_brigade",
+        "source_total_quantity", "source_protected_quantity",
+        "source_quantity_before", "source_quantity_after", "source_status",
+        "target_price_brigade", "work_package",
     ),
 }
 TRIGGER_SIGNATURES = {
@@ -517,6 +520,7 @@ CREATE TABLE public.estimate_row_assignment_transfers (
         AND source_done_quantity>=0 AND confirmed_quantity>=0
         AND transfer_quantity>0
         AND source_quantity_after=source_quantity_before-transfer_quantity
+        AND source_done_quantity<=source_quantity_after
         AND confirmed_quantity<=source_quantity_after
         AND source_quantity_before NOT IN
             ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)
@@ -636,28 +640,38 @@ BEGIN
            AND e.target_section_index=NEW.target_section_index
            AND e.target_item_index=NEW.target_item_index
            AND e.target_item_key=NEW.target_item_key
+           AND e.source_total_quantity=NEW.source_quantity_before
+           AND e.source_protected_quantity=NEW.confirmed_quantity
+           AND e.source_available_quantity=
+               NEW.source_quantity_before-NEW.confirmed_quantity
            AND e.quantity=NEW.transfer_quantity
            AND p.reconciliation_id=NEW.reconciliation_id
            AND p.status='approved' AND p.plan_sha256=NEW.plan_sha256
            AND p.approved_plan_sha256=NEW.plan_sha256
            AND bc.company_id=NEW.company_id AND bc.project_id=NEW.project_id
+           AND COALESCE(NULLIF(bc.work_package,''),'Основная')=p.work_package
            AND bc.total_amount=NEW.contract_total_after
            AND source_item.contract_id=NEW.source_contract_id
+           AND COALESCE(NULLIF(source_item.work_package,''),'Основная')=p.work_package
            AND source_item.source_type='estimate'
            AND source_item.source_estimate_version_id=NEW.source_estimate_version_id
            AND source_item.source_section_index=NEW.source_section_index
            AND source_item.source_item_index=NEW.source_item_index
            AND source_item.source_item_key=NEW.source_item_key
+           AND source_item.estimate_item_key=NEW.source_item_key
            AND source_item.quantity::numeric=NEW.source_quantity_after
            AND source_item.done_quantity::numeric=NEW.source_done_quantity
            AND source_item.price_smeta=NEW.source_price_smeta
            AND source_item.price_brigade=NEW.source_price_brigade
+           AND source_item.status=NEW.source_status
            AND target_item.contract_id=NEW.source_contract_id
+           AND COALESCE(NULLIF(target_item.work_package,''),'Основная')=p.work_package
            AND target_item.source_type='estimate'
            AND target_item.source_estimate_version_id=NEW.target_estimate_version_id
            AND target_item.source_section_index=NEW.target_section_index
            AND target_item.source_item_index=NEW.target_item_index
            AND target_item.source_item_key=NEW.target_item_key
+           AND target_item.estimate_item_key=NEW.target_item_key
            AND target_item.quantity::numeric=NEW.transfer_quantity
            AND target_item.done_quantity::numeric=0
            AND target_item.price_smeta=NEW.target_price_smeta
