@@ -2,9 +2,11 @@
 
 ## Status
 
-Approved by the user on 2026-08-06. This approval authorizes the read-only E4.1
-implementation only; it does not authorize schema changes or production
-writes.
+Approved by the user on 2026-08-06. E4.1 is production-complete. On the same
+date the user authorized the next E4.2 implementation block: an additive,
+inert reviewed-mapping ledger and its tenant-bound draft/review/approve API.
+This does not authorize production DDL or any assignment, request, delivery,
+warehouse, accounting or payment mutation.
 
 ## Confirmed Decisions
 
@@ -152,6 +154,51 @@ balance.
 
 Every apply phase is independently guarded and rollback-friendly. Production
 dry-run and apply remain separate operator actions.
+
+## E4.2 API Contract
+
+E4.2 exposes one immutable resource collection. It has no update or delete
+operation and does not expose descriptions, notes or prices:
+
+- `POST /estimate-row-transfer-plans` creates an inert draft from one approved
+  reconciliation and one to one hundred exact entries;
+- `GET /estimate-row-transfer-plans/{id}` returns one tenant-bound plan for
+  review;
+- `POST /estimate-row-transfer-plans/{id}/approval` changes only an unchanged
+  draft to `approved` after the caller repeats its exact `planSha256`.
+
+The draft request contains `reconciliationId` and `entries`. Every entry has
+`sourceKind`, positive `sourceId`, positive finite decimal `quantity`, and the
+exact target `targetSectionIndex`, `targetItemIndex` and `targetItemKey`.
+Supply entries additionally require `requestItemIndex` and an exact
+`sourceEstimateVersionId`; assignment entries must not send either field.
+Unknown fields, duplicate sources, non-canonical keys, fractional IDs/indexes,
+quantities with more than six decimal places, truncated impact previews and
+quantities above the server-recomputed transferable balance fail closed.
+
+The server resolves all owners and snapshot content from PostgreSQL in one
+repeatable-read transaction. A supply snapshot must belong to the base
+estimate, have a canonical stored SHA-256 equal to its actual content and
+match the current base snapshot. The stored plan includes company, project,
+package, estimate type, reconciliation and estimate IDs; exact source/target
+coordinates and snapshot hashes; source total/protected/available quantities;
+and the explicitly selected transfer quantity. Those values, sorted by source
+identity and serialized canonically, form `planSha256`. Actor names and
+timestamps are audit metadata and are not part of the hash.
+
+Estimate writers may create drafts. Only a stored-company `director` or
+`deputy director` may approve. Approval locks the plan, recomputes the exact
+plan from current authoritative rows, and requires the request hash, stored
+hash and recomputed hash to agree. Repeated approval of the same hash is an
+idempotent read; drift, a second approved plan for the reconciliation, or any
+cross-tenant access fails before an update. Approval writes only plan status
+and approver metadata. It never applies a balance transfer.
+
+The schema is installed only through a separate guarded operator migration.
+It is deliberately absent from `init_db()` and `deploy.sh`. Database checks,
+partial uniqueness and mutation-rejection triggers enforce one approved plan
+per reconciliation, immutable entries and a single `draft -> approved`
+transition.
 
 ## Threat Model And Abuse Cases
 
