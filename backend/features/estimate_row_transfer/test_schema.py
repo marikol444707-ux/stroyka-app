@@ -64,6 +64,10 @@ def empty_catalog_row():
         "indexes": [],
         "functions": [],
         "triggers": [],
+        "constraint_definitions": {},
+        "index_definitions": {},
+        "function_definitions": {},
+        "trigger_definitions": {},
     }
 
 
@@ -79,6 +83,10 @@ def ready_catalog_row():
         "indexes": sorted(plan["expected"]["indexes"]),
         "functions": sorted(plan["expected"]["functions"]),
         "triggers": sorted(plan["expected"]["triggers"]),
+        "constraint_definitions": plan["expected"]["constraintDefinitions"],
+        "index_definitions": plan["expected"]["indexDefinitions"],
+        "function_definitions": plan["expected"]["functionDefinitions"],
+        "trigger_definitions": plan["expected"]["triggerDefinitions"],
     })
     return catalog
 
@@ -119,6 +127,21 @@ class EstimateRowTransferSchemaPlanTests(unittest.TestCase):
         self.assertTrue(plan["schemaReady"])
         self.assertTrue(plan["readyForApply"])
         self.assertEqual(plan["changes"], [])
+
+    def test_same_name_wrong_function_fails_closed(self):
+        catalog = ready_catalog_row()
+        catalog["function_definitions"]["guard_estimate_row_transfer_plan_mutation"] = (
+            "CREATE FUNCTION guard_estimate_row_transfer_plan_mutation() RETURNS trigger "
+            "LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$"
+        )
+
+        plan = build_schema_plan(catalog)
+
+        self.assertFalse(plan["readyForApply"])
+        self.assertIn(
+            "invalidFunction:guard_estimate_row_transfer_plan_mutation",
+            plan["blockers"],
+        )
 
     def test_operator_commands_exist_but_deploy_has_no_auto_migration(self):
         root = Path(__file__).resolve().parents[3]

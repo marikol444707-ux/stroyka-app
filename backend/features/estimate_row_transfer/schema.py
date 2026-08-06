@@ -58,6 +58,138 @@ TRIGGERS = {
     "estimate_row_transfer_plan_guard",
 }
 
+CONSTRAINT_SIGNATURES = {
+    "pk_estimate_row_transfer_plans": ("PRIMARY KEY (id)",),
+    "fk_etrp_reconciliation": (
+        "FOREIGN KEY (reconciliation_id)",
+        "REFERENCES estimate_reconciliations (id)",
+        "ON DELETE RESTRICT",
+    ),
+    "fk_etrp_base_estimate": (
+        "FOREIGN KEY (base_estimate_id)",
+        "REFERENCES estimates (id)",
+        "ON DELETE RESTRICT",
+    ),
+    "fk_etrp_target_estimate": (
+        "FOREIGN KEY (target_estimate_id)",
+        "REFERENCES estimates (id)",
+        "ON DELETE RESTRICT",
+    ),
+    "fk_etrp_target_version": (
+        "FOREIGN KEY (target_estimate_version_id)",
+        "REFERENCES estimate_versions (id)",
+        "ON DELETE RESTRICT",
+    ),
+    "ck_etrp_owner": (
+        "company_id > 0", "project_id > 0",
+        "base_snapshot_row_count >= 0", "target_snapshot_row_count >= 0",
+    ),
+    "ck_etrp_hashes": (
+        "base_sections_sha256", "target_sections_sha256", "plan_sha256",
+        "approved_plan_sha256", "[0-9a-f]{64}",
+    ),
+    "ck_etrp_status": ("status", "draft", "approved"),
+    "ck_etrp_approval": (
+        "approved_plan_sha256", "plan_sha256", "approved_by_user_id",
+        "approved_by_name", "approved_by_role", "директор", "зам_директора",
+        "approved_at",
+    ),
+    "uq_etrp_id_owner": ("UNIQUE (id, company_id, project_id)",),
+    "uq_etrp_hash": ("UNIQUE (company_id, reconciliation_id, plan_sha256)",),
+    "pk_estimate_row_transfer_entries": ("PRIMARY KEY (id)",),
+    "fk_etre_plan_owner": (
+        "FOREIGN KEY (plan_id, company_id, project_id)",
+        "REFERENCES estimate_row_transfer_plans (id, company_id, project_id)",
+        "ON DELETE RESTRICT",
+    ),
+    "fk_etre_source_estimate": (
+        "FOREIGN KEY (source_estimate_id)",
+        "REFERENCES estimates (id)",
+        "ON DELETE RESTRICT",
+    ),
+    "fk_etre_source_version": (
+        "FOREIGN KEY (source_estimate_version_id)",
+        "REFERENCES estimate_versions (id)",
+        "ON DELETE RESTRICT",
+    ),
+    "fk_etre_target_estimate": (
+        "FOREIGN KEY (target_estimate_id)",
+        "REFERENCES estimates (id)",
+        "ON DELETE RESTRICT",
+    ),
+    "fk_etre_target_version": (
+        "FOREIGN KEY (target_estimate_version_id)",
+        "REFERENCES estimate_versions (id)",
+        "ON DELETE RESTRICT",
+    ),
+    "ck_etre_owner": ("company_id > 0", "project_id > 0"),
+    "ck_etre_source_kind": ("source_kind", "assignment", "supply"),
+    "ck_etre_source_shape": (
+        "source_kind", "assignment", "supply", "request_item_index",
+        "source_parent_id = source_id",
+    ),
+    "ck_etre_coordinates": (
+        "source_id > 0", "source_parent_id > 0", "source_estimate_id > 0",
+        "source_estimate_version_id > 0", "source_section_index >= 0",
+        "source_item_index >= 0", "source_item_key", "target_estimate_id > 0",
+        "target_estimate_version_id > 0", "target_section_index >= 0",
+        "target_item_index >= 0", "target_item_key",
+    ),
+    "ck_etre_hashes": (
+        "source_sections_sha256", "target_sections_sha256", "[0-9a-f]{64}",
+    ),
+    "ck_etre_quantities": (
+        "source_total_quantity >= 0", "source_protected_quantity >= 0",
+        "source_available_quantity > 0", "quantity > 0",
+        "source_protected_quantity <= source_total_quantity",
+        "source_available_quantity = source_total_quantity - source_protected_quantity",
+        "quantity <= source_available_quantity",
+    ),
+}
+INDEX_SIGNATURES = {
+    "idx_etrp_owner_created": (
+        "ON estimate_row_transfer_plans",
+        "company_id, project_id, created_at DESC, id DESC",
+    ),
+    "uq_etrp_single_approved": (
+        "CREATE UNIQUE INDEX", "ON estimate_row_transfer_plans",
+        "company_id, reconciliation_id", "WHERE", "status", "approved",
+    ),
+    "idx_etre_plan": ("ON estimate_row_transfer_entries", "plan_id, id"),
+    "uq_etre_assignment_source": (
+        "CREATE UNIQUE INDEX", "ON estimate_row_transfer_entries",
+        "plan_id, source_id", "WHERE", "source_kind", "assignment",
+    ),
+    "uq_etre_supply_source": (
+        "CREATE UNIQUE INDEX", "ON estimate_row_transfer_entries",
+        "plan_id, source_id, request_item_index", "WHERE", "source_kind", "supply",
+    ),
+}
+FUNCTION_SIGNATURES = {
+    "reject_estimate_row_transfer_entry_mutation": (
+        "reject_estimate_row_transfer_entry_mutation", "RETURNS trigger",
+        "estimate_row_transfer_entry_immutable",
+    ),
+    "guard_estimate_row_transfer_plan_mutation": (
+        "guard_estimate_row_transfer_plan_mutation", "RETURNS trigger",
+        "estimate_row_transfer_plan_immutable",
+        "estimate_row_transfer_plan_transition_invalid",
+        "estimate_row_transfer_plan_mutation_invalid",
+        "OLD.status", "NEW.status", "NEW.plan_sha256", "OLD.plan_sha256",
+        "approved_by_user_id", "approved_by_role", "директор", "зам_директора",
+    ),
+}
+TRIGGER_SIGNATURES = {
+    "estimate_row_transfer_entry_immutable": (
+        "BEFORE", "UPDATE", "DELETE", "ON estimate_row_transfer_entries",
+        "EXECUTE FUNCTION reject_estimate_row_transfer_entry_mutation",
+    ),
+    "estimate_row_transfer_plan_guard": (
+        "BEFORE", "UPDATE", "DELETE", "ON estimate_row_transfer_plans",
+        "EXECUTE FUNCTION guard_estimate_row_transfer_plan_mutation",
+    ),
+}
+
 
 class SchemaMigrationError(RuntimeError):
     pass
@@ -283,6 +415,26 @@ def _values(catalog, key):
     return {str(value) for value in (catalog.get(key) or [])}
 
 
+def _compact_definition(value):
+    compact = re.sub(r'[\s"()]', "", str(value or "").lower())
+    return compact.replace("public.", "")
+
+
+def _invalid_definitions(present_names, definitions, signatures):
+    definitions = dict(definitions or {})
+    invalid = []
+    for name, required_fragments in signatures.items():
+        if name not in present_names:
+            continue
+        actual = _compact_definition(definitions.get(name))
+        if not actual or any(
+            _compact_definition(fragment) not in actual
+            for fragment in required_fragments
+        ):
+            invalid.append(name)
+    return invalid
+
+
 def build_schema_plan(catalog):
     catalog = dict(catalog or {})
     plans_table = bool(catalog.get("plans_table"))
@@ -305,6 +457,22 @@ def build_schema_plan(catalog):
     indexes = _values(catalog, "indexes")
     functions = _values(catalog, "functions")
     triggers = _values(catalog, "triggers")
+    invalid_definitions = (
+        ("invalidConstraint", _invalid_definitions(
+            constraints, catalog.get("constraint_definitions"), CONSTRAINT_SIGNATURES,
+        )),
+        ("invalidIndex", _invalid_definitions(
+            indexes, catalog.get("index_definitions"), INDEX_SIGNATURES,
+        )),
+        ("invalidFunction", _invalid_definitions(
+            functions, catalog.get("function_definitions"), FUNCTION_SIGNATURES,
+        )),
+        ("invalidTrigger", _invalid_definitions(
+            triggers, catalog.get("trigger_definitions"), TRIGGER_SIGNATURES,
+        )),
+    )
+    for prefix, names in invalid_definitions:
+        blockers.extend(f"{prefix}:{name}" for name in names)
     changes = []
     for name, object_name, sql in CHANGE_DEFINITIONS:
         if object_name == "plans_table":
@@ -327,6 +495,22 @@ def build_schema_plan(catalog):
         "indexes": sorted(INDEXES),
         "functions": sorted(FUNCTIONS),
         "triggers": sorted(TRIGGERS),
+        "constraintDefinitions": {
+            name: " ".join(fragments)
+            for name, fragments in sorted(CONSTRAINT_SIGNATURES.items())
+        },
+        "indexDefinitions": {
+            name: " ".join(fragments)
+            for name, fragments in sorted(INDEX_SIGNATURES.items())
+        },
+        "functionDefinitions": {
+            name: " ".join(fragments)
+            for name, fragments in sorted(FUNCTION_SIGNATURES.items())
+        },
+        "triggerDefinitions": {
+            name: " ".join(fragments)
+            for name, fragments in sorted(TRIGGER_SIGNATURES.items())
+        },
     }
     return {
         "schemaReady": not blockers and not changes,
@@ -371,23 +555,46 @@ def _load_catalog(cur):
            WHERE n.nspname='public' AND t.relname IN
              ('estimate_row_transfer_plans','estimate_row_transfer_entries')),ARRAY[]::text[])
             AS constraints,
+          COALESCE((SELECT jsonb_object_agg(c.conname,pg_get_constraintdef(c.oid,true))
+            FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid
+            JOIN pg_namespace n ON n.oid=t.relnamespace
+           WHERE n.nspname='public' AND t.relname IN
+             ('estimate_row_transfer_plans','estimate_row_transfer_entries')),'{}'::jsonb)
+            AS constraint_definitions,
           COALESCE((SELECT array_agg(indexname ORDER BY indexname)
             FROM pg_indexes WHERE schemaname='public' AND tablename IN
              ('estimate_row_transfer_plans','estimate_row_transfer_entries')),ARRAY[]::text[])
             AS indexes,
+          COALESCE((SELECT jsonb_object_agg(indexname,indexdef)
+            FROM pg_indexes WHERE schemaname='public' AND tablename IN
+             ('estimate_row_transfer_plans','estimate_row_transfer_entries')),'{}'::jsonb)
+            AS index_definitions,
           COALESCE((SELECT array_agg(p.proname ORDER BY p.proname)
             FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='public' AND p.proname IN
              ('reject_estimate_row_transfer_entry_mutation',
-              'guard_estimate_row_transfer_plan_mutation')),ARRAY[]::text[])
+              'guard_estimate_row_transfer_plan_mutation') AND p.pronargs=0),ARRAY[]::text[])
             AS functions,
+          COALESCE((SELECT jsonb_object_agg(p.proname,pg_get_functiondef(p.oid))
+            FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+           WHERE n.nspname='public' AND p.proname IN
+             ('reject_estimate_row_transfer_entry_mutation',
+              'guard_estimate_row_transfer_plan_mutation') AND p.pronargs=0),'{}'::jsonb)
+            AS function_definitions,
           COALESCE((SELECT array_agg(tg.tgname ORDER BY tg.tgname)
             FROM pg_trigger tg JOIN pg_class c ON c.oid=tg.tgrelid
             JOIN pg_namespace n ON n.oid=c.relnamespace
            WHERE n.nspname='public' AND NOT tg.tgisinternal AND tg.tgname IN
              ('estimate_row_transfer_entry_immutable',
               'estimate_row_transfer_plan_guard')),ARRAY[]::text[])
-            AS triggers
+            AS triggers,
+          COALESCE((SELECT jsonb_object_agg(tg.tgname,pg_get_triggerdef(tg.oid,true))
+            FROM pg_trigger tg JOIN pg_class c ON c.oid=tg.tgrelid
+            JOIN pg_namespace n ON n.oid=c.relnamespace
+           WHERE n.nspname='public' AND NOT tg.tgisinternal AND tg.tgname IN
+             ('estimate_row_transfer_entry_immutable',
+              'estimate_row_transfer_plan_guard')),'{}'::jsonb)
+            AS trigger_definitions
     """)
     return dict(cur.fetchone() or {})
 
