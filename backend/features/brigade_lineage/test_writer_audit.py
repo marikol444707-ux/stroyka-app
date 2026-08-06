@@ -1,5 +1,6 @@
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from backend.features.brigade_lineage.writer_audit import audit_brigade_contract_item_writers
 
@@ -42,6 +43,20 @@ class BrigadeContractItemWriterAuditTests(unittest.TestCase):
 
         self.assertFalse(report["ok"])
         self.assertEqual(report["violations"][0]["code"], "fuzzy_contract_item_lookup")
+
+    def test_repository_inventory_fails_closed_when_expected_writers_are_missing(self):
+        with TemporaryDirectory() as temp_dir:
+            backend = Path(temp_dir) / "backend"
+            backend.mkdir()
+            (backend / "main.py").write_text("value = 1\n", encoding="utf-8")
+
+            report = audit_brigade_contract_item_writers(temp_dir)
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(
+            {item["code"] for item in report["violations"]},
+            {"insert_writer_count_mismatch", "update_writer_count_mismatch"},
+        )
 
 
 if __name__ == "__main__":

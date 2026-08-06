@@ -24,10 +24,6 @@ export function estimateItemKeyForRow(estimate, sectionIndex, itemIndex, item) {
   return (
     item?.estimateItemKey ||
     item?.estimate_item_key ||
-    item?.workKey ||
-    item?.work_key ||
-    item?.key ||
-    item?.id ||
     (String(estimate?.id || '') + ':' + sectionIndex + ':' + itemIndex)
   );
 }

@@ -41,7 +41,14 @@ test('generated canonical key uses the same exact estimate coordinate', () => {
     id: 12,
     sections: [{name: 'A', items: [{name: 'Материал', type: 'material'}]}, {
       name: 'B',
-      items: [{name: 'Работа', quantity: 1, priceWork: 10}],
+      items: [{
+        id: 'generic-id-is-not-lineage',
+        key: 'generic-key-is-not-lineage',
+        workKey: 'generic-work-key-is-not-lineage',
+        name: 'Работа',
+        quantity: 1,
+        priceWork: 10,
+      }],
     }],
   });
 

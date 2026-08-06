@@ -8,6 +8,8 @@ from pathlib import Path
 
 _INSERT_TOKEN = "insert into brigade_contract_items"
 _UPDATE_TOKEN = "update brigade_contract_items"
+_EXPECTED_INSERT_STATEMENTS = 3
+_EXPECTED_UPDATE_STATEMENTS = 3
 _INSERT_WRITERS = {
     "backend/features/brigade_access/item_routes.py",
     "backend/features/brigade_lineage/writer_service.py",
@@ -64,6 +66,7 @@ def _sql_calls(path, source, violations):
 
 def audit_brigade_contract_item_writers(repo_root=None, *, source_files=None):
     """Report unexpected inserts or updates without executing application code."""
+    enforce_complete_inventory = source_files is None
     if source_files is None:
         if repo_root is None:
             repo_root = Path(__file__).resolve().parents[3]
@@ -114,6 +117,18 @@ def audit_brigade_contract_item_writers(repo_root=None, *, source_files=None):
                         "line": line,
                         "column": column,
                     })
+    if enforce_complete_inventory and insert_count != _EXPECTED_INSERT_STATEMENTS:
+        violations.append({
+            "code": "insert_writer_count_mismatch",
+            "expected": _EXPECTED_INSERT_STATEMENTS,
+            "actual": insert_count,
+        })
+    if enforce_complete_inventory and update_count != _EXPECTED_UPDATE_STATEMENTS:
+        violations.append({
+            "code": "update_writer_count_mismatch",
+            "expected": _EXPECTED_UPDATE_STATEMENTS,
+            "actual": update_count,
+        })
     return {
         "ok": not violations,
         "dryRun": True,
