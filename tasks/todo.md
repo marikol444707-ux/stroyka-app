@@ -4142,3 +4142,51 @@ count. `lineageDataReady=false`, `writerAuditIncluded=false` and
 checks pass should `bash deploy.sh` restart and smoke-check the runtime. On any
 lock timeout, review row, plan drift, conflict or unknown commit outcome, stop
 and rerun dry-run; never reuse stale guards.
+
+## Task E3.3.1: Exact Immutable Assignment Snapshot Resolver
+
+**Status:** Local implementation complete on 2026-08-06. Runtime assignment
+writers remain unchanged and continue to receive the temporary E3.2 legacy
+default until the atomic E3.3.2 cutover.
+
+**Behavior:**
+
+- `canonical-json-v1` now has one shared implementation for readiness audits
+  and the future assignment runtime.
+- The batch resolver accepts only server-constructed coordinate records with
+  strict non-negative integer indexes and an exact, non-normalized item key.
+  It never searches by name, code, generic ID or another descriptive alias.
+- One parameterized `FOR UPDATE` binds `estimate_id + company_id + project_id`.
+  After validating every requested coordinate, the same transaction creates or
+  reuses one `estimate_versions` row whose stored content matches its canonical
+  hash. Duplicate or corrupt claimed snapshots fail closed.
+- A batch performs one estimate lock and one snapshot lookup regardless of the
+  number of assignment rows. Duplicate coordinates and malformed batches are
+  rejected before snapshot creation; structurally invalid batches are rejected
+  before any database lock.
+- The caller owns commit/rollback. The resolver exposes bounded reason codes
+  and does not include work descriptions, prices or other business content in
+  errors.
+
+**Verification:**
+
+- [x] Tests were written red before the resolver and before the pre-lock batch
+  validation.
+- [x] Resolver tests pass (`11/11`); the combined brigade-lineage package passes
+  (`63/63`).
+- [x] Full backend discovery passes (`1272/1272`), frontend Jest passes
+  (`299/299`) and the production frontend build compiles.
+- [x] Both backend import modes, isolated-cache Python compile and
+  `git diff --check` pass.
+- [x] Static usage search confirms the new resolver is referenced only by its
+  tests; no HTTP writer, background task or application startup path imports it.
+- [x] Five-axis correctness, architecture, security and performance review
+  found and closed the per-row SQL and invalid-request locking issues; no
+  Critical or Required finding remains.
+
+**Next:** E3.3.2 must switch every assignment writer in one deploy: add exact
+coordinates to `/distribute`, persist all five estimate-lineage fields, write
+explicit `manual`/`pricelist` origins, make exact repeats idempotent and stop
+estimate/JPR synchronization from rewriting issued quantity or manual brigade
+price. Do not remove the temporary legacy default or enable E3.4 constraints
+until the complete writer audit passes.

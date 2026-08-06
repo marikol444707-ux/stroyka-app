@@ -3,8 +3,9 @@
 ## Status
 
 Accepted. E3.1 established the production baseline. E3.2 adds only the
-nullable storage contract and an explicit legacy classification; runtime
-writers and strict constraints remain deferred to E3.3 and E3.4.
+nullable storage contract and an explicit legacy classification. E3.3.1 adds
+an inert exact snapshot resolver; runtime writers and strict constraints remain
+deferred to E3.3.2 and E3.4.
 
 ## Date
 
@@ -119,6 +120,29 @@ unchanged writers until E3.3 writes every source explicitly. The default must
 be removed before E3.4 strict enforcement. If the first additive phase commits
 and the guarded assignment phase fails, the intermediate schema is
 fail-closed and the same command is safe to retry after a new dry-run.
+
+## Third delivery slice
+
+E3.3.1 adds no route or background-task integration. It centralizes
+`canonical-json-v1` and introduces a transaction-neutral batch resolver for the
+next writer cutover. The resolver:
+
+- requires a server-resolved positive estimate, company and project ID;
+- rejects malformed or duplicate coordinate batches before taking a database
+  lock;
+- locks the exact owned estimate once and parses/hashes its complete current
+  sections once;
+- accepts only zero-based integer coordinates plus the exact canonical item
+  key defined above;
+- creates or reuses one content-verified snapshot for the complete batch;
+- fails closed on duplicate hash claims, corrupt stored snapshot content or a
+  changed owner; and
+- leaves commit and rollback to the surrounding assignment transaction.
+
+The API intentionally accepts server-constructed coordinate records rather
+than client dictionaries. Future routes must copy only the three allowlisted
+coordinate fields into those records after their normal authentication and
+tenant-context checks. No existing writer imports the resolver in E3.3.1.
 
 ## Required writer changes before enforcement
 

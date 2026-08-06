@@ -1,16 +1,16 @@
 """Read-only readiness diagnostics for brigade assignment source lineage."""
 
-import hashlib
 import json
 import re
 from collections import Counter
 
 import psycopg2.extras
 
+from .canonical import HASH_CONTRACT, parse_sections, sections_sha256
+
 
 PREVIEW_LIMIT = 100
 REPORT_VERSION = 1
-HASH_CONTRACT = "canonical-json-v1"
 LINEAGE_COLUMNS = (
     "source_type",
     "source_estimate_version_id",
@@ -57,21 +57,7 @@ def _text(value):
 
 
 def _sections(value):
-    parsed = json.loads(value) if isinstance(value, str) else value
-    if not isinstance(parsed, list):
-        raise ValueError("estimate snapshot sections must be a list")
-    return parsed
-
-
-def sections_sha256(sections):
-    canonical = json.dumps(
-        {"sections": _sections(sections)},
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
-    )
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return parse_sections(value)
 
 
 def _result(row, status, reason):
