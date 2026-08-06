@@ -4455,3 +4455,66 @@ expected `explicitLegacy=151`, empty `dataIssues`, `writersReady=true` and
 `deleteRestrictionsReady=true`. The audit itself remained read-only and rolled
 back. Reviewed dry-run and apply outputs are preserved under
 `/root/stroyka-backups/brigade-lineage-strict-a3578a17-*.json`.
+
+## Task E4: Reviewed Estimate Row Balance Transfer
+
+**Status:** Specification drafted on 2026-08-06; human review is required
+before implementation. No E4 schema, route or business-data write exists.
+
+**Contract:** `docs/estimate-row-transfer-contract.md` is authoritative. The
+operation uses an approved exact source/target mapping and explicit quantities.
+It may reduce an assignment only above server-recomputed confirmed JPR and may
+attribute only an unreceived open-request balance. Existing source lineage,
+JPR, acts, supply documents, warehouse history and payments remain unchanged.
+
+**Assumptions awaiting confirmation:**
+
+- Transfer quantity is explicit, never automatically the full remainder.
+- Source assignment quantity may reduce only above confirmed JPR; immutable
+  ledger evidence preserves its complete pre-transfer state.
+- Target estimate price is current; negotiated brigade price is preserved.
+- Supply requests are not split or rewritten; an allocation ledger moves only
+  their unreceived balance in material-control projections.
+- Estimate writers may draft, but only director/deputy may approve and apply.
+
+### Task E4.1: Read-Only Exact Transfer Impact Audit
+
+**Description:** Inspect one approved estimate reconciliation without trusting
+its descriptive row aggregation. Resolve stored owners and exact immutable
+assignment sources, validate proposed target coordinates with the canonical
+snapshot resolver, calculate assignment/JPR and request/delivery balances, and
+emit bounded candidates/blockers without writes.
+
+**Acceptance criteria:**
+
+- [ ] Cross-company/project/package/type, stale snapshot, fuzzy mapping,
+  malformed request lineage and non-finite/over-completed balances fail closed.
+- [ ] Output contains IDs, exact coordinates, quantities, counts and fixed
+  reason codes only; it excludes descriptions, commercial notes and prices.
+- [ ] Report proves `writesAttempted=0`, uses a read-only transaction, rolls
+  back and includes protected-history counts without loading their content.
+
+**Verification:**
+
+- [ ] RED tests cover every trust boundary and protected-history condition.
+- [ ] Focused and full backend tests pass; Python compilation and
+  `git diff --check` pass.
+- [ ] A real PostgreSQL fixture proves read-only behavior and bounded output.
+
+**Dependencies:** E3.4 production complete; E4 contract approved.
+
+**Files likely touched:**
+
+- `backend/features/estimate_row_transfer/audit.py`
+- `backend/features/estimate_row_transfer/test_audit.py`
+- `package.json`
+- `tasks/todo.md`
+
+**Estimated scope:** M (first independent checkpoint; no runtime mutation).
+
+### Checkpoint After E4.1
+
+- [ ] Human reviews production audit evidence before any E4 schema design.
+- [ ] No DDL or business row was changed.
+- [ ] Exact candidates and blockers are sufficient to design E4.2 without
+  fuzzy or descriptive inference.
