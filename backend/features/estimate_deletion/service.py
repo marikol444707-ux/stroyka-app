@@ -13,7 +13,20 @@ DEPENDENCY_CHECKS = (
     ("акты скрытых работ", "SELECT COUNT(*) FROM hidden_works_acts WHERE estimate_id=%s"),
     ("настройки норм", "SELECT COUNT(*) FROM material_norm_overrides WHERE estimate_id=%s"),
     ("переписка по смете", "SELECT COUNT(*) FROM estimate_chat_messages WHERE estimate_id=%s"),
-    ("договорные позиции", "SELECT COUNT(*) FROM brigade_contract_items WHERE estimate_item_key LIKE %s"),
+    (
+        "договорные позиции",
+        """SELECT COUNT(*)
+             FROM brigade_contract_items bci
+             JOIN estimate_versions ev
+               ON ev.id=bci.source_estimate_version_id
+            WHERE ev.estimate_id=%s""",
+    ),
+    (
+        "договорные позиции",
+        """SELECT COUNT(*) FROM brigade_contract_items
+             WHERE source_type='legacy'
+               AND estimate_item_key LIKE %s""",
+    ),
 )
 
 
@@ -52,7 +65,7 @@ def find_estimate_delete_blockers(cur, *, estimate_id, company_id, project_name)
             (str(int(estimate_id)) + ":%",) if "LIKE" in query else (estimate_id,)
         )
         cur.execute(query, params)
-        if _count(cur.fetchone()) > 0:
+        if _count(cur.fetchone()) > 0 and label not in blockers:
             blockers.append(label)
 
     cur.execute(

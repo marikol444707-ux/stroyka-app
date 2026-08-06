@@ -4261,9 +4261,8 @@ expected boundary after E3.3; do not interpret them as writer failure.
 
 ## Task E3.4.1: Strict Brigade Lineage Readiness Audit
 
-**Status:** Local implementation complete on 2026-08-06; production deployment
-and read-only evidence are pending. This is a diagnostic-only release; no DDL,
-data write, route mutation or default removal belongs in this slice.
+**Status:** Complete in production on 2026-08-06. This was a diagnostic-only
+release; it executed no DDL, route mutation or default removal.
 
 **Objective:** Extend `npm run audit:brigade-lineage` with a bounded,
 repeatable-read preflight that proves whether production can safely enter the
@@ -4332,9 +4331,53 @@ Critical or Required correctness, architecture, security or performance issue.
 No dependency changed; the inherited CRA/Jest audit debt recorded in E3.3.2 is
 unchanged and remains a separate modernization task.
 
-**Production evidence gate:** Deploy this diagnostic, run
-`npm run --silent audit:brigade-lineage`, and require top-level `ok=true`,
-`dryRun=true`, `writesAttempted=0`, `rolledBack=true`, writer readiness still
-green, aggregate lineage data free of invalid rows, and bounded catalog/delete
-gaps with `readyForStrictRuntime=false`. Do not start E3.4.2 until that exact
-read-only output is reviewed.
+**Production evidence:** Runtime `4247630c92bb` returned top-level `ok=true`,
+`dryRun=true`, `writesAttempted=0`, `rolledBack=true`, a green `3 INSERT / 3
+UPDATE` writer audit and no invalid lineage shapes. The first run identified 13
+orphaned `estimate_versions` belonging to eight already-deleted estimates.
+Their references and hashes were all zero. After an exact-ID transaction backed
+up to `/root/stroyka-backups/orphan-estimate-versions-20260806T155256Z.sql`
+(`sha256:99ba04e653ff643092077becbe0f4e153be5fda21e8dd766db86d14a9d99f25f`),
+the post-audit reports every aggregate integrity count as zero. The backup is
+`600 root:root`, the transaction deleted exactly the 13 reviewed IDs, and no
+write conflict occurred. Remaining bounded gaps are the expected strict-schema
+catalog objects and the estimate-delete policy; therefore
+`readyForStrictRuntime=false` remains correct.
+
+## Task E3.4.2a: Exact Estimate Delete Restriction
+
+**Status:** Local implementation complete on 2026-08-06; production deploy and
+read-only audit are pending. This slice changes only delete preflight
+queries and contains no DDL or data migration.
+
+**Objective:** Block estimate deletion through the authoritative
+`brigade_contract_items.source_estimate_version_id -> estimate_versions.id ->
+estimate_id` relationship. Retain compatibility-key matching only for rows
+explicitly classified as `source_type='legacy'`.
+
+**Acceptance:**
+
+- Exact version lineage blocks deletion even when its compatibility key does
+  not encode the estimate ID.
+- Non-legacy rows are never matched through the fuzzy compatibility key.
+- Exact and legacy matches expose one stable `договорные позиции` blocker.
+- All query values remain parameterized and the existing authorized delete
+  route, technical-record cleanup and supply-request checks remain unchanged.
+- The static delete audit reports `deleteRestrictionsReady=true`; strict schema
+  readiness remains false until the separate E3.4.2b catalog migration.
+
+**Local evidence:** RED produced four expected failures. The minimal policy
+change then passed all 14 focused estimate-deletion/static-audit tests, full
+backend discovery (`1308/1308`), frontend Jest (`304/304`, 76 suites), isolated
+Python compilation, the production React build, publisher regressions (`3/3`)
+and `git diff --check`. The static audit reports
+`deleteRestrictionsReady=true`, an empty violation list and zero writes.
+Five-axis review found no Critical or Required issue: the route still locks and
+authorizes the selected-company estimate, every SQL value is parameterized,
+the exact writer takes the same estimate row lock, and the two bounded lookups
+add no unbounded data path or dependency.
+
+**Production gate:** Deploy E3.4.2a, run
+`npm run --silent audit:brigade-lineage`, and require the same read-only/rollback
+and zero-integrity-count evidence plus `deleteRestrictionsReady=true` and an
+empty deletion-policy violation list. Do not execute E3.4.2b DDL in this deploy.

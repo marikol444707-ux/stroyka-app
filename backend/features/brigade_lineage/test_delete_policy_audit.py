@@ -68,16 +68,13 @@ DEPENDENCY_CHECKS = (
             ["exactEstimateVersionBlockerMissing"],
         )
 
-    def test_repository_policy_reports_current_gap_without_exposing_sql(self):
+    def test_repository_policy_is_ready_without_exposing_sql(self):
         repo_root = Path(__file__).resolve().parents[3]
 
         report = audit_estimate_delete_policy(repo_root=repo_root)
 
-        self.assertFalse(report["deleteRestrictionsReady"])
-        self.assertEqual(report["violations"], [
-            "exactEstimateVersionBlockerMissing",
-            "legacyFallbackNotScoped",
-        ])
+        self.assertTrue(report["deleteRestrictionsReady"])
+        self.assertEqual(report["violations"], [])
         self.assertNotIn("SELECT", str(report))
 
     def test_parse_failure_is_bounded_and_fails_closed(self):

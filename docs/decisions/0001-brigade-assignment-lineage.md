@@ -210,6 +210,20 @@ catalog, aggregate-data and deletion-policy gates together. E3.4.1 reports the
 missing gates and performs no repair. E3.4.2 remains a separately reviewed,
 guarded and rollback-friendly enforcement release.
 
+Production runtime `4247630c92bb` completed that diagnostic. After an exact-ID,
+backed-up removal of 13 orphaned versions for already-deleted estimates, every
+aggregate integrity counter is zero. Enforcement is split again to keep the
+runtime delete guard independent from schema DDL: E3.4.2a installs the exact
+delete policy and is deployed/audited first; E3.4.2b owns all FK, CHECK, index,
+trigger, NOT NULL and default-removal changes.
+
+E3.4.2a resolves assignment references through
+`brigade_contract_items.source_estimate_version_id = estimate_versions.id` and
+filters the joined version by `estimate_versions.estimate_id`. The historical
+`estimate_item_key` prefix remains only for rows explicitly classified as
+`source_type='legacy'`. If both checks match, the API returns one stable
+contract-item blocker rather than leaking internal classification details.
+
 The readiness JSON extension is additive, so the existing report version and
 all prior fields remain stable. A completed run sets
 `constraintAuditIncluded=true` and `deleteRestrictionAuditIncluded=true`, then
