@@ -4193,9 +4193,7 @@ until the complete writer audit passes.
 
 ## Task E3.3.2: Atomic Brigade Assignment Writer Cutover
 
-**Status:** Local implementation complete on 2026-08-06. Production still runs
-`857b0b622de9`; E3.3 remains open until this slice is deployed and the
-production writer audit passes.
+**Status:** Complete in production on 2026-08-06, runtime `6f5ab8a4430a`.
 
 **Behavior:**
 
@@ -4240,8 +4238,14 @@ production writer audit passes.
   start the backend.
 - [x] Final writer audit reports three allowlisted INSERT writers, three
   allowlisted UPDATE writers and no violation in its regression tests.
-- [ ] Production deploy and `npm run --silent audit:brigade-lineage` confirm
+- [x] Production deploy and `npm run --silent audit:brigade-lineage` confirm
   `writerAuditIncluded=true`, `writersReady=true` and no writer violations.
+- [x] The post-deploy report was read-only and rolled back, found complete E3.2
+  schema, exactly `151` explicit legacy rows, zero invalid/unclassified rows,
+  exactly three INSERT and three UPDATE writers, and an empty violation list.
+- [x] The complete public smoke passed on runtime `6f5ab8a4430a`, including
+  frontend `/`, `/app`, `/max-app`, health and all expected public/protected
+  route status checks.
 
 **Known dependency gate:** `npm audit --audit-level=high` currently reports
 `31` inherited dependency findings (`16` high), dominated by the existing
@@ -4249,7 +4253,8 @@ Create React App/Jest toolchain. Its proposed complete fix installs the
 breaking `react-scripts@0.0.0`; dependency modernization must be a separate,
 tested change and was not mixed into this lineage cutover.
 
-**Next:** Fast-forward this reviewed slice to `main`, deploy it without any
-E3.4 schema enforcement, and require the production writer audit plus the
-normal smoke check. Keep the temporary `source_type='legacy'` default until
-E3.4 adds and verifies FK/CHECK/index/immutability/deletion gates.
+**Next:** Design E3.4 as a separate guarded schema release. Keep the temporary
+`source_type='legacy'` default until an E3.4 preflight proves the complete
+FK/CHECK/index/immutability/deletion plan against the `151` explicit legacy
+rows. `lineageDataReady=false` and `constraintAuditIncluded=false` remain the
+expected boundary after E3.3; do not interpret them as writer failure.

@@ -5,8 +5,8 @@
 Accepted. E3.1 established the production baseline. E3.2 added only the
 nullable storage contract and an explicit legacy classification. E3.3.1 added
 the inert exact snapshot resolver. E3.3.2 cuts all local runtime writers over
-to explicit, exact lineage; production verification and E3.4 strict
-constraints remain pending.
+to explicit, exact lineage. Production runtime `6f5ab8a4430a` passed writer
+verification; E3.4 strict constraints remain pending.
 
 ## Date
 
@@ -170,7 +170,15 @@ requires explicit source classification, and rejects source mutation,
 descriptive assignment lookup and unsafe quantity synchronization. Runtime
 writer readiness is reported separately from data and constraint readiness.
 
-## Writer changes completed locally before enforcement
+Production verification on 2026-08-06 ran the complete report read-only and
+rolled it back. It found the complete additive schema, `151` explicit legacy
+rows, zero invalid or unclassified rows, exactly three allowlisted INSERT
+statements and three allowlisted UPDATE statements, and no writer violation.
+The public deployment smoke passed on runtime `6f5ab8a4430a`. The expected
+post-E3.3 boundary remains `lineageDataReady=false` and
+`constraintAuditIncluded=false` until E3.4 is designed and enforced.
+
+## Writer changes completed in production before enforcement
 
 - `POST /estimates/{id}/work-assignment` and `/distribute` now persist the exact
   revision coordinate and make exact repeats idempotent without destructive
