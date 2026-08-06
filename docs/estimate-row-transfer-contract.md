@@ -2,10 +2,11 @@
 
 ## Status
 
-Draft for human review. This document does not authorize schema changes or
-production writes. The first implementation slice is read-only.
+Approved by the user on 2026-08-06. This approval authorizes the read-only E4.1
+implementation only; it does not authorize schema changes or production
+writes.
 
-## Assumptions To Confirm
+## Confirmed Decisions
 
 1. Every transfer stores an explicit positive quantity. The server never
    assumes that the complete remaining balance should move.
@@ -290,6 +291,5 @@ npm run audit:estimate-row-transfer -- --reconciliation-id <id>
 
 ## Open Questions
 
-The five assumptions at the top require human confirmation before E4.1 moves
-from specification to implementation. No other open design question blocks the
-read-only impact-audit slice.
+No open design question blocks the read-only E4.1 impact-audit slice. Later
+write-capable slices still require their own reviewed checkpoints.

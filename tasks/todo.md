@@ -4458,8 +4458,9 @@ back. Reviewed dry-run and apply outputs are preserved under
 
 ## Task E4: Reviewed Estimate Row Balance Transfer
 
-**Status:** Specification drafted on 2026-08-06; human review is required
-before implementation. No E4 schema, route or business-data write exists.
+**Status:** Contract approved by the user on 2026-08-06. E4.1 read-only impact
+audit implementation is in progress. No E4 schema, route or business-data
+write exists.
 
 **Contract:** `docs/estimate-row-transfer-contract.md` is authoritative. The
 operation uses an approved exact source/target mapping and explicit quantities.
@@ -4467,7 +4468,7 @@ It may reduce an assignment only above server-recomputed confirmed JPR and may
 attribute only an unreceived open-request balance. Existing source lineage,
 JPR, acts, supply documents, warehouse history and payments remain unchanged.
 
-**Assumptions awaiting confirmation:**
+**Confirmed decisions:**
 
 - Transfer quantity is explicit, never automatically the full remainder.
 - Source assignment quantity may reduce only above confirmed JPR; immutable
