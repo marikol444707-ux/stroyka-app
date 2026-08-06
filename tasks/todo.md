@@ -4007,5 +4007,26 @@ controls absent. Public smoke and one manual shadow activation check pass.
   `state=planned`, `enqueueAttempted=false` and `writesAttempted=0`; the
   `agent_jobs` row count remained `2` and readiness stayed green.
 
-**Next:** A company `1` canary that persists one queue row requires a separate
-explicit decision; exact runner execution remains another later step.
+**Next:** The separately approved company `1` enqueue canary is recorded in
+A6.3.3. Exact runner execution remains another later step.
+
+## Task A6.3.3: Company 1 Enqueue Canary
+
+**Status:** Complete. The runtime controls were enabled only for the short
+manual test window and were removed immediately after verification.
+
+**Verification:**
+- [x] Baseline readiness was green with `2` valid persisted jobs.
+- [x] Activating empty test estimate `86` created exactly one company `1`
+  `director.daily_brief` job `10` with status `queued`.
+- [x] The bounded runtime report returned `mode=enqueue`, `state=enqueued`,
+  `enqueueAttempted=true`, `writesAttempted=1` and `committed=true`.
+- [x] Readiness remained green with `3` total jobs and zero invalid owner,
+  status or lease rows.
+- [x] The canary drop-in was disabled, systemd reloaded, backend restarted and
+  the runtime confirmed no `AGENT_CHANGE_DISPATCH_*` environment values.
+- [x] The generic runner, model and business mutations were not started.
+
+**Next:** Execute only exact queued job `10` in a separately approved
+`--once --job-id 10` canary, then verify its bounded read-only result. Do not
+start the generic runner or daemon.
