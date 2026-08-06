@@ -4458,9 +4458,9 @@ back. Reviewed dry-run and apply outputs are preserved under
 
 ## Task E4: Reviewed Estimate Row Balance Transfer
 
-**Status:** Contract approved by the user on 2026-08-06. E4.1 read-only impact
-audit implementation is in progress. No E4 schema, route or business-data
-write exists.
+**Status:** Contract approved by the user on 2026-08-06. E4.1 is complete and
+verified locally; its separate production read-only audit is pending. No E4
+schema, route or business-data write exists.
 
 **Contract:** `docs/estimate-row-transfer-contract.md` is authoritative. The
 operation uses an approved exact source/target mapping and explicit quantities.
@@ -4488,19 +4488,19 @@ emit bounded candidates/blockers without writes.
 
 **Acceptance criteria:**
 
-- [ ] Cross-company/project/package/type, stale snapshot, fuzzy mapping,
+- [x] Cross-company/project/package/type, stale snapshot, fuzzy mapping,
   malformed request lineage and non-finite/over-completed balances fail closed.
-- [ ] Output contains IDs, exact coordinates, quantities, counts and fixed
+- [x] Output contains IDs, exact coordinates, quantities, counts and fixed
   reason codes only; it excludes descriptions, commercial notes and prices.
-- [ ] Report proves `writesAttempted=0`, uses a read-only transaction, rolls
+- [x] Report proves `writesAttempted=0`, uses a read-only transaction, rolls
   back and includes protected-history counts without loading their content.
 
 **Verification:**
 
-- [ ] RED tests cover every trust boundary and protected-history condition.
-- [ ] Focused and full backend tests pass; Python compilation and
+- [x] RED tests cover every trust boundary and protected-history condition.
+- [x] Focused and full backend tests pass; Python compilation and
   `git diff --check` pass.
-- [ ] A real PostgreSQL fixture proves read-only behavior and bounded output.
+- [x] A real PostgreSQL fixture proves read-only behavior and bounded output.
 
 **Dependencies:** E3.4 production complete; E4 contract approved.
 
@@ -4512,6 +4512,27 @@ emit bounded candidates/blockers without writes.
 - `tasks/todo.md`
 
 **Estimated scope:** M (first independent checkpoint; no runtime mutation).
+
+**Local verification:** RED began with the absent audit module and then caught
+closed-request leakage, cross-project supply lineage, duplicate source
+coordinates and fractional JSON IDs/indexes. Focused discovery runs `21` tests
+with zero failures and one expected opt-in PostgreSQL skip. Full backend
+discovery runs `1344` tests with zero failures and the same one expected skip;
+isolated Python compilation, npm CLI help and `git diff --check` pass.
+
+A disposable PostgreSQL 15 cluster separately ran the opt-in fixture `1/1`.
+The real report resolved one approved reconciliation, recomputed confirmed JPR
+quantity `4`, reported transferable assignment quantity `6`, used a read-only
+repeatable-read transaction, rolled back and left every fixture table count
+unchanged. Both disposable clusters were stopped and removed after testing.
+
+**Review result:** No Critical or Required finding remains across correctness,
+security, architecture or performance. Review-fixed regressions exclude closed
+requests, bind stored supply project lineage, reject duplicate coordinates and
+reject fractional IDs/indexes instead of truncating them. Runtime SQL is static
+and parameterized, contains no DML/DDL/row locks, and output omits descriptions,
+prices and commercial notes. No dependency, API route, schema or business
+writer changed.
 
 ### Checkpoint After E4.1
 
