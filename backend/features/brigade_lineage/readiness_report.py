@@ -127,7 +127,46 @@ def _snapshot_item_key_status(row, sections):
     return "match" if row.get("source_item_key") in keys else "mismatch"
 
 
-def classify_contract_item(row, *, lineage_schema_ready, snapshot_schema_ready):
+def _prepare_snapshot_evidence(row):
+    evidence = dict(row or {})
+    if "_snapshot_content_reason" in evidence:
+        return evidence
+    raw_hash = evidence.get("snapshot_sections_sha256")
+    if (
+        not isinstance(raw_hash, str)
+        or raw_hash != raw_hash.strip()
+        or raw_hash != raw_hash.lower()
+        or not _SHA256_RE.fullmatch(raw_hash)
+    ):
+        evidence["_snapshot_content_reason"] = "snapshot_hash_not_canonical"
+        return evidence
+    try:
+        sections = _sections(evidence.get("snapshot_sections_json"))
+        if sections_sha256(sections) != raw_hash:
+            evidence["_snapshot_content_reason"] = "snapshot_hash_mismatch"
+            return evidence
+    except (
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+        RecursionError,
+        UnicodeError,
+        OverflowError,
+    ):
+        evidence["_snapshot_content_reason"] = "snapshot_content_invalid"
+        return evidence
+    evidence["_snapshot_content_reason"] = None
+    evidence["_snapshot_sections"] = sections
+    return evidence
+
+
+def classify_contract_item(
+    row,
+    *,
+    lineage_schema_ready,
+    snapshot_schema_ready,
+    snapshot_evidence=None,
+):
     item = dict(row or {})
     if item.get("contract_exists") is not True:
         return _result(item, "invalid", "contract_not_found")
@@ -197,37 +236,31 @@ def classify_contract_item(row, *, lineage_schema_ready, snapshot_schema_ready):
         or raw_source_item_key != source_item_key
     ):
         return _result(item, "invalid", "source_item_key_not_canonical")
-    if item.get("snapshot_exists") is not True:
+    evidence = item if snapshot_evidence is None else dict(snapshot_evidence or {})
+    if evidence.get("snapshot_exists") is not True:
         return _result(item, "invalid", "snapshot_not_found")
-    if _positive_int(item.get("snapshot_version_id")) != source_version:
+    if _positive_int(evidence.get("snapshot_version_id")) != source_version:
         return _result(item, "invalid", "snapshot_version_mismatch")
-    source_estimate = _positive_int(item.get("snapshot_estimate_id"))
+    source_estimate = _positive_int(evidence.get("snapshot_estimate_id"))
     if not source_estimate:
         return _result(item, "invalid", "snapshot_estimate_missing")
-    if item.get("estimate_exists") is not True:
+    if evidence.get("estimate_exists") is not True:
         return _result(item, "invalid", "estimate_not_found")
     if (
-        _positive_int(item.get("estimate_company_id")),
-        _positive_int(item.get("estimate_project_id")),
+        _positive_int(evidence.get("estimate_company_id")),
+        _positive_int(evidence.get("estimate_project_id")),
     ) != (contract_company, contract_project):
         return _result(item, "invalid", "estimate_owner_mismatch")
 
-    raw_hash = item.get("snapshot_sections_sha256")
-    if (
-        not isinstance(raw_hash, str)
-        or raw_hash != raw_hash.strip()
-        or raw_hash != raw_hash.lower()
-        or not _SHA256_RE.fullmatch(raw_hash)
-    ):
-        return _result(item, "invalid", "snapshot_hash_not_canonical")
-    stored_hash = raw_hash
-    try:
-        sections = _sections(item.get("snapshot_sections_json"))
-        if sections_sha256(sections) != stored_hash:
-            return _result(item, "invalid", "snapshot_hash_mismatch")
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return _result(item, "invalid", "snapshot_content_invalid")
-    item_key_status = _snapshot_item_key_status(item, sections)
+    evidence = _prepare_snapshot_evidence(evidence)
+    content_reason = evidence.get("_snapshot_content_reason")
+    if content_reason:
+        return _result(item, "invalid", content_reason)
+    key_context = {**evidence, **item}
+    item_key_status = _snapshot_item_key_status(
+        key_context,
+        evidence.get("_snapshot_sections"),
+    )
     if item_key_status == "noncanonical":
         return _result(item, "invalid", "snapshot_row_key_not_canonical")
     if item_key_status == "ambiguous":
@@ -244,7 +277,7 @@ def _missing(schema, table, required):
     return [column for column in required if column not in columns]
 
 
-def build_report_from_rows(schema, rows):
+def build_report_from_rows(schema, rows, *, snapshot_rows=None):
     schema = schema or {}
     rows = list(rows or [])
     missing_base = {
@@ -263,14 +296,27 @@ def build_report_from_rows(schema, rows):
     )
     lineage_ready = not missing_base["brigade_contract_items"] and not missing_lineage
     snapshot_ready = not missing_base["estimate_versions"] and not missing_snapshot
-    classified = [
-        classify_contract_item(
-            row,
-            lineage_schema_ready=lineage_ready,
-            snapshot_schema_ready=snapshot_ready,
+    snapshot_evidence = None
+    if snapshot_rows is not None:
+        snapshot_evidence = {}
+        for raw_snapshot in snapshot_rows or ():
+            version_id = _positive_int((raw_snapshot or {}).get("snapshot_version_id"))
+            if version_id and version_id not in snapshot_evidence:
+                snapshot_evidence[version_id] = _prepare_snapshot_evidence(raw_snapshot)
+    classified = []
+    for row in rows:
+        evidence = None
+        if snapshot_evidence is not None:
+            version_id = _positive_int((row or {}).get("source_estimate_version_id"))
+            evidence = snapshot_evidence.get(version_id, {})
+        classified.append(
+            classify_contract_item(
+                row,
+                lineage_schema_ready=lineage_ready,
+                snapshot_schema_ready=snapshot_ready,
+                snapshot_evidence=evidence,
+            )
         )
-        for row in rows
-    ]
     counts = Counter(item["status"] for item in classified)
     statuses = (
         "verified_estimate",
@@ -406,11 +452,6 @@ def load_contract_item_rows(cur, schema):
         "brigade_contract_items",
         LINEAGE_COLUMNS,
     )
-    snapshot_ready = not _missing(
-        schema,
-        "estimate_versions",
-        SNAPSHOT_COLUMNS,
-    )
     select_fields = [
         "bci.id AS contract_item_id",
         "COALESCE(bci.estimate_item_key,'') AS legacy_item_key",
@@ -426,24 +467,6 @@ def load_contract_item_rows(cur, schema):
     ]
     if lineage_ready:
         select_fields.extend("bci.%s" % column for column in LINEAGE_COLUMNS)
-        select_fields.extend([
-            "ev.id IS NOT NULL AS snapshot_exists",
-            "ev.id AS snapshot_version_id",
-            "ev.estimate_id AS snapshot_estimate_id",
-            (
-                "ev.sections_sha256 AS snapshot_sections_sha256"
-                if snapshot_ready
-                else "NULL AS snapshot_sections_sha256"
-            ),
-            "ev.sections_json AS snapshot_sections_json",
-            "e.id IS NOT NULL AS estimate_exists",
-            "e.company_id AS estimate_company_id",
-            "e.project_id AS estimate_project_id",
-        ])
-        joins.extend([
-            "LEFT JOIN estimate_versions ev ON ev.id=bci.source_estimate_version_id",
-            "LEFT JOIN estimates e ON e.id=ev.estimate_id",
-        ])
     cur.execute(
         "SELECT %s FROM brigade_contract_items bci %s ORDER BY bci.id"
         % (", ".join(select_fields), " ".join(joins))
@@ -451,18 +474,66 @@ def load_contract_item_rows(cur, schema):
     return [dict(row or {}) for row in (cur.fetchall() or [])]
 
 
+def load_snapshot_rows(cur, schema, version_ids):
+    if _missing(schema, "estimate_versions", _BASE_COLUMNS["estimate_versions"]):
+        return []
+    if _missing(schema, "estimate_versions", SNAPSHOT_COLUMNS):
+        return []
+    if _missing(schema, "estimates", _BASE_COLUMNS["estimates"]):
+        return []
+    normalized_ids = sorted({
+        version_id
+        for version_id in (_positive_int(value) for value in (version_ids or ()))
+        if version_id
+    })
+    if not normalized_ids:
+        return []
+    cur.execute(
+        """SELECT ev.id IS NOT NULL AS snapshot_exists,
+                  ev.id AS snapshot_version_id,
+                  ev.estimate_id AS snapshot_estimate_id,
+                  ev.sections_sha256 AS snapshot_sections_sha256,
+                  ev.sections_json AS snapshot_sections_json,
+                  e.id IS NOT NULL AS estimate_exists,
+                  e.company_id AS estimate_company_id,
+                  e.project_id AS estimate_project_id
+             FROM estimate_versions ev
+             LEFT JOIN estimates e ON e.id=ev.estimate_id
+            WHERE ev.id=ANY(%s)
+            ORDER BY ev.id""",
+        (normalized_ids,),
+    )
+    return [dict(row or {}) for row in (cur.fetchall() or [])]
+
+
 def build_readiness_report(cur):
     schema = load_schema(cur)
+    contract_rows = load_contract_item_rows(cur, schema)
+    snapshot_rows = None
+    if (
+        not _missing(schema, "brigade_contract_items", LINEAGE_COLUMNS)
+        and not _missing(schema, "estimate_versions", SNAPSHOT_COLUMNS)
+    ):
+        snapshot_rows = load_snapshot_rows(
+            cur,
+            schema,
+            [row.get("source_estimate_version_id") for row in contract_rows],
+        )
     return build_report_from_rows(
         schema,
-        load_contract_item_rows(cur, schema),
+        contract_rows,
+        snapshot_rows=snapshot_rows,
     )
 
 
 def run_readiness_report(get_db):
     conn = get_db()
     try:
-        conn.set_session(readonly=True, autocommit=False)
+        conn.set_session(
+            readonly=True,
+            autocommit=False,
+            isolation_level="REPEATABLE READ",
+        )
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             result = build_readiness_report(cur)

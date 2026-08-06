@@ -10,6 +10,7 @@ from backend.features.brigade_lineage.readiness_report import (
     classify_contract_item,
     load_contract_item_rows,
     load_schema,
+    load_snapshot_rows,
     run_readiness_report,
     sections_sha256,
 )
@@ -70,6 +71,41 @@ def estimate_row(**overrides):
         "snapshot_estimate_id": 17,
         "snapshot_sections_sha256": digest,
         "snapshot_sections_json": json.dumps(sections, ensure_ascii=False),
+    }
+    row.update(overrides)
+    return row
+
+
+def assignment_source_row(contract_item_id):
+    row = estimate_row(contract_item_id=contract_item_id)
+    for field in (
+        "estimate_exists",
+        "estimate_company_id",
+        "estimate_project_id",
+        "snapshot_exists",
+        "snapshot_version_id",
+        "snapshot_estimate_id",
+        "snapshot_sections_sha256",
+        "snapshot_sections_json",
+    ):
+        row.pop(field)
+    return row
+
+
+def snapshot_row(**overrides):
+    sections = [{
+        "name": "Раздел",
+        "items": [{"name": "Работа", "estimateItemKey": "source-row-1"}],
+    }]
+    row = {
+        "snapshot_exists": True,
+        "snapshot_version_id": 71,
+        "snapshot_estimate_id": 17,
+        "snapshot_sections_sha256": sections_sha256(sections),
+        "snapshot_sections_json": json.dumps(sections, ensure_ascii=False),
+        "estimate_exists": True,
+        "estimate_company_id": 3,
+        "estimate_project_id": 8,
     }
     row.update(overrides)
     return row
@@ -387,6 +423,42 @@ class BrigadeLineageReportTests(unittest.TestCase):
         self.assertEqual(report["summary"]["byState"]["declaredPricelist"], 0)
         self.assertEqual(report["needsReview"], [])
 
+    def test_reused_snapshot_is_hashed_once_for_all_assignment_rows(self):
+        rows = [assignment_source_row(41), assignment_source_row(42)]
+        with patch.object(
+            report_module,
+            "sections_sha256",
+            wraps=sections_sha256,
+        ) as digest:
+            report = build_report_from_rows(
+                complete_schema(),
+                rows,
+                snapshot_rows=[snapshot_row()],
+            )
+
+        self.assertEqual(digest.call_count, 1)
+        self.assertEqual(report["summary"]["byState"]["verifiedEstimate"], 2)
+        self.assertEqual(report["summary"]["byState"]["invalid"], 0)
+
+    def test_excessively_nested_snapshot_is_invalid_instead_of_aborting_audit(self):
+        rows = [assignment_source_row(41), assignment_source_row(42)]
+        with patch.object(
+            report_module,
+            "sections_sha256",
+            side_effect=RecursionError,
+        ) as digest:
+            report = build_report_from_rows(
+                complete_schema(),
+                rows,
+                snapshot_rows=[
+                    snapshot_row(snapshot_sections_sha256="0" * 64),
+                ],
+            )
+
+        self.assertEqual(digest.call_count, 1)
+        self.assertEqual(report["summary"]["byState"]["invalid"], 2)
+        self.assertEqual(report["reasonCounts"], {"snapshot_content_invalid": 2})
+
 
 class FakeCursor:
     def __init__(self, responses):
@@ -456,6 +528,28 @@ class BrigadeLineageDatabaseReportTests(unittest.TestCase):
         self.assertNotIn("ev.sections_sha256", sql)
         self.assertNotIn("description", sql)
 
+    def test_complete_schema_item_query_does_not_repeat_snapshot_documents(self):
+        cursor = FakeCursor([[assignment_source_row(41)]])
+
+        rows = load_contract_item_rows(cursor, complete_schema())
+
+        self.assertEqual(rows, [assignment_source_row(41)])
+        sql = cursor.calls[0][0]
+        self.assertIn("bci.source_estimate_version_id", sql)
+        self.assertNotIn("estimate_versions", sql)
+        self.assertNotIn("sections_json", sql)
+
+    def test_snapshot_query_loads_each_requested_version_once(self):
+        cursor = FakeCursor([[snapshot_row()]])
+
+        rows = load_snapshot_rows(cursor, complete_schema(), [72, 71, 71, None])
+
+        self.assertEqual(rows, [snapshot_row()])
+        sql, params = cursor.calls[0]
+        self.assertIn("FROM estimate_versions ev", sql)
+        self.assertIn("ev.id=ANY(%s)", sql)
+        self.assertEqual(params, ([71, 72],))
+
     def test_runner_is_read_only_rolls_back_and_closes_connection(self):
         cursor = FakeCursor([])
         connection = FakeConnection(cursor)
@@ -467,10 +561,18 @@ class BrigadeLineageDatabaseReportTests(unittest.TestCase):
             report_module,
             "load_contract_item_rows",
             return_value=[estimate_row()],
+        ), patch.object(
+            report_module,
+            "load_snapshot_rows",
+            return_value=[snapshot_row()],
         ):
             report = run_readiness_report(lambda: connection)
 
-        self.assertEqual(connection.session_calls, [{"readonly": True, "autocommit": False}])
+        self.assertEqual(connection.session_calls, [{
+            "readonly": True,
+            "autocommit": False,
+            "isolation_level": "REPEATABLE READ",
+        }])
         self.assertEqual(connection.rollback_calls, 1)
         self.assertTrue(cursor.closed)
         self.assertTrue(connection.closed)
