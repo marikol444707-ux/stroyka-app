@@ -145,6 +145,50 @@ class BrigadeContractItemsTest(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertTrue(connection.rolled_back)
 
+    def test_create_marks_generic_item_as_manual_without_lineage_coordinates(self):
+        cursor = FakeCursor(fetchone_results=[(14,)])
+        app, connection = build(cursor)
+
+        result = app.routes[("POST", "/brigade-contract-items")](
+            {
+                "contractId": 7,
+                "estimateSection": "Дополнительные работы",
+                "name": "Уборка",
+                "unit": "ч",
+                "quantity": 3,
+                "priceSmeta": 500,
+                "priceBrigade": 350,
+            },
+            x_company_id="3", x_company_mode="company", _current_user={},
+        )
+
+        insert = next(call for call in cursor.calls if call[0].startswith("INSERT INTO brigade_contract_items"))
+        self.assertIn("source_type", insert[0])
+        self.assertEqual(insert[1][4], "")
+        self.assertEqual(insert[1][10:], ("manual", None, None, None, None))
+        self.assertEqual(result["id"], 14)
+        self.assertTrue(connection.committed)
+
+    def test_create_rejects_client_supplied_estimate_lineage(self):
+        for payload in (
+            {"contractId": 7, "estimateItemKey": "estimate:0:1"},
+            {"contractId": 7, "sourceType": "estimate"},
+            {"contractId": 7, "source_estimate_version_id": 12},
+        ):
+            with self.subTest(payload=payload):
+                cursor = FakeCursor()
+                app, connection = build(cursor)
+
+                with self.assertRaises(HTTPException) as ctx:
+                    app.routes[("POST", "/brigade-contract-items")](
+                        payload,
+                        x_company_id="3", x_company_mode="company", _current_user={},
+                    )
+
+                self.assertEqual(ctx.exception.status_code, 400)
+                self.assertFalse(any(call[0].startswith("INSERT INTO brigade_contract_items") for call in cursor.calls))
+                self.assertTrue(connection.rolled_back)
+
     def test_update_clamps_done_and_recalcs_total(self):
         recalc = []
         cursor = FakeCursor(fetchone_results=[(7, "Основная"), (7,)])
@@ -156,8 +200,33 @@ class BrigadeContractItemsTest(unittest.TestCase):
         self.assertEqual(result["ok"], True)
         update = [c for c in cursor.calls if c[0].startswith("UPDATE brigade_contract_items")][0]
         self.assertEqual(update[1][3], 100)
+        self.assertNotIn("estimate_item_key", update[0])
         self.assertEqual(recalc, [7])
         self.assertTrue(connection.committed)
+
+    def test_update_ignores_compatibility_key_and_rejects_source_coordinates(self):
+        cursor = FakeCursor(fetchone_results=[(7, "Основная"), (7,)])
+        app, connection = build(cursor)
+        app.routes[("PUT", "/brigade-contract-items/{id}")](
+            id=4,
+            data={"quantity": 10, "estimateItemKey": "tampered"},
+            x_company_id="3", x_company_mode="company", _current_user={},
+        )
+        update = next(call for call in cursor.calls if call[0].startswith("UPDATE brigade_contract_items"))
+        self.assertNotIn("estimate_item_key", update[0])
+        self.assertNotIn("tampered", update[1])
+
+        cursor = FakeCursor(fetchone_results=[(7, "Основная")])
+        app, connection = build(cursor)
+        with self.assertRaises(HTTPException) as ctx:
+            app.routes[("PUT", "/brigade-contract-items/{id}")](
+                id=4,
+                data={"quantity": 10, "sourceItemKey": "tampered"},
+                x_company_id="3", x_company_mode="company", _current_user={},
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertFalse(any(call[0].startswith("UPDATE brigade_contract_items") for call in cursor.calls))
+        self.assertTrue(connection.rolled_back)
 
     def test_delete_recalcs_total(self):
         recalc = []

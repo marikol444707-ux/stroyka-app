@@ -11,6 +11,36 @@ from typing import Optional
 from fastapi import Depends, Header, HTTPException
 
 
+_CLIENT_LINEAGE_FIELDS = (
+    "sourceType",
+    "source_type",
+    "sourceEstimateVersionId",
+    "source_estimate_version_id",
+    "sourceSectionIndex",
+    "source_section_index",
+    "sourceItemIndex",
+    "source_item_index",
+    "sourceItemKey",
+    "source_item_key",
+)
+
+
+def _reject_client_lineage(data, *, reject_compatibility_key=False):
+    fields = _CLIENT_LINEAGE_FIELDS
+    if reject_compatibility_key:
+        fields = (*fields, "estimateItemKey", "estimate_item_key")
+    supplied = [
+        field
+        for field in fields
+        if field in data and data.get(field) not in (None, "")
+    ]
+    if supplied:
+        raise HTTPException(
+            status_code=400,
+            detail="Источник позиции назначается сервером и не принимается из запроса",
+        )
+
+
 def register_brigade_contract_items_module(app, deps):
     get_db = deps["get_db"]
     get_current_user = deps["get_current_user"]
@@ -177,6 +207,7 @@ def register_brigade_contract_items_module(app, deps):
         conn.autocommit = False
         cur = conn.cursor()
         try:
+            _reject_client_lineage(data, reject_compatibility_key=True)
             contract, actor, project = resolve_brigade_contract_actor(
                 cur,
                 _current_user,
@@ -192,8 +223,22 @@ def register_brigade_contract_items_module(app, deps):
                 raise HTTPException(status_code=400, detail="Пакет позиции должен совпадать с пакетом договора")
             if not has_package_access(actor, work_package):
                 raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
-            cur.execute("INSERT INTO brigade_contract_items (contract_id,estimate_section,description,work_package,estimate_item_key,unit,quantity,price_smeta,price_brigade,done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-                (contract["id"],data.get("estimateSection",""),data.get("name","") or data.get("description",""),work_package,data.get("estimateItemKey","") or data.get("estimate_item_key",""),data.get("unit",""),data.get("quantity",0),data.get("priceSmeta",0),data.get("priceBrigade",0),data.get("doneQuantity",0)))
+            cur.execute(
+                """INSERT INTO brigade_contract_items
+                     (contract_id,estimate_section,description,work_package,estimate_item_key,
+                      unit,quantity,price_smeta,price_brigade,done_quantity,
+                      source_type,source_estimate_version_id,source_section_index,
+                      source_item_index,source_item_key)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                   RETURNING id""",
+                (
+                    contract["id"], data.get("estimateSection", ""),
+                    data.get("name", "") or data.get("description", ""), work_package, "",
+                    data.get("unit", ""), data.get("quantity", 0), data.get("priceSmeta", 0),
+                    data.get("priceBrigade", 0), data.get("doneQuantity", 0),
+                    "manual", None, None, None, None,
+                ),
+            )
             row = cur.fetchone()
             recalc_brigade_contract_total(cur, contract["id"])
             conn.commit()
@@ -217,6 +262,7 @@ def register_brigade_contract_items_module(app, deps):
         conn.autocommit = False
         cur = conn.cursor()
         try:
+            _reject_client_lineage(data)
             cur.execute("SELECT contract_id,COALESCE(NULLIF(work_package,''),'Основная') FROM brigade_contract_items WHERE id=%s FOR UPDATE", (id,))
             item = cur.fetchone()
             if not item:
@@ -240,8 +286,15 @@ def register_brigade_contract_items_module(app, deps):
             quantity = float(data.get("quantity", 0) or 0)
             done_quantity = float(data.get("doneQuantity", 0) or 0)
             done_quantity = max(0, min(done_quantity, quantity)) if quantity > 0 else 0
-            cur.execute("UPDATE brigade_contract_items SET quantity=%s,price_brigade=%s,price_smeta=%s,done_quantity=%s,work_package=%s,estimate_item_key=COALESCE(%s,estimate_item_key) WHERE id=%s AND contract_id=%s RETURNING contract_id",
-                (quantity,data.get("priceBrigade",0),data.get("priceSmeta",0),done_quantity,new_work_package,data.get("estimateItemKey", data.get("estimate_item_key")),id,contract["id"]))
+            cur.execute(
+                """UPDATE brigade_contract_items
+                   SET quantity=%s,price_brigade=%s,price_smeta=%s,done_quantity=%s,work_package=%s
+                   WHERE id=%s AND contract_id=%s RETURNING contract_id""",
+                (
+                    quantity, data.get("priceBrigade", 0), data.get("priceSmeta", 0),
+                    done_quantity, new_work_package, id, contract["id"],
+                ),
+            )
             row = cur.fetchone()
             if not row:
                 raise HTTPException(status_code=409, detail="Позиция договора изменилась. Обновите страницу")
