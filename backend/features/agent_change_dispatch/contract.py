@@ -32,7 +32,11 @@ class AgentChangeEvent:
 class AgentDispatchPlan:
     company_id: int
     project_id: Optional[int]
+    event_type: str
     source_project_id: int
+    source_type: str
+    source_id: int
+    source_revision: str
     job_type: str
     idempotency_key: str
     correlation_id: str
@@ -162,7 +166,11 @@ def build_agent_dispatch_plan(event, *, brief_date):
     return AgentDispatchPlan(
         company_id=event.company_id,
         project_id=None,
+        event_type=event.event_type,
         source_project_id=event.project_id,
+        source_type=event.source_type,
+        source_id=event.source_id,
+        source_revision=event.source_revision,
         job_type=policy["jobType"],
         idempotency_key=f"change:{event.event_type}:{digest}",
         correlation_id=f"change:{digest}",
@@ -171,3 +179,33 @@ def build_agent_dispatch_plan(event, *, brief_date):
         priority=policy["priority"],
         max_attempts=policy["maxAttempts"],
     )
+
+
+def validate_agent_dispatch_plan(plan):
+    if not isinstance(plan, AgentDispatchPlan):
+        raise AgentChangeContractError("dispatch plan is invalid")
+    if (
+        not isinstance(plan.payload, tuple)
+        or len(plan.payload) != 1
+        or not isinstance(plan.payload[0], tuple)
+        or len(plan.payload[0]) != 2
+        or plan.payload[0][0] != "briefDate"
+    ):
+        raise AgentChangeContractError("dispatch plan payload is invalid")
+
+    event = validate_agent_change_event({
+        "schemaVersion": 1,
+        "eventType": plan.event_type,
+        "companyId": plan.company_id,
+        "projectId": plan.source_project_id,
+        "sourceType": plan.source_type,
+        "sourceId": plan.source_id,
+        "sourceRevision": plan.source_revision,
+    })
+    expected = build_agent_dispatch_plan(
+        event,
+        brief_date=plan.payload[0][1],
+    )
+    if plan != expected:
+        raise AgentChangeContractError("dispatch plan does not match the contract")
+    return plan

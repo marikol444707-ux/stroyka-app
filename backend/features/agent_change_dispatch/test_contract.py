@@ -1,10 +1,12 @@
 import unittest
+from dataclasses import replace
 
 from backend.features.agent_change_dispatch.contract import (
     AgentChangeContractError,
     AgentChangeEvent,
     build_agent_dispatch_plan,
     validate_agent_change_event,
+    validate_agent_dispatch_plan,
 )
 
 
@@ -116,6 +118,26 @@ class AgentChangeContractTests(unittest.TestCase):
 
         with self.assertRaisesRegex(AgentChangeContractError, "project_id"):
             build_agent_dispatch_plan(unsafe, brief_date="2026-08-06")
+
+    def test_revalidates_deterministic_plan_before_queue_dispatch(self):
+        plan = build_agent_dispatch_plan(
+            validate_agent_change_event(valid_event()),
+            brief_date="2026-08-06",
+        )
+
+        self.assertIs(validate_agent_dispatch_plan(plan), plan)
+
+        for changed in (
+            replace(plan, company_id=5),
+            replace(plan, source_project_id=18),
+            replace(plan, job_type="system.worker_probe"),
+            replace(plan, idempotency_key="change:forged"),
+            replace(plan, payload=(("briefDate", "2026-08-07"),)),
+            replace(plan, priority=10),
+        ):
+            with self.subTest(changed=changed):
+                with self.assertRaises(AgentChangeContractError):
+                    validate_agent_dispatch_plan(changed)
 
 
 if __name__ == "__main__":

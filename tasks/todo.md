@@ -3927,3 +3927,41 @@ reported `state=planned`, `enqueueAttempted=false`, `writesAttempted=0`; the
 **Next:** Keep automatic enqueue disabled. Design A6.3 separately before it may
 enqueue exactly one allowlisted job through the existing controlled one-shot
 runner.
+
+## Task A6.3.1: Dry-Run-First Change Dispatch Adapter
+
+**Status:** Local implementation complete on branch
+`codex/agent-change-dispatch-enqueue`; production deploy and runtime wiring are
+not part of this slice.
+
+**Behavior:**
+- Revalidate the complete immutable dispatch plan by reconstructing its source
+  event and deterministic expected plan before any queue call.
+- Default to `apply=False`, return `would_enqueue`, and perform zero queue/write
+  attempts.
+- With explicit `apply=True`, call the existing idempotent queue service exactly
+  once using only the validated company-scoped `director.daily_brief` fields.
+- Validate the returned job ID, status, company, queue scope, job type and
+  idempotency key before returning bounded metadata.
+
+**Safety:**
+- No endpoint, estimate hook, transaction commit, background task, runner,
+  model, network call or business-data mutation is added.
+- A forged/tampered plan, invalid apply mode, invalid queue dependency or
+  mismatched queue result fails closed.
+- The source revision and queue idempotency/correlation values remain internal
+  and are not returned by the adapter.
+
+**Verification:**
+- [x] Tests were written red before implementation.
+- [x] Focused package discovery passes (`23/23`).
+- [x] Full backend discovery passes (`1202/1202`).
+- [x] Imports pass from the repository root and production-style `backend`
+  working directory.
+- [x] Static usage search confirms the adapter is not imported by runtime code.
+- [x] `git diff --check` passes.
+- [ ] Deploy or connect the adapter to runtime.
+
+**Next:** A6.3.2 must separately design a disabled-by-default post-commit
+handoff. Dispatch failure must never roll back or hide a completed estimate
+activation, and runner execution remains disabled.
