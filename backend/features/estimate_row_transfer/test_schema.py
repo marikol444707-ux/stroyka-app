@@ -58,8 +58,10 @@ def empty_catalog_row():
     return {
         "plans_table": False,
         "entries_table": False,
+        "assignment_transfers_table": False,
         "plan_columns": [],
         "entry_columns": [],
+        "assignment_transfer_columns": [],
         "constraints": [],
         "indexes": [],
         "functions": [],
@@ -77,8 +79,12 @@ def ready_catalog_row():
     catalog.update({
         "plans_table": True,
         "entries_table": True,
+        "assignment_transfers_table": True,
         "plan_columns": sorted(plan["expected"]["planColumns"]),
         "entry_columns": sorted(plan["expected"]["entryColumns"]),
+        "assignment_transfer_columns": sorted(
+            plan["expected"]["assignmentTransferColumns"]
+        ),
         "constraints": sorted(plan["expected"]["constraints"]),
         "indexes": sorted(plan["expected"]["indexes"]),
         "functions": sorted(plan["expected"]["functions"]),
@@ -109,6 +115,15 @@ class EstimateRowTransferSchemaPlanTests(unittest.TestCase):
         self.assertIn("quantity<=source_available_quantity", "".join(sql.split()))
         self.assertIn("estimate_row_transfer_entry_immutable", sql)
         self.assertIn("estimate_row_transfer_plan_guard", sql)
+        self.assertIn("CREATE TABLE public.estimate_row_assignment_transfers", sql)
+        self.assertIn("uq_etre_id_plan_owner", sql)
+        self.assertIn("guard_estimate_row_assignment_transfer", sql)
+        self.assertIn("estimate_row_assignment_transfer_guard", sql)
+        self.assertIn("source_quantity_before", sql)
+        self.assertIn("source_quantity_after", sql)
+        self.assertIn("confirmed_quantity", sql)
+        self.assertIn("contract_total_before", sql)
+        self.assertIn("contract_total_after", sql)
         self.assertNotIn("UPDATE brigade_contract_items", sql)
         self.assertNotIn("UPDATE supply_requests", sql)
 

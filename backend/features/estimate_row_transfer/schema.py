@@ -1,4 +1,4 @@
-"""Guarded additive schema migration for the inert E4.2 transfer ledger."""
+"""Guarded additive schema migration for reviewed E4 transfer ledgers."""
 
 import argparse
 import hashlib
@@ -31,6 +31,19 @@ ENTRY_COLUMNS = {
     "source_total_quantity", "source_protected_quantity",
     "source_available_quantity", "quantity", "created_at",
 }
+ASSIGNMENT_TRANSFER_COLUMNS = {
+    "id", "entry_id", "plan_id", "company_id", "project_id",
+    "reconciliation_id", "plan_sha256", "source_contract_id",
+    "source_item_id", "target_item_id", "source_estimate_version_id",
+    "source_section_index", "source_item_index", "source_item_key",
+    "target_estimate_version_id", "target_section_index",
+    "target_item_index", "target_item_key", "source_quantity_before",
+    "source_quantity_after", "source_done_quantity", "confirmed_quantity",
+    "transfer_quantity", "source_price_smeta", "source_price_brigade",
+    "target_price_smeta", "target_price_brigade", "source_status",
+    "contract_total_before", "contract_total_after", "applied_by_user_id",
+    "applied_by_name", "applied_by_role", "applied_at",
+}
 PLAN_CONSTRAINTS = {
     "pk_estimate_row_transfer_plans", "fk_etrp_reconciliation",
     "fk_etrp_base_estimate", "fk_etrp_target_estimate",
@@ -45,17 +58,28 @@ ENTRY_CONSTRAINTS = {
     "ck_etre_source_kind", "ck_etre_source_shape", "ck_etre_coordinates",
     "ck_etre_hashes", "ck_etre_quantities",
 }
+ASSIGNMENT_TRANSFER_CONSTRAINTS = {
+    "pk_estimate_row_assignment_transfers", "fk_erat_entry_owner",
+    "fk_erat_plan_owner", "fk_erat_reconciliation", "fk_erat_contract",
+    "fk_erat_source_item", "fk_erat_target_item", "fk_erat_source_version",
+    "fk_erat_target_version", "ck_erat_owner", "ck_erat_hash",
+    "ck_erat_coordinates", "ck_erat_quantities", "ck_erat_prices",
+    "ck_erat_totals", "ck_erat_actor", "uq_erat_entry",
+}
 INDEXES = {
     "idx_etrp_owner_created", "uq_etrp_single_approved", "idx_etre_plan",
     "uq_etre_assignment_source", "uq_etre_supply_source",
+    "uq_etre_id_plan_owner", "idx_erat_plan",
 }
 FUNCTIONS = {
     "reject_estimate_row_transfer_entry_mutation",
     "guard_estimate_row_transfer_plan_mutation",
+    "guard_estimate_row_assignment_transfer",
 }
 TRIGGERS = {
     "estimate_row_transfer_entry_immutable",
     "estimate_row_transfer_plan_guard",
+    "estimate_row_assignment_transfer_guard",
 }
 
 CONSTRAINT_SIGNATURES = {
@@ -145,6 +169,80 @@ CONSTRAINT_SIGNATURES = {
         "source_available_quantity = source_total_quantity - source_protected_quantity",
         "quantity <= source_available_quantity",
     ),
+    "pk_estimate_row_assignment_transfers": ("PRIMARY KEY (id)",),
+    "fk_erat_entry_owner": (
+        "FOREIGN KEY (entry_id, plan_id, company_id, project_id)",
+        "REFERENCES estimate_row_transfer_entries (id, plan_id, company_id, project_id)",
+        "ON DELETE RESTRICT",
+    ),
+    "fk_erat_plan_owner": (
+        "FOREIGN KEY (plan_id, company_id, project_id)",
+        "REFERENCES estimate_row_transfer_plans (id, company_id, project_id)",
+        "ON DELETE RESTRICT",
+    ),
+    "fk_erat_reconciliation": (
+        "FOREIGN KEY (reconciliation_id)",
+        "REFERENCES estimate_reconciliations (id)",
+        "ON DELETE RESTRICT",
+    ),
+    "fk_erat_contract": (
+        "FOREIGN KEY (source_contract_id)",
+        "REFERENCES brigade_contracts (id)",
+        "ON DELETE RESTRICT",
+    ),
+    "fk_erat_source_item": (
+        "FOREIGN KEY (source_item_id)",
+        "REFERENCES brigade_contract_items (id)",
+        "ON DELETE RESTRICT",
+    ),
+    "fk_erat_target_item": (
+        "FOREIGN KEY (target_item_id)",
+        "REFERENCES brigade_contract_items (id)",
+        "ON DELETE RESTRICT",
+    ),
+    "fk_erat_source_version": (
+        "FOREIGN KEY (source_estimate_version_id)",
+        "REFERENCES estimate_versions (id)",
+        "ON DELETE RESTRICT",
+    ),
+    "fk_erat_target_version": (
+        "FOREIGN KEY (target_estimate_version_id)",
+        "REFERENCES estimate_versions (id)",
+        "ON DELETE RESTRICT",
+    ),
+    "ck_erat_owner": (
+        "company_id > 0", "project_id > 0", "reconciliation_id > 0",
+        "source_contract_id > 0", "source_item_id > 0", "target_item_id > 0",
+        "source_item_id <> target_item_id",
+    ),
+    "ck_erat_hash": ("plan_sha256", "[0-9a-f]{64}"),
+    "ck_erat_coordinates": (
+        "source_estimate_version_id > 0", "source_section_index >= 0",
+        "source_item_index >= 0", "source_item_key",
+        "target_estimate_version_id > 0", "target_section_index >= 0",
+        "target_item_index >= 0", "target_item_key",
+    ),
+    "ck_erat_quantities": (
+        "source_quantity_before > 0", "source_quantity_after >= 0",
+        "source_done_quantity >= 0", "confirmed_quantity >= 0",
+        "transfer_quantity > 0",
+        "source_quantity_after = source_quantity_before - transfer_quantity",
+        "confirmed_quantity <= source_quantity_after",
+    ),
+    "ck_erat_prices": (
+        "source_price_smeta > 0", "source_price_brigade > 0",
+        "target_price_smeta > 0", "target_price_brigade > 0",
+        "source_price_brigade = target_price_brigade",
+    ),
+    "ck_erat_totals": (
+        "contract_total_before >= 0", "contract_total_after >= 0",
+        "contract_total_before = contract_total_after",
+    ),
+    "ck_erat_actor": (
+        "applied_by_user_id > 0", "applied_by_name", "applied_by_role",
+        "директор", "зам_директора", "source_status",
+    ),
+    "uq_erat_entry": ("UNIQUE (entry_id)",),
 }
 INDEX_SIGNATURES = {
     "idx_etrp_owner_created": (
@@ -164,6 +262,13 @@ INDEX_SIGNATURES = {
         "CREATE UNIQUE INDEX", "ON estimate_row_transfer_entries",
         "plan_id, source_id, request_item_index", "WHERE", "source_kind", "supply",
     ),
+    "uq_etre_id_plan_owner": (
+        "CREATE UNIQUE INDEX", "ON estimate_row_transfer_entries",
+        "id, plan_id, company_id, project_id",
+    ),
+    "idx_erat_plan": (
+        "ON estimate_row_assignment_transfers", "plan_id, id",
+    ),
 }
 FUNCTION_SIGNATURES = {
     "reject_estimate_row_transfer_entry_mutation": (
@@ -178,6 +283,13 @@ FUNCTION_SIGNATURES = {
         "OLD.status", "NEW.status", "NEW.plan_sha256", "OLD.plan_sha256",
         "approved_by_user_id", "approved_by_role", "директор", "зам_директора",
     ),
+    "guard_estimate_row_assignment_transfer": (
+        "guard_estimate_row_assignment_transfer", "RETURNS trigger",
+        "estimate_row_assignment_transfer_immutable",
+        "estimate_row_assignment_transfer_invalid", "source_kind", "assignment",
+        "approved_plan_sha256", "brigade_contract_items", "work_journal",
+        "source_quantity_after", "target_price_brigade",
+    ),
 }
 TRIGGER_SIGNATURES = {
     "estimate_row_transfer_entry_immutable": (
@@ -187,6 +299,11 @@ TRIGGER_SIGNATURES = {
     "estimate_row_transfer_plan_guard": (
         "BEFORE", "UPDATE", "DELETE", "ON estimate_row_transfer_plans",
         "EXECUTE FUNCTION guard_estimate_row_transfer_plan_mutation",
+    ),
+    "estimate_row_assignment_transfer_guard": (
+        "BEFORE", "INSERT", "UPDATE", "DELETE",
+        "ON estimate_row_assignment_transfers",
+        "EXECUTE FUNCTION guard_estimate_row_assignment_transfer",
     ),
 }
 
@@ -327,6 +444,121 @@ CREATE TABLE public.estimate_row_transfer_entries (
 )
 """
 
+CREATE_ASSIGNMENT_TRANSFERS_TABLE = """
+CREATE TABLE public.estimate_row_assignment_transfers (
+    id BIGSERIAL,
+    entry_id BIGINT NOT NULL,
+    plan_id BIGINT NOT NULL,
+    company_id INTEGER NOT NULL,
+    project_id INTEGER NOT NULL,
+    reconciliation_id INTEGER NOT NULL,
+    plan_sha256 CHAR(64) NOT NULL,
+    source_contract_id INTEGER NOT NULL,
+    source_item_id INTEGER NOT NULL,
+    target_item_id INTEGER NOT NULL,
+    source_estimate_version_id INTEGER NOT NULL,
+    source_section_index INTEGER NOT NULL,
+    source_item_index INTEGER NOT NULL,
+    source_item_key VARCHAR(255) NOT NULL,
+    target_estimate_version_id INTEGER NOT NULL,
+    target_section_index INTEGER NOT NULL,
+    target_item_index INTEGER NOT NULL,
+    target_item_key VARCHAR(255) NOT NULL,
+    source_quantity_before NUMERIC(20,6) NOT NULL,
+    source_quantity_after NUMERIC(20,6) NOT NULL,
+    source_done_quantity NUMERIC(20,6) NOT NULL,
+    confirmed_quantity NUMERIC(20,6) NOT NULL,
+    transfer_quantity NUMERIC(20,6) NOT NULL,
+    source_price_smeta NUMERIC(20,6) NOT NULL,
+    source_price_brigade NUMERIC(20,6) NOT NULL,
+    target_price_smeta NUMERIC(20,6) NOT NULL,
+    target_price_brigade NUMERIC(20,6) NOT NULL,
+    source_status VARCHAR(50) NOT NULL,
+    contract_total_before NUMERIC(20,2) NOT NULL,
+    contract_total_after NUMERIC(20,2) NOT NULL,
+    applied_by_user_id INTEGER NOT NULL,
+    applied_by_name TEXT NOT NULL,
+    applied_by_role VARCHAR(100) NOT NULL,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT pk_estimate_row_assignment_transfers PRIMARY KEY (id),
+    CONSTRAINT fk_erat_entry_owner
+        FOREIGN KEY (entry_id,plan_id,company_id,project_id)
+        REFERENCES public.estimate_row_transfer_entries(id,plan_id,company_id,project_id)
+        ON DELETE RESTRICT,
+    CONSTRAINT fk_erat_plan_owner FOREIGN KEY (plan_id,company_id,project_id)
+        REFERENCES public.estimate_row_transfer_plans(id,company_id,project_id)
+        ON DELETE RESTRICT,
+    CONSTRAINT fk_erat_reconciliation FOREIGN KEY (reconciliation_id)
+        REFERENCES public.estimate_reconciliations(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_erat_contract FOREIGN KEY (source_contract_id)
+        REFERENCES public.brigade_contracts(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_erat_source_item FOREIGN KEY (source_item_id)
+        REFERENCES public.brigade_contract_items(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_erat_target_item FOREIGN KEY (target_item_id)
+        REFERENCES public.brigade_contract_items(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_erat_source_version FOREIGN KEY (source_estimate_version_id)
+        REFERENCES public.estimate_versions(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_erat_target_version FOREIGN KEY (target_estimate_version_id)
+        REFERENCES public.estimate_versions(id) ON DELETE RESTRICT,
+    CONSTRAINT ck_erat_owner CHECK (
+        company_id>0 AND project_id>0 AND reconciliation_id>0
+        AND source_contract_id>0 AND source_item_id>0 AND target_item_id>0
+        AND source_item_id<>target_item_id
+    ),
+    CONSTRAINT ck_erat_hash CHECK (plan_sha256 ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT ck_erat_coordinates CHECK (
+        source_estimate_version_id>0 AND source_section_index>=0
+        AND source_item_index>=0 AND source_item_key<>''
+        AND target_estimate_version_id>0 AND target_section_index>=0
+        AND target_item_index>=0 AND target_item_key<>''
+    ),
+    CONSTRAINT ck_erat_quantities CHECK (
+        source_quantity_before>0 AND source_quantity_after>=0
+        AND source_done_quantity>=0 AND confirmed_quantity>=0
+        AND transfer_quantity>0
+        AND source_quantity_after=source_quantity_before-transfer_quantity
+        AND confirmed_quantity<=source_quantity_after
+        AND source_quantity_before NOT IN
+            ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)
+        AND source_quantity_after NOT IN
+            ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)
+        AND source_done_quantity NOT IN
+            ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)
+        AND confirmed_quantity NOT IN
+            ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)
+        AND transfer_quantity NOT IN
+            ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)
+    ),
+    CONSTRAINT ck_erat_prices CHECK (
+        source_price_smeta>0 AND source_price_brigade>0
+        AND target_price_smeta>0 AND target_price_brigade>0
+        AND source_price_brigade=target_price_brigade
+        AND source_price_smeta NOT IN
+            ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)
+        AND source_price_brigade NOT IN
+            ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)
+        AND target_price_smeta NOT IN
+            ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)
+        AND target_price_brigade NOT IN
+            ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)
+    ),
+    CONSTRAINT ck_erat_totals CHECK (
+        contract_total_before>=0 AND contract_total_after>=0
+        AND contract_total_before=contract_total_after
+        AND contract_total_before NOT IN
+            ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)
+        AND contract_total_after NOT IN
+            ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)
+    ),
+    CONSTRAINT ck_erat_actor CHECK (
+        applied_by_user_id>0 AND btrim(applied_by_name)<>''
+        AND applied_by_role IN ('директор','зам_директора')
+        AND btrim(source_status)<>''
+    ),
+    CONSTRAINT uq_erat_entry UNIQUE (entry_id)
+)
+"""
+
 ENTRY_GUARD_FUNCTION = """
 CREATE FUNCTION public.reject_estimate_row_transfer_entry_mutation()
 RETURNS trigger LANGUAGE plpgsql AS $$
@@ -371,6 +603,80 @@ END
 $$
 """
 
+ASSIGNMENT_TRANSFER_GUARD_FUNCTION = """
+CREATE FUNCTION public.guard_estimate_row_assignment_transfer()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP<>'INSERT' THEN
+        RAISE EXCEPTION 'estimate_row_assignment_transfer_immutable'
+          USING ERRCODE='23514';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1
+          FROM public.estimate_row_transfer_entries e
+          JOIN public.estimate_row_transfer_plans p
+            ON p.id=e.plan_id AND p.company_id=e.company_id
+           AND p.project_id=e.project_id
+          JOIN public.brigade_contracts bc
+            ON bc.id=NEW.source_contract_id
+          JOIN public.brigade_contract_items source_item
+            ON source_item.id=NEW.source_item_id
+          JOIN public.brigade_contract_items target_item
+            ON target_item.id=NEW.target_item_id
+         WHERE e.id=NEW.entry_id AND e.plan_id=NEW.plan_id
+           AND e.company_id=NEW.company_id AND e.project_id=NEW.project_id
+           AND e.source_kind='assignment'
+           AND e.source_id=NEW.source_item_id
+           AND e.source_parent_id=NEW.source_contract_id
+           AND e.source_estimate_version_id=NEW.source_estimate_version_id
+           AND e.source_section_index=NEW.source_section_index
+           AND e.source_item_index=NEW.source_item_index
+           AND e.source_item_key=NEW.source_item_key
+           AND e.target_estimate_version_id=NEW.target_estimate_version_id
+           AND e.target_section_index=NEW.target_section_index
+           AND e.target_item_index=NEW.target_item_index
+           AND e.target_item_key=NEW.target_item_key
+           AND e.quantity=NEW.transfer_quantity
+           AND p.reconciliation_id=NEW.reconciliation_id
+           AND p.status='approved' AND p.plan_sha256=NEW.plan_sha256
+           AND p.approved_plan_sha256=NEW.plan_sha256
+           AND bc.company_id=NEW.company_id AND bc.project_id=NEW.project_id
+           AND bc.total_amount=NEW.contract_total_after
+           AND source_item.contract_id=NEW.source_contract_id
+           AND source_item.source_type='estimate'
+           AND source_item.source_estimate_version_id=NEW.source_estimate_version_id
+           AND source_item.source_section_index=NEW.source_section_index
+           AND source_item.source_item_index=NEW.source_item_index
+           AND source_item.source_item_key=NEW.source_item_key
+           AND source_item.quantity::numeric=NEW.source_quantity_after
+           AND source_item.done_quantity::numeric=NEW.source_done_quantity
+           AND source_item.price_smeta=NEW.source_price_smeta
+           AND source_item.price_brigade=NEW.source_price_brigade
+           AND target_item.contract_id=NEW.source_contract_id
+           AND target_item.source_type='estimate'
+           AND target_item.source_estimate_version_id=NEW.target_estimate_version_id
+           AND target_item.source_section_index=NEW.target_section_index
+           AND target_item.source_item_index=NEW.target_item_index
+           AND target_item.source_item_key=NEW.target_item_key
+           AND target_item.quantity::numeric=NEW.transfer_quantity
+           AND target_item.done_quantity::numeric=0
+           AND target_item.price_smeta=NEW.target_price_smeta
+           AND target_item.price_brigade=NEW.target_price_brigade
+           AND COALESCE((
+               SELECT SUM(wj.quantity::numeric)
+                 FROM public.work_journal wj
+                WHERE wj.contract_item_id=NEW.source_item_id
+                  AND wj.status='Подтверждено'
+           ),0)=NEW.confirmed_quantity
+    ) THEN
+        RAISE EXCEPTION 'estimate_row_assignment_transfer_invalid'
+          USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END
+$$
+"""
+
 CHANGE_DEFINITIONS = (
     ("create_plans_table", "plans_table", CREATE_PLANS_TABLE),
     ("create_entries_table", "entries_table", CREATE_ENTRIES_TABLE),
@@ -396,8 +702,26 @@ CHANGE_DEFINITIONS = (
         ON public.estimate_row_transfer_entries(plan_id,source_id,request_item_index)
         WHERE source_kind='supply'
     """),
+    ("create_entry_owner_index", "uq_etre_id_plan_owner", """
+        CREATE UNIQUE INDEX uq_etre_id_plan_owner
+        ON public.estimate_row_transfer_entries(id,plan_id,company_id,project_id)
+    """),
+    (
+        "create_assignment_transfers_table",
+        "assignment_transfers_table",
+        CREATE_ASSIGNMENT_TRANSFERS_TABLE,
+    ),
+    ("create_assignment_transfer_plan_index", "idx_erat_plan", """
+        CREATE INDEX idx_erat_plan
+        ON public.estimate_row_assignment_transfers(plan_id,id)
+    """),
     ("create_entry_guard_function", "reject_estimate_row_transfer_entry_mutation", ENTRY_GUARD_FUNCTION),
     ("create_plan_guard_function", "guard_estimate_row_transfer_plan_mutation", PLAN_GUARD_FUNCTION),
+    (
+        "create_assignment_transfer_guard_function",
+        "guard_estimate_row_assignment_transfer",
+        ASSIGNMENT_TRANSFER_GUARD_FUNCTION,
+    ),
     ("create_entry_guard_trigger", "estimate_row_transfer_entry_immutable", """
         CREATE TRIGGER estimate_row_transfer_entry_immutable
         BEFORE UPDATE OR DELETE ON public.estimate_row_transfer_entries
@@ -408,6 +732,16 @@ CHANGE_DEFINITIONS = (
         BEFORE UPDATE OR DELETE ON public.estimate_row_transfer_plans
         FOR EACH ROW EXECUTE FUNCTION public.guard_estimate_row_transfer_plan_mutation()
     """),
+    (
+        "create_assignment_transfer_guard_trigger",
+        "estimate_row_assignment_transfer_guard",
+        """
+        CREATE TRIGGER estimate_row_assignment_transfer_guard
+        BEFORE INSERT OR UPDATE OR DELETE
+        ON public.estimate_row_assignment_transfers
+        FOR EACH ROW EXECUTE FUNCTION public.guard_estimate_row_assignment_transfer()
+        """,
+    ),
 )
 
 
@@ -439,20 +773,38 @@ def build_schema_plan(catalog):
     catalog = dict(catalog or {})
     plans_table = bool(catalog.get("plans_table"))
     entries_table = bool(catalog.get("entries_table"))
+    assignment_transfers_table = bool(catalog.get("assignment_transfers_table"))
     blockers = []
     missing_plan_columns = sorted(PLAN_COLUMNS - _values(catalog, "plan_columns")) if plans_table else []
     missing_entry_columns = sorted(ENTRY_COLUMNS - _values(catalog, "entry_columns")) if entries_table else []
-    if entries_table and not plans_table:
+    missing_assignment_transfer_columns = (
+        sorted(
+            ASSIGNMENT_TRANSFER_COLUMNS
+            - _values(catalog, "assignment_transfer_columns")
+        )
+        if assignment_transfers_table else []
+    )
+    if (
+        (entries_table and not plans_table)
+        or (assignment_transfers_table and not (plans_table and entries_table))
+    ):
         blockers.append("table_dependency_invalid")
     constraints = _values(catalog, "constraints")
     if missing_plan_columns:
         blockers.append("plan_columns_invalid")
     if missing_entry_columns:
         blockers.append("entry_columns_invalid")
+    if missing_assignment_transfer_columns:
+        blockers.append("assignment_transfer_columns_invalid")
     if plans_table and not PLAN_CONSTRAINTS.issubset(constraints):
         blockers.append("plan_constraints_invalid")
     if entries_table and not ENTRY_CONSTRAINTS.issubset(constraints):
         blockers.append("entry_constraints_invalid")
+    if (
+        assignment_transfers_table
+        and not ASSIGNMENT_TRANSFER_CONSTRAINTS.issubset(constraints)
+    ):
+        blockers.append("assignment_transfer_constraints_invalid")
 
     indexes = _values(catalog, "indexes")
     functions = _values(catalog, "functions")
@@ -479,6 +831,8 @@ def build_schema_plan(catalog):
             missing = not plans_table
         elif object_name == "entries_table":
             missing = not entries_table
+        elif object_name == "assignment_transfers_table":
+            missing = not assignment_transfers_table
         elif object_name in INDEXES:
             missing = object_name not in indexes
         elif object_name in FUNCTIONS:
@@ -491,7 +845,12 @@ def build_schema_plan(catalog):
     expected = {
         "planColumns": sorted(PLAN_COLUMNS),
         "entryColumns": sorted(ENTRY_COLUMNS),
-        "constraints": sorted(PLAN_CONSTRAINTS | ENTRY_CONSTRAINTS),
+        "assignmentTransferColumns": sorted(ASSIGNMENT_TRANSFER_COLUMNS),
+        "constraints": sorted(
+            PLAN_CONSTRAINTS
+            | ENTRY_CONSTRAINTS
+            | ASSIGNMENT_TRANSFER_CONSTRAINTS
+        ),
         "indexes": sorted(INDEXES),
         "functions": sorted(FUNCTIONS),
         "triggers": sorted(TRIGGERS),
@@ -518,6 +877,7 @@ def build_schema_plan(catalog):
         "blockers": blockers,
         "missingPlanColumns": missing_plan_columns,
         "missingEntryColumns": missing_entry_columns,
+        "missingAssignmentTransferColumns": missing_assignment_transfer_columns,
         "changes": changes,
         "expected": expected,
     }
@@ -537,6 +897,8 @@ def _load_catalog(cur):
         SELECT
           to_regclass('public.estimate_row_transfer_plans') IS NOT NULL AS plans_table,
           to_regclass('public.estimate_row_transfer_entries') IS NOT NULL AS entries_table,
+          to_regclass('public.estimate_row_assignment_transfers') IS NOT NULL
+            AS assignment_transfers_table,
           COALESCE((SELECT array_agg(a.attname::text ORDER BY a.attname)
             FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid
             JOIN pg_namespace n ON n.oid=c.relnamespace
@@ -549,51 +911,66 @@ def _load_catalog(cur):
            WHERE n.nspname='public' AND c.relname='estimate_row_transfer_entries'
              AND a.attnum>0 AND NOT a.attisdropped),ARRAY[]::text[])
             AS entry_columns,
+          COALESCE((SELECT array_agg(a.attname::text ORDER BY a.attname)
+            FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid
+            JOIN pg_namespace n ON n.oid=c.relnamespace
+           WHERE n.nspname='public'
+             AND c.relname='estimate_row_assignment_transfers'
+             AND a.attnum>0 AND NOT a.attisdropped),ARRAY[]::text[])
+            AS assignment_transfer_columns,
           COALESCE((SELECT array_agg(c.conname ORDER BY c.conname)
             FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid
             JOIN pg_namespace n ON n.oid=t.relnamespace
            WHERE n.nspname='public' AND t.relname IN
-             ('estimate_row_transfer_plans','estimate_row_transfer_entries')),ARRAY[]::text[])
+             ('estimate_row_transfer_plans','estimate_row_transfer_entries',
+              'estimate_row_assignment_transfers')),ARRAY[]::text[])
             AS constraints,
           COALESCE((SELECT jsonb_object_agg(c.conname,pg_get_constraintdef(c.oid,true))
             FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid
             JOIN pg_namespace n ON n.oid=t.relnamespace
            WHERE n.nspname='public' AND t.relname IN
-             ('estimate_row_transfer_plans','estimate_row_transfer_entries')),'{}'::jsonb)
+             ('estimate_row_transfer_plans','estimate_row_transfer_entries',
+              'estimate_row_assignment_transfers')),'{}'::jsonb)
             AS constraint_definitions,
           COALESCE((SELECT array_agg(indexname ORDER BY indexname)
             FROM pg_indexes WHERE schemaname='public' AND tablename IN
-             ('estimate_row_transfer_plans','estimate_row_transfer_entries')),ARRAY[]::text[])
+             ('estimate_row_transfer_plans','estimate_row_transfer_entries',
+              'estimate_row_assignment_transfers')),ARRAY[]::text[])
             AS indexes,
           COALESCE((SELECT jsonb_object_agg(indexname,indexdef)
             FROM pg_indexes WHERE schemaname='public' AND tablename IN
-             ('estimate_row_transfer_plans','estimate_row_transfer_entries')),'{}'::jsonb)
+             ('estimate_row_transfer_plans','estimate_row_transfer_entries',
+              'estimate_row_assignment_transfers')),'{}'::jsonb)
             AS index_definitions,
           COALESCE((SELECT array_agg(p.proname ORDER BY p.proname)
             FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='public' AND p.proname IN
              ('reject_estimate_row_transfer_entry_mutation',
-              'guard_estimate_row_transfer_plan_mutation') AND p.pronargs=0),ARRAY[]::text[])
+              'guard_estimate_row_transfer_plan_mutation',
+              'guard_estimate_row_assignment_transfer') AND p.pronargs=0),ARRAY[]::text[])
             AS functions,
           COALESCE((SELECT jsonb_object_agg(p.proname,pg_get_functiondef(p.oid))
             FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='public' AND p.proname IN
              ('reject_estimate_row_transfer_entry_mutation',
-              'guard_estimate_row_transfer_plan_mutation') AND p.pronargs=0),'{}'::jsonb)
+              'guard_estimate_row_transfer_plan_mutation',
+              'guard_estimate_row_assignment_transfer') AND p.pronargs=0),'{}'::jsonb)
             AS function_definitions,
           COALESCE((SELECT array_agg(tg.tgname ORDER BY tg.tgname)
             FROM pg_trigger tg JOIN pg_class c ON c.oid=tg.tgrelid
             JOIN pg_namespace n ON n.oid=c.relnamespace
            WHERE n.nspname='public' AND NOT tg.tgisinternal AND tg.tgname IN
              ('estimate_row_transfer_entry_immutable',
-              'estimate_row_transfer_plan_guard')),ARRAY[]::text[])
+              'estimate_row_transfer_plan_guard',
+              'estimate_row_assignment_transfer_guard')),ARRAY[]::text[])
             AS triggers,
           COALESCE((SELECT jsonb_object_agg(tg.tgname,pg_get_triggerdef(tg.oid,true))
             FROM pg_trigger tg JOIN pg_class c ON c.oid=tg.tgrelid
             JOIN pg_namespace n ON n.oid=c.relnamespace
            WHERE n.nspname='public' AND NOT tg.tgisinternal AND tg.tgname IN
              ('estimate_row_transfer_entry_immutable',
-              'estimate_row_transfer_plan_guard')),'{}'::jsonb)
+              'estimate_row_transfer_plan_guard',
+              'estimate_row_assignment_transfer_guard')),'{}'::jsonb)
             AS trigger_definitions
     """)
     return dict(cur.fetchone() or {})
@@ -661,6 +1038,9 @@ def run_schema_migration(
                     "blockers": after["blockers"],
                     "missingPlanColumns": after["missingPlanColumns"],
                     "missingEntryColumns": after["missingEntryColumns"],
+                    "missingAssignmentTransferColumns": after[
+                        "missingAssignmentTransferColumns"
+                    ],
                     "changes": [item["name"] for item in after["changes"]],
                 }, sort_keys=True)
             )
@@ -688,7 +1068,7 @@ def run_schema_migration(
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Guarded E4.2 inert ledger schema migration")
+    parser = argparse.ArgumentParser(description="Guarded E4 transfer ledger schema migration")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--expected-change-count", type=int)
     parser.add_argument("--expected-plan-sha256")
