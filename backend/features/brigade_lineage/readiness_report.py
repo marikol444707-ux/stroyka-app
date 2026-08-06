@@ -7,7 +7,7 @@ from collections import Counter
 import psycopg2.extras
 
 from .canonical import HASH_CONTRACT, parse_sections, sections_sha256
-from . import writer_audit
+from . import constraint_audit, delete_policy_audit, writer_audit
 
 
 PREVIEW_LIMIT = 100
@@ -369,6 +369,8 @@ def build_report_from_rows(schema, rows, *, snapshot_rows=None):
         ),
         "constraintAuditIncluded": False,
         "writerAuditIncluded": False,
+        "deleteRestrictionAuditIncluded": False,
+        "readyForStrictRuntime": False,
         "reportConsistent": report_consistent,
         "summary": {
             "totalRows": len(classified),
@@ -524,11 +526,35 @@ def run_readiness_report(get_db):
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             result = build_readiness_report(cur)
+            constraint_report = (
+                constraint_audit.audit_brigade_lineage_constraints(cur)
+            )
             conn.rollback()
             writer_report = writer_audit.audit_brigade_contract_item_writers()
+            delete_report = delete_policy_audit.audit_estimate_delete_policy()
+            result["constraintAuditIncluded"] = True
+            result["constraintsReady"] = bool(
+                constraint_report.get("constraintsReady")
+            )
+            result["constraintAudit"] = constraint_report
             result["writerAuditIncluded"] = True
             result["writersReady"] = bool(writer_report.get("ok"))
             result["writerAudit"] = writer_report
+            result["deleteRestrictionAuditIncluded"] = True
+            result["deleteRestrictionsReady"] = bool(
+                delete_report.get("deleteRestrictionsReady")
+            )
+            result["deleteRestrictionAudit"] = delete_report
+            lineage_rows_valid = bool(
+                result.get("reportConsistent")
+                and result.get("summary", {}).get("byState", {}).get("invalid") == 0
+            )
+            result["readyForStrictRuntime"] = bool(
+                lineage_rows_valid
+                and result["constraintsReady"]
+                and result["writersReady"]
+                and result["deleteRestrictionsReady"]
+            )
             result["rolledBack"] = True
             return result
         except Exception:

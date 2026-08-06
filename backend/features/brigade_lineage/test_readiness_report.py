@@ -373,6 +373,8 @@ class BrigadeLineageReportTests(unittest.TestCase):
         self.assertFalse(report["lineageDataReady"])
         self.assertFalse(report["constraintAuditIncluded"])
         self.assertFalse(report["writerAuditIncluded"])
+        self.assertFalse(report["deleteRestrictionAuditIncluded"])
+        self.assertFalse(report["readyForStrictRuntime"])
         self.assertTrue(report["reportConsistent"])
         self.assertEqual(report["summary"], {
             "totalRows": 2,
@@ -575,6 +577,27 @@ class BrigadeLineageDatabaseReportTests(unittest.TestCase):
                 "updateStatements": 3,
                 "violations": [],
             },
+        ), patch(
+            "backend.features.brigade_lineage.constraint_audit.audit_brigade_lineage_constraints",
+            return_value={
+                "ok": True,
+                "dryRun": True,
+                "writesAttempted": 0,
+                "catalogReady": True,
+                "dataReadyForConstraints": True,
+                "constraintsReady": True,
+                "missingConstraints": [],
+                "invalidConstraints": [],
+            },
+        ), patch(
+            "backend.features.brigade_lineage.delete_policy_audit.audit_estimate_delete_policy",
+            return_value={
+                "ok": True,
+                "dryRun": True,
+                "writesAttempted": 0,
+                "deleteRestrictionsReady": True,
+                "violations": [],
+            },
         ):
             report = run_readiness_report(lambda: connection)
 
@@ -592,6 +615,11 @@ class BrigadeLineageDatabaseReportTests(unittest.TestCase):
         self.assertTrue(report["writerAuditIncluded"])
         self.assertTrue(report["writersReady"])
         self.assertEqual(report["writerAudit"]["violations"], [])
+        self.assertTrue(report["constraintAuditIncluded"])
+        self.assertTrue(report["constraintsReady"])
+        self.assertTrue(report["deleteRestrictionAuditIncluded"])
+        self.assertTrue(report["deleteRestrictionsReady"])
+        self.assertTrue(report["readyForStrictRuntime"])
 
 
 if __name__ == "__main__":
