@@ -886,7 +886,7 @@ def _load_delivery_rows(cur, request_ids):
     return [dict(row) for row in (cur.fetchall() or [])]
 
 
-def collect_transfer_impact(cur, reconciliation_id):
+def collect_transfer_impact(cur, reconciliation_id, mapping_rows=None):
     reconciliation_id = parse_reconciliation_id(reconciliation_id)
     reconciliation = _load_reconciliation(cur, reconciliation_id)
     context, reconciliation_error = _reconciliation_context(reconciliation)
@@ -898,7 +898,13 @@ def collect_transfer_impact(cur, reconciliation_id):
         cur,
         [request.get("request_id") for request in requests],
     )
-    return build_impact_report(reconciliation, assignments, requests, deliveries)
+    return build_impact_report(
+        reconciliation,
+        assignments,
+        requests,
+        deliveries,
+        mapping_rows,
+    )
 
 
 def run_impact_audit(get_db, reconciliation_id):

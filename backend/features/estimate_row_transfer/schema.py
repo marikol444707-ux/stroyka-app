@@ -14,7 +14,8 @@ PLAN_COLUMNS = {
     "id", "company_id", "project_id", "work_package", "smeta_type",
     "reconciliation_id", "base_estimate_id", "target_estimate_id",
     "target_estimate_version_id", "base_sections_sha256",
-    "target_sections_sha256", "plan_sha256", "approved_plan_sha256",
+    "target_sections_sha256", "base_snapshot_row_count",
+    "target_snapshot_row_count", "plan_sha256", "approved_plan_sha256",
     "status", "created_by_user_id", "created_by_name", "created_by_role",
     "approved_by_user_id", "approved_by_name", "approved_by_role",
     "approved_at", "created_at", "updated_at",
@@ -75,6 +76,8 @@ CREATE TABLE public.estimate_row_transfer_plans (
     target_estimate_version_id INTEGER NOT NULL,
     base_sections_sha256 CHAR(64) NOT NULL,
     target_sections_sha256 CHAR(64) NOT NULL,
+    base_snapshot_row_count INTEGER NOT NULL,
+    target_snapshot_row_count INTEGER NOT NULL,
     plan_sha256 CHAR(64) NOT NULL,
     approved_plan_sha256 CHAR(64),
     status VARCHAR(20) NOT NULL DEFAULT 'draft',
@@ -96,7 +99,10 @@ CREATE TABLE public.estimate_row_transfer_plans (
         REFERENCES public.estimates(id) ON DELETE RESTRICT,
     CONSTRAINT fk_etrp_target_version FOREIGN KEY (target_estimate_version_id)
         REFERENCES public.estimate_versions(id) ON DELETE RESTRICT,
-    CONSTRAINT ck_etrp_owner CHECK (company_id>0 AND project_id>0),
+    CONSTRAINT ck_etrp_owner CHECK (
+        company_id>0 AND project_id>0
+        AND base_snapshot_row_count>=0 AND target_snapshot_row_count>=0
+    ),
     CONSTRAINT ck_etrp_hashes CHECK (
         base_sections_sha256 ~ '^[0-9a-f]{64}$'
         AND target_sections_sha256 ~ '^[0-9a-f]{64}$'
@@ -212,13 +218,15 @@ BEGIN
         NEW.id,NEW.company_id,NEW.project_id,NEW.work_package,NEW.smeta_type,
         NEW.reconciliation_id,NEW.base_estimate_id,NEW.target_estimate_id,
         NEW.target_estimate_version_id,NEW.base_sections_sha256,
-        NEW.target_sections_sha256,NEW.plan_sha256,NEW.created_by_user_id,
+        NEW.target_sections_sha256,NEW.base_snapshot_row_count,
+        NEW.target_snapshot_row_count,NEW.plan_sha256,NEW.created_by_user_id,
         NEW.created_by_name,NEW.created_by_role,NEW.created_at
     ) IS DISTINCT FROM ROW(
         OLD.id,OLD.company_id,OLD.project_id,OLD.work_package,OLD.smeta_type,
         OLD.reconciliation_id,OLD.base_estimate_id,OLD.target_estimate_id,
         OLD.target_estimate_version_id,OLD.base_sections_sha256,
-        OLD.target_sections_sha256,OLD.plan_sha256,OLD.created_by_user_id,
+        OLD.target_sections_sha256,OLD.base_snapshot_row_count,
+        OLD.target_snapshot_row_count,OLD.plan_sha256,OLD.created_by_user_id,
         OLD.created_by_name,OLD.created_by_role,OLD.created_at
     ) OR NEW.approved_plan_sha256 IS DISTINCT FROM OLD.plan_sha256
       OR NEW.approved_by_user_id IS NULL OR NEW.approved_by_name IS NULL

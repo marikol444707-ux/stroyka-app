@@ -153,14 +153,39 @@ def _canonical_non_negative_quantity(value, code):
     return normalized.rstrip("0").rstrip(".") if "." in normalized else normalized
 
 
-def _canonical_plan_sha256(plan):
+def calculate_plan_sha256(plan):
+    canonical = dict(plan or {})
+    canonical.pop("planSha256", None)
     payload = json.dumps(
-        plan,
+        canonical,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def reviewed_plan_to_draft_payload(plan):
+    entries = []
+    for stored in (plan or {}).get("entries") or []:
+        target = dict(stored.get("target") or {})
+        entry = {
+            "sourceKind": stored.get("sourceKind"),
+            "sourceId": stored.get("sourceId"),
+            "quantity": stored.get("quantity"),
+            "targetSectionIndex": target.get("sectionIndex"),
+            "targetItemIndex": target.get("itemIndex"),
+            "targetItemKey": target.get("itemKey"),
+        }
+        if stored.get("sourceKind") == "supply":
+            source = dict(stored.get("source") or {})
+            entry["requestItemIndex"] = stored.get("requestItemIndex")
+            entry["sourceEstimateVersionId"] = source.get("estimateVersionId")
+        entries.append(entry)
+    return normalize_draft_payload({
+        "reconciliationId": (plan or {}).get("reconciliationId"),
+        "entries": entries,
+    })
 
 
 def _valid_context(reconciliation, base_snapshot, target_snapshot):
@@ -239,23 +264,6 @@ def build_reviewed_plan(report, entries, supply_snapshots=None):
         for item in (report.get("targetMappings") or [])
         if item.get("state") == "verified"
     }
-    allowed_supply_blockers = {
-        (entry["sourceId"], entry["requestItemIndex"])
-        for entry in entries
-        if entry["sourceKind"] == "supply"
-    }
-    if int((report.get("reasonCounts") or {}).get("supply_source_snapshot_missing") or 0) != len(
-        allowed_supply_blockers
-    ):
-        raise PlanValidationError("impact_not_ready")
-    for blocker in report.get("needsReview") or []:
-        if not (
-            blocker.get("sourceKind") == "supply"
-            and blocker.get("reasonCode") == "supply_source_snapshot_missing"
-            and any(source_id == blocker.get("sourceId") for source_id, _ in allowed_supply_blockers)
-        ):
-            raise PlanValidationError("impact_not_ready")
-
     planned_entries = []
     for entry in entries:
         identity = _identity(entry)
@@ -289,12 +297,14 @@ def build_reviewed_plan(report, entries, supply_snapshots=None):
             total = candidate.get("requestedQuantity")
             protected = candidate.get("receivedQuantity")
 
+        target = dict(target_mapping["target"])
+        target["estimateVersionId"] = target_snapshot["estimateVersionId"]
         planned = {
             "sourceKind": entry["sourceKind"],
             "sourceId": entry["sourceId"],
             "sourceParentId": source_parent_id,
             "source": source,
-            "target": dict(target_mapping["target"]),
+            "target": target,
             "sourceTotalQuantity": _canonical_report_quantity(total, "source_total_quantity_invalid"),
             "sourceProtectedQuantity": _canonical_non_negative_quantity(
                 protected,
@@ -321,5 +331,5 @@ def build_reviewed_plan(report, entries, supply_snapshots=None):
         "targetSnapshot": target_snapshot,
         "entries": planned_entries,
     }
-    plan["planSha256"] = _canonical_plan_sha256(plan)
+    plan["planSha256"] = calculate_plan_sha256(plan)
     return plan

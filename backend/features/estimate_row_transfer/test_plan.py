@@ -7,7 +7,9 @@ from backend.features.estimate_row_transfer.audit import build_impact_report
 from backend.features.estimate_row_transfer.plan import (
     PlanValidationError,
     build_reviewed_plan,
+    calculate_plan_sha256,
     normalize_draft_payload,
+    reviewed_plan_to_draft_payload,
 )
 from backend.features.estimate_row_transfer.test_audit import (
     _sections,
@@ -128,7 +130,13 @@ class EstimateRowTransferPlanTests(unittest.TestCase):
         self.assertEqual(plan["entries"][0]["sourceProtectedQuantity"], "4")
         self.assertEqual(plan["entries"][0]["sourceAvailableQuantity"], "6")
         self.assertEqual(plan["entries"][0]["quantity"], "3")
+        self.assertEqual(plan["entries"][0]["target"]["estimateVersionId"], 72)
         self.assertRegex(plan["planSha256"], r"^[0-9a-f]{64}$")
+        self.assertEqual(calculate_plan_sha256(plan), plan["planSha256"])
+        self.assertEqual(
+            reviewed_plan_to_draft_payload(plan),
+            {"reconciliationId": 9, "entries": [assignment_mapping()]},
+        )
         serialized = json.dumps(plan, ensure_ascii=False)
         self.assertNotIn("must-not-leak", serialized)
         self.assertNotIn("price", serialized.lower())
@@ -153,6 +161,25 @@ class EstimateRowTransferPlanTests(unittest.TestCase):
 
         with self.assertRaisesRegex(PlanValidationError, "mapping_quantity_exceeds_available"):
             build_reviewed_plan(assignment_report(mapping=mapping), entries)
+
+    def test_unselected_blocked_source_does_not_poison_exact_selected_entry(self):
+        mapping = assignment_mapping()
+        report = build_impact_report(
+            reconciliation_row(),
+            [assignment_row(), assignment_row(contract_item_id=42, source_type="manual")],
+            [],
+            [],
+            [mapping],
+        )
+        report["targetSnapshot"]["estimateVersionId"] = 72
+        entries = normalize_draft_payload({
+            "reconciliationId": 9,
+            "entries": [mapping],
+        })["entries"]
+
+        plan = build_reviewed_plan(report, entries)
+
+        self.assertEqual([entry["sourceId"] for entry in plan["entries"]], [41])
 
     def test_hash_is_independent_of_client_entry_order(self):
         mappings = [assignment_mapping(41, "3"), assignment_mapping(42, "2")]

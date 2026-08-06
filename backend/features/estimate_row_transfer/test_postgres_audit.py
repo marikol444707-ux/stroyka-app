@@ -4,9 +4,18 @@ import unittest
 import uuid
 
 import psycopg2
+import psycopg2.extras
 
 from backend.features.brigade_lineage.canonical import sections_sha256
 from backend.features.estimate_row_transfer.audit import run_impact_audit
+from backend.features.estimate_row_transfer.plan import normalize_draft_payload
+from backend.features.estimate_row_transfer.schema import run_schema_migration
+from backend.features.estimate_row_transfer.service import build_current_plan
+from backend.features.estimate_row_transfer.storage import (
+    approve_plan,
+    insert_draft,
+    load_stored_plan,
+)
 
 
 POSTGRES_TEST_DSN = os.getenv("E4_TEST_DATABASE_URL", "")
@@ -201,6 +210,146 @@ class EstimateRowTransferPostgresTests(unittest.TestCase):
         self.assertEqual(report["summary"]["assignmentCandidates"], 1)
         self.assertEqual(report["assignmentCandidates"][0]["confirmedQuantity"], 4.0)
         self.assertEqual(report["assignmentCandidates"][0]["transferableQuantity"], 6.0)
+
+    def test_z_inert_schema_draft_and_approval_never_mutate_business_rows(self):
+        with self.admin.cursor() as cur:
+            cur.execute("DROP TABLE IF EXISTS public.estimate_row_transfer_entries CASCADE")
+            cur.execute("DROP TABLE IF EXISTS public.estimate_row_transfer_plans CASCADE")
+            cur.execute("DROP FUNCTION IF EXISTS public.reject_estimate_row_transfer_entry_mutation()")
+            cur.execute("DROP FUNCTION IF EXISTS public.guard_estimate_row_transfer_plan_mutation()")
+
+        dry_run = run_schema_migration(lambda: psycopg2.connect(POSTGRES_TEST_DSN))
+        applied = run_schema_migration(
+            lambda: psycopg2.connect(POSTGRES_TEST_DSN),
+            apply=True,
+            expected_change_count=dry_run["changeCount"],
+            expected_plan_sha256=dry_run["planSha256"],
+        )
+        self.assertTrue(applied["schemaReady"])
+
+        marker = "e4-plan-" + uuid.uuid4().hex
+        source_sections = [{
+            "name": "Fixture",
+            "items": [{"name": "Work", "unit": "m2", "quantity": 10,
+                       "estimateItemKey": marker + "-source"}],
+        }]
+        target_sections = [{
+            "name": "Fixture",
+            "items": [{"name": "Work", "unit": "m2", "quantity": 10,
+                       "estimateItemKey": marker + "-target"}],
+        }]
+        with self.admin.cursor() as cur:
+            cur.execute(
+                "INSERT INTO public.projects(company_id,name) VALUES (702,%s) RETURNING id",
+                (marker,),
+            )
+            project_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO public.estimates
+                       (company_id,project_id,work_package,smeta_type,sections_json)
+                     VALUES (702,%s,'Fixture','Заказчик',%s) RETURNING id""",
+                (project_id, json.dumps(source_sections)),
+            )
+            base_estimate_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO public.estimates
+                       (company_id,project_id,work_package,smeta_type,sections_json)
+                     VALUES (702,%s,'Fixture','Заказчик',%s) RETURNING id""",
+                (project_id, json.dumps(target_sections)),
+            )
+            target_estimate_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO public.estimate_reconciliations
+                       (status,work_package,smeta_type,base_estimate_id,next_estimate_id)
+                     VALUES ('Утверждена','Fixture','Заказчик',%s,%s) RETURNING id""",
+                (base_estimate_id, target_estimate_id),
+            )
+            reconciliation_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO public.estimate_versions
+                       (estimate_id,sections_json,sections_sha256)
+                     VALUES (%s,%s,%s) RETURNING id""",
+                (base_estimate_id, json.dumps(source_sections), sections_sha256(source_sections)),
+            )
+            source_version_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO public.estimate_versions
+                       (estimate_id,sections_json,sections_sha256)
+                     VALUES (%s,%s,%s) RETURNING id""",
+                (target_estimate_id, json.dumps(target_sections), sections_sha256(target_sections)),
+            )
+            target_version_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO public.brigade_contracts(company_id,project_id)
+                     VALUES (702,%s) RETURNING id""",
+                (project_id,),
+            )
+            contract_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO public.brigade_contract_items
+                       (contract_id,work_package,quantity,source_type,
+                        source_estimate_version_id,source_section_index,
+                        source_item_index,source_item_key)
+                     VALUES (%s,'Fixture',10,'estimate',%s,0,0,%s) RETURNING id""",
+                (contract_id, source_version_id, marker + "-source"),
+            )
+            contract_item_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO public.work_journal(contract_item_id,quantity,status)
+                     VALUES (%s,4,'Подтверждено')""",
+                (contract_item_id,),
+            )
+
+        before = self._counts()
+        payload = normalize_draft_payload({
+            "reconciliationId": reconciliation_id,
+            "entries": [{
+                "sourceKind": "assignment",
+                "sourceId": contract_item_id,
+                "quantity": "3",
+                "targetSectionIndex": 0,
+                "targetItemIndex": 0,
+                "targetItemKey": marker + "-target",
+            }],
+        })
+        connection = psycopg2.connect(POSTGRES_TEST_DSN)
+        connection.set_session(autocommit=False, isolation_level="REPEATABLE READ")
+        with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            plan = build_current_plan(cur, payload)
+            self.assertEqual(plan["targetSnapshot"]["estimateVersionId"], target_version_id)
+            plan_id = insert_draft(
+                cur,
+                plan,
+                {"id": 12, "name": "Estimator", "role": "сметчик"},
+            )
+        connection.commit()
+        connection.close()
+        self.assertEqual(before, self._counts())
+
+        connection = psycopg2.connect(POSTGRES_TEST_DSN)
+        with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            stored = load_stored_plan(cur, plan_id, 702, for_update=True)
+            self.assertEqual(stored["canonicalPlan"], plan)
+            self.assertTrue(approve_plan(
+                cur,
+                plan_id=plan_id,
+                company_id=702,
+                expected_plan_sha256=plan["planSha256"],
+                actor={"id": 2, "name": "Director", "role": "директор"},
+            ))
+        connection.commit()
+        connection.close()
+        self.assertEqual(before, self._counts())
+
+        connection = psycopg2.connect(POSTGRES_TEST_DSN)
+        with self.assertRaisesRegex(psycopg2.Error, "estimate_row_transfer_entry_immutable"):
+            with connection.cursor() as cur:
+                cur.execute(
+                    "UPDATE public.estimate_row_transfer_entries SET quantity=2 WHERE plan_id=%s",
+                    (plan_id,),
+                )
+        connection.rollback()
+        connection.close()
 
 
 if __name__ == "__main__":

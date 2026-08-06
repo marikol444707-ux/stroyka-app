@@ -1,4 +1,6 @@
 import unittest
+import json
+from pathlib import Path
 
 from backend.features.estimate_row_transfer.schema import (
     PLAN_SHA256_RE,
@@ -94,6 +96,8 @@ class EstimateRowTransferSchemaPlanTests(unittest.TestCase):
         self.assertIn("CREATE TABLE public.estimate_row_transfer_plans", sql)
         self.assertIn("CREATE TABLE public.estimate_row_transfer_entries", sql)
         self.assertIn("source_available_quantity", sql)
+        self.assertIn("base_snapshot_row_count", sql)
+        self.assertIn("target_snapshot_row_count", sql)
         self.assertIn("quantity<=source_available_quantity", "".join(sql.split()))
         self.assertIn("estimate_row_transfer_entry_immutable", sql)
         self.assertIn("estimate_row_transfer_plan_guard", sql)
@@ -115,6 +119,21 @@ class EstimateRowTransferSchemaPlanTests(unittest.TestCase):
         self.assertTrue(plan["schemaReady"])
         self.assertTrue(plan["readyForApply"])
         self.assertEqual(plan["changes"], [])
+
+    def test_operator_commands_exist_but_deploy_has_no_auto_migration(self):
+        root = Path(__file__).resolve().parents[3]
+        package = json.loads((root / "package.json").read_text(encoding="utf-8"))
+        deploy = (root / "deploy.sh").read_text(encoding="utf-8")
+
+        self.assertEqual(
+            package["scripts"]["audit:estimate-row-transfer-schema"],
+            "python3 -m backend.features.estimate_row_transfer.schema",
+        )
+        self.assertEqual(
+            package["scripts"]["migrate:estimate-row-transfer-schema"],
+            "python3 -m backend.features.estimate_row_transfer.schema --apply",
+        )
+        self.assertNotIn("estimate_row_transfer.schema", deploy)
 
 
 class EstimateRowTransferSchemaRunnerTests(unittest.TestCase):
