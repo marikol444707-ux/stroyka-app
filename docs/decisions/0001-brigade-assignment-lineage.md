@@ -238,6 +238,16 @@ reports complete. Invalid same-name catalog objects and any data drift fail
 closed. Explicit `legacy` remains a valid historical source class after the
 temporary column default is removed and `source_type` becomes NOT NULL.
 
+Production runtime `cb1b59341c5e` completed E3.4.2b on 2026-08-06. Public
+smoke passed, then the read-only production plan reported the exact expected 13
+changes, zero blockers and SHA-256
+`a3578a17a4d9a5e086d1f8271a8312a21876dcbe4a269214268e9180ead6093e`.
+The guarded transaction applied that plan. Its chained final audit reports all
+catalog objects exact, every lineage integrity counter clean, writer and exact
+delete-policy gates ready, and all 151 explicit historical legacy rows
+preserved. The audit attempted no writes and rolled back; the reviewed dry-run
+and apply JSON remain in the production backup directory.
+
 The readiness JSON extension is additive, so the existing report version and
 all prior fields remain stable. A completed run sets
 `constraintAuditIncluded=true` and `deleteRestrictionAuditIncluded=true`, then

@@ -4386,9 +4386,9 @@ E3.4.2b.
 
 ## Task E3.4.2b: Guarded Strict Lineage Schema
 
-**Status:** Local implementation and review complete on 2026-08-06. Deployment
-of the inert runner and its production dry-run are pending. No production DDL
-has been authorized or executed.
+**Status:** Complete in production on 2026-08-06. Runtime `cb1b59341c5e`
+passed public smoke; the separately reviewed guarded schema transaction
+committed and its final read-only audit is green.
 
 **Objective:** Add the exact six constraints, three partial indexes, two
 trigger/function guards, remove the temporary `source_type='legacy'` default
@@ -4442,3 +4442,16 @@ same-name functions are not replaced, all locks/timeouts are bounded, writer
 and exact-delete audits plus canonical lineage validity are repeated under the
 same transaction, and every failure before commit rolls back the complete DDL
 set. No dependency changed; inherited CRA/Jest audit debt remains unchanged.
+
+**Production evidence:** Public smoke passed on runtime `cb1b59341c5e`. The
+read-only production plan reported `readyForApply=true`, exactly `13` changes
+(two column changes, six constraints, three indexes and two triggers), zero
+blockers, zero schema writes and plan SHA-256
+`a3578a17a4d9a5e086d1f8271a8312a21876dcbe4a269214268e9180ead6093e`.
+The guarded apply used that exact count and hash; the chained final audit ran
+only after its successful exit. It reports `constraintsReady=true`, empty
+missing/invalid catalog lists, every integrity count at zero except the
+expected `explicitLegacy=151`, empty `dataIssues`, `writersReady=true` and
+`deleteRestrictionsReady=true`. The audit itself remained read-only and rolled
+back. Reviewed dry-run and apply outputs are preserved under
+`/root/stroyka-backups/brigade-lineage-strict-a3578a17-*.json`.
