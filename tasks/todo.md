@@ -4671,3 +4671,43 @@ reconciliation, plan or business row was manufactured for testing.
 - [x] The separately authorized authenticated fail-closed GET/draft/approve
   smoke returned `404 / 409 / 404` without manufacturing an approved
   reconciliation or business data.
+
+### Task E4.3: Transactional Assignment Balance Apply
+
+**Description:** Apply only the assignment entries of one approved E4.2 plan
+after leadership repeats its exact `planSha256`. Lock the immutable plan,
+contracts, source assignment rows and their JPR rows in deterministic order;
+recompute every owner, source lineage, target snapshot, confirmed quantity and
+contract total inside one serializable transaction. Reduce only the selected
+unconfirmed quantity, insert an exact target-lineage row with the target
+estimate price and source brigade price, and store immutable before/after
+evidence. Supply entries remain untouched for E4.4.
+
+**Acceptance criteria:**
+
+- [ ] A separately guarded additive schema creates an immutable assignment
+  transfer receipt linked to the exact plan/entry/company/project. Partial,
+  mismatched or manually mutated evidence fails at the database boundary.
+- [ ] Only stored-company leadership may call the exact-hash apply endpoint;
+  draft, stale, cross-owner, mixed-state, over-balance, existing-target and
+  target-snapshot conflicts fail before business mutation.
+- [ ] Source quantity never falls below recomputed confirmed JPR; JPR links,
+  source progress/lineage, acts, payments and all supply/warehouse/accounting
+  rows remain unchanged. Target quantity equals the transfer, target estimate
+  price is current and negotiated brigade price is preserved.
+- [ ] Contract brigade total is unchanged within the existing numeric
+  tolerance, the first apply is atomic and a repeated exact apply is a
+  read-only idempotent response.
+
+**Verification:**
+
+- [ ] RED unit/route/schema tests fail before each new behavior exists, then
+  focused E4 and brigade-writer suites pass.
+- [ ] Opt-in real PostgreSQL proves rollback, concurrent double-apply, exact
+  receipt evidence and unchanged protected-table rows.
+- [ ] Full backend regression, Python compilation, static writer audit,
+  frontend tests/build and `git diff --check` pass before release review.
+
+**Boundaries:** No automatic schema apply, no background worker, no UI, no
+supply allocation, and no production DDL or assignment mutation in this local
+implementation checkpoint.
