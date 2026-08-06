@@ -7,6 +7,7 @@ from collections import Counter
 import psycopg2.extras
 
 from .canonical import HASH_CONTRACT, parse_sections, sections_sha256
+from . import writer_audit
 
 
 PREVIEW_LIMIT = 100
@@ -524,6 +525,10 @@ def run_readiness_report(get_db):
         try:
             result = build_readiness_report(cur)
             conn.rollback()
+            writer_report = writer_audit.audit_brigade_contract_item_writers()
+            result["writerAuditIncluded"] = True
+            result["writersReady"] = bool(writer_report.get("ok"))
+            result["writerAudit"] = writer_report
             result["rolledBack"] = True
             return result
         except Exception:

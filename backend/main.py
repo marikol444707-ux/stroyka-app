@@ -16755,16 +16755,6 @@ def update_estimate(
                         estimate_item_key,
                         s.get("name", ""),
                     )
-                    assigned_plan_qty = _float_or_zero(assigned_item.get("quantity"))
-                    estimate_plan_qty = _float_or_zero(it.get("quantity"))
-                    if assigned_plan_qty <= 0 and estimate_plan_qty > 0 and assigned_item.get("id"):
-                        cur.execute(
-                            """UPDATE brigade_contract_items
-                               SET quantity=%s
-                               WHERE id=%s AND COALESCE(quantity,0)<=0""",
-                            (estimate_plan_qty, assigned_item.get("id")),
-                        )
-                        assigned_item["quantity"] = estimate_plan_qty
                     _validate_contract_item_capacity(assigned_item, delta)
                     contract_item_id = assigned_item.get("id")
                     execution_price = _float_or_zero(assigned_item.get("price_brigade"))
@@ -16861,47 +16851,9 @@ def update_estimate(
                 except Exception as e:
                     print("AUTO-ACT ERROR:", str(e))
 
-    # Смета — единый источник «Сделано»: синхронизируем выполнение в позиции бригады.
-    # Нельзя связывать строки только по названию: одинаковые работы встречаются
-    # в разных разделах и пакетах. Синхронизация допустима только по ключу строки.
+    # Выполнение договорной позиции меняется только пересчётом подтверждённых
+    # записей ЖПР по contract_item_id. Сохранение сметы не меняет выданный объём.
     brigade_synced = 0
-    try:
-        cur.execute("""SELECT id, brigade_name FROM brigade_contracts
-                        WHERE company_id=%s AND project_name=%s""",
-                    (estimate_scope["companyId"], project_name))
-        bc_rows = cur.fetchall() or []
-        bc_by_name = {}
-        for bc_id, bname in bc_rows:
-            bc_by_name.setdefault((bname or "").strip().lower(), []).append(bc_id)
-        if bc_by_name:
-            estimate_work_package = (new_work_package or "Основная").strip() or "Основная"
-            for section_idx, s in enumerate(new_sections):
-                for item_idx, it in enumerate(s.get("items") or []):
-                    bn = (it.get("brigadeName") or "").strip().lower()
-                    if not bn or bn not in bc_by_name:
-                        continue
-                    done = float(it.get("doneQuantity") or 0)
-                    item_keys = _estimate_item_key_candidates(it, id, section_idx, item_idx)
-                    item_key = item_keys[0] if item_keys else ""
-                    if not item_key:
-                        continue
-                    qty = float(it.get("quantity") or 0)
-                    unit = (it.get("unit") or "").strip()
-                    for bc_id in bc_by_name[bn]:
-                        cur.execute(
-                            "UPDATE brigade_contract_items "
-                            "SET quantity = CASE WHEN COALESCE(quantity,0)>0 THEN quantity ELSE %s END, "
-                            "done_quantity = LEAST(%s, CASE WHEN COALESCE(quantity,0)>0 THEN quantity ELSE %s END) "
-                            "WHERE contract_id=%s "
-                            "AND COALESCE(estimate_item_key,'')=%s "
-                            "AND (%s='' OR COALESCE(NULLIF(work_package,''),'Основная')=%s) "
-                            "AND (%s='' OR COALESCE(unit,'')='' OR COALESCE(unit,'')=%s)",
-                            (qty, done, qty, bc_id, item_key,
-                             estimate_work_package, estimate_work_package,
-                             unit, unit))
-                        brigade_synced += cur.rowcount or 0
-    except Exception as e:
-        print("BRIGADE-SYNC ERROR:", str(e))
 
     supply_refresh = {"scanned": 0, "updated": 0}
     estimate_materials_changed = not _sections_equal_except_done(old_sections, new_sections)

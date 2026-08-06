@@ -565,6 +565,16 @@ class BrigadeLineageDatabaseReportTests(unittest.TestCase):
             report_module,
             "load_snapshot_rows",
             return_value=[snapshot_row()],
+        ), patch(
+            "backend.features.brigade_lineage.writer_audit.audit_brigade_contract_item_writers",
+            return_value={
+                "ok": True,
+                "dryRun": True,
+                "writesAttempted": 0,
+                "insertStatements": 3,
+                "updateStatements": 3,
+                "violations": [],
+            },
         ):
             report = run_readiness_report(lambda: connection)
 
@@ -579,6 +589,9 @@ class BrigadeLineageDatabaseReportTests(unittest.TestCase):
         self.assertTrue(report["rolledBack"])
         self.assertEqual(report["writesAttempted"], 0)
         self.assertTrue(report["lineageDataReady"])
+        self.assertTrue(report["writerAuditIncluded"])
+        self.assertTrue(report["writersReady"])
+        self.assertEqual(report["writerAudit"]["violations"], [])
 
 
 if __name__ == "__main__":
