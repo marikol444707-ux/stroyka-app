@@ -4061,8 +4061,10 @@ HTTP route or runtime writer is changed in this slice.
 - [x] The local real-PostgreSQL run detected the intentionally older local
   schema as `base_incomplete`, returned `lineageDataReady=false`, reported
   `writesAttempted=0` and confirmed `rolledBack=true`.
-- [ ] Deploy the audit-only slice and capture the production pre-migration
-  baseline after the separate exact job `10` canary is resolved.
+- [x] Production pre-migration audit completed on 2026-08-06 with
+  `schemaState=pre_migration`, `151` total rows, `151` unproven legacy rows,
+  zero invalid rows, `writesAttempted=0` and `rolledBack=true`. The bounded
+  preview was truncated at `100` IDs as designed.
 
 **Next:** Design E3.2 as an additive, nullable and rollback-friendly migration.
 Do not change assignment writers or enable constraints in the same release.
@@ -4073,3 +4075,67 @@ Do not change assignment writers or enable constraints in the same release.
   repeating its full `sections_json` for every assignment row.
 - Treat excessively nested snapshot JSON as an invalid snapshot with a bounded
   reason code instead of allowing `RecursionError` to abort the complete audit.
+
+## Task E3.2: Nullable Brigade Assignment Lineage Schema
+
+**Status:** Local implementation complete on 2026-08-06. Production apply
+remains a separate guarded operation; assignment writers and strict runtime are
+not enabled in this slice.
+
+**Migration contract:**
+
+- `npm run migrate:brigade-lineage -- --dry-run` is read-only, rolled back and
+  emits a deterministic `readyCount + planSha256` guard.
+- Apply requires the explicit confirmation token and the exact two guards from
+  the immediately preceding production dry-run.
+- `estimate_versions.sections_sha256` is added in its own short, idempotent
+  phase. The assignment phase then locks only `brigade_contract_items`,
+  recomputes the plan before DDL, and updates only the guarded IDs whose full
+  lineage tuple is still NULL.
+- All six columns remain nullable. E3.2 adds no FK, CHECK, NOT NULL or index and
+  does not infer snapshot coordinates or backfill snapshot hashes.
+- `source_type='legacy'` is explicit for old rows. A temporary database default
+  protects unchanged writers until E3.3; E3.4 must remove it before strict
+  enforcement.
+- Missing tables, incompatible types/lengths/nullability/defaults, partial
+  coordinates, plan drift, update conflicts and post-check failures all stop
+  the migration. A committed snapshot-column phase plus a failed assignment
+  phase is reported as retry-safe partial schema, never as a full rollback.
+
+**Verification:**
+
+- [x] Production E3.1 baseline contains exactly `151` structurally safe legacy
+  candidates and zero invalid rows.
+- [x] Audit hardening tests pass (`27/27`): each distinct snapshot is loaded and
+  hashed once, pathological nesting fails closed, and both queries share one
+  repeatable-read snapshot.
+- [x] Guarded migration tests pass (`25/25`); combined lineage tests pass
+  (`52/52`). Temporary real-PostgreSQL checks proved first apply, terminal
+  report correctness, idempotent repeat, old-writer default behavior and
+  conflict rollback.
+- [x] Full backend discovery passes (`1261/1261`), frontend Jest passes
+  (`299/299`), the production build and both backend import modes pass, and two
+  independent reviews found no remaining Critical or Required issue.
+- [ ] Push the code, run production dry-run/apply/post-audits, then deploy the
+  runtime and capture the resulting version and counts.
+
+**Production apply order:** Pull the migration code without restarting the old
+runtime. Run `npm run --silent migrate:brigade-lineage -- --dry-run`, require
+`reviewCount=0`, and copy its exact `readyCount` and `planSha256`. Apply only
+those guards:
+
+```bash
+npm run --silent migrate:brigade-lineage -- --apply \
+  --confirm APPLY_BRIGADE_LINEAGE \
+  --expected-ready-count <readyCount> \
+  --expected-plan-sha256 <planSha256>
+```
+
+Then repeat the migration dry-run and `npm run audit:brigade-lineage`. Require
+`schemaMigrationComplete=true`, migration `readyCount=0`, audit
+`schemaState=complete`, audit invalid `0`, and the expected explicit legacy
+count. `lineageDataReady=false`, `writerAuditIncluded=false` and
+`constraintAuditIncluded=false` remain expected in E3.2. Only after those
+checks pass should `bash deploy.sh` restart and smoke-check the runtime. On any
+lock timeout, review row, plan drift, conflict or unknown commit outcome, stop
+and rerun dry-run; never reuse stale guards.

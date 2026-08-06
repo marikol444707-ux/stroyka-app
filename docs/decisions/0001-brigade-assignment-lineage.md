@@ -2,8 +2,9 @@
 
 ## Status
 
-Proposed. The read-only data audit is implemented first; no schema or runtime
-writer has been changed yet.
+Accepted. E3.1 established the production baseline. E3.2 adds only the
+nullable storage contract and an explicit legacy classification; runtime
+writers and strict constraints remain deferred to E3.3 and E3.4.
 
 ## Date
 
@@ -86,6 +87,39 @@ The first report deliberately sets `constraintAuditIncluded=false` and
 writer-coverage and immutability enforcement must be added and audited in later
 slices before strict runtime can be enabled.
 
+## Second delivery slice
+
+`npm run migrate:brigade-lineage` is an explicit guarded migration. It is not
+called by `init_db()` or `deploy.sh` and defaults to a read-only dry-run. Apply
+requires the exact ready-row count and plan SHA-256 emitted by that dry-run.
+
+E3.2 adds these nullable columns without FK, CHECK, index or NOT NULL
+enforcement:
+
+- `brigade_contract_items.source_type VARCHAR(20)`;
+- `source_estimate_version_id INT`, `source_section_index INT` and
+  `source_item_index INT`;
+- `source_item_key VARCHAR(255)`;
+- `estimate_versions.sections_sha256 VARCHAR(64)`.
+
+The apply is split into two short, idempotent transactions so it never holds
+exclusive locks on both live tables at once. The snapshot column is added and
+verified first. A fresh transaction then locks `brigade_contract_items`,
+recomputes the complete plan, validates count and hash, adds the assignment
+columns and updates only the exact audited IDs whose five lineage values are
+still NULL. Any partial coordinate, incompatible existing column definition,
+plan drift, row-count conflict or failed post-check blocks that phase.
+Catalog checks and every operational statement target the `public` schema
+explicitly and do not depend on the connection `search_path`.
+
+Existing rows are classified only as `legacy`; no estimate version or row
+coordinate is inferred. `sections_sha256` is not backfilled in E3.2. A
+temporary database default of `source_type='legacy'` protects inserts from the
+unchanged writers until E3.3 writes every source explicitly. The default must
+be removed before E3.4 strict enforcement. If the first additive phase commits
+and the guarded assignment phase fails, the intermediate schema is
+fail-closed and the same command is safe to retry after a new dry-run.
+
 ## Required writer changes before enforcement
 
 - `POST /estimates/{id}/work-assignment`: remove name fallback and destructive
@@ -122,7 +156,8 @@ Unproven rows remain visible for human review.
 ## Consequences
 
 - The next schema change stays additive and nullable.
-- Current rows are not guessed or rewritten.
+- Current row origin is not guessed; E3.2 writes only the explicit `legacy`
+  classification to the exact guarded ID set.
 - Strict constraints and writer cutover require separate, rollback-friendly
   releases.
 - E4 revision transfer can later operate on confirmed immutable source rows
