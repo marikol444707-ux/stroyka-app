@@ -4458,9 +4458,9 @@ back. Reviewed dry-run and apply outputs are preserved under
 
 ## Task E4: Reviewed Estimate Row Balance Transfer
 
-**Status:** Contract approved by the user on 2026-08-06. E4.1 is complete and
-verified locally; its separate production read-only audit is pending. No E4
-schema, route or business-data write exists.
+**Status:** Contract approved by the user on 2026-08-06. E4.1 is complete in
+production runtime `2c816ccb789e`; E4.2 remains pending. No E4 schema, route or
+business-data writer exists.
 
 **Contract:** `docs/estimate-row-transfer-contract.md` is authoritative. The
 operation uses an approved exact source/target mapping and explicit quantities.
@@ -4534,9 +4534,23 @@ and parameterized, contains no DML/DDL/row locks, and output omits descriptions,
 prices and commercial notes. No dependency, API route, schema or business
 writer changed.
 
+**Production evidence:** Runtime `2c816ccb789e` passed the complete public
+smoke after atomic frontend publication; backend health and every expected
+protected-route status were green. Production contains `13` reconciliation
+rows, all in `Черновик`, and zero approved reconciliations, so there is no
+legitimate transfer candidate to audit yet. The deployed E4.1 command was run
+against latest draft `#15` only to prove the approval boundary: it returned
+`ok=false`, fixed reason `reconciliation_not_approved`, empty assignment,
+supply and target-mapping lists, `writesAttempted=0`,
+`readOnlyTransaction=true` and `rolledBack=true`. No row was approved, created
+or changed for testing. The inherited CRA/Jest dependency audit reports zero
+critical findings; its existing high build/test-toolchain findings were not
+changed or force-fixed in this backend-only release.
+
 ### Checkpoint After E4.1
 
-- [ ] Human reviews production audit evidence before any E4 schema design.
-- [ ] No DDL or business row was changed.
-- [ ] Exact candidates and blockers are sufficient to design E4.2 without
+- [x] Human reviews production audit evidence before any E4 schema design.
+- [x] No DDL or business row was changed.
+- [x] Exact local candidates and the production approval blocker are
+  sufficient to design inert E4.2 without
   fuzzy or descriptive inference.
