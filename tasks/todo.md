@@ -3797,8 +3797,7 @@ Not scheduled.
 
 ## Task A5.1: Read-Only Director Attention Queue
 
-**Status:** Locally complete on branch `codex/director-attention-queue-readonly`.
-Production deploy and protected selected-company verification remain pending.
+**Status:** Complete in production on runtime `74344e8692f9` on 2026-08-06.
 
 **Behavior:**
 - `GET /agent-jobs/director-daily-brief/latest` keeps the existing validated
@@ -3833,10 +3832,12 @@ Production deploy and protected selected-company verification remain pending.
 - [x] Manual Chrome renders from the current component source pass on desktop
   and a 390 px content width. Long subjects wrap, rows do not overlap and the
   block contains no buttons.
-- [ ] Production deploy and public smoke.
-- [ ] Protected director smoke for one selected company, including the real
-  `attentionQueue` response and dashboard rendering.
+- [x] Production deploy and public smoke pass on runtime `74344e8692f9`.
+- [x] Protected director smoke passes for one selected company: login and the
+  latest daily-brief endpoint return `200`, aggregate-company access is blocked
+  with `409`, the shared foreign-company boundary returns `403`, and the
+  recursive public-field policy reports no queue payload, worker or lease data.
 
-**Next:** Deploy only after explicit approval. Do not add automatic actions in
-this release; any future resolve/apply flow requires a separate
+**Next:** Do not add automatic actions to this completed read-only slice. Any
+future resolve/apply flow requires a separate
 `preview -> human approval -> apply -> audit` task.
