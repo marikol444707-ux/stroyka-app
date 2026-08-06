@@ -3968,9 +3968,8 @@ activation, and runner execution remains disabled.
 
 ## Task A6.3.2: Disabled Post-Commit Activation Handoff
 
-**Status:** Local implementation complete on branch
-`codex/agent-change-dispatch-enqueue`; production deploy is pending and both
-activation controls remain absent from repository configuration.
+**Status:** Complete. Runtime `053bb218987d` is deployed with both activation
+controls absent. Public smoke and one manual shadow activation check pass.
 
 **Behavior:**
 - Route all three committed activation paths through one handoff after the
@@ -4003,8 +4002,10 @@ activation controls remain absent from repository configuration.
 - [x] Compile and production React build pass.
 - [x] Both import modes pass.
 - [x] Static configuration search finds no activation flags outside code/tests.
-- [ ] Deploy with both controls absent and repeat one shadow activation check.
+- [x] Deploy with both controls absent and repeat one shadow activation check.
+- [x] Manual activation of test estimate `85` returned `mode=shadow`,
+  `state=planned`, `enqueueAttempted=false` and `writesAttempted=0`; the
+  `agent_jobs` row count remained `2` and readiness stayed green.
 
-**Next:** Deploy only in the current disabled state. A company `1` canary that
-persists one queue row requires a separate explicit decision; exact runner
-execution remains another later step.
+**Next:** A company `1` canary that persists one queue row requires a separate
+explicit decision; exact runner execution remains another later step.
