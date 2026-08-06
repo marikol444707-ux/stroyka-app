@@ -4346,9 +4346,8 @@ catalog objects and the estimate-delete policy; therefore
 
 ## Task E3.4.2a: Exact Estimate Delete Restriction
 
-**Status:** Local implementation complete on 2026-08-06; production deploy and
-read-only audit are pending. This slice changes only delete preflight
-queries and contains no DDL or data migration.
+**Status:** Complete in production on 2026-08-06. This slice changed only delete
+preflight queries and contained no DDL or data migration.
 
 **Objective:** Block estimate deletion through the authoritative
 `brigade_contract_items.source_estimate_version_id -> estimate_versions.id ->
@@ -4377,7 +4376,42 @@ authorizes the selected-company estimate, every SQL value is parameterized,
 the exact writer takes the same estimate row lock, and the two bounded lookups
 add no unbounded data path or dependency.
 
-**Production gate:** Deploy E3.4.2a, run
-`npm run --silent audit:brigade-lineage`, and require the same read-only/rollback
-and zero-integrity-count evidence plus `deleteRestrictionsReady=true` and an
-empty deletion-policy violation list. Do not execute E3.4.2b DDL in this deploy.
+**Production evidence:** Runtime `ce1f568d3cdc` passed the complete public
+smoke. The post-deploy report remained read-only and rolled back with
+`ok=true`, `writesAttempted=0`, every aggregate integrity count at zero,
+`writersReady=true`, `deleteRestrictionsReady=true` and an empty deletion
+violation list. The remaining readiness boundary is catalog-only:
+`constraintsReady=false` and `readyForStrictRuntime=false` are expected until
+E3.4.2b.
+
+## Task E3.4.2b: Guarded Strict Lineage Schema
+
+**Status:** Implementation in progress on 2026-08-06. No production DDL has
+been authorized or executed.
+
+**Objective:** Add the exact six constraints, three partial indexes, two
+trigger/function guards, remove the temporary `source_type='legacy'` default
+and set `source_type` NOT NULL. Preserve all 151 explicit legacy rows as a valid
+historical class; do not infer estimate lineage or rewrite business data.
+
+**Migration contract:**
+
+- Dry-run uses one read-only transaction, reports a bounded deterministic plan,
+  attempts zero schema writes and rolls back.
+- Apply requires an explicit confirmation token plus the exact change count and
+  SHA-256 from the immediately reviewed dry-run.
+- Apply locks only the four lineage owner/source tables with bounded lock and
+  statement timeouts, re-runs data, writer and delete-policy gates under lock,
+  and rejects plan drift before the first DDL statement.
+- Existing invalid same-name constraints, indexes or triggers are blockers;
+  the migration never silently replaces an unverified catalog object.
+- Every DDL statement is transactional. A failed postcheck rolls the entire
+  schema change back; a repeated apply against the complete schema is a no-op.
+- The postcheck must produce `constraintsReady=true`; the existing top-level
+  audit must then produce `readyForStrictRuntime=true` even though 151 explicit
+  legacy rows remain review-visible.
+
+**Rollback boundary:** The code deploy and schema apply are separate operator
+steps. Before apply, preserve the reviewed dry-run JSON. If runtime verification
+fails after a committed apply, deploy the previous runtime and execute the
+generated reverse-order rollback statements only after a fresh data audit.

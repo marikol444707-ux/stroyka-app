@@ -224,6 +224,20 @@ filters the joined version by `estimate_versions.estimate_id`. The historical
 `source_type='legacy'`. If both checks match, the API returns one stable
 contract-item blocker rather than leaking internal classification details.
 
+Production runtime `ce1f568d3cdc` passed public smoke and the rolled-back
+readiness audit with `deleteRestrictionsReady=true`, no deletion violations and
+all aggregate integrity counters at zero. This closes E3.4.2a and authorizes
+implementation review of E3.4.2b, but not production DDL by itself.
+
+E3.4.2b is an explicit two-step operator migration. Its dry-run emits only a
+bounded change inventory, expected count, plan SHA-256 and reverse-order
+rollback statements. Apply requires those exact reviewed guards, takes bounded
+table locks, repeats the data/writer/delete gates, executes all regular indexes
+and constraints transactionally, and commits only after the structural audit
+reports complete. Invalid same-name catalog objects and any data drift fail
+closed. Explicit `legacy` remains a valid historical source class after the
+temporary column default is removed and `source_type` becomes NOT NULL.
+
 The readiness JSON extension is additive, so the existing report version and
 all prior fields remain stable. A completed run sets
 `constraintAuditIncluded=true` and `deleteRestrictionAuditIncluded=true`, then
