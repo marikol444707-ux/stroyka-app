@@ -16255,12 +16255,12 @@ register_estimate_reconciliations_module(app, {
 })
 
 try:
-    from backend.features.agent_change_dispatch.shadow import (
-        observe_estimate_activation_transition_shadow,
+    from backend.features.agent_change_dispatch.handoff import (
+        handoff_estimate_activation_transition,
     )
 except ModuleNotFoundError:
-    from features.agent_change_dispatch.shadow import (
-        observe_estimate_activation_transition_shadow,
+    from features.agent_change_dispatch.handoff import (
+        handoff_estimate_activation_transition,
     )
 
 
@@ -16345,7 +16345,7 @@ def create_estimate(
     supply_refresh = {"scanned": 0, "updated": 0, "pending": status == "Активная" and bool(project_name)}
     conn.commit()
     cur.close(); conn.close()
-    agent_dispatch_shadow = observe_estimate_activation_transition_shadow(
+    agent_dispatch_report = handoff_estimate_activation_transition(
         previous_status=None,
         next_status=status,
         company_id=company_id,
@@ -16359,8 +16359,12 @@ def create_estimate(
     if project_name:
         background_tasks.add_task(_run_project_ai_control_safely, project_name, "estimate:create")
     response = {"id":new_estimate_id,"ok":True,"supplyControlRefresh":supply_refresh}
-    if agent_dispatch_shadow is not None:
-        response["agentDispatchShadow"] = agent_dispatch_shadow
+    if agent_dispatch_report is not None:
+        response[
+            "agentDispatchShadow"
+            if agent_dispatch_report.get("mode") == "shadow"
+            else "agentDispatch"
+        ] = agent_dispatch_report
     return response
 
 @app.put("/estimates/{id}")
@@ -16914,7 +16918,7 @@ def update_estimate(
         )
     conn.commit()
     cur.close(); conn.close()
-    agent_dispatch_shadow = observe_estimate_activation_transition_shadow(
+    agent_dispatch_report = handoff_estimate_activation_transition(
         previous_status=prev_status,
         next_status=new_status,
         company_id=estimate_scope["companyId"],
@@ -16925,8 +16929,12 @@ def update_estimate(
     )
     _run_project_ai_control_safely(project_name, "estimate:update")
     response = {"ok": True, "journalEntries": journal_added, "hiddenWorkActs": acts_added, "brigadeItemsSynced": brigade_synced, "supplyControlRefresh": supply_refresh}
-    if agent_dispatch_shadow is not None:
-        response["agentDispatchShadow"] = agent_dispatch_shadow
+    if agent_dispatch_report is not None:
+        response[
+            "agentDispatchShadow"
+            if agent_dispatch_report.get("mode") == "shadow"
+            else "agentDispatch"
+        ] = agent_dispatch_report
     return response
 
 @app.put("/estimates/{id}/status")
@@ -16993,7 +17001,7 @@ def update_estimate_status(
         )
     conn.commit()
     cur.close(); conn.close()
-    agent_dispatch_shadow = observe_estimate_activation_transition_shadow(
+    agent_dispatch_report = handoff_estimate_activation_transition(
         previous_status=previous_status,
         next_status=status,
         company_id=estimate["companyId"],
@@ -17005,8 +17013,12 @@ def update_estimate_status(
     if project_name:
         background_tasks.add_task(_run_project_ai_control_safely, project_name, "estimate:status")
     response = {"ok": True, "status": status, "supplyControlRefresh": supply_refresh}
-    if agent_dispatch_shadow is not None:
-        response["agentDispatchShadow"] = agent_dispatch_shadow
+    if agent_dispatch_report is not None:
+        response[
+            "agentDispatchShadow"
+            if agent_dispatch_report.get("mode") == "shadow"
+            else "agentDispatch"
+        ] = agent_dispatch_report
     return response
 
 

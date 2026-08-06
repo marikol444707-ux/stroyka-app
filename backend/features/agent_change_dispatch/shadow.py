@@ -58,6 +58,28 @@ def _write_metadata_log(report, log_fn):
         pass
 
 
+def build_estimate_activation_dispatch_plan(
+    *,
+    company_id,
+    project_id,
+    estimate_id,
+    version,
+    sections,
+    brief_date,
+):
+    source_revision = _canonical_source_revision(version, sections)
+    event = validate_agent_change_event({
+        "schemaVersion": 1,
+        "eventType": EVENT_TYPE,
+        "companyId": company_id,
+        "projectId": project_id,
+        "sourceType": "estimate",
+        "sourceId": estimate_id,
+        "sourceRevision": source_revision,
+    })
+    return build_agent_dispatch_plan(event, brief_date=brief_date)
+
+
 def observe_estimate_activation_shadow(
     *,
     company_id,
@@ -72,26 +94,20 @@ def observe_estimate_activation_shadow(
     try:
         if not callable(brief_date_provider):
             raise ValueError("brief date provider is invalid")
-        source_revision = _canonical_source_revision(version, sections)
-        event = validate_agent_change_event({
-            "schemaVersion": 1,
-            "eventType": EVENT_TYPE,
-            "companyId": company_id,
-            "projectId": project_id,
-            "sourceType": "estimate",
-            "sourceId": estimate_id,
-            "sourceRevision": source_revision,
-        })
-        plan = build_agent_dispatch_plan(
-            event,
+        plan = build_estimate_activation_dispatch_plan(
+            company_id=company_id,
+            project_id=project_id,
+            estimate_id=estimate_id,
+            version=version,
+            sections=sections,
             brief_date=brief_date_provider(),
         )
         report = {
             **_base_report("planned"),
-            "companyId": event.company_id,
-            "projectId": event.project_id,
-            "sourceType": event.source_type,
-            "sourceId": event.source_id,
+            "companyId": plan.company_id,
+            "projectId": plan.source_project_id,
+            "sourceType": plan.source_type,
+            "sourceId": plan.source_id,
             "jobType": plan.job_type,
             "briefDate": dict(plan.payload)["briefDate"],
         }

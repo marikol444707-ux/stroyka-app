@@ -3965,3 +3965,46 @@ not part of this slice.
 **Next:** A6.3.2 must separately design a disabled-by-default post-commit
 handoff. Dispatch failure must never roll back or hide a completed estimate
 activation, and runner execution remains disabled.
+
+## Task A6.3.2: Disabled Post-Commit Activation Handoff
+
+**Status:** Local implementation complete on branch
+`codex/agent-change-dispatch-enqueue`; production deploy is pending and both
+activation controls remain absent from repository configuration.
+
+**Behavior:**
+- Route all three committed activation paths through one handoff after the
+  estimate transaction has committed.
+- Preserve the exact A6.2 `agentDispatchShadow` response and avoid opening a
+  queue connection unless both the exact apply flag and current company ID
+  allowlist permit dispatch.
+- For an allowed company, rebuild and revalidate the exact source-revision
+  plan, then use a separate short transaction for one idempotent queue attempt.
+- Return a bounded `agentDispatch` report only when enqueue mode was actually
+  entered.
+
+**Safety:**
+- `AGENT_CHANGE_DISPATCH_APPLY` must equal the exact string `true`; aliases,
+  whitespace and case variants fail closed.
+- `AGENT_CHANGE_DISPATCH_COMPANY_IDS` must be a strict comma-separated list of
+  canonical positive integer IDs. Empty, aggregate, spaced, zero, negative or
+  partially invalid lists disable all companies.
+- Queue connection/validation/commit failure rolls back and closes only the
+  handoff transaction, returns fixed `dispatch_unavailable`, and never raises
+  into the already completed estimate action.
+- Exception text, credentials, source revision and queue idempotency/correlation
+  values are not exposed. Runner, daemon, model and business writes remain off.
+
+**Verification:**
+- [x] Handoff tests were written red before implementation.
+- [x] Focused package discovery passes (`30/30`).
+- [x] Full backend discovery passes (`1209/1209`).
+- [x] Full frontend Jest passes (`299/299`).
+- [x] Compile and production React build pass.
+- [x] Both import modes pass.
+- [x] Static configuration search finds no activation flags outside code/tests.
+- [ ] Deploy with both controls absent and repeat one shadow activation check.
+
+**Next:** Deploy only in the current disabled state. A company `1` canary that
+persists one queue row requires a separate explicit decision; exact runner
+execution remains another later step.
