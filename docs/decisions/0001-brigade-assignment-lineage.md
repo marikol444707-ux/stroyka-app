@@ -178,6 +178,38 @@ The public deployment smoke passed on runtime `6f5ab8a4430a`. The expected
 post-E3.3 boundary remains `lineageDataReady=false` and
 `constraintAuditIncluded=false` until E3.4 is designed and enforced.
 
+## Fifth delivery slice
+
+E3.4.1 is diagnostic only. It extends the same read-only repeatable-read report
+with structural catalog facts and bounded aggregate data checks before any DDL
+is authored or executed. The audit distinguishes an object with the expected
+name from an object with the expected type, validated definition and enabled
+trigger function.
+
+The enforcement contract to preflight is:
+
+- restrictive foreign keys from a contract item to its contract and optional
+  source estimate version, and from an estimate version to its estimate;
+- CHECK rules for the four allowlisted source types, their conditional lineage
+  shape and canonical snapshot-hash format;
+- `source_type` NOT NULL with no default after the temporary E3.2 legacy
+  compatibility period;
+- valid partial indexes for exact estimate-lineage uniqueness, version delete
+  lookup and one canonical snapshot per estimate/hash;
+- enabled database guards that prevent assignment source mutation, reject a
+  cross-owner estimate snapshot and make snapshot owner/content/hash immutable;
+  and
+- an estimate deletion blocker that follows the stored
+  `source_estimate_version_id -> estimate_versions.estimate_id` relationship,
+  retaining compatibility-key matching only for explicit legacy rows.
+
+Explicit legacy rows are permitted by the future shape constraint and remain
+review-only evidence. Therefore `lineageDataReady=false` may coexist with a
+clean E3.4 data preflight; `readyForStrictRuntime` still requires the writer,
+catalog, aggregate-data and deletion-policy gates together. E3.4.1 reports the
+missing gates and performs no repair. E3.4.2 remains a separately reviewed,
+guarded and rollback-friendly enforcement release.
+
 ## Writer changes completed in production before enforcement
 
 - `POST /estimates/{id}/work-assignment` and `/distribute` now persist the exact

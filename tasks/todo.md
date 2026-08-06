@@ -4258,3 +4258,64 @@ tested change and was not mixed into this lineage cutover.
 FK/CHECK/index/immutability/deletion plan against the `151` explicit legacy
 rows. `lineageDataReady=false` and `constraintAuditIncluded=false` remain the
 expected boundary after E3.3; do not interpret them as writer failure.
+
+## Task E3.4.1: Strict Brigade Lineage Readiness Audit
+
+**Status:** In progress. This is a diagnostic-only release; no DDL, data write,
+route mutation or default removal belongs in this slice.
+
+**Objective:** Extend `npm run audit:brigade-lineage` with a bounded,
+repeatable-read preflight that proves whether production can safely enter the
+later E3.4 enforcement migration. Explicit `legacy` remains an allowed stored
+class, but it is never promoted to verified estimate lineage.
+
+**Required gates:**
+
+- Catalog facts structurally verify the intended foreign keys from contract
+  items to contracts and immutable estimate versions, and from versions to
+  estimates. Matching a constraint name alone is insufficient.
+- Catalog facts verify an allowlisted source-type CHECK, the conditional
+  estimate/manual/pricelist/legacy shape CHECK, canonical snapshot-hash CHECK,
+  removal of the temporary `source_type='legacy'` default, and `source_type`
+  NOT NULL readiness.
+- Catalog facts verify valid/ready partial indexes for exact estimate-lineage
+  uniqueness, estimate-version deletion lookup and immutable snapshot-hash
+  uniqueness.
+- Catalog facts verify enabled trigger/function pairs for assignment source
+  immutability/owner validation and immutable estimate snapshot content.
+- Bounded aggregate data checks report NULL source types, invalid row shapes,
+  missing snapshot hashes, duplicate estimate lineage and duplicate snapshot
+  hashes without emitting business descriptions, prices or snapshot JSON.
+- A static delete-policy audit requires the estimate deletion blocker to use
+  `source_estimate_version_id -> estimate_versions.estimate_id`; the legacy
+  compatibility-key check may remain only as an explicit legacy fallback.
+- The runner remains read-only, rolls back, reports zero writes and keeps
+  `readyForStrictRuntime=false` until writer, data, deletion and every catalog
+  gate are green. Missing enforcement is a readiness result, not an exception.
+
+**Boundaries:**
+
+- Always: target `public` explicitly, use parameterized catalog/data queries,
+  bound output to fixed gate names/counts, and preserve the current writer
+  audit and lineage classification.
+- Ask first: any production DDL, trigger installation, index build, default
+  removal or legacy-row rewrite.
+- Never: infer lineage from names/codes, modify production rows during audit,
+  expose source documents, or weaken deletion protection to make a gate green.
+
+**Verification:**
+
+- [ ] RED tests prove missing/wrong/unvalidated catalog objects and the current
+  fuzzy delete blocker fail closed.
+- [ ] Complete synthetic facts produce `constraintsReady=true`; the current
+  pre-enforcement schema produces a bounded missing-gate list.
+- [ ] The database runner uses one read-only repeatable-read transaction,
+  attempts zero writes, rolls back and closes resources.
+- [ ] Focused lineage and estimate-deletion tests, full backend discovery,
+  frontend Jest, compile/import modes, build and `git diff --check` pass.
+
+**Dependencies:** E3.3 production writer readiness on `6f5ab8a4430a`.
+
+**Expected files:** `backend/features/brigade_lineage/constraint_audit.py`,
+its tests, the existing readiness report/tests, a static delete-policy audit,
+this plan and ADR-0001. E3.4.2 migration files are explicitly out of scope.
