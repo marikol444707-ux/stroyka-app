@@ -79,7 +79,15 @@ def stored_plan(status="draft"):
 
 
 class EstimateRowTransferRouteTests(unittest.TestCase):
-    def _register(self, *, actor=None, stored=None, current_plan=None, calls=None):
+    def _register(
+        self,
+        *,
+        actor=None,
+        stored=None,
+        current_plan=None,
+        reconciliation_scope=None,
+        calls=None,
+    ):
         app = FakeApp()
         connection = FakeConnection()
         calls = calls if calls is not None else []
@@ -88,6 +96,15 @@ class EstimateRowTransferRouteTests(unittest.TestCase):
             "name": "Сметчик", "role": "сметчик",
         }
         stored_value = stored
+        scope_value = reconciliation_scope or {
+            "companyId": 1,
+            "projectId": 3,
+            "workPackage": "Каркас",
+        }
+
+        def build_stub(_cur, _payload):
+            calls.append("build")
+            return copy.deepcopy(current_plan or reviewed_plan())
 
         def approve_stub(*_args, **_kwargs):
             calls.append("approve")
@@ -122,7 +139,8 @@ class EstimateRowTransferRouteTests(unittest.TestCase):
             "approval_roles": ("директор", "зам_директора"),
             "full_view_roles": ("директор", "зам_директора", "сметчик"),
             "package_limit_roles": ("прораб",),
-            "build_current_plan": lambda _cur, _payload: copy.deepcopy(current_plan or reviewed_plan()),
+            "load_reconciliation_scope": lambda _cur, _id: copy.deepcopy(scope_value),
+            "build_current_plan": build_stub,
             "find_plan_id_by_hash": lambda *_args: None,
             "insert_draft": lambda _cur, _plan, _actor: calls.append("insert") or 5,
             "load_stored_plan": lambda _cur, _id, _company, **_kwargs: copy.deepcopy(stored_value),
@@ -150,7 +168,7 @@ class EstimateRowTransferRouteTests(unittest.TestCase):
             current_user={"id": 999, "role": "директор"},
         )
 
-        self.assertEqual(calls, ["insert"])
+        self.assertEqual(calls, ["build", "insert"])
         self.assertEqual(result["id"], 5)
         self.assertEqual(result["status"], "draft")
         self.assertEqual(result["planSha256"], reviewed_plan()["planSha256"])
@@ -169,6 +187,25 @@ class EstimateRowTransferRouteTests(unittest.TestCase):
             )
 
         self.assertEqual(raised.exception.status_code, 403)
+        self.assertEqual(calls, ["build"])
+        self.assertEqual(connection.rollbacks, 1)
+
+    def test_cross_company_scope_blocks_before_impact_scan(self):
+        app, connection, calls = self._register(
+            reconciliation_scope={
+                "companyId": 2,
+                "projectId": 8,
+                "workPackage": "Каркас",
+            },
+        )
+
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("POST", "/estimate-row-transfer-plans")](
+                self._draft_payload(), x_company_id="1", x_company_mode="company",
+                current_user={"id": 12},
+            )
+
+        self.assertEqual(raised.exception.status_code, 404)
         self.assertEqual(calls, [])
         self.assertEqual(connection.rollbacks, 1)
 
@@ -211,6 +248,7 @@ class EstimateRowTransferRouteTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 409)
         self.assertEqual(raised.exception.detail, "transfer_plan_stale")
         self.assertNotIn("approve", calls)
+        self.assertEqual(calls, ["build"])
         self.assertEqual(connection.rollbacks, 1)
 
     def test_repeated_approval_of_same_hash_is_read_only(self):
@@ -244,7 +282,7 @@ class EstimateRowTransferRouteTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "approved")
         self.assertEqual(result["approvedPlanSha256"], result["planSha256"])
-        self.assertEqual(calls, ["approve"])
+        self.assertEqual(calls, ["build", "approve"])
         self.assertEqual(connection.commits, 1)
 
     def test_writer_can_read_only_inside_selected_company(self):

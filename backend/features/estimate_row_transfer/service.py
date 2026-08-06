@@ -31,6 +31,29 @@ def _row_value(row, key, index):
         return None
 
 
+def load_reconciliation_scope(cur, reconciliation_id):
+    """Load only the owner boundary needed before the full impact scan."""
+    cur.execute(
+        """SELECT b.company_id,b.project_id,
+                  COALESCE(NULLIF(r.work_package,''),'Основная') AS work_package
+             FROM public.estimate_reconciliations r
+             JOIN public.estimates b ON b.id=r.base_estimate_id
+            WHERE r.id=%s""",
+        (reconciliation_id,),
+    )
+    row = cur.fetchone()
+    company_id = _positive_int(_row_value(row, "company_id", 0))
+    project_id = _positive_int(_row_value(row, "project_id", 1))
+    work_package = str(_row_value(row, "work_package", 2) or "").strip()
+    if not company_id or not project_id or not work_package:
+        return None
+    return {
+        "companyId": company_id,
+        "projectId": project_id,
+        "workPackage": work_package,
+    }
+
+
 def _validated_snapshot(row, *, estimate_id, expected_hash, error_prefix):
     snapshot_id = _positive_int(_row_value(row, "id", 0))
     stored_estimate_id = _positive_int(_row_value(row, "estimate_id", 1))

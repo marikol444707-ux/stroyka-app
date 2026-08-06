@@ -13,7 +13,10 @@ from backend.features.estimate_row_transfer.plan import (
     normalize_draft_payload,
     reviewed_plan_to_draft_payload,
 )
-from backend.features.estimate_row_transfer.service import build_current_plan
+from backend.features.estimate_row_transfer.service import (
+    build_current_plan,
+    load_reconciliation_scope,
+)
 from backend.features.estimate_row_transfer.storage import (
     approve_plan,
     find_other_approved_plan,
@@ -59,6 +62,7 @@ def register_estimate_row_transfer_module(app, deps):
     full_view_roles = tuple(deps["full_view_roles"])
     package_limit_roles = set(deps["package_limit_roles"])
     build_plan = deps.get("build_current_plan", build_current_plan)
+    load_scope = deps.get("load_reconciliation_scope", load_reconciliation_scope)
     find_by_hash = deps.get("find_plan_id_by_hash", find_plan_id_by_hash)
     insert_plan = deps.get("insert_draft", insert_draft)
     load_plan = deps.get("load_stored_plan", load_stored_plan)
@@ -148,6 +152,10 @@ def register_estimate_row_transfer_module(app, deps):
                 cur, current_user, x_company_id, x_company_mode,
                 estimate_write_roles, "write",
             )
+            scope = load_scope(cur, payload["reconciliationId"])
+            if not scope or scope.get("companyId") != actor["companyId"]:
+                abort(404, "transfer_plan_reconciliation_not_found")
+            authorize_scope(cur, actor, scope)
             try:
                 canonical = build_plan(cur, payload)
             except PlanValidationError as exc:
