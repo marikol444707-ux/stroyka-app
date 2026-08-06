@@ -4078,9 +4078,8 @@ Do not change assignment writers or enable constraints in the same release.
 
 ## Task E3.2: Nullable Brigade Assignment Lineage Schema
 
-**Status:** Local implementation complete on 2026-08-06. Production apply
-remains a separate guarded operation; assignment writers and strict runtime are
-not enabled in this slice.
+**Status:** Complete in production on 2026-08-06, runtime `857b0b622de9`.
+Assignment writers and strict runtime are not enabled in this slice.
 
 **Migration contract:**
 
@@ -4116,8 +4115,12 @@ not enabled in this slice.
 - [x] Full backend discovery passes (`1261/1261`), frontend Jest passes
   (`299/299`), the production build and both backend import modes pass, and two
   independent reviews found no remaining Critical or Required issue.
-- [ ] Push the code, run production dry-run/apply/post-audits, then deploy the
-  runtime and capture the resulting version and counts.
+- [x] Commits `396bf127` and `857b0b62` were pushed. Production dry-run found
+  `151` ready rows and zero review rows with plan
+  `193b566eef523a75b74304e6b997507d68a41c0c1ad9c2c93b8a4f72a3009a91`;
+  guarded apply updated all `151` rows with zero conflicts. Post-audit reported
+  complete schema, `151` explicit legacy rows, zero invalid rows and the full
+  public deployment smoke passed on runtime `857b0b622de9`.
 
 **Production apply order:** Pull the migration code without restarting the old
 runtime. Run `npm run --silent migrate:brigade-lineage -- --dry-run`, require
