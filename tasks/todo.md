@@ -3841,3 +3841,43 @@ Not scheduled.
 **Next:** Do not add automatic actions to this completed read-only slice. Any
 future resolve/apply flow requires a separate
 `preview -> human approval -> apply -> audit` task.
+
+## Task A6.1: Safe Agent Change Dispatch Contract
+
+**Status:** Local implementation complete on branch
+`codex/agent-change-dispatch-contract`; production deploy and runtime wiring are
+pending.
+
+**Behavior:**
+- Accept exactly one versioned event shape with explicit company, project,
+  source record and immutable source revision.
+- The first and only allowlisted route is
+  `estimate.version_activated -> director.daily_brief`.
+- Build a deterministic company-scoped dispatch plan with a bounded
+  idempotency key. The source project remains recorded for traceability while
+  the existing daily brief retains its company-level queue scope.
+
+**Safety:**
+- Unknown event/source types, aggregate or missing ownership, numeric-like
+  strings/floats, invalid revisions, extra fields and invalid business dates
+  fail closed.
+- A manually constructed event is revalidated before a plan can be built.
+- The module has no SQL, queue insert, model/network call, message delivery,
+  business mutation or runtime hook. Current imports and estimate activation
+  behavior are unchanged.
+
+**Verification:**
+- [x] Tests were written red before the contract implementation.
+- [x] Focused contract tests pass (`9/9`).
+- [x] Full backend discovery passes (`1188/1188`).
+- [x] Full frontend Jest passes (`299/299`).
+- [x] Python compile with an isolated cache and the production React build
+  pass.
+- [x] Static safety search finds no database, queue, model, HTTP or process
+  execution calls in the new module.
+- [ ] Deploy the inert contract and run production smoke.
+- [ ] Add the separate A6.2 shadow hook after estimate activation; it must
+  report the planned dispatch without enqueueing or changing business data.
+
+**Next:** Deploy this inert contract only after explicit approval, then take
+A6.2 as a separate small shadow-mode change.
