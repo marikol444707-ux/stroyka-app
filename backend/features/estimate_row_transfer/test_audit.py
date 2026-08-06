@@ -113,6 +113,7 @@ def supply_request_row(**overrides):
     row = {
         "request_id": 61,
         "request_company_id": 1,
+        "request_project": "Школа",
         "request_status": "В пути",
         "request_work_package": "Отделка",
         "items_json": json.dumps(items, ensure_ascii=False),
@@ -130,6 +131,8 @@ def supply_request_row(**overrides):
 
 def supply_reconciliation_row(**overrides):
     row = reconciliation_row(
+        project_name="Школа",
+        project_name_owner_count=1,
         reconciliation_smeta_type="Материалы",
         base_smeta_type="Материалы",
         target_smeta_type="Материалы",
@@ -250,6 +253,22 @@ class EstimateRowTransferPureAuditTests(unittest.TestCase):
             "reasonCode": "target_item_key_mismatch",
         })
 
+    def test_target_mapping_rejects_fractional_source_id(self):
+        result = classify_target_mapping(
+            reconciliation_row(),
+            {
+                "sourceKind": "assignment",
+                "sourceId": 41.5,
+                "targetSectionIndex": 0,
+                "targetItemIndex": 0,
+                "targetItemKey": "new-row",
+                "quantity": 3,
+            },
+        )
+
+        self.assertEqual(result["state"], "blocked")
+        self.assertEqual(result["reasonCode"], "mapping_source_identity_invalid")
+
     def test_open_supply_item_reports_unreceived_balance_but_requires_snapshot_review(self):
         deliveries = [{
             "delivery_id": 81,
@@ -319,6 +338,59 @@ class EstimateRowTransferPureAuditTests(unittest.TestCase):
             "reasonCode": "supply_items_json_invalid",
         })
         self.assertNotIn("secret", json.dumps(report))
+
+    def test_closed_supply_request_is_not_a_candidate_or_blocker(self):
+        report = build_impact_report(
+            supply_reconciliation_row(),
+            [],
+            [supply_request_row(request_status="Поставлено")],
+            [],
+        )
+
+        self.assertEqual(report["summary"]["supplyCandidates"], 0)
+        self.assertEqual(report["reasonCounts"], {"exact_target_mapping_required": 1})
+
+    def test_supply_lineage_project_must_match_stored_project(self):
+        items = json.loads(supply_request_row()["items_json"])
+        items[0]["estimateLineage"]["projectName"] = "Другой объект"
+
+        report = build_impact_report(
+            supply_reconciliation_row(),
+            [],
+            [supply_request_row(items_json=json.dumps(items, ensure_ascii=False))],
+            [],
+        )
+
+        self.assertEqual(report["summary"]["supplyCandidates"], 0)
+        self.assertEqual(report["needsReview"][0]["reasonCode"], "supply_source_lineage_drift")
+
+    def test_fractional_supply_source_coordinate_is_rejected_not_truncated(self):
+        items = json.loads(supply_request_row()["items_json"])
+        items[0]["estimateLineage"]["sources"][0]["sectionIndex"] = 0.5
+
+        report = build_impact_report(
+            supply_reconciliation_row(),
+            [],
+            [supply_request_row(items_json=json.dumps(items, ensure_ascii=False))],
+            [],
+        )
+
+        self.assertEqual(report["summary"]["supplyCandidates"], 0)
+        self.assertEqual(report["needsReview"][0]["reasonCode"], "supply_source_coordinate_invalid")
+
+    def test_duplicate_supply_source_coordinate_is_blocked_without_deliveries(self):
+        items = json.loads(supply_request_row()["items_json"])
+        items.append(dict(items[0]))
+
+        report = build_impact_report(
+            supply_reconciliation_row(),
+            [],
+            [supply_request_row(items_json=json.dumps(items, ensure_ascii=False))],
+            [],
+        )
+
+        self.assertEqual(report["summary"]["supplyCandidates"], 0)
+        self.assertEqual(report["needsReview"][0]["reasonCode"], "supply_source_coordinate_duplicate")
 
     def test_preview_is_bounded_and_count_is_not_truncated(self):
         rows = [

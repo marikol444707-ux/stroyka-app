@@ -22,14 +22,24 @@ APPROVED_RECONCILIATION_STATUS = "Утверждена"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
-def _positive_int(value):
+def _exact_int(value):
     if isinstance(value, bool):
         return None
-    try:
-        result = int(value)
-    except (TypeError, ValueError, OverflowError):
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value) if math.isfinite(value) and value.is_integer() else None
+    if not isinstance(value, str):
         return None
-    return result if result > 0 else None
+    normalized = value.strip()
+    if not normalized or not normalized.isascii() or not normalized.isdigit():
+        return None
+    return int(normalized)
+
+
+def _positive_int(value):
+    result = _exact_int(value)
+    return result if result is not None and result > 0 else None
 
 
 def parse_reconciliation_id(value):
@@ -45,13 +55,8 @@ def parse_reconciliation_id(value):
 
 
 def _non_negative_int(value):
-    if isinstance(value, bool):
-        return None
-    try:
-        result = int(value)
-    except (TypeError, ValueError, OverflowError):
-        return None
-    return result if result >= 0 else None
+    result = _exact_int(value)
+    return result if result is not None and result >= 0 else None
 
 
 def _finite_number(value):
@@ -341,7 +346,9 @@ def _supply_descriptors(context, request, deliveries):
     if _work_package(request.get("request_work_package")) != context["workPackage"]:
         return [], [_blocked("supply", request_id, "supply_request_package_mismatch")]
     if _text(request.get("request_status")) not in OPEN_SUPPLY_STATUSES:
-        return [], [_blocked("supply", request_id, "supply_request_not_open")]
+        return [], []
+    if _text(request.get("request_project")) != context["projectName"]:
+        return [], [_blocked("supply", request_id, "supply_request_project_mismatch")]
     items = _parse_items(request.get("items_json"))
     if items is None:
         return [], [_blocked("supply", request_id, "supply_items_json_invalid")]
@@ -406,6 +413,7 @@ def _supply_descriptors(context, request, deliveries):
             or _text(resolved.item.get("unit")) != unit
             or _work_package(request_item.get("workPackage")) != context["workPackage"]
             or _work_package(lineage.get("workPackage")) != context["workPackage"]
+            or _text(lineage.get("projectName")) != context["projectName"]
         ):
             blockers.append(_blocked("supply", request_id, "supply_source_lineage_drift"))
             continue
@@ -430,11 +438,21 @@ def _supply_descriptors(context, request, deliveries):
         })
 
     identity_counts = Counter(item["materialIdentity"] for item in descriptors)
+    coordinate_counts = Counter(
+        (
+            item["source"]["estimateId"],
+            item["source"]["sectionIndex"],
+            item["source"]["itemIndex"],
+        )
+        for item in descriptors
+    )
     request_deliveries = [
         row for row in deliveries
         if _positive_int(row.get("request_id")) == request_id
     ]
     candidates = []
+    reported_delivery_identities = set()
+    reported_source_coordinates = set()
     for descriptor in descriptors:
         matching_deliveries = [
             row for row in request_deliveries
@@ -442,7 +460,19 @@ def _supply_descriptors(context, request, deliveries):
             == descriptor["materialIdentity"]
         ]
         if identity_counts[descriptor["materialIdentity"]] > 1 and matching_deliveries:
-            blockers.append(_blocked("supply", request_id, "supply_delivery_allocation_ambiguous"))
+            if descriptor["materialIdentity"] not in reported_delivery_identities:
+                blockers.append(_blocked("supply", request_id, "supply_delivery_allocation_ambiguous"))
+                reported_delivery_identities.add(descriptor["materialIdentity"])
+            continue
+        source_coordinate = (
+            descriptor["source"]["estimateId"],
+            descriptor["source"]["sectionIndex"],
+            descriptor["source"]["itemIndex"],
+        )
+        if coordinate_counts[source_coordinate] > 1:
+            if source_coordinate not in reported_source_coordinates:
+                blockers.append(_blocked("supply", request_id, "supply_source_coordinate_duplicate"))
+                reported_source_coordinates.add(source_coordinate)
             continue
         received = 0.0
         delivery_invalid = False
@@ -773,6 +803,7 @@ def _load_supply_request_rows(cur, context):
     cur.execute(
         """SELECT sr.id AS request_id,
                   sr.company_id AS request_company_id,
+                  sr.project AS request_project,
                   sr.status AS request_status,
                   COALESCE(NULLIF(sr.work_package,''),'Основная')
                       AS request_work_package,
@@ -800,8 +831,14 @@ def _load_supply_request_rows(cur, context):
             WHERE sr.company_id=%s
               AND sr.project=%s
               AND COALESCE(NULLIF(sr.work_package,''),'Основная')=%s
+              AND COALESCE(sr.status,'')=ANY(%s)
             ORDER BY sr.id""",
-        (context["companyId"], context["projectName"], context["workPackage"]),
+        (
+            context["companyId"],
+            context["projectName"],
+            context["workPackage"],
+            list(OPEN_SUPPLY_STATUSES),
+        ),
     )
     return [dict(row) for row in (cur.fetchall() or [])]
 
