@@ -42,6 +42,8 @@ class FakeCursor:
             self.result = (77,)
         elif normalized.startswith("UPDATE brigade_contracts") and "RETURNING id" in normalized:
             self.result = (77,)
+        elif "source_estimate_version_id=ANY(%s)" in normalized:
+            self.rows = [self.existing_item + (71, 0, 0, "work-1")] if self.existing_item else []
         elif "FROM brigade_contract_items" in normalized and normalized.startswith("SELECT id"):
             self.result = self.existing_item
         elif normalized.startswith("INSERT INTO brigade_contract_items"):

@@ -24,6 +24,10 @@ _UPDATE_COLUMNS = {
 }
 _SET_RE = re.compile(r"\bset\b(.*?)\bwhere\b", re.IGNORECASE | re.DOTALL)
 _ASSIGNMENT_RE = re.compile(r"(?:^|,)\s*([a-z_][a-z0-9_]*)\s*=", re.IGNORECASE)
+_FUZZY_LOOKUP_RE = re.compile(
+    r"lower\s*\(\s*trim\s*\(\s*coalesce\s*\(\s*bci\.description",
+    re.IGNORECASE,
+)
 
 
 def _default_source_files(repo_root):
@@ -69,6 +73,13 @@ def audit_brigade_contract_item_writers(repo_root=None, *, source_files=None):
     update_count = 0
     for raw_path, source in sorted(source_files.items()):
         path = Path(raw_path).as_posix()
+        fuzzy_lookup = _FUZZY_LOOKUP_RE.search(source)
+        if fuzzy_lookup:
+            violations.append({
+                "code": "fuzzy_contract_item_lookup",
+                "file": path,
+                "line": source.count("\n", 0, fuzzy_lookup.start()) + 1,
+            })
         for line, sql, lowered in _sql_calls(path, source, violations):
             if _INSERT_TOKEN in lowered:
                 insert_count += 1

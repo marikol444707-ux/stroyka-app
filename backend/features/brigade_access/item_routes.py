@@ -235,7 +235,7 @@ def register_brigade_contract_items_module(app, deps):
                     contract["id"], data.get("estimateSection", ""),
                     data.get("name", "") or data.get("description", ""), work_package, "",
                     data.get("unit", ""), data.get("quantity", 0), data.get("priceSmeta", 0),
-                    data.get("priceBrigade", 0), data.get("doneQuantity", 0),
+                    data.get("priceBrigade", 0), 0,
                     "manual", None, None, None, None,
                 ),
             )
@@ -263,7 +263,11 @@ def register_brigade_contract_items_module(app, deps):
         cur = conn.cursor()
         try:
             _reject_client_lineage(data)
-            cur.execute("SELECT contract_id,COALESCE(NULLIF(work_package,''),'Основная') FROM brigade_contract_items WHERE id=%s FOR UPDATE", (id,))
+            cur.execute(
+                """SELECT contract_id,COALESCE(NULLIF(work_package,''),'Основная'),done_quantity
+                   FROM brigade_contract_items WHERE id=%s FOR UPDATE""",
+                (id,),
+            )
             item = cur.fetchone()
             if not item:
                 raise HTTPException(status_code=404, detail="Запись не найдена")
@@ -284,7 +288,7 @@ def register_brigade_contract_items_module(app, deps):
             if not has_package_access(actor, new_work_package):
                 raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
             quantity = float(data.get("quantity", 0) or 0)
-            done_quantity = float(data.get("doneQuantity", 0) or 0)
+            done_quantity = float(row_get(item, "done_quantity", 2, 0) or 0)
             done_quantity = max(0, min(done_quantity, quantity)) if quantity > 0 else 0
             cur.execute(
                 """UPDATE brigade_contract_items

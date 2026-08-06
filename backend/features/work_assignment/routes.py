@@ -17,61 +17,32 @@ except ModuleNotFoundError:
 try:
     from backend.features.brigade_lineage.writer_service import (
         LineageWriteConflict,
+        load_existing_estimate_contract_items,
         write_estimate_contract_item,
     )
 except ModuleNotFoundError:
     from features.brigade_lineage.writer_service import (
         LineageWriteConflict,
+        load_existing_estimate_contract_items,
         write_estimate_contract_item,
+    )
+
+try:
+    from backend.features.brigade_lineage.source_item import (
+        estimate_item_unit_price,
+        is_estimate_work_item,
+        number,
+    )
+except ModuleNotFoundError:
+    from features.brigade_lineage.source_item import (
+        estimate_item_unit_price,
+        is_estimate_work_item,
+        number,
     )
 
 
 def _text(value, limit=255):
     return str(value or "").strip()[:limit]
-
-
-def _num(value):
-    try:
-        result = float(str(value if value is not None else 0).replace(" ", "").replace(",", "."))
-        return result if math.isfinite(result) else 0.0
-    except Exception:
-        return 0.0
-
-
-def _is_work_item(item):
-    raw_type = str((item or {}).get("itemType") or (item or {}).get("type") or (item or {}).get("kind") or "work").lower()
-    if any(token in raw_type for token in ("material", "материал", "equipment", "оборуд", "delivery", "доставка", "other", "прочее", "note", "adjustment")):
-        return False
-    return not (_num((item or {}).get("priceMaterial")) > 0 and _num((item or {}).get("priceWork")) <= 0)
-
-
-def _item_total(item):
-    item = item or {}
-    qty = _num(item.get("quantity"))
-    for field in ("totalWork", "lineTotal", "currentTotal", "total", "baseTotal", "estimatedCost", "workTotal", "workSum", "amount", "sum"):
-        total = _num(item.get(field))
-        if abs(total) > 0:
-            return total
-    return 0
-
-
-def _unit_price(item):
-    for field in (
-        "customerPricePerUnit",
-        "priceWork",
-        "priceSmeta",
-        "price",
-        "baseUnitPrice",
-    ):
-        value = _num((item or {}).get(field))
-        if value > 0:
-            return value
-    qty = _num((item or {}).get("quantity"))
-    if qty > 0:
-        total = _item_total(item)
-        if total:
-            return round(total / qty, 6)
-    return 0
 
 
 def _contract_match_sql(contractor_user_id):
@@ -112,7 +83,7 @@ def register_work_assignment_module(app, deps):
             raise HTTPException(status_code=400, detail="Выберите работы для назначения")
         price_mode = _text(data.get("priceMode") or "coefficient", 40)
         coefficient_value = data.get("coefficient")
-        coefficient = _num(0.6 if coefficient_value in (None, "") else coefficient_value)
+        coefficient = number(0.6 if coefficient_value in (None, "") else coefficient_value)
         if price_mode == "coefficient" and coefficient <= 0:
             raise HTTPException(status_code=400, detail="Коэффициент должен быть больше нуля")
 
@@ -231,24 +202,32 @@ def register_work_assignment_module(app, deps):
             updated = 0
             reused = 0
             result_items = []
+            try:
+                existing_items = load_existing_estimate_contract_items(
+                    cur,
+                    contract_id=contract_id,
+                    lineages=lineages,
+                )
+            except LineageWriteConflict:
+                raise HTTPException(status_code=409, detail="Для источника найдено несколько договорных позиций")
             for assignment, lineage in zip(assignments, lineages):
                 section = lineage.section
                 item = lineage.item
                 estimate_item_key = lineage.source_item_key
-                if not _is_work_item(item):
+                if not is_estimate_work_item(item):
                     continue
-                qty = _num(item.get("quantity"))
+                qty = number(item.get("quantity"))
                 if qty <= 0:
                     raise HTTPException(status_code=400, detail="В работе нулевой объем: " + _text(item.get("name"), 120))
-                price_smeta = _unit_price(item)
+                price_smeta = estimate_item_unit_price(item)
                 if price_smeta <= 0:
                     raise HTTPException(status_code=400, detail="В работе нет цены сметы: " + _text(item.get("name"), 120))
                 row_mode = _text(assignment.get("priceMode") or price_mode, 40)
                 row_coefficient_value = assignment.get("coefficient")
-                row_coefficient = _num(
+                row_coefficient = number(
                     coefficient if row_coefficient_value in (None, "") else row_coefficient_value
                 )
-                manual_price = _num(assignment.get("manualPrice") or assignment.get("priceBrigade"))
+                manual_price = number(assignment.get("manualPrice") or assignment.get("priceBrigade"))
                 if row_mode == "coefficient" and row_coefficient <= 0:
                     raise HTTPException(status_code=400, detail="Коэффициент должен быть больше нуля")
                 price_brigade = manual_price if row_mode == "manual" else round(price_smeta * row_coefficient, 2)
@@ -269,6 +248,7 @@ def register_work_assignment_module(app, deps):
                         quantity=qty,
                         price_smeta=price_smeta,
                         price_brigade=price_brigade,
+                        existing_items=existing_items,
                     )
                 except LineageWriteConflict:
                     raise HTTPException(status_code=409, detail="Сохранённая строка назначения имеет несовместимый ключ источника")

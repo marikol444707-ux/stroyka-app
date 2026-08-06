@@ -4,20 +4,25 @@ from backend.features.brigade_lineage.snapshot_service import EstimateSnapshotLi
 from backend.features.brigade_lineage.writer_service import (
     LineageWriteConflict,
     insert_pricelist_contract_item,
+    load_existing_estimate_contract_items,
     write_estimate_contract_item,
 )
 
 
 class FakeCursor:
-    def __init__(self, fetchone_results=()):
+    def __init__(self, fetchone_results=(), fetchall_results=()):
         self.calls = []
         self.fetchone_results = list(fetchone_results)
+        self.fetchall_results = list(fetchall_results)
 
     def execute(self, sql, params=()):
         self.calls.append((" ".join(sql.split()), tuple(params)))
 
     def fetchone(self):
         return self.fetchone_results.pop(0) if self.fetchone_results else None
+
+    def fetchall(self):
+        return self.fetchall_results.pop(0) if self.fetchall_results else []
 
 
 def estimate_lineage():
@@ -77,6 +82,24 @@ class PricelistContractItemWriterTests(unittest.TestCase):
 
 
 class EstimateContractItemWriterTests(unittest.TestCase):
+    def test_existing_rows_are_loaded_once_for_the_complete_contract_batch(self):
+        stored = (
+            91, "Стены", "Штукатурка", "м2", 12, 1000, 650, "work-2-5",
+            41, 2, 5, "work-2-5",
+        )
+        cursor = FakeCursor(fetchall_results=[[stored]])
+
+        existing = load_existing_estimate_contract_items(
+            cursor,
+            contract_id=7,
+            lineages=[estimate_lineage(), estimate_lineage()],
+        )
+
+        self.assertEqual(len(cursor.calls), 1)
+        self.assertIn("source_estimate_version_id=ANY(%s)", cursor.calls[0][0])
+        self.assertEqual(cursor.calls[0][1], (7, [41]))
+        self.assertEqual(existing[(41, 2, 5, "work-2-5")], stored)
+
     def test_new_item_persists_the_complete_exact_lineage(self):
         cursor = FakeCursor(fetchone_results=[None, (91,)])
 

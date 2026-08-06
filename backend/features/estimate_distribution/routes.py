@@ -1,4 +1,3 @@
-import math
 from typing import Optional
 
 from fastapi import Depends, Header, HTTPException
@@ -8,25 +7,33 @@ try:
         LineageResolutionError,
         SnapshotItemCoordinate,
     )
-    from backend.features.brigade_lineage.writer_service import LineageWriteConflict
+    from backend.features.brigade_lineage.writer_service import (
+        LineageWriteConflict,
+        load_existing_estimate_contract_items,
+    )
+    from backend.features.brigade_lineage.source_item import (
+        estimate_item_unit_price,
+        is_estimate_work_item,
+        number,
+    )
 except ModuleNotFoundError:
     from features.brigade_lineage.snapshot_service import (
         LineageResolutionError,
         SnapshotItemCoordinate,
     )
-    from features.brigade_lineage.writer_service import LineageWriteConflict
+    from features.brigade_lineage.writer_service import (
+        LineageWriteConflict,
+        load_existing_estimate_contract_items,
+    )
+    from features.brigade_lineage.source_item import (
+        estimate_item_unit_price,
+        is_estimate_work_item,
+        number,
+    )
 
 
 def _text(value, limit=255):
     return str(value or "").strip()[:limit]
-
-
-def _number(value):
-    try:
-        result = float(str(value if value is not None else 0).replace(" ", "").replace(",", "."))
-    except (TypeError, ValueError):
-        return 0.0
-    return result if math.isfinite(result) else 0.0
 
 
 def _positive_int(value):
@@ -35,33 +42,6 @@ def _positive_int(value):
     except (TypeError, ValueError):
         return None
     return result if result > 0 else None
-
-
-def _is_work_item(item):
-    item = item or {}
-    raw_type = str(item.get("itemType") or item.get("type") or item.get("kind") or "work").lower()
-    excluded = (
-        "material", "материал", "equipment", "оборуд", "delivery", "доставка",
-        "other", "прочее", "note", "adjustment",
-    )
-    if any(token in raw_type for token in excluded):
-        return False
-    return not (_number(item.get("priceMaterial")) > 0 and _number(item.get("priceWork")) <= 0)
-
-
-def _unit_price(item):
-    item = item or {}
-    for field in ("customerPricePerUnit", "priceWork", "priceSmeta", "price", "baseUnitPrice"):
-        value = _number(item.get(field))
-        if value > 0:
-            return value
-    quantity = _number(item.get("quantity"))
-    if quantity > 0:
-        for field in ("totalWork", "lineTotal", "currentTotal", "total", "baseTotal", "estimatedCost"):
-            total = _number(item.get(field))
-            if total > 0:
-                return round(total / quantity, 6)
-    return 0.0
 
 
 def _contract_identity(contractor_user_id, brigade_name):
@@ -103,7 +83,7 @@ def register_estimate_distribution_module(app, deps):
         if not assignments:
             raise HTTPException(status_code=400, detail="Нет рабочих позиций для распределения")
         raw_default_coefficient = data.get("defaultCoefficient")
-        default_coefficient = _number(1 if raw_default_coefficient in (None, "") else raw_default_coefficient)
+        default_coefficient = number(1 if raw_default_coefficient in (None, "") else raw_default_coefficient)
         if default_coefficient <= 0:
             raise HTTPException(status_code=400, detail="Коэффициент должен быть больше нуля")
 
@@ -169,10 +149,10 @@ def register_estimate_distribution_module(app, deps):
                 ) or "Основная"
                 if assigned_package != work_package:
                     raise HTTPException(status_code=400, detail="Пакет строки распределения не совпадает с пакетом сметы")
-                if not _is_work_item(lineage.item):
+                if not is_estimate_work_item(lineage.item):
                     continue
-                quantity = _number(lineage.item.get("quantity"))
-                price_smeta = _unit_price(lineage.item)
+                quantity = number(lineage.item.get("quantity"))
+                price_smeta = estimate_item_unit_price(lineage.item)
                 if quantity <= 0:
                     raise HTTPException(status_code=400, detail="В сметной строке нулевой объем: " + _text(lineage.item.get("name"), 120))
                 if price_smeta <= 0:
@@ -213,7 +193,7 @@ def register_estimate_distribution_module(app, deps):
                     "SELECT id, coefficient FROM pricelists WHERE id = ANY(%s)",
                     (sorted(pricelist_ids),),
                 )
-                coefficients = {int(row[0]): _number(row[1]) for row in cur.fetchall()}
+                coefficients = {int(row[0]): number(row[1]) for row in cur.fetchall()}
                 if set(coefficients) != pricelist_ids or any(value <= 0 for value in coefficients.values()):
                     raise HTTPException(status_code=400, detail="Прайс-лист бригады не найден или содержит неверный коэффициент")
 
@@ -272,6 +252,14 @@ def register_estimate_distribution_module(app, deps):
                 inserted = 0
                 reused = 0
                 assigned_total = 0.0
+                try:
+                    existing_items = load_existing_estimate_contract_items(
+                        cur,
+                        contract_id=contract_id,
+                        lineages=[item[1] for item in group["items"]],
+                    )
+                except LineageWriteConflict:
+                    raise HTTPException(status_code=409, detail="Для источника найдено несколько договорных позиций")
                 for _assignment, lineage, quantity, price_smeta in group["items"]:
                     price_brigade = round(price_smeta * coefficient, 2)
                     try:
@@ -286,6 +274,7 @@ def register_estimate_distribution_module(app, deps):
                             quantity=quantity,
                             price_smeta=price_smeta,
                             price_brigade=price_brigade,
+                            existing_items=existing_items,
                         )
                     except LineageWriteConflict:
                         raise HTTPException(status_code=409, detail="Сохранённая строка назначения имеет несовместимый ключ источника")

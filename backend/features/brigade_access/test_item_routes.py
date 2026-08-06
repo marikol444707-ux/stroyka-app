@@ -158,6 +158,7 @@ class BrigadeContractItemsTest(unittest.TestCase):
                 "quantity": 3,
                 "priceSmeta": 500,
                 "priceBrigade": 350,
+                "doneQuantity": 2,
             },
             x_company_id="3", x_company_mode="company", _current_user={},
         )
@@ -165,6 +166,7 @@ class BrigadeContractItemsTest(unittest.TestCase):
         insert = next(call for call in cursor.calls if call[0].startswith("INSERT INTO brigade_contract_items"))
         self.assertIn("source_type", insert[0])
         self.assertEqual(insert[1][4], "")
+        self.assertEqual(insert[1][9], 0)
         self.assertEqual(insert[1][10:], ("manual", None, None, None, None))
         self.assertEqual(result["id"], 14)
         self.assertTrue(connection.committed)
@@ -189,9 +191,9 @@ class BrigadeContractItemsTest(unittest.TestCase):
                 self.assertFalse(any(call[0].startswith("INSERT INTO brigade_contract_items") for call in cursor.calls))
                 self.assertTrue(connection.rolled_back)
 
-    def test_update_clamps_done_and_recalcs_total(self):
+    def test_update_preserves_server_done_quantity_and_recalcs_total(self):
         recalc = []
-        cursor = FakeCursor(fetchone_results=[(7, "Основная"), (7,)])
+        cursor = FakeCursor(fetchone_results=[(7, "Основная", 40), (7,)])
         app, connection = build(cursor, recalc_calls=recalc)
         result = app.routes[("PUT", "/brigade-contract-items/{id}")](
             id=4, data={"quantity": 100, "doneQuantity": 250, "priceBrigade": 300, "priceSmeta": 450},
@@ -199,13 +201,13 @@ class BrigadeContractItemsTest(unittest.TestCase):
         )
         self.assertEqual(result["ok"], True)
         update = [c for c in cursor.calls if c[0].startswith("UPDATE brigade_contract_items")][0]
-        self.assertEqual(update[1][3], 100)
+        self.assertEqual(update[1][3], 40)
         self.assertNotIn("estimate_item_key", update[0])
         self.assertEqual(recalc, [7])
         self.assertTrue(connection.committed)
 
     def test_update_ignores_compatibility_key_and_rejects_source_coordinates(self):
-        cursor = FakeCursor(fetchone_results=[(7, "Основная"), (7,)])
+        cursor = FakeCursor(fetchone_results=[(7, "Основная", 0), (7,)])
         app, connection = build(cursor)
         app.routes[("PUT", "/brigade-contract-items/{id}")](
             id=4,
@@ -216,7 +218,7 @@ class BrigadeContractItemsTest(unittest.TestCase):
         self.assertNotIn("estimate_item_key", update[0])
         self.assertNotIn("tampered", update[1])
 
-        cursor = FakeCursor(fetchone_results=[(7, "Основная")])
+        cursor = FakeCursor(fetchone_results=[(7, "Основная", 0)])
         app, connection = build(cursor)
         with self.assertRaises(HTTPException) as ctx:
             app.routes[("PUT", "/brigade-contract-items/{id}")](

@@ -1,47 +1,22 @@
-export function isDistributableWorkItem(item) {
-  const rawType = String(item?.itemType || item?.type || item?.kind || 'work').toLowerCase();
-  const priceWork = Number(item?.priceWork || 0);
-  const priceMaterial = Number(item?.priceMaterial || 0);
-  const excludedTypes = [
-    'material', 'материал', 'materials', 'материалы', 'equipment', 'оборудование',
-    'delivery', 'доставка', 'other', 'прочее',
-  ];
-  if (excludedTypes.some(token => rawType.includes(token))) return false;
-  return !(priceWork <= 0 && priceMaterial > 0);
-}
+import { workRowsForEstimate } from '../work-assignment/workAssignmentUtils';
 
 export function getDistributableWorkRows(estimate) {
-  const rows = [];
-  const workPackage = estimate?.workPackage || estimate?.work_package || 'Основная';
-  (estimate?.sections || []).forEach((section, sectionIndex) => {
-    (section.items || []).forEach((item, itemIndex) => {
-      if (!isDistributableWorkItem(item)) return;
-      rows.push({
-        section,
-        sectionIndex,
-        item,
-        itemIndex,
-        key: sectionIndex + '-' + itemIndex,
-        workPackage,
-        estimateItemKey: item.estimateItemKey
-          || item.estimate_item_key
-          || (String(estimate.id || '') + ':' + sectionIndex + ':' + itemIndex),
-      });
-    });
-  });
-  return rows;
+  return workRowsForEstimate(estimate).map(row => ({...row, key: row.id}));
 }
 
 export function buildEstimateDistributionAssignments(workRows, selectedAssignments, brigades) {
   const assignments = [];
   workRows.forEach(({
-    section,
     sectionIndex,
-    item,
     itemIndex,
     key,
     workPackage,
     estimateItemKey,
+    section,
+    name,
+    unit,
+    quantity,
+    priceSmeta,
   }) => {
     const brigadeName = selectedAssignments[key];
     if (!brigadeName) return;
@@ -50,12 +25,12 @@ export function buildEstimateDistributionAssignments(workRows, selectedAssignmen
       sectionIndex,
       itemIndex,
       estimateItemKey,
-      section: section.name,
-      name: item.name,
-      unit: item.unit || 'шт',
-      quantity: Number(item.quantity || 0),
-      priceSmeta: Number(item.priceWork || 0),
-      itemType: item.type || item.itemType || 'work',
+      section,
+      name,
+      unit,
+      quantity,
+      priceSmeta,
+      itemType: 'work',
       workPackage,
       brigadeName,
       contractorType: brigade?.contractorType || 'Своя бригада',

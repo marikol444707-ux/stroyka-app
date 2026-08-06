@@ -103,14 +103,7 @@ export function itemMatchesWorkRow(contractItem = {}, row = {}, estimate = {}) {
   const samePackage = itemPackage && itemPackage === estimatePackageName(estimate);
   const contractKey = String(contractItem.estimateItemKey || contractItem.estimate_item_key || '').trim();
   const sameKey = contractKey && row.estimateItemKey && contractKey === String(row.estimateItemKey);
-  const contractNameValue = String(contractItem.name || contractItem.description || '').trim().toLowerCase();
-  const contractSection = String(contractItem.estimateSection || contractItem.estimate_section || '').trim().toLowerCase();
-  const contractUnit = String(contractItem.unit || '').trim().toLowerCase();
-  const sameName = contractNameValue &&
-    contractNameValue === String(row.name || '').trim().toLowerCase() &&
-    (!contractSection || contractSection === String(row.section || '').trim().toLowerCase()) &&
-    (!contractUnit || contractUnit === String(row.unit || '').trim().toLowerCase());
-  return sameProject && samePackage && (sameKey || sameName);
+  return Boolean(sameProject && samePackage && sameKey);
 }
 
 export function assignmentsForEstimate(estimate, contractItems = [], contracts = []) {

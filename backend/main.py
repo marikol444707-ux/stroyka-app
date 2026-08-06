@@ -12020,18 +12020,15 @@ def _worker_contract_item_for_work(
     user: dict,
     project: str,
     description: str,
-    unit: str = "",
     contract_item_id=None,
     work_package: str = "",
     estimate_item_key: str = "",
-    estimate_section: str = "",
 ):
     """Find the exact assigned contract line for a worker-submitted estimate work."""
     if user.get("role") not in WORKER_EXECUTION_ROLES:
         return None
     project = (project or "").strip()
     description = (description or "").strip()
-    unit = (unit or "").strip()
     work_package = (work_package or "").strip() or "Основная"
     user_id = user.get("id")
     user_name = (user.get("name") or "").strip().lower()
@@ -12040,6 +12037,11 @@ def _worker_contract_item_for_work(
         raise HTTPException(status_code=400, detail="Для закрытия сметной работы нужен объект и наименование работы")
     if not company_id:
         raise HTTPException(status_code=409, detail="Компания договорной позиции не определена")
+    if not contract_item_id and not (estimate_item_key or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Для закрытия работы выберите точную договорную позицию",
+        )
 
     base_sql = """SELECT bci.id, bci.contract_id, bci.description, bci.unit, bci.quantity,
                          bci.price_brigade, bci.done_quantity, bc.project_name, bc.brigade_name,
@@ -12055,20 +12057,9 @@ def _worker_contract_item_for_work(
     if contract_item_id:
         base_sql += " AND bci.id=%s"
         params.append(contract_item_id)
-    elif (estimate_item_key or "").strip():
+    else:
         base_sql += " AND COALESCE(bci.estimate_item_key,'')=%s"
         params.append((estimate_item_key or "").strip())
-    else:
-        base_sql += " AND LOWER(TRIM(COALESCE(bci.description,'')))=LOWER(TRIM(%s))"
-        params.append(description)
-        if (estimate_section or "").strip():
-            base_sql += " AND LOWER(TRIM(COALESCE(bci.estimate_section,'')))=LOWER(TRIM(%s))"
-            params.append((estimate_section or "").strip())
-        if unit:
-            base_sql += " ORDER BY CASE WHEN LOWER(TRIM(COALESCE(bci.unit,'')))=LOWER(TRIM(%s)) THEN 0 ELSE 1 END, bci.id LIMIT 1"
-            params.append(unit)
-        else:
-            base_sql += " ORDER BY bci.id LIMIT 1"
     cur.execute(base_sql, tuple(params))
     row = cur.fetchone()
     if not row:
@@ -12696,11 +12687,9 @@ def create_work_journal(
                 _current_user,
                 w.project,
                 journal_description,
-                journal_unit,
                 contract_item_id,
                 journal_work_package,
                 journal_estimate_item_key,
-                journal_section_name,
             )
             _validate_contract_item_capacity(assigned_item, w.quantity)
             contract_item_id = assigned_item.get("id")
@@ -16749,11 +16738,9 @@ def update_estimate(
                         _current_user,
                         project_name,
                         it.get("name",""),
-                        unit,
                         contract_item_id,
                         work_package_for_journal,
                         estimate_item_key,
-                        s.get("name", ""),
                     )
                     _validate_contract_item_capacity(assigned_item, delta)
                     contract_item_id = assigned_item.get("id")

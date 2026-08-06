@@ -23,6 +23,51 @@ def _stored_value(row, index, key):
     return row[index]
 
 
+def _lineage_key(lineage):
+    return (
+        lineage.source_estimate_version_id,
+        lineage.source_section_index,
+        lineage.source_item_index,
+        lineage.source_item_key,
+    )
+
+
+def load_existing_estimate_contract_items(cur, *, contract_id, lineages):
+    """Lock and index existing exact rows with one read per contract batch."""
+    version_ids = sorted({
+        lineage.source_estimate_version_id
+        for lineage in lineages
+        if getattr(lineage, "source_type", None) == "estimate"
+        and getattr(lineage, "source_estimate_version_id", None) is not None
+    })
+    if not version_ids:
+        return {}
+    cur.execute(
+        """SELECT id, estimate_section, description, unit, quantity,
+                  price_smeta, price_brigade, estimate_item_key,
+                  source_estimate_version_id, source_section_index,
+                  source_item_index, source_item_key
+             FROM brigade_contract_items
+           WHERE contract_id=%s
+             AND source_type='estimate'
+             AND source_estimate_version_id=ANY(%s)
+           FOR UPDATE""",
+        (contract_id, version_ids),
+    )
+    indexed = {}
+    for row in cur.fetchall() or ():
+        key = (
+            _stored_value(row, 8, "source_estimate_version_id"),
+            _stored_value(row, 9, "source_section_index"),
+            _stored_value(row, 10, "source_item_index"),
+            _stored_value(row, 11, "source_item_key"),
+        )
+        if key in indexed:
+            raise LineageWriteConflict("duplicate_estimate_lineage")
+        indexed[key] = row
+    return indexed
+
+
 def write_estimate_contract_item(
     cur,
     *,
@@ -35,6 +80,7 @@ def write_estimate_contract_item(
     quantity,
     price_smeta,
     price_brigade,
+    existing_items=None,
 ):
     """Insert or exactly reuse one estimate-derived contract item."""
     if (
@@ -52,26 +98,23 @@ def write_estimate_contract_item(
     if issued_quantity <= 0 or issued_price_smeta <= 0 or issued_price_brigade <= 0:
         raise ValueError("estimate_item_value_invalid")
 
-    cur.execute(
-        """SELECT id, estimate_section, description, unit, quantity,
-                  price_smeta, price_brigade, estimate_item_key
-             FROM brigade_contract_items
-           WHERE contract_id=%s
-             AND source_type='estimate'
-             AND source_estimate_version_id=%s
-             AND source_section_index=%s
-             AND source_item_index=%s
-             AND source_item_key=%s
-           LIMIT 1 FOR UPDATE""",
-        (
-            contract_id,
-            lineage.source_estimate_version_id,
-            lineage.source_section_index,
-            lineage.source_item_index,
-            lineage.source_item_key,
-        ),
-    )
-    existing = cur.fetchone()
+    if existing_items is None:
+        cur.execute(
+            """SELECT id, estimate_section, description, unit, quantity,
+                      price_smeta, price_brigade, estimate_item_key
+                 FROM brigade_contract_items
+               WHERE contract_id=%s
+                 AND source_type='estimate'
+                 AND source_estimate_version_id=%s
+                 AND source_section_index=%s
+                 AND source_item_index=%s
+                 AND source_item_key=%s
+               LIMIT 1 FOR UPDATE""",
+            (contract_id, *_lineage_key(lineage)),
+        )
+        existing = cur.fetchone()
+    else:
+        existing = existing_items.get(_lineage_key(lineage))
     if existing:
         compatibility_key = _stored_value(existing, 7, "estimate_item_key") or ""
         if compatibility_key != lineage.source_item_key:

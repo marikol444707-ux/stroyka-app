@@ -23,6 +23,7 @@ class FakeCursor:
     def __init__(self, existing_contract_id=None, existing_item=None):
         self.calls = []
         self.result = None
+        self.rows = []
         self.closed = False
         self.existing_contract_id = existing_contract_id
         self.existing_item = existing_item
@@ -30,6 +31,7 @@ class FakeCursor:
     def execute(self, sql, params=()):
         self.calls.append((sql, params))
         normalized = " ".join(sql.split())
+        self.rows = []
         if "FROM estimates WHERE id=%s AND company_id=%s" in normalized:
             sections = [{
                 "name": "Отделка",
@@ -54,6 +56,8 @@ class FakeCursor:
             self.result = (self.existing_contract_id,) if self.existing_contract_id else None
         elif "INSERT INTO brigade_contracts" in normalized:
             self.result = (77,)
+        elif "source_estimate_version_id=ANY(%s)" in normalized:
+            self.rows = [self.existing_item + (71, 0, 0, "work-1")] if self.existing_item else []
         elif normalized.startswith("SELECT id") and "FROM brigade_contract_items" in normalized:
             self.result = self.existing_item
         elif "INSERT INTO brigade_contract_items" in normalized:
@@ -63,6 +67,9 @@ class FakeCursor:
 
     def fetchone(self):
         return self.result
+
+    def fetchall(self):
+        return list(self.rows)
 
     def close(self):
         self.closed = True

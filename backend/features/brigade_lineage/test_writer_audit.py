@@ -33,6 +33,16 @@ class BrigadeContractItemWriterAuditTests(unittest.TestCase):
             {"insert_writer_not_allowlisted", "insert_source_type_missing", "unsafe_update_column"},
         )
 
+    def test_audit_detects_descriptive_contract_item_lookup(self):
+        report = audit_brigade_contract_item_writers(source_files={
+            "backend/main.py": """
+                sql = \"FROM brigade_contract_items bci WHERE LOWER(TRIM(COALESCE(bci.description,'')))=%s\"
+            """,
+        })
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["violations"][0]["code"], "fuzzy_contract_item_lookup")
+
 
 if __name__ == "__main__":
     unittest.main()
