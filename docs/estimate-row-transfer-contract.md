@@ -10,9 +10,11 @@ warehouse, accounting or payment mutation.
 
 The E4.2 runtime and reviewed 11-change additive schema are live in production
 at `c700e043`. Guarded apply and the repeated read-only schema audit are green,
-and public smoke reaches all three API routes. Authenticated fail-closed API
-smoke remains a separate credentialed checkpoint; no approved reconciliation
-or business data will be manufactured for it.
+and public smoke reaches all three API routes. The separately authorized
+authenticated fail-closed smoke is also complete: missing-plan read returned
+`404`, an invalid draft against reconciliation `#15` returned `409` before
+ledger insertion, and missing-plan approval returned `404`. No approved
+reconciliation or business data was manufactured for the check.
 
 ## Confirmed Decisions
 

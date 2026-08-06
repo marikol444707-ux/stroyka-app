@@ -4460,9 +4460,9 @@ back. Reviewed dry-run and apply outputs are preserved under
 
 **Status:** Contract approved by the user on 2026-08-06. E4.1 is complete in
 production runtime `2c816ccb789e`. E4.2 runtime `c700e043` and its reviewed
-11-change additive schema are live and pass public smoke/post-audit. No E4
-balance writer exists. An authenticated fail-closed API smoke remains pending
-because production credentials and POST checks require separate authorization.
+11-change additive schema are live and pass public smoke, authenticated
+fail-closed smoke and post-audit. No E4 balance writer exists; E4.3 remains a
+separate unstarted assignment-apply slice.
 
 **Contract:** `docs/estimate-row-transfer-contract.md` is authoritative. The
 operation uses an approved exact source/target mapping and explicit quantities.
@@ -4567,10 +4567,9 @@ draft; only a director or deputy director in the stored company may approve
 the unchanged deterministic hash. Approval remains ledger-only and moves no
 assignment or supply balance.
 
-**Status:** Runtime and schema are live in production. The separately guarded
-schema plan applied successfully with its exact count/SHA-256; only an
-explicitly authorized authenticated fail-closed API smoke remains before the
-task is closed.
+**Status:** Complete in production. The separately guarded schema plan applied
+successfully with its exact count/SHA-256, and both public and explicitly
+authorized authenticated fail-closed API smokes pass.
 
 **Acceptance criteria:**
 
@@ -4653,6 +4652,15 @@ audit reports `schemaReady=true`, `changeCount=0`, `changes=[]`,
 No assignment, request, delivery, warehouse, accounting, JPR, act or payment
 balance was changed.
 
+The separately authorized authenticated smoke used only deliberately missing
+or invalid resources. `GET /estimate-row-transfer-plans/2147483647` returned
+`404 transfer_plan_not_found`; a draft for reconciliation `#15` with missing
+assignment source `2147483647` returned `409
+target_snapshot_context_invalid` before ledger insertion; and approval of
+missing plan `2147483647` with a syntactically valid placeholder hash returned
+`404 transfer_plan_not_found`. The failure paths rolled back, and no approved
+reconciliation, plan or business row was manufactured for testing.
+
 ### Checkpoint Before E4.2 Production Apply
 
 - [x] No production DDL or E4 business balance write was executed locally.
@@ -4660,5 +4668,6 @@ balance was changed.
 - [x] Production dry-run count, changes and SHA-256 were reviewed.
 - [x] The exact plan applied; runtime, nginx routing, public smoke and repeated
   read-only schema audit are green.
-- [ ] Run the separately authorized authenticated fail-closed GET/draft/approve
-  smoke without manufacturing an approved reconciliation or business data.
+- [x] The separately authorized authenticated fail-closed GET/draft/approve
+  smoke returned `404 / 409 / 404` without manufacturing an approved
+  reconciliation or business data.
