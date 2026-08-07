@@ -2,8 +2,8 @@
 
 ## Status
 
-Proposed on 2026-08-07. Implementation starts only after this contract and its
-phased production sequence are reviewed.
+Accepted on 2026-08-07. E5.1 is implemented and locally verified; its
+diagnostic-only production deployment and read-only audit are pending.
 
 ## Objective
 
@@ -35,8 +35,10 @@ selects an active estimate or grants ownership after E5 cutover.
 
 The estimate API reads `estimates.company_id` but omits it from the response.
 The frontend active-estimate selector currently accepts an estimate when
-either its project name matches or its project ID matches. The backend supply
-control also has active-estimate queries filtered only by `project_name`.
+either its project name matches or its project ID matches. The E5.1 static
+inventory also found five backend active-estimate boundaries that still use
+`project_name`: supply material control, linked-work control, project AI
+control, estimate activation and material-norm suggestions.
 
 In an all-companies view, two projects called `Школа` can therefore select or
 recalculate against the wrong company's active estimate even though both
@@ -117,6 +119,21 @@ project_owner = (positive company_id, positive project_id)
    the global read-only audit, and apply any separately reviewed remediation
    only with exact count/hash guards.
 
+### E5.1 Evidence And Expected Production Result
+
+`npm run audit:material-control-ownership` first verifies the required table
+columns, then reads bounded owner metadata in one read-only repeatable-read
+transaction and always rolls it back. It performs no DDL and never returns
+project names, estimate contents, prices or totals.
+
+The accepted static inventory contains one frontend selector and five backend
+boundaries. Until E5.2-E5.4 replace their name predicates, a successful E5.1
+production audit is expected to report `ok=true`, `nameScopedCount=6`,
+`runtimeInventoryReady=false`, `readyForCutover=false`,
+`writesAttempted=0` and `rolledBack=true`. `dataReady` is determined only by
+the production rows; any fixed-code issue IDs require review before later
+cutover work.
+
 ## Commands
 
 ```bash
@@ -128,6 +145,15 @@ CI=true npm test -- --watchAll=false --runTestsByPath \
 
 # Focused backend tests; the E5 package is added in E5.1
 python3 -m unittest discover -s backend/features/material_control_ownership -t . -p 'test_*.py'
+
+# Read-only environment audit
+npm run audit:material-control-ownership
+
+# Optional real PostgreSQL fixture; the database name must start with e5_
+E5_RUN_POSTGRES_INTEGRATION=1 \
+E5_TEST_DATABASE_URL='<dedicated e5_* database DSN>' \
+python3 -m unittest \
+  backend.features.material_control_ownership.test_postgres_readiness
 
 # Full verification
 python3 -m unittest discover -s backend -t . -p 'test_*.py'

@@ -4989,33 +4989,39 @@ because production has no real approved plan.
 
 **Description:** Replace project-name ownership in the complete active-estimate
 material-control path with the stored `company_id + project_id` tuple. The
-authoritative proposed contract is
+authoritative accepted contract is
 `docs/active-estimate-material-control-ownership.md`.
 
-**Status:** Contract and phased plan drafted on 2026-08-07; implementation is
-pending user review. The first slice is diagnostic-only and cannot change
-schema, runtime selection or business rows.
+**Status:** Contract accepted on 2026-08-07. E5.1 is implemented and locally
+verified; diagnostic-only production deployment and audit evidence remain.
+The slice cannot change schema, runtime selection or business rows.
 
 **Observed risk:** The estimate query already reads `company_id` but its public
 payload omits `companyId`; frontend active selection accepts either a matching
-name or project ID; backend material-control refresh queries active estimates
-by `project_name`. An all-companies view can therefore mix identically named
-projects across companies.
+name or project ID. The E5.1 inventory found that selector plus five backend
+name-scoped boundaries: supply material control, linked-work control, project
+AI control, estimate activation and material-norm suggestions. An
+all-companies view can therefore mix identically named projects across
+companies.
 
 ### Task E5.1: Read-Only Owner Readiness
 
 **Acceptance criteria:**
 
-- [ ] One read-only repeatable-read report audits active project/estimate owner
+- [x] One read-only repeatable-read report audits active project/estimate owner
   tuples, duplicate active owner/kind/package groups and name-collision groups.
-- [ ] Missing, invalid, mismatched and ambiguous rows use fixed reason codes;
+- [x] Missing, invalid, mismatched and ambiguous rows use fixed reason codes;
   previews are bounded and contain IDs only.
-- [ ] A static inventory identifies every frontend active-estimate selector and
+- [x] A static inventory identifies every frontend active-estimate selector and
   backend material-control active-estimate query still using project name.
-- [ ] The command attempts zero writes, always rolls back and performs no DDL.
+- [x] The command attempts zero writes, always rolls back and performs no DDL.
 
-**Verification:** Focused unit tests, a disposable PostgreSQL collision fixture,
-full backend regression, Python compilation and `git diff --check`.
+**Verification:** `13` focused tests pass with the guarded dedicated-PostgreSQL
+fixture skipped until an explicitly approved `e5_*` database is supplied;
+`1458` backend tests pass (`10` guarded skips), all `76` frontend suites / `307`
+tests pass, Python compilation and the production build pass. The local command
+returned a bounded `schema_not_ready` report against the available older
+developer schema instead of raising or writing. Production audit is pending.
 
 **Estimated scope:** M, diagnostic-only.
 
