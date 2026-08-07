@@ -5238,8 +5238,9 @@ event, without rewriting any accounting or operational history. Draft contract:
 **Status:** The human owner accepted all three business decisions on
 2026-08-07: delta semantics, director/deputy approval and retention of manual
 initial-budget editing, then approved the detailed implementation slices.
-E6.1 is locally implemented and remains inert; schema, routes, production data
-and project-budget runtime behavior are unchanged.
+E6.1 is complete in production and remains inert; schema, routes, production
+data and project-budget runtime behavior are unchanged. E6.2.1 pure decimal
+plan/hash implementation is next.
 
 **Proposed acceptance criteria:**
 
@@ -5255,9 +5256,9 @@ and project-budget runtime behavior are unchanged.
 - [ ] A guarded schema/readiness/writer inventory and dedicated PostgreSQL proof
   pass before production apply or UI enablement.
 
-**Next action:** Push and deploy the inert E6.1 audit, pass public smoke and run
-its read-only production report. Do not start E6.2 or apply schema changes until
-the production precision/source/writer evidence is reviewed.
+**Next action:** Implement E6.2.1 deterministic decimal plan/hash logic without
+DDL, routes or writers. E6.2.2 may prepare a guarded schema dry-run afterward,
+but production schema apply still requires separate exact count/hash review.
 
 **Estimated scope:** L, split into audit/schema/runtime/UI/cutover slices.
 
@@ -5313,6 +5314,22 @@ changed.
 and run `npm run audit:project-budget-adjustments` on production. E6.2 remains
 blocked until that report proves bounded exact budget data and source readiness
 with rollback and zero writes.
+
+**Production evidence (2026-08-07):** Runtime `e08eddea662f` published the
+frontend atomically, the `stroyka` service remained `active` and the complete
+public smoke passed. The read-only production audit returned `ok=true`,
+`readOnlyTransaction=true`, `writesAttempted=0`, `rolledBack=true` and
+`readyForSchemaPlan=true`. It scanned all `4` projects and found all `4/4`
+stored budgets safe for an exact two-decimal conversion; the current catalog is
+the expected `float8` (`numericPrecision=53`), so `budgetColumnExact=false`.
+
+All `13` stored reconciliations were scanned. None is approved, so there is no
+real business candidate to preview or apply and no synthetic candidate was
+created. Source readiness is green with zero issues. The static boundary found
+the exact reviewed `3/3` existing create/manual budget writers, zero E6 DML and
+zero violations. No schema, route, event, project budget or protected-history
+row changed. This closes E6.1 and authorizes code-only E6.2 planning; it does
+not authorize production DDL.
 
 ### Task E6.2: Exact Money Kernel And Guarded Schema
 
