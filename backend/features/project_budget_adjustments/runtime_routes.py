@@ -4,14 +4,24 @@ from typing import Optional
 
 import psycopg2
 import psycopg2.extras
-from fastapi import Depends, Header, HTTPException, Query
+from fastapi import Body, Depends, Header, HTTPException, Query
 
-from .approval import public_budget_adjustment_receipt
+from .approval import (
+    BudgetAdjustmentApprovalError,
+    apply_budget_adjustment,
+    normalize_budget_adjustment_approval_payload,
+    public_budget_adjustment_receipt,
+)
 from .approval_storage import load_budget_adjustment_history
 from .preview_routes import selected_budget_leader
 
 
 MAX_HISTORY_PAGE_SIZE = 100
+APPROVAL_VALIDATION_ERRORS = {
+    "budget_adjustment_approval_payload_invalid",
+    "budget_adjustment_identity_invalid",
+    "budget_adjustment_plan_hash_invalid",
+}
 
 
 def _positive_int(value):
@@ -32,6 +42,106 @@ def register_project_budget_adjustment_runtime_module(app, deps):
         "load_budget_adjustment_history",
         load_budget_adjustment_history,
     )
+    apply_adjustment = deps.get(
+        "apply_budget_adjustment",
+        apply_budget_adjustment,
+    )
+
+    @app.post(
+        "/estimate-reconciliations/{reconciliation_id}/budget-adjustment-approval"
+    )
+    def approve_budget_adjustment(
+        reconciliation_id: int,
+        data: object = Body(...),
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(
+            default=None,
+            alias="X-Company-Mode",
+        ),
+        current_user: dict = Depends(get_current_user),
+    ):
+        if _positive_int(reconciliation_id) is None:
+            raise HTTPException(
+                status_code=422,
+                detail="budget_adjustment_identity_invalid",
+            )
+        try:
+            payload = normalize_budget_adjustment_approval_payload(data)
+        except BudgetAdjustmentApprovalError as exc:
+            raise HTTPException(status_code=422, detail=exc.code)
+        conn = get_db()
+        cur = None
+        try:
+            conn.set_session(
+                readonly=False,
+                autocommit=False,
+                isolation_level="SERIALIZABLE",
+            )
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SET LOCAL lock_timeout='5s'")
+            cur.execute("SET LOCAL statement_timeout='30s'")
+            context = resolve_work_company_context(
+                cur,
+                current_user,
+                None,
+                "approve",
+                x_company_id=x_company_id,
+                x_company_mode=x_company_mode,
+            )
+            actor = selected_budget_leader(
+                effective_company_actors(current_user, context),
+                leadership_roles,
+            )
+            result = apply_adjustment(
+                cur,
+                reconciliation_id=reconciliation_id,
+                company_id=actor["companyId"],
+                expected_plan_sha256=payload["planSha256"],
+                actor=actor,
+            )
+            if result.get("idempotent") is True:
+                conn.rollback()
+            else:
+                conn.commit()
+            return result
+        except BudgetAdjustmentApprovalError as exc:
+            conn.rollback()
+            if exc.code == "budget_adjustment_not_found":
+                status_code = 404
+            elif exc.code == "budget_adjustment_role_forbidden":
+                status_code = 403
+            elif exc.code in APPROVAL_VALIDATION_ERRORS:
+                status_code = 422
+            else:
+                status_code = 409
+            raise HTTPException(status_code=status_code, detail=exc.code)
+        except HTTPException:
+            conn.rollback()
+            raise
+        except (psycopg2.errors.UndefinedTable, psycopg2.errors.UndefinedColumn):
+            conn.rollback()
+            raise HTTPException(
+                status_code=503,
+                detail="budget_adjustment_schema_not_ready",
+            )
+        except (
+            psycopg2.IntegrityError,
+            psycopg2.errors.SerializationFailure,
+            psycopg2.errors.DeadlockDetected,
+            psycopg2.errors.LockNotAvailable,
+        ):
+            conn.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="budget_adjustment_write_conflict",
+            )
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            if cur is not None:
+                cur.close()
+            conn.close()
 
     @app.get("/projects/{project_id}/budget-adjustments")
     def get_project_budget_adjustments(

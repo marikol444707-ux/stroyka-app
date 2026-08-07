@@ -197,6 +197,7 @@ if public_smoke_checks_enabled; then
   check_post_not_spa_fallback "estimate assignment apply route" "$BASE_URL/estimate-row-transfer-plans/1/assignment-apply" "401 403 422"
   check_post_not_spa_fallback "estimate supply apply route" "$BASE_URL/estimate-row-transfer-plans/1/supply-apply" "401 403 422"
   check_not_spa_fallback "estimate budget adjustment preview route" "$BASE_URL/estimate-reconciliations/1/budget-adjustment-preview" "401 403"
+  check_post_not_spa_fallback "estimate budget adjustment approval route" "$BASE_URL/estimate-reconciliations/1/budget-adjustment-approval" "401 403 422"
   check_not_spa_fallback "project budget adjustment history route" "$BASE_URL/projects/1/budget-adjustments" "401 403"
   check_not_spa_fallback "project AI summary route" "$BASE_URL/project-ai-summary/smoke" "401 403"
   check_not_spa_fallback "project AI summary post route" "$BASE_URL/project-ai-summary" "405"

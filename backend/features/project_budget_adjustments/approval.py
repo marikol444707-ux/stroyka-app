@@ -19,6 +19,21 @@ def _positive_int(value):
     )
 
 
+def normalize_budget_adjustment_approval_payload(payload):
+    if type(payload) is not dict or set(payload) != {"planSha256"}:
+        raise BudgetAdjustmentApprovalError(
+            "budget_adjustment_approval_payload_invalid"
+        )
+    plan_sha256 = payload.get("planSha256")
+    if not isinstance(plan_sha256, str) or not PLAN_SHA256_RE.fullmatch(
+        plan_sha256
+    ):
+        raise BudgetAdjustmentApprovalError(
+            "budget_adjustment_plan_hash_invalid"
+        )
+    return {"planSha256": plan_sha256}
+
+
 def _validated_actor(actor, company_id):
     actor = dict(actor or {})
     actor_id = _positive_int(actor.get("id") or actor.get("userId"))
@@ -163,5 +178,6 @@ def apply_budget_adjustment(
 __all__ = [
     "BudgetAdjustmentApprovalError",
     "apply_budget_adjustment",
+    "normalize_budget_adjustment_approval_payload",
     "public_budget_adjustment_receipt",
 ]

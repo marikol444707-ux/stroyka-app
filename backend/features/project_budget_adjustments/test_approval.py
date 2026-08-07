@@ -3,6 +3,7 @@ import unittest
 from backend.features.project_budget_adjustments.approval import (
     BudgetAdjustmentApprovalError,
     apply_budget_adjustment,
+    normalize_budget_adjustment_approval_payload,
 )
 
 
@@ -34,6 +35,27 @@ def approval_error(**changes):
 
 
 class BudgetAdjustmentApprovalInputTests(unittest.TestCase):
+    def test_normalizes_only_the_exact_public_approval_payload(self):
+        self.assertEqual(
+            normalize_budget_adjustment_approval_payload({
+                "planSha256": VALID_HASH,
+            }),
+            {"planSha256": VALID_HASH},
+        )
+        for payload, code in (
+            (None, "budget_adjustment_approval_payload_invalid"),
+            ([], "budget_adjustment_approval_payload_invalid"),
+            ({}, "budget_adjustment_approval_payload_invalid"),
+            ({"planSha256": VALID_HASH, "companyId": 10},
+             "budget_adjustment_approval_payload_invalid"),
+            ({"planSha256": "A" * 64},
+             "budget_adjustment_plan_hash_invalid"),
+        ):
+            with self.subTest(payload=payload):
+                with self.assertRaises(BudgetAdjustmentApprovalError) as raised:
+                    normalize_budget_adjustment_approval_payload(payload)
+                self.assertEqual(raised.exception.code, code)
+
     def test_rejects_invalid_source_identity_before_querying(self):
         for reconciliation_id, company_id in (
             (0, 10), (True, 10), ("7", 10), (7, 0), (7, True),

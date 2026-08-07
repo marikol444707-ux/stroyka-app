@@ -1,8 +1,12 @@
 import unittest
 from pathlib import Path
 
+import psycopg2
 from fastapi import HTTPException
 
+from backend.features.project_budget_adjustments.approval import (
+    BudgetAdjustmentApprovalError,
+)
 from backend.features.project_budget_adjustments.runtime_routes import (
     register_project_budget_adjustment_runtime_module,
 )
@@ -15,6 +19,12 @@ class FakeApp:
     def get(self, path):
         def decorator(func):
             self.routes[("GET", path)] = func
+            return func
+        return decorator
+
+    def post(self, path):
+        def decorator(func):
+            self.routes[("POST", path)] = func
             return func
         return decorator
 
@@ -50,7 +60,6 @@ class FakeConnection:
 
     def commit(self):
         self.commits += 1
-        raise AssertionError("history must never commit")
 
     def close(self):
         self.closed = True
@@ -82,7 +91,14 @@ _DEFAULT_HISTORY = object()
 
 
 class BudgetAdjustmentRuntimeRouteTests(unittest.TestCase):
-    def build(self, *, actors=None, history=_DEFAULT_HISTORY):
+    def build(
+        self,
+        *,
+        actors=None,
+        history=_DEFAULT_HISTORY,
+        approval_result=None,
+        approval_error=None,
+    ):
         app = FakeApp()
         connection = FakeConnection()
         calls = []
@@ -101,6 +117,22 @@ class BudgetAdjustmentRuntimeRouteTests(unittest.TestCase):
                 else history
             )
 
+        def apply_adjustment(cur, **kwargs):
+            calls.append(("approve", cur, kwargs))
+            if approval_error:
+                raise approval_error
+            return approval_result or {
+                "id": 55,
+                "companyId": 10,
+                "projectId": 20,
+                "reconciliationId": 7,
+                "planSha256": "b" * 64,
+                "projectBudgetBefore": "1000.00",
+                "adjustmentAmount": "25.50",
+                "projectBudgetAfter": "1025.50",
+                "idempotent": False,
+            }
+
         register_project_budget_adjustment_runtime_module(app, {
             "get_db": lambda: connection,
             "get_current_user": lambda: None,
@@ -114,6 +146,7 @@ class BudgetAdjustmentRuntimeRouteTests(unittest.TestCase):
             "effective_company_actors": lambda _user, _context: selected_actors,
             "leadership_roles": ("директор", "зам_директора"),
             "load_budget_adjustment_history": load_history,
+            "apply_budget_adjustment": apply_adjustment,
         })
         return app, connection, calls
 
@@ -130,6 +163,136 @@ class BudgetAdjustmentRuntimeRouteTests(unittest.TestCase):
             x_company_mode="company",
             current_user={"id": 9, "role": "system_owner"},
         )
+
+    @staticmethod
+    def call_approval(app, *, reconciliation_id=7, data=None):
+        return app.routes[(
+            "POST",
+            "/estimate-reconciliations/{reconciliation_id}/budget-adjustment-approval",
+        )](
+            reconciliation_id,
+            data=data if data is not None else {"planSha256": "b" * 64},
+            x_company_id="10",
+            x_company_mode="company",
+            current_user={"id": 9, "role": "system_owner"},
+        )
+
+    def test_exact_approval_commits_once_in_serializable_transaction(self):
+        app, connection, calls = self.build()
+
+        result = self.call_approval(app)
+
+        self.assertEqual(result["id"], 55)
+        self.assertFalse(result["idempotent"])
+        self.assertEqual(connection.session, {
+            "readonly": False,
+            "autocommit": False,
+            "isolation_level": "SERIALIZABLE",
+        })
+        approval_call = next(call for call in calls if call[0] == "approve")
+        self.assertIs(approval_call[1], connection.cursor_value)
+        self.assertEqual(approval_call[2], {
+            "reconciliation_id": 7,
+            "company_id": 10,
+            "expected_plan_sha256": "b" * 64,
+            "actor": {
+                "id": 9,
+                "companyId": 10,
+                "company_id": 10,
+                "name": "Director",
+                "role": "директор",
+            },
+        })
+        self.assertEqual(connection.commits, 1)
+        self.assertEqual(connection.rollbacks, 0)
+        self.assertTrue(connection.cursor_value.closed)
+        self.assertTrue(connection.closed)
+
+    def test_idempotent_approval_rolls_back_without_commit(self):
+        app, connection, _calls = self.build(approval_result={
+            "id": 55,
+            "planSha256": "b" * 64,
+            "idempotent": True,
+        })
+
+        result = self.call_approval(app)
+
+        self.assertTrue(result["idempotent"])
+        self.assertEqual(connection.commits, 0)
+        self.assertEqual(connection.rollbacks, 1)
+
+    def test_invalid_approval_payload_fails_before_database(self):
+        for data in (
+            {},
+            {"planSha256": "A" * 64},
+            {"planSha256": "b" * 64, "companyId": 10},
+        ):
+            with self.subTest(data=data):
+                app, connection, calls = self.build()
+                with self.assertRaises(HTTPException) as raised:
+                    self.call_approval(app, data=data)
+                self.assertEqual(raised.exception.status_code, 422)
+                self.assertIn(raised.exception.detail, {
+                    "budget_adjustment_approval_payload_invalid",
+                    "budget_adjustment_plan_hash_invalid",
+                })
+                self.assertIsNone(connection.session)
+                self.assertEqual(calls, [])
+
+    def test_invalid_identity_and_non_leader_never_reach_approval_kernel(self):
+        invalid_app, invalid_connection, invalid_calls = self.build()
+        with self.assertRaises(HTTPException) as invalid:
+            self.call_approval(invalid_app, reconciliation_id=0)
+        self.assertEqual(invalid.exception.status_code, 422)
+        self.assertEqual(
+            invalid.exception.detail,
+            "budget_adjustment_identity_invalid",
+        )
+        self.assertIsNone(invalid_connection.session)
+        self.assertEqual(invalid_calls, [])
+
+        forbidden_app, forbidden_connection, forbidden_calls = self.build(
+            actors=[{
+                "id": 15,
+                "companyId": 10,
+                "name": "Estimator",
+                "role": "сметчик",
+            }]
+        )
+        with self.assertRaises(HTTPException) as forbidden:
+            self.call_approval(forbidden_app)
+        self.assertEqual(forbidden.exception.status_code, 403)
+        self.assertEqual(
+            forbidden.exception.detail,
+            "budget_adjustment_role_forbidden",
+        )
+        self.assertFalse(any(
+            call[0] == "approve" for call in forbidden_calls
+        ))
+        self.assertEqual(forbidden_connection.rollbacks, 1)
+
+    def test_approval_maps_fixed_domain_and_write_conflicts(self):
+        cases = (
+            (BudgetAdjustmentApprovalError("budget_adjustment_not_found"),
+             404, "budget_adjustment_not_found"),
+            (BudgetAdjustmentApprovalError("budget_adjustment_role_forbidden"),
+             403, "budget_adjustment_role_forbidden"),
+            (BudgetAdjustmentApprovalError("budget_adjustment_plan_stale"),
+             409, "budget_adjustment_plan_stale"),
+            (psycopg2.errors.SerializationFailure(),
+             409, "budget_adjustment_write_conflict"),
+            (psycopg2.errors.UndefinedTable(),
+             503, "budget_adjustment_schema_not_ready"),
+        )
+        for error, status, code in cases:
+            with self.subTest(code=code):
+                app, connection, _calls = self.build(approval_error=error)
+                with self.assertRaises(HTTPException) as raised:
+                    self.call_approval(app)
+                self.assertEqual(raised.exception.status_code, status)
+                self.assertEqual(raised.exception.detail, code)
+                self.assertEqual(connection.commits, 0)
+                self.assertEqual(connection.rollbacks, 1)
 
     def test_history_is_tenant_bound_newest_first_bounded_and_read_only(self):
         app, connection, calls = self.build(history=[
@@ -211,6 +374,11 @@ class BudgetAdjustmentRuntimeRouteTests(unittest.TestCase):
         self.assertIn("register_project_budget_adjustment_runtime_module(app", main)
         self.assertIn("project budget adjustment history route", smoke)
         self.assertIn("$BASE_URL/projects/1/budget-adjustments", smoke)
+        self.assertIn("estimate budget adjustment approval route", smoke)
+        self.assertIn(
+            "$BASE_URL/estimate-reconciliations/1/budget-adjustment-approval",
+            smoke,
+        )
 
 
 if __name__ == "__main__":
