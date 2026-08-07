@@ -46,7 +46,7 @@ def _validated_actor(actor, company_id):
     }
 
 
-def _receipt_result(row, *, idempotent):
+def public_budget_adjustment_receipt(row, *, idempotent=None):
     row = dict(row or {})
     fields = {
         "id": "id",
@@ -73,7 +73,8 @@ def _receipt_result(row, *, idempotent):
         "adjustmentAmount", "projectBudgetAfter",
     ):
         result[key] = str(result[key]) if result[key] is not None else None
-    result["idempotent"] = bool(idempotent)
+    if idempotent is not None:
+        result["idempotent"] = bool(idempotent)
     return result
 
 
@@ -132,7 +133,7 @@ def apply_budget_adjustment(
     if existing:
         if existing.get("plan_sha256") != expected_plan_sha256:
             raise BudgetAdjustmentApprovalError("budget_adjustment_plan_stale")
-        return _receipt_result(existing, idempotent=True)
+        return public_budget_adjustment_receipt(existing, idempotent=True)
 
     try:
         plan = build_preview(
@@ -156,7 +157,11 @@ def apply_budget_adjustment(
         raise BudgetAdjustmentApprovalError("budget_adjustment_receipt_insert_failed")
     if update_budget(cur, plan) is not True:
         raise BudgetAdjustmentApprovalError("budget_adjustment_budget_update_conflict")
-    return _receipt_result(inserted, idempotent=False)
+    return public_budget_adjustment_receipt(inserted, idempotent=False)
 
 
-__all__ = ["BudgetAdjustmentApprovalError", "apply_budget_adjustment"]
+__all__ = [
+    "BudgetAdjustmentApprovalError",
+    "apply_budget_adjustment",
+    "public_budget_adjustment_receipt",
+]

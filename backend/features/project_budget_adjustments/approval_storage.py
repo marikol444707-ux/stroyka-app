@@ -132,6 +132,41 @@ def load_budget_adjustment_receipt(cur, reconciliation_id, company_id):
     return dict(row) if row else None
 
 
+def load_budget_adjustment_history(
+    cur,
+    project_id,
+    company_id,
+    *,
+    before_id,
+    limit,
+):
+    """Return one bounded newest-first page, or None for a foreign project."""
+
+    cur.execute(
+        """SELECT id FROM public.projects
+            WHERE id=%s AND company_id=%s
+            LIMIT 1""",
+        (project_id, company_id),
+    )
+    if not cur.fetchone():
+        return None
+    if before_id is None:
+        cur.execute(
+            RECEIPT_SELECT
+            + """ WHERE project_id=%s AND company_id=%s
+                   ORDER BY id DESC LIMIT %s""",
+            (project_id, company_id, limit),
+        )
+    else:
+        cur.execute(
+            RECEIPT_SELECT
+            + """ WHERE project_id=%s AND company_id=%s AND id < %s
+                   ORDER BY id DESC LIMIT %s""",
+            (project_id, company_id, before_id, limit),
+        )
+    return [dict(row or {}) for row in (cur.fetchall() or [])]
+
+
 def insert_budget_adjustment_receipt(cur, plan, actor):
     cur.execute(
         """INSERT INTO public.project_budget_adjustments
@@ -184,6 +219,7 @@ __all__ = [
     "MAX_LOCKED_ESTIMATES",
     "insert_budget_adjustment_receipt",
     "load_authorized_budget_actor",
+    "load_budget_adjustment_history",
     "load_budget_adjustment_receipt",
     "lock_budget_adjustment_source",
     "update_project_budget",

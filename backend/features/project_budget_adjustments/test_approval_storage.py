@@ -7,6 +7,7 @@ from backend.features.project_budget_adjustments.approval import (
 from backend.features.project_budget_adjustments.approval_storage import (
     insert_budget_adjustment_receipt,
     load_authorized_budget_actor,
+    load_budget_adjustment_history,
     load_budget_adjustment_receipt,
     lock_budget_adjustment_source,
     update_project_budget,
@@ -31,6 +32,41 @@ class FakeCursor:
 
 
 class BudgetAdjustmentApprovalStorageTests(unittest.TestCase):
+    def test_lists_only_owned_project_history_with_bounded_cursor(self):
+        cursor = FakeCursor([
+            {"id": 20},
+            [{"id": 55}, {"id": 54}],
+        ])
+
+        rows = load_budget_adjustment_history(
+            cursor,
+            20,
+            10,
+            before_id=60,
+            limit=2,
+        )
+
+        self.assertEqual(rows, [{"id": 55}, {"id": 54}])
+        project_sql, project_params = cursor.calls[0]
+        self.assertIn("FROM public.projects", project_sql)
+        self.assertIn("id=%s AND company_id=%s", project_sql)
+        self.assertEqual(project_params, (20, 10))
+        history_sql, history_params = cursor.calls[1]
+        self.assertIn("project_id=%s AND company_id=%s", history_sql)
+        self.assertIn("id < %s", history_sql)
+        self.assertIn("ORDER BY id DESC LIMIT %s", history_sql)
+        self.assertEqual(history_params, (20, 10, 60, 2))
+
+        missing = FakeCursor([None])
+        self.assertIsNone(load_budget_adjustment_history(
+            missing,
+            20,
+            10,
+            before_id=None,
+            limit=51,
+        ))
+        self.assertEqual(len(missing.calls), 1)
+
     def test_locks_tenant_source_in_deterministic_order_before_reload(self):
         cursor = FakeCursor([
             {"isolation_level": "serializable"},

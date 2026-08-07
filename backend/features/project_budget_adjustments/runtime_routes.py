@@ -1,13 +1,17 @@
-"""Authenticated read-only HTTP boundary for the E6 adjustment preview."""
+"""Authenticated HTTP boundaries for E6 approval and immutable history."""
 
 from typing import Optional
 
 import psycopg2
 import psycopg2.extras
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Query
 
-from .preview import BudgetAdjustmentPreviewError
-from .preview_service import build_budget_adjustment_preview
+from .approval import public_budget_adjustment_receipt
+from .approval_storage import load_budget_adjustment_history
+from .preview_routes import selected_budget_leader
+
+
+MAX_HISTORY_PAGE_SIZE = 100
 
 
 def _positive_int(value):
@@ -18,52 +22,26 @@ def _positive_int(value):
     )
 
 
-def selected_budget_leader(actors, leadership_roles):
-    candidates = [dict(actor or {}) for actor in (actors or [])]
-    if len(candidates) != 1:
-        raise HTTPException(
-            status_code=409,
-            detail="budget_adjustment_company_context_ambiguous",
-        )
-    actor = candidates[0]
-    actor_id = _positive_int(actor.get("id") or actor.get("userId"))
-    company_id = _positive_int(actor.get("companyId") or actor.get("company_id"))
-    role = str(actor.get("role") or "").strip()
-    if not actor_id or not company_id or not role:
-        raise HTTPException(
-            status_code=409,
-            detail="budget_adjustment_actor_identity_invalid",
-        )
-    if role not in set(leadership_roles or ()):
-        raise HTTPException(
-            status_code=403,
-            detail="budget_adjustment_role_forbidden",
-        )
-    actor.update({
-        "id": actor_id,
-        "companyId": company_id,
-        "company_id": company_id,
-        "role": role,
-    })
-    return actor
-
-
-def register_project_budget_adjustment_preview_module(app, deps):
+def register_project_budget_adjustment_runtime_module(app, deps):
     get_db = deps["get_db"]
     get_current_user = deps["get_current_user"]
     resolve_work_company_context = deps["resolve_work_company_context"]
     effective_company_actors = deps["effective_company_actors"]
     leadership_roles = tuple(deps["leadership_roles"])
-    build_preview = deps.get(
-        "build_budget_adjustment_preview",
-        build_budget_adjustment_preview,
+    load_history = deps.get(
+        "load_budget_adjustment_history",
+        load_budget_adjustment_history,
     )
 
-    @app.get(
-        "/estimate-reconciliations/{reconciliation_id}/budget-adjustment-preview"
-    )
-    def get_budget_adjustment_preview(
-        reconciliation_id: int,
+    @app.get("/projects/{project_id}/budget-adjustments")
+    def get_project_budget_adjustments(
+        project_id: int,
+        limit: int = Query(default=50, ge=1, le=MAX_HISTORY_PAGE_SIZE),
+        before_id: Optional[int] = Query(
+            default=None,
+            ge=1,
+            alias="beforeId",
+        ),
         x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
         x_company_mode: Optional[str] = Header(
             default=None,
@@ -71,10 +49,16 @@ def register_project_budget_adjustment_preview_module(app, deps):
         ),
         current_user: dict = Depends(get_current_user),
     ):
-        if not _positive_int(reconciliation_id):
+        page_size = _positive_int(limit)
+        if (
+            _positive_int(project_id) is None
+            or page_size is None
+            or page_size > MAX_HISTORY_PAGE_SIZE
+            or (before_id is not None and _positive_int(before_id) is None)
+        ):
             raise HTTPException(
                 status_code=422,
-                detail="budget_adjustment_identity_invalid",
+                detail="budget_adjustment_history_query_invalid",
             )
         conn = get_db()
         cur = None
@@ -99,19 +83,32 @@ def register_project_budget_adjustment_preview_module(app, deps):
                 effective_company_actors(current_user, context),
                 leadership_roles,
             )
-            preview = build_preview(
+            stored = load_history(
                 cur,
-                reconciliation_id,
+                project_id,
                 actor["companyId"],
+                before_id=before_id,
+                limit=page_size + 1,
+            )
+            if stored is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="budget_adjustment_project_not_found",
+                )
+            page = stored[:page_size]
+            items = [
+                public_budget_adjustment_receipt(row)
+                for row in page
+            ]
+            next_before_id = (
+                items[-1]["id"] if len(stored) > page_size and items else None
             )
             conn.rollback()
-            return preview
-        except BudgetAdjustmentPreviewError as exc:
-            conn.rollback()
-            raise HTTPException(
-                status_code=(404 if exc.code == "budget_adjustment_not_found" else 409),
-                detail=exc.code,
-            )
+            return {
+                "projectId": project_id,
+                "items": items,
+                "nextBeforeId": next_before_id,
+            }
         except HTTPException:
             conn.rollback()
             raise
@@ -130,7 +127,4 @@ def register_project_budget_adjustment_preview_module(app, deps):
             conn.close()
 
 
-__all__ = [
-    "register_project_budget_adjustment_preview_module",
-    "selected_budget_leader",
-]
+__all__ = ["register_project_budget_adjustment_runtime_module"]
