@@ -105,7 +105,7 @@ export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagno
         materialControlStatus={materialControlStatus}
         renderMaterialSupplyAction={renderMaterialSupplyAction}
         renderMaterialAliasControls={renderMaterialAliasControls}
-            onCreateSupplyForRows={(rows)=>createBatchSupplyRequestFromMaterialControl(p.name, rows)}
+            onCreateSupplyForRows={(rows)=>createBatchSupplyRequestFromMaterialControl(p, rows)}
             showPreview={showPreview}
             buildMaterialRequirementContent={buildMaterialRequirementContent}
             onIssueMaterial={(row)=>{

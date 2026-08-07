@@ -19,7 +19,10 @@ import {
   isActiveSupplyRequestStatus,
   materialControlRequestItems,
 } from '../../utils/supplyUtils';
-import { uniqueStoredProjectForName } from '../estimates/projectEstimateOwnership';
+import {
+  immutableStoredProjectOwner,
+  uniqueStoredProjectForName,
+} from '../estimates/projectEstimateOwnership';
 
 export const MATERIAL_CONTROL_REQUEST_SOURCE = 'estimate_material_control';
 
@@ -53,7 +56,9 @@ const materialControlLineageSources = row => (row?.planDetails || [])
   }))
   .filter(source => source.materialName && source.unit && source.quantity > 0);
 
-export const buildMaterialControlSupplyItem = (projectName, row, quantity) => {
+export const buildMaterialControlSupplyItem = (project, row, quantity) => {
+  const owner = immutableStoredProjectOwner(project);
+  if (!owner) return null;
   const workPackage = row?.workPackage || row?.packageName || 'Основная';
   return {
     materialName: row?.name || '',
@@ -62,8 +67,10 @@ export const buildMaterialControlSupplyItem = (projectName, row, quantity) => {
     workPackage,
     sourceType: MATERIAL_CONTROL_REQUEST_SOURCE,
     estimateLineage: {
-      version: 1,
-      projectName: projectName || '',
+      version: 2,
+      companyId: owner.companyId,
+      projectId: owner.projectId,
+      projectName: owner.projectName,
       workPackage,
       sources: materialControlLineageSources(row),
     },
@@ -79,6 +86,15 @@ export const materialControlRowCanCreateSupply = (row, toNumber = Number) => (
   && row.planningSource === 'estimate'
   && materialControlLineageSources(row).length > 0
 );
+
+export const materialControlRequestOwner = (projects, projectOrName) => {
+  if (projectOrName && typeof projectOrName === 'object') {
+    return immutableStoredProjectOwner(projectOrName);
+  }
+  return immutableStoredProjectOwner(
+    uniqueStoredProjectForName(projects, projectOrName)
+  );
+};
 
 export function createMaterialControlActions({
   API,
@@ -175,13 +191,20 @@ export function createMaterialControlActions({
     );
   };
 
-  const materialControlSupplyRequestExists = (projectName, row) => {
+  const materialControlSupplyRequestExists = (projectOrName, row) => {
+    const owner = materialControlRequestOwner(projects, projectOrName);
+    if (!owner) return false;
+    const projectName = owner.projectName;
     const marker = materialControlSupplyMarker(projectName, row);
     const rowKey = materialNameKey(row?.name);
     const unitKey = _normalizeUnit(row?.unit || '');
     const packageKey = materialControlRowPackageKey(row);
     return (supplyRequests || []).some(req => {
-      if ((req.project || '') !== projectName || !isActiveSupplyRequestStatus(req.status)) return false;
+      if (
+        (req.project || '') !== projectName
+        || Number(req.companyId || req.company_id || 0) !== owner.companyId
+        || !isActiveSupplyRequestStatus(req.status)
+      ) return false;
       if (String(req.notes || '').includes(marker)) return true;
       return materialControlRequestItems(req).some(it =>
         materialNameKey(canonicalMaterialMeta(projectName, it.materialName, it.unit).name) === rowKey &&
@@ -210,10 +233,12 @@ export function createMaterialControlActions({
     });
   };
 
-  const createSupplyRequestFromMaterialControl = async (projectName, row) => {
-    if (!projectName || !materialControlRowCanCreateSupply(row, toNum)) return;
+  const createSupplyRequestFromMaterialControl = async (projectOrName, row) => {
+    const owner = materialControlRequestOwner(projects, projectOrName);
+    if (!owner || !materialControlRowCanCreateSupply(row, toNum)) return;
+    const projectName = owner.projectName;
     if (!canCreateSupplyRequestFromControl()) { alert('У вашей роли нет права создать заявку снабжения'); return; }
-    if (materialControlSupplyRequestExists(projectName, row) && !window.confirm('По этой позиции уже есть активная заявка. Создать ещё одну?')) return;
+    if (materialControlSupplyRequestExists(owner, row) && !window.confirm('По этой позиции уже есть активная заявка. Создать ещё одну?')) return;
     const qtyRaw = window.prompt('Количество к заявке:', String(Math.round(toNum(row.toBuy) * 1000) / 1000));
     if (qtyRaw === null) return;
     const qty = toNum(qtyRaw);
@@ -247,8 +272,10 @@ export function createMaterialControlActions({
         unit,
         workPackage: rowPackage,
         requestSource: MATERIAL_CONTROL_REQUEST_SOURCE,
-        items: [buildMaterialControlSupplyItem(projectName, row, qty)],
+        items: [buildMaterialControlSupplyItem(owner, row, qty)],
         project: projectName,
+        companyId: owner.companyId,
+        projectId: owner.projectId,
         createdBy: currentUser.name || '',
         date: new Date().toISOString().split('T')[0],
         notes,
@@ -268,12 +295,14 @@ export function createMaterialControlActions({
     await refreshData();
   };
 
-  const createBatchSupplyRequestFromMaterialControl = async (projectName, rows = []) => {
-    if (!projectName) return;
+  const createBatchSupplyRequestFromMaterialControl = async (projectOrName, rows = []) => {
+    const owner = materialControlRequestOwner(projects, projectOrName);
+    if (!owner) return;
+    const projectName = owner.projectName;
     if (!canCreateSupplyRequestFromControl()) { alert('У вашей роли нет права создать заявку снабжения'); return; }
     const candidates = (rows || [])
       .filter(row => materialControlRowCanCreateSupply(row, toNum))
-      .filter(row => !materialControlSupplyRequestExists(projectName, row))
+      .filter(row => !materialControlSupplyRequestExists(owner, row))
       .slice(0, 120);
     if (!candidates.length) { notify('По выбранному фильтру нет новых позиций к закупке', 'supply'); return; }
     const groups = candidates.reduce((acc, row) => {
@@ -287,7 +316,7 @@ export function createMaterialControlActions({
     let createdItems = 0;
     for (const [requestPackage, groupRows] of Object.entries(groups)) {
       const items = groupRows.map(row => buildMaterialControlSupplyItem(
-        projectName,
+        owner,
         {...row, workPackage: requestPackage},
         Math.round(toNum(row.toBuy) * 1000) / 1000,
       ));
@@ -315,6 +344,8 @@ export function createMaterialControlActions({
           requestSource: MATERIAL_CONTROL_REQUEST_SOURCE,
           items,
           project: projectName,
+          companyId: owner.companyId,
+          projectId: owner.projectId,
           createdBy: currentUser.name || '',
           date: new Date().toISOString().split('T')[0],
           notes,
@@ -522,12 +553,14 @@ export function createMaterialControlActions({
     return <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>{actions}</div>;
   };
 
-  const renderMaterialSupplyAction = (projectName, row) => {
+  const renderMaterialSupplyAction = (projectOrName, row) => {
+    const owner = materialControlRequestOwner(projects, projectOrName);
+    if (!owner) return null;
     if (!materialControlRowCanCreateSupply(row, toNum) || !canCreateSupplyRequestFromControl()) return null;
-    const exists = materialControlSupplyRequestExists(projectName, row);
+    const exists = materialControlSupplyRequestExists(owner, row);
     return (
       <button
-        onClick={e => { e.stopPropagation(); if (!exists) createSupplyRequestFromMaterialControl(projectName, row); }}
+        onClick={e => { e.stopPropagation(); if (!exists) createSupplyRequestFromMaterialControl(owner, row); }}
         disabled={exists}
         style={{ ...(exists ? btnG : btnO), padding: '3px 7px', fontSize: '10px', marginTop: '5px', opacity: exists ? 0.75 : 1 }}
         title={exists ? 'По этой позиции уже есть активная заявка' : 'Создать заявку снабжения на недостачу'}

@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 
 MATERIAL_CONTROL_REQUEST_SOURCE = "estimate_material_control"
-LINEAGE_VERSION = 1
+LINEAGE_VERSION = 2
 
 
 class MaterialControlLineageError(ValueError):
@@ -168,12 +168,64 @@ def load_material_control_estimates(cur, estimate_ids: list[int]) -> dict[int, d
     return result
 
 
+def resolve_material_control_project(
+    cur,
+    *,
+    company_id: int,
+    project_id: int,
+    project_name: str,
+) -> dict:
+    """Resolve the request project by its stored owner tuple, never by name alone."""
+    normalized_company_id = _positive_int(company_id)
+    normalized_project_id = _positive_int(project_id)
+    normalized_name = _text(project_name)
+    if not normalized_company_id or not normalized_project_id:
+        raise MaterialControlLineageError(
+            "Заявка из контроля материалов должна содержать точные companyId и projectId"
+        )
+    if not normalized_name:
+        raise MaterialControlLineageError(
+            "У заявки из контроля материалов не указан объект"
+        )
+    cur.execute(
+        "SELECT id,company_id,name FROM projects WHERE id=%s AND company_id=%s",
+        (normalized_project_id, normalized_company_id),
+    )
+    row = cur.fetchone()
+    if not row:
+        raise MaterialControlLineageError(
+            "Объект заявки не найден в выбранной компании"
+        )
+    if isinstance(row, dict):
+        stored_id = _positive_int(row.get("id"))
+        stored_company_id = _positive_int(row.get("company_id"))
+        stored_name = _text(row.get("name"))
+    else:
+        stored_id = _positive_int(row[0])
+        stored_company_id = _positive_int(row[1])
+        stored_name = _text(row[2])
+    if (
+        stored_id != normalized_project_id
+        or stored_company_id != normalized_company_id
+        or stored_name != normalized_name
+    ):
+        raise MaterialControlLineageError(
+            "projectId и название объекта заявки не совпадают"
+        )
+    return {
+        "companyId": stored_company_id,
+        "projectId": stored_id,
+        "projectName": stored_name,
+    }
+
+
 def validate_material_control_request_lineage(
     *,
     request_source: str,
     request_notes: str = "",
     project_name: str,
     company_id: int,
+    project_id: int,
     work_package: str,
     items: list[dict],
     estimates_by_id: dict[int, dict],
@@ -192,9 +244,13 @@ def validate_material_control_request_lineage(
         )
 
     request_project = _text(project_name)
+    request_company_id = _positive_int(company_id)
+    request_project_id = _positive_int(project_id)
     request_package = _package(work_package)
-    if not request_project:
-        raise MaterialControlLineageError("У заявки из контроля материалов не указан объект")
+    if not request_company_id or not request_project_id or not request_project:
+        raise MaterialControlLineageError(
+            "У заявки из контроля материалов нет точного владельца объекта"
+        )
     if not items:
         raise MaterialControlLineageError("Заявка из контроля материалов не содержит позиций")
 
@@ -208,9 +264,27 @@ def validate_material_control_request_lineage(
                 f"Позиция {item_index}: нет проверяемой связи с материалом сметы"
             )
         lineage = item.get("estimateLineage")
-        if not isinstance(lineage, dict) or lineage.get("version") != LINEAGE_VERSION:
+        if not isinstance(lineage, dict):
             raise MaterialControlLineageError(
                 f"Позиция {item_index}: нет проверяемой связи с материалом сметы"
+            )
+        if lineage.get("version") != LINEAGE_VERSION:
+            raise MaterialControlLineageError(
+                f"Позиция {item_index}: устаревшая связь со сметой; обновите приложение"
+            )
+        lineage_company_id = _positive_int(lineage.get("companyId"))
+        lineage_project_id = _positive_int(lineage.get("projectId"))
+        if not lineage_company_id or not lineage_project_id:
+            raise MaterialControlLineageError(
+                f"Позиция {item_index}: у связи со сметой нет точного владельца"
+            )
+        if lineage_company_id != request_company_id:
+            raise MaterialControlLineageError(
+                f"Позиция {item_index}: источник относится к другой компании"
+            )
+        if lineage_project_id != request_project_id:
+            raise MaterialControlLineageError(
+                f"Позиция {item_index}: источник относится к другому объекту"
             )
         if _text(lineage.get("projectName")) != request_project:
             raise MaterialControlLineageError(
@@ -258,9 +332,13 @@ def validate_material_control_request_lineage(
                 raise MaterialControlLineageError(
                     f"Позиция {item_index}: смета #{estimate_id} не найдена"
                 )
-            if _positive_int(estimate.get("company_id")) != _positive_int(company_id):
+            if _positive_int(estimate.get("company_id")) != request_company_id:
                 raise MaterialControlLineageError(
                     f"Позиция {item_index}: смета #{estimate_id} принадлежит другой компании"
+                )
+            if _positive_int(estimate.get("project_id")) != request_project_id:
+                raise MaterialControlLineageError(
+                    f"Позиция {item_index}: смета #{estimate_id} относится к другому объекту"
                 )
             if _text(estimate.get("project_name")) != request_project:
                 raise MaterialControlLineageError(

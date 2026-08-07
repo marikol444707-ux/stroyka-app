@@ -1,5 +1,6 @@
 import {
   buildMaterialControlSupplyItem,
+  materialControlRequestOwner,
   materialControlRowCanCreateSupply,
 } from './materialControlActions';
 
@@ -57,14 +58,20 @@ describe('materialControlRowCanCreateSupply', () => {
   });
 
   test('builds a versioned item lineage from exact estimate rows', () => {
-    expect(buildMaterialControlSupplyItem('Школа 1', validRow, 10)).toEqual({
+    expect(buildMaterialControlSupplyItem({
+      companyId: 1,
+      id: 3,
+      name: 'Школа 1',
+    }, validRow, 10)).toEqual({
       materialName: 'Смесь штукатурная',
       quantity: 10,
       unit: 'кг',
       workPackage: 'Отделка',
       sourceType: 'estimate_material_control',
       estimateLineage: {
-        version: 1,
+        version: 2,
+        companyId: 1,
+        projectId: 3,
         projectName: 'Школа 1',
         workPackage: 'Отделка',
         sources: [{
@@ -78,6 +85,31 @@ describe('materialControlRowCanCreateSupply', () => {
           quantity: 25,
         }],
       },
+    });
+  });
+
+  test.each([
+    ['a name-only project', 'Школа 1'],
+    ['a project without company', {id: 3, name: 'Школа 1'}],
+    ['conflicting project IDs', {companyId: 1, id: 3, projectId: 4, name: 'Школа 1'}],
+  ])('refuses to build lineage for %s', (_label, project) => {
+    expect(buildMaterialControlSupplyItem(project, validRow, 10)).toBeNull();
+  });
+
+  test('resolves a legacy name only when it identifies one stored owner', () => {
+    const first = {companyId: 1, id: 3, name: 'Школа 1'};
+    const second = {companyId: 2, id: 4, name: 'Школа 1'};
+
+    expect(materialControlRequestOwner([first], 'Школа 1')).toEqual({
+      companyId: 1,
+      projectId: 3,
+      projectName: 'Школа 1',
+    });
+    expect(materialControlRequestOwner([first, second], 'Школа 1')).toBeNull();
+    expect(materialControlRequestOwner([first, second], second)).toEqual({
+      companyId: 2,
+      projectId: 4,
+      projectName: 'Школа 1',
     });
   });
 });

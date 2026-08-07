@@ -967,7 +967,20 @@ BEGIN
        )
        OR jsonb_typeof(live_item)<>'object'
        OR live_item->>'sourceType'<>'estimate_material_control'
-       OR live_item #>> '{estimateLineage,version}'<>'1'
+       OR live_item #>> '{estimateLineage,version}' NOT IN ('1','2')
+       OR (
+           live_item #>> '{estimateLineage,version}'='2'
+           AND (
+               COALESCE(live_item #>> '{estimateLineage,companyId}','')
+                   !~ '^[1-9][0-9]*$'
+               OR COALESCE(live_item #>> '{estimateLineage,projectId}','')
+                   !~ '^[1-9][0-9]*$'
+               OR (live_item #>> '{estimateLineage,companyId}')::integer
+                   <>NEW.company_id
+               OR (live_item #>> '{estimateLineage,projectId}')::integer
+                   <>NEW.project_id
+           )
+       )
        OR live_item #>> '{estimateLineage,validated}'<>'true'
        OR live_item #>> '{estimateLineage,projectName}'<>live_project_name
        OR COALESCE(NULLIF(live_item->>'workPackage',''),'Основная')

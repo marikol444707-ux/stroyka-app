@@ -245,7 +245,18 @@ def _request_item(request, planned, context, source_resolved, deliveries):
     if (
         item.get("sourceType") != "estimate_material_control"
         or not isinstance(lineage, dict)
-        or lineage.get("version") != 1
+        or lineage.get("version") not in (1, 2)
+        or (
+            lineage.get("version") == 2
+            and (
+                _positive_int(
+                    lineage.get("companyId"), "supply_source_lineage_stale"
+                ) != context["companyId"]
+                or _positive_int(
+                    lineage.get("projectId"), "supply_source_lineage_stale"
+                ) != context["projectId"]
+            )
+        )
         or lineage.get("validated") is not True
         or lineage.get("projectName") != request.get("project")
         or (lineage.get("workPackage") or "Основная") != context["workPackage"]

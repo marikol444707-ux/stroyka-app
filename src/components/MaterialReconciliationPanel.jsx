@@ -72,7 +72,7 @@ export default function MaterialReconciliationPanel({
             <td style={{...tblC,color:row.expectedStock>0?C.text:C.textMuted}}>{fmtMeasure(row.expectedStock,row.unit)}</td>
             <td style={{...tblC,fontWeight:'700',color:row.stockMismatch?C.danger:C.success}}>{row.stockMismatch?fmtMeasure(row.stockDiff,row.unit):'0'}</td>
             <td style={{...tblC,fontWeight:'700',color:row.toBuy>0?C.warning:C.success}}>{fmtMeasure(row.toBuy,row.unit)}</td>
-            <td style={tblC}><span style={badge(status.color,status.bg,status.border)}>{status.label}{row.stockMismatch?' · '+fmtMeasure(row.stockDiff,row.unit):row.toBuy>0?' · '+fmtMeasure(row.toBuy,row.unit):row.shortage>0?' · '+fmtMeasure(row.shortage,row.unit):row.masterBalance>0?' · '+fmtMeasure(row.masterBalance,row.unit):''}</span>{renderMaterialSupplyAction(projectName,row)}</td>
+            <td style={tblC}><span style={badge(status.color,status.bg,status.border)}>{status.label}{row.stockMismatch?' · '+fmtMeasure(row.stockDiff,row.unit):row.toBuy>0?' · '+fmtMeasure(row.toBuy,row.unit):row.shortage>0?' · '+fmtMeasure(row.shortage,row.unit):row.masterBalance>0?' · '+fmtMeasure(row.masterBalance,row.unit):''}</span>{renderMaterialSupplyAction(project,row)}</td>
           </tr>);})}
         </tbody></table>
         {summary.rows.length>limit&&<p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0'}}>Показаны первые {limit} строк. Полный список — в печатной ведомости.</p>}

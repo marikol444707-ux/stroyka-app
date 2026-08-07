@@ -223,6 +223,26 @@ class SupplyApplyPreparationTests(unittest.TestCase):
         self.assertEqual(operation["target"]["unit"], "кг")
         self.assertEqual(operation["target"]["estimateId"], 15)
 
+    def test_accepts_v2_lineage_only_for_the_exact_plan_owner(self):
+        source = supply_request_row()
+        items = json.loads(source["items_json"])
+        items[0]["estimateLineage"].update({
+            "version": 2,
+            "companyId": 1,
+            "projectId": 3,
+        })
+
+        operation = self._prepare(requests=[request_row(
+            items_json=json.dumps(items, ensure_ascii=False),
+        )])[0]
+        self.assertEqual(operation["requestId"], 61)
+
+        items[0]["estimateLineage"]["companyId"] = 2
+        with self.assertRaisesRegex(SupplyApplyError, "supply_source_lineage_stale"):
+            self._prepare(requests=[request_row(
+                items_json=json.dumps(items, ensure_ascii=False),
+            )])
+
     def test_rejects_target_row_not_explicitly_marked_as_material(self):
         sections = _sections("new-material", name="Смесь", unit="кг")
         work_hash = sections_sha256(sections)

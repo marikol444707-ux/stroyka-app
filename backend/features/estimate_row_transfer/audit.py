@@ -376,7 +376,7 @@ def _supply_descriptors(context, request, deliveries, allocations=None):
             len(sources) != 1
             or len(base_sources) != 1
             or request_item.get("sourceType") != "estimate_material_control"
-            or lineage.get("version") != 1
+            or lineage.get("version") not in (1, 2)
             or lineage.get("validated") is not True
             or base_sources[0].get("validated") is not True
         ):
@@ -419,6 +419,13 @@ def _supply_descriptors(context, request, deliveries, allocations=None):
             or _work_package(request_item.get("workPackage")) != context["workPackage"]
             or _work_package(lineage.get("workPackage")) != context["workPackage"]
             or _text(lineage.get("projectName")) != context["projectName"]
+            or (
+                lineage.get("version") == 2
+                and (
+                    _positive_int(lineage.get("companyId")) != context["companyId"]
+                    or _positive_int(lineage.get("projectId")) != context["projectId"]
+                )
+            )
         ):
             blockers.append(_blocked("supply", request_id, "supply_source_lineage_drift"))
             continue

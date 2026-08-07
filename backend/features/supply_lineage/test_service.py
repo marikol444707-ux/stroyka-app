@@ -6,6 +6,7 @@ from backend.features.supply_lineage.service import (
     MaterialControlLineageError,
     material_control_lineage_conflicts,
     material_control_lineage_keys,
+    resolve_material_control_project,
     validate_material_control_request_lineage,
 )
 
@@ -46,7 +47,9 @@ def request_item(**patch):
         "workPackage": "Отделка",
         "sourceType": MATERIAL_CONTROL_REQUEST_SOURCE,
         "estimateLineage": {
-            "version": 1,
+            "version": 2,
+            "companyId": 1,
+            "projectId": 3,
             "projectName": "Школа 1",
             "workPackage": "Отделка",
             "sources": [{
@@ -64,6 +67,56 @@ def request_item(**patch):
     return item
 
 
+class ProjectCursor:
+    def __init__(self, row):
+        self.row = row
+        self.calls = []
+
+    def execute(self, sql, params):
+        self.calls.append((" ".join(sql.split()), params))
+
+    def fetchone(self):
+        return self.row
+
+
+class MaterialControlProjectResolutionTests(unittest.TestCase):
+    def test_resolves_project_only_inside_the_exact_company(self):
+        cur = ProjectCursor({"id": 3, "company_id": 1, "name": "Школа 1"})
+
+        owner = resolve_material_control_project(
+            cur, company_id=1, project_id=3, project_name="Школа 1"
+        )
+
+        self.assertEqual(owner, {
+            "companyId": 1,
+            "projectId": 3,
+            "projectName": "Школа 1",
+        })
+        self.assertIn("WHERE id=%s AND company_id=%s", cur.calls[0][0])
+        self.assertEqual(cur.calls[0][1], (3, 1))
+
+    def test_rejects_missing_or_mismatched_project_owner(self):
+        with self.assertRaisesRegex(MaterialControlLineageError, "не найден"):
+            resolve_material_control_project(
+                ProjectCursor(None), company_id=1, project_id=3, project_name="Школа 1"
+            )
+        with self.assertRaisesRegex(MaterialControlLineageError, "не совпада"):
+            resolve_material_control_project(
+                ProjectCursor({"id": 3, "company_id": 1, "name": "Другой объект"}),
+                company_id=1,
+                project_id=3,
+                project_name="Школа 1",
+            )
+
+    def test_rejects_noncanonical_owner_ids_before_query(self):
+        cur = ProjectCursor(None)
+        with self.assertRaisesRegex(MaterialControlLineageError, "точные companyId и projectId"):
+            resolve_material_control_project(
+                cur, company_id=True, project_id=3, project_name="Школа 1"
+            )
+        self.assertEqual(cur.calls, [])
+
+
 class SupplyLineageServiceTests(unittest.TestCase):
     def validate(self, items=None, estimates=None, resolver=None):
         return validate_material_control_request_lineage(
@@ -71,6 +124,7 @@ class SupplyLineageServiceTests(unittest.TestCase):
             request_notes="",
             project_name="Школа 1",
             company_id=1,
+            project_id=3,
             work_package="Отделка",
             items=items or [request_item()],
             estimates_by_id=estimates or {14: estimate_row()},
@@ -111,6 +165,32 @@ class SupplyLineageServiceTests(unittest.TestCase):
     def test_rejects_foreign_estimate_owner(self):
         with self.assertRaisesRegex(MaterialControlLineageError, "другой компании"):
             self.validate(estimates={14: estimate_row(company_id=2)})
+
+    def test_rejects_foreign_estimate_project_with_same_name(self):
+        with self.assertRaisesRegex(MaterialControlLineageError, "другому объекту"):
+            self.validate(estimates={14: estimate_row(project_id=4)})
+
+    def test_rejects_tampered_or_ownerless_lineage(self):
+        wrong_company = request_item()
+        wrong_company["estimateLineage"]["companyId"] = 2
+        with self.assertRaisesRegex(MaterialControlLineageError, "другой компании"):
+            self.validate(items=[wrong_company])
+
+        wrong_project = request_item()
+        wrong_project["estimateLineage"]["projectId"] = 4
+        with self.assertRaisesRegex(MaterialControlLineageError, "другому объекту"):
+            self.validate(items=[wrong_project])
+
+        ownerless = request_item()
+        ownerless["estimateLineage"].pop("projectId")
+        with self.assertRaisesRegex(MaterialControlLineageError, "нет точного владельца"):
+            self.validate(items=[ownerless])
+
+    def test_rejects_previous_lineage_version(self):
+        legacy = request_item()
+        legacy["estimateLineage"]["version"] = 1
+        with self.assertRaisesRegex(MaterialControlLineageError, "обновите приложение"):
+            self.validate(items=[legacy])
 
     def test_rejects_wrong_project_or_package(self):
         with self.assertRaisesRegex(MaterialControlLineageError, "другому объекту"):
@@ -167,6 +247,7 @@ class SupplyLineageServiceTests(unittest.TestCase):
                 request_notes="",
                 project_name="Школа 1",
                 company_id=1,
+                project_id=3,
                 work_package="Отделка",
                 items=[{"materialName": "Ручная позиция"}],
                 estimates_by_id={},
@@ -186,6 +267,7 @@ class SupplyLineageServiceTests(unittest.TestCase):
                 request_notes="Создано из контроля материалов: строка `Докупить`.",
                 project_name="Школа 1",
                 company_id=1,
+                project_id=3,
                 work_package="Отделка",
                 items=[{"materialName": "Смесь штукатурная"}],
                 estimates_by_id={},

@@ -309,6 +309,7 @@ try:
         material_control_estimate_ids,
         material_control_lineage_keys,
         material_control_request_intent,
+        resolve_material_control_project,
         validate_material_control_request_lineage,
     )
 except ModuleNotFoundError:
@@ -320,6 +321,7 @@ except ModuleNotFoundError:
         material_control_estimate_ids,
         material_control_lineage_keys,
         material_control_request_intent,
+        resolve_material_control_project,
         validate_material_control_request_lineage,
     )
 
@@ -5544,6 +5546,7 @@ class SupplyRequestModel(BaseModel):
     unit: str = "шт"
     project: str = ""
     companyId: Optional[int] = None
+    projectId: Optional[int] = None
     workPackage: str = ""
     createdBy: str = ""
     date: str = ""
@@ -8807,12 +8810,26 @@ def create_supply_request(
         agg_qty = float(len(items))  # количество позиций
         agg_unit = "поз."
     selected_suppliers = _normalize_supplier_ids(r.selectedSuppliers)
+    is_material_control_request = material_control_request_intent(
+        r.requestSource, r.notes
+    )
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     _ensure_supply_runtime_columns(cur)
     conn.commit()
-    project_company_id = _project_company_id(cur, project_name)
-    requested_company_id = r.companyId or project_company_id
+    project_company_id = None
+    requested_company_id = r.companyId
+    if is_material_control_request:
+        if not _positive_int_or_none(r.companyId) or not _positive_int_or_none(r.projectId):
+            cur.close()
+            conn.close()
+            raise HTTPException(
+                status_code=400,
+                detail="Заявка из контроля материалов должна содержать точные companyId и projectId",
+            )
+    else:
+        project_company_id = _project_company_id(cur, project_name)
+        requested_company_id = requested_company_id or project_company_id
     try:
         company_context = _resolve_work_company_context(
             cur,
@@ -8827,11 +8844,26 @@ def create_supply_request(
         conn.close()
         raise
     company_id = int(company_context.get("companyId") or requested_company_id or 1)
-    if project_company_id and int(project_company_id) != company_id:
+    project_id = _positive_int_or_none(r.projectId)
+    if is_material_control_request:
+        try:
+            project_owner = resolve_material_control_project(
+                cur,
+                company_id=company_id,
+                project_id=project_id,
+                project_name=project_name,
+            )
+            project_id = int(project_owner["projectId"])
+            project_name = project_owner["projectName"]
+        except MaterialControlLineageError as exc:
+            cur.close()
+            conn.close()
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    elif project_company_id and int(project_company_id) != company_id:
         cur.close(); conn.close()
         raise HTTPException(status_code=400, detail="Выбранная компания не совпадает с компанией объекта. Переключите компанию в шапке или выберите другой объект.")
     selected_suppliers = supplier_group_scope_ids(cur, selected_suppliers)
-    if material_control_request_intent(r.requestSource, r.notes):
+    if is_material_control_request:
         lineage_material_keys = {}
 
         def resolve_lineage_material_key(project, name, unit):
@@ -8848,6 +8880,7 @@ def create_supply_request(
                 request_notes=r.notes,
                 project_name=project_name,
                 company_id=company_id,
+                project_id=project_id,
                 work_package=request_package,
                 items=items,
                 estimates_by_id=load_material_control_estimates(
@@ -8874,7 +8907,7 @@ def create_supply_request(
         for estimate_id, section_index, item_index in sorted(lineage_keys):
             cur.execute(
                 "SELECT pg_advisory_xact_lock(hashtext(%s))",
-                (f"material-control-lineage:{company_id}:{project_name}:{estimate_id}:{section_index}:{item_index}",),
+                (f"material-control-lineage:{company_id}:{project_id}:{estimate_id}:{section_index}:{item_index}",),
             )
         cur.execute(
             """

@@ -534,7 +534,7 @@ export default function ProjectMaterialsControlPanel({
 		                        {st.label}
 		                        {r.invalidPlanCount > 0 ? ' · ' + r.invalidPlanCount : r.stockMismatch ? ' · ' + fmtMeasure(r.stockDiff, r.unit) : r.usedOverControlQty > 0 ? ' · ' + fmtMeasure(r.usedOverControlQty, r.unit) : r.usedOverEstimateQty > 0 ? ' · ' + fmtMeasure(r.usedOverEstimateQty, r.unit) : r.normWithoutEstimateQty > 0 ? ' · ' + fmtMeasure(r.normWithoutEstimateQty, r.unit) : r.normOverEstimateQty > 0 ? ' · +' + fmtMeasure(r.normOverEstimateQty, r.unit) : r.toBuy > 0 ? ' · ' + fmtMeasure(r.toBuy, r.unit) : r.shortage > 0 ? ' · ' + fmtMeasure(r.shortage, r.unit) : r.masterBalance > 0 ? ' · ' + fmtMeasure(r.masterBalance, r.unit) : ''}
 		                      </span>
-	                      {renderMaterialSupplyAction(projectName, r)}
+	                      {renderMaterialSupplyAction(project, r)}
 	                      {onIssueMaterial && r.stock > 0 && (
 	                        <button
 	                          type="button"

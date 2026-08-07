@@ -22,9 +22,11 @@ const rows = Array.from({ length: 161 }, (_, index) => ({
   invoiceDetails: [], supplyDetails: [], movementDetails: [], holders: []
 }));
 
-function renderPanel() {
+function renderPanel(overrides = {}) {
+  const project = {companyId: 7, id: 11, name: 'Тестовый объект'};
   return render(
     <ProjectMaterialsControlPanel
+      project={project}
       projectName="Тестовый объект"
       rows={rows}
       C={colors}
@@ -35,6 +37,7 @@ function renderPanel() {
       renderMaterialAliasControls={() => null}
       showPreview={() => {}}
       buildMaterialRequirementContent={() => ''}
+      {...overrides}
     />
   );
 }
@@ -52,5 +55,16 @@ describe('ProjectMaterialsControlPanel pagination', () => {
     expect(screen.getByText('Материал 160')).toBeInTheDocument();
     expect(screen.queryByText('Материал 161')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Показать ещё 1 материалов' })).toBeInTheDocument();
+  });
+
+  test('passes the stored project owner to material actions', () => {
+    const renderMaterialSupplyAction = jest.fn(() => null);
+
+    renderPanel({renderMaterialSupplyAction});
+
+    expect(renderMaterialSupplyAction).toHaveBeenCalledWith(
+      {companyId: 7, id: 11, name: 'Тестовый объект'},
+      expect.objectContaining({key: 'material-1'}),
+    );
   });
 });

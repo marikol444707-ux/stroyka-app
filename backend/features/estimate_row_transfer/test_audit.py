@@ -437,6 +437,35 @@ class EstimateRowTransferPureAuditTests(unittest.TestCase):
         self.assertEqual(report["summary"]["supplyCandidates"], 0)
         self.assertEqual(report["needsReview"][0]["reasonCode"], "supply_source_lineage_drift")
 
+    def test_supply_lineage_v2_requires_the_exact_plan_owner(self):
+        items = json.loads(supply_request_row()["items_json"])
+        items[0]["estimateLineage"].update({
+            "version": 2,
+            "companyId": 1,
+            "projectId": 3,
+        })
+
+        report = build_impact_report(
+            supply_reconciliation_row(),
+            [],
+            [supply_request_row(items_json=json.dumps(items, ensure_ascii=False))],
+            [],
+        )
+        self.assertEqual(report["summary"]["supplyCandidates"], 1)
+
+        items[0]["estimateLineage"]["projectId"] = 4
+        tampered = build_impact_report(
+            supply_reconciliation_row(),
+            [],
+            [supply_request_row(items_json=json.dumps(items, ensure_ascii=False))],
+            [],
+        )
+        self.assertEqual(tampered["summary"]["supplyCandidates"], 0)
+        self.assertEqual(
+            tampered["needsReview"][0]["reasonCode"],
+            "supply_source_lineage_drift",
+        )
+
     def test_fractional_supply_source_coordinate_is_rejected_not_truncated(self):
         items = json.loads(supply_request_row()["items_json"])
         items[0]["estimateLineage"]["sources"][0]["sectionIndex"] = 0.5

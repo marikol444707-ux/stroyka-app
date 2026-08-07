@@ -271,7 +271,7 @@ function StandaloneAiTaskCard({
               <Check size={11} />Привязать
             </button>
           )}
-          {purchaseRow && toNum(purchaseRow.toBuy) > 0 && renderMaterialSupplyAction(payload.projectName || task.projectName || '', purchaseRow)}
+          {purchaseRow && toNum(purchaseRow.toBuy) > 0 && renderMaterialSupplyAction(project, purchaseRow)}
           {task.actionLabel && (
             <button onClick={() => openAiTaskAction(task)} style={{ ...btnB, padding: '5px 9px', fontSize: '11px' }}>
               {payload.type === 'estimate_diff_review' ? <FileText size={11} /> : isEstimateTask ? <Calculator size={11} /> : isMaterialTask ? <Package size={11} /> : isRoomTask ? <MapPin size={11} /> : <Eye size={11} />} {task.actionLabel}
