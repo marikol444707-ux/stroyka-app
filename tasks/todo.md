@@ -4993,7 +4993,8 @@ authoritative accepted contract is
 `docs/active-estimate-material-control-ownership.md`.
 
 **Status:** Contract accepted on 2026-08-07. E5.1 and E5.2 are complete in
-production; E5.3 is in implementation. No schema or business rows changed.
+production; E5.3 is implemented and locally verified, with production release
+pending. No schema or business rows changed.
 
 **Observed risk:** The estimate query already reads `company_id` but its public
 payload omits `companyId`; frontend active selection accepts either a matching
@@ -5077,12 +5078,35 @@ unchanged and all protected public routes remained fail-closed.
 
 **Acceptance criteria:**
 
-- [ ] Material plan, reconciliation and summary functions receive an exact
+- [x] Material plan, reconciliation and summary functions receive an exact
   project owner object instead of a name-only scope.
-- [ ] Cache keys include company ID, project ID and package; same-name projects
+- [x] Cache keys include company ID, project ID and package; same-name projects
   cannot share cached rows or summaries.
-- [ ] UI consumers pass the stored project object and retain unchanged labels,
+- [x] UI consumers pass the stored project object and retain unchanged labels,
   totals and single-company behavior.
+
+**Local evidence (2026-08-07):** The runtime canonicalizes stored projects into
+an immutable `{companyId, projectId, projectName}` owner and rejects malformed,
+incomplete and name-only scopes. Material plan, norm requirement,
+reconciliation, summary, hints and alias candidates use that owner. Cache keys
+contain company ID, project ID and package, and regression tests prove that two
+same-name projects in different companies do not share rows or summaries.
+
+Warehouse, project, dashboard, economy, AI, supply-planning, master and print
+consumers now pass a stored project object. Remaining legacy-name boundaries
+resolve only one valid stored owner and fail closed on a collision. Display
+labels and historical name-based operational records are unchanged. The focused
+frontend suites pass `33/33`; full frontend verification passes `318/318` tests
+in `77/77` suites; the focused E5
+backend package passes `16` tests with one guarded PostgreSQL skip, and the
+production build succeeds. The local audit returned the bounded expected
+schema-not-ready report against the older developer database with zero writes
+and rollback; static inventory remained `1` owner-scoped frontend selector and
+the `5` accepted backend violations.
+
+**Release state:** Production deploy, complete public smoke and the post-deploy
+read-only audit are pending. Keep Task E5.3 open in `tasks/plan.md` until that
+evidence is captured. No schema or business-row apply is required.
 
 **Estimated scope:** Split into S/M consumer slices, each independently tested.
 

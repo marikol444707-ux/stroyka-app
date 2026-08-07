@@ -3,8 +3,8 @@
 ## Status
 
 Accepted on 2026-08-07. E5.1 and E5.2 are complete in production. E5.3 runtime
-owner propagation is in implementation; the later backend-query cutover remains
-disabled.
+owner propagation is implemented and locally verified; its production release
+is pending, and the later backend-query cutover remains disabled.
 
 ## Objective
 
@@ -168,6 +168,34 @@ violations. The report attempted zero writes and rolled back. Protected smoke
 was not run because credentials were not supplied; this slice did not alter
 authentication or authorization rules.
 
+### E5.3 Local Evidence And Expected Production Result
+
+Material plan, work-norm projection, reconciliation and summary functions now
+accept a stored project or immutable `{companyId, projectId, projectName}`
+owner. The boundary rejects malformed, incomplete and name-only scopes. Legacy
+document/invoice entry points resolve a name only when exactly one stored
+project with a valid owner exists; collisions fail closed.
+
+Reconciliation caches use `companyId + projectId + workPackage`; summary caches
+use the same tuple with an empty package. Project materials, warehouse control,
+all-project review, finance/economy, dashboard, AI review, master hints, supply
+planning and print consumers pass the stored project object while continuing to
+display the existing project name and totals.
+
+TDD reproduced the same-name cache bleed before the change. The focused owner,
+runtime, reconciliation, norm and all-project suites pass `33/33`; full
+frontend Jest passes `318/318` in `77/77` suites, the `16` focused backend tests
+pass with one guarded PostgreSQL skip, and the production build succeeds. The local read-only
+audit used the older developer schema, returned the bounded expected
+`material_control_owner_schema_not_ready` issue, attempted zero writes and
+rolled back; its static inventory remained exactly `6` candidates, `1`
+owner-scoped frontend selector and the `5` accepted backend violations.
+
+Production acceptance requires an atomic deploy, active service, complete
+public smoke and the production read-only audit confirming the same clean
+`4`-project / `15`-estimate owner data. No schema or business-row apply belongs
+to E5.3.
+
 ## Commands
 
 ```bash
@@ -175,7 +203,9 @@ authentication or authorization rules.
 CI=true npm test -- --watchAll=false --runTestsByPath \
   src/features/estimates/projectEstimateRuntime.test.jsx \
   src/features/material-control/materialRuntime.test.js \
-  src/utils/materialReconciliationUtils.test.js
+  src/utils/materialReconciliationUtils.test.js \
+  src/utils/materialNormSelectors.test.js \
+  src/components/AllProjectsMaterialProjectionReview.test.jsx
 
 # Focused backend tests; the E5 package is added in E5.1
 python3 -m unittest discover -s backend/features/material_control_ownership -t . -p 'test_*.py'
