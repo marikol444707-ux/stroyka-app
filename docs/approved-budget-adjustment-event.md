@@ -68,11 +68,11 @@ Successful response:
   "projectId": 14,
   "baseEstimateId": 100,
   "nextEstimateId": 101,
-  "projectBudgetBefore": 1000000.00,
-  "estimateBaseTotal": 250000.00,
-  "estimateNextTotal": 275000.00,
-  "adjustmentAmount": 25000.00,
-  "projectBudgetAfter": 1025000.00,
+  "projectBudgetBefore": "1000000.00",
+  "estimateBaseTotal": "250000.00",
+  "estimateNextTotal": "275000.00",
+  "adjustmentAmount": "25000.00",
+  "projectBudgetAfter": "1025000.00",
   "planSha256": "<64 lowercase hex characters>",
   "readyForApproval": true,
   "blockers": []
@@ -80,7 +80,8 @@ Successful response:
 ```
 
 The preview is bounded, contains no estimate sections or accounting rows, and
-attempts zero writes.
+attempts zero writes. Monetary JSON fields are canonical two-decimal strings so
+browser number conversion cannot alter the approved hash.
 
 ### Explicit approval
 

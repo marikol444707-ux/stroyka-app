@@ -5356,6 +5356,26 @@ dry-run review before any schema apply.
 **Estimated scope:** Two M code increments plus one separately approved
 production operation.
 
+#### Task E6.2.1: Exact Decimal Plan Kernel
+
+**Status:** Complete locally on 2026-08-07. The pure module validates only the
+exact authoritative ID/money field set, rejects silent rounding and invalid
+range, derives delta and after-budget server-side, canonicalizes signed zero,
+returns zero delta as a hashed non-approvable no-op and binds every ID/amount to
+a stable SHA-256. Monetary JSON values are two-decimal strings to preserve the
+hash through browsers.
+
+**Verification:** Focused plan tests pass `12/12`; the complete E6 package
+passes `33/33`; full backend discovery passes `1512` tests with `14` guarded
+skips; compilation and `git diff --check` pass. Review found no DB, SQL,
+network, dependency or runtime mutation boundary in this slice.
+
+**Implementation commit:** `543a777b`.
+
+**Next action:** E6.2.2 may add only a guarded dry-run/apply schema tool. It may
+not run from startup or deploy and production apply remains blocked until its
+exact change count/hash and DDL signatures are separately reviewed.
+
 ### Task E6.3: Tenant-Bound Read-Only Preview
 
 **Description:** Expose the approved plan without enabling a writer. The server
