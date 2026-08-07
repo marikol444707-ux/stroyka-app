@@ -5402,10 +5402,23 @@ transaction produced `schemaReadyInsideTransaction=true`, zero blockers and
 zero remaining changes, then rolled the entire transaction back. Compilation,
 writer inventory and `git diff --check` pass.
 
-**Next action:** Push/deploy the inert tooling, run
-`npm run audit:project-budget-adjustment-schema` on production and review that
-new environment-specific count/hash. Do not reuse the local hash and do not run
-the production migrate command until E6.2.3 is explicitly authorized.
+**Production evidence (E6.2.3):** Runtime `fecbe019380b` passed atomic deploy,
+service health and complete public smoke. The production dry-run matched the
+reviewed 7-change plan and SHA
+`6ee2d241f6c4b4c7e90ffda92e0542bad4ca000a2e3c42b5fb122485cf57f3d0`.
+The separately authorized guarded apply re-audited all four safe budgets under
+the project-table lock and committed exactly seven DDL statements.
+
+The immediate repeat reported `changeCount=0`, `schemaReady=true`, no blockers,
+zero writes and rollback. The baseline audit confirmed `projects.budget` is
+exact `NUMERIC(14,2)`, all `4/4` project budgets and all `13` reconciliations
+remain data-ready, there are no approved reconciliation candidates, and writer
+inventory remains exact `3/3` with zero E6 runtime DML. The service stayed
+active and final public smoke passed. No project budget or other business row
+was changed. E6.2 is closed in production.
+
+**Next action:** Implement E6.3.1 as a read-only tenant-bound preview service.
+Do not register an approval route or add runtime DML in this slice.
 
 ### Task E6.3: Tenant-Bound Read-Only Preview
 
