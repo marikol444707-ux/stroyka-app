@@ -1,5 +1,6 @@
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from backend.features.material_control_ownership.cutover_inventory import (
     audit_cutover_inventory,
@@ -46,6 +47,36 @@ class MaterialControlCutoverInventoryTests(unittest.TestCase):
             integration_test_source=integration_source(*REQUIRED_CHECKS),
             enforce_complete_inventory=False,
         )
+
+        self.assertFalse(report["writerInventoryReady"])
+        self.assertIn(
+            "protected_history_mutation",
+            {item["reasonCode"] for item in report["violations"]},
+        )
+
+    def test_repository_inventory_scans_nested_production_modules(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "backend").mkdir()
+            (root / "backend/main.py").write_text("", encoding="utf-8")
+            package = root / "backend/features/material_control_ownership"
+            nested = root / "backend/features/supply_lineage/nested"
+            package.mkdir(parents=True)
+            nested.mkdir(parents=True)
+            (package / "test_postgres_readiness.py").write_text(
+                integration_source(*REQUIRED_CHECKS),
+                encoding="utf-8",
+            )
+            (nested / "unsafe.py").write_text(
+                "def unsafe(cur):\n"
+                "    cur.execute('DELETE FROM public.work_journal WHERE id=1')\n",
+                encoding="utf-8",
+            )
+
+            report = audit_cutover_inventory(
+                root,
+                enforce_complete_inventory=False,
+            )
 
         self.assertFalse(report["writerInventoryReady"])
         self.assertIn(

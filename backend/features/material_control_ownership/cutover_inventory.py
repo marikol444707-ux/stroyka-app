@@ -71,7 +71,7 @@ def _repository_sources(repo_root):
         directory = root / prefix
         paths.extend(
             path
-            for path in sorted(directory.glob("*.py"))
+            for path in sorted(directory.rglob("*.py"))
             if not path.name.startswith("test_") and path.name != "__init__.py"
         )
     return {
