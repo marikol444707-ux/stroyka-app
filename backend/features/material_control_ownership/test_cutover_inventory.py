@@ -21,10 +21,7 @@ def integration_source(*names):
 
 class MaterialControlCutoverInventoryTests(unittest.TestCase):
     def test_repository_inventory_has_only_reviewed_writers_and_all_real_postgres_checks(self):
-        report = audit_cutover_inventory(
-            Path(__file__).resolve().parents[3],
-            integration_test_source=integration_source(*REQUIRED_CHECKS),
-        )
+        report = audit_cutover_inventory(Path(__file__).resolve().parents[3])
 
         self.assertTrue(report["ok"], report["violations"])
         self.assertTrue(report["writerInventoryReady"], report["violations"])
