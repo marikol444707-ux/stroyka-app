@@ -16368,6 +16368,24 @@ register_estimate_reconciliations_module(app, {
 })
 
 try:
+    from backend.features.project_budget_adjustments import (
+        register_project_budget_adjustment_preview_module,
+    )
+except ModuleNotFoundError:
+    from features.project_budget_adjustments import (
+        register_project_budget_adjustment_preview_module,
+    )
+
+
+register_project_budget_adjustment_preview_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "leadership_roles": LEADERSHIP_ROLES,
+})
+
+try:
     from backend.features.estimate_row_transfer import register_estimate_row_transfer_module
 except ModuleNotFoundError:
     from features.estimate_row_transfer import register_estimate_row_transfer_module
