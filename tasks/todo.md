@@ -5417,8 +5417,11 @@ inventory remains exact `3/3` with zero E6 runtime DML. The service stayed
 active and final public smoke passed. No project budget or other business row
 was changed. E6.2 is closed in production.
 
-**Next action:** Implement E6.3.1 as a read-only tenant-bound preview service.
-Do not register an approval route or add runtime DML in this slice.
+**Next action:** Deploy the completed read-only E6.3 slice, verify the public
+authentication smoke plus the E5/E6 read-only readiness reports, and request a
+preview only if production already contains a genuine approved customer
+reconciliation. Do not manufacture production data and do not register an
+approval route or add runtime DML in this slice.
 
 ### Task E6.3: Tenant-Bound Read-Only Preview
 
@@ -5429,16 +5432,27 @@ bounded before/delta/after contract and SHA-256.
 
 **Acceptance criteria:**
 
-- [ ] Foreign, aggregate-company, wrong-package/type, inactive, unapproved and
+- [x] Foreign, aggregate-company, wrong-package/type, inactive, unapproved and
   drifted sources fail closed with fixed codes and zero writes.
-- [ ] A valid preview contains only allowlisted owner/source IDs, monetary
+- [x] A valid preview contains only allowlisted owner/source IDs, monetary
   values, readiness blockers and plan hash; it never returns estimate sections.
-- [ ] The endpoint is authenticated and public smoke expects fail-closed auth;
+- [x] The endpoint is authenticated and public smoke expects fail-closed auth;
   no approval route is registered in this slice.
 
 **Verification:** Service/storage/route tests, full backend regression, public
 route smoke and production read-only preview only when a genuine approved
 reconciliation exists.
+
+**Local implementation evidence:** The pure bounded total calculator, one-row
+tenant storage boundary, fail-closed preview service and authenticated GET route
+pass `70` focused tests with one expected dedicated-PostgreSQL skip. Full
+backend discovery passes `1551` tests with `15` guarded skips. The route opens a
+`REPEATABLE READ` read-only transaction, sets bounded timeouts and always rolls
+back; its response is a 13-field allowlist and the slice contains no approval
+route or E6 DML. Static material-control inventory now explicitly reviews all
+`7/7` active-estimate boundaries and requires correlated company/project
+predicates to use the same distinct alias pair. Production verification remains
+pending, so E6.3 and E6.4 stay open.
 
 **Dependencies:** E6.2 schema ready.
 
