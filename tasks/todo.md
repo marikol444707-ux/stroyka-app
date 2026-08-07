@@ -4780,32 +4780,32 @@ request item, status, delivery chain, supplier documents, warehouse history or
 accounting. Material control consumes the tenant-bound allocation metadata and
 attributes only the allocated open quantity to the exact target estimate row.
 
-**Status:** In progress. The authoritative request, delivery, E4 plan and
-material-control projection paths have been traced; implementation starts with
-RED schema/apply/projection tests.
+**Status:** Local implementation and release review complete; ready for the
+separate guarded production dry-run/deploy/schema-apply sequence. No production
+DDL, plan or allocation has been created by this work.
 
 **Acceptance criteria:**
 
-- [ ] A separately guarded additive schema stores one immutable receipt per
+- [x] A separately guarded additive schema stores one immutable receipt per
   supply plan entry, binds it to the exact plan/company/project/request/item,
   source and target snapshot coordinates, request-item snapshot hash,
   requested/received/prior/allocated/remaining quantities and leadership
   actor. Update/delete and inconsistent inserts fail at the database boundary.
-- [ ] The exact-hash supply apply action locks the approved plan, request,
+- [x] The exact-hash supply apply action locks the approved plan, request,
   deliveries and prior allocations in deterministic order, revalidates the
   canonical open-status allowlist, owner/project/package, exact validated
   source lineage, target snapshot and finite quantities, and prevents the
   cumulative allocation from exceeding the current unreceived balance.
-- [ ] First apply writes only immutable allocation receipts. An exact repeat is
+- [x] First apply writes only immutable allocation receipts. An exact repeat is
   read-only and idempotent; partial receipts, changed deliveries/request JSON,
   mixed owners, ambiguous delivery allocation, stale target snapshots and
   concurrent conflicts roll back the whole transaction.
-- [ ] `/supply-requests` attaches allocation metadata only to already visible
+- [x] `/supply-requests` attaches allocation metadata only to already visible
   tenant-owned requests. Material control resolves each allocation against one
   exact target `estimateId + sectionIndex + itemIndex`; unresolved, malformed
   or over-quantity metadata fails closed to the original request attribution
   and raises review state rather than guessing a material row.
-- [ ] For a request item `requested = received + unallocated open + allocated
+- [x] For a request item `requested = received + unallocated open + allocated
   open`, the original row keeps `received + unallocated open` and the target
   row receives exactly `allocated open`. Delivery, invoice, warehouse and
   accounting calculations remain unchanged because only the request
@@ -4813,15 +4813,35 @@ RED schema/apply/projection tests.
 
 **Verification plan:**
 
-- [ ] RED unit/route/schema/frontend tests precede each behavior; focused E4
+- [x] RED unit/route/schema/frontend tests precede each behavior; focused E4
   suites pass after implementation.
-- [ ] Opt-in real PostgreSQL proves rollback, concurrent double-apply,
+- [x] Opt-in real PostgreSQL proves rollback, concurrent double-apply,
   cumulative allocation bounds, immutable evidence and byte-for-byte unchanged
   protected request/delivery/supplier/warehouse/accounting tables.
-- [ ] Full backend regression, Python compilation, frontend tests/build,
+- [x] Full backend regression, Python compilation, frontend tests/build,
   static writer checks and `git diff --check` pass before release review.
 
 **Boundaries:** No automatic schema apply, background worker or historical
 request cleanup. No production DDL, plan creation or supply allocation occurs
 until the local implementation, reviews and guarded dry-run are separately
 approved.
+
+**Local evidence (2026-08-07):** focused E4 discovery passes `106` tests with
+`8` opt-in skips; a fresh disposable PostgreSQL cluster passes all `8` real
+transaction/concurrency tests and was removed afterward. The full backend
+suite passes `1430` tests with `8` skips, the frontend passes `307` tests in
+`76` suites, Python compilation, production build, atomic-publish tests and
+`git diff --check` pass. Review additionally made projection metadata internal
+only, restricted apply to statuses actually counted as open requests, required
+an explicitly typed material target at audit/apply/database boundaries, bound
+duplicate project identity fail-closed and corrected original projection to
+use the stored unallocated remainder rather than double-count received supply.
+
+**Implementation commits:** `fbb8bc6e`, `911d7e2f`, `690155cc`, `ce0f09df`,
+`9b0e259c`, `669dd3e9`.
+
+`npm audit` reports the repository's existing Create React App dependency
+chain (17 high, 5 moderate and 10 low findings); this feature adds no package
+and `npm audit fix --force` proposes a breaking `react-scripts@0.0.0` change,
+so dependency modernization remains a separate release item rather than an
+unreviewed mutation in E4.4.

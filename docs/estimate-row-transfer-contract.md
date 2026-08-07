@@ -282,6 +282,53 @@ plans, assignment receipts and approved reconciliations. An authenticated
 leadership request for a deliberately missing plan returned bounded `404`, so
 no reconciliation, plan or business transfer was manufactured for testing.
 
+## E4.4 API Contract
+
+`POST /estimate-row-transfer-plans/{id}/supply-apply` accepts only:
+
+```json
+{"planSha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+```
+
+Only a director or deputy director acting in the selected stored company can
+apply the supply entries of an approved plan. The action runs under
+`SERIALIZABLE`, locks the request, delivery rows, prior allocation receipts and
+immutable estimate versions, and rechecks the exact approved hash. A target
+must be an exact current estimate coordinate explicitly stored as a material
+row; heuristic work/material inference is not accepted at this mutation
+boundary.
+
+The operation accepts only request statuses that material control currently
+counts as open `requested` quantity: `Новая`, `Подтверждена прорабом`,
+`Утверждена` and `КП запрошены`. It stores one immutable receipt per reviewed
+supply entry with the equation `requested = received + previously allocated +
+allocated + remaining`. It never updates request, delivery, supplier,
+warehouse or accounting rows.
+
+Success is bounded and contains no material descriptions, notes or prices:
+
+```json
+{
+  "planId": 5,
+  "planSha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "state": "supply_allocated",
+  "supplyCount": 1,
+  "allocations": [
+    {"entryId": 8, "requestId": 61, "requestItemIndex": 0, "quantity": "3"}
+  ],
+  "appliedAt": "2026-08-07 18:00:00+03:00",
+  "idempotent": false
+}
+```
+
+An exact repeat is read-only and returns `idempotent=true`. The internal
+material-control projection receives only tenant-visible receipt metadata. It
+keeps fulfilled quantity and the stored unallocated remainder on the original
+identity, moves exactly the allocated open quantity to one target material
+coordinate, and raises review state if snapshot, quantity or target resolution
+no longer matches. Supplier-facing request responses never receive estimate
+coordinates.
+
 ## Threat Model And Abuse Cases
 
 ### Trust boundaries
