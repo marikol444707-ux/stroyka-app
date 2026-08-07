@@ -200,9 +200,12 @@ def build_receipt_ledger_readiness(rows, *, max_issues=MAX_ISSUES):
             or row.get("approved_by_role") not in LEADERSHIP_ROLES
         ):
             issues.add("budget_adjustment_receipt_actor_invalid", row)
-        if not (
-            _aware_timestamp(row.get("approved_at"))
-            and _aware_timestamp(row.get("created_at"))
+        approved_at = row.get("approved_at")
+        created_at = row.get("created_at")
+        if (
+            not _aware_timestamp(approved_at)
+            or not _aware_timestamp(created_at)
+            or created_at < approved_at
         ):
             issues.add("budget_adjustment_receipt_timestamp_invalid", row)
 

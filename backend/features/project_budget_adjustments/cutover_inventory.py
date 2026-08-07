@@ -58,6 +58,13 @@ EXPECTED_KERNEL_ENTRYPOINTS = Counter({
         "apply_adjustment",
     ): 1,
 })
+EXPECTED_KERNEL_IMPORTS = Counter({
+    (
+        "backend/features/project_budget_adjustments/runtime_routes.py",
+        "apply_budget_adjustment",
+        "apply_budget_adjustment",
+    ): 1,
+})
 REQUIRED_INTEGRATION_CHECKS = {
     "backend/features/project_budget_adjustments/test_postgres_schema.py": (
         "test_transactional_kernel_applies_delta_once_and_is_idempotent",
@@ -170,6 +177,23 @@ def _kernel_entrypoints(path, tree):
     return entries
 
 
+def _kernel_imports(path, tree):
+    imports = Counter()
+    if tree is None:
+        return imports
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        for alias in node.names:
+            if alias.name == "apply_budget_adjustment":
+                imports[(
+                    path,
+                    alias.name,
+                    alias.asname or alias.name,
+                )] += 1
+    return imports
+
+
 def _registration_inventory(source, violations):
     tree = _parse("backend/main.py", source, violations)
     registrations = Counter()
@@ -184,7 +208,7 @@ def _registration_inventory(source, violations):
             name = node.func.attr
         else:
             continue
-        if name in EXPECTED_REGISTRATIONS:
+        if name.startswith("register_project_budget_adjustment"):
             registrations[name] += 1
     return registrations
 
@@ -223,11 +247,13 @@ def audit_cutover_inventory(
     injected_routes = route_sources is not None
     if route_sources is None:
         route_sources = {
-            path: _read(root / path)
-            for path in (
-                "backend/features/project_budget_adjustments/preview_routes.py",
-                "backend/features/project_budget_adjustments/runtime_routes.py",
+            path.relative_to(root).as_posix(): _read(path)
+            for path in sorted(
+                (root / "backend/features/project_budget_adjustments").glob(
+                    "*.py"
+                )
             )
+            if not path.name.startswith("test_")
         }
     if application_sources is None:
         application_sources = (
@@ -278,6 +304,7 @@ def audit_cutover_inventory(
         })
 
     entrypoints = Counter()
+    kernel_imports = Counter()
     for raw_path, source in sorted(application_sources.items()):
         path = Path(raw_path).as_posix()
         tree = (
@@ -286,12 +313,18 @@ def audit_cutover_inventory(
             else _parse(path, source, violations)
         )
         entrypoints.update(_kernel_entrypoints(path, tree))
-    entrypoint_ready = entrypoints == EXPECTED_KERNEL_ENTRYPOINTS
-    if not entrypoint_ready:
+        kernel_imports.update(_kernel_imports(path, tree))
+    kernel_boundary_ready = bool(
+        entrypoints == EXPECTED_KERNEL_ENTRYPOINTS
+        and kernel_imports == EXPECTED_KERNEL_IMPORTS
+    )
+    if not kernel_boundary_ready:
         violations.append({
             "reasonCode": "budget_adjustment_kernel_entrypoint_mismatch",
-            "expected": sum(EXPECTED_KERNEL_ENTRYPOINTS.values()),
-            "actual": sum(entrypoints.values()),
+            "expectedCalls": sum(EXPECTED_KERNEL_ENTRYPOINTS.values()),
+            "actualCalls": sum(entrypoints.values()),
+            "expectedImports": sum(EXPECTED_KERNEL_IMPORTS.values()),
+            "actualImports": sum(kernel_imports.values()),
         })
 
     missing_checks = []
@@ -321,7 +354,7 @@ def audit_cutover_inventory(
         route_inventory_ready
         and registration_ready
         and smoke_ready
-        and entrypoint_ready
+        and kernel_boundary_ready
         and not any(
             item.get("reasonCode") == "source_parse_error"
             and not str(item.get("file") or "").startswith(
@@ -347,6 +380,8 @@ def audit_cutover_inventory(
         "expectedKernelEntrypointCount": sum(
             EXPECTED_KERNEL_ENTRYPOINTS.values()
         ),
+        "kernelImportCount": sum(kernel_imports.values()),
+        "expectedKernelImportCount": sum(EXPECTED_KERNEL_IMPORTS.values()),
         "requiredIntegrationChecks": sum(
             len(names) for names in REQUIRED_INTEGRATION_CHECKS.values()
         ),
@@ -359,6 +394,7 @@ def audit_cutover_inventory(
 
 __all__ = [
     "EXPECTED_KERNEL_ENTRYPOINTS",
+    "EXPECTED_KERNEL_IMPORTS",
     "EXPECTED_REGISTRATIONS",
     "EXPECTED_ROUTES",
     "EXPECTED_SMOKE_CHECKS",

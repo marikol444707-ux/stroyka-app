@@ -13,6 +13,8 @@ def register_project_budget_adjustment_preview_module(app, deps):
 '''
 
 RUNTIME_ROUTES = '''
+from .approval import apply_budget_adjustment
+
 def register_project_budget_adjustment_runtime_module(app, deps):
     apply_adjustment = deps.get("apply_budget_adjustment")
 
@@ -143,6 +145,24 @@ class BudgetAdjustmentCutoverInventoryTests(unittest.TestCase):
         self.assertFalse(missing_registration["routeInventoryReady"])
         self.assertFalse(missing_smoke["routeInventoryReady"])
         self.assertFalse(automatic_apply["routeInventoryReady"])
+
+        unexpected_registration = audit(main_source=(
+            MAIN
+            + "register_project_budget_adjustment_backdoor_module(app, {})\n"
+        ))
+        aliased_kernel_import = audit(application_sources={
+            "backend/features/project_budget_adjustments/runtime_routes.py": (
+                RUNTIME_ROUTES
+            ),
+            "backend/features/other/routes.py": '''
+from backend.features.project_budget_adjustments.approval import apply_budget_adjustment as execute
+def automatic_reconciliation_flow():
+    return execute()
+''',
+        })
+
+        self.assertFalse(unexpected_registration["routeInventoryReady"])
+        self.assertFalse(aliased_kernel_import["routeInventoryReady"])
 
     def test_missing_or_renamed_integration_proof_fails_closed(self):
         sources = {

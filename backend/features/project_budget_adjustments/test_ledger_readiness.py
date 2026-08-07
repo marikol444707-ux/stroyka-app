@@ -1,6 +1,6 @@
 import json
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from backend.features.project_budget_adjustments.ledger_readiness import (
@@ -168,6 +168,18 @@ class BudgetAdjustmentLedgerPureTests(unittest.TestCase):
         self.assertEqual(report["issueCount"], 5)
         self.assertEqual(len(report["issues"]), 2)
         self.assertTrue(report["issuesTruncated"])
+
+    def test_created_timestamp_cannot_precede_approval(self):
+        approved_at = datetime(2026, 8, 7, tzinfo=timezone.utc)
+        report = build_receipt_ledger_readiness([valid_receipt(
+            approved_at=approved_at,
+            created_at=approved_at - timedelta(seconds=1),
+        )])
+
+        self.assertFalse(report["ledgerReady"])
+        self.assertEqual(report["reasonCounts"], {
+            "budget_adjustment_receipt_timestamp_invalid": 1,
+        })
 
 
 class BudgetAdjustmentLedgerCollectionTests(unittest.TestCase):
