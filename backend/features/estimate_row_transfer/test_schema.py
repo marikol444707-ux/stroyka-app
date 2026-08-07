@@ -59,9 +59,11 @@ def empty_catalog_row():
         "plans_table": False,
         "entries_table": False,
         "assignment_transfers_table": False,
+        "supply_allocations_table": False,
         "plan_columns": [],
         "entry_columns": [],
         "assignment_transfer_columns": [],
+        "supply_allocation_columns": [],
         "constraints": [],
         "indexes": [],
         "functions": [],
@@ -80,10 +82,14 @@ def ready_catalog_row():
         "plans_table": True,
         "entries_table": True,
         "assignment_transfers_table": True,
+        "supply_allocations_table": True,
         "plan_columns": sorted(plan["expected"]["planColumns"]),
         "entry_columns": sorted(plan["expected"]["entryColumns"]),
         "assignment_transfer_columns": sorted(
             plan["expected"]["assignmentTransferColumns"]
+        ),
+        "supply_allocation_columns": sorted(
+            plan["expected"]["supplyAllocationColumns"]
         ),
         "constraints": sorted(plan["expected"]["constraints"]),
         "indexes": sorted(plan["expected"]["indexes"]),
@@ -119,6 +125,15 @@ class EstimateRowTransferSchemaPlanTests(unittest.TestCase):
         self.assertIn("uq_etre_id_plan_owner", sql)
         self.assertIn("guard_estimate_row_assignment_transfer", sql)
         self.assertIn("estimate_row_assignment_transfer_guard", sql)
+        self.assertIn("CREATE TABLE public.estimate_row_supply_allocations", sql)
+        self.assertIn("request_item_snapshot", sql)
+        self.assertIn("request_item_sha256", sql)
+        self.assertIn("previously_allocated_quantity", sql)
+        self.assertIn("remaining_unallocated_quantity", sql)
+        self.assertIn("uq_ersa_entry", sql)
+        self.assertIn("idx_ersa_request_item", sql)
+        self.assertIn("guard_estimate_row_supply_allocation", sql)
+        self.assertIn("estimate_row_supply_allocation_guard", sql)
         self.assertIn("source_quantity_before", sql)
         self.assertIn("source_quantity_after", sql)
         self.assertIn("confirmed_quantity", sql)
@@ -133,6 +148,7 @@ class EstimateRowTransferSchemaPlanTests(unittest.TestCase):
         self.assertIn("source_item.status=NEW.source_status", sql)
         self.assertNotIn("UPDATE brigade_contract_items", sql)
         self.assertNotIn("UPDATE supply_requests", sql)
+        self.assertNotIn("UPDATE supply_deliveries", sql)
 
     def test_existing_partial_table_fails_closed_instead_of_silent_repair(self):
         catalog = ready_catalog_row()
