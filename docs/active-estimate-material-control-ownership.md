@@ -2,9 +2,9 @@
 
 ## Status
 
-Accepted on 2026-08-07. E5.1 is complete in production. E5.2 API and strict
-frontend discovery are implemented and locally verified; their production
-release is pending. Later runtime and backend-query cutovers remain disabled.
+Accepted on 2026-08-07. E5.1 and E5.2 are complete in production. E5.3 runtime
+owner propagation is in implementation; the later backend-query cutover remains
+disabled.
 
 ## Objective
 
@@ -158,6 +158,15 @@ now reports the expected intermediate state: `candidateCount=6`,
 `ownerScopedCount=1`, `nameScopedCount=5` and only the five accepted backend
 violations. Therefore `runtimeInventoryReady=false` remains expected until the
 E5.4 backend-query cutover.
+
+Production runtime `9c8ba525932f` deployed atomically on 2026-08-07, remained
+active and passed the complete public smoke. The post-deploy audit verified the
+same `4` active projects and `15/15` valid active estimates with no duplicates,
+collisions or data issues. Static inventory reported `candidateCount=6`,
+`ownerScopedCount=1`, `nameScopedCount=5` and only the five accepted backend
+violations. The report attempted zero writes and rolled back. Protected smoke
+was not run because credentials were not supplied; this slice did not alter
+authentication or authorization rules.
 
 ## Commands
 

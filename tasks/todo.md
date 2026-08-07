@@ -4992,8 +4992,8 @@ material-control path with the stored `company_id + project_id` tuple. The
 authoritative accepted contract is
 `docs/active-estimate-material-control-ownership.md`.
 
-**Status:** Contract accepted on 2026-08-07. E5.1 is complete in production;
-E5.2 is in implementation. No schema or business rows changed.
+**Status:** Contract accepted on 2026-08-07. E5.1 and E5.2 are complete in
+production; E5.3 is in implementation. No schema or business rows changed.
 
 **Observed risk:** The estimate query already reads `company_id` but its public
 payload omits `companyId`; frontend active selection accepts either a matching
@@ -5061,9 +5061,15 @@ reports the deliberate intermediate state `6` candidates, `1` owner-scoped
 frontend selector and the remaining `5` name-scoped backend boundaries. No
 schema, business row, auth rule, SQL predicate or dependency changed.
 
-**Release state:** Production deploy, public smoke and the post-deploy read-only
-audit are pending. Keep Task E5.2 open in `tasks/plan.md` until that evidence is
-captured.
+**Production evidence (2026-08-07):** Runtime `9c8ba525932f` deployed
+atomically, the service remained active and the complete public smoke passed.
+The post-deploy read-only audit returned `ok=true`, `dataReady=true`,
+`writesAttempted=0` and `rolledBack=true`. It verified `15/15` valid active
+estimates, no duplicate scopes or name-collision groups, and the exact
+intermediate static state: `candidateCount=6`, `ownerScopedCount=1`,
+`nameScopedCount=5`, with only the five accepted backend violations. Protected
+checks were skipped because credentials were not supplied; auth behavior was
+unchanged and all protected public routes remained fail-closed.
 
 **Estimated scope:** M, no schema or business writes.
 
