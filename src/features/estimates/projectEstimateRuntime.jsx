@@ -3,7 +3,6 @@ import EstimateReconciliationsPanel from '../../components/EstimateReconciliatio
 import EstimateMeasurementComparisonPanel from '../../components/EstimateMeasurementComparisonPanel';
 import WorkJournalEstimateReconciliationPanel from '../../components/WorkJournalEstimateReconciliationPanel';
 import {
-  activeEstimateFromList,
   estimateKind,
   estimatePackage,
   estimateSectionsOf,
@@ -13,6 +12,7 @@ import {
   isGlobalEstimateTemplate,
   normalizeEstimateItemType,
 } from '../../utils/estimateUtils';
+import { sameStoredProjectOwner } from './projectEstimateOwnership';
 import {
   estimateMeasurementComparisonSummaryFor,
   projectMeasurementBasisTotalsFor,
@@ -60,7 +60,7 @@ export function createProjectEstimateRuntime({
     const groups = {};
     visibleEstimatesForCurrentUser(sourceEstimates || estimatesList || [])
       .filter(e => (
-        (e.projectName === p.name || Number(e.projectId) === Number(p.id))
+        sameStoredProjectOwner(p, e)
         && estimateKind(e) === kind
         && e.status === 'Активная'
         && !isArchivedEstimate(e)
@@ -71,7 +71,7 @@ export function createProjectEstimateRuntime({
         groups[k].push(e);
       });
     return Object.values(groups)
-      .map(items => activeEstimateFromList(items))
+      .map(items => items.length === 1 ? items[0] : null)
       .filter(Boolean);
   };
 

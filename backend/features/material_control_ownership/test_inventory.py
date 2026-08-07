@@ -7,20 +7,17 @@ from backend.features.material_control_ownership.inventory import (
 
 
 class MaterialControlRuntimeInventoryTests(unittest.TestCase):
-    def test_repository_inventory_finds_all_current_name_scoped_paths(self):
+    def test_repository_inventory_marks_frontend_owner_scoped_and_backend_name_scoped(self):
         report = audit_runtime_inventory(Path(__file__).resolve().parents[3])
 
         self.assertTrue(report["ok"], report["violations"])
         self.assertFalse(report["runtimeInventoryReady"])
         self.assertEqual(report["candidateCount"], 6)
-        self.assertEqual(report["nameScopedCount"], 6)
+        self.assertEqual(report["nameScopedCount"], 5)
+        self.assertEqual(report["ownerScopedCount"], 1)
         self.assertEqual(
             {(item["file"], item["symbol"]) for item in report["violations"]},
             {
-                (
-                    "src/features/estimates/projectEstimateRuntime.jsx",
-                    "activeEstimatesForProject",
-                ),
                 ("backend/main.py", "_supply_material_estimate_control"),
                 ("backend/main.py", "_supply_linked_work_estimate_control"),
                 ("backend/main.py", "_run_project_ai_control"),
@@ -28,6 +25,31 @@ class MaterialControlRuntimeInventoryTests(unittest.TestCase):
                 ("backend/main.py", "_generate_material_norm_suggestions"),
             },
         )
+
+    def test_reviewed_frontend_owner_matcher_is_owner_scoped(self):
+        sources = {
+            "src/features/estimates/projectEstimateRuntime.jsx": """
+                const activeEstimatesForProject = (project) => {
+                  return estimates.filter(estimate => (
+                    sameStoredProjectOwner(project, estimate)
+                    && estimate.status === 'Активная'
+                  ));
+                };
+            """,
+        }
+
+        report = audit_runtime_inventory(
+            source_files=sources,
+            expected_candidates={
+                (
+                    "src/features/estimates/projectEstimateRuntime.jsx",
+                    "activeEstimatesForProject",
+                ),
+            },
+        )
+
+        self.assertTrue(report["runtimeInventoryReady"], report["violations"])
+        self.assertEqual(report["ownerScopedCount"], 1)
 
     def test_exact_owner_candidates_are_ready(self):
         sources = {

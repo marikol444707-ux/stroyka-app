@@ -27,6 +27,7 @@ _NAME_SQL_RE = re.compile(
     r"\b(?:[a-z_][a-z0-9_]*\.)?project_name\s*=\s*%s",
     re.IGNORECASE,
 )
+_FRONTEND_OWNER_MATCHER_RE = re.compile(r"\bsameStoredProjectOwner\s*\(")
 
 
 def _owner_sql_predicate(sql, column):
@@ -153,9 +154,12 @@ def _javascript_candidates(path, source):
             "surface": "frontend_selector",
             "nameScoped": ".projectName" in block,
             "ownerScoped": (
-                ".companyId" in block
-                and ".projectId" in block
-                and ".id" in block
+                bool(_FRONTEND_OWNER_MATCHER_RE.search(block))
+                or (
+                    ".companyId" in block
+                    and ".projectId" in block
+                    and ".id" in block
+                )
             ),
         })
     return candidates
