@@ -954,6 +954,9 @@ BEGIN
        OR live_item IS DISTINCT FROM NEW.request_item_snapshot
        OR live_prior IS DISTINCT FROM NEW.previously_allocated_quantity
        OR live_received IS DISTINCT FROM NEW.received_quantity
+       OR NEW.remaining_unallocated_quantity IS DISTINCT FROM
+          NEW.requested_quantity-NEW.received_quantity
+          -NEW.previously_allocated_quantity-NEW.allocation_quantity
        OR EXISTS (
            SELECT 1 FROM public.supply_deliveries delivery
             WHERE delivery.request_id=NEW.request_id

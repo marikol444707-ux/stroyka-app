@@ -17,6 +17,10 @@ from backend.features.estimate_row_transfer.audit import run_impact_audit
 from backend.features.estimate_row_transfer.plan import normalize_draft_payload
 from backend.features.estimate_row_transfer.schema import run_schema_migration
 from backend.features.estimate_row_transfer.service import build_current_plan
+from backend.features.estimate_row_transfer.supply_apply import (
+    SupplyApplyError,
+    apply_supply_plan,
+)
 from backend.features.estimate_row_transfer.storage import (
     approve_plan,
     insert_draft,
@@ -391,6 +395,181 @@ class EstimateRowTransferPostgresTests(unittest.TestCase):
         finally:
             connection.close()
 
+    def _create_approved_supply_fixture(self, company_id):
+        self._ensure_transfer_schema()
+        marker = "e4-supply-" + uuid.uuid4().hex
+        source_sections = [{
+            "name": "Fixture",
+            "items": [{
+                "name": "Old mix", "unit": "kg", "quantity": 10,
+                "estimateItemKey": marker + "-source",
+            }],
+        }]
+        target_sections = [{
+            "name": "Fixture",
+            "items": [{
+                "name": "New mix", "unit": "kg", "quantity": 10,
+                "estimateItemKey": marker + "-target",
+            }],
+        }]
+        with self.admin.cursor() as cur:
+            cur.execute(
+                "INSERT INTO public.projects(company_id,name) VALUES (%s,%s) RETURNING id",
+                (company_id, marker),
+            )
+            project_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO public.estimates
+                       (company_id,project_id,work_package,smeta_type,sections_json)
+                     VALUES (%s,%s,'Fixture','Материалы',%s) RETURNING id""",
+                (company_id, project_id, json.dumps(source_sections)),
+            )
+            source_estimate_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO public.estimates
+                       (company_id,project_id,work_package,smeta_type,sections_json)
+                     VALUES (%s,%s,'Fixture','Материалы',%s) RETURNING id""",
+                (company_id, project_id, json.dumps(target_sections)),
+            )
+            target_estimate_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO public.estimate_reconciliations
+                       (status,work_package,smeta_type,base_estimate_id,next_estimate_id)
+                     VALUES ('Утверждена','Fixture','Материалы',%s,%s) RETURNING id""",
+                (source_estimate_id, target_estimate_id),
+            )
+            reconciliation_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO public.estimate_versions
+                       (estimate_id,sections_json,sections_sha256)
+                     VALUES (%s,%s,%s) RETURNING id""",
+                (
+                    source_estimate_id, json.dumps(source_sections),
+                    sections_sha256(source_sections),
+                ),
+            )
+            source_version_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO public.estimate_versions
+                       (estimate_id,sections_json,sections_sha256)
+                     VALUES (%s,%s,%s) RETURNING id""",
+                (
+                    target_estimate_id, json.dumps(target_sections),
+                    sections_sha256(target_sections),
+                ),
+            )
+            target_version_id = cur.fetchone()[0]
+            request_item = {
+                "materialName": "Old mix",
+                "quantity": 10,
+                "unit": "kg",
+                "workPackage": "Fixture",
+                "sourceType": "estimate_material_control",
+                "estimateLineage": {
+                    "version": 1,
+                    "validated": True,
+                    "projectName": marker,
+                    "workPackage": "Fixture",
+                    "sources": [{
+                        "estimateId": source_estimate_id,
+                        "sectionIndex": 0,
+                        "itemIndex": 0,
+                        "materialName": "Old mix",
+                        "unit": "kg",
+                        "quantity": 10,
+                        "validated": True,
+                    }],
+                },
+            }
+            cur.execute(
+                """INSERT INTO public.supply_requests
+                       (company_id,project,work_package,status,items_json)
+                     VALUES (%s,%s,'Fixture','КП запрошены',%s) RETURNING id""",
+                (company_id, marker, json.dumps([request_item])),
+            )
+            request_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO public.supply_deliveries
+                       (request_id,company_id,material_name,unit,received_quantity)
+                     VALUES (%s,%s,'Old mix','kg',2) RETURNING id""",
+                (request_id, company_id),
+            )
+            delivery_id = cur.fetchone()[0]
+
+        payload = normalize_draft_payload({
+            "reconciliationId": reconciliation_id,
+            "entries": [{
+                "sourceKind": "supply",
+                "sourceId": request_id,
+                "requestItemIndex": 0,
+                "sourceEstimateVersionId": source_version_id,
+                "quantity": "3",
+                "targetSectionIndex": 0,
+                "targetItemIndex": 0,
+                "targetItemKey": marker + "-target",
+            }],
+        })
+        connection = psycopg2.connect(POSTGRES_TEST_DSN)
+        connection.set_session(autocommit=False, isolation_level="REPEATABLE READ")
+        try:
+            with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                plan = build_current_plan(cur, payload)
+                plan_id = insert_draft(
+                    cur, plan, {"id": 12, "name": "Estimator", "role": "сметчик"},
+                )
+                self.assertTrue(approve_plan(
+                    cur,
+                    plan_id=plan_id,
+                    company_id=company_id,
+                    expected_plan_sha256=plan["planSha256"],
+                    actor={"id": 2, "name": "Director", "role": "директор"},
+                ))
+            connection.commit()
+        finally:
+            connection.close()
+        return {
+            "companyId": company_id,
+            "projectId": project_id,
+            "reconciliationId": reconciliation_id,
+            "requestId": request_id,
+            "deliveryId": delivery_id,
+            "sourceEstimateId": source_estimate_id,
+            "targetEstimateId": target_estimate_id,
+            "sourceVersionId": source_version_id,
+            "targetVersionId": target_version_id,
+            "planId": plan_id,
+            "planSha256": plan["planSha256"],
+        }
+
+    def _apply_supply_serializable(self, fixture):
+        connection = psycopg2.connect(POSTGRES_TEST_DSN)
+        connection.set_session(autocommit=False, isolation_level="SERIALIZABLE")
+        try:
+            with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                stored = load_stored_plan(
+                    cur, fixture["planId"], fixture["companyId"], for_update=True,
+                )
+                result = apply_supply_plan(
+                    cur,
+                    stored=stored,
+                    actor={
+                        "id": 2,
+                        "companyId": fixture["companyId"],
+                        "name": "Director",
+                        "role": "директор",
+                    },
+                )
+            if result["idempotent"]:
+                connection.rollback()
+            else:
+                connection.commit()
+            return result
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
     def _protected_rows_snapshot(self):
         tables = (
             "work_journal", "hidden_works_acts", "brigade_acts",
@@ -496,12 +675,14 @@ class EstimateRowTransferPostgresTests(unittest.TestCase):
 
     def test_z_inert_schema_draft_and_approval_never_mutate_business_rows(self):
         with self.admin.cursor() as cur:
+            cur.execute("DROP TABLE IF EXISTS public.estimate_row_supply_allocations CASCADE")
             cur.execute("DROP TABLE IF EXISTS public.estimate_row_assignment_transfers CASCADE")
             cur.execute("DROP TABLE IF EXISTS public.estimate_row_transfer_entries CASCADE")
             cur.execute("DROP TABLE IF EXISTS public.estimate_row_transfer_plans CASCADE")
             cur.execute("DROP FUNCTION IF EXISTS public.reject_estimate_row_transfer_entry_mutation()")
             cur.execute("DROP FUNCTION IF EXISTS public.guard_estimate_row_transfer_plan_mutation()")
             cur.execute("DROP FUNCTION IF EXISTS public.guard_estimate_row_assignment_transfer()")
+            cur.execute("DROP FUNCTION IF EXISTS public.guard_estimate_row_supply_allocation()")
 
         dry_run = run_schema_migration(lambda: psycopg2.connect(POSTGRES_TEST_DSN))
         applied = run_schema_migration(
@@ -725,6 +906,116 @@ class EstimateRowTransferPostgresTests(unittest.TestCase):
                           SET applied_by_name='tampered' WHERE plan_id=%s""",
                     (fixture["planId"],),
                 )
+
+    def test_zz_supply_apply_preserves_history_and_is_idempotent(self):
+        fixture = self._create_approved_supply_fixture(706)
+        protected_before = self._protected_rows_snapshot()
+
+        first = self._apply_supply_serializable(fixture)
+
+        self.assertFalse(first["idempotent"])
+        self.assertEqual(first["state"], "supply_allocated")
+        self.assertEqual(first["supplyCount"], 1)
+        self.assertEqual(first["allocations"][0]["quantity"], "3")
+        self.assertEqual(protected_before, self._protected_rows_snapshot())
+        with self.admin.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT * FROM public.estimate_row_supply_allocations WHERE plan_id=%s",
+                (fixture["planId"],),
+            )
+            receipt = dict(cur.fetchone())
+        self.assertEqual(receipt["request_id"], fixture["requestId"])
+        self.assertEqual(receipt["request_item_index"], 0)
+        self.assertEqual(receipt["source_estimate_id"], fixture["sourceEstimateId"])
+        self.assertEqual(receipt["target_estimate_id"], fixture["targetEstimateId"])
+        self.assertEqual(receipt["requested_quantity"], Decimal("10"))
+        self.assertEqual(receipt["received_quantity"], Decimal("2"))
+        self.assertEqual(receipt["previously_allocated_quantity"], Decimal("0"))
+        self.assertEqual(receipt["allocation_quantity"], Decimal("3"))
+        self.assertEqual(receipt["remaining_unallocated_quantity"], Decimal("5"))
+        self.assertEqual(receipt["target_material_name"], "New mix")
+
+        second = self._apply_supply_serializable(fixture)
+        self.assertTrue(second["idempotent"])
+        self.assertEqual(second["allocations"], first["allocations"])
+        with self.admin.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM public.estimate_row_supply_allocations WHERE plan_id=%s",
+                (fixture["planId"],),
+            )
+            self.assertEqual(cur.fetchone()[0], 1)
+            with self.assertRaisesRegex(
+                psycopg2.Error,
+                "estimate_row_supply_allocation_immutable",
+            ):
+                cur.execute(
+                    """UPDATE public.estimate_row_supply_allocations
+                          SET applied_by_name='tampered' WHERE plan_id=%s""",
+                    (fixture["planId"],),
+                )
+
+    def test_zzz_concurrent_supply_apply_never_duplicates_allocation(self):
+        fixture = self._create_approved_supply_fixture(707)
+        barrier = threading.Barrier(2)
+        results = []
+        results_lock = threading.Lock()
+
+        def run_apply():
+            barrier.wait(timeout=10)
+            try:
+                value = self._apply_supply_serializable(fixture)
+            except (
+                psycopg2.IntegrityError,
+                psycopg2.errors.SerializationFailure,
+                psycopg2.errors.DeadlockDetected,
+                psycopg2.errors.LockNotAvailable,
+            ) as exc:
+                value = {"conflict": exc.pgcode or "serialization"}
+            with results_lock:
+                results.append(value)
+
+        threads = [threading.Thread(target=run_apply) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=20)
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertEqual(len(results), 2)
+        self.assertEqual(
+            sum(result.get("idempotent") is False for result in results),
+            1,
+        )
+        self.assertTrue(any(
+            result.get("idempotent") is True or "conflict" in result
+            for result in results
+        ))
+        with self.admin.cursor() as cur:
+            cur.execute(
+                """SELECT COUNT(*),COALESCE(SUM(allocation_quantity),0)
+                     FROM public.estimate_row_supply_allocations WHERE plan_id=%s""",
+                (fixture["planId"],),
+            )
+            self.assertEqual(cur.fetchone(), (1, Decimal("3")))
+
+    def test_zzzz_supply_delivery_drift_rolls_back_allocation(self):
+        fixture = self._create_approved_supply_fixture(708)
+        with self.admin.cursor() as cur:
+            cur.execute(
+                "UPDATE public.supply_deliveries SET received_quantity=3 WHERE id=%s",
+                (fixture["deliveryId"],),
+            )
+        protected_before = self._protected_rows_snapshot()
+
+        with self.assertRaisesRegex(SupplyApplyError, "supply_plan_stale"):
+            self._apply_supply_serializable(fixture)
+
+        self.assertEqual(protected_before, self._protected_rows_snapshot())
+        with self.admin.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM public.estimate_row_supply_allocations WHERE plan_id=%s",
+                (fixture["planId"],),
+            )
+            self.assertEqual(cur.fetchone()[0], 0)
 
     def test_zzz_concurrent_apply_never_duplicates_the_split(self):
         fixture = self._create_approved_assignment_fixture(704)
