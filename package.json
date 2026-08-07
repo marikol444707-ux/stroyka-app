@@ -36,6 +36,7 @@
     "audit:brigade-lineage": "python3 -m backend.features.brigade_lineage.readiness_report",
     "audit:estimate-row-transfer": "python3 -m backend.features.estimate_row_transfer.audit",
     "audit:estimate-row-transfer-schema": "python3 -m backend.features.estimate_row_transfer.schema",
+    "audit:estimate-row-transfer-readiness": "python3 -m backend.features.estimate_row_transfer.readiness_report",
     "migrate:estimate-row-transfer-schema": "python3 -m backend.features.estimate_row_transfer.schema --apply",
     "migrate:brigade-lineage": "python3 -m backend.features.brigade_lineage.migration",
     "migrate:brigade-lineage-strict": "python3 -m backend.features.brigade_lineage.strict_migration",
