@@ -4992,9 +4992,9 @@ material-control path with the stored `company_id + project_id` tuple. The
 authoritative accepted contract is
 `docs/active-estimate-material-control-ownership.md`.
 
-**Status:** Contract accepted on 2026-08-07. E5.1 and E5.2 are complete in
-production; E5.3 is implemented and locally verified, with production release
-pending. No schema or business rows changed.
+**Status:** Contract accepted on 2026-08-07. E5.1 through E5.3 are complete in
+production; E5.4 server-lineage and backend-query cutover is next. No schema or
+business rows changed in E5.3.
 
 **Observed risk:** The estimate query already reads `company_id` but its public
 payload omits `companyId`; frontend active selection accepts either a matching
@@ -5104,9 +5104,18 @@ schema-not-ready report against the older developer database with zero writes
 and rollback; static inventory remained `1` owner-scoped frontend selector and
 the `5` accepted backend violations.
 
-**Release state:** Production deploy, complete public smoke and the post-deploy
-read-only audit are pending. Keep Task E5.3 open in `tasks/plan.md` until that
-evidence is captured. No schema or business-row apply is required.
+**Production evidence (2026-08-07):** Runtime `fbc6374cc221` deployed
+atomically, the service remained active and the complete public smoke passed.
+The post-deploy read-only audit returned `ok=true`, `dataReady=true`,
+`schemaReady=true`, `scanComplete=true`, `readOnlyTransaction=true`,
+`writesAttempted=0` and `rolledBack=true`. It verified `4/4` active projects,
+`15/15` valid active estimates and zero duplicate scopes, name collisions or
+data issues. Static inventory remained exactly `6` candidates, `1`
+owner-scoped frontend selector and the `5` accepted backend violations, so
+`runtimeInventoryReady=false` and `readyForCutover=false` are the expected
+pre-E5.4 state. Protected checks were skipped because credentials were not
+supplied; authentication behavior was unchanged and protected public routes
+remained fail-closed. No schema or business-row apply was required.
 
 **Estimated scope:** Split into S/M consumer slices, each independently tested.
 

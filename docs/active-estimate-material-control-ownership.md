@@ -2,9 +2,8 @@
 
 ## Status
 
-Accepted on 2026-08-07. E5.1 and E5.2 are complete in production. E5.3 runtime
-owner propagation is implemented and locally verified; its production release
-is pending, and the later backend-query cutover remains disabled.
+Accepted on 2026-08-07. E5.1 through E5.3 are complete in production. E5.4
+server-lineage and backend-query cutover is next and remains disabled.
 
 ## Objective
 
@@ -168,7 +167,7 @@ violations. The report attempted zero writes and rolled back. Protected smoke
 was not run because credentials were not supplied; this slice did not alter
 authentication or authorization rules.
 
-### E5.3 Local Evidence And Expected Production Result
+### E5.3 Local And Production Evidence
 
 Material plan, work-norm projection, reconciliation and summary functions now
 accept a stored project or immutable `{companyId, projectId, projectName}`
@@ -191,10 +190,19 @@ audit used the older developer schema, returned the bounded expected
 rolled back; its static inventory remained exactly `6` candidates, `1`
 owner-scoped frontend selector and the `5` accepted backend violations.
 
-Production acceptance requires an atomic deploy, active service, complete
-public smoke and the production read-only audit confirming the same clean
-`4`-project / `15`-estimate owner data. No schema or business-row apply belongs
-to E5.3.
+Production runtime `fbc6374cc221` deployed atomically on 2026-08-07, remained
+active and passed the complete public smoke. The post-deploy read-only audit
+returned `ok=true`, `dataReady=true`, `schemaReady=true`,
+`scanComplete=true`, `readOnlyTransaction=true`, `writesAttempted=0` and
+`rolledBack=true`. It verified `4/4` active projects and `15/15` valid active
+estimates, with zero duplicate scopes, name collisions or data issues. Static
+inventory remained exactly `6` candidates, `1` owner-scoped frontend selector
+and the `5` accepted backend violations. Consequently
+`runtimeInventoryReady=false` and `readyForCutover=false` are the expected
+handoff to E5.4, not a failed E5.3 release. Protected checks were skipped
+because credentials were not supplied; authentication behavior was unchanged
+and protected public routes remained fail-closed. No schema or business-row
+apply belonged to E5.3.
 
 ## Commands
 
