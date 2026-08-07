@@ -52,7 +52,7 @@ def register_project_budget_adjustment_runtime_module(app, deps):
     )
     def approve_budget_adjustment(
         reconciliation_id: int,
-        data: object = Body(...),
+        data: object = Body(default=None),
         x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
         x_company_mode: Optional[str] = Header(
             default=None,
@@ -146,10 +146,9 @@ def register_project_budget_adjustment_runtime_module(app, deps):
     @app.get("/projects/{project_id}/budget-adjustments")
     def get_project_budget_adjustments(
         project_id: int,
-        limit: int = Query(default=50, ge=1, le=MAX_HISTORY_PAGE_SIZE),
+        limit: int = Query(default=50),
         before_id: Optional[int] = Query(
             default=None,
-            ge=1,
             alias="beforeId",
         ),
         x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),

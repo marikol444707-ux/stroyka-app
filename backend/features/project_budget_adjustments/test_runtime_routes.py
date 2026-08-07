@@ -2,7 +2,8 @@ import unittest
 from pathlib import Path
 
 import psycopg2
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 
 from backend.features.project_budget_adjustments.approval import (
     BudgetAdjustmentApprovalError,
@@ -91,6 +92,50 @@ _DEFAULT_HISTORY = object()
 
 
 class BudgetAdjustmentRuntimeRouteTests(unittest.TestCase):
+    def test_missing_approval_body_uses_fixed_public_error_code(self):
+        app = FastAPI()
+        register_project_budget_adjustment_runtime_module(app, {
+            "get_db": lambda: (_ for _ in ()).throw(
+                AssertionError("invalid payload must not open PostgreSQL")
+            ),
+            "get_current_user": lambda: {},
+            "resolve_work_company_context": lambda *_args, **_kwargs: {},
+            "effective_company_actors": lambda *_args: [],
+            "leadership_roles": ("директор", "зам_директора"),
+        })
+
+        response = TestClient(app).post(
+            "/estimate-reconciliations/7/budget-adjustment-approval"
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json(), {
+            "detail": "budget_adjustment_approval_payload_invalid",
+        })
+
+    def test_invalid_history_range_uses_fixed_public_error_code(self):
+        app = FastAPI()
+        register_project_budget_adjustment_runtime_module(app, {
+            "get_db": lambda: (_ for _ in ()).throw(
+                AssertionError("invalid query must not open PostgreSQL")
+            ),
+            "get_current_user": lambda: {},
+            "resolve_work_company_context": lambda *_args, **_kwargs: {},
+            "effective_company_actors": lambda *_args: [],
+            "leadership_roles": ("директор", "зам_директора"),
+        })
+        client = TestClient(app)
+
+        for query in ("limit=0", "limit=101", "beforeId=0"):
+            with self.subTest(query=query):
+                response = client.get(
+                    f"/projects/20/budget-adjustments?{query}"
+                )
+                self.assertEqual(response.status_code, 422)
+                self.assertEqual(response.json(), {
+                    "detail": "budget_adjustment_history_query_invalid",
+                })
+
     def build(
         self,
         *,
