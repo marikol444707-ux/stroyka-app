@@ -15645,6 +15645,7 @@ def _estimate_response_payload_from_row(r, sections, *, sections_loaded: bool, t
     )
     return {
         "id": r[0],
+        "companyId": r[13],
         "projectId": r[1],
         "projectName": r[2],
         "name": r[3],
