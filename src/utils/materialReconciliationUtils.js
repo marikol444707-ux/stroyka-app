@@ -98,6 +98,13 @@ export const buildMaterialPlanningReviewIssues = (row = {}) => {
   if ((row.aliases || []).length > 0 && !(row.aliasIds || []).length) {
     issues.push({ code: 'unconfirmed_alias', label: 'Наименование не подтверждено алиасом' });
   }
+  (row.supplyAllocationIssues || []).forEach(issue => {
+    issues.push({
+      code: issue.code || 'supply_allocation_needs_review',
+      label: 'Перенос открытого остатка заявки требует проверки',
+      detail: issue.reasonCode || '',
+    });
+  });
   return issues;
 };
 
@@ -196,6 +203,7 @@ export const buildMaterialReconciliationRows = ({
         requested: 0,
         inTransit: 0,
         unitMismatch: false,
+        supplyAllocationIssues: [],
       };
       rows[key] = row;
       if (!rowsByMaterialKey[baseKey]) rowsByMaterialKey[baseKey] = [];
@@ -444,10 +452,60 @@ export const buildMaterialReconciliationRows = ({
   const requestPipelineStatuses = new Set(['Новая', 'Подтверждена прорабом', 'Утверждена', 'КП запрошены']);
   (supplyRequests || [])
     .filter(req => req.project === projectName && requestPipelineStatuses.has(req.status || 'Новая'))
-    .forEach(req => parseSupplyItems(req).filter(it => sourcePackageMatches(sourcePackageOf(it, req))).forEach(it => {
+    .forEach(req => parseSupplyItems(req).filter(it => sourcePackageMatches(sourcePackageOf(it, req))).forEach((it, itemIndex) => {
       const requestPackage = sourcePackageOf(it, req);
-      const r = ensure(it.materialName, it.unit, requestPackage);
-      addQty(r, 'requested', it.quantity, it.unit);
+      const original = ensure(it.materialName, it.unit, requestPackage);
+      const quantity = toNum(it.quantity);
+      const allocations = (req.supplyTransferAllocations || [])
+        .filter(allocation => Number(allocation?.requestItemIndex) === itemIndex);
+      if (!allocations.length) {
+        addQty(original, 'requested', quantity, it.unit);
+        return;
+      }
+      const resolved = [];
+      let allocated = 0;
+      let failureReason = '';
+      allocations.forEach(allocation => {
+        if (failureReason) return;
+        const allocationQty = Number(allocation?.quantity);
+        if (allocation?.state !== 'ready' || !Number.isFinite(allocationQty) || allocationQty <= 0) {
+          failureReason = allocation?.reasonCode || 'allocation_projection_invalid';
+          return;
+        }
+        const targetRows = Object.values(rows).filter(row => (
+          (row.planDetails || []).some(detail => (
+            Number(detail?.estimateId) === Number(allocation.targetEstimateId)
+            && Number(detail?.sectionIndex) === Number(allocation.targetSectionIndex)
+            && Number(detail?.itemIndex) === Number(allocation.targetItemIndex)
+            && detail?.materialName === allocation.targetMaterialName
+            && _normalizeUnit(detail?.normalizedUnit || detail?.unit || row.unit)
+              === _normalizeUnit(allocation.targetUnit)
+            && String(detail?.packageName || row.workPackage || '').trim()
+              === String(allocation.targetWorkPackage || '').trim()
+          ))
+        ));
+        if (targetRows.length !== 1) {
+          failureReason = 'target_projection_identity_invalid';
+          return;
+        }
+        allocated += allocationQty;
+        resolved.push({row: targetRows[0], quantity: allocationQty, unit: allocation.targetUnit});
+      });
+      if (!failureReason && allocated > quantity + 0.000001) {
+        failureReason = 'allocation_quantity_exceeds_request';
+      }
+      if (failureReason) {
+        addQty(original, 'requested', quantity, it.unit);
+        if (original) original.supplyAllocationIssues.push({
+          code: 'supply_allocation_needs_review',
+          reasonCode: failureReason,
+          requestId: req.id,
+          requestItemIndex: itemIndex,
+        });
+        return;
+      }
+      addQty(original, 'requested', Math.max(0, quantity - allocated), it.unit);
+      resolved.forEach(target => addQty(target.row, 'requested', target.quantity, target.unit));
     }));
   (supplyDeliveries || [])
     .filter(d => d.project === projectName && sourcePackageMatches(sourcePackageOf({}, d)) && d.status === 'В пути')

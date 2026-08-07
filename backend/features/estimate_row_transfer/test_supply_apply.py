@@ -39,6 +39,7 @@ def supply_plan():
     }}
     report = supply_report()
     report["supplyCandidates"][0]["receivedQuantity"] = 2
+    report["supplyCandidates"][0]["protectedQuantity"] = 2
     report["supplyCandidates"][0]["transferableQuantity"] = 8
     return build_reviewed_plan(report, entries, snapshots)
 

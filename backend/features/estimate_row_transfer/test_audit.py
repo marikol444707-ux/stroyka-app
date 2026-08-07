@@ -300,7 +300,37 @@ class EstimateRowTransferPureAuditTests(unittest.TestCase):
             "supplyHistoryRows": 2,
             "claims": 1,
             "paidInvoices": 1,
+            "allocationReceipts": 0,
         })
+
+    def test_prior_supply_allocations_reduce_only_remaining_open_balance(self):
+        report = build_impact_report(
+            supply_reconciliation_row(),
+            [],
+            [supply_request_row()],
+            [{
+                "delivery_id": 81,
+                "request_id": 61,
+                "delivery_company_id": 1,
+                "material_name": "Смесь",
+                "unit": "кг",
+                "received_quantity": 2,
+            }],
+            allocation_rows=[{
+                "allocation_id": 301,
+                "request_id": 61,
+                "request_item_index": 0,
+                "allocation_company_id": 1,
+                "allocation_quantity": 3,
+            }],
+        )
+
+        candidate = report["supplyCandidates"][0]
+        self.assertEqual(candidate["receivedQuantity"], 2.0)
+        self.assertEqual(candidate["allocatedQuantity"], 3.0)
+        self.assertEqual(candidate["protectedQuantity"], 5.0)
+        self.assertEqual(candidate["transferableQuantity"], 5.0)
+        self.assertEqual(candidate["protectedHistoryCounts"]["allocationReceipts"], 1)
 
     def test_ambiguous_supply_delivery_allocation_fails_closed(self):
         items = json.loads(supply_request_row()["items_json"])

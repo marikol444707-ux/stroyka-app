@@ -28,7 +28,8 @@ const buildRows = (items, canonicalMaterialMeta = (_projectName, name, unit) => 
   warehouseInvoiceItems: invoice => ({ items: invoice.items || [] }),
   isSupplyDeliveryInvoice: () => false,
   estimateWorkNormRequirementRows: options.estimateWorkNormRequirementRows || (() => []),
-  parseSupplyItems: () => [],
+  supplyRequests: options.supplyRequests || [],
+  parseSupplyItems: options.parseSupplyItems || (() => []),
 });
 
 describe('buildMaterialReconciliationRows material identity', () => {
@@ -273,5 +274,74 @@ describe('buildMaterialReconciliationRows material identity', () => {
     expect(rows[0].planDetails).toEqual(expect.arrayContaining([
       expect.objectContaining({sourceType: 'estimate_material', includedInProcurement: true}),
     ]));
+  });
+
+  test('moves only ledger-allocated request balance to the exact target row', () => {
+    const rows = buildRows([
+      materialItem('Новая смесь', 20, 'кг'),
+    ], undefined, {
+      supplyRequests: [{
+        id: 61,
+        project: 'Тестовый объект',
+        status: 'Новая',
+        items: [{materialName: 'Старая смесь', quantity: 10, unit: 'кг', workPackage: 'Общестрой'}],
+        supplyTransferAllocations: [{
+          entryId: 8,
+          requestItemIndex: 0,
+          state: 'ready',
+          quantity: '3',
+          targetEstimateId: 10,
+          targetSectionIndex: 0,
+          targetItemIndex: 0,
+          targetMaterialName: 'Новая смесь',
+          targetUnit: 'кг',
+          targetWorkPackage: 'Общестрой',
+        }],
+      }],
+      parseSupplyItems: request => request.items,
+    });
+
+    expect(rows.find(row => row.name === 'Старая смесь')).toMatchObject({
+      requested: 7,
+      reviewRequired: false,
+    });
+    expect(rows.find(row => row.name === 'Новая смесь')).toMatchObject({
+      requested: 3,
+      reviewRequired: false,
+    });
+  });
+
+  test('keeps full request on original identity when allocation cannot resolve exactly', () => {
+    const rows = buildRows([
+      materialItem('Новая смесь', 20, 'кг'),
+    ], undefined, {
+      supplyRequests: [{
+        id: 61,
+        project: 'Тестовый объект',
+        status: 'Новая',
+        items: [{materialName: 'Старая смесь', quantity: 10, unit: 'кг', workPackage: 'Общестрой'}],
+        supplyTransferAllocations: [{
+          entryId: 8,
+          requestItemIndex: 0,
+          state: 'needs_review',
+          reasonCode: 'request_item_snapshot_drift',
+          quantity: '3',
+          targetEstimateId: 10,
+          targetSectionIndex: 0,
+          targetItemIndex: 0,
+          targetMaterialName: 'Новая смесь',
+          targetUnit: 'кг',
+          targetWorkPackage: 'Общестрой',
+        }],
+      }],
+      parseSupplyItems: request => request.items,
+    });
+
+    expect(rows.find(row => row.name === 'Старая смесь')).toMatchObject({
+      requested: 10,
+      reviewRequired: true,
+      procurementEligible: false,
+    });
+    expect(rows.find(row => row.name === 'Новая смесь').requested).toBe(0);
   });
 });

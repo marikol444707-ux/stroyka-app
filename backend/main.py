@@ -7502,6 +7502,15 @@ def _supply_response_for_role(row, user: dict):
         data["itemsJson"] = json.dumps(_sanitize_estimate_control_money(items), ensure_ascii=False)
     return data
 
+try:
+    from backend.features.estimate_row_transfer.supply_projection import (
+        attach_supply_allocation_projection,
+    )
+except ModuleNotFoundError:
+    from features.estimate_row_transfer.supply_projection import (
+        attach_supply_allocation_projection,
+    )
+
 def _ensure_supply_runtime_columns(cur):
     """Поднимает колонки снабжения для старых баз, где миграция могла не пройти."""
     cur.execute("ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
@@ -8746,7 +8755,7 @@ def get_supply_requests(
     else:
         cur.close(); conn.close()
         return []
-    rows = cur.fetchall()
+    rows = attach_supply_allocation_projection(cur, cur.fetchall())
     conn.close()
     return [_supply_response_for_role(r, current_user) for r in rows]
 

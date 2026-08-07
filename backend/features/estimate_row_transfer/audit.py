@@ -337,7 +337,7 @@ def _canonical_item_key(estimate_id, sections, section_index, item_index):
     return (keys[0] if keys else "%s:%s:%s" % (estimate_id, section_index, item_index)), None
 
 
-def _supply_descriptors(context, request, deliveries):
+def _supply_descriptors(context, request, deliveries, allocations=None):
     request_id = _positive_int(request.get("request_id"))
     if not request_id:
         return [], [_blocked("supply", None, "supply_request_identity_invalid")]
@@ -492,7 +492,31 @@ def _supply_descriptors(context, request, deliveries):
         if received > descriptor["quantity"]:
             blockers.append(_blocked("supply", request_id, "supply_received_exceeds_requested"))
             continue
-        transferable = descriptor["quantity"] - received
+        matching_allocations = [
+            row for row in (allocations or [])
+            if _non_negative_int(row.get("request_item_index"))
+                == descriptor["requestItemIndex"]
+        ]
+        allocated = 0.0
+        allocation_invalid = False
+        for allocation in matching_allocations:
+            if _positive_int(allocation.get("allocation_company_id")) != context["companyId"]:
+                blockers.append(_blocked("supply", request_id, "supply_allocation_owner_mismatch"))
+                allocation_invalid = True
+                break
+            allocation_quantity = _finite_number(allocation.get("allocation_quantity"))
+            if allocation_quantity is None or allocation_quantity <= 0:
+                blockers.append(_blocked("supply", request_id, "supply_allocation_quantity_invalid"))
+                allocation_invalid = True
+                break
+            allocated += allocation_quantity
+        if allocation_invalid:
+            continue
+        if received + allocated > descriptor["quantity"]:
+            blockers.append(_blocked("supply", request_id, "supply_allocation_exceeds_unreceived"))
+            continue
+        protected = received + allocated
+        transferable = descriptor["quantity"] - protected
         if transferable <= 0:
             blockers.append(_blocked("supply", request_id, "supply_balance_not_positive"))
             continue
@@ -505,6 +529,8 @@ def _supply_descriptors(context, request, deliveries):
             "source": descriptor["source"],
             "requestedQuantity": descriptor["quantity"],
             "receivedQuantity": received,
+            "allocatedQuantity": allocated,
+            "protectedQuantity": protected,
             "transferableQuantity": transferable,
             "protectedHistoryCounts": {
                 "deliveries": len(matching_deliveries),
@@ -515,6 +541,7 @@ def _supply_descriptors(context, request, deliveries):
                 "supplyHistoryRows": _count(request.get("supply_history_count")),
                 "claims": _count(request.get("claim_count")),
                 "paidInvoices": _count(request.get("paid_invoice_count")),
+                "allocationReceipts": len(matching_allocations),
             },
         })
     return candidates, blockers
@@ -595,6 +622,7 @@ def build_impact_report(
     supply_request_rows,
     delivery_rows,
     mapping_rows=None,
+    allocation_rows=None,
 ):
     context, reconciliation_error = _reconciliation_context(reconciliation)
     base_report = {
@@ -639,6 +667,11 @@ def build_impact_report(
     deliveries_by_request = defaultdict(list)
     for delivery in delivery_rows or []:
         deliveries_by_request[_positive_int((delivery or {}).get("request_id"))].append(dict(delivery or {}))
+    allocations_by_request = defaultdict(list)
+    for allocation in allocation_rows or []:
+        allocations_by_request[
+            _positive_int((allocation or {}).get("request_id"))
+        ].append(dict(allocation or {}))
     supply_candidates = []
     if context["projectNameOwnerCount"] != 1:
         blockers.append(_blocked(
@@ -653,6 +686,7 @@ def build_impact_report(
                 context,
                 dict(request or {}),
                 deliveries_by_request.get(request_id, []),
+                allocations_by_request.get(request_id, []),
             )
             supply_candidates.extend(candidates)
             blockers.extend(request_blockers)
@@ -886,6 +920,32 @@ def _load_delivery_rows(cur, request_ids):
     return [dict(row) for row in (cur.fetchall() or [])]
 
 
+def _load_supply_allocation_rows(cur, request_ids):
+    normalized_ids = sorted({
+        request_id
+        for request_id in (_positive_int(value) for value in request_ids)
+        if request_id
+    })
+    if not normalized_ids:
+        return []
+    cur.execute(
+        "SELECT to_regclass('public.estimate_row_supply_allocations') IS NOT NULL AS ready",
+        (),
+    )
+    ready = cur.fetchone()
+    if not bool((ready or {}).get("ready") if isinstance(ready, dict) else (ready or [False])[0]):
+        return []
+    cur.execute(
+        """SELECT id AS allocation_id,request_id,request_item_index,
+                  company_id AS allocation_company_id,allocation_quantity
+             FROM public.estimate_row_supply_allocations
+            WHERE request_id=ANY(%s)
+            ORDER BY request_id,request_item_index,id""",
+        (normalized_ids,),
+    )
+    return [dict(row) for row in (cur.fetchall() or [])]
+
+
 def collect_transfer_impact(cur, reconciliation_id, mapping_rows=None):
     reconciliation_id = parse_reconciliation_id(reconciliation_id)
     reconciliation = _load_reconciliation(cur, reconciliation_id)
@@ -898,12 +958,17 @@ def collect_transfer_impact(cur, reconciliation_id, mapping_rows=None):
         cur,
         [request.get("request_id") for request in requests],
     )
+    allocations = _load_supply_allocation_rows(
+        cur,
+        [request.get("request_id") for request in requests],
+    )
     return build_impact_report(
         reconciliation,
         assignments,
         requests,
         deliveries,
         mapping_rows,
+        allocations,
     )
 
 

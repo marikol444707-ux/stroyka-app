@@ -221,6 +221,32 @@ class EstimateRowTransferPlanTests(unittest.TestCase):
         self.assertEqual(plan["entries"][0]["requestItemIndex"], 0)
         self.assertEqual(plan["entries"][0]["sourceProtectedQuantity"], "0")
 
+    def test_supply_plan_protects_received_and_previously_allocated_quantity(self):
+        entries = normalize_draft_payload({
+            "reconciliationId": 9,
+            "entries": [supply_mapping()],
+        })["entries"]
+        report = supply_report()
+        candidate = report["supplyCandidates"][0]
+        candidate["receivedQuantity"] = 2
+        candidate["allocatedQuantity"] = 3
+        candidate["protectedQuantity"] = 5
+        candidate["transferableQuantity"] = 5
+        source_hash = sections_sha256(_sections("old-material", name="Смесь", unit="кг"))
+        snapshots = {(61, 0, 71): {
+            "estimateId": 14,
+            "estimateVersionId": 71,
+            "sectionIndex": 0,
+            "itemIndex": 0,
+            "itemKey": "old-material",
+            "sectionsSha256": source_hash,
+        }}
+
+        plan = build_reviewed_plan(report, entries, snapshots)
+
+        self.assertEqual(plan["entries"][0]["sourceProtectedQuantity"], "5")
+        self.assertEqual(plan["entries"][0]["sourceAvailableQuantity"], "5")
+
     def test_rejects_invalid_authoritative_context(self):
         report = assignment_report()
         report["reconciliation"]["companyId"] = None

@@ -295,7 +295,10 @@ def build_reviewed_plan(report, entries, supply_snapshots=None):
             )
             source_parent_id = entry["sourceId"]
             total = candidate.get("requestedQuantity")
-            protected = candidate.get("receivedQuantity")
+            protected = candidate.get(
+                "protectedQuantity",
+                candidate.get("receivedQuantity"),
+            )
 
         target = dict(target_mapping["target"])
         target["estimateVersionId"] = target_snapshot["estimateVersionId"]
