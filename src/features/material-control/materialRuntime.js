@@ -30,6 +30,14 @@ import {
 } from '../../utils/materialDocumentUtils';
 import { buildMaterialNormCoverageDocContent } from '../../utils/printDocumentBuilders';
 import { toNum } from '../../utils/measureUtils';
+import {
+  immutableStoredProjectOwner,
+  uniqueStoredProjectForName,
+} from '../estimates/projectEstimateOwnership';
+
+const ownerCacheKey = (owner, workPackage = '') => (
+  `${owner.companyId}\u0000${owner.projectId}\u0000${String(workPackage || '').trim()}`
+);
 
 export function createMaterialRuntimeCache(sourceSnapshot = []) {
   return {
@@ -63,6 +71,12 @@ export function createMaterialRuntime({
   workJournal,
   cache = null,
 }) {
+  const materialControlOwner = (projectOrOwner) => immutableStoredProjectOwner(projectOrOwner);
+  const materialControlProjectForName = (projectName) => {
+    const project = uniqueStoredProjectForName(projects, projectName);
+    return immutableStoredProjectOwner(project);
+  };
+
   const warehouseInvoiceItems = (inv) => buildWarehouseInvoiceItems(inv, {
     materials,
     warehouseMain,
@@ -89,36 +103,43 @@ export function createMaterialRuntime({
     };
   };
 
-  const estimateMaterialPlanRows = (projectName) => buildEstimateMaterialPlanRows({
-    projectName,
-    projects,
-    activeEstimatesForProject,
-    materialNameLookupKey,
-  });
+  const estimateMaterialPlanRows = (projectOrOwner) => {
+    const project = materialControlOwner(projectOrOwner);
+    if (!project) return [];
+    return buildEstimateMaterialPlanRows({
+      project,
+      activeEstimatesForProject,
+      materialNameLookupKey,
+    });
+  };
 
-  const materialAliasCandidates = (projectName, row) => buildMaterialAliasCandidates({
-    projectName,
+  const materialAliasCandidates = (projectOrOwner, row) => buildMaterialAliasCandidates({
+    project: materialControlOwner(projectOrOwner),
     row,
     estimateMaterialPlanRows,
     materialNameLookupKey,
   });
 
-  const estimateWorkNormRequirementRows = externalEstimateWorkNormRequirementRows || ((projectName, workPackage = '') => buildEstimateWorkNormRequirementRows({
-    projectName,
-    workPackage,
-    projects,
-    activeEstimatesForProject,
-    normRequirementsForWork,
-    materialNameKey,
-  }));
+  const estimateWorkNormRequirementRows = externalEstimateWorkNormRequirementRows || ((projectOrOwner, workPackage = '') => {
+    const project = materialControlOwner(projectOrOwner);
+    if (!project) return [];
+    return buildEstimateWorkNormRequirementRows({
+      project,
+      workPackage,
+      activeEstimatesForProject,
+      normRequirementsForWork,
+      materialNameKey,
+    });
+  });
 
-  const materialReconciliationRows = (projectName, workPackage = '') => {
-    const key = `${projectName || ''}\u0000${workPackage || ''}`;
+  const materialReconciliationRows = (projectOrOwner, workPackage = '') => {
+    const project = materialControlOwner(projectOrOwner);
+    if (!project) return [];
+    const key = ownerCacheKey(project, workPackage);
     if (cache?.reconciliationRows?.has(key)) return cache.reconciliationRows.get(key);
     const rows = buildMaterialReconciliationRows({
-      projectName,
+      project,
       workPackage,
-      projects,
       invoices,
       supplyDeliveries,
       supplyHistory,
@@ -140,10 +161,12 @@ export function createMaterialRuntime({
     return rows;
   };
 
-  const materialControlSummaryForProject = (projectName) => {
-    const key = projectName || '';
+  const materialControlSummaryForProject = (projectOrOwner) => {
+    const project = materialControlOwner(projectOrOwner);
+    if (!project) return buildMaterialControlSummary([]);
+    const key = ownerCacheKey(project);
     if (cache?.controlSummaries?.has(key)) return cache.controlSummaries.get(key);
-    const summary = buildMaterialControlSummary(materialReconciliationRows(projectName));
+    const summary = buildMaterialControlSummary(materialReconciliationRows(project));
     cache?.controlSummaries?.set(key, summary);
     return summary;
   };
@@ -151,6 +174,7 @@ export function createMaterialRuntime({
   const warehouseInvoiceEstimateControl = (inv) => buildWarehouseInvoiceEstimateControl({
     inv,
     warehouseInvoiceItems,
+    materialControlProjectForName,
     materialControlSummaryForProject,
     canonicalMaterialMeta,
     materialNameLookupKey,
@@ -197,21 +221,28 @@ export function createMaterialRuntime({
     materialNameKey,
   });
 
-  const materialHintForProject = (projectName, materialName, workPackage = '') => {
+  const materialHintForProject = (projectOrOwner, materialName, workPackage = '') => {
+    const project = materialControlOwner(projectOrOwner);
+    if (!project) return null;
+    const projectName = project.projectName;
     const meta = canonicalMaterialMeta(projectName, materialName);
     const key = materialNameKey(meta.name);
     if (!key) return null;
-    return materialReconciliationRows(projectName, workPackage).find(r => materialNameKey(r.name) === key) || null;
+    return materialReconciliationRows(project, workPackage).find(r => materialNameKey(r.name) === key) || null;
   };
 
-  const materialSuggestionsForWork = (projectName, workName, sectionName = '', workPackage = '') => buildMaterialSuggestionsForWork({
-    projectName,
-    workName,
-    sectionName,
-    workPackage,
-    materialReconciliationRows,
-    materialNameKey,
-  });
+  const materialSuggestionsForWork = (projectOrOwner, workName, sectionName = '', workPackage = '') => {
+    const project = materialControlOwner(projectOrOwner);
+    if (!project) return [];
+    return buildMaterialSuggestionsForWork({
+      project,
+      workName,
+      sectionName,
+      workPackage,
+      materialReconciliationRows,
+      materialNameKey,
+    });
+  };
 
   const workNormRulesFor = (workName, sectionName = '', projectName = '', estimateId = null) => {
     return workNormRulesForCalculation({

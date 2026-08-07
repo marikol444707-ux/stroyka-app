@@ -4,6 +4,7 @@ import { materialLookupText } from './materialMatchUtils';
 export const buildWarehouseInvoiceEstimateControl = ({
   inv,
   warehouseInvoiceItems,
+  materialControlProjectForName = () => null,
   materialControlSummaryForProject,
   canonicalMaterialMeta,
   materialNameLookupKey = materialLookupText,
@@ -30,7 +31,7 @@ export const buildWarehouseInvoiceEstimateControl = ({
     }));
   }
 
-  const summary = materialControlSummaryForProject(place);
+  const summary = materialControlSummaryForProject(materialControlProjectForName(place));
   const rowsByKey = new Map((summary.rows || []).map(row => [row.key, row]));
   const itemMeta = items.map(item => {
     const itemPackage = sourcePackageOf(item, inv);

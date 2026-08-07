@@ -60,7 +60,7 @@ export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagno
         </div>
       </div>
       {(()=>{
-        const diag=projectJournalDiagnostics(p.name);
+        const diag=projectJournalDiagnostics(p);
         if(!diag.smetaOutsideRows.length&&!diag.smetaOverRows.length) return null;
         return(<div style={{...card,padding:'12px',marginBottom:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
           <b style={{color:C.warning,fontSize:'13px'}}>Сметная сверка требует внимания</b>
@@ -82,12 +82,13 @@ export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagno
         </div>
       )}
       {!isEstimatePlanLoading && !estimateLoadError && <ProjectMaterialsControlPanel
+        project={p}
         projectName={p.name}
-        rows={materialReconciliationRows(p.name)}
-        normRows={estimateWorkNormRequirementRows(p.name)}
+        rows={materialReconciliationRows(p)}
+        normRows={estimateWorkNormRequirementRows(p)}
         normCtrl={materialNormControlSummaryForProject(p.name)}
-        buildRowsForPackage={(workPackage)=>materialReconciliationRows(p.name, workPackage)}
-        buildNormRowsForPackage={(workPackage)=>estimateWorkNormRequirementRows(p.name, workPackage)}
+        buildRowsForPackage={(workPackage)=>materialReconciliationRows(p, workPackage)}
+        buildNormRowsForPackage={(workPackage)=>estimateWorkNormRequirementRows(p, workPackage)}
         buildNormCtrlForPackage={(workPackage)=>materialNormControlSummaryForProject(p.name, workPackage)}
         supplyRequests={supplyRequests}
         parseSupplyItems={parseSupplyItems}

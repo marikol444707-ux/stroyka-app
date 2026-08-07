@@ -52,7 +52,7 @@ export const buildProjectObjectLinks = ({
   const inspectionPending = inspections.filter(inspection => !inspection.inspected).length;
   const cables = projectRows(cableJournal);
   const cablePending = cables.filter(cable => !cable.installedAt).length;
-  const materialSummary = materialControlSummaryForProject(projectName);
+  const materialSummary = materialControlSummaryForProject(project);
   const materialIssues = (materialSummary.toBuyRows?.length || 0)
     + (materialSummary.outsideRows?.length || 0)
     + (materialSummary.mismatchRows?.length || 0)

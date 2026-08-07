@@ -1,5 +1,5 @@
-export const projectMaterialCost = (projectName, materialControlSummaryForProject) => (
-  Number(materialControlSummaryForProject?.(projectName)?.suppliedSum || 0)
+export const projectMaterialCost = (project, materialControlSummaryForProject) => (
+  Number(materialControlSummaryForProject?.(project)?.suppliedSum || 0)
 );
 
 export const projectLaborCost = ({ projectName, allBrigadeItems = [], staff = [], piecework = [], calcSalary = () => 0 }) => {
@@ -16,6 +16,7 @@ export const projectLaborCost = ({ projectName, allBrigadeItems = [], staff = []
 };
 
 export const projectExpenseCategories = ({
+  project,
   projectName,
   expenseCategories = [],
   materialControlSummaryForProject,
@@ -32,7 +33,7 @@ export const projectExpenseCategories = ({
   (expenseCategories || []).forEach(category => {
     result[category.id] = 0;
   });
-  result.materials = projectMaterialCost(projectName, materialControlSummaryForProject);
+  result.materials = projectMaterialCost(project, materialControlSummaryForProject);
   result.works = projectLaborCost({ projectName, allBrigadeItems, staff, piecework, calcSalary });
 
   (manualExpenses || []).filter(item => item.project === projectName).forEach(item => {
@@ -112,7 +113,7 @@ export const buildProjectEconomy = ({
   const planDone = projectPlanDone(project);
   const activeEstimates = activeEstimatesForProject(project, 'Заказчик');
   const packages = [...new Set(activeEstimates.map(est => estimatePackage(est)).filter(Boolean))];
-  const materialSummary = materialControlSummaryForProject(project.name);
+  const materialSummary = materialControlSummaryForProject(project);
   const spent = projectBudgetSpent(project);
   const projectWorks = (workJournal || []).filter(work => work.project === project.name);
   const confirmedWorks = projectWorks.filter(work => work.status === 'Подтверждено');

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Eye, FileText } from 'lucide-react';
+import { uniqueStoredProjectForName } from '../features/estimates/projectEstimateOwnership';
 
 const DOC_BUTTONS = ['Паспорт', 'КС-2', 'КС-3', 'ЖПР', 'М-29', 'АОСК', 'КС-11', 'КС-14', 'ИГД', '📦 Пакет', '📋 НДС', 'М-2', 'М-8', '📦 Потребность', '🔥 Свар', '🧱 Бет', '⚙️ Монт', '🛡 АКЗ', '❄️ Изол', '⛓ Свай'];
 
@@ -43,7 +44,7 @@ export default function AccountingDocumentsPanel({
   interimActs,
   buildActContent,
 }) {
-  const selectedProject = accountingDocProject ? (projects || []).find(project => project.name === accountingDocProject) : null;
+  const selectedProject = uniqueStoredProjectForName(projects, accountingDocProject);
   const projectPaymentSignedAmount = (payment) => {
     const amount = Number(payment?.amount || 0);
     const note = String(payment?.note || '').trim().toLowerCase();
@@ -120,7 +121,7 @@ export default function AccountingDocumentsPanel({
       }, 0);
     const factCost = accExp + paymentJournalOut + directExp;
     const margin = planDone.done - factCost;
-    const materialControl = materialControlSummaryForProject(accountingDocProject);
+    const materialControl = materialControlSummaryForProject(selectedProject);
     const materialRiskRows = materialControl.outsideRows.length + materialControl.stockMismatchRows.length;
     const moneyText = (value) => Math.round(Number(value || 0)).toLocaleString('ru-RU') + ' ₽';
     const projectInvoices = (invoices || []).filter(invoice => {

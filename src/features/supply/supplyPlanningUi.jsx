@@ -1,4 +1,5 @@
 import React from 'react';
+import { uniqueStoredProjectForName } from '../estimates/projectEstimateOwnership';
 
 export function createSupplyPlanningUi({
   C,
@@ -77,7 +78,9 @@ export function createSupplyPlanningUi({
     const projectName = newSupplyReq.project;
     const materialName = (it?.materialName || '').trim();
     if (!projectName || !materialName) return null;
-    const rows = materialReconciliationRows(projectName);
+    const project = uniqueStoredProjectForName(projects, projectName);
+    if (!project) return null;
+    const rows = materialReconciliationRows(project);
     const canonicalName = canonicalMaterialMeta(projectName, materialName).name;
     const row = rows.find(r => isSameSupplyMaterial(r.name, canonicalName) || isSameSupplyMaterial(r.name, materialName));
     const sameUnit = !row?.unit || !it?.unit || supplyUnitKey(row.unit) === supplyUnitKey(it.unit);

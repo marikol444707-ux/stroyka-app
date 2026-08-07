@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { API } from '../api';
 import { createMaterialTransferForm } from '../features/warehouse/warehouseInitialForms';
+import { uniqueStoredProjectForName } from '../features/estimates/projectEstimateOwnership';
 
 export default function WarehouseObjectsPanel({
   C,
@@ -79,6 +80,9 @@ export default function WarehouseObjectsPanel({
     () => visibleActiveProjects(projects),
     [visibleActiveProjects, projects],
   );
+  const selectedMaterialControlProject = React.useMemo(() => {
+    return uniqueStoredProjectForName(visibleWarehouseProjects, selectedWarehouseProject);
+  }, [selectedWarehouseProject, visibleWarehouseProjects]);
   const projectStockSummaries = React.useMemo(() => {
     const summaries = new Map();
     visibleWarehouseProjects.forEach(project => {
@@ -339,7 +343,7 @@ export default function WarehouseObjectsPanel({
               Удаление остатков объекта доступно только директору. Для корректировки используйте накладную, перемещение, выдачу или списание.
             </div>
           )}
-          {renderMaterialReconciliationPanel(selectedWarehouseProject, { limit: 25, title: '📊 Контроль материалов объекта' })}
+          {renderMaterialReconciliationPanel(selectedMaterialControlProject, { limit: 25, title: '📊 Контроль материалов объекта' })}
           {useCompactRows ? (
             <div style={{ display: 'grid', gap: '10px', width: '100%', maxWidth: 'min(720px,100%)', margin: '0 auto' }}>
               {displayedProjectMaterials.map(material => {

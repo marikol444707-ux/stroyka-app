@@ -12,6 +12,7 @@ import {
 } from './materials/ProjectMaterialsControlParts';
 
 export default function ProjectMaterialsControlPanel({
+  project,
   projectName,
   rows: initialRows = [],
   normRows: initialNormRows = [],
@@ -473,7 +474,7 @@ export default function ProjectMaterialsControlPanel({
                       <SourceLine label="Накладные" details={r.invoiceDetails} color={C.success} fmtMeasure={fmtMeasure}/>
                       <SourceLine label="Поставки" details={r.supplyDetails} color={C.info} fmtMeasure={fmtMeasure}/>
                       <SourceLine label="Перемещения" details={r.movementDetails} color={C.textSec} fmtMeasure={fmtMeasure}/>
-                      {renderMaterialAliasControls(projectName, r)}
+                      {renderMaterialAliasControls(project, r)}
                     </td>
                     <td style={tblC}>
                       {r.planQty > 0 ? (

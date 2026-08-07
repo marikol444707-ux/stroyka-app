@@ -16,12 +16,10 @@ const materialControlEstimatesForProject = (project, activeEstimatesForProject) 
 };
 
 export const buildEstimateMaterialPlanRows = ({
-  projectName,
-  projects = [],
+  project,
   activeEstimatesForProject,
   materialNameLookupKey = materialLookupText,
 }) => {
-  const project = projects.find(pr => pr.name === projectName) || { name: projectName };
   const rows = {};
   const ensure = (name, unit, sectionLabel = '') => {
     const key = materialNameLookupKey(name);
@@ -59,14 +57,15 @@ export const buildEstimateMaterialPlanRows = ({
 };
 
 export const buildMaterialAliasCandidates = ({
-  projectName,
+  project,
   row,
   estimateMaterialPlanRows,
   materialNameLookupKey = materialLookupText,
 }) => {
+  if (!project) return [];
   const sourceText = materialNameLookupKey([row?.name, ...(row?.aliases || [])].join(' '));
   const tokens = sourceText.split(' ').filter(t => t.length > 2);
-  return estimateMaterialPlanRows(projectName)
+  return estimateMaterialPlanRows(project)
     .filter(r => materialNameLookupKey(r.name) !== materialNameLookupKey(row?.name))
     .map(r => {
       const text = materialNameLookupKey(r.name + ' ' + (r.sections || []).join(' '));
@@ -109,9 +108,8 @@ export const buildMaterialPlanningReviewIssues = (row = {}) => {
 };
 
 export const buildMaterialReconciliationRows = ({
-  projectName,
+  project,
   workPackage = '',
-  projects = [],
   invoices = [],
   supplyDeliveries = [],
   supplyHistory = [],
@@ -129,7 +127,7 @@ export const buildMaterialReconciliationRows = ({
   parseSupplyItems,
   materialNameLookupKey = materialLookupText,
 }) => {
-  const project = projects.find(pr => pr.name === projectName) || { name: projectName };
+  const projectName = project?.projectName || project?.name || '';
   const keyOf = materialNameLookupKey;
   const rows = {};
   const rowsByMaterialKey = {};
@@ -520,7 +518,7 @@ export const buildMaterialReconciliationRows = ({
       addQty(r, 'inTransit', d.shippedQuantity || d.plannedQuantity, d.unit);
     });
 
-  (estimateWorkNormRequirementRows(projectName, workPackage) || []).forEach(n => {
+  (estimateWorkNormRequirementRows(project, workPackage) || []).forEach(n => {
     const normPackage = (n.packageNames || []).find(Boolean) || n.packageName || '';
     const r = ensure(n.name, n.unit, normPackage);
     if (!r) return;

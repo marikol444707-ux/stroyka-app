@@ -12,7 +12,7 @@ export default function ProjectJournalsHubTab({
   weatherLog,
   workJournal,
 }) {
-  const diagnostics = projectJournalDiagnostics(project.name);
+  const diagnostics = projectJournalDiagnostics(project);
   const cards = [
     { tab: 'Производство работ', icon: '📖', label: 'Производство работ', hint: 'Журнал по форме КС-6а', count: workJournal.filter(row => row.project === project.name).length },
     { tab: 'АОСР', icon: '🔒', label: 'АОСР', hint: 'Печатные формы из сметы и журнала работ', count: hiddenActs.filter(act => act.projectName === project.name).length },

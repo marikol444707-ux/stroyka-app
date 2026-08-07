@@ -2,7 +2,7 @@ import React from 'react';
 import { Printer } from 'lucide-react';
 
 export default function MaterialReconciliationPanel({
-  projectName,
+  project,
   options = {},
   C,
   card,
@@ -22,9 +22,10 @@ export default function MaterialReconciliationPanel({
   isLeadership,
   user,
 }) {
+  const projectName = project?.projectName || project?.name || '';
   const limit = options.limit || 25;
   const title = options.title || '📊 Материалы: смета ↔ поставки ↔ склад';
-  const summary = materialControlSummaryForProject(projectName);
+  const summary = materialControlSummaryForProject(project);
   const currentUser = user || {};
   const isFinanceUser = typeof isFinanceRole === 'function' ? isFinanceRole() : Boolean(isFinanceRole);
   const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
@@ -56,7 +57,7 @@ export default function MaterialReconciliationPanel({
       {summary.rows.length===0?<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'14px'}}>Нет сметных материалов и движений по объекту.</p>:<div style={{overflowX:'auto'}}>
         <table style={{...tbl,fontSize:'11px',minWidth:'1420px'}}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>План</th><th style={tblH}>В заявках</th><th style={tblH}>В пути</th><th style={tblH}>Накладные</th><th style={tblH}>Поставки</th><th style={tblH}>Перемещено</th><th style={tblH}>Всего получено</th><th style={tblH}>Выдано</th><th style={tblH}>Списано</th><th style={tblH}>У мастеров</th><th style={tblH}>Остаток</th><th style={tblH}>Расчёт</th><th style={tblH}>Расх.</th><th style={tblH}>Докупить</th><th style={tblH}>Статус</th></tr></thead><tbody>
           {summary.rows.slice(0,limit).map(row=>{const status=materialControlStatus(row);return(<tr key={row.key}>
-            <td style={tblC}><b style={{fontSize:'12px'}}>{row.name}</b>{row.planSourceCount>1&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>Сгруппировано из {row.planSourceCount} строк сметы</p>}{row.sections.length>0&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{row.sections.slice(0,2).join(', ')}{row.sections.length>2?'…':''}</p>}{row.workRefs?.length>0&&<p style={{color:C.accent,fontSize:'10px',margin:'2px 0 0'}}>Работы: {row.workRefs.slice(0,2).join('; ')}{row.workRefs.length>2?'…':''}</p>}{row.aliases?.length>0&&<p style={{color:C.info,fontSize:'10px',margin:'2px 0 0'}}>Синонимы: {row.aliases.slice(0,2).join(', ')}{row.aliases.length>2?'…':''}</p>}{row.unitMismatch&&<p style={{color:C.warning,fontSize:'10px',margin:'2px 0 0'}}>⚠️ Разные единицы измерения</p>}{renderMaterialAliasControls(projectName,row)}</td>
+            <td style={tblC}><b style={{fontSize:'12px'}}>{row.name}</b>{row.planSourceCount>1&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>Сгруппировано из {row.planSourceCount} строк сметы</p>}{row.sections.length>0&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{row.sections.slice(0,2).join(', ')}{row.sections.length>2?'…':''}</p>}{row.workRefs?.length>0&&<p style={{color:C.accent,fontSize:'10px',margin:'2px 0 0'}}>Работы: {row.workRefs.slice(0,2).join('; ')}{row.workRefs.length>2?'…':''}</p>}{row.aliases?.length>0&&<p style={{color:C.info,fontSize:'10px',margin:'2px 0 0'}}>Синонимы: {row.aliases.slice(0,2).join(', ')}{row.aliases.length>2?'…':''}</p>}{row.unitMismatch&&<p style={{color:C.warning,fontSize:'10px',margin:'2px 0 0'}}>⚠️ Разные единицы измерения</p>}{renderMaterialAliasControls(project,row)}</td>
             <td style={tblC}>{row.planQty>0?fmtMeasure(row.planQty,row.unit):'—'}</td>
             <td style={{...tblC,color:row.requested>0?C.info:C.textMuted}}>{fmtMeasure(row.requested,row.unit)}</td>
             <td style={{...tblC,color:row.inTransit>0?C.warning:C.textMuted}}>{fmtMeasure(row.inTransit,row.unit)}</td>

@@ -4,8 +4,7 @@ import { materialLookupText } from './materialMatchUtils';
 describe('buildEstimateWorkNormRequirementRows traceability', () => {
   test('keeps estimate, work, rule and formula for every norm calculation', () => {
     const rows = buildEstimateWorkNormRequirementRows({
-      projectName: 'Тестовый объект',
-      projects: [{ id: 1, name: 'Тестовый объект' }],
+      project: { companyId: 1, projectId: 1, projectName: 'Тестовый объект' },
       activeEstimatesForProject: () => [{
         id: 10,
         name: 'Активная смета',

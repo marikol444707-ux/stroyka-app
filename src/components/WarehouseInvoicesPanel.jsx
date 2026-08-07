@@ -3,6 +3,7 @@ import { PackagePlus, Plus, RefreshCw, Search } from 'lucide-react';
 import { API } from '../api';
 import { WarehouseInvoiceCard, WarehouseInvoiceForm } from './warehouse/WarehouseInvoicesParts';
 import { createMaterialTransferForm } from '../features/warehouse/warehouseInitialForms';
+import { uniqueStoredProjectForName } from '../features/estimates/projectEstimateOwnership';
 
 const INVOICE_VISIBLE_DESKTOP = 30;
 const INVOICE_VISIBLE_MOBILE = 12;
@@ -561,12 +562,13 @@ export default function WarehouseInvoicesPanel({
       const estimateControl = warehouseInvoiceEstimateControl ? warehouseInvoiceEstimateControl(inv) : [];
       const estimateIssues = estimateControl.filter(row => ['danger', 'warning'].includes(row.severity));
       const projectName = invoiceProjectName(inv);
-      const materialSummary = projectName && typeof materialControlSummaryForProject === 'function'
-        ? materialControlSummaryForProject(projectName)
+      const project = uniqueStoredProjectForName(projects, projectName);
+      const materialSummary = project && typeof materialControlSummaryForProject === 'function'
+        ? materialControlSummaryForProject(project)
         : null;
       return { inv, invoiceRows, estimateControl, estimateIssues, projectName, materialSummary };
     })
-  ), [displayedInvoiceRows, warehouseInvoiceItems, warehouseInvoiceEstimateControl, materialControlSummaryForProject]);
+  ), [displayedInvoiceRows, warehouseInvoiceItems, warehouseInvoiceEstimateControl, materialControlSummaryForProject, projects]);
   const totalPositions = React.useMemo(
     () => (invoices || []).reduce((sum, inv) => sum + invoiceQuickItems(inv).length, 0),
     [invoices, invoiceQuickItems],

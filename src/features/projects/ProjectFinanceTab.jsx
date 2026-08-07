@@ -59,6 +59,7 @@ export default function ProjectFinanceTab({
         loadAll={loadAll}
         manualExpenses={manualExpenses}
         ownExpenses={ownExpenses}
+        project={project}
         projectName={project.name}
         projectPaymentInAmount={projectPaymentInAmount}
         projectPaymentSignedAmount={projectPaymentSignedAmount}

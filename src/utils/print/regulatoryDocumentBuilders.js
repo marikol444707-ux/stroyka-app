@@ -466,7 +466,7 @@ export const buildPassportDocContent = (project = {}, context = {}) => {
   } = context;
 
   const projectRooms = rooms.filter((room) => room.project === project.name);
-  const categoryTotals = expByCategory(project.name);
+  const categoryTotals = expByCategory(project);
   const totalExpenses = Object.values(categoryTotals).reduce((sum, value) => sum + value, 0);
   let html = `<h2 style="text-align:center">ПАСПОРТ ОБЪЕКТА</h2><h3 style="text-align:center">${project.name}</h3>`;
   html += `<p>Организация: ${companyTitle(companyRequisites, companyName)}</p>`;

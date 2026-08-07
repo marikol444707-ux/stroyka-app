@@ -13,8 +13,7 @@ const buildRows = (items, canonicalMaterialMeta = (_projectName, name, unit) => 
   unit,
   alias: null,
 }), options = {}) => buildMaterialReconciliationRows({
-  projectName: 'Тестовый объект',
-  projects: [{ id: 1, name: 'Тестовый объект' }],
+  project: { companyId: 1, projectId: 1, projectName: 'Тестовый объект' },
   invoices: options.invoices || [],
   activeEstimatesForProject: (_project, kind) => kind === 'Заказчик' ? [{
     id: 10,
@@ -112,8 +111,7 @@ describe('buildMaterialReconciliationRows material identity', () => {
     ]));
 
     const planRows = buildEstimateMaterialPlanRows({
-      projectName: 'Тестовый объект',
-      projects: [{ id: 1, name: 'Тестовый объект' }],
+      project: { companyId: 1, projectId: 1, projectName: 'Тестовый объект' },
       activeEstimatesForProject: (_project, kind) => kind === 'Заказчик' ? [{
         id: 10,
         name: 'Активная смета',

@@ -204,14 +204,14 @@ export const buildMaterialAvailabilityMap = ({
 };
 
 export const buildMaterialSuggestionsForWork = ({
-  projectName,
+  project,
   workName,
   sectionName = '',
   workPackage = '',
   materialReconciliationRows,
   materialNameKey,
 }) => {
-  const rows = materialReconciliationRows(projectName, workPackage).filter(r => toNum(r.stock) > 0 || toNum(r.planQty) > 0);
+  const rows = materialReconciliationRows(project, workPackage).filter(r => toNum(r.stock) > 0 || toNum(r.planQty) > 0);
   const stop = new Set(['работ', 'работа', 'монтаж', 'установка', 'устройство', 'демонтаж', 'прочее', 'раздел']);
   const tokens = materialNameKey(workName + ' ' + sectionName).split(' ').filter(w => w.length > 3 && !stop.has(w));
   return rows.map(r => {
@@ -228,14 +228,13 @@ export const buildMaterialSuggestionsForWork = ({
 };
 
 export const buildEstimateWorkNormRequirementRows = ({
-  projectName,
+  project,
   workPackage = '',
-  projects = [],
   activeEstimatesForProject,
   normRequirementsForWork,
   materialNameKey,
 }) => {
-  const project = projects.find(pr => pr.name === projectName) || { name: projectName };
+  const projectName = project?.projectName || project?.name || '';
   const activeEstimates = activeEstimatesForProject(project, 'Заказчик');
   const rows = {};
   activeEstimates

@@ -22,7 +22,7 @@ export default function ProjectCableJournalTab({
   tblH,
   toNum,
 }) {
-  const diagnostics = projectJournalDiagnostics(project.name);
+  const diagnostics = projectJournalDiagnostics(project);
   const rows = cableJournal.filter(row => row.projectName === project.name);
 
   const modeControls = (

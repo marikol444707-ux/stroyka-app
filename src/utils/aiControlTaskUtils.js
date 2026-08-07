@@ -31,7 +31,7 @@ const ROOM_RELEVANT_JOURNAL_WORDS = [
 ];
 
 export const buildMaterialControlTaskDescriptorsForProject = ({
-  projectName,
+  project,
   reason = 'Фоновая проверка материалов',
   materialControlSummaryForProject,
   materialNormControlSummaryForProject,
@@ -39,8 +39,9 @@ export const buildMaterialControlTaskDescriptorsForProject = ({
   materialAliasCandidates = () => [],
   hasActiveEstimator = () => false,
 }) => {
+  const projectName = project?.projectName || project?.name || '';
   if (!projectName) return [];
-  const summary = materialControlSummaryForProject(projectName);
+  const summary = materialControlSummaryForProject(project);
   const normSummary = materialNormControlSummaryForProject(projectName);
   const mk = (kind, row, title, assignedRole, actionType, extraPayload = {}) => {
     const marker = materialControlMarker(kind, projectName, row.name, row.unit);
@@ -79,7 +80,7 @@ export const buildMaterialControlTaskDescriptorsForProject = ({
     .sort((a, b) => (b.supplied + b.used) - (a.supplied + a.used))
     .slice(0, 3)
     .forEach(row => {
-      const candidate = materialAliasCandidates(projectName, row)[0] || null;
+      const candidate = materialAliasCandidates(project, row)[0] || null;
       const rowWithCandidate = candidate ? { ...row, aliasCandidate: candidate } : row;
       descriptors.push(mk(
         'outside',
@@ -137,11 +138,12 @@ export const buildMaterialControlTaskDescriptorsForProject = ({
 };
 
 export const buildMaterialControlSignatureForProject = ({
-  projectName,
+  project,
   materialControlSummaryForProject,
   materialNormControlSummaryForProject,
 }) => {
-  const summary = materialControlSummaryForProject(projectName);
+  const projectName = project?.projectName || project?.name || '';
+  const summary = materialControlSummaryForProject(project);
   const normSummary = materialNormControlSummaryForProject(projectName);
   const qtySum = (rows, field) => Math.round(rows.reduce((sum, row) => sum + toNum(row[field]), 0) * 1000) / 1000;
   return [

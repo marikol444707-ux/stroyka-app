@@ -4,6 +4,7 @@ import { API } from '../api';
 import { createAccountablePaymentForm, createManualExpenseForm } from '../features/payments/paymentInitialForms';
 
 export default function ProjectFinancePanel({
+  project,
   projectName,
   projectPayments = [],
   accountablePayments = [],
@@ -44,7 +45,7 @@ export default function ProjectFinancePanel({
   });
   const [customerPaymentError, setCustomerPaymentError] = useState('');
   const [customerPaymentBusy, setCustomerPaymentBusy] = useState(false);
-  const cat = expByCategory(projectName);
+  const cat = expByCategory(project);
   const total = Object.values(cat).reduce((sum, value) => sum + value, 0);
   const projectPays = projectPayments.filter(pay => pay.projectName === projectName);
   const received = projectPays.reduce((sum, pay) => sum + projectPaymentInAmount(pay), 0);

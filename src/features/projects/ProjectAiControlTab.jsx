@@ -167,6 +167,7 @@ export default function ProjectAiControlTab({
                   materialReconciliationRows={materialReconciliationRows}
                   openAiTaskAction={openAiTaskAction}
                   parseAiTaskPayload={parseAiTaskPayload}
+                  project={project}
                   renderEstimateChangeReconcileTask={renderEstimateChangeReconcileTask}
                   renderMaterialSupplyAction={renderMaterialSupplyAction}
                   submitAiTaskReport={submitAiTaskReport}
@@ -231,6 +232,7 @@ function StandaloneAiTaskCard({
   materialReconciliationRows,
   openAiTaskAction,
   parseAiTaskPayload,
+  project,
   renderEstimateChangeReconcileTask,
   renderMaterialSupplyAction,
   submitAiTaskReport,
@@ -245,7 +247,7 @@ function StandaloneAiTaskCard({
   const isRoomTask = ROOM_TASK_TYPES.includes(payload.type);
   const aliasCandidate = payload.aliasCandidate || null;
   const purchaseRow = payload.type === 'material_purchase_review'
-    ? materialReconciliationRows(payload.projectName || task.projectName || '').find(
+    ? materialReconciliationRows(project).find(
         row => materialNameKey(row.name) === materialNameKey(payload.materialName) && (!payload.unit || _normalizeUnit(row.unit || '') === _normalizeUnit(payload.unit || ''))
       )
     : null;

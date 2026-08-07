@@ -227,12 +227,13 @@ export const buildMaterialRequirementReportContent = ({
   materialNormControlSummaryForProject = () => ({}),
   printDocContext = {},
 } = {}) => {
-  const project = (projects || []).find(row => row.name === projectName) || {};
+  const projectMatches = (projects || []).filter(row => row.name === projectName);
+  const project = projectMatches.length === 1 ? projectMatches[0] : null;
   return buildMaterialRequirementDocContent({
     projectName,
     activeEstimates: activeEstimatesForProject(project, 'Заказчик'),
-    rows: materialReconciliationRows(projectName),
-    normRows: estimateWorkNormRequirementRows(projectName),
+    rows: materialReconciliationRows(project),
+    normRows: estimateWorkNormRequirementRows(project),
     normCtrl: materialNormControlSummaryForProject(projectName),
   }, printDocContext);
 };

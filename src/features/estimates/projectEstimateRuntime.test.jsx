@@ -1,7 +1,9 @@
 import { createProjectEstimateRuntime } from './projectEstimateRuntime';
 import {
+  immutableStoredProjectOwner,
   positiveStoredId,
   sameStoredProjectOwner,
+  uniqueStoredProjectForName,
 } from './projectEstimateOwnership';
 
 const createRuntime = (estimatesList) => createProjectEstimateRuntime({
@@ -47,6 +49,32 @@ describe('active estimate project ownership', () => {
       ...activeEstimate({ id: 105, companyId: 1, projectId: 11 }),
       projectName: 'Другая школа',
     })).toBe(false);
+  });
+
+  test('creates an immutable canonical owner from a stored project or owner object', () => {
+    const projectOwner = immutableStoredProjectOwner({ id: '11', companyId: '1', name: 'Школа' });
+    const existingOwner = immutableStoredProjectOwner({ companyId: 2, projectId: 22, projectName: 'Лицей' });
+
+    expect(projectOwner).toEqual({ companyId: 1, projectId: 11, projectName: 'Школа' });
+    expect(existingOwner).toEqual({ companyId: 2, projectId: 22, projectName: 'Лицей' });
+    expect(Object.isFrozen(projectOwner)).toBe(true);
+    expect(Object.isFrozen(existingOwner)).toBe(true);
+  });
+
+  test('rejects incomplete or internally conflicting owner objects', () => {
+    expect(immutableStoredProjectOwner({ id: 11, name: 'Школа' })).toBeNull();
+    expect(immutableStoredProjectOwner({ id: 11, companyId: 1, name: '' })).toBeNull();
+    expect(immutableStoredProjectOwner({ id: 11, projectId: 22, companyId: 1, name: 'Школа' })).toBeNull();
+    expect(immutableStoredProjectOwner({ id: 11, companyId: 1, name: 'Школа', projectName: 'Лицей' })).toBeNull();
+  });
+
+  test('resolves a legacy name only when one stored owner matches', () => {
+    const first = { id: 11, companyId: 1, name: 'Школа' };
+    const second = { id: 22, companyId: 2, name: 'Школа' };
+
+    expect(uniqueStoredProjectForName([first], 'Школа')).toBe(first);
+    expect(uniqueStoredProjectForName([first, second], 'Школа')).toBeNull();
+    expect(uniqueStoredProjectForName([{ id: 11, name: 'Лицей' }], 'Лицей')).toBeNull();
   });
 
   test('isolates same-name customer and material estimates by company and project IDs', () => {

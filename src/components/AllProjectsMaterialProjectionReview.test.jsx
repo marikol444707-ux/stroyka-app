@@ -20,7 +20,7 @@ const materialRow = (name, qty, detail) => ({
 test('opens an all-project read-only review and filters projects needing attention', () => {
   const sourceA = {estimateId: 10, packageName: 'Электрика', sectionName: 'Крепёж', materialName: 'Дюбель распорный 8х60', qty: 100, unit: 'шт'};
   const sourceB = {estimateId: 10, packageName: 'Электрика', sectionName: 'Крепёж', materialName: 'Шуруп самонарезающий 3,5х35', qty: 200, unit: 'шт'};
-  const projects = [{id: 1, name: 'Лицей'}, {id: 2, name: 'Школа'}];
+  const projects = [{id: 1, companyId: 1, name: 'Лицей'}, {id: 2, companyId: 1, name: 'Школа'}];
   const rowsByProject = {
     Лицей: [materialRow('Кабель ВВГ 3х1,5', 80, {estimateId: 11, packageName: 'Электрика', materialName: 'Кабель ВВГ 3х1,5', qty: 80, unit: 'шт'})],
     Школа: [materialRow('Дюбель распорный 8х60', 100, sourceA), materialRow('Шуруп самонарезающий 3,5х35', 200, sourceB)],
@@ -29,7 +29,7 @@ test('opens an all-project read-only review and filters projects needing attenti
   render(
     <AllProjectsMaterialProjectionReview
       projects={projects}
-      materialReconciliationRows={name => rowsByProject[name] || []}
+      materialReconciliationRows={project => rowsByProject[project?.name] || []}
       supplyRequests={[{id: 31, project: 'Школа', status: 'Новая', materialName: 'Дюбель распорный 8х60', quantity: 300, unit: 'шт', workPackage: 'Электрика', notes: 'Создано из контроля материалов'}]}
       parseSupplyItems={request => [{materialName:request.materialName,quantity:request.quantity,unit:request.unit,workPackage:request.workPackage}]}
       C={colors}
@@ -70,10 +70,10 @@ test('renders a large request review list in bounded batches and resets after da
     notes: 'Создано из контроля материалов',
   }));
 
-  const uniqueCandidates = [{id: 3, name: 'Большой объект'}];
+  const uniqueCandidates = [{id: 3, companyId: 1, name: 'Большой объект'}];
   const renderReview = (currentRequests, projectIdentityCandidates = uniqueCandidates) => (
     <AllProjectsMaterialProjectionReview
-      projects={[{id: 3, name: 'Большой объект'}]}
+      projects={[{id: 3, companyId: 1, name: 'Большой объект'}]}
       projectIdentityCandidates={projectIdentityCandidates}
       materialReconciliationRows={() => [materialRow('Текущий материал', 1, {estimateId: 12, packageName: 'Общестрой', materialName: 'Текущий материал', qty: 1, unit: 'шт'})]}
       supplyRequests={currentRequests}

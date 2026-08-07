@@ -1,5 +1,9 @@
 import { createMaterialRuntime, createMaterialRuntimeCache } from './materialRuntime';
-import { buildMaterialControlSummary, buildMaterialReconciliationRows } from '../../utils/materialReconciliationUtils';
+import {
+  buildEstimateMaterialPlanRows,
+  buildMaterialControlSummary,
+  buildMaterialReconciliationRows,
+} from '../../utils/materialReconciliationUtils';
 
 jest.mock('../../utils/materialReconciliationUtils', () => ({
   buildEstimateMaterialPlanRows: jest.fn(() => []),
@@ -7,6 +11,9 @@ jest.mock('../../utils/materialReconciliationUtils', () => ({
   buildMaterialControlSummary: jest.fn(() => ({ rows: [] })),
   buildMaterialReconciliationRows: jest.fn(() => [{ key: 'cement' }]),
 }));
+
+const firstProject = { id: 11, companyId: 1, name: 'Школа' };
+const secondProject = { id: 22, companyId: 2, name: 'Школа' };
 
 const createRuntime = (cache) => createMaterialRuntime({
   activeEstimatesForProject: () => [],
@@ -21,7 +28,7 @@ const createRuntime = (cache) => createMaterialRuntime({
   materials: [],
   materialTransfers: [],
   parseSupplyItems: () => [],
-  projects: [],
+  projects: [firstProject, secondProject],
   supplyDeliveries: [],
   supplyHistory: [],
   supplyRequests: [],
@@ -39,23 +46,58 @@ describe('material runtime cache', () => {
     buildMaterialControlSummary.mockReturnValue({ rows: [] });
   });
 
-  test('builds reconciliation rows once per project and package', () => {
-    const runtime = createRuntime(createMaterialRuntimeCache());
+  test('builds reconciliation rows once per exact owner and package', () => {
+    const cache = createMaterialRuntimeCache();
+    const runtime = createRuntime(cache);
 
-    expect(runtime.materialReconciliationRows('Лицей 4')).toEqual([{ key: 'cement' }]);
-    expect(runtime.materialReconciliationRows('Лицей 4')).toEqual([{ key: 'cement' }]);
-    expect(runtime.materialReconciliationRows('Лицей 4', 'Электрика')).toEqual([{ key: 'cement' }]);
+    expect(runtime.materialReconciliationRows(firstProject)).toEqual([{ key: 'cement' }]);
+    expect(runtime.materialReconciliationRows(firstProject)).toEqual([{ key: 'cement' }]);
+    expect(runtime.materialReconciliationRows(secondProject)).toEqual([{ key: 'cement' }]);
+    expect(runtime.materialReconciliationRows(firstProject, 'Электрика')).toEqual([{ key: 'cement' }]);
 
-    expect(buildMaterialReconciliationRows).toHaveBeenCalledTimes(2);
+    expect(buildMaterialReconciliationRows).toHaveBeenCalledTimes(3);
+    expect(buildMaterialReconciliationRows.mock.calls.map(([args]) => args.project)).toEqual([
+      { companyId: 1, projectId: 11, projectName: 'Школа' },
+      { companyId: 2, projectId: 22, projectName: 'Школа' },
+      { companyId: 1, projectId: 11, projectName: 'Школа' },
+    ]);
+    expect([...cache.reconciliationRows.keys()]).toEqual([
+      '1\u000011\u0000',
+      '2\u000022\u0000',
+      '1\u000011\u0000Электрика',
+    ]);
   });
 
-  test('reuses the project summary after rows are cached', () => {
+  test('passes the exact immutable owner into the material plan builder', () => {
     const runtime = createRuntime(createMaterialRuntimeCache());
 
-    runtime.materialControlSummaryForProject('Лицей 4');
-    runtime.materialControlSummaryForProject('Лицей 4');
+    runtime.estimateMaterialPlanRows(firstProject);
+    runtime.estimateMaterialPlanRows(secondProject);
 
-    expect(buildMaterialReconciliationRows).toHaveBeenCalledTimes(1);
-    expect(buildMaterialControlSummary).toHaveBeenCalledTimes(1);
+    expect(buildEstimateMaterialPlanRows.mock.calls.map(([args]) => args.project)).toEqual([
+      { companyId: 1, projectId: 11, projectName: 'Школа' },
+      { companyId: 2, projectId: 22, projectName: 'Школа' },
+    ]);
+    buildEstimateMaterialPlanRows.mock.calls.forEach(([args]) => {
+      expect(Object.isFrozen(args.project)).toBe(true);
+    });
+  });
+
+  test('keeps summaries for same-name owners isolated', () => {
+    const runtime = createRuntime(createMaterialRuntimeCache());
+
+    runtime.materialControlSummaryForProject(firstProject);
+    runtime.materialControlSummaryForProject(firstProject);
+    runtime.materialControlSummaryForProject(secondProject);
+
+    expect(buildMaterialReconciliationRows).toHaveBeenCalledTimes(2);
+    expect(buildMaterialControlSummary).toHaveBeenCalledTimes(2);
+  });
+
+  test('fails closed for a name-only scope', () => {
+    const runtime = createRuntime(createMaterialRuntimeCache());
+
+    expect(runtime.materialReconciliationRows('Школа')).toEqual([]);
+    expect(buildMaterialReconciliationRows).not.toHaveBeenCalled();
   });
 });

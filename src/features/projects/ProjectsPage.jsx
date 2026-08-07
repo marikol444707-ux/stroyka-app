@@ -84,7 +84,8 @@ export default function ProjectsPage({ ctx }) {
     materialNameKey ? materialNameKey(name || '') : String(name || '').toLowerCase().trim(),
     String(workPackage || 'Основная').trim() || 'Основная',
   ].join('|');
-  const projectJournalDiagnostics = (projectName) => {
+  const projectJournalDiagnostics = (project) => {
+    const projectName = project?.name || '';
     const projectStock = (materials || []).filter(m => m.project === projectName && toNum(m.quantity) > 0);
     const inspections = (materialInspections || []).filter(mi => mi.projectName === projectName);
     const inspectionKeys = new Set(inspections.map(mi => journalMaterialKey(mi.materialName, mi.unit, journalPackage(mi))));
@@ -93,7 +94,7 @@ export default function ProjectsPage({ ctx }) {
     const cables = (cableJournal || []).filter(c => c.projectName === projectName);
     const cableKeys = new Set(cables.map(c => journalNamePackageKey(c.cableBrand, journalPackage(c))));
     const cableWithoutJournal = cableStock.filter(m => !cableKeys.has(journalNamePackageKey(m.name, journalPackage(m))));
-    const reconciliationRows = (materialReconciliationRows(projectName) || []);
+    const reconciliationRows = (materialReconciliationRows(project) || []);
     const smetaRows = reconciliationRows.filter(r => (r.supplied || 0) > 0 || (r.stock || 0) > 0 || (r.received || 0) > 0);
     const smetaInPlanRows = smetaRows.filter(r => (r.estimatePlanQty || 0) > 0);
     const smetaOverRows = smetaRows.filter(r => (r.controlPlanQty || 0) > 0 && (r.over || 0) > 0);
@@ -176,7 +177,7 @@ export default function ProjectsPage({ ctx }) {
               const _bs=projectBudgetSpent(p);const total=_bs.total;
               const isOpen=expandedProject===p.id;
               const shouldRenderProjectOverview=isOpen&&activeProjectTab==='Общее';
-              const cat=shouldRenderProjectOverview&&isFinanceUser?expByCategory(p.name):{};
+              const cat=shouldRenderProjectOverview&&isFinanceUser?expByCategory(p):{};
               const economy=shouldRenderProjectOverview&&isFinanceUser?projectEconomy(p):null;
               const statusColors={'Планирование':[C.info,C.infoLight,C.infoBorder],'В работе':[C.success,C.successLight,C.successBorder],'Завершён':[C.textSec,C.bgGray,C.border],'Заморожен':[C.warning,C.warningLight,C.warningBorder]};
               return(<div key={p.id} style={{...card,marginBottom:'12px',overflow:'visible'}}>

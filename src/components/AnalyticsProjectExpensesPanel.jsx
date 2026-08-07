@@ -5,7 +5,7 @@ export default function AnalyticsProjectExpensesPanel({C, card, projects, expByC
     <div style={{...card,padding:'20px',marginBottom:'20px'}}>
       <h4 style={{color:C.text,marginBottom:'15px',fontSize:'14px',fontWeight:'700'}}>Расходы по проектам</h4>
       {projects.filter(p=>p.status==='В работе').map(p=>{
-        const cat = expByCategory(p.name);
+        const cat = expByCategory(p);
         const total = Object.values(cat).reduce((s,v)=>s+v,0);
         const pct = p.budget>0?Math.min(100,Math.round(total/p.budget*100)):0;
         return (

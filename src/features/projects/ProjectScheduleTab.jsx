@@ -100,7 +100,7 @@ export default function ProjectScheduleTab({
         workJournal={workJournal}
         planDone={projectPlanDone(project)}
         progress={projectRealProgress(project)}
-        materialSummary={materialControlSummaryForProject(project.name)}
+        materialSummary={materialControlSummaryForProject(project)}
         supplierInvoices={supplierInvoices}
         isMobile={isMobile}
         onOpenStages={() => setActiveProjectTab('Этапы')}

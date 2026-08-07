@@ -69,7 +69,7 @@ export const buildSupplyControlIssues = ({
         });
     });
   activeProjects.slice(0, 12).forEach(project => {
-    const materialRows = materialReconciliationRows(project.name);
+    const materialRows = materialReconciliationRows(project);
     materialRows.filter(row => row.toBuy > 0).slice(0, 3).forEach(row => issues.push({
       severity: 'Внимание',
       project: project.name,

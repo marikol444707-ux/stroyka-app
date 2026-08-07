@@ -21,7 +21,7 @@ export default function ProjectMaterialInspectionTab({
   tblH,
   toNum,
 }) {
-  const diagnostics = projectJournalDiagnostics(project.name);
+  const diagnostics = projectJournalDiagnostics(project);
   const rows = materialInspections.filter(row => row.projectName === project.name);
 
   const modeControls = (

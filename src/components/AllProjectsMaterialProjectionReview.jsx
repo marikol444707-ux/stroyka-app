@@ -43,7 +43,7 @@ export default function AllProjectsMaterialProjectionReview({
     return buildAllProjectsMaterialProjectionReview((projects || []).map(project => ({
       projectId: project?.id,
       projectName: project?.name,
-      correctedRows: typeof materialReconciliationRows === 'function' ? materialReconciliationRows(project?.name) : [],
+      correctedRows: typeof materialReconciliationRows === 'function' ? materialReconciliationRows(project) : [],
       requests: requestData,
     })), parseSupplyItems, (projectIdentityCandidates || projects || []).map(project => ({
       projectId: project?.id,

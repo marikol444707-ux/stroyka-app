@@ -19,6 +19,7 @@ import {
   isActiveSupplyRequestStatus,
   materialControlRequestItems,
 } from '../../utils/supplyUtils';
+import { uniqueStoredProjectForName } from '../estimates/projectEstimateOwnership';
 
 export const MATERIAL_CONTROL_REQUEST_SOURCE = 'estimate_material_control';
 
@@ -86,6 +87,7 @@ export function createMaterialControlActions({
   btnG,
   btnO,
   user,
+  projects,
   materialAliases,
   setMaterialAliases,
   supplyRequests,
@@ -146,9 +148,14 @@ export function createMaterialControlActions({
     if (row && task?.id) await updateAiTask(task.id, { status: 'Закрыто' });
   };
 
-  const renderMaterialAliasControls = (projectName, row) => {
+  const renderMaterialAliasControls = (projectOrName, row) => {
     if (!row?.isOutsideEstimate || !(isLeadershipUser || ['прораб', 'главный_инженер', 'сметчик', 'снабженец', 'кладовщик'].includes(currentUser.role))) return null;
-    const candidates = materialAliasCandidates(projectName, row);
+    const project = typeof projectOrName === 'object'
+      ? projectOrName
+      : uniqueStoredProjectForName(projects, projectOrName);
+    const projectName = project?.projectName || project?.name || '';
+    if (!projectName) return null;
+    const candidates = materialAliasCandidates(project, row);
     if (!candidates.length) return null;
     const aliasName = row.aliases?.[0] || row.name;
     return (

@@ -13,6 +13,7 @@ import {
 } from '../../utils/aiControlTaskUtils';
 import { parseAiTaskPayload } from '../../utils/aiControlDescriptionUtils';
 import { estimateIssueDomId } from '../../utils/estimateUtils';
+import { uniqueStoredProjectForName } from '../estimates/projectEstimateOwnership';
 
 export function createAiReviewQueueActions({
   API,
@@ -52,6 +53,7 @@ export function createAiReviewQueueActions({
   openAiTaskAction,
   patchAiFindingSilent,
   patchAiTaskSilent,
+  projects,
   roomCompleteness,
   roomControlTaskQueuedRef,
   roomWorks,
@@ -333,8 +335,13 @@ export function createAiReviewQueueActions({
     });
   };
 
-  const materialControlTaskDescriptorsForProject = (projectName, reason = 'Фоновая проверка материалов') => buildMaterialControlTaskDescriptorsForProject({
-    projectName,
+  const materialControlProject = (projectOrName) => {
+    if (projectOrName && typeof projectOrName === 'object') return projectOrName;
+    return uniqueStoredProjectForName(projects, projectOrName);
+  };
+
+  const materialControlTaskDescriptorsForProject = (projectOrName, reason = 'Фоновая проверка материалов') => buildMaterialControlTaskDescriptorsForProject({
+    project: materialControlProject(projectOrName),
     reason,
     materialControlSummaryForProject,
     materialNormControlSummaryForProject,
@@ -343,8 +350,8 @@ export function createAiReviewQueueActions({
     hasActiveEstimator,
   });
 
-  const materialControlSignatureForProject = (projectName) => buildMaterialControlSignatureForProject({
-    projectName,
+  const materialControlSignatureForProject = (projectOrName) => buildMaterialControlSignatureForProject({
+    project: materialControlProject(projectOrName),
     materialControlSummaryForProject,
     materialNormControlSummaryForProject,
   });
@@ -379,8 +386,11 @@ export function createAiReviewQueueActions({
     });
   };
 
-  const queueMaterialControlTasksForProject = async (projectName, reason = 'Фоновая проверка материалов') => {
-    const descriptors = materialControlTaskDescriptorsForProject(projectName, reason);
+  const queueMaterialControlTasksForProject = async (projectOrName, reason = 'Фоновая проверка материалов') => {
+    const project = materialControlProject(projectOrName);
+    if (!project) return;
+    const projectName = project.name || project.projectName || '';
+    const descriptors = materialControlTaskDescriptorsForProject(project, reason);
     const activeMarkers = new Set(descriptors.map(descriptor => descriptor.marker));
     closeStaleAiTasksByMarkerPrefix({
       tasks: aiTasks,

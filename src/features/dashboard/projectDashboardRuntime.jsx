@@ -70,8 +70,9 @@ export function createProjectDashboardRuntime({
   visibleEstimatesForCurrentUser,
   workJournal,
 }) {
-  const expByCategory = (projectName) => projectExpenseCategories({
-    projectName,
+  const expByCategory = (project) => projectExpenseCategories({
+    project,
+    projectName: project?.name || '',
     expenseCategories: EXPENSE_CATEGORIES,
     materialControlSummaryForProject,
     allBrigadeItems,
@@ -86,7 +87,7 @@ export function createProjectDashboardRuntime({
 
   const projectBudgetSpent = (project) => {
     if (!project) return projectBudgetSpentSummary(null);
-    return projectBudgetSpentSummary(project, expByCategory(project.name));
+    return projectBudgetSpentSummary(project, expByCategory(project));
   };
 
   const projectRealProgress = (project) => projectRealProgressValue({
@@ -155,7 +156,7 @@ export function createProjectDashboardRuntime({
     materialInspections,
     hiddenActs,
     projectPayments,
-    materialSummary: materialControlSummaryForProject(project.name),
+    materialSummary: materialControlSummaryForProject(project),
     planDone: projectPlanDone(project),
     projectProgress: projectRealProgress(project),
   });
@@ -171,9 +172,9 @@ export function createProjectDashboardRuntime({
     accountablePayments,
   });
 
-  const renderMaterialReconciliationPanel = (projectName, options = {}) => (
+  const renderMaterialReconciliationPanel = (project, options = {}) => (
     <MaterialReconciliationPanel
-      projectName={projectName}
+      project={project}
       options={options}
       C={C}
       card={card}
