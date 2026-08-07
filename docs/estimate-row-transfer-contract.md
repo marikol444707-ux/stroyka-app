@@ -163,6 +163,30 @@ balance.
 Every apply phase is independently guarded and rollback-friendly. Production
 dry-run and apply remain separate operator actions.
 
+## E4.5 Cutover Readiness Contract
+
+The cutover command is an audit, not another writer. It opens a read-only
+repeatable-read transaction, checks the complete guarded E4 schema and scans
+only bounded ledger identities and quantities. It recomputes every canonical
+plan hash and requires assignment-transfer and supply-allocation receipts to
+be all-or-none for their respective entry kind. A plan may legitimately be
+pending or have only one kind applied; a partial receipt set within one kind is
+always a blocker.
+
+The report also performs a static repository inventory. It allowlists only the
+reviewed E4 plan/entry/approval writes, assignment split/receipt writes and
+supply-allocation inserts, and it requires the disposable PostgreSQL tests for
+rollback, sequential repeat and concurrent double-apply to remain present.
+This inventory complements but never replaces executing those tests.
+
+An optional exact plan gate accepts only a positive plan ID together with its
+lowercase approved SHA-256. It reports whether assignment and supply are
+pending, applied or absent, but it cannot approve or apply anything. The only
+production mutation path remains the authenticated director/deputy-director
+API. Operators archive the exact readiness JSON, apply one kind, re-audit, then
+apply the other kind and run the final global audit and smoke checks. No
+synthetic production reconciliation or plan is created to exercise the path.
+
 ## E4.2 API Contract
 
 E4.2 exposes one immutable resource collection. It has no update or delete

@@ -4458,11 +4458,11 @@ back. Reviewed dry-run and apply outputs are preserved under
 
 ## Task E4: Reviewed Estimate Row Balance Transfer
 
-**Status:** Contract approved by the user on 2026-08-06. E4.1 is complete in
-production runtime `2c816ccb789e`. E4.2 runtime `c700e043` and its reviewed
-11-change additive schema are live and pass public smoke, authenticated
-fail-closed smoke and post-audit. No E4 balance writer exists; E4.3 remains a
-separate unstarted assignment-apply slice.
+**Status:** Contract approved by the user on 2026-08-06. E4.1-E4.4 are complete
+in production through runtime `bf078924852b`. The reviewed mapping, assignment
+receipt and supply-allocation schemas are installed, every public/protected
+route smoke is green, and production has no reconciliation, plan or receipt
+eligible for a manufactured transfer. E4.5 is the remaining cutover gate.
 
 **Contract:** `docs/estimate-row-transfer-contract.md` is authoritative. The
 operation uses an approved exact source/target mapping and explicit quantities.
@@ -4860,3 +4860,67 @@ separate read-only production snapshot returned `plansByStatus=[]`,
 `assignmentReceipts=0`, `supplyAllocations=0` and
 `approvedReconciliations=0`; no reconciliation, plan, receipt, allocation or
 business balance was manufactured for testing.
+
+### Task E4.5: Cutover Readiness And Reviewed Production Sequence
+
+**Description:** Close E4 with one operator-facing, rolled-back readiness
+report. It must combine the already guarded schema catalog, deterministic
+stored-plan integrity, all-or-none assignment/supply receipt state, exact
+entry/receipt quantities, the complete E4 writer inventory and the required
+real PostgreSQL rollback/idempotency/concurrency cases. An optional exact
+`plan_id + plan_sha256` filter is the production pre-apply gate. It remains
+read-only and cannot approve or apply a plan.
+
+**Acceptance criteria:**
+
+- [ ] The report uses one read-only `REPEATABLE READ` transaction, attempts
+  zero writes, always rolls back and fails closed when any required E4 schema
+  object is missing or definition-invalid.
+- [ ] Every stored plan hash is recomputed from its exact canonical owner,
+  snapshots, coordinates, balances and quantities. Draft approval residue,
+  owner mismatch, missing entries, duplicate/foreign receipts, receipt/hash or
+  quantity mismatch and per-kind partial apply are fixed-code blockers.
+- [ ] A mixed assignment+supply plan may be pending, assignment-applied,
+  supply-allocated or complete, but each individual kind is all-or-none.
+  Pending approved work is reported as state, not mistaken for corruption.
+- [ ] Issue output is bounded and contains only plan/entry IDs and fixed reason
+  codes. It never emits descriptions, notes, prices, request JSON, actor names
+  or snapshot content.
+- [ ] The static writer audit scans the repository without importing runtime
+  code. Only the exact reviewed ledger DML and assignment split statements are
+  allowlisted; any new E4 mutation of JPR, acts, payments, supply documents,
+  deliveries, warehouse or accounting is a blocker.
+- [ ] The integration inventory requires the opt-in real PostgreSQL tests for
+  assignment and supply rollback, sequential idempotency, concurrent
+  double-apply and unchanged protected-history snapshots. The inventory does
+  not substitute for executing that suite before release.
+- [ ] `--plan-id` requires the exact lowercase `--expected-plan-sha256`, fails
+  on missing/wrong/draft/corrupt plans and reports readiness separately for
+  assignment and supply. The command remains read-only.
+- [ ] Production apply remains exclusively through the authenticated
+  leadership-only assignment/supply endpoints. No root-only SQL apply command,
+  automatic migration, background worker or synthetic production plan is
+  introduced.
+
+**Operator sequence:**
+
+1. Run the global readiness command and review `readyForCutover=true`.
+2. For a real approved plan, run the exact plan/hash readiness command and
+   archive its JSON before any apply call.
+3. Apply one pending kind through its existing leadership API with the same
+   hash; re-run and review exact readiness before applying the other kind.
+4. Re-run exact and global readiness, schema audit, service health and public
+   smoke. A failed/partial/corrupt state stops the sequence; it is never
+   repaired automatically.
+
+**Verification plan:**
+
+- [ ] RED unit tests cover schema-not-ready, plan-hash drift, all receipt
+  mismatch/partial cases, bounded output, optional exact-plan guards and
+  writer/test inventory drift.
+- [ ] A fresh disposable PostgreSQL cluster executes the complete E4 suite and
+  the final readiness report against empty, pending, applied and concurrent
+  fixture states.
+- [ ] Focused/full backend tests, Python compilation, static lineage writer
+  audit, frontend tests/build, smoke syntax and `git diff --check` pass before
+  release review.
