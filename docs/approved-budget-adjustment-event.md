@@ -3,8 +3,10 @@
 ## Status
 
 The three business decisions were accepted by the human owner on 2026-08-07.
-This authorizes implementation through separately reviewed, reversible slices;
-it does not authorize an unreviewed production schema or business-data apply.
+E6 completed production cutover on 2026-08-08 at runtime `4b934847d41c` after
+separately reviewed, reversible slices. The final bounded audit was read-only,
+attempted zero writes, rolled back and reported `readyForCutover=true`; no
+production reconciliation or financial event was manufactured for testing.
 
 ## Objective
 
@@ -291,8 +293,9 @@ fixed reason codes and bounded ID-only previews.
 - A static writer inventory permits only the reviewed event insert and guarded
   project budget update.
 - A static cutover inventory requires exactly three E6 routes, two
-  registrations, three public smoke checks, one approval-kernel entrypoint and
-  the complete named PostgreSQL/HTTP proof set.
+  registrations, three public smoke checks, one approval-kernel entrypoint,
+  the complete named PostgreSQL/HTTP proof set, exact frontend wiring `11/11`
+  and named frontend action/UI proofs `17/17`.
 - The final receipt-ledger gate is hard-capped, ID-only, read-only and always
   rolled back; schema, data, ledger, writer, route and test evidence must all be
   green together.

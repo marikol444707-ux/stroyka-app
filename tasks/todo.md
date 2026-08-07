@@ -5558,12 +5558,11 @@ production build pass. Compilation and `git diff --check` are clean.
 
 **Implementation commits:** `910fb9ce`, `aff86523`, `9965cf6e`, `0efb6f29`.
 
-**Next action:** Push the reviewed E6.4.3 commits, then use a separate production
-deploy checkpoint. After deployment run the public smoke and
-`npm run audit:project-budget-adjustments`; require exact schema/data/ledger/
-writer/route/test readiness, zero writes, rollback and
-`readyForCutover=true`. Do not manufacture an approved reconciliation or
-financial receipt for smoke.
+**Production checkpoint:** Runtime `b3ffc00a4a80` passed atomic deploy, service
+health, public smoke and the complete read-only backend cutover report with
+exact schema/data/ledger/writer/route/integration inventories, zero writes,
+rollback and `readyForCutover=true`. Production had no approved reconciliation,
+so no financial receipt or business fixture was manufactured.
 
 **Dependencies:** E6.3 preview contract production-green.
 
@@ -5607,11 +5606,11 @@ evidence is green.
 
 **Acceptance criteria:**
 
-- [ ] Focused/full backend and frontend suites, compilation, build and smoke
+- [x] Focused/full backend and frontend suites, compilation, build and smoke
   pass from a clean tree.
 - [x] Real PostgreSQL proves same-name cross-company isolation, rollback,
   concurrency/idempotency and unchanged protected history.
-- [ ] Production audit is read-only, rolled back, zero-write and ready; no
+- [x] Production audit is read-only, rolled back, zero-write and ready; no
   synthetic reconciliation or financial event is created for smoke testing.
 
 **Local release evidence (2026-08-07):** The E6 package passed `117` tests, the
@@ -5621,9 +5620,21 @@ compiled, and the dedicated `e6_codex_20260807` PostgreSQL fixture passed all
 `7/7` rollback/concurrency/protected-history scenarios before the temporary
 database was removed. The final cutover inventory now also requires exact
 frontend wiring `11/11` and named UI/action proofs `17/17`; either drift makes
-`readyForCutover=false`. The remaining checkpoint is a clean push followed by
-production deploy, public smoke and the rolled-back zero-write production
-audit. No production reconciliation or receipt will be manufactured.
+`readyForCutover=false`.
+
+**Production release evidence (2026-08-08):** Runtime `4b934847d41c` was
+published atomically, the `stroyka` service remained `active`, and both complete
+public smoke runs passed, including the preview, approval and history route
+contracts. The production readiness report returned `ok=true`,
+`readOnlyTransaction=true`, `writesAttempted=0`, `rolledBack=true` and
+`readyForCutover=true`. Exact schema, data, empty ledger, `4/4` reviewed budget
+writers, two E6 DML statements, `3/3` routes, `2/2` registrations, `3/3` smoke
+checks, `13/13` backend integration checks, `11/11` frontend wiring checks and
+`17/17` named frontend proofs were all present with zero violations. All four
+stored budgets are exact `NUMERIC(14,2)` and all 13 reconciliations are valid;
+none is approved, so the ledger correctly contains zero receipts. No synthetic
+reconciliation, adjustment event or project-budget write was created. E6 is
+closed in production.
 
 **Dependencies:** E6.1-E6.5 complete.
 
