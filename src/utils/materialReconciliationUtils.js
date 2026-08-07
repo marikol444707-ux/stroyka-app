@@ -464,11 +464,14 @@ export const buildMaterialReconciliationRows = ({
       }
       const resolved = [];
       let allocated = 0;
+      let remainingOpen = quantity;
       let failureReason = '';
       allocations.forEach(allocation => {
         if (failureReason) return;
         const allocationQty = Number(allocation?.quantity);
-        if (allocation?.state !== 'ready' || !Number.isFinite(allocationQty) || allocationQty <= 0) {
+        const allocationRemaining = Number(allocation?.remainingQuantity);
+        if (allocation?.state !== 'ready' || !Number.isFinite(allocationQty) || allocationQty <= 0 ||
+            !Number.isFinite(allocationRemaining) || allocationRemaining < 0) {
           failureReason = allocation?.reasonCode || 'allocation_projection_invalid';
           return;
         }
@@ -489,9 +492,11 @@ export const buildMaterialReconciliationRows = ({
           return;
         }
         allocated += allocationQty;
+        remainingOpen = Math.min(remainingOpen, allocationRemaining);
         resolved.push({row: targetRows[0], quantity: allocationQty, unit: allocation.targetUnit});
       });
-      if (!failureReason && allocated > quantity + 0.000001) {
+      if (!failureReason && (allocated > quantity + 0.000001 ||
+          allocated + remainingOpen > quantity + 0.000001)) {
         failureReason = 'allocation_quantity_exceeds_request';
       }
       if (failureReason) {
@@ -504,7 +509,7 @@ export const buildMaterialReconciliationRows = ({
         });
         return;
       }
-      addQty(original, 'requested', Math.max(0, quantity - allocated), it.unit);
+      addQty(original, 'requested', remainingOpen, it.unit);
       resolved.forEach(target => addQty(target.row, 'requested', target.quantity, target.unit));
     }));
   (supplyDeliveries || [])

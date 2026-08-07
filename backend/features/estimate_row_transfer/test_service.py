@@ -86,8 +86,12 @@ class EstimateRowTransferCurrentPlanTests(unittest.TestCase):
         self.assertEqual(params, (15, sections_sha256(target_sections)))
 
     def test_supply_plan_validates_client_version_against_current_base_snapshot(self):
-        target_sections = _sections("new-material", name="Смесь", unit="кг")
-        base_sections = _sections("old-material", name="Смесь", unit="кг")
+        target_sections = _sections(
+            "new-material", name="Смесь", unit="кг", item_type="material"
+        )
+        base_sections = _sections(
+            "old-material", name="Смесь", unit="кг", item_type="material"
+        )
         cursor = FakeCursor([
             [snapshot_row(72, 15, target_sections)],
             [snapshot_row(71, 14, base_sections)],

@@ -8755,7 +8755,9 @@ def get_supply_requests(
     else:
         cur.close(); conn.close()
         return []
-    rows = attach_supply_allocation_projection(cur, cur.fetchall())
+    rows = cur.fetchall()
+    if is_internal_supply_reader:
+        rows = attach_supply_allocation_projection(cur, rows)
     conn.close()
     return [_supply_response_for_role(r, current_user) for r in rows]
 

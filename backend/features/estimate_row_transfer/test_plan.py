@@ -205,7 +205,9 @@ class EstimateRowTransferPlanTests(unittest.TestCase):
             "entries": [supply_mapping()],
         })["entries"]
         report = supply_report()
-        source_hash = sections_sha256(_sections("old-material", name="Смесь", unit="кг"))
+        source_hash = sections_sha256(_sections(
+            "old-material", name="Смесь", unit="кг", item_type="material"
+        ))
         snapshots = {(61, 0, 71): {
             "estimateId": 14,
             "estimateVersionId": 71,
@@ -232,7 +234,9 @@ class EstimateRowTransferPlanTests(unittest.TestCase):
         candidate["allocatedQuantity"] = 3
         candidate["protectedQuantity"] = 5
         candidate["transferableQuantity"] = 5
-        source_hash = sections_sha256(_sections("old-material", name="Смесь", unit="кг"))
+        source_hash = sections_sha256(_sections(
+            "old-material", name="Смесь", unit="кг", item_type="material"
+        ))
         snapshots = {(61, 0, 71): {
             "estimateId": 14,
             "estimateVersionId": 71,

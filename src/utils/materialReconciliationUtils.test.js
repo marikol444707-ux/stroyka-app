@@ -28,6 +28,7 @@ const buildRows = (items, canonicalMaterialMeta = (_projectName, name, unit) => 
   warehouseInvoiceItems: invoice => ({ items: invoice.items || [] }),
   isSupplyDeliveryInvoice: () => false,
   estimateWorkNormRequirementRows: options.estimateWorkNormRequirementRows || (() => []),
+  supplyDeliveries: options.supplyDeliveries || [],
   supplyRequests: options.supplyRequests || [],
   parseSupplyItems: options.parseSupplyItems || (() => []),
 });
@@ -290,6 +291,7 @@ describe('buildMaterialReconciliationRows material identity', () => {
           requestItemIndex: 0,
           state: 'ready',
           quantity: '3',
+          remainingQuantity: '7',
           targetEstimateId: 10,
           targetSectionIndex: 0,
           targetItemIndex: 0,
@@ -303,6 +305,53 @@ describe('buildMaterialReconciliationRows material identity', () => {
 
     expect(rows.find(row => row.name === 'Старая смесь')).toMatchObject({
       requested: 7,
+      reviewRequired: false,
+    });
+    expect(rows.find(row => row.name === 'Новая смесь')).toMatchObject({
+      requested: 3,
+      reviewRequired: false,
+    });
+  });
+
+  test('keeps received history and only the ledger remainder on the original row', () => {
+    const rows = buildRows([
+      materialItem('Новая смесь', 20, 'кг'),
+    ], undefined, {
+      supplyRequests: [{
+        id: 61,
+        project: 'Тестовый объект',
+        status: 'Новая',
+        items: [{materialName: 'Старая смесь', quantity: 10, unit: 'кг', workPackage: 'Общестрой'}],
+        supplyTransferAllocations: [{
+          entryId: 8,
+          requestItemIndex: 0,
+          state: 'ready',
+          quantity: '3',
+          remainingQuantity: '5',
+          targetEstimateId: 10,
+          targetSectionIndex: 0,
+          targetItemIndex: 0,
+          targetMaterialName: 'Новая смесь',
+          targetUnit: 'кг',
+          targetWorkPackage: 'Общестрой',
+        }],
+      }],
+      supplyDeliveries: [{
+        id: 81,
+        requestId: 61,
+        project: 'Тестовый объект',
+        workPackage: 'Общестрой',
+        materialName: 'Старая смесь',
+        unit: 'кг',
+        status: 'Принято',
+        receivedQuantity: 2,
+      }],
+      parseSupplyItems: request => request.items,
+    });
+
+    expect(rows.find(row => row.name === 'Старая смесь')).toMatchObject({
+      received: 2,
+      requested: 5,
       reviewRequired: false,
     });
     expect(rows.find(row => row.name === 'Новая смесь')).toMatchObject({

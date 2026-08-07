@@ -12,17 +12,20 @@ from backend.features.estimate_row_transfer.audit import (
 )
 
 
-def _sections(item_key, *, name="Работа", unit="м2", quantity=10):
+def _sections(item_key, *, name="Работа", unit="м2", quantity=10, item_type=None):
+    item = {
+        "name": name,
+        "unit": unit,
+        "quantity": quantity,
+        "estimateItemKey": item_key,
+        "priceWork": 900,
+        "commercialNote": "must-not-leak",
+    }
+    if item_type is not None:
+        item["itemType"] = item_type
     return [{
         "name": "Раздел",
-        "items": [{
-            "name": name,
-            "unit": unit,
-            "quantity": quantity,
-            "estimateItemKey": item_key,
-            "priceWork": 900,
-            "commercialNote": "must-not-leak",
-        }],
+        "items": [item],
     }]
 
 
@@ -114,7 +117,7 @@ def supply_request_row(**overrides):
         "request_id": 61,
         "request_company_id": 1,
         "request_project": "Школа",
-        "request_status": "В пути",
+        "request_status": "КП запрошены",
         "request_work_package": "Отделка",
         "items_json": json.dumps(items, ensure_ascii=False),
         "offer_count": 2,
@@ -136,8 +139,12 @@ def supply_reconciliation_row(**overrides):
         reconciliation_smeta_type="Материалы",
         base_smeta_type="Материалы",
         target_smeta_type="Материалы",
-        base_sections_json=json.dumps(_sections("old-material", name="Смесь", unit="кг"), ensure_ascii=False),
-        target_sections_json=json.dumps(_sections("new-material", name="Смесь", unit="кг"), ensure_ascii=False),
+        base_sections_json=json.dumps(_sections(
+            "old-material", name="Смесь", unit="кг", item_type="material"
+        ), ensure_ascii=False),
+        target_sections_json=json.dumps(_sections(
+            "new-material", name="Смесь", unit="кг", item_type="material"
+        ), ensure_ascii=False),
     )
     row.update(overrides)
     return row
@@ -269,6 +276,28 @@ class EstimateRowTransferPureAuditTests(unittest.TestCase):
         self.assertEqual(result["state"], "blocked")
         self.assertEqual(result["reasonCode"], "mapping_source_identity_invalid")
 
+    def test_supply_target_must_be_explicit_material_row(self):
+        result = classify_target_mapping(
+            supply_reconciliation_row(
+                target_sections_json=json.dumps(
+                    _sections("new-material", name="Смесь", unit="кг"),
+                    ensure_ascii=False,
+                ),
+            ),
+            {
+                "sourceKind": "supply",
+                "sourceId": 61,
+                "requestItemIndex": 0,
+                "targetSectionIndex": 0,
+                "targetItemIndex": 0,
+                "targetItemKey": "new-material",
+                "quantity": 3,
+            },
+        )
+
+        self.assertEqual(result["state"], "blocked")
+        self.assertEqual(result["reasonCode"], "target_not_explicit_material")
+
     def test_open_supply_item_reports_unreceived_balance_but_requires_snapshot_review(self):
         deliveries = [{
             "delivery_id": 81,
@@ -379,6 +408,20 @@ class EstimateRowTransferPureAuditTests(unittest.TestCase):
 
         self.assertEqual(report["summary"]["supplyCandidates"], 0)
         self.assertEqual(report["reasonCounts"], {"exact_target_mapping_required": 1})
+
+    def test_delivery_chain_status_is_blocked_until_projection_can_avoid_double_count(self):
+        report = build_impact_report(
+            supply_reconciliation_row(),
+            [],
+            [supply_request_row(request_status="В пути")],
+            [],
+        )
+
+        self.assertEqual(report["summary"]["supplyCandidates"], 0)
+        self.assertEqual(
+            report["needsReview"][0]["reasonCode"],
+            "supply_projection_status_unsupported",
+        )
 
     def test_supply_lineage_project_must_match_stored_project(self):
         items = json.loads(supply_request_row()["items_json"])

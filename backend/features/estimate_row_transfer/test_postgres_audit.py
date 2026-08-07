@@ -402,6 +402,7 @@ class EstimateRowTransferPostgresTests(unittest.TestCase):
             "name": "Fixture",
             "items": [{
                 "name": "Old mix", "unit": "kg", "quantity": 10,
+                "itemType": "material",
                 "estimateItemKey": marker + "-source",
             }],
         }]
@@ -409,6 +410,7 @@ class EstimateRowTransferPostgresTests(unittest.TestCase):
             "name": "Fixture",
             "items": [{
                 "name": "New mix", "unit": "kg", "quantity": 10,
+                "itemType": "material",
                 "estimateItemKey": marker + "-target",
             }],
         }]

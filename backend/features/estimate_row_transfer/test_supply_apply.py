@@ -5,6 +5,7 @@ from decimal import Decimal
 from backend.features.brigade_lineage.canonical import sections_sha256
 from backend.features.estimate_row_transfer.plan import (
     build_reviewed_plan,
+    calculate_plan_sha256,
     normalize_draft_payload,
 )
 from backend.features.estimate_row_transfer.supply_apply import (
@@ -28,7 +29,9 @@ def supply_plan():
         "reconciliationId": 9,
         "entries": [supply_mapping()],
     })["entries"]
-    source_sections = _sections("old-material", name="Смесь", unit="кг")
+    source_sections = _sections(
+        "old-material", name="Смесь", unit="кг", item_type="material"
+    )
     snapshots = {(61, 0, 71): {
         "estimateId": 14,
         "estimateVersionId": 71,
@@ -114,7 +117,9 @@ def delivery_row(quantity="2", **overrides):
 
 
 def snapshot(version_id, estimate_id, item_key):
-    sections = _sections(item_key, name="Смесь", unit="кг")
+    sections = _sections(
+        item_key, name="Смесь", unit="кг", item_type="material"
+    )
     return {
         "id": version_id,
         "estimate_id": estimate_id,
@@ -186,7 +191,6 @@ class SupplyApplyPreparationTests(unittest.TestCase):
             entry["sourceAvailableQuantity"] = "7"
             entry["quantity"] = "3"
             stored["canonicalPlan"]["planSha256"] = ""
-            from backend.features.estimate_row_transfer.plan import calculate_plan_sha256
             stored["canonicalPlan"]["planSha256"] = calculate_plan_sha256(stored["canonicalPlan"])
             stored["approvedPlanSha256"] = stored["canonicalPlan"]["planSha256"]
         values = {
@@ -219,6 +223,30 @@ class SupplyApplyPreparationTests(unittest.TestCase):
         self.assertEqual(operation["target"]["unit"], "кг")
         self.assertEqual(operation["target"]["estimateId"], 15)
 
+    def test_rejects_target_row_not_explicitly_marked_as_material(self):
+        sections = _sections("new-material", name="Смесь", unit="кг")
+        work_hash = sections_sha256(sections)
+        work_target = {
+            "id": 72,
+            "estimate_id": 15,
+            "sections_json": json.dumps(sections, ensure_ascii=False),
+            "sections_sha256": work_hash,
+        }
+        stored = approved_stored_supply_plan()
+        plan = stored["canonicalPlan"]
+        plan["targetSnapshot"]["sectionsSha256"] = work_hash
+        plan["entries"][0]["target"]["sectionsSha256"] = work_hash
+        plan["planSha256"] = ""
+        plan["planSha256"] = calculate_plan_sha256(plan)
+        stored["approvedPlanSha256"] = plan["planSha256"]
+
+        with self.assertRaisesRegex(SupplyApplyError, "supply_target_not_material"):
+            self._prepare(
+                stored=stored,
+                supply_entries=[supply_entry_row(plan)],
+                target_snapshot=work_target,
+            )
+
     def test_prior_allocation_is_subtracted_from_open_balance(self):
         operation = self._prepare(include_prior=True)[0]
 
@@ -230,6 +258,16 @@ class SupplyApplyPreparationTests(unittest.TestCase):
             self._prepare(deliveries=[delivery_row("3")])
         with self.assertRaisesRegex(SupplyApplyError, "supply_request_status_closed"):
             self._prepare(requests=[request_row(status="Поставлено")])
+
+    def test_duplicate_project_identity_after_approval_fails_closed(self):
+        with self.assertRaisesRegex(
+            SupplyApplyError,
+            "supply_request_project_identity_ambiguous",
+        ):
+            self._prepare(requests=[
+                request_row(project_id=99),
+                request_row(),
+            ])
 
     def test_ambiguous_delivery_allocation_and_overallocation_fail_closed(self):
         source = supply_request_row()

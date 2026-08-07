@@ -14,6 +14,7 @@ from ..brigade_lineage.snapshot_service import (
     resolve_snapshot_item,
 )
 from ..supply_estimate_refresh.service import OPEN_SUPPLY_STATUSES
+from .policy import ALLOCATABLE_SUPPLY_STATUSES, is_explicit_material_item
 
 
 PREVIEW_LIMIT = 100
@@ -347,6 +348,10 @@ def _supply_descriptors(context, request, deliveries, allocations=None):
         return [], [_blocked("supply", request_id, "supply_request_package_mismatch")]
     if _text(request.get("request_status")) not in OPEN_SUPPLY_STATUSES:
         return [], []
+    if _text(request.get("request_status")) not in ALLOCATABLE_SUPPLY_STATUSES:
+        return [], [_blocked(
+            "supply", request_id, "supply_projection_status_unsupported"
+        )]
     if _text(request.get("request_project")) != context["projectName"]:
         return [], [_blocked("supply", request_id, "supply_request_project_mismatch")]
     items = _parse_items(request.get("items_json"))
@@ -596,6 +601,13 @@ def classify_target_mapping(reconciliation, mapping):
             "sourceId": source_id,
             "state": "blocked",
             "reasonCode": "target_" + resolution_error.replace("source_", "", 1),
+        }
+    if source_kind == "supply" and not is_explicit_material_item(resolved.item):
+        return {
+            "sourceKind": source_kind,
+            "sourceId": source_id,
+            "state": "blocked",
+            "reasonCode": "target_not_explicit_material",
         }
     result = {
         "sourceKind": source_kind,

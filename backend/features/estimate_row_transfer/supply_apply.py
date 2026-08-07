@@ -15,6 +15,7 @@ from ..brigade_lineage.snapshot_service import (
 )
 from ..supply_estimate_refresh.service import OPEN_SUPPLY_STATUSES
 from .plan import calculate_plan_sha256
+from .policy import ALLOCATABLE_SUPPLY_STATUSES, is_explicit_material_item
 
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -99,7 +100,7 @@ def _quantity_text(value):
     return normalized.rstrip("0").rstrip(".") if "." in normalized else normalized
 
 
-def _canonical_item_snapshot(item):
+def canonical_request_item_snapshot(item):
     try:
         payload = json.dumps(
             item,
@@ -228,6 +229,8 @@ def _request_item(request, planned, context, source_resolved, deliveries):
         raise SupplyApplyError("supply_request_owner_mismatch")
     if (request or {}).get("status") not in OPEN_SUPPLY_STATUSES:
         raise SupplyApplyError("supply_request_status_closed")
+    if (request or {}).get("status") not in ALLOCATABLE_SUPPLY_STATUSES:
+        raise SupplyApplyError("supply_projection_status_unsupported")
     if ((request or {}).get("work_package") or "Основная") != context["workPackage"]:
         raise SupplyApplyError("supply_request_package_mismatch")
     items = _parse_items((request or {}).get("items_json"))
@@ -318,7 +321,7 @@ def _request_item(request, planned, context, source_resolved, deliveries):
     )
     if received > requested:
         raise SupplyApplyError("supply_received_exceeds_requested")
-    snapshot_json, snapshot_sha = _canonical_item_snapshot(item)
+    snapshot_json, snapshot_sha = canonical_request_item_snapshot(item)
     return {
         "snapshot": json.loads(snapshot_json),
         "snapshotSha256": snapshot_sha,
@@ -365,6 +368,8 @@ def prepare_supply_allocations(
 
     requests_by_id = {(row or {}).get("id"): row for row in requests or ()}
     request_ids = {identity[0] for identity in planned_by_identity}
+    if len(requests_by_id) != len(requests or ()):
+        raise SupplyApplyError("supply_request_project_identity_ambiguous")
     if set(requests_by_id) != request_ids:
         raise SupplyApplyError("supply_request_not_found")
     deliveries_by_request = defaultdict(list)
@@ -399,6 +404,8 @@ def prepare_supply_allocations(
             {**target_expected, **target},
             prefix="supply_target",
         )
+        if not is_explicit_material_item(target_resolved.item):
+            raise SupplyApplyError("supply_target_not_material")
         request_state = _request_item(
             requests_by_id[identity[0]],
             planned,

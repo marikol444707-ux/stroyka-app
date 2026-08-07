@@ -4,7 +4,7 @@ import json
 from collections import defaultdict
 from decimal import Decimal, InvalidOperation
 
-from .supply_apply import _canonical_item_snapshot
+from .supply_apply import SupplyApplyError, canonical_request_item_snapshot
 
 
 def _row_value(row, key, index):
@@ -24,12 +24,23 @@ def _non_negative_int(value):
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
 
 
-def _quantity_text(value):
+def _quantity_decimal(value, *, positive):
     try:
         number = Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError):
         return None
-    if not number.is_finite() or number <= 0 or number.as_tuple().exponent < -6:
+    if (
+        not number.is_finite()
+        or (number <= 0 if positive else number < 0)
+        or number.as_tuple().exponent < -6
+    ):
+        return None
+    return number
+
+
+def _quantity_text(value, *, positive=True):
+    number = _quantity_decimal(value, positive=positive)
+    if number is None:
         return None
     normalized = format(number.normalize(), "f")
     return normalized.rstrip("0").rstrip(".") if "." in normalized else normalized
@@ -45,7 +56,25 @@ def _items(value):
 
 def _public_allocation(row, live_items):
     item_index = _non_negative_int(row.get("request_item_index"))
+    requested = _quantity_decimal(row.get("requested_quantity"), positive=True)
+    received = _quantity_decimal(row.get("received_quantity"), positive=False)
+    prior = _quantity_decimal(
+        row.get("previously_allocated_quantity"), positive=False
+    )
+    allocated = _quantity_decimal(row.get("allocation_quantity"), positive=True)
+    remaining = _quantity_decimal(
+        row.get("remaining_unallocated_quantity"), positive=False
+    )
+    quantities_valid = (
+        all(value is not None for value in (
+            requested, received, prior, allocated, remaining,
+        ))
+        and requested == received + prior + allocated + remaining
+    )
     quantity = _quantity_text(row.get("allocation_quantity"))
+    remaining_quantity = _quantity_text(
+        row.get("remaining_unallocated_quantity"), positive=False
+    )
     required_positive_ids = (
         "entry_id", "plan_id", "source_estimate_id",
         "source_estimate_version_id", "target_estimate_id",
@@ -58,6 +87,7 @@ def _public_allocation(row, live_items):
     valid_shape = (
         item_index is not None
         and quantity is not None
+        and quantities_valid
         and all(_positive_int(row.get(key)) for key in required_positive_ids)
         and all(_non_negative_int(row.get(key)) is not None for key in required_indexes)
         and all(
@@ -78,8 +108,8 @@ def _public_allocation(row, live_items):
             reason = "request_item_snapshot_invalid"
         else:
             try:
-                _payload, digest = _canonical_item_snapshot(live_items[item_index])
-            except Exception:
+                _payload, digest = canonical_request_item_snapshot(live_items[item_index])
+            except SupplyApplyError:
                 reason = "request_item_snapshot_invalid"
             else:
                 if digest == row.get("request_item_sha256"):
@@ -94,6 +124,7 @@ def _public_allocation(row, live_items):
         "state": state,
         "reasonCode": reason,
         "quantity": quantity,
+        "remainingQuantity": remaining_quantity if quantities_valid else None,
         "sourceEstimateId": row.get("source_estimate_id"),
         "sourceEstimateVersionId": row.get("source_estimate_version_id"),
         "sourceSectionIndex": row.get("source_section_index"),
@@ -139,7 +170,9 @@ def attach_supply_allocation_projection(cur, visible_rows):
                   source_item_index,source_item_key,target_estimate_id,
                   target_estimate_version_id,target_section_index,
                   target_item_index,target_item_key,target_material_name,
-                  target_unit,target_work_package,allocation_quantity,applied_at
+                  target_unit,target_work_package,requested_quantity,
+                  received_quantity,previously_allocated_quantity,
+                  allocation_quantity,remaining_unallocated_quantity,applied_at
              FROM public.estimate_row_supply_allocations
             WHERE request_id=ANY(%s) AND company_id=ANY(%s)
             ORDER BY request_id,request_item_index,id""",

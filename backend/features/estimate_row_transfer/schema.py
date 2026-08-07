@@ -909,7 +909,9 @@ SUPPLY_ALLOCATION_GUARD_FUNCTION = """
 CREATE FUNCTION public.guard_estimate_row_supply_allocation()
 RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
+    live_items JSONB;
     live_item JSONB;
+    live_project_name TEXT;
     live_received NUMERIC;
     live_prior NUMERIC;
 BEGIN
@@ -918,8 +920,10 @@ BEGIN
           USING ERRCODE='23514';
     END IF;
 
-    SELECT sr.items_json::jsonb -> NEW.request_item_index
-      INTO live_item
+    SELECT sr.items_json::jsonb,
+           sr.items_json::jsonb -> NEW.request_item_index,
+           sr.project
+      INTO live_items,live_item,live_project_name
       FROM public.supply_requests sr
       JOIN public.projects project_owner
         ON project_owner.id=NEW.project_id
@@ -930,8 +934,7 @@ BEGIN
        AND COALESCE(NULLIF(sr.work_package,''),'Основная')=
            NEW.target_work_package
        AND COALESCE(sr.status,'') IN (
-           'Новая','Подтверждена прорабом','Утверждена','КП запрошены',
-           'В пути','Частично поставлено','Проблема поставки','Утверждено'
+           'Новая','Подтверждена прорабом','Утверждена','КП запрошены'
        );
 
     SELECT COALESCE(SUM(allocation.allocation_quantity),0)
@@ -966,7 +969,7 @@ BEGIN
        OR live_item->>'sourceType'<>'estimate_material_control'
        OR live_item #>> '{estimateLineage,version}'<>'1'
        OR live_item #>> '{estimateLineage,validated}'<>'true'
-       OR live_item #>> '{estimateLineage,projectName}' IS NULL
+       OR live_item #>> '{estimateLineage,projectName}'<>live_project_name
        OR COALESCE(NULLIF(live_item->>'workPackage',''),'Основная')
             <>NEW.target_work_package
        OR COALESCE(NULLIF(live_item #>> '{estimateLineage,workPackage}',''),'Основная')
@@ -985,6 +988,41 @@ BEGIN
        OR live_item #>> '{estimateLineage,sources,0,unit}'
             <>COALESCE(live_item->>'unit','')
        OR (live_item->>'quantity')::numeric<>NEW.requested_quantity
+       OR (
+           EXISTS (
+               SELECT 1 FROM public.supply_deliveries delivery
+                WHERE delivery.request_id=NEW.request_id
+                  AND delivery.material_name=
+                      COALESCE(live_item->>'materialName',live_item->>'name','')
+                  AND delivery.unit=COALESCE(live_item->>'unit','')
+           )
+           AND (
+               SELECT COUNT(*)
+                 FROM jsonb_array_elements(
+                     CASE WHEN jsonb_typeof(live_items)='array'
+                          THEN live_items ELSE '[]'::jsonb END
+                 ) candidate
+                WHERE COALESCE(candidate->>'materialName',candidate->>'name','')=
+                      COALESCE(live_item->>'materialName',live_item->>'name','')
+                  AND COALESCE(candidate->>'unit','')=
+                      COALESCE(live_item->>'unit','')
+           )<>1
+       )
+       OR (
+           SELECT COUNT(*)
+             FROM jsonb_array_elements(
+                 CASE WHEN jsonb_typeof(live_items)='array'
+                      THEN live_items ELSE '[]'::jsonb END
+             ) candidate
+             CROSS JOIN LATERAL jsonb_array_elements(
+                 CASE WHEN jsonb_typeof(candidate #> '{estimateLineage,sources}')='array'
+                      THEN candidate #> '{estimateLineage,sources}'
+                      ELSE '[]'::jsonb END
+             ) candidate_source
+            WHERE (candidate_source->>'estimateId')::integer=NEW.source_estimate_id
+              AND (candidate_source->>'sectionIndex')::integer=NEW.source_section_index
+              AND (candidate_source->>'itemIndex')::integer=NEW.source_item_index
+       )<>1
        OR NOT EXISTS (
            SELECT 1
              FROM public.estimate_row_transfer_entries entry
@@ -1030,16 +1068,34 @@ BEGIN
               AND plan.target_estimate_id=NEW.target_estimate_id
               AND source_version.estimate_id=NEW.source_estimate_id
               AND source_version.sections_sha256=NEW.source_sections_sha256
+              AND source_version.sections_json::jsonb #>> ARRAY[
+                    NEW.source_section_index::text,'items',
+                    NEW.source_item_index::text,'name'
+                  ]=COALESCE(live_item->>'materialName',live_item->>'name','')
+              AND COALESCE(source_version.sections_json::jsonb #>> ARRAY[
+                    NEW.source_section_index::text,'items',
+                    NEW.source_item_index::text,'unit'
+                  ],'шт')=COALESCE(live_item->>'unit','')
               AND target_version.estimate_id=NEW.target_estimate_id
               AND target_version.sections_sha256=NEW.target_sections_sha256
               AND target_version.sections_json::jsonb #>> ARRAY[
                     NEW.target_section_index::text,'items',
                     NEW.target_item_index::text,'name'
                   ]=NEW.target_material_name
-              AND COALESCE(target_version.sections_json::jsonb #>> ARRAY[
+              AND LOWER(BTRIM(COALESCE(
+                    target_version.sections_json::jsonb #>> ARRAY[
+                      NEW.target_section_index::text,'items',
+                      NEW.target_item_index::text,'itemType'
+                    ],
+                    target_version.sections_json::jsonb #>> ARRAY[
+                      NEW.target_section_index::text,'items',
+                      NEW.target_item_index::text,'type'
+                    ],''
+                  ))) IN ('material','materials','материал','материалы')
+              AND COALESCE(NULLIF(target_version.sections_json::jsonb #>> ARRAY[
                     NEW.target_section_index::text,'items',
                     NEW.target_item_index::text,'unit'
-                  ],'шт')=NEW.target_unit
+                  ],''),'шт')=NEW.target_unit
        ) THEN
         RAISE EXCEPTION 'estimate_row_supply_allocation_invalid'
           USING ERRCODE='23514';
