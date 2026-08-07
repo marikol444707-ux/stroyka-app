@@ -5551,12 +5551,12 @@ the approval kernel and `13` named PostgreSQL/HTTP integration scenarios.
 Missing, duplicated, renamed or additional entrypoints fail closed. A fresh
 dedicated UTF-8 PostgreSQL cluster passed all `7/7` tests, including concurrency,
 idempotency, rollback, protected-history and a final green read-only gate whose
-receipt count was unchanged. Focused E6 discovery passes `114` tests with `7`
-expected no-DSN skips; full backend discovery passes `1595` tests with `21`
+receipt count was unchanged. Focused E6 discovery passes `115` tests with `7`
+expected no-DSN skips; full backend discovery passes `1596` tests with `21`
 guarded skips; all `78` frontend suites / `325` tests and the optimized
 production build pass. Compilation and `git diff --check` are clean.
 
-**Implementation commits:** `910fb9ce`, `aff86523`, `9965cf6e`.
+**Implementation commits:** `910fb9ce`, `aff86523`, `9965cf6e`, `0efb6f29`.
 
 **Next action:** Push the reviewed E6.4.3 commits, then use a separate production
 deploy checkpoint. After deployment run the public smoke and
