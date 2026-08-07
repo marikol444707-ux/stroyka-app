@@ -15,6 +15,7 @@ from backend.features.estimate_row_transfer.assignment_apply import (
 )
 from backend.features.estimate_row_transfer.audit import run_impact_audit
 from backend.features.estimate_row_transfer.plan import normalize_draft_payload
+from backend.features.estimate_row_transfer.readiness_report import run_readiness_report
 from backend.features.estimate_row_transfer.schema import run_schema_migration
 from backend.features.estimate_row_transfer.service import build_current_plan
 from backend.features.estimate_row_transfer.supply_apply import (
@@ -1110,6 +1111,36 @@ class EstimateRowTransferPostgresTests(unittest.TestCase):
                 (fixture["planId"],),
             )
             self.assertEqual(cur.fetchone()[0], 0)
+
+    def test_zzzzz_cutover_readiness_is_clean_for_pending_and_applied_plans(self):
+        before = self._counts()
+
+        global_report = run_readiness_report(
+            lambda: psycopg2.connect(POSTGRES_TEST_DSN)
+        )
+        with self.admin.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """SELECT id,plan_sha256
+                     FROM public.estimate_row_transfer_plans
+                    WHERE status='approved'
+                    ORDER BY id DESC LIMIT 1"""
+            )
+            exact = dict(cur.fetchone())
+        exact_report = run_readiness_report(
+            lambda: psycopg2.connect(POSTGRES_TEST_DSN),
+            plan_id=exact["id"],
+            expected_plan_sha256=exact["plan_sha256"],
+        )
+
+        self.assertTrue(global_report["readyForCutover"], global_report)
+        self.assertTrue(global_report["schemaReady"])
+        self.assertTrue(global_report["ledgerReady"])
+        self.assertTrue(global_report["writerInventoryReady"])
+        self.assertEqual(global_report["writesAttempted"], 0)
+        self.assertTrue(global_report["rolledBack"])
+        self.assertTrue(exact_report["readyForCutover"], exact_report)
+        self.assertTrue(exact_report["ledgerAudit"]["exactPlanReady"])
+        self.assertEqual(before, self._counts())
 
 
 if __name__ == "__main__":
