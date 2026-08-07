@@ -5417,9 +5417,9 @@ inventory remains exact `3/3` with zero E6 runtime DML. The service stayed
 active and final public smoke passed. No project budget or other business row
 was changed. E6.2 is closed in production.
 
-**Next action:** Continue with E6.4.2: register the leadership-only approval and
-bounded history routes around the proven transactional kernel, without enabling
-any automatic apply path.
+**Next action:** Continue with E6.4.3: add the exact route/integration-test
+inventory and rolled-back ledger readiness gate before any production deploy of
+the approval route.
 
 ### Task E6.3: Tenant-Bound Read-Only Preview
 
@@ -5475,12 +5475,12 @@ everything, inserts the immutable receipt and applies only its delta once.
 
 **Acceptance criteria:**
 
-- [ ] Event insert and project-budget update commit or roll back together;
+- [x] Event insert and project-budget update commit or roll back together;
   duplicate approval is idempotent and conflicting/stale evidence is `409`.
-- [ ] Dedicated PostgreSQL tests prove concurrent double-click safety and
+- [x] Dedicated PostgreSQL tests prove concurrent double-click safety and
   byte-for-byte unchanged payment, work, act, supply, invoice and warehouse
   history.
-- [ ] Tenant-bound history is bounded/newest-first, and the exact static writer
+- [x] Tenant-bound history is bounded/newest-first, and the exact static writer
   inventory permits only the receipt insert and guarded budget update added by
   E6.
 
@@ -5508,10 +5508,36 @@ backend discovery passes `1566` tests with `20` expected guarded skips. No API
 route is registered, so this kernel is not reachable in production and no
 production schema or business row was changed in E6.4.1.
 
-**Next action:** Implement E6.4.2 test-first: leadership-only exact-hash POST
-approval and tenant-bound bounded/newest-first history GET, with fixed errors
-and authenticated missing-ID smoke. E6.4.3 remains the production-enablement
-gate for exact integration-test inventory and rolled-back ledger readiness.
+**Local implementation evidence (E6.4.2):** The authenticated POST at
+`/estimate-reconciliations/{id}/budget-adjustment-approval` accepts exactly one
+lowercase SHA-256 field and derives company, actor and every amount server-side.
+It resolves one selected-company director/deputy, then the E6.4.1 kernel
+revalidates that active membership in PostgreSQL. The route owns a bounded
+`SERIALIZABLE` transaction, commits only a new event/budget pair, rolls back an
+idempotent repeat, and maps missing, forbidden, stale, schema and write-conflict
+paths to fixed public codes.
+
+The leadership-only GET at `/projects/{id}/budget-adjustments` runs in a
+rolled-back `REPEATABLE READ` read-only transaction. It verifies the project
+through `project_id + company_id`, returns an exact 17-field event allowlist,
+orders by descending immutable ID and supports `beforeId` cursor pagination
+with `limit <= 100`. Foreign and missing projects share the same `404`.
+Unauthenticated production smoke contracts cover both routes. A five-axis
+review found and fixed two FastAPI pre-handler validation leaks so missing body
+and out-of-range history queries preserve fixed error codes.
+
+Focused E6 discovery passes `98` tests with six guarded PostgreSQL skips; full
+backend discovery passes `1579` tests with `20` expected guarded skips. The
+static gate reports exact `4/4` project-budget writers, exactly two reviewed E6
+DML statements and zero violations, and the optimized production build
+compiles successfully. Ordinary manual initial budget editing and all automatic
+estimate/reconciliation flows remain unchanged. Nothing was deployed and no
+production schema or business row was changed in E6.4.2.
+
+**Next action:** Implement E6.4.3 test-first: exact route/integration-test
+inventory plus a bounded, read-only, always-rolled-back ledger readiness report.
+Only a green gate may authorize a later production deploy; do not manufacture
+an approved reconciliation for smoke.
 
 **Dependencies:** E6.3 preview contract production-green.
 
