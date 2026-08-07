@@ -2,8 +2,9 @@
 
 ## Status
 
-Accepted on 2026-08-07. E5.1 through E5.3 are complete in production. E5.4
-server-lineage and backend-query cutover is next and remains disabled.
+Accepted on 2026-08-07. E5.1 through E5.3 are complete in production. E5.4 is
+implemented and fully verified locally in `2be1e1bf` and `c9bd2c92`; production
+deployment and the post-deploy read-only audit remain pending.
 
 ## Objective
 
@@ -31,18 +32,17 @@ selects an active estimate or grants ownership after E5 cutover.
 5. Production contains no synthetic reconciliation or transfer plan for E5.
    Any schema or data apply discovered by the audit is a separate guarded step.
 
-## Current Risk
+## Original Risk
 
-The estimate API reads `estimates.company_id` but omits it from the response.
-The frontend active-estimate selector currently accepts an estimate when
-either its project name matches or its project ID matches. The E5.1 static
-inventory also found five backend active-estimate boundaries that still use
-`project_name`: supply material control, linked-work control, project AI
-control, estimate activation and material-norm suggestions.
+Before E5.2, the estimate API read `estimates.company_id` but omitted it from
+the response, and the frontend selector accepted a matching project name or
+project ID. The E5.1 static inventory also found five backend active-estimate
+boundaries using `project_name`: supply material control, linked-work control,
+project AI control, estimate activation and material-norm suggestions.
 
-In an all-companies view, two projects called `Школа` can therefore select or
+In an all-companies view, two projects called `Школа` could therefore select or
 recalculate against the wrong company's active estimate even though both
-stored owner IDs are available. This is a tenant-isolation bug, not a display
+stored owner IDs were available. This was a tenant-isolation bug, not a display
 ambiguity.
 
 ## Ownership Contract
@@ -204,6 +204,37 @@ because credentials were not supplied; authentication behavior was unchanged
 and protected public routes remained fail-closed. No schema or business-row
 apply belonged to E5.3.
 
+### E5.4 Local Evidence
+
+Material-control request lineage is now version `2`. Each request and item
+carries canonical `companyId`, `projectId`, `projectName`, work package and
+exact estimate/section/item coordinates. The server resolves the project
+inside the selected company, reloads every source estimate and validates its
+owner, active state, package, coordinates, material identity and quantity
+before the request insert. Legacy, ownerless, tampered, stale and foreign
+claims fail closed. The advisory source-coordinate lock, active-request
+conflict scan and insert share one explicit transaction so duplicate checks are
+serialized. The real-PostgreSQL concurrency proof remains the E5.5 gate.
+
+The five accepted backend boundaries now select active estimates with
+parameterized stored `company_id + project_id`. Exact IDs also flow through
+open-request refresh, project AI control, activation exclusivity and
+material-norm generation. Norm-derived estimates and supply requests store the
+resolved company/project owner, and the frontend sends IDs only from one
+unambiguous stored project.
+
+The E5 static inventory reports exactly `6` reviewed candidates,
+`ownerScopedCount=6`, `nameScopedCount=0` and no violations. The full backend
+suite passes `1470` tests with `10` guarded PostgreSQL skips; frontend passes
+`325/325` in `78/78` suites; Python compilation and the production build pass.
+The local read-only audit attempted zero writes and rolled back. Its runtime
+inventory is ready; its overall data gate remains false only because the local
+developer database intentionally has the older pre-owner schema. No schema or
+business-row apply belongs to E5.4.
+
+Production deployment, public smoke and the production read-only report are
+the remaining E5.4 evidence before E5.5 begins.
+
 ## Commands
 
 ```bash
@@ -237,6 +268,8 @@ npm run build
 
 - `backend/features/material_control_ownership/` — read-only owner audit and
   exact backend selection helpers.
+- `backend/features/supply_lineage/` — versioned exact request lineage and
+  fail-closed source-row validation.
 - `backend/main.py` — existing estimate response and supply-control integration
   points, kept narrow until their route family is extracted.
 - `src/features/estimates/projectEstimateRuntime.jsx` — active-estimate

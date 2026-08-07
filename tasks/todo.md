@@ -4993,16 +4993,17 @@ authoritative accepted contract is
 `docs/active-estimate-material-control-ownership.md`.
 
 **Status:** Contract accepted on 2026-08-07. E5.1 through E5.3 are complete in
-production; E5.4 server-lineage and backend-query cutover is next. No schema or
-business rows changed in E5.3.
+production. E5.4 is implemented and fully verified locally in commits
+`2be1e1bf` and `c9bd2c92`; production deployment/audit evidence is still
+pending. No E5.4 schema or business-row apply is required.
 
-**Observed risk:** The estimate query already reads `company_id` but its public
-payload omits `companyId`; frontend active selection accepts either a matching
-name or project ID. The E5.1 inventory found that selector plus five backend
-name-scoped boundaries: supply material control, linked-work control, project
-AI control, estimate activation and material-norm suggestions. An
-all-companies view can therefore mix identically named projects across
-companies.
+**Original observed risk:** The estimate query read `company_id` but its public
+payload omitted `companyId`; frontend active selection accepted either a
+matching name or project ID. The E5.1 inventory found that selector plus five
+backend name-scoped boundaries: supply material control, linked-work control,
+project AI control, estimate activation and material-norm suggestions. Before
+E5.4, an all-companies view could therefore mix identically named projects
+across companies.
 
 ### Task E5.1: Read-Only Owner Readiness
 
@@ -5123,12 +5124,36 @@ remained fail-closed. No schema or business-row apply was required.
 
 **Acceptance criteria:**
 
-- [ ] Versioned material-control lineage includes company/project IDs and exact
+- [x] Versioned material-control lineage includes company/project IDs and exact
   estimate row coordinates; the server resolves and validates every owner.
-- [ ] Active-estimate material-control SQL filters by stored company/project IDs
+- [x] Active-estimate material-control SQL filters by stored company/project IDs
   and never grants scope from project-name equality.
-- [ ] Tampered, stale, ownerless and cross-company payloads fail before writes;
+- [x] Tampered, stale, ownerless and cross-company payloads fail before writes;
   repeated valid requests retain existing idempotency behavior.
+
+**Local evidence (2026-08-07):** Material-control request lineage is version
+`2`, carries the exact owner and source row coordinates, and is re-resolved
+against the selected company, stored project and active estimate before any
+business insert. Malformed, legacy, stale and foreign payload tests pass. The
+lineage advisory lock, conflict scan and request insert now share one explicit
+transaction; a source coordinate remains the idempotency key.
+
+All five backend active-estimate boundaries and the frontend selector now use
+stored owner IDs. Supply refresh propagates both IDs, AI control and estimate
+activation use parameterized `company_id + project_id`, and material-norm
+generation/derived estimates resolve exact server-side owners. The static
+inventory reports `candidateCount=6`, `ownerScopedCount=6`,
+`nameScopedCount=0` and zero violations.
+
+The full backend suite passes `1470` tests with `10` guarded PostgreSQL skips;
+the full frontend suite passes `325/325` tests in `78/78` suites; Python
+compilation and the production build pass. The local read-only audit attempted
+zero writes and rolled back. Its runtime inventory is ready, while its overall
+`readyForCutover=false` is the expected result from the deliberately old local
+schema (`dataReady=false`); production already passed that data/schema portion
+under E5.3 and must be audited again after deployment.
+
+**Implementation commits:** `2be1e1bf`, `c9bd2c92`.
 
 **Estimated scope:** M per backend slice; any schema/data apply is separately
 planned and requires explicit review.
