@@ -5,6 +5,7 @@ import json
 import psycopg2.extras
 
 from .audit import build_budget_adjustment_readiness
+from .writer_inventory import audit_writer_inventory
 
 
 MAX_PROJECT_ROWS = 50000
@@ -167,7 +168,12 @@ def collect_baseline_readiness(
     return report
 
 
-def run_readiness_report(get_db, *, collect_data=collect_baseline_readiness):
+def run_readiness_report(
+    get_db,
+    *,
+    collect_data=collect_baseline_readiness,
+    collect_inventory=audit_writer_inventory,
+):
     conn = get_db()
     cur = None
     try:
@@ -179,16 +185,25 @@ def run_readiness_report(get_db, *, collect_data=collect_baseline_readiness):
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         data = collect_data(cur)
         conn.rollback()
+        inventory = collect_inventory()
+        audit_ok = bool(data.get("ok") and inventory.get("ok"))
+        inventory_ready = bool(inventory.get("writerInventoryReady"))
         return {
-            "ok": bool(data.get("ok")),
+            "ok": audit_ok,
             "dryRun": True,
             "readOnlyTransaction": True,
             "writesAttempted": 0,
             "schemaReady": bool(data.get("schemaReady")),
             "budgetColumnExact": bool(data.get("budgetColumnExact")),
             "dataReady": bool(data.get("dataReady")),
-            "readyForSchemaPlan": bool(data.get("readyForSchemaPlan")),
+            "writerInventoryReady": inventory_ready,
+            "readyForSchemaPlan": bool(
+                audit_ok
+                and data.get("readyForSchemaPlan")
+                and inventory_ready
+            ),
             "baselineAudit": data,
+            "writerInventory": inventory,
             "rolledBack": True,
         }
     except Exception:

@@ -224,6 +224,10 @@ class BudgetAdjustmentReadinessRunnerTests(unittest.TestCase):
                 "dataReady": True,
                 "readyForSchemaPlan": True,
             },
+            collect_inventory=lambda: {
+                "ok": True,
+                "writerInventoryReady": True,
+            },
         )
 
         self.assertEqual(connection.session, {
@@ -236,6 +240,7 @@ class BudgetAdjustmentReadinessRunnerTests(unittest.TestCase):
         self.assertTrue(cursor.closed)
         self.assertTrue(connection.closed)
         self.assertTrue(report["ok"])
+        self.assertTrue(report["writerInventoryReady"])
         self.assertTrue(report["readyForSchemaPlan"])
         self.assertTrue(report["readOnlyTransaction"])
         self.assertEqual(report["writesAttempted"], 0)
@@ -251,11 +256,36 @@ class BudgetAdjustmentReadinessRunnerTests(unittest.TestCase):
                 collect_data=lambda _cur: (_ for _ in ()).throw(
                     RuntimeError("boom")
                 ),
+                collect_inventory=lambda: {},
             )
 
         self.assertEqual(connection.rollbacks, 1)
         self.assertTrue(cursor.closed)
         self.assertTrue(connection.closed)
+
+    def test_writer_drift_blocks_schema_plan_without_changing_audit_ok(self):
+        cursor = FakeCursor(())
+        connection = FakeConnection(cursor)
+
+        report = run_readiness_report(
+            lambda: connection,
+            collect_data=lambda _cur: {
+                "ok": True,
+                "dataReady": True,
+                "readyForSchemaPlan": True,
+            },
+            collect_inventory=lambda: {
+                "ok": False,
+                "writerInventoryReady": False,
+                "violations": [{"reasonCode": "writer_drift"}],
+            },
+        )
+
+        self.assertFalse(report["ok"])
+        self.assertFalse(report["writerInventoryReady"])
+        self.assertFalse(report["readyForSchemaPlan"])
+        self.assertEqual(report["writesAttempted"], 0)
+        self.assertEqual(connection.rollbacks, 1)
 
     def test_package_exposes_read_only_audit_command(self):
         package = json.loads(Path("package.json").read_text(encoding="utf-8"))
