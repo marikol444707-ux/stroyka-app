@@ -5639,3 +5639,193 @@ closed in production.
 **Dependencies:** E6.1-E6.5 complete.
 
 **Estimated scope:** M, release gate only.
+
+## Task A7: Estimate-Revision Impact Shadow Analysis
+
+**Status:** Planned on 2026-08-08. The prerequisite estimate-lineage track
+E3-E6 is production-green. Implementation must remain deterministic and
+read-only at the business-data boundary; recommendation generation starts only
+in A8 and later tasks.
+
+**Objective:** After one exact customer-estimate revision is activated, produce
+a tenant-bound, versioned shadow report showing what may be affected across
+assignments, materials, open supply, linked warehouse history and project
+economics. Preserve every existing approval/apply boundary from E3-E6 and never
+convert an impact observation into a transfer, order, stock movement or budget
+change.
+
+**Architecture decisions:**
+
+- The authoritative identity is `company_id + project_id + estimate_id +`
+  canonical source revision plus one exact stored reconciliation; names and
+  fuzzy row matching are never ownership or lineage evidence.
+- One `REPEATABLE READ`, read-only transaction collects all domain evidence and
+  always rolls back. Domain collectors return immutable facts to a pure report
+  builder; they do not call HTTP routes or mutation services.
+- The report is a fixed allowlist containing schema/source IDs, domain states,
+  bounded counts and fixed reason codes. It excludes estimate descriptions,
+  commercial notes, personal data, model prompts and mutable recommendations.
+- A future queue run uses a distinct `estimate.revision_impact` job contract.
+  It is not added to the daily timer or generic daemon, and the activation
+  handoff remains shadow-only unless separate apply and company-allowlist
+  controls are both enabled.
+- Queue/result writes are operational audit records only. Project, estimate,
+  assignment, work/act/payment, supply, invoice, warehouse and budget tables
+  must remain byte-for-byte unchanged during every A7 run.
+
+### Task A7.1: Exact Source Contract And Baseline Audit
+
+**Description:** Resolve one activation to its stored company, project,
+customer estimate, canonical revision and exact reconciliation. Report missing,
+duplicate, cross-owner, package/type, status and source-revision drift through
+fixed reason codes without scanning unrelated tenants or enabling runtime work.
+
+**Acceptance criteria:**
+
+- [ ] Strict positive IDs and a canonical SHA-256 source revision bind the
+  activation, estimate and reconciliation; project/estimate names are output-
+  only and therefore omitted from the report.
+- [ ] Zero, duplicate, foreign or drifted sources fail closed before domain
+  collectors run; diagnostics are ID-only and capped at 100 items.
+- [ ] The operator command uses one read-only transaction, attempts zero writes
+  and always rolls back; it has no startup, deploy, route, queue or model hook.
+
+**Verification:** Pure contract/classifier tests, fake-DB transaction tests,
+one disposable PostgreSQL same-name/cross-company fixture, full backend
+regression, compilation and `git diff --check`.
+
+**Dependencies:** E3-E6 production cutover complete.
+
+**Files likely touched:**
+
+- `backend/features/estimate_revision_impact/contract.py`
+- `backend/features/estimate_revision_impact/baseline.py`
+- `backend/features/estimate_revision_impact/test_contract.py`
+- `backend/features/estimate_revision_impact/test_baseline.py`
+- `package.json`
+
+**Estimated scope:** M, first inert checkpoint.
+
+### Task A7.2: Assignment And Protected-History Projection
+
+**Description:** From the exact base/next pair, classify immutable brigade
+assignment exposure and the work-journal, hidden-act, brigade-act and payment
+history that must remain protected. Reuse E3 lineage semantics and E4 balance
+rules without drafting a mapping or invoking an apply service.
+
+**Acceptance criteria:**
+
+- [ ] Only exact stored snapshot coordinates/keys count as assignment lineage;
+  explicit legacy, missing, stale or cross-owner evidence becomes review state.
+- [ ] The report separates uncompleted exposure from protected confirmed work,
+  acts and payments using bounded counts and IDs, with no prices or free text.
+- [ ] Tests prove zero INSERT/UPDATE/DELETE and unchanged protected-history
+  snapshots under success, blocker and rollback paths.
+
+**Verification:** Focused pure/collector tests plus disposable PostgreSQL
+rollback and same-name tenant isolation.
+
+**Dependencies:** A7.1 source contract.
+
+**Estimated scope:** M.
+
+### Task A7.3: Material, Supply And Warehouse Projection
+
+**Description:** Compare exact material-plan identities for the base/next
+revision, then classify open supply balances and their saved allocation,
+delivery, invoice, receipt-line, lot and movement evidence. A matching material
+name never substitutes for stored lineage.
+
+**Acceptance criteria:**
+
+- [ ] Material differences are keyed by exact estimate/package/section/item
+  identity and confirmed aliases; ambiguous norm/unit/package rows require
+  review instead of being aggregated.
+- [ ] Supply exposure includes only tenant/project/package-bound open balances
+  after saved deliveries/allocations; closed or protected history is reported
+  but never rewritten.
+- [ ] Warehouse exposure follows explicit request/invoice-line/lot/movement
+  links only, and missing lineage produces fixed reasons with no stock action.
+
+**Verification:** Focused domain tests, cross-company collision fixtures,
+protected-table snapshots and bounded-query assertions.
+
+**Dependencies:** A7.1 source contract; E4/E5 cutover contracts remain
+authoritative.
+
+**Estimated scope:** M per domain increment; split material and
+supply/warehouse implementation commits if either exceeds five files.
+
+### Task A7.4: Project Economics And Combined Shadow Result
+
+**Description:** Add the exact E6 before/delta/after eligibility projection and
+compose all domain facts into one deterministic report. This task never invokes
+budget approval and never treats a draft reconciliation as approved.
+
+**Acceptance criteria:**
+
+- [ ] Economics uses exact decimal values and the current stored project budget;
+  unauthorized, unapproved, zero-delta, stale or already-applied sources remain
+  explicit non-actionable states.
+- [ ] The combined result has a versioned fixed allowlist, deterministic order,
+  per-domain completeness, bounded previews and one hash of the canonical
+  source/evidence envelope.
+- [ ] Any incomplete/truncated/drifted domain makes the overall report
+  non-actionable while preserving all valid domain facts.
+
+**Verification:** Golden-hash tests, exact-money edge cases, domain-failure
+matrix and real-PostgreSQL read-only rollback proof.
+
+**Dependencies:** A7.2-A7.3.
+
+**Estimated scope:** M.
+
+### Task A7.5: Controlled Queue Handler And Shadow Handoff
+
+**Description:** Add a bounded `estimate.revision_impact` execution contract,
+handler and dry-run-first producer. An optional post-commit activation handoff
+may enqueue only the exact validated revision when both a dedicated apply flag
+and strict company allowlist are enabled; execution remains an exact-job
+one-shot until A7.6 is production-green.
+
+**Acceptance criteria:**
+
+- [ ] The handler revalidates queue-owned company/project/source identities,
+  runs only the A7.4 read-only collector and returns only its public allowlist;
+  no model or external delivery is available.
+- [ ] Dry-run attempts zero writes; explicit apply makes one idempotent queue
+  attempt. Default registry/timer/generic daemon behavior remains unchanged.
+- [ ] Repeated activation, deactivation, stale revision, foreign company and
+  post-commit failures are fail-soft and cannot affect the committed estimate.
+
+**Verification:** Registry/producer/handler/handoff tests, exact-job runner
+test, disabled-default inventory and one reversible local queue canary.
+
+**Dependencies:** A7.4 combined result and existing A6 post-commit pattern.
+
+**Estimated scope:** Two M commits: inert handler/producer, then guarded
+handoff.
+
+### Task A7.6: Final Shadow Cutover Evidence
+
+**Description:** Combine source/data/report/writer/handler/handoff/test gates in
+one bounded read-only readiness report, then deploy and run one separately
+reviewed production canary without manufacturing reconciliation data.
+
+**Acceptance criteria:**
+
+- [ ] Static inventory permits only the reviewed operational queue/result
+  writes and proves zero business-table DML, no model, no notification and no
+  automatic apply endpoint.
+- [ ] Real PostgreSQL proves rollback, same-name tenant isolation,
+  idempotency/concurrency and byte-for-byte unchanged protected tables.
+- [ ] Production service/smoke/readiness are green before a genuine source is
+  considered for an exact one-shot shadow canary; absence of a genuine source
+  is a valid no-canary outcome and no fixture is created.
+
+**Verification:** Focused/full backend and frontend regression, build, public
+smoke, exact production readiness audit and before/after business-row counts.
+
+**Dependencies:** A7.1-A7.5 complete.
+
+**Estimated scope:** M, release gate only.
