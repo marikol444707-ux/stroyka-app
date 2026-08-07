@@ -32,19 +32,24 @@ import {
   estimateChangesForNewEstimateFromList,
   includableEstimateChangesForProject,
 } from '../../utils/estimateChangeUtils';
-import { isLeadershipUser } from '../../utils/accessUtils';
+import { canManageEstimateForContext } from './estimateAccess';
 
 export function createProjectEstimateRuntime({
   ESTIMATE_PACKAGES,
   activeTabActions,
   approveEstimateReconciliation,
+  approveProjectBudgetAdjustment,
+  companyContext,
   createEstimateChangeFromComparisonRow,
   createEstimateReconciliation,
   estimateChangeForComparisonRow,
   estimateReconciliationsForProject,
   estimatesList,
+  loadBudgetAdjustmentPreview,
+  loadProjectBudgetAdjustments,
   openEstimateReconciliationPreview,
   openProjectEstimateDiffSummary,
+  onBudgetAdjustmentApplied,
   projects,
   rooms,
   roomDoors,
@@ -86,9 +91,14 @@ export function createProjectEstimateRuntime({
         projectEstimates={projectEstimates}
         estimatePackage={estimatePackage}
         estimateTotal={estimateTotal}
-        canApprove={isLeadershipUser(user)}
+        canApprove={canManageEstimateForContext(user, companyContext)}
+        canAdjustBudget={canManageEstimateForContext(user, companyContext)}
         onApprove={approveEstimateReconciliation}
+        onApproveBudgetAdjustment={approveProjectBudgetAdjustment}
+        onBudgetAdjustmentApplied={onBudgetAdjustmentApplied}
         onCreate={createEstimateReconciliation}
+        onLoadBudgetAdjustmentHistory={loadProjectBudgetAdjustments}
+        onLoadBudgetAdjustmentPreview={loadBudgetAdjustmentPreview}
         onOpenPreview={openEstimateReconciliationPreview}
         onOpenProjectSummary={openProjectEstimateDiffSummary}
       />

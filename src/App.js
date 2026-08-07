@@ -166,6 +166,7 @@ function App() {
   const appBusinessRuntime = useAppBusinessRuntime({
     API,
     user,
+    companyContext,
     constants: {
       ESTIMATE_PACKAGES,
       EXPENSE_CATEGORIES

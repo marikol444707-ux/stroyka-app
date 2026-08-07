@@ -5,6 +5,7 @@ import { createAiTaskActions } from '../ai-control/aiTaskActions';
 import { createDirectorDashboardActions } from '../dashboard/directorDashboardActions';
 import { createProjectDashboardRuntime } from '../dashboard/projectDashboardRuntime';
 import { createEstimateWorkflowActions } from '../estimates/estimateWorkflowActions';
+import { createProjectBudgetAdjustmentActions } from '../estimates/projectBudgetAdjustmentActions';
 import { createProjectEstimateRuntime } from '../estimates/projectEstimateRuntime';
 import { createMaterialControlActions } from '../material-control/materialControlActions';
 import { createMaterialRuntime, createMaterialRuntimeCache } from '../material-control/materialRuntime';
@@ -29,6 +30,7 @@ import { createAppRoleRuntime } from './appShellSelectors';
 export function useAppBusinessRuntime({
   API,
   user: authUser,
+  companyContext,
   constants,
   appMainState,
   coreRuntime,
@@ -237,6 +239,15 @@ export function useAppBusinessRuntime({
     estimateChangeForComparisonRow,
     createEstimateChangeFromComparisonRow
   } = estimateWorkflowActions;
+  const projectBudgetAdjustmentActions = createProjectBudgetAdjustmentActions({
+    API,
+    apiAuthHeaders,
+  });
+  const {
+    approveProjectBudgetAdjustment,
+    loadBudgetAdjustmentPreview,
+    loadProjectBudgetAdjustments,
+  } = projectBudgetAdjustmentActions;
   const projectEstimateRuntime = createProjectEstimateRuntime({
     ESTIMATE_PACKAGES,
     activeTabActions: {
@@ -246,6 +257,8 @@ export function useAppBusinessRuntime({
       }
     },
     approveEstimateReconciliation,
+    approveProjectBudgetAdjustment,
+    companyContext,
     createEstimateChangeFromComparisonRow,
     createEstimateReconciliation,
     estimateChangeForComparisonRow,
@@ -254,6 +267,9 @@ export function useAppBusinessRuntime({
     estimatesList,
     openEstimateReconciliationPreview,
     openProjectEstimateDiffSummary,
+    loadBudgetAdjustmentPreview,
+    loadProjectBudgetAdjustments,
+    onBudgetAdjustmentApplied: () => refreshData(),
     projects,
     rooms,
     roomDoors,

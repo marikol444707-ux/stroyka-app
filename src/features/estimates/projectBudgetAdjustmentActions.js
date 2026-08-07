@@ -29,7 +29,7 @@ const moneyToCents = (value, {signed = false} = {}) => {
   if (value === '-0.00') return null;
   const negative = value.startsWith('-');
   const [whole, decimal] = (negative ? value.slice(1) : value).split('.');
-  const cents = BigInt(whole) * 100n + BigInt(decimal);
+  const cents = Number(whole) * 100 + Number(decimal);
   return negative ? -cents : cents;
 };
 

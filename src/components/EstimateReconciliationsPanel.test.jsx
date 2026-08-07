@@ -38,4 +38,43 @@ describe('EstimateReconciliationsPanel', () => {
 
     expect(onOpenProjectSummary).toHaveBeenCalledWith('Лицей', [{base, next:active}]);
   });
+
+  it('keeps reconciliation approval separate from budget adjustment approval', () => {
+    const onApprove = jest.fn();
+    const onLoadBudgetAdjustmentPreview = jest.fn();
+    const draft = {
+      id:8,
+      status:'Черновик',
+      baseEstimateId:1,
+      nextEstimateId:2,
+      baseEstimateName:'База',
+      nextEstimateName:'Редакция',
+    };
+
+    render(
+      <EstimateReconciliationsPanel
+        project={{id:7,name:'Лицей'}}
+        reconciliations={[draft]}
+        projectEstimates={[]}
+        estimatePackage={row => row.workPackage}
+        estimateTotal={() => 0}
+        canApprove
+        canAdjustBudget
+        onApprove={onApprove}
+        onCreate={jest.fn()}
+        onOpenPreview={jest.fn()}
+        onOpenProjectSummary={jest.fn()}
+        onLoadBudgetAdjustmentPreview={onLoadBudgetAdjustmentPreview}
+        onApproveBudgetAdjustment={jest.fn()}
+        onLoadBudgetAdjustmentHistory={jest.fn()}
+        onBudgetAdjustmentApplied={jest.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', {name:'Утвердить'}));
+
+    expect(onApprove).toHaveBeenCalledWith(draft);
+    expect(onLoadBudgetAdjustmentPreview).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', {name:/Рассчитать по сверке/})).not.toBeInTheDocument();
+  });
 });

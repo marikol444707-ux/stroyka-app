@@ -3,6 +3,7 @@ import { Check, Eye, FileSpreadsheet, GitBranch, Printer } from 'lucide-react';
 import { C, badge, btnB, btnGr, btnO, card } from '../constants/uiTheme';
 import { projectEstimateRevisionPairs } from '../utils/estimateDiffDocumentUtils';
 import { estimateReconciliationStatusView } from '../utils/statusMetaUtils';
+import ProjectBudgetAdjustmentPanel from './ProjectBudgetAdjustmentPanel';
 
 export default function EstimateReconciliationsPanel({
   project,
@@ -11,8 +12,13 @@ export default function EstimateReconciliationsPanel({
   estimatePackage,
   estimateTotal,
   canApprove,
+  canAdjustBudget,
   onApprove,
+  onApproveBudgetAdjustment,
+  onBudgetAdjustmentApplied,
   onCreate,
+  onLoadBudgetAdjustmentHistory,
+  onLoadBudgetAdjustmentPreview,
   onOpenPreview,
   onOpenProjectSummary,
 }) {
@@ -54,6 +60,15 @@ export default function EstimateReconciliationsPanel({
           </div>
         </div>
       )}
+      <ProjectBudgetAdjustmentPanel
+        project={project}
+        approvedReconciliations={recs.filter(rec=>rec.status==='Утверждена')}
+        canManage={canAdjustBudget}
+        onLoadPreview={onLoadBudgetAdjustmentPreview}
+        onApprove={onApproveBudgetAdjustment}
+        onLoadHistory={onLoadBudgetAdjustmentHistory}
+        onApplied={onBudgetAdjustmentApplied}
+      />
       {recs.length===0?(
         <div style={{...card,padding:'26px',textAlign:'center',color:C.textMuted}}>
           Сверок смет по объекту пока нет. Загрузите новую редакцию сметы или создайте сверку из пары выше.

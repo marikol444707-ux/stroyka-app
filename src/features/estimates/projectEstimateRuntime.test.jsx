@@ -1,3 +1,5 @@
+import React from 'react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { createProjectEstimateRuntime } from './projectEstimateRuntime';
 import {
   immutableStoredProjectOwner,
@@ -6,7 +8,7 @@ import {
   uniqueStoredProjectForName,
 } from './projectEstimateOwnership';
 
-const createRuntime = (estimatesList) => createProjectEstimateRuntime({
+const createOwnershipRuntime = (estimatesList) => createProjectEstimateRuntime({
   ESTIMATE_PACKAGES: ['Основная'],
   estimatesList,
   projects: [],
@@ -80,7 +82,7 @@ describe('active estimate project ownership', () => {
   test('isolates same-name customer and material estimates by company and project IDs', () => {
     const firstProject = { id: 11, companyId: 1, name: 'Школа' };
     const secondProject = { id: 22, companyId: 2, name: 'Школа' };
-    const runtime = createRuntime([
+    const runtime = createOwnershipRuntime([
       activeEstimate({ id: 101, companyId: 1, projectId: 11 }),
       activeEstimate({ id: 102, companyId: 1, projectId: 11, smetaType: 'Материалы' }),
       activeEstimate({ id: 201, companyId: 2, projectId: 22 }),
@@ -95,7 +97,7 @@ describe('active estimate project ownership', () => {
 
   test('fails closed for missing, malformed, or mismatched stored owners', () => {
     const project = { id: 11, companyId: 1, name: 'Школа' };
-    const runtime = createRuntime([
+    const runtime = createOwnershipRuntime([
       activeEstimate({ id: 1, companyId: null, projectId: 11 }),
       activeEstimate({ id: 2, companyId: true, projectId: 11 }),
       activeEstimate({ id: 3, companyId: [1], projectId: 11 }),
@@ -109,7 +111,7 @@ describe('active estimate project ownership', () => {
 
   test('accepts canonical positive decimal string IDs', () => {
     const project = { id: '11', companyId: '1', name: 'Школа' };
-    const runtime = createRuntime([
+    const runtime = createOwnershipRuntime([
       activeEstimate({ id: 101, companyId: 1, projectId: 11 }),
     ]);
 
@@ -118,11 +120,78 @@ describe('active estimate project ownership', () => {
 
   test('fails closed when an owner has duplicate active estimates in one package', () => {
     const project = { id: 11, companyId: 1, name: 'Школа' };
-    const runtime = createRuntime([
+    const runtime = createOwnershipRuntime([
       activeEstimate({ id: 101, companyId: 1, projectId: 11 }),
       activeEstimate({ id: 102, companyId: 1, projectId: 11 }),
     ]);
 
     expect(runtime.activeEstimatesForProject(project)).toEqual([]);
+  });
+});
+
+const budgetProject = {id:14,companyId:4,name:'Лицей'};
+const approvedReconciliation = {
+  id:15,
+  status:'Утверждена',
+  baseEstimateId:100,
+  nextEstimateId:101,
+  baseEstimateName:'База',
+  nextEstimateName:'Редакция',
+};
+
+const createBudgetRuntime = ({user, companyContext, loadBudgetAdjustmentPreview = jest.fn()} = {}) => (
+  createProjectEstimateRuntime({
+    ESTIMATE_PACKAGES:[],
+    activeTabActions:{openEstimateChanges:jest.fn()},
+    approveEstimateReconciliation:jest.fn(),
+    approveProjectBudgetAdjustment:jest.fn(),
+    companyContext,
+    createEstimateChangeFromComparisonRow:jest.fn(),
+    createEstimateReconciliation:jest.fn(),
+    estimateChangeForComparisonRow:jest.fn(),
+    estimateReconciliationsForProject:jest.fn(() => [approvedReconciliation]),
+    estimatesList:[],
+    loadBudgetAdjustmentPreview,
+    loadProjectBudgetAdjustments:jest.fn(),
+    openEstimateReconciliationPreview:jest.fn(),
+    openProjectEstimateDiffSummary:jest.fn(),
+    onBudgetAdjustmentApplied:jest.fn(),
+    projects:[budgetProject],
+    rooms:[],
+    roomDoors:[],
+    roomWindows:[],
+    showPreview:jest.fn(),
+    unexpectedWorksList:[],
+    user,
+    visibleEstimatesForCurrentUser:rows=>rows,
+    workJournal:[],
+    workJournalEstimateStatusMeta:jest.fn(),
+  })
+);
+
+describe('project estimate runtime budget adjustment access', () => {
+  it('uses the selected-company role and does not inherit a global director role', () => {
+    const runtime = createBudgetRuntime({
+      user:{role:'директор'},
+      companyContext:{mode:'company',selectedCompany:{companyId:4,role:'сметчик'}},
+    });
+
+    render(runtime.renderEstimateReconciliationsPanel(budgetProject));
+
+    expect(screen.queryByText('Изменение бюджета')).not.toBeInTheDocument();
+  });
+
+  it('wires the preview action for a leader of the selected company', () => {
+    const loadBudgetAdjustmentPreview = jest.fn(() => new Promise(()=>{}));
+    const runtime = createBudgetRuntime({
+      user:{role:'client_account_owner'},
+      companyContext:{mode:'company',selectedCompany:{companyId:4,role:'директор'}},
+      loadBudgetAdjustmentPreview,
+    });
+
+    render(runtime.renderEstimateReconciliationsPanel(budgetProject));
+    fireEvent.click(screen.getByRole('button', {name:/Рассчитать по сверке № 15/}));
+
+    expect(loadBudgetAdjustmentPreview).toHaveBeenCalledWith(15);
   });
 });
