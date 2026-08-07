@@ -114,6 +114,24 @@ def write(cur):
             {item["reasonCode"] for item in report["violations"]},
         )
 
+    def test_schema_trigger_update_or_delete_clause_is_not_runtime_dml(self):
+        report = audit_writer_inventory(
+            source_files={
+                "backend/features/projects/routes.py": PROJECT_ROUTES,
+                "backend/features/crm/routes.py": CRM_ROUTES,
+                "backend/features/project_budget_adjustments/schema.py": """
+TRIGGER_SQL = '''
+CREATE TRIGGER immutable BEFORE UPDATE OR DELETE
+ON public.project_budget_adjustments FOR EACH ROW EXECUTE FUNCTION guard()
+'''
+""",
+            },
+            enforce_complete_inventory=True,
+        )
+
+        self.assertTrue(report["writerInventoryReady"], report["violations"])
+        self.assertEqual(report["e6DmlStatements"], 0)
+
     def test_parse_failure_is_a_blocker(self):
         report = audit_writer_inventory(
             source_files={"backend/broken.py": "def broken(:\n"},

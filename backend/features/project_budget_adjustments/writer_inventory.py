@@ -144,12 +144,17 @@ def _e6_dml(path, owned_strings):
     for symbol, values in owned_strings.items():
         for line, value in values:
             for match in _DML_RE.finditer(value):
+                operation = match.group(1).lower().split()[0]
+                table = match.group(2).lower()
+                if operation == "update" and table == "or":
+                    # PostgreSQL trigger event syntax: BEFORE UPDATE OR DELETE.
+                    continue
                 statements.append({
                     "file": path,
                     "symbol": symbol,
                     "line": line,
-                    "operation": match.group(1).lower().split()[0],
-                    "table": match.group(2).lower(),
+                    "operation": operation,
+                    "table": table,
                 })
     return statements
 
