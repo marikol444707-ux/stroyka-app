@@ -5,6 +5,7 @@ import json
 import psycopg2.extras
 
 from .audit import build_owner_readiness
+from .cutover_inventory import audit_cutover_inventory
 from .inventory import audit_runtime_inventory
 
 
@@ -133,6 +134,7 @@ def run_readiness_report(
     *,
     collect_data=collect_owner_readiness,
     collect_inventory=audit_runtime_inventory,
+    collect_writer_inventory=audit_cutover_inventory,
 ):
     conn = get_db()
     cur = None
@@ -146,11 +148,17 @@ def run_readiness_report(
         data = collect_data(cur)
         conn.rollback()
         inventory = collect_inventory()
-        audit_ok = bool(data.get("ok") and inventory.get("ok"))
+        writer_inventory = collect_writer_inventory()
+        audit_ok = bool(
+            data.get("ok")
+            and inventory.get("ok")
+            and writer_inventory.get("ok")
+        )
         ready = bool(
             audit_ok
             and data.get("dataReady")
             and inventory.get("runtimeInventoryReady")
+            and writer_inventory.get("writerInventoryReady")
         )
         return {
             "ok": audit_ok,
@@ -163,6 +171,10 @@ def run_readiness_report(
                 inventory.get("runtimeInventoryReady")
             ),
             "runtimeInventory": inventory,
+            "writerInventoryReady": bool(
+                writer_inventory.get("writerInventoryReady")
+            ),
+            "writerInventory": writer_inventory,
             "readyForCutover": ready,
             "rolledBack": True,
         }

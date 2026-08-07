@@ -180,6 +180,10 @@ class MaterialControlReadinessRunnerTests(unittest.TestCase):
             lambda: connection,
             collect_data=lambda _cur: data,
             collect_inventory=lambda: inventory,
+            collect_writer_inventory=lambda: {
+                "ok": True,
+                "writerInventoryReady": True,
+            },
         )
 
         self.assertEqual(connection.session, {
@@ -213,6 +217,31 @@ class MaterialControlReadinessRunnerTests(unittest.TestCase):
         self.assertEqual(connection.rollbacks, 1)
         self.assertTrue(cursor.closed)
         self.assertTrue(connection.closed)
+
+    def test_writer_inventory_must_be_exact_before_cutover(self):
+        cursor = FakeCursor(())
+        connection = FakeConnection(cursor)
+
+        report = run_readiness_report(
+            lambda: connection,
+            collect_data=lambda _cur: {"ok": True, "dataReady": True},
+            collect_inventory=lambda: {
+                "ok": True,
+                "runtimeInventoryReady": True,
+            },
+            collect_writer_inventory=lambda: {
+                "ok": True,
+                "writerInventoryReady": False,
+                "violations": [{"reasonCode": "integration_check_missing"}],
+            },
+        )
+
+        self.assertTrue(report["ok"])
+        self.assertTrue(report["runtimeInventoryReady"])
+        self.assertFalse(report["writerInventoryReady"])
+        self.assertFalse(report["readyForCutover"])
+        self.assertEqual(report["writesAttempted"], 0)
+        self.assertTrue(report["rolledBack"])
 
 
 if __name__ == "__main__":
