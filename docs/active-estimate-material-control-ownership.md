@@ -3,8 +3,8 @@
 ## Status
 
 Accepted on 2026-08-07. E5.1 is complete in production. E5.2 API and strict
-frontend discovery are in implementation; later runtime and backend-query
-cutovers remain disabled.
+frontend discovery are implemented and locally verified; their production
+release is pending. Later runtime and backend-query cutovers remain disabled.
 
 ## Objective
 
@@ -142,6 +142,22 @@ active projects and `15` active estimates. It found exactly the accepted six
 name-scoped boundaries and returned `readOnlyTransaction=true`,
 `writesAttempted=0` and `rolledBack=true`. `runtimeInventoryReady=false` and
 `readyForCutover=false` were the expected pre-E5.2 state, not audit failures.
+
+### E5.2 Local Evidence And Expected Production Result
+
+The shared list/summary/detail estimate mapper now exposes its already-selected
+stored `companyId`. Frontend discovery uses one pure positive-ID owner matcher,
+requires the exact company/project tuple and rejects conflicting names,
+malformed IDs and duplicate active estimates within one kind/package group.
+
+The focused E5 package passes `15` tests with one guarded PostgreSQL skip; the
+focused frontend ownership/material consumers pass `22/22`. Full backend
+discovery passes `1461` tests with `10` guarded skips, full frontend Jest passes
+`313/313` in `77/77` suites, and the production build succeeds. Static inventory
+now reports the expected intermediate state: `candidateCount=6`,
+`ownerScopedCount=1`, `nameScopedCount=5` and only the five accepted backend
+violations. Therefore `runtimeInventoryReady=false` remains expected until the
+E5.4 backend-query cutover.
 
 ## Commands
 

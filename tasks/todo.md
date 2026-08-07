@@ -5038,12 +5038,32 @@ expected pre-cutover result.
 
 **Acceptance criteria:**
 
-- [ ] Estimate list, summary and detail responses include the stored
+- [x] Estimate list, summary and detail responses include the stored
   `companyId` while preserving authorization and all existing fields.
-- [ ] Material-control discovery requires exact positive company/project IDs;
+- [x] Material-control discovery requires exact positive company/project IDs;
   missing or mismatched owners fail closed without a name fallback.
-- [ ] Frontend tests use two same-name projects in different companies and
+- [x] Frontend tests use two same-name projects in different companies and
   prove that each sees only its own active customer/material estimate.
+
+**Local evidence (2026-08-07):** TDD reproduced the cross-company collision,
+ownerless/malformed acceptance and duplicate-active selection before the fix.
+The shared estimate response mapper now exposes stored `companyId`; all three
+API surfaces are statically bound to that mapper and continue to use the
+existing visibility filters. The pure frontend matcher accepts only canonical
+positive decimal integer IDs, requires exact company/project ownership, rejects
+a conflicting supplied name and omits duplicate active kind/package groups.
+
+Focused E5 discovery passes `15` tests with one guarded PostgreSQL skip; the
+three focused frontend suites pass `22/22`. Full backend discovery passes `1461`
+tests with `10` guarded skips, full frontend Jest passes `313/313` in `77/77`
+suites, Python compilation and the production build pass. Static inventory now
+reports the deliberate intermediate state `6` candidates, `1` owner-scoped
+frontend selector and the remaining `5` name-scoped backend boundaries. No
+schema, business row, auth rule, SQL predicate or dependency changed.
+
+**Release state:** Production deploy, public smoke and the post-deploy read-only
+audit are pending. Keep Task E5.2 open in `tasks/plan.md` until that evidence is
+captured.
 
 **Estimated scope:** M, no schema or business writes.
 
