@@ -4995,8 +4995,9 @@ authoritative accepted contract is
 **Status:** Contract accepted on 2026-08-07. E5.1 through E5.4 are complete in
 production. Runtime `d0f52ad81832` passed atomic deploy, service health, public
 smoke and the read-only ownership audit with all `6/6` boundaries owner-scoped
-and `readyForCutover=true`. E5.5 is the remaining real-PostgreSQL and final
-release-evidence gate. No E5.4 schema or business-row apply was required.
+and `readyForCutover=true`. E5.5 implementation and local evidence are complete;
+its production deploy, public smoke and final read-only audit remain. No E5.4
+schema or business-row apply was required.
 
 **Original observed risk:** The estimate query read `company_id` but its public
 payload omitted `companyId`; frontend active selection accepted either a
@@ -5176,11 +5177,40 @@ planned and requires explicit review.
 
 **Acceptance criteria:**
 
-- [ ] Real PostgreSQL tests prove same-name cross-company isolation, rollback
+- [x] Real PostgreSQL tests prove same-name cross-company isolation, rollback
   and unchanged protected history.
-- [ ] The final bounded report is read-only and returns
+- [x] The final bounded report is read-only and returns
   `readyForCutover=true` only when data and writer inventories are exact.
 - [ ] Deployment, public smoke and the production audit pass before E5 closes;
   no synthetic production business data is created.
+
+**Local evidence (2026-08-07):** The final static gate inventories exactly five
+reviewed E5 DML statements and requires five named real-PostgreSQL integration
+checks. It rejects writer drift, protected-history mutation, missing integration
+coverage and writers placed in nested E5 modules. The readiness command combines
+this exact writer gate with the existing data and runtime inventories while
+remaining bounded, read-only, repeatable-read, zero-write and always rolled
+back.
+
+A dedicated PostgreSQL 15 `e5_*` database ran all `5/5` integration cases. Two
+companies with the same project name selected only their own active estimates;
+a foreign lineage failed before insert; two concurrent identical valid requests
+serialized to exactly one created row and one `409`; and SHA-256 snapshots of
+work journal, acts, warehouse, delivery, supplier, invoice and payment history
+remained unchanged. The final report returned all three gates ready without
+including the collision name or business payload.
+
+After the recursive-inventory review, the focused E5 package passes `26` tests
+with only the five opt-in PostgreSQL cases skipped in the ordinary environment.
+Full backend discovery passes `1479` tests with `14` guarded skips; frontend
+passes `325/325` tests in `78/78` suites; Python compilation and the production
+build pass. The local audit reports the exact `5/5` writer/test inventory and
+zero violations; its overall data gate remains false only because the local
+developer database intentionally has the older schema. No dependency file,
+schema or business row changed. The existing CRA dependency tree still reports
+`17` high npm advisories and requires a separately planned breaking toolchain
+migration; E5.5 introduces none of them.
+
+**Implementation commits:** `fe3b77e3`, `4dd2fa7f`, `8973fd45`.
 
 **Estimated scope:** M, read-only release gate.

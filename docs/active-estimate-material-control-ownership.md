@@ -5,8 +5,8 @@
 Accepted on 2026-08-07. E5.1 through E5.4 are complete in production. Runtime
 `d0f52ad81832` passed atomic deploy, service health, public smoke and the
 read-only ownership audit with all `6/6` runtime boundaries owner-scoped and
-`readyForCutover=true`. E5.5 is the remaining real-PostgreSQL and final
-release-evidence gate.
+`readyForCutover=true`. E5.5 implementation and local release evidence are
+complete; its production deploy, public smoke and final read-only audit remain.
 
 ## Objective
 
@@ -216,7 +216,7 @@ owner, active state, package, coordinates, material identity and quantity
 before the request insert. Legacy, ownerless, tampered, stale and foreign
 claims fail closed. The advisory source-coordinate lock, active-request
 conflict scan and insert share one explicit transaction so duplicate checks are
-serialized. The real-PostgreSQL concurrency proof remains the E5.5 gate.
+serialized. E5.5 now supplies the real-PostgreSQL concurrency proof.
 
 The five accepted backend boundaries now select active estimates with
 parameterized stored `company_id + project_id`. Exact IDs also flow through
@@ -247,6 +247,48 @@ violations. The resulting `readyForCutover=true` closes E5.4 without a schema
 or business-row apply. Authenticated protected checks were skipped because
 credentials were not supplied; the unauthenticated route contract remained
 fail-closed.
+
+### E5.5 Local Evidence And Production Gate
+
+The final cutover report now adds an import-free static inventory of the exact
+E5 mutation surface. It permits exactly five reviewed DML statements, requires
+five named real-PostgreSQL checks, recursively scans the E5 production packages
+and fails closed on writer drift, missing integration coverage or any mutation
+of protected operational/accounting history. The top-level gate can return
+`readyForCutover=true` only when owner data, all six runtime boundaries and this
+writer/test inventory are simultaneously ready. Its database work remains one
+read-only repeatable-read transaction which always rolls back and reports zero
+writes.
+
+A dedicated PostgreSQL 15 database named with the mandatory `e5_*` prefix ran
+all `5/5` integration cases. Two companies with the same project name resolved
+only their own active estimates. A foreign estimate lineage failed before the
+request insert. Two concurrent requests for one exact source coordinate
+serialized to one created row and one `409`, with no duplicate. SHA-256
+snapshots covering work journal, hidden-work acts, warehouse history, payments,
+deliveries, offers and invoices were unchanged after both rollback and
+concurrency cases. The final audit was read-only, returned every gate ready and
+did not expose the fixture project name or estimate content.
+
+After the recursive-inventory review, the ordinary focused E5 package passes
+`26` tests with the five opt-in PostgreSQL cases guarded. Full backend discovery
+passes `1479` tests with `14` guarded skips; frontend passes `325/325` tests in
+`78/78` suites; Python compilation and the optimized production build pass. The
+local audit reports the exact five DML statements, five required integration
+checks and zero violations. Its overall owner-data gate remains false only
+because the local developer database intentionally has the older schema. The
+existing CRA dependency tree reports `17` high npm advisories whose complete
+fix requires a separately planned breaking `react-scripts` migration; E5.5
+changes no dependency file and introduces none of those advisories.
+
+Production needs no schema migration, data remediation or synthetic business
+row. Deploy the inert code, require an active service and passing public smoke,
+then run `npm run audit:material-control-ownership`. E5 closes only if production
+again reports `dataReady=true`, `runtimeInventoryReady=true`,
+`writerInventoryReady=true`, exact writer/test counts of `5/5`, zero violations,
+`writesAttempted=0`, `rolledBack=true` and `readyForCutover=true`.
+
+**Implementation commits:** `fe3b77e3`, `4dd2fa7f`, `8973fd45`.
 
 ## Commands
 
