@@ -2,20 +2,13 @@
 
 import re
 
+from .approval_errors import BudgetAdjustmentApprovalError
 from .preview import BudgetAdjustmentPreviewError
 from .preview_service import build_budget_adjustment_preview
 
 
 PLAN_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 LEADERSHIP_ROLES = {"директор", "зам_директора"}
-
-
-class BudgetAdjustmentApprovalError(RuntimeError):
-    """Fixed-code approval failure safe to map at a later HTTP boundary."""
-
-    def __init__(self, code):
-        self.code = str(code)
-        super().__init__(self.code)
 
 
 def _positive_int(value):

@@ -2,7 +2,7 @@
 
 from decimal import Decimal, InvalidOperation
 
-from .approval import BudgetAdjustmentApprovalError
+from .approval_errors import BudgetAdjustmentApprovalError
 from .preview_storage import load_budget_adjustment_source
 
 
@@ -26,6 +26,17 @@ def lock_budget_adjustment_source(
     source_loader=load_budget_adjustment_source,
 ):
     """Lock project, all project estimates by ID, then reconciliation."""
+
+    cur.execute(
+        "SELECT current_setting('transaction_isolation') AS isolation_level"
+    )
+    isolation = cur.fetchone()
+    if not isolation or str(isolation.get("isolation_level") or "").lower() != (
+        "serializable"
+    ):
+        raise BudgetAdjustmentApprovalError(
+            "budget_adjustment_serializable_required"
+        )
 
     cur.execute(
         """SELECT base_estimate.project_id,

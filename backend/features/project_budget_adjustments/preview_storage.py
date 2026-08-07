@@ -24,6 +24,7 @@ def load_budget_adjustment_source(cur, reconciliation_id, company_id):
           base_estimate.status AS base_status,
           base_estimate.smeta_type AS base_type,
           base_estimate.work_package AS base_package,
+          base_estimate.total AS base_stored_total,
           base_estimate.sections_json AS base_sections_json,
           next_estimate.id AS stored_next_estimate_id,
           next_estimate.company_id AS next_company_id,
@@ -31,6 +32,7 @@ def load_budget_adjustment_source(cur, reconciliation_id, company_id):
           next_estimate.status AS next_status,
           next_estimate.smeta_type AS next_type,
           next_estimate.work_package AS next_package,
+          next_estimate.total AS next_stored_total,
           next_estimate.sections_json AS next_sections_json,
           receipt.id AS existing_adjustment_id,
           (

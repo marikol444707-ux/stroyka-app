@@ -33,6 +33,7 @@ class FakeCursor:
 class BudgetAdjustmentApprovalStorageTests(unittest.TestCase):
     def test_locks_tenant_source_in_deterministic_order_before_reload(self):
         cursor = FakeCursor([
+            {"isolation_level": "serializable"},
             {"project_id": 20, "base_estimate_id": 101, "next_estimate_id": 100},
             {"id": 20},
             [{"id": 100}, {"id": 101}, {"id": 102}],
@@ -52,27 +53,41 @@ class BudgetAdjustmentApprovalStorageTests(unittest.TestCase):
 
         self.assertEqual(result, reloaded)
         self.assertEqual(loader_calls, [(cursor, 7, 10)])
-        self.assertEqual(len(cursor.calls), 4)
-        resolve_sql, resolve_params = cursor.calls[0]
+        self.assertEqual(len(cursor.calls), 5)
+        self.assertIn("transaction_isolation", cursor.calls[0][0])
+        resolve_sql, resolve_params = cursor.calls[1]
         self.assertIn("FROM public.estimate_reconciliations r", resolve_sql)
         self.assertIn("project.company_id=%s", resolve_sql)
         self.assertNotIn("FOR UPDATE", resolve_sql)
         self.assertEqual(resolve_params, (7, 10))
-        self.assertIn("FROM public.projects", cursor.calls[1][0])
-        self.assertIn("FOR UPDATE", cursor.calls[1][0])
-        self.assertIn("FROM public.estimates", cursor.calls[2][0])
-        self.assertIn("ORDER BY id", cursor.calls[2][0])
+        self.assertIn("FROM public.projects", cursor.calls[2][0])
         self.assertIn("FOR UPDATE", cursor.calls[2][0])
-        self.assertEqual(cursor.calls[2][1], (10, 20, 10001))
-        self.assertIn("FROM public.estimate_reconciliations", cursor.calls[3][0])
+        self.assertIn("FROM public.estimates", cursor.calls[3][0])
+        self.assertIn("ORDER BY id", cursor.calls[3][0])
         self.assertIn("FOR UPDATE", cursor.calls[3][0])
+        self.assertEqual(cursor.calls[3][1], (10, 20, 10001))
+        self.assertIn("FROM public.estimate_reconciliations", cursor.calls[4][0])
+        self.assertIn("FOR UPDATE", cursor.calls[4][0])
+
+    def test_requires_serializable_before_resolving_or_locking_source(self):
+        cursor = FakeCursor([{"isolation_level": "repeatable read"}])
+
+        with self.assertRaises(BudgetAdjustmentApprovalError) as raised:
+            lock_budget_adjustment_source(cursor, 7, 10)
+
+        self.assertEqual(
+            raised.exception.code,
+            "budget_adjustment_serializable_required",
+        )
+        self.assertEqual(len(cursor.calls), 1)
 
     def test_missing_foreign_or_oversized_source_fails_closed(self):
-        missing = FakeCursor([None])
+        missing = FakeCursor([{"isolation_level": "serializable"}, None])
         self.assertIsNone(lock_budget_adjustment_source(missing, 7, 10))
-        self.assertEqual(len(missing.calls), 1)
+        self.assertEqual(len(missing.calls), 2)
 
         oversized = FakeCursor([
+            {"isolation_level": "serializable"},
             {"project_id": 20, "base_estimate_id": 100, "next_estimate_id": 101},
             {"id": 20},
             [{"id": 100}, {"id": 101}, {"id": 102}],

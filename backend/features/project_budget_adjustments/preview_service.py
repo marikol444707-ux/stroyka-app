@@ -110,13 +110,19 @@ def _validate_source_state(row):
 def _validated_totals(row):
     stored_base = _money(row.get("reconciliation_base_total"))
     stored_next = _money(row.get("reconciliation_next_total"))
+    estimate_base = _money(row.get("base_stored_total"))
+    estimate_next = _money(row.get("next_stored_total"))
     current_base = calculate_sections_total(row.get("base_sections_json"))
     current_next = calculate_sections_total(row.get("next_sections_json"))
     if (
         stored_base is None
         or stored_next is None
+        or estimate_base is None
+        or estimate_next is None
         or current_base != stored_base
         or current_next != stored_next
+        or estimate_base != stored_base
+        or estimate_next != stored_next
     ):
         _abort("budget_adjustment_source_drift")
     return current_base, current_next

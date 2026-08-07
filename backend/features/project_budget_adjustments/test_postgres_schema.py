@@ -156,7 +156,23 @@ class BudgetAdjustmentSchemaPostgresTests(unittest.TestCase):
             "priceMaterial": "0",
         }]}])
 
+    def _ensure_schema(self):
+        dry_run = run_schema_migration(
+            lambda: psycopg2.connect(POSTGRES_TEST_DSN)
+        )
+        if dry_run["changeCount"]:
+            applied = run_schema_migration(
+                lambda: psycopg2.connect(POSTGRES_TEST_DSN),
+                apply=True,
+                expected_change_count=dry_run["changeCount"],
+                expected_plan_sha256=dry_run["planSha256"],
+            )
+            self.assertTrue(applied["schemaReady"])
+        else:
+            self.assertTrue(dry_run["schemaReady"])
+
     def _create_approval_fixture(self):
+        self._ensure_schema()
         marker = uuid.uuid4().hex
         company_id = 930000 + int(marker[:5], 16)
         with self.admin.cursor() as cur:
@@ -463,6 +479,16 @@ class BudgetAdjustmentSchemaPostgresTests(unittest.TestCase):
             self._apply_fixture(stale, expected_plan_sha256="0" * 64)
         self.assertEqual(raised.exception.code, "budget_adjustment_plan_stale")
 
+        budget_drifted = self._create_approval_fixture()
+        with self.admin.cursor() as cur:
+            cur.execute(
+                "UPDATE public.projects SET budget=%s WHERE id=%s",
+                (Decimal("1100.00"), budget_drifted["projectId"]),
+            )
+        with self.assertRaises(BudgetAdjustmentApprovalError) as raised:
+            self._apply_fixture(budget_drifted)
+        self.assertEqual(raised.exception.code, "budget_adjustment_plan_stale")
+
         drifted = self._create_approval_fixture()
         with self.admin.cursor() as cur:
             cur.execute(
@@ -474,12 +500,16 @@ class BudgetAdjustmentSchemaPostgresTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "budget_adjustment_source_drift")
 
         with self.admin.cursor() as cur:
-            for fixture in (stale, drifted):
+            for fixture, expected_budget in (
+                (stale, Decimal("1000.00")),
+                (budget_drifted, Decimal("1100.00")),
+                (drifted, Decimal("1000.00")),
+            ):
                 cur.execute(
                     "SELECT budget FROM public.projects WHERE id=%s",
                     (fixture["projectId"],),
                 )
-                self.assertEqual(cur.fetchone()[0], Decimal("1000.00"))
+                self.assertEqual(cur.fetchone()[0], expected_budget)
                 cur.execute(
                     "SELECT COUNT(*) FROM public.project_budget_adjustments "
                     "WHERE reconciliation_id=%s",
