@@ -4871,33 +4871,37 @@ real PostgreSQL rollback/idempotency/concurrency cases. An optional exact
 `plan_id + plan_sha256` filter is the production pre-apply gate. It remains
 read-only and cannot approve or apply a plan.
 
+**Status:** Locally complete and release-reviewed; production deploy and the
+first global read-only report remain pending. There is no E4.5 schema change or
+business apply to run during deployment.
+
 **Acceptance criteria:**
 
-- [ ] The report uses one read-only `REPEATABLE READ` transaction, attempts
+- [x] The report uses one read-only `REPEATABLE READ` transaction, attempts
   zero writes, always rolls back and fails closed when any required E4 schema
   object is missing or definition-invalid.
-- [ ] Every stored plan hash is recomputed from its exact canonical owner,
+- [x] Every stored plan hash is recomputed from its exact canonical owner,
   snapshots, coordinates, balances and quantities. Draft approval residue,
   owner mismatch, missing entries, duplicate/foreign receipts, receipt/hash or
   quantity mismatch and per-kind partial apply are fixed-code blockers.
-- [ ] A mixed assignment+supply plan may be pending, assignment-applied,
+- [x] A mixed assignment+supply plan may be pending, assignment-applied,
   supply-allocated or complete, but each individual kind is all-or-none.
   Pending approved work is reported as state, not mistaken for corruption.
-- [ ] Issue output is bounded and contains only plan/entry IDs and fixed reason
+- [x] Issue output is bounded and contains only plan/entry IDs and fixed reason
   codes. It never emits descriptions, notes, prices, request JSON, actor names
   or snapshot content.
-- [ ] The static writer audit scans the repository without importing runtime
+- [x] The static writer audit scans the repository without importing runtime
   code. Only the exact reviewed ledger DML and assignment split statements are
   allowlisted; any new E4 mutation of JPR, acts, payments, supply documents,
   deliveries, warehouse or accounting is a blocker.
-- [ ] The integration inventory requires the opt-in real PostgreSQL tests for
+- [x] The integration inventory requires the opt-in real PostgreSQL tests for
   assignment and supply rollback, sequential idempotency, concurrent
   double-apply and unchanged protected-history snapshots. The inventory does
   not substitute for executing that suite before release.
-- [ ] `--plan-id` requires the exact lowercase `--expected-plan-sha256`, fails
+- [x] `--plan-id` requires the exact lowercase `--expected-plan-sha256`, fails
   on missing/wrong/draft/corrupt plans and reports readiness separately for
   assignment and supply. The command remains read-only.
-- [ ] Production apply remains exclusively through the authenticated
+- [x] Production apply remains exclusively through the authenticated
   leadership-only assignment/supply endpoints. No root-only SQL apply command,
   automatic migration, background worker or synthetic production plan is
   introduced.
@@ -4913,14 +4917,59 @@ read-only and cannot approve or apply a plan.
    smoke. A failed/partial/corrupt state stops the sequence; it is never
    repaired automatically.
 
+**Commands:**
+
+```bash
+# Always safe after deploy: global read-only cutover audit.
+npm run audit:estimate-row-transfer-readiness
+
+# Only for a real approved plan after separately reviewing its exact ID/hash.
+npm run audit:estimate-row-transfer-readiness -- \
+  --plan-id "$PLAN_ID" \
+  --expected-plan-sha256 "$PLAN_SHA256"
+```
+
+The second command does not apply anything. If its exact gate is green, the
+operator uses the existing authenticated leadership endpoints, one at a time:
+`POST /estimate-row-transfer-plans/{id}/assignment-apply`, re-audit, then
+`POST /estimate-row-transfer-plans/{id}/supply-apply`, followed by exact and
+global audits. With no real approved plan, those apply calls are skipped.
+
 **Verification plan:**
 
-- [ ] RED unit tests cover schema-not-ready, plan-hash drift, all receipt
+- [x] RED unit tests cover schema-not-ready, plan-hash drift, all receipt
   mismatch/partial cases, bounded output, optional exact-plan guards and
   writer/test inventory drift.
-- [ ] A fresh disposable PostgreSQL cluster executes the complete E4 suite and
+- [x] A fresh disposable PostgreSQL cluster executes the complete E4 suite and
   the final readiness report against empty, pending, applied and concurrent
   fixture states.
-- [ ] Focused/full backend tests, Python compilation, static lineage writer
+- [x] Focused/full backend tests, Python compilation, static lineage writer
   audit, frontend tests/build, smoke syntax and `git diff --check` pass before
   release review.
+
+**Local evidence (2026-08-07):** RED began with absent readiness/inventory
+modules and then caught indirect SQL-literal inventory evasion, unbounded
+global scans and incomplete receipt evidence. Focused E4 discovery passes
+`120` tests with `9` expected opt-in skips. Two fresh disposable PostgreSQL 15
+clusters independently passed the complete `9/9` suite, including assignment
+and supply sequential idempotency, both concurrent double-apply cases, both
+drift rollbacks, unchanged protected history and global/exact readiness over
+pending and applied plans; both clusters were stopped and deleted.
+
+Full backend discovery passes `1445` tests with `9` skips. Frontend Jest passes
+`307/307` tests in `76/76` suites. Python compilation, the brigade-lineage
+writer audit, readiness CLI help, deploy/smoke shell syntax, atomic-publish
+tests, the production frontend build and `git diff --check` all pass. The
+readiness report caps a global scan at `1000` plans and `100000` ledger rows,
+caps an exact plan at the contractual `100` entries and fails closed instead
+of silently truncating.
+
+**Review result:** Five-axis review found and fixed three required boundaries:
+the static writer audit now sees SQL literals even when assigned before
+`execute`, every global/exact read is bounded, and receipts are matched to the
+exact source/target coordinates plus assignment before/after and supply
+quantity equations. Output contains no descriptions, prices, request JSON or
+actor names. No dependency, schema, API route or business writer changed.
+
+**Implementation commits:** `6bf59973`, `8a3529a5`, `9ff09364`, `295998cf`,
+`61b7cad7`.

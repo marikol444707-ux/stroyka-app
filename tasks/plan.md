@@ -338,9 +338,9 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
     - [x] Task E4.4.3: Expose only tenant-bound allocation projection metadata with visible supply requests and make material control move the allocated open quantity to the exact target estimate coordinate while fulfilled and unallocated quantities remain on the original request identity.
     - [x] Task E4.4.4: Prove rollback, concurrent double-apply, repeated apply, cumulative allocation bounds, fail-closed projection and zero writes to request/delivery/offer/invoice/warehouse/accounting history in real PostgreSQL and frontend tests.
   - [ ] Task E4.5: Add cutover/readiness audits, concurrency/idempotency integration checks and a separately reviewed production dry-run/apply sequence.
-    - [ ] Task E4.5.1: Add one rolled-back read-only readiness report for the complete E4 schema, deterministic plan hashes, all-or-none per-kind receipts and exact ledger quantities; bound every issue preview and expose fixed reason codes only.
-    - [ ] Task E4.5.2: Add a static writer/test inventory that permits only the reviewed E4.2-E4.4 statements and requires the real PostgreSQL rollback, repeat and concurrent-double-apply cases.
-    - [ ] Task E4.5.3: Add an exact optional `plan_id + plan_sha256` cutover gate and document a separately reviewed production sequence; keep business apply behind the existing leadership APIs and never add a direct database apply command.
+    - [x] Task E4.5.1: Add one rolled-back read-only readiness report for the complete E4 schema, deterministic plan hashes, all-or-none per-kind receipts and exact ledger quantities; bound every issue preview and expose fixed reason codes only.
+    - [x] Task E4.5.2: Add a static writer/test inventory that permits only the reviewed E4.2-E4.4 statements and requires the real PostgreSQL rollback, repeat and concurrent-double-apply cases.
+    - [x] Task E4.5.3: Add an exact optional `plan_id + plan_sha256` cutover gate and document a separately reviewed production sequence; keep business apply behind the existing leadership APIs and never add a direct database apply command.
 - [ ] Task E5: Make active-estimate material control use stored `company_id + project_id` throughout instead of project name, then add cross-company collision tests.
 - [ ] Task E6: Add an explicit approved budget-adjustment event so a new estimate total can update project economics without rewriting accounting history.
 
