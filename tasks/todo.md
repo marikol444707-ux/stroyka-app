@@ -5417,10 +5417,9 @@ inventory remains exact `3/3` with zero E6 runtime DML. The service stayed
 active and final public smoke passed. No project budget or other business row
 was changed. E6.2 is closed in production.
 
-**Next action:** Start E6.4.1 test-first with the dedicated-PostgreSQL
-transactional kernel. Prove deterministic locks, stale-hash rollback,
-idempotent/concurrent double approval and protected-history snapshots before
-registering any approval or history route.
+**Next action:** Continue with E6.4.2: register the leadership-only approval and
+bounded history routes around the proven transactional kernel, without enabling
+any automatic apply path.
 
 ### Task E6.3: Tenant-Bound Read-Only Preview
 
@@ -5488,6 +5487,31 @@ everything, inserts the immutable receipt and applies only its delta once.
 **Verification:** RED/GREEN kernel and route tests, dedicated PostgreSQL
 concurrency/rollback suite, writer inventory, readiness report and authenticated
 missing-ID fail-closed smoke.
+
+**Local implementation evidence (E6.4.1):** The approval input, orchestration
+and storage boundaries were implemented test-first. The kernel requires a
+caller-owned `SERIALIZABLE` transaction, resolves director/deputy membership
+from the database, locks the tenant project, ordered project estimates and
+approved reconciliation, recomputes exact current totals/hash, and fails closed
+on source or stored-total drift. Its only DML is the reviewed immutable receipt
+insert followed by a company/before-value-guarded project budget update;
+idempotent replay returns the existing receipt and does not write again.
+
+A fresh dedicated PostgreSQL cluster passed all `6/6` scenarios: exact apply,
+idempotent repeat, stale hash/source drift, post-insert update conflict rollback,
+manual budget drift, and concurrent double approval. Concurrency persisted one
+receipt and one delta only. SHA-256 snapshots across 21 protected accounting and
+operational tables remained unchanged. The exact static inventory now requires
+`4/4` project-budget writers and exactly two E6 DML statements. Focused E6 tests
+pass `85` tests with six guarded PostgreSQL skips when no DSN is supplied; full
+backend discovery passes `1566` tests with `20` expected guarded skips. No API
+route is registered, so this kernel is not reachable in production and no
+production schema or business row was changed in E6.4.1.
+
+**Next action:** Implement E6.4.2 test-first: leadership-only exact-hash POST
+approval and tenant-bound bounded/newest-first history GET, with fixed errors
+and authenticated missing-ID smoke. E6.4.3 remains the production-enablement
+gate for exact integration-test inventory and rolled-back ledger readiness.
 
 **Dependencies:** E6.3 preview contract production-green.
 
