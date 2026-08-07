@@ -4458,11 +4458,12 @@ back. Reviewed dry-run and apply outputs are preserved under
 
 ## Task E4: Reviewed Estimate Row Balance Transfer
 
-**Status:** Contract approved by the user on 2026-08-06. E4.1-E4.4 are complete
-in production through runtime `bf078924852b`. The reviewed mapping, assignment
-receipt and supply-allocation schemas are installed, every public/protected
-route smoke is green, and production has no reconciliation, plan or receipt
-eligible for a manufactured transfer. E4.5 is the remaining cutover gate.
+**Status:** Complete in production on 2026-08-07 through runtime
+`dc0f86558ecf`. The reviewed mapping, assignment receipt and supply-allocation
+schemas are installed, the complete public smoke is green, and the final
+rolled-back readiness report returns `readyForCutover=true`. Production has no
+approved reconciliation, plan or receipt eligible for a manufactured
+transfer, so no business data was created for verification.
 
 **Contract:** `docs/estimate-row-transfer-contract.md` is authoritative. The
 operation uses an approved exact source/target mapping and explicit quantities.
@@ -4871,9 +4872,8 @@ real PostgreSQL rollback/idempotency/concurrency cases. An optional exact
 `plan_id + plan_sha256` filter is the production pre-apply gate. It remains
 read-only and cannot approve or apply a plan.
 
-**Status:** Locally complete and release-reviewed; production deploy and the
-first global read-only report remain pending. There is no E4.5 schema change or
-business apply to run during deployment.
+**Status:** Complete in production on 2026-08-07 for runtime `dc0f86558ecf`.
+There was no E4.5 schema change or business apply during deployment.
 
 **Acceptance criteria:**
 
@@ -4971,5 +4971,16 @@ exact source/target coordinates plus assignment before/after and supply
 quantity equations. Output contains no descriptions, prices, request JSON or
 actor names. No dependency, schema, API route or business writer changed.
 
+**Production evidence:** Runtime `dc0f86558ecf` deployed atomically, the
+service remained active and the complete public smoke passed. The global
+readiness command returned `ok=true`, `dryRun=true`,
+`readOnlyTransaction=true`, `writesAttempted=0` and `rolledBack=true`. Its
+schema audit found zero changes, blockers or missing columns. The bounded
+ledger audit found zero plans, entries, assignment receipts, supply
+allocations and issues. The static inventory found the expected `8` DML
+statements and all `6` required integration checks with no violations, so the
+top-level result is `readyForCutover=true`. No exact-plan apply was attempted
+because production has no real approved plan.
+
 **Implementation commits:** `6bf59973`, `8a3529a5`, `9ff09364`, `295998cf`,
-`61b7cad7`.
+`61b7cad7`, `89a00704`; production smoke rate-limit hardening is `dc0f8655`.
