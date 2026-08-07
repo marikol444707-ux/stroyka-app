@@ -5577,12 +5577,23 @@ separate and never auto-apply a budget change.
 
 **Acceptance criteria:**
 
-- [ ] Only authorized leaders see the action; all users may see only history
+- [x] Only authorized leaders see the action; all users may see only history
   already allowed by their project access and financial visibility.
-- [ ] Confirmation displays before, delta and after, submits the exact hash once
+- [x] Confirmation displays before, delta and after, submits the exact hash once
   and handles stale/conflict/idempotent responses without optimistic mutation.
-- [ ] Component/action tests cover role visibility, loading, error, refresh and
+- [x] Component/action tests cover role visibility, loading, error, refresh and
   no automatic approval path.
+
+**Implementation evidence (2026-08-07):** The selected-company role now controls
+both reconciliation and budget actions. The bounded client allowlists canonical
+IDs/money/hash/receipt fields, verifies both exact-cent equations, sends only
+`{"planSha256":...}` and maps fixed public errors. The responsive panel keeps
+preview, explicit confirmation and immutable cursor history separate from
+reconciliation approval. Focused frontend coverage passed `31/31`; the full
+frontend suite passed `342/342`, and isolated Chromium checks at `1280x800` and
+`390x844` confirmed accessible controls, exact before/delta/after values,
+history, live success status, zero API traffic in the harness and zero console
+errors.
 
 **Dependencies:** E6.4 backend production-green.
 
@@ -5598,10 +5609,21 @@ evidence is green.
 
 - [ ] Focused/full backend and frontend suites, compilation, build and smoke
   pass from a clean tree.
-- [ ] Real PostgreSQL proves same-name cross-company isolation, rollback,
+- [x] Real PostgreSQL proves same-name cross-company isolation, rollback,
   concurrency/idempotency and unchanged protected history.
 - [ ] Production audit is read-only, rolled back, zero-write and ready; no
   synthetic reconciliation or financial event is created for smoke testing.
+
+**Local release evidence (2026-08-07):** The E6 package passed `117` tests, the
+full backend passed `1598` (`21` expected skips), the full frontend passed
+`342/342`, the optimized build
+compiled, and the dedicated `e6_codex_20260807` PostgreSQL fixture passed all
+`7/7` rollback/concurrency/protected-history scenarios before the temporary
+database was removed. The final cutover inventory now also requires exact
+frontend wiring `11/11` and named UI/action proofs `17/17`; either drift makes
+`readyForCutover=false`. The remaining checkpoint is a clean push followed by
+production deploy, public smoke and the rolled-back zero-write production
+audit. No production reconciliation or receipt will be manufactured.
 
 **Dependencies:** E6.1-E6.5 complete.
 

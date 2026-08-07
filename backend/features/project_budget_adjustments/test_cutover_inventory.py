@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from backend.features.project_budget_adjustments.cutover_inventory import (
     audit_cutover_inventory,
@@ -90,10 +91,13 @@ class BudgetAdjustmentCutoverInventoryTests(unittest.TestCase):
         self.assertTrue(report["ok"], report["violations"])
         self.assertTrue(report["routeInventoryReady"])
         self.assertTrue(report["integrationInventoryReady"])
+        self.assertTrue(report["frontendInventoryReady"])
         self.assertEqual(report["routeCount"], 3)
         self.assertEqual(report["registrationCount"], 2)
         self.assertEqual(report["smokeCheckCount"], 3)
         self.assertEqual(report["requiredIntegrationChecks"], 13)
+        self.assertEqual(report["requiredFrontendChecks"], 17)
+        self.assertEqual(report["missingFrontendChecks"], [])
         self.assertEqual(report["missingIntegrationChecks"], [])
         self.assertEqual(report["writesAttempted"], 0)
 
@@ -185,6 +189,59 @@ def automatic_reconciliation_flow():
             "test_concurrent_double_approval_changes_budget_once",
         ])
 
+    def test_frontend_wiring_or_required_ui_proof_drift_fails_closed(self):
+        action_path = "src/features/estimates/projectBudgetAdjustmentActions.js"
+        test_path = "src/components/ProjectBudgetAdjustmentPanel.test.jsx"
+        frontend_sources = {
+            path: Path(path).read_text(encoding="utf-8")
+            for path in (
+                "src/App.js",
+                action_path,
+                "src/features/app-shell/useAppBusinessRuntime.js",
+                "src/features/estimates/projectEstimateRuntime.jsx",
+                "src/components/EstimateReconciliationsPanel.jsx",
+                "src/components/ProjectBudgetAdjustmentPanel.jsx",
+            )
+        }
+        frontend_tests = {
+            path: Path(path).read_text(encoding="utf-8")
+            for path in (
+                "src/features/estimates/projectBudgetAdjustmentActions.test.js",
+                test_path,
+                "src/components/EstimateReconciliationsPanel.test.jsx",
+                "src/features/estimates/projectEstimateRuntime.test.jsx",
+            )
+        }
+        missing_wiring = dict(frontend_sources)
+        missing_wiring[action_path] = missing_wiring[action_path].replace(
+            "/budget-adjustment-approval",
+            "/budget-adjustment-disabled",
+        )
+        renamed_test = dict(frontend_tests)
+        renamed_test[test_path] = renamed_test[test_path].replace(
+            "shows exact before, delta and after values before one explicit approval",
+            "shows budget values",
+        )
+
+        wiring_report = audit_cutover_inventory(
+            frontend_sources=missing_wiring,
+            frontend_test_sources=frontend_tests,
+        )
+        proof_report = audit_cutover_inventory(
+            frontend_sources=frontend_sources,
+            frontend_test_sources=renamed_test,
+        )
+
+        self.assertFalse(wiring_report["frontendInventoryReady"])
+        self.assertFalse(proof_report["frontendInventoryReady"])
+        self.assertIn(
+            "budget_adjustment_frontend_wiring_mismatch",
+            {item["reasonCode"] for item in wiring_report["violations"]},
+        )
+        self.assertEqual(proof_report["missingFrontendChecks"], [
+            "shows exact before, delta and after values before one explicit approval",
+        ])
+
     def test_parse_failure_is_a_fixed_bounded_blocker(self):
         report = audit(route_sources={"backend/broken.py": "def broken(:\n"})
 
@@ -203,6 +260,8 @@ def automatic_reconciliation_flow():
         self.assertEqual(report["registrationCount"], 2)
         self.assertEqual(report["smokeCheckCount"], 3)
         self.assertEqual(report["requiredIntegrationChecks"], 13)
+        self.assertTrue(report["frontendInventoryReady"])
+        self.assertEqual(report["requiredFrontendChecks"], 17)
 
 
 if __name__ == "__main__":

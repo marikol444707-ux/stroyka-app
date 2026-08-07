@@ -247,9 +247,16 @@ back. Neither startup initialization nor `deploy.sh` invokes this command.
   reconciliation parent; only narrow dependency injection/registration changes.
 - `backend/features/projects/routes.py` — existing project budget owner; no
   broad refactor and no history rewrite.
+- `src/components/ProjectBudgetAdjustmentPanel.jsx` and
+  `src/components/ProjectBudgetAdjustmentHistory.jsx` — explicit responsive
+  preview/confirm/immutable-history UI for a leader of the selected company.
+- `src/features/estimates/projectBudgetAdjustmentActions.js` — bounded client
+  allowlist, exact-cent evidence validation, fixed-error mapping and the three
+  E6 HTTP calls; approval submits only the preview SHA-256.
 - `src/components/EstimateReconciliationsPanel.jsx` and
-  `src/features/estimates/estimateWorkflowActions.js` — later explicit preview
-  and approval UI, after backend and schema gates are production-ready.
+  `src/features/estimates/projectEstimateRuntime.jsx` — keep reconciliation
+  approval separate, resolve the effective selected-company role and wire E6
+  actions without automatic apply.
 - `tasks/plan.md` and `tasks/todo.md` — phased implementation and evidence.
 
 ## Code Style

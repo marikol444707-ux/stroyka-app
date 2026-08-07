@@ -84,9 +84,92 @@ REQUIRED_INTEGRATION_CHECKS = {
         "test_history_is_tenant_bound_newest_first_bounded_and_read_only",
     ),
 }
+EXPECTED_FRONTEND_MARKERS = Counter({
+    (
+        "src/App.js",
+        "user,\n    companyContext,\n    constants:",
+    ): 1,
+    (
+        "src/features/estimates/projectBudgetAdjustmentActions.js",
+        "/estimate-reconciliations/${id}/budget-adjustment-preview",
+    ): 1,
+    (
+        "src/features/estimates/projectBudgetAdjustmentActions.js",
+        "/estimate-reconciliations/${id}/budget-adjustment-approval",
+    ): 1,
+    (
+        "src/features/estimates/projectBudgetAdjustmentActions.js",
+        "/projects/${id}/budget-adjustments?${query.toString()}",
+    ): 1,
+    (
+        "src/features/estimates/projectBudgetAdjustmentActions.js",
+        "body:JSON.stringify({planSha256})",
+    ): 1,
+    (
+        "src/features/app-shell/useAppBusinessRuntime.js",
+        "const projectBudgetAdjustmentActions = createProjectBudgetAdjustmentActions({",
+    ): 1,
+    (
+        "src/features/estimates/projectEstimateRuntime.jsx",
+        "const canAdjustProjectBudget = Boolean(\n"
+        "      companyContext\n"
+        "      && !companyContext.loading\n"
+        "      && companyContext.mode === 'company'\n"
+        "      && companyContext.selectedCompany\n"
+        "      && canManageEstimateForContext(user, companyContext)\n"
+        "    );",
+    ): 1,
+    (
+        "src/features/estimates/projectEstimateRuntime.jsx",
+        "onApproveBudgetAdjustment={approveProjectBudgetAdjustment}",
+    ): 1,
+    (
+        "src/components/EstimateReconciliationsPanel.jsx",
+        "<ProjectBudgetAdjustmentPanel",
+    ): 1,
+    (
+        "src/components/ProjectBudgetAdjustmentPanel.jsx",
+        "const result = await onApprove(preview.reconciliationId, preview.planSha256);",
+    ): 1,
+    (
+        "src/components/ProjectBudgetAdjustmentPanel.jsx",
+        "approvalInFlightRef.current = true;",
+    ): 1,
+})
+REQUIRED_FRONTEND_CHECKS = {
+    "src/features/estimates/projectBudgetAdjustmentActions.test.js": (
+        "loads and allowlists one exact canonical preview",
+        "approves only the exact preview hash and never sends monetary values",
+        "rejects malformed server money before it reaches the UI",
+        "rejects an approval receipt without explicit idempotency evidence",
+        "loads bounded newest-first history with a positive cursor",
+        "uses fixed public messages instead of an arbitrary server detail",
+        "maps a stale approval to an explicit refresh instruction",
+    ),
+    "src/components/ProjectBudgetAdjustmentPanel.test.jsx": (
+        "is absent for a user without effective leadership in the selected company",
+        "shows exact before, delta and after values before one explicit approval",
+        "exposes loading state while the preview is requested",
+        "reports an idempotent approval as already applied and refreshes normally",
+        "forces a new preview after a stale approval and never mutates the displayed project",
+        "loads immutable history only when the leader opens it",
+    ),
+    "src/components/EstimateReconciliationsPanel.test.jsx": (
+        "keeps reconciliation approval separate from budget adjustment approval",
+    ),
+    "src/features/estimates/projectEstimateRuntime.test.jsx": (
+        "stays hidden while the selected-company context is unresolved",
+        "uses the selected-company role and does not inherit a global director role",
+        "wires the preview action for a leader of the selected company",
+    ),
+}
 _SMOKE_RE = re.compile(
     r'\b(check_(?:post_)?not_spa_fallback)\s+"([^"]+)"\s+'
     r'"\$BASE_URL([^"]+)"\s+"([^"]+)"'
+)
+_FRONTEND_TEST_RE = re.compile(
+    r"\b(?:it|test)\(\s*(['\"])(.*?)\1\s*,",
+    re.DOTALL,
 )
 
 
@@ -232,6 +315,10 @@ def _integration_names(path, source, violations):
     }
 
 
+def _frontend_test_names(source):
+    return {match[1] for match in _FRONTEND_TEST_RE.findall(source or "")}
+
+
 def audit_cutover_inventory(
     repo_root=None,
     *,
@@ -240,6 +327,8 @@ def audit_cutover_inventory(
     main_source=None,
     smoke_source=None,
     integration_test_sources=None,
+    frontend_sources=None,
+    frontend_test_sources=None,
 ):
     """Return deterministic evidence that E6 has one reviewed runtime path."""
 
@@ -267,6 +356,16 @@ def audit_cutover_inventory(
         integration_test_sources = {
             path: _read(root / path)
             for path in REQUIRED_INTEGRATION_CHECKS
+        }
+    if frontend_sources is None:
+        frontend_sources = {
+            path: _read(root / path)
+            for path, _marker in EXPECTED_FRONTEND_MARKERS
+        }
+    if frontend_test_sources is None:
+        frontend_test_sources = {
+            path: _read(root / path)
+            for path in REQUIRED_FRONTEND_CHECKS
         }
 
     violations = []
@@ -350,6 +449,42 @@ def audit_cutover_inventory(
         for item in violations
     )
 
+    frontend_markers = Counter()
+    frontend_marker_mismatches = []
+    for path, marker in EXPECTED_FRONTEND_MARKERS:
+        actual = (frontend_sources.get(path) or "").count(marker)
+        frontend_markers[(path, marker)] = actual
+        expected = EXPECTED_FRONTEND_MARKERS[(path, marker)]
+        if actual != expected:
+            frontend_marker_mismatches.append({
+                "file": path,
+                "expected": expected,
+                "actual": actual,
+            })
+    if frontend_marker_mismatches:
+        violations.append({
+            "reasonCode": "budget_adjustment_frontend_wiring_mismatch",
+            "expected": sum(EXPECTED_FRONTEND_MARKERS.values()),
+            "actual": sum(frontend_markers.values()),
+            "mismatchCount": len(frontend_marker_mismatches),
+        })
+
+    missing_frontend_checks = []
+    for path, required_names in REQUIRED_FRONTEND_CHECKS.items():
+        present = _frontend_test_names(frontend_test_sources.get(path, ""))
+        missing_frontend_checks.extend(
+            name for name in required_names if name not in present
+        )
+    for name in missing_frontend_checks:
+        violations.append({
+            "reasonCode": "frontend_check_missing",
+            "check": name,
+        })
+    frontend_ready = bool(
+        not frontend_marker_mismatches
+        and not missing_frontend_checks
+    )
+
     route_ready = bool(
         route_inventory_ready
         and registration_ready
@@ -363,13 +498,14 @@ def audit_cutover_inventory(
             for item in violations
         )
     )
-    ready = route_ready and integration_ready and not violations
+    ready = route_ready and integration_ready and frontend_ready and not violations
     return {
         "ok": ready,
         "dryRun": True,
         "writesAttempted": 0,
         "routeInventoryReady": route_ready,
         "integrationInventoryReady": integration_ready,
+        "frontendInventoryReady": frontend_ready,
         "routeCount": sum(routes.values()),
         "expectedRouteCount": sum(EXPECTED_ROUTES.values()),
         "registrationCount": sum(registrations.values()),
@@ -386,6 +522,14 @@ def audit_cutover_inventory(
             len(names) for names in REQUIRED_INTEGRATION_CHECKS.values()
         ),
         "missingIntegrationChecks": missing_checks,
+        "frontendWiringCheckCount": sum(frontend_markers.values()),
+        "expectedFrontendWiringCheckCount": sum(
+            EXPECTED_FRONTEND_MARKERS.values()
+        ),
+        "requiredFrontendChecks": sum(
+            len(names) for names in REQUIRED_FRONTEND_CHECKS.values()
+        ),
+        "missingFrontendChecks": missing_frontend_checks,
         "violationCount": len(violations),
         "violations": violations[:MAX_VIOLATIONS],
         "violationsTruncated": len(violations) > MAX_VIOLATIONS,
@@ -398,6 +542,8 @@ __all__ = [
     "EXPECTED_REGISTRATIONS",
     "EXPECTED_ROUTES",
     "EXPECTED_SMOKE_CHECKS",
+    "EXPECTED_FRONTEND_MARKERS",
     "REQUIRED_INTEGRATION_CHECKS",
+    "REQUIRED_FRONTEND_CHECKS",
     "audit_cutover_inventory",
 ]

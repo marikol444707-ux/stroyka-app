@@ -98,6 +98,14 @@ describe('project budget adjustment actions', () => {
     );
   });
 
+  it('rejects an approval receipt without explicit idempotency evidence', async () => {
+    const fetchFn = jest.fn().mockResolvedValue(jsonResponse(receipt()));
+
+    await expect(actionsFor(fetchFn).approveProjectBudgetAdjustment(15, HASH)).rejects.toEqual(
+      expect.objectContaining({code:'budget_adjustment_response_invalid'}),
+    );
+  });
+
   it('loads bounded newest-first history with a positive cursor', async () => {
     const fetchFn = jest.fn().mockResolvedValue(jsonResponse({
       projectId:14,

@@ -238,6 +238,7 @@ def run_readiness_report(
         inventory_ready = bool(inventory.get("writerInventoryReady"))
         route_ready = bool(cutover.get("routeInventoryReady"))
         integration_ready = bool(cutover.get("integrationInventoryReady"))
+        frontend_ready = bool(cutover.get("frontendInventoryReady"))
         ready = bool(
             schema.get("ok")
             and schema.get("schemaReady")
@@ -253,6 +254,7 @@ def run_readiness_report(
             and cutover.get("ok")
             and route_ready
             and integration_ready
+            and frontend_ready
         )
         return {
             "ok": ready,
@@ -271,6 +273,7 @@ def run_readiness_report(
             "writerInventoryReady": inventory_ready,
             "routeInventoryReady": route_ready,
             "integrationInventoryReady": integration_ready,
+            "frontendInventoryReady": frontend_ready,
             "readyForSchemaPlan": bool(
                 audit_ok
                 and data.get("readyForSchemaPlan")

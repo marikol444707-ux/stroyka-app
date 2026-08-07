@@ -170,6 +170,17 @@ const createBudgetRuntime = ({user, companyContext, loadBudgetAdjustmentPreview 
 );
 
 describe('project estimate runtime budget adjustment access', () => {
+  it('stays hidden while the selected-company context is unresolved', () => {
+    const runtime = createBudgetRuntime({
+      user:{role:'директор'},
+      companyContext:{loading:true,mode:'company',selectedCompany:null},
+    });
+
+    render(runtime.renderEstimateReconciliationsPanel(budgetProject));
+
+    expect(screen.queryByText('Изменение бюджета')).not.toBeInTheDocument();
+  });
+
   it('uses the selected-company role and does not inherit a global director role', () => {
     const runtime = createBudgetRuntime({
       user:{role:'директор'},

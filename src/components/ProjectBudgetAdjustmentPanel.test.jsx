@@ -95,6 +95,17 @@ describe('ProjectBudgetAdjustmentPanel', () => {
     expect(await screen.findByRole('button', {name:'Подтвердить изменение бюджета'})).toBeInTheDocument();
   });
 
+  it('reports an idempotent approval as already applied and refreshes normally', async () => {
+    const repeatedReceipt = {...receipt,idempotent:true};
+    const props = renderPanel({onApprove:jest.fn().mockResolvedValue(repeatedReceipt)});
+
+    fireEvent.click(screen.getByRole('button', {name:/Рассчитать по сверке № 15/}));
+    fireEvent.click(await screen.findByRole('button', {name:'Подтвердить изменение бюджета'}));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('уже было применено');
+    await waitFor(() => expect(props.onApplied).toHaveBeenCalledWith(repeatedReceipt));
+  });
+
   it('forces a new preview after a stale approval and never mutates the displayed project', async () => {
     const project = {id:14,name:'Лицей',budget:'1000000.00'};
     const props = renderPanel({

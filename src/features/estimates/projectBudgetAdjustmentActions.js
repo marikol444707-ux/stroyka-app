@@ -111,7 +111,10 @@ export const normalizeBudgetAdjustmentPreview = (source) => {
   return {...identity, ...money, planSha256, readyForApproval:source.readyForApproval, blockers};
 };
 
-export const normalizeBudgetAdjustmentReceipt = (source, {allowIdempotent = true} = {}) => {
+export const normalizeBudgetAdjustmentReceipt = (
+  source,
+  {allowIdempotent = true, requireIdempotent = false} = {},
+) => {
   const id = positiveInt(source?.id);
   const identity = normalizeIdentity(source);
   const money = normalizeMoneyEvidence(source);
@@ -123,9 +126,11 @@ export const normalizeBudgetAdjustmentReceipt = (source, {allowIdempotent = true
   const approvedByRole = safeText(source?.approvedByRole, 64);
   const approvedAt = validTimestamp(source?.approvedAt);
   const createdAt = validTimestamp(source?.createdAt);
+  const hasIdempotent = typeof source?.idempotent === 'boolean';
   if (
     !id || !planSha256 || !approvedByUserId || !approvedByName || !approvedByRole
     || !LEADERSHIP_ROLES.has(approvedByRole) || !approvedAt || !createdAt
+    || (requireIdempotent && !hasIdempotent)
   ) invalidResponse();
   const result = {
     id,
@@ -138,7 +143,7 @@ export const normalizeBudgetAdjustmentReceipt = (source, {allowIdempotent = true
     approvedAt,
     createdAt,
   };
-  if (allowIdempotent && typeof source?.idempotent === 'boolean') result.idempotent = source.idempotent;
+  if (allowIdempotent && hasIdempotent) result.idempotent = source.idempotent;
   return result;
 };
 
@@ -203,7 +208,7 @@ export function createProjectBudgetAdjustmentActions({
         body:JSON.stringify({planSha256}),
       },
     );
-    const result = normalizeBudgetAdjustmentReceipt(body);
+    const result = normalizeBudgetAdjustmentReceipt(body, {requireIdempotent:true});
     if (result.reconciliationId !== id) invalidResponse();
     return result;
   };

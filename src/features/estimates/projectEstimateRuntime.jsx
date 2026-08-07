@@ -84,6 +84,13 @@ export function createProjectEstimateRuntime({
     const recs = estimateReconciliationsForProject(p.name);
     const projectEstimates = visibleEstimatesForCurrentUser(estimatesList)
       .filter(e => e.projectName === p.name && estimateKind(e) === 'Заказчик' && !isArchivedEstimate(e) && !isGlobalEstimateTemplate(e));
+    const canAdjustProjectBudget = Boolean(
+      companyContext
+      && !companyContext.loading
+      && companyContext.mode === 'company'
+      && companyContext.selectedCompany
+      && canManageEstimateForContext(user, companyContext)
+    );
     return (
       <EstimateReconciliationsPanel
         project={p}
@@ -92,7 +99,7 @@ export function createProjectEstimateRuntime({
         estimatePackage={estimatePackage}
         estimateTotal={estimateTotal}
         canApprove={canManageEstimateForContext(user, companyContext)}
-        canAdjustBudget={canManageEstimateForContext(user, companyContext)}
+        canAdjustBudget={canAdjustProjectBudget}
         onApprove={approveEstimateReconciliation}
         onApproveBudgetAdjustment={approveProjectBudgetAdjustment}
         onBudgetAdjustmentApplied={onBudgetAdjustmentApplied}

@@ -243,6 +243,7 @@ class BudgetAdjustmentReadinessRunnerTests(unittest.TestCase):
                 "ok": True,
                 "routeInventoryReady": True,
                 "integrationInventoryReady": True,
+                "frontendInventoryReady": True,
             },
         )
 
@@ -261,6 +262,7 @@ class BudgetAdjustmentReadinessRunnerTests(unittest.TestCase):
         self.assertTrue(report["ledgerReady"])
         self.assertTrue(report["routeInventoryReady"])
         self.assertTrue(report["integrationInventoryReady"])
+        self.assertTrue(report["frontendInventoryReady"])
         self.assertTrue(report["readyForCutover"])
         self.assertTrue(report["readOnlyTransaction"])
         self.assertEqual(report["writesAttempted"], 0)
@@ -409,6 +411,45 @@ class BudgetAdjustmentReadinessRunnerTests(unittest.TestCase):
         self.assertFalse(report["ledgerReady"])
         self.assertFalse(report["routeInventoryReady"])
         self.assertTrue(report["integrationInventoryReady"])
+        self.assertFalse(report["readyForCutover"])
+        self.assertEqual(connection.rollbacks, 1)
+
+    def test_frontend_inventory_drift_alone_blocks_cutover(self):
+        cursor = FakeCursor(())
+        connection = FakeConnection(cursor)
+
+        report = run_readiness_report(
+            lambda: connection,
+            collect_schema=lambda _cur: {
+                "ok": True,
+                "schemaReady": True,
+                "budgetColumnExact": True,
+            },
+            collect_data=lambda _cur: {
+                "ok": True,
+                "schemaReady": True,
+                "budgetColumnExact": True,
+                "dataReady": True,
+                "readyForSchemaPlan": True,
+            },
+            collect_ledger=lambda _cur: {
+                "ok": True,
+                "ledgerReady": True,
+            },
+            collect_inventory=lambda: {
+                "ok": True,
+                "writerInventoryReady": True,
+            },
+            collect_cutover=lambda: {
+                "ok": True,
+                "routeInventoryReady": True,
+                "integrationInventoryReady": True,
+                "frontendInventoryReady": False,
+            },
+        )
+
+        self.assertFalse(report["ok"])
+        self.assertFalse(report["frontendInventoryReady"])
         self.assertFalse(report["readyForCutover"])
         self.assertEqual(connection.rollbacks, 1)
 

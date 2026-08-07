@@ -152,7 +152,7 @@ export default function ProjectBudgetAdjustmentPanel({
           </div>
         </div>
       )}
-      {historyOpen&&<ProjectBudgetAdjustmentHistory error={historyError} formatDate={formatDate} formatMoney={formatExactMoney} items={history} loading={historyLoading} nextBeforeId={historyCursor} onLoadMore={()=>loadHistory(historyCursor)}/>} 
+      {historyOpen&&<ProjectBudgetAdjustmentHistory error={historyError} formatDate={formatDate} formatMoney={formatExactMoney} items={history} loading={historyLoading} nextBeforeId={historyCursor} onLoadMore={()=>loadHistory(historyCursor)}/>}
     </section>
   );
 }
