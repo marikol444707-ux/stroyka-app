@@ -103,7 +103,7 @@ check_not_spa_fallback() {
   local code
   body_file="$(mktemp)"
   code="$(curl -skS -o "$body_file" -w '%{http_code}' "$url" || true)"
-  if [[ " $expected_codes " == *" $code "* ]]; then
+  if [[ "$code" == "429" || " $expected_codes " == *" $code "* ]]; then
     if [[ "$code" == "429" ]] || ! head -c 200 "$body_file" | grep -qiE '<!doctype|<html'; then
       echo "OK   $name $code"
       rm -f "$body_file"
@@ -127,7 +127,7 @@ check_post_not_spa_fallback() {
   local code
   body_file="$(mktemp)"
   code="$(curl -skS -X POST -o "$body_file" -w '%{http_code}' "$url" || true)"
-  if [[ " $expected_codes " == *" $code "* ]]; then
+  if [[ "$code" == "429" || " $expected_codes " == *" $code "* ]]; then
     if [[ "$code" == "429" ]] || ! head -c 200 "$body_file" | grep -qiE '<!doctype|<html'; then
       echo "OK   $name $code"
       rm -f "$body_file"

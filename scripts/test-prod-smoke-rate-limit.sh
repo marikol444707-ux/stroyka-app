@@ -28,8 +28,12 @@ curl() {
 failures=()
 FAKE_CODE="429"
 FAKE_BODY='<html><body>rate limited</body></html>'
-check_post_not_spa_fallback "rate limited post" "https://example.test/route" "422 429" >/dev/null
-[[ ${#failures[@]} -eq 0 ]]
+check_post_not_spa_fallback "rate limited post" "https://example.test/route" "422" >/dev/null
+check_not_spa_fallback "rate limited get" "https://example.test/route" "401 403" >/dev/null
+if [[ ${#failures[@]} -ne 0 ]]; then
+  echo "HTTP 429 must be accepted without listing it for every route" >&2
+  exit 1
+fi
 
 failures=()
 FAKE_CODE="422"
