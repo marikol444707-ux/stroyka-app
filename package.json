@@ -38,6 +38,7 @@
     "audit:estimate-row-transfer-schema": "python3 -m backend.features.estimate_row_transfer.schema",
     "audit:estimate-row-transfer-readiness": "python3 -m backend.features.estimate_row_transfer.readiness_report",
     "audit:material-control-ownership": "python3 -m backend.features.material_control_ownership.readiness_report",
+    "audit:project-budget-adjustments": "python3 -m backend.features.project_budget_adjustments.readiness_report",
     "migrate:estimate-row-transfer-schema": "python3 -m backend.features.estimate_row_transfer.schema --apply",
     "migrate:brigade-lineage": "python3 -m backend.features.brigade_lineage.migration",
     "migrate:brigade-lineage-strict": "python3 -m backend.features.brigade_lineage.strict_migration",
