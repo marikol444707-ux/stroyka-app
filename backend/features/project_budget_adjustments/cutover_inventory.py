@@ -65,6 +65,7 @@ REQUIRED_INTEGRATION_CHECKS = {
         "test_budget_conflict_after_receipt_insert_rolls_back_both_writes",
         "test_apply_preserves_protected_history_byte_for_byte",
         "test_concurrent_double_approval_changes_budget_once",
+        "test_zzz_readiness_gate_is_read_only_and_green",
     ),
     "backend/features/project_budget_adjustments/test_runtime_routes.py": (
         "test_missing_approval_body_uses_fixed_public_error_code",

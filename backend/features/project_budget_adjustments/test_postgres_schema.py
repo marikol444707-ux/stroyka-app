@@ -17,6 +17,12 @@ from backend.features.project_budget_adjustments.approval import (
 from backend.features.project_budget_adjustments.preview_service import (
     build_budget_adjustment_preview,
 )
+from backend.features.project_budget_adjustments.plan import (
+    build_budget_adjustment_plan,
+)
+from backend.features.project_budget_adjustments.readiness_report import (
+    run_readiness_report,
+)
 from backend.features.project_budget_adjustments.schema import (
     SchemaMigrationError,
     run_schema_migration,
@@ -401,6 +407,17 @@ class BudgetAdjustmentSchemaPostgresTests(unittest.TestCase):
             )
             reconciliation_id = cur.fetchone()[0]
 
+        direct_plan = build_budget_adjustment_plan({
+            "reconciliationId": reconciliation_id,
+            "companyId": company_id,
+            "projectId": project_id,
+            "baseEstimateId": base_id,
+            "nextEstimateId": next_id,
+            "projectBudgetBefore": "1000.00",
+            "estimateBaseTotal": "100.00",
+            "estimateNextTotal": "125.00",
+        })
+
         connection = psycopg2.connect(POSTGRES_TEST_DSN)
         try:
             with connection.cursor() as cur:
@@ -419,7 +436,7 @@ class BudgetAdjustmentSchemaPostgresTests(unittest.TestCase):
                         company_id, project_id, reconciliation_id, base_id,
                         next_id, Decimal("1000.00"), Decimal("100.00"),
                         Decimal("125.00"), Decimal("25.00"),
-                        Decimal("1025.00"), marker + ("0" * (64 - len(marker))),
+                        Decimal("1025.00"), direct_plan["planSha256"],
                         user_id, "E6 fixture", "директор",
                     ),
                 )
@@ -597,6 +614,33 @@ class BudgetAdjustmentSchemaPostgresTests(unittest.TestCase):
                 (fixture["reconciliationId"],),
             )
             self.assertEqual(cur.fetchone()[0], 1)
+
+    def test_zzz_readiness_gate_is_read_only_and_green(self):
+        fixture = self._create_approval_fixture()
+        self._apply_fixture(fixture)
+        with self.admin.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM public.project_budget_adjustments")
+            receipts_before = cur.fetchone()[0]
+
+        report = run_readiness_report(
+            lambda: psycopg2.connect(POSTGRES_TEST_DSN)
+        )
+
+        with self.admin.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM public.project_budget_adjustments")
+            receipts_after = cur.fetchone()[0]
+        self.assertTrue(report["ok"], report)
+        self.assertTrue(report["schemaReady"])
+        self.assertTrue(report["dataReady"])
+        self.assertTrue(report["ledgerReady"])
+        self.assertTrue(report["writerInventoryReady"])
+        self.assertTrue(report["routeInventoryReady"])
+        self.assertTrue(report["integrationInventoryReady"])
+        self.assertTrue(report["readyForCutover"])
+        self.assertTrue(report["readOnlyTransaction"])
+        self.assertTrue(report["rolledBack"])
+        self.assertEqual(report["writesAttempted"], 0)
+        self.assertEqual(receipts_after, receipts_before)
 
 
 if __name__ == "__main__":

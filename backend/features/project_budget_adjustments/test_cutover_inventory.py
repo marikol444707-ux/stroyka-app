@@ -42,6 +42,7 @@ def test_stale_hash_and_source_drift_roll_back_without_receipt(): pass
 def test_budget_conflict_after_receipt_insert_rolls_back_both_writes(): pass
 def test_apply_preserves_protected_history_byte_for_byte(): pass
 def test_concurrent_double_approval_changes_budget_once(): pass
+def test_zzz_readiness_gate_is_read_only_and_green(): pass
 '''
 
 ROUTE_TESTS = '''
@@ -90,7 +91,7 @@ class BudgetAdjustmentCutoverInventoryTests(unittest.TestCase):
         self.assertEqual(report["routeCount"], 3)
         self.assertEqual(report["registrationCount"], 2)
         self.assertEqual(report["smokeCheckCount"], 3)
-        self.assertEqual(report["requiredIntegrationChecks"], 12)
+        self.assertEqual(report["requiredIntegrationChecks"], 13)
         self.assertEqual(report["missingIntegrationChecks"], [])
         self.assertEqual(report["writesAttempted"], 0)
 
@@ -181,7 +182,7 @@ class BudgetAdjustmentCutoverInventoryTests(unittest.TestCase):
         self.assertEqual(report["routeCount"], 3)
         self.assertEqual(report["registrationCount"], 2)
         self.assertEqual(report["smokeCheckCount"], 3)
-        self.assertEqual(report["requiredIntegrationChecks"], 12)
+        self.assertEqual(report["requiredIntegrationChecks"], 13)
 
 
 if __name__ == "__main__":
