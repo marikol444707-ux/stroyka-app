@@ -4992,9 +4992,8 @@ material-control path with the stored `company_id + project_id` tuple. The
 authoritative accepted contract is
 `docs/active-estimate-material-control-ownership.md`.
 
-**Status:** Contract accepted on 2026-08-07. E5.1 is implemented and locally
-verified; diagnostic-only production deployment and audit evidence remain.
-The slice cannot change schema, runtime selection or business rows.
+**Status:** Contract accepted on 2026-08-07. E5.1 is complete in production;
+E5.2 is in implementation. No schema or business rows changed.
 
 **Observed risk:** The estimate query already reads `company_id` but its public
 payload omits `companyId`; frontend active selection accepts either a matching
@@ -5021,7 +5020,17 @@ fixture skipped until an explicitly approved `e5_*` database is supplied;
 `1458` backend tests pass (`10` guarded skips), all `76` frontend suites / `307`
 tests pass, Python compilation and the production build pass. The local command
 returned a bounded `schema_not_ready` report against the available older
-developer schema instead of raising or writing. Production audit is pending.
+developer schema instead of raising or writing.
+
+**Production evidence (2026-08-07):** Runtime `1bfae554aa47` deployed
+atomically, remained active and passed the complete public smoke. The read-only
+audit returned `ok=true`, `dataReady=true`, `schemaReady=true`,
+`scanComplete=true`, `readOnlyTransaction=true`, `writesAttempted=0` and
+`rolledBack=true`. It verified `4` active projects and `15` valid active
+estimates, with zero duplicate active scopes, name-collision groups or data
+issues. Static inventory found exactly the accepted `6` name-scoped boundaries;
+therefore `runtimeInventoryReady=false` and `readyForCutover=false` were the
+expected pre-cutover result.
 
 **Estimated scope:** M, diagnostic-only.
 

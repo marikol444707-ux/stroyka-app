@@ -2,8 +2,9 @@
 
 ## Status
 
-Accepted on 2026-08-07. E5.1 is implemented and locally verified; its
-diagnostic-only production deployment and read-only audit are pending.
+Accepted on 2026-08-07. E5.1 is complete in production. E5.2 API and strict
+frontend discovery are in implementation; later runtime and backend-query
+cutovers remain disabled.
 
 ## Objective
 
@@ -133,6 +134,14 @@ production audit is expected to report `ok=true`, `nameScopedCount=6`,
 `writesAttempted=0` and `rolledBack=true`. `dataReady` is determined only by
 the production rows; any fixed-code issue IDs require review before later
 cutover work.
+
+Production runtime `1bfae554aa47` completed this gate on 2026-08-07. The audit
+reported `dataReady=true`, `schemaReady=true`, `scanComplete=true`, no duplicate
+active scopes, no project-name collision groups and no data issues across `4`
+active projects and `15` active estimates. It found exactly the accepted six
+name-scoped boundaries and returned `readOnlyTransaction=true`,
+`writesAttempted=0` and `rolledBack=true`. `runtimeInventoryReady=false` and
+`readyForCutover=false` were the expected pre-E5.2 state, not audit failures.
 
 ## Commands
 
