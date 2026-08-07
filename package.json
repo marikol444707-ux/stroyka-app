@@ -40,6 +40,7 @@
     "audit:material-control-ownership": "python3 -m backend.features.material_control_ownership.readiness_report",
     "audit:project-budget-adjustments": "python3 -m backend.features.project_budget_adjustments.readiness_report",
     "audit:project-budget-adjustment-schema": "python3 -m backend.features.project_budget_adjustments.schema",
+    "audit:estimate-revision-impact": "python3 -m backend.features.estimate_revision_impact.baseline",
     "migrate:estimate-row-transfer-schema": "python3 -m backend.features.estimate_row_transfer.schema --apply",
     "migrate:project-budget-adjustment-schema": "python3 -m backend.features.project_budget_adjustments.schema --apply",
     "migrate:brigade-lineage": "python3 -m backend.features.brigade_lineage.migration",
