@@ -2,11 +2,11 @@
 
 ## Status
 
-Accepted on 2026-08-07. E5.1 through E5.4 are complete in production. Runtime
-`d0f52ad81832` passed atomic deploy, service health, public smoke and the
-read-only ownership audit with all `6/6` runtime boundaries owner-scoped and
-`readyForCutover=true`. E5.5 implementation and local release evidence are
-complete; its production deploy, public smoke and final read-only audit remain.
+Complete in production on 2026-08-07. Runtime `ded68df1ad00` passed atomic
+deploy, service health, two public smoke runs and the final read-only audit.
+All `6/6` runtime boundaries are owner-scoped, the writer/test inventory is the
+exact reviewed `5/5`, all violations and data issues are zero, and
+`readyForCutover=true`. E5 required no schema or business-row apply.
 
 ## Objective
 
@@ -248,7 +248,7 @@ or business-row apply. Authenticated protected checks were skipped because
 credentials were not supplied; the unauthenticated route contract remained
 fail-closed.
 
-### E5.5 Local Evidence And Production Gate
+### E5.5 Local And Production Evidence
 
 The final cutover report now adds an import-free static inventory of the exact
 E5 mutation surface. It permits exactly five reviewed DML statements, requires
@@ -281,12 +281,19 @@ existing CRA dependency tree reports `17` high npm advisories whose complete
 fix requires a separately planned breaking `react-scripts` migration; E5.5
 changes no dependency file and introduces none of those advisories.
 
-Production needs no schema migration, data remediation or synthetic business
-row. Deploy the inert code, require an active service and passing public smoke,
-then run `npm run audit:material-control-ownership`. E5 closes only if production
-again reports `dataReady=true`, `runtimeInventoryReady=true`,
-`writerInventoryReady=true`, exact writer/test counts of `5/5`, zero violations,
-`writesAttempted=0`, `rolledBack=true` and `readyForCutover=true`.
+Production runtime `ded68df1ad00` published the frontend atomically and kept the
+`stroyka` service `active`. The deploy smoke and a second post-audit public smoke
+both passed; contractually accepted `429` responses in the repeat represented
+rate limiting rather than route failures. The final audit reported
+`dataReady=true`, `runtimeInventoryReady=true`, `writerInventoryReady=true`,
+exact writer/test counts of `5/5`, zero missing checks, data issues or
+violations, `writesAttempted=0`, `rolledBack=true` and
+`readyForCutover=true`. It verified `4/4` active projects, `15/15` valid active
+estimates and all `6/6` runtime boundaries owner-scoped. The automated release
+assertion printed `OK: E5.5 cutover gate`. Protected credentialed checks were
+not supplied; the unauthenticated route contract remained fail-closed. No
+schema migration, data remediation or synthetic production business row was
+created. These results close E5.
 
 **Implementation commits:** `fe3b77e3`, `4dd2fa7f`, `8973fd45`.
 

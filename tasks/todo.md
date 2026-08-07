@@ -4992,12 +4992,11 @@ material-control path with the stored `company_id + project_id` tuple. The
 authoritative accepted contract is
 `docs/active-estimate-material-control-ownership.md`.
 
-**Status:** Contract accepted on 2026-08-07. E5.1 through E5.4 are complete in
-production. Runtime `d0f52ad81832` passed atomic deploy, service health, public
-smoke and the read-only ownership audit with all `6/6` boundaries owner-scoped
-and `readyForCutover=true`. E5.5 implementation and local evidence are complete;
-its production deploy, public smoke and final read-only audit remain. No E5.4
-schema or business-row apply was required.
+**Status:** Complete in production on 2026-08-07. Runtime `ded68df1ad00` passed
+atomic deploy, service health, two public smoke runs and the final read-only
+audit. All `6/6` runtime boundaries are owner-scoped; the writer/test inventory
+is the exact reviewed `5/5`; all violations and data issues are zero; and
+`readyForCutover=true`. E5 required no schema or business-row apply.
 
 **Original observed risk:** The estimate query read `company_id` but its public
 payload omitted `companyId`; frontend active selection accepted either a
@@ -5181,7 +5180,7 @@ planned and requires explicit review.
   and unchanged protected history.
 - [x] The final bounded report is read-only and returns
   `readyForCutover=true` only when data and writer inventories are exact.
-- [ ] Deployment, public smoke and the production audit pass before E5 closes;
+- [x] Deployment, public smoke and the production audit pass before E5 closes;
   no synthetic production business data is created.
 
 **Local evidence (2026-08-07):** The final static gate inventories exactly five
@@ -5212,5 +5211,19 @@ schema or business row changed. The existing CRA dependency tree still reports
 migration; E5.5 introduces none of them.
 
 **Implementation commits:** `fe3b77e3`, `4dd2fa7f`, `8973fd45`.
+
+**Production evidence (2026-08-07):** Runtime `ded68df1ad00` published the
+frontend atomically, the `stroyka` service remained `active`, and both the
+deploy smoke and its post-audit repeat returned `Smoke-check OK`. Contractually
+accepted `429` responses in the repeat were rate limiting, not route failures.
+The audit was read-only and rolled back with `writesAttempted=0`; it verified
+`4/4` active projects, `15/15` valid active estimates, zero duplicate scopes,
+name collisions or issues, all `6/6` runtime boundaries owner-scoped, and the
+exact five allowed DML statements plus all five required PostgreSQL checks with
+no missing checks or violations. The automated assertion printed
+`OK: E5.5 cutover gate`, and the final result was `readyForCutover=true`.
+Protected credentialed checks were not supplied; the unauthenticated route
+contract remained fail-closed. No schema, remediation or synthetic business
+row was created. This closes E5.
 
 **Estimated scope:** M, read-only release gate.
