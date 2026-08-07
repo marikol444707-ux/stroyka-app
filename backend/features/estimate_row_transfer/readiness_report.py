@@ -9,7 +9,7 @@ from decimal import Decimal, InvalidOperation
 import psycopg2.extras
 
 from .cutover_inventory import audit_cutover_inventory
-from .plan import calculate_plan_sha256
+from .plan import MAX_PLAN_ENTRIES, calculate_plan_sha256
 from .schema import _load_catalog, build_schema_plan
 from .storage import ENTRY_SELECT, PLAN_SELECT, _stored_payload
 
@@ -17,12 +17,26 @@ from .storage import ENTRY_SELECT, PLAN_SELECT, _stored_payload
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 MAX_ISSUES = 100
 MAX_PLAN_PREVIEW = 100
+MAX_SCAN_PLANS = 1000
+MAX_SCAN_ROWS = 100000
 
 _ASSIGNMENT_RECEIPT_SELECT = """SELECT id,entry_id,plan_id,company_id,project_id,
-       plan_sha256,transfer_quantity
+       reconciliation_id,plan_sha256,source_contract_id,source_item_id,
+       source_estimate_version_id,source_section_index,source_item_index,
+       source_item_key,target_estimate_version_id,target_section_index,
+       target_item_index,target_item_key,source_quantity_before,
+       source_quantity_after,source_done_quantity,confirmed_quantity,
+       transfer_quantity,contract_total_before,contract_total_after
   FROM public.estimate_row_assignment_transfers"""
 _SUPPLY_ALLOCATION_SELECT = """SELECT id,entry_id,plan_id,company_id,project_id,
-       plan_sha256,allocation_quantity
+       reconciliation_id,plan_sha256,request_id,request_item_index,
+       request_item_sha256,source_estimate_id,source_estimate_version_id,
+       source_section_index,source_item_index,source_item_key,
+       source_sections_sha256,target_estimate_id,target_estimate_version_id,
+       target_section_index,target_item_index,target_item_key,
+       target_sections_sha256,requested_quantity,received_quantity,
+       previously_allocated_quantity,allocation_quantity,
+       remaining_unallocated_quantity
   FROM public.estimate_row_supply_allocations"""
 
 
@@ -70,6 +84,84 @@ class _Issues:
         self.preview.append(item)
 
 
+def _assignment_evidence_matches(header, entry, receipt):
+    source_total = _decimal(entry.get("source_total_quantity"))
+    protected = _decimal(entry.get("source_protected_quantity"))
+    transfer = _decimal(entry.get("quantity"))
+    source_done = _decimal(receipt.get("source_done_quantity"))
+    contract_before = _decimal(receipt.get("contract_total_before"))
+    contract_after = _decimal(receipt.get("contract_total_after"))
+    if None in (
+        source_total, protected, transfer, source_done,
+        contract_before, contract_after,
+    ):
+        return False
+    expected = {
+        "reconciliation_id": header.get("reconciliation_id"),
+        "source_contract_id": entry.get("source_parent_id"),
+        "source_item_id": entry.get("source_id"),
+        "source_estimate_version_id": entry.get("source_estimate_version_id"),
+        "source_section_index": entry.get("source_section_index"),
+        "source_item_index": entry.get("source_item_index"),
+        "source_item_key": entry.get("source_item_key"),
+        "target_estimate_version_id": entry.get("target_estimate_version_id"),
+        "target_section_index": entry.get("target_section_index"),
+        "target_item_index": entry.get("target_item_index"),
+        "target_item_key": entry.get("target_item_key"),
+    }
+    return bool(
+        all(receipt.get(key) == value for key, value in expected.items())
+        and _decimal(receipt.get("source_quantity_before")) == source_total
+        and _decimal(receipt.get("source_quantity_after")) == source_total - transfer
+        and _decimal(receipt.get("confirmed_quantity")) == protected
+        and 0 <= source_done <= source_total - transfer
+        and contract_before == contract_after
+    )
+
+
+def _supply_evidence_matches(header, entry, receipt):
+    requested = _decimal(receipt.get("requested_quantity"))
+    received = _decimal(receipt.get("received_quantity"))
+    prior = _decimal(receipt.get("previously_allocated_quantity"))
+    allocated = _decimal(receipt.get("allocation_quantity"))
+    remaining = _decimal(receipt.get("remaining_unallocated_quantity"))
+    source_total = _decimal(entry.get("source_total_quantity"))
+    protected = _decimal(entry.get("source_protected_quantity"))
+    available = _decimal(entry.get("source_available_quantity"))
+    if None in (
+        requested, received, prior, allocated, remaining,
+        source_total, protected, available,
+    ):
+        return False
+    expected = {
+        "reconciliation_id": header.get("reconciliation_id"),
+        "request_id": entry.get("source_id"),
+        "request_item_index": entry.get("request_item_index"),
+        "source_estimate_id": entry.get("source_estimate_id"),
+        "source_estimate_version_id": entry.get("source_estimate_version_id"),
+        "source_section_index": entry.get("source_section_index"),
+        "source_item_index": entry.get("source_item_index"),
+        "source_item_key": entry.get("source_item_key"),
+        "source_sections_sha256": entry.get("source_sections_sha256"),
+        "target_estimate_id": entry.get("target_estimate_id"),
+        "target_estimate_version_id": entry.get("target_estimate_version_id"),
+        "target_section_index": entry.get("target_section_index"),
+        "target_item_index": entry.get("target_item_index"),
+        "target_item_key": entry.get("target_item_key"),
+        "target_sections_sha256": entry.get("target_sections_sha256"),
+    }
+    return bool(
+        all(receipt.get(key) == value for key, value in expected.items())
+        and isinstance(receipt.get("request_item_sha256"), str)
+        and _SHA256_RE.fullmatch(receipt["request_item_sha256"])
+        and requested == source_total
+        and received + prior == protected
+        and requested - protected == available
+        and remaining == available - allocated
+        and min(received, prior, allocated, remaining) >= 0
+    )
+
+
 def _receipt_issues(
     *,
     kind,
@@ -111,9 +203,25 @@ def _receipt_issues(
             )
         planned_quantity = _decimal(entry.get("quantity"))
         receipt_quantity = _decimal(receipt.get(quantity_column))
-        if planned_quantity is None or receipt_quantity != planned_quantity:
+        quantity_matches = (
+            planned_quantity is not None and receipt_quantity == planned_quantity
+        )
+        if not quantity_matches:
             issues.add(
                 kind + "_receipt_quantity_mismatch",
+                plan_id=plan_id,
+                entry_id=entry_id,
+                receipt_id=receipt_id,
+            )
+        elif (
+            kind == "assignment"
+            and not _assignment_evidence_matches(header, entry, receipt)
+        ) or (
+            kind == "supply"
+            and not _supply_evidence_matches(header, entry, receipt)
+        ):
+            issues.add(
+                kind + "_receipt_evidence_mismatch",
                 plan_id=plan_id,
                 entry_id=entry_id,
                 receipt_id=receipt_id,
@@ -269,13 +377,25 @@ def build_ledger_report(
         if status == "draft":
             summary["draftPlans"] += 1
             if any(header.get(field) is not None for field in (
-                "approved_plan_sha256", "approved_by_user_id", "approved_at",
+                "approved_plan_sha256", "approved_by_user_id",
+                "approved_by_name", "approved_by_role", "approved_at",
             )):
                 issues.add("draft_approval_residue", plan_id=plan_id)
         elif status == "approved":
             summary["approvedPlans"] += 1
             if header.get("approved_plan_sha256") != stored_hash:
                 issues.add("approved_plan_hash_mismatch", plan_id=plan_id)
+            if (
+                not isinstance(header.get("approved_by_user_id"), int)
+                or isinstance(header.get("approved_by_user_id"), bool)
+                or header.get("approved_by_user_id") <= 0
+                or not isinstance(header.get("approved_by_name"), str)
+                or not header.get("approved_by_name").strip()
+                or not isinstance(header.get("approved_by_role"), str)
+                or not header.get("approved_by_role").strip()
+                or header.get("approved_at") is None
+            ):
+                issues.add("approved_metadata_invalid", plan_id=plan_id)
         else:
             issues.add("plan_status_invalid", plan_id=plan_id)
 
@@ -396,29 +516,62 @@ def collect_ledger_readiness(
     expected_plan_sha256=None,
 ):
     if expected_plan_id is None:
-        cur.execute(PLAN_SELECT + " ORDER BY id")
+        cur.execute(PLAN_SELECT + " ORDER BY id LIMIT %s", (MAX_SCAN_PLANS + 1,))
         headers = cur.fetchall() or []
-        cur.execute(ENTRY_SELECT + " ORDER BY plan_id,id")
+        if len(headers) > MAX_SCAN_PLANS:
+            return _scan_limit_report()
+        if not headers:
+            return build_ledger_report([], [], [], [])
+        plan_ids = [row.get("id") for row in headers]
+        cur.execute(
+            ENTRY_SELECT + " WHERE plan_id=ANY(%s) ORDER BY plan_id,id LIMIT %s",
+            (plan_ids, MAX_SCAN_ROWS + 1),
+        )
         entries = cur.fetchall() or []
-        cur.execute(_ASSIGNMENT_RECEIPT_SELECT + " ORDER BY plan_id,entry_id,id")
+        if len(entries) > MAX_SCAN_ROWS:
+            return _scan_limit_report()
+        cur.execute(
+            _ASSIGNMENT_RECEIPT_SELECT
+            + " WHERE plan_id=ANY(%s) ORDER BY plan_id,entry_id,id LIMIT %s",
+            (plan_ids, MAX_SCAN_ROWS + 1),
+        )
         assignments = cur.fetchall() or []
-        cur.execute(_SUPPLY_ALLOCATION_SELECT + " ORDER BY plan_id,entry_id,id")
+        if len(assignments) > MAX_SCAN_ROWS:
+            return _scan_limit_report()
+        cur.execute(
+            _SUPPLY_ALLOCATION_SELECT
+            + " WHERE plan_id=ANY(%s) ORDER BY plan_id,entry_id,id LIMIT %s",
+            (plan_ids, MAX_SCAN_ROWS + 1),
+        )
         supplies = cur.fetchall() or []
+        if len(supplies) > MAX_SCAN_ROWS:
+            return _scan_limit_report()
     else:
         cur.execute(PLAN_SELECT + " WHERE id=%s", (expected_plan_id,))
         headers = cur.fetchall() or []
-        cur.execute(ENTRY_SELECT + " WHERE plan_id=%s ORDER BY id", (expected_plan_id,))
-        entries = cur.fetchall() or []
         cur.execute(
-            _ASSIGNMENT_RECEIPT_SELECT + " WHERE plan_id=%s ORDER BY entry_id,id",
-            (expected_plan_id,),
+            ENTRY_SELECT + " WHERE plan_id=%s ORDER BY id LIMIT %s",
+            (expected_plan_id, MAX_PLAN_ENTRIES + 1),
+        )
+        entries = cur.fetchall() or []
+        if len(entries) > MAX_PLAN_ENTRIES:
+            return _scan_limit_report(exact=True)
+        cur.execute(
+            _ASSIGNMENT_RECEIPT_SELECT
+            + " WHERE plan_id=%s ORDER BY entry_id,id LIMIT %s",
+            (expected_plan_id, MAX_PLAN_ENTRIES + 1),
         )
         assignments = cur.fetchall() or []
+        if len(assignments) > MAX_PLAN_ENTRIES:
+            return _scan_limit_report(exact=True)
         cur.execute(
-            _SUPPLY_ALLOCATION_SELECT + " WHERE plan_id=%s ORDER BY entry_id,id",
-            (expected_plan_id,),
+            _SUPPLY_ALLOCATION_SELECT
+            + " WHERE plan_id=%s ORDER BY entry_id,id LIMIT %s",
+            (expected_plan_id, MAX_PLAN_ENTRIES + 1),
         )
         supplies = cur.fetchall() or []
+        if len(supplies) > MAX_PLAN_ENTRIES:
+            return _scan_limit_report(exact=True)
     return build_ledger_report(
         headers,
         entries,
@@ -427,6 +580,21 @@ def collect_ledger_readiness(
         expected_plan_id=expected_plan_id,
         expected_plan_sha256=expected_plan_sha256,
     )
+
+
+def _scan_limit_report(*, exact=False):
+    return {
+        "ledgerReady": False,
+        "exactPlanRequested": bool(exact),
+        "exactPlanReady": False if exact else None,
+        "summary": {},
+        "planCount": 0,
+        "plans": [],
+        "plansTruncated": True,
+        "issueCount": 1,
+        "issues": [{"reasonCode": "ledger_scan_limit_exceeded"}],
+        "issuesTruncated": False,
+    }
 
 
 def run_readiness_report(

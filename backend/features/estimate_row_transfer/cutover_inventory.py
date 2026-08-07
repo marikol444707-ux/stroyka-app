@@ -75,17 +75,9 @@ def _sql_statements(path, source, violations):
         return []
     statements = []
     for node in ast.walk(tree):
-        if (
-            not isinstance(node, ast.Call)
-            or not node.args
-            or not isinstance(node.func, ast.Attribute)
-            or node.func.attr != "execute"
-        ):
+        if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
             continue
-        sql_node = node.args[0]
-        if not isinstance(sql_node, ast.Constant) or not isinstance(sql_node.value, str):
-            continue
-        for match in _DML_RE.finditer(" ".join(sql_node.value.split())):
+        for match in _DML_RE.finditer(" ".join(node.value.split())):
             operation = match.group(1).lower().split()[0]
             statements.append((node.lineno, operation, match.group(2).lower()))
     return statements

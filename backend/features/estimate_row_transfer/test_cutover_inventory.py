@@ -22,7 +22,8 @@ class EstimateRowTransferCutoverInventoryTests(unittest.TestCase):
         report = audit_cutover_inventory(source_files={
             "backend/features/estimate_row_transfer/assignment_apply.py": """
                 def unsafe(cur):
-                    cur.execute("UPDATE public.work_journal SET quantity=0 WHERE id=1")
+                    statement = "UPDATE public.work_journal SET quantity=0 WHERE id=1"
+                    cur.execute(statement)
             """,
         }, integration_test_source="\n".join(
             "def %s(): pass" % name
