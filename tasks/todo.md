@@ -5417,11 +5417,10 @@ inventory remains exact `3/3` with zero E6 runtime DML. The service stayed
 active and final public smoke passed. No project budget or other business row
 was changed. E6.2 is closed in production.
 
-**Next action:** Deploy the completed read-only E6.3 slice, verify the public
-authentication smoke plus the E5/E6 read-only readiness reports, and request a
-preview only if production already contains a genuine approved customer
-reconciliation. Do not manufacture production data and do not register an
-approval route or add runtime DML in this slice.
+**Next action:** Start E6.4.1 test-first with the dedicated-PostgreSQL
+transactional kernel. Prove deterministic locks, stale-hash rollback,
+idempotent/concurrent double approval and protected-history snapshots before
+registering any approval or history route.
 
 ### Task E6.3: Tenant-Bound Read-Only Preview
 
@@ -5451,8 +5450,19 @@ backend discovery passes `1551` tests with `15` guarded skips. The route opens a
 back; its response is a 13-field allowlist and the slice contains no approval
 route or E6 DML. Static material-control inventory now explicitly reviews all
 `7/7` active-estimate boundaries and requires correlated company/project
-predicates to use the same distinct alias pair. Production verification remains
-pending, so E6.3 and E6.4 stay open.
+predicates to use the same distinct alias pair.
+
+**Production evidence:** Runtime `39af888a3ee5` deployed atomically, remained
+active and passed both public smoke runs. The unauthenticated preview returned
+the expected `401` backend response. Material-control readiness reported clean
+`15/15` active-estimate data, exact `7/7` owner-scoped runtime boundaries,
+exact `5/5` writer/integration inventory, zero violations/writes, rollback and
+`readyForCutover=true`. E6 readiness confirmed exact `NUMERIC(14,2)`, safe
+`4/4` project budgets, all `13` reconciliations data-ready, exact `3/3`
+pre-existing project-budget writers, zero E6 DML, zero writes and rollback.
+Production contains no approved reconciliation candidate, so the authenticated
+success path was correctly not exercised and no fixture was created. E6.3 is
+closed in production; E6.4 remains disabled.
 
 **Dependencies:** E6.2 schema ready.
 
