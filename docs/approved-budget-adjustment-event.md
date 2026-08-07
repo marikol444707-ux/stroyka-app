@@ -219,6 +219,21 @@ npm run build
 npm run smoke:prod
 ```
 
+The final readiness command opens one `REPEATABLE READ`, read-only transaction,
+checks the strict schema and bounded baseline, scans at most `100000` immutable
+receipts, then rolls back before evaluating the static writer/route/test
+inventory. It reports only fixed reason codes and owner/source IDs, caps the
+issue preview at `100`, attempts zero writes and exits successfully only when
+`readyForCutover=true`.
+
+The receipt audit recomputes every stored plan hash and monetary equation and
+verifies immutable actor evidence, uniqueness and current owner/source links.
+It intentionally does not require the current project budget to equal the most
+recent receipt's after-value: the accepted contract retains ordinary manual
+budget editing for initial and non-estimate setup. A later estimate-driven
+approval still hashes and locks the then-current before-value, so stale manual
+changes cannot be overwritten.
+
 The schema apply takes an exclusive lock on `projects`, repeats the conversion
 audit and rebuilds the plan under that lock before running DDL. Any changed
 value, catalog drift, count mismatch or hash mismatch rolls the transaction
@@ -268,6 +283,12 @@ fixed reason codes and bounded ID-only previews.
   warehouse tables are byte-for-byte unchanged.
 - A static writer inventory permits only the reviewed event insert and guarded
   project budget update.
+- A static cutover inventory requires exactly three E6 routes, two
+  registrations, three public smoke checks, one approval-kernel entrypoint and
+  the complete named PostgreSQL/HTTP proof set.
+- The final receipt-ledger gate is hard-capped, ID-only, read-only and always
+  rolled back; schema, data, ledger, writer, route and test evidence must all be
+  green together.
 - Full backend/frontend suites, production build and public smoke remain release
   gates.
 

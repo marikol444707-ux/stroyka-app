@@ -5534,10 +5534,36 @@ compiles successfully. Ordinary manual initial budget editing and all automatic
 estimate/reconciliation flows remain unchanged. Nothing was deployed and no
 production schema or business row was changed in E6.4.2.
 
-**Next action:** Implement E6.4.3 test-first: exact route/integration-test
-inventory plus a bounded, read-only, always-rolled-back ledger readiness report.
-Only a green gate may authorize a later production deploy; do not manufacture
-an approved reconciliation for smoke.
+**Local implementation evidence (E6.4.3):** The final backend enablement gate
+now combines the strict E6 schema, baseline owner/source data, immutable receipt
+ledger, exact writer surface, route/registration/smoke inventory and required
+integration proofs in one operator-facing report. Its database work runs in one
+`REPEATABLE READ`, read-only transaction and always rolls back. Receipt scanning
+is capped at `100000` rows and diagnostics at `100` fixed ID-only issues; the
+classifier recomputes each deterministic plan hash and monetary equation,
+rejects invalid identities/actors/timestamps, duplicate reconciliation/hash
+evidence and current project/reconciliation/estimate/user link drift without
+returning amounts, hashes or names.
+
+The static cutover boundary requires exactly `3` E6 routes, `2` main-module
+registrations, `3` unauthenticated production smoke checks, one invocation of
+the approval kernel and `13` named PostgreSQL/HTTP integration scenarios.
+Missing, duplicated, renamed or additional entrypoints fail closed. A fresh
+dedicated UTF-8 PostgreSQL cluster passed all `7/7` tests, including concurrency,
+idempotency, rollback, protected-history and a final green read-only gate whose
+receipt count was unchanged. Focused E6 discovery passes `114` tests with `7`
+expected no-DSN skips; full backend discovery passes `1595` tests with `21`
+guarded skips; all `78` frontend suites / `325` tests and the optimized
+production build pass. Compilation and `git diff --check` are clean.
+
+**Implementation commits:** `910fb9ce`, `aff86523`, `9965cf6e`.
+
+**Next action:** Push the reviewed E6.4.3 commits, then use a separate production
+deploy checkpoint. After deployment run the public smoke and
+`npm run audit:project-budget-adjustments`; require exact schema/data/ledger/
+writer/route/test readiness, zero writes, rollback and
+`readyForCutover=true`. Do not manufacture an approved reconciliation or
+financial receipt for smoke.
 
 **Dependencies:** E6.3 preview contract production-green.
 
