@@ -7,24 +7,15 @@ from backend.features.material_control_ownership.inventory import (
 
 
 class MaterialControlRuntimeInventoryTests(unittest.TestCase):
-    def test_repository_inventory_marks_frontend_owner_scoped_and_backend_name_scoped(self):
+    def test_repository_inventory_requires_every_runtime_boundary_to_be_owner_scoped(self):
         report = audit_runtime_inventory(Path(__file__).resolve().parents[3])
 
         self.assertTrue(report["ok"], report["violations"])
-        self.assertFalse(report["runtimeInventoryReady"])
+        self.assertTrue(report["runtimeInventoryReady"], report["violations"])
         self.assertEqual(report["candidateCount"], 6)
-        self.assertEqual(report["nameScopedCount"], 5)
-        self.assertEqual(report["ownerScopedCount"], 1)
-        self.assertEqual(
-            {(item["file"], item["symbol"]) for item in report["violations"]},
-            {
-                ("backend/main.py", "_supply_material_estimate_control"),
-                ("backend/main.py", "_supply_linked_work_estimate_control"),
-                ("backend/main.py", "_run_project_ai_control"),
-                ("backend/main.py", "update_estimate_status"),
-                ("backend/main.py", "_generate_material_norm_suggestions"),
-            },
-        )
+        self.assertEqual(report["nameScopedCount"], 0)
+        self.assertEqual(report["ownerScopedCount"], 6)
+        self.assertEqual(report["violations"], [])
 
     def test_reviewed_frontend_owner_matcher_is_owner_scoped(self):
         sources = {

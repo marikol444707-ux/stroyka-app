@@ -6653,7 +6653,12 @@ def create_warehouse_movement(
                 "unit": source_unit,
                 "workPackage": work_package,
             }]
-            _attach_supply_estimate_control(cur, to_location, movement_control_items)
+            _attach_supply_estimate_control(
+                cur,
+                to_location,
+                movement_control_items,
+                company_id=company_id,
+            )
             movement_estimate_control = build_movement_estimate_control(movement_control_items)
             work_package = _supply_work_package(movement_control_items[0].get("workPackage") or work_package)
 
@@ -8171,14 +8176,16 @@ def _material_units_compatible(unit_a: str = "", unit_b: str = "") -> bool:
     base_b = _norm_base_unit(unit_b or "")
     return not base_a or not base_b or base_a == base_b
 
-def _supply_material_estimate_control(cur, project: str, material_name: str, unit: str = "", work_package: str = "", exclude_request_id=None, exclude_stock_qty: float = 0.0):
+def _supply_material_estimate_control(cur, project_owner: dict, material_name: str, unit: str = "", work_package: str = "", exclude_request_id=None, exclude_stock_qty: float = 0.0):
     try:
         from backend.features.estimate_material_plan.service import is_resource_adjustment, material_plan_contribution
     except ModuleNotFoundError:
         from features.estimate_material_plan.service import is_resource_adjustment, material_plan_contribution
-    project = (project or "").strip()
+    project = str((project_owner or {}).get("name") or "").strip()
+    company_id = _positive_int_or_none((project_owner or {}).get("companyId"))
+    project_id = _positive_int_or_none((project_owner or {}).get("id"))
     material_name = (material_name or "").strip()
-    if not project or not material_name:
+    if not project or not company_id or not project_id or not material_name:
         return None
     package = _supply_work_package(work_package)
     target_key = _material_control_key_resolved(cur, project, material_name, unit)
@@ -8188,7 +8195,7 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
     unit_mismatch_matched_rows = 0
     matched_package = package
     best_match = None
-    params = [project]
+    params = [company_id, project_id]
     package_clause = ""
     # Если пользователь принял накладную/перемещение без явного пакета, не блокируем
     # сразу по "Основная": сначала пробуем найти материал во всех активных пакетах.
@@ -8197,7 +8204,8 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
         params.append(package)
     cur.execute("""SELECT id, name, sections_json, COALESCE(work_package,'Основная') AS work_package
                    FROM estimates
-                   WHERE project_name=%s
+                   WHERE company_id=%s
+                     AND project_id=%s
                      AND status='Активная'
                      AND COALESCE(smeta_type,'Заказчик') IN ('Заказчик','Материалы')""" + package_clause, tuple(params))
     estimates = _cursor_rows_as_dicts(cur, cur.fetchall())
@@ -8280,9 +8288,11 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
     transferred_pending_qty = 0.0
     cur.execute("""SELECT material_name, unit, quantity, COALESCE(signed,FALSE) AS signed
                    FROM material_transfers
-                   WHERE project_name=%s
+                   WHERE company_id=%s
+                     AND project_id=%s
                      AND COALESCE(NULLIF(work_package,''),'Основная')=%s
-                     AND COALESCE(status,'Активна') <> 'Аннулирована'""", (project, matched_package))
+                     AND COALESCE(status,'Активна') <> 'Аннулирована'""",
+                (company_id, project_id, matched_package))
     for row in _cursor_rows_as_dicts(cur, cur.fetchall()):
         if _material_control_key_resolved(cur, project, row.get("material_name"), row.get("unit")) == target_key or (
             _material_units_compatible(unit, row.get("unit")) and _material_name_match_score(material_name, row.get("material_name")) >= 0.55
@@ -8433,9 +8443,11 @@ def _canonicalize_invoice_items_from_estimate_control(items: list):
         item["estimateControl"] = control
     return items
 
-def _supply_linked_work_estimate_control(cur, project: str, item: dict, work_package: str = ""):
-    project = (project or "").strip()
-    if not project or not isinstance(item, dict):
+def _supply_linked_work_estimate_control(cur, project_owner: dict, item: dict, work_package: str = ""):
+    project = str((project_owner or {}).get("name") or "").strip()
+    company_id = _positive_int_or_none((project_owner or {}).get("companyId"))
+    project_id = _positive_int_or_none((project_owner or {}).get("id"))
+    if not project or not company_id or not project_id or not isinstance(item, dict):
         return None
     package = _supply_work_package(work_package or item.get("workPackage") or item.get("work_package"))
     target_keys = {
@@ -8456,14 +8468,15 @@ def _supply_linked_work_estimate_control(cur, project: str, item: dict, work_pac
     if not target_keys and not target_name:
         return None
 
-    params = [project]
+    params = [company_id, project_id]
     package_clause = ""
     if package:
         package_clause = " AND COALESCE(NULLIF(work_package,''),'Основная')=%s"
         params.append(package)
     cur.execute("""SELECT id, name, sections_json, COALESCE(NULLIF(work_package,''),'Основная') AS work_package
                    FROM estimates
-                   WHERE project_name=%s
+                   WHERE company_id=%s
+                     AND project_id=%s
                      AND status='Активная'
                      AND COALESCE(smeta_type,'Заказчик')='Заказчик'""" + package_clause, tuple(params))
     for est in _cursor_rows_as_dicts(cur, cur.fetchall()):
@@ -8501,10 +8514,35 @@ def _supply_linked_work_estimate_control(cur, project: str, item: dict, work_pac
                     }
     return None
 
-def _attach_supply_estimate_control(cur, project: str, items: list, exclude_request_id=None, exclude_stock_by_key=None):
+def _attach_supply_estimate_control(
+    cur,
+    project: str,
+    items: list,
+    exclude_request_id=None,
+    exclude_stock_by_key=None,
+    *,
+    company_id=None,
+    project_id=None,
+):
     from datetime import datetime, timezone
     if not project:
         return items
+    if project == "Основной склад":
+        return items
+    if not _positive_int_or_none(company_id):
+        raise HTTPException(status_code=409, detail="Компания сметного контроля не определена")
+    try:
+        from backend.features.ai_findings.service import resolve_project_owner
+    except ModuleNotFoundError:
+        from features.ai_findings.service import resolve_project_owner
+    project_owner = resolve_project_owner(
+        cur,
+        project,
+        company_id=company_id,
+        project_id=project_id,
+        for_update=not getattr(getattr(cur, "connection", None), "autocommit", True),
+    )
+    project = project_owner["name"]
     exclude_stock_by_key = exclude_stock_by_key or {}
     calculated_at = datetime.now(timezone.utc).isoformat()
     for item in items or []:
@@ -8512,7 +8550,7 @@ def _attach_supply_estimate_control(cur, project: str, items: list, exclude_requ
             continue
         control = _supply_material_estimate_control(
             cur,
-            project,
+            project_owner,
             item.get("materialName") or item.get("name") or "",
             item.get("unit") or "",
             item.get("workPackage") or item.get("work_package") or "",
@@ -8524,7 +8562,7 @@ def _attach_supply_estimate_control(cur, project: str, items: list, exclude_requ
         if control.get("status") == "no_estimate_material":
             linked_work = _supply_linked_work_estimate_control(
                 cur,
-                project,
+                project_owner,
                 item,
                 item.get("workPackage") or item.get("work_package") or "",
             )
@@ -8550,7 +8588,12 @@ def _attach_supply_estimate_control(cur, project: str, items: list, exclude_requ
         item["estimateControl"] = control
     return items
 
-def _refresh_open_supply_controls_for_estimate(cur, project_name: str, company_id):
+def _refresh_open_supply_controls_for_estimate(
+    cur,
+    project_name: str,
+    company_id,
+    project_id=None,
+):
     try:
         from backend.features.supply_estimate_refresh.service import refresh_open_supply_request_controls
     except ModuleNotFoundError:
@@ -8559,16 +8602,26 @@ def _refresh_open_supply_controls_for_estimate(cur, project_name: str, company_i
         cur,
         project_name=project_name,
         company_id=company_id,
+        project_id=project_id,
         attach_control=_attach_supply_estimate_control,
     )
 
-def _refresh_open_supply_controls_after_estimate_change(project_name: str, company_id):
+def _refresh_open_supply_controls_after_estimate_change(
+    project_name: str,
+    company_id,
+    project_id=None,
+):
     conn = None
     cur = None
     try:
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        result = _refresh_open_supply_controls_for_estimate(cur, project_name, company_id)
+        result = _refresh_open_supply_controls_for_estimate(
+            cur,
+            project_name,
+            company_id,
+            project_id,
+        )
         conn.commit()
         return result
     except Exception as exc:
@@ -8817,6 +8870,10 @@ def create_supply_request(
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     _ensure_supply_runtime_columns(cur)
     conn.commit()
+    if is_material_control_request:
+        # The advisory lineage lock and duplicate scan must share one
+        # transaction with the request insert.
+        conn.autocommit = False
     project_company_id = None
     requested_company_id = r.companyId
     if is_material_control_request:
@@ -8940,7 +8997,13 @@ def create_supply_request(
                     + ". Отмените её или дождитесь поставки, затем обновите контроль материалов."
                 ),
             )
-    items = _attach_supply_estimate_control(cur, project_name, items)
+    items = _attach_supply_estimate_control(
+        cur,
+        project_name,
+        items,
+        company_id=company_id,
+        project_id=project_id,
+    )
     if project_name != "Основной склад":
         _enforce_supply_estimate_control(items, source="заявка")
     items_json = _json.dumps(items, ensure_ascii=False)
@@ -9064,7 +9127,13 @@ def update_supply_request(
         if role not in LEADERSHIP_ROLES:
             conn.close()
             raise HTTPException(status_code=403, detail="Утвердить заявку может только директор или замдиректора")
-        refreshed_items = _attach_supply_estimate_control(cur, req.get("project") or "", request_items, exclude_request_id=id)
+        refreshed_items = _attach_supply_estimate_control(
+            cur,
+            req.get("project") or "",
+            request_items,
+            exclude_request_id=id,
+            company_id=req.get("company_id"),
+        )
         if req.get("project") and req.get("project") != "Основной склад":
             _enforce_supply_estimate_control(refreshed_items, source="заявка")
             cur.execute("UPDATE supply_requests SET items_json=%s WHERE id=%s", (json.dumps(refreshed_items, ensure_ascii=False), id))
@@ -10723,7 +10792,13 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
     )
     items = [item]
     if project:
-        items = _attach_supply_estimate_control(cur, project, items, exclude_request_id=delivery.get('request_id'))
+        items = _attach_supply_estimate_control(
+            cur,
+            project,
+            items,
+            exclude_request_id=delivery.get('request_id'),
+            company_id=company_id,
+        )
         _enforce_supply_estimate_control(items, source="накладная поставки")
     number = delivery.get('waybill_number') or ("Поставка-" + str(delivery_id))
     linked_supplier_invoice_id = _find_supplier_invoice_for_supply(
@@ -14464,6 +14539,8 @@ def _run_project_ai_control(
             or not _positive_int_or_none(finding_project_owner.get("companyId"))
         ):
             raise HTTPException(status_code=409, detail="Владелец объекта ИИ-контроля не определён")
+    owner_company_id = int(finding_project_owner["companyId"])
+    owner_project_id = int(finding_project_owner["id"])
     created = updated = tasks_created = tasks_updated = closed = 0
 
     cur.execute("""SELECT id, project, name, floor_area, wall_area, ceiling_area, height, windows, doors, notes, floor, liter, room_type
@@ -14621,10 +14698,11 @@ def _run_project_ai_control(
 
     cur.execute("""SELECT id, sections_json, name, version, COALESCE(work_package,'') AS work_package
                    FROM estimates
-                   WHERE project_name=%s
+                   WHERE company_id=%s
+                     AND project_id=%s
                      AND status='Активная'
                      AND COALESCE(smeta_type,'Заказчик')='Заказчик'
-                   ORDER BY id DESC""", (project_name,))
+                   ORDER BY id DESC""", (owner_company_id, owner_project_id))
     estimates = [dict(r) for r in cur.fetchall()]
     cur.execute("""SELECT id, rule_key, name, work_keywords, block_work_keywords, material_keywords,
                           work_unit, material_unit, qty_per_unit
@@ -14794,9 +14872,10 @@ def _run_project_ai_control(
 
     cur.execute("""SELECT id, material_name, quantity, unit, transfer_date, to_person, to_person_role
                    FROM material_transfers
-                   WHERE project_name=%s
+                   WHERE company_id=%s
+                     AND project_id=%s
                      AND COALESCE(signed,FALSE)=FALSE
-                   ORDER BY id DESC LIMIT 50""", (project_name,))
+                   ORDER BY id DESC LIMIT 50""", (owner_company_id, owner_project_id))
     for tr in cur.fetchall() or []:
         dedupe = f"MATERIAL_RULE:transfer_unsigned:{tr.get('id')}"
         active_task_keys.add(dedupe)
@@ -16381,15 +16460,15 @@ def create_estimate(
     if status == "Активная" and actor.get("role") not in LEADERSHIP_ROLES:
         cur.close(); conn.close()
         raise HTTPException(status_code=403, detail="Активировать смету может только директор или замдиректора. Сохраните смету черновиком.")
-    if status == "Активная":
+    if status == "Активная" and project_id:
         cur.execute("""UPDATE estimates
                        SET status='Черновик'
                        WHERE company_id=%s
-                         AND project_name=%s
+                         AND project_id=%s
                          AND COALESCE(smeta_type,'Заказчик')=%s
                          AND COALESCE(NULLIF(work_package,''),'Основная')=%s
                          AND status='Активная'""",
-                    (company_id, project_name, smeta_type, work_package))
+                    (company_id, project_id, smeta_type, work_package))
     sections, _ = _normalize_estimate_adjustment_rows(data.get("sections", []))
     cur.execute("""INSERT INTO estimates
                    (company_id,project_id,project_name,name,version,sections_json,smeta_type,work_package,status)
@@ -16410,7 +16489,12 @@ def create_estimate(
         sections=sections,
     )
     if status == "Активная" and project_name:
-        background_tasks.add_task(_refresh_open_supply_controls_after_estimate_change, project_name, company_id)
+        background_tasks.add_task(
+            _refresh_open_supply_controls_after_estimate_change,
+            project_name,
+            company_id,
+            project_id,
+        )
     if project_name:
         background_tasks.add_task(_run_project_ai_control_safely, project_name, "estimate:create")
     response = {"id":new_estimate_id,"ok":True,"supplyControlRefresh":supply_refresh}
@@ -16920,6 +17004,7 @@ def update_estimate(
             cur,
             project_name,
             estimate_scope["companyId"],
+            estimate_scope.get("projectId"),
         )
     conn.commit()
     cur.close(); conn.close()
@@ -16987,15 +17072,23 @@ def update_estimate_status(
     except Exception:
         estimate_sections = None
     if status == "Активная":
+        if not _positive_int_or_none(project_id):
+            cur.close()
+            conn.rollback()
+            conn.close()
+            raise HTTPException(
+                status_code=409,
+                detail="Объект сметы не определён; активация остановлена",
+            )
         cur.execute("""UPDATE estimates
                        SET status='Черновик'
                        WHERE id<>%s
                          AND company_id=%s
-                         AND project_name=%s
+                         AND project_id=%s
                          AND COALESCE(smeta_type,'Заказчик')=%s
                          AND COALESCE(NULLIF(work_package,''),'Основная')=%s
                          AND status='Активная'""",
-                    (id, estimate["companyId"], project_name, smeta_type, work_package))
+                    (id, estimate["companyId"], project_id, smeta_type, work_package))
     cur.execute("UPDATE estimates SET status=%s WHERE id=%s AND company_id=%s", (status, id, estimate["companyId"]))
     supply_refresh = {"scanned": 0, "updated": 0}
     if status == "Активная" and project_name:
@@ -17003,6 +17096,7 @@ def update_estimate_status(
             cur,
             project_name,
             estimate["companyId"],
+            project_id,
         )
     conn.commit()
     cur.close(); conn.close()
@@ -17809,12 +17903,6 @@ def create_material_transfer(
         require_project_or_warehouse_access(actor, project_name)
         if actor.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(actor, work_package or "Основная"):
             raise HTTPException(status_code=403, detail="Нет доступа к пакету материалов")
-        cur.execute("SELECT COUNT(DISTINCT company_id) AS count FROM projects WHERE name=%s", (project_name,))
-        if int((cur.fetchone() or {}).get("count") or 0) > 1:
-            raise HTTPException(
-                status_code=409,
-                detail="Сметный контроль выдачи ещё не поддерживает одноимённые объекты разных компаний",
-            )
         to_person = (data.get("toPerson") or "").strip()
         to_user_id = data.get("toUserId") or data.get("to_user_id")
         invoice_id = data.get("invoiceId") or data.get("invoice_id")
@@ -17895,7 +17983,13 @@ def create_material_transfer(
                     "unit": unit,
                     "workPackage": work_package,
                 }]
-                _attach_supply_estimate_control(cur, project_name, preview_control_items)
+                _attach_supply_estimate_control(
+                    cur,
+                    project_name,
+                    preview_control_items,
+                    company_id=company_id,
+                    project_id=project_id,
+                )
                 work_package = _supply_work_package(preview_control_items[0].get("workPackage") or work_package)
             receiver_packages = set(_safe_project_list(receiver.get("assigned_packages")))
             if not receiver_packages or (work_package or "Основная") not in receiver_packages:
@@ -17932,6 +18026,8 @@ def create_material_transfer(
                 project_name,
                 transfer_control_items,
                 exclude_stock_by_key={control_key: qty},
+                company_id=company_id,
+                project_id=project_id,
             )
             _enforce_supply_estimate_control(transfer_control_items, source="выдача исполнителю")
             work_package = _supply_work_package(transfer_control_items[0].get("workPackage") or work_package)
@@ -18727,7 +18823,12 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
             supplier_id=data.get("supplierId") or data.get("supplier_id"),
         )
         if target_project:
-            items_list = _attach_supply_estimate_control(cur, target_project, items_list)
+            items_list = _attach_supply_estimate_control(
+                cur,
+                target_project,
+                items_list,
+                company_id=company_id,
+            )
             items_list = _canonicalize_invoice_items_from_estimate_control(items_list)
             manual_project_invoice_override = (
                 target_project
@@ -21170,8 +21271,42 @@ def _enhance_norm_suggestions_with_ai(suggestions: list[dict]) -> list[dict]:
         print("MATERIAL NORM SUGGEST AI PARSE ERROR:", str(e))
         return suggestions
 
-def _generate_material_norm_suggestions(cur, current_user: dict, project_name: str = "", use_ai: bool = True, diagnostics: dict = None) -> list[dict]:
-    allowed_projects = visible_project_names(current_user)
+def _generate_material_norm_suggestions(
+    cur,
+    current_user: dict,
+    project_name: str = "",
+    use_ai: bool = True,
+    diagnostics: dict = None,
+    *,
+    project_owners: list[dict],
+) -> list[dict]:
+    normalized_owners = []
+    for owner in project_owners or []:
+        owner_name = str((owner or {}).get("name") or "").strip()
+        owner_company_id = _positive_int_or_none((owner or {}).get("companyId"))
+        owner_project_id = _positive_int_or_none((owner or {}).get("id"))
+        if not owner_name or not owner_company_id or not owner_project_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Владелец объекта для проверки норм не определён",
+            )
+        normalized_owners.append({
+            "name": owner_name,
+            "companyId": owner_company_id,
+            "id": owner_project_id,
+        })
+    if project_name:
+        normalized_owners = [
+            owner for owner in normalized_owners
+            if owner["name"] == project_name
+        ]
+        if len(normalized_owners) != 1:
+            raise HTTPException(
+                status_code=409,
+                detail="Точный объект для проверки норм не определён",
+            )
+    if not normalized_owners:
+        return []
     norm_rules = _load_active_norm_rules(cur, project_name)
     if diagnostics is not None:
         diagnostics.update({
@@ -21189,20 +21324,25 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
             "estimateMaterialsWithoutCandidateWork": 0,
         })
     suggestions = {}
-    where = "WHERE COALESCE(status,'') NOT IN ('Отклонено','Аннулировано')"
-    params = []
-    if project_name:
-        where += " AND project=%s"
-        params.append(project_name)
-    elif allowed_projects is not None:
-        if not allowed_projects:
-            return []
-        where += " AND project = ANY(%s)"
-        params.append(allowed_projects)
-    cur.execute(f"""SELECT id, project, description, section_name, unit, quantity, materials_used, date
-                    FROM work_journal {where}
-                    ORDER BY id DESC LIMIT 800""", tuple(params))
-    journal_rows = cur.fetchall()
+    journal_rows = []
+    for owner in normalized_owners:
+        cur.execute("""SELECT id, project, description, section_name, unit, quantity, materials_used, date
+                       FROM work_journal
+                       WHERE company_id=%s
+                         AND project=%s
+                         AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано')
+                       ORDER BY id DESC LIMIT 800""",
+                    (owner["companyId"], owner["name"]))
+        for raw_row in cur.fetchall():
+            journal_row = dict(raw_row)
+            journal_row["company_id"] = owner["companyId"]
+            journal_row["project_id"] = owner["id"]
+            journal_rows.append(journal_row)
+    journal_rows = sorted(
+        journal_rows,
+        key=lambda row: int(_row_get(row, "id", 0, 0) or 0),
+        reverse=True,
+    )[:800]
     if diagnostics is not None:
         diagnostics["workJournalRows"] = len(journal_rows)
     for row in journal_rows:
@@ -21235,6 +21375,8 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
             suggestion_type = "over_norm" if norm_qty > 0 else "without_norm"
             dedupe = "|".join([
                 suggestion_type,
+                str(work.get("company_id") or ""),
+                str(work.get("project_id") or ""),
                 _norm_key_text(work.get("project")),
                 _norm_key_text(work.get("description"))[:70],
                 _norm_key_text(material_name)[:70],
@@ -21242,6 +21384,8 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
             ])
             item = suggestions.setdefault(dedupe, {
                 "projectName": work.get("project") or "",
+                "companyId": work.get("company_id"),
+                "projectId": work.get("project_id"),
                 "suggestionType": suggestion_type,
                 "severity": "Критично" if suggestion_type == "without_norm" else "Проверить",
                 "workName": work.get("description") or "",
@@ -21278,20 +21422,25 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
             s["confidence"] = min(0.85, 0.5 + s["sampleCount"] * 0.06)
         s["label"] = f"{s['materialName']} {s['suggestedQtyPerUnit']} {s['materialUnit']} / {s['workUnit'] or 'ед.'}"
 
-    estimate_where = "WHERE COALESCE(e.is_template,FALSE)=FALSE AND e.status='Активная' AND COALESCE(e.smeta_type,'Заказчик')='Заказчик'"
-    estimate_params = []
-    if project_name:
-        estimate_where += " AND e.project_name=%s"
-        estimate_params.append(project_name)
-    elif allowed_projects is not None:
-        if not allowed_projects:
-            return list(suggestions.values())
-        estimate_where += " AND e.project_name = ANY(%s)"
-        estimate_params.append(allowed_projects)
-    cur.execute(f"""SELECT e.id, e.project_name, e.sections_json, COALESCE(e.work_package,'Основная') AS work_package
-                    FROM estimates e {estimate_where}
-                    ORDER BY e.id DESC LIMIT 120""", tuple(estimate_params))
-    estimate_rows = cur.fetchall()
+    estimate_rows = []
+    for owner in normalized_owners:
+        cur.execute("""SELECT e.id, e.project_name, e.sections_json,
+                              COALESCE(e.work_package,'Основная') AS work_package,
+                              e.company_id, e.project_id
+                       FROM estimates e
+                       WHERE e.company_id=%s
+                         AND e.project_id=%s
+                         AND COALESCE(e.is_template,FALSE)=FALSE
+                         AND e.status='Активная'
+                         AND COALESCE(e.smeta_type,'Заказчик')='Заказчик'
+                       ORDER BY e.id DESC LIMIT 120""",
+                    (owner["companyId"], owner["id"]))
+        estimate_rows.extend(cur.fetchall())
+    estimate_rows = sorted(
+        estimate_rows,
+        key=lambda row: int(_row_get(row, "id", 0, 0) or 0),
+        reverse=True,
+    )[:120]
     if diagnostics is not None:
         diagnostics["activeCustomerEstimates"] = len(estimate_rows)
     for est in estimate_rows:
@@ -21341,6 +21490,8 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
                 suggested = round(mat_qty / work_qty, 4) if work_qty > 0 and mat_qty > 0 else 0
                 dedupe = "|".join([
                     "estimate_material_without_norm",
+                    str(est.get("company_id") or ""),
+                    str(est.get("project_id") or ""),
                     _norm_key_text(est["project_name"]),
                     _norm_key_text(section_name)[:70],
                     _norm_key_text(work.get("name") or "")[:70],
@@ -21348,6 +21499,8 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
                 ])
                 suggestions.setdefault(dedupe, {
                     "projectName": est["project_name"] or "",
+                    "companyId": est.get("company_id"),
+                    "projectId": est.get("project_id"),
                     "workPackage": est.get("work_package") or "Основная",
                     "suggestionType": "estimate_material_without_norm",
                     "severity": "Проверить",
@@ -21396,18 +21549,124 @@ def list_material_norm_suggestions(project_name: str = None, current_user: dict 
     cur.close(); conn.close()
     return [_material_norm_suggestion_row(dict(r)) for r in rows]
 
+
+def _resolve_material_norm_project_owners(
+    cur,
+    current_user: dict,
+    *,
+    project_name: str = "",
+    project_id=None,
+    company_id=None,
+    x_company_id=None,
+    x_company_mode=None,
+    allowed_roles=(),
+):
+    project_name = str(project_name or "").strip()
+    normalized_project_id = _positive_int_or_none(project_id)
+    normalized_company_id = _positive_int_or_none(company_id)
+    if project_id not in (None, "") and not normalized_project_id:
+        raise HTTPException(status_code=400, detail="projectId должен быть положительным целым числом")
+    if company_id not in (None, "") and not normalized_company_id:
+        raise HTTPException(status_code=400, detail="companyId должен быть положительным целым числом")
+    if normalized_project_id and not project_name:
+        raise HTTPException(status_code=400, detail="projectId должен передаваться вместе с projectName")
+    company_context = _resolve_work_company_context(
+        cur,
+        current_user,
+        normalized_company_id,
+        "create",
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
+    )
+    actors_by_company = {
+        int(actor["companyId"]): actor
+        for actor in effective_company_actors(current_user, company_context)
+        if _positive_int_or_none(actor.get("companyId"))
+        and (not allowed_roles or (actor.get("role") or "") in allowed_roles)
+    }
+    if not actors_by_company:
+        raise HTTPException(
+            status_code=403,
+            detail="Роль в выбранной компании не позволяет проверять нормы материалов",
+        )
+    where = ["company_id = ANY(%s)"]
+    params = [sorted(actors_by_company)]
+    if project_name:
+        where.append("BTRIM(name)=BTRIM(%s)")
+        params.append(project_name)
+    if normalized_project_id:
+        where.append("id=%s")
+        params.append(normalized_project_id)
+    cur.execute(
+        "SELECT id,company_id,name FROM projects WHERE "
+        + " AND ".join(where)
+        + " ORDER BY company_id,id",
+        tuple(params),
+    )
+    owners = []
+    for row in cur.fetchall() or []:
+        owner = {
+            "id": _positive_int_or_none(_row_get(row, "id", 0)),
+            "companyId": _positive_int_or_none(_row_get(row, "company_id", 1)),
+            "name": str(_row_get(row, "name", 2, "") or "").strip(),
+        }
+        actor = actors_by_company.get(owner["companyId"])
+        allowed_projects = visible_project_names(actor) if actor else []
+        if (
+            not owner["id"]
+            or not owner["companyId"]
+            or not owner["name"]
+            or (allowed_projects is not None and owner["name"] not in allowed_projects)
+        ):
+            continue
+        owners.append(owner)
+    if project_name:
+        if not owners:
+            raise HTTPException(status_code=404, detail="Объект не найден в выбранной компании")
+        if len(owners) != 1:
+            raise HTTPException(
+                status_code=409,
+                detail="Название объекта неоднозначно; передайте точный projectId",
+            )
+    return owners
+
+
 @app.post("/material-norm-suggestions/generate")
-def generate_material_norm_suggestions(data: dict = None, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
+def generate_material_norm_suggestions(
+    data: dict = None,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик")),
+):
     data = data or {}
-    project_name = data.get("projectName") or data.get("project_name") or ""
+    project_name = str(data.get("projectName") or data.get("project_name") or "").strip()
     dry_run = bool(data.get("dryRun") or data.get("dry_run"))
     use_ai = False if dry_run else (data.get("useAi", data.get("use_ai", True)) is not False)
     if project_name:
         require_project_access(current_user, project_name)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    project_owners = _resolve_material_norm_project_owners(
+        cur,
+        current_user,
+        project_name=project_name,
+        project_id=(data.get("projectId") if "projectId" in data else data.get("project_id")),
+        company_id=(data.get("companyId") if "companyId" in data else data.get("company_id")),
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
+        allowed_roles=(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"),
+    )
+    if project_name:
+        project_name = project_owners[0]["name"]
     diagnostics = {}
-    suggestions = _generate_material_norm_suggestions(cur, current_user, project_name, use_ai=use_ai, diagnostics=diagnostics)
+    suggestions = _generate_material_norm_suggestions(
+        cur,
+        current_user,
+        project_name,
+        use_ai=use_ai,
+        diagnostics=diagnostics,
+        project_owners=project_owners,
+    )
     if dry_run:
         for idx, suggestion in enumerate(suggestions, start=1):
             suggestion["id"] = "preview-" + str(idx)
@@ -21424,6 +21683,13 @@ def generate_material_norm_suggestions(data: dict = None, current_user: dict = D
         else:
             updated += 1
         if suggestion.get("projectName") and suggestion.get("suggestionType") in ("without_norm", "over_norm", "estimate_material_without_norm"):
+            suggestion_owner = next((
+                owner for owner in project_owners
+                if owner["companyId"] == _positive_int_or_none(suggestion.get("companyId"))
+                and owner["id"] == _positive_int_or_none(suggestion.get("projectId"))
+            ), None)
+            if not suggestion_owner:
+                raise HTTPException(status_code=409, detail="Владелец предложения нормы не определён")
             _, f_created = _upsert_ai_finding(cur, {
                 "projectName": suggestion.get("projectName"),
                 "findingType": "ai",
@@ -21437,7 +21703,7 @@ def generate_material_norm_suggestions(data: dict = None, current_user: dict = D
                 "suggestedAction": "Проверить предложение в Сметы → Нормы материалов и принять норму или отклонить.",
                 "assignedRole": "сметчик",
                 "dedupeKey": "material_norm_suggestion:" + (suggestion.get("dedupeKey") or str(sid)),
-            }, current_user)
+            }, current_user, suggestion_owner)
             if f_created:
                 findings += 1
     cur.close(); conn.close()
@@ -21483,7 +21749,12 @@ def _find_material_pricelist_price(material_name: str, material_unit: str, price
     return {"price": _safe_float(best.get("price")), "source": best.get("name") or "", "score": best_score}
 
 @app.post("/material-norm-suggestions/create-estimate")
-def create_estimate_from_material_norm_suggestions(data: dict = None, current_user: dict = Depends(require_roles(*ESTIMATE_WRITE_ROLES))):
+def create_estimate_from_material_norm_suggestions(
+    data: dict = None,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(require_roles(*ESTIMATE_WRITE_ROLES)),
+):
     import json as _json
     data = data or {}
     project_name = (data.get("projectName") or data.get("project_name") or "").strip()
@@ -21503,7 +21774,22 @@ def create_estimate_from_material_norm_suggestions(data: dict = None, current_us
 
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id, pricelist_id FROM projects WHERE name=%s LIMIT 1", (project_name,))
+    project_owners = _resolve_material_norm_project_owners(
+        cur,
+        current_user,
+        project_name=project_name,
+        project_id=(data.get("projectId") if "projectId" in data else data.get("project_id")),
+        company_id=(data.get("companyId") if "companyId" in data else data.get("company_id")),
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
+        allowed_roles=ESTIMATE_WRITE_ROLES,
+    )
+    project_owner = project_owners[0]
+    project_name = project_owner["name"]
+    cur.execute(
+        "SELECT id,company_id,name,pricelist_id FROM projects WHERE id=%s AND company_id=%s",
+        (project_owner["id"], project_owner["companyId"]),
+    )
     project = cur.fetchone()
     if not project:
         cur.close(); conn.close()
@@ -21522,7 +21808,14 @@ def create_estimate_from_material_norm_suggestions(data: dict = None, current_us
             price_items = []
 
     diagnostics = {}
-    raw_suggestions = _generate_material_norm_suggestions(cur, current_user, project_name, use_ai=False, diagnostics=diagnostics)
+    raw_suggestions = _generate_material_norm_suggestions(
+        cur,
+        current_user,
+        project_name,
+        use_ai=False,
+        diagnostics=diagnostics,
+        project_owners=project_owners,
+    )
     rows_by_section = {}
     skipped_low_confidence = 0
     skipped_no_quantity = 0
@@ -21605,10 +21898,10 @@ def create_estimate_from_material_norm_suggestions(data: dict = None, current_us
     estimate_name = (data.get("name") or f"Черновик материалов по нормам — {project_name}").strip()
     version = data.get("version") or "norm-" + dt.datetime.now().strftime("%Y%m%d-%H%M")
     cur.execute("""INSERT INTO estimates
-                   (project_id, project_name, name, version, sections_json, smeta_type, work_package, status)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                   (company_id, project_id, project_name, name, version, sections_json, smeta_type, work_package, status)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                    RETURNING id""",
-        (project["id"], project_name, estimate_name, version, _json.dumps(sections, ensure_ascii=False), smeta_type, work_package, status))
+        (project_owner["companyId"], project["id"], project_name, estimate_name, version, _json.dumps(sections, ensure_ascii=False), smeta_type, work_package, status))
     estimate_id = cur.fetchone()["id"]
     supply_request = None
     supply_requests = []
@@ -21657,7 +21950,13 @@ def create_estimate_from_material_norm_suggestions(data: dict = None, current_us
                 supply_items_by_package.setdefault(_supply_work_package(item.get("workPackage") or work_package), []).append(item)
             for package_name, package_items in supply_items_by_package.items():
                 request_package = _resolve_supply_request_package(current_user, package_items, package_name)
-                package_items = _attach_supply_estimate_control(cur, project_name, package_items)
+                package_items = _attach_supply_estimate_control(
+                    cur,
+                    project_name,
+                    package_items,
+                    company_id=project_owner["companyId"],
+                    project_id=project_owner["id"],
+                )
                 if project_name != "Основной склад":
                     _enforce_supply_estimate_control(package_items, source="заявка")
                 marker = "NORM_ESTIMATE_REQUEST:" + str(estimate_id) + ":" + request_package
@@ -21677,14 +21976,15 @@ def create_estimate_from_material_norm_suggestions(data: dict = None, current_us
                 agg_unit = "поз." if len(package_items) > 1 else package_items[0].get("unit") or "шт"
                 cur.execute(
                     "INSERT INTO supply_requests "
-                    "(material_name,quantity,unit,project,work_package,created_by,date,notes,selected_suppliers,"
+                    "(material_name,quantity,unit,project,company_id,work_package,created_by,date,notes,selected_suppliers,"
                     "status,requested_by_role,requested_by_id,urgency,category,items_json) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
                     (
                         agg_name,
                         agg_qty,
                         agg_unit,
                         project_name,
+                        project_owner["companyId"],
                         request_package,
                         current_user.get("name") or "",
                         dt.date.today().isoformat(),

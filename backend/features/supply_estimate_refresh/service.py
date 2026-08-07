@@ -36,6 +36,7 @@ def refresh_open_supply_request_controls(
     *,
     project_name: str,
     company_id,
+    project_id=None,
     attach_control,
 ):
     project_name = str(project_name or "").strip()
@@ -66,6 +67,8 @@ def refresh_open_supply_request_controls(
             project_name,
             items,
             exclude_request_id=request_id,
+            company_id=int(company_id),
+            project_id=project_id,
         )
         cur.execute(
             "UPDATE supply_requests SET items_json=%s WHERE id=%s",

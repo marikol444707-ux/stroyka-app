@@ -29,9 +29,18 @@ class SupplyEstimateRefreshTests(unittest.TestCase):
             },
         ])
 
-        def attach_control(_cursor, project, items, exclude_request_id=None):
+        def attach_control(
+            _cursor,
+            project,
+            items,
+            exclude_request_id=None,
+            company_id=None,
+            project_id=None,
+        ):
             self.assertEqual(project, "Лицей")
             self.assertEqual(exclude_request_id, 17)
+            self.assertEqual(company_id, 3)
+            self.assertEqual(project_id, 8)
             items[0]["estimateControl"] = {"plannedQty": 0, "calculatedAt": "now"}
             return items
 
@@ -39,6 +48,7 @@ class SupplyEstimateRefreshTests(unittest.TestCase):
             cursor,
             project_name="Лицей",
             company_id=3,
+            project_id=8,
             attach_control=attach_control,
         )
 

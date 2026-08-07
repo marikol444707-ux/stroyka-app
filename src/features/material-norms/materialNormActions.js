@@ -12,6 +12,18 @@ import {
   buildMaterialNormSupplyRequestPayload,
   materialNormSupplyRequestExistsForRow,
 } from '../../utils/materialNormWorkflowUtils';
+import {
+  immutableStoredProjectOwner,
+  uniqueStoredProjectForName,
+} from '../estimates/projectEstimateOwnership';
+
+export const materialNormProjectOwnerByName = (projects, projectName) => {
+  const normalizedName = String(projectName || '').trim();
+  if (!normalizedName) return null;
+  return immutableStoredProjectOwner(
+    uniqueStoredProjectForName(projects, normalizedName)
+  );
+};
 
 export const createMaterialNormActions = ({
   API,
@@ -212,7 +224,17 @@ export const createMaterialNormActions = ({
     setMaterialNormSuggestionLoading(true);
     setMaterialNormNotice(null);
     try {
-      const payload = dryRun ? {dryRun:true,useAi:false,projectName} : (projectName ? {projectName} : {});
+      const projectOwner = projectName ? materialNormProjectOwnerByName(projects, projectName) : null;
+      if (projectName && !projectOwner) {
+        throw new Error('Не удалось однозначно определить компанию и ID объекта. Выберите объект из текущей компании.');
+      }
+      const ownerPayload = projectOwner ? {
+        companyId:projectOwner.companyId,
+        projectId:projectOwner.projectId,
+      } : {};
+      const payload = dryRun
+        ? {dryRun:true,useAi:false,projectName,...ownerPayload}
+        : (projectName ? {projectName,...ownerPayload} : {});
       const res = await fetchFn(API+'/material-norm-suggestions/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
       const data = await res.json().catch(()=>({}));
       if (!res.ok) throw new Error(data.detail || 'Не удалось проверить нормы');
@@ -294,10 +316,21 @@ export const createMaterialNormActions = ({
     setMaterialNormSuggestionLoading(true);
     setMaterialNormNotice(null);
     try {
+      const projectOwner = materialNormProjectOwnerByName(projects, projectName);
+      if (!projectOwner) {
+        throw new Error('Не удалось однозначно определить компанию и ID объекта. Выберите объект из текущей компании.');
+      }
       const res = await fetchFn(API+'/material-norm-suggestions/create-estimate',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({projectName,minConfidence:0.75,status:'Черновик',createSupplyRequest:!!withSupplyRequest})
+        body:JSON.stringify({
+          projectName,
+          companyId:projectOwner.companyId,
+          projectId:projectOwner.projectId,
+          minConfidence:0.75,
+          status:'Черновик',
+          createSupplyRequest:!!withSupplyRequest,
+        })
       });
       const data = await res.json().catch(()=>({}));
       if (!res.ok) throw new Error(data.detail || 'Не удалось сформировать черновик сметы');
