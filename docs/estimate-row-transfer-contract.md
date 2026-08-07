@@ -275,6 +275,13 @@ and inserts that do not match the exact approved plan, owner, quantities,
 lineage, package, prices, status, contract total and current confirmed JPR.
 Neither deploy nor application initialization applies this DDL automatically.
 
+Production checkpoint `2026-08-07`: runtime `b1ff981db5be` passed public smoke;
+the exact reviewed five-change E4.3 schema applied successfully and its repeat
+audit is schema-ready with zero changes. Production contains zero transfer
+plans, assignment receipts and approved reconciliations. An authenticated
+leadership request for a deliberately missing plan returned bounded `404`, so
+no reconciliation, plan or business transfer was manufactured for testing.
+
 ## Threat Model And Abuse Cases
 
 ### Trust boundaries

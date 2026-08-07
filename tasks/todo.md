@@ -4683,9 +4683,9 @@ unconfirmed quantity, insert an exact target-lineage row with the target
 estimate price and source brigade price, and store immutable before/after
 evidence. Supply entries remain untouched for E4.4.
 
-**Status:** Implemented and verified locally on 2026-08-07. No production DDL
-or assignment balance was changed. The guarded production schema dry-run,
-deploy and any owner-approved apply remain separate release actions.
+**Status:** Complete in production on 2026-08-07 for runtime `b1ff981db5be`.
+The guarded schema applied with its exact reviewed count/SHA-256, public and
+authenticated fail-closed smokes pass, and no assignment balance was changed.
 
 **Acceptance criteria:**
 
@@ -4712,9 +4712,10 @@ deploy and any owner-approved apply remain separate release actions.
 - [x] Full backend regression, Python compilation, static writer audit,
   frontend tests/build and `git diff --check` pass before release review.
 
-**Boundaries:** No automatic schema apply, no background worker, no UI, no
-supply allocation, and no production DDL or assignment mutation in this local
-implementation checkpoint.
+**Boundaries:** No automatic schema apply, background worker, UI or supply
+allocation was added. Production DDL was applied only through the separately
+reviewed guarded command. No production assignment mutation was executed
+because there is no approved reconciliation or transfer plan.
 
 **API:** `POST /estimate-row-transfer-plans/{plan_id}/assignment-apply` accepts
 only `{"planSha256":"<approved-lowercase-sha256>"}`. The route requires one
@@ -4750,3 +4751,22 @@ and source status to the exact approved plan and live rows. No Critical or
 Required finding remains.
 
 **Implementation commits:** `f2b84e57`, `ec482f7b`, `75d8cad9`, `63ca9371`.
+
+**Production evidence:** Runtime `b1ff981db5be` deployed atomically and passed
+the complete public smoke, including unauthenticated `401` for the new
+assignment-apply route. The production schema dry-run reported exactly five
+additive changes, no blockers, rollback, zero writes and plan SHA-256
+`43e220bbe2a9352863717e68fb0c7467ac73bb3bc4fc376aa473a6b55631fb44`.
+Guarded apply committed those exact `5/5` changes. The repeated audit reports
+`schemaReady=true`, `changeCount=0`, `writesAttempted=0`, rollback and the
+empty-plan SHA-256
+`4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945`.
+
+A separate read-only production snapshot returned `plansByStatus=[]`,
+`assignmentReceipts=0` and `approvedReconciliations=0`. After leadership login,
+`POST /estimate-row-transfer-plans/2147483647/assignment-apply` with a valid
+placeholder hash returned bounded `404 transfer_plan_not_found`. Thus the
+authenticated route reached the installed schema without creating a plan,
+receipt, reconciliation or business balance change. QA password, 2FA and token
+were not stored in the repository; the operator was instructed to clear the
+temporary shell variables immediately after the smoke.
