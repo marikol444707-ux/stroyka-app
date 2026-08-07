@@ -12,9 +12,9 @@ class MaterialControlRuntimeInventoryTests(unittest.TestCase):
 
         self.assertTrue(report["ok"], report["violations"])
         self.assertTrue(report["runtimeInventoryReady"], report["violations"])
-        self.assertEqual(report["candidateCount"], 6)
+        self.assertEqual(report["candidateCount"], 7)
         self.assertEqual(report["nameScopedCount"], 0)
-        self.assertEqual(report["ownerScopedCount"], 6)
+        self.assertEqual(report["ownerScopedCount"], 7)
         self.assertEqual(report["violations"], [])
 
     def test_reviewed_frontend_owner_matcher_is_owner_scoped(self):
@@ -82,6 +82,58 @@ class MaterialControlRuntimeInventoryTests(unittest.TestCase):
         self.assertEqual(report["candidateCount"], 3)
         self.assertEqual(report["nameScopedCount"], 0)
         self.assertEqual(report["violations"], [])
+
+    def test_reviewed_correlated_owner_predicate_is_owner_scoped(self):
+        sources = {
+            "backend/features/project_budget_adjustments/preview_storage.py": '''
+                def load_budget_adjustment_source(cur):
+                    cur.execute("""SELECT active_estimate.sections_json
+                        FROM estimates active_estimate
+                        JOIN projects project ON project.id=active_estimate.project_id
+                        WHERE active_estimate.company_id=project.company_id
+                        AND active_estimate.project_id=project.id
+                        AND active_estimate.status='Активная'
+                        AND active_estimate.smeta_type='Заказчик'""")
+            ''',
+        }
+
+        report = audit_runtime_inventory(
+            source_files=sources,
+            expected_candidates={(
+                "backend/features/project_budget_adjustments/preview_storage.py",
+                "load_budget_adjustment_source",
+            )},
+        )
+
+        self.assertTrue(report["runtimeInventoryReady"], report["violations"])
+        self.assertEqual(report["ownerScopedCount"], 1)
+
+    def test_correlated_owner_scope_requires_one_distinct_alias_pair(self):
+        sources = {
+            "backend/main.py": '''
+                def _supply_material_estimate_control(cur):
+                    cur.execute("""SELECT active_estimate.sections_json
+                        FROM estimates active_estimate
+                        WHERE active_estimate.company_id=project.company_id
+                        AND unrelated.project_id=other.id
+                        AND active_estimate.status='Активная'
+                        AND active_estimate.smeta_type='Материалы'""")
+            ''',
+        }
+
+        report = audit_runtime_inventory(
+            source_files=sources,
+            expected_candidates={
+                ("backend/main.py", "_supply_material_estimate_control"),
+            },
+        )
+
+        self.assertFalse(report["runtimeInventoryReady"])
+        self.assertEqual(report["ownerScopedCount"], 0)
+        self.assertEqual(
+            report["violations"][0]["reasonCode"],
+            "backend_active_estimate_owner_predicate_missing",
+        )
 
     def test_missing_or_unreviewed_candidate_fails_closed(self):
         sources = {

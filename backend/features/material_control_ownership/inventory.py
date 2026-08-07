@@ -17,6 +17,10 @@ EXPECTED_CANDIDATES = {
     ("backend/main.py", "_run_project_ai_control"),
     ("backend/main.py", "update_estimate_status"),
     ("backend/main.py", "_generate_material_norm_suggestions"),
+    (
+        "backend/features/project_budget_adjustments/preview_storage.py",
+        "load_budget_adjustment_source",
+    ),
 }
 
 _ACTIVE_SQL_RE = re.compile(
@@ -30,12 +34,40 @@ _NAME_SQL_RE = re.compile(
 _FRONTEND_OWNER_MATCHER_RE = re.compile(r"\bsameStoredProjectOwner\s*\(")
 
 
-def _owner_sql_predicate(sql, column):
+def _parameterized_owner_sql_predicate(sql, column):
     return bool(re.search(
         rf"\b(?:[a-z_][a-z0-9_]*\.)?{column}\s*=\s*%s",
         sql,
         re.IGNORECASE,
     ))
+
+
+def _correlated_owner_alias_pairs(sql, column):
+    correlated_target = (
+        "company_id" if column == "company_id" else "(?:project_id|id)"
+    )
+    correlated = re.compile(
+        rf"\b(?P<left>[a-z_][a-z0-9_]*)\.{column}\s*=\s*"
+        rf"(?P<right>[a-z_][a-z0-9_]*)\.{correlated_target}\b",
+        re.IGNORECASE,
+    )
+    return {
+        (match.group("left").lower(), match.group("right").lower())
+        for match in correlated.finditer(sql)
+        if match.group("left").lower() != match.group("right").lower()
+    }
+
+
+def _owner_sql_scope(sql):
+    if (
+        _parameterized_owner_sql_predicate(sql, "company_id")
+        and _parameterized_owner_sql_predicate(sql, "project_id")
+    ):
+        return True
+    return bool(
+        _correlated_owner_alias_pairs(sql, "company_id")
+        & _correlated_owner_alias_pairs(sql, "project_id")
+    )
 
 
 def _repository_sources(repo_root):
@@ -101,10 +133,7 @@ def _python_candidates(path, source, parse_errors):
             "line": node.lineno,
             "surface": "backend_sql",
             "nameScoped": bool(_NAME_SQL_RE.search(sql)),
-            "ownerScoped": (
-                _owner_sql_predicate(sql, "company_id")
-                and _owner_sql_predicate(sql, "project_id")
-            ),
+            "ownerScoped": _owner_sql_scope(sql),
         })
     return candidates
 
