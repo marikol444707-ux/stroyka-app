@@ -5237,8 +5237,9 @@ event, without rewriting any accounting or operational history. Draft contract:
 
 **Status:** The human owner accepted all three business decisions on
 2026-08-07: delta semantics, director/deputy approval and retention of manual
-initial-budget editing. Runtime, schema and production data are unchanged. The
-detailed implementation slices below await plan review before code begins.
+initial-budget editing, then approved the detailed implementation slices.
+E6.1 is locally implemented and remains inert; schema, routes, production data
+and project-budget runtime behavior are unchanged.
 
 **Proposed acceptance criteria:**
 
@@ -5254,9 +5255,9 @@ detailed implementation slices below await plan review before code begins.
 - [ ] A guarded schema/readiness/writer inventory and dedicated PostgreSQL proof
   pass before production apply or UI enablement.
 
-**Next action:** Human reviews the independently deployable implementation
-slices below. After approval, begin E6.1.1 with a failing pure-classification
-test; do not create a route, migration or writer in the baseline-audit phase.
+**Next action:** Push and deploy the inert E6.1 audit, pass public smoke and run
+its read-only production report. Do not start E6.2 or apply schema changes until
+the production precision/source/writer evidence is reviewed.
 
 **Estimated scope:** L, split into audit/schema/runtime/UI/cutover slices.
 
@@ -5269,11 +5270,11 @@ and the present writer surface without changing either one.
 
 **Acceptance criteria:**
 
-- [ ] A pure bounded classifier rejects non-finite, negative, out-of-range or
+- [x] A pure bounded classifier rejects non-finite, negative, out-of-range or
   more-than-two-decimal project budgets and reports fixed codes plus IDs only.
-- [ ] Approved reconciliation candidates are checked for exact company/project,
+- [x] Approved reconciliation candidates are checked for exact company/project,
   customer type, work package, active next revision and stored-total readiness.
-- [ ] The database runner is repeatable-read, read-only, hard-capped, always
+- [x] The database runner is repeatable-read, read-only, hard-capped, always
   rolled back and reports `writesAttempted=0`; the static inventory finds only
   the accepted existing create/manual-edit budget writers.
 
@@ -5289,6 +5290,29 @@ production run is diagnostic only and cannot execute DDL or business writes.
 across three atomic commits so no increment exceeds one concern.
 
 **Estimated scope:** Three S increments.
+
+**Local evidence (2026-08-07):** TDD began with missing classifier,
+readiness-runner and writer-inventory modules. The focused package now passes
+`21/21` tests covering finite two-decimal bounds, owner/type/package/active
+source checks, fixed ID-only bounded output, catalog gaps, both scan limits,
+repeatable-read rollback, exact existing writers, unexpected/missing writers,
+baseline E6 DML and split-static-SQL evasion. Full backend discovery passes
+`1500` tests with `14` guarded skips; focused Python compilation and
+`git diff --check` pass.
+
+The local CLI returned `ok=true`, `readOnlyTransaction=true`,
+`writesAttempted=0`, `rolledBack=true`, the exact `3/3` existing manual/create
+budget writers, zero E6 DML and zero writer violations. Its data/schema gate
+correctly remains false because the local developer database has the older
+pre-tenant schema. No schema, route, dependency, runtime writer or business row
+changed.
+
+**Implementation commits:** `7c925ed3`, `cd47a45d`, `e3546f1d`.
+
+**Production checkpoint E6.1.4:** Deploy this inert command, pass public smoke
+and run `npm run audit:project-budget-adjustments` on production. E6.2 remains
+blocked until that report proves bounded exact budget data and source readiness
+with rollback and zero writes.
 
 ### Task E6.2: Exact Money Kernel And Guarded Schema
 
