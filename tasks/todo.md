@@ -4770,3 +4770,58 @@ authenticated route reached the installed schema without creating a plan,
 receipt, reconciliation or business balance change. QA password, 2FA and token
 were not stored in the repository; the operator was instructed to clear the
 temporary shell variables immediately after the smoke.
+
+### Task E4.4: Immutable Supply Balance Allocation And Projection
+
+**Description:** Apply only the supply entries of one approved E4.2 plan after
+leadership repeats its exact `planSha256`. The operation records an immutable
+allocation for the reviewed finite unreceived balance; it never rewrites the
+request item, status, delivery chain, supplier documents, warehouse history or
+accounting. Material control consumes the tenant-bound allocation metadata and
+attributes only the allocated open quantity to the exact target estimate row.
+
+**Status:** In progress. The authoritative request, delivery, E4 plan and
+material-control projection paths have been traced; implementation starts with
+RED schema/apply/projection tests.
+
+**Acceptance criteria:**
+
+- [ ] A separately guarded additive schema stores one immutable receipt per
+  supply plan entry, binds it to the exact plan/company/project/request/item,
+  source and target snapshot coordinates, request-item snapshot hash,
+  requested/received/prior/allocated/remaining quantities and leadership
+  actor. Update/delete and inconsistent inserts fail at the database boundary.
+- [ ] The exact-hash supply apply action locks the approved plan, request,
+  deliveries and prior allocations in deterministic order, revalidates the
+  canonical open-status allowlist, owner/project/package, exact validated
+  source lineage, target snapshot and finite quantities, and prevents the
+  cumulative allocation from exceeding the current unreceived balance.
+- [ ] First apply writes only immutable allocation receipts. An exact repeat is
+  read-only and idempotent; partial receipts, changed deliveries/request JSON,
+  mixed owners, ambiguous delivery allocation, stale target snapshots and
+  concurrent conflicts roll back the whole transaction.
+- [ ] `/supply-requests` attaches allocation metadata only to already visible
+  tenant-owned requests. Material control resolves each allocation against one
+  exact target `estimateId + sectionIndex + itemIndex`; unresolved, malformed
+  or over-quantity metadata fails closed to the original request attribution
+  and raises review state rather than guessing a material row.
+- [ ] For a request item `requested = received + unallocated open + allocated
+  open`, the original row keeps `received + unallocated open` and the target
+  row receives exactly `allocated open`. Delivery, invoice, warehouse and
+  accounting calculations remain unchanged because only the request
+  `requested` projection consumes the ledger.
+
+**Verification plan:**
+
+- [ ] RED unit/route/schema/frontend tests precede each behavior; focused E4
+  suites pass after implementation.
+- [ ] Opt-in real PostgreSQL proves rollback, concurrent double-apply,
+  cumulative allocation bounds, immutable evidence and byte-for-byte unchanged
+  protected request/delivery/supplier/warehouse/accounting tables.
+- [ ] Full backend regression, Python compilation, frontend tests/build,
+  static writer checks and `git diff --check` pass before release review.
+
+**Boundaries:** No automatic schema apply, background worker or historical
+request cleanup. No production DDL, plan creation or supply allocation occurs
+until the local implementation, reviews and guarded dry-run are separately
+approved.
