@@ -5227,3 +5227,34 @@ contract remained fail-closed. No schema, remediation or synthetic business
 row was created. This closes E5.
 
 **Estimated scope:** M, read-only release gate.
+
+## Task E6: Approved Project-Budget Adjustment Event
+
+**Description:** Apply an approved customer-estimate revision delta to the
+stored project contract budget through one immutable, tenant-bound financial
+event, without rewriting any accounting or operational history. Draft contract:
+`docs/approved-budget-adjustment-event.md`.
+
+**Status:** Specification draft prepared on 2026-08-07. Runtime, schema and
+production data are unchanged. Implementation is blocked on explicit acceptance
+of the three financial decisions in the contract's Open Questions.
+
+**Proposed acceptance criteria:**
+
+- [ ] An approved reconciliation produces a read-only, deterministic adjustment
+  preview containing exact owner/source IDs, before/delta/after amounts and a
+  plan SHA-256.
+- [ ] Only a server-resolved director/deputy may approve the exact plan; project
+  budget and immutable event commit atomically and repeat idempotently.
+- [ ] Source drift, stale hash, wrong owner/role, inactive next revision,
+  concurrent conflict and negative after-budget all fail with zero writes.
+- [ ] Payments, expenses, JPR, acts, supply, invoices, warehouse and estimate
+  contents remain byte-for-byte unchanged.
+- [ ] A guarded schema/readiness/writer inventory and dedicated PostgreSQL proof
+  pass before production apply or UI enablement.
+
+**Next action:** Human accepts or changes delta semantics, approval roles and
+the continued manual-budget boundary. Only then decompose E6 into independently
+deployable implementation slices.
+
+**Estimated scope:** L, split into audit/schema/runtime/UI/cutover slices.
