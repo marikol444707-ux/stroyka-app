@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 
 from backend.features.agent_change_dispatch.shadow import (
+    build_estimate_activation_dispatch_plan,
+    build_estimate_activation_source_revision,
     observe_estimate_activation_shadow,
     observe_estimate_activation_transition_shadow,
 )
@@ -24,6 +26,25 @@ def activation(**overrides):
 
 
 class EstimateActivationShadowTests(unittest.TestCase):
+    def test_public_revision_helper_matches_dispatch_and_enforces_byte_limit(self):
+        value = activation()
+        revision = build_estimate_activation_source_revision(
+            value["version"],
+            value["sections"],
+        )
+        plan = build_estimate_activation_dispatch_plan(
+            **value,
+            brief_date="2026-08-06",
+        )
+
+        self.assertEqual(revision, plan.source_revision)
+        with self.assertRaisesRegex(ValueError, "estimate sections are invalid"):
+            build_estimate_activation_source_revision(
+                value["version"],
+                value["sections"],
+                max_canonical_bytes=1,
+            )
+
     def test_module_imports_from_backend_working_directory(self):
         backend_dir = Path(__file__).resolve().parents[2]
         env = dict(os.environ)

@@ -26,7 +26,13 @@ def _moscow_brief_date():
     return datetime.now(MOSCOW_TIMEZONE).date().isoformat()
 
 
-def _canonical_source_revision(version, sections):
+def build_estimate_activation_source_revision(
+    version,
+    sections,
+    *,
+    max_canonical_bytes=None,
+):
+    """Build the canonical revision identity shared by activation consumers."""
     if not isinstance(version, str) or not version or len(version) > 100:
         raise ValueError("estimate version is invalid")
     if not isinstance(sections, list):
@@ -38,7 +44,17 @@ def _canonical_source_revision(version, sections):
         separators=(",", ":"),
         allow_nan=False,
     )
-    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    encoded = canonical.encode("utf-8")
+    if max_canonical_bytes is not None:
+        if (
+            isinstance(max_canonical_bytes, bool)
+            or not isinstance(max_canonical_bytes, int)
+            or max_canonical_bytes <= 0
+        ):
+            raise ValueError("canonical source byte limit is invalid")
+        if len(encoded) > max_canonical_bytes:
+            raise ValueError("estimate sections are invalid")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
 def _base_report(state):
@@ -67,7 +83,10 @@ def build_estimate_activation_dispatch_plan(
     sections,
     brief_date,
 ):
-    source_revision = _canonical_source_revision(version, sections)
+    source_revision = build_estimate_activation_source_revision(
+        version,
+        sections,
+    )
     event = validate_agent_change_event({
         "schemaVersion": 1,
         "eventType": EVENT_TYPE,
