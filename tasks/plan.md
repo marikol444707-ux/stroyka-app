@@ -349,7 +349,24 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
   - [x] Task E5.3: Propagate the exact owner through material plan/reconciliation/summary functions, tuple-key runtime caches and UI consumers without changing display names or historical data. Production runtime `fbc6374cc221` deployed atomically, remained active and passed complete public smoke; the read-only audit verified all `15/15` active estimates, zero owner-data issues or writes, rollback, and only the five expected E5.4 backend boundaries.
   - [x] Task E5.4: Version and validate material-control supply lineage with exact owner IDs, then replace backend name-only active-estimate selection and refresh queries with parameterized company/project predicates. Production runtime `d0f52ad81832` passed atomic deploy, service health, two public smoke runs and the read-only audit with all `6/6` boundaries owner-scoped, zero violations/writes and `readyForCutover=true`.
   - [x] Task E5.5: Prove rollback and same-name isolation in real PostgreSQL, add the final read-only cutover gate and run a separately reviewed production sequence. Production runtime `ded68df1ad00` remained active, both public smoke runs passed, and the final audit reported exact `5/5` writer/test inventory with zero violations/writes, rollback and `readyForCutover=true`.
-- [ ] Task E6: Add an explicit approved budget-adjustment event so a new estimate total can update project economics without rewriting accounting history. Draft contract: `docs/approved-budget-adjustment-event.md`; delta semantics, approval roles and the manual-budget boundary await human acceptance before implementation.
+- [ ] Task E6: Add an explicit approved budget-adjustment event so a new estimate total can update project economics without rewriting accounting history. The business contract in `docs/approved-budget-adjustment-event.md` was accepted on 2026-08-07; implementation remains split into separately reviewed, reversible slices.
+  - [ ] Task E6.1: Add a bounded, rolled-back baseline audit for budget precision, approved-reconciliation owner/source readiness and the existing project-budget writer surface; do not change schema, routes or business data.
+    - [ ] Task E6.1.1: Test-first pure classification of project budget values and approved reconciliation candidates with fixed, ID-only, bounded diagnostics.
+    - [ ] Task E6.1.2: Add the repeatable-read zero-write database collector and `audit:project-budget-adjustments` command, including exact catalog/type reporting and hard scan limits.
+    - [ ] Task E6.1.3: Add a static inventory that recognizes only the reviewed existing manual budget writers and proves E6 has no runtime writer before schema review.
+  - [ ] Task E6.2: Add deterministic decimal plan/hash logic and a guarded additive schema plan for exact project money plus immutable adjustment receipts; keep startup initialization and runtime mutation unchanged.
+    - [ ] Task E6.2.1: Implement and test canonical two-decimal normalization, delta/before/after rules, zero-delta no-op and deterministic SHA-256 planning.
+    - [ ] Task E6.2.2: Add an idempotent dry-run/apply schema tool for a lossless `projects.budget -> NUMERIC(14,2)` conversion, receipt table, restrictive FKs, checks, indexes and immutability trigger.
+    - [ ] Task E6.2.3: Apply only the exact reviewed production change count/hash after E6.1 reports all stored values safe, then repeat the audit with zero remaining changes.
+  - [ ] Task E6.3: Expose an authenticated, tenant-bound read-only preview for one approved customer reconciliation; recompute exact locked source evidence but attempt zero writes.
+    - [ ] Task E6.3.1: Add the fail-closed preview service/storage boundary with exact owner/package/type/active-revision and total-drift checks.
+    - [ ] Task E6.3.2: Register the bounded preview route, response allowlist and unauthenticated production smoke contract without enabling approval.
+  - [ ] Task E6.4: Add leadership-only exact-hash approval that atomically inserts one immutable event and applies its delta once, plus tenant-bound adjustment history.
+    - [ ] Task E6.4.1: Prove the transactional kernel in dedicated PostgreSQL, including deterministic locks, rollback, stale hash, source drift, concurrent double approval, idempotent repeat and unchanged protected history.
+    - [ ] Task E6.4.2: Register approval/history routes with server-resolved director/deputy authorization and fixed error codes; ordinary manual initial budget editing remains available.
+    - [ ] Task E6.4.3: Add the exact writer/test inventory and rolled-back ledger readiness gate before production enablement.
+  - [ ] Task E6.5: Add an explicit preview/confirm/history UI for authorized leaders, with no automatic apply during reconciliation approval or estimate activation.
+  - [ ] Task E6.6: Run final focused/full tests, real-PostgreSQL concurrency and protected-history proofs, build, deploy smoke and read-only production cutover audit; never manufacture a production reconciliation.
 
 ## Focused Track: Safe Agent Automation
 

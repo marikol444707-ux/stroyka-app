@@ -5235,9 +5235,10 @@ stored project contract budget through one immutable, tenant-bound financial
 event, without rewriting any accounting or operational history. Draft contract:
 `docs/approved-budget-adjustment-event.md`.
 
-**Status:** Specification draft prepared on 2026-08-07. Runtime, schema and
-production data are unchanged. Implementation is blocked on explicit acceptance
-of the three financial decisions in the contract's Open Questions.
+**Status:** The human owner accepted all three business decisions on
+2026-08-07: delta semantics, director/deputy approval and retention of manual
+initial-budget editing. Runtime, schema and production data are unchanged. The
+detailed implementation slices below await plan review before code begins.
 
 **Proposed acceptance criteria:**
 
@@ -5253,8 +5254,150 @@ of the three financial decisions in the contract's Open Questions.
 - [ ] A guarded schema/readiness/writer inventory and dedicated PostgreSQL proof
   pass before production apply or UI enablement.
 
-**Next action:** Human accepts or changes delta semantics, approval roles and
-the continued manual-budget boundary. Only then decompose E6 into independently
-deployable implementation slices.
+**Next action:** Human reviews the independently deployable implementation
+slices below. After approval, begin E6.1.1 with a failing pure-classification
+test; do not create a route, migration or writer in the baseline-audit phase.
 
 **Estimated scope:** L, split into audit/schema/runtime/UI/cutover slices.
+
+### Task E6.1: Read-Only Budget And Source Baseline
+
+**Description:** Establish whether exact financial events can be introduced
+without coercing current data. The current `projects.budget` is floating point,
+while reconciliation totals are `NUMERIC(14,2)`; this phase measures that gap
+and the present writer surface without changing either one.
+
+**Acceptance criteria:**
+
+- [ ] A pure bounded classifier rejects non-finite, negative, out-of-range or
+  more-than-two-decimal project budgets and reports fixed codes plus IDs only.
+- [ ] Approved reconciliation candidates are checked for exact company/project,
+  customer type, work package, active next revision and stored-total readiness.
+- [ ] The database runner is repeatable-read, read-only, hard-capped, always
+  rolled back and reports `writesAttempted=0`; the static inventory finds only
+  the accepted existing create/manual-edit budget writers.
+
+**Verification:** Focused RED/GREEN unit tests, CLI output allowlist,
+`git diff --check`, full backend discovery and Python compilation. A later
+production run is diagnostic only and cannot execute DDL or business writes.
+
+**Dependencies:** Accepted E6 contract.
+
+**Files likely touched:** `backend/features/project_budget_adjustments/audit.py`,
+`test_audit.py`, `readiness_report.py`, `test_readiness_report.py`,
+`writer_inventory.py`, `test_writer_inventory.py`, and `package.json`, split
+across three atomic commits so no increment exceeds one concern.
+
+**Estimated scope:** Three S increments.
+
+### Task E6.2: Exact Money Kernel And Guarded Schema
+
+**Description:** Introduce deterministic decimal planning and an additive,
+idempotent schema tool. The schema plan converts `projects.budget` to
+`NUMERIC(14,2)` only after E6.1 proves a lossless conversion, then adds one
+immutable receipt per reconciliation with restrictive ownership/source links.
+
+**Acceptance criteria:**
+
+- [ ] Canonical plan logic derives delta and after-budget server-side, rejects
+  negative after values, treats zero delta as no-op and hashes a stable payload.
+- [ ] Dry-run reports exact changes/count/hash; apply requires those exact
+  expectations, performs no startup DDL and is repeatably zero-change afterward.
+- [ ] Database constraints enforce owner/source IDs, monetary equations, actor
+  evidence, one receipt per reconciliation and immutable update/delete guards.
+
+**Verification:** Pure unit tests, schema catalog/signature tests, dedicated
+disposable PostgreSQL apply/repeat/rollback tests and explicit production
+dry-run review before any schema apply.
+
+**Dependencies:** E6.1 production diagnostic is data-ready.
+
+**Estimated scope:** Two M code increments plus one separately approved
+production operation.
+
+### Task E6.3: Tenant-Bound Read-Only Preview
+
+**Description:** Expose the approved plan without enabling a writer. The server
+resolves selected-company leadership context, validates the approved customer
+reconciliation and recomputes exact current evidence before returning the
+bounded before/delta/after contract and SHA-256.
+
+**Acceptance criteria:**
+
+- [ ] Foreign, aggregate-company, wrong-package/type, inactive, unapproved and
+  drifted sources fail closed with fixed codes and zero writes.
+- [ ] A valid preview contains only allowlisted owner/source IDs, monetary
+  values, readiness blockers and plan hash; it never returns estimate sections.
+- [ ] The endpoint is authenticated and public smoke expects fail-closed auth;
+  no approval route is registered in this slice.
+
+**Verification:** Service/storage/route tests, full backend regression, public
+route smoke and production read-only preview only when a genuine approved
+reconciliation exists.
+
+**Dependencies:** E6.2 schema ready.
+
+**Estimated scope:** Two M increments.
+
+### Task E6.4: Atomic Approval Receipt And History
+
+**Description:** Allow a selected-company director or deputy to approve exactly
+the previewed hash. One transaction locks in deterministic order, revalidates
+everything, inserts the immutable receipt and applies only its delta once.
+
+**Acceptance criteria:**
+
+- [ ] Event insert and project-budget update commit or roll back together;
+  duplicate approval is idempotent and conflicting/stale evidence is `409`.
+- [ ] Dedicated PostgreSQL tests prove concurrent double-click safety and
+  byte-for-byte unchanged payment, work, act, supply, invoice and warehouse
+  history.
+- [ ] Tenant-bound history is bounded/newest-first, and the exact static writer
+  inventory permits only the receipt insert and guarded budget update added by
+  E6.
+
+**Verification:** RED/GREEN kernel and route tests, dedicated PostgreSQL
+concurrency/rollback suite, writer inventory, readiness report and authenticated
+missing-ID fail-closed smoke.
+
+**Dependencies:** E6.3 preview contract production-green.
+
+**Estimated scope:** Three M increments.
+
+### Task E6.5: Explicit Leader UI
+
+**Description:** Add a visible preview, exact confirmation and immutable history
+for directors/deputies. Reconciliation approval and estimate activation remain
+separate and never auto-apply a budget change.
+
+**Acceptance criteria:**
+
+- [ ] Only authorized leaders see the action; all users may see only history
+  already allowed by their project access and financial visibility.
+- [ ] Confirmation displays before, delta and after, submits the exact hash once
+  and handles stale/conflict/idempotent responses without optimistic mutation.
+- [ ] Component/action tests cover role visibility, loading, error, refresh and
+  no automatic approval path.
+
+**Dependencies:** E6.4 backend production-green.
+
+**Estimated scope:** Two M increments.
+
+### Task E6.6: Final Cutover Evidence
+
+**Description:** Combine exact schema/data/ledger/writer/integration gates into
+one bounded read-only production report and close E6 only after all release
+evidence is green.
+
+**Acceptance criteria:**
+
+- [ ] Focused/full backend and frontend suites, compilation, build and smoke
+  pass from a clean tree.
+- [ ] Real PostgreSQL proves same-name cross-company isolation, rollback,
+  concurrency/idempotency and unchanged protected history.
+- [ ] Production audit is read-only, rolled back, zero-write and ready; no
+  synthetic reconciliation or financial event is created for smoke testing.
+
+**Dependencies:** E6.1-E6.5 complete.
+
+**Estimated scope:** M, release gate only.

@@ -2,8 +2,9 @@
 
 ## Status
 
-Draft for human review on 2026-08-07. No E6 runtime, schema or production data
-change is authorized until the decisions in **Open Questions** are accepted.
+The three business decisions were accepted by the human owner on 2026-08-07.
+This authorizes implementation through separately reviewed, reversible slices;
+it does not authorize an unreviewed production schema or business-data apply.
 
 ## Objective
 
@@ -25,6 +26,13 @@ project_budget_after = project_budget_before + adjustment
 
 This preserves the budget contribution of every other work package and any
 contract amount outside the revised estimate.
+
+The current `projects.budget` column is floating point while reconciliation
+totals are already `NUMERIC(14,2)`. Exact financial events therefore require a
+bounded, read-only value audit followed by a separately reviewed, lossless
+conversion of the project budget to `NUMERIC(14,2)`. The conversion is blocked
+if any stored value is non-finite, negative, outside range or has more than two
+material decimal places. Startup initialization must not perform this change.
 
 ## Proposed User Flow
 
@@ -287,13 +295,12 @@ fixed reason codes and bounded ID-only previews.
 - Final production read-only audit reports exact schema/data/writer readiness,
   zero writes, rollback and `readyForCutover=true` before E6 closes.
 
-## Open Questions
+## Resolved Decisions
 
-Human approval is required for these proposed decisions:
+The human owner accepted all three decisions on 2026-08-07:
 
 1. Apply the reconciliation delta rather than replace the project budget with
    the next estimate total.
 2. Restrict financial approval to director and deputy director.
 3. Keep ordinary manual project-budget editing for initial/non-estimate setup;
    estimate-driven changes use only the event.
-
