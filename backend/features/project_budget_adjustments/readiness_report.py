@@ -1,10 +1,13 @@
-"""Rolled-back E6 budget-adjustment baseline readiness report."""
+"""Rolled-back E6 budget-adjustment production readiness gate."""
 
 import json
 
 import psycopg2.extras
 
 from .audit import build_budget_adjustment_readiness
+from .cutover_inventory import audit_cutover_inventory
+from .ledger_readiness import collect_receipt_ledger_readiness
+from .schema import _load_catalog, build_schema_plan
 from .writer_inventory import audit_writer_inventory
 
 
@@ -168,11 +171,49 @@ def collect_baseline_readiness(
     return report
 
 
+def collect_schema_readiness(cur):
+    """Return the strict E6 catalog result without exposing SQL definitions."""
+
+    plan = build_schema_plan(_load_catalog(cur))
+    return {
+        "ok": True,
+        "dryRun": True,
+        "writesAttempted": 0,
+        "schemaReady": bool(plan.get("schemaReady")),
+        "budgetColumnExact": bool(plan.get("budgetColumnExact")),
+        "readyForApply": bool(plan.get("readyForApply")),
+        "changeCount": len(plan.get("changes") or []),
+        "changes": [
+            item.get("name") for item in (plan.get("changes") or [])
+        ],
+        "blockers": list(plan.get("blockers") or []),
+    }
+
+
+def _schema_blocked_ledger_report():
+    return {
+        "ok": True,
+        "dryRun": True,
+        "writesAttempted": 0,
+        "scanComplete": False,
+        "ledgerReady": False,
+        "validReceipts": 0,
+        "summary": {},
+        "issueCount": 1,
+        "reasonCounts": {"budget_adjustment_schema_not_ready": 1},
+        "issues": [{"reasonCode": "budget_adjustment_schema_not_ready"}],
+        "issuesTruncated": False,
+    }
+
+
 def run_readiness_report(
     get_db,
     *,
+    collect_schema=collect_schema_readiness,
     collect_data=collect_baseline_readiness,
+    collect_ledger=collect_receipt_ledger_readiness,
     collect_inventory=audit_writer_inventory,
+    collect_cutover=audit_cutover_inventory,
 ):
     conn = get_db()
     cur = None
@@ -183,27 +224,64 @@ def run_readiness_report(
             isolation_level="REPEATABLE READ",
         )
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        schema = collect_schema(cur)
         data = collect_data(cur)
+        ledger = (
+            collect_ledger(cur)
+            if schema.get("schemaReady")
+            else _schema_blocked_ledger_report()
+        )
         conn.rollback()
         inventory = collect_inventory()
+        cutover = collect_cutover()
         audit_ok = bool(data.get("ok") and inventory.get("ok"))
         inventory_ready = bool(inventory.get("writerInventoryReady"))
+        route_ready = bool(cutover.get("routeInventoryReady"))
+        integration_ready = bool(cutover.get("integrationInventoryReady"))
+        ready = bool(
+            schema.get("ok")
+            and schema.get("schemaReady")
+            and schema.get("budgetColumnExact")
+            and data.get("ok")
+            and data.get("schemaReady")
+            and data.get("budgetColumnExact")
+            and data.get("dataReady")
+            and ledger.get("ok")
+            and ledger.get("ledgerReady")
+            and inventory.get("ok")
+            and inventory_ready
+            and cutover.get("ok")
+            and route_ready
+            and integration_ready
+        )
         return {
-            "ok": audit_ok,
+            "ok": ready,
             "dryRun": True,
             "readOnlyTransaction": True,
             "writesAttempted": 0,
-            "schemaReady": bool(data.get("schemaReady")),
-            "budgetColumnExact": bool(data.get("budgetColumnExact")),
+            "schemaReady": bool(
+                schema.get("schemaReady") and data.get("schemaReady")
+            ),
+            "budgetColumnExact": bool(
+                schema.get("budgetColumnExact")
+                and data.get("budgetColumnExact")
+            ),
             "dataReady": bool(data.get("dataReady")),
+            "ledgerReady": bool(ledger.get("ledgerReady")),
             "writerInventoryReady": inventory_ready,
+            "routeInventoryReady": route_ready,
+            "integrationInventoryReady": integration_ready,
             "readyForSchemaPlan": bool(
                 audit_ok
                 and data.get("readyForSchemaPlan")
                 and inventory_ready
             ),
+            "readyForCutover": ready,
+            "schemaAudit": schema,
             "baselineAudit": data,
+            "ledgerAudit": ledger,
             "writerInventory": inventory,
+            "cutoverInventory": cutover,
             "rolledBack": True,
         }
     except Exception:
@@ -222,7 +300,7 @@ def main():
         from db import get_db
     report = run_readiness_report(get_db)
     print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
-    return 0 if report.get("ok") else 1
+    return 0 if report.get("readyForCutover") else 1
 
 
 if __name__ == "__main__":

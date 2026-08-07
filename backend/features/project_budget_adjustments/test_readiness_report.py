@@ -219,14 +219,30 @@ class BudgetAdjustmentReadinessRunnerTests(unittest.TestCase):
 
         report = run_readiness_report(
             lambda: connection,
+            collect_schema=lambda _cur: {
+                "ok": True,
+                "schemaReady": True,
+                "budgetColumnExact": True,
+            },
             collect_data=lambda _cur: {
                 "ok": True,
+                "schemaReady": True,
+                "budgetColumnExact": True,
                 "dataReady": True,
                 "readyForSchemaPlan": True,
+            },
+            collect_ledger=lambda _cur: {
+                "ok": True,
+                "ledgerReady": True,
             },
             collect_inventory=lambda: {
                 "ok": True,
                 "writerInventoryReady": True,
+            },
+            collect_cutover=lambda: {
+                "ok": True,
+                "routeInventoryReady": True,
+                "integrationInventoryReady": True,
             },
         )
 
@@ -242,6 +258,10 @@ class BudgetAdjustmentReadinessRunnerTests(unittest.TestCase):
         self.assertTrue(report["ok"])
         self.assertTrue(report["writerInventoryReady"])
         self.assertTrue(report["readyForSchemaPlan"])
+        self.assertTrue(report["ledgerReady"])
+        self.assertTrue(report["routeInventoryReady"])
+        self.assertTrue(report["integrationInventoryReady"])
+        self.assertTrue(report["readyForCutover"])
         self.assertTrue(report["readOnlyTransaction"])
         self.assertEqual(report["writesAttempted"], 0)
         self.assertTrue(report["rolledBack"])
@@ -253,10 +273,17 @@ class BudgetAdjustmentReadinessRunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "boom"):
             run_readiness_report(
                 lambda: connection,
+                collect_schema=lambda _cur: {
+                    "ok": True,
+                    "schemaReady": True,
+                    "budgetColumnExact": True,
+                },
                 collect_data=lambda _cur: (_ for _ in ()).throw(
                     RuntimeError("boom")
                 ),
+                collect_ledger=lambda _cur: {},
                 collect_inventory=lambda: {},
+                collect_cutover=lambda: {},
             )
 
         self.assertEqual(connection.rollbacks, 1)
@@ -269,22 +296,120 @@ class BudgetAdjustmentReadinessRunnerTests(unittest.TestCase):
 
         report = run_readiness_report(
             lambda: connection,
+            collect_schema=lambda _cur: {
+                "ok": True,
+                "schemaReady": True,
+                "budgetColumnExact": True,
+            },
             collect_data=lambda _cur: {
                 "ok": True,
+                "schemaReady": True,
+                "budgetColumnExact": True,
                 "dataReady": True,
                 "readyForSchemaPlan": True,
+            },
+            collect_ledger=lambda _cur: {
+                "ok": True,
+                "ledgerReady": True,
             },
             collect_inventory=lambda: {
                 "ok": False,
                 "writerInventoryReady": False,
                 "violations": [{"reasonCode": "writer_drift"}],
             },
+            collect_cutover=lambda: {
+                "ok": True,
+                "routeInventoryReady": True,
+                "integrationInventoryReady": True,
+            },
         )
 
         self.assertFalse(report["ok"])
         self.assertFalse(report["writerInventoryReady"])
         self.assertFalse(report["readyForSchemaPlan"])
+        self.assertFalse(report["readyForCutover"])
         self.assertEqual(report["writesAttempted"], 0)
+        self.assertEqual(connection.rollbacks, 1)
+
+    def test_schema_gap_skips_ledger_and_fails_cutover(self):
+        cursor = FakeCursor(())
+        connection = FakeConnection(cursor)
+        ledger_calls = []
+
+        report = run_readiness_report(
+            lambda: connection,
+            collect_schema=lambda _cur: {
+                "ok": True,
+                "schemaReady": False,
+                "budgetColumnExact": False,
+            },
+            collect_data=lambda _cur: {
+                "ok": True,
+                "schemaReady": True,
+                "budgetColumnExact": False,
+                "dataReady": True,
+                "readyForSchemaPlan": True,
+            },
+            collect_ledger=lambda _cur: ledger_calls.append(True),
+            collect_inventory=lambda: {
+                "ok": True,
+                "writerInventoryReady": True,
+            },
+            collect_cutover=lambda: {
+                "ok": True,
+                "routeInventoryReady": True,
+                "integrationInventoryReady": True,
+            },
+        )
+
+        self.assertEqual(ledger_calls, [])
+        self.assertFalse(report["schemaReady"])
+        self.assertFalse(report["ledgerReady"])
+        self.assertEqual(report["ledgerAudit"]["issues"], [{
+            "reasonCode": "budget_adjustment_schema_not_ready",
+        }])
+        self.assertFalse(report["readyForCutover"])
+        self.assertEqual(connection.rollbacks, 1)
+
+    def test_ledger_or_route_test_drift_blocks_cutover(self):
+        cursor = FakeCursor(())
+        connection = FakeConnection(cursor)
+
+        report = run_readiness_report(
+            lambda: connection,
+            collect_schema=lambda _cur: {
+                "ok": True,
+                "schemaReady": True,
+                "budgetColumnExact": True,
+            },
+            collect_data=lambda _cur: {
+                "ok": True,
+                "schemaReady": True,
+                "budgetColumnExact": True,
+                "dataReady": True,
+                "readyForSchemaPlan": True,
+            },
+            collect_ledger=lambda _cur: {
+                "ok": True,
+                "ledgerReady": False,
+                "issues": [{"reasonCode": "receipt_drift"}],
+            },
+            collect_inventory=lambda: {
+                "ok": True,
+                "writerInventoryReady": True,
+            },
+            collect_cutover=lambda: {
+                "ok": False,
+                "routeInventoryReady": False,
+                "integrationInventoryReady": True,
+            },
+        )
+
+        self.assertFalse(report["ok"])
+        self.assertFalse(report["ledgerReady"])
+        self.assertFalse(report["routeInventoryReady"])
+        self.assertTrue(report["integrationInventoryReady"])
+        self.assertFalse(report["readyForCutover"])
         self.assertEqual(connection.rollbacks, 1)
 
     def test_package_exposes_read_only_audit_command(self):
