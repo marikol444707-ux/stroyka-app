@@ -94,6 +94,10 @@ class EstimateRowTransferRouteTests(unittest.TestCase):
             "/estimate-row-transfer-plans/1/assignment-apply",
             source,
         )
+        self.assertIn(
+            "/estimate-row-transfer-plans/1/supply-apply",
+            source,
+        )
 
     def test_module_imports_from_backend_working_directory(self):
         backend_root = Path(__file__).resolve().parents[2]
@@ -133,6 +137,7 @@ class EstimateRowTransferRouteTests(unittest.TestCase):
         reconciliation_scope=None,
         calls=None,
         apply_result=None,
+        supply_apply_result=None,
     ):
         app = FakeApp()
         connection = FakeConnection()
@@ -181,6 +186,23 @@ class EstimateRowTransferRouteTests(unittest.TestCase):
                 "idempotent": False,
             })
 
+        def supply_apply_stub(*_args, **_kwargs):
+            calls.append("supply_apply")
+            return copy.deepcopy(supply_apply_result or {
+                "planId": 5,
+                "planSha256": reviewed_plan()["planSha256"],
+                "state": "supply_allocated",
+                "supplyCount": 1,
+                "allocations": [{
+                    "entryId": 8,
+                    "requestId": 61,
+                    "requestItemIndex": 0,
+                    "quantity": "3",
+                }],
+                "appliedAt": "2026-08-07 18:00:00+03",
+                "idempotent": False,
+            })
+
         def require_actor(actors, roles):
             candidate = dict(list(actors)[0])
             if candidate["role"] not in set(roles):
@@ -210,6 +232,7 @@ class EstimateRowTransferRouteTests(unittest.TestCase):
             "approve_plan": approve_stub,
             "find_other_approved_plan": lambda *_args, **_kwargs: None,
             "apply_assignment_plan": apply_stub,
+            "apply_supply_plan": supply_apply_stub,
         })
         return app, connection, calls
 
@@ -468,6 +491,60 @@ class EstimateRowTransferRouteTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.status_code, 403)
         self.assertNotIn("apply", calls)
+        self.assertEqual(connection.rollbacks, 1)
+
+    def test_leadership_applies_only_an_approved_exact_hash_supply_plan(self):
+        stored = stored_plan("approved")
+        app, connection, calls = self._register(
+            actor={
+                "id": 2, "companyId": 1, "name": "Директор",
+                "role": "директор",
+            },
+            stored=stored,
+        )
+
+        result = app.routes[(
+            "POST",
+            "/estimate-row-transfer-plans/{plan_id}/supply-apply",
+        )](
+            5,
+            {"planSha256": stored["canonicalPlan"]["planSha256"]},
+            x_company_id="1",
+            x_company_mode="company",
+            current_user={"id": 2},
+        )
+
+        self.assertEqual(result["state"], "supply_allocated")
+        self.assertFalse(result["idempotent"])
+        self.assertEqual(calls, ["supply_apply"])
+        self.assertEqual(connection.session["isolation_level"], "SERIALIZABLE")
+        self.assertEqual(connection.commits, 1)
+
+    def test_supply_apply_wrong_hash_never_reaches_writer(self):
+        stored = stored_plan("approved")
+        app, connection, calls = self._register(
+            actor={
+                "id": 2, "companyId": 1, "name": "Директор",
+                "role": "директор",
+            },
+            stored=stored,
+        )
+
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[(
+                "POST",
+                "/estimate-row-transfer-plans/{plan_id}/supply-apply",
+            )](
+                5,
+                {"planSha256": "0" * 64},
+                x_company_id="1",
+                x_company_mode="company",
+                current_user={"id": 2},
+            )
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(raised.exception.detail, "supply_plan_hash_mismatch")
+        self.assertNotIn("supply_apply", calls)
         self.assertEqual(connection.rollbacks, 1)
 
 
