@@ -329,6 +329,16 @@ coordinate, and raises review state if snapshot, quantity or target resolution
 no longer matches. Supplier-facing request responses never receive estimate
 coordinates.
 
+Production checkpoint `2026-08-07`: runtime `bf078924852b` passed the complete
+public smoke, including unauthenticated `401` for supply apply. The reviewed
+five-change schema plan SHA-256
+`5598b4490e89b751fc1776172cf6c5443f7f406a198a18f4c4d24cecb2359916`
+applied exactly `5/5`; the repeated rolled-back audit reports
+`schemaReady=true`, zero changes and zero writes. A separate read-only snapshot
+returned zero transfer plans, assignment receipts, supply allocations and
+approved reconciliations, so production verification manufactured no business
+state.
+
 ## Threat Model And Abuse Cases
 
 ### Trust boundaries

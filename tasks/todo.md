@@ -4780,9 +4780,9 @@ request item, status, delivery chain, supplier documents, warehouse history or
 accounting. Material control consumes the tenant-bound allocation metadata and
 attributes only the allocated open quantity to the exact target estimate row.
 
-**Status:** Local implementation and release review complete; ready for the
-separate guarded production dry-run/deploy/schema-apply sequence. No production
-DDL, plan or allocation has been created by this work.
+**Status:** Completed and production-verified on runtime `bf078924852b`. The
+guarded additive schema is installed; no production plan or allocation was
+created for verification.
 
 **Acceptance criteria:**
 
@@ -4845,3 +4845,18 @@ chain (17 high, 5 moderate and 10 low findings); this feature adds no package
 and `npm audit fix --force` proposes a breaking `react-scripts@0.0.0` change,
 so dependency modernization remains a separate release item rather than an
 unreviewed mutation in E4.4.
+
+**Production evidence:** The complete public smoke passed on runtime
+`bf078924852b`, including unauthenticated `401` for the new supply-apply route.
+The rolled-back schema dry-run reported exactly five additive changes, no
+blockers, zero writes and plan SHA-256
+`5598b4490e89b751fc1776172cf6c5443f7f406a198a18f4c4d24cecb2359916`.
+Guarded apply committed those exact `5/5` changes. The repeated audit reports
+`schemaReady=true`, `changeCount=0`, `writesAttempted=0`, rollback and the empty
+plan SHA-256
+`4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945`.
+The service remained active and the repeated full public smoke passed. A
+separate read-only production snapshot returned `plansByStatus=[]`,
+`assignmentReceipts=0`, `supplyAllocations=0` and
+`approvedReconciliations=0`; no reconciliation, plan, receipt, allocation or
+business balance was manufactured for testing.
