@@ -341,7 +341,12 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
     - [x] Task E4.5.1: Add one rolled-back read-only readiness report for the complete E4 schema, deterministic plan hashes, all-or-none per-kind receipts and exact ledger quantities; bound every issue preview and expose fixed reason codes only.
     - [x] Task E4.5.2: Add a static writer/test inventory that permits only the reviewed E4.2-E4.4 statements and requires the real PostgreSQL rollback, repeat and concurrent-double-apply cases.
     - [x] Task E4.5.3: Add an exact optional `plan_id + plan_sha256` cutover gate and document a separately reviewed production sequence; keep business apply behind the existing leadership APIs and never add a direct database apply command.
-- [ ] Task E5: Make active-estimate material control use stored `company_id + project_id` throughout instead of project name, then add cross-company collision tests.
+- [ ] Task E5: Make active-estimate material control use stored `company_id + project_id` throughout instead of project name, then add cross-company collision tests. Proposed contract: `docs/active-estimate-material-control-ownership.md`.
+  - [ ] Task E5.1: Add a bounded, rolled-back readiness audit for project/active-estimate owner tuples and the static name-only selector/query inventory; do not change schema or runtime behavior.
+  - [ ] Task E5.2: Expose stored estimate `companyId` and cut material-control active-estimate discovery over to an exact fail-closed company/project matcher with same-name cross-company tests.
+  - [ ] Task E5.3: Propagate the exact owner through material plan/reconciliation/summary functions, tuple-key runtime caches and UI consumers without changing display names or historical data.
+  - [ ] Task E5.4: Version and validate material-control supply lineage with exact owner IDs, then replace backend name-only active-estimate selection and refresh queries with parameterized company/project predicates.
+  - [ ] Task E5.5: Prove rollback and same-name isolation in real PostgreSQL, add the final read-only cutover gate and run a separately reviewed production sequence.
 - [ ] Task E6: Add an explicit approved budget-adjustment event so a new estimate total can update project economics without rewriting accounting history.
 
 ## Focused Track: Safe Agent Automation

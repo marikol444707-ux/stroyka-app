@@ -4984,3 +4984,90 @@ because production has no real approved plan.
 
 **Implementation commits:** `6bf59973`, `8a3529a5`, `9ff09364`, `295998cf`,
 `61b7cad7`, `89a00704`; production smoke rate-limit hardening is `dc0f8655`.
+
+## Task E5: Exact Active-Estimate Material-Control Ownership
+
+**Description:** Replace project-name ownership in the complete active-estimate
+material-control path with the stored `company_id + project_id` tuple. The
+authoritative proposed contract is
+`docs/active-estimate-material-control-ownership.md`.
+
+**Status:** Contract and phased plan drafted on 2026-08-07; implementation is
+pending user review. The first slice is diagnostic-only and cannot change
+schema, runtime selection or business rows.
+
+**Observed risk:** The estimate query already reads `company_id` but its public
+payload omits `companyId`; frontend active selection accepts either a matching
+name or project ID; backend material-control refresh queries active estimates
+by `project_name`. An all-companies view can therefore mix identically named
+projects across companies.
+
+### Task E5.1: Read-Only Owner Readiness
+
+**Acceptance criteria:**
+
+- [ ] One read-only repeatable-read report audits active project/estimate owner
+  tuples, duplicate active owner/kind/package groups and name-collision groups.
+- [ ] Missing, invalid, mismatched and ambiguous rows use fixed reason codes;
+  previews are bounded and contain IDs only.
+- [ ] A static inventory identifies every frontend active-estimate selector and
+  backend material-control active-estimate query still using project name.
+- [ ] The command attempts zero writes, always rolls back and performs no DDL.
+
+**Verification:** Focused unit tests, a disposable PostgreSQL collision fixture,
+full backend regression, Python compilation and `git diff --check`.
+
+**Estimated scope:** M, diagnostic-only.
+
+### Task E5.2: Estimate API And Strict Discovery
+
+**Acceptance criteria:**
+
+- [ ] Estimate list, summary and detail responses include the stored
+  `companyId` while preserving authorization and all existing fields.
+- [ ] Material-control discovery requires exact positive company/project IDs;
+  missing or mismatched owners fail closed without a name fallback.
+- [ ] Frontend tests use two same-name projects in different companies and
+  prove that each sees only its own active customer/material estimate.
+
+**Estimated scope:** M, no schema or business writes.
+
+### Task E5.3: Runtime Owner Propagation
+
+**Acceptance criteria:**
+
+- [ ] Material plan, reconciliation and summary functions receive an exact
+  project owner object instead of a name-only scope.
+- [ ] Cache keys include company ID, project ID and package; same-name projects
+  cannot share cached rows or summaries.
+- [ ] UI consumers pass the stored project object and retain unchanged labels,
+  totals and single-company behavior.
+
+**Estimated scope:** Split into S/M consumer slices, each independently tested.
+
+### Task E5.4: Server Lineage And Refresh Cutover
+
+**Acceptance criteria:**
+
+- [ ] Versioned material-control lineage includes company/project IDs and exact
+  estimate row coordinates; the server resolves and validates every owner.
+- [ ] Active-estimate material-control SQL filters by stored company/project IDs
+  and never grants scope from project-name equality.
+- [ ] Tampered, stale, ownerless and cross-company payloads fail before writes;
+  repeated valid requests retain existing idempotency behavior.
+
+**Estimated scope:** M per backend slice; any schema/data apply is separately
+planned and requires explicit review.
+
+### Task E5.5: Cutover Readiness And Production Evidence
+
+**Acceptance criteria:**
+
+- [ ] Real PostgreSQL tests prove same-name cross-company isolation, rollback
+  and unchanged protected history.
+- [ ] The final bounded report is read-only and returns
+  `readyForCutover=true` only when data and writer inventories are exact.
+- [ ] Deployment, public smoke and the production audit pass before E5 closes;
+  no synthetic production business data is created.
+
+**Estimated scope:** M, read-only release gate.
