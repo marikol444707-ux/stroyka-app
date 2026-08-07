@@ -2,9 +2,11 @@
 
 ## Status
 
-Accepted on 2026-08-07. E5.1 through E5.3 are complete in production. E5.4 is
-implemented and fully verified locally in `2be1e1bf` and `c9bd2c92`; production
-deployment and the post-deploy read-only audit remain pending.
+Accepted on 2026-08-07. E5.1 through E5.4 are complete in production. Runtime
+`d0f52ad81832` passed atomic deploy, service health, public smoke and the
+read-only ownership audit with all `6/6` runtime boundaries owner-scoped and
+`readyForCutover=true`. E5.5 is the remaining real-PostgreSQL and final
+release-evidence gate.
 
 ## Objective
 
@@ -204,7 +206,7 @@ because credentials were not supplied; authentication behavior was unchanged
 and protected public routes remained fail-closed. No schema or business-row
 apply belonged to E5.3.
 
-### E5.4 Local Evidence
+### E5.4 Local And Production Evidence
 
 Material-control request lineage is now version `2`. Each request and item
 carries canonical `companyId`, `projectId`, `projectName`, work package and
@@ -232,8 +234,19 @@ inventory is ready; its overall data gate remains false only because the local
 developer database intentionally has the older pre-owner schema. No schema or
 business-row apply belongs to E5.4.
 
-Production deployment, public smoke and the production read-only report are
-the remaining E5.4 evidence before E5.5 begins.
+Production runtime `d0f52ad81832` deployed atomically on 2026-08-07 and the
+service remained active. The deploy smoke and a separate complete public smoke
+both passed; contractually accepted `429` responses in the repeat represented
+rate limiting rather than route failures. The production read-only audit
+returned `ok=true`, `dataReady=true`, `schemaReady=true`,
+`runtimeInventoryReady=true`, `readOnlyTransaction=true`, `writesAttempted=0`
+and `rolledBack=true`. It verified `4/4` active projects, `15/15` valid active
+estimates, zero duplicate scopes, name collisions or data issues, and exactly
+`6/6` owner-scoped runtime boundaries with no name-scoped candidates or
+violations. The resulting `readyForCutover=true` closes E5.4 without a schema
+or business-row apply. Authenticated protected checks were skipped because
+credentials were not supplied; the unauthenticated route contract remained
+fail-closed.
 
 ## Commands
 

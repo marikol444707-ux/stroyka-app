@@ -4992,10 +4992,11 @@ material-control path with the stored `company_id + project_id` tuple. The
 authoritative accepted contract is
 `docs/active-estimate-material-control-ownership.md`.
 
-**Status:** Contract accepted on 2026-08-07. E5.1 through E5.3 are complete in
-production. E5.4 is implemented and fully verified locally in commits
-`2be1e1bf` and `c9bd2c92`; production deployment/audit evidence is still
-pending. No E5.4 schema or business-row apply is required.
+**Status:** Contract accepted on 2026-08-07. E5.1 through E5.4 are complete in
+production. Runtime `d0f52ad81832` passed atomic deploy, service health, public
+smoke and the read-only ownership audit with all `6/6` boundaries owner-scoped
+and `readyForCutover=true`. E5.5 is the remaining real-PostgreSQL and final
+release-evidence gate. No E5.4 schema or business-row apply was required.
 
 **Original observed risk:** The estimate query read `company_id` but its public
 payload omitted `companyId`; frontend active selection accepted either a
@@ -5152,6 +5153,19 @@ zero writes and rolled back. Its runtime inventory is ready, while its overall
 `readyForCutover=false` is the expected result from the deliberately old local
 schema (`dataReady=false`); production already passed that data/schema portion
 under E5.3 and must be audited again after deployment.
+
+**Production evidence (2026-08-07):** Runtime `d0f52ad81832` deployed
+atomically and the service remained active. The deploy smoke and a separate
+repeat of the complete public smoke both passed; rate-limited `429` responses
+in the repeat were accepted by the route contract. The read-only audit returned
+`ok=true`, `dataReady=true`, `schemaReady=true`, `runtimeInventoryReady=true`,
+`readOnlyTransaction=true`, `writesAttempted=0` and `rolledBack=true`. It
+verified `4/4` active projects, `15/15` valid active estimates, zero duplicate
+scopes, name collisions or data issues, and exactly `6/6` owner-scoped runtime
+boundaries with `nameScopedCount=0` and `violationCount=0`; therefore the
+top-level result is `readyForCutover=true`. Authenticated protected checks were
+skipped because credentials were not supplied, while the unauthenticated route
+contract remained fail-closed. No schema or business-row apply was performed.
 
 **Implementation commits:** `2be1e1bf`, `c9bd2c92`.
 
