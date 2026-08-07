@@ -1,12 +1,15 @@
 import unittest
+from decimal import Decimal
 
 from backend.features.project_budget_adjustments.approval import (
     BudgetAdjustmentApprovalError,
 )
 from backend.features.project_budget_adjustments.approval_storage import (
+    insert_budget_adjustment_receipt,
     load_authorized_budget_actor,
     load_budget_adjustment_receipt,
     lock_budget_adjustment_source,
+    update_project_budget,
 )
 
 
@@ -110,6 +113,48 @@ class BudgetAdjustmentApprovalStorageTests(unittest.TestCase):
         self.assertIn("reconciliation_id=%s", receipt_cursor.calls[0][0])
         self.assertIn("company_id=%s", receipt_cursor.calls[0][0])
         self.assertEqual(receipt_cursor.calls[0][1], (7, 10))
+
+    def test_inserts_exact_receipt_then_guardedly_updates_budget(self):
+        plan = {
+            "companyId": 10,
+            "projectId": 20,
+            "reconciliationId": 7,
+            "baseEstimateId": 100,
+            "nextEstimateId": 101,
+            "projectBudgetBefore": "1000.00",
+            "estimateBaseTotal": "250.00",
+            "estimateNextTotal": "275.50",
+            "adjustmentAmount": "25.50",
+            "projectBudgetAfter": "1025.50",
+            "planSha256": "b" * 64,
+        }
+        actor = {"id": 9, "name": "Stored Director", "role": "директор"}
+        stored_receipt = {"id": 55, "plan_sha256": "b" * 64}
+        insert_cursor = FakeCursor([stored_receipt])
+
+        inserted = insert_budget_adjustment_receipt(insert_cursor, plan, actor)
+
+        self.assertEqual(inserted, stored_receipt)
+        insert_sql, insert_params = insert_cursor.calls[0]
+        self.assertIn("INSERT INTO public.project_budget_adjustments", insert_sql)
+        self.assertIn("RETURNING id,company_id,project_id", insert_sql)
+        self.assertEqual(insert_params[0:5], (10, 20, 7, 100, 101))
+        self.assertEqual(insert_params[-3:], (9, "Stored Director", "директор"))
+
+        update_cursor = FakeCursor([{"budget": Decimal("1025.50")}])
+        updated = update_project_budget(update_cursor, plan)
+        self.assertTrue(updated)
+        update_sql, update_params = update_cursor.calls[0]
+        self.assertIn("UPDATE public.projects SET budget=%s", update_sql)
+        self.assertIn("id=%s AND company_id=%s AND budget=%s", update_sql)
+        self.assertIn("RETURNING budget", update_sql)
+        self.assertEqual(
+            update_params,
+            ("1025.50", 20, 10, "1000.00"),
+        )
+
+        conflict_cursor = FakeCursor([None])
+        self.assertFalse(update_project_budget(conflict_cursor, plan))
 
 
 if __name__ == "__main__":

@@ -24,6 +24,25 @@ EXPECTED_PROJECT_BUDGET_WRITERS = Counter({
         "crm_create_project_from_lead",
         "insert",
     ): 1,
+    (
+        "backend/features/project_budget_adjustments/approval_storage.py",
+        "update_project_budget",
+        "update",
+    ): 1,
+})
+EXPECTED_E6_DML = Counter({
+    (
+        "backend/features/project_budget_adjustments/approval_storage.py",
+        "insert_budget_adjustment_receipt",
+        "insert",
+        "project_budget_adjustments",
+    ): 1,
+    (
+        "backend/features/project_budget_adjustments/approval_storage.py",
+        "update_project_budget",
+        "update",
+        "projects",
+    ): 1,
 })
 _PROJECT_INSERT_RE = re.compile(
     r"\binsert\s+into\s+(?:public\.)?projects\s*\(([^)]*)\)",
@@ -208,10 +227,24 @@ def audit_writer_inventory(
             "expected": sum(EXPECTED_PROJECT_BUDGET_WRITERS.values()),
             "actual": sum(actual.values()),
         })
+    actual_e6 = Counter(
+        (item["file"], item["symbol"], item["operation"], item["table"])
+        for item in e6_dml
+    )
     for item in e6_dml:
+        signature = (
+            item["file"], item["symbol"], item["operation"], item["table"]
+        )
+        if signature not in EXPECTED_E6_DML:
+            violations.append({
+                "reasonCode": "e6_runtime_dml_not_allowlisted",
+                **item,
+            })
+    if enforce_complete_inventory and actual_e6 != EXPECTED_E6_DML:
         violations.append({
-            "reasonCode": "e6_baseline_dml_present",
-            **item,
+            "reasonCode": "e6_runtime_dml_inventory_mismatch",
+            "expected": sum(EXPECTED_E6_DML.values()),
+            "actual": sum(actual_e6.values()),
         })
 
     ready = not violations
@@ -225,10 +258,15 @@ def audit_writer_inventory(
             EXPECTED_PROJECT_BUDGET_WRITERS.values()
         ),
         "e6DmlStatements": len(e6_dml),
+        "expectedE6DmlStatements": sum(EXPECTED_E6_DML.values()),
         "violationCount": len(violations),
         "violations": violations[:MAX_VIOLATIONS],
         "violationsTruncated": len(violations) > MAX_VIOLATIONS,
     }
 
 
-__all__ = ["audit_writer_inventory"]
+__all__ = [
+    "EXPECTED_E6_DML",
+    "EXPECTED_PROJECT_BUDGET_WRITERS",
+    "audit_writer_inventory",
+]

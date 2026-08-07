@@ -1,5 +1,7 @@
 """Deterministic PostgreSQL boundaries for E6 budget approval."""
 
+from decimal import Decimal, InvalidOperation
+
 from .approval import BudgetAdjustmentApprovalError
 from .preview_storage import load_budget_adjustment_source
 
@@ -119,9 +121,59 @@ def load_budget_adjustment_receipt(cur, reconciliation_id, company_id):
     return dict(row) if row else None
 
 
+def insert_budget_adjustment_receipt(cur, plan, actor):
+    cur.execute(
+        """INSERT INTO public.project_budget_adjustments
+             (company_id,project_id,reconciliation_id,base_estimate_id,
+              next_estimate_id,project_budget_before,estimate_base_total,
+              estimate_next_total,adjustment_amount,project_budget_after,
+              plan_sha256,approved_by_user_id,approved_by_name,
+              approved_by_role,approved_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+           RETURNING id,company_id,project_id,reconciliation_id,
+                     base_estimate_id,next_estimate_id,project_budget_before,
+                     estimate_base_total,estimate_next_total,adjustment_amount,
+                     project_budget_after,plan_sha256,approved_by_user_id,
+                     approved_by_name,approved_by_role,approved_at,created_at""",
+        (
+            plan["companyId"], plan["projectId"], plan["reconciliationId"],
+            plan["baseEstimateId"], plan["nextEstimateId"],
+            plan["projectBudgetBefore"], plan["estimateBaseTotal"],
+            plan["estimateNextTotal"], plan["adjustmentAmount"],
+            plan["projectBudgetAfter"], plan["planSha256"], actor["id"],
+            actor["name"], actor["role"],
+        ),
+    )
+    row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def update_project_budget(cur, plan):
+    cur.execute(
+        """UPDATE public.projects SET budget=%s
+            WHERE id=%s AND company_id=%s AND budget=%s
+            RETURNING budget""",
+        (
+            plan["projectBudgetAfter"], plan["projectId"],
+            plan["companyId"], plan["projectBudgetBefore"],
+        ),
+    )
+    row = cur.fetchone()
+    if not row:
+        return False
+    try:
+        return Decimal(str(row.get("budget"))) == Decimal(
+            str(plan["projectBudgetAfter"])
+        )
+    except (InvalidOperation, TypeError, ValueError):
+        return False
+
+
 __all__ = [
     "MAX_LOCKED_ESTIMATES",
+    "insert_budget_adjustment_receipt",
     "load_authorized_budget_actor",
     "load_budget_adjustment_receipt",
     "lock_budget_adjustment_source",
+    "update_project_budget",
 ]
