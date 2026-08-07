@@ -126,6 +126,7 @@ project_budget_adjustments
   plan_sha256                   UNIQUE, 64 lowercase hex
   approved_by_user_id
   approved_by_name
+  approved_by_role
   approved_at
   created_at
 ```
@@ -203,12 +204,25 @@ python3 -m unittest \
 # Read-only production readiness audit
 npm run audit:project-budget-adjustments
 
+# Guarded schema dry-run (zero writes, always rolled back)
+npm run audit:project-budget-adjustment-schema
+
+# Apply only after separate review of the exact dry-run count and SHA-256
+npm run migrate:project-budget-adjustment-schema -- \
+  --expected-change-count '<exact dry-run count>' \
+  --expected-plan-sha256 '<exact dry-run SHA-256>'
+
 # Full regression and build gates
 python3 -m unittest discover -s backend -t . -p 'test_*.py'
 CI=true npm test -- --watchAll=false
 npm run build
 npm run smoke:prod
 ```
+
+The schema apply takes an exclusive lock on `projects`, repeats the conversion
+audit and rebuilds the plan under that lock before running DDL. Any changed
+value, catalog drift, count mismatch or hash mismatch rolls the transaction
+back. Neither startup initialization nor `deploy.sh` invokes this command.
 
 ## Project Structure
 

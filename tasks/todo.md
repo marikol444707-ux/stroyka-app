@@ -5238,9 +5238,9 @@ event, without rewriting any accounting or operational history. Draft contract:
 **Status:** The human owner accepted all three business decisions on
 2026-08-07: delta semantics, director/deputy approval and retention of manual
 initial-budget editing, then approved the detailed implementation slices.
-E6.1 is complete in production and remains inert; schema, routes, production
-data and project-budget runtime behavior are unchanged. E6.2.1 pure decimal
-plan/hash implementation is next.
+E6.1 is complete in production and remains inert. E6.2.1 exact planning and
+E6.2.2 guarded schema tooling are complete locally; routes, production schema,
+production data and project-budget runtime behavior remain unchanged.
 
 **Proposed acceptance criteria:**
 
@@ -5256,9 +5256,9 @@ plan/hash implementation is next.
 - [ ] A guarded schema/readiness/writer inventory and dedicated PostgreSQL proof
   pass before production apply or UI enablement.
 
-**Next action:** Implement E6.2.1 deterministic decimal plan/hash logic without
-DDL, routes or writers. E6.2.2 may prepare a guarded schema dry-run afterward,
-but production schema apply still requires separate exact count/hash review.
+**Next action:** Deploy the inert E6.2.2 schema command and run only its
+production dry-run. Review the exact production change count, names, conversion
+counts and SHA-256 separately before authorizing E6.2.3 apply.
 
 **Estimated scope:** L, split into audit/schema/runtime/UI/cutover slices.
 
@@ -5340,11 +5340,11 @@ immutable receipt per reconciliation with restrictive ownership/source links.
 
 **Acceptance criteria:**
 
-- [ ] Canonical plan logic derives delta and after-budget server-side, rejects
+- [x] Canonical plan logic derives delta and after-budget server-side, rejects
   negative after values, treats zero delta as no-op and hashes a stable payload.
-- [ ] Dry-run reports exact changes/count/hash; apply requires those exact
+- [x] Dry-run reports exact changes/count/hash; apply requires those exact
   expectations, performs no startup DDL and is repeatably zero-change afterward.
-- [ ] Database constraints enforce owner/source IDs, monetary equations, actor
+- [x] Database constraints enforce owner/source IDs, monetary equations, actor
   evidence, one receipt per reconciliation and immutable update/delete guards.
 
 **Verification:** Pure unit tests, schema catalog/signature tests, dedicated
@@ -5372,9 +5372,40 @@ network, dependency or runtime mutation boundary in this slice.
 
 **Implementation commit:** `543a777b`.
 
-**Next action:** E6.2.2 may add only a guarded dry-run/apply schema tool. It may
-not run from startup or deploy and production apply remains blocked until its
-exact change count/hash and DDL signatures are separately reviewed.
+**Follow-up:** E6.2.2 added only the guarded dry-run/apply schema tool. It does
+not run from startup or deploy, and production apply remains blocked until its
+production-specific count/hash and DDL signatures are separately reviewed.
+
+#### Task E6.2.2: Guarded Exact-Money Schema
+
+**Status:** Complete locally on 2026-08-07. The new operator-only command
+converts `projects.budget` from `float8` to `NUMERIC(14,2)` only when a bounded
+aggregate audit proves every stored value lossless. It creates one immutable
+receipt table with restrictive project/reconciliation/estimate/user foreign
+keys, exact monetary equations, actor evidence, one reconciliation receipt,
+unique plan hash, owner/history index, a source/ownership insert guard and an
+update/delete rejection trigger.
+
+Apply requires the exact dry-run change count and SHA-256. After the guards
+match, it takes an exclusive project-table lock and repeats both the data audit
+and deterministic plan under that lock, closing the concurrent manual-budget
+write window. Catalog or data drift rolls back before DDL. Startup and
+`deploy.sh` contain no reference to the schema module.
+
+**Verification:** The focused E6 package passes `46` tests with one explicit
+dedicated-PostgreSQL skip. Full backend discovery passes `1525` tests with `15`
+guarded skips. A local read-only run reported 2/2 conversion-safe project rows,
+7 changes, `writesAttempted=0`, rollback and plan SHA-256
+`6ee2d241f6c4b4c7e90ffda92e0542bad4ca000a2e3c42b5fb122485cf57f3d0`.
+Executing all seven DDL statements plus the catalog post-check inside one local
+transaction produced `schemaReadyInsideTransaction=true`, zero blockers and
+zero remaining changes, then rolled the entire transaction back. Compilation,
+writer inventory and `git diff --check` pass.
+
+**Next action:** Push/deploy the inert tooling, run
+`npm run audit:project-budget-adjustment-schema` on production and review that
+new environment-specific count/hash. Do not reuse the local hash and do not run
+the production migrate command until E6.2.3 is explicitly authorized.
 
 ### Task E6.3: Tenant-Bound Read-Only Preview
 
