@@ -5746,6 +5746,11 @@ disposable `a7_*` database suite passes `23/23`, proving same-name company
 isolation and byte-for-byte unchanged assignment, journal, hidden-act,
 brigade-act and payment snapshots on both exact and explicit-legacy blocker
 paths. Full backend regression passes `1626/1626` with `23` expected skips.
+Runtime `6aca84ccbc88` then passed public smoke. The production audit for the
+exact source `company=1`, `project=1`, reconciliation `#4`, estimate pair
+`30 -> 80` completed with `assignmentRows=0`, no exposed or protected IDs, no
+review reasons, `writesAttempted=0` and confirmed rollback. This is a valid
+complete zero-exposure result, not a skipped or incomplete scan.
 
 **Dependencies:** A7.1 source contract.
 
