@@ -46,6 +46,7 @@
     "audit:estimate-revision-supply-warehouse-impact": "python3 -m backend.features.estimate_revision_impact.supply_warehouse_audit",
     "audit:estimate-revision-economics-impact": "python3 -m backend.features.estimate_revision_impact.economics_projection",
     "audit:estimate-revision-combined-impact": "python3 -m backend.features.estimate_revision_impact.combined_report",
+    "enqueue:estimate-revision-impact": "python3 -m backend.features.estimate_revision_impact.producer",
     "migrate:estimate-row-transfer-schema": "python3 -m backend.features.estimate_row_transfer.schema --apply",
     "migrate:project-budget-adjustment-schema": "python3 -m backend.features.project_budget_adjustments.schema --apply",
     "migrate:brigade-lineage": "python3 -m backend.features.brigade_lineage.migration",

@@ -5916,10 +5916,10 @@ one-shot until A7.6 is production-green.
 
 **Acceptance criteria:**
 
-- [ ] The handler revalidates queue-owned company/project/source identities,
+- [x] The handler revalidates queue-owned company/project/source identities,
   runs only the A7.4 read-only collector and returns only its public allowlist;
   no model or external delivery is available.
-- [ ] Dry-run attempts zero writes; explicit apply makes one idempotent queue
+- [x] Dry-run attempts zero writes; explicit apply makes one idempotent queue
   attempt. Default registry/timer/generic daemon behavior remains unchanged.
 - [ ] Repeated activation, deactivation, stale revision, foreign company and
   post-commit failures are fail-soft and cannot affect the committed estimate.
@@ -5936,17 +5936,24 @@ handoff.
 
 **Acceptance criteria:**
 
-- [ ] The payload contains only the canonical A7 source fields and matches the
+- [x] The payload contains only the canonical A7 source fields and matches the
   queue-owned company/project scope before any database connection is opened.
-- [ ] The handler executes only the read-only combined collector and returns
+- [x] The handler executes only the read-only combined collector and returns
   only its fixed public report; the producer defaults to rollback-only dry-run
   and explicit apply makes one idempotent enqueue attempt.
-- [ ] The default registry permits the new handler for explicit one-shot jobs,
+- [x] The default registry permits the new handler for explicit one-shot jobs,
   while no activation hook, timer, model, notification or daemon enablement is
   added in this increment.
 
 **Verification:** RED/GREEN contract, handler, producer, registry and exact-job
 runner tests; focused agent/A7 regression; full backend regression and compile.
+
+**Status:** Local slice complete on 2026-08-08. Contract/handler/producer tests,
+the exact-ID runner allowlist check and the production top-level import check
+pass. Focused A7 plus agent-job suites pass `124/124`; full backend discovery
+passes `1693/1693` with `28` expected skips, and compile succeeds with an
+isolated pycache. No activation hook, timer, model, notification, daemon or
+business-table writer was added.
 
 #### Task A7.5.2: Disabled-Default Post-Commit Handoff
 
