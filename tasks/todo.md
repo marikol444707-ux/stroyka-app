@@ -5726,15 +5726,26 @@ rules without drafting a mapping or invoking an apply service.
 
 **Acceptance criteria:**
 
-- [ ] Only exact stored snapshot coordinates/keys count as assignment lineage;
+- [x] Only exact stored snapshot coordinates/keys count as assignment lineage;
   explicit legacy, missing, stale or cross-owner evidence becomes review state.
-- [ ] The report separates uncompleted exposure from protected confirmed work,
+- [x] The report separates uncompleted exposure from protected confirmed work,
   acts and payments using bounded counts and IDs, with no prices or free text.
-- [ ] Tests prove zero INSERT/UPDATE/DELETE and unchanged protected-history
+- [x] Tests prove zero INSERT/UPDATE/DELETE and unchanged protected-history
   snapshots under success, blocker and rollback paths.
 
 **Verification:** Focused pure/collector tests plus disposable PostgreSQL
 rollback and same-name tenant isolation.
+
+**Evidence (2026-08-08):** The additive A7.2 operator reuses the E3 exact
+snapshot lineage classifier and the E4 confirmed-balance classifier in the same
+`REPEATABLE READ`, read-only transaction as A7.1. Its public allowlist contains
+only bounded assignment/history IDs, counts, states and fixed reason codes; it
+has no route, startup, queue, model or apply hook. Focused A7/E4 tests pass
+`47/47` with the two opt-in PostgreSQL cases skipped in the pure run. The
+disposable `a7_*` database suite passes `23/23`, proving same-name company
+isolation and byte-for-byte unchanged assignment, journal, hidden-act,
+brigade-act and payment snapshots on both exact and explicit-legacy blocker
+paths. Full backend regression passes `1626/1626` with `23` expected skips.
 
 **Dependencies:** A7.1 source contract.
 

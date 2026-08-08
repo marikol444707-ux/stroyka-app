@@ -383,12 +383,12 @@ class EstimateRevisionImpactPostgresTests(unittest.TestCase):
                 )
             cur.execute(
                 """
-                CREATE TABLE public.projects (
+                CREATE TABLE IF NOT EXISTS public.projects (
                     id INTEGER PRIMARY KEY,
                     company_id INTEGER,
                     name TEXT
                 );
-                CREATE TABLE public.estimates (
+                CREATE TABLE IF NOT EXISTS public.estimates (
                     id INTEGER PRIMARY KEY,
                     company_id INTEGER,
                     project_id INTEGER,
@@ -399,7 +399,7 @@ class EstimateRevisionImpactPostgresTests(unittest.TestCase):
                     smeta_type TEXT,
                     work_package TEXT
                 );
-                CREATE TABLE public.estimate_reconciliations (
+                CREATE TABLE IF NOT EXISTS public.estimate_reconciliations (
                     id INTEGER PRIMARY KEY,
                     base_estimate_id INTEGER,
                     next_estimate_id INTEGER,

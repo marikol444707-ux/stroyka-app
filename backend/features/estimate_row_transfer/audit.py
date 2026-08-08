@@ -204,7 +204,14 @@ def _resolve_exact_item(estimate_id, sections, section_index, item_index, item_k
         return None, exc.code
 
 
-def _classify_assignment(context, row):
+def classify_assignment_lineage_and_balance(
+    context,
+    row,
+    *,
+    require_positive_balance=True,
+):
+    """Apply the authoritative E4 exact-lineage and assignment balance rules."""
+
     item = dict(row or {})
     source_id = _positive_int(item.get("contract_item_id"))
     contract_id = _positive_int(item.get("contract_id"))
@@ -272,7 +279,7 @@ def _classify_assignment(context, row):
     if confirmed > quantity:
         return None, _blocked("assignment", source_id, "confirmed_quantity_exceeds_assignment")
     transferable = quantity - confirmed
-    if transferable <= 0:
+    if transferable <= 0 and require_positive_balance:
         return None, _blocked("assignment", source_id, "assignment_balance_not_positive")
 
     return {
@@ -677,7 +684,7 @@ def build_impact_report(
     assignment_candidates = []
     blockers = []
     for row in assignment_rows or []:
-        candidate, blocker = _classify_assignment(context, row)
+        candidate, blocker = classify_assignment_lineage_and_balance(context, row)
         if candidate:
             assignment_candidates.append(candidate)
         if blocker:
