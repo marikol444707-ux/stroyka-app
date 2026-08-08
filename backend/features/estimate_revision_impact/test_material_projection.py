@@ -1,5 +1,8 @@
 import json
+import os
 import unittest
+
+import psycopg2
 
 from backend.features.estimate_revision_impact.material_projection import (
     MATERIAL_REQUIRED_COLUMNS,
@@ -314,7 +317,7 @@ class MaterialProjectionCollectorTests(unittest.TestCase):
         pair_sql, pair_params = cursor.calls[4]
         self.assertIn("id=ANY(%s)", pair_sql)
         self.assertIn("company_id=%s", pair_sql)
-        self.assertIn((51, 52), pair_params)
+        self.assertEqual(pair_params[0], [51, 52])
         alias_sql, alias_params = cursor.calls[6]
         self.assertIn("LIMIT %s", alias_sql)
         self.assertIn(MAX_ALIAS_ROWS + 1, alias_params)
@@ -372,6 +375,122 @@ class MaterialProjectionCollectorTests(unittest.TestCase):
                 "material_projection",
                 (root / relative).read_text(encoding="utf-8"),
             )
+
+
+A7_TEST_DATABASE_URL = os.getenv("A7_TEST_DATABASE_URL", "")
+
+
+@unittest.skipUnless(
+    os.getenv("A7_RUN_POSTGRES_INTEGRATION") == "1" and A7_TEST_DATABASE_URL,
+    "set A7_RUN_POSTGRES_INTEGRATION=1 and A7_TEST_DATABASE_URL",
+)
+class MaterialProjectionPostgresTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.admin = psycopg2.connect(A7_TEST_DATABASE_URL)
+        cls.admin.autocommit = True
+        with cls.admin.cursor() as cur:
+            cur.execute("SELECT current_database()")
+            if not str(cur.fetchone()[0]).startswith("a7_"):
+                raise RuntimeError(
+                    "A7 integration fixture requires a dedicated a7_* database"
+                )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS public.projects (
+                    id INTEGER PRIMARY KEY,
+                    company_id INTEGER,
+                    name TEXT
+                );
+                CREATE TABLE IF NOT EXISTS public.estimates (
+                    id INTEGER PRIMARY KEY,
+                    company_id INTEGER,
+                    project_id INTEGER,
+                    version TEXT,
+                    sections_json TEXT,
+                    status TEXT,
+                    is_template BOOLEAN,
+                    smeta_type TEXT,
+                    work_package TEXT
+                );
+                CREATE TABLE IF NOT EXISTS public.estimate_reconciliations (
+                    id INTEGER PRIMARY KEY,
+                    base_estimate_id INTEGER,
+                    next_estimate_id INTEGER,
+                    status TEXT,
+                    smeta_type TEXT,
+                    work_package TEXT
+                );
+                CREATE TABLE IF NOT EXISTS public.material_aliases (
+                    id INTEGER PRIMARY KEY,
+                    project_name TEXT,
+                    alias_name TEXT,
+                    canonical_name TEXT,
+                    canonical_unit TEXT,
+                    active BOOLEAN
+                );
+                """
+            )
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.admin.close()
+
+    def setUp(self):
+        with self.admin.cursor() as cur:
+            cur.execute(
+                "TRUNCATE public.material_aliases,"
+                "public.estimate_reconciliations,public.estimates,"
+                "public.projects CASCADE"
+            )
+
+    def test_estimate_pair_any_parameter_is_a_postgres_array(self):
+        base_sections = sections(
+            material("Base private", key="stable", quantity="10"),
+        )
+        target_sections = sections(
+            material("Target private", key="stable", quantity="12"),
+        )
+        with self.admin.cursor() as cur:
+            cur.execute(
+                "INSERT INTO public.projects(id,company_id,name) "
+                "VALUES (17,4,'Private project')"
+            )
+            cur.execute(
+                """INSERT INTO public.estimates
+                     (id,company_id,project_id,version,sections_json,status,
+                      is_template,smeta_type,work_package)
+                   VALUES
+                     (51,4,17,'v1.0',%s,'Черновик',FALSE,'Заказчик','Основная'),
+                     (52,4,17,'v2.0',%s,'Активная',FALSE,'Заказчик','Основная')""",
+                (
+                    json.dumps(base_sections, ensure_ascii=False),
+                    json.dumps(target_sections, ensure_ascii=False),
+                ),
+            )
+            cur.execute(
+                """INSERT INTO public.estimate_reconciliations
+                     (id,base_estimate_id,next_estimate_id,status,smeta_type,
+                      work_package)
+                   VALUES (91,51,52,'Черновик','Заказчик','Основная')"""
+            )
+        exact_source = build_estimate_revision_source(
+            company_id=4,
+            project_id=17,
+            estimate_id=52,
+            version="v2.0",
+            sections=target_sections,
+        )
+
+        report = run_material_impact_audit(
+            lambda: psycopg2.connect(A7_TEST_DATABASE_URL), exact_source,
+        )
+
+        self.assertTrue(report["readyForMaterialProjection"])
+        self.assertEqual(report["materialImpact"]["summary"]["changedPairs"], 1)
+        self.assertEqual(report["writesAttempted"], 0)
+        self.assertTrue(report["readOnlyTransaction"])
+        self.assertTrue(report["rolledBack"])
 
 
 if __name__ == "__main__":

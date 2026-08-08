@@ -410,9 +410,9 @@ def _load_material_schema(cur):
 
 
 def _load_estimate_pair(cur, source_context):
-    estimate_ids = (
+    estimate_ids = [
         source_context["baseEstimateId"], source_context["estimateId"],
-    )
+    ]
     cur.execute(
         """SELECT id AS estimate_id,company_id,project_id,
                   COALESCE(NULLIF(work_package,''),'Основная') AS work_package,

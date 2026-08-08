@@ -93,6 +93,12 @@ class SupplyWarehouseProjectionCollectorTests(unittest.TestCase):
             if index >= 5:
                 self.assertIn("LIMIT %s", sql)
                 self.assertIn(MAX_DOMAIN_ROWS + 1, params)
+        request_sql, request_params = cursor.calls[5]
+        self.assertIn("items_json ~ %s", request_sql)
+        self.assertEqual(
+            request_params[-2],
+            '"estimateId"[[:space:]]*:[[:space:]]*51([^0-9]|$)',
+        )
 
     def test_runner_uses_one_read_only_transaction_and_rolls_back(self):
         cursor = FakeCursor(self.result_sets())
@@ -431,6 +437,35 @@ class SupplyWarehouseProjectionPostgresTests(unittest.TestCase):
         self.assertEqual(report["writesAttempted"], 0)
         self.assertTrue(report["readOnlyTransaction"])
         self.assertTrue(report["rolledBack"])
+
+    def test_unrelated_requests_do_not_exhaust_the_exact_lineage_scan(self):
+        exact_source = self._seed()
+        unrelated_items = json.dumps([{
+            "name": "Unrelated material",
+            "estimateLineage": {
+                "sources": [{"estimateId": 999999}],
+            },
+        }], ensure_ascii=False)
+        with self.admin.cursor() as cur:
+            cur.executemany(
+                """INSERT INTO public.supply_requests
+                     (id,company_id,project,status,work_package,items_json)
+                   VALUES (%s,4,'Одинаковый объект','Новая','Основная',%s)""",
+                [
+                    (request_id, unrelated_items)
+                    for request_id in range(1000, 1000 + MAX_DOMAIN_ROWS + 1)
+                ],
+            )
+
+        report = run_supply_warehouse_impact_audit(
+            lambda: psycopg2.connect(A7_TEST_DATABASE_URL), exact_source,
+        )
+
+        self.assertTrue(report["readyForSupplyWarehouseProjection"])
+        self.assertEqual(
+            report["supplyWarehouseImpact"]["summary"]["supplyRequestRows"],
+            1,
+        )
 
 
 

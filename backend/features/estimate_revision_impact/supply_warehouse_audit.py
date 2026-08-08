@@ -166,6 +166,11 @@ def _load_context(cur, source):
 
 
 def _load_requests(cur, context):
+    estimate_id_pattern = (
+        '"estimateId"[[:space:]]*:[[:space:]]*'
+        + str(context["baseEstimateId"])
+        + "([^0-9]|$)"
+    )
     cur.execute(
         """SELECT id AS request_id,company_id AS request_company_id,
                   project AS request_project,
@@ -180,12 +185,14 @@ def _load_requests(cur, context):
              FROM public.supply_requests
             WHERE company_id=%s AND project=%s
               AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+              AND items_json ~ %s
             ORDER BY id
             LIMIT %s""",
         (
             MAX_SOURCE_JSON_BYTES,
             context["companyId"], context["projectName"],
-            context["workPackage"], MAX_DOMAIN_ROWS + 1,
+            context["workPackage"], estimate_id_pattern,
+            MAX_DOMAIN_ROWS + 1,
         ),
     )
     return [dict(row or {}) for row in (cur.fetchall() or [])]
