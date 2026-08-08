@@ -70,6 +70,8 @@ class DirectorAgentReadToolsTests(unittest.TestCase):
                     "build_default_handler_registry; "
                     "assert tuple(DIRECTOR_AGENT_TOOLS); "
                     "assert 'director.daily_brief' in "
+                    "build_default_handler_registry().job_types; "
+                    "assert 'estimate.revision_impact' in "
                     "build_default_handler_registry().job_types"
                 ),
             ],

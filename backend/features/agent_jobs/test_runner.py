@@ -8,7 +8,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from backend.features.agent_jobs.handler_registry import AgentJobHandlerRegistry
+from backend.features.agent_jobs.handler_registry import (
+    AgentJobHandlerRegistry,
+    build_default_handler_registry,
+)
 from backend.features.agent_jobs.runner import (
     AgentJobRunner,
     AgentJobRunnerConfig,
@@ -228,6 +231,26 @@ class AgentJobRunnerTests(unittest.TestCase):
         self.assertIn("WHERE id=%s", sql)
         self.assertEqual(params[0], 73)
         self.assertEqual(params[1], ["director.daily_brief"])
+
+    def test_exact_revision_impact_job_is_allowlisted_without_fallback(self):
+        claim_connection = FakeConnection(None)
+        registry = build_default_handler_registry()
+        runner = AgentJobRunner(
+            registry=registry,
+            connection_factory=ConnectionSequence(claim_connection),
+            config=self.config(),
+            emit_event=lambda *args, **kwargs: None,
+        )
+
+        outcome = runner.run_once(job_id=73)
+
+        self.assertFalse(outcome.processed)
+        self.assertEqual(outcome.status, "idle")
+        sql, params = claim_connection.cursor_value.calls[0]
+        self.assertIn("WHERE id=%s", sql)
+        self.assertEqual(params[0], 73)
+        self.assertEqual(params[1], list(registry.job_types))
+        self.assertIn("estimate.revision_impact", params[1])
 
     def test_lost_lease_does_not_store_handler_result(self):
         claim_connection = FakeConnection(claimed_row())

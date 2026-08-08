@@ -345,7 +345,7 @@ class EstimateRevisionImpactBaselineRunnerTests(unittest.TestCase):
         self.assertTrue(connection.closed)
         self.assertTrue(cursor.closed)
 
-    def test_operator_command_is_inert_and_not_registered_at_runtime(self):
+    def test_operator_audit_stays_manual_without_activation_or_deploy_hook(self):
         root = Path(__file__).resolve().parents[3]
         package = json.loads((root / "package.json").read_text(encoding="utf-8"))
         self.assertEqual(
@@ -354,7 +354,6 @@ class EstimateRevisionImpactBaselineRunnerTests(unittest.TestCase):
         )
         for relative in (
             "backend/main.py",
-            "backend/features/agent_jobs/handler_registry.py",
             "deploy.sh",
         ):
             self.assertNotIn(

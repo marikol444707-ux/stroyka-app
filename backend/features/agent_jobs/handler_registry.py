@@ -13,6 +13,9 @@ try:
         serialize_safe_json_object,
     )
     from backend.features.director_daily_brief.handler import handle_director_daily_brief
+    from backend.features.estimate_revision_impact.handler import (
+        handle_estimate_revision_impact,
+    )
 except ModuleNotFoundError:
     from features.agent_jobs.service import (
         JOB_TYPE_RE,
@@ -20,6 +23,15 @@ except ModuleNotFoundError:
         serialize_safe_json_object,
     )
     from features.director_daily_brief.handler import handle_director_daily_brief
+
+    def handle_estimate_revision_impact(context):
+        """Load the A7 graph only when a top-level exact job executes."""
+
+        from features.estimate_revision_impact.handler import (
+            handle_estimate_revision_impact as handler,
+        )
+
+        return handler(context)
 
 
 class AgentJobHandlerRegistryError(ValueError):
@@ -146,4 +158,5 @@ def build_default_handler_registry():
     return AgentJobHandlerRegistry((
         ("system.worker_probe", _worker_probe_handler),
         ("director.daily_brief", handle_director_daily_brief),
+        ("estimate.revision_impact", handle_estimate_revision_impact),
     ))
