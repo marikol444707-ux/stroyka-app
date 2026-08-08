@@ -5995,7 +5995,7 @@ reviewed production canary without manufacturing reconciliation data.
   automatic apply endpoint.
 - [x] Real PostgreSQL proves rollback, same-name tenant isolation,
   idempotency/concurrency and byte-for-byte unchanged protected tables.
-- [ ] Production service/smoke/readiness are green before a genuine source is
+- [x] Production service/smoke/readiness are green before a genuine source is
   considered for an exact one-shot shadow canary; absence of a genuine source
   is a valid no-canary outcome and no fixture is created.
 
@@ -6098,10 +6098,10 @@ must use an already genuine eligible source.
 - [x] Dedicated PostgreSQL proves rollback, same-name tenant isolation,
   repeated and concurrent enqueue idempotency, exact claim/handler/complete and
   unchanged byte snapshots for every A7 protected business table.
-- [ ] Focused/full backend and frontend tests, build, service health, public
+- [x] Focused/full backend and frontend tests, build, service health, public
   smoke and exact production readiness are green before any canary command is
   proposed.
-- [ ] A genuine eligible source receives at most one exact one-shot shadow
+- [x] A genuine eligible source receives at most one exact one-shot shadow
   canary; if none exists, record no-canary without creating or editing business
   data. Controls and the generic runner stay disabled afterward.
 
@@ -6134,5 +6134,26 @@ Full backend discovery passes `1720/1720` with 33 expected skips, frontend
 passes `342/342`, Python compilation, `git diff --check` and the production
 build pass. Dependency audit still reports the pre-existing CRA/toolchain
 backlog of 33 findings (`18` high, no critical); A7.6 adds no dependency and
-the proposed force fix remains breaking. Production deploy, public smoke,
-exact readiness and any genuine-source canary remain deliberately pending.
+the proposed force fix remains breaking.
+
+**Production evidence (2026-08-08):** Runtime
+`362e3cd6858900edc2547cc96c41cdf7221e955f` passed service health and public
+smoke before the canary. The exact read-only readiness gate for company `1`,
+project `1`, estimate `80` and source revision
+`sha256:e747aa1a39d2ca57ecae12eb24f157168ae1025a26e91a51a17b1a836daebf0b`
+reported `readyForCanary=true`, an absent exact ledger, zero writes and
+rollback while both activation controls and the generic runner were disabled.
+The separately reviewed producer then created exactly one idempotent job `13`;
+the exact-ID one-shot runner claimed it once and completed it on attempt `1` in
+`180 ms`. Final readiness reported the same source and evidence SHA
+`11562e9ae2cfc2718d58c101cefd5b1598f28028d92c597fd347a156edbff757`,
+`ledgerAudit.state=succeeded`, one exact job, zero issues, zero audit writes and
+rollback. Counts for all 22 protected business tables matched before and after,
+the one-shot runner stopped, the service stayed active and the final public
+smoke passed. The known material review evidence and draft-reconciliation
+economics remain non-actionable by design; no business record, model,
+notification or user-visible recommendation was produced.
+
+**Status:** Complete in production. A7 remains shadow-only with its activation
+controls absent and the generic runner disabled; Task A8 is the next planned
+slice.
