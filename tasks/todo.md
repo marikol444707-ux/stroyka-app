@@ -5763,19 +5763,51 @@ revision, then classify open supply balances and their saved allocation,
 delivery, invoice, receipt-line, lot and movement evidence. A matching material
 name never substitutes for stored lineage.
 
+**Status:** Implemented and verified locally on 2026-08-08; production release
+and exact-source evidence remain pending. The material increment is commit
+`9f7862c8`; the pure supply/warehouse classifier is commit `6f6bb367`. The
+read-only collector remains additive and unregistered: neither command has a
+route, startup, queue, model, apply or mutation hook.
+
 **Acceptance criteria:**
 
-- [ ] Material differences are keyed by exact estimate/package/section/item
+- [x] Material differences are keyed by exact estimate/package/section/item
   identity and confirmed aliases; ambiguous norm/unit/package rows require
   review instead of being aggregated.
-- [ ] Supply exposure includes only tenant/project/package-bound open balances
+- [x] Supply exposure includes only tenant/project/package-bound open balances
   after saved deliveries/allocations; closed or protected history is reported
   but never rewritten.
-- [ ] Warehouse exposure follows explicit request/invoice-line/lot/movement
+- [x] Warehouse exposure follows explicit request/invoice-line/lot/movement
   links only, and missing lineage produces fixed reasons with no stock action.
 
 **Verification:** Focused domain tests, cross-company collision fixtures,
 protected-table snapshots and bounded-query assertions.
+
+**Local evidence (2026-08-08):**
+
+- `audit:estimate-revision-material-impact` compares explicit material rows by
+  stable snapshot key or a one-to-one active alias. Its public projection keeps
+  only estimate/section/item coordinates, alias IDs, bounded counts and fixed
+  change/review codes; material names, units, quantities, prices and notes are
+  intentionally absent.
+- `audit:estimate-revision-supply-warehouse-impact` first requires exact E5
+  `estimateLineage`, then computes the open request-item balance from saved
+  deliveries and immutable E4 allocations. Downstream reads are restricted to
+  request IDs that explicitly mention the base estimate. Warehouse evidence is
+  accepted only through invoice ID plus line index, then the exact receipt lot,
+  warehouse movement and immutable lot-movement event.
+- Focused pure/fake-DB tests pass `53/53` in the real-PostgreSQL run. The
+  disposable `a7_supply_warehouse_*` fixture used two companies with the same
+  project name and parallel request/warehouse chains; the company `4` report
+  exposed only its IDs. Byte snapshots of requests, deliveries, allocations,
+  supplier and warehouse invoices, warehouse history, receipt lots, warehouse
+  movements and lot movements were identical before and after the rolled-back
+  audit. The temporary database was dropped and the local server stopped.
+- Full backend regression passes `1652/1652` with `24` expected opt-in skips;
+  compilation, operator help, package JSON and `git diff --check` pass. The
+  shared dependency audit still reports the pre-existing CRA/toolchain backlog
+  (`33` findings, `18` high, no critical); the suggested force fix would replace
+  `react-scripts` with a breaking version and remains separate dependency work.
 
 **Dependencies:** A7.1 source contract; E4/E5 cutover contracts remain
 authoritative.
