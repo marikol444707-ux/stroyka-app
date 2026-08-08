@@ -5837,10 +5837,14 @@ supply/warehouse implementation commits if either exceeds five files.
 compose all domain facts into one deterministic report. This task never invokes
 budget approval and never treats a draft reconciliation as approved.
 
-**Status:** Complete locally on 2026-08-08 in commits `b0f33e58` and
-`8bc2d698`; production deploy and the exact `30 -> 80` combined audit remain
-pending. Both commands are additive operator entrypoints only and have no
-route, startup, queue, model, approval or business-table writer registration.
+**Status:** The inert A7.4 commands shipped on runtime `3bda0fc50107` and public
+smoke passed. The exact production economics audit then failed closed before
+domain collection because it incorrectly required a nonexistent
+`estimates.total` column. Corrective commit `7a3ffb32` is locally verified;
+production redeploy, the one-change guarded E6 function migration and the exact
+`30 -> 80` economics/combined audits remain pending. Both commands are additive
+operator entrypoints only and have no route, startup, queue, model, approval or
+business-table writer registration.
 
 **Acceptance criteria:**
 
@@ -5883,6 +5887,18 @@ matrix and real-PostgreSQL read-only rollback proof.
   state; every domain was complete, `writesAttempted=0`, the transaction rolled
   back, and byte snapshots of all `22` project/estimate/brigade/material/
   supply/warehouse/budget business tables were identical before and after.
+- The production preflight exposed a latent E6/A7 schema mismatch rather than
+  a data defect: active estimates store `sections_json`, while exact immutable
+  source totals live on `estimate_reconciliations`; no `estimates.total` writer
+  or column exists. Commit `7a3ffb32` removes that false requirement from the
+  E6 preview and A7 schema gate, keeps bounded Decimal recomputation and source-
+  drift rejection, and versions the database insert guard to compare receipts
+  with the stored reconciliation totals. The corrected packages pass E6
+  `120/120` with eight expected skips and A7 `77/77` with six expected skips;
+  full backend discovery passes `1679/1679` with `28` expected skips. A fresh
+  disposable PostgreSQL server passed all `8/8` E6 integration cases, including
+  the guarded legacy-function replacement on a schema without
+  `estimates.total`, plus the A7 combined rollback case `1/1`.
 
 **Dependencies:** A7.2-A7.3.
 
