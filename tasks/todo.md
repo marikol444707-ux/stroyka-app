@@ -5643,9 +5643,9 @@ closed in production.
 ## Task A7: Estimate-Revision Impact Shadow Analysis
 
 **Status:** In progress on 2026-08-08. The prerequisite estimate-lineage track
-E3-E6 is production-green and A7.1 is locally complete. Implementation remains
-deterministic and read-only at the business-data boundary; recommendation
-generation starts only in A8 and later tasks.
+E3-E6 and A7.1 are production-green. Implementation remains deterministic and
+read-only at the business-data boundary; recommendation generation starts only
+in A8 and later tasks.
 
 **Objective:** After one exact customer-estimate revision is activated, produce
 a tenant-bound, versioned shadow report showing what may be affected across
@@ -5694,12 +5694,16 @@ fixed reason codes without scanning unrelated tenants or enabling runtime work.
 one disposable PostgreSQL same-name/cross-company fixture, full backend
 regression, compilation and `git diff --check`.
 
-**Local evidence (2026-08-08):** focused A6/A7 tests pass `24/24` with the
+**Evidence (2026-08-08):** focused A6/A7 tests pass `24/24` with the
 opt-in PostgreSQL case skipped in the pure run; the disposable `a7_*` database
 case passes separately and is dropped afterward; full backend regression passes
 `1614/1614` with `22` expected skips. The CLI help, Python compilation and
-`git diff --check` are green. No production deploy or A7 runtime registration
-was performed in this checkpoint.
+`git diff --check` are green. Runtime `f0b1d251ea33` passed public smoke and
+loaded the inert operator command. Production reconciliation `#15` first proved
+the inactive-source blocker with `writesAttempted=0` and rollback. The exact
+eligible reconciliation `#4`, base estimate `30` and active estimate `80` then
+passed with `sourceReady=true`, `readyForDomainScan=true`, no issues, zero
+writes and rollback. No A7 runtime registration was enabled.
 
 **Dependencies:** E3-E6 production cutover complete.
 
