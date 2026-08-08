@@ -74,6 +74,16 @@ def reviewed_sources():
 
 
 class EstimateRevisionImpactCutoverInventoryTests(unittest.TestCase):
+    def test_repository_inventory_is_exact_and_has_all_postgres_proofs(self):
+        report = audit_cutover_inventory()
+
+        self.assertTrue(report["ok"], report["violations"])
+        self.assertEqual(report["a7DmlStatements"], 0)
+        self.assertEqual(report["operationalMutationCalls"], 3)
+        self.assertEqual(report["handlerRegistrations"], 1)
+        self.assertEqual(report["postCommitHandoffs"], 3)
+        self.assertEqual(report["missingIntegrationChecks"], [])
+
     def test_exact_reviewed_execution_surface_is_ready(self):
         report = audit_cutover_inventory(
             source_files=reviewed_sources(),
