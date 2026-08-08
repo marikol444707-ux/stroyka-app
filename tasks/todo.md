@@ -5763,9 +5763,9 @@ revision, then classify open supply balances and their saved allocation,
 delivery, invoice, receipt-line, lot and movement evidence. A matching material
 name never substitutes for stored lineage.
 
-**Status:** Implemented and verified locally on 2026-08-08; production release
-and exact-source evidence remain pending. The material increment is commit
-`9f7862c8`; the pure supply/warehouse classifier is commit `6f6bb367`. The
+**Status:** Production-verified on 2026-08-08 at runtime `329d87bf46eb`. The
+material increment is commit `9f7862c8`; the pure supply/warehouse classifier
+is commit `6f6bb367`; production query hardening is commit `329d87bf`. The
 read-only collector remains additive and unregistered: neither command has a
 route, startup, queue, model, apply or mutation hook.
 
@@ -5796,18 +5796,34 @@ protected-table snapshots and bounded-query assertions.
   request IDs that explicitly mention the base estimate. Warehouse evidence is
   accepted only through invoice ID plus line index, then the exact receipt lot,
   warehouse movement and immutable lot-movement event.
-- Focused pure/fake-DB tests pass `53/53` in the real-PostgreSQL run. The
+- Focused pure/fake-DB tests pass `55/55` in the real-PostgreSQL run. The
   disposable `a7_supply_warehouse_*` fixture used two companies with the same
   project name and parallel request/warehouse chains; the company `4` report
   exposed only its IDs. Byte snapshots of requests, deliveries, allocations,
   supplier and warehouse invoices, warehouse history, receipt lots, warehouse
   movements and lot movements were identical before and after the rolled-back
   audit. The temporary database was dropped and the local server stopped.
-- Full backend regression passes `1652/1652` with `24` expected opt-in skips;
+- Full backend regression passes `1654/1654` with `26` expected opt-in skips;
   compilation, operator help, package JSON and `git diff --check` pass. The
   shared dependency audit still reports the pre-existing CRA/toolchain backlog
   (`33` findings, `18` high, no critical); the suggested force fix would replace
   `react-scripts` with a breaking version and remains separate dependency work.
+
+**Production evidence (2026-08-08):**
+
+- Exact source `company=1`, `project=1`, `30 -> 80`, reconciliation `#4`
+  passed the shared source/domain checks in both commands. Each command used a
+  read-only transaction, attempted zero writes and rolled back.
+- Supply/warehouse returned `state=complete`, no review reasons, no open supply
+  and no protected delivery/allocation/invoice/receipt/lot/movement evidence.
+- Material returned the intended bounded fail-closed result rather than a
+  guessed name match: `341` valid base rows and `341` valid target rows remained
+  exact base-only/target-only coordinates; no stored-key or confirmed-alias
+  pairing was established. Another `100` coordinates received fixed
+  `material_quantity_invalid` review. The bounded fact preview therefore made
+  the domain `state=incomplete` and non-actionable; no material, estimate or
+  lineage data was modified. This is production evidence of the A7.3 review
+  policy, not a request to normalize legacy rows during shadow analysis.
 
 **Dependencies:** A7.1 source contract; E4/E5 cutover contracts remain
 authoritative.
