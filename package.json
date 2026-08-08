@@ -42,6 +42,7 @@
     "audit:project-budget-adjustment-schema": "python3 -m backend.features.project_budget_adjustments.schema",
     "audit:estimate-revision-impact": "python3 -m backend.features.estimate_revision_impact.baseline",
     "audit:estimate-revision-assignment-impact": "python3 -m backend.features.estimate_revision_impact.assignment_projection",
+    "audit:estimate-revision-material-impact": "python3 -m backend.features.estimate_revision_impact.material_projection",
     "migrate:estimate-row-transfer-schema": "python3 -m backend.features.estimate_row_transfer.schema --apply",
     "migrate:project-budget-adjustment-schema": "python3 -m backend.features.project_budget_adjustments.schema --apply",
     "migrate:brigade-lineage": "python3 -m backend.features.brigade_lineage.migration",
