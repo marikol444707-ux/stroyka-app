@@ -285,6 +285,15 @@ class EconomicsProjectionCollectorTests(unittest.TestCase):
                 "backend.features.estimate_revision_impact.economics_projection"
             ),
         )
+        for relative in (
+            "backend/main.py",
+            "backend/features/agent_jobs/handler_registry.py",
+            "deploy.sh",
+        ):
+            self.assertNotIn(
+                "economics_projection",
+                (root / relative).read_text(encoding="utf-8"),
+            )
 
 
 if __name__ == "__main__":
