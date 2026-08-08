@@ -5837,19 +5837,52 @@ supply/warehouse implementation commits if either exceeds five files.
 compose all domain facts into one deterministic report. This task never invokes
 budget approval and never treats a draft reconciliation as approved.
 
+**Status:** Complete locally on 2026-08-08 in commits `b0f33e58` and
+`8bc2d698`; production deploy and the exact `30 -> 80` combined audit remain
+pending. Both commands are additive operator entrypoints only and have no
+route, startup, queue, model, approval or business-table writer registration.
+
 **Acceptance criteria:**
 
-- [ ] Economics uses exact decimal values and the current stored project budget;
+- [x] Economics uses exact decimal values and the current stored project budget;
   unauthorized, unapproved, zero-delta, stale or already-applied sources remain
   explicit non-actionable states.
-- [ ] The combined result has a versioned fixed allowlist, deterministic order,
+- [x] The combined result has a versioned fixed allowlist, deterministic order,
   per-domain completeness, bounded previews and one hash of the canonical
   source/evidence envelope.
-- [ ] Any incomplete/truncated/drifted domain makes the overall report
+- [x] Any incomplete/truncated/drifted domain makes the overall report
   non-actionable while preserving all valid domain facts.
 
 **Verification:** Golden-hash tests, exact-money edge cases, domain-failure
 matrix and real-PostgreSQL read-only rollback proof.
+
+**Local evidence (2026-08-08):**
+
+- `audit:estimate-revision-economics-impact` reuses the authoritative E6
+  preview inside the A7 exact-source transaction. It validates the five exact
+  money strings and canonical E6 `planSha256`, treats draft/already-applied and
+  zero-delta states as complete but non-actionable, and requires the internal
+  authorization value to be the literal boolean `True`. The operator path
+  never supplies that authorization and cannot invoke E6 approval.
+- `audit:estimate-revision-combined-impact` runs assignment, material,
+  supply/warehouse and economics collectors on one cursor in one read-only
+  `REPEATABLE READ` transaction. The public contract is split from orchestration
+  and emits five domains in the fixed order `assignments`, `materials`,
+  `supply`, `warehouse`, `economics`. Only fixed ID/count/state/reason/money
+  fields survive the allowlist. Its envelope hash covers the source, domain
+  order, sanitized evidence, completeness, actionability and reason counts.
+- Golden-hash, exact-money, tampered-plan, source-drift, truncation and the
+  five-domain failure matrix pass. Focused A7 tests pass `76/76` with six
+  expected opt-in PostgreSQL skips; E6 regression passes `117/117` with seven
+  expected skips. Full backend discovery finds `1675` tests and exits cleanly;
+  the expected opt-in skip total is `27`. Python compilation, both CLI help
+  commands, package JSON and `git diff --check` are green.
+- A disposable UTF-8 `a7_combined_report` PostgreSQL database ran the real
+  combined command against two same-name companies. The selected tenant's
+  draft reconciliation remained a complete, explicitly non-actionable E6
+  state; every domain was complete, `writesAttempted=0`, the transaction rolled
+  back, and byte snapshots of all `22` project/estimate/brigade/material/
+  supply/warehouse/budget business tables were identical before and after.
 
 **Dependencies:** A7.2-A7.3.
 
