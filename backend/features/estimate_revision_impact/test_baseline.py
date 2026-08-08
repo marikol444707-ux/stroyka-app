@@ -345,17 +345,14 @@ class EstimateRevisionImpactBaselineRunnerTests(unittest.TestCase):
         self.assertTrue(connection.closed)
         self.assertTrue(cursor.closed)
 
-    def test_operator_audit_stays_manual_without_activation_or_deploy_hook(self):
+    def test_operator_audit_stays_manual_without_deploy_hook(self):
         root = Path(__file__).resolve().parents[3]
         package = json.loads((root / "package.json").read_text(encoding="utf-8"))
         self.assertEqual(
             package["scripts"]["audit:estimate-revision-impact"],
             "python3 -m backend.features.estimate_revision_impact.baseline",
         )
-        for relative in (
-            "backend/main.py",
-            "deploy.sh",
-        ):
+        for relative in ("deploy.sh",):
             self.assertNotIn(
                 "estimate_revision_impact",
                 (root / relative).read_text(encoding="utf-8"),

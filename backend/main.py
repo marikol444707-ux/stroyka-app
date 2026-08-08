@@ -16425,6 +16425,15 @@ except ModuleNotFoundError:
         handoff_estimate_activation_transition,
     )
 
+try:
+    from backend.features.estimate_revision_impact.handoff import (
+        handoff_estimate_revision_impact_transition,
+    )
+except ModuleNotFoundError:
+    from features.estimate_revision_impact.handoff import (
+        handoff_estimate_revision_impact_transition,
+    )
+
 
 
 @app.post("/estimates")
@@ -16516,6 +16525,15 @@ def create_estimate(
         version=data.get("version") or "1.0",
         sections=sections,
     )
+    revision_impact_report = handoff_estimate_revision_impact_transition(
+        previous_status=None,
+        next_status=status,
+        company_id=company_id,
+        project_id=project_id,
+        estimate_id=new_estimate_id,
+        version=data.get("version") or "1.0",
+        sections=sections,
+    )
     if status == "Активная" and project_name:
         background_tasks.add_task(
             _refresh_open_supply_controls_after_estimate_change,
@@ -16532,6 +16550,12 @@ def create_estimate(
             if agent_dispatch_report.get("mode") == "shadow"
             else "agentDispatch"
         ] = agent_dispatch_report
+    if revision_impact_report is not None:
+        response[
+            "revisionImpactShadow"
+            if revision_impact_report.get("mode") == "shadow"
+            else "revisionImpactQueue"
+        ] = revision_impact_report
     return response
 
 @app.put("/estimates/{id}")
@@ -17045,6 +17069,15 @@ def update_estimate(
         version=new_version,
         sections=new_sections,
     )
+    revision_impact_report = handoff_estimate_revision_impact_transition(
+        previous_status=prev_status,
+        next_status=new_status,
+        company_id=estimate_scope["companyId"],
+        project_id=estimate_scope.get("projectId"),
+        estimate_id=id,
+        version=new_version,
+        sections=new_sections,
+    )
     _run_project_ai_control_safely(project_name, "estimate:update")
     response = {"ok": True, "journalEntries": journal_added, "hiddenWorkActs": acts_added, "brigadeItemsSynced": brigade_synced, "supplyControlRefresh": supply_refresh}
     if agent_dispatch_report is not None:
@@ -17053,6 +17086,12 @@ def update_estimate(
             if agent_dispatch_report.get("mode") == "shadow"
             else "agentDispatch"
         ] = agent_dispatch_report
+    if revision_impact_report is not None:
+        response[
+            "revisionImpactShadow"
+            if revision_impact_report.get("mode") == "shadow"
+            else "revisionImpactQueue"
+        ] = revision_impact_report
     return response
 
 @app.put("/estimates/{id}/status")
@@ -17137,6 +17176,15 @@ def update_estimate_status(
         version=estimate_version,
         sections=estimate_sections,
     )
+    revision_impact_report = handoff_estimate_revision_impact_transition(
+        previous_status=previous_status,
+        next_status=status,
+        company_id=estimate["companyId"],
+        project_id=project_id,
+        estimate_id=id,
+        version=estimate_version,
+        sections=estimate_sections,
+    )
     if project_name:
         background_tasks.add_task(_run_project_ai_control_safely, project_name, "estimate:status")
     response = {"ok": True, "status": status, "supplyControlRefresh": supply_refresh}
@@ -17146,6 +17194,12 @@ def update_estimate_status(
             if agent_dispatch_report.get("mode") == "shadow"
             else "agentDispatch"
         ] = agent_dispatch_report
+    if revision_impact_report is not None:
+        response[
+            "revisionImpactShadow"
+            if revision_impact_report.get("mode") == "shadow"
+            else "revisionImpactQueue"
+        ] = revision_impact_report
     return response
 
 

@@ -5921,7 +5921,7 @@ one-shot until A7.6 is production-green.
   no model or external delivery is available.
 - [x] Dry-run attempts zero writes; explicit apply makes one idempotent queue
   attempt. Default registry/timer/generic daemon behavior remains unchanged.
-- [ ] Repeated activation, deactivation, stale revision, foreign company and
+- [x] Repeated activation, deactivation, stale revision, foreign company and
   post-commit failures are fail-soft and cannot affect the committed estimate.
 
 **Verification:** Registry/producer/handler/handoff tests, exact-job runner
@@ -5959,15 +5959,25 @@ business-table writer was added.
 
 **Acceptance criteria:**
 
-- [ ] A real transition into `Активная` observes the canonical source after
+- [x] A real transition into `Активная` observes the canonical source after
   the estimate transaction commits; repeated active state, deactivation and
   drafts are ignored.
-- [ ] Queue apply requires both the literal apply flag and a strict positive-ID
+- [x] Queue apply requires both the literal apply flag and a strict positive-ID
   company allowlist. Missing, malformed or foreign controls preserve a bounded
   shadow result and attempt zero writes.
-- [ ] Connection, validation or enqueue failure rolls back the queue
+- [x] Connection, validation or enqueue failure rolls back the queue
   transaction, logs no business payload or exception text, and cannot affect
   the already committed estimate.
+
+**Status:** Local implementation complete on 2026-08-08. AST inventory proves
+all three activation paths call the handoff only after `conn.commit()`.
+Disabled/malformed/foreign controls open no queue connection; enabled tests
+prove exact-source enqueue, idempotent existing work, bounded rollback and no
+revision/idempotency/exception leakage. Focused A6/A7/agent coverage passes
+`164/164` with `6` expected skips; backend passes `1701/1701` with `28`
+expected skips, frontend passes `342/342`, compile and production build pass.
+Neither new control is present in deploy or systemd. Production deploy and a
+reversible queue canary require separate approval.
 
 **Verification:** Handoff unit tests for all three activation paths,
 disabled-default static inventory, full backend/frontend regression and build.

@@ -7,8 +7,12 @@ from collections.abc import Mapping
 
 from psycopg2.extras import RealDictCursor
 
-from backend.db import get_db
-from backend.features.agent_jobs.service import enqueue_agent_job
+try:
+    from backend.db import get_db
+    from backend.features.agent_jobs.service import enqueue_agent_job
+except ModuleNotFoundError:
+    from db import get_db
+    from features.agent_jobs.service import enqueue_agent_job
 
 from .baseline import collect_baseline_audit
 from .contract import (

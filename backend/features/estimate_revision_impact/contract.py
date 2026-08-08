@@ -4,9 +4,14 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from backend.features.agent_change_dispatch.shadow import (
-    build_estimate_activation_source_revision,
-)
+try:
+    from backend.features.agent_change_dispatch.shadow import (
+        build_estimate_activation_source_revision,
+    )
+except ModuleNotFoundError:
+    from features.agent_change_dispatch.shadow import (
+        build_estimate_activation_source_revision,
+    )
 
 
 EVENT_TYPE = "estimate.version_activated"
