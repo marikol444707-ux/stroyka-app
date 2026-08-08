@@ -38,7 +38,7 @@ class EstimateRevisionImpactHandlerError(ValueError):
     pass
 
 
-def _validated_result(report, source):
+def validate_estimate_revision_impact_result(report, source):
     if not isinstance(report, Mapping) or set(report) != _REPORT_FIELDS:
         raise EstimateRevisionImpactHandlerError("combined report is invalid")
     public_source = report.get("source")
@@ -54,7 +54,7 @@ def _validated_result(report, source):
         or type(report.get("actionable")) is not bool
         or report.get("domainOrder") != list(DOMAIN_ORDER)
         or not isinstance(domains, Mapping)
-        or tuple(domains) != DOMAIN_ORDER
+        or set(domains) != set(DOMAIN_ORDER)
         or not isinstance(public_source, Mapping)
         or public_source.get("companyId") != source.company_id
         or public_source.get("projectId") != source.project_id
@@ -123,7 +123,7 @@ def build_estimate_revision_impact_handler(
                 "queue scope does not match the revision source"
             )
         report = run_report_dependency(connection_factory_dependency, source)
-        return _validated_result(report, source)
+        return validate_estimate_revision_impact_result(report, source)
 
     return handle
 
@@ -135,4 +135,5 @@ __all__ = [
     "EstimateRevisionImpactHandlerError",
     "build_estimate_revision_impact_handler",
     "handle_estimate_revision_impact",
+    "validate_estimate_revision_impact_result",
 ]

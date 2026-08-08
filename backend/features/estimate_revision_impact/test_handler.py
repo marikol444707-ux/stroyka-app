@@ -1,3 +1,4 @@
+import json
 import unittest
 
 from backend.features.agent_jobs.handler_registry import AgentJobContext
@@ -46,6 +47,18 @@ def report(**changes):
 
 
 class EstimateRevisionImpactHandlerTests(unittest.TestCase):
+    def test_accepts_jsonb_reordered_domain_object_with_exact_domain_order(self):
+        stored = json.loads(json.dumps(report(), sort_keys=True))
+        handler = build_estimate_revision_impact_handler(
+            run_report=lambda *_args: stored,
+            connection_factory=lambda: None,
+        )
+
+        result = handler(job_context())
+
+        self.assertEqual(result["domainOrder"], list(stored["domainOrder"]))
+        self.assertEqual(set(result["domains"]), set(stored["domainOrder"]))
+
     def test_runs_only_exact_read_only_combined_report(self):
         calls = []
         connection_factory = lambda: None
