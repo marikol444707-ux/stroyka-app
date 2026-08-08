@@ -5990,10 +5990,10 @@ reviewed production canary without manufacturing reconciliation data.
 
 **Acceptance criteria:**
 
-- [ ] Static inventory permits only the reviewed operational queue/result
+- [x] Static inventory permits only the reviewed operational queue/result
   writes and proves zero business-table DML, no model, no notification and no
   automatic apply endpoint.
-- [ ] Real PostgreSQL proves rollback, same-name tenant isolation,
+- [x] Real PostgreSQL proves rollback, same-name tenant isolation,
   idempotency/concurrency and byte-for-byte unchanged protected tables.
 - [ ] Production service/smoke/readiness are green before a genuine source is
   considered for an exact one-shot shadow canary; absence of a genuine source
@@ -6005,3 +6005,134 @@ smoke, exact production readiness audit and before/after business-row counts.
 **Dependencies:** A7.1-A7.5 complete.
 
 **Estimated scope:** M, release gate only.
+
+#### Task A7.6.1: Exact Static Execution Inventory
+
+**Description:** Statically inventory the A7 runtime package, default handler
+registry, activation handoffs and named integration proofs. This is the
+fail-closed change detector for the shadow execution surface; it must not import
+or execute production modules while scanning them.
+
+**Acceptance criteria:**
+
+- [x] The reviewed producer enqueue call, tracking wrapper and generic runner
+  result boundary are exact; A7 business-table DML is forbidden.
+- [x] The exact handler registration, producer entrypoint and three post-commit
+  handoffs are present, while model/provider, messenger/notification and HTTP
+  apply-route dependencies are absent from A7.
+- [x] Missing or renamed dedicated PostgreSQL proofs makes the inventory fail
+  closed with bounded diagnostics.
+
+**Verification:** RED/GREEN static-inventory tests, repository inventory audit,
+Python compilation and `git diff --check`.
+
+**Dependencies:** A7.5 production shadow deployment complete.
+
+**Files likely touched:**
+
+- `backend/features/estimate_revision_impact/cutover_inventory.py`
+- `backend/features/estimate_revision_impact/test_cutover_inventory.py`
+
+**Estimated scope:** S.
+
+**Status (2026-08-08):** Complete locally. The import-free repository audit
+parses every production backend Python module, allows only the exact reviewed
+external A7 feature symbols, rejects direct A7 DML and detects an A7 mutation
+route even outside the feature package. It reports zero A7 DML, exactly three
+operational calls, one handler registration, three post-commit handoffs, all
+five named PostgreSQL proofs and zero violations. RED/GREEN tests also prove
+fail-closed behavior for business SQL, imported business writers, model and
+notification dependencies, route registration, handoff ordering and missing
+proofs.
+
+#### Task A7.6.2: Exact Read-Only Readiness Contract
+
+**Description:** For one canonical company/project/estimate/revision, run the
+combined impact collector and queue readiness/ledger checks in one bounded
+operator report. Readiness means safe shadow execution; known non-actionable or
+review-required business evidence remains valid and must not be promoted to an
+apply recommendation.
+
+**Acceptance criteria:**
+
+- [x] One `REPEATABLE READ`, read-only transaction validates the exact source,
+  combined evidence hash, agent-job schema and exact idempotency ledger, then
+  always rolls back with `writesAttempted=0`.
+- [x] Zero exact jobs is ready for a first canary and one valid exact job is
+  ready for an idempotent repeat; duplicates, foreign scope, payload/result
+  drift or invalid lease state fail closed with ID-only bounded diagnostics.
+- [x] Top-level `readyForCanary=true` requires the exact static inventory and
+  safe combined report, but does not require `complete` or `actionable` business
+  evidence.
+
+**Verification:** RED/GREEN pure/fake-DB tests, CLI/package-script test and
+exact report hash/source drift cases.
+
+**Dependencies:** A7.6.1.
+
+**Files likely touched:**
+
+- `backend/features/estimate_revision_impact/readiness_report.py`
+- `backend/features/estimate_revision_impact/test_readiness_report.py`
+- `package.json`
+
+**Estimated scope:** M.
+
+**Status (2026-08-08):** Complete locally. The new exact CLI and package script
+reuse the handler's report validator after the transaction rollback, summarize
+the combined evidence without free text and inspect at most 101 rows for the
+single deterministic idempotency identity. PostgreSQL exposed that JSONB does
+not preserve object-key insertion order; a RED regression test now proves the
+handler accepts reordered `domains` only when the explicit `domainOrder`, exact
+domain-key set and canonical evidence hash all remain valid.
+
+#### Task A7.6.3: Dedicated PostgreSQL And Production Gate
+
+**Description:** Exercise the real queue transaction, exact handler and result
+completion against two same-name tenants, then deploy only the read-only gate.
+The production enqueue/execute canary remains a separate reviewed command and
+must use an already genuine eligible source.
+
+**Acceptance criteria:**
+
+- [x] Dedicated PostgreSQL proves rollback, same-name tenant isolation,
+  repeated and concurrent enqueue idempotency, exact claim/handler/complete and
+  unchanged byte snapshots for every A7 protected business table.
+- [ ] Focused/full backend and frontend tests, build, service health, public
+  smoke and exact production readiness are green before any canary command is
+  proposed.
+- [ ] A genuine eligible source receives at most one exact one-shot shadow
+  canary; if none exists, record no-canary without creating or editing business
+  data. Controls and the generic runner stay disabled afterward.
+
+**Verification:** Opt-in PostgreSQL integration suite, protected-table SHA-256
+before/after, full regression/build, production smoke and exact readiness.
+
+**Dependencies:** A7.6.1-A7.6.2.
+
+**Files likely touched:**
+
+- `backend/features/estimate_revision_impact/test_postgres_cutover.py`
+- `tasks/plan.md`
+- `tasks/todo.md`
+
+**Estimated scope:** M.
+
+**Local evidence (2026-08-08):** A fresh UTF-8 PostgreSQL cluster and dedicated
+`a7_*` database passed all `5/5` cutover scenarios. Two concurrent explicit
+enqueue attempts left exactly one source-bound job; repeat returned the same
+job. The exact-ID runner completed only company `4` while the same-name company
+`5` job stayed queued. An injected post-enqueue exception rolled the queue
+transaction back to zero rows. Initial and final readiness both rolled back,
+and SHA-256 snapshots of all 22 project/estimate/assignment/material/supply/
+warehouse/budget business tables were unchanged in every case. The temporary
+database and cluster were stopped and deleted afterward.
+
+**Local verification (2026-08-08):** Focused A7 discovery passes `117/117`
+with 11 expected opt-in skips; focused agent-job regression passes `38/38`.
+Full backend discovery passes `1720/1720` with 33 expected skips, frontend
+passes `342/342`, Python compilation, `git diff --check` and the production
+build pass. Dependency audit still reports the pre-existing CRA/toolchain
+backlog of 33 findings (`18` high, no critical); A7.6 adds no dependency and
+the proposed force fix remains breaking. Production deploy, public smoke,
+exact readiness and any genuine-source canary remain deliberately pending.
