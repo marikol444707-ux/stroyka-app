@@ -41,7 +41,6 @@ def source_row(**changes):
         "base_status": "Черновик",
         "base_type": "Заказчик",
         "base_package": "Основная",
-        "base_stored_total": Decimal("250.00"),
         "base_sections_json": sections("250.00"),
         "stored_next_estimate_id": 101,
         "next_company_id": 10,
@@ -49,7 +48,6 @@ def source_row(**changes):
         "next_status": "Активная",
         "next_type": "Заказчик",
         "next_package": "Основная",
-        "next_stored_total": Decimal("275.50"),
         "next_sections_json": sections("275.50"),
         "existing_adjustment_id": None,
         "active_scope_count": 1,
@@ -184,8 +182,6 @@ class BudgetAdjustmentPreviewServiceTests(unittest.TestCase):
         for changes in (
             {"base_sections_json": sections("249.99")},
             {"next_sections_json": sections("275.51")},
-            {"base_stored_total": Decimal("249.99")},
-            {"next_stored_total": Decimal("275.51")},
             {"reconciliation_base_total": Decimal("249.99")},
             {"reconciliation_next_total": Decimal("275.51")},
         ):
@@ -198,7 +194,6 @@ class BudgetAdjustmentPreviewServiceTests(unittest.TestCase):
     def test_zero_delta_returns_hashed_non_approvable_preview(self):
         preview, _calls = build(source_row(
             reconciliation_next_total=Decimal("250.00"),
-            next_stored_total=Decimal("250.00"),
             next_sections_json=sections("250.00"),
         ))
 

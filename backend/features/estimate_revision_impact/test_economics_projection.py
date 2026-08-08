@@ -58,6 +58,9 @@ def preview(**changes):
 
 
 class EconomicsProjectionContractTests(unittest.TestCase):
+    def test_production_estimate_schema_does_not_require_stored_total(self):
+        self.assertNotIn("total", ECONOMICS_REQUIRED_COLUMNS["estimates"])
+
     def test_exact_plan_is_complete_but_requires_explicit_authorization(self):
         projection = build_economics_projection(
             source_context(), preview=preview(), authorized=False,

@@ -36,8 +36,10 @@ class BudgetAdjustmentPreviewStorageTests(unittest.TestCase):
         self.assertIn("project.company_id=%s", sql)
         self.assertIn("r.id=%s", sql)
         self.assertIn("active_scope_count", sql)
-        self.assertIn("base_estimate.total AS base_stored_total", sql)
-        self.assertIn("next_estimate.total AS next_stored_total", sql)
+        self.assertNotIn("base_estimate.total", sql)
+        self.assertNotIn("next_estimate.total", sql)
+        self.assertIn("base_estimate.sections_json", sql)
+        self.assertIn("next_estimate.sections_json", sql)
         self.assertIn("LIMIT 1", sql)
         self.assertEqual(params, (7, 10))
         for forbidden in (

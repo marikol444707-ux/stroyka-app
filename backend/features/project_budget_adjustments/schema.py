@@ -9,6 +9,7 @@ import psycopg2.extras
 
 
 PLAN_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+GUARD_V2_MARKER = "e6_guard_v2_reconciliation_totals"
 
 RECEIPT_COLUMNS = {
     "id", "company_id", "project_id", "reconciliation_id",
@@ -127,6 +128,13 @@ FUNCTION_SIGNATURES = {
         "NEW.project_id", "NEW.reconciliation_id", "NEW.base_estimate_id",
         "NEW.next_estimate_id", "NEW.project_budget_before",
         "NEW.estimate_base_total", "NEW.estimate_next_total",
+        "p.budget=NEW.project_budget_before",
+        "r.base_estimate_id=NEW.base_estimate_id",
+        "r.next_estimate_id=NEW.next_estimate_id",
+        "r.base_total=NEW.estimate_base_total",
+        "r.next_total=NEW.estimate_next_total",
+        "actor.role=NEW.approved_by_role",
+        "COALESCE(actor.active,TRUE)=TRUE",
         "Утверждена", "Заказчик", "Активная",
         "project_budget_adjustment_source_invalid",
     ),
@@ -145,6 +153,61 @@ TRIGGER_SIGNATURES = {
         "reject_project_budget_adjustment_mutation",
     ),
 }
+
+
+def _guard_function_sql(*, replace):
+    create = "CREATE OR REPLACE" if replace else "CREATE"
+    return f"""
+        {create} FUNCTION public.guard_project_budget_adjustment_insert()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          -- {GUARD_V2_MARKER}
+          IF NOT EXISTS (
+            SELECT 1
+              FROM public.projects p
+              JOIN public.estimate_reconciliations r
+                ON r.id=NEW.reconciliation_id
+              JOIN public.estimates base_estimate
+                ON base_estimate.id=NEW.base_estimate_id
+              JOIN public.estimates next_estimate
+                ON next_estimate.id=NEW.next_estimate_id
+             WHERE p.id=NEW.project_id
+               AND p.company_id=NEW.company_id
+               AND p.budget=NEW.project_budget_before
+               AND r.base_estimate_id=NEW.base_estimate_id
+               AND r.next_estimate_id=NEW.next_estimate_id
+               AND r.status='Утверждена'
+               AND COALESCE(NULLIF(r.smeta_type,''),'Заказчик')='Заказчик'
+               AND base_estimate.company_id=NEW.company_id
+               AND base_estimate.project_id=NEW.project_id
+               AND COALESCE(NULLIF(base_estimate.smeta_type,''),'Заказчик')='Заказчик'
+               AND next_estimate.company_id=NEW.company_id
+               AND next_estimate.project_id=NEW.project_id
+               AND COALESCE(NULLIF(next_estimate.smeta_type,''),'Заказчик')='Заказчик'
+               AND next_estimate.status='Активная'
+               AND r.base_total=NEW.estimate_base_total
+               AND r.next_total=NEW.estimate_next_total
+               AND COALESCE(NULLIF(r.work_package,''),'Основная')
+                   =COALESCE(NULLIF(base_estimate.work_package,''),'Основная')
+               AND COALESCE(NULLIF(r.work_package,''),'Основная')
+                   =COALESCE(NULLIF(next_estimate.work_package,''),'Основная')
+               AND EXISTS (
+                 SELECT 1
+                   FROM public.user_company_roles actor
+                  WHERE actor.user_id=NEW.approved_by_user_id
+                    AND actor.company_id=NEW.company_id
+                    AND actor.role=NEW.approved_by_role
+                    AND actor.role IN ('директор','зам_директора')
+                    AND COALESCE(actor.active,TRUE)=TRUE
+               )
+          ) THEN
+            RAISE EXCEPTION 'project_budget_adjustment_source_invalid'
+              USING ERRCODE='23514';
+          END IF;
+          RETURN NEW;
+        END;
+        $$
+    """
 
 
 CHANGE_DEFINITIONS = (
@@ -233,58 +296,12 @@ CHANGE_DEFINITIONS = (
     (
         "create_project_budget_adjustment_insert_guard_function",
         "guard_project_budget_adjustment_insert",
-        """
-        CREATE FUNCTION public.guard_project_budget_adjustment_insert()
-        RETURNS trigger LANGUAGE plpgsql AS $$
-        BEGIN
-          IF NOT EXISTS (
-            SELECT 1
-              FROM public.projects p
-              JOIN public.estimate_reconciliations r
-                ON r.id=NEW.reconciliation_id
-              JOIN public.estimates base_estimate
-                ON base_estimate.id=NEW.base_estimate_id
-              JOIN public.estimates next_estimate
-                ON next_estimate.id=NEW.next_estimate_id
-             WHERE p.id=NEW.project_id
-               AND p.company_id=NEW.company_id
-               AND p.budget=NEW.project_budget_before
-               AND r.base_estimate_id=NEW.base_estimate_id
-               AND r.next_estimate_id=NEW.next_estimate_id
-               AND r.status='Утверждена'
-               AND COALESCE(NULLIF(r.smeta_type,''),'Заказчик')='Заказчик'
-               AND base_estimate.company_id=NEW.company_id
-               AND base_estimate.project_id=NEW.project_id
-               AND COALESCE(NULLIF(base_estimate.smeta_type,''),'Заказчик')='Заказчик'
-               AND base_estimate.total=NEW.estimate_base_total
-               AND next_estimate.company_id=NEW.company_id
-               AND next_estimate.project_id=NEW.project_id
-               AND COALESCE(NULLIF(next_estimate.smeta_type,''),'Заказчик')='Заказчик'
-               AND next_estimate.status='Активная'
-               AND next_estimate.total=NEW.estimate_next_total
-               AND r.base_total=NEW.estimate_base_total
-               AND r.next_total=NEW.estimate_next_total
-               AND COALESCE(NULLIF(r.work_package,''),'Основная')
-                   =COALESCE(NULLIF(base_estimate.work_package,''),'Основная')
-               AND COALESCE(NULLIF(r.work_package,''),'Основная')
-                   =COALESCE(NULLIF(next_estimate.work_package,''),'Основная')
-               AND EXISTS (
-                 SELECT 1
-                   FROM public.user_company_roles actor
-                  WHERE actor.user_id=NEW.approved_by_user_id
-                    AND actor.company_id=NEW.company_id
-                    AND actor.role=NEW.approved_by_role
-                    AND actor.role IN ('директор','зам_директора')
-                    AND COALESCE(actor.active,TRUE)=TRUE
-               )
-          ) THEN
-            RAISE EXCEPTION 'project_budget_adjustment_source_invalid'
-              USING ERRCODE='23514';
-          END IF;
-          RETURN NEW;
-        END;
-        $$
-        """,
+        _guard_function_sql(replace=False),
+    ),
+    (
+        "replace_project_budget_adjustment_insert_guard_function_v2",
+        "guard_function_v2",
+        _guard_function_sql(replace=True),
     ),
     (
         "create_project_budget_adjustment_insert_guard_trigger",
@@ -348,6 +365,18 @@ def _invalid_definitions(present_names, definitions, signatures):
         ):
             invalid.append(name)
     return invalid
+
+
+def _guard_v2(catalog):
+    definitions = dict(catalog.get("function_definitions") or {})
+    actual = _compact_definition(
+        definitions.get("guard_project_budget_adjustment_insert")
+    )
+    return bool(
+        GUARD_V2_MARKER in actual
+        and "base_estimate.total" not in actual
+        and "next_estimate.total" not in actual
+    )
 
 
 def _budget_exact(catalog):
@@ -446,6 +475,11 @@ def build_schema_plan(catalog, conversion_audit=None):
             missing = not budget_exact
         elif object_name == "receipt_table":
             missing = not receipt_table
+        elif object_name == "guard_function_v2":
+            missing = (
+                "guard_project_budget_adjustment_insert" in functions
+                and not _guard_v2(catalog)
+            )
         elif object_name in INDEXES:
             missing = object_name not in indexes
         elif object_name in FUNCTIONS:
@@ -455,6 +489,13 @@ def build_schema_plan(catalog, conversion_audit=None):
         if missing:
             changes.append({"name": name, "sql": sql.strip()})
 
+    expected_function_definitions = {
+        name: " ".join(parts)
+        for name, parts in sorted(FUNCTION_SIGNATURES.items())
+    }
+    expected_function_definitions[
+        "guard_project_budget_adjustment_insert"
+    ] += " " + GUARD_V2_MARKER
     expected = {
         "receiptColumns": sorted(RECEIPT_COLUMNS),
         "receiptColumnDefinitions": RECEIPT_COLUMN_DEFINITIONS,
@@ -470,10 +511,7 @@ def build_schema_plan(catalog, conversion_audit=None):
             name: " ".join(parts)
             for name, parts in sorted(INDEX_SIGNATURES.items())
         },
-        "functionDefinitions": {
-            name: " ".join(parts)
-            for name, parts in sorted(FUNCTION_SIGNATURES.items())
-        },
+        "functionDefinitions": expected_function_definitions,
         "triggerDefinitions": {
             name: " ".join(parts)
             for name, parts in sorted(TRIGGER_SIGNATURES.items())

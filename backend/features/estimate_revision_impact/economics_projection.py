@@ -28,7 +28,7 @@ ECONOMICS_REQUIRED_COLUMNS = {
     "projects": {"id", "company_id", "budget"},
     "estimates": {
         "id", "company_id", "project_id", "status", "smeta_type",
-        "work_package", "total", "sections_json",
+        "work_package", "sections_json",
     },
     "estimate_reconciliations": {
         "id", "base_estimate_id", "next_estimate_id", "status",

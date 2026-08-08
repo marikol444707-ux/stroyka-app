@@ -72,7 +72,7 @@ class BudgetAdjustmentSchemaPostgresTests(unittest.TestCase):
                 CREATE TABLE IF NOT EXISTS public.estimates (
                   id SERIAL PRIMARY KEY, company_id INTEGER, project_id INTEGER,
                   status TEXT, smeta_type TEXT, work_package TEXT,
-                  total NUMERIC(14,2), sections_json TEXT
+                  sections_json TEXT
                 );
                 ALTER TABLE public.estimates
                   ADD COLUMN IF NOT EXISTS company_id INTEGER,
@@ -80,7 +80,6 @@ class BudgetAdjustmentSchemaPostgresTests(unittest.TestCase):
                   ADD COLUMN IF NOT EXISTS status TEXT,
                   ADD COLUMN IF NOT EXISTS smeta_type TEXT,
                   ADD COLUMN IF NOT EXISTS work_package TEXT,
-                  ADD COLUMN IF NOT EXISTS total NUMERIC(14,2),
                   ADD COLUMN IF NOT EXISTS sections_json TEXT;
                 CREATE TABLE IF NOT EXISTS public.estimate_reconciliations (
                   id SERIAL PRIMARY KEY, base_estimate_id INTEGER,
@@ -201,20 +200,20 @@ class BudgetAdjustmentSchemaPostgresTests(unittest.TestCase):
             )
             cur.execute(
                 """INSERT INTO public.estimates
-                     (company_id,project_id,status,smeta_type,work_package,total,
+                     (company_id,project_id,status,smeta_type,work_package,
                       sections_json)
-                   VALUES (%s,%s,'Неактивная','Заказчик','Fixture',%s,%s)
+                   VALUES (%s,%s,'Неактивная','Заказчик','Fixture',%s)
                    RETURNING id""",
-                (company_id, project_id, Decimal("250.00"), self._sections("250.00")),
+                (company_id, project_id, self._sections("250.00")),
             )
             base_id = cur.fetchone()[0]
             cur.execute(
                 """INSERT INTO public.estimates
-                     (company_id,project_id,status,smeta_type,work_package,total,
+                     (company_id,project_id,status,smeta_type,work_package,
                       sections_json)
-                   VALUES (%s,%s,'Активная','Заказчик','Fixture',%s,%s)
+                   VALUES (%s,%s,'Активная','Заказчик','Fixture',%s)
                    RETURNING id""",
-                (company_id, project_id, Decimal("275.50"), self._sections("275.50")),
+                (company_id, project_id, self._sections("275.50")),
             )
             next_id = cur.fetchone()[0]
             cur.execute(
@@ -306,6 +305,54 @@ class BudgetAdjustmentSchemaPostgresTests(unittest.TestCase):
         ).encode("utf-8")
         return hashlib.sha256(payload).hexdigest()
 
+    def test_legacy_total_guard_is_replaced_on_schema_without_total_column(self):
+        self._ensure_schema()
+        with self.admin.cursor() as cur:
+            cur.execute(
+                """SELECT pg_get_functiondef(p.oid)
+                     FROM pg_proc p
+                     JOIN pg_namespace n ON n.oid=p.pronamespace
+                    WHERE n.nspname='public'
+                      AND p.proname='guard_project_budget_adjustment_insert'
+                      AND p.pronargs=0"""
+            )
+            legacy = cur.fetchone()[0]
+            legacy = legacy.replace(
+                "-- e6_guard_v2_reconciliation_totals", ""
+            ).replace(
+                "AND next_estimate.company_id=NEW.company_id",
+                "AND base_estimate.total=NEW.estimate_base_total\n"
+                "               AND next_estimate.company_id=NEW.company_id",
+            ).replace(
+                "AND r.base_total=NEW.estimate_base_total",
+                "AND next_estimate.total=NEW.estimate_next_total\n"
+                "               AND r.base_total=NEW.estimate_base_total",
+            )
+            cur.execute(legacy)
+
+        dry_run = run_schema_migration(
+            lambda: psycopg2.connect(POSTGRES_TEST_DSN)
+        )
+        self.assertTrue(dry_run["readyForApply"], dry_run["blockers"])
+        self.assertEqual(dry_run["changes"], [
+            "replace_project_budget_adjustment_insert_guard_function_v2",
+        ])
+
+        applied = run_schema_migration(
+            lambda: psycopg2.connect(POSTGRES_TEST_DSN),
+            apply=True,
+            expected_change_count=1,
+            expected_plan_sha256=dry_run["planSha256"],
+        )
+
+        self.assertTrue(applied["schemaReady"])
+        self.assertEqual(applied["writesAttempted"], 1)
+        post = run_schema_migration(
+            lambda: psycopg2.connect(POSTGRES_TEST_DSN)
+        )
+        self.assertTrue(post["schemaReady"])
+        self.assertEqual(post["changeCount"], 0)
+
     def test_lossless_apply_repeat_source_guard_and_immutability(self):
         with self.admin.cursor() as cur:
             cur.execute("""
@@ -386,16 +433,16 @@ class BudgetAdjustmentSchemaPostgresTests(unittest.TestCase):
             )
             cur.execute(
                 "INSERT INTO public.estimates"
-                "(company_id,project_id,status,smeta_type,work_package,total) "
-                "VALUES (%s,%s,'Неактивная','Заказчик','Fixture',%s) RETURNING id",
-                (company_id, project_id, Decimal("100.00")),
+                "(company_id,project_id,status,smeta_type,work_package) "
+                "VALUES (%s,%s,'Неактивная','Заказчик','Fixture') RETURNING id",
+                (company_id, project_id),
             )
             base_id = cur.fetchone()[0]
             cur.execute(
                 "INSERT INTO public.estimates"
-                "(company_id,project_id,status,smeta_type,work_package,total) "
-                "VALUES (%s,%s,'Активная','Заказчик','Fixture',%s) RETURNING id",
-                (company_id, project_id, Decimal("125.00")),
+                "(company_id,project_id,status,smeta_type,work_package) "
+                "VALUES (%s,%s,'Активная','Заказчик','Fixture') RETURNING id",
+                (company_id, project_id),
             )
             next_id = cur.fetchone()[0]
             cur.execute(

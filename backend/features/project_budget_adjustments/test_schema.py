@@ -131,7 +131,43 @@ class BudgetAdjustmentSchemaPlanTests(unittest.TestCase):
         self.assertIn("estimate_next_total-estimate_base_total", compact)
         self.assertIn("guard_project_budget_adjustment_insert", sql)
         self.assertIn("reject_project_budget_adjustment_mutation", sql)
+        self.assertNotIn("base_estimate.total", sql)
+        self.assertNotIn("next_estimate.total", sql)
         self.assertNotIn("UPDATE public.projects SET budget", sql)
+
+    def test_legacy_total_guard_gets_one_safe_replacement_plan(self):
+        catalog = ready_catalog()
+        catalog["function_definitions"][
+            "guard_project_budget_adjustment_insert"
+        ] += " base_estimate.total next_estimate.total"
+
+        plan = build_schema_plan(catalog, safe_conversion())
+
+        self.assertTrue(plan["readyForApply"], plan["blockers"])
+        self.assertEqual(
+            [change["name"] for change in plan["changes"]],
+            ["replace_project_budget_adjustment_insert_guard_function_v2"],
+        )
+        replacement = plan["changes"][0]["sql"]
+        self.assertIn("CREATE OR REPLACE FUNCTION", replacement)
+        self.assertNotIn("base_estimate.total", replacement)
+        self.assertNotIn("next_estimate.total", replacement)
+
+    def test_version_marker_cannot_hide_missing_reconciliation_total_guard(self):
+        catalog = ready_catalog()
+        catalog["function_definitions"][
+            "guard_project_budget_adjustment_insert"
+        ] = catalog["function_definitions"][
+            "guard_project_budget_adjustment_insert"
+        ].replace("r.next_total=NEW.estimate_next_total", "")
+
+        plan = build_schema_plan(catalog, safe_conversion())
+
+        self.assertFalse(plan["readyForApply"])
+        self.assertIn(
+            "invalidFunction:guard_project_budget_adjustment_insert",
+            plan["blockers"],
+        )
 
     def test_lossy_budget_data_blocks_schema_apply_plan(self):
         unsafe = {**safe_conversion(), "precision_loss_budget": 1}

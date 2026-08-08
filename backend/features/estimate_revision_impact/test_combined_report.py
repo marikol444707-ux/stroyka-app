@@ -505,7 +505,7 @@ class CombinedReportPostgresTests(unittest.TestCase):
                     id INTEGER PRIMARY KEY, company_id INTEGER,
                     project_id INTEGER, version TEXT, sections_json TEXT,
                     status TEXT, is_template BOOLEAN, smeta_type TEXT,
-                    work_package TEXT, total NUMERIC(14,2)
+                    work_package TEXT
                 );
                 CREATE TABLE IF NOT EXISTS public.estimate_reconciliations (
                     id INTEGER PRIMARY KEY, base_estimate_id INTEGER,
@@ -515,8 +515,6 @@ class CombinedReportPostgresTests(unittest.TestCase):
                 );
                 ALTER TABLE public.projects
                     ADD COLUMN IF NOT EXISTS budget NUMERIC(14,2);
-                ALTER TABLE public.estimates
-                    ADD COLUMN IF NOT EXISTS total NUMERIC(14,2);
                 ALTER TABLE public.estimate_reconciliations
                     ADD COLUMN IF NOT EXISTS base_total NUMERIC(14,2);
                 ALTER TABLE public.estimate_reconciliations
@@ -648,12 +646,12 @@ class CombinedReportPostgresTests(unittest.TestCase):
             cur.execute(
                 """INSERT INTO public.estimates
                      (id,company_id,project_id,version,sections_json,status,
-                      is_template,smeta_type,work_package,total)
+                      is_template,smeta_type,work_package)
                    VALUES
-                     (51,4,17,'v1.0',%s,'Черновик',FALSE,'Заказчик','Основная',0),
-                     (52,4,17,'v2.0',%s,'Активная',FALSE,'Заказчик','Основная',0),
-                     (61,5,18,'v1.0',%s,'Черновик',FALSE,'Заказчик','Основная',0),
-                     (62,5,18,'v2.0',%s,'Активная',FALSE,'Заказчик','Основная',0)""",
+                     (51,4,17,'v1.0',%s,'Черновик',FALSE,'Заказчик','Основная'),
+                     (52,4,17,'v2.0',%s,'Активная',FALSE,'Заказчик','Основная'),
+                     (61,5,18,'v1.0',%s,'Черновик',FALSE,'Заказчик','Основная'),
+                     (62,5,18,'v2.0',%s,'Активная',FALSE,'Заказчик','Основная')""",
                 (encoded, encoded, encoded, encoded),
             )
             cur.execute(
