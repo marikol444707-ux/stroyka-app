@@ -5837,14 +5837,16 @@ supply/warehouse implementation commits if either exceeds five files.
 compose all domain facts into one deterministic report. This task never invokes
 budget approval and never treats a draft reconciliation as approved.
 
-**Status:** The inert A7.4 commands shipped on runtime `3bda0fc50107` and public
-smoke passed. The exact production economics audit then failed closed before
-domain collection because it incorrectly required a nonexistent
-`estimates.total` column. Corrective commit `7a3ffb32` is locally verified;
-production redeploy, the one-change guarded E6 function migration and the exact
-`30 -> 80` economics/combined audits remain pending. Both commands are additive
-operator entrypoints only and have no route, startup, queue, model, approval or
-business-table writer registration.
+**Status:** Complete in production on 2026-08-08 at runtime `d449c491bec6`.
+The one-change guarded E6 replacement committed with the reviewed SHA, its
+repeat audit returned zero changes, E6 readiness returned
+`readyForCutover=true`, and public smoke passed. Exact source `30 -> 80` then
+completed economics as explicitly non-actionable because reconciliation `#4`
+is still a draft. The combined report correctly remained incomplete only for
+the known material-lineage review, attempted zero writes, rolled back and
+returned evidence SHA `11562e9ae2cfc2718d58c101cefd5b1598f28028d92c597fd347a156edbff757`.
+Both commands remain additive operator entrypoints with no route, startup,
+queue, model, approval or business-table writer registration.
 
 **Acceptance criteria:**
 
@@ -5929,6 +5931,39 @@ test, disabled-default inventory and one reversible local queue canary.
 
 **Estimated scope:** Two M commits: inert handler/producer, then guarded
 handoff.
+
+#### Task A7.5.1: Exact Job Contract, Handler And Producer
+
+**Acceptance criteria:**
+
+- [ ] The payload contains only the canonical A7 source fields and matches the
+  queue-owned company/project scope before any database connection is opened.
+- [ ] The handler executes only the read-only combined collector and returns
+  only its fixed public report; the producer defaults to rollback-only dry-run
+  and explicit apply makes one idempotent enqueue attempt.
+- [ ] The default registry permits the new handler for explicit one-shot jobs,
+  while no activation hook, timer, model, notification or daemon enablement is
+  added in this increment.
+
+**Verification:** RED/GREEN contract, handler, producer, registry and exact-job
+runner tests; focused agent/A7 regression; full backend regression and compile.
+
+#### Task A7.5.2: Disabled-Default Post-Commit Handoff
+
+**Acceptance criteria:**
+
+- [ ] A real transition into `Активная` observes the canonical source after
+  the estimate transaction commits; repeated active state, deactivation and
+  drafts are ignored.
+- [ ] Queue apply requires both the literal apply flag and a strict positive-ID
+  company allowlist. Missing, malformed or foreign controls preserve a bounded
+  shadow result and attempt zero writes.
+- [ ] Connection, validation or enqueue failure rolls back the queue
+  transaction, logs no business payload or exception text, and cannot affect
+  the already committed estimate.
+
+**Verification:** Handoff unit tests for all three activation paths,
+disabled-default static inventory, full backend/frontend regression and build.
 
 ### Task A7.6: Final Shadow Cutover Evidence
 
