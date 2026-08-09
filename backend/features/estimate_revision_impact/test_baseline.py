@@ -163,6 +163,12 @@ class EstimateRevisionImpactBaselineCollectionTests(unittest.TestCase):
             self.assertNotIn(forbidden, serialized)
 
         self.assertEqual(len(cursor.calls), 3)
+        schema_sql, schema_params = cursor.calls[0]
+        self.assertIn("jsonb_to_recordset", schema_sql)
+        self.assertIn("pg_catalog.pg_attribute", schema_sql)
+        self.assertNotIn("information_schema", schema_sql)
+        self.assertIn("LIMIT %s", schema_sql)
+        self.assertEqual(schema_params[-1], len(REQUIRED_SCHEMA_ROWS) + 1)
         for sql, _params in cursor.calls:
             self.assertTrue(sql.upper().startswith("SELECT "))
             for forbidden_column in (
@@ -286,6 +292,18 @@ class EstimateRevisionImpactBaselineCollectionTests(unittest.TestCase):
             "estimate_reconciliations.work_package",
         ])
         self.assertEqual(len(cursor.calls), 1)
+
+        schema_overflow = REQUIRED_SCHEMA_ROWS + ({
+            "table_name": "projects",
+            "column_name": "id",
+        },)
+        cursor = FakeCursor((schema_overflow,))
+        overflow = collect_baseline_audit(cursor, source())
+        self.assertFalse(overflow["schemaReady"])
+        self.assertFalse(overflow["scanComplete"])
+        self.assertEqual(
+            overflow["missingColumns"], ["schema_scan_limit_exceeded"],
+        )
 
         cursor = FakeCursor((
             REQUIRED_SCHEMA_ROWS,

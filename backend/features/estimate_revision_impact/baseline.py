@@ -14,6 +14,7 @@ from .contract import (
     build_source_revision,
     validate_estimate_revision_source,
 )
+from .schema_probe import collect_missing_columns
 
 
 DEFAULT_MAX_ISSUES = 100
@@ -230,24 +231,7 @@ def collect_baseline_audit(
         int(max_reconciliation_rows),
     ))
 
-    cur.execute(
-        """SELECT table_name,column_name
-             FROM information_schema.columns
-            WHERE table_schema='public'
-              AND table_name=ANY(%s)
-            ORDER BY table_name,ordinal_position""",
-        (sorted(REQUIRED_COLUMNS),),
-    )
-    present = {
-        (str(row.get("table_name") or ""), str(row.get("column_name") or ""))
-        for row in (cur.fetchall() or [])
-    }
-    missing = sorted(
-        table + "." + column
-        for table, columns in REQUIRED_COLUMNS.items()
-        for column in columns
-        if (table, column) not in present
-    )
+    missing = collect_missing_columns(cur, REQUIRED_COLUMNS)
     if missing:
         report["schemaReady"] = False
         report["missingColumns"] = missing

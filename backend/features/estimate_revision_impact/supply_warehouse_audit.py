@@ -14,6 +14,7 @@ from .contract import (
     validate_estimate_revision_source,
 )
 from .supply_warehouse_projection import build_supply_warehouse_projection
+from .schema_probe import collect_missing_columns
 
 
 MAX_DOMAIN_ROWS = 100
@@ -114,24 +115,7 @@ def _empty_projection(state, reason_code=None, *, schema_ready=True, missing_col
 
 
 def _load_schema(cur):
-    cur.execute(
-        """SELECT table_name,column_name
-             FROM information_schema.columns
-            WHERE table_schema='public'
-              AND table_name=ANY(%s)
-            ORDER BY table_name,ordinal_position""",
-        (sorted(SUPPLY_WAREHOUSE_REQUIRED_COLUMNS),),
-    )
-    present = {
-        (str(row.get("table_name") or ""), str(row.get("column_name") or ""))
-        for row in (cur.fetchall() or [])
-    }
-    return sorted(
-        table + "." + column
-        for table, columns in SUPPLY_WAREHOUSE_REQUIRED_COLUMNS.items()
-        for column in columns
-        if (table, column) not in present
-    )
+    return collect_missing_columns(cur, SUPPLY_WAREHOUSE_REQUIRED_COLUMNS)
 
 
 def _load_context(cur, source):

@@ -6360,3 +6360,151 @@ production deployment was added.
 **Status:** Complete locally and inert. The next A8 slice may address supplier
 eligibility/ranking, but persistence and any RFQ send still require their own
 explicitly confirmed boundary and review.
+
+### Task A8.3: Exact Company-Linked Supplier Review Readiness
+
+**Description:** Add one bounded, ID-only supplier data-readiness preview for a
+caller-selected A8.1 candidate. A8.3 must rebuild the current A8.2 RFQ content
+inside the same PostgreSQL `REPEATABLE READ`, read-only transaction and then
+identify only active supplier cards reached through an exact active
+`company_supplier_links` row and one direct active supplier portal account.
+The result supports later human review only; it does not prove that a supplier
+can supply the material and never ranks, selects, contacts or sends to anyone.
+
+**Status:** Complete locally and inert on 2026-08-09. The preview fails closed
+when required schema or read indexes are absent. No runtime registration,
+database change or production deployment was added.
+
+**Architecture decisions and assumptions:**
+
+- Input remains the strict stored A7 combined report plus only
+  `(requestId, requestItemIndex)`, as in A8.2. A caller-supplied A8.2 mapping is
+  not accepted as tenant authority: its public, unkeyed content SHA proves
+  canonical integrity, not authenticity or authorization.
+- A8.3 exposes small public prepare/collect seams from A8.2 and invokes them on
+  the same cursor before supplier collection. Thus current request owner,
+  status, lineage and balance, plus supplier ownership, are evaluated in one
+  snapshot with no cross-transaction freshness gap.
+- The only canonical tenant relationship for a global supplier card is the
+  exact `company_supplier_links(company_id, supplier_id)` row. A nullable link
+  `platform_account_id` is allowed only when absent or exactly equal to the
+  source company's active platform account.
+- A review candidate additionally requires exact active status on the link and
+  supplier card, plus `suppliers.user_id -> users.id` where the user is active,
+  has exact role `поставщик` and is not directly linked from another supplier
+  card. Email, phone, display name and alias fallback are forbidden.
+- Before either business-table scan, A8.3 verifies a usable, full, valid btree
+  read index whose leading keys match the query order. The canonical
+  `(company_id,supplier_id)` link index exists; the canonical schema does not
+  yet create `suppliers(user_id,id)`. A nonempty active-link path therefore
+  returns fixed `incomplete` evidence until a separate A8.3a schema change is
+  reviewed and applied. This preview never creates an index itself.
+- The company-link scan is capped at `100` rows with a `LIMIT 101` sentinel;
+  the direct-user uniqueness scan is capped at `200` rows with `LIMIT 201`.
+  Duplicate active links, mixed account scope, missing parents, shared direct
+  users or a truncated scan fail closed without a partial candidate list.
+- `supplier_catalog` has no company owner or canonical estimate/material
+  coordinate, while supply history and legacy suggestion logic use free text
+  and global heuristics. A8.3 therefore never reads catalog, history, rating,
+  category, specialization, offer contents, price, stock or contact data.
+- The production ownership audit records `company_supplier_links` as empty.
+  Against that audited state the truthful preview outcome is `no_candidates`;
+  this is not permission to fall back to global suppliers or fuzzy matching.
+
+**Contract and module boundary:**
+
+- `run_supply_supplier_eligibility_preview(get_db, combined_report, selected)`
+  validates the A7/A8.1 selection before opening a connection, starts exactly
+  one read-only `REPEATABLE READ` transaction, rebuilds A8.2 with the same
+  cursor, performs bounded parameterized supplier `SELECT`s and always rolls
+  back before closing the cursor and connection.
+- Allowed states are `review_ready`, `no_candidates`, `no_action`,
+  `needs_review` and `incomplete`. Only `review_ready` may contain candidate
+  links; every ambiguous, incomplete or truncated supplier scan returns no
+  candidates.
+- Output is allowlisted to versions, source/request/supplier/link IDs, A8.2
+  evidence hashes, booleans, counts and fixed reason codes. Candidate evidence
+  is limited to fixed codes for exact company link, active supplier card and
+  direct active portal account.
+- Every result keeps `materialEligibilityProven=false`,
+  `rankingApplied=false`, `supplierIds=[]`, `selectionAllowed=false`,
+  `sendAllowed=false`, `dryRun=true` and `writesAttempted=0`. A stable
+  eligibility SHA binds the ID-only source and candidate evidence; transaction
+  metadata is reported separately.
+- Supplier/company/project/material names, material unit or quantity, user IDs,
+  legal requisites, email, phone, category, rating, prices, terms, notes and
+  raw statuses never appear in the result or an exposed error.
+
+**Threat model and safety boundary:**
+
+- Spoofing/elevation: a recomputed caller hash cannot choose a foreign tenant;
+  current A8.2 owner/source checks and exact company links are rebuilt on the
+  server in the same database snapshot. Future API authorization remains a
+  separate required boundary because this slice registers no route.
+- Tampering: strict A7/A8.1 validation, current A8.2 collection and its content
+  hash bind supplier readiness to one current RFQ-content snapshot.
+- Information disclosure: database reads omit supplier PII/commercial fields;
+  output contains IDs, hashes and fixed codes only, including on blocked and
+  error paths.
+- Denial of service: all four nested schema probes share one fixed-pair,
+  sentinel-bounded collector; company links and direct-user associations use
+  verified supporting indexes and hard row sentinels. No unindexed global
+  supplier/catalog/history scan, `COUNT(*)` or per-candidate query is allowed.
+- Excessive agency: no DDL/DML, `FOR UPDATE`, route/helper callback, recipient
+  or offer creation, supplier selection, notification, email/MAX, outbox,
+  model/LLM, audit writer, job, UI callback or runtime registration is allowed.
+
+**Acceptance criteria:**
+
+- [x] A valid current A8.2 draft plus complete exact active company-link/card/
+  direct-user evidence and both supporting indexes deterministically returns
+  sorted ID-only candidate links in `review_ready`, while material eligibility
+  and every selection/send flag remain false.
+- [x] Empty or inactive company links return `no_candidates`; global supplier,
+  catalog, history, rating, category, name, contact or offer evidence can never
+  create, promote or order a candidate.
+- [x] Missing/inactive parents, account mismatch, duplicate link, shared direct
+  user and other ambiguity return fixed `needs_review` evidence with no partial
+  candidate list; missing schema/index or sentinel overflow returns
+  `incomplete`.
+- [x] Invalid A7/A8.1 input is rejected before `get_db`; non-ready current A8.2
+  states stop before supplier collection and expose no RFQ business content.
+- [x] The runner uses one read-only `REPEATABLE READ` connection, executes only
+  bounded parameterized `SELECT`s, rolls back on success and error, closes all
+  resources, attempts zero writes/external calls and normalizes rollback/read/
+  cleanup failures to fixed codes without leaking exception text.
+
+**Verification:** RED import/failure-first regressions; A8 `24/24`; focused
+baseline/supply/A8.2/A8.3 `34/34` with `3` PostgreSQL skips; focused A7 and
+supplier-ownership `67/67` with `2` skips; all A7 `117/117` with `11` skips;
+full backend `1744/1744` with `33` skips; Python compilation; `git diff
+--check`; static forbidden-boundary scan; real 26-SELECT fake-cursor path with
+four bounded schema probes; and independent correctness, security,
+performance, architecture and simplicity review. Frontend/build/browser/deploy
+checks are not applicable because no runtime surface was added.
+
+**Dependencies:** A8.1 and A8.2 complete; exact A7 source/material/supply
+collectors; M7h company-supplier ownership policy. A separately reviewed
+`suppliers(user_id,id)` index is required before a nonempty candidate path can
+be ready. Populating canonical company links and adding tenant-bound immutable
+supplier-material capability evidence remain separate prerequisites for any
+useful ranking or selection slice.
+
+**Files likely touched:**
+
+- `backend/features/supply_recommendation_preview/rfq_content.py`
+- `backend/features/supply_recommendation_preview/supplier_eligibility.py`
+- `backend/features/estimate_revision_impact/schema_probe.py`
+- `backend/features/estimate_revision_impact/baseline.py`
+- `backend/features/estimate_revision_impact/supply_warehouse_audit.py`
+- their focused regression tests
+- `backend/features/supply_recommendation_preview/test_supplier_eligibility.py`
+- `tasks/plan.md`
+- `tasks/todo.md`
+
+**Estimated scope:** S for production code, M including strict tests and review.
+
+**Open questions:** None for this inert data-readiness slice. A8.3a must add the
+missing read index before the nonempty path is enabled. Exact material
+qualification, ranking, recipient/offer revalidation, human selection,
+persistence, API/UI exposure and sending remain explicit later tasks.

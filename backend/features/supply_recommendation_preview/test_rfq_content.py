@@ -387,6 +387,18 @@ class SupplyRfqContentPreviewTests(unittest.TestCase):
             self.assertIsInstance(params, tuple)
         project_sql = cursor.calls[1][0]
         self.assertGreaterEqual(project_sql.upper().count("LIMIT 2"), 3)
+        schema_sql, schema_params = cursor.calls[0]
+        self.assertIn("jsonb_to_recordset", schema_sql)
+        self.assertIn("pg_catalog.pg_attribute", schema_sql)
+        self.assertNotIn("information_schema", schema_sql)
+        self.assertIn("LIMIT %s", schema_sql)
+        self.assertEqual(
+            schema_params[-1],
+            sum(
+                len(columns)
+                for columns in rfq_content.RFQ_CONTENT_REQUIRED_COLUMNS.values()
+            ) + 1,
+        )
 
         alias_report = confirmed_alias_report()
         alias_estimates = (
@@ -489,6 +501,19 @@ class SupplyRfqContentPreviewTests(unittest.TestCase):
         )
         self.assertEqual(missing_schema["state"], "incomplete")
         self.assertEqual(missing_schema["blockers"], [
+            "supply_rfq_schema_not_ready",
+        ])
+
+        schema_overflow, _, _ = run_case(
+            result_sets=valid_result_sets(
+                schema=schema_rows() + ({
+                    "table_name": "projects",
+                    "column_name": "id",
+                },),
+            ),
+        )
+        self.assertEqual(schema_overflow["state"], "incomplete")
+        self.assertEqual(schema_overflow["blockers"], [
             "supply_rfq_schema_not_ready",
         ])
 

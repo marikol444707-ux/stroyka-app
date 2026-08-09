@@ -85,6 +85,16 @@ class SupplyWarehouseProjectionCollectorTests(unittest.TestCase):
         self.assertEqual(report["writesAttempted"], 0)
         self.assertEqual(report["supplyWarehouseImpact"]["openSupply"][0]["requestId"], 61)
         self.assertEqual(len(cursor.calls), 14)
+        for schema_index, expected_rows in (
+            (0, REQUIRED_SCHEMA_ROWS),
+            (3, SUPPLY_WAREHOUSE_REQUIRED_SCHEMA_ROWS),
+        ):
+            schema_sql, schema_params = cursor.calls[schema_index]
+            self.assertIn("jsonb_to_recordset", schema_sql)
+            self.assertIn("pg_catalog.pg_attribute", schema_sql)
+            self.assertNotIn("information_schema", schema_sql)
+            self.assertIn("LIMIT %s", schema_sql)
+            self.assertEqual(schema_params[-1], len(expected_rows) + 1)
         for index, (sql, params) in enumerate(cursor.calls):
             normalized = sql.upper()
             self.assertTrue(normalized.startswith("SELECT "))

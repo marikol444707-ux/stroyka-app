@@ -20,6 +20,10 @@ from backend.features.estimate_revision_impact.material_projection import (
     MAX_MATERIAL_ROWS,
     build_material_projection,
 )
+from backend.features.estimate_revision_impact.schema_probe import (
+    collect_missing_columns,
+    required_column_count,
+)
 from backend.features.estimate_revision_impact.supply_warehouse_projection import (
     MAX_REQUEST_ITEMS,
     PREVIEW_LIMIT,
@@ -83,6 +87,9 @@ RFQ_CONTENT_REQUIRED_COLUMNS = {
         "allocation_quantity",
     },
 }
+RFQ_CONTENT_SCHEMA_COLUMN_LIMIT = required_column_count(
+    RFQ_CONTENT_REQUIRED_COLUMNS
+)
 
 
 class SupplyRfqContentError(ValueError):
@@ -214,6 +221,12 @@ def _prepare(combined_report, selected):
     }
 
 
+def prepare_supply_rfq_content(combined_report, selected):
+    """Validate one A8.1 selection before any database connection is opened."""
+
+    return _prepare(combined_report, selected)
+
+
 def _result(prepared, state, blockers):
     return {
         "contentVersion": RFQ_CONTENT_VERSION,
@@ -263,24 +276,7 @@ def calculate_content_sha256(result):
 
 
 def _load_schema(cur):
-    cur.execute(
-        """SELECT table_name,column_name
-             FROM information_schema.columns
-            WHERE table_schema='public'
-              AND table_name=ANY(%s)
-            ORDER BY table_name,ordinal_position""",
-        (sorted(RFQ_CONTENT_REQUIRED_COLUMNS),),
-    )
-    present = {
-        (str(row.get("table_name") or ""), str(row.get("column_name") or ""))
-        for row in (cur.fetchall() or [])
-    }
-    return sorted(
-        table + "." + column
-        for table, columns in RFQ_CONTENT_REQUIRED_COLUMNS.items()
-        for column in columns
-        if (table, column) not in present
-    )
+    return collect_missing_columns(cur, RFQ_CONTENT_REQUIRED_COLUMNS)
 
 
 def _load_project(cur, source):
@@ -901,10 +897,16 @@ def _collect(cur, prepared):
     return result
 
 
+def collect_prepared_supply_rfq_content(cur, prepared):
+    """Collect current A8.2 content on a caller-owned read-only cursor."""
+
+    return _collect(cur, prepared)
+
+
 def run_supply_rfq_content_preview(get_db, combined_report, selected):
     """Run one exact content preview and always roll its transaction back."""
 
-    prepared = _prepare(combined_report, selected)
+    prepared = prepare_supply_rfq_content(combined_report, selected)
     connection = None
     cur = None
     result = None
@@ -919,7 +921,7 @@ def run_supply_rfq_content_preview(get_db, combined_report, selected):
             isolation_level="REPEATABLE READ",
         )
         cur = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        result = _collect(cur, prepared)
+        result = collect_prepared_supply_rfq_content(cur, prepared)
     except BaseException as exc:
         primary_error = exc
 
@@ -964,8 +966,11 @@ __all__ = [
     "MAX_CHILD_ROWS",
     "RFQ_CONTENT_ELIGIBLE_STATUSES",
     "RFQ_CONTENT_REQUIRED_COLUMNS",
+    "RFQ_CONTENT_SCHEMA_COLUMN_LIMIT",
     "RFQ_CONTENT_VERSION",
     "SupplyRfqContentError",
     "calculate_content_sha256",
+    "collect_prepared_supply_rfq_content",
+    "prepare_supply_rfq_content",
     "run_supply_rfq_content_preview",
 ]
