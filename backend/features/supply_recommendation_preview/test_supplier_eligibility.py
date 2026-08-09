@@ -105,6 +105,43 @@ class CloseFailsCursor(FakeCursor):
 
 
 class SupplySupplierEligibilityPreviewTests(unittest.TestCase):
+    def test_user_index_gate_only_changes_id_only_review_readiness(self):
+        shared_prefix = (
+            supplier_schema_rows(),
+            (supporting_index_row(),),
+            (linked_supplier_row(),),
+        )
+        blocked, _, _ = run_case(supplier_sets=shared_prefix + ((),))
+        ready, _, _ = run_case(supplier_sets=shared_prefix + (
+            (supporting_index_row(),),
+            (direct_user_row(),),
+        ))
+
+        self.assertEqual(blocked["state"], "incomplete")
+        self.assertEqual(
+            blocked["blockers"],
+            ["supply_supplier_user_index_not_ready"],
+        )
+        self.assertEqual(blocked["candidateSupplierLinks"], [])
+        self.assertEqual(ready["state"], "review_ready")
+        self.assertEqual(ready["blockers"], [])
+        self.assertEqual(ready["candidateSupplierLinks"], [{
+            "companySupplierLinkId": 61,
+            "supplierId": 71,
+            "evidence": [
+                "company_link_exact",
+                "supplier_card_active",
+                "supplier_portal_user_direct_active",
+            ],
+        }])
+        self.assertEqual(blocked["source"], ready["source"])
+        for result in (blocked, ready):
+            self.assertFalse(result["materialEligibilityProven"])
+            self.assertFalse(result["rankingApplied"])
+            self.assertEqual(result["supplierIds"], [])
+            self.assertFalse(result["selectionAllowed"])
+            self.assertFalse(result["sendAllowed"])
+
     def test_builds_deterministic_id_only_company_link_review_candidate(self):
         first, connection, cursor = run_case()
         second, _, _ = run_case()
@@ -588,6 +625,11 @@ class SupplySupplierEligibilityPreviewTests(unittest.TestCase):
         for sql, _params in index_calls:
             self.assertIn("LIMIT %s", sql)
             self.assertIn("indcheckxmin IS FALSE", sql)
+            self.assertIn("pg_catalog.pg_opclass", sql)
+            self.assertIn("first_operator_namespace.nspname=%s", sql)
+            self.assertIn("second_operator_namespace.nspname=%s", sql)
+            self.assertIn("index_state.indcollation[0]=0", sql)
+            self.assertIn("index_state.indcollation[1]=0", sql)
         supplier_sql = " ".join(call[0] for call in cursor.calls[-5:])
         for relation in (
             "public.companies", "public.platform_accounts",

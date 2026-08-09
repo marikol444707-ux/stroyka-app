@@ -6508,3 +6508,163 @@ useful ranking or selection slice.
 missing read index before the nonempty path is enabled. Exact material
 qualification, ranking, recipient/offer revalidation, human selection,
 persistence, API/UI exposure and sending remain explicit later tasks.
+
+### Task A8.3a: Guarded Supplier User Lookup Index
+
+**Description:** Add one separately invoked operator migration for the missing
+canonical PostgreSQL read index on `public.suppliers(user_id,id)`. The index is
+only a bounded-query prerequisite for the inert A8.3 human-review preview. It
+does not populate supplier links, prove material eligibility, enable ranking,
+select a supplier, register a runtime surface or send an RFQ.
+
+**Status:** Complete locally and inert on 2026-08-10. The guarded operator tool,
+strict runtime index gate and disposable PostgreSQL proof are complete;
+production apply is intentionally deferred to separately authorized A8.3b.
+No production connection, database change or deployment occurred.
+
+**Architecture decisions and assumptions:**
+
+- The target object is one ordinary non-unique btree:
+  `CREATE INDEX idx_suppliers_user_id_id ON public.suppliers USING btree
+  (user_id,id)`. `suppliers.user_id` is intentionally not made unique because
+  A8.3 detects a shared direct user as ambiguous business data.
+- The tool lives only in
+  `backend.features.supply_recommendation_preview.index_migration`. It is not
+  imported by `backend.main`, startup, deploy, routes, workers or UI code.
+- Dry-run is the default. It opens one read-only `REPEATABLE READ` transaction,
+  performs only point/bounded `pg_catalog` probes for the exact public table,
+  two columns, privileges, target name and indexes, reads no supplier rows or
+  private fields, attempts zero schema writes and always rolls back.
+- A full usable btree under another name is accepted as complete when its
+  leading key attributes are exactly `(user_id,id)`, both use built-in
+  `pg_catalog.int4_ops` with zero collation, it is valid, ready and live,
+  `indcheckxmin=false`, and it has no predicate or expression. Unique,
+  wider-key or INCLUDE variants may satisfy this runtime read prerequisite,
+  but the canonical object created by this tool remains the exact non-unique
+  two-key definition above.
+- If the canonical name is occupied by any other relation or a non-canonical,
+  invalid, partial, expression, wrong-method or wrong-key index, the plan is
+  blocked. The tool never drops, renames, repairs or hides that conflict and
+  therefore does not use `IF NOT EXISTS`.
+- A plan contains zero or one fixed change. Its lowercase SHA-256 binds the
+  contract version, schema/table/index names, access method, ordered keys,
+  exact DDL and rollback SQL; mutable row estimates are not hash inputs.
+- Apply requires all of `--apply`, the exact confirmation phrase
+  `APPLY_SUPPLIER_REVIEW_INDEX`, `--expected-change-count` and the dry-run
+  `--expected-plan-sha256`. Apply guards supplied to a dry-run, malformed
+  guards and missing confirmation are rejected before `get_db()`.
+- Apply uses one read-write `SERIALIZABLE` transaction, `lock_timeout='5s'`, a
+  bounded statement timeout and `LOCK TABLE public.suppliers IN SHARE ROW
+  EXCLUSIVE MODE`. The table lock is the first snapshot-bearing command; only
+  after it succeeds does the tool acquire its fixed advisory transaction lock
+  and collect one current exact plan. It rejects count/SHA/catalog drift,
+  executes at most the one constant DDL, performs the same strict catalog
+  postcheck and commits only when the canonical index is proven usable.
+- Ordinary transactional `CREATE INDEX` is deliberate: every failure before
+  commit can roll back atomically. It blocks writes to `suppliers`, so an
+  eventual production apply requires a separately approved maintenance window
+  and a fresh dry-run. `CREATE INDEX CONCURRENTLY` is explicitly out of scope;
+  it would require autocommit, invalid-index cleanup and a separate review.
+- The CLI exposes only allowlisted schema metadata, booleans, counts, the plan
+  SHA, fixed blocker/error codes, the preferred/matching index name and manual
+  rollback SQL. Raw database errors, role/owner names, search path, index
+  definitions and supplier data never appear.
+
+**Operator commands:**
+
+- Dry-run: `npm run audit:supplier-review-index`; this alias supplies an
+  explicit `--dry-run`, which is mutually exclusive with `--apply`.
+- Guarded apply shape (not authorized in this local slice):
+  `npm run migrate:supplier-review-index -- --apply --confirm
+  APPLY_SUPPLIER_REVIEW_INDEX --expected-change-count 1
+  --expected-plan-sha256 <dry-run-sha256>`.
+- The package migration alias does not hardcode `--apply`; an operator must
+  provide every apply flag explicitly.
+
+**Threat model and safety boundary:**
+
+- Spoofing/tampering: schema, table, columns, method and index name are code
+  constants rather than CLI input. Exact count/SHA guards and the one current
+  plan collected after the table lock prevent applying a stale or substituted
+  migration.
+- Information disclosure: probes use exact `pg_catalog` identities and never
+  scan or return business rows, supplier contacts, links, commercial data,
+  role names or raw catalog definitions.
+- Denial of service: every metadata query is a point lookup or has a hard
+  sentinel; no `COUNT(*)`, `pg_indexes` text scan or global catalog scan is
+  allowed. Lock and statement timeouts fail closed instead of waiting without
+  bound.
+- Elevation/excessive agency: apply requires the current role to own/manage
+  the table and have public schema privileges. No data DML, uniqueness/FK/
+  constraint change, backfill, automatic retry, runtime import, deploy hook,
+  API/UI/job, supplier action, notification or external call is allowed.
+- Commit outcome uncertainty, rollback/cleanup failure or any raw database
+  exception is normalized to a fixed code and requires a fresh read-only audit
+  before retry. The tool never auto-drops an index after a committed apply.
+
+**Acceptance criteria:**
+
+- [x] Missing table/columns, wrong canonical column types, insufficient DDL
+  privilege, bounded-catalog overflow and canonical-name collision return
+  fixed blockers with no planned or attempted DDL.
+- [x] A missing usable index yields exactly one deterministic change, plan SHA
+  and rollback statement; an equivalent full usable index under any name is a
+  complete, zero-write and idempotent result.
+- [x] Partial, expression, wrong-order, one-key, non-btree, custom-opclass,
+  collated, invalid, not-ready, non-live or `indcheckxmin` indexes never
+  satisfy the runtime prerequisite.
+- [x] Dry-run proves read-only `REPEATABLE READ`, one connection, unconditional
+  rollback/cleanup, bounded catalog reads and zero DDL/DML/external calls.
+- [x] Apply rejects bad or stale guards before DDL, checks the current plan under
+  the table lock, executes only the one constant index DDL, rolls back on every
+  error/postcheck failure and commits only after an exact usable postcheck.
+- [x] Focused integration proves the A8.3 supplier-user index gate changes only
+  from fixed `incomplete` to the same ID-only `review_ready` candidate; material
+  eligibility, ranking, selection and send permissions remain false.
+- [x] A disposable PostgreSQL proof covers real catalog semantics, failed-apply
+  rollback, successful apply, repeat zero-change behavior and the published
+  manual rollback; production is not touched.
+
+**Rollback:** Before commit, PostgreSQL transaction rollback must remove the
+attempted index. After a separately approved successful production commit,
+rollback is a separate operator decision using
+`DROP INDEX IF EXISTS public.idx_suppliers_user_id_id;`; the tool only reports
+this SQL and never executes it automatically.
+
+**Verification:** Failure-first import RED; adversarial REDs for the pre-lock
+stale snapshot, zero-change contract hash, canonical DESC/opclass/collation/
+exclusion drift, blocked CLI exit, pre-limit catalog sort and a valid but
+query-incompatible custom btree opclass. GREEN passes supply-preview `47/47`
+with one expected opt-in skip, A7 `117/117` with 11 skips and full backend
+`1767/1767` with 34 skips. Disposable PostgreSQL 15 proves real catalog
+matching, custom-opclass `Seq Scan` rejection by both audit/runtime gates,
+failed-postcheck transactional rollback, exact apply, repeat zero-write,
+partial/equivalent/canonical-DESC behavior and manual rollback. Python
+compilation, `git diff --check`, bounded-plan probes and three independent
+correctness/security/performance/simplicity reviews pass. Frontend/browser/
+build checks are not applicable because no runtime or user-facing surface
+changed.
+
+**Dependencies:** A8.3 complete and inert; canonical `public.suppliers.id` and
+nullable integer `user_id` columns. Populating company links, material
+qualification, API/UI exposure and any supplier selection/send remain separate
+tasks.
+
+**Files likely touched:**
+
+- `backend/features/supply_recommendation_preview/index_migration.py`
+- `backend/features/supply_recommendation_preview/test_index_migration.py`
+- `backend/features/supply_recommendation_preview/test_index_migration_postgres.py`
+- `backend/features/supply_recommendation_preview/supplier_eligibility.py`
+- `backend/features/supply_recommendation_preview/test_supplier_eligibility.py`
+- `package.json`
+- `tasks/plan.md`
+- `tasks/todo.md`
+
+**Estimated scope:** S for production code, M including strict transaction,
+catalog, PostgreSQL and adversarial verification.
+
+**Open questions:** None for local implementation. A8.3b owns the fresh
+production dry-run, maintenance-window approval, exact guarded apply and
+post-apply audit/smoke. Supplier-link population and material capability remain
+separate prerequisites even after that index exists.

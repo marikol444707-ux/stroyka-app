@@ -208,6 +208,16 @@ def _has_supporting_index(cur, table, first_column, second_column):
                        ON index_relation.oid=index_state.indexrelid
                      JOIN pg_catalog.pg_am access_method
                        ON access_method.oid=index_relation.relam
+                     JOIN pg_catalog.pg_opclass first_operator_class
+                       ON first_operator_class.oid=index_state.indclass[0]
+                     JOIN pg_catalog.pg_namespace first_operator_namespace
+                       ON first_operator_namespace.oid=
+                          first_operator_class.opcnamespace
+                     JOIN pg_catalog.pg_opclass second_operator_class
+                       ON second_operator_class.oid=index_state.indclass[1]
+                     JOIN pg_catalog.pg_namespace second_operator_namespace
+                       ON second_operator_namespace.oid=
+                          second_operator_class.opcnamespace
                      JOIN pg_catalog.pg_attribute first_key
                        ON first_key.attrelid=table_relation.oid
                       AND first_key.attnum=index_state.indkey[0]
@@ -226,10 +236,19 @@ def _has_supporting_index(cur, table, first_column, second_column):
                       AND index_state.indnkeyatts>=2
                       AND first_key.attname=%s
                       AND second_key.attname=%s
+                      AND first_operator_namespace.nspname=%s
+                      AND first_operator_class.opcname=%s
+                      AND second_operator_namespace.nspname=%s
+                      AND second_operator_class.opcname=%s
+                      AND index_state.indcollation[0]=0
+                      AND index_state.indcollation[1]=0
                     LIMIT 1
                ) AS index_ready
             LIMIT %s""",
-        ("public", table, "btree", first_column, second_column, 1),
+        (
+            "public", table, "btree", first_column, second_column,
+            "pg_catalog", "int4_ops", "pg_catalog", "int4_ops", 1,
+        ),
     )
     rows = list(cur.fetchall() or [])
     return len(rows) == 1 and rows[0].get("index_ready") is True

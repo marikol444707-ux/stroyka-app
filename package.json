@@ -47,6 +47,8 @@
     "audit:estimate-revision-economics-impact": "python3 -m backend.features.estimate_revision_impact.economics_projection",
     "audit:estimate-revision-combined-impact": "python3 -m backend.features.estimate_revision_impact.combined_report",
     "audit:estimate-revision-impact-readiness": "python3 -m backend.features.estimate_revision_impact.readiness_report",
+    "audit:supplier-review-index": "python3 -m backend.features.supply_recommendation_preview.index_migration --dry-run",
+    "migrate:supplier-review-index": "python3 -m backend.features.supply_recommendation_preview.index_migration",
     "enqueue:estimate-revision-impact": "python3 -m backend.features.estimate_revision_impact.producer",
     "migrate:estimate-row-transfer-schema": "python3 -m backend.features.estimate_row_transfer.schema --apply",
     "migrate:project-budget-adjustment-schema": "python3 -m backend.features.project_budget_adjustments.schema --apply",
