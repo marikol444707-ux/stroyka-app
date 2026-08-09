@@ -6157,3 +6157,98 @@ notification or user-visible recommendation was produced.
 **Status:** Complete in production. A7 remains shadow-only with its activation
 controls absent and the generic runner disabled; Task A8 is the next planned
 slice.
+
+### Task A8.1: Exact Supply Recommendation Readiness
+
+**Description:** Add one pure, deterministic readiness contract for the first
+A8 vertical path. It consumes one already validated, rolled-back A7 combined
+report and identifies only those open supply request items that have exactly
+one saved base-to-target material lineage. The result is ID-only evidence for a
+later recommendation/RFQ preview; it does not collect or expose material text,
+calculate a quantity, rank suppliers, create a draft, register a route/job or
+cross any write/send boundary.
+
+**Architecture decisions and assumptions:**
+
+- The accepted input is the strict stored A7 result contract, including
+  `readOnlyTransaction=true`, `rolledBack=true` and a canonical
+  `evidenceSha256`; the A7 result and hash format remain unchanged.
+- Only `materials`, `supply` and `warehouse` gate this supply readiness slice.
+  Unrelated assignment state and non-actionable economics do not block it.
+- A candidate exists only when one `domains.supply.openSupply` base coordinate
+  resolves to exactly one `domains.materials.changedPairs` base coordinate.
+  Names, categories, units, fuzzy matching and implicit aliases are forbidden.
+- Two open request items claiming the same base coordinate are treated as an
+  ambiguous duplicate and block the whole readiness result.
+- A8.2 will re-read the exact candidate in one read-only transaction to obtain
+  request status, canonical material content and open quantity. A later slice
+  will address supplier ranking. No production deployment is part of A8.1.
+
+**Contract and module boundary:**
+
+- Input: exact A7 combined result v1 with its source, ordered five domains and
+  evidence hash; no extra top-level fields or unbounded candidate lists.
+- Output: readiness v1, `dryRun=true`, `writesAttempted=0`, exact source plus
+  `impactEvidenceSha256`, bounded allowlisted candidate lineage, fixed blocker
+  codes and `readyForRecommendationPreview`.
+- Code style follows the existing pure A7/E6 contracts: strict field sets,
+  positive IDs/non-negative coordinates, fixed-code exception, deterministic
+  ordering and no business text in failures or output.
+
+**Acceptance criteria:**
+
+- [x] One valid report produces the same exact ID-only candidate on every run
+  and anchors it to company, project, activated estimate, source revision and
+  A7 evidence hash with zero writes.
+- [x] Incomplete, truncated or review-required material/supply/warehouse input,
+  missing lineage or ambiguous lineage returns no candidates and a fixed
+  blocker; unrelated assignment/economics state does not block supply.
+- [x] Source/evidence drift, unknown report fields, invalid coordinates and
+  oversized inputs fail closed without leaking material, project or private
+  free text.
+
+**Safety boundaries:** Always use only the validated A7 envelope and exact
+coordinates. Ask before any production deployment or user-visible integration.
+Never call existing `request-kp`, offer/recipient writers, notification/email/
+MAX/model code, DDL helpers, fuzzy matching or supplier auto-selection.
+
+**Verification:** RED import failure first; focused contract tests for exact
+lineage, relevant-domain blockers, ambiguity, tamper and bounds; focused A7
+combined/material/supply regression; all A7 tests; full backend discovery;
+Python compilation and `git diff --check`.
+
+**Dependencies:** A7 complete in production.
+
+**Files likely touched:**
+
+- `backend/features/supply_recommendation_preview/__init__.py`
+- `backend/features/supply_recommendation_preview/readiness.py`
+- `backend/features/supply_recommendation_preview/test_readiness.py`
+- `tasks/plan.md`
+- `tasks/todo.md`
+
+**Estimated scope:** S for production code (one module), M including tests and
+documentation.
+
+**Open questions:** None for A8.1. Material content/open quantity and supplier
+eligibility are intentionally deferred to separately reviewable A8 slices.
+
+**Local evidence (2026-08-09):** RED failed only because the A8.1 module did
+not yet exist. GREEN passes `6/6` contract tests, including deterministic exact
+lineage, relevant-domain gating, missing/ambiguous lineage, duplicate open
+requests, source/hash/shape/count tamper, impossible alias semantics and bounds.
+Focused A8/A7/E6 regression passes `68/68` with 2 expected skips; the complete
+A7 package passes `117/117` with 11 expected skips; full backend discovery
+passes `1726/1726` with 33 expected opt-in skips. Python compilation,
+`git diff --check`, the A7 static cutover inventory and a direct scan for SQL,
+routes, database factories, RFQ/offer writers, notifications and model
+dependencies are green. An independent five-axis review initially found and
+then verified fixes for nested A7 shape/count/review and alias-semantic drift;
+final verdict is `Approve`. Frontend tests/build and production smoke are not
+applicable because A8.1 adds no frontend, route, handler, job, schema, runtime
+control or deployment behavior.
+
+**Status:** Complete locally and inert. A8.2 is the next slice: re-read one
+selected exact candidate in a rolled-back read-only transaction to validate
+request status and derive canonical material/open-quantity RFQ content, still
+without supplier selection or sending.
