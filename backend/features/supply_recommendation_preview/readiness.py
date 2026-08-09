@@ -1,7 +1,6 @@
 """Pure A8.1 readiness contract for exact supply recommendation candidates."""
 
 import re
-from collections import defaultdict
 from collections.abc import Mapping
 
 from backend.features.estimate_revision_impact.combined_contract import (
@@ -15,6 +14,11 @@ from backend.features.estimate_revision_impact.contract import (
     REPORT_VERSION,
     EstimateRevisionImpactContractError,
     validate_estimate_revision_source,
+)
+
+from .lineage_binding import (
+    OPEN_SUPPLY_FIELDS,
+    bind_open_supply_to_material_pairs,
 )
 
 
@@ -67,10 +71,6 @@ _WAREHOUSE_EVIDENCE_FIELDS = _field_set(
 )
 _PAIR_FIELDS = _field_set(
     "base target matchKind aliasIds changeKinds"
-)
-_OPEN_SUPPLY_FIELDS = _field_set(
-    "requestId requestItemIndex sourceEstimateId sourceSectionIndex "
-    "sourceItemIndex state"
 )
 _MATCH_KINDS = frozenset({"stable_item_key", "confirmed_alias"})
 _CHANGE_KINDS = frozenset({
@@ -377,7 +377,7 @@ def _open_supply(supply_domain, source):
     for raw_item in raw_items:
         item = _strict_mapping(
             raw_item,
-            _OPEN_SUPPLY_FIELDS,
+            OPEN_SUPPLY_FIELDS,
             "supply_recommendation_lineage_invalid",
         )
         request_id = _positive_int(item.get("requestId"))
@@ -512,38 +512,12 @@ def build_supply_recommendation_readiness(report):
     if not open_items:
         return _result(source, [], ["supply_recommendation_no_open_supply"])
 
-    pairs_by_base = defaultdict(list)
-    for pair in pairs:
-        pairs_by_base[tuple(pair["base"].values())].append(pair)
-
-    candidates = []
-    blockers = []
-    open_by_base = defaultdict(int)
-    for item in open_items:
-        base_key = tuple(item["base"].values())
-        open_by_base[base_key] += 1
-        matches = pairs_by_base.get(base_key, [])
-        if not matches:
-            blockers.append("supply_recommendation_lineage_missing")
-            continue
-        if len(matches) != 1:
-            blockers.append("supply_recommendation_lineage_ambiguous")
-            continue
-        pair = matches[0]
-        candidates.append({
-            "requestId": item["requestId"],
-            "requestItemIndex": item["requestItemIndex"],
-            **pair,
-        })
-    if any(count > 1 for count in open_by_base.values()):
-        blockers.append("supply_recommendation_open_request_ambiguous")
-
-    candidates.sort(key=lambda item: (
-        item["requestId"],
-        item["requestItemIndex"],
-        *item["base"].values(),
-        *item["target"].values(),
-    ))
+    candidates, binding_issues = bind_open_supply_to_material_pairs(
+        pairs, open_items,
+    )
+    blockers = [
+        "supply_recommendation_" + issue for issue in binding_issues
+    ]
     return _result(source, candidates, blockers)
 
 

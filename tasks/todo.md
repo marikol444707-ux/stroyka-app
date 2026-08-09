@@ -6252,3 +6252,111 @@ control or deployment behavior.
 selected exact candidate in a rolled-back read-only transaction to validate
 request status and derive canonical material/open-quantity RFQ content, still
 without supplier selection or sending.
+
+### Task A8.2: Exact Single-Candidate RFQ Content Preview
+
+**Description:** Add one bounded, read-only collector for a caller-selected
+`(requestId, requestItemIndex)` that must already exist in a strict A8.1
+readiness result. In one PostgreSQL `REPEATABLE READ`, read-only transaction it
+rebuilds the current A7 material and supply/warehouse projections, re-reads the
+exact request item and its target estimate row, and derives a canonical,
+non-sendable RFQ draft for the existing request's positive open balance. The
+transaction always rolls back and the module remains local and inert.
+
+**Architecture decisions and assumptions:**
+
+- The caller supplies the strict stored A7 combined report plus only two
+  selection IDs. `build_supply_recommendation_readiness()` validates the A7
+  evidence hash and derives all base/target coordinates, match kind and alias
+  IDs; none of that lineage is accepted from caller input.
+- The current source, reconciliation, full material pairing and full
+  supply/warehouse projection are rebuilt inside the same transaction. Every
+  current open row must have one exact material lineage and no base coordinate
+  may be claimed twice; stale, truncated, review or scope state fails closed.
+- Request content comes from exact `items_json[requestItemIndex]` with lineage
+  v2, `validated=true` and an exact base coordinate. Material name and unit come
+  from the exact target estimate coordinate after current material pairing;
+  an unconfirmed identity change is not converted into RFQ content.
+- The displayed RFQ quantity is the existing request open balance:
+  `requested - received - allocated`. A8.2 does not infer or apply a new target
+  procurement need, cancel quantities, create a new request or mutate the old
+  one. Quantities are finite, bounded and canonical at scale 6. A request-level
+  delivery is not attributed when another raw request item can share its exact
+  material/unit identity.
+- Only `Утверждена` and `КП запрошены` are eligible for a draft, matching the
+  existing request-KP write policy. Other current statuses or a zero balance
+  return `no_action` with no business content.
+- A successful result contains an exact request-item hash and canonical content
+  hash, `supplierIds=[]`, `sendAllowed=false`, `dryRun=true` and
+  `writesAttempted=0`. Failure paths expose only IDs and fixed blocker codes.
+
+**Threat model and safety boundary:**
+
+- Spoofing/elevation: exact company/project/estimate/reconciliation, request
+  owner, project name and work package must agree; foreign rows never appear in
+  output.
+- Tampering: strict A8.1 evidence, current projection equality, request-item
+  snapshot hash and canonical content hash bind the preview to one snapshot.
+- Information disclosure: material text is emitted only after every exact
+  owner/source check; blocked/error results contain no project/material/private
+  text.
+- Denial of service: estimate/request JSON bytes, request items, deliveries and
+  allocations are hard-capped; all SQL is parameterized and bounded.
+- Excessive agency: no DDL/DML, supplier lookup/ranking, model call, email/MAX,
+  notification, outbox, offer/recipient helper, API route, UI callback, job,
+  runtime registration or operator command is allowed in this slice.
+
+**Acceptance criteria:**
+
+- [x] A valid approved current candidate deterministically returns target
+  material/unit, exact requested/received/allocated/open quantities, one
+  non-sendable RFQ item and stable lower-case SHA-256 evidence.
+- [x] Invalid readiness/selection is rejected before opening a connection;
+  current source/domain/status/lineage/scope/quantity drift returns a fixed
+  fail-closed state without business text or a draft.
+- [x] The runner uses one read-only `REPEATABLE READ` transaction, rolls back on
+  success and error, closes cursor/connection, executes only bounded
+  parameterized `SELECT` statements and attempts zero writes/external calls.
+
+**Verification:** RED import failure first; focused contract/service tests;
+focused A8/A7 regression; all A7 tests; full backend discovery; Python compile;
+`git diff --check`; static scan for SQL mutations, runtime registration,
+supplier/RFQ writers, notifications, model and external-send dependencies; then
+an independent correctness/architecture/security/performance/readability review.
+
+**Dependencies:** A8.1 complete and A7 exact source/material/supply collectors.
+
+**Files likely touched:**
+
+- `backend/features/supply_recommendation_preview/rfq_content.py`
+- `backend/features/supply_recommendation_preview/lineage_binding.py`
+- `backend/features/supply_recommendation_preview/rfq_policy.py`
+- `backend/features/supply_recommendation_preview/readiness.py`
+- `backend/features/supply_recommendation_preview/test_rfq_content.py`
+- `backend/features/estimate_revision_impact/supply_warehouse_audit.py`
+- `backend/features/estimate_revision_impact/test_supply_warehouse_audit.py`
+- `tasks/plan.md`
+- `tasks/todo.md`
+
+**Estimated scope:** M including the collector, shared pure policies,
+adversarial tests and boarding evidence.
+
+**Open questions:** None for this inert slice. Supplier eligibility/ranking,
+target-need adjustment, persistence, API/UI exposure and any confirmed send are
+explicitly deferred and require separate review.
+
+**Local evidence (2026-08-09):** RED first failed because the A8.2 module did
+not exist; later adversarial REDs reproduced full-current warehouse blindness,
+non-selected duplicate/missing lineage, status precedence, unbounded owner
+counts, cleanup/rollback leakage and mixed manual delivery ambiguity. GREEN
+passes A8 `13/13`, focused A8/A7/neighbouring contracts `73/73` with 4 expected
+skips, all A7 `117/117` with 11 expected skips and full backend `1733/1733`
+with 33 expected opt-in skips. Python compilation, whitespace/static mutation
+scans and the real fake-cursor path of 21 parameterized SELECTs are green.
+Three independent final reviews returned `Approve`. No frontend, route, job,
+schema, database write, supplier selection, notification/model/send path or
+production deployment was added.
+
+**Status:** Complete locally and inert. The next A8 slice may address supplier
+eligibility/ranking, but persistence and any RFQ send still require their own
+explicitly confirmed boundary and review.

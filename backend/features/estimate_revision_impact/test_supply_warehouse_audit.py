@@ -99,6 +99,9 @@ class SupplyWarehouseProjectionCollectorTests(unittest.TestCase):
             request_params[-2],
             '"estimateId"[[:space:]]*:[[:space:]]*51([^0-9]|$)',
         )
+        context_sql, _ = cursor.calls[4]
+        self.assertGreaterEqual(context_sql.upper().count("LIMIT 2"), 2)
+        self.assertNotIn("COUNT(*)", context_sql.upper())
 
     def test_runner_uses_one_read_only_transaction_and_rolls_back(self):
         cursor = FakeCursor(self.result_sets())

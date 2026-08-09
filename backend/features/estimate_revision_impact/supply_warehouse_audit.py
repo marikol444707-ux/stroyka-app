@@ -137,8 +137,12 @@ def _load_schema(cur):
 def _load_context(cur, source):
     cur.execute(
         """SELECT p.name AS project_name,
-                  (SELECT COUNT(*) FROM public.projects same_name
-                    WHERE same_name.name=p.name) AS owner_count,
+                  cardinality(ARRAY(
+                    SELECT 1 FROM public.projects same_name
+                     WHERE same_name.name=p.name
+                     ORDER BY same_name.id
+                     LIMIT 2
+                  )) AS owner_count,
                   COALESCE(NULLIF(b.work_package,''),'Основная')
                       AS base_work_package,
                   CASE
