@@ -16412,48 +16412,48 @@ register_project_budget_adjustment_runtime_module(app, {
     "leadership_roles": LEADERSHIP_ROLES,
 })
 
-try:
-    from backend.features.supply_recommendation_preview.runtime_routes import (
-        register_material_capability_runtime_module,
-    )
-    from backend.features.supply_recommendation_preview.material_capability_runtime import (
-        run_material_capability_runtime_read,
-    )
-    from backend.features.supply_recommendation_preview.material_capability_writer import (
-        run_material_capability_confirmation_write,
-        run_material_capability_revocation_write,
-    )
-except ModuleNotFoundError:
-    from features.supply_recommendation_preview.runtime_routes import (
-        register_material_capability_runtime_module,
-    )
-    from features.supply_recommendation_preview.material_capability_runtime import (
-        run_material_capability_runtime_read,
-    )
-    from features.supply_recommendation_preview.material_capability_writer import (
-        run_material_capability_confirmation_write,
-        run_material_capability_revocation_write,
-    )
+if os.getenv("SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED") == "true":
+    try:
+        from backend.features.supply_recommendation_preview.runtime_routes import (
+            register_material_capability_runtime_module,
+        )
+        from backend.features.supply_recommendation_preview.material_capability_runtime import (
+            run_material_capability_runtime_read,
+        )
+        from backend.features.supply_recommendation_preview.material_capability_writer import (
+            run_material_capability_confirmation_write,
+            run_material_capability_revocation_write,
+        )
+    except ModuleNotFoundError:
+        from features.supply_recommendation_preview.runtime_routes import (
+            register_material_capability_runtime_module,
+        )
+        from features.supply_recommendation_preview.material_capability_runtime import (
+            run_material_capability_runtime_read,
+        )
+        from features.supply_recommendation_preview.material_capability_writer import (
+            run_material_capability_confirmation_write,
+            run_material_capability_revocation_write,
+        )
 
-
-register_material_capability_runtime_module(app, {
-    "enabled": os.getenv(
-        "SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED"
-    ) == "true",
-    "get_db": get_db,
-    "build_cookie_session_authentication": (
-        build_cookie_session_authentication
-    ),
-    "run_material_capability_runtime_read": (
-        run_material_capability_runtime_read
-    ),
-    "run_material_capability_confirmation_write": (
-        run_material_capability_confirmation_write
-    ),
-    "run_material_capability_revocation_write": (
-        run_material_capability_revocation_write
-    ),
-})
+    register_material_capability_runtime_module(app, {
+        "enabled": os.getenv(
+            "SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED"
+        ) == "true",
+        "get_db": get_db,
+        "build_cookie_session_authentication": (
+            build_cookie_session_authentication
+        ),
+        "run_material_capability_runtime_read": (
+            run_material_capability_runtime_read
+        ),
+        "run_material_capability_confirmation_write": (
+            run_material_capability_confirmation_write
+        ),
+        "run_material_capability_revocation_write": (
+            run_material_capability_revocation_write
+        ),
+    })
 
 try:
     from backend.features.estimate_row_transfer import register_estimate_row_transfer_module

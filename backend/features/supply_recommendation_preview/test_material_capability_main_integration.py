@@ -1,6 +1,7 @@
 import ast
 import copy
 import os
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -55,7 +56,7 @@ def _imported_names(statements, module):
 
 def _matching_import_try(tree, backend_module, fallback_module):
     matches = []
-    for node in tree.body:
+    for node in ast.walk(tree):
         if not isinstance(node, ast.Try):
             continue
         backend_names = _imported_names(node.body, backend_module)
@@ -80,6 +81,76 @@ def _runtime_registration_call(tree):
             "runtime registration"
         )
     return calls[0]
+
+
+def _capability_runtime_wiring_statements(tree):
+    statements = []
+    for statement in tree.body:
+        contains_runtime_import = any(
+            isinstance(node, ast.ImportFrom)
+            and node.module is not None
+            and node.module.endswith(
+                "supply_recommendation_preview.runtime_routes"
+            )
+            for node in ast.walk(statement)
+        )
+        contains_registration = any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == REGISTER_NAME
+            for node in ast.walk(statement)
+        )
+        if contains_runtime_import or contains_registration:
+            statements.append(copy.deepcopy(statement))
+    if not statements:
+        raise AssertionError("material capability runtime wiring is missing")
+    return statements
+
+
+def _isolated_feature_off_startup_script(tree):
+    wiring = ast.Module(
+        body=_capability_runtime_wiring_statements(tree),
+        type_ignores=[],
+    )
+    ast.fix_missing_locations(wiring)
+    wiring_source = ast.unparse(wiring)
+    return f'''\
+import builtins
+import os
+
+FEATURE_ENV = {FEATURE_ENV!r}
+_real_import = builtins.__import__
+
+def _guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+    if any(name.endswith(module) for module in (
+        "supply_recommendation_preview.runtime_routes",
+        "supply_recommendation_preview.material_capability_runtime",
+        "supply_recommendation_preview.material_capability_writer",
+    )):
+        raise RuntimeError(
+            "capability runtime import attempted while feature disabled: "
+            + name
+        )
+    return _real_import(name, globals, locals, fromlist, level)
+
+def register_material_capability_runtime_module(*_args, **_kwargs):
+    raise RuntimeError(
+        "capability runtime registration attempted while feature disabled"
+    )
+
+builtins.__import__ = _guarded_import
+os.environ.pop(FEATURE_ENV, None)
+app = object()
+get_db = object()
+build_cookie_session_authentication = object()
+run_material_capability_runtime_read = object()
+run_material_capability_confirmation_write = object()
+run_material_capability_revocation_write = object()
+
+{wiring_source}
+
+print("FEATURE_OFF_STARTUP_OK")
+'''
 
 
 def _registration_dependencies(call):
@@ -260,6 +331,32 @@ class MaterialCapabilityMainIntegrationContractTests(unittest.TestCase):
                             app, {"enabled": actual}
                         )
                         self.assertEqual(app.routes, {})
+
+    def test_feature_off_production_startup_never_imports_capability_runtime(self):
+        _source, tree = _main_source_and_tree()
+        environment = os.environ.copy()
+        environment.pop(FEATURE_ENV, None)
+        environment["PYTHONPATH"] = "."
+
+        completed = subprocess.run(
+            [sys.executable, "-c", _isolated_feature_off_startup_script(tree)],
+            cwd=MAIN_PATH.parent,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+
+        self.assertEqual(
+            completed.returncode,
+            0,
+            msg=(
+                "flags-off production startup imported or registered the "
+                "capability runtime:\n" + completed.stderr
+            ),
+        )
+        self.assertEqual(completed.stdout.strip(), "FEATURE_OFF_STARTUP_OK")
 
     def test_cookie_adapter_symbols_exist_in_both_main_auth_import_blocks(self):
         _source, tree = _main_source_and_tree()
