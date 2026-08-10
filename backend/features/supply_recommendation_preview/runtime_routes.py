@@ -101,7 +101,14 @@ async def _json_body(request, *, absent_allowed=False):
         return (_ABSENT_BODY, True) if absent_allowed else (None, False)
     try:
         value = json.loads(raw.decode("utf-8"))
-    except (UnicodeError, TypeError, ValueError, json.JSONDecodeError):
+    except (
+        UnicodeError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+        RecursionError,
+        OverflowError,
+    ):
         return None, False
     return value, True
 

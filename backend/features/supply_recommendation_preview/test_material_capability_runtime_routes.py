@@ -273,6 +273,40 @@ class MaterialCapabilityRuntimeRouteContractTests(unittest.TestCase):
         self.assertFalse(decoded)
         self.assertEqual(request.consumed, 2)
 
+    def test_deeply_nested_json_is_a_fixed_422_before_database_or_writer(self):
+        body = "[" * 1200 + "0" + "]" * 1200
+        self.assertLessEqual(len(body.encode("utf-8")), 4096)
+        cases = (
+            (
+                "/supply-requests/21/items/0/"
+                "material-capability-confirmations",
+                CONFIRMATION_PAYLOAD_INVALID,
+            ),
+            (
+                "/supplier-material-capability-confirmations/501/"
+                "revocations",
+                REVOCATION_PAYLOAD_INVALID,
+            ),
+        )
+        for path, detail in cases:
+            with self.subTest(path=path):
+                harness = RouteHarness()
+                headers = harness.headers(csrf=True)
+                headers["Content-Type"] = "application/json"
+                with TestClient(
+                    harness.app, raise_server_exceptions=False,
+                ) as client:
+                    response = client.post(
+                        path, headers=headers, content=body,
+                    )
+
+                self.assertEqual(harness.db_calls, 0)
+                self.assertEqual(harness.runtime_read_calls, [])
+                self.assertEqual(harness.confirmation_calls, [])
+                self.assertEqual(harness.revocation_calls, [])
+                self.assertEqual(response.status_code, 422)
+                self.assertEqual(response.json(), {"detail": detail})
+
     def test_feature_flag_off_registers_nothing_and_reads_no_other_dep(self):
         app = FakeApp()
 

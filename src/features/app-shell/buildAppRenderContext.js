@@ -568,6 +568,7 @@ export function buildAppRenderContext({
     appMainState,
     authEntryState,
     businessRuntime: appBusinessRuntime,
+    companyContext,
     coreRuntime: appCoreRuntime,
     dashboardActions: { showPreview },
     documentActions,

@@ -282,6 +282,50 @@ describe('MaterialCapabilityProofPanel', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
+  it('does not refresh proof from an unmounted tenant after a pending confirmation resolves', async () => {
+    let resolveConfirmation;
+    global.fetch
+      .mockResolvedValueOnce(response(proof('missing')))
+      .mockImplementationOnce(() => new Promise(resolve => { resolveConfirmation = resolve; }))
+      .mockResolvedValueOnce(response(proof('missing')));
+
+    const keyedPanel = companyId => (
+      <MaterialCapabilityProofPanel
+        key={`company:${companyId}`}
+        API="/api"
+        C={C}
+        requestId={21}
+        requestItemIndex={2}
+        materialName="Кабель ВВГнг 3×2,5"
+        suppliers={[{ id: 51, name: 'ООО «Электроснаб»' }]}
+        companyContext={{
+          mode: 'company',
+          selectedCompany: { companyId, role: 'директор' },
+        }}
+      />
+    );
+    const { rerender } = render(keyedPanel(4));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Проверить доказуемость' }));
+    expect(await screen.findByText('ООО «Электроснаб»')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Подтвердить поставщика' }));
+    const dialog = screen.getByRole('dialog', { name: 'Подтверждение возможности поставщика' });
+    fireEvent.click(within(dialog).getByRole('checkbox', {
+      name: /подтверждаю возможность поставки этого точного материала/i,
+    }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Подтвердить доказуемость' }));
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+
+    rerender(keyedPanel(5));
+    await act(async () => {
+      resolveConfirmation(response(receipt('confirmed')));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
   it('mounts the exact-item panel before the existing supplier offers block', () => {
     const request = {
       id: 21,

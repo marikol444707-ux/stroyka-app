@@ -135,6 +135,10 @@ export default function MaterialCapabilityProofPanel({
     setAction(null);
     setAcknowledged(false);
     setSubmitting(false);
+    return () => {
+      scopeGeneration.current += 1;
+      submittingRef.current = false;
+    };
   }, [scopeKey]);
 
   const proofUrl = `${API || ''}/supply-requests/${requestId}/items/${requestItemIndex}/material-capability-proof`;
