@@ -6698,8 +6698,8 @@ confirmation. This slice prepares evidence identity only. It does not create
 the confirmation record and therefore always keeps
 `materialEligibilityProven=false`.
 
-**Status:** In progress locally and inert. No database, route, worker, UI,
-provider, deployment or production change is part of this slice.
+**Status:** Complete locally and inert on 2026-08-10. No database, route,
+worker, UI, provider, deployment or production change is part of this slice.
 
 **Architecture decisions and assumptions:**
 
@@ -6748,22 +6748,35 @@ provider, deployment or production change is part of this slice.
 
 **Acceptance criteria:**
 
-- [ ] Exact compatible A8.2/A8.3 inputs deterministically produce sorted
+- [x] Exact compatible A8.2/A8.3 inputs deterministically produce sorted
   ID/hash-only confirmation subjects and a stable readiness SHA.
-- [ ] Empty exact company-link readiness produces no subjects and never means
+- [x] Empty exact company-link readiness produces no subjects and never means
   that suppliers are ineligible.
-- [ ] Dependency tampering, cross-binding mismatch, unknown fields, true action
+- [x] Dependency tampering, cross-binding mismatch, unknown fields, true action
   flags, duplicate candidates and raw bounds overflow fail closed with no
   partial output or leaked business text.
-- [ ] Every result keeps material eligibility, ranking, supplier selection and
+- [x] Every result keeps material eligibility, ranking, supplier selection and
   sending false and attempts zero writes/external calls.
-- [ ] Focused RED/GREEN, A8/A7 and full backend regressions, compilation,
+- [x] Focused RED/GREEN, A8/A7 and full backend regressions, compilation,
   `git diff --check` and independent adversarial review pass before completion.
+
+**Verification:** Import/failure-first RED; focused A8 `37/37`; all
+supply-preview `59/59` with one expected PostgreSQL skip; A7 `117/117` with 11
+expected skips; full backend `1779/1779` with 34 expected skips; Python
+compilation; import-purity subprocess; forbidden-boundary scan; and
+`git diff --check`. Adversarial RED/GREEN regressions cover bool/int aliasing,
+float versions, impossible lineage, Decimal-context rounding, raw bounds,
+custom container/equality/hash behavior, duplicate identity, incomplete final
+hash binding and private traceback/error-code injection. Final independent
+review found no remaining Required issue. Existing public A8.2/A8.3 hashes are
+explicitly retained only as legacy integrity inputs and never promoted to
+authority, proof or action. Cross-model CLI review was not run because no
+separate artifact-transfer authorization was given.
 
 **Files likely touched:**
 
-- `backend/features/supply_recommendation_preview/material_confirmation.py`
-- `backend/features/supply_recommendation_preview/test_material_confirmation.py`
+- `backend/features/supply_recommendation_preview/material_capability_confirmation.py`
+- `backend/features/supply_recommendation_preview/test_material_capability_confirmation.py`
 - `tasks/plan.md`
 - `tasks/todo.md`
 
