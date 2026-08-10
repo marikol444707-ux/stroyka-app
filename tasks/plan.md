@@ -444,15 +444,14 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
         - [x] ~~A8.4c2c: Add an explicit per-request-item human review panel;
           keep ranking, supplier selection and RFQ send disabled and outside
           this slice.~~
-        - [ ] A8.4c2d: Run local browser/full regressions and independent
-          review. Production AUTH_SECRET verification, schema dry-run/apply,
-          feature enablement, protected cookie/CSRF smoke, push and deploy each
-          remain separate operator-approved gates. Automated local regressions,
-          both flag builds and two independent reviews are green. The corrected
-          flags-off code is deployed at `c51b107c74a3`, the append-only schema
-          post-audit is complete with zero changes and public smoke is green;
-          browser, AUTH, flag-on import compatibility, enablement and protected
-          smoke gates remain open.
+        - [ ] A8.4c2d: Complete the local real-browser interaction pass, staged
+          backend-then-UI enablement and protected cookie/CSRF smoke; any
+          canary write remains a separate operator-approved gate. Automated
+          local regressions, both flag builds and two independent reviews are
+          green. Flags-off code `97d39a8e62f1` is deployed; package-mode systemd
+          startup, explicit strong `AUTH_SECRET` selection, the append-only
+          schema post-audit, Nginx routing and public smoke are green. Browser,
+          feature enablement and protected capability smoke gates remain open.
 - [ ] Task A9: Add preview-only warehouse anomaly and reconciliation recommendations without automatic stock movement.
 - [ ] Task A10: Add preview-only assignment and daily-work-report drafts from confirmed source data.
 - [ ] Task A11: Add read-only accounting exception checks without creating or executing payments.
