@@ -84,6 +84,10 @@ export const installAuthFetch = () => {
   ];
   const csrfMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
   const csrfHeaderName = 'X-CSRF-Token';
+  const cookieOnlyCapabilityPaths = [
+    /^\/supply-requests\/[1-9][0-9]*\/items\/(?:0|[1-9][0-9]*)\/material-capability-(?:proof|confirmations)$/,
+    /^\/supplier-material-capability-confirmations\/[1-9][0-9]*\/revocations$/,
+  ];
   let csrfToken = '';
   let csrfTokenPromise = null;
   const getRequestPath = (input) => {
@@ -96,6 +100,7 @@ export const installAuthFetch = () => {
     }
   };
   const isAuthPublicPath = (path) => authPublicPaths.some(publicPath => path === publicPath || path.startsWith(publicPath + '/'));
+  const isCookieOnlyCapabilityPath = (path) => cookieOnlyCapabilityPaths.some(pattern => pattern.test(path));
   const getRequestMethod = (input, init = {}) => {
     const method = init.method || (typeof Request !== 'undefined' && input instanceof Request ? input.method : '') || 'GET';
     return String(method).toUpperCase();
@@ -181,6 +186,7 @@ export const installAuthFetch = () => {
     }
     const response = await nativeFetch(input, nextInit);
     if (response.status !== 401) return response;
+    if (isCookieOnlyCapabilityPath(path)) return expireFrontendSession(response);
 
     const token = getStoredAuthToken();
     if (token && !hasAuthorizationHeader(input, init)) {

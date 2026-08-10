@@ -105,6 +105,85 @@ describe('installAuthFetch', () => {
     expect(requestHeaders.has('Authorization')).toBe(false);
   });
 
+  it.each([
+    {
+      label: 'material capability proof',
+      path: '/supply-requests/21/items/0/material-capability-proof',
+      init: {},
+      mutating: false,
+    },
+    {
+      label: 'material capability confirmation',
+      path: '/supply-requests/21/items/0/material-capability-confirmations',
+      init: {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companySupplierLinkId: 31,
+          supplierId: 41,
+          confirmationSubjectSha256: 'b'.repeat(64),
+        }),
+      },
+      mutating: true,
+    },
+    {
+      label: 'material capability revocation',
+      path: '/supplier-material-capability-confirmations/501/revocations',
+      init: {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      },
+      mutating: true,
+    },
+  ])('keeps $label cookie-only after a 401', async ({ path, init, mutating }) => {
+    localStorage.setItem('authToken', 'legacy-token');
+    localStorage.setItem('user', JSON.stringify({ id: 42, email: 'director@example.test' }));
+    localStorage.setItem('stroyka.companyContext.v1.42', JSON.stringify({ mode: 'company', companyId: 7 }));
+    const nativeFetch = jest.fn();
+    if (mutating) {
+      nativeFetch.mockResolvedValueOnce(new Response('{"csrfToken":"csrf-token"}', { status: 200 }));
+    }
+    nativeFetch
+      .mockResolvedValueOnce(new Response('{}', { status: 401 }))
+      .mockResolvedValue(new Response('{}', { status: 401 }));
+    window.fetch = nativeFetch;
+    const originalLocation = window.location;
+    delete window.location;
+    window.location = { ...originalLocation, origin: 'http://localhost', reload: jest.fn() };
+
+    try {
+      installAuthFetch();
+      await window.fetch(path, init);
+
+      const callsForPath = (expectedPath) => nativeFetch.mock.calls.filter(([input]) => {
+        const url = typeof input === 'string' ? input : input.url;
+        return new URL(url, window.location.origin).pathname === expectedPath;
+      });
+      const targetCalls = callsForPath(path);
+      expect(targetCalls).toHaveLength(1);
+      expect(nativeFetch).toHaveBeenCalledTimes(mutating ? 2 : 1);
+
+      const targetHeaders = new Headers(targetCalls[0][1].headers || {});
+      expect(targetHeaders.get('X-Company-Mode')).toBe('company');
+      expect(targetHeaders.get('X-Company-Id')).toBe('7');
+      expect(targetHeaders.has('Authorization')).toBe(false);
+
+      const csrfCalls = callsForPath('/csrf-token');
+      expect(csrfCalls).toHaveLength(mutating ? 1 : 0);
+      if (mutating) {
+        expect(targetHeaders.get('X-CSRF-Token')).toBe('csrf-token');
+        expect(csrfCalls[0][1].credentials).toBe('include');
+        expect(new Headers(csrfCalls[0][1].headers || {}).has('Authorization')).toBe(false);
+      }
+      nativeFetch.mock.calls.forEach(([, requestInit]) => {
+        expect(new Headers(requestInit?.headers || {}).has('Authorization')).toBe(false);
+      });
+    } finally {
+      window.location = originalLocation;
+    }
+  });
+
   it('expires the frontend session once when cookie and Bearer auth are both rejected', async () => {
     localStorage.setItem('authToken', 'legacy-token');
     localStorage.setItem('user', JSON.stringify({ id: 42, email: 'director@example.test' }));
