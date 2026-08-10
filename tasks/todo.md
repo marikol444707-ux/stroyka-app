@@ -6783,3 +6783,172 @@ separate artifact-transfer authorization was given.
 **Open questions:** The authoritative confirmation schema/collector, approval
 authority, revocation policy and any API/UI are deliberately deferred to
 A8.4b. A8.4a is not reusable capability proof by itself.
+
+### Task A8.4b: Authoritative Supplier-Material Capability Evidence
+
+**Objective:** Add the smallest authoritative foundation that can later prove
+that one company director manually confirmed one exact A8.4a
+supplier-material subject. The local slice contains a guarded schema migration
+and a read-only proof preview only. It does not expose any writer, route, UI,
+job, model action, supplier ranking, supplier selection or RFQ send.
+
+**Approved assumptions:**
+
+- Only the exact active `директор` membership of the same company may create
+  or revoke capability evidence. Global `users.role`, legacy
+  `users.company_id`, deputy-director, platform, workflow, supplier and LLM
+  identities are not authority.
+- Authority is a historical fact checked at insert time and stored as an
+  immutable receipt. Later deactivation of the director does not silently
+  revoke the receipt; revocation is an explicit second immutable event.
+- One exact confirmation subject can be confirmed once and revoked once. An
+  explicitly revoked subject is terminal; reconfirmation requires a new
+  server-derived subject/revision.
+- Absence of confirmation means `unproven`, never automatic ineligibility.
+  Overall `materialEligibilityProven=true` requires every current subject to
+  have one exact unrevoked confirmation. Partial proof remains non-actionable.
+- YandexGPT may later explain fixed proof states but is untrusted text and can
+  never insert, revoke, rank, select, send or promote evidence.
+
+**Architecture and dependency order:**
+
+1. **A8.4b1 — schema contract.** Add a separately invoked, import-pure,
+   dry-run-first migration for
+   `public.supplier_material_capability_assertions`. Do not register it in
+   `backend.main` or apply it locally/production as part of implementation.
+2. **A8.4b2 — proof collector.** In one read-only `REPEATABLE READ`
+   transaction, rebuild current A8.2 content and A8.3 candidates, derive the
+   current A8.4a subjects inside that still-open snapshot, audit the exact
+   assertion schema, read a bounded set of matching events and always roll
+   back.
+3. **A8.4c — future writer.** Separately add a 2FA-authenticated exact-company
+   director writer/revoker, then an API/UI if approved. It is out of scope for
+   A8.4b.
+
+**A8.4b1 storage contract:**
+
+- The append-only table contains only `id`, `confirmation_version`,
+  `event_kind`, `company_id`, `company_supplier_link_id`, `supplier_id`,
+  `material_identity_sha256`, `confirmation_subject_sha256`,
+  `actor_membership_id`, `actor_user_id`, fixed `actor_role`, fixed
+  `source_kind`, optional `revokes_assertion_id` and server-owned
+  `created_at`. It stores no material/contact/commercial text and no model
+  output.
+- `confirmation_version=1`, `event_kind` is exactly `confirmed|revoked`,
+  `actor_role='директор'`, `source_kind='director_manual'`, every ID is
+  positive and both digests are lowercase SHA-256.
+- A confirmation has no revoke target. A revocation has exactly one earlier
+  confirmed target and exactly the same tenant, link, supplier, material and
+  subject identity. One partial unique index permits one confirmation per
+  company/subject; another permits one revocation per confirmation.
+- A `BEFORE INSERT` guard rechecks exact active `users + user_company_roles +
+  companies` director authority and exact active
+  `company_supplier_links + suppliers + supplier portal user` ownership.
+  It uses no legacy fallback and assigns the server timestamp.
+- Row triggers reject `UPDATE` and `DELETE`; a statement trigger rejects
+  `TRUNCATE`. Schema/catalog drift, disabled/missing guards or incompatible
+  indexes block both apply and proof collection.
+- Parent-table foreign keys are intentionally deferred until the existing
+  supplier/user/company delete inventories are updated. Insert guards and the
+  current-snapshot collector enforce tenant validity; the self-referencing
+  revocation foreign key is required now.
+- The migration defaults to read-only dry-run. Apply requires an exact
+  confirmation phrase, expected change count and plan SHA, runs in one
+  `SERIALIZABLE` transaction under relation/advisory locks, postchecks the
+  exact contract and commits atomically. Local implementation never invokes
+  apply.
+
+**A8.4b2 proof contract:**
+
+- Public input remains the server-side A7 combined report plus exact selected
+  request/item IDs. Caller-supplied A8.2/A8.3/A8.4a hashes are never accepted
+  as authority.
+- One runner opens exactly one connection and one read-only
+  `REPEATABLE READ` transaction. It derives current A8.2 content, A8.3 company
+  candidates and A8.4a subjects before querying assertions; it rolls back on
+  success and every failure.
+- At most 100 subjects and at most two assertion rows per subject are read by
+  exact `company_id + confirmation_subject_sha256` through the required
+  bounded index and hard sentinel limit. All SQL is parameterized `SELECT`;
+  no route/helper with DDL, audit, LLM, notification or send side effects is
+  imported.
+- Each output subject is ID/hash/fixed-enum only and is `confirmed`, `missing`
+  or `revoked`. Any duplicate, malformed, mixed-tenant, mismatched-link,
+  invalid-provenance or invalid-revocation row fails closed with no partial
+  promotion.
+- States are fixed: `proof_complete`, `proof_partial`,
+  `confirmation_required`, `no_candidates`, `needs_review` or `incomplete`.
+  Only `proof_complete` may set `materialEligibilityProven=true`; every state
+  keeps `rankingApplied=false`, `supplierIds=[]`, `selectionAllowed=false`,
+  `sendAllowed=false`, `dryRun=true` and `writesAttempted=0`.
+- After rollback, the runner marks transaction metadata complete and proves
+  that the completed public A8.4a subject/hash contract is identical to the
+  one derived inside the snapshot. Hash equality proves artifact identity;
+  immutable server-owned assertion rows provide authority.
+
+**Threat model:**
+
+- Spoofing/elevation: exact tenant membership and active parents are checked
+  by both future writer logic and the DB insert trigger; membership role must
+  be exactly `директор`. The future writer must require a passed 2FA session
+  even when the user's global role differs.
+- Tampering/repudiation: immutable confirmation and explicit revocation rows,
+  self-target validation, partial uniqueness and deterministic proof hashes.
+- Cross-tenant disclosure: exact company/link/supplier/subject predicates,
+  fixed-code errors and ID/hash-only output; no foreign values are echoed.
+- Denial of service: exact schema/index prerequisites, fixed allowlists,
+  input/string bounds, indexed lookups, sentinel limits and transaction
+  timeouts.
+- Excessive agency/model risk: no writer/API/UI/job/model import in A8.4b;
+  proof never causes supplier ranking, selection, recipient/offer creation,
+  notification or send.
+
+**Commands and testing strategy:**
+
+- A8.4b1 RED/GREEN:
+  `PYTHONPYCACHEPREFIX=/private/tmp/a84b-pycache python3 -m unittest backend.features.supply_recommendation_preview.test_material_capability_schema`
+- A8.4b2 RED/GREEN:
+  `PYTHONPYCACHEPREFIX=/private/tmp/a84b-pycache python3 -m unittest backend.features.supply_recommendation_preview.test_material_capability_proof`
+- Focused regression:
+  `PYTHONPYCACHEPREFIX=/private/tmp/a84b-pycache python3 -m unittest backend.features.supply_recommendation_preview.test_rfq_content backend.features.supply_recommendation_preview.test_supplier_eligibility backend.features.supply_recommendation_preview.test_material_capability_confirmation backend.features.supply_recommendation_preview.test_material_capability_schema backend.features.supply_recommendation_preview.test_material_capability_proof`
+- Full supply-preview, A7 and backend discovery, Python compilation,
+  import-purity/static forbidden-boundary scans and `git diff --check` are
+  mandatory before completion. A disposable PostgreSQL proof is required
+  before any schema apply or public proof claim.
+
+**Boundaries:**
+
+- Always: strict fixed-code validation, exact tenant/current-subject binding,
+  parameterized bounded reads, rollback-only collector and adversarial review.
+- Ask first: apply any schema migration, add a writer/route/UI, change auth or
+  2FA behavior, push, deploy or touch production data.
+- Never: import `backend.main` from A8.4b modules; infer proof from
+  `supplier_catalog`, offers, history, deliveries, rating or model output;
+  accept public hashes as authorization; auto-rank/select/send.
+
+**Files likely touched:**
+
+- `backend/features/supply_recommendation_preview/material_capability_schema.py`
+- `backend/features/supply_recommendation_preview/test_material_capability_schema.py`
+- `backend/features/supply_recommendation_preview/material_capability_proof.py`
+- `backend/features/supply_recommendation_preview/test_material_capability_proof.py`
+- small internal snapshot-safe seams in existing A8.3/A8.4a modules
+- `tasks/plan.md`, `tasks/todo.md`
+
+**Acceptance criteria:**
+
+- [ ] Fresh schema produces one exact count/SHA-bound plan; blocked/drifted
+  schemas cannot apply; successful apply/postcheck and rollback are proven in
+  disposable PostgreSQL, while no real migration is invoked.
+- [ ] PostgreSQL rejects invalid authority/scope/revocation, duplicate events,
+  update/delete/truncate and accepts only exact director-confirmed rows.
+- [ ] The proof collector rebuilds A8.2/A8.3/A8.4a and reads assertions in one
+  read-only snapshot with unconditional rollback.
+- [ ] Missing/revoked/partial evidence remains non-actionable; only all-exact,
+  unrevoked evidence yields proof complete, without ranking/selection/send.
+- [ ] Bounds, tenant isolation, fixed errors, cleanup failures, import purity,
+  zero LLM/external calls and zero business writes are regression-tested.
+
+**Open questions:** None for A8.4b local implementation. A8.4c owns the
+director-only writer, mandatory passed 2FA session, API/UI and any production
+schema apply/data population.
