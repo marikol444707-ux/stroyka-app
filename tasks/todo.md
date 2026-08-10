@@ -7112,3 +7112,197 @@ was added.
   add a cookie adapter/CSRF route/UI, touch production data, push or deploy.
 - Never: accept Bearer/model/client flags as authority; log the session hash;
   infer capability from catalog/history/rating; auto-rank/select/send.
+
+## Task A8.4c2: Cookie-Only Capability API And Human Review UI
+
+**Status:** Specification approved for local implementation 2026-08-10;
+production schema apply, feature enablement, push and deploy remain separate
+operator-confirmed gates.
+
+**Description:** Expose the reviewed A8.4c1 writer through a narrow,
+cookie-session-only HTTP boundary and add one explicit human review panel on
+the exact supply-request item. The browser never receives or submits an A7
+combined report, session hash, actor identity, 2FA flag or evidence payload.
+This slice maintains the existing A8 invariant: it does not rank suppliers,
+select a supplier or send/request an RFQ.
+
+### A8.4c2a: Strict Session Adapter And Authoritative Proof Read
+
+**Authentication and CSRF contract:**
+
+- Add one DB-free adapter in `backend/auth.py`. It reads the configured
+  HttpOnly cookie exactly once, requires the canonical 64-character
+  URL-safe token shape, computes the existing keyed HMAC session hash and
+  immediately discards the raw token.
+- Every capability endpoint rejects any `Authorization` header, including a
+  valid cookie combined with Bearer. Missing/malformed cookie returns one
+  fixed `401` code. The adapter never calls mixed-mode `get_current_user`,
+  never accepts a client 2FA claim and never returns or logs cookie, CSRF or
+  session-hash material.
+- Both POST endpoints always require the existing signed, expiring CSRF token
+  bound to that exact cookie, independently of `CSRF_LOGOUT_ENFORCED`.
+  Missing, malformed, expired, tampered or cross-session CSRF returns one
+  fixed `403` code before any database or writer call. The GET proof endpoint
+  remains read-only and does not require CSRF.
+- Harden `/csrf-token` against mixed credentials: token issuance keeps its
+  live cookie-session check but rejects every Authorization header. No broad
+  auth or logout behavior changes in this slice.
+- The frontend marks only the new capability endpoint prefixes as
+  cookie-only. A `401` is never retried with localStorage Bearer and does not
+  let Bearer rescue a revoked/non-2FA cookie session.
+
+**Server-owned source resolver:**
+
+- Public selectors are only the exact selected `X-Company-Id`, path
+  `requestId` and non-negative `requestItemIndex`. `all_companies` is invalid.
+  These values route the lookup but are never authority; the preview service
+  verifies one live passed-2FA director membership for the same company in its
+  read-only transaction, and the c1 writer repeats the authoritative check in
+  its SERIALIZABLE write transaction.
+- Read one company-scoped supply request with bounded `items_json`. The exact
+  item must contain validated lineage v2 with one base estimate coordinate and
+  matching company/project/package. Missing, foreign, oversized, malformed or
+  ambiguous data fails closed without revealing foreign IDs or business text.
+- Resolve exactly one current active customer target estimate/reconciliation
+  from that base lineage, read bounded version/sections and derive the
+  canonical `EstimateRevisionSource` server-side. The client never supplies
+  `estimateId`, `sourceRevision` or reconciliation state.
+- Build the expected `estimate.revision_impact` job plan and load at most one
+  job through the existing unique
+  `(company_id, project_scope_id, job_type, idempotency_key)` identity. Require
+  system ownership, `succeeded` status, exact payload/source and a strict
+  `validate_estimate_revision_impact_result` result. Never scan arbitrary jobs
+  or expose `payload_json`/`result_json`.
+- The read-only service prepares `{requestId,requestItemIndex}` from that
+  private report and rebuilds A8.2/A8.3/A8.4a/proof on one caller-owned
+  REPEATABLE READ cursor. It rolls back unconditionally and returns only the
+  existing proof allowlist. No job/report content, contact, price, note,
+  session data or provider/model output is added.
+
+**Read endpoint:**
+
+- `GET /supply-requests/{request_id}/items/{request_item_index}/material-capability-proof`
+- Requires exact cookie session and one selected company; Bearer and
+  all-company mode are rejected. It is never invoked automatically on page
+  load.
+- Exact completed proof is `200`. Missing/foreign source is an
+  indistinguishable fixed `404`; source/job/lineage drift is fixed `409`;
+  missing schema or bounded-scan failure is fixed `503`. Malformed selectors
+  are `422`.
+
+### A8.4c2b: Confirmation And Revocation Routes
+
+**Confirmation endpoint:**
+
+- `POST /supply-requests/{request_id}/items/{request_item_index}/material-capability-confirmations`
+- Body has exactly `companySupplierLinkId`, `supplierId` and
+  `confirmationSubjectSha256`. Extra fields are rejected before database
+  access. In particular the body cannot contain `companyId`, `jobId`, report,
+  proof, authentication/session/2FA fields, actor IDs, material identity,
+  evidence, ranking, selection or send data.
+- The route privately resolves and validates the current stored A7 result,
+  passes only the server report, exact selection, two-field cookie auth mapping
+  and three user-intent fields into the reviewed c1 runner. The c1 transaction
+  remains the sole write authority and rechecks current proof/session/director
+  immediately before one append-only INSERT.
+
+**Revocation endpoint:**
+
+- `POST /supplier-material-capability-confirmations/{confirmation_assertion_id}/revocations`
+- The request body must be absent or exact `{}`. Company comes only from the
+  selected header as an untrusted selector. The c1 revocation runner reads and
+  copies the immutable target; it intentionally does not require a current A7
+  job or active supplier-side parents.
+
+**HTTP and effect contract:**
+
+- A new append-only row returns `201`; `already_confirmed` and
+  `already_revoked` return `200` with the exact c1 receipt. No route writes an
+  audit row through a second connection, sends email/messenger traffic, calls
+  an LLM/provider, ranks/selects a supplier or sends/requests an RFQ.
+- Adapter auth/CSRF failures are `401/403`; exact-company/director/2FA failure
+  is fixed and non-disclosing; foreign/missing job or target is `404`; stale,
+  terminal, tenant/evidence drift and write conflicts are `409`; strict input
+  failures are `422`; schema/commit-unknown is `503`; other lifecycle failures
+  use one fixed `500` code. Database/private text is never returned.
+- Confirmation preflight and the c1 transaction may be two sequential
+  connections, but the preflight is never authority. Any change between them
+  is re-read by c1 and fails closed or follows its idempotent path; there is no
+  nested transaction or client-supplied snapshot.
+
+### A8.4c2c: Explicit Human Review Panel
+
+- Add the panel to the expanded exact supply-request item, immediately before
+  existing supplier actions. Do not place it on the generic supplier card,
+  whose material chips are advisory history/catalog data.
+- The panel loads only after an explicit click and shows the already visible
+  request material plus server proof subjects joined to already loaded
+  supplier cards by exact `supplierId`. UI visibility is only a convenience;
+  backend cookie-session/director checks remain authority.
+- `missing` offers one-supplier confirmation; `confirmed` shows the immutable
+  assertion receipt and an explicit revoke action; `revoked` is terminal and
+  cannot be reconfirmed for the same subject. No bulk/free-text action exists.
+- Confirmation requires an explicit acknowledgement: the supplier is being
+  confirmed for this exact material, and the action neither selects the
+  supplier nor sends an RFQ. Revocation separately states that a new immutable
+  event is appended and the original is not deleted.
+- Disable double submit. Cancel performs zero writes. After success,
+  idempotency, stale/terminal/conflict or revocation, clear the modal and fetch
+  a fresh proof. Never optimistically promote proof state.
+- The new endpoint prefixes are excluded from automatic Bearer fallback.
+  Actions use ordinary cookie/CSRF fetch and never construct Authorization,
+  companyId, sessionHash or 2FA fields in JSON.
+
+### A8.4c2d: Verification And Production Gates
+
+**RED and local verification:**
+
+- [ ] Adapter tests cover missing/malformed cookie, Bearer-only, mixed
+  cookie+Bearer, canonical HMAC derivation, one-read cookie capture, every CSRF
+  failure and no secret leakage.
+- [ ] Resolver tests cover exact job unique-key lookup, system/succeeded
+  ownership, payload/result hash validation, request-item/source drift,
+  tenant ambiguity and all scan/size bounds.
+- [ ] Route tests cover exact registration, body allowlists, fixed status/error
+  mapping, exact writer arguments, `201` versus idempotent `200`, and zero
+  writer calls on auth/CSRF/input failure.
+- [ ] Disposable PostgreSQL proves the real cookie/2FA/director proof,
+  confirmation, idempotency, revocation, concurrency, stale-source and
+  cross-tenant paths with unchanged unrelated tables/outbox/provider mocks.
+- [ ] Frontend tests prove no Bearer fallback, explicit single-subject flow,
+  no write on cancel/double-click, terminal revoked state and proof refresh.
+- [ ] Focused, supply-preview, A7, auth, route, frontend, build, browser and
+  full backend regressions pass, followed by simplicity and fresh adversarial
+  review. Any external cross-model CLI review requires a new explicit user
+  approval.
+
+**Production gates — not authorized by local implementation:**
+
+- [ ] Verify production uses an explicit strong `AUTH_SECRET`; never print its
+  value and never accept the DB-password/code-default fallback for enablement.
+- [ ] Deploy code with backend/frontend capability flags off, then run the b1
+  schema dry-run and review exact count/SHA. Apply only after a new explicit
+  operator confirmation; post-audit must be complete with zero changes.
+- [ ] Enable/register API and UI only after schema postcheck, then run public
+  smoke plus a dedicated cookie jar -> 2FA -> `/csrf-token` -> capability
+  smoke that never sends Authorization.
+- [ ] Production smoke is negative/read-only by default: unauthenticated,
+  Bearer-only, missing-CSRF, all-company and foreign-source requests create
+  zero rows. Positive writes require a separately approved canary tenant and
+  reuse permanent idempotent `already_confirmed`/`already_revoked` receipts;
+  never append a new immutable row on every deployment.
+- [ ] Record before/after assertion counts and hashes plus zero deltas for
+  ranking, selection, RFQ/email/messenger/outbox/model effects. Push, feature
+  enablement and deploy remain individually explicit operator actions.
+
+**Boundaries:**
+
+- Always: exact selected company, cookie-only auth, session-bound CSRF,
+  server-owned job/result, fixed errors, bounded reads, explicit single-subject
+  human action and c1 same-transaction authority.
+- Ask first: change existing auth behavior beyond mixed-credential rejection,
+  register/enable routes or UI in production, apply/rollback schema, create a
+  canary evidence row, push or deploy.
+- Never: accept Bearer, client report/proof/session/actor/2FA/evidence; infer
+  material capability from catalog/history/rating/model; auto-rank/select/send;
+  expose private job JSON or secrets.

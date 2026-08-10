@@ -431,7 +431,23 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
       - [x] ~~Task A8.4b2: Add the same-snapshot authoritative proof preview. Missing evidence remains unproven, explicit revocation removes proof, partial proof never promotes the overall result, and ranking, selection and sending remain forbidden.~~ One caller-owned read-only `REPEATABLE READ` cursor rebuilds A8.2/A8.3/A8.4a, audits the exact b1 schema and reads at most two exact events per subject. Local focused `57/57`, supply-preview `97/97` with `13` expected skips, A7 `117/117`, backend `1817/1817` with `46` expected skips, disposable PostgreSQL 15 `3/3`, compilation/static checks and two independent final reviews pass; production/schema/runtime surfaces remain unchanged.
     - [ ] Task A8.4c: Add a separately reviewed 2FA-authenticated, exact-company-director confirmation/revocation path; YandexGPT may explain fixed results but can never create, revoke or promote proof.
       - [x] ~~Task A8.4c1: Add the unregistered local confirmation/revocation core. Confirmation must rebuild the current exact subject in one `SERIALIZABLE` transaction; revocation must copy one immutable confirmed assertion. Both require a live cookie-backed server session with passed 2FA and an exact active director membership. No route, UI, schema apply, model action, ranking, selection or send.~~ Public caller-owned proof seam, strict proof-owned write projection, shared assertion decoding, 2FA/director auth, migration-safe locking and append-only confirm/revoke pass focused `71/71`, supply-preview `112/112`, A7 `117/117`, backend `1832/1832`, disposable PostgreSQL 15 `7/7`, compilation/static checks, independent final reviews and an ephemeral read-only Codex CLI `gpt-5.6-terra` `APPROVE`. The core remains unregistered and production/schema/API/UI/model/ranking/selection/send surfaces are unchanged.
-      - [ ] Task A8.4c2: Only after c1 review, separately approve the server-side cookie-session adapter, CSRF-protected API/UI, production schema apply and protected smoke. Bearer compatibility tokens remain forbidden for this critical write unless a separately reviewed revocable session-bound design replaces them.
+      - [ ] Task A8.4c2: Add the separately approved cookie-only runtime in four
+        gated slices; Bearer compatibility tokens remain forbidden for every
+        capability endpoint.
+        - [ ] A8.4c2a: Add the strict DB-free cookie/CSRF adapter and bounded
+          server-side resolver for the exact succeeded A7 report; expose a
+          read-only proof endpoint only after contract-first RED tests.
+        - [ ] A8.4c2b: Register single-subject confirmation and immutable
+          revocation endpoints over the reviewed c1 writer, with fixed HTTP
+          errors, no client report/auth/evidence inputs and no model/send side
+          effects.
+        - [ ] A8.4c2c: Add an explicit per-request-item human review panel;
+          keep ranking, supplier selection and RFQ send disabled and outside
+          this slice.
+        - [ ] A8.4c2d: Run local browser/full regressions and independent
+          review. Production AUTH_SECRET verification, schema dry-run/apply,
+          feature enablement, protected cookie/CSRF smoke, push and deploy each
+          remain separate operator-approved gates.
 - [ ] Task A9: Add preview-only warehouse anomaly and reconciliation recommendations without automatic stock movement.
 - [ ] Task A10: Add preview-only assignment and daily-work-report drafts from confirmed source data.
 - [ ] Task A11: Add read-only accounting exception checks without creating or executing payments.
