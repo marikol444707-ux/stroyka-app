@@ -6668,3 +6668,105 @@ catalog, PostgreSQL and adversarial verification.
 production dry-run, maintenance-window approval, exact guarded apply and
 post-apply audit/smoke. Supplier-link population and material capability remain
 separate prerequisites even after that index exists.
+
+### Task A8.3b: Production Supplier Review Index Cutover
+
+**Status:** Complete on 2026-08-10 for runtime `5b0baa81f4a3`.
+
+**Production evidence:** The fresh read-only audit saw 26 supplier rows and
+exactly one missing canonical change with plan SHA
+`a662d85f119874dacf44808624b9fc9939a6fef1140861a35fb454d0a35711af`.
+The separately confirmed apply committed exactly one schema write and proved
+`idx_suppliers_user_id_id` as the matching index. The repeated read-only audit
+returned `complete=true`, `changeCount=0`, the same matching index and zero
+writes; its zero-change plan SHA was
+`aacd720859498c398fd3223d096c8c75934351d577fc82fff7359af34b4053f6`.
+The public production smoke then passed every enabled check. Protected checks
+were intentionally skipped because smoke credentials were not supplied.
+
+**Safety outcome:** No supplier link/card/catalog/history data changed. No
+ranking, selection, recipient, offer, notification, model or send path was
+enabled. The index only removes the bounded-read prerequisite blocker from a
+future nonempty A8.3 candidate scan.
+
+### Task A8.4a: Exact Material-Capability Confirmation Readiness
+
+**Description:** Add one pure internal builder that consumes strict completed
+A8.2 RFQ content and A8.3 supplier-review readiness and emits the exact
+ID/hash-only subjects that would require an authoritative supplier-material
+confirmation. This slice prepares evidence identity only. It does not create
+the confirmation record and therefore always keeps
+`materialEligibilityProven=false`.
+
+**Status:** In progress locally and inert. No database, route, worker, UI,
+provider, deployment or production change is part of this slice.
+
+**Architecture decisions and assumptions:**
+
+- A8.4a accepts only an exact A8.2 `draft_ready` result and an exact A8.3
+  `review_ready` or `no_candidates` result. Both top-level and nested shapes,
+  runner metadata, safe flags, counts, ordering and their existing SHA-256
+  values are revalidated before any subject is emitted.
+- The A8.3 source must exactly match A8.2 company/request/item and its
+  `requestItemSha256` and `rfqContentSha256`. This proves canonical content
+  equality, not caller authority or literal transaction identity. No future
+  API may accept these public hashes as authorization.
+- A domain-separated material identity SHA binds the tenant, project, target
+  estimate/revision/coordinate and exact bounded target material name and unit;
+  quantity is excluded because it is an RFQ balance, not supplier capability.
+  Material text is used only inside the hash preimage and never returned.
+- Each confirmation-subject SHA separately binds the full A8.2/A8.3 evidence
+  chain, material identity, company-supplier link and supplier ID. Canonical
+  JSON uses sorted keys, fixed separators, ASCII escaping and full lowercase
+  SHA-256 digests; candidates are already sorted and duplicates are rejected.
+- Raw candidates are capped at 100 before processing. Unknown fields, malformed
+  IDs/hashes/text/quantities, inconsistent lineage/balance, contaminated true
+  proof/ranking/selection/send flags, count drift or mixed evidence fail closed
+  with no partial subjects.
+- The output contains only versions, IDs, hashes, booleans, counts and fixed
+  codes. `readyForMaterialCapabilityConfirmation=true` means only that a human
+  confirmation subject is well formed; it never means the supplier is proven
+  capable.
+- A later A8.4b must add a separately reviewed authoritative tenant-owned,
+  immutable/revocable confirmation store and collect it server-side in a
+  bounded read-only snapshot. YandexGPT or any other LLM may explain evidence
+  but can never create or promote capability proof.
+
+**Threat model and safety boundary:**
+
+- Tampering: recompute both dependency hashes, require exact cross-binding and
+  domain-separate material, subject and final readiness digests.
+- Spoofing/elevation: public unkeyed hashes are integrity values, not identity
+  or authorization. This module is not exposed as an API and never promotes a
+  confirmation subject to eligibility.
+- Information disclosure: return no material/project/supplier/user/contact or
+  commercial text; malformed input returns fixed codes without echoing values.
+- Denial of service: fixed field allowlists, bounded strings, one RFQ item and
+  at most 100 raw supplier candidates; no I/O, database scan or model call.
+- Excessive agency: no write, route, job, UI callback, ranking, selection,
+  notification, email/MAX, recipient/offer creation or supplier send.
+
+**Acceptance criteria:**
+
+- [ ] Exact compatible A8.2/A8.3 inputs deterministically produce sorted
+  ID/hash-only confirmation subjects and a stable readiness SHA.
+- [ ] Empty exact company-link readiness produces no subjects and never means
+  that suppliers are ineligible.
+- [ ] Dependency tampering, cross-binding mismatch, unknown fields, true action
+  flags, duplicate candidates and raw bounds overflow fail closed with no
+  partial output or leaked business text.
+- [ ] Every result keeps material eligibility, ranking, supplier selection and
+  sending false and attempts zero writes/external calls.
+- [ ] Focused RED/GREEN, A8/A7 and full backend regressions, compilation,
+  `git diff --check` and independent adversarial review pass before completion.
+
+**Files likely touched:**
+
+- `backend/features/supply_recommendation_preview/material_confirmation.py`
+- `backend/features/supply_recommendation_preview/test_material_confirmation.py`
+- `tasks/plan.md`
+- `tasks/todo.md`
+
+**Open questions:** The authoritative confirmation schema/collector, approval
+authority, revocation policy and any API/UI are deliberately deferred to
+A8.4b. A8.4a is not reusable capability proof by itself.
