@@ -166,7 +166,7 @@ def _public_proof(value, selectors):
         )
         or type(state) is not str
         or state not in _PUBLIC_PROOF_STATES
-        or value.get("materialEligibilityProven") not in (True, False)
+        or type(value.get("materialEligibilityProven")) is not bool
         or value.get("selectionAllowed") is not False
         or value.get("sendAllowed") is not False
     ):
@@ -208,7 +208,11 @@ def _public_proof(value, selectors):
                 )
             assertion_id = event.get("assertionId")
             event_kind = event.get("eventKind")
-            if type(assertion_id) is not int or assertion_id <= 0:
+            if (
+                type(assertion_id) is not int
+                or assertion_id <= 0
+                or type(event_kind) is not str
+            ):
                 raise MaterialCapabilityRuntimeError(
                     "supply_supplier_material_runtime_read_failed"
                 )

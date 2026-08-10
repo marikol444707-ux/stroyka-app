@@ -419,6 +419,22 @@ class MaterialCapabilityRuntimeRouteContractTests(unittest.TestCase):
             self.assertNotIn("sourceKind", response.text)
             self.assertNotIn("evidence", response.text)
 
+    def test_public_proof_requires_an_exact_boolean_material_verdict(self):
+        for value in (0, 1, 0.0, 1.0):
+            with self.subTest(value=value):
+                proof = dict(PROOF)
+                proof["materialEligibilityProven"] = value
+                harness = RouteHarness(proof_result=proof)
+                response = harness.client.get(
+                    "/supply-requests/21/items/0/"
+                    "material-capability-proof",
+                    headers=harness.headers(),
+                )
+                self.assertEqual(response.status_code, 500)
+                self.assertEqual(response.json(), {
+                    "detail": RUNTIME_FAILED,
+                })
+
     def test_invalid_selector_or_confirmation_body_fails_before_db(self):
         selector_cases = (
             ("/supply-requests/0/items/0/material-capability-proof", {}),
