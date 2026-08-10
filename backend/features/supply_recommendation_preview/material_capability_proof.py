@@ -62,8 +62,22 @@ _ASSERTION_FIELDS = {
     "actor_membership_id", "actor_user_id", "actor_role", "source_kind",
     "revokes_assertion_id",
 }
-
-
+_PROOF_FIELDS = {
+    "proofVersion", "ok", "dryRun", "writesAttempted", "state",
+    "source", "subjectKind", "confirmationSha256",
+    "confirmationSubjectCount", "proofSubjectCount", "provenSubjectCount",
+    "proofSubjects", "materialEligibilityProven", "rankingApplied",
+    "supplierIds", "selectionAllowed", "sendAllowed", "blockers",
+    "proofSha256", "readOnlyTransaction", "rolledBack",
+}
+_PROOF_SUBJECT_FIELDS = {
+    "companySupplierLinkId", "supplierId", "materialIdentitySha256",
+    "confirmationSubjectSha256", "proofState", "evidence",
+}
+_EVIDENCE_FIELDS = {
+    "assertionId", "eventKind", "actorMembershipId", "actorUserId",
+    "actorRole", "sourceKind", "revokesAssertionId",
+}
 class SupplierMaterialCapabilityProofError(ValueError):
     """Fixed error code safe to expose without database or business text."""
 
@@ -74,6 +88,12 @@ class SupplierMaterialCapabilityProofError(ValueError):
 
 class _EvidenceInvalid(Exception):
     pass
+
+
+class _WriteProjectionClassification(Exception):
+    def __init__(self, code):
+        self.code = code
+        super().__init__(code)
 
 
 def _canonical_sha256(value):
@@ -101,6 +121,260 @@ def _positive_int(value):
 
 def _non_negative_int(value):
     return type(value) is int and value >= 0
+
+
+def _validated_assertion_row(raw):
+    if type(raw) is not dict or set(raw) != _ASSERTION_FIELDS:
+        raise _EvidenceInvalid()
+    row = dict(raw)
+    if (
+        not _positive_int(row.get("id"))
+        or row.get("confirmation_version") != 1
+        or type(row.get("confirmation_version")) is not int
+        or row.get("event_kind") not in {"confirmed", "revoked"}
+        or type(row.get("event_kind")) is not str
+        or not _positive_int(row.get("company_id"))
+        or not _positive_int(row.get("company_supplier_link_id"))
+        or not _positive_int(row.get("supplier_id"))
+        or not _sha256(row.get("material_identity_sha256"))
+        or not _sha256(row.get("confirmation_subject_sha256"))
+        or not _positive_int(row.get("actor_membership_id"))
+        or not _positive_int(row.get("actor_user_id"))
+        or row.get("actor_role") != "директор"
+        or type(row.get("actor_role")) is not str
+        or row.get("source_kind") != "director_manual"
+        or type(row.get("source_kind")) is not str
+        or (
+            row.get("event_kind") == "confirmed"
+            and row.get("revokes_assertion_id") is not None
+        )
+        or (
+            row.get("event_kind") == "revoked"
+            and not _positive_int(row.get("revokes_assertion_id"))
+        )
+    ):
+        raise _EvidenceInvalid()
+    return row
+
+
+def validate_supplier_material_capability_assertion(raw):
+    """Decode one exact append-only assertion row for trusted local callers."""
+
+    try:
+        return _validated_assertion_row(raw)
+    except Exception:
+        raise SupplierMaterialCapabilityProofError(
+            _EVIDENCE_INVALID
+        ) from None
+
+
+def _validated_write_evidence(raw):
+    if type(raw) is not dict or set(raw) != _EVIDENCE_FIELDS:
+        raise _EvidenceInvalid()
+    evidence = dict(raw)
+    if (
+        not _positive_int(evidence.get("assertionId"))
+        or type(evidence.get("eventKind")) is not str
+        or evidence.get("eventKind") not in {"confirmed", "revoked"}
+        or not _positive_int(evidence.get("actorMembershipId"))
+        or not _positive_int(evidence.get("actorUserId"))
+        or type(evidence.get("actorRole")) is not str
+        or evidence.get("actorRole") != "директор"
+        or type(evidence.get("sourceKind")) is not str
+        or evidence.get("sourceKind") != "director_manual"
+        or (
+            evidence.get("eventKind") == "confirmed"
+            and evidence.get("revokesAssertionId") is not None
+        )
+        or (
+            evidence.get("eventKind") == "revoked"
+            and not _positive_int(evidence.get("revokesAssertionId"))
+        )
+    ):
+        raise _EvidenceInvalid()
+    return evidence
+
+
+def _validated_write_subject(raw, material_hash):
+    if type(raw) is not dict or set(raw) != _PROOF_SUBJECT_FIELDS:
+        raise _EvidenceInvalid()
+    subject = dict(raw)
+    state = subject.get("proofState")
+    if (
+        not _positive_int(subject.get("companySupplierLinkId"))
+        or not _positive_int(subject.get("supplierId"))
+        or subject.get("materialIdentitySha256") != material_hash
+        or not _sha256(subject.get("materialIdentitySha256"))
+        or not _sha256(subject.get("confirmationSubjectSha256"))
+        or type(state) is not str
+        or state not in {"missing", "confirmed", "revoked"}
+        or type(subject.get("evidence")) is not list
+        or len(subject.get("evidence")) > 2
+    ):
+        raise _EvidenceInvalid()
+    evidence = [
+        _validated_write_evidence(item) for item in subject["evidence"]
+    ]
+    if state == "missing":
+        valid_shape = not evidence
+    elif state == "confirmed":
+        valid_shape = (
+            len(evidence) == 1
+            and evidence[0]["eventKind"] == "confirmed"
+        )
+    else:
+        valid_shape = (
+            len(evidence) == 2
+            and evidence[0]["eventKind"] == "confirmed"
+            and evidence[1]["eventKind"] == "revoked"
+            and evidence[1]["revokesAssertionId"]
+            == evidence[0]["assertionId"]
+        )
+    if (
+        not valid_shape
+        or len({item["assertionId"] for item in evidence}) != len(evidence)
+    ):
+        raise _EvidenceInvalid()
+    subject["evidence"] = evidence
+    return subject
+
+
+def validate_supplier_material_capability_write_projection(
+    result, company_id,
+):
+    """Validate one canonical in-transaction proof before a local write."""
+
+    try:
+        if not _positive_int(company_id):
+            raise _EvidenceInvalid()
+        if type(result) is not dict or set(result) != _PROOF_FIELDS:
+            raise _EvidenceInvalid()
+        blockers = result.get("blockers")
+        state = result.get("state")
+        if (
+            type(blockers) is not list
+            or any(type(blocker) is not str for blocker in blockers)
+            or blockers != sorted(set(blockers))
+            or type(state) is not str
+        ):
+            raise _EvidenceInvalid()
+        if _SCHEMA_NOT_READY in blockers:
+            raise _WriteProjectionClassification(_SCHEMA_NOT_READY)
+        if state == "no_candidates":
+            raise _WriteProjectionClassification(_NO_CANDIDATES)
+        if state in {"incomplete", "needs_review"}:
+            raise _EvidenceInvalid()
+        if state not in {
+            "proof_complete", "proof_partial", "confirmation_required",
+        }:
+            raise _EvidenceInvalid()
+
+        source = result.get("source")
+        subjects = result.get("proofSubjects")
+        if (
+            result.get("proofVersion") != PROOF_VERSION
+            or type(result.get("proofVersion")) is not int
+            or result.get("ok") is not True
+            or result.get("dryRun") is not True
+            or result.get("writesAttempted") != 0
+            or type(result.get("writesAttempted")) is not int
+            or type(result.get("subjectKind")) is not str
+            or result.get("subjectKind") != SUBJECT_KIND
+            or type(source) is not dict
+            or set(source) != _SOURCE_FIELDS
+            or not _positive_int(source.get("companyId"))
+            or source.get("companyId") != company_id
+            or not _positive_int(source.get("requestId"))
+            or not _non_negative_int(source.get("requestItemIndex"))
+            or any(not _sha256(source.get(field)) for field in (
+                "requestItemSha256", "rfqContentSha256",
+                "supplierEligibilitySha256", "materialIdentitySha256",
+            ))
+            or not _sha256(result.get("confirmationSha256"))
+            or type(subjects) is not list
+            or len(subjects) > MAX_CONFIRMATION_SUBJECTS
+            or result.get("confirmationSubjectCount") != len(subjects)
+            or type(result.get("confirmationSubjectCount")) is not int
+            or result.get("proofSubjectCount") != len(subjects)
+            or type(result.get("proofSubjectCount")) is not int
+            or result.get("rankingApplied") is not False
+            or type(result.get("supplierIds")) is not list
+            or result.get("supplierIds") != []
+            or result.get("selectionAllowed") is not False
+            or result.get("sendAllowed") is not False
+            or result.get("readOnlyTransaction") is not False
+            or result.get("rolledBack") is not False
+            or not _sha256(result.get("proofSha256"))
+            or result.get("proofSha256") != calculate_proof_sha256(result)
+        ):
+            raise _EvidenceInvalid()
+
+        validated = [
+            _validated_write_subject(
+                item, source["materialIdentitySha256"],
+            )
+            for item in subjects
+        ]
+        keys = [(
+            item["companySupplierLinkId"], item["supplierId"],
+            item["confirmationSubjectSha256"],
+        ) for item in validated]
+        if (
+            len({item[0] for item in keys}) != len(keys)
+            or len({item[1] for item in keys}) != len(keys)
+            or len({item[2] for item in keys}) != len(keys)
+            or validated != sorted(
+                validated,
+                key=lambda item: (
+                    item["supplierId"], item["companySupplierLinkId"]
+                ),
+            )
+        ):
+            raise _EvidenceInvalid()
+        proven_count = sum(
+            item["proofState"] == "confirmed" for item in validated
+        )
+        if (
+            result.get("provenSubjectCount") != proven_count
+            or type(result.get("provenSubjectCount")) is not int
+        ):
+            raise _EvidenceInvalid()
+        if proven_count == len(validated) and validated:
+            expected_state = "proof_complete"
+            expected_blockers = []
+            expected_proven = True
+        elif proven_count:
+            expected_state = "proof_partial"
+            expected_blockers = [_PROOF_PARTIAL]
+            expected_proven = False
+        else:
+            expected_state = "confirmation_required"
+            expected_blockers = [_CONFIRMATION_REQUIRED]
+            expected_proven = False
+        if (
+            not validated
+            or state != expected_state
+            or blockers != expected_blockers
+            or result.get("materialEligibilityProven") is not expected_proven
+        ):
+            raise _EvidenceInvalid()
+        return {
+            "source": copy.deepcopy(source),
+            "proofSubjects": copy.deepcopy(validated),
+        }
+    except _WriteProjectionClassification as exc:
+        if (
+            type(exc.code) is str
+            and exc.code in {_SCHEMA_NOT_READY, _NO_CANDIDATES}
+        ):
+            raise SupplierMaterialCapabilityProofError(exc.code) from None
+        raise SupplierMaterialCapabilityProofError(
+            _EVIDENCE_INVALID
+        ) from None
+    except Exception:
+        raise SupplierMaterialCapabilityProofError(
+            _EVIDENCE_INVALID
+        ) from None
 
 
 def calculate_proof_sha256(result):
@@ -351,48 +625,22 @@ def _validated_proof_subjects(source, subjects, rows):
     }
     grouped = {subject_sha256: [] for subject_sha256 in expected}
     seen_ids = set()
-    for row in rows:
-        if type(row) is not dict or set(row) != _ASSERTION_FIELDS:
-            raise _EvidenceInvalid()
+    for raw in rows:
+        row = _validated_assertion_row(raw)
         row_id = row.get("id")
         subject_sha256 = row.get("confirmation_subject_sha256")
         subject = expected.get(subject_sha256)
-        revoke_id = row.get("revokes_assertion_id")
         if (
-            not _positive_int(row_id)
-            or row_id in seen_ids
-            or type(row.get("confirmation_version")) is not int
-            or row.get("confirmation_version") != 1
-            or row.get("event_kind") not in {"confirmed", "revoked"}
-            or type(row.get("event_kind")) is not str
-            or not _positive_int(row.get("company_id"))
+            row_id in seen_ids
             or row.get("company_id") != source["companyId"]
             or subject is None
             or row.get("company_supplier_link_id") != subject[
                 "companySupplierLinkId"
             ]
-            or not _positive_int(row.get("company_supplier_link_id"))
             or row.get("supplier_id") != subject["supplierId"]
-            or not _positive_int(row.get("supplier_id"))
             or row.get("material_identity_sha256") != source[
                 "materialIdentitySha256"
             ]
-            or not _sha256(row.get("material_identity_sha256"))
-            or not _sha256(subject_sha256)
-            or not _positive_int(row.get("actor_membership_id"))
-            or not _positive_int(row.get("actor_user_id"))
-            or type(row.get("actor_role")) is not str
-            or row.get("actor_role") != "директор"
-            or type(row.get("source_kind")) is not str
-            or row.get("source_kind") != "director_manual"
-            or (
-                row.get("event_kind") == "confirmed"
-                and revoke_id is not None
-            )
-            or (
-                row.get("event_kind") == "revoked"
-                and not _positive_int(revoke_id)
-            )
         ):
             raise _EvidenceInvalid()
         seen_ids.add(row_id)
@@ -552,6 +800,15 @@ def _collect_snapshot(cur, prepared):
     return result, content, eligibility, confirmation
 
 
+def collect_prepared_supplier_material_capability_proof(cur, prepared):
+    """Collect canonical proof on one caller-owned transaction cursor."""
+
+    result, _content, _eligibility, _confirmation = _collect_snapshot(
+        cur, prepared,
+    )
+    return result
+
+
 def _completed_confirmation(content, eligibility):
     completed_content = copy.deepcopy(content)
     completed_eligibility = copy.deepcopy(eligibility)
@@ -644,5 +901,8 @@ __all__ = [
     "PROOF_VERSION",
     "SupplierMaterialCapabilityProofError",
     "calculate_proof_sha256",
+    "collect_prepared_supplier_material_capability_proof",
+    "validate_supplier_material_capability_assertion",
+    "validate_supplier_material_capability_write_projection",
     "run_supplier_material_capability_proof_preview",
 ]

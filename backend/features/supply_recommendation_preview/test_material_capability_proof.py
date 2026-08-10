@@ -190,6 +190,82 @@ def _run_case(*, candidate_count=2, assertion_rows=(), catalog=None,
 
 
 class SupplierMaterialCapabilityProofTests(unittest.TestCase):
+    def test_public_write_projection_normalizes_injected_error_codes(self):
+        class PoisonVersion:
+            def __ne__(self, _other):
+                raise (
+                    material_capability_proof
+                    .SupplierMaterialCapabilityProofError(
+                        "PRIVATE_INJECTED_CODE"
+                    )
+                )
+
+        class PrivateSentinelPoisonVersion:
+            def __ne__(self, _other):
+                raise material_capability_proof._WriteProjectionClassification(
+                    "PRIVATE_SENTINEL_CODE"
+                )
+
+        canonical, _, _ = _run_case(assertion_rows=())
+        canonical["readOnlyTransaction"] = False
+        canonical["rolledBack"] = False
+        canonical["proofSha256"] = (
+            material_capability_proof.calculate_proof_sha256(canonical)
+        )
+        projection = (
+            material_capability_proof
+            .validate_supplier_material_capability_write_projection(
+                canonical, 4,
+            )
+        )
+        self.assertEqual(projection["source"]["companyId"], 4)
+        with self.assertRaises(
+            material_capability_proof.SupplierMaterialCapabilityProofError
+        ) as non_integer_company:
+            (
+                material_capability_proof
+                .validate_supplier_material_capability_write_projection(
+                    canonical, 4.0,
+                )
+            )
+        self.assertEqual(
+            non_integer_company.exception.code,
+            "supply_supplier_material_evidence_invalid",
+        )
+
+        poisoned = copy.deepcopy(canonical)
+        poisoned["proofVersion"] = PoisonVersion()
+        with self.assertRaises(
+            material_capability_proof.SupplierMaterialCapabilityProofError
+        ) as error:
+            (
+                material_capability_proof
+                .validate_supplier_material_capability_write_projection(
+                    poisoned, 4,
+                )
+            )
+        self.assertEqual(
+            error.exception.code,
+            "supply_supplier_material_evidence_invalid",
+        )
+        self.assertNotIn("PRIVATE", str(error.exception))
+        sentinel_poisoned = copy.deepcopy(canonical)
+        sentinel_poisoned["proofVersion"] = PrivateSentinelPoisonVersion()
+        with self.assertRaises(
+            material_capability_proof.SupplierMaterialCapabilityProofError
+        ) as sentinel_error:
+            (
+                material_capability_proof
+                .validate_supplier_material_capability_write_projection(
+                    sentinel_poisoned, 4,
+                )
+            )
+        self.assertEqual(
+            sentinel_error.exception.code,
+            "supply_supplier_material_evidence_invalid",
+        )
+        self.assertNotIn("PRIVATE", str(sentinel_error.exception))
+
     def test_all_exact_confirmations_are_complete_in_one_rolled_back_snapshot(self):
         readiness = _expected_confirmation(2)
         rows = tuple(reversed(_confirmation_rows(readiness)))
@@ -592,6 +668,40 @@ class SupplierMaterialCapabilityProofTests(unittest.TestCase):
         )
 
     def test_public_contract_and_import_are_inert_and_model_free(self):
+        collector_signature = inspect.signature(
+            material_capability_proof
+            .collect_prepared_supplier_material_capability_proof
+        )
+        self.assertEqual(list(collector_signature.parameters), [
+            "cur", "prepared",
+        ])
+        projection_signature = inspect.signature(
+            material_capability_proof
+            .validate_supplier_material_capability_write_projection
+        )
+        self.assertEqual(list(projection_signature.parameters), [
+            "result", "company_id",
+        ])
+        assertion_signature = inspect.signature(
+            material_capability_proof
+            .validate_supplier_material_capability_assertion
+        )
+        self.assertEqual(list(assertion_signature.parameters), ["raw"])
+        canonical = {"proof": "canonical"}
+        with mock.patch.object(
+            material_capability_proof,
+            "_collect_snapshot",
+            return_value=(canonical, {}, {}, {}),
+        ) as collect_snapshot:
+            self.assertIs(
+                material_capability_proof
+                .collect_prepared_supplier_material_capability_proof(
+                    "cursor", "prepared",
+                ),
+                canonical,
+            )
+        collect_snapshot.assert_called_once_with("cursor", "prepared")
+
         signature = inspect.signature(
             material_capability_proof
             .run_supplier_material_capability_proof_preview
@@ -603,6 +713,9 @@ class SupplierMaterialCapabilityProofTests(unittest.TestCase):
             "PROOF_VERSION",
             "SupplierMaterialCapabilityProofError",
             "calculate_proof_sha256",
+            "collect_prepared_supplier_material_capability_proof",
+            "validate_supplier_material_capability_assertion",
+            "validate_supplier_material_capability_write_projection",
             "run_supplier_material_capability_proof_preview",
         ])
         source = inspect.getsource(material_capability_proof).lower()

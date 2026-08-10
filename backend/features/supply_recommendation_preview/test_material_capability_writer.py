@@ -61,6 +61,26 @@ ROLLBACK_FAILED = "supply_supplier_material_writer_rollback_failed"
 CLEANUP_FAILED = "supply_supplier_material_writer_cleanup_failed"
 
 
+class AlwaysEqualText(str):
+    def __eq__(self, _other):
+        return True
+
+    def __ne__(self, _other):
+        return False
+
+
+class TextSubclass(str):
+    pass
+
+
+class AlwaysEqualList(list):
+    def __eq__(self, _other):
+        return True
+
+    def __ne__(self, _other):
+        return False
+
+
 def _actor_row(**overrides):
     row = {
         "actor_user_id": 41,
@@ -162,9 +182,7 @@ def _proof_snapshot(proof_state="missing", **overrides):
         proof_subjects=subjects,
     )
     result.update(overrides)
-    return result, {"content": "same-cursor"}, {
-        "eligibility": "same-cursor"
-    }, {"confirmation": "same-cursor"}
+    return result
 
 
 class ScriptedCursor:
@@ -198,9 +216,9 @@ class ScriptedCursor:
         lowered = compact.lower()
         params = tuple(params or ())
         self.calls.append((compact, params))
-        if "pg_catalog.set_config" in lowered:
+        if lowered.startswith("set local"):
             self.events.append("config")
-            self.current = [{}]
+            self.current = []
         elif "from public.user_sessions" in lowered:
             self.events.append("auth")
             self.current = (
@@ -209,6 +227,9 @@ class ScriptedCursor:
         elif "pg_advisory_xact_lock" in lowered:
             self.events.append("advisory_lock")
             self.current = [{}]
+        elif lowered.startswith("lock table public.companies"):
+            self.events.append("migration_gate_lock")
+            self.current = []
         elif lowered.startswith(
             "lock table public.supplier_material_capability_assertions"
         ):
@@ -326,7 +347,7 @@ class MaterialCapabilityWriterTests(unittest.TestCase):
 
         with mock.patch.object(
             material_capability_writer,
-            "_collect_snapshot",
+            "_collect_proof",
             side_effect=collect_snapshot,
         ):
             result = (
@@ -371,19 +392,17 @@ class MaterialCapabilityWriterTests(unittest.TestCase):
         self.assertTrue(connection.closed)
         self.assertTrue(cursor.closed)
         self.assertEqual(events, [
-            "config", "auth", "advisory_lock", "table_lock", "proof",
-            "auth", "insert",
+            "config", "config", "config", "config",
+            "migration_gate_lock", "table_lock", "advisory_lock", "auth",
+            "proof", "auth", "insert",
         ])
 
-        config_sql, config_params = cursor.calls[0]
-        self.assertIn("pg_catalog.set_config", config_sql)
-        self.assertEqual(config_params, (
-            "statement_timeout", "60000",
-            "lock_timeout", "5000",
-            "idle_in_transaction_session_timeout", "60000",
-            "search_path", "pg_catalog,public",
-            1,
-        ))
+        self.assertEqual(cursor.calls[:4], [
+            ("SET LOCAL statement_timeout='60s'", ()),
+            ("SET LOCAL lock_timeout='5s'", ()),
+            ("SET LOCAL idle_in_transaction_session_timeout='60s'", ()),
+            ("SET LOCAL search_path=pg_catalog,public", ()),
+        ])
         auth_calls = [
             call for call in cursor.calls
             if "FROM public.user_sessions" in call[0]
@@ -402,6 +421,8 @@ class MaterialCapabilityWriterTests(unittest.TestCase):
             "company.active IS TRUE",
             "membership.platform_account_id=company.platform_account_id",
             "LIMIT %s",
+            "FOR SHARE OF session,actor_user,membership,company,"
+            "platform_account",
         ):
             self.assertIn(required, auth_sql)
         self.assertNotIn("actor_user.role=", auth_sql)
@@ -413,15 +434,32 @@ class MaterialCapabilityWriterTests(unittest.TestCase):
             if "pg_advisory_xact_lock" in call[0]
         )
         self.assertEqual(advisory[1], (ADVISORY_LOCK_ID,))
+        gate_lock = next(
+            call for call in cursor.calls
+            if call[0].lower().startswith("lock table public.companies")
+        )
+        self.assertEqual(
+            gate_lock[0],
+            "LOCK TABLE public.companies IN SHARE UPDATE EXCLUSIVE MODE",
+        )
         table_lock = next(
             call for call in cursor.calls
-            if call[0].lower().startswith("lock table")
+            if call[0].lower().startswith(
+                "lock table public.supplier_material_capability_assertions"
+            )
         )
         self.assertEqual(
             table_lock[0],
             "LOCK TABLE public.supplier_material_capability_assertions "
-            "IN ROW SHARE MODE",
+            "IN SHARE ROW EXCLUSIVE MODE",
         )
+        gate_lock_index = cursor.calls.index(gate_lock)
+        table_lock_index = cursor.calls.index(table_lock)
+        advisory_index = cursor.calls.index(advisory)
+        first_auth_index = cursor.calls.index(auth_calls[0])
+        self.assertLess(gate_lock_index, table_lock_index)
+        self.assertLess(table_lock_index, advisory_index)
+        self.assertLess(advisory_index, first_auth_index)
         insert_sql, insert_params = next(
             call for call in cursor.calls
             if call[0].lower().startswith("insert into")
@@ -441,6 +479,42 @@ class MaterialCapabilityWriterTests(unittest.TestCase):
         self.assertNotIn("a" * 64, repr(insert_params))
 
     def test_confirmation_idempotency_and_fail_closed_subject_states(self):
+        non_integer_company = _proof_snapshot("missing")
+        non_integer_company["source"]["companyId"] = 4.0
+        non_integer_company["proofSha256"] = (
+            material_capability_proof.calculate_proof_sha256(
+                non_integer_company
+            )
+        )
+        contaminated_supplier_ids = _proof_snapshot("missing")
+        contaminated_supplier_ids["supplierIds"] = AlwaysEqualList([999])
+        contaminated_supplier_ids["proofSha256"] = (
+            material_capability_proof.calculate_proof_sha256(
+                contaminated_supplier_ids
+            )
+        )
+        contaminated_subject_kind = _proof_snapshot("missing")
+        contaminated_subject_kind["subjectKind"] = AlwaysEqualText(
+            "poison_subject_kind"
+        )
+        contaminated_subject_kind["proofSha256"] = (
+            material_capability_proof.calculate_proof_sha256(
+                contaminated_subject_kind
+            )
+        )
+        contaminated_state = _proof_snapshot("missing")
+        contaminated_state["state"] = TextSubclass(
+            "confirmation_required"
+        )
+        contaminated_state["proofSha256"] = (
+            material_capability_proof.calculate_proof_sha256(
+                contaminated_state
+            )
+        )
+        contaminated_proof_hash = _proof_snapshot("missing")
+        contaminated_proof_hash["proofSha256"] = AlwaysEqualText(
+            "poison_proof_hash"
+        )
         cases = (
             (
                 _proof_snapshot("confirmed"),
@@ -500,6 +574,36 @@ class MaterialCapabilityWriterTests(unittest.TestCase):
                 EVIDENCE_INVALID,
                 None,
             ),
+            (
+                non_integer_company,
+                CONFIRM_COMMAND,
+                EVIDENCE_INVALID,
+                None,
+            ),
+            (
+                contaminated_supplier_ids,
+                CONFIRM_COMMAND,
+                EVIDENCE_INVALID,
+                None,
+            ),
+            (
+                contaminated_subject_kind,
+                CONFIRM_COMMAND,
+                EVIDENCE_INVALID,
+                None,
+            ),
+            (
+                contaminated_state,
+                CONFIRM_COMMAND,
+                EVIDENCE_INVALID,
+                None,
+            ),
+            (
+                contaminated_proof_hash,
+                CONFIRM_COMMAND,
+                EVIDENCE_INVALID,
+                None,
+            ),
         )
         for snapshot, command, error_code, expected_state in cases:
             with self.subTest(error=error_code, state=expected_state):
@@ -507,7 +611,7 @@ class MaterialCapabilityWriterTests(unittest.TestCase):
                 connection = ScriptedConnection(cursor)
                 with mock.patch.object(
                     material_capability_writer,
-                    "_collect_snapshot",
+                    "_collect_proof",
                     return_value=copy.deepcopy(snapshot),
                 ):
                     callback = lambda: (
@@ -551,6 +655,10 @@ class MaterialCapabilityWriterTests(unittest.TestCase):
                 "authenticationKind": "cookie_session",
                 "sessionHash": "a" * 64,
                 "twoFactorPassed": True,
+            },
+            {
+                "authenticationKind": AlwaysEqualText("bearer"),
+                "sessionHash": "a" * 64,
             },
         )
         for authentication in invalid_authentication:
@@ -612,7 +720,11 @@ class MaterialCapabilityWriterTests(unittest.TestCase):
         )
         self.assertEqual(calls, [])
 
-        for auth_rows in ([], [_actor_row(), _actor_row()]):
+        for auth_rows in (
+            [],
+            [_actor_row(), _actor_row()],
+            [_actor_row(actor_company_id=4.0)],
+        ):
             with self.subTest(auth_rows=auth_rows):
                 events = []
                 cursor = ScriptedCursor(
@@ -622,7 +734,7 @@ class MaterialCapabilityWriterTests(unittest.TestCase):
                 connection = ScriptedConnection(cursor)
                 with mock.patch.object(
                     material_capability_writer,
-                    "_collect_snapshot",
+                    "_collect_proof",
                 ) as proof:
                     self._assert_error(
                         AUTHENTICATION_REQUIRED,
@@ -638,7 +750,11 @@ class MaterialCapabilityWriterTests(unittest.TestCase):
                         ),
                     )
                     proof.assert_not_called()
-                self.assertEqual(events, ["config", "auth"])
+                self.assertEqual(events, [
+                    "config", "config", "config", "config",
+                    "migration_gate_lock", "table_lock", "advisory_lock",
+                    "auth",
+                ])
                 self.assertEqual(connection.rollbacks, 1)
 
         changed_actor = ScriptedCursor(auth_batches=[
@@ -648,7 +764,7 @@ class MaterialCapabilityWriterTests(unittest.TestCase):
         changed_connection = ScriptedConnection(changed_actor)
         with mock.patch.object(
             material_capability_writer,
-            "_collect_snapshot",
+            "_collect_proof",
             return_value=_proof_snapshot("missing"),
         ):
             self._assert_error(
@@ -693,7 +809,7 @@ class MaterialCapabilityWriterTests(unittest.TestCase):
             side_effect=schema_readiness,
         ), mock.patch.object(
             material_capability_writer,
-            "_collect_snapshot",
+            "_collect_proof",
         ) as proof:
             result = (
                 material_capability_writer
@@ -717,8 +833,9 @@ class MaterialCapabilityWriterTests(unittest.TestCase):
         self.assertEqual(result["writesAttempted"], 1)
         self.assertTrue(result["committed"])
         self.assertEqual(events, [
-            "config", "auth", "advisory_lock", "table_lock", "schema",
-            "target", "existing_revocation", "auth", "insert",
+            "config", "config", "config", "config",
+            "migration_gate_lock", "table_lock", "advisory_lock", "auth",
+            "schema", "target", "existing_revocation", "auth", "insert",
         ])
         target_sql, target_params = next(
             call for call in cursor.calls
@@ -787,36 +904,47 @@ class MaterialCapabilityWriterTests(unittest.TestCase):
                     for sql, _params in cursor.calls
                 ))
 
-        cursor = ScriptedCursor(target_rows=[_assertion_row()])
-        connection = ScriptedConnection(cursor)
-        with mock.patch.object(
-            material_capability_schema_probe,
-            "collect_material_capability_schema_readiness",
-            return_value={
+        invalid_readiness_results = (
+            {
                 "contractVersion": 1,
                 "complete": False,
                 "blockers": ["material_capability_schema_not_ready"],
             },
-        ):
-            self._assert_error(
-                SCHEMA_NOT_READY,
-                lambda: (
-                    material_capability_writer
-                    .run_material_capability_revocation_write(
-                        lambda: connection,
-                        AUTHENTICATION,
-                        REVOKE_COMMAND,
+            {"contractVersion": 1.0, "complete": True, "blockers": []},
+            {
+                "contractVersion": 1,
+                "complete": True,
+                "blockers": AlwaysEqualList(["schema_drift"]),
+            },
+        )
+        for readiness in invalid_readiness_results:
+            with self.subTest(readiness=readiness):
+                cursor = ScriptedCursor(target_rows=[_assertion_row()])
+                connection = ScriptedConnection(cursor)
+                with mock.patch.object(
+                    material_capability_schema_probe,
+                    "collect_material_capability_schema_readiness",
+                    return_value=readiness,
+                ):
+                    self._assert_error(
+                        SCHEMA_NOT_READY,
+                        lambda: (
+                            material_capability_writer
+                            .run_material_capability_revocation_write(
+                                lambda: connection,
+                                AUTHENTICATION,
+                                REVOKE_COMMAND,
+                            )
+                        ),
                     )
-                ),
-            )
-        self.assertNotIn("target", cursor.events)
-        self.assertEqual(connection.rollbacks, 1)
+                self.assertNotIn("target", cursor.events)
+                self.assertEqual(connection.rollbacks, 1)
 
     def test_write_commit_rollback_and_cleanup_failures_are_fixed(self):
         def run_confirmation(connection, snapshot=None):
             with mock.patch.object(
                 material_capability_writer,
-                "_collect_snapshot",
+                "_collect_proof",
                 return_value=snapshot or _proof_snapshot("missing"),
             ):
                 return (
@@ -843,6 +971,50 @@ class MaterialCapabilityWriterTests(unittest.TestCase):
         self._assert_error(WRITE_CONFLICT, lambda: run_confirmation(conflict))
         self.assertEqual(conflict.commits, 0)
         self.assertEqual(conflict.rollbacks, 1)
+
+        def poisoned_db():
+            raise material_capability_writer.MaterialCapabilityWriterError(
+                "PRIVATE_ATTACKER_CODE"
+            )
+
+        self._assert_error(
+            WRITE_FAILED,
+            lambda: (
+                material_capability_writer
+                .run_material_capability_confirmation_write(
+                    poisoned_db,
+                    valid_report(),
+                    SELECTED,
+                    AUTHENTICATION,
+                    CONFIRM_COMMAND,
+                )
+            ),
+        )
+        for injected_lifecycle_code in (
+            COMMIT_UNKNOWN,
+            ROLLBACK_FAILED,
+            CLEANUP_FAILED,
+        ):
+            with self.subTest(injected=injected_lifecycle_code):
+                def poisoned_lifecycle_db(code=injected_lifecycle_code):
+                    raise (
+                        material_capability_writer
+                        .MaterialCapabilityWriterError(code)
+                    )
+
+                self._assert_error(
+                    WRITE_FAILED,
+                    lambda: (
+                        material_capability_writer
+                        .run_material_capability_confirmation_write(
+                            poisoned_lifecycle_db,
+                            valid_report(),
+                            SELECTED,
+                            AUTHENTICATION,
+                            CONFIRM_COMMAND,
+                        )
+                    ),
+                )
 
         missing_return = ScriptedConnection(ScriptedCursor(insert_row=None))
         self._assert_error(
@@ -916,6 +1088,11 @@ class MaterialCapabilityWriterTests(unittest.TestCase):
             "run_material_capability_revocation_write",
         ])
         source = inspect.getsource(material_capability_writer).lower()
+        self.assertNotIn("_collect_snapshot", source)
+        self.assertIn(
+            "collect_prepared_supplier_material_capability_proof",
+            source,
+        )
         for forbidden in (
             "backend.main", "yandex", "openai", "gemini", "llm",
             "requests.", "httpx", "smtp", "messenger_outbox",

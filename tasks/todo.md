@@ -7031,9 +7031,13 @@ supplier ranking, supplier selection or RFQ send.
   `confirmationSubjectSha256`. The expected hash is only an optimistic
   concurrency/user-intent check, never authorization or evidence.
 - One `SERIALIZABLE` transaction pins `search_path=pg_catalog,public` and
-  fixed timeouts, authenticates the session/director first, then rebuilds
-  A8.2, A8.3, A8.4a and current proof on the same cursor. It audits the exact
-  b1 schema before any assertion write.
+  fixed timeouts with `SET LOCAL`. Before the first snapshot-bearing `SELECT`,
+  it takes the migration-compatible `public.companies` gate, the assertion
+  table `SHARE ROW EXCLUSIVE` lock and the shared advisory lock. It then
+  authenticates the session/director and rebuilds A8.2, A8.3, A8.4a and the
+  current proof on the same cursor. This order prevents stale schema snapshots,
+  duplicate writers and writer/migration deadlocks; the locks are correctness
+  gates, never authorization.
 - The command IDs/hash must match exactly one current proof subject. `missing`
   inserts one fixed `confirmed` row; `confirmed` is an idempotent zero-write
   result; `revoked`, dependency/schema drift, ambiguity or stale subject fails
@@ -7055,9 +7059,9 @@ supplier ranking, supplier selection or RFQ send.
 
 **Transaction and output contract:**
 
-- All SQL is fixed, schema-qualified and parameterized. Reads use exact keys,
-  `LIMIT 2` ambiguity sentinels and the audited indexes. The only mutation is
-  one fixed INSERT into
+- All SQL is fixed and schema-qualified; every dynamic value is parameterized.
+  Reads use exact keys, `LIMIT 2` ambiguity sentinels and the audited indexes.
+  The only mutation is one fixed INSERT into
   `public.supplier_material_capability_assertions`; there is no audit helper,
   second connection, DDL, update/delete, email, messenger, LLM or outbox call.
 - A real insert commits once. Every validation/no-op/error path rolls back;
@@ -7071,20 +7075,34 @@ supplier ranking, supplier selection or RFQ send.
 
 **Acceptance criteria:**
 
-- [ ] RED tests pin strict inputs, current-subject confirmation, historical
+- [x] RED tests pin strict inputs, current-subject confirmation, historical
   revocation, idempotency, stale/terminal/ambiguous evidence and fixed output.
-- [ ] Live passed-2FA cookie session plus exact active company director is
+- [x] Live passed-2FA cookie session plus exact active company director is
   required in the write transaction; Bearer/global/legacy/deputy/inactive,
   expired, revoked and non-2FA cases cannot reach INSERT.
-- [ ] Confirmation rebuilds A8.2/A8.3/A8.4a/proof on the same cursor; revocation
+- [x] Confirmation rebuilds A8.2/A8.3/A8.4a/proof on the same cursor; revocation
   copies one immutable exact target and remains possible after supplier-side
   deactivation.
-- [ ] Commit/rollback/cleanup, bounds, tenant isolation, schema drift, race
+- [x] Commit/rollback/cleanup, bounds, tenant isolation, schema drift, race
   handling, import purity and zero model/notification/selection/send effects
   are covered, including disposable PostgreSQL proof.
-- [ ] Focused, supply-preview, A7 and full backend suites, compilation/static
+- [x] Focused, supply-preview, A7 and full backend suites, compilation/static
   scans, `git diff --check` and independent adversarial review pass before the
   local core is marked complete.
+
+**Implementation evidence:** The proof module now owns one public
+caller-owned-cursor collector, the exact mutation-boundary projection validator
+and the shared assertion decoder; the writer remains an unregistered local
+core. Focused A8 is `71/71`, supply-preview is `112/112` with `20` expected
+skips, A7 is `117/117` with `11` expected skips, and full backend is
+`1832/1832` with `53` expected skips. Disposable PostgreSQL 15 is `7/7`,
+including live 2FA/director negatives, concurrent idempotency, both migration
+interleavings, stale trigger DDL and the real public A8.4a/proof/schema/trigger
+write path. Compilation, import-purity/static checks, `git diff --check`,
+simplicity review, repeated fresh adversarial review and an ephemeral read-only
+Codex CLI `gpt-5.6-terra` `APPROVE` pass. No production
+connection, schema apply, route, UI, model action, ranking, selection or send
+was added.
 
 **Boundaries:**
 
