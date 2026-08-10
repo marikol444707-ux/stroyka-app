@@ -7115,9 +7115,10 @@ was added.
 
 ## Task A8.4c2: Cookie-Only Capability API And Human Review UI
 
-**Status:** Specification approved for local implementation 2026-08-10;
-production schema apply, feature enablement, push and deploy remain separate
-operator-confirmed gates.
+**Status:** Local cookie-only runtime, routes and explicit review panel are
+implemented and independently reviewed as of 2026-08-10. Production schema
+apply, feature enablement and protected cookie/CSRF smoke remain separate
+operator-confirmed gates; code push and flags-off deploy are now approved.
 
 **Description:** Expose the reviewed A8.4c1 writer through a narrow,
 cookie-session-only HTTP boundary and add one explicit human review panel on
@@ -7266,24 +7267,39 @@ select a supplier or send/request an RFQ.
 
 **RED and local verification:**
 
-- [ ] Adapter tests cover missing/malformed cookie, Bearer-only, mixed
+- [x] Adapter tests cover missing/malformed cookie, Bearer-only, mixed
   cookie+Bearer, canonical HMAC derivation, one-read cookie capture, every CSRF
   failure and no secret leakage.
-- [ ] Resolver tests cover exact job unique-key lookup, system/succeeded
+- [x] Resolver tests cover exact job unique-key lookup, system/succeeded
   ownership, payload/result hash validation, request-item/source drift,
   tenant ambiguity and all scan/size bounds.
-- [ ] Route tests cover exact registration, body allowlists, fixed status/error
+- [x] Route tests cover exact registration, body allowlists, fixed status/error
   mapping, exact writer arguments, `201` versus idempotent `200`, and zero
   writer calls on auth/CSRF/input failure.
-- [ ] Disposable PostgreSQL proves the real cookie/2FA/director proof,
-  confirmation, idempotency, revocation, concurrency, stale-source and
-  cross-tenant paths with unchanged unrelated tables/outbox/provider mocks.
-- [ ] Frontend tests prove no Bearer fallback, explicit single-subject flow,
+- [x] Disposable PostgreSQL proves the real cookie/2FA/director proof plus the
+  c1 confirmation, idempotency, revocation, concurrency and cross-tenant paths
+  with unchanged unrelated tables; bounded resolver/runtime tests separately
+  prove stale-source failure and zero outbox/provider calls.
+- [x] Frontend tests prove no Bearer fallback, explicit single-subject flow,
   no write on cancel/double-click, terminal revoked state and proof refresh.
-- [ ] Focused, supply-preview, A7, auth, route, frontend, build, browser and
-  full backend regressions pass, followed by simplicity and fresh adversarial
-  review. Any external cross-model CLI review requires a new explicit user
-  approval.
+- [x] Focused, supply-preview, A7, auth, route, frontend, both feature-flag
+  builds and full backend regressions pass, followed by simplicity and fresh
+  adversarial review.
+- [ ] Complete a local real-browser interaction pass. Any external cross-model
+  CLI review requires a new explicit user approval.
+
+**Local evidence (2026-08-10):** The final reviewed snapshot passes backend
+`1882/1882` with `56` expected skips, frontend `82/82` suites and `353/353`
+tests, focused capability backend `68/68`, focused API/panel/app-shell frontend
+`20/20`, Python compilation and `git diff --check`. Production frontend builds
+with the capability flag both `false` and `true` compile successfully; the only
+remaining build message is the existing Node `fs.F_OK` deprecation. Disposable
+PostgreSQL 15 passed the c1 writer `7/7` and c2 cookie/director proof runtime
+`3/3`. Independent simplicity and fresh adversarial reviews returned
+`APPROVE`; three review regressions are pinned: selected-company propagation,
+pending-write unmount isolation and deeply nested JSON normalization. No
+production schema, assertion row, ranking, supplier selection, RFQ send,
+provider/model, email, messenger or outbox effect occurred.
 
 **Production gates — not authorized by local implementation:**
 

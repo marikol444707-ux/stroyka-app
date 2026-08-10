@@ -434,20 +434,22 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
       - [ ] Task A8.4c2: Add the separately approved cookie-only runtime in four
         gated slices; Bearer compatibility tokens remain forbidden for every
         capability endpoint.
-        - [ ] A8.4c2a: Add the strict DB-free cookie/CSRF adapter and bounded
+        - [x] ~~A8.4c2a: Add the strict DB-free cookie/CSRF adapter and bounded
           server-side resolver for the exact succeeded A7 report; expose a
-          read-only proof endpoint only after contract-first RED tests.
-        - [ ] A8.4c2b: Register single-subject confirmation and immutable
+          read-only proof endpoint only after contract-first RED tests.~~
+        - [x] ~~A8.4c2b: Register single-subject confirmation and immutable
           revocation endpoints over the reviewed c1 writer, with fixed HTTP
           errors, no client report/auth/evidence inputs and no model/send side
-          effects.
-        - [ ] A8.4c2c: Add an explicit per-request-item human review panel;
+          effects.~~
+        - [x] ~~A8.4c2c: Add an explicit per-request-item human review panel;
           keep ranking, supplier selection and RFQ send disabled and outside
-          this slice.
+          this slice.~~
         - [ ] A8.4c2d: Run local browser/full regressions and independent
           review. Production AUTH_SECRET verification, schema dry-run/apply,
           feature enablement, protected cookie/CSRF smoke, push and deploy each
-          remain separate operator-approved gates.
+          remain separate operator-approved gates. Automated local regressions,
+          both flag builds and two independent reviews are green; browser and
+          every production gate remain open.
 - [ ] Task A9: Add preview-only warehouse anomaly and reconciliation recommendations without automatic stock movement.
 - [ ] Task A10: Add preview-only assignment and daily-work-report drafts from confirmed source data.
 - [ ] Task A11: Add read-only accounting exception checks without creating or executing payments.
