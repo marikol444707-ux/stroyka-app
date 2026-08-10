@@ -110,6 +110,7 @@ try:
         AUTH_SESSION_TTL_SECONDS,
         CSRF_LOGOUT_ENFORCED,
         CSRF_TOKEN_TTL_SECONDS,
+        CookieSessionAuthenticationError,
         PASSWORD_HASH_ITERATIONS,
         PASSWORD_HASH_PREFIX,
         TWO_FACTOR_REQUIRED_ROLES,
@@ -136,6 +137,7 @@ try:
         _valid_csrf_token,
         _verify_signed_flow_token,
         _verify_totp_code,
+        build_cookie_session_authentication,
         create_auth_token,
         hash_password,
         is_legacy_password,
@@ -150,6 +152,7 @@ except ModuleNotFoundError:
         AUTH_SESSION_TTL_SECONDS,
         CSRF_LOGOUT_ENFORCED,
         CSRF_TOKEN_TTL_SECONDS,
+        CookieSessionAuthenticationError,
         PASSWORD_HASH_ITERATIONS,
         PASSWORD_HASH_PREFIX,
         TWO_FACTOR_REQUIRED_ROLES,
@@ -176,6 +179,7 @@ except ModuleNotFoundError:
         _valid_csrf_token,
         _verify_signed_flow_token,
         _verify_totp_code,
+        build_cookie_session_authentication,
         create_auth_token,
         hash_password,
         is_legacy_password,
@@ -5851,7 +5855,20 @@ def confirm_login_2fa_setup(data: TwoFactorSetupConfirmModel, response: Response
     return public_user(user, include_token=True, two_factor_passed=True)
 
 @app.get("/csrf-token")
-def csrf_token(request: Request, _current_user: dict = Depends(get_current_user)):
+def csrf_token(
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+):
+    try:
+        build_cookie_session_authentication(
+            request,
+            authorization,
+            None,
+            require_csrf=False,
+        )
+    except CookieSessionAuthenticationError as exc:
+        raise HTTPException(status_code=401, detail=exc.code)
+    _current_user_from_session_cookie(request)
     session_token = request.cookies.get(AUTH_SESSION_COOKIE_NAME)
     if not session_token:
         raise HTTPException(status_code=401, detail="Требуется cookie-сессия")
@@ -16393,6 +16410,49 @@ register_project_budget_adjustment_runtime_module(app, {
     "resolve_work_company_context": _resolve_work_company_context,
     "effective_company_actors": effective_company_actors,
     "leadership_roles": LEADERSHIP_ROLES,
+})
+
+try:
+    from backend.features.supply_recommendation_preview.runtime_routes import (
+        register_material_capability_runtime_module,
+    )
+    from backend.features.supply_recommendation_preview.material_capability_runtime import (
+        run_material_capability_runtime_read,
+    )
+    from backend.features.supply_recommendation_preview.material_capability_writer import (
+        run_material_capability_confirmation_write,
+        run_material_capability_revocation_write,
+    )
+except ModuleNotFoundError:
+    from features.supply_recommendation_preview.runtime_routes import (
+        register_material_capability_runtime_module,
+    )
+    from features.supply_recommendation_preview.material_capability_runtime import (
+        run_material_capability_runtime_read,
+    )
+    from features.supply_recommendation_preview.material_capability_writer import (
+        run_material_capability_confirmation_write,
+        run_material_capability_revocation_write,
+    )
+
+
+register_material_capability_runtime_module(app, {
+    "enabled": os.getenv(
+        "SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED"
+    ) == "true",
+    "get_db": get_db,
+    "build_cookie_session_authentication": (
+        build_cookie_session_authentication
+    ),
+    "run_material_capability_runtime_read": (
+        run_material_capability_runtime_read
+    ),
+    "run_material_capability_confirmation_write": (
+        run_material_capability_confirmation_write
+    ),
+    "run_material_capability_revocation_write": (
+        run_material_capability_revocation_write
+    ),
 })
 
 try:
