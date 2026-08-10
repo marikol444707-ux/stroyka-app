@@ -6871,6 +6871,10 @@ job, model action, supplier ranking, supplier selection or RFQ send.
   `REPEATABLE READ` transaction. It derives current A8.2 content, A8.3 company
   candidates and A8.4a subjects before querying assertions; it rolls back on
   success and every failure.
+- Its first cursor statement is one parameterized transaction-local
+  configuration `SELECT`: it fixes statement, lock and idle-transaction
+  timeouts and pins `search_path=pg_catalog,public` before any dependency or
+  catalog lookup. This is the only allowed configuration side effect.
 - At most 100 subjects and at most two assertion rows per subject are read by
   exact `company_id + confirmation_subject_sha256` through the required
   bounded index and hard sentinel limit. All SQL is parameterized `SELECT`;
@@ -6885,6 +6889,11 @@ job, model action, supplier ranking, supplier selection or RFQ send.
   Only `proof_complete` may set `materialEligibilityProven=true`; every state
   keeps `rankingApplied=false`, `supplierIds=[]`, `selectionAllowed=false`,
   `sendAllowed=false`, `dryRun=true` and `writesAttempted=0`.
+- Zero exact A8.4a subjects returns `no_candidates` without requiring or
+  querying the unused evidence table. For nonempty subjects, schema drift or
+  row-sentinel overflow is `incomplete`; malformed/ambiguous evidence is
+  `needs_review`; all, some or no unrevoked confirmations map respectively to
+  `proof_complete`, `proof_partial` or `confirmation_required`.
 - After rollback, the runner marks transaction metadata complete and proves
   that the completed public A8.4a subject/hash contract is identical to the
   one derived inside the snapshot. Hash equality proves artifact identity;
@@ -6916,11 +6925,33 @@ job, model action, supplier ranking, supplier selection or RFQ send.
 - A8.4b2 RED/GREEN:
   `PYTHONPYCACHEPREFIX=/private/tmp/a84b-pycache python3 -m unittest backend.features.supply_recommendation_preview.test_material_capability_proof`
 - Focused regression:
-  `PYTHONPYCACHEPREFIX=/private/tmp/a84b-pycache python3 -m unittest backend.features.supply_recommendation_preview.test_rfq_content backend.features.supply_recommendation_preview.test_supplier_eligibility backend.features.supply_recommendation_preview.test_material_capability_confirmation backend.features.supply_recommendation_preview.test_material_capability_schema backend.features.supply_recommendation_preview.test_material_capability_proof`
+  `PYTHONPYCACHEPREFIX=/private/tmp/a84b-pycache python3 -m unittest backend.features.supply_recommendation_preview.test_rfq_content backend.features.supply_recommendation_preview.test_supplier_eligibility backend.features.supply_recommendation_preview.test_material_capability_confirmation backend.features.supply_recommendation_preview.test_material_capability_schema_probe backend.features.supply_recommendation_preview.test_material_capability_schema backend.features.supply_recommendation_preview.test_material_capability_proof`
 - Full supply-preview, A7 and backend discovery, Python compilation,
   import-purity/static forbidden-boundary scans and `git diff --check` are
   mandatory before completion. A disposable PostgreSQL proof is required
   before any schema apply or public proof claim.
+
+**A8.4b2 implementation evidence (local only):**
+
+- The A8.3 caller-owned cursor seam consumes the already collected A8.2
+  result, and the A8.4a snapshot seam strictly requires both transaction flags
+  to remain false. Only after the outer rollback and cleanup does the runner
+  rebuild the public completed A8.4a result and require exact equality.
+- The SELECT-only structural catalog reader is isolated in
+  `material_capability_schema_probe.py`; proof imports neither the migration
+  runtime nor `backend.main`. Two package initializers were made lazy so the
+  proof import no longer loads FastAPI routes, storage or apply modules.
+- The only assertion query is exact company plus sorted subject hashes,
+  ordered by subject hash and ID, with a `2*n+1` sentinel (maximum `201`).
+  Output contains only canonical IDs, hashes and fixed enums; evidence order
+  is deterministic even when database rows arrive reversed.
+- Focused `57/57`, full supply-preview `97/97` (`13` expected skips), A7
+  `117/117` (`11` expected skips) and backend `1817/1817` (`46` expected
+  skips) pass. Disposable PostgreSQL 15 additionally passed `3/3`: the exact
+  query used `idx_smca_company_subject_id`, a concurrent commit remained
+  invisible until the next transaction, and read-only SQLSTATE `25006`
+  preserved assertion, sequence and parent-table state. Two independent
+  reviews ended `APPROVE` with no remaining Required finding.
 
 **Boundaries:**
 
@@ -6935,11 +6966,14 @@ job, model action, supplier ranking, supplier selection or RFQ send.
 **Files likely touched:**
 
 - `backend/features/supply_recommendation_preview/material_capability_schema.py`
+- `backend/features/supply_recommendation_preview/material_capability_schema_probe.py`
 - `backend/features/supply_recommendation_preview/material_capability_schema_contract.py`
 - `backend/features/supply_recommendation_preview/test_material_capability_schema.py`
 - `backend/features/supply_recommendation_preview/material_capability_proof.py`
 - `backend/features/supply_recommendation_preview/test_material_capability_proof.py`
+- `backend/features/supply_recommendation_preview/test_material_capability_proof_postgres.py`
 - small internal snapshot-safe seams in existing A8.3/A8.4a modules
+- lazy package exports for read-only policy/plan imports
 - `tasks/plan.md`, `tasks/todo.md`
 
 **Acceptance criteria:**
@@ -6949,11 +6983,11 @@ job, model action, supplier ranking, supplier selection or RFQ send.
   disposable PostgreSQL, while no real migration is invoked.
 - [x] PostgreSQL rejects invalid authority/scope/revocation, duplicate events,
   update/delete/truncate and accepts only exact director-confirmed rows.
-- [ ] The proof collector rebuilds A8.2/A8.3/A8.4a and reads assertions in one
+- [x] The proof collector rebuilds A8.2/A8.3/A8.4a and reads assertions in one
   read-only snapshot with unconditional rollback.
-- [ ] Missing/revoked/partial evidence remains non-actionable; only all-exact,
+- [x] Missing/revoked/partial evidence remains non-actionable; only all-exact,
   unrevoked evidence yields proof complete, without ranking/selection/send.
-- [ ] Bounds, tenant isolation, fixed errors, cleanup failures, import purity,
+- [x] Bounds, tenant isolation, fixed errors, cleanup failures, import purity,
   zero LLM/external calls and zero business writes are regression-tested.
 
 **Open questions:** None for A8.4b local implementation. A8.4c owns the

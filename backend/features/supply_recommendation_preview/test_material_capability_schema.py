@@ -12,6 +12,9 @@ from backend.features.supply_recommendation_preview import (
 from backend.features.supply_recommendation_preview import (
     material_capability_schema_contract as schema_contract,
 )
+from backend.features.supply_recommendation_preview import (
+    material_capability_schema_probe as schema_probe,
+)
 
 
 def absent_catalog(**overrides):
@@ -526,7 +529,7 @@ class MaterialCapabilitySchemaTests(unittest.TestCase):
         self.assertNotIn("private", str(error.exception))
 
     def test_catalog_collection_is_bounded_and_import_has_no_runtime_side_effect(self):
-        source = inspect.getsource(schema)
+        source = inspect.getsource(schema_probe)
         self.assertNotIn("information_schema", source.lower())
         self.assertIn("LIMIT", source.upper())
         self.assertIn("trigger_state.tgenabled::text", source)

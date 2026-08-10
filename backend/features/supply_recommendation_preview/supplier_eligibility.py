@@ -496,8 +496,11 @@ def _review_candidates(cur, prepared):
     ]
 
 
-def _collect(cur, prepared):
-    content = collect_prepared_supply_rfq_content(cur, prepared)
+def collect_prepared_supply_supplier_eligibility(
+    cur, prepared, content,
+):
+    """Build A8.3 from exact A8.2 content on a caller-owned cursor."""
+
     try:
         state, blockers = _validated_content(prepared, content)
     except _EligibilityBlock as blocked:
@@ -517,6 +520,13 @@ def _collect(cur, prepared):
         return _result(prepared, content, "review_ready", [], candidates)
     except _EligibilityBlock as blocked:
         return _result(prepared, content, blocked.state, [blocked.code])
+
+
+def _collect(cur, prepared):
+    content = collect_prepared_supply_rfq_content(cur, prepared)
+    return collect_prepared_supply_supplier_eligibility(
+        cur, prepared, content,
+    )
 
 
 def run_supply_supplier_eligibility_preview(
@@ -597,5 +607,6 @@ __all__ = [
     "SCHEMA_COLUMN_LIMIT",
     "SupplySupplierEligibilityError",
     "calculate_eligibility_sha256",
+    "collect_prepared_supply_supplier_eligibility",
     "run_supply_supplier_eligibility_preview",
 ]

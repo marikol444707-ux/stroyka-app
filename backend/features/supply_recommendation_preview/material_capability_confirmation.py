@@ -295,7 +295,7 @@ def _quantity(value, *, positive=False):
     return scaled
 
 
-def _validated_rfq(content):
+def _validated_rfq(content, *, transaction_complete):
     content = _mapping(content, _RFQ_FIELDS)
     _zero(content.get("writesAttempted"))
     if (
@@ -308,8 +308,8 @@ def _validated_rfq(content):
         or content.get("readyForRfqDraft") is not True
         or type(content.get("blockers")) is not list
         or content.get("blockers") != []
-        or content.get("readOnlyTransaction") is not True
-        or content.get("rolledBack") is not True
+        or content.get("readOnlyTransaction") is not transaction_complete
+        or content.get("rolledBack") is not transaction_complete
     ):
         _fail()
 
@@ -385,7 +385,9 @@ def _validated_rfq(content):
     }
 
 
-def _validated_eligibility(eligibility, rfq):
+def _validated_eligibility(
+    eligibility, rfq, *, transaction_complete,
+):
     eligibility = _mapping(eligibility, _ELIGIBILITY_FIELDS)
     _zero(eligibility.get("writesAttempted"))
     if (
@@ -401,8 +403,8 @@ def _validated_eligibility(eligibility, rfq):
         or eligibility.get("supplierIds") != []
         or eligibility.get("selectionAllowed") is not False
         or eligibility.get("sendAllowed") is not False
-        or eligibility.get("readOnlyTransaction") is not True
-        or eligibility.get("rolledBack") is not True
+        or eligibility.get("readOnlyTransaction") is not transaction_complete
+        or eligibility.get("rolledBack") is not transaction_complete
     ):
         _fail()
 
@@ -544,14 +546,20 @@ def _confirmation_sha256(result):
 
 
 def _build_material_capability_confirmation_readiness(
-    rfq_content_result, supplier_eligibility_result,
+    rfq_content_result, supplier_eligibility_result, *,
+    transaction_complete=True,
 ):
     """Build inert confirmation subjects from exact A8.2/A8.3 results."""
 
     try:
-        rfq = _validated_rfq(rfq_content_result)
+        rfq = _validated_rfq(
+            rfq_content_result,
+            transaction_complete=transaction_complete,
+        )
         state, candidates, eligibility_sha256 = _validated_eligibility(
-            supplier_eligibility_result, rfq
+            supplier_eligibility_result,
+            rfq,
+            transaction_complete=transaction_complete,
         )
         material_identity_sha256 = _material_identity_sha256(rfq)
         source = {
@@ -610,6 +618,22 @@ def _build_material_capability_confirmation_readiness(
         raise
     except Exception as exc:
         raise MaterialCapabilityConfirmationError() from exc
+
+
+def _build_material_capability_confirmation_snapshot(
+    rfq_content_result, supplier_eligibility_result,
+):
+    """Build subjects only from dependencies still inside one snapshot."""
+
+    try:
+        return _build_material_capability_confirmation_readiness(
+            rfq_content_result,
+            supplier_eligibility_result,
+            transaction_complete=False,
+        )
+    except Exception:
+        pass
+    raise MaterialCapabilityConfirmationError()
 
 
 def build_material_capability_confirmation_readiness(

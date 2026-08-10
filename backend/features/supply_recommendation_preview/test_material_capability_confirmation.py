@@ -376,6 +376,44 @@ class MaterialCapabilityConfirmationReadinessTests(unittest.TestCase):
             )
         self.assertEqual(error.exception.code, INVALID_INPUT)
 
+    def test_snapshot_builder_requires_open_transaction_metadata_only(self):
+        content, eligibility = _valid_dependencies()
+        content["readOnlyTransaction"] = False
+        content["rolledBack"] = False
+        eligibility["readOnlyTransaction"] = False
+        eligibility["rolledBack"] = False
+
+        snapshot = (
+            material_capability_confirmation
+            ._build_material_capability_confirmation_snapshot(
+                content, eligibility,
+            )
+        )
+        self.assertEqual(snapshot["state"], "confirmation_ready")
+        with self.assertRaises(
+            material_capability_confirmation.MaterialCapabilityConfirmationError
+        ):
+            (
+                material_capability_confirmation
+                .build_material_capability_confirmation_readiness(
+                    content, eligibility,
+                )
+            )
+
+        content["readOnlyTransaction"] = True
+        content["rolledBack"] = True
+        eligibility["readOnlyTransaction"] = True
+        eligibility["rolledBack"] = True
+        with self.assertRaises(
+            material_capability_confirmation.MaterialCapabilityConfirmationError
+        ):
+            (
+                material_capability_confirmation
+                ._build_material_capability_confirmation_snapshot(
+                    content, eligibility,
+                )
+            )
+
     def test_builds_deterministic_id_hash_only_confirmation_subjects(self):
         content, eligibility = _valid_dependencies()
 
