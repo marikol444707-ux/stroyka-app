@@ -25,6 +25,11 @@ _REVOCATION_PAYLOAD_INVALID = (
     "supply_supplier_material_revocation_payload_invalid"
 )
 _RUNTIME_FAILED = "supply_supplier_material_runtime_failed"
+_PROOF_SERVICE_UNAVAILABLE = frozenset({
+    "supply_supplier_material_schema_not_ready",
+    "supply_supplier_material_evidence_scan_incomplete",
+    "supply_supplier_material_dependency_incomplete",
+})
 _CONFIRMATION_FIELDS = {
     "companySupplierLinkId", "supplierId", "confirmationSubjectSha256",
 }
@@ -34,6 +39,17 @@ _RECEIPT_FIELDS = {
     "confirmationSubjectSha256", "assertionId", "revokesAssertionId",
     "actorUserId", "actorMembershipId", "writesAttempted", "committed",
 }
+_PUBLIC_PROOF_BLOCKERS = frozenset({
+    "supply_supplier_material_evidence_invalid",
+    "supply_supplier_material_confirmation_required",
+    "supply_supplier_material_proof_partial",
+    "supply_supplier_material_dependency_invalid",
+    "supply_supplier_no_active_company_links",
+})
+_PUBLIC_PROOF_STATES = frozenset({
+    "proof_complete", "proof_partial", "confirmation_required",
+    "no_candidates", "needs_review",
+})
 _POSITIVE_RE = re.compile(r"^[1-9][0-9]*$")
 _NON_NEGATIVE_RE = re.compile(r"^(0|[1-9][0-9]*)$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -104,8 +120,9 @@ def _validated_bundle(value, selectors):
             "supply_supplier_material_runtime_read_failed"
         )
     selected = value.get("selected")
+    proof = value.get("proof")
     if (
-        type(value.get("proof")) is not dict
+        type(proof) is not dict
         or type(value.get("combinedReport")) is not dict
         or type(selected) is not dict
         or selected != {
@@ -116,7 +133,126 @@ def _validated_bundle(value, selectors):
         raise MaterialCapabilityRuntimeError(
             "supply_supplier_material_runtime_read_failed"
         )
+    if proof.get("state") == "incomplete":
+        blockers = proof.get("blockers")
+        if (
+            type(blockers) is list
+            and len(blockers) == 1
+            and type(blockers[0]) is str
+            and blockers[0] in _PROOF_SERVICE_UNAVAILABLE
+        ):
+            raise SupplierMaterialCapabilityProofError(blockers[0])
+        raise MaterialCapabilityRuntimeError(
+            "supply_supplier_material_runtime_read_failed"
+        )
     return value
+
+
+def _public_proof(value, selectors):
+    source = value.get("source")
+    subjects = value.get("proofSubjects")
+    blockers = value.get("blockers")
+    state = value.get("state")
+    if (
+        type(source) is not dict
+        or source.get("requestId") != selectors["requestId"]
+        or source.get("requestItemIndex") != selectors["requestItemIndex"]
+        or type(subjects) is not list
+        or len(subjects) > 100
+        or type(blockers) is not list
+        or any(
+            type(code) is not str or code not in _PUBLIC_PROOF_BLOCKERS
+            for code in blockers
+        )
+        or type(state) is not str
+        or state not in _PUBLIC_PROOF_STATES
+        or value.get("materialEligibilityProven") not in (True, False)
+        or value.get("selectionAllowed") is not False
+        or value.get("sendAllowed") is not False
+    ):
+        raise MaterialCapabilityRuntimeError(
+            "supply_supplier_material_runtime_read_failed"
+        )
+    projected = []
+    for subject in subjects:
+        if type(subject) is not dict:
+            raise MaterialCapabilityRuntimeError(
+                "supply_supplier_material_runtime_read_failed"
+            )
+        link_id = subject.get("companySupplierLinkId")
+        supplier_id = subject.get("supplierId")
+        subject_sha256 = subject.get("confirmationSubjectSha256")
+        proof_state = subject.get("proofState")
+        evidence = subject.get("evidence")
+        if (
+            type(link_id) is not int
+            or link_id <= 0
+            or type(supplier_id) is not int
+            or supplier_id <= 0
+            or type(subject_sha256) is not str
+            or _SHA256_RE.fullmatch(subject_sha256) is None
+            or type(proof_state) is not str
+            or proof_state not in {"missing", "confirmed", "revoked"}
+            or type(evidence) is not list
+            or len(evidence) > 2
+        ):
+            raise MaterialCapabilityRuntimeError(
+                "supply_supplier_material_runtime_read_failed"
+            )
+        confirmation_id = None
+        revocation_id = None
+        for event in evidence:
+            if type(event) is not dict:
+                raise MaterialCapabilityRuntimeError(
+                    "supply_supplier_material_runtime_read_failed"
+                )
+            assertion_id = event.get("assertionId")
+            event_kind = event.get("eventKind")
+            if type(assertion_id) is not int or assertion_id <= 0:
+                raise MaterialCapabilityRuntimeError(
+                    "supply_supplier_material_runtime_read_failed"
+                )
+            if event_kind == "confirmed" and confirmation_id is None:
+                confirmation_id = assertion_id
+            elif event_kind == "revoked" and revocation_id is None:
+                revocation_id = assertion_id
+            else:
+                raise MaterialCapabilityRuntimeError(
+                    "supply_supplier_material_runtime_read_failed"
+                )
+        expected_ids = {
+            "missing": (None, None),
+            "confirmed": (confirmation_id, None),
+            "revoked": (confirmation_id, revocation_id),
+        }[proof_state]
+        if (confirmation_id, revocation_id) != expected_ids or (
+            proof_state != "missing" and confirmation_id is None
+        ):
+            raise MaterialCapabilityRuntimeError(
+                "supply_supplier_material_runtime_read_failed"
+            )
+        projected.append({
+            "companySupplierLinkId": link_id,
+            "supplierId": supplier_id,
+            "confirmationSubjectSha256": subject_sha256,
+            "proofState": proof_state,
+            "confirmationAssertionId": confirmation_id,
+            "revocationAssertionId": revocation_id,
+        })
+    return {
+        "publicProofVersion": 1,
+        "state": state,
+        "requestId": selectors["requestId"],
+        "requestItemIndex": selectors["requestItemIndex"],
+        "subjectCount": len(projected),
+        "subjects": projected,
+        "materialEligibilityProven": value[
+            "materialEligibilityProven"
+        ],
+        "selectionAllowed": False,
+        "sendAllowed": False,
+        "blockers": list(blockers),
+    }
 
 
 def _validated_receipt(value, *, event_kind, company_id):
@@ -165,6 +301,18 @@ def _validated_receipt(value, *, event_kind, company_id):
     return value
 
 
+def _public_receipt(value):
+    return {
+        field: value[field]
+        for field in (
+            "writeVersion", "eventKind", "state",
+            "companySupplierLinkId", "supplierId",
+            "confirmationSubjectSha256", "assertionId",
+            "revokesAssertionId", "writesAttempted", "committed",
+        )
+    }
+
+
 def _raise_public(exc):
     code = getattr(exc, "code", "")
     if isinstance(exc, CookieSessionAuthenticationError):
@@ -179,7 +327,7 @@ def _raise_public(exc):
         detail = code if status != 500 else _RUNTIME_FAILED
         raise HTTPException(status_code=status, detail=detail)
     if isinstance(exc, SupplierMaterialCapabilityProofError):
-        if code == "supply_supplier_material_schema_not_ready":
+        if code in _PROOF_SERVICE_UNAVAILABLE:
             raise HTTPException(status_code=503, detail=code)
         raise HTTPException(status_code=500, detail=_RUNTIME_FAILED)
     if isinstance(exc, MaterialCapabilityRuntimeError):
@@ -252,7 +400,7 @@ def register_material_capability_runtime_module(app, deps):
                 run_runtime_read(get_db, authentication, selectors),
                 selectors,
             )
-            return bundle["proof"]
+            return _public_proof(bundle["proof"], selectors)
         except HTTPException:
             raise
         except Exception as exc:
@@ -280,18 +428,8 @@ def register_material_capability_runtime_module(app, deps):
         company_id = _company_id(x_company_id, x_company_mode)
         parsed_request_id = _path_int(request_id)
         parsed_item_index = _path_int(request_item_index, allow_zero=True)
-        body, decoded = await _json_body(request)
-        payload = _confirmation_payload(body) if decoded else None
-        if (
-            None in (company_id, parsed_request_id, parsed_item_index)
-            or payload is None
-        ):
-            detail = (
-                _SELECTOR_INVALID
-                if None in (company_id, parsed_request_id, parsed_item_index)
-                else _CONFIRMATION_PAYLOAD_INVALID
-            )
-            raise HTTPException(status_code=422, detail=detail)
+        if None in (company_id, parsed_request_id, parsed_item_index):
+            raise HTTPException(status_code=422, detail=_SELECTOR_INVALID)
         try:
             authentication = build_authentication(
                 request,
@@ -299,6 +437,13 @@ def register_material_capability_runtime_module(app, deps):
                 x_csrf_token,
                 require_csrf=True,
             )
+            body, decoded = await _json_body(request)
+            payload = _confirmation_payload(body) if decoded else None
+            if payload is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=_CONFIRMATION_PAYLOAD_INVALID,
+                )
             selectors = {
                 "companyId": company_id,
                 "requestId": parsed_request_id,
@@ -320,7 +465,9 @@ def register_material_capability_runtime_module(app, deps):
                 company_id=company_id,
             )
             status = 200 if receipt["state"] == "already_confirmed" else 201
-            return JSONResponse(status_code=status, content=receipt)
+            return JSONResponse(
+                status_code=status, content=_public_receipt(receipt),
+            )
         except HTTPException:
             raise
         except Exception as exc:
@@ -346,15 +493,8 @@ def register_material_capability_runtime_module(app, deps):
     ):
         company_id = _company_id(x_company_id, x_company_mode)
         assertion_id = _path_int(confirmation_assertion_id)
-        body, decoded = await _json_body(request, absent_allowed=True)
         if company_id is None or assertion_id is None:
             raise HTTPException(status_code=422, detail=_SELECTOR_INVALID)
-        if not decoded or not (
-            body is _ABSENT_BODY or (type(body) is dict and body == {})
-        ):
-            raise HTTPException(
-                status_code=422, detail=_REVOCATION_PAYLOAD_INVALID,
-            )
         try:
             authentication = build_authentication(
                 request,
@@ -362,6 +502,17 @@ def register_material_capability_runtime_module(app, deps):
                 x_csrf_token,
                 require_csrf=True,
             )
+            body, decoded = await _json_body(
+                request, absent_allowed=True,
+            )
+            if not decoded or not (
+                body is _ABSENT_BODY
+                or (type(body) is dict and body == {})
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail=_REVOCATION_PAYLOAD_INVALID,
+                )
             receipt = _validated_receipt(
                 revoke(
                     get_db,
@@ -375,7 +526,9 @@ def register_material_capability_runtime_module(app, deps):
                 company_id=company_id,
             )
             status = 200 if receipt["state"] == "already_revoked" else 201
-            return JSONResponse(status_code=status, content=receipt)
+            return JSONResponse(
+                status_code=status, content=_public_receipt(receipt),
+            )
         except HTTPException:
             raise
         except Exception as exc:

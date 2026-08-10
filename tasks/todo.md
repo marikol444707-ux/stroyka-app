@@ -7189,6 +7189,12 @@ select a supplier or send/request an RFQ.
   indistinguishable fixed `404`; source/job/lineage drift is fixed `409`;
   missing schema or bounded-scan failure is fixed `503`. Malformed selectors
   are `422`.
+- The HTTP response is a strict public projection, not the internal proof:
+  it contains only request/item state, fixed blockers, supplier/link IDs,
+  confirmation-subject hashes and the immutable confirmation/revocation
+  assertion handles needed by the panel. Actor IDs, role/source receipts,
+  raw evidence rows, material identity and dependency hashes never cross the
+  HTTP boundary.
 
 ### A8.4c2b: Confirmation And Revocation Routes
 
@@ -7217,7 +7223,10 @@ select a supplier or send/request an RFQ.
 **HTTP and effect contract:**
 
 - A new append-only row returns `201`; `already_confirmed` and
-  `already_revoked` return `200` with the exact c1 receipt. No route writes an
+  `already_revoked` return `200` with an exact public receipt projection
+  containing only event/state, supplier/link, subject hash, assertion handles
+  and write/commit outcome. Internal c1 actor/company/material receipt fields
+  remain server-only. No route writes an
   audit row through a second connection, sends email/messenger traffic, calls
   an LLM/provider, ranks/selects a supplier or sends/requests an RFQ.
 - Adapter auth/CSRF failures are `401/403`; exact-company/director/2FA failure

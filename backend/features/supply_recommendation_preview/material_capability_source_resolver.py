@@ -36,6 +36,8 @@ _MAX_PROJECT_TEXT = 1000
 _MAX_PACKAGE_TEXT = 100
 _MAX_MATERIAL_TEXT = 1000
 _MAX_UNIT_TEXT = 100
+MAX_JOB_PAYLOAD_BYTES = 64 * 1024
+MAX_JOB_RESULT_BYTES = MAX_CANONICAL_SOURCE_BYTES
 
 
 class MaterialCapabilitySourceResolverError(ValueError):
@@ -336,13 +338,22 @@ def _load_job(cur, source):
     cur.execute(
         """SELECT id,owner_scope,company_id,project_id,project_scope_id,
                   requested_by_user_id,requested_by_role,job_type,
-                  idempotency_key,correlation_id,payload_json,result_json,status
+                  idempotency_key,correlation_id,
+                  CASE WHEN octet_length(payload_json::text)<=%s
+                       THEN payload_json END AS payload_json,
+                  CASE WHEN octet_length(result_json::text)<=%s
+                       THEN result_json END AS result_json,
+                  octet_length(payload_json::text) AS payload_bytes,
+                  octet_length(result_json::text) AS result_bytes,
+                  status
              FROM public.agent_jobs
             WHERE company_id=%s AND project_scope_id=%s
               AND job_type=%s AND idempotency_key=%s
             ORDER BY id
             LIMIT %s""",
         (
+            MAX_JOB_PAYLOAD_BYTES,
+            MAX_JOB_RESULT_BYTES,
             plan.company_id,
             plan.project_id,
             plan.job_type,
@@ -359,6 +370,8 @@ def _validated_report(plan, source, source_details, lineage, selected, rows):
     if len(rows) != 1:
         _fail(_SOURCE_INVALID)
     row = rows[0]
+    payload_bytes = row.get("payload_bytes")
+    result_bytes = row.get("result_bytes")
     if (
         not _positive_int(row.get("id"))
         or row.get("owner_scope") != "company"
@@ -371,6 +384,12 @@ def _validated_report(plan, source, source_details, lineage, selected, rows):
         or row.get("idempotency_key") != plan.idempotency_key
         or row.get("correlation_id") != plan.correlation_id
         or row.get("status") != "succeeded"
+        or type(payload_bytes) is not int
+        or payload_bytes < 0
+        or payload_bytes > MAX_JOB_PAYLOAD_BYTES
+        or type(result_bytes) is not int
+        or result_bytes < 0
+        or result_bytes > MAX_JOB_RESULT_BYTES
     ):
         _fail(_SOURCE_INVALID)
     payload = _decoded_object(row.get("payload_json"))

@@ -150,6 +150,8 @@ def job_row(**overrides):
         "correlation_id": plan.correlation_id,
         "payload_json": source_payload(),
         "result_json": valid_report(),
+        "payload_bytes": 1024,
+        "result_bytes": 4096,
         "status": "succeeded",
         "private_detail": "must-not-leak",
     }
@@ -248,12 +250,38 @@ class MaterialCapabilitySourceResolverTests(unittest.TestCase):
         self.assertIn("project_scope_id=%s", job_sql.lower())
         self.assertIn("job_type=%s", job_sql.lower())
         self.assertIn("idempotency_key=%s", job_sql.lower())
+        self.assertGreaterEqual(job_sql.lower().count("octet_length"), 4)
+        self.assertIn("case", job_sql.lower())
         self.assertEqual(job_params, (
+            resolver.MAX_JOB_PAYLOAD_BYTES,
+            resolver.MAX_JOB_RESULT_BYTES,
             4, 17, JOB_TYPE, plan.idempotency_key, 2,
         ))
         serialized_sql = " ".join(lowered)
         self.assertNotIn("private project", serialized_sql)
         self.assertNotIn("must-not-leak", serialized_sql)
+
+    def test_oversized_job_payload_or_result_fails_closed_before_decoding(self):
+        cases = (
+            job_row(
+                payload_json=None,
+                payload_bytes=resolver.MAX_JOB_PAYLOAD_BYTES + 1,
+            ),
+            job_row(
+                result_json=None,
+                result_bytes=resolver.MAX_JOB_RESULT_BYTES + 1,
+            ),
+            job_row(payload_bytes=None),
+            job_row(result_bytes=True),
+        )
+        for row in cases:
+            with self.subTest(row=row):
+                cursor = FakeCursor((
+                    [request_row()],
+                    [target_row()],
+                    [row],
+                ))
+                assert_code(self, cursor, SOURCE_INVALID)
 
     def test_rejects_non_exact_selectors_before_any_database_read(self):
         invalid_cases = (

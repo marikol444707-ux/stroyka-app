@@ -36,6 +36,22 @@ PROOF = {
     "state": "confirmation_required",
     "source": {"companyId": 4, **SELECTION},
     "proofSubjects": [],
+    "materialEligibilityProven": False,
+    "selectionAllowed": False,
+    "sendAllowed": False,
+    "blockers": [],
+}
+PUBLIC_PROOF = {
+    "publicProofVersion": 1,
+    "state": "confirmation_required",
+    "requestId": 21,
+    "requestItemIndex": 0,
+    "subjectCount": 0,
+    "subjects": [],
+    "materialEligibilityProven": False,
+    "selectionAllowed": False,
+    "sendAllowed": False,
+    "blockers": [],
 }
 
 
@@ -79,6 +95,23 @@ def revocation_receipt(idempotent=False):
     }
 
 
+def public_receipt(receipt):
+    return {
+        "writeVersion": receipt["writeVersion"],
+        "eventKind": receipt["eventKind"],
+        "state": receipt["state"],
+        "companySupplierLinkId": receipt["companySupplierLinkId"],
+        "supplierId": receipt["supplierId"],
+        "confirmationSubjectSha256": receipt[
+            "confirmationSubjectSha256"
+        ],
+        "assertionId": receipt["assertionId"],
+        "revokesAssertionId": receipt["revokesAssertionId"],
+        "writesAttempted": receipt["writesAttempted"],
+        "committed": receipt["committed"],
+    }
+
+
 class FakeApp:
     def __init__(self):
         self.routes = {}
@@ -107,6 +140,7 @@ class RouteHarness:
         revocation_error=None,
         confirmation_result=None,
         revocation_result=None,
+        proof_result=None,
     ):
         self.db_calls = 0
         self.authentication_calls = []
@@ -122,6 +156,7 @@ class RouteHarness:
             confirmation_result or confirmation_receipt()
         )
         self.revocation_result = revocation_result or revocation_receipt()
+        self.proof_result = proof_result or PROOF
         self.get_db_dependency = self.get_db
         self.app = FastAPI()
         REGISTER(self.app, {
@@ -174,7 +209,7 @@ class RouteHarness:
         if self.read_error:
             raise self.read_error
         return {
-            "proof": dict(PROOF),
+            "proof": dict(self.proof_result),
             "combinedReport": REPORT,
             "selected": dict(SELECTION),
         }
@@ -258,15 +293,17 @@ class MaterialCapabilityRuntimeRouteContractTests(unittest.TestCase):
             json={},
         )
 
-        self.assertEqual((proof.status_code, proof.json()), (200, PROOF))
+        self.assertEqual(
+            (proof.status_code, proof.json()), (200, PUBLIC_PROOF),
+        )
         self.assertNotIn("privateReport", proof.text)
         self.assertEqual(
             (confirmed.status_code, confirmed.json()),
-            (201, confirmation_receipt()),
+            (201, public_receipt(confirmation_receipt())),
         )
         self.assertEqual(
             (revoked.status_code, revoked.json()),
-            (201, revocation_receipt()),
+            (201, public_receipt(revocation_receipt())),
         )
         self.assertEqual(
             [call[-1] for call in harness.authentication_calls],
@@ -329,8 +366,58 @@ class MaterialCapabilityRuntimeRouteContractTests(unittest.TestCase):
                         headers=harness.headers(csrf=True),
                     )
                 self.assertEqual((response.status_code, response.json()), (
-                    status, receipt,
+                    status, public_receipt(receipt),
                 ))
+
+    def test_http_projection_never_exposes_actor_or_evidence_payload(self):
+        proof = dict(PROOF)
+        proof["state"] = "proof_complete"
+        proof["proofSubjects"] = [{
+            "companySupplierLinkId": 31,
+            "supplierId": 41,
+            "materialIdentitySha256": "c" * 64,
+            "confirmationSubjectSha256": "b" * 64,
+            "proofState": "confirmed",
+            "evidence": [{
+                "assertionId": 501,
+                "eventKind": "confirmed",
+                "actorMembershipId": 12,
+                "actorUserId": 11,
+                "actorRole": "директор",
+                "sourceKind": "director_manual",
+                "revokesAssertionId": None,
+            }],
+        }]
+        proof["materialEligibilityProven"] = True
+        harness = RouteHarness(proof_result=proof)
+
+        read = harness.client.get(
+            "/supply-requests/21/items/0/material-capability-proof",
+            headers=harness.headers(),
+        )
+        written = harness.client.post(
+            "/supply-requests/21/items/0/"
+            "material-capability-confirmations",
+            headers=harness.headers(csrf=True),
+            json=harness.confirmation_body(),
+        )
+
+        self.assertEqual(read.status_code, 200)
+        self.assertEqual(read.json()["subjects"], [{
+            "companySupplierLinkId": 31,
+            "supplierId": 41,
+            "confirmationSubjectSha256": "b" * 64,
+            "proofState": "confirmed",
+            "confirmationAssertionId": 501,
+            "revocationAssertionId": None,
+        }])
+        self.assertEqual(written.status_code, 201)
+        for response in (read, written):
+            self.assertNotIn("actorUserId", response.text)
+            self.assertNotIn("actorMembershipId", response.text)
+            self.assertNotIn("actorRole", response.text)
+            self.assertNotIn("sourceKind", response.text)
+            self.assertNotIn("evidence", response.text)
 
     def test_invalid_selector_or_confirmation_body_fails_before_db(self):
         selector_cases = (
@@ -463,6 +550,55 @@ class MaterialCapabilityRuntimeRouteContractTests(unittest.TestCase):
                 ))
                 if "authentication_error" in options:
                     self.assertEqual(harness.db_calls, 0)
+
+    def test_incomplete_completed_proof_is_a_fixed_service_unavailable(self):
+        blocker_codes = (
+            "supply_supplier_material_schema_not_ready",
+            "supply_supplier_material_evidence_scan_incomplete",
+            "supply_supplier_material_dependency_incomplete",
+        )
+        for code in blocker_codes:
+            with self.subTest(code=code):
+                proof = dict(PROOF)
+                proof.update({"state": "incomplete", "blockers": [code]})
+                harness = RouteHarness(proof_result=proof)
+                response = harness.client.get(
+                    "/supply-requests/21/items/0/material-capability-proof",
+                    headers=harness.headers(),
+                )
+                self.assertEqual(response.status_code, 503)
+                self.assertEqual(response.json(), {"detail": code})
+
+    def test_mutations_require_cookie_csrf_before_buffering_invalid_body(self):
+        error = CookieSessionAuthenticationError(
+            "cookie_session_csrf_invalid"
+        )
+        cases = (
+            (
+                "/supply-requests/21/items/0/"
+                "material-capability-confirmations",
+                {},
+            ),
+            (
+                "/supplier-material-capability-confirmations/501/"
+                "revocations",
+                {"companyId": 4},
+            ),
+        )
+        for path, body in cases:
+            with self.subTest(path=path):
+                harness = RouteHarness(authentication_error=error)
+                response = harness.client.post(
+                    path,
+                    headers=harness.headers(),
+                    json=body,
+                )
+                self.assertEqual(response.status_code, 403)
+                self.assertEqual(response.json(), {
+                    "detail": "cookie_session_csrf_invalid",
+                })
+                self.assertEqual(len(harness.authentication_calls), 1)
+                self.assertEqual(harness.runtime_read_calls, [])
 
     def test_writer_errors_use_the_fixed_public_status_table(self):
         cases = (
