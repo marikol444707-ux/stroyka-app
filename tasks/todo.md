@@ -6842,9 +6842,13 @@ job, model action, supplier ranking, supplier selection or RFQ send.
   subject identity. One partial unique index permits one confirmation per
   company/subject; another permits one revocation per confirmation.
 - A `BEFORE INSERT` guard rechecks exact active `users + user_company_roles +
-  companies` director authority and exact active
-  `company_supplier_links + suppliers + supplier portal user` ownership.
-  It uses no legacy fallback and assigns the server timestamp.
+  companies` director authority for both event kinds. A confirmation also
+  requires exact active `company_supplier_links + platform account +
+  suppliers + supplier portal user` ownership. A revocation instead binds to
+  the exact immutable confirmation row and remains possible when those
+  supplier-side parents were later disabled or removed; otherwise stale proof
+  could not be explicitly revoked. The guard uses no legacy fallback and
+  assigns the server timestamp.
 - Row triggers reject `UPDATE` and `DELETE`; a statement trigger rejects
   `TRUNCATE`. Schema/catalog drift, disabled/missing guards or incompatible
   indexes block both apply and proof collection.
@@ -6888,10 +6892,12 @@ job, model action, supplier ranking, supplier selection or RFQ send.
 
 **Threat model:**
 
-- Spoofing/elevation: exact tenant membership and active parents are checked
-  by both future writer logic and the DB insert trigger; membership role must
-  be exactly `директор`. The future writer must require a passed 2FA session
-  even when the user's global role differs.
+- Spoofing/elevation: exact tenant membership and active company/actor parents
+  are checked for every event; active supplier-side parents are additionally
+  required for confirmation, while revocation must match its immutable target.
+  Both future writer logic and the DB insert trigger require membership role
+  exactly `директор`. The future writer must require a passed 2FA session even
+  when the user's global role differs.
 - Tampering/repudiation: immutable confirmation and explicit revocation rows,
   self-target validation, partial uniqueness and deterministic proof hashes.
 - Cross-tenant disclosure: exact company/link/supplier/subject predicates,
@@ -6929,6 +6935,7 @@ job, model action, supplier ranking, supplier selection or RFQ send.
 **Files likely touched:**
 
 - `backend/features/supply_recommendation_preview/material_capability_schema.py`
+- `backend/features/supply_recommendation_preview/material_capability_schema_contract.py`
 - `backend/features/supply_recommendation_preview/test_material_capability_schema.py`
 - `backend/features/supply_recommendation_preview/material_capability_proof.py`
 - `backend/features/supply_recommendation_preview/test_material_capability_proof.py`
@@ -6937,10 +6944,10 @@ job, model action, supplier ranking, supplier selection or RFQ send.
 
 **Acceptance criteria:**
 
-- [ ] Fresh schema produces one exact count/SHA-bound plan; blocked/drifted
+- [x] Fresh schema produces one exact count/SHA-bound plan; blocked/drifted
   schemas cannot apply; successful apply/postcheck and rollback are proven in
   disposable PostgreSQL, while no real migration is invoked.
-- [ ] PostgreSQL rejects invalid authority/scope/revocation, duplicate events,
+- [x] PostgreSQL rejects invalid authority/scope/revocation, duplicate events,
   update/delete/truncate and accepts only exact director-confirmed rows.
 - [ ] The proof collector rebuilds A8.2/A8.3/A8.4a and reads assertions in one
   read-only snapshot with unconditional rollback.
