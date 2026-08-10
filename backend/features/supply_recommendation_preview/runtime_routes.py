@@ -25,6 +25,13 @@ _REVOCATION_PAYLOAD_INVALID = (
     "supply_supplier_material_revocation_payload_invalid"
 )
 _RUNTIME_FAILED = "supply_supplier_material_runtime_failed"
+_AUTH_REQUIRED = "cookie_session_authentication_required"
+_CSRF_INVALID = "cookie_session_csrf_invalid"
+_INTERNAL_PROOF_SOURCE_FIELDS = {
+    "companyId", "requestId", "requestItemIndex", "requestItemSha256",
+    "rfqContentSha256", "supplierEligibilitySha256",
+    "materialIdentitySha256",
+}
 _PROOF_SERVICE_UNAVAILABLE = frozenset({
     "supply_supplier_material_schema_not_ready",
     "supply_supplier_material_evidence_scan_incomplete",
@@ -78,10 +85,17 @@ def _company_id(value, mode):
 
 async def _json_body(request, *, absent_allowed=False):
     try:
-        raw = await request.body()
+        chunks = []
+        size = 0
+        async for chunk in request.stream():
+            if type(chunk) is not bytes:
+                return None, False
+            size += len(chunk)
+            if size > _MAX_BODY_BYTES:
+                return None, False
+            chunks.append(chunk)
+        raw = b"".join(chunks)
     except Exception:
-        return None, False
-    if len(raw) > _MAX_BODY_BYTES:
         return None, False
     if not raw.strip():
         return (_ABSENT_BODY, True) if absent_allowed else (None, False)
@@ -155,11 +169,27 @@ def _public_proof(value, selectors):
     state = value.get("state")
     if (
         type(source) is not dict
+        or set(source) != _INTERNAL_PROOF_SOURCE_FIELDS
+        or type(source.get("companyId")) is not int
+        or source.get("companyId") <= 0
+        or source.get("companyId") != selectors["companyId"]
+        or type(source.get("requestId")) is not int
+        or type(source.get("requestItemIndex")) is not int
         or source.get("requestId") != selectors["requestId"]
         or source.get("requestItemIndex") != selectors["requestItemIndex"]
+        or any(
+            type(source.get(field)) is not str
+            or _SHA256_RE.fullmatch(source[field]) is None
+            for field in (
+                "requestItemSha256", "rfqContentSha256",
+                "supplierEligibilitySha256", "materialIdentitySha256",
+            )
+        )
         or type(subjects) is not list
         or len(subjects) > 100
         or type(blockers) is not list
+        or len(blockers) > len(_PUBLIC_PROOF_BLOCKERS)
+        or len(set(blockers)) != len(blockers)
         or any(
             type(code) is not str or code not in _PUBLIC_PROOF_BLOCKERS
             for code in blockers
@@ -320,8 +350,9 @@ def _public_receipt(value):
 def _raise_public(exc):
     code = getattr(exc, "code", "")
     if isinstance(exc, CookieSessionAuthenticationError):
-        status = 403 if code == "cookie_session_csrf_invalid" else 401
-        raise HTTPException(status_code=status, detail=code)
+        if code == _CSRF_INVALID:
+            raise HTTPException(status_code=403, detail=_CSRF_INVALID)
+        raise HTTPException(status_code=401, detail=_AUTH_REQUIRED)
     if isinstance(exc, MaterialCapabilitySourceResolverError):
         status = {
             "supply_supplier_material_source_input_invalid": 422,
@@ -359,6 +390,13 @@ def _raise_public(exc):
     raise HTTPException(status_code=500, detail=_RUNTIME_FAILED)
 
 
+def _invoke_dependency(callback):
+    try:
+        return callback()
+    except Exception as exc:
+        _raise_public(exc)
+
+
 def register_material_capability_runtime_module(app, deps):
     """Register the three reviewed routes only when explicitly enabled."""
 
@@ -391,24 +429,21 @@ def register_material_capability_runtime_module(app, deps):
         parsed_item_index = _path_int(request_item_index, allow_zero=True)
         if None in (company_id, parsed_request_id, parsed_item_index):
             raise HTTPException(status_code=422, detail=_SELECTOR_INVALID)
-        try:
-            authentication = build_authentication(
+        authentication = _invoke_dependency(lambda: build_authentication(
                 request, authorization, None, require_csrf=False,
-            )
-            selectors = {
-                "companyId": company_id,
-                "requestId": parsed_request_id,
-                "requestItemIndex": parsed_item_index,
-            }
-            bundle = _validated_bundle(
+            ))
+        selectors = {
+            "companyId": company_id,
+            "requestId": parsed_request_id,
+            "requestItemIndex": parsed_item_index,
+        }
+        bundle = _invoke_dependency(lambda: _validated_bundle(
                 run_runtime_read(get_db, authentication, selectors),
                 selectors,
-            )
-            return _public_proof(bundle["proof"], selectors)
-        except HTTPException:
-            raise
-        except Exception as exc:
-            _raise_public(exc)
+            ))
+        return _invoke_dependency(
+            lambda: _public_proof(bundle["proof"], selectors)
+        )
 
     @app.post(
         "/supply-requests/{request_id}/items/{request_item_index}/"
@@ -434,30 +469,29 @@ def register_material_capability_runtime_module(app, deps):
         parsed_item_index = _path_int(request_item_index, allow_zero=True)
         if None in (company_id, parsed_request_id, parsed_item_index):
             raise HTTPException(status_code=422, detail=_SELECTOR_INVALID)
-        try:
-            authentication = build_authentication(
+        authentication = _invoke_dependency(lambda: build_authentication(
                 request,
                 authorization,
                 x_csrf_token,
                 require_csrf=True,
+            ))
+        body, decoded = await _json_body(request)
+        payload = _confirmation_payload(body) if decoded else None
+        if payload is None:
+            raise HTTPException(
+                status_code=422,
+                detail=_CONFIRMATION_PAYLOAD_INVALID,
             )
-            body, decoded = await _json_body(request)
-            payload = _confirmation_payload(body) if decoded else None
-            if payload is None:
-                raise HTTPException(
-                    status_code=422,
-                    detail=_CONFIRMATION_PAYLOAD_INVALID,
-                )
-            selectors = {
-                "companyId": company_id,
-                "requestId": parsed_request_id,
-                "requestItemIndex": parsed_item_index,
-            }
-            bundle = _validated_bundle(
+        selectors = {
+            "companyId": company_id,
+            "requestId": parsed_request_id,
+            "requestItemIndex": parsed_item_index,
+        }
+        bundle = _invoke_dependency(lambda: _validated_bundle(
                 run_runtime_read(get_db, authentication, selectors),
                 selectors,
-            )
-            receipt = _validated_receipt(
+            ))
+        receipt = _invoke_dependency(lambda: _validated_receipt(
                 confirm(
                     get_db,
                     bundle["combinedReport"],
@@ -467,15 +501,11 @@ def register_material_capability_runtime_module(app, deps):
                 ),
                 event_kind="confirmed",
                 company_id=company_id,
-            )
-            status = 200 if receipt["state"] == "already_confirmed" else 201
-            return JSONResponse(
-                status_code=status, content=_public_receipt(receipt),
-            )
-        except HTTPException:
-            raise
-        except Exception as exc:
-            _raise_public(exc)
+            ))
+        status = 200 if receipt["state"] == "already_confirmed" else 201
+        return JSONResponse(
+            status_code=status, content=_public_receipt(receipt),
+        )
 
     @app.post(
         "/supplier-material-capability-confirmations/"
@@ -499,25 +529,24 @@ def register_material_capability_runtime_module(app, deps):
         assertion_id = _path_int(confirmation_assertion_id)
         if company_id is None or assertion_id is None:
             raise HTTPException(status_code=422, detail=_SELECTOR_INVALID)
-        try:
-            authentication = build_authentication(
+        authentication = _invoke_dependency(lambda: build_authentication(
                 request,
                 authorization,
                 x_csrf_token,
                 require_csrf=True,
+            ))
+        body, decoded = await _json_body(
+            request, absent_allowed=True,
+        )
+        if not decoded or not (
+            body is _ABSENT_BODY
+            or (type(body) is dict and body == {})
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=_REVOCATION_PAYLOAD_INVALID,
             )
-            body, decoded = await _json_body(
-                request, absent_allowed=True,
-            )
-            if not decoded or not (
-                body is _ABSENT_BODY
-                or (type(body) is dict and body == {})
-            ):
-                raise HTTPException(
-                    status_code=422,
-                    detail=_REVOCATION_PAYLOAD_INVALID,
-                )
-            receipt = _validated_receipt(
+        receipt = _invoke_dependency(lambda: _validated_receipt(
                 revoke(
                     get_db,
                     authentication,
@@ -528,15 +557,11 @@ def register_material_capability_runtime_module(app, deps):
                 ),
                 event_kind="revoked",
                 company_id=company_id,
-            )
-            status = 200 if receipt["state"] == "already_revoked" else 201
-            return JSONResponse(
-                status_code=status, content=_public_receipt(receipt),
-            )
-        except HTTPException:
-            raise
-        except Exception as exc:
-            _raise_public(exc)
+            ))
+        status = 200 if receipt["state"] == "already_revoked" else 201
+        return JSONResponse(
+            status_code=status, content=_public_receipt(receipt),
+        )
 
     return None
 

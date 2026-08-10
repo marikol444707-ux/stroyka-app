@@ -1,7 +1,8 @@
 import inspect
+import asyncio
 import unittest
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 import backend.features.supply_recommendation_preview.runtime_routes as runtime_routes
@@ -34,7 +35,14 @@ PROOF = {
     "proofVersion": 1,
     "ok": True,
     "state": "confirmation_required",
-    "source": {"companyId": 4, **SELECTION},
+    "source": {
+        "companyId": 4,
+        **SELECTION,
+        "requestItemSha256": "1" * 64,
+        "rfqContentSha256": "2" * 64,
+        "supplierEligibilitySha256": "3" * 64,
+        "materialIdentitySha256": "4" * 64,
+    },
     "proofSubjects": [],
     "materialEligibilityProven": False,
     "selectionAllowed": False,
@@ -247,6 +255,24 @@ class RouteHarness:
 
 
 class MaterialCapabilityRuntimeRouteContractTests(unittest.TestCase):
+    def test_body_parser_stops_streaming_immediately_after_the_hard_cap(self):
+        class StreamRequest:
+            def __init__(self):
+                self.consumed = 0
+
+            async def stream(self):
+                for chunk in (b"a" * 3000, b"b" * 2000):
+                    self.consumed += 1
+                    yield chunk
+                raise AssertionError("oversized parser consumed a third chunk")
+
+        request = StreamRequest()
+        value, decoded = asyncio.run(runtime_routes._json_body(request))
+
+        self.assertIsNone(value)
+        self.assertFalse(decoded)
+        self.assertEqual(request.consumed, 2)
+
     def test_feature_flag_off_registers_nothing_and_reads_no_other_dep(self):
         app = FakeApp()
 
@@ -434,6 +460,93 @@ class MaterialCapabilityRuntimeRouteContractTests(unittest.TestCase):
                 self.assertEqual(response.json(), {
                     "detail": RUNTIME_FAILED,
                 })
+
+        proof = dict(PROOF)
+        proof["blockers"] = [
+            "supply_supplier_material_confirmation_required"
+        ] * 6
+        harness = RouteHarness(proof_result=proof)
+        response = harness.client.get(
+            "/supply-requests/21/items/0/material-capability-proof",
+            headers=harness.headers(),
+        )
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json(), {"detail": RUNTIME_FAILED})
+
+    def test_public_proof_is_exactly_bound_to_tenant_and_selectors(self):
+        cases = (
+            {"companyId": 8},
+            {"companyId": 4.0},
+            {"requestId": 21.0},
+            {"requestItemIndex": 0.0},
+        )
+        for source_patch in cases:
+            with self.subTest(source_patch=source_patch):
+                proof = dict(PROOF)
+                proof["source"] = {**PROOF["source"], **source_patch}
+                harness = RouteHarness(proof_result=proof)
+                response = harness.client.get(
+                    "/supply-requests/21/items/0/"
+                    "material-capability-proof",
+                    headers=harness.headers(),
+                )
+                self.assertEqual(response.status_code, 500)
+                self.assertEqual(response.json(), {
+                    "detail": RUNTIME_FAILED,
+                })
+
+    def test_dependency_errors_cannot_inject_http_or_auth_details(self):
+        poisoned_auth = CookieSessionAuthenticationError(
+            "cookie_session_authentication_required"
+        )
+        poisoned_auth.code = "PRIVATE_SESSION_DATABASE_DETAIL"
+        auth_harness = RouteHarness(authentication_error=poisoned_auth)
+        auth_response = auth_harness.client.get(
+            "/supply-requests/21/items/0/material-capability-proof",
+            headers=auth_harness.headers(),
+        )
+        self.assertEqual(auth_response.status_code, 401)
+        self.assertEqual(auth_response.json(), {
+            "detail": "cookie_session_authentication_required",
+        })
+
+        injected = HTTPException(
+            status_code=418,
+            detail={"private": "TENANT_SECRET"},
+        )
+        cases = (
+            (RouteHarness(authentication_error=injected), "get"),
+            (RouteHarness(read_error=injected), "get"),
+            (RouteHarness(confirmation_error=injected), "confirm"),
+            (RouteHarness(revocation_error=injected), "revoke"),
+        )
+        for harness, operation in cases:
+            with self.subTest(operation=operation):
+                if operation == "get":
+                    response = harness.client.get(
+                        "/supply-requests/21/items/0/"
+                        "material-capability-proof",
+                        headers=harness.headers(),
+                    )
+                elif operation == "confirm":
+                    response = harness.client.post(
+                        "/supply-requests/21/items/0/"
+                        "material-capability-confirmations",
+                        headers=harness.headers(csrf=True),
+                        json=harness.confirmation_body(),
+                    )
+                else:
+                    response = harness.client.post(
+                        "/supplier-material-capability-confirmations/501/"
+                        "revocations",
+                        headers=harness.headers(csrf=True),
+                        json={},
+                    )
+                self.assertEqual(response.status_code, 500)
+                self.assertEqual(response.json(), {
+                    "detail": RUNTIME_FAILED,
+                })
+                self.assertNotIn("TENANT_SECRET", response.text)
 
     def test_invalid_selector_or_confirmation_body_fails_before_db(self):
         selector_cases = (
