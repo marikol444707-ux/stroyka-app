@@ -7116,9 +7116,11 @@ was added.
 ## Task A8.4c2: Cookie-Only Capability API And Human Review UI
 
 **Status:** Local cookie-only runtime, routes and explicit review panel are
-implemented and independently reviewed as of 2026-08-10. Production schema
-apply, feature enablement and protected cookie/CSRF smoke remain separate
-operator-confirmed gates; code push and flags-off deploy are now approved.
+implemented and independently reviewed as of 2026-08-10. Corrected code is
+deployed with both capability flags off at production version `c51b107c74a3`.
+The exact append-only schema is applied and post-audited with zero remaining
+changes. Feature enablement and protected cookie/CSRF smoke remain separate
+operator-confirmed gates.
 
 **Description:** Expose the reviewed A8.4c1 writer through a narrow,
 cookie-session-only HTTP boundary and add one explicit human review panel on
@@ -7301,13 +7303,37 @@ pending-write unmount isolation and deeply nested JSON normalization. No
 production schema, assertion row, ranking, supplier selection, RFQ send,
 provider/model, email, messenger or outbox effect occurred.
 
+The first flags-off production attempt at `f089fcbb` failed its smoke because
+systemd starts `uvicorn main:app` from `backend/`, while the disabled capability
+modules were imported before their flag check and required package-root
+`backend.*` imports. Nginx stayed live but the backend failed closed with 502;
+no schema or business write ran. Production was restored to known-good
+`5b0baa81f4a3`, where health and public smoke passed. Hotfix `c51b107c` moves
+the exact-lowercase-`true` gate around both imports and registration, adds a
+production-mode regression, and passes supply-preview `157/157`, backend
+`1883/1883`, compilation and two independent reviews. The second flags-off
+deploy completed at `c51b107c74a3`; health and the full public smoke are green.
+Flag-on remains prohibited until the capability import graph supports the
+production working-directory mode.
+
+Production schema dry-run returned `blockers=[]`, `changeCount=9`,
+`schemaWritesAttempted=0`, `rolledBack=true` and exact plan SHA
+`1c396f82df7c2ed044408843d17442be0fa3fcff9afa367f67ef05a0666dbd8e`.
+After explicit approval, the guarded apply committed exactly those nine schema
+writes with the same SHA and no blocker. The mandatory post-audit returned
+`complete=true`, `changeCount=0`, `schemaWritesAttempted=0`, `rolledBack=true`
+and zero rollback steps; public smoke remained green at `c51b107c74a3`. No
+capability assertion or other business row was created.
+
 **Production gates — not authorized by local implementation:**
 
 - [ ] Verify production uses an explicit strong `AUTH_SECRET`; never print its
   value and never accept the DB-password/code-default fallback for enablement.
-- [ ] Deploy code with backend/frontend capability flags off, then run the b1
-  schema dry-run and review exact count/SHA. Apply only after a new explicit
-  operator confirmation; post-audit must be complete with zero changes.
+- [x] Deploy code with backend/frontend capability flags off and verify health
+  plus the full public smoke. Production version is `c51b107c74a3`.
+- [x] Run the b1 schema dry-run, explicitly approve and commit its exact
+  9-change SHA-guarded plan, then verify a complete zero-change post-audit and
+  green public smoke.
 - [ ] Enable/register API and UI only after schema postcheck, then run public
   smoke plus a dedicated cookie jar -> 2FA -> `/csrf-token` -> capability
   smoke that never sends Authorization.
