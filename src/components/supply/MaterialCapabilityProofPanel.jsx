@@ -158,7 +158,7 @@ export default function MaterialCapabilityProofPanel({
     } finally {
       if (generation === scopeGeneration.current) setLoading(false);
     }
-  }, [proofUrl, requestId, requestItemIndex, scopeKey]);
+  }, [proofUrl, requestId, requestItemIndex]);
 
   if (!enabled) return null;
 
