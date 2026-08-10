@@ -44,6 +44,24 @@ if AUTH_SESSION_COOKIE_SAMESITE not in ("lax", "strict", "none"):
     AUTH_SESSION_COOKIE_SAMESITE = "lax"
 CSRF_TOKEN_TTL_SECONDS = int(os.getenv("CSRF_TOKEN_TTL_SECONDS", str(2 * 60 * 60)))
 CSRF_LOGOUT_ENFORCED = os.getenv("CSRF_LOGOUT_ENFORCED", "false").strip().lower() in ("1", "true", "yes")
+COOKIE_SESSION_AUTHENTICATION_REQUIRED = (
+    "cookie_session_authentication_required"
+)
+COOKIE_SESSION_CSRF_INVALID = "cookie_session_csrf_invalid"
+_AUTH_SESSION_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{64}$")
+
+
+class CookieSessionAuthenticationError(ValueError):
+    """Fixed, secret-free cookie authentication boundary error."""
+
+    def __init__(self, code: str):
+        if code not in {
+            COOKIE_SESSION_AUTHENTICATION_REQUIRED,
+            COOKIE_SESSION_CSRF_INVALID,
+        }:
+            code = COOKIE_SESSION_AUTHENTICATION_REQUIRED
+        self.code = code
+        super().__init__(code)
 
 def hash_password(password: str) -> str:
     salt = secrets.token_hex(16)
@@ -213,6 +231,46 @@ def _valid_csrf_token(token: str, session_token: str) -> bool:
         return hmac.compare_digest(payload.get("session") or "", _session_token_hash(session_token))
     except Exception:
         return False
+
+
+def build_cookie_session_authentication(
+    request,
+    authorization=None,
+    csrf_token=None,
+    *,
+    require_csrf=True,
+):
+    """Build the exact cookie-session context without touching a database."""
+
+    if authorization is not None or type(require_csrf) is not bool:
+        raise CookieSessionAuthenticationError(
+            COOKIE_SESSION_AUTHENTICATION_REQUIRED
+        )
+    try:
+        cookies = request.cookies
+        session_token = cookies.get(AUTH_SESSION_COOKIE_NAME)
+    except Exception:
+        raise CookieSessionAuthenticationError(
+            COOKIE_SESSION_AUTHENTICATION_REQUIRED
+        ) from None
+    if (
+        type(session_token) is not str
+        or _AUTH_SESSION_TOKEN_RE.fullmatch(session_token) is None
+    ):
+        raise CookieSessionAuthenticationError(
+            COOKIE_SESSION_AUTHENTICATION_REQUIRED
+        )
+    if require_csrf and (
+        type(csrf_token) is not str
+        or not _valid_csrf_token(csrf_token, session_token)
+    ):
+        raise CookieSessionAuthenticationError(
+            COOKIE_SESSION_CSRF_INVALID
+        )
+    return {
+        "authenticationKind": "cookie_session",
+        "sessionHash": _session_token_hash(session_token),
+    }
 
 def _request_ip(request: Optional[Request]) -> str:
     if not request:
