@@ -271,7 +271,7 @@ export function buildAppShellProps({
       activePage,
       ui: uiBase,
       constants: { MATERIAL_CATEGORIES, SUPPLIER_CATEGORIES, TOOL_STATUSES, UNITS, VAT_OPTIONS },
-      state: sharedState,
+      state: { ...sharedState, companyContext },
       actions: sharedActions
     },
     appProjectEditModalsProps: {

@@ -6,6 +6,7 @@ import {
   supplierRecipientLinkAction,
   supplierRecipientStatusSummary,
 } from '../../utils/supplyUtils';
+import MaterialCapabilityProofPanel from './MaterialCapabilityProofPanel';
 
 export function SupplyRequestsEmpty({ C, card }) {
   return <div style={{ ...card, padding: '40px', textAlign: 'center', color: C.textMuted }}>Заявок нет</div>;
@@ -510,6 +511,7 @@ export function SupplyRequestCard(props) {
     badge,
     request,
     user,
+    companyContext,
     statusColors,
     parseSupplyItems,
     renderSupplyRequestOrigin,
@@ -651,6 +653,18 @@ export function SupplyRequestCard(props) {
           supplyAiText={supplyAiText}
         />
       )}
+      {['Утверждена', 'КП запрошены'].includes(request.status) && items.map((item, requestItemIndex) => (
+        <MaterialCapabilityProofPanel
+          key={`${request.id}:${requestItemIndex}`}
+          API={API}
+          C={C}
+          requestId={request.id}
+          requestItemIndex={requestItemIndex}
+          materialName={item.materialName || item.name || request.materialName}
+          suppliers={suppliers}
+          companyContext={companyContext}
+        />
+      ))}
       <OffersBlock
         API={API}
         C={C}

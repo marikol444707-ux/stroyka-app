@@ -24,6 +24,7 @@ export default function SupplyPage({
   btnR,
   badge,
   user,
+  companyContext,
   users = [],
   isLeadership,
   isFinanceRole,
@@ -435,6 +436,7 @@ export default function SupplyPage({
           list={list}
           isMobile={isMobile}
           user={user}
+          companyContext={companyContext}
           statusColors={statusColors}
           supplyCollapsedProjects={supplyCollapsedProjects}
           setSupplyCollapsedProjects={setSupplyCollapsedProjects}
