@@ -6993,3 +6993,104 @@ job, model action, supplier ranking, supplier selection or RFQ send.
 **Open questions:** None for A8.4b local implementation. A8.4c owns the
 director-only writer, mandatory passed 2FA session, API/UI and any production
 schema apply/data population.
+
+## Task A8.4c1: Local 2FA Director Capability Writer Core
+
+**Description:** Add two unregistered local transaction runners for the exact
+append-only A8.4b evidence table: one confirms a current server-derived A8.4a
+subject, and one explicitly revokes an immutable prior confirmation. This
+slice adds no route, UI, job, model call, schema apply, production write,
+supplier ranking, supplier selection or RFQ send.
+
+**Approved trust boundary:**
+
+- The authentication input is an internal server-derived mapping containing
+  only `authenticationKind='cookie_session'` and the HMAC `sessionHash`
+  calculated from the HttpOnly session cookie. It is never accepted from a
+  JSON body, returned, logged or stored in the capability row.
+- The writer resolves `actor_user_id` and `actor_membership_id` from the
+  database. It never trusts `current_user`, a client boolean, global
+  `users.role`, legacy `users.company_id`, a signed 2FA challenge or a Bearer
+  `twoFactorPassed` claim as authority.
+- In the same transaction, the exact session must be unrevoked, unexpired and
+  `two_factor_passed IS TRUE`; the actor must be active with 2FA enabled; and
+  exactly one active `user_company_roles.role='директор'` membership must bind
+  the actor to the same active company/platform account. Deputy, platform,
+  workflow, supplier and model identities are always rejected.
+- The existing immutable b1 row records the actor user/membership receipt but
+  not the session identifier. A8.4c1 therefore proves and enforces 2FA at
+  write time; persisting a durable 2FA-session receipt would require a
+  separately approved schema revision. The b1 database trigger remains the
+  independent exact-director/company/supplier-scope guard.
+
+**Confirmation contract:**
+
+- Internal inputs are the server-side A7 combined report, exact request/item
+  selection, strict cookie-session authentication context and a command with
+  exact `companyId`, `companySupplierLinkId`, `supplierId` and the expected
+  `confirmationSubjectSha256`. The expected hash is only an optimistic
+  concurrency/user-intent check, never authorization or evidence.
+- One `SERIALIZABLE` transaction pins `search_path=pg_catalog,public` and
+  fixed timeouts, authenticates the session/director first, then rebuilds
+  A8.2, A8.3, A8.4a and current proof on the same cursor. It audits the exact
+  b1 schema before any assertion write.
+- The command IDs/hash must match exactly one current proof subject. `missing`
+  inserts one fixed `confirmed` row; `confirmed` is an idempotent zero-write
+  result; `revoked`, dependency/schema drift, ambiguity or stale subject fails
+  closed. All identity hashes and supplier/link IDs come from the rebuilt
+  server result, not from the command.
+
+**Revocation contract:**
+
+- Internal inputs are the strict cookie-session authentication context and a
+  command with exact `companyId` plus `confirmationAssertionId` only.
+- The same auth/schema gates run in one `SERIALIZABLE` transaction. The target
+  is read by exact company/ID under `FOR SHARE`; it must be one canonical
+  confirmed row. Every tenant, link, supplier and hash field is copied from
+  that immutable row into the `revoked` event.
+- Revocation deliberately does not rebuild current A8.3/A8.4a or require an
+  active supplier/link. This preserves the approved ability to revoke stale
+  historical proof after supplier-side parents are disabled or removed.
+  An existing exact revocation is an idempotent zero-write result.
+
+**Transaction and output contract:**
+
+- All SQL is fixed, schema-qualified and parameterized. Reads use exact keys,
+  `LIMIT 2` ambiguity sentinels and the audited indexes. The only mutation is
+  one fixed INSERT into
+  `public.supplier_material_capability_assertions`; there is no audit helper,
+  second connection, DDL, update/delete, email, messenger, LLM or outbox call.
+- A real insert commits once. Every validation/no-op/error path rolls back;
+  rollback and cleanup failures use fixed public codes and never expose
+  database/business text. Unique/serialization races fail closed and can be
+  retried through the idempotent path.
+- Success output is ID/hash/fixed-enum only: event/state, company/link/supplier,
+  material/subject hashes, assertion/revocation IDs, actor user/membership,
+  `writesAttempted` and `committed`. It contains no session hash, material
+  text, contact, price, notes or model output.
+
+**Acceptance criteria:**
+
+- [ ] RED tests pin strict inputs, current-subject confirmation, historical
+  revocation, idempotency, stale/terminal/ambiguous evidence and fixed output.
+- [ ] Live passed-2FA cookie session plus exact active company director is
+  required in the write transaction; Bearer/global/legacy/deputy/inactive,
+  expired, revoked and non-2FA cases cannot reach INSERT.
+- [ ] Confirmation rebuilds A8.2/A8.3/A8.4a/proof on the same cursor; revocation
+  copies one immutable exact target and remains possible after supplier-side
+  deactivation.
+- [ ] Commit/rollback/cleanup, bounds, tenant isolation, schema drift, race
+  handling, import purity and zero model/notification/selection/send effects
+  are covered, including disposable PostgreSQL proof.
+- [ ] Focused, supply-preview, A7 and full backend suites, compilation/static
+  scans, `git diff --check` and independent adversarial review pass before the
+  local core is marked complete.
+
+**Boundaries:**
+
+- Always: derive session/actor/subject/target server-side, use fixed errors,
+  exact tenant predicates, one transaction and append-only events.
+- Ask first: change auth/2FA behavior, revise the assertion schema, apply it,
+  add a cookie adapter/CSRF route/UI, touch production data, push or deploy.
+- Never: accept Bearer/model/client flags as authority; log the session hash;
+  infer capability from catalog/history/rating; auto-rank/select/send.
