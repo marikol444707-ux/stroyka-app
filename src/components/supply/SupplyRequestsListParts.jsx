@@ -655,7 +655,7 @@ export function SupplyRequestCard(props) {
       )}
       {['Утверждена', 'КП запрошены'].includes(request.status) && items.map((item, requestItemIndex) => (
         <MaterialCapabilityProofPanel
-          key={`${request.id}:${requestItemIndex}`}
+          key={`${companyContext?.mode || ''}:${companyContext?.selectedCompanyId || companyContext?.selectedCompany?.companyId || ''}:${companyContext?.selectedCompany?.role || ''}:${request.id}:${requestItemIndex}`}
           API={API}
           C={C}
           requestId={request.id}

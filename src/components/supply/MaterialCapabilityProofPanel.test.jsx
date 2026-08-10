@@ -249,6 +249,39 @@ describe('MaterialCapabilityProofPanel', () => {
     expect(screen.getByRole('button', { name: 'Подтвердить поставщика' })).toBeInTheDocument();
   });
 
+  it('drops loaded and pending proof when the selected company changes', async () => {
+    let resolveOldCompany;
+    global.fetch.mockImplementationOnce(
+      () => new Promise(resolve => { resolveOldCompany = resolve; }),
+    );
+    const { rerender } = renderPanel();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Проверить доказуемость' }));
+    rerender(
+      <MaterialCapabilityProofPanel
+        API="/api"
+        C={C}
+        requestId={21}
+        requestItemIndex={2}
+        materialName="Кабель ВВГнг 3×2,5"
+        suppliers={[{ id: 51, name: 'ООО «Электроснаб»' }]}
+        user={{ id: 7, role: 'директор' }}
+        companyContext={{
+          mode: 'company',
+          selectedCompany: { companyId: 5, role: 'директор' },
+        }}
+      />,
+    );
+
+    await act(async () => {
+      resolveOldCompany(response(proof('missing')));
+    });
+
+    expect(screen.queryByText('ООО «Электроснаб»')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Проверить доказуемость' })).toBeInTheDocument();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
   it('mounts the exact-item panel before the existing supplier offers block', () => {
     const request = {
       id: 21,

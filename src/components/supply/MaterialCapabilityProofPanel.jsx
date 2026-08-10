@@ -104,13 +104,17 @@ export default function MaterialCapabilityProofPanel({
   suppliers = [],
   companyContext = {},
 }) {
+  const selectedCompanyId = companyContext?.selectedCompanyId
+    || companyContext?.selectedCompany?.companyId;
+  const selectedCompanyRole = companyContext?.selectedCompany?.role || '';
+  const scopeKey = [
+    companyContext?.mode || '', selectedCompanyId || '',
+    selectedCompanyRole, requestId, requestItemIndex,
+  ].join(':');
   const enabled = process.env[FEATURE_FLAG] === 'true'
     && companyContext?.mode === 'company'
-    && positiveInt(
-      companyContext?.selectedCompanyId
-      || companyContext?.selectedCompany?.companyId,
-    )
-    && companyContext?.selectedCompany?.role === 'директор'
+    && positiveInt(selectedCompanyId)
+    && selectedCompanyRole === 'директор'
     && positiveInt(requestId)
     && nonNegativeInt(requestItemIndex);
   const [proof, setProof] = React.useState(null);
@@ -120,10 +124,23 @@ export default function MaterialCapabilityProofPanel({
   const [acknowledged, setAcknowledged] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const submittingRef = React.useRef(false);
+  const scopeGeneration = React.useRef(0);
+
+  React.useEffect(() => {
+    scopeGeneration.current += 1;
+    submittingRef.current = false;
+    setProof(null);
+    setLoading(false);
+    setError('');
+    setAction(null);
+    setAcknowledged(false);
+    setSubmitting(false);
+  }, [scopeKey]);
 
   const proofUrl = `${API || ''}/supply-requests/${requestId}/items/${requestItemIndex}/material-capability-proof`;
 
   const loadProof = React.useCallback(async () => {
+    const generation = scopeGeneration.current;
     setLoading(true);
     setError('');
     try {
@@ -132,14 +149,16 @@ export default function MaterialCapabilityProofPanel({
       if (!response.ok) throw new Error('proof unavailable');
       const normalized = normalizeProof(data, requestId, requestItemIndex);
       if (!normalized) throw new Error('proof invalid');
+      if (generation !== scopeGeneration.current) return;
       setProof(normalized);
     } catch (_error) {
+      if (generation !== scopeGeneration.current) return;
       setProof(null);
       setError('Не удалось получить доказуемый статус. Обновите проверку.');
     } finally {
-      setLoading(false);
+      if (generation === scopeGeneration.current) setLoading(false);
     }
-  }, [proofUrl, requestId, requestItemIndex]);
+  }, [proofUrl, requestId, requestItemIndex, scopeKey]);
 
   if (!enabled) return null;
 
@@ -157,6 +176,7 @@ export default function MaterialCapabilityProofPanel({
     if (!action || submittingRef.current) return;
     if (action.kind === 'confirm' && !acknowledged) return;
     submittingRef.current = true;
+    const generation = scopeGeneration.current;
     setSubmitting(true);
     setError('');
     const subject = action.subject;
@@ -183,8 +203,11 @@ export default function MaterialCapabilityProofPanel({
         throw new Error('write unavailable');
       }
     } catch (_error) {
-      setError('Действие не подтверждено сервером. Статус перечитан.');
+      if (generation === scopeGeneration.current) {
+        setError('Действие не подтверждено сервером. Статус перечитан.');
+      }
     } finally {
+      if (generation !== scopeGeneration.current) return;
       closeAction();
       submittingRef.current = false;
       setSubmitting(false);
