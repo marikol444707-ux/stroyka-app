@@ -15,14 +15,24 @@ FAKE_CODE=""
 FAKE_BODY=""
 FAKE_FRONTEND_ASSETS="0"
 FAKE_MANIFEST_CODE="200"
+FAKE_MANIFEST_CURL_STATUS="0"
 FAKE_MANIFEST_BODY=""
 FAKE_MAIN_JS_CODE="200"
+FAKE_MAIN_JS_CURL_STATUS="0"
 FAKE_MAIN_CSS_CODE="200"
+FAKE_LAZY_JS_CODE="200"
+FAKE_LAZY_CSS_CODE="200"
 FAKE_MAIN_JS_BODY="javascript"
 FAKE_MAIN_CSS_BODY="stylesheet"
+FAKE_LAZY_JS_BODY="lazy javascript"
+FAKE_LAZY_CSS_BODY="lazy stylesheet"
 FAKE_MAIN_JS_CONTENT_TYPE="application/javascript"
 FAKE_MAIN_CSS_CONTENT_TYPE="text/css"
+FAKE_LAZY_JS_CONTENT_TYPE="application/javascript"
+FAKE_LAZY_CSS_CONTENT_TYPE="text/css"
 TEST_BASE_URL="https://example.test"
+FRONTEND_ASSET_RETRIES=1
+FRONTEND_ASSET_FAILURE_LIMIT=5
 
 curl() {
   local body_file=""
@@ -31,6 +41,7 @@ curl() {
   local response_code="$FAKE_CODE"
   local response_body="$FAKE_BODY"
   local response_content_type="application/json"
+  local response_status="0"
   while (($#)); do
     case "$1" in
       -o|--output)
@@ -56,16 +67,28 @@ curl() {
       "$TEST_BASE_URL/asset-manifest.json")
         response_code="$FAKE_MANIFEST_CODE"
         response_body="$FAKE_MANIFEST_BODY"
+        response_status="$FAKE_MANIFEST_CURL_STATUS"
         ;;
       "$TEST_BASE_URL/static/js/main.test.js")
         response_code="$FAKE_MAIN_JS_CODE"
         response_body="$FAKE_MAIN_JS_BODY"
         response_content_type="$FAKE_MAIN_JS_CONTENT_TYPE"
+        response_status="$FAKE_MAIN_JS_CURL_STATUS"
         ;;
       "$TEST_BASE_URL/static/css/main.test.css")
         response_code="$FAKE_MAIN_CSS_CODE"
         response_body="$FAKE_MAIN_CSS_BODY"
         response_content_type="$FAKE_MAIN_CSS_CONTENT_TYPE"
+        ;;
+      "$TEST_BASE_URL/static/js/9085.test.chunk.js")
+        response_code="$FAKE_LAZY_JS_CODE"
+        response_body="$FAKE_LAZY_JS_BODY"
+        response_content_type="$FAKE_LAZY_JS_CONTENT_TYPE"
+        ;;
+      "$TEST_BASE_URL/static/css/5000.test.chunk.css")
+        response_code="$FAKE_LAZY_CSS_CODE"
+        response_body="$FAKE_LAZY_CSS_BODY"
+        response_content_type="$FAKE_LAZY_CSS_CONTENT_TYPE"
         ;;
       *)
         response_code="404"
@@ -84,6 +107,7 @@ curl() {
     printf '%s' "${write_out//\%\{http_code\}/$response_code}" \
       | sed "s|%{content_type}|$response_content_type|g"
   fi
+  return "$response_status"
 }
 
 failures=()
@@ -131,7 +155,7 @@ if ! declare -F check_frontend_assets >/dev/null; then
 fi
 
 FAKE_FRONTEND_ASSETS="1"
-FAKE_MANIFEST_BODY='{"files":{"main.js":"/static/js/main.test.js","main.css":"/static/css/main.test.css"}}'
+FAKE_MANIFEST_BODY='{"files":{"main.js":"/static/js/main.test.js","main.css":"/static/css/main.test.css","static/js/9085.test.chunk.js":"/static/js/9085.test.chunk.js","static/css/5000.test.chunk.css":"/static/css/5000.test.chunk.css"}}'
 FAKE_MAIN_JS_CODE="200"
 FAKE_MAIN_CSS_CODE="200"
 failures=()
@@ -150,6 +174,32 @@ grep -Fxq "$TEST_BASE_URL/static/css/main.test.css" "$curl_log" || {
   echo "manifest main.css must be fetched" >&2
   exit 1
 }
+grep -Fxq "$TEST_BASE_URL/static/js/9085.test.chunk.js" "$curl_log" || {
+  echo "every lazy JavaScript asset in the manifest must be fetched" >&2
+  exit 1
+}
+grep -Fxq "$TEST_BASE_URL/static/css/5000.test.chunk.css" "$curl_log" || {
+  echo "every lazy CSS asset in the manifest must be fetched" >&2
+  exit 1
+}
+
+FAKE_LAZY_JS_CODE="403"
+failures=()
+check_frontend_assets "$TEST_BASE_URL" >/dev/null
+if [[ ${#failures[@]} -eq 0 ]]; then
+  echo "HTTP 403 for a lazy manifest asset must add a smoke failure" >&2
+  exit 1
+fi
+FAKE_LAZY_JS_CODE="200"
+
+FAKE_LAZY_CSS_CODE="403"
+failures=()
+check_frontend_assets "$TEST_BASE_URL" >/dev/null
+if [[ ${#failures[@]} -eq 0 ]]; then
+  echo "HTTP 403 for a lazy CSS manifest asset must add a smoke failure" >&2
+  exit 1
+fi
+FAKE_LAZY_CSS_CODE="200"
 
 FAKE_MAIN_JS_CODE="403"
 FAKE_MAIN_CSS_CODE="200"
@@ -226,5 +276,66 @@ if grep -Fq 'outside.example' "$curl_log"; then
   echo "cross-origin manifest asset must never be fetched" >&2
   exit 1
 fi
+
+FAKE_MANIFEST_BODY='{"files":{"main.js":"/static/js/main.test.js","main.css":"/static/css/main.test.css","static/js/9085.test.chunk.js":"/static/media/9085.txt"}}'
+failures=()
+check_frontend_assets "$TEST_BASE_URL" >/dev/null
+if [[ ${#failures[@]} -eq 0 ]]; then
+  echo "a JavaScript manifest key with a non-JavaScript value must fail" >&2
+  exit 1
+fi
+
+FAKE_MANIFEST_BODY='{"files":{"main.js":"/static/js/main.test.js","main.css":"/static/css/main.test.css","static/js/9085.test.chunk.js":"/static/js/main.test.js"}}'
+failures=()
+check_frontend_assets "$TEST_BASE_URL" >/dev/null
+if [[ ${#failures[@]} -ne 0 ]]; then
+  echo "duplicate manifest values with a matching asset kind must be fetched once and pass" >&2
+  exit 1
+fi
+
+FAKE_MANIFEST_BODY="$(python3 - <<'PY'
+import json
+files = {
+    "main.js": "/static/js/main.test.js",
+    "main.css": "/static/css/main.test.css",
+}
+files.update({f"static/js/chunk-{index}.js": "/static/js/main.test.js" for index in range(255)})
+print(json.dumps({"files": files}, separators=(",", ":")))
+PY
+)"
+failures=()
+check_frontend_assets "$TEST_BASE_URL" >/dev/null
+if [[ ${#failures[@]} -eq 0 ]]; then
+  echo "more than 256 raw manifest entries must fail even when values are duplicated" >&2
+  exit 1
+fi
+
+FAKE_MANIFEST_BODY='{"files":{"main.js":"/static/js/main.test.js","main.css":"/static/css/main.test.css"}}'
+FRONTEND_MANIFEST_MAX_BYTES=16
+failures=()
+check_frontend_assets "$TEST_BASE_URL" >/dev/null
+if [[ ${#failures[@]} -eq 0 ]]; then
+  echo "an oversized frontend manifest must fail before asset fetching" >&2
+  exit 1
+fi
+FRONTEND_MANIFEST_MAX_BYTES=1048576
+
+FAKE_MAIN_JS_CURL_STATUS="28"
+failures=()
+check_frontend_assets "$TEST_BASE_URL" >/dev/null
+if [[ ${#failures[@]} -eq 0 ]]; then
+  echo "a timed-out asset transfer must fail even after an HTTP 200 JavaScript prefix" >&2
+  exit 1
+fi
+FAKE_MAIN_JS_CURL_STATUS="0"
+
+FAKE_MANIFEST_CURL_STATUS="63"
+failures=()
+check_frontend_assets "$TEST_BASE_URL" >/dev/null
+if [[ ${#failures[@]} -eq 0 ]]; then
+  echo "a truncated manifest transfer must fail even when its prefix is valid JSON" >&2
+  exit 1
+fi
+FAKE_MANIFEST_CURL_STATUS="0"
 
 echo "prod smoke rate-limit checks OK"

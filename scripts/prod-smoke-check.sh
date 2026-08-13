@@ -6,6 +6,9 @@ BASE_URL="${BASE_URL%/}"
 SMOKE_RETRIES="${SMOKE_RETRIES:-20}"
 SMOKE_DELAY="${SMOKE_DELAY:-1}"
 SMOKE_STARTED_TS="${SMOKE_STARTED_TS:-$(date -u +%s)}"
+FRONTEND_ASSET_RETRIES="${FRONTEND_ASSET_RETRIES:-3}"
+FRONTEND_ASSET_FAILURE_LIMIT="${FRONTEND_ASSET_FAILURE_LIMIT:-5}"
+FRONTEND_MANIFEST_MAX_BYTES="${FRONTEND_MANIFEST_MAX_BYTES:-1048576}"
 
 failures=()
 health_body=""
@@ -38,21 +41,27 @@ check_frontend_asset() {
   local code=""
   local content_type=""
   local response_metadata
+  local transfer_ok=0
   local attempt
   body_file="$(mktemp)"
 
-  for attempt in $(seq 1 "$SMOKE_RETRIES"); do
+  for attempt in $(seq 1 "$FRONTEND_ASSET_RETRIES"); do
     : > "$body_file"
-    response_metadata="$(
-      curl -skS -o "$body_file" -w '%{http_code} %{content_type}' "$url" || true
-    )"
+    if response_metadata="$(
+      curl -skS --connect-timeout 5 --max-time 20 \
+        -o "$body_file" -w '%{http_code} %{content_type}' "$url"
+    )"; then
+      transfer_ok=1
+    else
+      transfer_ok=0
+    fi
     code="${response_metadata%% *}"
     content_type=""
     if [[ "$response_metadata" == *" "* ]]; then
       content_type="${response_metadata#* }"
     fi
     content_type="$(printf '%s' "$content_type" | tr '[:upper:]' '[:lower:]')"
-    if [[ "$code" == "200" && -s "$body_file" ]] \
+    if [[ "$transfer_ok" == "1" && "$code" == "200" && -s "$body_file" ]] \
       && ! head -c 512 "$body_file" | grep -qiE '<!doctype|<html' \
       && { [[ "$expected_kind" == "js" && "$content_type" =~ ^(application|text)/(javascript|x-javascript)([[:space:]]*\;.*)?$ ]] \
         || [[ "$expected_kind" == "css" && "$content_type" =~ ^text/css([[:space:]]*\;.*)?$ ]]; }; then
@@ -60,7 +69,7 @@ check_frontend_asset() {
       rm -f "$body_file"
       return 0
     fi
-    if [[ "$attempt" != "$SMOKE_RETRIES" ]]; then
+    if [[ "$attempt" != "$FRONTEND_ASSET_RETRIES" ]]; then
       sleep "$SMOKE_DELAY"
     fi
   done
@@ -68,6 +77,7 @@ check_frontend_asset() {
   echo "FAIL $name got=$code content-type=$content_type expected=200 valid $expected_kind asset"
   failures+=("$name got=$code or invalid $expected_kind asset")
   rm -f "$body_file"
+  return 1
 }
 
 check_frontend_assets() {
@@ -75,16 +85,26 @@ check_frontend_assets() {
   local manifest_file
   local paths_file
   local code=""
+  local transfer_ok=0
   local attempt
-  local main_js
-  local main_css
+  local asset_kind
+  local asset_path
+  local asset_failures=0
   manifest_file="$(mktemp)"
   paths_file="$(mktemp)"
 
   for attempt in $(seq 1 "$SMOKE_RETRIES"); do
     : > "$manifest_file"
-    code="$(curl -skS -o "$manifest_file" -w '%{http_code}' "$base_url/asset-manifest.json" || true)"
-    if [[ "$code" == "200" ]] && python3 - "$manifest_file" > "$paths_file" <<'PY'
+    if code="$(curl -skS --connect-timeout 5 --max-time 20 \
+      --max-filesize "$FRONTEND_MANIFEST_MAX_BYTES" \
+      -o "$manifest_file" -w '%{http_code}' "$base_url/asset-manifest.json")"; then
+      transfer_ok=1
+    else
+      transfer_ok=0
+    fi
+    if [[ "$transfer_ok" == "1" && "$code" == "200" ]] \
+      && [[ "$(wc -c < "$manifest_file")" -le "$FRONTEND_MANIFEST_MAX_BYTES" ]] \
+      && python3 - "$manifest_file" > "$paths_file" <<'PY'
 import json
 import re
 import sys
@@ -95,28 +115,62 @@ try:
     files = manifest.get("files") if type(manifest) is dict else None
     if type(files) is not dict:
         raise ValueError("files")
+    if len(files) > 256:
+        raise ValueError("too many frontend manifest entries")
 
-    def asset_path(key, suffix):
-        value = files.get(key)
+    def checked_asset_path(value, suffix, label):
         if type(value) is not str or not value.endswith(suffix):
-            raise ValueError(key)
+            raise ValueError(label)
         if not re.fullmatch(r"/static/(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+", value):
-            raise ValueError(key)
+            raise ValueError(label)
         if any(part in ("", ".", "..") for part in value.split("/")[1:]):
-            raise ValueError(key)
+            raise ValueError(label)
         return value
 
-    print(asset_path("main.js", ".js"))
-    print(asset_path("main.css", ".css"))
+    def asset_kind(value):
+        if type(value) is not str:
+            return None
+        if value.endswith(".js"):
+            return "js"
+        if value.endswith(".css"):
+            return "css"
+        return None
+
+    main_js = checked_asset_path(files.get("main.js"), ".js", "main.js")
+    main_css = checked_asset_path(files.get("main.css"), ".css", "main.css")
+    assets = {main_js: "js", main_css: "css"}
+    for key, value in files.items():
+        key_kind = asset_kind(key)
+        value_kind = asset_kind(value)
+        if key_kind is None and value_kind is None:
+            continue
+        if key_kind is None or value_kind != key_kind:
+            raise ValueError(key)
+        assets[checked_asset_path(value, f".{key_kind}", key)] = key_kind
+
+    ordered = [(main_js, "js"), (main_css, "css")]
+    ordered.extend(sorted(
+        (path, kind)
+        for path, kind in assets.items()
+        if path not in (main_js, main_css)
+    ))
+    for path, kind in ordered:
+        print(f"{kind}\t{path}")
 except (OSError, UnicodeError, ValueError, json.JSONDecodeError, TypeError):
     raise SystemExit(1)
 PY
     then
-      main_js="$(sed -n '1p' "$paths_file")"
-      main_css="$(sed -n '2p' "$paths_file")"
       echo "OK   frontend asset manifest 200"
-      check_frontend_asset "frontend main.js" "$base_url$main_js" "js"
-      check_frontend_asset "frontend main.css" "$base_url$main_css" "css"
+      while IFS=$'\t' read -r asset_kind asset_path; do
+        [[ -n "$asset_kind" && -n "$asset_path" ]] || continue
+        if ! check_frontend_asset "frontend asset $asset_path" "$base_url$asset_path" "$asset_kind"; then
+          ((asset_failures += 1))
+          if ((asset_failures >= FRONTEND_ASSET_FAILURE_LIMIT)); then
+            echo "FAIL frontend asset check stopped after $asset_failures failures"
+            break
+          fi
+        fi
+      done < "$paths_file"
       rm -f "$manifest_file" "$paths_file"
       return 0
     fi
@@ -125,7 +179,7 @@ PY
     fi
   done
 
-  echo "FAIL frontend asset manifest got=$code expected=200 with valid main.js/main.css"
+  echo "FAIL frontend asset manifest got=$code expected=200 with valid JavaScript/CSS assets"
   failures+=("frontend asset manifest got=$code or invalid payload")
   rm -f "$manifest_file" "$paths_file"
 }
