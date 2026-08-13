@@ -1,6 +1,7 @@
 import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import MasterDocumentsPage from './MasterDocumentsPage';
+import { buildPerformerContractHtml } from '../utils/contractTemplates';
 
 const renderPage = (overrides = {}) => {
   const buildContractContent = jest.fn(() => '<p>Договор мастера</p>');
@@ -10,6 +11,14 @@ const renderPage = (overrides = {}) => {
     fullName: 'Иванов Иван Иванович',
     inn: '123456789012',
   };
+  const contractItems = [{
+    contractId: 91,
+    name: 'Штукатурка стен',
+    unit: 'м²',
+    quantity: 10,
+    priceBrigade: 500,
+    priceSmeta: 9900,
+  }];
 
   render(
     <MasterDocumentsPage
@@ -37,6 +46,7 @@ const renderPage = (overrides = {}) => {
         contractType: 'ГПХ',
         project: 'Лицей',
       }}
+      myContractItems={contractItems}
       myTools={[]}
       pdConsents={[]}
       PD_CONSENT_TEXT={jest.fn(() => '<p>Согласие</p>')}
@@ -50,11 +60,11 @@ const renderPage = (overrides = {}) => {
     />,
   );
 
-  return {buildContractContent, ownProfile, showPreview};
+  return {buildContractContent, contractItems, ownProfile, showPreview};
 };
 
 test('opens the master contract with the separately loaded own profile', () => {
-  const {buildContractContent, ownProfile, showPreview} = renderPage();
+  const {buildContractContent, contractItems, ownProfile, showPreview} = renderPage();
   const contractCard = screen.getByText(/Договор № Д-17/).parentElement;
 
   fireEvent.click(within(contractCard).getByRole('button', {name: 'Просмотр'}));
@@ -62,12 +72,13 @@ test('opens the master contract with the separately loaded own profile', () => {
   expect(buildContractContent).toHaveBeenCalledWith(
     ownProfile,
     expect.objectContaining({contractNumber: 'Д-17', project: 'Лицей'}),
+    contractItems,
   );
   expect(showPreview).toHaveBeenCalledWith('<p>Договор мастера</p>', 'Договор');
 });
 
 test('opens the contract while the own profile is still unavailable', () => {
-  const {buildContractContent, showPreview} = renderPage({
+  const {buildContractContent, contractItems, showPreview} = renderPage({
     masterProfile: null,
     masterProfiles: [],
   });
@@ -78,13 +89,14 @@ test('opens the contract while the own profile is still unavailable', () => {
   expect(buildContractContent).toHaveBeenCalledWith(
     null,
     expect.objectContaining({contractNumber: 'Д-17'}),
+    contractItems,
   );
   expect(showPreview).toHaveBeenCalledWith('<p>Договор мастера</p>', 'Договор');
 });
 
 test('rejects a stale own profile and uses the matching directory profile', () => {
   const matchingProfile = {user_id: '17', fullName: 'Иванов Иван Иванович'};
-  const {buildContractContent} = renderPage({
+  const {buildContractContent, contractItems} = renderPage({
     masterProfile: {userId: 99, fullName: 'Профиль другого пользователя'},
     masterProfiles: [matchingProfile],
   });
@@ -95,5 +107,28 @@ test('rejects a stale own profile and uses the matching directory profile', () =
   expect(buildContractContent).toHaveBeenCalledWith(
     matchingProfile,
     expect.objectContaining({contractNumber: 'Д-17'}),
+    contractItems,
   );
+});
+
+test('renders the brigade rate and line total in the opened contract', () => {
+  const {showPreview} = renderPage({
+    buildContractContent: (profile, contract, items) => buildPerformerContractHtml({
+      company: 'ООО Заказчик',
+      performer: profile,
+      contract,
+      items,
+    }),
+  });
+  const contractCard = screen.getByText(/Договор № Д-17/).parentElement;
+
+  fireEvent.click(within(contractCard).getByRole('button', {name: 'Просмотр'}));
+
+  const html = showPreview.mock.calls[0][0];
+  expect(html).toContain('<th>Цена</th>');
+  expect(html).toContain('Штукатурка стен');
+  expect(html).toMatch(/>500</);
+  expect(html).toMatch(/>5(?:\s|&nbsp;| )*000</);
+  expect(html).not.toContain('9 900');
+  expect(html).not.toContain('99 000');
 });

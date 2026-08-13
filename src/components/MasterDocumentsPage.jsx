@@ -19,6 +19,7 @@ export default function MasterDocumentsPage({
   masterProfiles,
   myActs,
   myContract,
+  myContractItems = [],
   myTools,
   pdConsents,
   PD_CONSENT_TEXT,
@@ -113,7 +114,7 @@ export default function MasterDocumentsPage({
             <p style={{ color: C.textSec, fontSize: '13px' }}>{'Договор № ' + normalizedContract.contractNumber + ' · ' + normalizedContract.contractType + ' · ' + normalizedContract.project}</p>
             <button
               onClick={() => {
-                showPreview(buildContractContent(contractProfile, normalizedContract), 'Договор');
+                showPreview(buildContractContent(contractProfile, normalizedContract, myContractItems), 'Договор');
               }}
               style={{ ...btnB, marginTop: '8px' }}
             >

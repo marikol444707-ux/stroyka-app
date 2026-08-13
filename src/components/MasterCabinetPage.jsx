@@ -52,6 +52,37 @@ const estimateItemIsMaterial = (item) => {
     Number(item?.priceWork || item?.workPrice || item?.workTotal || 0) <= 0;
 };
 
+export const resolveMasterContractDocument = ({
+  user = {},
+  contracts = [],
+  brigadeContracts = [],
+  brigadeContractItems = [],
+} = {}) => {
+  const userId = Number(user.id);
+  const userNameKey = String(user.name || '').trim().toLowerCase();
+  const belongsToUser = (contract) => {
+    if (!Number.isInteger(userId) || userId <= 0) return false;
+    const ownerId = Number(
+      contract.masterId ?? contract.master_id ?? contract.contractorId ?? contract.contractor_id ?? 0
+    );
+    if (!Number.isInteger(ownerId) || ownerId < 0) return false;
+    if (ownerId > 0) return ownerId === userId;
+    return Boolean(
+      userNameKey && String(contract.brigadeName || contract.masterName || '').trim().toLowerCase() === userNameKey
+    );
+  };
+  const staffContract = (Array.isArray(contracts) ? contracts : []).find(belongsToUser) || null;
+  const brigadeContract = (Array.isArray(brigadeContracts) ? brigadeContracts : []).find(belongsToUser) || null;
+  const contract = staffContract || brigadeContract;
+  const items = !staffContract && brigadeContract
+    ? (Array.isArray(brigadeContractItems) ? brigadeContractItems : []).filter((item) => (
+      Number(item.contractId ?? item.contract_id) === Number(brigadeContract.id)
+    ))
+    : [];
+
+  return {contract, items};
+};
+
 export default function MasterCabinetPage(props) {
   const [showProjectPicker, setShowProjectPicker] = React.useState(false);
   const [showEstimateChangeForm, setShowEstimateChangeForm] = React.useState(false);
@@ -545,10 +576,12 @@ export default function MasterCabinetPage(props) {
   }).length;
   const categories = [...new Set(pricelistItems.map(item => item.category))];
   const userNameKey = String(user?.name || '').trim().toLowerCase();
-  const myContract = [...(contracts || []), ...(brigadeContracts || [])].find(contract =>
-    Number(contract.masterId || contract.master_id || contract.contractorId || contract.contractor_id) === Number(user.id) ||
-    String(contract.brigadeName || contract.masterName || '').trim().toLowerCase() === userNameKey
-  );
+  const {contract: myContract, items: myContractItems} = resolveMasterContractDocument({
+    user,
+    contracts,
+    brigadeContracts,
+    brigadeContractItems,
+  });
   const myActs = interimActs.filter(act => Number(act.masterId || act.master_id) === Number(user.id) || String(act.masterName || act.master_name || '').trim().toLowerCase() === userNameKey);
   const userAssignedProjectNames = [
     ...(Array.isArray(user?.assignedProjects) ? user.assignedProjects : []),
@@ -1946,6 +1979,7 @@ export default function MasterCabinetPage(props) {
             masterProfiles={masterProfiles}
             myActs={myActs}
             myContract={myContract}
+            myContractItems={myContractItems}
             myTools={myTools}
             pdConsents={pdConsents}
             PD_CONSENT_TEXT={PD_CONSENT_TEXT}
