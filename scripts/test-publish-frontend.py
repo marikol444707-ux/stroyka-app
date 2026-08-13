@@ -85,6 +85,45 @@ class PublishFrontendTests(unittest.TestCase):
             '{"main":"new.js"}',
         )
 
+    def test_new_assets_are_nginx_readable_under_restrictive_umask(self):
+        (self.source / "robots.txt").write_text("User-agent: *\n", encoding="utf-8")
+
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                'umask 077; exec bash "$@"',
+                "publish-frontend-under-umask",
+                str(PUBLISH_SCRIPT),
+                str(self.source),
+                str(self.target),
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        expected_modes = {
+            self.target / "static" / "css": 0o755,
+            self.target / "static" / "js" / "new.js": 0o644,
+            self.target / "static" / "css" / "new.css": 0o644,
+            self.target / "asset-manifest.json": 0o644,
+            self.target / "robots.txt": 0o644,
+            self.target / "index.html": 0o644,
+        }
+        mode_mismatches = [
+            f"{path.relative_to(self.target)}: expected {expected:#06o}, got "
+            f"{stat.S_IMODE(path.stat().st_mode):#06o}"
+            for path, expected in expected_modes.items()
+            if stat.S_IMODE(path.stat().st_mode) != expected
+        ]
+        self.assertEqual(
+            mode_mismatches,
+            [],
+            msg="newly published frontend paths must remain readable by nginx",
+        )
+
     def test_rejects_incomplete_release_without_touching_live_files(self):
         (self.source / "index.html").unlink()
 

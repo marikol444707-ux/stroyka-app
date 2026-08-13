@@ -33,11 +33,13 @@ chmod 0755 "$TARGET_DIR"
 
 # Keep older hashes so tabs opened before the deploy can finish loading.
 mkdir -p "$TARGET_DIR/static"
-"$RSYNC_BIN" -a --no-perms --no-owner --no-group \
+"$RSYNC_BIN" -a --no-owner --no-group \
+  --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r \
   "$SOURCE_DIR/static/" "$TARGET_DIR/static/"
 
 # Publish manifests and public files only after every referenced asset exists.
-"$RSYNC_BIN" -a --no-perms --no-owner --no-group --delete-after \
+"$RSYNC_BIN" -a --no-owner --no-group \
+  --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r --delete-after \
   --exclude='/index.html' \
   --exclude='/static/' \
   "$SOURCE_DIR/" "$TARGET_DIR/"
