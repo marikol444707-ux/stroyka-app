@@ -30,6 +30,105 @@ check_code() {
   failures+=("$name got=$code expected=$expected")
 }
 
+check_frontend_asset() {
+  local name="$1"
+  local url="$2"
+  local expected_kind="$3"
+  local body_file
+  local code=""
+  local content_type=""
+  local response_metadata
+  local attempt
+  body_file="$(mktemp)"
+
+  for attempt in $(seq 1 "$SMOKE_RETRIES"); do
+    : > "$body_file"
+    response_metadata="$(
+      curl -skS -o "$body_file" -w '%{http_code} %{content_type}' "$url" || true
+    )"
+    code="${response_metadata%% *}"
+    content_type=""
+    if [[ "$response_metadata" == *" "* ]]; then
+      content_type="${response_metadata#* }"
+    fi
+    if [[ "$code" == "200" && -s "$body_file" ]] \
+      && ! head -c 512 "$body_file" | grep -qiE '<!doctype|<html' \
+      && { [[ "$expected_kind" == "js" && "$content_type" =~ ^(application|text)/(javascript|x-javascript) ]] \
+        || [[ "$expected_kind" == "css" && "$content_type" =~ ^text/css ]]; }; then
+      echo "OK   $name $code"
+      rm -f "$body_file"
+      return 0
+    fi
+    if [[ "$attempt" != "$SMOKE_RETRIES" ]]; then
+      sleep "$SMOKE_DELAY"
+    fi
+  done
+
+  echo "FAIL $name got=$code content-type=$content_type expected=200 valid $expected_kind asset"
+  failures+=("$name got=$code or invalid $expected_kind asset")
+  rm -f "$body_file"
+}
+
+check_frontend_assets() {
+  local base_url="${1%/}"
+  local manifest_file
+  local paths_file
+  local code=""
+  local attempt
+  local main_js
+  local main_css
+  manifest_file="$(mktemp)"
+  paths_file="$(mktemp)"
+
+  for attempt in $(seq 1 "$SMOKE_RETRIES"); do
+    : > "$manifest_file"
+    code="$(curl -skS -o "$manifest_file" -w '%{http_code}' "$base_url/asset-manifest.json" || true)"
+    if [[ "$code" == "200" ]] && python3 - "$manifest_file" > "$paths_file" <<'PY'
+import json
+import re
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as manifest_file:
+        manifest = json.load(manifest_file)
+    files = manifest.get("files") if type(manifest) is dict else None
+    if type(files) is not dict:
+        raise ValueError("files")
+
+    def asset_path(key, suffix):
+        value = files.get(key)
+        if type(value) is not str or not value.endswith(suffix):
+            raise ValueError(key)
+        if not re.fullmatch(r"/static/(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+", value):
+            raise ValueError(key)
+        if any(part in ("", ".", "..") for part in value.split("/")[1:]):
+            raise ValueError(key)
+        return value
+
+    print(asset_path("main.js", ".js"))
+    print(asset_path("main.css", ".css"))
+except (OSError, UnicodeError, ValueError, json.JSONDecodeError, TypeError):
+    raise SystemExit(1)
+PY
+    then
+      main_js="$(sed -n '1p' "$paths_file")"
+      main_css="$(sed -n '2p' "$paths_file")"
+      echo "OK   frontend asset manifest 200"
+      check_frontend_asset "frontend main.js" "$base_url$main_js" "js"
+      check_frontend_asset "frontend main.css" "$base_url$main_css" "css"
+      rm -f "$manifest_file" "$paths_file"
+      return 0
+    fi
+    if [[ "$attempt" != "$SMOKE_RETRIES" ]]; then
+      sleep "$SMOKE_DELAY"
+    fi
+  done
+
+  echo "FAIL frontend asset manifest got=$code expected=200 with valid main.js/main.css"
+  failures+=("frontend asset manifest got=$code or invalid payload")
+  rm -f "$manifest_file" "$paths_file"
+}
+
 json_field() {
   local field="$1"
   python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get(sys.argv[1], ""))' "$field"
@@ -170,6 +269,7 @@ echo "Smoke-check: $BASE_URL"
 check_code "frontend /" "$BASE_URL/"
 check_code "frontend /app" "$BASE_URL/app"
 check_code "frontend /max-app" "$BASE_URL/max-app"
+check_frontend_assets "$BASE_URL"
 
 check_health "$BASE_URL/health"
 health_version="$(printf '%s' "$health_body" | json_field version 2>/dev/null || true)"
