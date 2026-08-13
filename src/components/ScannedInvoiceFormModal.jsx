@@ -217,7 +217,7 @@ export default function ScannedInvoiceFormModal({
           </div>
         )}
         <input placeholder={inventoryOnly ? 'Номер документа (необязательно)' : 'Номер документа *'} value={newInvoice.number||''} onChange={e=>patchInvoice({number:e.target.value})} style={inputStyle}/>
-        {!inventoryOnly && <input placeholder='Поставщик' value={newInvoice.supplier||newInvoice.newSupplierName||''} onChange={e=>patchInvoice({supplier:e.target.value,newSupplierName:e.target.value,isNewSupplier:true})} style={inputStyle}/>}
+        {!inventoryOnly && <input placeholder='Поставщик' value={newInvoice.supplier||newInvoice.newSupplierName||''} onChange={e=>patchInvoice({supplierId:'',supplier:e.target.value,newSupplierName:e.target.value,isNewSupplier:true,scanRecognition:{...scanRecognition,supplierId:0,supplierName:e.target.value}})} style={inputStyle}/>}
         <select value={newInvoice.location||''} onChange={e=>updateLocation(e.target.value)} style={inputStyle}>
           <option value=''>Выберите склад *</option>
           <option value='Основной склад'>📦 Основной склад</option>

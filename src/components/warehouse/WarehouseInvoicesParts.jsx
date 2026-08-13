@@ -189,11 +189,11 @@ export function WarehouseInvoiceForm({
         )}
         {!inventoryOnly && <div style={{gridColumn:spanAll,minWidth:0}}>
           <label style={{fontSize:'12px',color:C.textSec,display:'flex',alignItems:'center',gap:'8px',marginBottom:'8px',cursor:'pointer'}}>
-            <input type="checkbox" checked={newInvoice.isNewSupplier} onChange={event => setNewInvoice({...newInvoice, isNewSupplier: event.target.checked})} style={{accentColor:C.accent}}/>
-            Новый поставщик
+            <input type="checkbox" checked={newInvoice.isNewSupplier} onChange={event => setNewInvoice({...newInvoice, isNewSupplier:event.target.checked, supplierId:event.target.checked?'':newInvoice.supplierId, supplier:event.target.checked?newInvoice.supplier:'', newSupplierName:event.target.checked?newInvoice.newSupplierName:''})} style={{accentColor:C.accent}}/>
+            Поставщика нет в списке
           </label>
           {newInvoice.isNewSupplier ? (
-            <input placeholder="Название поставщика *" value={newInvoice.newSupplierName} onChange={event => setNewInvoice({...newInvoice, newSupplierName: event.target.value})} style={{...inp,width:'100%',minWidth:0,boxSizing:'border-box'}}/>
+            <input placeholder="Название поставщика *" value={newInvoice.newSupplierName} onChange={event => setNewInvoice({...newInvoice, supplierId:'', supplier:event.target.value, newSupplierName:event.target.value})} style={{...inp,width:'100%',minWidth:0,boxSizing:'border-box'}}/>
           ) : (
             <select value={newInvoice.supplierId} onChange={event => setNewInvoice({...newInvoice, supplierId: event.target.value})} style={{...inp,width:'100%',minWidth:0,boxSizing:'border-box'}}>
               <option value="">Выберите поставщика</option>

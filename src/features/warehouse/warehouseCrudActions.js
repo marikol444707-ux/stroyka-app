@@ -88,34 +88,20 @@ export const createWarehouseCrudActions = ({
       alert(inventoryOnlyMainReceipt ? 'Добавьте материалы' : 'Заполните номер накладной и материалы');
       return false;
     }
-    let supplierId = inventoryOnlyMainReceipt ? '' : newInvoice.supplierId;
-    let resolvedSupplierName = inventoryOnlyMainReceipt ? '' : (suppliers.find(s=>s.id===Number(supplierId))?.name || '');
-    if (!inventoryOnlyMainReceipt && newInvoice.isNewSupplier && newInvoice.newSupplierName) {
-      const normalizeSupplierName = value => String(value||'')
-        .toLowerCase()
-        .replace(/ё/g,'е')
-        .replace(/(?:,|\s)\s*(инн|кпп|огрн|огрнип|тел\.?|телефон|р\/с|расч[её]тн|адрес)\b.*$/g,' ')
-        .replace(/\b(инн|кпп|огрн|огрнип)\s*[:№#-]?\s*\d+\b/g,' ')
-        .replace(/\b(ооо|оао|ао|пао|зао|ип|индивидуальный предприниматель)\b/g,' ')
-        .replace(/[.,;:()«»"'`/\\]+/g,' ')
-        .replace(/\s+/g,' ')
-        .trim();
-      const existingSupplier = suppliers.find(s=>normalizeSupplierName(s.name)===normalizeSupplierName(newInvoice.newSupplierName));
-      if (existingSupplier) {
-        supplierId = existingSupplier.id;
-        resolvedSupplierName = existingSupplier.name;
-      } else {
-        const res = await fetch(API+'/suppliers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newInvoice.newSupplierName,phone:'',email:'',specialization:'',category:'Прочее',rating:5.0,status:'Активный'})});
-        if (!res.ok) {
-          const err = await res.json().catch(()=>({}));
-          alert(err.detail || 'Не удалось сохранить поставщика');
-          return false;
-        }
-        const newSup = await res.json();
-        supplierId = newSup.id;
-        resolvedSupplierName = newSup.name || newInvoice.newSupplierName;
-      }
-    }
+    const supplierId = inventoryOnlyMainReceipt ? null : (Number(newInvoice.supplierId) || null);
+    const selectedSupplier = supplierId
+      ? suppliers.find(s=>s.id===supplierId)
+      : null;
+    const freeTextSupplierName = newInvoice.isNewSupplier
+      ? (newInvoice.supplier || newInvoice.newSupplierName)
+      : '';
+    const resolvedSupplierName = inventoryOnlyMainReceipt
+      ? ''
+      : String(
+        selectedSupplier?.name
+        || freeTextSupplierName
+        || '',
+      ).trim();
     if (!inventoryOnlyMainReceipt && newInvoice.location === 'Основной склад' && !supplierId && !resolvedSupplierName) {
       alert('Выберите поставщика или включите режим «Без поставщика и оплаты»');
       return false;
@@ -160,8 +146,8 @@ export const createWarehouseCrudActions = ({
       id:Date.now(),
       number:invoiceNumber,
       date:newInvoice.date,
-      supplierId:inventoryOnlyMainReceipt ? null : (Number(supplierId)||0),
-      supplierName:inventoryOnlyMainReceipt ? '' : (resolvedSupplierName||suppliers.find(s=>s.id===Number(supplierId))?.name||newInvoice.newSupplierName||''),
+      supplierId:inventoryOnlyMainReceipt ? null : supplierId,
+      supplierName:inventoryOnlyMainReceipt ? '' : resolvedSupplierName,
       acceptedBy:newInvoice.acceptedBy||user.name,
       location:newInvoice.location,
       project:invoiceProject,
