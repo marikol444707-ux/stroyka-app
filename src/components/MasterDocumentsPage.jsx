@@ -44,6 +44,13 @@ export default function MasterDocumentsPage({
     contractType: myContract.contractType || myContract.contract_type || myContract.contractorType || 'Договор субподряда',
     project: myContract.project || myContract.projectName || myContract.project_name || '',
   } : null;
+  const currentUserId = Number(user.id);
+  const ownProfile = masterProfile && Number(masterProfile.userId ?? masterProfile.user_id) === currentUserId
+    ? masterProfile
+    : null;
+  const contractProfile = ownProfile || (masterProfiles || []).find((item) => (
+    Number(item.userId ?? item.user_id) === currentUserId
+  )) || null;
   const myHiddenActs = (hiddenActs || []).filter((act) => {
     const names = [act.brigade, act.signedContractor, act.signedSubcontractor]
       .map((value) => String(value || '').trim().toLowerCase())
@@ -106,8 +113,7 @@ export default function MasterDocumentsPage({
             <p style={{ color: C.textSec, fontSize: '13px' }}>{'Договор № ' + normalizedContract.contractNumber + ' · ' + normalizedContract.contractType + ' · ' + normalizedContract.project}</p>
             <button
               onClick={() => {
-                const profile = masterProfiles.find((item) => item.userId === user.id);
-                if (profile) showPreview(buildContractContent(profile, normalizedContract), 'Договор');
+                showPreview(buildContractContent(contractProfile, normalizedContract), 'Договор');
               }}
               style={{ ...btnB, marginTop: '8px' }}
             >
