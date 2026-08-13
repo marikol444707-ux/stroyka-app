@@ -7116,13 +7116,15 @@ was added.
 ## Task A8.4c2: Cookie-Only Capability API And Human Review UI
 
 **Status:** Local cookie-only runtime, routes and explicit review panel are
-implemented and independently reviewed as of 2026-08-10. Production version
-`97d39a8e62f1` is deployed with both capability flags off, canonical
-package-mode systemd startup and backend routing for all three capability
-routes. The explicit strong `AUTH_SECRET` and exact append-only schema are in
-place; the schema post-audit has zero remaining changes. Feature enablement,
-the local browser pass and protected cookie/CSRF capability smoke remain
-separate operator-confirmed gates.
+implemented and independently reviewed. A strict in-memory localhost mock
+Chromium pass with the UI flag enabled completed on 2026-08-14. The original
+flags-off capability gate was `97d39a8e62f1`; the current deployed release is
+`5e9295e03961` and keeps both capability flags off, canonical package-mode
+systemd startup and backend routing for all three capability routes. The
+explicit strong `AUTH_SECRET` and exact append-only schema are in place; the
+schema post-audit has zero remaining changes. Production feature enablement
+and protected cookie/CSRF capability smoke remain separate operator-confirmed
+gates.
 
 **Description:** Expose the reviewed A8.4c1 writer through a narrow,
 cookie-session-only HTTP boundary and add one explicit human review panel on
@@ -7289,8 +7291,10 @@ select a supplier or send/request an RFQ.
 - [x] Focused, supply-preview, A7, auth, route, frontend, both feature-flag
   builds and full backend regressions pass, followed by simplicity and fresh
   adversarial review.
-- [ ] Complete a local real-browser interaction pass. Any external cross-model
-  CLI review requires a new explicit user approval.
+- [x] Complete a local real-browser interaction pass against a strict in-memory
+  localhost mock with the UI flag enabled; production was neither contacted
+  nor enabled. Any external cross-model CLI review requires a new explicit
+  user approval.
 
 **Local evidence (2026-08-10):** The final reviewed snapshot passes backend
 `1882/1882` with `56` expected skips, frontend `82/82` suites and `353/353`
@@ -7305,6 +7309,20 @@ pending-write unmount isolation and deeply nested JSON normalization. No
 assertion row, ranking, supplier selection, RFQ send, provider/model, email,
 messenger or outbox effect occurred; the production schema was applied only
 through the separately approved migration described below.
+
+**Local browser evidence (2026-08-14):** Real Chromium ran the capability UI
+with the build-time flag enabled against a strict in-memory localhost mock;
+production was not contacted or enabled. Entry and selected-company return
+made no automatic proof request. Cancel made no capability POST. Explicit
+confirmation sent no `Authorization`, retained the exact company context and
+the fetched CSRF header, used only the three allowlisted body fields and
+refetched proof. Revocation sent the same cookie-only/company/CSRF boundary
+with exact body `{}`, refetched proof and reached the terminal revoked state.
+The all-companies context hid the panel; returning to the selected company
+reset it without a request or stale proof. The strict mock recorded no contract
+violation and no ranking, supplier-selection, RFQ-send or other business POST;
+the browser console had zero errors and only the known unused-facade-preload
+warning.
 
 The first flags-off production attempt at `f089fcbb` failed its smoke because
 systemd started `uvicorn main:app` from `backend/`, while the disabled capability
@@ -7350,7 +7368,9 @@ smoke passed at `97d39a8e62f1`.
   selected the new explicit value rather than the DB-password fallback without
   printing it, then restart, public smoke and director login plus 2FA passed.
 - [x] Deploy code with backend/frontend capability flags off and verify health
-  plus the full public smoke. Production version is `97d39a8e62f1`.
+  plus the full public smoke. The original capability gate was
+  `97d39a8e62f1`; the current deployed release is `5e9295e03961` and keeps both
+  capability flags off.
 - [x] Run the b1 schema dry-run, explicitly approve and commit its exact
   9-change SHA-guarded plan, then verify a complete zero-change post-audit and
   green public smoke.
@@ -7358,8 +7378,9 @@ smoke passed at `97d39a8e62f1`.
   working directory, then pass package import preflight, restart and smoke.
 - [x] Proxy all three capability routes to the backend, with backup,
   idempotence, `nginx -t`, reload and flags-off JSON anti-SPA probes verified.
-- [ ] Complete the local real-browser interaction pass with local capability
-  flags enabled and no production write or feature enablement.
+- [x] Complete the local real-browser interaction pass against the strict
+  in-memory localhost mock with the UI flag enabled and no production contact,
+  write or feature enablement.
 - [ ] Enable only the backend runtime while the frontend/UI flag remains off,
   then run public smoke plus a dedicated cookie jar -> 2FA -> `/csrf-token`
   -> negative/read-only capability smoke that never sends Authorization.
