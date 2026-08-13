@@ -249,6 +249,22 @@ class PublishFrontendTests(unittest.TestCase):
         self.assertEqual((self.source / "index.html").read_text(encoding="utf-8"), self.new_index)
         self.assertFalse(nested_target.exists())
 
+    def test_rejects_source_target_alias_with_double_leading_slash(self):
+        if not str(self.source).startswith("/"):
+            self.skipTest("double-leading-slash alias requires an absolute POSIX path")
+        target_alias = f"//{str(self.source).lstrip('/')}"
+
+        result = subprocess.run(
+            ["bash", str(PUBLISH_SCRIPT), str(self.source), target_alias],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        self.assertIn("must differ", result.stderr)
+        self.assertEqual((self.source / "index.html").read_text(encoding="utf-8"), self.new_index)
+
     def test_rejects_incomplete_release_without_touching_live_files(self):
         (self.source / "index.html").unlink()
 

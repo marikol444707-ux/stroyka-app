@@ -170,6 +170,40 @@ if [[ ${#failures[@]} -eq 0 ]]; then
 fi
 FAKE_MAIN_JS_BODY="javascript"
 
+FAKE_MAIN_JS_CONTENT_TYPE="text/html"
+failures=()
+check_frontend_assets "$TEST_BASE_URL" >/dev/null
+if [[ ${#failures[@]} -eq 0 ]]; then
+  echo "wrong MIME type for a non-HTML JS body must add a smoke failure" >&2
+  exit 1
+fi
+FAKE_MAIN_JS_CONTENT_TYPE="application/javascript"
+
+FAKE_MAIN_JS_CONTENT_TYPE="application/javascriptfoo"
+failures=()
+check_frontend_assets "$TEST_BASE_URL" >/dev/null
+if [[ ${#failures[@]} -eq 0 ]]; then
+  echo "MIME type prefix spoof must add a smoke failure" >&2
+  exit 1
+fi
+FAKE_MAIN_JS_CONTENT_TYPE="Application/JavaScript; charset=utf-8"
+failures=()
+check_frontend_assets "$TEST_BASE_URL" >/dev/null
+if [[ ${#failures[@]} -ne 0 ]]; then
+  echo "case-insensitive JavaScript MIME with parameters must pass" >&2
+  exit 1
+fi
+FAKE_MAIN_JS_CONTENT_TYPE="application/javascript"
+
+FAKE_MAIN_JS_BODY=""
+failures=()
+check_frontend_assets "$TEST_BASE_URL" >/dev/null
+if [[ ${#failures[@]} -eq 0 ]]; then
+  echo "empty HTTP 200 JS asset must add a smoke failure" >&2
+  exit 1
+fi
+FAKE_MAIN_JS_BODY="javascript"
+
 FAKE_MANIFEST_BODY='not-json'
 FAKE_MANIFEST_CODE="200"
 FAKE_MAIN_JS_CODE="200"

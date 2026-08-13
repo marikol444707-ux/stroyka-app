@@ -51,10 +51,11 @@ check_frontend_asset() {
     if [[ "$response_metadata" == *" "* ]]; then
       content_type="${response_metadata#* }"
     fi
+    content_type="$(printf '%s' "$content_type" | tr '[:upper:]' '[:lower:]')"
     if [[ "$code" == "200" && -s "$body_file" ]] \
       && ! head -c 512 "$body_file" | grep -qiE '<!doctype|<html' \
-      && { [[ "$expected_kind" == "js" && "$content_type" =~ ^(application|text)/(javascript|x-javascript) ]] \
-        || [[ "$expected_kind" == "css" && "$content_type" =~ ^text/css ]]; }; then
+      && { [[ "$expected_kind" == "js" && "$content_type" =~ ^(application|text)/(javascript|x-javascript)([[:space:]]*\;.*)?$ ]] \
+        || [[ "$expected_kind" == "css" && "$content_type" =~ ^text/css([[:space:]]*\;.*)?$ ]]; }; then
       echo "OK   $name $code"
       rm -f "$body_file"
       return 0

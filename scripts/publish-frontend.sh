@@ -55,7 +55,7 @@ require_regular_tree "$SOURCE_DIR" "source"
 command -v "$RSYNC_BIN" >/dev/null 2>&1 || fail "rsync is not available: $RSYNC_BIN"
 
 SOURCE_DIR="$(cd "$SOURCE_DIR" && pwd -P)"
-TARGET_DIR="$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$TARGET_DIR")" \
+TARGET_DIR="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$TARGET_DIR")" \
   || fail "target directory could not be resolved"
 [[ "$SOURCE_DIR" != "$TARGET_DIR" ]] || fail "source and target directories must differ"
 [[ "$TARGET_DIR" != "/" ]] || fail "refusing to publish into the filesystem root"
