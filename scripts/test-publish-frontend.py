@@ -17,7 +17,7 @@ PUBLISH_SCRIPT = ROOT / "scripts" / "publish-frontend.sh"
 class PublishFrontendTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory(prefix="stroyka-publish-test-")
-        self.root = Path(self.temp_dir.name)
+        self.root = Path(self.temp_dir.name).resolve()
         self.source = self.root / "release"
         self.target = self.root / "live"
         (self.source / "static" / "js").mkdir(parents=True)
@@ -152,6 +152,22 @@ class PublishFrontendTests(unittest.TestCase):
         self.assertFalse((self.target / "static" / "css" / "new.css").exists())
         self.assertFalse(os.path.lexists(self.target / "static" / "js" / "linked.js"))
 
+    def test_rejects_source_root_symlink_with_trailing_slash(self):
+        source_alias = self.root / "release-alias"
+        source_alias.symlink_to(self.source, target_is_directory=True)
+
+        result = subprocess.run(
+            ["bash", str(PUBLISH_SCRIPT), f"{source_alias}/", str(self.target)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        self.assertEqual((self.target / "index.html").read_text(encoding="utf-8"), self.old_index)
+        self.assertFalse((self.target / "asset-manifest.json").exists())
+        self.assertFalse((self.target / "static" / "js" / "new.js").exists())
+
     def test_rejects_target_static_symlink_without_touching_external_directory(self):
         outside_static = self.root / "outside-static"
         outside_static.mkdir()
@@ -175,6 +191,49 @@ class PublishFrontendTests(unittest.TestCase):
         )
         self.assertEqual(sentinel.read_text(encoding="utf-8"), "outside sentinel")
         self.assertEqual(sorted(path.name for path in outside_static.iterdir()), ["sentinel.txt"])
+
+    def test_rejects_target_root_symlink_with_trailing_slash(self):
+        outside_target = self.root / "outside-live"
+        outside_target.mkdir()
+        outside_index = outside_target / "index.html"
+        outside_index.write_text(self.old_index, encoding="utf-8")
+        sentinel = outside_target / "sentinel.txt"
+        sentinel.write_text("outside sentinel", encoding="utf-8")
+        target_alias = self.root / "live-alias"
+        target_alias.symlink_to(outside_target, target_is_directory=True)
+
+        result = subprocess.run(
+            ["bash", str(PUBLISH_SCRIPT), str(self.source), f"{target_alias}/"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        self.assertEqual(outside_index.read_text(encoding="utf-8"), self.old_index)
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "outside sentinel")
+        self.assertEqual(sorted(path.name for path in outside_target.iterdir()), ["index.html", "sentinel.txt"])
+
+    def test_rejects_missing_target_below_symlink_parent(self):
+        outside_parent = self.root / "outside-parent"
+        outside_parent.mkdir()
+        sentinel = outside_parent / "sentinel.txt"
+        sentinel.write_text("outside sentinel", encoding="utf-8")
+        parent_alias = self.root / "publish-parent"
+        parent_alias.symlink_to(outside_parent, target_is_directory=True)
+        target_below_alias = parent_alias / "new-live"
+
+        result = subprocess.run(
+            ["bash", str(PUBLISH_SCRIPT), str(self.source), str(target_below_alias)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "outside sentinel")
+        self.assertFalse((outside_parent / "new-live").exists())
+        self.assertEqual(sorted(path.name for path in outside_parent.iterdir()), ["sentinel.txt"])
 
     def test_rejects_target_nested_inside_source(self):
         nested_target = self.source / "nested-live"
