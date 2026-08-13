@@ -124,6 +124,72 @@ class PublishFrontendTests(unittest.TestCase):
             msg="newly published frontend paths must remain readable by nginx",
         )
 
+    def test_rejects_nested_source_symlink_without_touching_live_files(self):
+        outside_asset = self.root / "outside.js"
+        outside_asset.write_text("outside", encoding="utf-8")
+        source_link = self.source / "static" / "js" / "linked.js"
+        source_link.symlink_to(outside_asset)
+
+        result = subprocess.run(
+            ["bash", str(PUBLISH_SCRIPT), str(self.source), str(self.target)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        self.assertEqual((self.target / "index.html").read_text(encoding="utf-8"), self.old_index)
+        self.assertEqual(
+            (self.target / "stale-root-file.html").read_text(encoding="utf-8"),
+            "stale",
+        )
+        self.assertEqual(
+            (self.target / "static" / "js" / "old.js").read_text(encoding="utf-8"),
+            "old",
+        )
+        self.assertFalse((self.target / "asset-manifest.json").exists())
+        self.assertFalse((self.target / "static" / "js" / "new.js").exists())
+        self.assertFalse((self.target / "static" / "css" / "new.css").exists())
+        self.assertFalse(os.path.lexists(self.target / "static" / "js" / "linked.js"))
+
+    def test_rejects_target_static_symlink_without_touching_external_directory(self):
+        outside_static = self.root / "outside-static"
+        outside_static.mkdir()
+        sentinel = outside_static / "sentinel.txt"
+        sentinel.write_text("outside sentinel", encoding="utf-8")
+        shutil.rmtree(self.target / "static")
+        (self.target / "static").symlink_to(outside_static, target_is_directory=True)
+
+        result = subprocess.run(
+            ["bash", str(PUBLISH_SCRIPT), str(self.source), str(self.target)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        self.assertEqual((self.target / "index.html").read_text(encoding="utf-8"), self.old_index)
+        self.assertEqual(
+            (self.target / "stale-root-file.html").read_text(encoding="utf-8"),
+            "stale",
+        )
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "outside sentinel")
+        self.assertEqual(sorted(path.name for path in outside_static.iterdir()), ["sentinel.txt"])
+
+    def test_rejects_target_nested_inside_source(self):
+        nested_target = self.source / "nested-live"
+
+        result = subprocess.run(
+            ["bash", str(PUBLISH_SCRIPT), str(self.source), str(nested_target)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        self.assertEqual((self.source / "index.html").read_text(encoding="utf-8"), self.new_index)
+        self.assertFalse(nested_target.exists())
+
     def test_rejects_incomplete_release_without_touching_live_files(self):
         (self.source / "index.html").unlink()
 
