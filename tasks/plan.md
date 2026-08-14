@@ -448,11 +448,13 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
           cookie/CSRF smoke; any canary write remains a separate
           operator-approved gate. Automated local regressions, both flag
           builds, two independent reviews and the strict-mock local Chromium
-          interaction pass are green. Production is at `5e9295e03961` with
-          capability flags off; package-mode systemd startup, explicit strong
-          `AUTH_SECRET` selection, the append-only schema post-audit, Nginx
-          routing and public smoke are green. Production feature enablement and
-          protected capability smoke gates remain open.
+          interaction pass are green. Production is at `5e9295e03961` with the
+          backend runtime enabled and the compiled frontend/UI flag still off.
+          Package-mode systemd startup, explicit strong `AUTH_SECRET`, the
+          append-only schema post-audit, Nginx routing, public smoke and the
+          dedicated cookie/2FA/CSRF negative/read-only gate are green with zero
+          scoped capability/business/sequence delta. Frontend/UI enablement and
+          any positive canary write remain separate open approvals.
 - [ ] Task A9: Add preview-only warehouse anomaly and reconciliation recommendations without automatic stock movement.
 - [ ] Task A10: Add preview-only assignment and daily-work-report drafts from confirmed source data.
 - [ ] Task A11: Add read-only accounting exception checks without creating or executing payments.

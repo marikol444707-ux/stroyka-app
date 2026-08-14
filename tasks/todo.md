@@ -7119,12 +7119,14 @@ was added.
 implemented and independently reviewed. A strict in-memory localhost mock
 Chromium pass with the UI flag enabled completed on 2026-08-14. The original
 flags-off capability gate was `97d39a8e62f1`; the current deployed release is
-`5e9295e03961` and keeps both capability flags off, canonical package-mode
-systemd startup and backend routing for all three capability routes. The
-explicit strong `AUTH_SECRET` and exact append-only schema are in place; the
-schema post-audit has zero remaining changes. Production feature enablement
-and protected cookie/CSRF capability smoke remain separate operator-confirmed
-gates.
+`5e9295e03961`. Its backend runtime is now enabled while the compiled
+frontend/UI flag remains off; canonical package-mode systemd startup and
+backend routing for all three capability routes remain active. The explicit
+strong `AUTH_SECRET` and exact append-only schema are in place, the schema
+post-audit has zero remaining changes, and the dedicated production
+cookie/2FA/CSRF negative/read-only gate passed with zero scoped
+capability/business/sequence delta. Frontend/UI enablement and any positive
+canary write remain separate operator-confirmed gates.
 
 **Description:** Expose the reviewed A8.4c1 writer through a narrow,
 cookie-session-only HTTP boundary and add one explicit human review panel on
@@ -7362,6 +7364,34 @@ flags-off deploy, proof, confirmation and revocation safe GET probes all
 reached the backend and returned JSON `404` rather than the SPA. Final public
 smoke passed at `97d39a8e62f1`.
 
+**Backend-only production evidence (2026-08-14):** On deployed release
+`5e9295e03961`, a guarded atomic environment update enabled only the exact
+lowercase backend runtime flag. The compiled frontend remained explicitly
+`false` at `/static/js/main.34d74a61.js`, its byte-for-byte public/local match
+and complete build-tree SHA
+`d08b2df050a13f8b48651eed408acefc4d775b4b1a959cd1e597194058ff6cff`
+did not change. Health/DB, exact OpenAPI GET/POST/POST registration, all
+manifest JS/CSS assets, full public smoke and the zero-change schema plan SHA
+`fa684b045e5665ed5141794625fac88107efe008c30c9f43f2018e9f43ae6b62`
+passed. The dedicated production smoke used an in-memory cookie jar, an
+existing configured director with passed 2FA, selected company `1` and a
+session-bound CSRF token. It proved no-cookie, Bearer-only and mixed
+credentials `401`; all-company `422`; missing sentinel source `404`; both
+missing-CSRF writes `403`; and both deliberately invalid bodies `422` before
+the writer. It never sent a valid capability write body and logged out.
+Targeted read-only fingerprints before enablement and after all checks matched
+for the complete immutable assertion table count/hash, event counts, identity
+sequence and sentinel request/recipient/offer/outbox rows. Expected
+login/2FA/logout session and audit updates were intentionally outside that
+business-state claim. Two preliminary runs failed closed—first on the shared
+Nginx login rate limit and then on invalid operator email input—and both
+automatically restored runtime OFF with health/routes/frontend unchanged. The
+successful run ordered the protected gate before a 180-second limiter drain
+and broad public smoke. The retained fresh OFF backup is
+`/var/backups/stroyka/backend.env.before-capability.rg5IDCZq`. An independent
+post-run public check confirmed health version `5e9295e03961`, JSON
+`422/405/405` capability route behavior and the frontend flag still off.
+
 **Production gate evidence and remaining approvals:**
 
 - [x] Verify production uses an explicit strong `AUTH_SECRET`; validation
@@ -7369,8 +7399,8 @@ smoke passed at `97d39a8e62f1`.
   printing it, then restart, public smoke and director login plus 2FA passed.
 - [x] Deploy code with backend/frontend capability flags off and verify health
   plus the full public smoke. The original capability gate was
-  `97d39a8e62f1`; the current deployed release is `5e9295e03961` and keeps both
-  capability flags off.
+  `97d39a8e62f1`; release `5e9295e03961` was also deployed flags-off before its
+  separately guarded backend-only enablement.
 - [x] Run the b1 schema dry-run, explicitly approve and commit its exact
   9-change SHA-guarded plan, then verify a complete zero-change post-audit and
   green public smoke.
@@ -7381,9 +7411,12 @@ smoke passed at `97d39a8e62f1`.
 - [x] Complete the local real-browser interaction pass against the strict
   in-memory localhost mock with the UI flag enabled and no production contact,
   write or feature enablement.
-- [ ] Enable only the backend runtime while the frontend/UI flag remains off,
+- [x] Enable only the backend runtime while the frontend/UI flag remains off,
   then run public smoke plus a dedicated cookie jar -> 2FA -> `/csrf-token`
-  -> negative/read-only capability smoke that never sends Authorization.
+  -> negative/read-only capability smoke that never sends Authorization. The
+  2026-08-14 gate passed on `5e9295e03961`, sent no valid write body and left
+  the assertion/event/identity-sequence and sentinel business fingerprints
+  unchanged.
 - [ ] Enable the frontend/UI only after the backend protected smoke passes,
   then repeat the browser interaction and public/protected smoke.
 - [ ] Production smoke is negative/read-only by default: unauthenticated,
@@ -7391,9 +7424,12 @@ smoke passed at `97d39a8e62f1`.
   zero rows. Positive writes require a separately approved canary tenant and
   reuse permanent idempotent `already_confirmed`/`already_revoked` receipts;
   never append a new immutable row on every deployment.
-- [ ] Record before/after assertion counts and hashes plus zero deltas for
-  ranking, selection, RFQ/email/messenger/outbox/model effects. Feature
-  enablement and canary writes remain individually explicit operator actions.
+- [x] Record before/after complete assertion count/hash, event counts, identity
+  sequence and sentinel request/recipient/offer/messenger-outbox state. They
+  remained identical across backend enablement and the protected/public
+  checks; route contracts and deliberately invalid inputs never reached the
+  writer or any model/ranking/selection/send seam. Frontend/UI enablement and
+  canary writes remain individually explicit operator actions.
 
 **Boundaries:**
 
