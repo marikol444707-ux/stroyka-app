@@ -7118,10 +7118,12 @@ was added.
 **Status:** Local cookie-only runtime, routes and explicit review panel are
 implemented and independently reviewed. A strict in-memory localhost mock
 Chromium pass with the UI flag enabled completed on 2026-08-14. The original
-flags-off capability gate was `97d39a8e62f1`; the current deployed release is
-`5e9295e03961`. Its backend runtime is now enabled while the compiled
-frontend/UI flag remains off; canonical package-mode systemd startup and
-backend routing for all three capability routes remain active. The explicit
+flags-off capability gate was `97d39a8e62f1`; production's executable
+backend/frontend artifacts and completed backend-only gate are based on
+`5e9295e03961`. The backend runtime is enabled while the compiled frontend/UI
+flag remains off; later documentation-only checkout advances do not rebuild or
+restart those artifacts. Canonical package-mode systemd startup and backend
+routing for all three capability routes remain active. The explicit
 strong `AUTH_SECRET` and exact append-only schema are in place, the schema
 post-audit has zero remaining changes, and the dedicated production
 cookie/2FA/CSRF negative/read-only gate passed with zero scoped

@@ -448,9 +448,12 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
           cookie/CSRF smoke; any canary write remains a separate
           operator-approved gate. Automated local regressions, both flag
           builds, two independent reviews and the strict-mock local Chromium
-          interaction pass are green. Production is at `5e9295e03961` with the
-          backend runtime enabled and the compiled frontend/UI flag still off.
-          Package-mode systemd startup, explicit strong `AUTH_SECRET`, the
+          interaction pass are green. Production's executable backend/frontend
+          artifacts and completed backend-only gate are based on
+          `5e9295e03961`, with the backend runtime enabled and the compiled
+          frontend/UI flag still off; later documentation-only checkout
+          advances do not rebuild or restart those artifacts. Package-mode
+          systemd startup, explicit strong `AUTH_SECRET`, the
           append-only schema post-audit, Nginx routing, public smoke and the
           dedicated cookie/2FA/CSRF negative/read-only gate are green with zero
           scoped capability/business/sequence delta. Frontend/UI enablement and
