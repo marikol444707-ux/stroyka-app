@@ -13,6 +13,11 @@ from backend.features.estimate_revision_impact.contract import (
     MAX_CANONICAL_SOURCE_BYTES,
     build_estimate_revision_source,
 )
+from backend.features.estimate_revision_impact.resource_limits import (
+    MAX_JSON_QUERY_BYTES,
+    MAX_TEXT_FIELD_BYTES,
+    MAX_TEXT_QUERY_AGGREGATE_BYTES,
+)
 
 
 REQUIRED_SCHEMA_ROWS = tuple(
@@ -57,6 +62,48 @@ def estimate_row(**overrides):
         "work_package": "Основная",
     }
     row.update(overrides)
+    if row.get("status") is None:
+        row["status"] = "Черновик"
+    if row.get("smeta_type") is None:
+        row["smeta_type"] = "Заказчик"
+    if row.get("is_template") is None:
+        row["is_template"] = False
+    text_fields = ("version", "status", "smeta_type", "work_package")
+    text_sizes = {
+        field: len(row[field].encode("utf-8"))
+        if isinstance(row.get(field), str) else 0
+        for field in text_fields
+    }
+    sections_size = overrides.get("sections_bytes")
+    if not isinstance(sections_size, int) or isinstance(sections_size, bool):
+        sections = row.get("sections_json")
+        sections_size = (
+            len(sections.encode("utf-8")) if isinstance(sections, str) else 0
+        )
+    query_text_bytes = sum(text_sizes.values())
+    query_variable_bytes = sections_size + query_text_bytes
+    payload_exceeded = (
+        sections_size > MAX_CANONICAL_SOURCE_BYTES
+        or sections_size > MAX_JSON_QUERY_BYTES
+        or any(size > MAX_TEXT_FIELD_BYTES for size in text_sizes.values())
+        or query_text_bytes > MAX_TEXT_QUERY_AGGREGATE_BYTES
+    )
+    if payload_exceeded:
+        for field in text_fields + ("sections_json",):
+            row[field] = None
+    row.update({
+        "sections_bytes": sections_size,
+        "field_sections_json_bytes": sections_size,
+        "query_json_bytes": sections_size,
+        "query_text_bytes": query_text_bytes,
+        "query_variable_bytes": query_variable_bytes,
+        "cardinality_limit_exceeded": False,
+        "payload_limit_exceeded": payload_exceeded,
+    })
+    row.update({
+        "field_" + field + "_bytes": size
+        for field, size in text_sizes.items()
+    })
     return row
 
 
@@ -82,7 +129,87 @@ def reconciliation_row(**overrides):
         "next_work_package": "Основная",
     }
     row.update(overrides)
+    for field, fallback in (
+        ("reconciliation_smeta_type", "Заказчик"),
+        ("base_smeta_type", "Заказчик"),
+        ("next_status", "Черновик"),
+        ("next_smeta_type", "Заказчик"),
+    ):
+        if row.get(field) is None:
+            row[field] = fallback
+    text_fields = (
+        "reconciliation_status",
+        "reconciliation_smeta_type",
+        "reconciliation_work_package",
+        "base_smeta_type",
+        "base_work_package",
+        "next_status",
+        "next_smeta_type",
+        "next_work_package",
+    )
+    text_sizes = {
+        field: len(row[field].encode("utf-8"))
+        if isinstance(row.get(field), str) else 0
+        for field in text_fields
+    }
+    query_text_bytes = sum(text_sizes.values())
+    payload_exceeded = (
+        any(size > MAX_TEXT_FIELD_BYTES for size in text_sizes.values())
+        or query_text_bytes > MAX_TEXT_QUERY_AGGREGATE_BYTES
+    )
+    if payload_exceeded:
+        for field in text_fields:
+            row[field] = None
+    row.update({
+        "query_json_bytes": 0,
+        "query_text_bytes": query_text_bytes,
+        "query_variable_bytes": query_text_bytes,
+        "cardinality_limit_exceeded": False,
+        "payload_limit_exceeded": payload_exceeded,
+    })
+    row.update({
+        "field_" + field + "_bytes": size
+        for field, size in text_sizes.items()
+    })
     return row
+
+
+def reconciliation_rows(*rows, scan_limit=100):
+    result = [dict(row) for row in rows]
+    byte_keys = (
+        "field_reconciliation_status_bytes",
+        "field_reconciliation_smeta_type_bytes",
+        "field_reconciliation_work_package_bytes",
+        "field_base_smeta_type_bytes",
+        "field_base_work_package_bytes",
+        "field_next_status_bytes",
+        "field_next_smeta_type_bytes",
+        "field_next_work_package_bytes",
+    )
+    value_keys = tuple(key[6:-6] for key in byte_keys)
+    query_text_bytes = sum(
+        row[key]
+        for row in result
+        for key in byte_keys
+    )
+    cardinality_exceeded = len(result) > scan_limit
+    bytes_exceeded = (
+        any(row[key] > MAX_TEXT_FIELD_BYTES for row in result for key in byte_keys)
+        or query_text_bytes > MAX_TEXT_QUERY_AGGREGATE_BYTES
+    )
+    payload_exceeded = not cardinality_exceeded and bytes_exceeded
+    for row in result:
+        row.update({
+            "query_json_bytes": 0,
+            "query_text_bytes": query_text_bytes,
+            "query_variable_bytes": query_text_bytes,
+            "cardinality_limit_exceeded": cardinality_exceeded,
+            "payload_limit_exceeded": payload_exceeded,
+        })
+        if cardinality_exceeded or payload_exceeded:
+            for key in value_keys:
+                row[key] = None
+    return tuple(result)
 
 
 class FakeCursor:
@@ -177,9 +304,12 @@ class EstimateRevisionImpactBaselineCollectionTests(unittest.TestCase):
             ):
                 self.assertNotIn(forbidden_column, sql.lower())
         estimate_sql, estimate_params = cursor.calls[1]
-        self.assertIn("id=%s AND company_id=%s AND project_id=%s", estimate_sql)
-        self.assertEqual(estimate_params[0], MAX_CANONICAL_SOURCE_BYTES)
-        self.assertEqual(estimate_params[1:4], (52, 4, 17))
+        self.assertIn(
+            "e.id=%s AND e.company_id=%s AND e.project_id=%s",
+            estimate_sql,
+        )
+        self.assertEqual(estimate_params[:4], (52, 4, 17, 2))
+        self.assertIn(MAX_CANONICAL_SOURCE_BYTES, estimate_params)
 
     def test_missing_or_foreign_estimate_fails_closed_without_reconciliation_scan(self):
         cursor = FakeCursor((REQUIRED_SCHEMA_ROWS, ()))
@@ -227,14 +357,16 @@ class EstimateRevisionImpactBaselineCollectionTests(unittest.TestCase):
         estimate_sql, estimate_params = cursor.calls[1]
         self.assertIn("octet_length", estimate_sql.lower())
         self.assertIn("CASE WHEN", estimate_sql)
-        self.assertEqual(estimate_params[0], MAX_CANONICAL_SOURCE_BYTES)
+        self.assertIn(MAX_CANONICAL_SOURCE_BYTES, estimate_params)
 
     def test_duplicate_reconciliation_is_ambiguous(self):
         cursor = FakeCursor((
             REQUIRED_SCHEMA_ROWS,
             (estimate_row(),),
-            (reconciliation_row(reconciliation_id=91),
-             reconciliation_row(reconciliation_id=92)),
+            reconciliation_rows(
+                reconciliation_row(reconciliation_id=91),
+                reconciliation_row(reconciliation_id=92),
+            ),
         ))
 
         report = collect_baseline_audit(cursor, source())
@@ -308,8 +440,11 @@ class EstimateRevisionImpactBaselineCollectionTests(unittest.TestCase):
         cursor = FakeCursor((
             REQUIRED_SCHEMA_ROWS,
             (estimate_row(),),
-            (reconciliation_row(reconciliation_id=91),
-             reconciliation_row(reconciliation_id=92)),
+            reconciliation_rows(
+                reconciliation_row(reconciliation_id=91),
+                reconciliation_row(reconciliation_id=92),
+                scan_limit=1,
+            ),
         ))
         limited = collect_baseline_audit(
             cursor,

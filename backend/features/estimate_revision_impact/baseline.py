@@ -15,6 +15,16 @@ from .contract import (
     validate_estimate_revision_source,
 )
 from .schema_probe import collect_missing_columns
+from .resource_limits import (
+    MAX_COLLECTOR_VARIABLE_BYTES,
+    MAX_JSON_QUERY_BYTES,
+    MAX_TEXT_FIELD_BYTES,
+    MAX_TEXT_QUERY_AGGREGATE_BYTES,
+    _BOUNDED_OVERFLOW,
+    _VariableByteBudget,
+    _VariableByteLimitError,
+    _accept_bounded_rows,
+)
 
 
 DEFAULT_MAX_ISSUES = 100
@@ -47,6 +57,90 @@ REQUIRED_COLUMNS = {
         "work_package",
     },
 }
+
+_TARGET_FIELD_SPECS = (
+    ("version", "field_version_bytes", "text", MAX_TEXT_FIELD_BYTES, True),
+    (
+        "sections_json",
+        "field_sections_json_bytes",
+        "json",
+        MAX_CANONICAL_SOURCE_BYTES,
+        True,
+    ),
+    ("status", "field_status_bytes", "text", MAX_TEXT_FIELD_BYTES, False),
+    (
+        "smeta_type",
+        "field_smeta_type_bytes",
+        "text",
+        MAX_TEXT_FIELD_BYTES,
+        False,
+    ),
+    (
+        "work_package",
+        "field_work_package_bytes",
+        "text",
+        MAX_TEXT_FIELD_BYTES,
+        True,
+    ),
+)
+_RECONCILIATION_FIELD_SPECS = (
+    (
+        "reconciliation_status",
+        "field_reconciliation_status_bytes",
+        "text",
+        MAX_TEXT_FIELD_BYTES,
+        True,
+    ),
+    (
+        "reconciliation_smeta_type",
+        "field_reconciliation_smeta_type_bytes",
+        "text",
+        MAX_TEXT_FIELD_BYTES,
+        False,
+    ),
+    (
+        "reconciliation_work_package",
+        "field_reconciliation_work_package_bytes",
+        "text",
+        MAX_TEXT_FIELD_BYTES,
+        True,
+    ),
+    (
+        "base_smeta_type",
+        "field_base_smeta_type_bytes",
+        "text",
+        MAX_TEXT_FIELD_BYTES,
+        False,
+    ),
+    (
+        "base_work_package",
+        "field_base_work_package_bytes",
+        "text",
+        MAX_TEXT_FIELD_BYTES,
+        True,
+    ),
+    (
+        "next_status",
+        "field_next_status_bytes",
+        "text",
+        MAX_TEXT_FIELD_BYTES,
+        False,
+    ),
+    (
+        "next_smeta_type",
+        "field_next_smeta_type_bytes",
+        "text",
+        MAX_TEXT_FIELD_BYTES,
+        False,
+    ),
+    (
+        "next_work_package",
+        "field_next_work_package_bytes",
+        "text",
+        MAX_TEXT_FIELD_BYTES,
+        True,
+    ),
+)
 
 
 def _positive_int(value):
@@ -215,9 +309,10 @@ def _reconciliation_reason(row, source):
     return None
 
 
-def collect_baseline_audit(
+def _collect_baseline_audit(
     cur,
     source,
+    variable_budget,
     *,
     max_reconciliation_rows=MAX_RECONCILIATION_ROWS,
     max_issues=DEFAULT_MAX_ISSUES,
@@ -225,6 +320,15 @@ def collect_baseline_audit(
     """Collect one exact source boundary with hard limits and no mutations."""
 
     source = _validated_source(source)
+    if type(variable_budget) is not _VariableByteBudget:
+        raise _VariableByteLimitError("variable byte metadata is invalid")
+    remaining_bytes = variable_budget.remaining_bytes
+    if (
+        type(remaining_bytes) is not int
+        or remaining_bytes < 0
+        or remaining_bytes > MAX_COLLECTOR_VARIABLE_BYTES
+    ):
+        raise _VariableByteLimitError("variable byte metadata is invalid")
     report = _base_report(source)
     max_reconciliation_rows = max(0, min(
         MAX_RECONCILIATION_ROWS,
@@ -244,32 +348,167 @@ def collect_baseline_audit(
         )
 
     cur.execute(
-        """SELECT id AS estimate_id,company_id,project_id,version,
-                  CASE
-                    WHEN octet_length(COALESCE(sections_json::text,'')) <= %s
-                    THEN sections_json
-                    ELSE NULL
-                  END AS sections_json,
-                  octet_length(COALESCE(sections_json::text,''))
-                      AS sections_bytes,
-                  COALESCE(status,'Черновик') AS status,
-                  COALESCE(is_template,FALSE) AS is_template,
-                  COALESCE(smeta_type,'Заказчик') AS smeta_type,
-                  work_package
-             FROM public.estimates
-            WHERE id=%s AND company_id=%s AND project_id=%s
-            ORDER BY id
-            LIMIT %s""",
+        """SELECT bounded.estimate_id,bounded.company_id,bounded.project_id,
+                  bounded.version,bounded.sections_json,bounded.sections_bytes,
+                  bounded.status,bounded.is_template,bounded.smeta_type,
+                  bounded.work_package,bounded.field_version_bytes,
+                  bounded.field_sections_json_bytes,
+                  bounded.field_status_bytes,bounded.field_smeta_type_bytes,
+                  bounded.field_work_package_bytes,bounded.query_json_bytes,
+                  bounded.query_text_bytes,bounded.query_variable_bytes,
+                  bounded.cardinality_limit_exceeded,
+                  bounded.payload_limit_exceeded
+             FROM (
+               WITH limited AS MATERIALIZED (
+                 SELECT e.id AS estimate_id,e.company_id,e.project_id,
+                        e.version AS emitted_version,
+                        e.sections_json::text AS emitted_sections_json,
+                        COALESCE(e.status,'Черновик') AS emitted_status,
+                        COALESCE(e.is_template,FALSE) AS is_template,
+                        COALESCE(e.smeta_type,'Заказчик') AS emitted_smeta_type,
+                        e.work_package AS emitted_work_package
+                   FROM public.estimates e
+                  WHERE e.id=%s AND e.company_id=%s AND e.project_id=%s
+                  ORDER BY e.id
+                  LIMIT %s
+               ), sized AS MATERIALIZED (
+                 SELECT limited.*,
+                        COALESCE(octet_length(convert_to(
+                            emitted_version,'UTF8'
+                        )),0)::bigint AS field_version_bytes,
+                        COALESCE(octet_length(convert_to(
+                            emitted_sections_json,'UTF8'
+                        )),0)::bigint AS field_sections_json_bytes,
+                        COALESCE(octet_length(convert_to(
+                            emitted_status,'UTF8'
+                        )),0)::bigint AS field_status_bytes,
+                        COALESCE(octet_length(convert_to(
+                            emitted_smeta_type,'UTF8'
+                        )),0)::bigint AS field_smeta_type_bytes,
+                        COALESCE(octet_length(convert_to(
+                            emitted_work_package,'UTF8'
+                        )),0)::bigint AS field_work_package_bytes
+                   FROM limited
+               ), totals AS MATERIALIZED (
+                 SELECT sized.*,
+                        COUNT(*) OVER () AS row_count,
+                        MAX(field_version_bytes) OVER ()
+                            AS max_field_version_bytes,
+                        MAX(field_sections_json_bytes) OVER ()
+                            AS max_field_sections_json_bytes,
+                        MAX(field_status_bytes) OVER ()
+                            AS max_field_status_bytes,
+                        MAX(field_smeta_type_bytes) OVER ()
+                            AS max_field_smeta_type_bytes,
+                        MAX(field_work_package_bytes) OVER ()
+                            AS max_field_work_package_bytes,
+                        COALESCE(SUM(field_sections_json_bytes) OVER (),0)::bigint
+                            AS query_json_bytes,
+                        COALESCE(SUM(
+                            field_version_bytes::bigint
+                            + field_status_bytes::bigint
+                            + field_smeta_type_bytes::bigint
+                            + field_work_package_bytes::bigint
+                        ) OVER (),0)::bigint AS query_text_bytes
+                   FROM sized
+               ), gated AS MATERIALIZED (
+                 SELECT totals.*,
+                        (query_json_bytes + query_text_bytes)::bigint
+                            AS query_variable_bytes,
+                        (
+                          max_field_sections_json_bytes <= %s
+                          AND max_field_version_bytes <= %s
+                          AND max_field_status_bytes <= %s
+                          AND max_field_smeta_type_bytes <= %s
+                          AND max_field_work_package_bytes <= %s
+                          AND query_json_bytes <= %s
+                          AND query_text_bytes <= %s
+                          AND query_json_bytes + query_text_bytes <= %s
+                        ) AS bytes_allowed
+                   FROM totals
+               ), decided AS MATERIALIZED (
+                 SELECT gated.*,
+                        (gated.row_count <= %s AND gated.bytes_allowed)
+                            AS payload_allowed
+                   FROM gated
+               )
+               SELECT decided.estimate_id,decided.company_id,
+                      decided.project_id,
+                      CASE WHEN decided.payload_allowed
+                           THEN decided.emitted_version ELSE NULL END AS version,
+                      CASE WHEN decided.payload_allowed
+                           THEN decided.emitted_sections_json ELSE NULL
+                      END AS sections_json,
+                      decided.field_sections_json_bytes AS sections_bytes,
+                      CASE WHEN decided.payload_allowed
+                           THEN decided.emitted_status ELSE NULL END AS status,
+                      decided.is_template,
+                      CASE WHEN decided.payload_allowed
+                           THEN decided.emitted_smeta_type ELSE NULL
+                      END AS smeta_type,
+                      CASE WHEN decided.payload_allowed
+                           THEN decided.emitted_work_package ELSE NULL
+                      END AS work_package,
+                      decided.field_version_bytes,
+                      decided.field_sections_json_bytes,
+                      decided.field_status_bytes,
+                      decided.field_smeta_type_bytes,
+                      decided.field_work_package_bytes,
+                      decided.query_json_bytes,decided.query_text_bytes,
+                      decided.query_variable_bytes,
+                      (decided.row_count > %s)
+                          AS cardinality_limit_exceeded,
+                      (decided.row_count <= %s AND NOT decided.bytes_allowed)
+                          AS payload_limit_exceeded
+                 FROM decided
+             ) AS bounded
+            ORDER BY bounded.estimate_id""",
         (
-            MAX_CANONICAL_SOURCE_BYTES,
             source.estimate_id,
             source.company_id,
             source.project_id,
             2,
+            MAX_CANONICAL_SOURCE_BYTES,
+            MAX_TEXT_FIELD_BYTES,
+            MAX_TEXT_FIELD_BYTES,
+            MAX_TEXT_FIELD_BYTES,
+            MAX_TEXT_FIELD_BYTES,
+            MAX_JSON_QUERY_BYTES,
+            MAX_TEXT_QUERY_AGGREGATE_BYTES,
+            variable_budget.remaining_bytes,
+            1,
+            1,
+            1,
         ),
     )
     estimates = [dict(row or {}) for row in (cur.fetchall() or [])]
     report["summary"]["estimateRows"] = len(estimates)
+    try:
+        for estimate in estimates:
+            if (
+                type(estimate.get("sections_bytes")) is not int
+                or estimate.get("sections_bytes") < 0
+                or estimate.get("sections_bytes")
+                != estimate.get("field_sections_json_bytes")
+            ):
+                raise _VariableByteLimitError(
+                    "variable byte metadata is invalid"
+                )
+        estimate_state, estimates, _estimate_overflow_fields = (
+            _accept_bounded_rows(
+                estimates,
+                variable_budget,
+                scan_limit=1,
+                field_specs=_TARGET_FIELD_SPECS,
+            )
+        )
+    except _VariableByteLimitError:
+        return _fail(
+            report,
+            source,
+            "impact_estimate_snapshot_invalid",
+            max_issues=max_issues,
+        )
     if not estimates:
         return _fail(
             report,
@@ -284,6 +523,21 @@ def collect_baseline_audit(
             "impact_source_ambiguous",
             max_issues=max_issues,
         )
+    if estimate_state == _BOUNDED_OVERFLOW:
+        fixed_estimate_reason = _estimate_reason(estimates[0], source)
+        if fixed_estimate_reason == "impact_source_owner_mismatch":
+            return _fail(
+                report,
+                source,
+                fixed_estimate_reason,
+                max_issues=max_issues,
+            )
+        return _fail(
+            report,
+            source,
+            "impact_estimate_snapshot_too_large",
+            max_issues=max_issues,
+        )
     estimate_reason = _estimate_reason(estimates[0], source)
     if estimate_reason:
         return _fail(
@@ -294,41 +548,221 @@ def collect_baseline_audit(
         )
 
     cur.execute(
-        """SELECT r.id AS reconciliation_id,
-                  r.status AS reconciliation_status,
-                  COALESCE(r.smeta_type,'Заказчик')
-                      AS reconciliation_smeta_type,
-                  r.work_package AS reconciliation_work_package,
-                  r.base_estimate_id,r.next_estimate_id,
-                  p.id AS project_id,p.company_id AS project_company_id,
-                  b.company_id AS base_company_id,
-                  b.project_id AS base_project_id,
-                  COALESCE(b.smeta_type,'Заказчик') AS base_smeta_type,
-                  b.work_package AS base_work_package,
-                  n.company_id AS next_company_id,
-                  n.project_id AS next_project_id,
-                  COALESCE(n.status,'Черновик') AS next_status,
-                  COALESCE(n.is_template,FALSE) AS next_is_template,
-                  COALESCE(n.smeta_type,'Заказчик') AS next_smeta_type,
-                  n.work_package AS next_work_package
-             FROM public.estimate_reconciliations r
-             LEFT JOIN public.estimates b ON b.id=r.base_estimate_id
-             LEFT JOIN public.estimates n ON n.id=r.next_estimate_id
-             LEFT JOIN public.projects p ON p.id=n.project_id
-            WHERE r.next_estimate_id=%s
-              AND n.id=%s AND n.company_id=%s AND n.project_id=%s
-            ORDER BY r.id DESC
-            LIMIT %s""",
+        """SELECT bounded.reconciliation_id,
+                  bounded.reconciliation_status,
+                  bounded.reconciliation_smeta_type,
+                  bounded.reconciliation_work_package,
+                  bounded.base_estimate_id,bounded.next_estimate_id,
+                  bounded.project_id,bounded.project_company_id,
+                  bounded.base_company_id,bounded.base_project_id,
+                  bounded.base_smeta_type,bounded.base_work_package,
+                  bounded.next_company_id,bounded.next_project_id,
+                  bounded.next_status,bounded.next_is_template,
+                  bounded.next_smeta_type,bounded.next_work_package,
+                  bounded.field_reconciliation_status_bytes,
+                  bounded.field_reconciliation_smeta_type_bytes,
+                  bounded.field_reconciliation_work_package_bytes,
+                  bounded.field_base_smeta_type_bytes,
+                  bounded.field_base_work_package_bytes,
+                  bounded.field_next_status_bytes,
+                  bounded.field_next_smeta_type_bytes,
+                  bounded.field_next_work_package_bytes,
+                  bounded.query_json_bytes,bounded.query_text_bytes,
+                  bounded.query_variable_bytes,
+                  bounded.cardinality_limit_exceeded,
+                  bounded.payload_limit_exceeded
+             FROM (
+               WITH limited AS MATERIALIZED (
+                 SELECT r.id AS reconciliation_id,
+                        r.status AS emitted_reconciliation_status,
+                        COALESCE(r.smeta_type,'Заказчик')
+                            AS emitted_reconciliation_smeta_type,
+                        r.work_package
+                            AS emitted_reconciliation_work_package,
+                        r.base_estimate_id,r.next_estimate_id,
+                        p.id AS project_id,
+                        p.company_id AS project_company_id,
+                        b.company_id AS base_company_id,
+                        b.project_id AS base_project_id,
+                        COALESCE(b.smeta_type,'Заказчик')
+                            AS emitted_base_smeta_type,
+                        b.work_package AS emitted_base_work_package,
+                        n.company_id AS next_company_id,
+                        n.project_id AS next_project_id,
+                        COALESCE(n.status,'Черновик') AS emitted_next_status,
+                        COALESCE(n.is_template,FALSE) AS next_is_template,
+                        COALESCE(n.smeta_type,'Заказчик')
+                            AS emitted_next_smeta_type,
+                        n.work_package AS emitted_next_work_package
+                   FROM public.estimate_reconciliations r
+                   LEFT JOIN public.estimates b ON b.id=r.base_estimate_id
+                   LEFT JOIN public.estimates n ON n.id=r.next_estimate_id
+                   LEFT JOIN public.projects p ON p.id=n.project_id
+                  WHERE r.next_estimate_id=%s
+                    AND n.id=%s AND n.company_id=%s AND n.project_id=%s
+                  ORDER BY r.id DESC
+                  LIMIT %s
+               ), sized AS MATERIALIZED (
+                 SELECT limited.*,
+                        COALESCE(octet_length(convert_to(
+                            emitted_reconciliation_status,'UTF8'
+                        )),0)::bigint
+                            AS field_reconciliation_status_bytes,
+                        COALESCE(octet_length(convert_to(
+                            emitted_reconciliation_smeta_type,'UTF8'
+                        )),0)::bigint
+                            AS field_reconciliation_smeta_type_bytes,
+                        COALESCE(octet_length(convert_to(
+                            emitted_reconciliation_work_package,'UTF8'
+                        )),0)::bigint
+                            AS field_reconciliation_work_package_bytes,
+                        COALESCE(octet_length(convert_to(
+                            emitted_base_smeta_type,'UTF8'
+                        )),0)::bigint AS field_base_smeta_type_bytes,
+                        COALESCE(octet_length(convert_to(
+                            emitted_base_work_package,'UTF8'
+                        )),0)::bigint AS field_base_work_package_bytes,
+                        COALESCE(octet_length(convert_to(
+                            emitted_next_status,'UTF8'
+                        )),0)::bigint AS field_next_status_bytes,
+                        COALESCE(octet_length(convert_to(
+                            emitted_next_smeta_type,'UTF8'
+                        )),0)::bigint AS field_next_smeta_type_bytes,
+                        COALESCE(octet_length(convert_to(
+                            emitted_next_work_package,'UTF8'
+                        )),0)::bigint AS field_next_work_package_bytes
+                   FROM limited
+               ), totals AS MATERIALIZED (
+                 SELECT sized.*,
+                        COUNT(*) OVER () AS row_count,
+                        MAX(field_reconciliation_status_bytes) OVER ()
+                            AS max_field_reconciliation_status_bytes,
+                        MAX(field_reconciliation_smeta_type_bytes) OVER ()
+                            AS max_field_reconciliation_smeta_type_bytes,
+                        MAX(field_reconciliation_work_package_bytes) OVER ()
+                            AS max_field_reconciliation_work_package_bytes,
+                        MAX(field_base_smeta_type_bytes) OVER ()
+                            AS max_field_base_smeta_type_bytes,
+                        MAX(field_base_work_package_bytes) OVER ()
+                            AS max_field_base_work_package_bytes,
+                        MAX(field_next_status_bytes) OVER ()
+                            AS max_field_next_status_bytes,
+                        MAX(field_next_smeta_type_bytes) OVER ()
+                            AS max_field_next_smeta_type_bytes,
+                        MAX(field_next_work_package_bytes) OVER ()
+                            AS max_field_next_work_package_bytes,
+                        COALESCE(SUM(
+                            field_reconciliation_status_bytes::bigint
+                            + field_reconciliation_smeta_type_bytes::bigint
+                            + field_reconciliation_work_package_bytes::bigint
+                            + field_base_smeta_type_bytes::bigint
+                            + field_base_work_package_bytes::bigint
+                            + field_next_status_bytes::bigint
+                            + field_next_smeta_type_bytes::bigint
+                            + field_next_work_package_bytes::bigint
+                        ) OVER (),0)::bigint AS query_text_bytes
+                   FROM sized
+               ), gated AS MATERIALIZED (
+                 SELECT totals.*,
+                        0::bigint AS query_json_bytes,
+                        query_text_bytes::bigint AS query_variable_bytes,
+                        (
+                          max_field_reconciliation_status_bytes <= %s
+                          AND max_field_reconciliation_smeta_type_bytes <= %s
+                          AND max_field_reconciliation_work_package_bytes <= %s
+                          AND max_field_base_smeta_type_bytes <= %s
+                          AND max_field_base_work_package_bytes <= %s
+                          AND max_field_next_status_bytes <= %s
+                          AND max_field_next_smeta_type_bytes <= %s
+                          AND max_field_next_work_package_bytes <= %s
+                          AND query_text_bytes <= %s
+                          AND query_text_bytes <= %s
+                        ) AS bytes_allowed
+                   FROM totals
+               ), decided AS MATERIALIZED (
+                 SELECT gated.*,
+                        (gated.row_count <= %s AND gated.bytes_allowed)
+                            AS payload_allowed
+                   FROM gated
+               )
+               SELECT decided.reconciliation_id,
+                      CASE WHEN decided.payload_allowed
+                           THEN decided.emitted_reconciliation_status ELSE NULL
+                      END AS reconciliation_status,
+                      CASE WHEN decided.payload_allowed
+                           THEN decided.emitted_reconciliation_smeta_type
+                           ELSE NULL END AS reconciliation_smeta_type,
+                      CASE WHEN decided.payload_allowed
+                           THEN decided.emitted_reconciliation_work_package
+                           ELSE NULL END AS reconciliation_work_package,
+                      decided.base_estimate_id,decided.next_estimate_id,
+                      decided.project_id,decided.project_company_id,
+                      decided.base_company_id,decided.base_project_id,
+                      CASE WHEN decided.payload_allowed
+                           THEN decided.emitted_base_smeta_type ELSE NULL
+                      END AS base_smeta_type,
+                      CASE WHEN decided.payload_allowed
+                           THEN decided.emitted_base_work_package ELSE NULL
+                      END AS base_work_package,
+                      decided.next_company_id,decided.next_project_id,
+                      CASE WHEN decided.payload_allowed
+                           THEN decided.emitted_next_status ELSE NULL
+                      END AS next_status,
+                      decided.next_is_template,
+                      CASE WHEN decided.payload_allowed
+                           THEN decided.emitted_next_smeta_type ELSE NULL
+                      END AS next_smeta_type,
+                      CASE WHEN decided.payload_allowed
+                           THEN decided.emitted_next_work_package ELSE NULL
+                      END AS next_work_package,
+                      decided.field_reconciliation_status_bytes,
+                      decided.field_reconciliation_smeta_type_bytes,
+                      decided.field_reconciliation_work_package_bytes,
+                      decided.field_base_smeta_type_bytes,
+                      decided.field_base_work_package_bytes,
+                      decided.field_next_status_bytes,
+                      decided.field_next_smeta_type_bytes,
+                      decided.field_next_work_package_bytes,
+                      decided.query_json_bytes,decided.query_text_bytes,
+                      decided.query_variable_bytes,
+                      (decided.row_count > %s)
+                          AS cardinality_limit_exceeded,
+                      (decided.row_count <= %s AND NOT decided.bytes_allowed)
+                          AS payload_limit_exceeded
+                 FROM decided
+             ) AS bounded
+            ORDER BY bounded.reconciliation_id DESC""",
         (
             source.estimate_id,
             source.estimate_id,
             source.company_id,
             source.project_id,
             max_reconciliation_rows + 1,
+            MAX_TEXT_FIELD_BYTES,
+            MAX_TEXT_FIELD_BYTES,
+            MAX_TEXT_FIELD_BYTES,
+            MAX_TEXT_FIELD_BYTES,
+            MAX_TEXT_FIELD_BYTES,
+            MAX_TEXT_FIELD_BYTES,
+            MAX_TEXT_FIELD_BYTES,
+            MAX_TEXT_FIELD_BYTES,
+            MAX_TEXT_QUERY_AGGREGATE_BYTES,
+            variable_budget.remaining_bytes,
+            max_reconciliation_rows,
+            max_reconciliation_rows,
+            max_reconciliation_rows,
         ),
     )
     reconciliations = [dict(row or {}) for row in (cur.fetchall() or [])]
     report["summary"]["reconciliationRows"] = len(reconciliations)
+    reconciliation_state, reconciliations, overflow_fields = (
+        _accept_bounded_rows(
+            reconciliations,
+            variable_budget,
+            scan_limit=max_reconciliation_rows,
+            field_specs=_RECONCILIATION_FIELD_SPECS,
+        )
+    )
     if len(reconciliations) > max_reconciliation_rows:
         return _fail(
             report,
@@ -351,6 +785,49 @@ def collect_baseline_audit(
             "impact_reconciliation_ambiguous",
             max_issues=max_issues,
         )
+    if reconciliation_state == _BOUNDED_OVERFLOW:
+        fixed_reconciliation_reason = _reconciliation_reason(
+            reconciliations[0],
+            source,
+        )
+        if fixed_reconciliation_reason in {
+            "impact_reconciliation_id_invalid",
+            "impact_reconciliation_estimate_pair_invalid",
+            "impact_reconciliation_owner_mismatch",
+        }:
+            return _fail(
+                report,
+                source,
+                fixed_reconciliation_reason,
+                max_issues=max_issues,
+            )
+        overflow_fields = set(overflow_fields)
+        if overflow_fields.intersection({
+            "reconciliation_smeta_type",
+            "base_smeta_type",
+            "next_smeta_type",
+        }):
+            overflow_reason = "impact_reconciliation_not_customer"
+        elif overflow_fields.intersection({
+            "reconciliation_work_package",
+            "base_work_package",
+            "next_work_package",
+        }):
+            overflow_reason = "impact_reconciliation_package_mismatch"
+        elif "next_status" in overflow_fields:
+            overflow_reason = "impact_reconciliation_next_not_active"
+        elif "reconciliation_status" in overflow_fields:
+            overflow_reason = "impact_reconciliation_status_invalid"
+        else:
+            raise _VariableByteLimitError(
+                "variable byte metadata is invalid"
+            )
+        return _fail(
+            report,
+            source,
+            overflow_reason,
+            max_issues=max_issues,
+        )
     reconciliation = reconciliations[0]
     reconciliation_reason = _reconciliation_reason(reconciliation, source)
     if reconciliation_reason:
@@ -371,6 +848,24 @@ def collect_baseline_audit(
     report["sourceReady"] = True
     report["readyForDomainScan"] = True
     return report
+
+
+def collect_baseline_audit(
+    cur,
+    source,
+    *,
+    max_reconciliation_rows=MAX_RECONCILIATION_ROWS,
+    max_issues=DEFAULT_MAX_ISSUES,
+):
+    """Collect one exact source boundary with a fresh private byte budget."""
+
+    return _collect_baseline_audit(
+        cur,
+        source,
+        _VariableByteBudget(),
+        max_reconciliation_rows=max_reconciliation_rows,
+        max_issues=max_issues,
+    )
 
 
 def run_baseline_audit(

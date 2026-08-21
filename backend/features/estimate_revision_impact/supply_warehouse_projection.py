@@ -299,7 +299,7 @@ def _valid_warehouse_invoices(
         owner_exact = _positive_int(row.get("invoice_company_id")) == context["companyId"]
         delivery_id = _positive_int(row.get("supply_delivery_id"))
         supplier_invoice_id = _positive_int(row.get("supplier_invoice_id"))
-        invoice_items = _items(row.get("items"))
+        invoice_items = None
         reason = None
         expose = True
         if not invoice_id or not request_id:
@@ -315,10 +315,12 @@ def _valid_warehouse_invoices(
             reason = "warehouse_invoice_delivery_mismatch"
         elif supplier_invoice_id and supplier_invoice_id not in supplier_invoices:
             reason = "warehouse_invoice_supplier_invoice_mismatch"
-        elif invoice_items is None:
-            reason = "warehouse_invoice_items_invalid"
-        elif len(invoice_items) > MAX_INVOICE_LINES:
-            reason = "warehouse_invoice_items_limit_exceeded"
+        else:
+            invoice_items = _items(row.get("items"))
+            if invoice_items is None:
+                reason = "warehouse_invoice_items_invalid"
+            elif len(invoice_items) > MAX_INVOICE_LINES:
+                reason = "warehouse_invoice_items_limit_exceeded"
         if reason:
             reviews.append(_review("warehouseInvoice", invoice_id, reason, expose_id=expose))
         else:

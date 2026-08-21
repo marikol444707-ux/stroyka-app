@@ -13,6 +13,19 @@ from backend.features.estimate_revision_impact.test_baseline import (
 )
 from backend.features.estimate_revision_impact.test_supply_warehouse_audit import (
     SUPPLY_WAREHOUSE_REQUIRED_SCHEMA_ROWS,
+    _bounded_allocation_row as bounded_collector_allocation_row,
+    _bounded_allocation_rows as bounded_collector_allocation_rows,
+    _bounded_context_row as bounded_collector_context_row,
+    _bounded_delivery_row as bounded_collector_delivery_row,
+    _bounded_delivery_rows as bounded_collector_delivery_rows,
+    _bounded_history_row as bounded_collector_history_row,
+    _bounded_history_rows as bounded_collector_history_rows,
+    _bounded_invoice_row as bounded_collector_invoice_row,
+    _bounded_invoice_rows as bounded_collector_invoice_rows,
+    _bounded_movement_row as bounded_collector_movement_row,
+    _bounded_movement_rows as bounded_collector_movement_rows,
+    _bounded_request_row as bounded_collector_request_row,
+    _bounded_request_rows as bounded_collector_request_rows,
 )
 from backend.features.estimate_revision_impact.contract import (
     build_source_revision,
@@ -262,6 +275,38 @@ def full_collector_result_sets(
     *, requests=None, deliveries=None, allocations=None, supplier_invoices=(),
     warehouse_invoices=(), history=(), lots=(), movements=(), lot_movements=(),
 ):
+    raw_requests = (request_row(),) if requests is None else requests
+    bounded_requests = bounded_collector_request_rows(*(
+        bounded_collector_request_row(**{
+            key: value
+            for key, value in dict(row).items()
+            if key != "items_bytes"
+        })
+        for row in raw_requests
+        if isinstance(dict(row).get("items_json"), str)
+    ))
+    raw_deliveries = (delivery_row(),) if deliveries is None else deliveries
+    bounded_deliveries = bounded_collector_delivery_rows(*(
+        bounded_collector_delivery_row(**dict(row))
+        for row in raw_deliveries
+    ))
+    raw_allocations = (allocation_row(),) if allocations is None else allocations
+    bounded_allocations = bounded_collector_allocation_rows(*(
+        bounded_collector_allocation_row(**dict(row))
+        for row in raw_allocations
+    ))
+    bounded_invoices = bounded_collector_invoice_rows(*(
+        bounded_collector_invoice_row(**dict(row))
+        for row in warehouse_invoices
+    ))
+    bounded_history = bounded_collector_history_rows(*(
+        bounded_collector_history_row(**dict(row))
+        for row in history
+    ))
+    bounded_movements = bounded_collector_movement_rows(*(
+        bounded_collector_movement_row(**dict(row))
+        for row in movements
+    ))
     return (
         REQUIRED_SCHEMA_ROWS,
         (baseline_estimate_row(
@@ -269,22 +314,22 @@ def full_collector_result_sets(
         ),),
         (reconciliation_row(),),
         SUPPLY_WAREHOUSE_REQUIRED_SCHEMA_ROWS,
-        ({
-            "project_name": "Private project",
-            "owner_count": 1,
-            "base_work_package": "Основная",
-            "base_sections_json": json.dumps(
+        (bounded_collector_context_row(
+            project_name="Private project",
+            owner_count=1,
+            base_work_package="Основная",
+            base_sections_json=json.dumps(
                 sections(quantity="10"), ensure_ascii=False,
             ),
-        },),
-        (request_row(),) if requests is None else requests,
-        (delivery_row(),) if deliveries is None else deliveries,
-        (allocation_row(),) if allocations is None else allocations,
+        ),),
+        bounded_requests,
+        bounded_deliveries,
+        bounded_allocations,
         supplier_invoices,
-        warehouse_invoices,
-        history,
+        bounded_invoices,
+        bounded_history,
         lots,
-        movements,
+        bounded_movements,
         lot_movements,
     )
 
@@ -457,7 +502,9 @@ class SupplyRfqContentPreviewTests(unittest.TestCase):
         for sql, params in real_cursor.calls:
             normalized = sql.upper()
             self.assertTrue(normalized.startswith("SELECT "))
-            self.assertNotIn("COUNT(*)", normalized)
+            if "COUNT(*)" in normalized:
+                self.assertIn("WITH LIMITED AS MATERIALIZED", normalized)
+                self.assertIn("COUNT(*) OVER ()", normalized)
             self.assertNotIn("FOR UPDATE", normalized)
             self.assertIsInstance(params, tuple)
 

@@ -459,6 +459,97 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
           scoped capability/business/sequence delta. Frontend/UI enablement and
           any positive canary write remain separate open approvals.
 - [ ] Task A9: Add preview-only warehouse anomaly and reconciliation recommendations without automatic stock movement.
+  - [x] ~~Task A9.1: Add the pure exact A7 warehouse-lineage anomaly readiness
+    contract described in `docs/warehouse-anomaly-recommendation-preview.md`;
+    keep inventory discrepancies, database collection, routes, UI and every
+    stock movement outside this slice until separately reviewed.~~
+  - [x] ~~Task A9.2: Revalidate one selected A9.1 candidate against one current
+    bounded supply/warehouse A7 snapshot, roll back before finalization and
+    return only fixed preview text; keep API/UI/jobs/models/writes disabled.~~
+    - [x] ~~A9.2a: Use RED/GREEN to add strict stored-report/selection
+      preparation and one private immutable prepared value without opening a
+      connection.~~
+    - [x] ~~A9.2b: Use RED/GREEN to freeze and validate the exact current A7
+      wrapper/raw supply-warehouse producer contract before normalization.~~
+    - [x] ~~A9.2c: Use RED/GREEN to add pure current revalidation,
+      relevant/content hashes, fixed text and exact blocked/stale/ready
+      precedence.~~
+    - [x] ~~A9.2d: Use RED/GREEN to add the single read-only `REPEATABLE READ`
+      runner with unconditional rollback, cleanup/control-flow precedence and
+      no content before successful rollback and cleanup.~~
+    - [x] ~~A9.2e: Run focused/A7/full-backend regressions, static dependency and
+      write-boundary checks plus fresh review; keep runtime and production
+      unchanged and close only this internal slice after evidence is recorded.~~
+  - [x] ~~Task A9.3: Build the bounded, authorized and still-unregistered runtime
+    substrate defined in `docs/warehouse-anomaly-runtime-readiness.md`; HTTP,
+    UI, package exports, feature flags and production remain separate approvals.~~
+    - [x] ~~A9.3a: Bound every variable-width A7 relevant query before libpq with
+      exact UTF-8 field/query/cumulative budgets and existing fail-closed reason
+      codes, preserving all public A7 report/function contracts.~~
+      - [x] ~~A9.3a1: Add the private exact byte-budget/value-metadata contract
+        after an observed focused RED.~~
+      - [x] ~~A9.3a2: Gate target/reconciliation baseline query payloads and
+        thread one private budget through the public-compatible baseline core.~~
+      - [x] ~~A9.3a3: Gate source-context and supply-request JSON/text payloads,
+        including query-wide mixed-row rejection and early short-circuiting.~~
+      - [x] ~~A9.3a4: Gate delivery/allocation/invoice/history/movement payloads,
+        including 64-byte NUMERIC text and dependent-read short-circuiting.~~
+      - [x] ~~A9.3a5: Prove CASE/window/UTF-8 behavior in the approved isolated
+        `a93_<lowerhex>` Unix-socket-only disposable PostgreSQL fixture, then
+        run parity/full regressions and fresh review before local A9.3a
+        closure.~~
+    - [x] ~~A9.3b: Add per-process capacity, bounded connect, guarded explicit
+      read-only transaction lifecycle and cooperative deadline controls.~~
+      - [x] ~~A9.3b1: Add the private one-slot lease and immutable 30-second
+        monotonic operation budget after an observed missing-contract RED.~~
+      - [x] ~~A9.3b2: Add the strict A9-only libpq connection factory with fixed
+        `connect_timeout=5`/startup controls and pre/post-connect clock guards.~~
+      - [x] ~~A9.3b3: Add the guarded cursor, explicit read-only BEGIN, one exact
+        settings SELECT and rollback/close/control-flow lifecycle matrix.~~
+      - [x] ~~A9.3b4: Reuse the approved isolated PostgreSQL launcher to prove
+        BEGIN→single rollback→backend idle, then run full regressions/reviews.~~
+    - [x] ~~A9.3c: Add the pure exact cookie-session/director authorization,
+      selector and minimal public disclosure contracts.~~
+      - [x] ~~A9.3c1: Add the private immutable authentication/request selector
+        contract after an observed missing-module RED.~~
+      - [x] ~~A9.3c2: Add the pure actor/project authorization outcome truth
+        table with authentication-before-resource precedence.~~
+      - [x] ~~A9.3c3: Add the detached minimal public projection for all 18
+        allowlisted warehouse anomaly candidates and three public states.~~
+      - [x] ~~A9.3c4: Run focused/full regressions and static/privacy reviews
+        without adding SQL, routes, exports or production call sites.~~
+    - [x] A9.3d: Add the caller-cursor live auth/project and exact succeeded
+      system-job artifact resolver with pre-libpq CASE sentinels.
+      - [x] A9.3d1: Add one exact actor/project authorization SELECT and bind
+        its two-field result to the A9.3c precedence contract.
+      - [x] A9.3d2: Add one opaque exact-job lookup with query-wide 128 KiB
+        CASE sentinels and fixed not-found/artifact-invalid outcomes.
+      - [x] A9.3d3: Rebuild and validate source, full job plan, result/report
+        provenance and return only a detached internal artifact.
+      - [x] A9.3d4: Reuse the approved isolated PostgreSQL fixture for auth
+        and artifact SQL, then complete regressions and three fresh reviews.
+    - [x] ~~A9.3e: Compose one same-snapshot unregistered runner and complete
+      regression/security review without registering or deploying it.~~
+      - [x] A9.3e1: Add the private composition boundary and prove claims are
+        parsed before capacity/DB while the happy path owns one lease/snapshot.
+      - [x] A9.3e2: Map auth/artifact/content/finalizer outcomes with exact
+        cleanup/deadline/control precedence and exactly-once lease release.
+      - [x] A9.3e3: Close the exact 18-statement SELECT-only call graph and
+        prove auth, artifact and one 14-query A7 pass use one guarded cursor.
+      - [x] ~~A9.3e4: Run focused/full regressions and three final review axes
+        while keeping routes, exports, registration and production untouched.~~
+  - [x] ~~Task A9.4: Add the default-off cookie/CSRF HTTP adapter defined in
+    `docs/warehouse-anomaly-http-adapter.md` without adding UI or enabling it
+    in production.~~
+    - [x] ~~A9.4a: Add one unregistered exact route contract with bounded body,
+      cookie/CSRF, company allowlist, fixed errors and no-store responses.~~
+    - [x] ~~A9.4b: Compose the route with the real private A9.3e runner and prove
+      one 18-statement snapshot, zero writes and privacy-safe telemetry.~~
+    - [x] ~~A9.4c: Register default-off in `main.py`, exclude only this route
+      from DB error logging and add the local nginx global-capacity contract.~~
+    - [x] ~~A9.4d: Run focused/full HTTP, role/tenant/CSRF, ops and security
+      reviews; keep UI, production enablement, commit, push and deploy
+      separate.~~
 - [ ] Task A10: Add preview-only assignment and daily-work-report drafts from confirmed source data.
 - [ ] Task A11: Add read-only accounting exception checks without creating or executing payments.
 - [ ] Task A12: Add controlled `preview -> human approval -> apply -> audit` actions; stock, payments, signed documents and estimates remain human-confirmed.

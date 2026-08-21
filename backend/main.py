@@ -2484,6 +2484,11 @@ def _log_api_error(request: Request, exc: Optional[Exception] = None, status_cod
         except Exception:
             pass
 
+
+def _api_error_logging_enabled_for_path(path):
+    return path != "/warehouse-anomaly-previews"
+
+
 @app.middleware("http")
 async def api_error_logging_middleware(request: Request, call_next):
     if (
@@ -2491,13 +2496,15 @@ async def api_error_logging_middleware(request: Request, call_next):
         and "/public-site-lead-quarantine/" in request.url.path
     ):
         return Response(status_code=404)
+    log_api_error = _api_error_logging_enabled_for_path(request.url.path)
     try:
         response = await call_next(request)
-        if response.status_code >= 500:
+        if response.status_code >= 500 and log_api_error:
             _log_api_error(request, None, response.status_code)
         return response
     except Exception as exc:
-        _log_api_error(request, exc, 500)
+        if log_api_error:
+            _log_api_error(request, exc, 500)
         raise
 
 UPLOAD_DIR = "uploads"
@@ -16411,6 +16418,76 @@ register_project_budget_adjustment_runtime_module(app, {
     "effective_company_actors": effective_company_actors,
     "leadership_roles": LEADERSHIP_ROLES,
 })
+
+
+def _parse_warehouse_anomaly_preview_company_ids(raw):
+    if type(raw) is not str:
+        return None
+    parts = raw.split(",")
+    if not 1 <= len(parts) <= 100:
+        return None
+    company_ids = set()
+    for part in parts:
+        if (
+            not part
+            or len(part) > 19
+            or part[0] == "0"
+            or not part.isascii()
+            or not part.isdecimal()
+        ):
+            return None
+        company_id = int(part)
+        if company_id > 9223372036854775807 or company_id in company_ids:
+            return None
+        company_ids.add(company_id)
+    return frozenset(company_ids)
+
+
+if os.getenv("WAREHOUSE_ANOMALY_PREVIEW_HTTP_ENABLED") == "true":
+    warehouse_anomaly_preview_company_ids = (
+        _parse_warehouse_anomaly_preview_company_ids(
+            os.getenv("WAREHOUSE_ANOMALY_PREVIEW_COMPANY_IDS")
+        )
+    )
+    if warehouse_anomaly_preview_company_ids is not None:
+        try:
+            from backend.db import DB_CONFIG as warehouse_anomaly_db_config
+            from backend.features.warehouse_recommendation_preview.runtime_contract import (
+                _parse_warehouse_anomaly_runtime_claims as parse_warehouse_anomaly_runtime_claims,
+            )
+            from backend.features.warehouse_recommendation_preview.runtime_preview import (
+                run_warehouse_anomaly_runtime_preview,
+            )
+            from backend.features.warehouse_recommendation_preview.runtime_routes import (
+                register_warehouse_anomaly_preview_routes,
+            )
+        except ModuleNotFoundError:
+            from db import DB_CONFIG as warehouse_anomaly_db_config
+            from features.warehouse_recommendation_preview.runtime_contract import (
+                _parse_warehouse_anomaly_runtime_claims as parse_warehouse_anomaly_runtime_claims,
+            )
+            from features.warehouse_recommendation_preview.runtime_preview import (
+                run_warehouse_anomaly_runtime_preview,
+            )
+            from features.warehouse_recommendation_preview.runtime_routes import (
+                register_warehouse_anomaly_preview_routes,
+            )
+
+        register_warehouse_anomaly_preview_routes(app, {
+            "enabled": True,
+            "allowed_company_ids": warehouse_anomaly_preview_company_ids,
+            "db_config": warehouse_anomaly_db_config,
+            "build_cookie_session_authentication": (
+                build_cookie_session_authentication
+            ),
+            "parse_warehouse_anomaly_runtime_claims": (
+                parse_warehouse_anomaly_runtime_claims
+            ),
+            "run_warehouse_anomaly_runtime_preview": (
+                run_warehouse_anomaly_runtime_preview
+            ),
+        })
+
 
 if os.getenv("SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED") == "true":
     try:

@@ -7444,3 +7444,2062 @@ post-run public check confirmed health version `5e9295e03961`, JSON
 - Never: accept Bearer, client report/proof/session/actor/2FA/evidence; infer
   material capability from catalog/history/rating/model; auto-rank/select/send;
   expose private job JSON or secrets.
+
+### Task A9.1: Exact Warehouse-Lineage Anomaly Readiness
+
+**Status:** Complete locally on 2026-08-14. The pure A9.1 contract and its
+tests are implemented and independently approved. No route, collector, job,
+schema, UI, runtime flag, database access or production change was added;
+A9.2 later completed locally on 2026-08-15, while the parent A9 task and every
+runtime gate remain open.
+
+**Description:** Add one pure deterministic contract over a strict, hashed and
+rolled-back A7 combined report. It converts only addressable
+`domains.warehouse.needsReview` rows into bounded ID/code-only recommendations
+for human review. It never reads the database, calculates a correction
+quantity or permits a warehouse movement/inventory adjustment.
+
+**Architecture decisions and assumptions:**
+
+- A9.1 is intentionally limited to exact estimate-linked warehouse review
+  rows emitted in one hashed A7 snapshot. `clear` means only that this scope
+  has no addressable allowlisted review row; it never proves the current
+  warehouse globally clean. Global stock, low-stock and inventory discrepancy
+  classification require a later authoritative collector.
+- Supply lineage must be complete because warehouse invoices and their child
+  facts depend on exact request/delivery/supplier-invoice parents.
+- Known same-owner facts with a positive source ID may become fixed-code review
+  candidates. Owner mismatch, invalid/redacted identity, systemic/truncated
+  evidence, unknown reason or duplicate exact
+  `(subjectKind, subjectId, anomalyCode)` tuple blocks the whole result;
+  distinct anomaly codes on one subject remain distinct candidates.
+- A valid warehouse domain with no addressable allowlisted review row returns
+  `clear` only for this A7 snapshot. A blocked result contains no partial
+  candidates. Output always reports `previewOnly=true`,
+  `stockMovementAllowed=false`, `inventoryAdjustmentAllowed=false`,
+  `applyAllowed=false`, `dryRun=true` and `writesAttempted=0`.
+- Client-supplied `inventory_items.difference` is not authoritative: duplicate
+  rows and finalized/latest inventory semantics are not yet defined. It is
+  explicitly outside A9.1.
+
+**Contract and verification:** See
+`docs/warehouse-anomaly-recommendation-preview.md` for the strict input/output
+shape, exact anomaly mapping, blocker allowlist, RED/GREEN tests, static
+forbidden-dependency scan and later-slice boundaries.
+
+**Implemented files:**
+
+- `backend/features/warehouse_recommendation_preview/__init__.py`
+- `backend/features/warehouse_recommendation_preview/readiness.py`
+- `backend/features/warehouse_recommendation_preview/test_readiness.py`
+- `tasks/plan.md`
+- `tasks/todo.md`
+
+**Estimated scope:** S for pure code, M including adversarial tests and review.
+
+**Verification evidence (2026-08-14):**
+
+- TDD RED was observed first as the expected missing
+  `warehouse_recommendation_preview.readiness` import; production code was
+  added only afterward.
+- The focused A9.1 suite passes `15/15`, including all 18 exact candidate
+  mappings, real A7 producer shapes, the four systemic count-gap shapes,
+  strict source/envelope/evidence validation, bounds, blocker semantics,
+  deterministic ordering, input immutability and the dependency/write scan.
+- The full A7 estimate-revision-impact suite passes `117/117` with 11 expected
+  skips. The full backend suite passes `1901/1901` with 56 expected skips.
+- `py_compile` for the new package and `git diff --check` pass.
+- Three fresh independent reviews (correctness/contract,
+  security/architecture and tests) report no remaining Critical or Required
+  findings. The module has no DB/network/filesystem-write, route, job, model,
+  notification, outbox or runtime-registration dependency.
+- Frontend build, browser, PostgreSQL and production smoke are not applicable
+  to this unregistered pure slice. Production/runtime remains unchanged.
+
+**Boundaries:** Ask before implementation beyond this approved spec, any
+collector/API/UI/runtime change, production contact or deployment. Never call
+warehouse/inventory writers, fuzzy/name matching, provider/model, task,
+notification or outbox code in A9.1.
+
+### Task A9.2: Current Warehouse-Anomaly Content Preview
+
+**Status:** Complete locally on 2026-08-15 after A9.2a–A9.2e RED/GREEN,
+full regression and fresh review. The internal runner remains unregistered and
+inert. No route, UI, job, feature flag, schema, model/provider, business write,
+production contact, commit, push or deployment belongs to this completed
+slice; parent A9 and every runtime gate remain open.
+
+**Objective:** Revalidate one exact selected A9.1 candidate against one current
+bounded supply/warehouse A7 snapshot inside a single read-only
+`REPEATABLE READ` transaction. Finalize one fixed-text preview only after a
+successful unconditional rollback and only when the stored/current source,
+normalized relevant evidence and exact candidate still match.
+
+**Dependency graph:**
+
+```text
+approved A9.2 spec + completed A9.1
+        |
+        v
+strict stored-report/selection preparation
+        |
+        v
+exact raw A7 wrapper/projection validator
+        |
+        v
+pure current revalidation + fixed content
+        |
+        v
+single A7 relevant collector + rollback-safe runner
+        |
+        v
+focused/A7/full-backend verification + fresh review
+```
+
+#### Task A9.2a: Strict Preparation Contract
+
+**Status:** Complete locally on 2026-08-14 after RED/GREEN, focused/related
+regressions and three fresh reviews with no remaining Critical or Required
+finding.
+
+**Description:** Add the first pure contract slice only. Write focused tests
+first and observe the expected missing-module/function RED. Then implement
+strict selection/stored-report/A9.1 readiness preparation and one private
+immutable prepared value. Do not add current-report validation, DB orchestration
+or content finalization in this task.
+
+**Acceptance criteria:**
+
+- [x] RED is recorded before production code; it fails for the missing A9.2
+  module/function rather than for a broken fixture or unrelated import.
+- [x] Invalid/oversized/hash-mismatched stored input, invalid selection,
+  bool-as-int IDs and blocked A9.1 readiness fail before `get_db()`; caller
+  mappings remain unchanged.
+- [x] Preparation keeps only the exact seven-field source, original/stored
+  relevant hashes and one full derived candidate in a private frozen type; it
+  retains no raw report and emits no human-readable content.
+- [x] Its collector source is an exact validated A7 `EstimateRevisionSource`,
+  never a look-alike mapping; the pure import allowlist pins only the existing
+  A7 source contract, combined-contract helpers and A9.1 readiness.
+- [x] Exact selection fields and the 4 MiB canonical stored-report bound are
+  mutation-tested; server-owned provenance remains a documented caller
+  precondition rather than a claim made from unkeyed SHA-256.
+
+**Verification:**
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/a9-content-pycache \
+python3 -m unittest \
+  backend.features.warehouse_recommendation_preview.test_content_contract
+```
+
+Record both the expected RED and the subsequent GREEN; do not repeat an
+unchanged green command merely for reassurance.
+
+**Dependencies:** Completed A9.1 and approved A9.2 specification.
+
+**Files likely touched:**
+
+- `backend/features/warehouse_recommendation_preview/content_contract.py`
+- `backend/features/warehouse_recommendation_preview/test_content_contract.py`
+
+**Estimated scope:** S, two files.
+
+**Verification evidence (2026-08-14):** The first focused run failed only with
+the expected missing `content_contract` module. The first implementation made
+the original focused suite green; adversarial review then produced a second
+observed RED for unhashable JSON-native state/status values, shared-subtree
+copy amplification, selection-precedence drift and a mutable dataclass
+`__dict__`. The corrected contract passes `13/13` focused tests and `28/28`
+combined A9.1+A9.2a tests. The full A7 suite passes `117/117` with 11 expected
+skips; `py_compile` and `git diff --check` pass. A rehashed mutation sweep over
+196 report paths and eight JSON-native replacements leaked no dependency
+exception. Three fresh correctness, security and test reviews report no
+remaining Critical or Required finding.
+
+#### Checkpoint A9.2a
+
+- [x] Focused contract tests are green after an observed RED.
+- [x] No DB connection, route registration or runtime side effect is reachable
+  from pure preparation tests.
+- [x] Existing package `__init__.py` and its exact A9.1 `__all__` remain
+  byte-unchanged.
+
+#### Task A9.2b: Exact Current A7 Producer Contract
+
+**Status:** Complete locally on 2026-08-15 after observed RED/GREEN cycles,
+producer-parity/boundary expansion and three fresh reviews with no remaining
+Critical or Required finding.
+
+**Description:** Add RED mutation and producer-shape tests before implementing
+the pre-normalization current A7 wrapper/raw `supplyWarehouseImpact` validator.
+The validator is pure and must reject malformed evidence before the permissive
+combined normalizer can drop or recompute fields.
+
+**Acceptance criteria:**
+
+- [x] Exact wrapper fields, flags, four-field requested source, source-ready and
+  source-not-ready shapes, issue/summary coherence and projection-ready
+  equality are mutation-tested; non-ready source is not passed to A9.1.
+- [x] Outer baseline validation freezes the exact 17 required-column pairs (or
+  schema-scan sentinel), `{estimateRows,reconciliationRows}` bounds `2/101`,
+  and issue-count/histogram/list/truncation coherence.
+- [x] The complete immutable v1 reason-to-shape table freezes all 71 current A7
+  raw supply/warehouse producer codes: 65 explicit audit/projection codes plus
+  six unique resolver-derived `supply_` codes. It includes underscored raw kinds
+  that the combined sanitizer later drops; no prefix/wildcard acceptance exists.
+- [x] Raw projection extra/missing fields, every state/complete/schema/scan
+  relation, unknown/malformed review, histogram/count/list/truncation mismatch,
+  unsorted/duplicate IDs and impossible open-supply coordinates fail closed.
+- [x] `missingColumns` is limited to the frozen 59 required table/column pairs
+  or the exact schema-scan sentinel; arbitrary plausible `table.column` strings
+  are rejected.
+- [x] Mutation cases pin `supplyItems <= 100 * supplyRequestRows`,
+  `requestItemIndex < 100`, and no repeated
+  `(requestId,sourceSectionIndex,sourceItemIndex)` in `openSupply`.
+- [x] Exact producer bounds are enforced: 100 request rows, 100 items per
+  request (10,000 supply items), eight downstream scans of 100 rows, no more
+  than 10,800 reviews, and all documented cross-field inequalities.
+- [x] Tests use actual public A7 projection output for addressable candidates
+  and exact producer helpers/fixtures for all four systemic outcomes; a static
+  dependency-aware parity test (включая resolver codes) prevents a new A7
+  producer reason from bypassing this table.
+
+**Verification:**
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/a9-content-pycache \
+python3 -m unittest \
+  backend.features.warehouse_recommendation_preview.test_content_contract
+```
+
+**Dependencies:** Task A9.2a checkpoint.
+
+**Files likely touched:**
+
+- `backend/features/warehouse_recommendation_preview/content_contract.py`
+- `backend/features/warehouse_recommendation_preview/test_content_contract.py`
+
+**Estimated scope:** M, two files.
+
+**Verification evidence (2026-08-15):** The first focused run failed only with
+the expected missing private current-report validator. Mutation RED then caught
+the Python `True == 1` source/issue-ID fail-open. Fresh correctness review
+produced a four-case RED for impossible schema/scan-incomplete projections that
+retained collected facts, and a separate RED proved that an unapproved
+`2**63-1` ID ceiling rejected exact positive A7 values. The corrected validator
+accepts only the five canonical zero-fact systemic projection shapes, rejects
+non-systemic schema/scan failures, keeps all producer IDs/coordinates as exact
+unbounded positive/non-negative integers, and validates every collection before
+normalization. The dependency-aware parity test derives all 65 native plus nine
+reachable resolver codes (six unique) from closed producer emission sites,
+matching the frozen 71-rule kind/ID-policy table without prefix/suffix
+acceptance. It also freezes 17/59 column allowlists, all 21 baseline outcomes,
+the 10,000-item/10,800-review caps and all documented cross-field relations.
+Final verification passes `27/27` focused A9.2 tests, `42/42` combined A9.1+
+A9.2 tests and `117/117` A7 tests with 11 expected skips; `py_compile` and
+`git diff --check` pass. Three fresh correctness, security and test reviews
+report no remaining Critical or Required finding.
+
+#### Checkpoint A9.2b
+
+- [x] Raw contract tests are green after observed mutation-table REDs.
+- [x] The validator runs before `build_combined_report()` in every tested path.
+- [x] Actual A7 producer outputs and frozen raw shape/reason tables agree.
+
+#### Task A9.2c: Pure Current Revalidation and Fixed Content
+
+**Description:** Add RED tests for current source/candidate/evidence drift and
+then implement only the pure post-rollback finalization contract: truthful
+combined report construction, strict A9.1 rerun, relevant/content hashes,
+fixed text and exact singleton-blocker precedence.
+
+**Acceptance criteria:**
+
+- [x] All 18 anomaly findings and seven recommendation title/action mappings
+  are exact fixed allowlists; output cannot contain raw names, quantities,
+  notes, prices, contacts, SQL or model text.
+- [x] Exact stored/current seven-field source, normalized supply+warehouse
+  relevant evidence and selected candidate match are independently tested;
+  unrelated assignment/material/economics changes do not affect the hash.
+- [x] Source-not-ready, source drift, current A9.1 blocked, candidate stale and
+  relevant-evidence drift follow the documented first-match precedence; every
+  non-ready state has exactly one blocker and null content/hash.
+- [x] `preview_ready` is deterministic, privacy-minimized and canonical; all
+  failure/contract paths leave caller inputs unchanged and expose no partial
+  content or current-state hash oracle.
+
+**Verification:**
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/a9-content-pycache \
+python3 -m unittest \
+  backend.features.warehouse_recommendation_preview.test_content_contract
+```
+
+**Dependencies:** Task A9.2b checkpoint.
+
+**Files likely touched:**
+
+- `backend/features/warehouse_recommendation_preview/content_contract.py`
+- `backend/features/warehouse_recommendation_preview/test_content_contract.py`
+
+**Estimated scope:** M, two files.
+
+#### Checkpoint A9.2c
+
+- [x] Pure contract/finalization tests are green after each observed RED.
+- [x] Neither pure module nor its tests can open a DB/network connection or
+  import a route, job, writer, provider/model, notification or outbox seam.
+- [x] Module size and helper boundaries are reviewed before orchestration work.
+
+Completed locally on 2026-08-15. The RED sequence first proved the absent
+finalizer, then caught impossible duplicate/101-candidate A9.1 outputs,
+same-class dependency error-code leakage, `bool == 1` source acceptance and an
+unknown dependency blocker. GREEN now freezes all 18 findings, seven
+title/action mappings, exact source/candidate/hash precedence and the
+privacy-minimized 16-field result. Focused A9.2 is 38/38, combined A9.1+A9.2 is
+53/53, and the complete A7 suite is 117/117 with 11 expected skips;
+`py_compile` and `git diff --check` pass. Fresh correctness, security and test
+reviews found no remaining Critical or Required issue. The pure contract file
+is intentionally large (mostly frozen producer and copy tables); its 35
+top-level helpers remain focused after the A9.2d result validator, and all
+transaction orchestration stays in the separately approved
+`content_preview.py`.
+
+#### Task A9.2d: Read-Only Transaction Runner
+
+**Description:** Extend the focused tests first with failing connection/cursor
+fakes, then implement the single exported
+`run_warehouse_anomaly_content_preview()` orchestration. It must collect only
+the existing current supply/warehouse A7 evidence, validate the exact raw
+wrapper, roll back and close, and only afterward build/validate the current A7
+envelope and fixed content.
+
+**Acceptance criteria:**
+
+- [x] Exactly one connection uses read-only `REPEATABLE READ`, parameterized
+  transaction-local timeouts/search path, at most one relevant A7 collector
+  call, no more than 15 SQL statements, zero commit and one rollback attempt
+  on every reachable path after connection acquisition.
+- [x] The runner calls `collect_supply_warehouse_impact_audit(cur, source)`
+  directly on its owned cursor. It never calls `run_baseline_audit()`,
+  `run_supply_warehouse_impact_audit()` or another nested transaction runner.
+- [x] Content finalization cannot run before rollback succeeds; source-not-ready,
+  impossible core-source mismatch, reconciliation drift, current A9.1 blocker,
+  candidate disappearance and normalized relevant-evidence drift follow the
+  exact documented precedence without partial content.
+- [x] Fixed read/rollback/cleanup/contract errors do not leak dependency text;
+  `KeyboardInterrupt`, `SystemExit` and `GeneratorExit` from acquisition,
+  session, cursor, collection, rollback or either close are preserved after
+  best-effort cleanup.
+- [x] The fake lifecycle matrix injects normal and control-flow failures into
+  `get_db`, session setup, cursor creation, transaction `set_config`, collection,
+  rollback, cursor close, connection close and finalization; first control flow
+  keeps exact identity, failure precedence is fixed, and finalization is
+  observed only after both successful closes. A settings failure is read-failed,
+  attempts one rollback and both closes, and calls neither collector nor finalizer.
+- [x] Exact failure precedence is control flow → rollback failed → read failed →
+  cleanup failed → current-report invalid. Tests pin rollback+read/cleanup,
+  read+cleanup and current-invalid+cleanup collisions; impossible core-source
+  mismatch is current-report-invalid, never business drift or generic fallback.
+- [x] `content_preview.__all__` exposes only the approved run/error/version
+  surface; package `__init__.py` remains unchanged and no caller-cursor content
+  seam, route, handler, writer or runtime registration is introduced.
+
+**Verification:**
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/a9-content-pycache \
+python3 -m unittest \
+  backend.features.warehouse_recommendation_preview.test_readiness \
+  backend.features.warehouse_recommendation_preview.test_content_contract \
+  backend.features.warehouse_recommendation_preview.test_content_preview
+```
+
+Use fakes first. A disposable PostgreSQL proof is considered only if driver
+behavior remains unproven, and requires a separate decision; production is
+never used for this slice.
+
+**Dependencies:** Task A9.2c checkpoint.
+
+**Files likely touched:**
+
+- `backend/features/warehouse_recommendation_preview/content_preview.py`
+- `backend/features/warehouse_recommendation_preview/test_content_preview.py`
+
+**Estimated scope:** M, two files.
+
+#### Checkpoint A9.2d
+
+- [x] Focused A9.1+A9.2 tests are green after transaction RED cases were
+  observed.
+- [x] AST/static checks show only the approved stdlib, psycopg2, A7 and A9.1
+  dependency cone and no DB writer/network/model/job/route import.
+- [x] One change summary lists touched and intentionally untouched boundaries;
+  no commit is made without separate approval.
+
+Completed locally on 2026-08-15. The RED sequence first proved the missing
+runner and then the exact lifecycle/non-callable dependency boundary; a fresh
+security review subsequently exposed a fail-open post-close finalizer return,
+whose invalid-result matrix failed before the strict detached result validator
+was added. The final 14 runner tests cover the exact connection/session/cursor/
+settings/collector/validation/rollback/close/finalizer order, all normal and
+named control-flow failures, collision precedence, falsey/missing resources,
+close-time mutation, every business outcome, impossible core-source drift, the
+real maximum 15-SELECT A7 path and static no-writer/no-registration boundaries.
+Combined A9.1+A9.2 is 67/67 and the full A7 suite is 117/117 with 11 expected
+skips; `py_compile` and `git diff --check` pass. Fresh contract, correctness and
+security reviews found no remaining Critical or Required issue. API, UI, jobs,
+models, package exports, schema, production runtime and deployment remain
+unchanged; no commit was made.
+
+#### Task A9.2e: Regression, Review and Local Closure
+
+**Description:** Verify the finished internal slice against related and full
+regressions, inspect the final diff across correctness/readability/architecture/
+security/performance, run a fresh-context adversarial review, reconcile every
+Critical/Required finding and record exact local evidence. Do not register or
+deploy the feature.
+
+**Acceptance criteria:**
+
+- [x] Focused A9.2, combined A9.1+A9.2, full A7 and full backend suites pass
+  without new skips; all four new A9.2 Python files compile and
+  `git diff --check` is clean.
+- [x] The final review confirms deterministic output, exact input/raw wrapper
+  validation, rollback-before-content, zero writer/network/runtime reachability
+  and acceptable module/test size; any split is done only after updating the
+  living spec and task plan.
+- [x] `docs/warehouse-anomaly-content-preview.md`, this task and
+  `tasks/plan.md` record only verified evidence. Parent A9 and every API/UI/
+  deployment gate remain open.
+
+Completed locally on 2026-08-15. Final unique discovery passes `52/52` A9.2
+tests, `67/67` combined A9.1+A9.2 tests, `117/117` A7 tests with 11 expected
+skips and `1953/1953` full-backend tests with 56 expected skips. A fixture
+`TestCase` initially imported under its public class name was discovered three
+extra times by `unittest`; the import is now private-module-qualified and both
+focused and full-backend counts were rerun without duplicate execution. All six
+implementation/test modules in the final compile command pass, package
+`__init__.py` remains unchanged, `git diff --check` and the untracked whitespace/
+conflict scan are clean, and deterministic hashes were verified under three
+`PYTHONHASHSEED` values. Fresh test, correctness/architecture and security
+reviews found no remaining Critical or Required issue after the stale status,
+helper count and duplicate-discovery evidence were corrected. The 1,864-line
+pure contract and 157-line transaction runner remain in the approved cohesive
+split; frozen exact producer tables dominate the contract, while orchestration
+does not grow it. No package export, route, writer, network, model, job,
+feature flag, runtime registration, production contact, commit or deployment
+was added. Parent A9 and all API/UI/runtime gates remain open.
+
+**Verification:**
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/a9-content-pycache \
+python3 -m unittest discover \
+  -s backend/features/estimate_revision_impact -p 'test_*.py'
+
+PYTHONPYCACHEPREFIX=/private/tmp/a9-content-pycache \
+python3 -m unittest discover -s backend -p 'test_*.py'
+
+PYTHONPYCACHEPREFIX=/private/tmp/a9-content-pycache \
+python3 -m py_compile \
+  backend/features/warehouse_recommendation_preview/content_contract.py \
+  backend/features/warehouse_recommendation_preview/content_preview.py \
+  backend/features/warehouse_recommendation_preview/test_content_contract.py \
+  backend/features/warehouse_recommendation_preview/test_content_preview.py
+
+git diff --check
+```
+
+**Dependencies:** Task A9.2d checkpoint.
+
+**Files likely touched:**
+
+- `docs/warehouse-anomaly-content-preview.md`
+- `tasks/plan.md`
+- `tasks/todo.md`
+
+**Estimated scope:** S for verification/status, no runtime file additions.
+
+**Risks and mitigations:**
+
+| Risk | Impact | Mitigation |
+|---|---|---|
+| Permissive A7 normalization hides malformed raw evidence | False preview | Validate exact raw producer shape first and mutation-test ignored fields/counts/truncation |
+| Transaction error ordering masks rollback or control flow | Misleading success or stuck operator | Inject every lifecycle failure and require rollback-before-content plus fixed precedence |
+| Current read can allocate over roughly 204 MiB or run for many minutes | Unsafe runtime latency/memory | Keep module unregistered; runtime remains forbidden until aggregate-byte and overall deadline gates exist |
+| Stored mapping origin is mistaken for authorization | Cross-tenant misuse | Accept only trusted server-owned artifact in this slice; future adapter must authenticate and authorize exact company/project |
+| Strict implementation grows past a reviewable file size | Hidden logic defects | Keep pure contract and transaction orchestration in the approved private split; stop and update the living spec before any further split |
+
+**Plan boundaries:**
+
+- Always: TDD RED before each behavioral increment, strict fixed contracts,
+  current relevant A7 re-read, actual rollback before content, zero writes and
+  local evidence after every checkpoint.
+- Ask first: change the approved spec/interface/mappings, split public modules,
+  use disposable PostgreSQL, commit, push, contact production, add API/UI/job/
+  auth/runtime/feature flag or relax a fail-closed rule.
+- Never: client report/source/hash/recommendation, all-companies detail, raw
+  business text/quantities/prices, fuzzy matching, model/provider, stock
+  correction/movement/inventory adjustment, notification/outbox or deployment.
+
+### Task A9.3: Bounded Runtime-Readiness Substrate
+
+**Status:** Specification approved by the human on 2026-08-15 after a
+plain-language review. A9.3a is complete locally after five observed
+RED/GREEN checkpoints, the isolated PostgreSQL proof, full regression and
+three fresh approvals. A9.3b was explicitly authorized on 2026-08-15 and
+completed locally; A9.3c was separately authorized and completed locally on
+2026-08-21. A9.3d and A9.3e were separately authorized and completed locally
+on 2026-08-21. A9.3 remains unregistered: no route, UI, feature flag, package
+export, production contact, commit, push or deployment is included.
+
+**Objective:** Remove the known resource-allocation blocker from the current
+A7 supply/warehouse collector, then build the later capacity/auth/artifact/
+same-snapshot runtime substrate in separately verified slices. A9.3 never
+applies a stock movement or inventory adjustment and does not publish the
+preview to users.
+
+**Dependency graph:**
+
+```text
+approved A9.3 spec + completed A9.1/A9.2
+        |
+        v
+A9.3a exact pre-libpq variable-byte gates
+        |
+        v
+A9.3b capacity/connect/deadline lifecycle
+        |
+        v
+A9.3c pure auth/selectors/disclosure
+        |
+        v
+A9.3d live auth + exact system artifact
+        |
+        v
+A9.3e one-snapshot unregistered composition
+```
+
+#### Task A9.3a: Bounded A7 Relevant Data Substrate
+
+**Status:** Complete locally on 2026-08-15 through A9.3a1-a5 observed
+RED/GREEN, exact fake/real boundary coverage, the approved isolated disposable
+PostgreSQL proof, full regressions and three fresh approvals. A9.3b-e remain
+open and require separate authorization.
+
+**Description:** Preserve the existing public A7 functions, report versions,
+reason codes and maximum 14 relevant SELECTs while ensuring every selected
+variable-width value is measured and query-wide gated inside PostgreSQL before
+it can cross libpq. One private 17 MiB budget spans target/base snapshots,
+request/invoice JSON, all other TEXT and the selected NUMERIC text forms.
+
+##### A9.3a1: Private byte-budget contract
+
+**Status:** Complete locally on 2026-08-15 after the initial missing-module
+RED, one review-driven ceiling-bypass RED, minimal GREEN, full A7 regression
+and three fresh approvals. No existing collector, package export, runtime,
+route, database or production surface was changed.
+
+**Acceptance criteria:**
+
+- [x] A focused RED first fails only because the new private resource-limit
+  contract is absent.
+- [x] Constants exactly freeze 4 MiB JSON-query, 1 KiB text-field, 1 MiB
+  text-query, 64-byte selected NUMERIC and 17 MiB collector limits.
+- [x] A private budget accepts exact non-bool non-negative byte counts,
+  consumes inclusive limits once, rejects over-consumption and exposes no
+  report field, runtime I/O, DB/network import or package export.
+- [x] Tests cover zero, exact limit, limit+1, bool/negative/non-int values,
+  deterministic state and caller immutability.
+
+**Verification:**
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/a93-pycache \
+python3 -m unittest \
+  backend.features.estimate_revision_impact.test_resource_limits
+```
+
+**Dependencies:** Approved A9.3 spec.
+
+**Files likely touched:**
+
+- `backend/features/estimate_revision_impact/resource_limits.py`
+- `backend/features/estimate_revision_impact/test_resource_limits.py`
+
+**Estimated scope:** S, two files.
+
+**Verification evidence (2026-08-15):**
+
+- The first exact focused command failed before production code existed with
+  `ModuleNotFoundError: ...estimate_revision_impact.resource_limits`; it ran
+  one loader test and exited 1 as the intended missing-contract RED.
+- The first minimal implementation made the complete focused module green at
+  `7/7`. Fresh review then proved that a configurable constructor could raise
+  the approved cumulative ceiling; its targeted regression failed because
+  `_VariableByteLimitError` was not raised. The corrected contract is
+  zero-argument/fixed at 17 MiB and uses the exact approved
+  `MAX_TEXT_QUERY_AGGREGATE_BYTES` name.
+- Final focused verification passes `6/6`; full A7 discovery passes `123/123`
+  with 11 expected skips. `py_compile`, Python 3.9 grammar and
+  `git diff --check` pass.
+- Three fresh independent reviews (correctness/public contract,
+  security/architecture and TDD/test quality) report no remaining Critical or
+  Required finding. Reviewed implementation/test SHA-256 values are
+  `bbf76c1be62d77f987acd5256a74e1b0c944f5d33d57fad69569329cd3fe4f70`
+  and `ae05a6fb0d1c67f5beb5269de9f971da1b526720d5b74e4e76a4eb0775dde9f8`.
+- Existing package `__init__.py`, public baseline/supply collectors, runtime,
+  `backend/main.py`, `package.json` and deploy files remain unchanged. No
+  PostgreSQL process or connection was started for this pure checkpoint.
+
+##### A9.3a2: Baseline target and reconciliation gates
+
+**Status:** Complete locally on 2026-08-15 after the observed SQL/metadata RED,
+minimal baseline GREEN, exhaustive UTF-8 boundary coverage, full backend
+regression and three fresh approvals. A9.3a3-a5 remain open; no PostgreSQL,
+runtime, route, package export, production or deployment surface was enabled.
+
+**Acceptance criteria:**
+
+- [x] RED SQL-shape/fake-row tests cover target `version`, `sections_json`,
+  `status`, `smeta_type`, `work_package` and every reconciliation/base/next
+  status/smeta/package field at inclusive/max+1 UTF-8 boundaries.
+- [x] Target/reconciliation raw values are projected only through one
+  query-wide CASE decision after an ordered bounded row set; exact emitted
+  `COALESCE` fallbacks are included in byte accounting.
+- [x] A private baseline core receives the shared budget while the public
+  `collect_baseline_audit()` signature, `__all__`, report/hash/reason surface
+  and standalone behavior remain unchanged.
+- [x] Oversized target snapshot maps to
+  `impact_estimate_snapshot_too_large`; other baseline overflow uses only the
+  already-approved exact reconciliation/estimate invalid outcomes.
+
+**Verification:**
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/a93-pycache \
+python3 -m unittest \
+  backend.features.estimate_revision_impact.test_resource_limits \
+  backend.features.estimate_revision_impact.test_baseline
+```
+
+**Dependencies:** A9.3a1 checkpoint.
+
+**Files likely touched:**
+
+- `backend/features/estimate_revision_impact/resource_limits.py`
+- `backend/features/estimate_revision_impact/baseline.py`
+- `backend/features/estimate_revision_impact/test_resource_limits.py`
+- `backend/features/estimate_revision_impact/test_baseline.py`
+
+**Estimated scope:** M, four files.
+
+**Verification evidence (2026-08-15):**
+
+- Before production changes, the exact focused resource-limit module ran 13
+  tests and failed with 14 assertions plus one missing private-core error: the
+  old SQL had no ordered MATERIALIZED/query-wide CASE gate, ignored bounded
+  metadata and produced the legacy wrong overflow reasons. That was the
+  intended A9.3a2 RED; no GREEN code existed at that point.
+- The final target/reconciliation SQL keeps a top-level `SELECT`, carries raw
+  values inside the ordered MATERIALIZED limited set, computes UTF-8 bytes only
+  after that LIMIT, uses one alias-local query-wide CASE for every variable
+  field and never rejoins by ID. Placeholder/parameter parity is `15/15` for
+  target and `18/18` for reconciliation; baseline remains three SELECTs.
+- Tests prove exact 4 MiB target JSON and every 1 KiB target/reconciliation
+  text field pass and debit once, while limit+1 CASE-nulls the whole payload and
+  does not debit. They also cover multibyte UTF-8, pure 1 MiB aggregate
+  arithmetic, true SQL NULL, exact `Черновик`/`Заказчик` fallback bytes,
+  cardinality precedence, false flags, raw leaks and atomic cumulative failure.
+- Final focused resource/baseline verification passes `33/33` with one expected
+  opt-in PostgreSQL skip; full A7 discovery passes `139/139` with 11 expected
+  skips; related RFQ/A9.1/A9.2 parity passes `74/74`; full backend discovery
+  passes `1975/1975` with 56 expected skips. `py_compile`, Python 3.9 grammar,
+  `git diff --check` and static public-surface checks pass.
+- Three fresh independent reviews (correctness/public contract,
+  security/architecture and TDD/test quality) found no remaining Critical or
+  Required issue. Reviewed SHA-256 values are `a2744208aac48418754128e621917206f4903e6b43dad0dbd75c254ffaa0fcc9`
+  (`resource_limits.py`), `a50d20c7515c9790294a89d34181635cda9e842bf78ef62dcfd02b18682bbd33`
+  (`baseline.py`) and `ec3e9ee240b9b700358ef25367773e396b4997ac35f68bf1c9455ed8a496b1fd`
+  (`test_resource_limits.py`).
+- The public baseline signature and `__all__` remain exact; bounded metadata is
+  stripped before A7 projection/hash. The existing RFQ static test was narrowed
+  only to allow the reviewed limited-CTE window count. No PostgreSQL process or
+  connection was started; real CASE/window/UTF-8 execution remains A9.3a5.
+
+##### A9.3a3: Source-context and request gates
+
+**Status:** Complete locally on 2026-08-15 after the observed context/request
+SQL and blocker RED, additional fixed-identity/owner and alias-local mutation
+REDs, the minimal shared-budget GREEN, full backend regression and three fresh
+approvals. A9.3a4-a5 remain open; no PostgreSQL, runtime, route, package export,
+production or deployment surface was enabled.
+
+**Acceptance criteria:**
+
+- [x] The relevant collector creates one shared budget and calls the private
+  baseline core without changing either public collector signature.
+- [x] Source project name/base package/base sections and request project/
+  package/status/items JSON are measured as exact UTF-8 emitted expressions;
+  JSON keeps the 1 MiB row cap and gains a 4 MiB query aggregate cap.
+- [x] One oversized row makes the query-wide decision false and CASE-nulls all
+  variable fields, including otherwise-small rows; cardinality takes
+  precedence over bytes and no raw payload reaches Python.
+- [x] Context overflow returns only
+  `supply_warehouse_scan_limit_exceeded`; request overflow returns only
+  `supply_request_scan_limit_exceeded`, and dependent reads do not start.
+
+**Verification:**
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/a93-pycache \
+python3 -m unittest \
+  backend.features.estimate_revision_impact.test_resource_limits \
+  backend.features.estimate_revision_impact.test_supply_warehouse_audit
+```
+
+**Dependencies:** A9.3a2 checkpoint.
+
+**Files likely touched:**
+
+- `backend/features/estimate_revision_impact/resource_limits.py`
+- `backend/features/estimate_revision_impact/supply_warehouse_audit.py`
+- `backend/features/estimate_revision_impact/test_resource_limits.py`
+- `backend/features/estimate_revision_impact/test_supply_warehouse_audit.py`
+- `backend/features/supply_recommendation_preview/test_rfq_content.py`
+
+**Estimated scope:** M, five files.
+
+**Verification evidence (2026-08-15):**
+
+- Before production changes, the focused resource/supply command ran 31 tests
+  and failed on the missing ordered query-wide context/request gates, missing
+  shared remaining-budget parameter and both old overflow outcomes. This was
+  the intended A9.3a3 RED; no collector GREEN existed at that point.
+- Later adversarial REDs proved that fixed request identity/owner checks had to
+  precede overflow and lineage JSON parsing, and that the SQL-shape assertion
+  could otherwise accept a wrong byte source or duplicated MAX gate. The final
+  tests pin cardinality first, truthful all-fixed review shapes, a fixed private
+  stop for unrepresentable mixed fixed-valid/fault overflow, and zero lineage
+  parsing for fixed-fault rows.
+- Context and request SQL now carry raw expressions only inside an ordered
+  MATERIALIZED limited set, calculate exact emitted UTF-8 bytes, apply one
+  alias-local query-wide CASE decision and never rejoin by ID. The same private
+  17 MiB budget instance passes through baseline, context and requests; accepted
+  queries debit once and all metadata is stripped before A7 projection/hash.
+- Exact 4 MiB base/request aggregate JSON and every 1 KiB context/request text
+  boundary pass; limit+1, mixed rows, malformed metadata, fallback/true-NULL,
+  cardinality and cumulative-budget cases fail closed without raw leakage or
+  partial debit. The successful A7 path remains exactly 14 SELECTs and RFQ
+  compatibility remains 21.
+- Final focused verification passes `38/38` with two expected opt-in PostgreSQL
+  skips; full A7 discovery passes `150/150` with 11 expected skips; related
+  RFQ/A9.1/A9.2 parity passes `74/74`; full backend discovery passes
+  `1986/1986` with 56 expected skips. `py_compile`, Python 3.9 grammar,
+  `git diff --check`, SQL placeholder parity and static public-surface checks
+  pass.
+- Three fresh independent reviews (correctness/public contract,
+  security/adversarial and TDD/test quality) found no remaining Critical or
+  Required issue. Reviewed SHA-256 values are
+  `c04483ff83a18d5c094680a2e8b23092747c3ec70a23ae0940af2e7852684300`
+  (`supply_warehouse_audit.py`),
+  `0a639e64da1e08718f4faef1a808a86d9ebd4744da22ad137fd2bd968af679f7`
+  (`test_supply_warehouse_audit.py`) and
+  `734fe89bb0fb6a93fb7aa01721aa0809f2f219e42e87a0a28415cf27c6ed96ec`
+  (`test_rfq_content.py`). No PostgreSQL process or connection was started;
+  real CASE/window/UTF-8 execution remains A9.3a5.
+
+##### A9.3a4: Downstream warehouse gates
+
+**Status:** Complete locally on 2026-08-15 after the observed downstream SQL,
+shared-budget and early-stop RED, review-driven fixed-prefix/cardinality and
+SQL-leak REDs, minimal GREEN, full backend regression and three fresh
+approvals. A9.3a5 remains open; no PostgreSQL, runtime, route, package export,
+production or deployment surface was enabled.
+
+**Acceptance criteria:**
+
+- [x] Delivery project/package/material/unit and 64-byte
+  `received_quantity::text`, allocation `allocation_quantity::text`, warehouse
+  invoice project/items and history/movement packages are all pre-libpq gated.
+- [x] Every loader validates bounded aggregate metadata before returning
+  normalized rows; metadata is stripped before A7 projection/report hashing.
+- [x] 64-byte NUMERIC text passes, 65-byte text fails closed with
+  `supply_warehouse_scan_limit_exceeded`; no new reason/version is introduced.
+- [x] Overflow in any dependency group stops later dependent queries when the
+  current data-flow permits it, and the successful path remains exactly 14
+  relevant SELECTs.
+
+**Verification:**
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/a93-pycache \
+python3 -m unittest \
+  backend.features.estimate_revision_impact.test_resource_limits \
+  backend.features.estimate_revision_impact.test_supply_warehouse_audit \
+  backend.features.warehouse_recommendation_preview.test_content_contract
+```
+
+**Dependencies:** A9.3a3 checkpoint.
+
+**Files touched:** The A9.3a3 resource/audit/test boundary plus
+`supply_warehouse_projection.py` for lazy invoice-item parsing. Existing RFQ
+and A9.2 content-contract/runner tests changed only to supply the new bounded
+producer fixture shape. No package export, route, runtime or schema file is
+included.
+
+**Estimated scope:** M, core hardening plus fixture-only compatibility tests.
+
+**Verification evidence (2026-08-15):**
+
+- Before downstream production changes, the exact focused command ran 81
+  tests and failed with 14 assertions plus two expected opt-in PostgreSQL
+  skips: five loaders lacked the shared budget/signature and ordered
+  query-wide UTF-8 gates, NUMERIC was not projected as bounded text, and
+  overflow continued through all 14 SELECTs. This was the intended A9.3a4
+  RED; only the supply audit test file had changed.
+- The first GREEN exposed stricter review cases, captured in a second
+  tests-only RED (`87` tests, `18` failures, two skips): fixed ID/owner facts
+  were being erased by generic overflow, mixed fixed-valid/fault rows were not
+  stopped privately, accepted prior faults could be hidden by a later
+  overflow, supplier-invoice/receipt-lot cardinality stopped too late and
+  invoice JSON parsing preceded its fixed prefix.
+- Final downstream SQL carries every fixed and variable source expression in
+  an exact ordered MATERIALIZED limited set, computes emitted UTF-8 bytes and
+  uses one query-wide CASE decision. Tests freeze exact limited/top projection
+  inventories, parameter order, category totals, cumulative remaining-budget
+  conjunctions and the complete `bytes_allowed` predicate; forged totals,
+  `AND` to `OR`, new raw aliases, raw-under-fixed aliases, rejoins and
+  cardinality bypasses are rejected.
+- Exact 1 KiB text, 64-byte delivery/allocation NUMERIC and 1 MiB invoice JSON
+  row boundaries pass and debit the same 17 MiB budget once; limit+1, 4 MiB
+  invoice aggregate+1, mixed-row, cumulative, malformed-metadata, fallback,
+  true-NULL and cardinality cases CASE-null the whole group and remain atomic.
+  Metadata never reaches the A7 report or hash.
+- Cardinality remains first. Otherwise exact identity/owner/query-parent
+  invariants precede overflow across delivery, allocation, supplier invoice,
+  warehouse invoice, history, receipt lot, movement and lot movement. All-fixed
+  overflow retains truthful ordinary reviews after the complete relevant scan;
+  mixed or prior-fixed collisions with hidden payload stop with one fixed
+  private error. The lot-movement query's intentional parent `OR` contract is
+  preserved, invoice items are parsed only after its fixed/link prefix, and
+  valid-only overflow uses the existing canonical systemic blocker.
+- Final focused verification passes `88/88` with two expected opt-in
+  PostgreSQL skips; full A7 discovery passes `162/162` with 11 expected skips;
+  related RFQ/A9.1/A9.2 parity passes `74/74`; full backend discovery passes
+  `1998/1998` with 56 expected skips. `py_compile`, Python 3.9 grammar and
+  `git diff --check` pass; the successful relevant path remains exactly 14
+  SELECTs.
+- Three fresh independent reviews (correctness/public contract,
+  security/adversarial and TDD/test quality) found no remaining Critical or
+  Required issue. Reviewed SHA-256 values are
+  `4940b282d0933d0d9b9681599cb012829daf007b71f34c8e59b2279469d0edef`
+  (`supply_warehouse_audit.py`),
+  `18145903fd6d15e664f33ce6cde929b6c51aad90668b051078224365f9550fc0`
+  (`supply_warehouse_projection.py`) and
+  `718631dc490a91cc90c75f9da988aacda61f80c79081e55328547587ea69fb01`
+  (`test_supply_warehouse_audit.py`). No PostgreSQL process or connection was
+  started; real CASE/window/UTF-8 execution remains A9.3a5.
+
+##### A9.3a5: Real PostgreSQL proof and local closure
+
+**Status:** Complete locally on 2026-08-15 after launcher-isolation and
+teardown REDs, real PostgreSQL SQL/fixture REDs, the exact-byte `28/28` guarded
+proof, full regressions and three fresh approvals. No runtime, route, package
+export, UI, production contact, commit, push or deployment was added.
+
+**Acceptance criteria:**
+
+- [x] The approved isolated local disposable PostgreSQL fixture uses a unique
+  `a93_<lowerhex>` database with its own `public` schema, fixture-only
+  CREATE/DROP, explicit teardown and
+  no production host/data; missing local prerequisites skip plainly rather
+  than downloading or contacting an external DB.
+- [x] Real PostgreSQL proves ordered-LIMIT-before-window behavior, exact
+  `convert_to(...,'UTF8')` bytes, emitted NULL/fallback accounting, inclusive/
+  max+1 limits, mixed small+oversized query-wide nulling and zero raw oversized
+  payload across libpq.
+- [x] Fake/real tests prove 17 MiB/17 MiB+1 cumulative behavior, early
+  short-circuiting, unchanged rows, zero commit/write and unchanged public A7
+  contracts/reason parity.
+- [x] Focused, full A7, A9.1/A9.2 and full-backend regressions, `py_compile`,
+  `git diff --check` and three fresh reviews complete without new skips or
+  remaining Critical/Required findings.
+
+**Verification:** Use the exact commands in the approved A9.3 spec plus the
+test-only launcher `scripts/run_a93_postgres_tests.py`, which owns a fresh
+Unix-socket-only PostgreSQL cluster under `/private/tmp`, runs
+`backend/features/estimate_revision_impact/test_resource_limits_postgres.py`
+against its exact random database and tears the cluster down. Installing
+software, network access or any external/pre-existing database remains a
+separate approval.
+
+**Dependencies:** A9.3a4 checkpoint.
+
+**Files likely touched:** A9.3a implementation/tests,
+`scripts/run_a93_postgres_tests.py`,
+`backend/features/estimate_revision_impact/test_resource_limits_postgres.py`,
+this living spec and task evidence; no runtime/HTTP/UI/production file.
+
+**Estimated scope:** M for tests/review, no new business behavior.
+
+**Verification evidence (2026-08-15):**
+
+- The first A9.3a5 tests-only RED failed because the isolated launcher was
+  absent. Subsequent bounded REDs exposed PostgreSQL 15 version parsing,
+  unconditional temporary-root deletion when shutdown was uncertain,
+  incomplete owned-process/signal cleanup, unsafe pre-connect provenance and
+  teardown wiring that was not pinned on a failing child test. The corrected
+  pure launcher contract passes `17/17` without starting PostgreSQL.
+- The first real SQL probe against the fresh isolated database failed with the
+  expected `UndefinedTable` before fixture DDL existed. The final fixture
+  creates and drops only the exact 12 reviewed tables in its own `public`
+  schema, uses unrestricted test-only NUMERIC columns, sanitized environment
+  and a capability-bound inherited descriptor, and never falls back to an
+  external or pre-existing database.
+- `python3 scripts/run_a93_postgres_tests.py` passes `28/28` on exact final
+  bytes: 17 launcher/security tests plus 11 real PostgreSQL tests. The launcher
+  owns a fresh `a93_<lowerhex>` database and private Unix-socket-only cluster
+  under `/private/tmp`, confirms server death, removes the database/socket/root
+  and leaves no `stroyka-a93-pg-*` fixture behind.
+- Real `RealDictCursor` observation proves ordered LIMIT before window
+  aggregation, execution-time CASE gating after a prepared plan, exact UTF-8
+  fallback/NULL accounting, every 1 KiB/1 MiB/4 MiB and 64/65-byte NUMERIC
+  boundary, mixed-row query-wide nulling, exact 17 MiB/17 MiB+1 cumulative
+  behavior and zero oversized raw payload across libpq. Public proofs retain
+  exactly 14 read-only SELECTs, one rollback, zero commit/write, unchanged table
+  snapshots and strict A9.2 raw-report acceptance.
+- Final focused verification passes `116/116` with three expected existing
+  opt-in skips; A7 discovery passes `179/179` with 11 expected skips; A9.1+
+  A9.2 passes `67/67`; full backend discovery passes `2015/2015` with 56
+  expected skips. The reviewed file set passes `py_compile`, `git diff
+  --check`, conflict-marker and trailing-whitespace checks.
+- Three fresh independent reviews (query/public correctness,
+  security/fixture architecture and TDD/test quality) report no remaining
+  Critical or Required finding. Exact SHA-256 values are
+  `1b7ce519d9d2e378210312bc16a1965d7f7615f63514cee444a06549511aa0f1`
+  for `scripts/run_a93_postgres_tests.py` and
+  `40cf0f8d1cf8ba4286ad91f6603ec1796f46667970d11894bee5c91b7e7b1d79`
+  for `test_resource_limits_postgres.py`; the four A9.3a production hashes
+  remain the already-approved A9.3a4 values.
+
+**Risks and mitigations:**
+
+| Risk | Impact | Mitigation |
+|---|---|---|
+| SQL gate checks one row but leaks another small row | Pre-libpq cap bypass | One query-wide MAX/BOOL_AND decision; mixed-row real-PG RED |
+| Byte metadata measures a different expression/encoding | False accepted size | Measure exact emitted expression with `convert_to(...,'UTF8')` and real-PG boundary proof |
+| New metadata changes A7 report/hash | A9.1/A9.2 contract drift | Strip metadata inside loaders and run producer-parity/hash tests |
+| Budget is recreated per loader | Aggregate 17 MiB bypass | One private object threaded from relevant collector through private baseline core and every payload loader |
+| Overflow gets a newly invented reason | A9.1 raw-contract break | Exact existing reason mapping only; stop and reopen spec if producer shape cannot stay truthful |
+| Local integration test touches a non-test DB | Data loss | Exact `a93_<lowerhex>` identity, launcher-owned cluster, fail closed and explicit teardown; production forbidden |
+
+**Boundaries:**
+
+- Always: observed RED before behavior, parameterized SELECT-only SQL,
+  pre-libpq query-wide gating, exact types/bounds, shared private budget, no
+  public A7 contract drift and fresh review after each checkpoint.
+- Ask first: alter approved limits/reasons/interfaces, install or download a DB
+  dependency, use network/external DB, commit, push, contact production, add
+  runtime/auth/route/UI/feature flag or proceed beyond the approved slice.
+- Never: production database, DDL outside the isolated test fixture, commit or
+  business write, client report/hash/content, stock/inventory mutation,
+  model/provider, notification/outbox or deployment.
+
+#### Task A9.3b: Capacity, Connection and Cooperative Deadline
+
+**Status:** Completed locally on 2026-08-21 after the approved isolated
+PostgreSQL proof and full regression/review closure. The private guarded
+transaction remains unregistered and has zero production call sites. This
+checkpoint did not itself authorize later slices; A9.3c, A9.3d and A9.3e were
+subsequently authorized and completed separately, while HTTP, UI and
+deployment remain unauthorized.
+
+**Objective:** Bound one process to one in-flight warehouse-anomaly runtime,
+bound slot waiting and libpq connection establishment, and provide one guarded
+read-only transaction resource that checks the same 30-second monotonic budget
+around every SQL/`fetchall` while preserving cleanup and control-flow semantics.
+
+**Architecture decisions:**
+
+- Add only private `runtime_budget.py`/`test_runtime_budget.py` in the existing
+  warehouse preview package. Keep `content_preview.py`, package `__init__.py`,
+  global `backend.db.DB_CONFIG/get_db()`, routes and runtime registration
+  unchanged.
+- One module-global `threading.BoundedSemaphore(1)` produces a genuine one-use
+  private lease that owns both the injected clock and an immutable budget.
+  Slot wait is independently capped at one second; the operation deadline is
+  `clock() + 30` only after acquisition and the lease is designed to enclose
+  future rollback/close/finalization before exactly-once release. Every later
+  guard receives the lease rather than a caller-forgeable bare budget, so all
+  phases use the same clock/deadline.
+- The approved private connection interface is refined only for deterministic
+  tests: slot acquisition receives the clock, while connection opening accepts
+  that exact lease and a keyword-only `connect` injection. Production defaults
+  use `time.monotonic` and `psycopg2.connect`; callers cannot override the fixed
+  libpq `connect_timeout=5`/startup controls through DB config. This is a libpq
+  control plus cooperative pre/post check, not a false hard whole-call bound;
+  comma-separated multi-host/port config and all extra keys are rejected.
+- A successful factory call binds the exact returned connection identity to the
+  genuine lease. The b3 lifecycle may claim that exact pair once and clears the
+  binding only after close; a swapped connection/lease pair or second lifecycle
+  use reaches neither cursor creation nor SQL and cannot disturb the holder.
+- Startup options protect the first statement with statement/lock/idle limits
+  `5s/1s/10s`, UTF-8 and the fixed search path. Autocommit is enabled only so
+  the exact guarded `BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ
+  ONLY` is the first server statement; one combined settings `SELECT` repeats
+  transaction-local limits and validates canonical settings/encoding, keeping
+  the future whole-runtime ceiling at 18 statements.
+- The guarded cursor exposes only bounded `execute`, `fetchall` and cleanup
+  `close`, checks the lease clock immediately before/after `execute` and
+  `fetchall`, and rejects a 19th statement before it reaches psycopg2. Raw
+  cursor access, iteration/fetchone, executor/thread timeout and orphaned work
+  are forbidden. Exact static call-graph inventory—not SQL-prefix parsing—pins
+  the one BEGIN plus reviewed SELECT-only surface and rejects writing/advisory
+  functions, data-modifying CTEs, locks and commit.
+- Psycopg2 autocommit deliberately leaves transaction ownership to explicit
+  SQL. Therefore the exact cleanup is one private `ROLLBACK` executed through
+  the already captured raw-cursor method after callback access is sealed; the
+  DB-API `connection.rollback()` is not used because the real PostgreSQL proof
+  showed it does not terminate a manually begun autocommit transaction.
+- A deadline detected after connect is a pre-cleanup primary failure: the new
+  connection is closed without BEGIN and an ordinary close error cannot erase
+  the deadline. Any named control-flow raised during cleanup still wins by
+  identity. On a connect error the same post-call clock check runs: exact
+  `clock() >= deadline` maps to deadline, while an ordinary connect error wins
+  only while budget remains. The future A9.3e runner owns final public error
+  mapping and keeps the lease through content validation.
+
+##### A9.3b1: One-slot lease and monotonic budget
+
+**Acceptance criteria:**
+
+- [x] Observed RED fails only because the private runtime-budget module/names
+  are absent.
+- [x] Capacity is exactly one, wait is at most one second and busy opens no DB;
+  deadline is created only after successful acquisition at exact `clock()+30`.
+- [x] Lease release is exactly-once/idempotent across normal, exception and
+  `KeyboardInterrupt`/`SystemExit`/`GeneratorExit` scopes; bool/NaN/forged
+  budget values fail with fixed non-leaking private errors.
+- [x] Module/package exports remain empty/unchanged and static checks reject
+  thread pools, executors, routes, writers, network clients and global DB use.
+
+**A9.3b1 evidence (2026-08-15):** The first tests-only run failed exactly with
+`ModuleNotFoundError` for the absent private `runtime_budget` module (`Ran 1`,
+one loader error). The bounded implementation then passed adversarial REDs for
+mutable/stale/direct leases, non-lossless and non-exact 30-second clocks,
+interrupted physical release, atomic terminal-state replacement, cyclic
+weak-registry cleanup, acquire/return control-flow boundaries and cleanup-error
+precedence. Final fresh-pycache verification is `23/23`; readiness + A9.1/A9.2
++ b1 is `90/90`; `py_compile`, Python 3.9 grammar and `git diff --check` pass.
+Runtime SHA-256 is
+`8747c0edd909a38efc56b0ce63be6833cf56834ff8de9b9caf759309f33bf87a`;
+test SHA-256 is
+`670f02d06b81b11df50d7be6e8abefe95f81ac7dcab2ec9a7afec70bc4f92af5`.
+The package init, A9.2 runner and global `backend.db` remain byte-identical;
+fresh review found no Critical or Required issue within the approved private
+code trust boundary. No PostgreSQL, route, runtime registration or network was
+used by this sub-slice.
+
+##### A9.3b2: Bounded dedicated connection
+
+**Acceptance criteria:**
+
+- [x] Strict server-owned DB config is copied without mutation and cannot
+  supply/override `connect_timeout`, `options` or other extras.
+- [x] The dedicated factory forces `connect_timeout=5`, UTF-8 and fixed startup
+  options, with an adjacent cooperative monotonic pre-check and a mandatory
+  post-return/error check; equality at the deadline is expired. The unavoidable
+  Python scheduler/bytecode window is contained by closing/discarding a late
+  connection and is not described as an atomic or hard-wall boundary.
+- [x] Pre-connect expiry makes zero libpq calls; post-connect expiry closes the
+  returned connection with no cursor/BEGIN/rollback and always releases the
+  lease. Fixed mapped errors contain no DSN/password/dependency text; named
+  control-flow is re-raised by exact identity after best-effort close/release.
+- [x] `backend.db.DB_CONFIG/get_db()` bytes and behavior remain unchanged.
+
+**A9.3b2 evidence (2026-08-15):** Tests-only REDs first exposed the absent
+factory, strict-config rejection, pre/post-connect deadline and cleanup paths,
+falsey/malformed resources, autocommit readback, one-use lease ownership,
+control-flow handoff gaps and dependency-exception context leakage. Subsequent
+adversarial REDs pinned claim/return and close/release trace boundaries before
+the implementation was accepted. Final exact-byte verification passes `41/41`
+focused tests and `108/108` package tests; `py_compile` and `git diff --check`
+pass. Runtime SHA-256 is
+`ab3c07427e3046a6656f564f9566f68376a980167226c14ee52ca49019e5a9bf`;
+test SHA-256 is
+`f26fd7a0775586ad34e102eae852371f9c21f6a475b9899c435f4136426572a4`;
+the approved spec SHA-256 is
+`1997493d12fe03bca61b9920d23c9219cc302aa0310ded92da20ac0e0a407d19`.
+Three fresh independent reviews found no remaining Critical or Required issue.
+The package init, A9.2 runner and global `backend.db` remain unchanged. No SQL,
+PostgreSQL, route, runtime registration or network was used by this sub-slice.
+
+##### A9.3b3: Guarded explicit transaction and lifecycle
+
+**Acceptance criteria:**
+
+- [x] Exact explicit read-only REPEATABLE READ BEGIN is the first server
+  statement and one settings SELECT is second. The b3 primitive remains
+  unexported with zero production call sites and exposes no raw cursor; the
+  complete SELECT-only callback/call-graph inventory is truthfully deferred to
+  A9.3e rather than approximated with a string-prefix sandbox.
+- [x] The same guard runs before/after every `execute` and `fetchall`; expiry
+  before an operation prevents it, expiry after it discards the result, and
+  statement 19 is rejected before the driver call with fixed
+  `warehouse_anomaly_runtime_contract_invalid` before normal cleanup.
+- [x] Every successful connect attempts connection close; cursor close occurs
+  only after cursor acquisition; exactly one rollback occurs iff exact BEGIN
+  was attempted (the flag is set before driver execute). Post-connect expiry is
+  the explicit zero-BEGIN/zero-rollback exception. Falsey/missing/non-callable
+  resources remain fail-closed. Collision precedence is first named control
+  identity, rollback, primary read/deadline, cleanup, then a deadline first
+  observed after cleanup.
+- [x] Fake-clock matrices prove the lease still exists after successful
+  rollback/close for a simulated finalizer/result guard and releases once on
+  every failure/control path.
+
+**A9.3b3 evidence (2026-08-21):** The first tests-only run failed because the
+private transaction runner was absent. Incremental RED slices then exposed the
+missing exact BEGIN/settings path, sticky execute/fetch failures, 19th-statement
+ceiling, callback-close poison, raw-cursor result/exception channels, malformed
+settings, rollback/cleanup precedence, connection/lease identity drift and
+line-trace lifecycle handoffs. Final review added honest REDs for physical
+rollback/cursor-close/connection-close dispatch being marked without a real
+attempt and for a forbidden callback `close()` traceback retaining the private
+raw-cursor state; both are closed. Fresh verification passes `72/72` focused
+and `139/139` package tests, `py_compile`, Python 3.9 execution and
+`git diff --check`. Runtime SHA-256 is
+`3f65f6498b5b1879ac899928f6046dc167392e03a49efc7c5b42c3b13569006d`;
+test SHA-256 is
+`b30dc596397ce90f9983ecb96fb5a7010bde352715b6e9d3108b38a604e97581`.
+The package init, A9.2 runner, global `backend.db`, routes and registration
+remain unchanged, and the new primitive has zero non-test call sites. No
+PostgreSQL, network, route, runtime registration or deployment was used by b3.
+The subsequent b4 real proof honestly exposed that DB-API rollback is a no-op
+for the manually begun autocommit transaction; b4 replaced it with the exact
+private SQL `ROLLBACK` and reran every b3 regression. Final candidate hashes
+are recorded below.
+
+##### A9.3b4: Real PostgreSQL proof and closure
+
+**Acceptance criteria:**
+
+- [x] The approved launcher-owned Unix-socket fixture proves exact startup
+  settings, explicit BEGIN first, read-only REPEATABLE READ state, exactly one
+  rollback and psycopg2/backend transaction status idle before close.
+- [x] An independent observer sees the backend idle with no `xact_start`, then
+  absent after close; fixture teardown remains exact and leaves no process,
+  socket, database or root.
+- [x] Focused A9.3b, A7, A9.1/A9.2 and full-backend tests, compile/static/diff
+  checks and three fresh reviews finish without new skips or Critical/Required
+  findings.
+
+**A9.3b4 evidence (2026-08-21):** The first real PostgreSQL run was an honest
+RED: after DB-API `connection.rollback()` the backend transaction status was
+still `INTRANS`. Psycopg2's documented autocommit contract requires manually
+controlled transactions to use SQL transaction commands, so cleanup now sends
+one captured private `ROLLBACK`. The repeated launcher-owned PostgreSQL 15
+proof passed `29/29`: BEGIN is server command 1, the canonical settings SELECT
+is 2, the proof SELECT is 3 and ROLLBACK is 4; no commit or `set_session` occurs.
+Immediately before close, psycopg2 reports `TRANSACTION_STATUS_IDLE` and an
+independent `pg_stat_activity` read reports `state='idle'` with
+`xact_start IS NULL`; after close the PID is absent. The data snapshot is
+unchanged, `pg_ctl` confirms shutdown and no fixture root/socket remains.
+Fresh verification passes focused b3 `72/72`, preview package `139/139`, A7
+`179/179` with 11 expected opt-in skips, full backend `2087/2087` with 56
+expected skips, `py_compile`, static/private-surface gates and
+`git diff --check`. Three fresh correctness, security/resource and test/public
+surface review passes found no Critical or Required issue. Final SHA-256 values:
+runtime `352ea44d0bed20944453fe210af772f9cc220c35602b7a0dcbfcf2e676703a68`,
+runtime tests `4525c5c6550e7daa9889703540071d9364cbfb3540b2c15d764b1163a09b0049`,
+PostgreSQL proof `1857d49bb2c5162c1e8aa50fac351ff44e07d6ac0f0cc622b72267c34e9aceba`,
+launcher `1b7ce519d9d2e378210312bc16a1965d7f7615f63514cee444a06549511aa0f1`.
+Package init, A9.2 runner, global DB helper, main/routes and registration remain
+byte-identical. No network, external/production DB, commit, push or deployment
+was used.
+
+**Verification:**
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/a93-pycache \
+python3 -m unittest \
+  backend.features.warehouse_recommendation_preview.test_runtime_budget
+
+python3 scripts/run_a93_postgres_tests.py
+
+PYTHONPYCACHEPREFIX=/private/tmp/a93-pycache \
+python3 -m unittest discover \
+  -s backend/features/estimate_revision_impact -p 'test_*.py'
+
+PYTHONPYCACHEPREFIX=/private/tmp/a93-pycache \
+python3 -m unittest discover -s backend -p 'test_*.py'
+
+git diff --check
+```
+
+**Dependencies:** Completed A9.3a and the already-approved isolated PostgreSQL
+authorization for guarded BEGIN/rollback/idle proof.
+
+**Files likely touched:**
+
+- `backend/features/warehouse_recommendation_preview/runtime_budget.py`
+- `backend/features/warehouse_recommendation_preview/test_runtime_budget.py`
+- the existing isolated PostgreSQL proof/launcher tests in A9.3b4 only
+- `tasks/plan.md`, `tasks/todo.md` and status/evidence in this spec
+
+**Estimated scope:** Four small checkpoints; no public/runtime surface.
+
+#### Later A9.3 checkpoints — completed after A9.3b
+
+- [x] A9.3c: pure exact cookie-session/director selectors/auth/disclosure.
+- [x] A9.3d: same-cursor live auth/project and exact succeeded system-owned job
+  artifact resolver with PostgreSQL CASE/sentinel proof.
+- [x] A9.3e: one-snapshot unregistered composition, rollback-before-content,
+  privacy-minimized public result and full regression/review.
+
+#### Task A9.3c: Pure authorization, selectors and public disclosure
+
+**Status:** Completed locally on 2026-08-21 after four DB-free TDD checkpoints,
+full regression and three final review axes. No SQL, route, runtime
+registration, HTTP/UI, PostgreSQL, network or production access was used or is
+authorized by this slice. A9.3d and A9.3e were subsequently authorized and
+completed; HTTP/UI/registration remain separate open approvals.
+
+**Objective:** Add one unexported DB-free `runtime_contract.py` with exact
+cookie-session and selected-company/project/job/candidate claims, the pure
+actor/project authorization-result truth table used by the future A9.3d query,
+and one detached privacy-minimized public projection over a validated A9.2
+content result.
+
+**Architecture decisions:**
+
+- Keep `runtime_access.py` and all live session/member/company/project SQL in
+  A9.3d. A9.3c only defines and tests the immutable values and outcome
+  precedence that query must satisfy.
+- Accept authentication only as the exact two-field output of the existing
+  `build_cookie_session_authentication()` adapter. Accept company only from
+  exact company mode plus positive company ID; accept the body only as exact
+  positive project/job IDs and an exact allowlisted selection.
+- Preserve all 18 A9.2 subject-kind/anomaly-code compatibility pairs. Never
+  accept client source, company, recommendation, hash, report, content or
+  current values.
+- Validate the future small auth-query outcome as `actor_count == 1` before
+  inspecting `project_exists`: zero/two actors map to the fixed internal
+  authentication error, while a valid actor plus absent/foreign project maps
+  to the fixed opaque resource-not-found error.
+- Public disclosure copies only fixed safety flags, state, candidate and fixed
+  content. It removes source/project/job IDs, all evidence/content hashes,
+  reconciliation internals and private blockers. Non-ready states expose only
+  one public blocked/stale code and `content=null`.
+- Add only `runtime_contract.py`, `test_runtime_contract.py` and task/status
+  evidence. Package `__init__.py`, A9.2 files, `runtime_budget.py`, global DB,
+  routes/main/registries and production callers remain unchanged.
+
+##### A9.3c1: Immutable authentication and request claims
+
+- [x] Observe a focused RED caused only by the absent private module/names.
+- [x] Reject missing/extra keys, subclasses, bool-as-int, bearer/mixed auth,
+  malformed session hashes, all-companies mode and every unsupported
+  subject-kind/anomaly-code pair before any DB/slot seam exists.
+- [x] Return detached immutable claims with no raw cookie, token, headers,
+  source, recommendation, content, report or hash.
+
+**A9.3c1 evidence (2026-08-21):** The tests-only focused run failed exactly at
+module import because private `runtime_contract.py` did not exist (`Ran 1`, one
+loader error). Minimal GREEN then passed `8/8`; the related existing cookie
+adapter plus A9.2 preparation/finalization/runner tests passed `66/66`.
+`py_compile` and scoped `git diff --check` pass. The parser accepts all 18 exact
+kind/code pairs and returns only immutable session-hash/company/project/job/
+selection claims. It rejects dict/text/int subclasses, bool IDs, bearer/mixed
+auth, malformed hashes, non-canonical or out-of-range company headers,
+all-companies mode, extra/missing body fields and mismatched pairs. Runtime
+contract SHA-256 is
+`ca760cbb33f9478f042f4ead5cc0a8525b7c192022983cd265f79afc1421ca97`;
+test SHA-256 is
+`b36cddcf36f453a8e18ce6a3551234e204a07116a5d637787438ef3816b63764`.
+Package init, A9.2 content contract and A9.3b budget hashes remain unchanged.
+No SQL, PostgreSQL, route, runtime registration, network or production access
+was used.
+
+##### A9.3c2: Pure authorization outcome truth table
+
+- [x] Require one exact small detached result with builtin `actor_count` and
+  `project_exists` values; malformed producer metadata is contract-invalid.
+- [x] Actor count zero/two wins over project status and maps to one fixed
+  authentication-required code; only exact actor count one may produce opaque
+  resource-not-found for a false project flag.
+
+**A9.3c2 evidence (2026-08-21):** The tests-only run failed exactly because
+`_authorize_warehouse_anomaly_runtime_claims` was absent. Minimal GREEN passed
+`13/13`. The exact two-field future SQL row rejects missing/extra/subclass,
+bool, negative and out-of-LIMIT counts as contract-invalid. Actor counts zero
+and two map to one authentication-required code for either project flag; only
+actor count one plus false project maps to opaque resource-not-found. No actor,
+role, membership, session hash or project detail appears in errors.
+
+##### A9.3c3: Minimal disclosure policy
+
+- [x] Cover all 18 allowlisted candidates with the same director-only policy.
+- [x] `preview_ready` exposes fixed content and no blockers; `blocked`/`stale`
+  expose null content and exactly one allowlisted public state code.
+- [x] Result is detached, caller inputs remain unchanged and no private source,
+  IDs, hashes, current values or A9.2 blocker detail can appear recursively.
+
+**A9.3c3 evidence (2026-08-21):** The first tests-only run failed exactly on
+the absent public-projection function. Initial GREEN passed `18/18`; a fresh
+adversarial source/hash coherence matrix then produced four honest failures.
+The corrected projection revalidates the exact A9.2 source revision/status,
+candidate kind/code/recommendation, fixed content, canonical content hash and
+private blocker allowlist before constructing a detached 14-field public
+mapping. All 18 candidates share the same policy; ready content is fixed and
+blocked/stale expose only `warehouse_anomaly_preview_blocked` or
+`warehouse_anomaly_preview_stale`. Source, company/project/job/estimate and
+reconciliation IDs/status, both hashes and private blockers are absent
+recursively.
+
+##### A9.3c4: Closure
+
+- [x] Focused contract, A9.1/A9.2/A9.3b and full-backend tests pass with no new
+  skips; compile, Python 3.9 grammar, static import/export/callsite and
+  `git diff --check` gates pass.
+- [x] Three fresh correctness/security/test reviews find no Critical/Required
+  issue, then record exact RED/GREEN commands and SHA-256 evidence.
+
+**A9.3c4 evidence (2026-08-21):** The closure security RED found one real
+private-blocker allowlist gap plus one false-positive substring callsite test;
+the implementation now requires the canonical A9.2 blocker set and the static
+gate uses AST imports. Final focused contract is `20/20`; preview package is
+`159/159`; A7 is `179/179` with 11 expected opt-in skips; full backend is
+`2107/2107` with the unchanged 56 expected skips. Existing cookie/A9.2 related
+tests previously passed `66/66`. `py_compile`, Python 3.9 AST, empty import-star,
+zero production-callsite AST scan, exact unchanged file hashes, whitespace and
+`git diff --check` pass. Separate final correctness, security/privacy (`12/12`)
+and test-mutation (`2/2` injected drifts rejected) reviews found no remaining
+Critical or Required issue. Final SHA-256 values are:
+
+- runtime contract
+  `50bbac69200db905496edea96fd0bf2bf2b0e3548ac0ea4224ccbffe579d4214`;
+- contract tests
+  `1f28b9f5ee7bba9237a2ef4702b5cbb0237c33f270796d7ee8ade029cb3cea48`;
+- approved runtime spec before this evidence update
+  `02d872c5cb4e97bf76d52a92d8703d400b6ea78a71fc5c3c0c298427c0bd9a19`.
+
+Package init, A9.2 content/runner, A9.3b budget, global DB and `backend/main.py`
+remain byte-identical. A9.3c has zero production call sites and an empty
+`__all__`; no commit, push or deployment was performed.
+
+**Files likely touched:**
+
+- `backend/features/warehouse_recommendation_preview/runtime_contract.py`
+- `backend/features/warehouse_recommendation_preview/test_runtime_contract.py`
+- `tasks/plan.md`, `tasks/todo.md` and status/evidence in the approved spec
+
+**Estimated scope:** Four small TDD checkpoints; no DB/public/runtime surface.
+
+#### Task A9.3d: Same-cursor live authorization and exact system artifact
+
+**Status:** Separately authorized by the human and completed locally on
+2026-08-21 after four TDD checkpoints, isolated PostgreSQL proof, full
+regression and three final review axes. This slice added only the private
+caller-cursor access module/tests and reused
+the already-approved isolated local PostgreSQL fixture. A9.3e was subsequently
+authorized and completed; HTTP/UI, package exports, runtime registration,
+production access, commit, push and deployment remain unauthorized.
+
+**Objective:** Resolve the exact passed-2FA company director and selected
+project from the live database, then load only the selected succeeded
+system-owned `estimate.revision_impact` job on the same guarded read-only
+cursor. Oversized job JSON must be withheld inside PostgreSQL before libpq;
+missing/foreign/wrong-kind jobs stay opaque while an exact corrupt artifact
+fails with one fixed internal artifact-invalid code.
+
+**Architecture decisions:**
+
+- Add only unexported `runtime_access.py` and `test_runtime_access.py` for the
+  DB-free/fake-cursor checkpoints. The caller supplies the A9.3b guarded cursor
+  and A9.3c immutable claims; this module never opens a connection or owns a
+  transaction.
+- Live authorization is one parameterized SELECT. An ordered actor
+  `MATERIALIZED` CTE with `LIMIT 2` counts exact unrevoked/unexpired passed-2FA
+  sessions whose active user, director membership, company and platform
+  account share one non-NULL account binding. A separate project flag is read
+  only for one actor; the A9.3c actor-before-project truth table remains the
+  sole outcome classifier.
+- Artifact lookup is one parameterized SELECT by exact job/company/project plus
+  fixed company-owner, job-type, succeeded and system-owner predicates. It
+  never searches latest or uses the public job query service. Lifecycle and
+  plan-integrity predicates remain post-read checks so exact corruption cannot
+  be disguised as not-found.
+- `payload_json` and `result_json` cross libpq only through one query-wide
+  128-KiB CASE decision with separate fixed overflow flags. Raw `last_error`,
+  lock, worker and lease text are never selected; only exact small terminal
+  booleans are projected.
+- After bounded transport, re-run the existing 64-KiB safe JSON serializer,
+  `source_from_job_payload`, exact job-plan rebuild and
+  `validate_estimate_revision_impact_result`. Verify every stored plan/source
+  identity and return a detached internal mapping only. No private artifact is
+  exposed publicly in this slice.
+
+##### A9.3d1: Live actor/project authorization
+
+- [x] Observe a focused RED caused only by the absent private access module or
+  authorization seam.
+- [x] Pin the exact one-query SQL, parameters, actor `LIMIT 2`, no project
+  inner-join collapse, fixed two-field metadata contract and A9.3c
+  authentication-before-resource precedence.
+- [x] Reject malformed cursor rows and dependency errors with fixed nonleaking
+  internal errors; issue no artifact query after auth failure.
+
+**A9.3d1 RED evidence (2026-08-21):** The tests-only focused command
+`PYTHONPYCACHEPREFIX=/private/tmp/a93d1-red-pycache python3 -m unittest
+backend.features.warehouse_recommendation_preview.test_runtime_access` exited
+1 with exactly one loader error: private `runtime_access` did not exist. No
+production module, cursor, PostgreSQL, network or route was touched.
+
+**A9.3d1 GREEN evidence (2026-08-21):** Minimal private
+`runtime_access.py` performs exactly one parameterized actor/project SELECT on
+the supplied cursor and returns the identical immutable claims only through
+the A9.3c truth table. Focused access tests pass `6/6`; access + A9.3c + A9.3b
+tests pass `98/98`. The related A9.3c static gate was narrowed from zero
+callers to the single exact approved private `runtime_access.py` caller; all
+other production callers remain forbidden. `py_compile` and scoped
+`git diff --check` pass. SHA-256: access
+`91c59d5e1b13465bf4c826a6cb041e8ee3c87064fae0c11896dc3342f953021b`,
+access tests
+`6bedfdfbb1c42d84037fe2c4e1cd47c3677a65e49bfa031a1532297ea1369c04`.
+No artifact query, connection, transaction, route/export/registration,
+PostgreSQL, network or production access was added.
+
+##### A9.3d2: Opaque bounded artifact lookup
+
+- [x] Pin exact opaque predicates/`LIMIT 2`, bounded projection inventory and
+  UTF-8 CASE/overflow flags for both JSON fields without raw unbounded text.
+- [x] Cover zero/two rows, foreign/wrong-kind/status/human-owned lookup shapes,
+  128-KiB inclusive/+1 transport metadata and exact-row lifecycle corruption.
+- [x] Preserve one same cursor and one artifact SELECT; never call public
+  `agent_jobs` query APIs or create a connection/transaction.
+
+**A9.3d2 RED evidence (2026-08-21):** After adding transport-only tests, the
+focused command exited 1 at import with the exact expected missing private
+`_read_warehouse_anomaly_runtime_artifact` attribute. The RED adds no
+production behavior and does not contact PostgreSQL or any external system.
+
+**A9.3d2 GREEN evidence (2026-08-21):** One ordered `limited` CTE applies
+`LIMIT 2` before row-count/MAX sizing; one shared decision CASE-nulls both
+JSON fields for ambiguity or either 128-KiB overflow. The outer projection
+contains no raw `last_error`, lock/worker/lease text or ungated JSON. Zero/two
+rows are opaque not-found, while one exact oversized or lifecycle-corrupt row
+is artifact-invalid. Exact metadata/type contradictions are contract-invalid.
+Mixed small+oversized rows withhold both JSON values. No connection,
+transaction, public query service or second SELECT exists.
+
+##### A9.3d3: Provenance and detached artifact
+
+- [x] Revalidate exact canonical payload/result at 64 KiB, source contract,
+  full rebuilt job plan and report source/result contract without trusting SQL
+  flags or caller data.
+- [x] Return only a detached internal artifact; mutation of DB rows or returned
+  values cannot alter each other, and all dependency/business text is absent
+  from fixed failures.
+
+**A9.3d3 RED evidence (2026-08-21):** The first provenance tests-only run
+exited 1 at import because the final private resolver did not exist. The
+already-GREEN transport reader remained unchanged; no source/plan/result
+validation was implemented before this RED.
+
+**A9.3d3 GREEN evidence (2026-08-21):** The resolver reserializes both JSON
+objects through the existing 64-KiB safe serializer, reconstructs source only
+through `source_from_job_payload`, rebuilds the exact deterministic job plan,
+compares all stored plan/scope/owner/priority fields and validates the combined
+result against that source. It returns only detached `combinedReport` and the
+three exact selected fields. Stored rows and immutable claims do not alias the
+result; dependency details are replaced by one fixed artifact-invalid error,
+while named controls preserve identity. Focused access tests pass `21/21`;
+access + A9.3b/c + job-plan/handler tests pass `119/119`; compile and diff
+checks pass. Current SHA-256: runtime access
+`aecdf44d4cf2898b7f1c9e2092788e8dd1c74c7a76869c4d96fa793f6c59b0e7`,
+access tests
+`90eb5e4f5fedfc506b86a63a186f9bd34cc03860a283d8e69d23b45b8633176c`.
+At this checkpoint the actual PostgreSQL CASE/auth behavior remained
+intentionally open; it is proven by the completed d4 evidence below.
+
+##### A9.3d4: PostgreSQL proof and closure
+
+- [x] Extend only the existing approved launcher-owned PostgreSQL fixture to
+  prove actor/project CTE semantics plus actual CASE/window/UTF-8 sentinel
+  behavior; never contact a pre-existing or production database.
+- [x] Run focused access/runtime, A7 and full backend regressions, compile/AST,
+  static no-export/no-callsite/no-new-connection gates and `git diff --check`.
+- [x] Complete fresh correctness, security/privacy and test-mutation reviews
+  with no Critical/Required findings before closing A9.3d.
+
+**A9.3d4 RED evidence (2026-08-21):** The first sandboxed launcher attempt was
+blocked by local shared-memory isolation before PostgreSQL initialized. The
+same already-approved launcher was then run outside that sandbox boundary and
+the new production auth query failed exactly with PostgreSQL
+`UndefinedTable: public.user_sessions`; the launcher still dropped/stopped and
+removed its private fixture. The 30-test run also exposed one independent old
+b4 lease-acquisition error, so this mixed RED is not being counted as GREEN
+evidence. No pre-existing, external or production database was contacted.
+
+**A9.3d4 GREEN evidence (2026-08-21):** The unchanged launcher created its
+own private Unix-socket PostgreSQL cluster/database, proved the real
+authorization truth table and same-cursor auth-to-artifact sequence, exercised
+ordered LIMIT/window/query-wide CASE behavior at the exact 128-KiB boundary
+and `+1`, and verified that oversized payload/result plus huge terminal text
+never crossed the recording cursor. The final launcher run passed `33/33` and
+then stopped and removed the isolated server; no pre-existing, external or
+production database was contacted. That proof exposed an inherited A9.3b
+float-precision false rejection for ordinary fractional `time.monotonic()`
+starts. A focused RED reproduced it; the fix keeps the exact 30-second limit,
+accepts only sub-microsecond-representable finite deadlines and retains the
+existing rejection of coarse/huge clocks. The complete budget suite passes
+`73/73`.
+
+Final verification passes: access `22/22`, focused access/contract/budget
+`115/115`, warehouse-preview package `182/182`, A7 `179/179` with 11 expected
+skips, and full backend `2130/2130` with 56 expected skips. `py_compile`,
+Python 3.9 AST parsing, `git diff --check`, exact no-export/no-production-
+callsite/no-connection gates and frozen package/A9.2/DB/main hashes all pass.
+Correctness, security/privacy and test-mutation review found no Critical or
+Required findings; exact limited/outer artifact projection inventories now
+reject raw or disguised unbounded-text leaks. Final SHA-256: runtime access
+`aecdf44d4cf2898b7f1c9e2092788e8dd1c74c7a76869c4d96fa793f6c59b0e7`,
+access tests
+`ae4be2c130b36425437332c9357535abb5bfe518ed796927dc584bde49114758`,
+runtime budget
+`72542dbdcb2487f1da98a177337e7becac22fd918703adac17b39ec60ec89717`,
+budget tests
+`2559fe17db1cf3153c101c7faa92376f3f40e3f1ef596ffc6c611d7e8de41507`,
+PostgreSQL proof
+`ae2f148771339cda2d20ab1d3cfc3a98ef9ce2375a3cdde4d775740558602d8f`
+and unchanged launcher
+`1b7ce519d9d2e378210312bc16a1965d7f7615f63514cee444a06549511aa0f1`.
+
+**Files likely touched:**
+
+- `backend/features/warehouse_recommendation_preview/runtime_access.py`
+- `backend/features/warehouse_recommendation_preview/test_runtime_access.py`
+- `backend/features/estimate_revision_impact/test_resource_limits_postgres.py`
+  only in the final approved proof checkpoint
+- `tasks/plan.md`, `tasks/todo.md` and this approved status/evidence document
+
+**Boundaries:** Always use fixed parameterized SELECTs, exact types/sets,
+server-derived actor/project/artifact identities and same-cursor reads. Ask
+first before changing the approved policy/limits or touching any
+route/UI/export/registration/production surface. Never query latest, accept a
+client artifact/report/source, return raw job JSON, write/commit, contact
+production or deploy.
+
+#### Task A9.3e: Unregistered same-snapshot runtime composition
+
+**Status:** Complete locally on 2026-08-21 after four separately authorized
+TDD checkpoints, full regression and final correctness/security/test review.
+The private runner remains unregistered and inert. No HTTP adapter, route, UI,
+package export, feature flag, registration, production access, commit, push or
+deployment was added.
+
+**Objective:** Parse the already-frozen A9.3c request claims before capacity
+or database access, then use one A9.3b lease/connection/read-only
+REPEATABLE-READ transaction and one guarded cursor for A9.3d live auth,
+exact artifact provenance and exactly one current 14-query A7 relevant pass.
+Only after unconditional rollback, cursor close and connection close may the
+runner finalize A9.2 content and emit the minimal detached A9.3c public
+projection. The lease remains held through finalization and the final deadline
+guard, then is released exactly once.
+
+**Threat model and fixed decisions:**
+
+- Untrusted authentication/header/body data crosses only the existing strict
+  A9.3c parser before slot acquisition. Invalid input never acquires capacity
+  or contacts a connector.
+- The callback receives only the A9.3b guarded cursor. Auth, artifact and A7
+  current evidence share that exact cursor/snapshot; no nested A9.2/A7 runner,
+  latest lookup, public job query service or second connection is reachable.
+- Auth/resource/artifact outcomes are retained only as fixed internal codes so
+  rollback/cleanup can outrank them. Contract/dependency failures remain a
+  primary runtime error; raw dependency text, credentials, stored JSON and
+  private A9.2 blockers never escape.
+- A9.2 preparation occurs inside the snapshot after artifact validation;
+  current collection occurs exactly once. A9.2 finalization, exact result
+  validation and public disclosure occur only after successful transaction
+  cleanup. Deadline guards run after cleanup before finalization and after the
+  public projection before return.
+- The closed production SQL inventory is one explicit BEGIN, one settings
+  SELECT, one auth SELECT, one artifact SELECT and at most fourteen reviewed
+  A7 SELECTs. Rollback is unconditional; commit, DDL/DML, `FOR UPDATE`,
+  advisory locks, audit/session writes, cache/network/model/provider calls and
+  background threads are unreachable.
+
+##### A9.3e1: Composition boundary and happy path
+
+- [x] Observe a missing-module/private-runner RED before implementation.
+- [x] Pin the exact private input/dependency signature, parsing-before-slot
+  ordering, one genuine lease/connection and cleanup-before-finalizer/public
+  projection ordering.
+- [x] Keep package `__init__.py`, A9.2 public runner, global DB/main/routes and
+  all public exports byte-identical.
+
+**A9.3e1 RED evidence (2026-08-21):** The focused tests-only command exited 1
+with exactly one loader error: private `runtime_preview` did not exist. No
+capacity lease, connector, cursor, PostgreSQL, network or runtime surface was
+reached. After the minimal module was added, the related private suites exposed
+exactly four expected static-callsite failures because the prior A9.3b-d gates
+still allowed zero composition callers.
+
+**A9.3e1 GREEN evidence (2026-08-21):** The minimal unexported runner parses
+claims before capacity/DB, opens one bounded connection, passes one callback to
+the guarded transaction, performs two outer finalization/return deadline
+guards and releases the lease after the public projection. The happy-path
+event proof confirms transaction cleanup precedes finalization. Only the exact
+`runtime_preview.py` callsite was added to the three private allowlists; all
+other production callers remain forbidden. Focused composition tests pass
+`3/3`; composition + A9.3b/c/d tests pass `118/118`; scoped diff check passes.
+Initial GREEN SHA-256: runtime
+`3ce1cb6818e113ec4bd4ceec3143b715ce9681e436bd7e0fb28a513e12964b8d`,
+tests `7c41874d917a180dc5ca0edb9bd4b2bb80718666a640cfeea6fb2ac6f9ddfc24`.
+
+##### A9.3e2: Failure and lifecycle precedence
+
+- [x] Cover input/busy/deadline/auth/resource/artifact/read/rollback/cleanup/
+  contract outcomes, fixed nonleaking errors and first named-control identity.
+- [x] Prove business outcomes wait for successful rollback/close, finalizer is
+  never called after transaction failure and every post-acquisition path
+  releases the one lease exactly once.
+- [x] Prove pre/post-finalizer deadline and release collisions follow the
+  approved ordering without returning content from an expired operation.
+
+**A9.3e2 RED evidence (2026-08-21):** The expanded focused suite failed in
+the intended categories: auth/artifact exceptions escaped the callback before
+the transaction-cleanup marker, A9.2 selection/readiness/contract codes leaked
+outside the fixed runtime surface, and the runtime snapshot lacked a deferred
+business-outcome field. `Ran 7`, with six failures and one constructor error;
+no DB, route or external system was used.
+
+**A9.3e2 GREEN evidence (2026-08-21):** The callback now carries only three
+fixed business codes as small data until guarded rollback/close succeeds;
+contract/current/dependency failures remain primary. A9.2 missing selection or
+stored readiness maps to opaque runtime not-found, while corrupt stored A9.2
+content maps to artifact-invalid. The outer ledger preserves the first named
+control, keeps primary transaction/finalizer failures ahead of later ordinary
+release errors, lets release cleanup outrank a deadline first detected after
+transaction cleanup, never finalizes a business/transaction failure and makes
+one outer release attempt. Focused composition passes `7/7`; all private
+A9.3b-e tests pass `122/122`; diff check passes. Checkpoint SHA-256: runtime
+`7a7744a092221202b41dac7217da4fc1c2f0d86302d2f3d153aebb0115055216`,
+tests `975500e5ffda59216b000bcab8aacfa7c067789bef9879c49803088bb5b88161`.
+
+##### A9.3e3: Closed 18-statement integration
+
+- [x] Execute the real private composition over one recording fake connection
+  with canonical settings/auth/artifact plus the existing 14 A7 result sets.
+- [x] Assert exact statement order/count, one cursor identity, collector once,
+  one rollback, both closes, no commit/write and detached minimal output.
+- [x] Freeze the sole production callsites/import graph and reject nested
+  transaction runners, raw cursor access and any nineteenth guarded statement.
+
+**A9.3e3 RED evidence (2026-08-21):** The first 10-test focused run failed
+because no deadline guard existed after the last pure current validation and
+before transaction cleanup; the event order was cleanup then guard. The new
+static order assertion likewise could not find that guard. The first recording
+fake also correctly rejected Python-shared fixture aliases that a real
+PostgreSQL JSON decode would not preserve; the fixture was corrected through a
+JSON round-trip without weakening the guarded result validator.
+
+**A9.3e3 GREEN evidence (2026-08-21):** The real private composition now
+checks the same lease immediately after current A7 validation and before
+returning from the callback. One recording connection/cursor executes exactly
+18 guarded server statements in order: BEGIN, settings, auth, artifact and the
+existing 14-query relevant A7 pass, followed by one unguarded cleanup ROLLBACK.
+It performs 17 guarded fetches, closes cursor/connection once, releases capacity
+and returns only the minimal detached public preview. Static gates freeze the
+exact callback order/import manifest, single composition callsites and absence
+of nested runners, raw cursor/connection lifecycle calls, writes, locks,
+threads, network or registration. Focused composition passes `10/10`; all
+private A9.3b-e tests pass `125/125`; diff check passes. Checkpoint SHA-256:
+runtime `ecf7af42218b226b359c6db748a3f9140f1e5f17d65bce0e8318c58455a0467f`,
+tests `e59708f88264860f51c45f2f5fa6efb5037fced0ebed16ae9ffd2c3e59a933a1`.
+
+##### A9.3e4: Regression and review closure
+
+- [x] Run focused runtime, warehouse-preview package, A7 and full backend
+  regressions plus compile/AST/static/diff checks.
+- [x] Complete correctness, security/privacy and test-mutation reviews with no
+  Critical/Required findings and record exact hashes/evidence.
+
+**A9.3e4 GREEN evidence (2026-08-21):** The exact final composition and its
+private A9.3b-d dependencies pass `125/125`; the complete warehouse-preview
+package passes `192/192`; A7 passes `179/179` with 11 expected opt-in
+PostgreSQL skips; and the full backend passes `2140/2140` with 56 expected
+skips. `py_compile`, Python 3.9 AST parsing, `git diff --check`, exact sole-
+callsite/import/18-statement inventories and frozen package/A9.2/DB/main hashes
+all pass. Correctness, architecture, security/privacy, performance and
+test-mutation review found no Critical or Required findings. Final SHA-256:
+runtime composition
+`ecf7af42218b226b359c6db748a3f9140f1e5f17d65bce0e8318c58455a0467f`,
+composition tests
+`e59708f88264860f51c45f2f5fa6efb5037fced0ebed16ae9ffd2c3e59a933a1`,
+access static gate
+`c07aee32c12c741bdf2ff12694ad7d0f73b2a27d35fe05acc33f8acf06fb9807`,
+contract static gate
+`793d41476813b1521495b1c2012323b892081981854170dd1fe7b77408181e6a`
+and budget static gate
+`3125fae329b54f7c82833c5fc8d456fd2f630d3fb165835ed2b13765e8c693af`.
+Package `__init__.py`, A9.2 content runner, `backend/db.py` and `backend/main.py`
+remain byte-identical to their frozen hashes. The only production reference to
+`runtime_preview` is its own private definition; no route or registry can
+reach it.
+
+**Files likely touched:**
+
+- `backend/features/warehouse_recommendation_preview/runtime_preview.py`
+- `backend/features/warehouse_recommendation_preview/test_runtime_preview.py`
+- the three existing A9.3 private static-callsite tests only as required to
+  allow exactly `runtime_preview.py`
+- `tasks/plan.md`, `tasks/todo.md` and this approved status/evidence document
+
+**Boundaries:** Ask first before changing any approved auth/resource/byte/time/
+capacity/error/public-projection default or before adding an HTTP adapter,
+route, UI, export, registration, production access, commit, push or deploy.
+Never contact production, write/commit, invoke a model/provider/network, expose
+private job/A7/content data or create a second connection/transaction.
+
+### Task A9.4: Default-Off Warehouse Anomaly HTTP Adapter
+
+**Status:** The exact API/security spec and implementation plan were approved by
+the human on 2026-08-21. A9.4a–A9.4d are complete locally. The route is wired
+only behind exact lowercase `true` plus a fail-closed immutable company
+allowlist; both values remain unset, so the route stays unregistered by
+default. The reviewed nginx text is a local deployment fragment only: it was
+not installed, validated against an active nginx binary, reloaded or exposed.
+UI, production access, canary, commit, push and deployment have not started.
+
+**Source of truth:**
+`docs/warehouse-anomaly-http-adapter.md` fixes the endpoint, exact body/header
+contract, cookie+CSRF and live 2FA/director authorization, public response/error
+surface, no-write policy, default-off flag/company allowlist, nginx limits and
+rollout boundaries.
+
+**Objective:** Add one exact `POST /warehouse-anomaly-previews` boundary that
+calls the completed A9.3e runner once and returns only its minimal public
+projection. Invalid, unauthorized, nonallowlisted, overloaded and broken paths
+must remain bounded, opaque, non-cacheable and non-writing.
+
+**Dependency graph:**
+
+```text
+approved A9.4 spec + completed private A9.3e runtime
+        |
+        v
+unregistered HTTP parser/auth/error/response contract
+        |
+        v
+real A9.3e route integration + zero-write/telemetry proof
+        |
+        v
+default-off main registration + exact error-log exclusion
+        |
+        v
+local nginx global capacity contract + full review
+        |
+        v
+separate future approval for production flag/allowlist/deploy
+```
+
+**Architecture decisions:**
+
+- The route module follows the existing dependency-injected FastAPI registration
+  pattern but owns only transport parsing, fixed status translation, no-store
+  headers and privacy-safe aggregate telemetry.
+- `build_cookie_session_authentication(..., require_csrf=True)` is the only HTTP
+  auth boundary. `get_current_user`, Bearer and session last-seen writes are
+  forbidden; live 2FA/director/company/project truth remains inside A9.3d.
+- Body is streamed up to 4096 bytes and decoded with duplicate-key rejection;
+  exact A9.3c claims parsing remains canonical and is not copied into the route.
+- Feature registration requires exact lowercase `true` plus a valid immutable
+  1–100-company allowlist. Disabled/misconfigured state registers zero routes.
+- The existing global 5xx middleware must skip DB error logging for exactly this
+  path, otherwise read/deadline/rollback failures would violate zero writes.
+- Nginx request limiting is per IP, while the connection zone is keyed by
+  `$server_name` to keep one global in-flight route request across workers.
+- No existing A9.3 byte/time/auth/error/public-projection default may change.
+
+#### A9.4a: Unregistered HTTP contract
+
+**Description:** Add only the route module and focused contract tests. Keep it
+unimported by `main.py` and disabled in every existing runtime.
+
+**Acceptance criteria:**
+
+- [x] Observe a tests-only RED caused by the absent private route module or
+  registration seam before adding production code.
+- [x] Disabled or malformed registration adds zero routes and does not inspect
+  runtime/auth/DB dependencies; enabled valid configuration adds exactly one
+  `POST /warehouse-anomaly-previews` route.
+- [x] Exact content type/company headers, cookie+CSRF precedence, immutable
+  allowlist and 4096-byte duplicate-safe JSON parser fail before runner/capacity.
+- [x] Success validates the exact A9.3c public projection and every response has
+  fixed no-store/no-ETag headers; public 401/403/404/409/413/415/422/429/503
+  bodies match the approved table without private text.
+
+**Verification:**
+
+- [x] Focused route tests pass from the observed RED to GREEN.
+- [x] Existing A9.3b-e private tests remain green.
+- [x] `py_compile`, Python 3.9 AST and scoped `git diff --check` pass.
+
+**A9.4a evidence (2026-08-21):** The first focused run failed honestly with
+`ModuleNotFoundError` for the absent `runtime_routes` module. Subsequent REDs
+pinned registration, gate ordering, bounded duplicate-safe JSON, the exact
+public error table, response privacy, exact-candidate binding and hostile error
+objects before each minimal GREEN. Final focused route tests pass `17/17`; the
+complete warehouse-preview package passes `209/209`; A7 passes `179/179` with
+11 expected opt-in PostgreSQL skips; and the full backend passes `2157/2157`
+with 56 expected skips. `py_compile`, Python 3.9 AST parsing and
+`git diff --check` pass. Route implementation SHA-256 is
+`f6e49572b3083be32ff77f91fca56bbee9ff962c5dcf5e42d6182c1c90e83e8e`;
+route-test SHA-256 is
+`7b2623cc8f9fa22fb0dca0e11127b9948ec97c751f4c0bf86172d02425d52835`.
+`backend/main.py`, package `__init__.py` and A9.3e `runtime_preview.py` remain
+byte-identical to their frozen hashes; static A9.3 private-import gates pass.
+Correctness/security review found and closed exact-selection substitution and
+hostile `.code` property leaks. No DB, PostgreSQL, network or production action
+was performed.
+
+**Dependencies:** Completed A9.3e and approved A9.4 spec.
+
+**Files likely touched:**
+
+- `backend/features/warehouse_recommendation_preview/runtime_routes.py`
+- `backend/features/warehouse_recommendation_preview/test_runtime_routes.py`
+
+**Estimated scope:** S, two files.
+
+#### A9.4b: Real runtime, zero-write and telemetry integration
+
+**Description:** Drive the actual private A9.3e runner through the route with a
+recording connection and prove that HTTP translation cannot change runtime
+resource, privacy or lifecycle guarantees.
+
+**Acceptance criteria:**
+
+- [x] One valid HTTP request performs one runner call, one lease/connection,
+  exactly 18 guarded statements plus rollback and returns only the detached
+  public projection; blocked/stale remain HTTP 200 without partial content.
+- [x] Auth/resource/artifact/busy/deadline/read/rollback/cleanup/contract and
+  unexpected dependency failures map to the exact public table with no cause,
+  traceback, SQL, identifier, private code or dependency text.
+- [x] All invalid/error/concurrent paths prove zero commit/audit/session/error
+  writes; a second in-flight request never opens another runtime connection.
+- [x] Aggregate telemetry has only in-flight and fixed outcome/duration buckets,
+  with no actor/company/project/job/candidate/session labels or public endpoint.
+
+**Verification:**
+
+- [x] Focused route + runtime integration tests pass.
+- [x] Exact statement/write/import mutation tests reject a second connection,
+  retry, hidden private field, write/audit call and non-fixed metric label.
+- [x] Warehouse-preview package regression passes.
+
+**Local evidence (2026-08-21):** The observed A9.4b RED ran the existing 17
+route-contract tests plus the new real-runner integration and failed only with
+the missing private `_WarehouseAnomalyPreviewTelemetry` contract. GREEN keeps
+the same unregistered route and drives the actual A9.3e runner through one
+recording connection: one HTTP 200 response contains only the fixed public
+projection, the cursor executes exactly 18 guarded statements followed by the
+single explicit `ROLLBACK`, all 17 SELECT result sets are consumed, both
+resources close once and no commit/write method exists. A held genuine runtime
+slot makes the next HTTP request return fixed 429/busy after zero connector
+calls. Fixed deadline/read/rollback/cleanup/contract and unexpected errors stay
+opaque; direct/static checks admit only `ok`, `busy`, `deadline`, `unavailable`
+and five coarse duration buckets, with a saturated 0/1 in-flight value and no
+business/security labels or metrics route. Fresh verification passed route
+`21/21`, route+runtime-budget/runtime-preview `104/104`, warehouse-preview
+`213/213`, A7 `179/179` with 11 expected skips, and full backend `2161/2161`
+with 56 expected skips. Python compilation, Python 3.9 AST parsing and
+`git diff --check` pass. Exact implementation/test SHA-256 values are
+`bf3f1c0a…2661cfc` and `eb813ce9…025850`; `backend/main.py` and the package
+`__init__.py` remain byte-identical at `d86c0619…824f9` and
+`d30babfe…51fea`. No route registration, nginx change, production contact,
+commit, push or deployment occurred.
+
+**Dependencies:** A9.4a.
+
+**Files likely touched:**
+
+- `backend/features/warehouse_recommendation_preview/runtime_routes.py`
+- `backend/features/warehouse_recommendation_preview/test_runtime_routes.py`
+
+**Estimated scope:** S, same two-file vertical slice.
+
+#### Checkpoint after A9.4a–A9.4b
+
+- [x] Human reviews the exact local HTTP/error/no-write behavior before any
+  import or registration is added to `main.py`.
+- [x] Route remains unreachable by default: no feature flag or company
+  allowlist was set and no application process was started or reloaded.
+
+#### A9.4c: Default-off registration and local nginx contract
+
+**Description:** Add the narrow application and reverse-proxy wiring while
+keeping the flag off and production untouched.
+
+**Acceptance criteria:**
+
+- [x] `main.py` imports/registers the route only under exact enabled+valid
+  allowlist configuration; defaults and malformed/empty/duplicate allowlists
+  register nothing and never import/call the runner.
+- [x] API error middleware skips DB logging for exactly
+  `/warehouse-anomaly-previews` on every status/exception while all other paths
+  retain byte-for-byte behavior and tests.
+- [x] Local nginx config has the exact route, 4 KiB body, 6r/m burst-1 per-IP
+  request limit, one `$server_name`-keyed global connection, 6/10/45-second
+  proxy timeouts and JSON/no-store/Retry-After parity for 413/429.
+- [x] Static/runtime checks prove selectors never enter the URL/access log and
+  origin/direct backend exposure is a deployment blocker.
+
+**Verification:**
+
+- [x] Route-registration/middleware tests cover flag off/on/misconfiguration,
+  exact path exclusion and a neighboring 503 path that still logs normally.
+- [x] Nginx snippet mutation/static checks pass; run `nginx -t` only if the
+  local binary/config prerequisite exists, without installing anything.
+- [x] Full backend regression remains green with the feature flag absent.
+
+**Local evidence (2026-08-21):** The first A9.4c tests-only run failed honestly:
+all four new registration/middleware/nginx contract tests were red, with 25
+subfailures caused by the absent allowlist parser, path-only log exclusion,
+default-off registration and nginx fragments. The minimal GREEN adds one exact
+parser and nested flag/allowlist registration in `backend/main.py`, skips the
+existing DB error logger only for the exact preview path, and records the
+reviewed reverse-proxy fragments without installing them. Extracted-main tests
+execute the actual parser and registration AST: absent, misspelled or malformed
+configuration adds zero routes; exact `true` plus `4,17` adds only the one POST
+route with the canonical auth/parser/runner dependencies. A neighboring path
+still logs both returned 503 and raised errors. The nginx contract statically
+pins the two zones, exact location, body/rate/global-connection/timeouts and
+JSON/no-store/Retry-After responses while forbidding selector-bearing URL or
+logging configuration. `nginx` is not installed locally, so `nginx -t` was an
+explicit prerequisite skip; no package was installed.
+
+Fresh verification with both feature variables explicitly removed passed route
+`26/26`, the complete warehouse-preview package `218/218`, A7 `179/179` with
+11 expected PostgreSQL skips, and full backend `2166/2166` with 56 expected
+skips. `py_compile`, Python 3.9 AST parsing and `git diff --check` pass. Exact
+SHA-256 values are `backend/main.py`
+`200e8f63e6408f9fac1fc0ea3f081f825f6835f2ca83a820d8eb5961c9c476d0`,
+route tests `e6353a7a47cdf10c87a14ece7f536048517249f56e5470b9a46092bba0e3996d`
+and local nginx fragments
+`dd2e4452928a51c7501a5f9c1416a57bd4b5afacd06b4e864dc9df39f727c44c`.
+No flag/allowlist value, live config, server reload, origin restriction,
+production contact, commit, push or deploy occurred. Direct public origin
+access therefore remains an explicit blocker for any future canary.
+
+**Dependencies:** A9.4a–A9.4b checkpoint approval.
+
+**Files likely touched:**
+
+- `backend/main.py`
+- `backend/features/warehouse_recommendation_preview/test_runtime_routes.py`
+- `ops-nginx-stroyka-public-api.conf`
+
+**Estimated scope:** M, three files.
+
+#### A9.4d: Local closure and future rollout package
+
+**Description:** Close only the local default-off adapter with full regression,
+HTTP/security/ops review and an explicit still-unapproved rollout checklist.
+
+**Acceptance criteria:**
+
+- [x] Focused route/runtime, complete warehouse-preview, A7 and full backend
+  suites pass; compile/AST/diff/static dependency and no-write gates pass.
+- [x] HTTP integration covers cookie/CSRF, live role/tenant/2FA precedence,
+  allowlist, all public statuses/headers, concurrent busy and response privacy.
+- [x] Correctness, API stability, security/privacy, performance/DoS and test
+  mutation reviews have no Critical/Required findings.
+- [x] Documentation records exact hashes/counts and a production rollout/
+  rollback checklist, but flag values, nginx reload, canary and deploy remain
+  unperformed pending a separate human approval.
+
+**Local closure evidence (2026-08-21):** A focused A9.4d HTTP test now crosses
+the real signed-cookie/CSRF builder, route, canonical claims parser, A9.3e
+runner and live-authorization SQL in one request. Its first run was an honest
+tests-only RED because the test named the CSRF helper incorrectly; after the
+test-only correction, both closure cases pass without a production change.
+Spoofed/missing-cookie, missing/foreign-CSRF and Bearer+cookie requests stop
+before runtime. Live `actor_count` 0/2 outcomes stay opaque 401 regardless of
+project existence, a valid single actor with an absent tenant-bound project is
+404, malformed auth metadata is 503, and every case executes only
+BEGIN/settings/auth/ROLLBACK with both resources closed. The observed auth SQL
+retains passed-2FA, active actor, enabled 2FA, exact director role, company and
+project-company predicates and contains no write/last-seen/all-company branch.
+
+Fresh exact-byte verification with both feature variables explicitly absent
+passed focused HTTP `28/28`, complete warehouse-preview `220/220`, A7 `179/179`
+with 11 expected isolated-PostgreSQL skips and full backend `2168/2168` with 56
+expected skips. `py_compile`, Python 3.9 AST parsing, static no-write/selector
+scans and `git diff --check` pass. Five-axis correctness/API/security/privacy/
+performance/test-quality review found no Critical or Required issue. Exact
+SHA-256 values: `runtime_routes.py` `bf3f1c0a…2661cfc`, existing route tests
+`e6353a7a…0e3996d`, A9.4d closure tests `f579c640…bc220`, `backend/main.py`
+`200e8f63…c476d0`, `runtime_preview.py` `ecf7af42…5a0467f`, package
+`__init__.py` `d30babfe…51fea` and nginx fragments `dd2e4452…27c44c`.
+The local machine still has no nginx binary, so `nginx -t` remains an explicit
+prerequisite skip. No feature variable, active config, origin restriction,
+server process, database, network, production system, commit, push or deploy
+was touched.
+
+**Verification commands:**
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/a94-pycache python3 -m unittest \
+  backend.features.warehouse_recommendation_preview.test_runtime_routes \
+  backend.features.warehouse_recommendation_preview.test_runtime_routes_closure
+PYTHONPYCACHEPREFIX=/private/tmp/a94-preview-pycache python3 -m unittest \
+  discover -s backend/features/warehouse_recommendation_preview -p 'test_*.py'
+PYTHONPYCACHEPREFIX=/private/tmp/a94-a7-pycache python3 -m unittest \
+  discover -s backend/features/estimate_revision_impact -p 'test_*.py'
+PYTHONPYCACHEPREFIX=/private/tmp/a94-backend-pycache python3 -m unittest \
+  discover -s backend -p 'test_*.py'
+python3 -m py_compile \
+  backend/features/warehouse_recommendation_preview/runtime_routes.py \
+  backend/features/warehouse_recommendation_preview/test_runtime_routes.py \
+  backend/features/warehouse_recommendation_preview/test_runtime_routes_closure.py
+git diff --check
+```
+
+**Dependencies:** A9.4c.
+
+**Files likely touched:** Tests/docs/tasks only unless review exposes a scoped
+adapter/registration defect. No frontend or production file is authorized.
+
+**Estimated scope:** S for verification and documentation.
+
+#### Checkpoint after A9.4c–A9.4d
+
+- [x] Default-off local adapter is complete and reviewed.
+- [ ] Human explicitly chooses whether to authorize a production canary; silence
+  or local test success never enables the flag, allowlist or nginx route.
+
+**Risks and mitigations:**
+
+| Risk | Impact | Mitigation |
+|---|---|---|
+| Global 5xx logger writes on a read failure | Violates zero-write contract | Exact path-only middleware exclusion plus neighboring-path regression |
+| Legacy auth accepts Bearer or writes last-seen | Auth/write scope expansion | Only inject cookie builder; statically forbid `get_current_user` |
+| Multiple workers bypass process semaphore | More than one DB runtime | Global nginx `$server_name` connection zone; direct origin is rollout blocker |
+| Nginx emits HTML/different 413/429 | Unstable/leaky API | Exact JSON error-page/header parity tests |
+| Allowlist/flag misconfiguration | Unauthorized tenant exposure | Parse once, exact false default, invalid config registers zero routes |
+| Private artifact/error escapes | Information disclosure | Exact output/status allowlists and adversarial secret/cause/traceback tests |
+| Overlarge or repeated body consumes resources | DoS | Auth/CSRF before body, 4 KiB stream cap, per-IP rate and global concurrency |
+
+**Implementation authorization boundary:** The human approved the spec/plan and
+explicitly continued through A9.4d. The default-off local adapter is complete.
+Any production canary still requires a new explicit approval covering exact
+flag/allowlist values, active nginx installation/reload, origin restriction,
+smoke/monitoring, rollback authority, commit, push and deploy.
