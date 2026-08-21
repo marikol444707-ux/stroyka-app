@@ -15,6 +15,7 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+TEMP_ROOT = Path(tempfile.gettempdir()).resolve()
 POSTGRES_MAJOR = 15
 POSTGRES_PORT = 55432
 POSTGRES_PROGRAMS = (
@@ -249,7 +250,7 @@ def _fixture_paths_match(
         _directory_matches(
             root,
             root_identity,
-            parent="/private/tmp",
+            parent=TEMP_ROOT,
         )
         and _directory_matches(
             data_dir,
@@ -396,7 +397,7 @@ def _remove_fixture_root(
     if not _directory_matches(
         root,
         original_identity,
-        parent="/private/tmp",
+        parent=TEMP_ROOT,
     ):
         return False
     for path, identity in (
@@ -552,7 +553,7 @@ def main():
             signal.signal(candidate, _handle_termination)
         root = Path(tempfile.mkdtemp(
             prefix="stroyka-a93-pg-",
-            dir="/private/tmp",
+            dir=str(TEMP_ROOT),
         )).resolve()
         data_dir = root / "data"
         socket_dir = root / "socket"
@@ -567,7 +568,7 @@ def main():
             "PGPORT": str(POSTGRES_PORT),
             "PGUSER": database_user,
         })
-        if not _is_private_directory(root, parent="/private/tmp"):
+        if not _is_private_directory(root, parent=TEMP_ROOT):
             raise RuntimeError("temporary PostgreSQL root is not private")
         if not _is_private_directory(socket_dir, parent=root):
             raise RuntimeError("temporary PostgreSQL socket is not private")

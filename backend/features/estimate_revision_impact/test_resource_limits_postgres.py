@@ -212,12 +212,18 @@ class A93PostgresLauncherContractTests(unittest.TestCase):
         return module
 
     def test_launcher_is_local_test_only_and_owns_its_database(self):
+        launcher = self._launcher_module()
         self.assertTrue(LAUNCHER_PATH.is_file())
         source = LAUNCHER_PATH.read_text(encoding="utf-8")
         tree = ast.parse(source)
 
         self.assertIn('mkdtemp(', source)
-        self.assertIn('dir="/private/tmp"', source)
+        self.assertEqual(
+            launcher.TEMP_ROOT,
+            Path(tempfile.gettempdir()).resolve(),
+        )
+        self.assertIn('dir=str(TEMP_ROOT)', source)
+        self.assertNotIn('dir="/private/tmp"', source)
         self.assertIn("listen_addresses=''", source)
         self.assertIn("A93_RUN_POSTGRES_INTEGRATION", source)
         self.assertNotIn("argparse", source)
@@ -572,7 +578,7 @@ class A93PostgresLauncherContractTests(unittest.TestCase):
     def test_forged_full_opt_in_cannot_reach_psycopg_connect(self):
         root = Path(tempfile.mkdtemp(
             prefix="stroyka-a93-pg-forged_contract_",
-            dir="/private/tmp",
+            dir=str(Path(tempfile.gettempdir()).resolve()),
         )).resolve()
         os.chmod(root, 0o700)
         data_dir = root / "data"
@@ -817,7 +823,7 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
             )
         if (
             not raw_root.is_absolute()
-            or raw_root.parent != Path("/private/tmp")
+            or raw_root.parent != Path(tempfile.gettempdir()).resolve()
             or not re.fullmatch(
                 r"stroyka-a93-pg-[A-Za-z0-9_]+",
                 raw_root.name,
