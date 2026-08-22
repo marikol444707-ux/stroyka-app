@@ -2486,7 +2486,11 @@ def _log_api_error(request: Request, exc: Optional[Exception] = None, status_cod
 
 
 def _api_error_logging_enabled_for_path(path):
-    return path != "/warehouse-anomaly-previews"
+    return path not in (
+        "/warehouse-anomaly-previews",
+        "/assignment-daily-draft-previews",
+        "/accounting-exception-checks",
+    )
 
 
 @app.middleware("http")
@@ -16489,6 +16493,187 @@ if os.getenv("WAREHOUSE_ANOMALY_PREVIEW_HTTP_ENABLED") == "true":
         })
 
 
+def _parse_assignment_daily_draft_company_ids(raw):
+    if type(raw) is not str:
+        return None
+    parts = raw.split(",")
+    if not 1 <= len(parts) <= 100:
+        return None
+    company_ids = set()
+    for part in parts:
+        if (
+            not part
+            or len(part) > 19
+            or part[0] == "0"
+            or not part.isascii()
+            or not part.isdecimal()
+        ):
+            return None
+        company_id = int(part)
+        if company_id > 9223372036854775807 or company_id in company_ids:
+            return None
+        company_ids.add(company_id)
+    return frozenset(company_ids)
+
+
+if os.getenv("ASSIGNMENT_DAILY_DRAFT_HTTP_ENABLED") == "true":
+    assignment_daily_draft_company_ids = (
+        _parse_assignment_daily_draft_company_ids(
+            os.getenv("ASSIGNMENT_DAILY_DRAFT_COMPANY_IDS")
+        )
+    )
+    if assignment_daily_draft_company_ids is not None:
+        try:
+            from backend.features.assignment_daily_drafts.runtime_preview import (
+                run_authorized_assignment_daily_snapshot,
+            )
+            from backend.features.assignment_daily_drafts.runtime_routes import (
+                register_assignment_daily_draft_preview_routes,
+            )
+        except ModuleNotFoundError:
+            from features.assignment_daily_drafts.runtime_preview import (
+                run_authorized_assignment_daily_snapshot,
+            )
+            from features.assignment_daily_drafts.runtime_routes import (
+                register_assignment_daily_draft_preview_routes,
+            )
+
+        register_assignment_daily_draft_preview_routes(app, {
+            "enabled": True,
+            "allowed_company_ids": assignment_daily_draft_company_ids,
+            "get_db": get_db,
+            "build_cookie_session_authentication": (
+                build_cookie_session_authentication
+            ),
+            "run_authorized_assignment_daily_snapshot": (
+                run_authorized_assignment_daily_snapshot
+            ),
+        })
+
+
+def _parse_accounting_exception_check_company_ids(raw):
+    if type(raw) is not str:
+        return None
+    parts = raw.split(",")
+    if not 1 <= len(parts) <= 100:
+        return None
+    company_ids = set()
+    for part in parts:
+        if (
+            not part
+            or len(part) > 19
+            or part[0] == "0"
+            or not part.isascii()
+            or not part.isdecimal()
+        ):
+            return None
+        company_id = int(part)
+        if company_id > 9223372036854775807 or company_id in company_ids:
+            return None
+        company_ids.add(company_id)
+    return frozenset(company_ids)
+
+
+if os.getenv("ACCOUNTING_EXCEPTION_CHECKS_HTTP_ENABLED") == "true":
+    accounting_exception_check_company_ids = (
+        _parse_accounting_exception_check_company_ids(
+            os.getenv("ACCOUNTING_EXCEPTION_CHECKS_COMPANY_IDS")
+        )
+    )
+    if accounting_exception_check_company_ids is not None:
+        try:
+            from backend.features.accounting_exception_checks.runtime_access import (
+                run_authorized_accounting_exception_snapshot,
+            )
+            from backend.features.accounting_exception_checks.runtime_routes import (
+                register_accounting_exception_check_routes,
+            )
+        except ModuleNotFoundError:
+            from features.accounting_exception_checks.runtime_access import (
+                run_authorized_accounting_exception_snapshot,
+            )
+            from features.accounting_exception_checks.runtime_routes import (
+                register_accounting_exception_check_routes,
+            )
+
+        register_accounting_exception_check_routes(app, {
+            "enabled": True,
+            "allowed_company_ids": accounting_exception_check_company_ids,
+            "get_db": get_db,
+            "finance_roles": FINANCE_ROLES,
+            "build_cookie_session_authentication": (
+                build_cookie_session_authentication
+            ),
+            "run_authorized_accounting_exception_snapshot": (
+                run_authorized_accounting_exception_snapshot
+            ),
+        })
+
+
+def _parse_human_approved_action_company_ids(raw):
+    if type(raw) is not str:
+        return None
+    parts = raw.split(",")
+    if len(parts) != 1:
+        return None
+    part = parts[0]
+    if (
+        not part
+        or len(part) > 19
+        or part[0] == "0"
+        or not part.isascii()
+        or not part.isdecimal()
+    ):
+        return None
+    company_id = int(part)
+    if company_id > 9223372036854775807:
+        return None
+    return frozenset({company_id})
+
+
+if os.getenv("HUMAN_APPROVED_ACTIONS_HTTP_ENABLED") == "true":
+    human_approved_action_company_ids = (
+        _parse_human_approved_action_company_ids(
+            os.getenv("HUMAN_APPROVED_ACTIONS_COMPANY_IDS")
+        )
+    )
+    if human_approved_action_company_ids is not None:
+        try:
+            from backend.features.human_approved_actions.action_kernel import (
+                create_review_acknowledgement_proposal,
+                decide_review_acknowledgement,
+                list_review_acknowledgement_history,
+            )
+            from backend.features.human_approved_actions.runtime_routes import (
+                register_human_approved_action_routes,
+            )
+        except ModuleNotFoundError:
+            from features.human_approved_actions.action_kernel import (
+                create_review_acknowledgement_proposal,
+                decide_review_acknowledgement,
+                list_review_acknowledgement_history,
+            )
+            from features.human_approved_actions.runtime_routes import (
+                register_human_approved_action_routes,
+            )
+
+        register_human_approved_action_routes(app, {
+            "enabled": True,
+            "allowed_company_ids": human_approved_action_company_ids,
+            "get_db": get_db,
+            "build_cookie_session_authentication": (
+                build_cookie_session_authentication
+            ),
+            "create_review_acknowledgement_proposal": (
+                create_review_acknowledgement_proposal
+            ),
+            "decide_review_acknowledgement": decide_review_acknowledgement,
+            "list_review_acknowledgement_history": (
+                list_review_acknowledgement_history
+            ),
+        })
+
+
 if os.getenv("SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED") == "true":
     try:
         from backend.features.supply_recommendation_preview.runtime_routes import (
@@ -17594,7 +17779,9 @@ except ModuleNotFoundError:
 
 register_salary_payments_module(app, {
     "get_db": get_db,
-    "require_roles": require_roles,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
     "finance_roles": FINANCE_ROLES,
 })
 
@@ -22886,9 +23073,10 @@ except ModuleNotFoundError:
 
 register_expense_reports_module(app, {
     "get_db": get_db,
-    "require_roles": require_roles,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
     "finance_roles": FINANCE_ROLES,
-    "require_project_access": require_project_access,
 })
 
 def _supplier_invoice_internal_visibility_filter(company_actors):
@@ -23794,6 +23982,9 @@ except ModuleNotFoundError:
 
 register_accountable_payments_module(app, {
     "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
     "require_roles": require_roles,
     "finance_roles": FINANCE_ROLES,
 })
@@ -23807,6 +23998,9 @@ except ModuleNotFoundError:
 
 register_own_expenses_module(app, {
     "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
     "require_roles": require_roles,
     "own_expense_roles": OWN_EXPENSE_ROLES,
     "own_expense_review_roles": OWN_EXPENSE_REVIEW_ROLES,
@@ -23929,6 +24123,8 @@ register_staff_module(app, {
     "prepare_user_access_scope": _prepare_user_access_scope,
     "date_or_none": _date_or_none,
     "log_audit": log_audit,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
 })
 
 try:
@@ -23981,7 +24177,9 @@ except ModuleNotFoundError:
 
 register_expenses_module(app, {
     "get_db": get_db,
-    "require_roles": require_roles,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
     "finance_roles": FINANCE_ROLES,
 })
 

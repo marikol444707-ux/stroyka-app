@@ -19,12 +19,14 @@ export default function AppSecondaryPages({ activePage, ui, constants, state, ac
     aiTasks,
     auditLog,
     companyChatMessage,
+    companyContext,
     companyDocuments,
     companyMessages,
     companyReqForm,
     companyRequisites,
     contracts,
     editingItem,
+    estimatesList,
     expByCategory,
     fileSrc,
     leads,
@@ -171,6 +173,7 @@ export default function AppSecondaryPages({ activePage, ui, constants, state, ac
 
       {activePage === 'assignments' && (
         <AssignmentsPage
+          API={API}
           C={C}
           acceptAiTask={acceptAiTask}
           aiTasks={aiTasks}
@@ -181,11 +184,14 @@ export default function AppSecondaryPages({ activePage, ui, constants, state, ac
           card={card}
           closeAiTask={closeAiTask}
           createAiTask={createAiTask}
+          estimates={estimatesList}
           inp={inp}
           isMobile={isMobile}
           openAiTaskAction={openAiTaskAction}
           projects={projects}
           refreshData={refreshData}
+          selectedCompanyId={companyContext?.selectedCompanyId}
+          showPreview={showPreview}
           submitAiTaskReport={submitAiTaskReport}
           uploadPhoto={uploadPhoto}
           user={user}

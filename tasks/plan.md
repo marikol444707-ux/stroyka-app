@@ -550,9 +550,144 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
     - [x] ~~A9.4d: Run focused/full HTTP, role/tenant/CSRF, ops and security
       reviews; keep UI, production enablement, commit, push and deploy
       separate.~~
-- [ ] Task A10: Add preview-only assignment and daily-work-report drafts from confirmed source data.
-- [ ] Task A11: Add read-only accounting exception checks without creating or executing payments.
-- [ ] Task A12: Add controlled `preview -> human approval -> apply -> audit` actions; stock, payments, signed documents and estimates remain human-confirmed.
+- [ ] Task A10: Add preview-only assignment and daily-work-report drafts from
+  confirmed source data under
+  `docs/assignment-daily-work-drafts.md`; never apply or save automatically.
+  - [x] ~~A10.1: Add pure immutable scope/result contracts and a bounded daily-
+    work projection from exact confirmed work-journal facts.~~
+  - [x] ~~A10.2: Add a pure assignment-availability projection using only exact
+    active-estimate lineage and non-cancelled assigned quantities.~~
+  - [x] ~~A10.3: Compose one tenant/project-scoped read-only snapshot with zero
+    business writes and disposable-PostgreSQL proof.~~
+  - [x] ~~A10.4: Add a default-off director/deputy HTTP preview adapter with
+    cookie-only authentication, CSRF and exact company/project scope.~~
+  - [x] ~~A10.5: Add a review-only UI and printable document with no apply
+    action.~~
+  - [x] ~~A10.6: Run full regression/review and prepare a separate canary plan.~~
+  - [ ] Production checkpoint: receive explicit approval, deploy inert code,
+    run the one-company canary and record production smoke/rollback evidence.
+- [ ] Task A11: Add the one-company, read-only accounting exception checks
+  specified in `docs/accounting-exception-checks.md`; never create, approve,
+  execute, reverse or mark payments automatically.
+  - [x] ~~A11.1: Add a dry-run ownership inventory and idempotent schema contract
+    for staff, accountable payments/expenses, expense reports, salary,
+    `own_expenses` and manual `expenses`.~~
+    - [x] ~~A11.1a: Add the private bounded read-only classifier/inventory with
+      fixed allowlisted output and no registration or write path.~~
+    - [x] ~~A11.1b: Add the idempotent schema metadata contract and disposable-
+      PostgreSQL inventory proof without applying it to production.~~
+  - [x] ~~A11.2: Backfill only provable legacy owners, quarantine every ambiguous
+    row and provide a separately approved exact-record remediation path.~~
+    - [x] ~~A11.2a: Add the guarded provable-only dry-run/apply backfill with
+      plan drift protection, quarantine and disposable-PostgreSQL proof.~~
+    - [x] ~~A11.2b: Add exact-record remediation with validated owner IDs, an
+      audit event and a separate production-approval boundary.~~
+      - [x] ~~A11.2b1: Freeze the pure closed exact-ID request/fingerprint
+        contract with no database or automatic apply capability.~~
+      - [x] ~~A11.2b2: Validate stored company/project/parent/staff ownership in
+        one transaction, apply one exact row and write the audit event.~~
+      - [x] ~~A11.2b3: Add the dry-run-first operator CLI/runbook, replace broad
+        table locks with exact-row locking where the proof remains equivalent,
+        and keep production execution behind a new explicit approval.~~
+  - [x] ~~A11.3: Harden all future accounting writers and readers to exact server-
+    resolved company/project/staff IDs, including both expense mirrors, before
+    trusting the new scope.~~
+    - [x] ~~A11.3a: Scope accountable payment/expense reads and writes to one
+      selected finance actor, verified stored owners and locked exact parents;
+      update the UI to submit IDs and prove the route in disposable PostgreSQL.~~
+    - [x] ~~A11.3b: Scope expense-report reads and mutations to one selected
+      finance actor, verified exact owners and locked stored rows; submit owner
+      IDs from the UI and prove cross-company isolation in disposable
+      PostgreSQL.~~
+    - [x] ~~A11.3c: Harden salary/staff routes.~~
+      - [x] ~~A11.3c1: Scope salary-payment reads/writes/deletes to one selected
+        finance actor and one verified staff owner; derive display/actor/date
+        fields on the server and prove the route in disposable PostgreSQL.~~
+      - [x] ~~A11.3c2: Scope staff reads and lifecycle mutations to one selected
+        company without exposing quarantined or foreign personnel records.~~
+    - [x] ~~A11.3d: Harden `own_expenses` and manual `expenses` routes.~~
+  - [x] ~~A11.4: Add a pure immutable projection for the expanded hard
+    accounting contradiction set.~~
+  - [x] ~~A11.5: Compose bounded company-owned collectors in one `REPEATABLE
+    READ READ ONLY` snapshot with disposable-PostgreSQL proof.~~
+  - [x] ~~A11.6: Add a default-off finance-role API with exact company scope and
+    no payment mutation capability.~~
+  - [x] ~~A11.7: Add a separately gated review-only Accounting panel with no
+    apply/pay/status action.~~
+  - [x] ~~A11.8: Run full regression/security review and prepare separate schema
+    migration and one-company canary plans; production remains distinct.~~
+  - [ ] Production checkpoint: receive explicit approval for the exact schema/
+    data migration, deploy inert code, then run and observe the one-company
+    canary from `docs/accounting-exception-checks-canary.md`.
+- [ ] Task A12: Add controlled `preview -> human approval -> apply -> audit`
+  actions under the proposed closed-registry design in
+  `docs/human-approved-actions.md`; stock, payments, salary/accountable
+  reports, signed documents, project budgets and estimates remain blocked
+  pending separate human-approved ADRs.
+  - [x] ~~A12.1: Approve and freeze the pure action/proposal/event contract,
+    threat model and exact writer inventory; no schema, route or business
+    write.~~
+  - [x] ~~A12.2: Add the immutable append-only ledger schema contract and
+    dry-run/count/SHA-guarded disposable-PostgreSQL migration proof; do not
+    apply it to production.~~ The exact 12-change plan SHA
+    `6d570c93…d34951`, focused `100/100`, backend `2350/2350` with 56 expected
+    skips and disposable PostgreSQL 15 `52/52` pass. Exact catalog drift,
+    append-only triggers, one decision/apply, rollback and unchanged protected
+    business rows are proven; the production schema remains unchanged.
+  - [x] ~~A12.3: Implement the single audit-only
+    `warehouse_anomaly_review_acknowledged` kernel with exact current-preview
+    revalidation, 2FA, tenant scope, expiry, idempotency and rollback.~~ The
+    private unregistered kernel writes only proposal/event/audit rows; focused
+    A12 `34/34`, related `102/102`, backend `2350/2350` and disposable schema
+    PostgreSQL `52/52` pass. Exact `source_job_id` binding was added before any
+    production migration; the corrected 12-step plan SHA is
+    `6d570c93…d34951`.
+  - [x] ~~A12.4: Add a default-off one-company API with cookie/CSRF
+    authorization and a statically closed one-action registry.~~ Three exact
+    routes now expose proposal, decision and bounded immutable history only
+    when `HUMAN_APPROVED_ACTIONS_HTTP_ENABLED=true` and one canonical company
+    ID is allowlisted. Cookie/CSRF, selected company, exact JSON/query shapes,
+    no-store responses, one in-process slot and fixed per-minute limits fail
+    before the private kernel. Tenant-bound decision/history checks, closed
+    route/import/SQL inventory, focused A12 `47/47`, related `117/117` and full
+    backend `2363/2363` with 56 expected skips pass. No schema migration,
+    feature enablement, UI, production write, push or deploy occurred.
+  - [x] ~~A12.5: Add the explicit review/decision/receipt UI; do not add a
+    business correction control.~~ The default-off warehouse control panel is
+    restricted to the director of the one allowlisted company, obtains a
+    separate read-only preview, shows exact consequence and expiry, and uses
+    separate proposal and approve/reject requests. Approval records only the
+    immutable review receipt; there is no business correction control.
+    Cookie-only routing, strict detached shapes, double-submit, expiry and
+    stale company/project/source guards are covered. Focused UI/API `28/28`,
+    full frontend `414/414`, backend A12 `47/47`, production
+    build and isolated desktop/mobile browser checks pass. No flag, migration,
+    production data, commit, push or deploy changed.
+  - [x] ~~A12.6: Complete disposable-PostgreSQL, concurrency, full regression,
+    security, operations and separate migration/canary proof.~~ Local closure
+    is complete; production remains separately gated.
+    - [x] ~~A12.6.1: Extend the existing launcher-owned PostgreSQL 15 proof with
+      the real preview -> proposal -> decision -> immutable receipt lifecycle,
+      stale-source rollback, reject/replay and simultaneous approval. Require
+      exact ledger/audit counts and byte-identical protected tables.~~ The
+      launcher-owned PostgreSQL 15 suite passes `52/52`, including bounded
+      newest-first history and clean server teardown.
+    - [x] ~~A12.6.2: Freeze the release package: exact nginx locations, a
+      dry-run/count/SHA-guarded migration runbook and a one-company canary with
+      explicit stop/rollback/no-manufactured-candidate rules.~~ The package
+      includes fixed JSON/no-store `429`, 4 KiB POST limits and loopback-only
+      proxying; it grants no production authority.
+    - [x] ~~A12.6.3: Run focused/full backend and frontend regressions, optimized
+      build, dependency audit, static writer/secret checks and final review.
+      Production migration, flags, nginx, data and deployment stay untouched.~~
+      A12 passes `49/49`, backend `2365/2365` with 56 expected skips,
+      unchanged frontend `414/414`, production build/browser evidence remains
+      green, and the offline dependency audit reports 0 findings in 1319
+      dependencies.
+  - [ ] Production checkpoint: receive exact approval, migrate the ledger,
+    deploy inert code and run the one-company audit-only canary.
+  - [ ] A12.7+: Add at most one separately approved business action per ADR
+    and proof slice; no generic executor.
 - [ ] Task A13: Run the worker separately on the current rented server and monitor queue depth, errors, duration and cost.
 - [ ] Task A14: Put model access behind a provider-neutral gateway; keep the cloud model first and evaluate a local model only after quality/load/cost measurements.
 

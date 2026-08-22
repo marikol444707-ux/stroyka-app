@@ -4,6 +4,17 @@ import { buildAppShellProps } from './buildAppShellProps';
 import WorkAssignmentModal from '../work-assignment/WorkAssignmentModal';
 
 describe('buildAppShellProps work assignment modal', () => {
+  test('forwards the selected company context to backoffice pages', () => {
+    const companyContext = {
+      mode: 'company',
+      selectedCompanyId: 4,
+      selectedCompany: { companyId: 4, role: 'бухгалтер' },
+    };
+    const props = buildAppShellProps({ companyContext, ui: {} });
+
+    expect(props.appBackofficePagesProps.state.companyContext).toBe(companyContext);
+  });
+
   test('passes the selected estimate from app state to the modal', () => {
     const selectedEstimate = {
       id: 25,

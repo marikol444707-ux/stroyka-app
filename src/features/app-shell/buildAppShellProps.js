@@ -257,7 +257,7 @@ export function buildAppShellProps({
       activePage,
       ui: uiBase,
       constants: { PD_CONSENT_TEXT, ROLE_GROUPS, ROLE_LABELS, UNITS },
-      state: sharedState,
+      state: { ...sharedState, companyContext },
       actions: sharedActions
     },
     appDirectoryPagesProps: {

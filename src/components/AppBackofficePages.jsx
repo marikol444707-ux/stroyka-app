@@ -15,6 +15,7 @@ export default function AppBackofficePages({ activePage, ui, constants, state, a
     allBrigadePayments,
     auditLog,
     brigadeContracts,
+    companyContext,
     contracts,
     editingItem,
     estimatesList,
@@ -159,6 +160,7 @@ export default function AppBackofficePages({ activePage, ui, constants, state, a
     <>
       {activePage === 'accounting' && (
         <AccountingPage
+          API={API}
           isMobile={isMobile}
           accountingTab={accountingTab}
           setAccountingTab={setAccountingTab}
@@ -169,6 +171,7 @@ export default function AppBackofficePages({ activePage, ui, constants, state, a
           btnG={btnG}
           C={C}
           card={card}
+          companyContext={companyContext}
           projects={projects}
           projectPayments={projectPayments}
           projectPaymentInAmount={projectPaymentInAmount}

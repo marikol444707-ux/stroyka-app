@@ -9503,3 +9503,1115 @@ explicitly continued through A9.4d. The default-off local adapter is complete.
 Any production canary still requires a new explicit approval covering exact
 flag/allowlist values, active nginx installation/reload, origin restriction,
 smoke/monitoring, rollback authority, commit, push and deploy.
+
+### Task A10: Preview-only Assignment and Daily-work Drafts
+
+**Status:** The human approved the specification and its safe defaults on
+2026-08-21. Private local slices A10.1 through A10.3 are complete. HTTP, UI,
+commit, push, deployment and production enablement remain separate approvals.
+Source of truth: `docs/assignment-daily-work-drafts.md`.
+
+#### A10.1: Pure confirmed daily-work projection
+
+**Description:** Add immutable private scope/result contracts and a bounded,
+deterministic projection of confirmed work-journal facts for one exact company,
+project and date. No SQL, route, UI, model, queue or write is included.
+
+**Acceptance criteria:**
+
+- [x] Observe an honest tests-only RED before production implementation.
+- [x] Exact positive company/project IDs and canonical ISO date are immutable.
+- [x] Only exact-owner, exact-date `Подтверждено` rows can become
+  detached items; other statuses are ignored and foreign/date-drift rows fail
+  closed without source content.
+- [x] Output contains no money, photo URL, material payload, comment, raw row or
+  mutable alias; assignee is never guessed.
+- [x] Invalid/duplicate/oversized confirmed inputs produce fixed review codes;
+  input rows are not mutated and output ordering is deterministic.
+- [x] Focused tests, compile and scoped diff check pass with no route/export or
+  production change.
+
+**Verification:**
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/a10-pycache \
+python3 -m unittest backend.features.assignment_daily_drafts.test_projection
+python3 -m py_compile \
+  backend/features/assignment_daily_drafts/projection.py \
+  backend/features/assignment_daily_drafts/test_projection.py
+git diff --check
+```
+
+**Dependencies:** Approved A10 specification and existing work-journal
+ownership/status vocabulary.
+
+**Files likely touched:**
+
+- `backend/features/assignment_daily_drafts/projection.py`
+- `backend/features/assignment_daily_drafts/test_projection.py`
+- A10 spec/plan/status documentation only
+
+**Estimated scope:** S, two code files plus approved planning records.
+
+**Authorization boundary:** Ask before adding SQL, route, UI, registration,
+database schema, dependency, commit, push, deployment or production access.
+
+**A10.1 evidence (2026-08-21):** The first focused tests-only run failed
+honestly with `ModuleNotFoundError` for the absent private projection module.
+Minimal GREEN added one pure standard-library module with immutable scope/item/
+summary/result dataclasses, exact company/project/date binding, confirmed-only
+filtering, deterministic ID order, a 100-row ceiling, fixed non-leaking review
+codes and UTF-8/numeric bounds. The result allowlist excludes money, photos,
+materials, comments and source rows, and the implementation performs no SQL,
+route, model, queue, filesystem or network operation. Focused tests pass `7/7`;
+the full backend passes `2168/2168` with 56 expected opt-in PostgreSQL skips;
+`py_compile`, no-registration/static checks and `git diff --check` pass. SHA-256:
+projection `4949ed97846c2a5933c2a13668c88db806f7a972558ff35b49725d20ed5b051e`,
+tests `fb94100406eb222e83932c4605971c49293a72ee7b47843ac7bde39c5560d176`.
+No route, UI, database, dependency, commit, push, deployment or production
+access was used.
+
+#### A10.2: Pure exact-lineage assignment availability
+
+**Description:** Build an immutable preview of positive work quantities still
+available for assignment in one exact active estimate. The projector receives
+only current estimate-item facts already bound to exact stored coordinates and
+subtracts non-cancelled assigned quantity. It never chooses an assignee.
+
+**Acceptance criteria:**
+
+- [x] Observe an honest tests-only RED before production implementation.
+- [x] Immutable scope binds exact company, project, active estimate/version and
+  work package; foreign, inactive or template facts fail closed.
+- [x] Only canonical work items with exactly one lineage proof participate;
+  material rows are ignored and missing/duplicate/ambiguous coordinates block
+  the preview with fixed non-leaking review codes.
+- [x] Available quantity is exact `estimate quantity - assigned quantity`;
+  zero balance is omitted and negative/over-assigned/non-finite values block the
+  preview.
+- [x] Detached immutable items expose only source coordinate/key, names, unit,
+  quantities, work package and `assignee=None`; no prices, money, raw source,
+  contractor, comment or mutable alias escapes.
+- [x] A 100-row inclusive cap, deterministic coordinate order, caller
+  immutability, UTF-8/numeric bounds and no route/export/SQL are covered.
+- [x] Focused A10.1/A10.2, full backend, compile and diff checks pass.
+
+**Verification:**
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/a10-pycache python3 -m unittest \
+  backend.features.assignment_daily_drafts.test_projection \
+  backend.features.assignment_daily_drafts.test_assignment_projection
+PYTHONPYCACHEPREFIX=/private/tmp/a10-pycache python3 -m unittest \
+  discover -s backend -p 'test_*.py'
+git diff --check
+```
+
+**Dependencies:** Completed A10.1 and the existing canonical estimate work-item
+policy. SQL aggregation and proof of non-cancelled assignment rows are deferred
+to A10.3.
+
+**Files likely touched:**
+
+- `backend/features/assignment_daily_drafts/assignment_projection.py`
+- `backend/features/assignment_daily_drafts/test_assignment_projection.py`
+- A10 spec/status documentation only
+
+**Authorization boundary:** Ask before adding SQL, route, UI, registration,
+database schema, dependency, commit, push, deployment or production access.
+
+**A10.2 evidence (2026-08-21):** The first tests-only run failed honestly with
+`ModuleNotFoundError` for the absent assignment projection. The first GREEN
+correctly exposed one classification defect: negative assigned quantity was
+reported as a generic source error instead of a balance error. A targeted fix
+made that branch exact. Security review then added an observed RED proving a
+duplicate material/source coordinate was silently ignored; the final projector
+now validates and deduplicates every source coordinate/key before excluding
+material rows. It uses Decimal subtraction, exact active/non-template owner and
+version binding, one-lineage proof, a 100-row ceiling and immutable output with
+`assignee=None`; no price or private source field is carried.
+
+Focused A10 tests pass `14/14`. Review also found that the new directory lacked
+`__init__.py`, so `unittest discover` could skip it despite focused success; a
+private empty package boundary fixed discovery. The full backend count then
+increased from `2168` to `2182` and passes `2182/2182` with 56 expected opt-in
+PostgreSQL skips. `py_compile`, exact no-SQL/no-route/no-registration scans and
+`git diff --check` pass. SHA-256: package boundary
+`79db4c8b3917c7e6fc1bf4ca0860992f72fc538cc1ad2f4d8c02e955caea65d4`,
+projection `73d7e3c1f9298a87258626b22f69ed3764307af1438f020dc281d158ef15c361`,
+tests `9a2136b2a7eeb4beb85c3f418f0da4beb874b7d2bfcf6a4f9483b677f964255b`.
+No SQL, route, UI, model, queue, database, dependency, commit, push, deployment
+or production access was used.
+
+#### A10.3: One bounded read-only assignment/daily snapshot
+
+**Description:** Resolve one exact company/project/date and one exact active
+estimate/version/work package inside a single `REPEATABLE READ READ ONLY`
+transaction. Read only bounded source data, compose the completed A10.1/A10.2
+drafts, then roll back and close before returning detached immutable output.
+
+**Acceptance criteria:**
+
+- [x] Observe an honest missing-module RED before adding the collector.
+- [x] One immutable request binds exact company/project/date/estimate/version/
+  work-package coordinates; no project-name or item-name guessing is allowed.
+- [x] The active estimate and stored version are both capped at 4 MiB and must
+  have identical canonical content; zero/multiple sources, stale versions and
+  ambiguous same-company project names fail closed before dependent reads.
+- [x] Non-cancelled assignment quantities are grouped only by exact stored
+  version/coordinate/key lineage and capped at 100 rows; orphan/foreign lineage
+  never reaches the daily query or result.
+- [x] Only exact-company, exact-project-name, exact-date `Подтверждено` journal
+  rows are selected; all variable fields share one SQL gate and a 100-row cap.
+- [x] SQL byte totals, flags and query-wide CASE-null behavior are revalidated
+  before parsing. Forged metadata or a gated raw-field leak raises one fixed
+  private error without source content.
+- [x] The runner sets `REPEATABLE READ`, `readonly=True`, fixed local timeouts
+  and search path; it never commits and always attempts rollback and cleanup.
+- [x] A launcher-owned Unix-socket PostgreSQL 15 test proves same-name
+  cross-tenant isolation, exact quantity subtraction, real UTF-8 CASE nulling,
+  zero business writes and rollback.
+- [x] Focused A10, full backend, compilation, static no-route/no-write checks
+  and diff checks pass.
+
+**Verification:**
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/a10-pycache python3 -m unittest \
+  backend.features.assignment_daily_drafts.test_projection \
+  backend.features.assignment_daily_drafts.test_assignment_projection \
+  backend.features.assignment_daily_drafts.test_snapshot
+python3 scripts/run_a93_postgres_tests.py
+PYTHONPYCACHEPREFIX=/private/tmp/a10-pycache python3 -m unittest \
+  discover -s backend -p 'test_*.py'
+git diff --check
+```
+
+**A10.3 evidence (2026-08-21):** The first focused run failed honestly with
+`ModuleNotFoundError` for the absent private snapshot module. GREEN added three
+top-level parameterized bounded SELECTs after one transaction-settings SELECT:
+active estimate/version context, exact assignment lineage totals and confirmed
+daily facts. Every variable payload is sized after an ordered materialized
+limit and projected through one query-wide CASE decision before libpq. Python
+recomputes byte totals/flags, canonical version equality, owners and lineage,
+then delegates only normalized detached rows to A10.1/A10.2.
+
+Focused A10 tests pass `25/25`; the full backend passes `2193/2193` with 56
+expected opt-in PostgreSQL skips. The guarded disposable PostgreSQL 15 launcher
+passes `35/35`, including a real same-name foreign tenant and an oversized
+multibyte daily description whose complete variable row is NULL before Python.
+The observed runner performs four SELECT statements, zero commits, one
+rollback and leaves every table byte-equivalent. `py_compile`, placeholder/
+parameter parity, no-route/no-DML scans and `git diff --check` pass. No route,
+UI, schema/migration, dependency, model, queue, commit, push, deployment or
+production access was added. SHA-256: snapshot
+`73994a8ee54f8dba09b00238987d5b84ca49721354a292e0e2318e4340b966ff`,
+tests `9837faa2d1e7bec62f51cf41731849795c5bd93d30ddafe23b3e944b22258ea5`,
+disposable PostgreSQL proof
+`6c0878e6c21f2bfc951292d78577920278b5fe9596f04c7c43af0b53397f04a8`.
+
+#### A10.4: Default-off director/deputy HTTP preview adapter
+
+**Description:** Expose the completed private A10 snapshot through one
+default-off, preview-only POST route. Authenticate with the existing cookie
+session and CSRF contract, authorize one director/deputy membership and exact
+company/project in the same read-only transaction, then return only the fixed
+public draft allowlist.
+
+**Acceptance criteria:**
+
+- [x] Observe an honest missing-module RED before adding route/runtime code.
+- [x] Register only when the exact feature flag is `true` and a strict,
+  duplicate-free company allowlist is valid; otherwise read no runtime deps.
+- [x] Require cookie-session authentication, passed CSRF, company mode and one
+  exact allowlisted company; never accept Bearer fallback.
+- [x] Cap the body at 4096 bytes and require exactly project/date/estimate/
+  version/work-package coordinates with duplicate JSON keys rejected.
+- [x] Authorize active 2FA-passed `директор`/`зам_директора` and the exact
+  project before any business query, inside the A10 snapshot transaction.
+- [x] Always roll back/close; never commit or expose an apply/save action.
+- [x] Serialize only exact immutable A10 types, known review codes and matching
+  nested scopes; foreign/malformed runtime data fails closed.
+- [x] Return no-store responses with explicit preview-only/zero-write flags.
+- [x] Keep UI, nginx, schema, dependency, commit, push, deploy and production
+  enablement out of this slice.
+
+**Verification:**
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/a10-pycache python3 -m unittest \
+  backend.features.assignment_daily_drafts.test_projection \
+  backend.features.assignment_daily_drafts.test_assignment_projection \
+  backend.features.assignment_daily_drafts.test_snapshot \
+  backend.features.assignment_daily_drafts.test_runtime_routes
+PYTHONPYCACHEPREFIX=/private/tmp/a10-pycache python3 -m unittest \
+  discover -s backend -p 'test_*.py'
+git diff --check
+```
+
+**Evidence (2026-08-21):** Focused A10 passes `35/35`; full backend passes
+`2203/2203` with 56 expected opt-in PostgreSQL skips. A9 closed-surface tests
+were updated to the exact reviewed `backend/main.py` hash and their focused
+suite passes `91/91`. `py_compile` and `git diff --check` pass. No production
+flag was enabled and no external system was changed.
+
+#### A10.5: Review-only UI and printable document
+
+**Description:** Add a default-off director/deputy panel to the existing
+`Поручения` page. The panel selects one exact project, active customer
+estimate, saved estimate-version ID and confirmed-work date, requests the
+completed A10.4 preview, displays its allowlisted work-only rows and opens the
+existing printable preview modal. It never offers an apply/save action.
+
+**Acceptance criteria:**
+
+- [x] Observe an honest missing-component RED before implementation.
+- [x] Keep the UI absent unless the exact frontend feature flag is `true` and
+  the local role is `директор` or `зам_директора`.
+- [x] Select estimates only by matching stored `companyId`/`projectId`, active
+  status, customer type and non-template state; load one exact saved version
+  ID from the existing versions endpoint.
+- [x] POST only project/date/estimate/version/work-package coordinates with
+  cookie credentials; mark the route cookie-only so a `401` never retries with
+  a legacy Bearer token.
+- [x] Validate the full closed response shape, exact selected scope, bounded
+  strings/IDs/counts, known review codes and preview-only/zero-write/rollback
+  flags before rendering any row.
+- [x] Escape every source string in printable HTML and exclude money, prices,
+  materials, photos and all apply/save/assignee controls.
+- [x] Preserve the existing `Поручения` flow and reuse the established preview
+  modal/print action.
+- [x] Pass focused and full frontend tests, production build, diff checks and
+  desktop/mobile real-browser inspection.
+
+**Verification:**
+
+```bash
+CI=true npm test -- --runInBand \
+  src/features/assignment-daily-drafts/AssignmentDailyDraftPreviewPanel.test.jsx \
+  src/api.test.js
+CI=true npm test -- --runInBand
+npm run build
+git diff --check
+```
+
+**Evidence (2026-08-21):** The first focused run failed honestly because the
+review component did not exist. GREEN added one isolated UI component and one
+closed validation/print module, wired them to the existing `Поручения` page,
+passed the already scoped project/estimate state through `AppSecondaryPages`,
+and added the exact preview route to the frontend cookie-only capability list.
+Focused UI/API tests pass `20/20`; the complete frontend passes `373/373` in
+`86/86` suites; the optimized production build compiles successfully and
+`git diff --check` passes. An isolated Playwright browser with local mock data
+verified the real page and print modal at desktop `1280x720` and mobile
+`390x844`: tables are readable/scrollable, there are no browser errors, and
+the only modal actions are `Распечатать` and `Закрыть`. The frontend flag
+`REACT_APP_ASSIGNMENT_DAILY_DRAFT_PREVIEW_ENABLED` remains default-off. No
+backend behavior, production flag, nginx, dependency, commit, push or deploy
+was changed in this slice.
+
+#### A10.6: Local release closure and separate canary package
+
+**Description:** Close the local default-off implementation with real route/
+authorization PostgreSQL proof, full backend/frontend regression, security and
+operations review, and a separate still-unapproved one-company canary plan.
+
+**Acceptance criteria:**
+
+- [x] Reuse the launcher-owned PostgreSQL 15 cluster for a real FastAPI route,
+  director authorization SQL, exact tenant/project snapshot and rollback proof.
+- [x] Prove an unauthorized role stops after settings/authorization and before
+  every business read; both cases commit zero writes and close the connection.
+- [x] Keep the frontend panel absent unless both the boolean flag and a strict
+  duplicate-free company allowlist include the selected company.
+- [x] Exclude only the exact A10 preview path from the global 5xx database
+  writer so read failures preserve the zero-write contract; neighboring paths
+  remain logged.
+- [x] Add a reviewed local nginx contract with exact path, 4 KiB body cap,
+  per-IP rate, global concurrency, bounded timeouts and JSON/no-store errors.
+- [x] Record staged rollout, monitoring thresholds and reversible rollback in
+  a separate canary document without changing a live system.
+- [x] Pass focused/full backend/frontend tests, production build, compile,
+  audit and diff/security checks.
+
+**Verification:**
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/a10-pycache python3 -m unittest \
+  backend.features.assignment_daily_drafts.test_projection \
+  backend.features.assignment_daily_drafts.test_assignment_projection \
+  backend.features.assignment_daily_drafts.test_snapshot \
+  backend.features.assignment_daily_drafts.test_runtime_routes
+python3 scripts/run_a93_postgres_tests.py
+PYTHONPYCACHEPREFIX=/private/tmp/a10-pycache python3 -m unittest \
+  discover -s backend -p 'test_*.py'
+CI=true npm test -- --runInBand
+npm run build
+npm audit --offline
+git diff --check
+```
+
+**Evidence (2026-08-21):** A real route success performs settings,
+director/project authorization and the three bounded A10 reads (`5` SELECTs),
+returns only the preview allowlist, commits zero times, rolls back once, closes
+and leaves every fixture table unchanged. A real `прораб` row produces opaque
+`404` after `2` SELECTs and no business read. The disposable PostgreSQL suite
+passes `37/37`.
+
+Security review produced two honest REDs and fixes: the frontend is now gated
+by the exact build-time company allowlist as well as the boolean flag, and the
+exact A10 path can no longer trigger the global database-backed 5xx logger.
+The reviewed nginx fragment and
+`docs/assignment-daily-draft-preview-canary.md` close the local ops package.
+
+Focused A10 passes `37/37`; combined A10/A9 closed surfaces pass `93/93`; full
+backend passes `2205/2205` with 56 expected PostgreSQL skips. Focused frontend/
+API passes `22/22`; full frontend passes `375/375` in `86/86` suites; the
+production build succeeds. Offline full and production-only npm audits report
+zero vulnerabilities. Online audit was blocked by the execution environment
+and remains a pre-deploy prerequisite; local nginx is absent, so `nginx -t` is
+also deferred to the approved target environment. Compilation, static scans
+and `git diff --check` pass.
+
+No flags were enabled, nginx was not installed/reloaded and no production,
+database, dependency, commit, push or deploy action occurred. The overall A10
+task remains open until a human separately approves and completes the production
+checkpoint and records smoke/rollback evidence.
+
+### Task A11: Read-only Accounting Exception Checks
+
+**Status:** The expanded ownership scope was approved on 2026-08-22. A11.1 is
+locally complete: the private read-only inventory and guarded idempotent schema
+contract cover accountable payments/expenses, expense reports, salary
+payments, `own_expenses` and manual `expenses`. The contract has not been run
+against production; no route, UI, registration, dependency, deployment or
+production data change has been made. Source of truth:
+`docs/accounting-exception-checks.md`.
+
+#### A11.1: Ownership inventory and schema contract
+
+**Description:** Add a default read-only inventory for staff, accountable
+payments/expenses, expense reports, salary payments, `own_expenses` and manual
+`expenses`, plus an idempotent schema contract for explicit tenant/project
+verification fields. Inventory must classify legacy rows without changing
+them; schema application remains a separate explicit operation.
+
+**Acceptance criteria:**
+
+- [x] Observe an honest tests-only RED before implementation.
+- [x] Inventory is the default and performs only bounded parameterized SELECTs
+  in a rolled-back read-only transaction.
+- [x] Classify rows as provable/ambiguous/orphaned/conflicting using exact IDs;
+  never use free text except a globally unique exact project-name bridge.
+- [x] Schema adds nullable IDs plus `company_scope_verified=FALSE`, indexes and
+  finite-value checks without marking any legacy row verified by default.
+- [x] Reports expose only table name, row ID, classification and candidate IDs;
+  no money, names, purpose, notes, files or item JSON.
+- [x] Real PostgreSQL proves idempotency and zero data changes in inventory mode.
+
+**Likely files:** private migration module, focused tests, disposable-PG proof,
+documentation status (split further if the slice exceeds four files).
+
+**A11.1a evidence (2026-08-22):** The first tests-only run failed honestly with
+`ModuleNotFoundError` for the absent private inventory module. Minimal GREEN
+added a private package and one classifier/runner that reads exactly eight
+ordered sources with `LIMIT 1001`, rejects the 1001st row, sets the caller
+connection read-only, commits zero times and always attempts rollback. It
+classifies only exact project/staff/parent evidence as `provable`, `ambiguous`,
+`orphaned` or `conflicting`. `own_expenses.employee_id` is deliberately ignored
+because its legacy domain is mixed; a manual expense inherits only a proved
+parent owner or one globally unique exact project. The report returns at most
+100 allowlisted records and copies no name, salary, amount, purpose, note, file
+or raw row. No route, registration, schema or application call site imports it.
+
+Focused tests pass `6/6`; the focused inventory plus accountable, expense-
+report, salary, own-expense and manual-expense route tests pass `30/30`; full
+backend discovery passes `2211/2211` with 56 expected opt-in PostgreSQL skips.
+`py_compile` with an isolated cache, static no-DML/no-registration scans and
+`git diff --check` pass. SHA-256: package
+`d08c8a4fff3de0594b0b1d55f6bc67cd3e9bb2facc8bd59879618fdc969edc7b`,
+runtime `e6bfc4dd713fd7fa9918226b1e8b87c504b38266fc98a9f90970fea877b5af11`,
+tests `081a17492efa7dae8392d5f43c60141d42873d032bc184d7be2192ae3e92edbe`.
+That A11.1a slice changed no schema, data, production system, dependency,
+commit, push or deployment; its remaining schema proof is closed below.
+
+**A11.1b evidence (2026-08-22):** The first focused run failed honestly with
+`ImportError` for the absent private schema module. Minimal GREEN added a
+deterministic seven-table plan guarded by an exact change count and SHA-256.
+Dry-run is the default, executes no SQL and rolls back. Explicit apply uses one
+serializable transaction, locks the seven exact tables, adds only nullable
+owner IDs plus `company_scope_verified BOOLEAN NOT NULL DEFAULT FALSE`, finite
+numeric checks and partial indexes, validates the exact `public` table/column/
+constraint/index catalog and commits only after the postcheck. Existing staff
+ownership remains untrusted because its historical company default is accepted
+only alongside the new false verification marker; new owner columns on every
+other table must have no default.
+
+Disposable PostgreSQL 15 proves two guarded applications are idempotent,
+preserve every legacy business value, leave every legacy verification marker
+false, reject verified missing owners and non-finite money, accept the
+documented nullable project scope for `own_expenses`, and classify a mixed-
+tenant fixture as exactly seven provable and one ambiguous record without
+copying private content. The launcher-owned cluster passes `39/39` and is shut
+down and removed. Focused schema/inventory passes `13/13`; related accounting
+routes pass `37/37`; full backend discovery passes `2218/2218` with 56 expected
+opt-in skips. Compilation and diff checks pass. SHA-256: schema runtime
+`d43270fea7e5795009857ec101eec77e19a19acbaa9ff58524dcdd9015a98ac9`,
+schema tests
+`11c7e3945952d546b0448fc508bad39a2ab3c49b9710ab908ccf324d1b17a15a`,
+disposable proof
+`323df606c9d205ed9d0898a318a49f9c75488e4cf6aeffb724b80868a345ee44`.
+No production schema/data operation, route, registration, commit, push or
+deployment occurred. A11.2 remains a separate dry-run-first backfill and
+quarantine checkpoint requiring new approval before any production apply.
+
+#### A11.2: Provable backfill and quarantine
+
+**Description:** Add an explicit `--apply` migration that verifies and backfills
+only provable rows. Leave every ambiguous/orphaned/conflicting row unverified.
+Provide a separate dry-run-first exact-record remediation command; production
+execution is not part of local implementation approval.
+
+**Acceptance criteria:**
+
+- [x] Default invocation and incomplete apply arguments write nothing.
+- [x] Explicit apply updates only rows whose project/parent/staff proofs are unique
+  and mutually consistent; rerunning is idempotent.
+- [x] Conflicts never fall back to company `1` or the current user's default.
+- [x] Exact-record remediation validates company/project/staff ownership,
+  records an audit event and never accepts names as authority.
+- [x] Disposable PostgreSQL proves mixed-tenant names, orphan parents,
+  conflicting staff/project owners, rollback and repeat safety.
+
+**A11.2a evidence (2026-08-22):** The first focused run failed honestly because
+the private backfill module did not exist. GREEN added a deterministic
+`accounting-ownership-backfill-v1` plan over the complete bounded A11.1
+classification and the exact stored owner/verification state of all seven
+tables. Default execution is read-only and rolled back. Apply requires the
+preceding exact ready count and SHA-256, reclassifies under a share lock on
+projects plus access-exclusive locks on the seven target tables, rejects plan
+drift or stored-owner conflicts, and updates only rows still unverified with
+empty owner columns. Ambiguous, orphaned and conflicting rows remain false-
+marked in quarantine; no company-1 or current-user fallback exists.
+
+The disposable PostgreSQL 15 proof passes `41/41`: seven provable mixed-domain
+rows are verified for company 4/project 19, one same-name cross-tenant staff
+row remains quarantined, legacy private business values remain unchanged, and
+a second dry-run/apply performs zero updates. A non-finite accountable amount
+causes a real `CheckViolation` and rolls back the earlier staff update in the
+same transaction. Focused inventory/schema/backfill passes `21/21`; related
+accounting routes pass `45/45`; full backend discovery passes `2226/2226` with
+56 expected opt-in skips. Compilation and `git diff --check` pass. SHA-256:
+inventory `608ab050c94da6a6d62703d0acd88bf78e3d3248c9b9db4ec612b751c2fb077e`,
+backfill `e7abcc4ccc77d88c3275f3d7fe3cd361614e9b41791c9f2f9e26ebb228443a64`,
+tests `033b0c96fdbc683c28c9ca4d18c2edcf9f02d11461ca8a7ac806581b1a9a770d`,
+disposable proof
+`07dd34ae1501b2cd960a21637485d46a89ae5fc82277bb3e5e002be236c9ba08`.
+No operator CLI, automatic call site, production schema/data operation,
+registration, commit, push or deployment was added. A11.2 remains open only
+for separately guarded exact-record remediation and its audit event.
+
+**A11.2b1 evidence (2026-08-22):** An honest missing-module RED preceded the
+pure `accounting-ownership-remediation-v1` request contract. It accepts only
+the seven reviewed source names and exact built-in positive integer record,
+company and operator IDs. Project-scoped sources require one exact project ID;
+staff and salary explicitly forbid one. Booleans, numeric strings, subclasses,
+zero/negative IDs and unknown sources fail with one fixed error. The detached
+result contains only the exact IDs, zero-write/dry-run flags and a deterministic
+SHA-256; it has no names, descriptions, database import, CLI, registration or
+apply path. Focused accounting checks pass `25/25`; related accounting routes
+pass `49/49`; compilation and diff checks pass. SHA-256: contract
+`f39d0c27742d0dc1f836902138f5721ab53f7d043e84408576485efcbb383725`,
+tests `2b3d74f11a07d0ff55bfdeeb5c5e9ba2719df3a61ec78bd5ba99e5766b4408dd`.
+A11.2b remains open for the transactional owner/parent validation, single-row
+write, same-transaction `audit_log` event and disposable-PostgreSQL proof. No
+production or external system was accessed.
+
+**A11.2b2 evidence (2026-08-22):** The missing transactional runner was first
+proved by an honest import RED. GREEN now revalidates the exact closed request,
+the complete A11.1 schema, company, project, target row and every applicable
+verified parent/staff owner inside one serializable transaction. Apply requires
+the exact SHA-256 from its preceding dry-run, binds that evidence to stored
+owner/verification state and fixed parent IDs, updates exactly one still-empty
+owner row, writes one minimal `audit_log` event in the same transaction and
+postchecks the verified result before commit. Drift, foreign/missing owners,
+write conflicts, audit failures and postcheck failures roll back the whole
+operation; a verified rerun writes neither the row nor a duplicate audit event.
+No name, description, purpose or other private business value is accepted as
+authority or copied into evidence/audit output.
+
+The launcher-owned disposable PostgreSQL 15 proof passes `42/42`. It proves a
+real exact-parent remediation, preserved private business fields, one exact
+audit record, zero-write repeat safety and a forced audit constraint failure
+that rolls the preceding owner update back. The final fixture also proves real
+orphan and cross-company staff/project conflicts. Focused accounting checks
+pass `39/39`; related legacy accounting routes pass `24/24`; compilation and
+diff checks pass; full backend discovery passes `2244/2244` with 56 expected opt-in
+skips. SHA-256: request contract
+`2a64793619f194da89e649c261daa780017dd2f3c6aac8500fdff4764b8eb8ee`,
+transaction runner
+`0dc2ecff9bbd1a43e7c607eb81090646901480c63fb69401faef4918077c12b3`,
+runner tests
+`fc7c61e58032ac0e295732e034f5114bc43b7157b794115fc0462569f77f206b`,
+disposable proof
+`9e82ec51dee963516854f8e67fab6395cb4fcae8576b1b9a9723c4cad295f752`.
+
+**A11.2b3 evidence (2026-08-22):** Apply-time inspection now locks only the
+exact target row (`FOR UPDATE`) and the selected company, project, operator and
+parent/staff proof rows (`FOR KEY SHARE`); it no longer takes broad table locks.
+The operator must be one active director, deputy director or accountant actor
+in the exact company. A separate module command defaults to dry-run. Apply is
+unreachable unless the operator repeats the exact IDs and supplies the fixed
+confirmation phrase plus both the request SHA-256 and evidence SHA-256 returned
+by the preceding dry-run. Invalid or incomplete arguments fail before opening
+a database connection, and every opened connection closes on success or error.
+Command SHA-256
+`83397c7042ffe8aef66d3b32ebc6cb14ee3407d0666c498871fccec93eff8108`;
+command tests
+`f4bd2d2b7055ef1c046c995b9bb31ea7ad54e9bb93629093f11b2b0dbe060255`.
+No production database/schema/data operation, route, registration, commit,
+push or deployment occurred. A11.2 is locally complete; any production schema,
+backfill or exact-record application still requires a new explicit approval.
+
+**Authorization boundary:** Schema/data application against production and any
+manual record mapping require a new explicit approval after dry-run evidence.
+
+#### A11.3: Future read/write path hardening
+
+**Description:** Update accountable payment/expense, expense-report, salary,
+`own_expenses` and manual `expenses` routes so reads are exact-company scoped
+and new writes derive company/project/staff ownership from authenticated server
+context. Preserve public response compatibility while quarantined legacy rows
+remain hidden.
+
+**Acceptance criteria:**
+
+- [x] Resolve one active company actor for every read/write; reject aggregate
+  mode and client-claimed foreign company IDs.
+- [x] Project-scoped rows store exact `project_id`; child expenses inherit exact
+  scope from a locked verified parent.
+- [x] Salary rows require one verified staff owner in the selected company.
+- [x] Every GET filters verified company scope; every mutation validates the
+  stored owner before update/delete and preserves existing role checks.
+- [x] Route and real-PostgreSQL tests prove same-name cross-tenant isolation and
+  that quarantine rows are unreachable.
+
+**Task split:** A11.3a accountable routes, A11.3b expense reports, A11.3c
+salary/staff, A11.3d `own_expenses` and manual `expenses`. Each sub-slice stays
+within five files and has its own checkpoint.
+
+**A11.3a checkpoint (2026-08-22):** Complete locally. The four existing
+`/accountable-payments` and `/accountable-expenses` URLs now resolve one exact
+finance actor in the selected company and expose only rows with matching
+`company_id` and `company_scope_verified=TRUE`. New payments resolve and lock
+one stored project and one verified staff row, derive display names and author
+from server state, and store exact owner IDs. New child expenses lock one
+verified parent, inherit its company/project and update `spent_amount` through
+the same owner predicate. Aggregate mode, foreign projects/staff, quarantined
+parents and client-authored owner names fail closed. The UI now submits
+`projectId`/`givenToId`; the expense form displays the inherited parent project
+instead of offering a different one. Evidence: focused routes `9/9`, frontend
+ownership payloads `2/2`, accounting migration suite `39/39`, static runtime
+gates `56/56`, disposable PostgreSQL `43/43`, full backend `2249/2249`
+(`56` expected skips), and the production frontend build all pass. No
+production schema/data operation, commit, push or deployment occurred.
+
+**A11.3b checkpoint (2026-08-22):** Complete locally. The existing
+`/expense-reports` GET/POST/PUT/DELETE URLs now resolve exactly one finance
+actor in the selected company. Reads expose only `company_scope_verified=TRUE`
+rows owned by that company; legacy name filters first resolve one stored
+project ID inside the same company. Creates lock one stored project and one
+verified staff row, store their exact IDs and server-derived display names,
+and calculate the balance on the server. Updates and soft-cancels first lock a
+verified stored report and repeat its company/project predicate on the write;
+approval identity and date are derived by the server. Aggregate mode, foreign
+projects/staff/reports, quarantine rows and client-supplied names fail closed.
+The Accounting UI now submits `projectId` and `employeeId` and no longer sends
+employee/project/approval names as ownership evidence. Evidence: focused
+route tests `19/19` with the A11.3a regression, frontend ownership payloads
+`3/3`, accounting ownership regressions `39/39`, static runtime guards `56/56`,
+the launcher-owned disposable PostgreSQL suite `44/44`, full backend
+`2253/2253` (`56` expected skips), and the production frontend build all pass.
+No production schema/data operation, commit, push or deployment occurred.
+
+**A11.3c1 checkpoint (2026-08-22):** Complete locally. The existing
+`/salary-payments` GET/POST/DELETE URLs now resolve one finance actor in the
+selected company and expose only verified rows owned by that company. A new
+payment locks one verified staff row, stores its exact ID and server-derived
+name, validates a canonical `YYYY-MM` month and derives payer/date on the
+server. Delete first locks the verified stored payment and repeats its exact
+company/staff predicate. Aggregate mode, foreign/quarantined staff or payments,
+malformed months and client-supplied staff/payer/date names fail closed. The UI
+submits only `staffId`, month and amount. Focused salary/accountable/report
+routes pass `25/25`, the frontend salary ownership payload passes `1/1`, and
+the launcher-owned disposable PostgreSQL suite passes `45/45`. Static runtime
+guards pass `56/56`, full backend passes `2256/2256` (`56` expected skips),
+and the production frontend build succeeds. Staff CRUD was still the remaining
+A11.3c2 slice at this historical c1 checkpoint and is completed in the next
+checkpoint. No production schema/data operation, commit, push or deployment
+occurred.
+
+**A11.3c2 checkpoint (2026-08-22):** Complete locally. All seven existing
+staff-directory URLs now resolve one effective actor in one selected company.
+Staff lists, cards, creates, updates and soft-dismissals require exact stored
+`company_id` plus `company_scope_verified=TRUE`; aggregate mode, foreign rows
+and quarantined rows fail closed. Creates derive the company and exact project
+from server state; updates and dismissal lock the verified staff row and repeat
+its owner predicate. Custom documents first verify their stored staff parent,
+and document authors come from the authenticated actor rather than the request.
+Profile lookup no longer links users by a same-name guess: it requires an email
+match backed by an active membership in the selected company, and every legacy
+project-named child query is limited to projects stored in that company.
+Dismissal disables only matching `user_company_roles` in the selected company;
+it does not disable the global user or the same person's memberships in another
+company. Existing shared-user passwords/global identity are not rewritten by a
+single-company staff manager. Evidence: focused staff/accounting/static suites
+pass `94/94`, the launcher-owned disposable PostgreSQL suite passes `46/46`,
+and full backend discovery passes `2264/2264` (`56` expected skips). The
+temporary PostgreSQL cluster stopped cleanly. No production schema/data
+operation, commit, push or deployment occurred.
+
+**A11.3d checkpoint (2026-08-22):** Complete locally. Manual `/expenses` and
+authenticated `/own-expenses` reads now require one selected company actor and
+return only `company_scope_verified=TRUE` rows owned by that company. Creates
+accept an exact `projectId`, resolve and lock the project inside the selected
+company, derive the author and employee from authenticated server state, and
+stamp exact company/project/staff ownership. The `own_expenses -> expenses`
+mirror is created, updated and deleted atomically with the same verified owner;
+status approval identity is server-derived. Updates and deletes first lock the
+verified stored row, and foreign or quarantined IDs fail before mutation.
+Telegram own-expense ingestion now resolves exactly one verified staff/company
+identity, rejects cross-company ambiguity, resolves any project within that
+company and writes the same owner-stamped mirror pair. The manual and own-
+expense UIs submit IDs and no longer send project, employee, author or approver
+names as ownership evidence. Evidence: focused route/static suites pass
+`75/75`, frontend ownership payloads pass `3/3`, the launcher-owned disposable
+PostgreSQL suite passes `47/47`, full backend discovery passes `2272/2272`
+(`56` expected skips), and the production frontend build succeeds. The
+temporary PostgreSQL cluster stopped cleanly. No production schema/data
+operation, commit, push or deployment occurred.
+
+#### A11.4: Pure expanded hard-contradiction projection
+
+**Description:** Build immutable private checks over normalized verified rows
+from all approved A11 domains. This slice has no SQL or public call site.
+
+**Acceptance criteria:**
+
+- [x] Fixed codes cover brigade/project ledger, supplier/warehouse explicit
+  links, supplier overpayment, accountable parent/sum/advance, expense-report
+  balance, salary staff/month and explicit own/manual expense-link
+  contradictions.
+- [x] Exact Decimal arithmetic, deterministic ordering, a 100-finding cap and
+  caller immutability are proved tests-first.
+- [x] Quarantined/foreign data, unknown statuses and malformed values fail
+  closed without raw content.
+
+Checkpoint (2026-08-22): A11.4 is complete as a private pure projection. The
+honest first RED was the missing projection module; protective REDs then found
+and closed an omitted expense-side project mismatch, a noncanonical `0000-01`
+salary month, duplicate reciprocal own/manual findings, the 1,000-row source
+boundary and the canonical decimal-output boundary. The final implementation
+accepts exactly twelve normalized verified source sets, emits only the fixed
+17-code vocabulary, uses exact bounded `Decimal` arithmetic, sorts independently
+of input order, counts before the 100-finding display cap and returns no partial
+findings for foreign, quarantined, unknown-owner or malformed data. Evidence:
+focused projection tests pass `12/12`; accounting-exception package discovery
+passes `51/51`; full backend discovery passes `2284/2284` (`56` expected
+skips); `py_compile`, Python 3.9 AST parsing, static no-I/O/no-SQL/no-registration
+checks and `git diff --check` pass. The module remains absent from package
+exports and `backend/main.py`. No SQL, route, schema/data operation, frontend,
+production change, commit, push or deployment occurred. A11.5 remains the
+separate bounded one-company collector and read-only transaction slice.
+
+#### A11.5: Bounded one-company accounting snapshot
+
+**Description:** Add ordered query-wide-gated collectors and compose the pure
+projection inside one `REPEATABLE READ READ ONLY` transaction.
+
+**Acceptance criteria:**
+
+- [x] Every table read requires verified exact company ownership and bounded
+  row/byte metadata before libpq returns variable payload.
+- [x] Parameterized SELECT-only call graph, zero commits, one rollback and
+  detached output are statically and dynamically proved.
+- [x] Disposable PostgreSQL covers all domains, exact boundaries and
+  byte-equivalent business tables.
+
+Checkpoint (2026-08-22): A11.5 is complete as a private bounded snapshot. The
+honest first RED was the missing `snapshot` module; later protective REDs found
+and closed a missing query-wide maximum, exact 64/65-byte numeric handling,
+the 1,000/1,001-row boundary and denied-payload nulling. The implementation
+reads exactly twelve company-scoped sources with thirteen total `SELECT`
+statements, composes the existing pure projection in one `REPEATABLE READ READ
+ONLY` transaction, commits zero times and rolls back exactly once. Unverified,
+quarantined, cross-company and mismatched-parent rows do not enter the result;
+malformed metadata fails closed without partial findings. Evidence: focused
+snapshot tests pass `12/12`; accounting-exception package discovery passes
+`63/63`; the launcher-owned disposable PostgreSQL 15 suite passes `49/49` and
+stops cleanly; full backend discovery passes `2296/2296` (`56` expected skips);
+`py_compile`, static private/no-registration checks and `git diff --check`
+pass. No public route, frontend, production schema/data operation, commit,
+push or deployment occurred. A11.6 is the next separate default-off finance
+review API slice.
+
+#### A11.6: Default-off finance review API
+
+**Description:** Expose only the completed immutable A11 result through one
+default-off, no-store review route for existing finance roles and one selected
+company. No mutation verb or payment action is added.
+
+**Acceptance criteria:**
+
+- [x] Strict boolean feature flag and duplicate-free company allowlist default
+  to disabled.
+- [x] Cookie authentication, exact company membership and finance role are
+  checked before business reads; aggregate-company mode is rejected.
+- [x] Response shape and reason codes are closed and bounded; raw rows and
+  unknown fields cannot escape.
+- [x] All outcomes remain read-only and cannot call existing POST/PUT/DELETE
+  payment routes.
+- [x] Registration, ops and authorization regressions pass with the flag off.
+
+Checkpoint (2026-08-22): A11.6 is complete locally as one default-off finance
+review API. `GET /accounting-exception-checks` exists only behind the exact
+lowercase feature flag and a strict duplicate-free company allowlist. It
+accepts cookie sessions only, rejects aggregate or noncanonical company scope,
+and verifies the active session, two-factor state, user, company membership and
+existing finance role before the twelve bounded business reads. Authorization
+and collection share one `REPEATABLE READ READ ONLY` transaction with zero
+commits and one rollback. The HTTP boundary returns only the closed A11.4
+projection, uses `no-store` on every outcome and has no mutation verb. The
+exact path bypasses the global API-error database writer so read failures remain
+write-free. A separate local nginx fragment adds one-request concurrency,
+rate limits, bounded timeouts and a fixed non-leaking 429 response; it has not
+been installed. Focused access/route tests pass `19/19`; accounting-exception
+package discovery passes `82/82`; the related assignment/warehouse route and
+static SHA regressions pass; full backend discovery passes `2315/2315` (`56`
+expected opt-in skips). `py_compile` and `git diff --check` also pass. No
+frontend, production flag, nginx installation, schema/data operation, commit,
+push or deployment occurred.
+
+#### A11.7: Review-only Accounting UI
+
+**Description:** Add a separately gated Accounting-page panel that displays
+only the validated A11 review result. It never offers apply, pay, approve,
+reassign, repair or status-change controls.
+
+**Acceptance criteria:**
+
+- [x] Strict frontend flag and company allowlist keep the panel absent by
+  default.
+- [x] Full response validation precedes rendering and company switching clears
+  stale findings before the next request.
+- [x] Money appears only for the exact numeric contradiction that requires it;
+  no notes, bank data, photo/file URLs or raw JSON are rendered.
+- [x] Focused/full frontend tests, build and desktop/mobile browser inspection
+  pass without changing existing accounting writers.
+
+Checkpoint (2026-08-22): A11.7 is complete locally. The Accounting summary
+contains a review-only panel behind exact frontend enablement and company-ID
+allowlist variables; missing configuration renders nothing and sends no
+request. One selected company and a finance role are required. The component
+uses the existing cookie-only fetch wrapper, validates and detaches the full
+closed A11 response before rendering, aborts old reads and clears stale results
+on company changes. It renders only fixed reason labels, exact IDs and
+reason-allowlisted canonical money strings, with no raw JSON or accounting
+mutation action. A real isolated Playwright run exposed and closed one missing
+`companyContext` handoff in `buildAppShellProps`; desktop 1440 px and mobile
+390 px screenshots then passed with no horizontal overflow and no console
+errors. Focused tests pass `33/33`; full frontend passes `400/400` across 97
+suites, and the production build compiles successfully.
+No accounting writer, backend route, schema/data, production flag, nginx
+installation, commit, push or deployment was changed by A11.7.
+
+#### A11.8: Local closure and separate production checkpoints
+
+**Description:** Complete regression, security, migration, operations and real
+route proof. Prepare one reversible schema/data migration runbook and a
+separate one-company feature canary. Do not execute either in production as
+part of local closure.
+
+**Acceptance criteria:**
+
+- [x] Focused/full backend and frontend suites, disposable PostgreSQL proof,
+  build, audit, static no-write scans and diff checks pass.
+- [x] Security review covers tenant isolation, exact stored-link semantics,
+  bounded payloads, fixed non-leaking failures and every existing writer
+  remaining unreachable.
+- [x] Migration runbook records preflight inventory, backup, row counts,
+  quarantine counts, transactional stop conditions and rollback/recovery.
+- [x] Canary plan defines one company, metrics, stop thresholds, smoke and
+  rollback; live migration/flag/nginx/deploy require separate explicit approval.
+
+**Closure evidence (2026-08-22):** A11.8 is locally complete. A new real
+FastAPI/PostgreSQL proof runs the exact `GET /accounting-exception-checks`
+adapter against the launcher-owned PostgreSQL 15 cluster. One active accountant
+in company `4` performs exactly settings, session, membership and twelve
+bounded source SELECTs (`15` total), receives only the closed company-4 result,
+commits zero times, rolls back once and leaves every fixture table unchanged.
+A same-company `прораб` receives the fixed `403` after only the three settings/
+authorization SELECTs, before any accounting source read. A foreign-company
+private marker is absent from both fetched driver rows and the HTTP response.
+The final disposable suite passes `51/51` and shuts the temporary server down.
+
+The security review reconfirmed exact stored company/project/parent joins,
+verified-owner filters, query-wide row/UTF-8/aggregate/cumulative gates, fixed
+non-leaking HTTP failures, no-store responses and the default-off two-sided
+company allowlists. An AST/import inventory proves that the runtime call graph
+is only `route -> access -> snapshot -> projection`; it imports none of the
+schema, backfill or remediation writers and contains no INSERT/UPDATE/DELETE,
+DDL or commit. The frontend panel still contains one GET and no mutation or
+raw-HTML surface.
+
+`docs/accounting-exception-checks-migration-runbook.md` records preflight
+inventory, backup/restore verification, exact row and quarantine counts,
+count/SHA-guarded schema/backfill, per-record audited remediation,
+transactional stop conditions and commit-aware recovery.
+`docs/accounting-exception-checks-canary.md` separately fixes one company,
+backend/frontend flags, exact GET smoke, metrics, 24-hour observation, stop
+thresholds and backend-first rollback. Both explicitly require a new approval
+for every production migration, flag, nginx, deploy and canary action.
+
+Focused accounting tests pass `83/83`; full backend discovery passes
+`2316/2316` with `56` expected opt-in skips; full frontend passes `400/400`
+across `97` suites. The production build succeeds. Offline full and
+production-only npm audits report zero vulnerabilities. The online registry
+audit was attempted but blocked by the execution policy, so it remains a
+pre-deploy gate. Isolated compilation, static no-write/call-graph checks and
+`git diff --check` pass. No production connection, schema/data migration,
+feature flag, nginx installation, commit, push or deployment occurred.
+
+**Planning evidence (2026-08-22):** Existing code and schema were reviewed
+read-only. `project_payments` and `brigade_payments` have explicit company and
+ledger-link hardening; supplier and warehouse invoices have explicit company
+and reciprocal-link fields. Accountable payments/expenses, expense reports,
+salary payments, `own_expenses` and manual `expenses` lack verified tenant
+scope, while historical `staff.company_id` was introduced with a blanket
+default and cannot alone prove legacy ownership. The own-expense employee key
+is also mixed across `users` and `staff`, so it is never accepted as tenant
+proof.
+The expanded plan therefore adds an inventory-first, provable-only migration,
+quarantine and server-resolved future writers before those domains join A11.
+No code, schema, data or external system was changed.
+
+## Task A12: Human-approved actions
+
+**Status:** A12.1-A12.4 are complete locally. UI, final real lifecycle proof
+and all production work remain separately gated.
+
+**Objective:** Add a closed, tenant-scoped
+`server preview -> human decision -> current-state revalidation -> one apply ->
+immutable audit receipt` boundary without letting a model, browser, database
+row, environment variable, or generic callback choose a mutation.
+
+**Decisions proposed for approval:**
+
+- [x] The first and only v1 action kind is
+  `warehouse_anomaly_review_acknowledged`; it records review evidence but
+  changes no warehouse or other business row.
+- [x] Proposals expire after 15 minutes and cannot be revived.
+- [x] For this audit-only action, the same eligible actor may propose and
+  approve after current cookie-session, 2FA, company and role revalidation.
+- [x] Every protected business action gets a separate ADR; money and signed
+  documents require a different approving human.
+
+### A12.1: Pure contract and inventory
+
+- [x] Freeze exact proposal, decision and event shapes with
+  strict types, bounds, versions and canonical SHA-256 preimages.
+- [x] Freeze the one-entry source-code registry and reject dynamic imports,
+  SQL/handler names, arbitrary callbacks and unknown kinds.
+- [x] Inventory the current preview source and protected writer surfaces;
+  statically prove A12.1 reaches none of the writers.
+- [x] Define fixed errors and proposal/event expiry/idempotency rules, and test
+  secret/raw-payload non-disclosure without adding PostgreSQL or runtime
+  registration.
+
+**A12.1 closure evidence (2026-08-22):** The new private
+`human_approved_actions` package has one immutable source-code policy:
+`warehouse_anomaly_review_acknowledged -> audit_only`. Strict slotted proposal
+and event values bind exact tenant/project/subject IDs, the validated A9
+content hash, proposer/actor IDs, UTC timestamps, a 15-minute expiry,
+idempotency and canonical SHA-256. Decisions accept only proposal ID/hash plus
+`approve|reject`; no amount, quantity, status, document, estimate value, SQL,
+callback or raw preview field exists. Boundary attacks involving extra fields,
+bool/string subclasses, invalid anomaly/subject pairs, malformed hashes,
+timestamp overflow, hostile timezone objects and hidden instance attributes
+fail with the fixed non-leaking contract error.
+
+The read-only static inventory pins the warehouse content-preview source, the
+reviewed budget/supplier/accounting write precedents and nineteen protected
+stock/payment/document/estimate writer modules. A mutation test proves that a
+PostgreSQL import, SQL text, execute call, mutation route, unexpected A12
+production file or `backend.main` registration makes the gate fail. The real
+tree reports zero registrations, forbidden imports, DB calls or violations.
+Focused A12 tests pass `12/12`; related warehouse/budget/supplier contracts
+pass `82/82`; full backend passes `2328/2328` with `56` expected skips.
+Compilation and diff checks pass. No schema, route, export, UI, SQL execution,
+production configuration, network action, commit, push or deployment occurred.
+
+### A12.2: Append-only ledger schema
+
+- [x] Specify immutable proposal and append-only event relations, exact owner
+  foreign keys, uniqueness, one-terminal-decision/one-apply constraints and
+  UPDATE/DELETE rejection.
+- [x] Add dry-run-first count/SHA-guarded migration, readiness probe, rollback
+  SQL and disposable-PostgreSQL proof.
+- [x] Keep the production schema unchanged pending a separate exact approval.
+
+**Closure:** The unregistered A12.2 schema module produces the exact 12-change
+plan SHA `6d570c93…d34951`; catalog checks bind columns, constraints/indexes,
+sequences, triggers, object ownership and RLS/rule/policy state. Focused and
+related tests pass `100/100`, full backend passes `2350/2350` with 56 expected
+skips, and launcher-owned PostgreSQL 15 passes `52/52`, including wrong-SHA
+rollback, zero-change repeat, semantic index/RLS drift, immutability, uniqueness
+and unchanged protected rows. No production schema/apply, route, UI, flag,
+commit, push or deployment occurred.
+
+### A12.3: Audit-only transactional kernel
+
+- [x] ~~Rebuild and hash the current warehouse anomaly preview under exact locks
+  in `SERIALIZABLE`; reject drift, expiry, owner/role/session changes and
+  malformed evidence.~~
+- [x] ~~Require active cookie session, passed 2FA, exact selected company and
+  allowlisted stored membership inside the transaction.~~
+- [x] ~~Write only the proposal/event ledger and scoped audit receipt; protected
+  domain tables must remain byte-for-byte unchanged.~~
+- [x] ~~Prove retry/concurrency idempotency, exact affected-row counts, atomic
+  rollback, commit-uncertain reconciliation and cleanup/control precedence.~~
+
+**Closure (2026-08-23):** The private kernel stores the exact source job,
+serializes proposal identity, revalidates auth/tenant/current preview, and
+atomically appends only `proposed`, `rejected`, `approved`, `applied` and the
+scoped audit receipt. Replays are write-free and expiry/source/auth/audit or
+commit uncertainty fails closed. Static inventory allows only the three
+ledger/audit INSERT targets. A12 passes `34/34`, related warehouse/A12
+`102/102`, full backend `2350/2350` with 56 expected skips, and disposable
+PostgreSQL schema proof `52/52`. The corrected pre-production 12-change schema
+plan SHA is `6d570c93…d34951`. No production migration, route, flag, business
+mutation, commit, push or deployment occurred; full real concurrent action
+proof remains in A12.6.
+
+### A12.4-A12.6: Default-off delivery and proof
+
+- [x] Add exact proposal/decision/history HTTP routes with CSRF, no-store,
+  bounded payloads, rate/concurrency limits and a one-company default-off
+  allowlist.
+- [x] ~~Add a review UI that shows exact consequences and expiry, clears stale
+  company/project state and labels the v1 action as review-only.~~
+- [x] ~~Prove the full lifecycle and concurrent replay in disposable PostgreSQL;
+  run focused/full backend/frontend, browser, build, audit, static call-graph
+  and no-write checks.~~
+- [x] ~~Prepare separate migration and one-company canary documents. Do not
+  migrate, deploy, enable or canary without new explicit approval.~~
+
+**A12.6 execution plan:**
+
+- [x] ~~Reuse only `scripts/run_a93_postgres_tests.py` and its launcher-owned,
+  Unix-socket-only PostgreSQL 15 cluster. Extend the existing terminal A12
+  schema proof with real current-preview proposal, stale-source rollback,
+  approve/replay, reject/replay and simultaneous approval. Exactly one apply
+  event and audit receipt may survive a race; all protected tables must remain
+  byte-identical.~~
+- [x] ~~Add a static RED contract for the exact PostgreSQL proof markers and the
+  three missing release artifacts: migration runbook, canary/rollback runbook
+  and nginx fragment. The runbooks must forbid production execution without a
+  new approval and forbid manufacturing an anomaly merely to make a canary.~~
+- [x] ~~Verify focused A12, related warehouse/runtime/API, the guarded disposable
+  PostgreSQL suite, complete backend/frontend, production build, dependency
+  audit, diff/compile/static writer and secret scans. Record every genuine
+  blocker; do not lower a test, widen the action registry or add a generic
+  executor to obtain GREEN.~~
+
+**A12.4 closure (2026-08-23):** The default-off adapter registers only
+`POST /human-approved-actions/proposals`,
+`POST /human-approved-actions/decisions` and
+`GET /human-approved-actions/history`. All three require the real signed
+cookie session, a CSRF token bound to that cookie, exact one-company mode and
+the one canonical company ID allowlisted by
+`HUMAN_APPROVED_ACTIONS_COMPANY_IDS`; bearer, aggregate mode, duplicate JSON
+or query keys, oversized bodies and out-of-range pagination stop before the
+kernel. Responses are detached, shape-checked and `no-store`.
+
+Decision lookup now authenticates the selected company before reading the
+proposal and includes `proposal.company_id` in the locked query. History uses
+one tenant/project-bound, newest-first `REPEATABLE READ` query with a 100-row
+page cap and unconditional rollback. One process-wide slot and fixed
+per-minute company buckets bound concurrent and repeated attempts without
+retaining payload or actor data. The static inventory requires the exact
+three routes, one action policy, route import allowlist, zero route SQL/DB
+calls and the unchanged three kernel INSERT targets. Focused A12 tests pass
+`47/47`, related A12/A9 HTTP and runtime suites pass `117/117`, and full
+backend discovery passes `2363/2363` with `56` expected opt-in skips.
+Compilation and diff checks pass. The flag remains absent/default-off; no
+production schema, data, UI, environment, commit, push or deployment changed.
+
+**A12.5 closure (2026-08-23):** The warehouse control page now renders the
+review-only panel only for the director in exact company mode when the
+frontend flag is literal `true` and its single canonical company ID matches.
+The flow uses a separate read-only anomaly preview, then separate proposal and
+decision requests. It shows exact scope, expiry and consequences, explicitly
+states that business data is not corrected, and returns the immutable
+proposal/event/audit receipt. There is no generic writer or correction button.
+
+Strict response shapes, cookie-only API routing, one in-flight operation,
+expiry, double-submit protection and stale company/project/source-result
+discard are covered. Focused UI/API tests pass `28/28`, full frontend tests
+pass `414/414`, backend A12 passes `47/47`,
+the optimized build succeeds, and an isolated browser harness passed desktop,
+keyboard and mobile flows with zero final console errors or warnings. The
+feature remains default-off; no production flag, schema, data, migration,
+canary, commit, push or deployment changed. A12.6 remains open for real
+PostgreSQL lifecycle, concurrency, audit/static and release proof.
+
+**A12.6 local closure (2026-08-23):** The existing launcher-owned,
+Unix-socket-only PostgreSQL 15 proof now executes the real preview -> proposal
+-> approve/reject -> immutable history lifecycle, stale-source rollback,
+idempotent replay and simultaneous approval. It requires exact proposal/event/
+audit counts and byte-identical protected business tables, and passes `52/52`
+with confirmed server teardown. The proof exposed and closed three real
+integration defects: exact `RealDictRow` detachment at database boundaries,
+raw-cursor isolation for the A9 preview composition, and removal of the
+write-locking `FOR SHARE` clause from the read-only history authentication
+query while retaining it on write paths.
+
+The release package is frozen in
+`docs/human-approved-actions-migration-runbook.md`,
+`docs/human-approved-actions-canary.md` and
+`ops-nginx-human-approved-actions.conf`. Migration requires the exact 12-step
+plan SHA `6d570c93eb504ade2a97f88ed1d12c0ea807d218049bf0db8dcf986cc2d34951`
+and a separate approval. Canary scope is exactly one company, forbids a
+manufactured candidate and disables the backend first on rollback. Nginx uses
+three exact loopback-only locations, bounded POST bodies and fixed JSON/
+`no-store` 429 responses.
+
+Focused A12 passes `49/49`; full backend passes `2365/2365` with 56 expected
+opt-in skips. The unchanged A12.5 frontend remains `414/414`, with optimized
+build and isolated desktop/mobile/keyboard browser evidence green. Compilation,
+diff/static writer and secret scans pass. Offline dependency audit reports zero
+findings across 1319 dependencies; the online registry audit was not run
+because external dependency-metadata disclosure was not authorized. No
+production migration, flag, nginx configuration, business data, commit, push
+or deployment changed. The next step is the separately approved production
+checkpoint, not additional implicit rollout.
+
+### A12.7+: Future business actions
+
+- [ ] Select one exact action only after inventorying its current writer and
+  accepting a dedicated ADR with source, actor, preview, mutation,
+  postcondition, recovery and canary contracts.
+- [ ] Keep stock, payments, salary/accountable reports, signed documents,
+  project budgets and estimates outside the registry until their individual
+  approvals and proofs are complete.
+
+**Planning evidence (2026-08-22):** The existing project-budget approval path
+provides exact preview-hash rebinding, source locking, serializable apply,
+idempotency and immutable history. The supplier-material capability path
+provides active two-factor cookie authentication, exact company membership,
+append-only confirmation/revocation evidence, concurrency proof and fixed
+non-leaking failures. A12 adopts those proven principles but rejects a generic
+executor and begins with an audit-only warehouse review acknowledgement. This
+planning step changed documentation and task decomposition only; it made no
+code, schema, route, registration, UI, production, commit, push or deployment
+change.

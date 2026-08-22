@@ -14,6 +14,7 @@ import {
   UserCheck,
   XCircle,
 } from 'lucide-react';
+import AssignmentDailyDraftPreviewPanel from '../features/assignment-daily-drafts/AssignmentDailyDraftPreviewPanel';
 import { isOpenAiStatus } from '../utils/statusMetaUtils';
 
 const CLOSED_STATUSES = ['Закрыто', 'Отклонено', 'Отменено'];
@@ -344,6 +345,7 @@ function AssignmentCard({
 }
 
 export default function AssignmentsPage({
+  API,
   C,
   aiTasks = [],
   acceptAiTask,
@@ -353,12 +355,15 @@ export default function AssignmentsPage({
   btnR,
   card,
   createAiTask,
+  estimates = [],
   inp,
   isMobile,
   openAiTaskAction,
   projects = [],
   refreshData,
+  selectedCompanyId,
   submitAiTaskReport,
+  showPreview,
   uploadPhoto,
   user,
   users = [],
@@ -576,6 +581,21 @@ export default function AssignmentsPage({
           )}
         </div>
       </div>
+
+      <AssignmentDailyDraftPreviewPanel
+        API={API}
+        C={C}
+        btnG={btnG}
+        btnO={btnO}
+        card={card}
+        estimates={estimates}
+        inp={inp}
+        isMobile={isMobile}
+        projects={projects}
+        selectedCompanyId={selectedCompanyId}
+        showPreview={showPreview}
+        user={user}
+      />
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(5, minmax(120px, 1fr))', gap: '10px', marginBottom: '14px' }}>
         {statButton('open', 'Открытые', stats.open)}

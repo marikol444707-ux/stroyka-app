@@ -177,6 +177,7 @@ export default function AppOperationsPages({ activePage, ui, constants, state, a
     <>
       {activePage === 'warehouse' && (
         <WarehousePage
+          API={API}
           isMobile={isMobile}
           warehouseTab={warehouseTab}
           setWarehouseTab={setWarehouseTab}
@@ -284,6 +285,7 @@ export default function AppOperationsPages({ activePage, ui, constants, state, a
           inventory={inventory}
           buildInventoryDoc={buildInventoryDoc}
           refreshData={refreshData}
+          companyContext={companyContext}
         />
       )}
 

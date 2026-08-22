@@ -107,6 +107,84 @@ describe('installAuthFetch', () => {
 
   it.each([
     {
+      label: 'accounting exception checks',
+      path: '/accounting-exception-checks',
+      init: {},
+      mutating: false,
+    },
+    {
+      label: 'assignment daily draft preview',
+      path: '/assignment-daily-draft-previews',
+      init: {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: 10,
+          date: '2026-08-21',
+          estimateId: 80,
+          estimateVersionId: 4,
+          workPackage: 'Слаботочка',
+        }),
+      },
+      mutating: true,
+    },
+    {
+      label: 'warehouse anomaly preview',
+      path: '/warehouse-anomaly-previews',
+      init: {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: 17,
+          jobId: 27,
+          selected: {
+            subjectKind: 'warehouseInvoice',
+            subjectId: 91,
+            anomalyCode: 'warehouse_invoice_project_mismatch',
+          },
+        }),
+      },
+      mutating: true,
+    },
+    {
+      label: 'human action proposal',
+      path: '/human-approved-actions/proposals',
+      init: {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: 17,
+          jobId: 27,
+          selected: {
+            subjectKind: 'warehouseInvoice',
+            subjectId: 91,
+            anomalyCode: 'warehouse_invoice_project_mismatch',
+          },
+        }),
+      },
+      mutating: true,
+    },
+    {
+      label: 'human action decision',
+      path: '/human-approved-actions/decisions',
+      init: {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          proposalId: 301,
+          proposalSha256: 'a'.repeat(64),
+          decision: 'approve',
+        }),
+      },
+      mutating: true,
+    },
+    {
+      label: 'human action history',
+      path: '/human-approved-actions/history',
+      init: {},
+      mutating: false,
+    },
+    {
       label: 'material capability proof',
       path: '/supply-requests/21/items/0/material-capability-proof',
       init: {},

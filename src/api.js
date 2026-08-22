@@ -85,6 +85,10 @@ export const installAuthFetch = () => {
   const csrfMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
   const csrfHeaderName = 'X-CSRF-Token';
   const cookieOnlyCapabilityPaths = [
+    /^\/accounting-exception-checks$/,
+    /^\/assignment-daily-draft-previews$/,
+    /^\/warehouse-anomaly-previews$/,
+    /^\/human-approved-actions\/(?:proposals|decisions|history)$/,
     /^\/supply-requests\/[1-9][0-9]*\/items\/(?:0|[1-9][0-9]*)\/material-capability-(?:proof|confirmations)$/,
     /^\/supplier-material-capability-confirmations\/[1-9][0-9]*\/revocations$/,
   ];

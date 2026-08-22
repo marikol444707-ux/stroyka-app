@@ -468,7 +468,7 @@ function MaxAssignmentsCompact({account, onBack, onOpenFull}) {
 function MaxOwnExpenseCompact({account, onBack, onOpenFull}) {
   const [projects, setProjects] = React.useState([]);
   const [recent, setRecent] = React.useState([]);
-  const [form, setForm] = React.useState({projectName:'',category:'other',description:'',amount:'',date:'',photoUrl:''});
+  const [form, setForm] = React.useState({projectId:'',projectName:'',category:'other',description:'',amount:'',date:'',photoUrl:''});
   const [loading, setLoading] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);
@@ -526,11 +526,12 @@ function MaxOwnExpenseCompact({account, onBack, onOpenFull}) {
     }
     setSaving(true);
     try {
+      const {projectName: _projectName, ...payload} = form;
       await jsonFetch('/own-expenses', {
         method:'POST',
-        body:JSON.stringify({...form, amount:Number(form.amount)}),
+        body:JSON.stringify({...payload,projectId:form.projectId?Number(form.projectId):undefined,amount:Number(form.amount)}),
       });
-      setForm({projectName:'',category:'other',description:'',amount:'',date:'',photoUrl:''});
+      setForm({projectId:'',projectName:'',category:'other',description:'',amount:'',date:'',photoUrl:''});
       setMessage('Трата отправлена на возмещение');
       await loadData();
     } catch (err) {
@@ -548,9 +549,9 @@ function MaxOwnExpenseCompact({account, onBack, onOpenFull}) {
       {error && <div style={{marginBottom:'10px'}}><CompactNotice tone="error">{error}</CompactNotice></div>}
       {message && <div style={{marginBottom:'10px'}}><CompactNotice tone="success">{message}</CompactNotice></div>}
       <div style={{display:'grid',gap:'9px',border:'1px solid rgba(148,163,184,.24)',borderRadius:'10px',padding:'12px',background:'#1e293b'}}>
-        <select value={form.projectName} onChange={event => updateForm({projectName:event.target.value})} style={compactField}>
+        <select value={form.projectId} onChange={event => {const project=projects.find(item=>String(item.id)===event.target.value);updateForm({projectId:event.target.value,projectName:project?.name||''});}} style={compactField}>
           <option value="">Без объекта / личная трата</option>
-          {projects.map(project => <option key={project.id || project.name} value={project.name}>{project.name}</option>)}
+          {projects.map(project => <option key={project.id || project.name} value={project.id}>{project.name}</option>)}
         </select>
         <select value={form.category} onChange={event => updateForm({category:event.target.value})} style={compactField}>
           {EXPENSE_CATEGORIES.map(category => <option key={category.id} value={category.id}>{category.label}</option>)}

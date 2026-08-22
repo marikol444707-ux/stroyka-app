@@ -333,11 +333,10 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
           btnO={btnO}
           btnG={btnG}
           projects={projects}
-          users={users}
+          staff={staff}
           newAccountable={newAccountable}
           setNewAccountable={setNewAccountable}
           API={API}
-          user={user}
           loadAll={loadAll}
         />
       )}
