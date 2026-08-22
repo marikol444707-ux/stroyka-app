@@ -43,7 +43,7 @@ export default function ReimburseModal({
   const grandTotal = pending.reduce((s,e)=>s+Number(e.amount||0),0);
 
   const approveExpense = async (e) => {
-    await fetch(API+'/own-expenses/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Возмещено',approvedBy:user.name})});
+    await fetch(API+'/own-expenses/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Возмещено'})});
     if(e.projectName){
       await fetch(API+'/project-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:e.projectName,amount:-Number(e.amount||0),note:'Возмещение «'+(e.description||'')+'» — '+(e.employeeName||''),date:new Date().toISOString().split('T')[0],paidBy:user.name})}).catch(()=>{});
     }
@@ -53,7 +53,7 @@ export default function ReimburseModal({
   const rejectExpense = async (e) => {
     const reason=prompt('Причина отклонения:','');
     if(reason===null) return;
-    await fetch(API+'/own-expenses/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено',approvedBy:user.name})});
+    await fetch(API+'/own-expenses/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено'})});
     await loadAll();
   };
 

@@ -152,11 +152,8 @@ export const createPersonnelActions = ({
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         staffId: row.id,
-        staffName: row.name,
         month: monthStr,
         amount: net,
-        paidBy: user.name,
-        paidDate: new Date().toISOString().split('T')[0],
       }),
     });
     const sp = await fetch(API + '/salary-payments').then(r => r.json());

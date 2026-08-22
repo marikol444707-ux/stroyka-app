@@ -33,6 +33,7 @@ export const createAccountableExpenseForm = (overrides = {}) => ({
 export const createManualExpenseForm = (overrides = {}) => ({
   category: 'materials',
   customCategory: '',
+  projectId: '',
   projectName: '',
   amount: '',
   note: '',
@@ -42,6 +43,7 @@ export const createManualExpenseForm = (overrides = {}) => ({
 });
 
 export const createOwnExpenseForm = (overrides = {}) => ({
+  projectId: '',
   projectName: '',
   category: 'other',
   description: '',
@@ -53,7 +55,9 @@ export const createOwnExpenseForm = (overrides = {}) => ({
 
 export const createExpenseReportForm = (overrides = {}) => ({
   reportType: 'Авансовый отчёт',
+  employeeId: '',
   employeeName: '',
+  projectId: '',
   projectName: '',
   purpose: '',
   issuedAmount: '',

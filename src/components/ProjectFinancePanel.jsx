@@ -130,7 +130,7 @@ export default function ProjectFinancePanel({
     await fetch(API + '/own-expenses/' + expenseId, {
       method: 'PUT',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({status, approvedBy: user.name}),
+      body: JSON.stringify({status}),
     });
     await loadAll();
   };

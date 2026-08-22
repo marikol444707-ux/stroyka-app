@@ -8,8 +8,11 @@ along as closures; shared services arrive through deps.
 """
 
 import hmac
+import math
+from collections.abc import Mapping
 from typing import Optional
 
+import psycopg2.extras
 from fastapi import Depends, Header, HTTPException
 
 try:
@@ -20,6 +23,9 @@ except ModuleNotFoundError:
 
 def register_own_expenses_module(app, deps):
     get_db = deps["get_db"]
+    get_current_user = deps["get_current_user"]
+    resolve_work_company_context = deps["resolve_work_company_context"]
+    effective_company_actors = deps["effective_company_actors"]
     require_roles = deps["require_roles"]
     own_expense_roles = tuple(deps.get("own_expense_roles") or ())
     own_expense_review_roles = tuple(deps.get("own_expense_review_roles") or ())
@@ -34,6 +40,278 @@ def register_own_expenses_module(app, deps):
     safe_float = deps["safe_float"]
     supply_work_package = deps["supply_work_package"]
     create_warehouse_invoice_record = deps["create_warehouse_invoice_record"]
+
+    def _positive_int(value):
+        return value if type(value) is int and value > 0 else None
+
+    def _positive_amount(value):
+        if type(value) not in (int, float):
+            return None
+        if not math.isfinite(value) or value <= 0:
+            return None
+        return value
+
+    def _row_value(row, key, index):
+        if isinstance(row, Mapping):
+            return row.get(key)
+        if isinstance(row, (list, tuple)) and len(row) > index:
+            return row[index]
+        return None
+
+    def _selected_actor(cur, current_user, action_mode, x_company_id, x_company_mode):
+        context = resolve_work_company_context(
+            cur,
+            current_user,
+            None,
+            action_mode,
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        if (context or {}).get("mode") != "company":
+            raise HTTPException(
+                status_code=409,
+                detail="Для личных трат выберите одну конкретную компанию",
+            )
+        company_id = _positive_int(
+            (context or {}).get("companyId") or (context or {}).get("company_id")
+        )
+        if company_id is None:
+            raise HTTPException(status_code=409, detail="Компания личной траты не определена")
+        allowed_roles = {str(role or "").strip() for role in own_expense_roles}
+        actors = [
+            dict(actor or {})
+            for actor in effective_company_actors(current_user, context)
+            if str((actor or {}).get("role") or "").strip() in allowed_roles
+        ]
+        if not actors:
+            raise HTTPException(
+                status_code=403,
+                detail="Роль в выбранной компании не позволяет работать с личными тратами",
+            )
+        if len(actors) != 1:
+            raise HTTPException(
+                status_code=409,
+                detail="Для личных трат выберите одну конкретную компанию",
+            )
+        actor = actors[0]
+        actor_company_id = _positive_int(
+            actor.get("companyId") or actor.get("company_id")
+        )
+        if actor_company_id != company_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Компания личной траты не совпадает с выбранной компанией",
+            )
+        actor["companyId"] = company_id
+        actor["company_id"] = company_id
+        return actor
+
+    def _review_actor(cur, current_user, action_mode, x_company_id, x_company_mode):
+        actor = _selected_actor(
+            cur, current_user, action_mode, x_company_id, x_company_mode
+        )
+        if str(actor.get("role") or "").strip() not in finance_roles:
+            raise HTTPException(
+                status_code=403,
+                detail="Роль в выбранной компании не позволяет согласовывать личные траты",
+            )
+        return actor
+
+    def _actor_name(actor):
+        return str(
+            actor.get("name") or actor.get("email") or actor.get("id") or ""
+        ).strip()
+
+    def _exact_project(cur, company_id, project_id, *, lock=False):
+        if project_id is None:
+            return None
+        if _positive_int(project_id) is None:
+            raise HTTPException(status_code=400, detail="projectId invalid")
+        cur.execute(
+            """SELECT id,name
+                 FROM public.projects
+                WHERE id=%s AND company_id=%s
+                LIMIT 2""" + (" FOR SHARE" if lock else ""),
+            (project_id, company_id),
+        )
+        rows = list(cur.fetchall() or [])
+        if not rows:
+            raise HTTPException(
+                status_code=404,
+                detail="Объект не найден в выбранной компании",
+            )
+        if len(rows) != 1:
+            raise HTTPException(status_code=409, detail="Объект неоднозначен")
+        project = {
+            "id": _positive_int(_row_value(rows[0], "id", 0)),
+            "name": str(_row_value(rows[0], "name", 1) or "").strip(),
+        }
+        if project["id"] is None or not project["name"]:
+            raise HTTPException(status_code=409, detail="Владелец объекта не определён")
+        return project
+
+    def _exact_staff(cur, company_id, staff_id, *, lock=False):
+        if _positive_int(staff_id) is None:
+            raise HTTPException(status_code=400, detail="employeeId invalid")
+        cur.execute(
+            """SELECT id,name
+                 FROM public.staff
+                WHERE id=%s AND company_id=%s
+                  AND company_scope_verified IS TRUE"""
+            + (" FOR SHARE" if lock else ""),
+            (staff_id, company_id),
+        )
+        row = cur.fetchone()
+        staff = {
+            "id": _positive_int(_row_value(row, "id", 0)),
+            "name": str(_row_value(row, "name", 1) or "").strip(),
+        }
+        if staff["id"] is None or not staff["name"]:
+            raise HTTPException(
+                status_code=404,
+                detail="Сотрудник не найден в выбранной компании",
+            )
+        return staff
+
+    def _self_staff(cur, actor, *, lock=False):
+        email = str(actor.get("email") or "").strip().lower()
+        if not email:
+            raise HTTPException(
+                status_code=409,
+                detail="Сотрудник текущего пользователя не определён",
+            )
+        cur.execute(
+            """SELECT id,name
+                 FROM public.staff
+                WHERE company_id=%s
+                  AND company_scope_verified IS TRUE
+                  AND (LOWER(BTRIM(email_work))=%s
+                       OR LOWER(BTRIM(email_personal))=%s)
+                ORDER BY id
+                LIMIT 2""" + (" FOR SHARE" if lock else ""),
+            (actor["companyId"], email, email),
+        )
+        rows = list(cur.fetchall() or [])
+        if len(rows) != 1:
+            raise HTTPException(
+                status_code=409,
+                detail="Сотрудник текущего пользователя не определён однозначно",
+            )
+        staff = {
+            "id": _positive_int(_row_value(rows[0], "id", 0)),
+            "name": str(_row_value(rows[0], "name", 1) or "").strip(),
+        }
+        if staff["id"] is None or not staff["name"]:
+            raise HTTPException(
+                status_code=409,
+                detail="Сотрудник текущего пользователя не определён",
+            )
+        return staff
+
+    def _sync_verified_finance_mirror(
+        cur,
+        *,
+        company_id,
+        project,
+        own_expense_id,
+        description,
+        amount,
+        date_value,
+        employee_name,
+        photo_url,
+    ):
+        project_id = project["id"] if project else None
+        project_name = project["name"] if project else ""
+        finance_category = "other" if project else own_expense_no_project_category
+        note = f"Моя трата: {description}".strip()
+        if employee_name:
+            note += f" · сотрудник: {employee_name}"
+        cur.execute(
+            """SELECT id
+                 FROM public.expenses
+                WHERE own_expense_id=%s AND company_id=%s
+                  AND company_scope_verified IS TRUE
+                ORDER BY id LIMIT 2
+                FOR UPDATE""",
+            (own_expense_id, company_id),
+        )
+        existing = list(cur.fetchall() or [])
+        if len(existing) > 1:
+            raise HTTPException(status_code=409, detail="Зеркальный расход неоднозначен")
+        if existing:
+            expense_id = _positive_int(_row_value(existing[0], "id", 0))
+            if expense_id is None:
+                raise HTTPException(status_code=409, detail="Зеркальный расход повреждён")
+            cur.execute(
+                """UPDATE public.expenses
+                      SET project_id=%s,project=%s,category=%s,amount=%s,note=%s,
+                          date=%s,added_by=%s,source='own_expense',photo_url=%s
+                    WHERE id=%s AND own_expense_id=%s AND company_id=%s
+                      AND company_scope_verified IS TRUE""",
+                (
+                    project_id, project_name, finance_category, amount, note,
+                    date_value, employee_name, photo_url, expense_id,
+                    own_expense_id, company_id,
+                ),
+            )
+        else:
+            cur.execute(
+                """INSERT INTO public.expenses
+                       (company_id,project_id,company_scope_verified,project,
+                        category,amount,note,date,added_by,own_expense_id,
+                        source,photo_url)
+                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'own_expense',%s)
+                     RETURNING id""",
+                (
+                    company_id, project_id, True, project_name, finance_category,
+                    amount, note, date_value, employee_name, own_expense_id,
+                    photo_url,
+                ),
+            )
+            expense_id = _positive_int(_row_value(cur.fetchone(), "id", 0))
+            if expense_id is None:
+                raise HTTPException(status_code=409, detail="Зеркальный расход не создан")
+        cur.execute(
+            """UPDATE public.own_expenses
+                  SET expense_id=%s
+                WHERE id=%s AND company_id=%s
+                  AND company_scope_verified IS TRUE""",
+            (expense_id, own_expense_id, company_id),
+        )
+        return expense_id
+
+    def _verified_own_expense(cur, company_id, own_expense_id, *, lock=False):
+        if _positive_int(own_expense_id) is None:
+            raise HTTPException(status_code=400, detail="ownExpenseId invalid")
+        cur.execute(
+            """SELECT id,company_id,project_id,project_name,employee_id,
+                      employee_name,description,amount,date,photo_url
+                 FROM public.own_expenses
+                WHERE id=%s AND company_id=%s
+                  AND company_scope_verified IS TRUE"""
+            + (" FOR UPDATE" if lock else ""),
+            (own_expense_id, company_id),
+        )
+        row = cur.fetchone()
+        result = {
+            "id": _positive_int(_row_value(row, "id", 0)),
+            "companyId": _positive_int(_row_value(row, "company_id", 1)),
+            "projectId": _positive_int(_row_value(row, "project_id", 2)),
+            "projectName": str(_row_value(row, "project_name", 3) or "").strip(),
+            "employeeId": _positive_int(_row_value(row, "employee_id", 4)),
+            "employeeName": str(_row_value(row, "employee_name", 5) or "").strip(),
+            "description": str(_row_value(row, "description", 6) or "").strip(),
+            "amount": _row_value(row, "amount", 7),
+            "date": _row_value(row, "date", 8),
+            "photoUrl": str(_row_value(row, "photo_url", 9) or ""),
+        }
+        if result["id"] is None:
+            raise HTTPException(status_code=404, detail="Трата не найдена")
+        if result["companyId"] != company_id or result["employeeId"] is None:
+            raise HTTPException(status_code=409, detail="Владелец личной траты не определён")
+        if result["projectId"] is not None and not result["projectName"]:
+            raise HTTPException(status_code=409, detail="Объект личной траты не определён")
+        return result
 
     def _own_expense_telegram_value(data: dict, *keys: str) -> str:
         for key in keys:
@@ -148,52 +426,98 @@ def register_own_expenses_module(app, deps):
         if not telegram_id and not telegram_chat_id:
             return None
         cur.execute(
-            """
-            SELECT id,name,role,project_name,assigned_projects,assigned_packages
-              FROM users
-             WHERE COALESCE(active,TRUE)=TRUE
-               AND ((%s<>'' AND telegram_id=%s)
-                 OR (%s<>'' AND telegram_chat_id=%s))
-             ORDER BY id
-             LIMIT 1
-            """,
+            """SELECT id,name,role,project,company_id,
+                      '[]'::jsonb AS assigned_projects,
+                      '[]'::jsonb AS assigned_packages
+                 FROM public.staff
+                WHERE company_scope_verified IS TRUE
+                  AND ((%s<>'' AND telegram_id=%s)
+                    OR (%s<>'' AND telegram_chat_id=%s))
+                ORDER BY company_id,id
+                LIMIT 2""",
             (telegram_id, telegram_id, telegram_chat_id, telegram_chat_id),
         )
-        row = cur.fetchone()
-        if row:
-            return {
-                "source": "users",
-                "id": row[0],
-                "name": row[1] or "",
-                "role": row[2] or "",
-                "projectName": row[3] or "",
-                "assignedProjects": safe_project_list(row[4]),
-                "assignedPackages": safe_project_list(row[5]),
-            }
-
+        direct_rows = list(cur.fetchall() or [])
         cur.execute(
-            """
-            SELECT id,name,role,project
-              FROM staff
-             WHERE (%s<>'' AND telegram_id=%s)
-                OR (%s<>'' AND telegram_chat_id=%s)
-             ORDER BY id
-             LIMIT 1
-            """,
+            """SELECT staff_row.id,staff_row.name,membership.role,
+                      staff_row.project,staff_row.company_id,
+                      membership.assigned_projects,membership.assigned_packages
+                 FROM public.users account
+                 JOIN public.user_company_roles membership
+                   ON membership.user_id=account.id
+                  AND COALESCE(membership.active,TRUE)=TRUE
+                 JOIN public.companies company_row
+                   ON company_row.id=membership.company_id
+                  AND COALESCE(company_row.active,TRUE)=TRUE
+                 JOIN public.staff staff_row
+                   ON staff_row.company_id=membership.company_id
+                  AND staff_row.company_scope_verified IS TRUE
+                  AND LOWER(BTRIM(account.email)) IN (
+                        LOWER(BTRIM(staff_row.email_work)),
+                        LOWER(BTRIM(staff_row.email_personal))
+                  )
+                WHERE COALESCE(account.active,TRUE)=TRUE
+                  AND ((%s<>'' AND account.telegram_id=%s)
+                    OR (%s<>'' AND account.telegram_chat_id=%s))
+                ORDER BY staff_row.company_id,staff_row.id
+                LIMIT 2""",
             (telegram_id, telegram_id, telegram_chat_id, telegram_chat_id),
         )
-        row = cur.fetchone()
-        if not row:
+        user_rows = list(cur.fetchall() or [])
+        matches = {}
+        for source, row in (("staff", row) for row in direct_rows):
+            company_id = _positive_int(_row_value(row, "company_id", 4))
+            staff_id = _positive_int(_row_value(row, "id", 0))
+            if company_id is None or staff_id is None:
+                continue
+            matches[(company_id, staff_id)] = {
+                "source": source,
+                "id": staff_id,
+                "name": str(_row_value(row, "name", 1) or "").strip(),
+                "role": str(_row_value(row, "role", 2) or "").strip(),
+                "projectName": str(_row_value(row, "project", 3) or "").strip(),
+                "companyId": company_id,
+                "company_id": company_id,
+                "assignedProjects": safe_project_list(
+                    _row_value(row, "assigned_projects", 5)
+                ),
+                "assignedPackages": safe_project_list(
+                    _row_value(row, "assigned_packages", 6)
+                ),
+            }
+        for row in user_rows:
+            company_id = _positive_int(_row_value(row, "company_id", 4))
+            staff_id = _positive_int(_row_value(row, "id", 0))
+            if company_id is None or staff_id is None:
+                continue
+            matches[(company_id, staff_id)] = {
+                "source": "users",
+                "id": staff_id,
+                "name": str(_row_value(row, "name", 1) or "").strip(),
+                "role": str(_row_value(row, "role", 2) or "").strip(),
+                "projectName": str(_row_value(row, "project", 3) or "").strip(),
+                "companyId": company_id,
+                "company_id": company_id,
+                "assignedProjects": safe_project_list(
+                    _row_value(row, "assigned_projects", 5)
+                ),
+                "assignedPackages": safe_project_list(
+                    _row_value(row, "assigned_packages", 6)
+                ),
+            }
+        if not matches:
             return None
-        return {
-            "source": "staff",
-            "id": row[0],
-            "name": row[1] or "",
-            "role": row[2] or "",
-            "projectName": row[3] or "",
-            "assignedProjects": [row[3]] if row[3] else [],
-            "assignedPackages": [],
-        }
+        if len(matches) != 1:
+            raise HTTPException(
+                status_code=409,
+                detail="Компания сотрудника Telegram не определена однозначно",
+            )
+        employee = next(iter(matches.values()))
+        if not employee["name"]:
+            raise HTTPException(status_code=409, detail="Сотрудник Telegram повреждён")
+        if employee["projectName"] and not employee["assignedProjects"]:
+            employee["assignedProjects"] = [employee["projectName"]]
+        return employee
 
     def _telegram_employee_has_project_access(employee: dict, project_name: str) -> bool:
         if not project_name:
@@ -203,158 +527,190 @@ def register_own_expenses_module(app, deps):
             return True
         return project_name in user_project_names(employee)
 
-    def _resolve_own_expense_employee(cur, data: dict, current_user: dict) -> tuple[str, int, str, str]:
-        telegram_id = _own_expense_telegram_value(data, "telegramId", "telegram_id", "tgId", "tg_id")
-        telegram_chat_id = _own_expense_telegram_value(data, "telegramChatId", "telegram_chat_id", "chatId", "chat_id")
-
-        if current_user.get("role") in finance_roles and (telegram_id or telegram_chat_id):
-            try:
-                cur.execute(
-                    """
-                    SELECT id, name
-                      FROM users
-                     WHERE (%s<>'' AND telegram_id=%s)
-                        OR (%s<>'' AND telegram_chat_id=%s)
-                     LIMIT 1
-                    """,
-                    (telegram_id, telegram_id, telegram_chat_id, telegram_chat_id),
-                )
-                row = cur.fetchone()
-                if row:
-                    return row[1] or "", row[0], telegram_id, telegram_chat_id
-            except Exception:
-                pass
-            try:
-                cur.execute(
-                    """
-                    SELECT id, name
-                      FROM staff
-                     WHERE (%s<>'' AND telegram_id=%s)
-                        OR (%s<>'' AND telegram_chat_id=%s)
-                     LIMIT 1
-                    """,
-                    (telegram_id, telegram_id, telegram_chat_id, telegram_chat_id),
-                )
-                row = cur.fetchone()
-                if row:
-                    return row[1] or "", row[0], telegram_id, telegram_chat_id
-            except Exception:
-                pass
-
-        if current_user.get("role") in finance_roles:
-            employee_name = data.get("employeeName") or current_user.get("name") or ""
-            employee_id = data.get("employeeId") or current_user.get("id")
-        else:
-            employee_name = current_user.get("name") or ""
-            employee_id = current_user.get("id")
-        return employee_name, employee_id, telegram_id, telegram_chat_id
-
-    def _sync_own_expense_to_finance_expense(cur, own_expense_id: int, project_name: str, description: str, amount, date_value, employee_name: str, photo_url: str = ""):
-        finance_category = "other" if project_name else own_expense_no_project_category
-        note_prefix = "Моя трата"
-        note = f"{note_prefix}: {description or ''}".strip()
-        if employee_name:
-            note += f" · сотрудник: {employee_name}"
-        cur.execute("SELECT id FROM expenses WHERE own_expense_id=%s LIMIT 1", (own_expense_id,))
-        existing = cur.fetchone()
-        if existing:
-            expense_id = existing[0]
+    def _telegram_project(cur, employee, data):
+        company_id = _positive_int(employee.get("companyId"))
+        if company_id is None:
+            raise HTTPException(status_code=409, detail="Компания Telegram не определена")
+        project_id = data.get("projectId") or data.get("project_id")
+        project_name = str(data.get("projectName") or data.get("project") or "").strip()
+        if project_id is not None:
+            project = _exact_project(cur, company_id, project_id, lock=True)
+        elif project_name:
             cur.execute(
-                "UPDATE expenses SET project=%s, category=%s, amount=%s, note=%s, date=%s, added_by=%s, source=%s, photo_url=%s WHERE id=%s",
-                (project_name or "", finance_category, amount or 0, note, date_value or None, employee_name or "", "own_expense", photo_url or "", expense_id),
+                """SELECT id,name
+                     FROM public.projects
+                    WHERE company_id=%s AND BTRIM(name)=BTRIM(%s)
+                    ORDER BY id LIMIT 2
+                    FOR SHARE""",
+                (company_id, project_name),
             )
+            rows = list(cur.fetchall() or [])
+            if not rows:
+                raise HTTPException(status_code=404, detail="Объект Telegram не найден")
+            if len(rows) != 1:
+                raise HTTPException(status_code=409, detail="Объект Telegram неоднозначен")
+            project = {
+                "id": _positive_int(_row_value(rows[0], "id", 0)),
+                "name": str(_row_value(rows[0], "name", 1) or "").strip(),
+            }
+            if project["id"] is None or not project["name"]:
+                raise HTTPException(status_code=409, detail="Объект Telegram повреждён")
         else:
-            cur.execute(
-                "INSERT INTO expenses (project,category,amount,note,date,added_by,own_expense_id,source,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-                (project_name or "", finance_category, amount or 0, note, date_value or None, employee_name or "", own_expense_id, "own_expense", photo_url or ""),
-            )
-            expense_id = cur.fetchone()[0]
-        cur.execute("UPDATE own_expenses SET expense_id=%s WHERE id=%s", (expense_id, own_expense_id))
-        return expense_id
+            return None
+        if not _telegram_employee_has_project_access(employee, project["name"]):
+            raise HTTPException(status_code=403, detail="У сотрудника нет доступа к объекту")
+        return project
 
     @app.get("/own-expenses")
-    def get_own_expenses(project_name: str = "", employee_name: str = "", current_user: dict = Depends(require_roles(*own_expense_roles))):
+    def get_own_expenses(
+        project_id: Optional[int] = None,
+        employee_id: Optional[int] = None,
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
         conn = get_db()
-        cur = conn.cursor()
-        cols = "id,project_name,employee_name,description,amount,photo_url,date,status,approved_by,category,employee_id"
-        where, params = [], []
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            actor = _selected_actor(
+                cur, current_user, "read", x_company_id, x_company_mode
+            )
+            where = ["company_id=%s", "company_scope_verified IS TRUE"]
+            params = [actor["companyId"]]
+            if project_id is not None:
+                project = _exact_project(cur, actor["companyId"], project_id)
+                where.append("project_id=%s")
+                params.append(project["id"])
 
-        if project_name:
-            require_project_access(current_user, project_name)
-            where.append("project_name=%s")
-            params.append(project_name)
-        if employee_name:
-            where.append("employee_name=%s")
-            params.append(employee_name)
+            role = str(actor.get("role") or "").strip()
+            if role in own_expense_review_roles:
+                if employee_id is not None:
+                    staff = _exact_staff(cur, actor["companyId"], employee_id)
+                    where.append("employee_id=%s")
+                    params.append(staff["id"])
+            else:
+                staff = _self_staff(cur, actor)
+                if employee_id is not None and employee_id != staff["id"]:
+                    raise HTTPException(status_code=403, detail="Чужие личные траты недоступны")
+                where.append("employee_id=%s")
+                params.append(staff["id"])
 
-        role = current_user.get("role")
-        if role in own_expense_review_roles:
-            pass
-        elif role in worker_execution_roles or role in ("прораб", "главный_инженер", "сметчик", "кладовщик", "снабженец"):
-            where.append("(employee_id=%s OR employee_name=%s)")
-            params.extend([current_user.get("id"), current_user.get("name") or ""])
-        else:
-            projects = user_project_names(current_user)
-            if not projects:
-                cur.close(); conn.close()
-                return []
-            where.append("project_name = ANY(%s)")
-            params.append(projects)
-
-        q = f"SELECT {cols} FROM own_expenses"
-        if where:
-            q += " WHERE " + " AND ".join(where)
-        q += " ORDER BY id DESC"
-        cur.execute(q, params)
-        rows = cur.fetchall()
-        cur.close(); conn.close()
-        return [{"id":r[0],"projectName":r[1],"employeeName":r[2],"description":r[3],"amount":float(r[4] or 0),"photoUrl":r[5] or "","date":str(r[6]) if r[6] else "","status":r[7] or "Ожидает","approvedBy":r[8] or "","category":r[9] or "other","employeeId":r[10]} for r in rows]
+            cur.execute(
+                """SELECT id,project_name,employee_name,description,amount,
+                          photo_url,date,status,approved_by,category,employee_id
+                     FROM public.own_expenses
+                    WHERE """
+                + " AND ".join(where)
+                + " ORDER BY id DESC",
+                tuple(params),
+            )
+            return [
+                {
+                    "id": _row_value(row, "id", 0),
+                    "projectName": _row_value(row, "project_name", 1) or "",
+                    "employeeName": _row_value(row, "employee_name", 2) or "",
+                    "description": _row_value(row, "description", 3) or "",
+                    "amount": float(_row_value(row, "amount", 4) or 0),
+                    "photoUrl": _row_value(row, "photo_url", 5) or "",
+                    "date": str(_row_value(row, "date", 6))
+                    if _row_value(row, "date", 6)
+                    else "",
+                    "status": _row_value(row, "status", 7) or "Ожидает",
+                    "approvedBy": _row_value(row, "approved_by", 8) or "",
+                    "category": _row_value(row, "category", 9) or "other",
+                    "employeeId": _row_value(row, "employee_id", 10),
+                }
+                for row in (cur.fetchall() or [])
+            ]
+        finally:
+            cur.close()
+            conn.close()
 
     @app.post("/own-expenses")
-    def create_own_expense(data: dict, current_user: dict = Depends(require_roles(*own_expense_roles))):
-        project_name = (data.get("projectName") or "").strip()
-        if project_name:
-            require_project_access(current_user, project_name)
+    def create_own_expense(
+        data: dict,
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
         conn = get_db()
-        cur = conn.cursor()
-        employee_name, employee_id, telegram_id, telegram_chat_id = _resolve_own_expense_employee(cur, data, current_user)
-        description = str(data.get("description") or "").strip()
-        amount = safe_float(data.get("amount"), None)
-        if not description:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Укажите описание траты")
-        if amount is None or amount <= 0:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Сумма траты должна быть больше нуля")
-        date_value = data.get("date") or None
-        category = data.get("category") or "other"
-        if not project_name:
-            category = own_expense_no_project_category
-        cur.execute(
-            """
-            INSERT INTO own_expenses
-                (project_name,employee_name,employee_id,description,amount,photo_url,date,category,telegram_id,telegram_chat_id)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            RETURNING id
-            """,
-            (
-                project_name,
-                employee_name,
-                employee_id,
-                description,
-                amount,
-                data.get("photoUrl", ""),
-                date_value,
-                category,
-                telegram_id,
-                telegram_chat_id,
-            ),
-        )
-        own_expense_id = cur.fetchone()[0]
-        expense_id = _sync_own_expense_to_finance_expense(cur, own_expense_id, project_name, description, amount, date_value, employee_name, data.get("photoUrl", ""))
-        conn.commit()
-        cur.close(); conn.close()
-        return {"ok": True, "id": own_expense_id, "expenseId": expense_id}
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            if not isinstance(data, Mapping):
+                raise HTTPException(status_code=400, detail="own expense payload invalid")
+            actor = _selected_actor(
+                cur, current_user, "write", x_company_id, x_company_mode
+            )
+            project = _exact_project(
+                cur, actor["companyId"], data.get("projectId"), lock=True
+            )
+            if (
+                str(actor.get("role") or "").strip() in finance_roles
+                and data.get("employeeId") is not None
+            ):
+                staff = _exact_staff(
+                    cur, actor["companyId"], data.get("employeeId"), lock=True
+                )
+            else:
+                staff = _self_staff(cur, actor, lock=True)
+            description = str(data.get("description") or "").strip()
+            amount = _positive_amount(data.get("amount"))
+            if not description:
+                raise HTTPException(status_code=400, detail="Укажите описание траты")
+            if len(description) > 10000:
+                raise HTTPException(status_code=400, detail="Описание траты слишком длинное")
+            if amount is None:
+                raise HTTPException(status_code=400, detail="Сумма траты должна быть больше нуля")
+            date_value = data.get("date") or None
+            category = str(data.get("category") or "other").strip()[:100] or "other"
+            if not project:
+                category = own_expense_no_project_category
+            photo_url = str(data.get("photoUrl") or "").strip()
+            if len(photo_url) > 20000:
+                raise HTTPException(status_code=400, detail="Список вложений слишком длинный")
+            cur.execute(
+                """INSERT INTO public.own_expenses
+                       (company_id,project_id,company_scope_verified,
+                        project_name,employee_name,employee_id,description,
+                        amount,photo_url,date,category,telegram_id,telegram_chat_id)
+                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NULL,NULL)
+                     RETURNING id""",
+                (
+                    actor["companyId"],
+                    project["id"] if project else None,
+                    True,
+                    project["name"] if project else "",
+                    staff["name"],
+                    staff["id"],
+                    description,
+                    amount,
+                    photo_url,
+                    date_value,
+                    category,
+                ),
+            )
+            own_expense_id = _positive_int(_row_value(cur.fetchone(), "id", 0))
+            if own_expense_id is None:
+                raise HTTPException(status_code=409, detail="Личная трата не создана")
+            expense_id = _sync_verified_finance_mirror(
+                cur,
+                company_id=actor["companyId"],
+                project=project,
+                own_expense_id=own_expense_id,
+                description=description,
+                amount=amount,
+                date_value=date_value,
+                employee_name=staff["name"],
+                photo_url=photo_url,
+            )
+            conn.commit()
+            return {"ok": True, "id": own_expense_id, "expenseId": expense_id}
+        except BaseException:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
 
     @app.post("/telegram/own-expenses")
     def create_telegram_own_expense(data: dict, _bot: dict = Depends(require_telegram_bot_token)):
@@ -369,70 +725,78 @@ def register_own_expenses_module(app, deps):
             )
 
         description = str(data.get("description") or data.get("text") or "").strip()
-        amount = safe_float(data.get("amount"), None)
+        amount = _positive_amount(data.get("amount"))
         if not description:
             raise HTTPException(status_code=400, detail="Укажите описание траты")
-        if amount is None or amount <= 0:
+        if amount is None:
             raise HTTPException(status_code=400, detail="Сумма траты должна быть больше нуля")
 
-        project_name = (data.get("projectName") or data.get("project") or "").strip()
         conn = get_db()
-        cur = conn.cursor()
-        employee = _find_employee_by_telegram(cur, telegram_id, telegram_chat_id)
-        if not employee:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=404, detail="Сотрудник с таким Telegram не найден")
-        if project_name and not _telegram_employee_has_project_access(employee, project_name):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="У сотрудника нет доступа к объекту")
-
-        date_value = data.get("date") or None
-        category = data.get("category") or "other"
-        if not project_name:
-            category = own_expense_no_project_category
-
-        cur.execute(
-            """
-            INSERT INTO own_expenses
-                (project_name,employee_name,employee_id,description,amount,photo_url,date,category,telegram_id,telegram_chat_id)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            RETURNING id
-            """,
-            (
-                project_name,
-                employee["name"],
-                employee["id"],
-                description,
-                amount,
-                data.get("photoUrl", ""),
-                date_value,
-                category,
-                telegram_id,
-                telegram_chat_id,
-            ),
-        )
-        own_expense_id = cur.fetchone()[0]
-        expense_id = _sync_own_expense_to_finance_expense(
-            cur,
-            own_expense_id,
-            project_name,
-            description,
-            amount,
-            date_value,
-            employee["name"],
-            data.get("photoUrl", ""),
-        )
-        conn.commit()
-        cur.close(); conn.close()
-        return {
-            "ok": True,
-            "id": own_expense_id,
-            "expenseId": expense_id,
-            "employeeName": employee["name"],
-            "employeeSource": employee["source"],
-            "projectName": project_name,
-            "category": category,
-        }
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            employee = _find_employee_by_telegram(cur, telegram_id, telegram_chat_id)
+            if not employee:
+                raise HTTPException(status_code=404, detail="Сотрудник с таким Telegram не найден")
+            project = _telegram_project(cur, employee, data)
+            date_value = data.get("date") or None
+            category = str(data.get("category") or "other").strip()[:100] or "other"
+            if not project:
+                category = own_expense_no_project_category
+            photo_url = str(data.get("photoUrl") or "").strip()
+            cur.execute(
+                """INSERT INTO public.own_expenses
+                       (company_id,project_id,company_scope_verified,
+                        project_name,employee_name,employee_id,description,
+                        amount,photo_url,date,category,telegram_id,telegram_chat_id)
+                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                     RETURNING id""",
+                (
+                    employee["companyId"],
+                    project["id"] if project else None,
+                    True,
+                    project["name"] if project else "",
+                    employee["name"],
+                    employee["id"],
+                    description,
+                    amount,
+                    photo_url,
+                    date_value,
+                    category,
+                    telegram_id,
+                    telegram_chat_id,
+                ),
+            )
+            own_expense_id = _positive_int(_row_value(cur.fetchone(), "id", 0))
+            if own_expense_id is None:
+                raise HTTPException(status_code=409, detail="Личная трата Telegram не создана")
+            expense_id = _sync_verified_finance_mirror(
+                cur,
+                company_id=employee["companyId"],
+                project=project,
+                own_expense_id=own_expense_id,
+                description=description,
+                amount=amount,
+                date_value=date_value,
+                employee_name=employee["name"],
+                photo_url=photo_url,
+            )
+            conn.commit()
+            return {
+                "ok": True,
+                "id": own_expense_id,
+                "expenseId": expense_id,
+                "employeeName": employee["name"],
+                "employeeSource": employee["source"],
+                "companyId": employee["companyId"],
+                "projectName": project["name"] if project else "",
+                "category": category,
+            }
+        except BaseException:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
 
     @app.post("/telegram/warehouse-invoices")
     def create_telegram_warehouse_invoice(data: dict, _bot: dict = Depends(require_telegram_bot_token)):
@@ -442,9 +806,12 @@ def register_own_expenses_module(app, deps):
             raise HTTPException(status_code=400, detail="Нужен telegram_id или telegram_chat_id")
 
         conn = get_db()
-        cur = conn.cursor()
-        employee = _find_employee_by_telegram(cur, telegram_id, telegram_chat_id)
-        cur.close(); conn.close()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            employee = _find_employee_by_telegram(cur, telegram_id, telegram_chat_id)
+        finally:
+            cur.close()
+            conn.close()
         if not employee:
             raise HTTPException(status_code=404, detail="Сотрудник с таким Telegram не найден")
         if employee.get("role") not in warehouse_roles:
@@ -481,49 +848,103 @@ def register_own_expenses_module(app, deps):
         return result
 
     @app.put("/own-expenses/{id}")
-    def update_own_expense(id: int, data: dict, _current_user: dict = Depends(require_roles(*finance_roles))):
+    def update_own_expense(
+        id: int,
+        data: dict,
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
         conn = get_db()
-        cur = conn.cursor()
-        status = data.get("status", "Ожидает")
-        cur.execute(
-            """
-            UPDATE own_expenses
-               SET status=%s, approved_by=%s
-             WHERE id=%s
-         RETURNING project_name, employee_name, description, amount, date, photo_url
-            """,
-            (status, data.get("approvedBy", ""), id),
-        )
-        row = cur.fetchone()
-        if not row:
-            conn.rollback()
-            cur.close(); conn.close()
-            raise HTTPException(status_code=404, detail="Трата не найдена")
-        if status == "Отклонено":
-            cur.execute("DELETE FROM expenses WHERE own_expense_id=%s", (id,))
-            cur.execute("UPDATE own_expenses SET expense_id=NULL WHERE id=%s", (id,))
-        else:
-            project_name, employee_name, description, amount, date_value, photo_url = row
-            _sync_own_expense_to_finance_expense(
-                cur,
-                id,
-                project_name or "",
-                description or "",
-                amount or 0,
-                date_value,
-                employee_name or "",
-                photo_url or "",
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            if not isinstance(data, Mapping):
+                raise HTTPException(status_code=400, detail="own expense payload invalid")
+            actor = _review_actor(
+                cur, current_user, "update", x_company_id, x_company_mode
             )
-        conn.commit()
-        cur.close(); conn.close()
-        return {"ok":True}
+            status = data.get("status", "Ожидает")
+            if status not in ("Ожидает", "Возмещено", "Отклонено"):
+                raise HTTPException(status_code=400, detail="Статус личной траты недопустим")
+            expense = _verified_own_expense(cur, actor["companyId"], id, lock=True)
+            cur.execute(
+                """UPDATE public.own_expenses
+                      SET status=%s,approved_by=%s
+                    WHERE id=%s AND company_id=%s
+                      AND company_scope_verified IS TRUE""",
+                (status, _actor_name(actor), id, actor["companyId"]),
+            )
+            if status == "Отклонено":
+                cur.execute(
+                    """DELETE FROM public.expenses
+                        WHERE own_expense_id=%s AND company_id=%s
+                          AND company_scope_verified IS TRUE""",
+                    (id, actor["companyId"]),
+                )
+                cur.execute(
+                    """UPDATE public.own_expenses
+                          SET expense_id=NULL
+                        WHERE id=%s AND company_id=%s
+                          AND company_scope_verified IS TRUE""",
+                    (id, actor["companyId"]),
+                )
+            else:
+                project = (
+                    {"id": expense["projectId"], "name": expense["projectName"]}
+                    if expense["projectId"] is not None
+                    else None
+                )
+                _sync_verified_finance_mirror(
+                    cur,
+                    company_id=actor["companyId"],
+                    project=project,
+                    own_expense_id=id,
+                    description=expense["description"],
+                    amount=expense["amount"],
+                    date_value=expense["date"],
+                    employee_name=expense["employeeName"],
+                    photo_url=expense["photoUrl"],
+                )
+            conn.commit()
+            return {"ok": True}
+        except BaseException:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
 
     @app.delete("/own-expenses/{id}")
-    def delete_own_expense(id: int, _current_user: dict = Depends(require_roles(*finance_roles))):
+    def delete_own_expense(
+        id: int,
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
         conn = get_db()
-        cur = conn.cursor()
-        cur.execute("DELETE FROM expenses WHERE own_expense_id=%s", (id,))
-        cur.execute("DELETE FROM own_expenses WHERE id=%s", (id,))
-        conn.commit()
-        cur.close(); conn.close()
-        return {"ok": True}
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            actor = _review_actor(
+                cur, current_user, "delete", x_company_id, x_company_mode
+            )
+            _verified_own_expense(cur, actor["companyId"], id, lock=True)
+            cur.execute(
+                """DELETE FROM public.expenses
+                    WHERE own_expense_id=%s AND company_id=%s
+                      AND company_scope_verified IS TRUE""",
+                (id, actor["companyId"]),
+            )
+            cur.execute(
+                """DELETE FROM public.own_expenses
+                    WHERE id=%s AND company_id=%s
+                      AND company_scope_verified IS TRUE""",
+                (id, actor["companyId"]),
+            )
+            conn.commit()
+            return {"ok": True}
+        except BaseException:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()

@@ -40,13 +40,13 @@ export default function AccountingExpenseReportsPanel({
             <select value={newExpenseReport.reportType} onChange={e => setNewExpenseReport({ ...newExpenseReport, reportType: e.target.value })} style={{ ...inp, marginBottom: 0 }}>
               {['Авансовый отчёт', 'Командировочные', 'Мелкий нал', 'Бензин/такси', 'Закупка материалов'].map(type => <option key={type}>{type}</option>)}
             </select>
-            <select value={newExpenseReport.employeeName} onChange={e => setNewExpenseReport({ ...newExpenseReport, employeeName: e.target.value })} style={{ ...inp, marginBottom: 0 }}>
+            <select value={newExpenseReport.employeeId || ''} onChange={e => setNewExpenseReport({ ...newExpenseReport, employeeId: e.target.value })} style={{ ...inp, marginBottom: 0 }}>
               <option value=''>Кому выдано *</option>
-              {(staff || []).map(st => <option key={st.id} value={st.name}>{st.name}</option>)}
+              {(staff || []).map(st => <option key={st.id} value={st.id}>{st.name}</option>)}
             </select>
-            <select value={newExpenseReport.projectName} onChange={e => setNewExpenseReport({ ...newExpenseReport, projectName: e.target.value })} style={{ ...inp, marginBottom: 0 }}>
-              <option value=''>Объект (если по проекту)</option>
-              {(projects || []).map(project => <option key={project.id} value={project.name}>{project.name}</option>)}
+            <select value={newExpenseReport.projectId || ''} onChange={e => setNewExpenseReport({ ...newExpenseReport, projectId: e.target.value })} style={{ ...inp, marginBottom: 0 }}>
+              <option value=''>Объект *</option>
+              {(projects || []).map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
             </select>
             <input placeholder='Назначение *' value={newExpenseReport.purpose} onChange={e => setNewExpenseReport({ ...newExpenseReport, purpose: e.target.value })} style={{ ...inp, marginBottom: 0 }} />
             <input placeholder='Выдано (₽) *' type='number' step='any' inputMode='decimal' value={newExpenseReport.issuedAmount} onChange={e => setNewExpenseReport({ ...newExpenseReport, issuedAmount: e.target.value })} style={{ ...inp, marginBottom: 0 }} />
@@ -57,8 +57,8 @@ export default function AccountingExpenseReportsPanel({
           <div style={{ display: 'flex', gap: '8px' }}>
             <button
               onClick={async () => {
-                if (!newExpenseReport.employeeName || !newExpenseReport.purpose || !newExpenseReport.issuedAmount) {
-                  alert('Заполните: кому, назначение, выдано');
+                if (!newExpenseReport.employeeId || !newExpenseReport.projectId || !newExpenseReport.purpose || !newExpenseReport.issuedAmount) {
+                  alert('Заполните: кому, объект, назначение, выдано');
                   return;
                 }
                 const issued = Number(newExpenseReport.issuedAmount) || 0;
@@ -67,12 +67,14 @@ export default function AccountingExpenseReportsPanel({
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
-                    ...newExpenseReport,
+                    employeeId: Number(newExpenseReport.employeeId),
+                    projectId: Number(newExpenseReport.projectId),
+                    reportType: newExpenseReport.reportType,
+                    purpose: newExpenseReport.purpose,
                     issuedAmount: issued,
                     spentAmount: spent,
-                    totalAmount: spent || issued,
-                    balance: issued - spent,
-                    status: 'На утверждении',
+                    dateFrom: newExpenseReport.dateFrom,
+                    dateTo: newExpenseReport.dateTo,
                   }),
                 });
                 await refreshData();
@@ -119,7 +121,7 @@ export default function AccountingExpenseReportsPanel({
                           await fetch(API + '/expense-reports/' + report.id, {
                             method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ status: 'Утверждён', approvedBy: user.name, approvedAt: new Date().toISOString().split('T')[0] }),
+                            body: JSON.stringify({ status: 'Утверждён' }),
                           });
                           await refreshData();
                         }}
@@ -132,7 +134,7 @@ export default function AccountingExpenseReportsPanel({
                           await fetch(API + '/expense-reports/' + report.id, {
                             method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ status: 'Отклонён', approvedBy: user.name, approvedAt: new Date().toISOString().split('T')[0] }),
+                            body: JSON.stringify({ status: 'Отклонён' }),
                           });
                           await refreshData();
                         }}

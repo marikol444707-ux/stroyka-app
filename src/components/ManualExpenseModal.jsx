@@ -20,7 +20,6 @@ export default function ManualExpenseModal({
   fileSrc,
   setShowPhotoModal,
   API,
-  user,
   loadAll,
 }) {
   const fileInputRef = React.useRef(null);
@@ -31,7 +30,11 @@ export default function ManualExpenseModal({
   const projectOptions = typeof visibleActiveProjects === 'function'
     ? visibleActiveProjects(projects || [])
     : (projects || []).filter(project => !project.archived && project.status !== 'Завершён');
-  const selectedProject = isProjectPicker ? (newManualExpense.projectName || '') : addExpenseProject;
+  const directProjectMatches = projectOptions.filter(project => project.name === addExpenseProject);
+  const selectedProjectRecord = isProjectPicker
+    ? projectOptions.find(project => String(project.id) === String(newManualExpense.projectId || ''))
+    : (directProjectMatches.length === 1 ? directProjectMatches[0] : null);
+  const selectedProject = selectedProjectRecord?.name || '';
   const isFinanceUser = typeof isFinanceRole === 'function' ? isFinanceRole() : Boolean(isFinanceRole);
   const allowedCategories = isFinanceUser
     ? expenseCategories
@@ -86,10 +89,10 @@ export default function ManualExpenseModal({
     const category = newManualExpense.category === '__custom__'
       ? (newManualExpense.customCategory || '').trim()
       : (newManualExpense.category || 'other');
-    if(!selectedProject) { alert('Выберите объект'); return; }
+    if(!selectedProjectRecord || !Number.isSafeInteger(Number(selectedProjectRecord.id)) || Number(selectedProjectRecord.id) <= 0) { alert('Выберите объект'); return; }
     if(!category) { alert('Введите статью расхода'); return; }
     if(!newManualExpense.amount) return;
-    await fetch(API+'/expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedProject,category,amount:Number(newManualExpense.amount),note:newManualExpense.note||'',date:newManualExpense.date||new Date().toISOString().split('T')[0],addedBy:user?.name||'',photoUrl:newManualExpense.photoUrl||''})});
+    await fetch(API+'/expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectId:Number(selectedProjectRecord.id),category,amount:Number(newManualExpense.amount),note:newManualExpense.note||'',date:newManualExpense.date||new Date().toISOString().split('T')[0],photoUrl:newManualExpense.photoUrl||''})});
     close();
     await loadAll();
     alert('Расход добавлен!');
@@ -100,9 +103,9 @@ export default function ManualExpenseModal({
       <div className='mobile-modal' style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
         <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>➕ Добавить расход</b>
         {isProjectPicker ? (
-          <select value={selectedProject} onChange={e=>setNewManualExpense({...newManualExpense,projectName:e.target.value})} style={inp}>
+          <select value={newManualExpense.projectId || ''} onChange={e=>{ const project=projectOptions.find(item=>String(item.id)===e.target.value); setNewManualExpense({...newManualExpense,projectId:e.target.value,projectName:project?.name||''}); }} style={inp}>
             <option value=''>Выберите объект *</option>
-            {projectOptions.map(project => <option key={project.id || project.name} value={project.name}>{project.name}</option>)}
+            {projectOptions.map(project => <option key={project.id || project.name} value={project.id}>{project.name}</option>)}
           </select>
         ) : (
           <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 12px'}}>{'Проект: '+addExpenseProject}</p>

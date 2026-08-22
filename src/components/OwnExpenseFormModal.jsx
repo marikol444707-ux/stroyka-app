@@ -16,7 +16,6 @@ export default function OwnExpenseFormModal({
   appendPhotos,
   fileSrc,
   API,
-  user,
   loadAll,
   notify,
   showInfo = false,
@@ -28,7 +27,7 @@ export default function OwnExpenseFormModal({
 
   const reset = () => {
     setShowOwnExpenseForm(false);
-    setNewOwnExpense({projectName:'',category:'other',description:'',amount:'',photoUrl:'',date:''});
+    setNewOwnExpense({projectId:'',projectName:'',category:'other',description:'',amount:'',photoUrl:'',date:''});
   };
 
   const submit = async () => {
@@ -36,8 +35,10 @@ export default function OwnExpenseFormModal({
       if (validationAlert) alert('Заполните: описание и сумму');
       return;
     }
-    await fetch(API+'/own-expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newOwnExpense,amount:Number(newOwnExpense.amount),employeeName:user.name,employeeId:user.id})});
-    setNewOwnExpense({projectName:'',category:'other',description:'',amount:'',photoUrl:'',date:''});
+    const payload={category:newOwnExpense.category||'other',description:newOwnExpense.description,amount:Number(newOwnExpense.amount),photoUrl:newOwnExpense.photoUrl||'',date:newOwnExpense.date||''};
+    if(newOwnExpense.projectId) payload.projectId=Number(newOwnExpense.projectId);
+    await fetch(API+'/own-expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    setNewOwnExpense({projectId:'',projectName:'',category:'other',description:'',amount:'',photoUrl:'',date:''});
     setShowOwnExpenseForm(false);
     await loadAll();
     if (notify) notify('Трата отправлена на возмещение','myexpense');
@@ -56,7 +57,7 @@ export default function OwnExpenseFormModal({
     <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
       <div className='mobile-modal' style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
         <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>💸 Потратил свои деньги</b>
-        <select value={newOwnExpense.projectName} onChange={e=>setNewOwnExpense({...newOwnExpense,projectName:e.target.value})} style={inp}><option value=''>Без объекта / личная трата</option>{projectOptions.map(proj=><option key={proj.id} value={proj.name}>{proj.name}</option>)}</select>
+        <select value={newOwnExpense.projectId||''} onChange={e=>{const project=projectOptions.find(item=>String(item.id)===e.target.value);setNewOwnExpense({...newOwnExpense,projectId:e.target.value,projectName:project?.name||''});}} style={inp}><option value=''>Без объекта / личная трата</option>{projectOptions.map(proj=><option key={proj.id} value={proj.id}>{proj.name}</option>)}</select>
         <select value={newOwnExpense.category||'other'} onChange={e=>setNewOwnExpense({...newOwnExpense,category:e.target.value})} style={inp}><option value=''>Категория затрат *</option>{expenseCategories.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}</select>
         <input placeholder='За что потрачено *' value={newOwnExpense.description} onChange={e=>setNewOwnExpense({...newOwnExpense,description:e.target.value})} style={inp}/>
         <input placeholder='Сумма (₽) *' type='number' step='any' inputMode='decimal' value={newOwnExpense.amount} onChange={e=>setNewOwnExpense({...newOwnExpense,amount:e.target.value})} style={inp}/>

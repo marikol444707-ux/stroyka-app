@@ -11,9 +11,11 @@ import AccountingSalaryPanel from './AccountingSalaryPanel';
 import AccountingActsPanel from './AccountingActsPanel';
 import AccountingContractsPanel from './AccountingContractsPanel';
 import AccountingPerformerClosingPanel from './AccountingPerformerClosingPanel';
+import AccountingExceptionChecksPanel from '../features/accounting-exception-checks/AccountingExceptionChecksPanel';
 
 export default function AccountingPage(props) {
   const {
+    API,
     accountingTab,
     setAccountingTab,
     setShowForm,
@@ -23,6 +25,7 @@ export default function AccountingPage(props) {
     btnG,
     C,
     card,
+    companyContext = {},
     projects,
     estimatesList,
     projectPayments,
@@ -139,23 +142,34 @@ export default function AccountingPage(props) {
       />
 
       {accountingTab === 'summary' && (
-        <AccountingSummaryPanel
-          C={C}
-          card={card}
-          projects={projects}
-          projectPayments={projectPayments}
-          projectPaymentInAmount={projectPaymentInAmount}
-          ownExpenses={ownExpenses}
-          manualExpenses={manualExpenses}
-          accountablePayments={accountablePayments}
-          supplierInvoices={supplierInvoices}
-          brigadeContracts={brigadeContracts}
-          piecework={piecework}
-          isLeadership={isLeadership}
-          invoices={invoices}
-          warehouseInvoiceEstimateControl={warehouseInvoiceEstimateControl}
-          setAccountingTab={setAccountingTab}
-        />
+        <>
+          <AccountingExceptionChecksPanel
+            API={API}
+            C={C}
+            card={card}
+            companyMode={companyContext.mode}
+            isMobile={isMobile}
+            selectedCompanyId={companyContext.selectedCompanyId}
+            user={user}
+          />
+          <AccountingSummaryPanel
+            C={C}
+            card={card}
+            projects={projects}
+            projectPayments={projectPayments}
+            projectPaymentInAmount={projectPaymentInAmount}
+            ownExpenses={ownExpenses}
+            manualExpenses={manualExpenses}
+            accountablePayments={accountablePayments}
+            supplierInvoices={supplierInvoices}
+            brigadeContracts={brigadeContracts}
+            piecework={piecework}
+            isLeadership={isLeadership}
+            invoices={invoices}
+            warehouseInvoiceEstimateControl={warehouseInvoiceEstimateControl}
+            setAccountingTab={setAccountingTab}
+          />
+        </>
       )}
 
       {accountingTab === 'incoming' && (

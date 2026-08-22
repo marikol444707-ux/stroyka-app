@@ -10,7 +10,6 @@ export default function AccountableExpenseReportModal({
   inp,
   btnO,
   btnG,
-  projects,
   expenseCategories,
   newExpense,
   setNewExpense,
@@ -19,7 +18,6 @@ export default function AccountableExpenseReportModal({
   expenseSubmitting,
   setExpenseSubmitting,
   API,
-  user,
   loadAll,
 }) {
   if (!reportingPayment) return null;
@@ -32,7 +30,7 @@ export default function AccountableExpenseReportModal({
   const submit = async () => {
     if(!newExpense.description||!newExpense.amount||expenseSubmitting) return;
     setExpenseSubmitting(true);
-    await fetch(API+'/accountable-expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paymentId:reportingPayment.id,projectName:newExpense.projectName||reportingPayment.projectName,description:newExpense.description,amount:Number(newExpense.amount),photoUrl:newExpense.photoUrl||'',date:new Date().toISOString().split('T')[0],addedBy:user.name})});
+    await fetch(API+'/accountable-expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paymentId:reportingPayment.id,description:newExpense.description,amount:Number(newExpense.amount),photoUrl:newExpense.photoUrl||'',date:new Date().toISOString().split('T')[0]})});
     setReportingPayment(null);
     setNewExpense(createAccountableExpenseForm());
     setExpenseSubmitting(false);
@@ -45,7 +43,7 @@ export default function AccountableExpenseReportModal({
       <div className='mobile-modal' style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
         <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>💵 Отчёт о трате</b>
         <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 12px'}}>{'Выдано: '+Number(reportingPayment.amount).toLocaleString()+' ₽ · Остаток: '+(Number(reportingPayment.amount)-Number(reportingPayment.spentAmount||0)).toLocaleString()+' ₽'}</p>
-        <select value={newExpense.projectName||reportingPayment.projectName} onChange={e=>setNewExpense({...newExpense,projectName:e.target.value})} style={inp}><option value=''>Проект *</option>{projects.map(proj=><option key={proj.id} value={proj.name}>{proj.name}</option>)}</select>
+        <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 12px'}}>{'Объект: '+reportingPayment.projectName}</p>
         <select value={newExpense.category||'accountable'} onChange={e=>setNewExpense({...newExpense,category:e.target.value})} style={inp}><option value=''>Категория затрат</option>{expenseCategories.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}</select>
         <input placeholder='За что потрачено *' value={newExpense.description} onChange={e=>setNewExpense({...newExpense,description:e.target.value})} style={inp}/>
         <input placeholder='Сумма (₽) *' type='number' step='any' inputMode='decimal' value={newExpense.amount} onChange={e=>setNewExpense({...newExpense,amount:e.target.value})} style={inp}/>
@@ -54,7 +52,7 @@ export default function AccountableExpenseReportModal({
           <label style={{cursor:'pointer'}}>
             <input type='file' accept='image/*' multiple style={{display:'none'}} onChange={async e=>{
               if(e.target.files&&e.target.files.length>0){
-                const newCsv = await appendPhotos(newExpense.photoUrl, e.target.files,{projectName:newExpense.projectName||reportingPayment.projectName,context:'accountable-expenses'});
+                const newCsv = await appendPhotos(newExpense.photoUrl, e.target.files,{projectName:reportingPayment.projectName,context:'accountable-expenses'});
                 setNewExpense(prev=>({...prev,photoUrl:newCsv}));
                 e.target.value='';
               }
