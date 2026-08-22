@@ -7,6 +7,7 @@ import WarehouseOperationsPanel from './WarehouseOperationsPanel';
 import WarehouseObjectsPanel from './WarehouseObjectsPanel';
 import WarehouseTabsNav from './WarehouseTabsNav';
 import WarehouseMaterialControlOverview from './WarehouseMaterialControlOverview';
+import HumanApprovedActionReviewPanel from '../features/human-approved-actions/HumanApprovedActionReviewPanel';
 import { roleFlagsForUser } from '../utils/accessUtils';
 
 export default function WarehousePage(props) {
@@ -117,6 +118,8 @@ export default function WarehousePage(props) {
     buildInventoryDoc,
     refreshData,
     isMobile,
+    API,
+    companyContext,
   } = props;
   const canReviewSupplyRequests = roleFlagsForUser(user).isSupplyRole;
 
@@ -132,28 +135,40 @@ export default function WarehousePage(props) {
       />
 
       {warehouseTab === 'control' && (
-        <WarehouseMaterialControlOverview
-          C={C}
-          badge={badge}
-          btnB={btnB}
-          btnG={btnG}
-          buildMaterialRequirementContent={buildMaterialRequirementContent}
-          card={card}
-          exportToExcel={exportToExcel}
-          isFinanceRole={isFinanceRole}
-          isLeadership={isLeadership}
-          canReviewSupplyRequests={canReviewSupplyRequests}
-          isMobile={isMobile}
-          materialControlSummaryForProject={materialControlSummaryForProject}
-          materialReconciliationRows={materialReconciliationRows}
-          parseSupplyItems={parseSupplyItems}
-          projects={projects}
-          setSelectedWarehouseProject={setSelectedWarehouseProject}
-          setWarehouseTab={setWarehouseTab}
-          showPreview={showPreview}
-          supplyRequests={supplyRequests}
-          visibleActiveProjects={visibleActiveProjects}
-        />
+        <>
+          <HumanApprovedActionReviewPanel
+            API={API}
+            C={C}
+            card={card}
+            companyMode={companyContext?.mode}
+            isMobile={isMobile}
+            projects={projects}
+            selectedCompanyId={companyContext?.selectedCompanyId}
+            user={user}
+          />
+          <WarehouseMaterialControlOverview
+            C={C}
+            badge={badge}
+            btnB={btnB}
+            btnG={btnG}
+            buildMaterialRequirementContent={buildMaterialRequirementContent}
+            card={card}
+            exportToExcel={exportToExcel}
+            isFinanceRole={isFinanceRole}
+            isLeadership={isLeadership}
+            canReviewSupplyRequests={canReviewSupplyRequests}
+            isMobile={isMobile}
+            materialControlSummaryForProject={materialControlSummaryForProject}
+            materialReconciliationRows={materialReconciliationRows}
+            parseSupplyItems={parseSupplyItems}
+            projects={projects}
+            setSelectedWarehouseProject={setSelectedWarehouseProject}
+            setWarehouseTab={setWarehouseTab}
+            showPreview={showPreview}
+            supplyRequests={supplyRequests}
+            visibleActiveProjects={visibleActiveProjects}
+          />
+        </>
       )}
 
       {warehouseTab === 'warehouses' && (

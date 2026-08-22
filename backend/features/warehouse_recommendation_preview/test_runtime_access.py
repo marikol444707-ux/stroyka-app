@@ -854,6 +854,7 @@ class WarehouseAnomalyRuntimeArtifactProvenanceTests(unittest.TestCase):
                 callsites.append(str(path.relative_to(backend_root)))
         self.assertEqual(callsites, [
             "features/warehouse_recommendation_preview/runtime_preview.py",
+            "features/human_approved_actions/action_kernel.py",
         ])
 
 

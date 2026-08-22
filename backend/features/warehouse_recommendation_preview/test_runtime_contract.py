@@ -696,6 +696,7 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             "main.py",
             "features/warehouse_recommendation_preview/runtime_access.py",
             "features/warehouse_recommendation_preview/runtime_preview.py",
+            "features/human_approved_actions/action_kernel.py",
         ])
 
     def test_existing_private_and_public_surfaces_remain_byte_identical(self):
@@ -718,7 +719,7 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
             backend_root / "main.py": (
-                "200e8f63e6408f9fac1fc0ea3f081f825f6835f2ca83a820d8eb5961c9c476d0"
+                "b7a7c59b56480fdf9f2d33da2650d0e1fe72cf9f78ff2842fe3048042852058b"
             ),
         }
         actual = {

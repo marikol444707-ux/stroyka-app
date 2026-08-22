@@ -947,7 +947,7 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
             root / "backend/main.py": (
-                "200e8f63e6408f9fac1fc0ea3f081f825f6835f2ca83a820d8eb5961c9c476d0"
+                "b7a7c59b56480fdf9f2d33da2650d0e1fe72cf9f78ff2842fe3048042852058b"
             ),
         }
         self.assertEqual({

@@ -12,11 +12,15 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
 import psycopg2
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from psycopg2.extensions import TRANSACTION_STATUS_IDLE, parse_dsn
 from psycopg2.extras import RealDictCursor
 
@@ -25,6 +29,7 @@ import backend.features.estimate_revision_impact.baseline as baseline_audit
 import backend.features.warehouse_recommendation_preview.runtime_access as runtime_access
 import backend.features.warehouse_recommendation_preview.runtime_budget as runtime_budget
 import backend.features.warehouse_recommendation_preview.runtime_contract as runtime_contract
+import backend.features.human_approved_actions.action_kernel as human_action_kernel
 from backend.features.estimate_revision_impact.contract import (
     MAX_CANONICAL_SOURCE_BYTES,
     build_estimate_revision_source,
@@ -56,6 +61,67 @@ from backend.features.estimate_revision_impact.test_combined_report import (
 )
 from backend.features.warehouse_recommendation_preview.content_contract import (
     _validate_current_warehouse_anomaly_report,
+)
+from backend.features.warehouse_recommendation_preview.test_content_preview import (
+    _real_a7_case,
+)
+from backend.features.assignment_daily_drafts.snapshot import (
+    AssignmentDailySnapshotRequest,
+    run_assignment_daily_snapshot,
+)
+from backend.features.assignment_daily_drafts.runtime_preview import (
+    run_authorized_assignment_daily_snapshot,
+)
+from backend.features.assignment_daily_drafts.runtime_routes import (
+    register_assignment_daily_draft_preview_routes,
+)
+from backend.features.accounting_exception_checks.ownership_inventory import (
+    run_accounting_ownership_inventory,
+)
+from backend.features.accounting_exception_checks.ownership_backfill import (
+    run_accounting_ownership_backfill,
+)
+from backend.features.accounting_exception_checks.ownership_remediation import (
+    build_accounting_ownership_remediation_request,
+)
+from backend.features.accounting_exception_checks.ownership_remediation_runner import (
+    run_accounting_ownership_remediation,
+)
+from backend.features.accounting_exception_checks.schema_contract import (
+    build_accounting_ownership_schema_plan,
+    run_accounting_ownership_schema,
+)
+from backend.features.human_approved_actions.schema_contract import (
+    APPLY_CONFIRMATION as HUMAN_ACTION_SCHEMA_CONFIRMATION,
+    HumanActionSchemaMigrationError,
+    _collect_catalog as collect_human_action_schema_catalog,
+    build_human_action_schema_plan,
+    run_human_action_schema_migration,
+)
+from backend.features.accounting_exception_checks.snapshot import (
+    run_accounting_exception_snapshot,
+)
+from backend.features.accounting_exception_checks.runtime_access import (
+    run_authorized_accounting_exception_snapshot,
+)
+from backend.features.accounting_exception_checks.runtime_routes import (
+    register_accounting_exception_check_routes,
+)
+from backend.features.accountable_payments.routes import (
+    register_accountable_payments_module,
+)
+from backend.features.expense_reports.routes import (
+    register_expense_reports_module,
+)
+from backend.features.expenses.routes import register_expenses_module
+from backend.features.own_expenses.routes import register_own_expenses_module
+from backend.features.salary_payments.routes import (
+    register_salary_payments_module,
+)
+from backend.features.staff.routes import register_staff_module
+from backend.features.company_context.service import (
+    effective_company_actors,
+    resolve_request_company_context,
 )
 
 
@@ -784,6 +850,12 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
         "user_company_roles",
         "projects",
         "estimates",
+        "estimate_versions",
+        "brigade_contracts",
+        "brigade_payments",
+        "project_payments",
+        "brigade_contract_items",
+        "work_journal",
         "estimate_reconciliations",
         "supply_requests",
         "supply_deliveries",
@@ -795,6 +867,14 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
         "warehouse_movements",
         "warehouse_lot_movements",
         "agent_jobs",
+        "audit_log",
+        "staff",
+        "accountable_payments",
+        "accountable_expenses",
+        "expense_reports",
+        "salary_payments",
+        "own_expenses",
+        "expenses",
     )
 
     @classmethod
@@ -988,12 +1068,25 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
             """CREATE TABLE public.companies (
                    id INTEGER PRIMARY KEY,
                    platform_account_id INTEGER,
+                   name TEXT,
+                   short_name TEXT,
                    active BOOLEAN
                )""",
             """CREATE TABLE public.users (
                    id INTEGER PRIMARY KEY,
+                   name TEXT,
+                   email TEXT,
+                   password TEXT,
+                   role TEXT,
+                   project_id INTEGER,
+                   project_name TEXT,
+                   assigned_projects JSONB DEFAULT '[]'::jsonb,
+                   assigned_packages JSONB DEFAULT '[]'::jsonb,
+                   company_id INTEGER,
                    active BOOLEAN,
-                   two_factor_enabled BOOLEAN
+                   two_factor_enabled BOOLEAN,
+                   failed_login_count INTEGER DEFAULT 0,
+                   locked_until TIMESTAMP
                )""",
             """CREATE TABLE public.user_sessions (
                    id INTEGER PRIMARY KEY,
@@ -1009,7 +1102,11 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
                    platform_account_id INTEGER,
                    company_id INTEGER,
                    role TEXT,
-                   active BOOLEAN
+                   assigned_projects TEXT,
+                   assigned_packages TEXT,
+                   active BOOLEAN,
+                   is_default BOOLEAN,
+                   updated_at TIMESTAMP DEFAULT NOW()
                )""",
             """CREATE TABLE public.projects (
                    id INTEGER PRIMARY KEY,
@@ -1025,6 +1122,57 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
                    status TEXT,
                    is_template BOOLEAN,
                    smeta_type TEXT,
+                   work_package TEXT
+               )""",
+            """CREATE TABLE public.estimate_versions (
+                   id INTEGER PRIMARY KEY,
+                   estimate_id INTEGER,
+                   sections_json TEXT
+               )""",
+            """CREATE TABLE public.brigade_contracts (
+                   id INTEGER PRIMARY KEY,
+                   company_id INTEGER,
+                   project_id INTEGER,
+                   work_package TEXT,
+                   status TEXT
+               )""",
+            """CREATE TABLE public.brigade_payments (
+                   id INTEGER PRIMARY KEY,
+                   company_id INTEGER,
+                   contract_id INTEGER,
+                   project_payment_id INTEGER,
+                   amount NUMERIC
+               )""",
+            """CREATE TABLE public.project_payments (
+                   id INTEGER PRIMARY KEY,
+                   company_id INTEGER,
+                   company_scope_verified BOOLEAN NOT NULL DEFAULT FALSE,
+                   project_name TEXT,
+                   amount NUMERIC
+               )""",
+            """CREATE TABLE public.brigade_contract_items (
+                   id INTEGER PRIMARY KEY,
+                   contract_id INTEGER,
+                   work_package TEXT,
+                   quantity NUMERIC,
+                   status TEXT,
+                   source_type TEXT,
+                   source_estimate_version_id INTEGER,
+                   source_section_index INTEGER,
+                   source_item_index INTEGER,
+                   source_item_key TEXT
+               )""",
+            """CREATE TABLE public.work_journal (
+                   id INTEGER PRIMARY KEY,
+                   company_id INTEGER,
+                   master_id INTEGER,
+                   master_name TEXT,
+                   project TEXT,
+                   description TEXT,
+                   unit TEXT,
+                   quantity NUMERIC,
+                   date TEXT,
+                   status TEXT,
                    work_package TEXT
                )""",
             """CREATE TABLE public.estimate_reconciliations (
@@ -1066,7 +1214,11 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
             """CREATE TABLE public.supplier_invoices (
                    id INTEGER PRIMARY KEY,
                    request_id INTEGER,
-                   company_id INTEGER
+                   company_id INTEGER,
+                   project_name TEXT,
+                   amount NUMERIC,
+                   paid_amount NUMERIC,
+                   warehouse_invoice_id INTEGER
                )""",
             """CREATE TABLE public.warehouse_invoices (
                    id INTEGER PRIMARY KEY,
@@ -1105,7 +1257,7 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
                    warehouse_movement_id INTEGER
                )""",
             """CREATE TABLE public.agent_jobs (
-                   id BIGINT,
+                   id BIGINT PRIMARY KEY,
                    owner_scope TEXT,
                    company_id INTEGER,
                    project_id INTEGER,
@@ -1130,6 +1282,158 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
                    completed_at TIMESTAMP,
                    last_error TEXT
                )""",
+            """CREATE TABLE public.audit_log (
+                   id SERIAL PRIMARY KEY,
+                   user_id INTEGER,
+                   user_name TEXT,
+                   user_role TEXT,
+                   action TEXT,
+                   entity_type TEXT,
+                   entity_id INTEGER,
+                   description TEXT,
+                   project_name TEXT,
+                   ip TEXT,
+                   owner_scope TEXT,
+                   company_id INTEGER,
+                   project_id INTEGER,
+                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+               )""",
+            """CREATE TABLE public.staff (
+                   id SERIAL PRIMARY KEY,
+                   company_id INTEGER DEFAULT 1,
+                   name TEXT,
+                   role TEXT,
+                   phone TEXT,
+                   salary DOUBLE PRECISION DEFAULT 0,
+                   project TEXT,
+                   pay_type TEXT,
+                   last_name TEXT,
+                   first_name TEXT,
+                   middle_name TEXT,
+                   birth_date DATE,
+                   citizenship TEXT,
+                   address TEXT,
+                   photo_url TEXT,
+                   email_work TEXT,
+                   email_personal TEXT,
+                   phone_extra TEXT,
+                   passport_series TEXT,
+                   passport_number TEXT,
+                   passport_issued_by TEXT,
+                   passport_issued_date DATE,
+                   inn TEXT,
+                   snils TEXT,
+                   specialization TEXT,
+                   category TEXT,
+                   employment_type TEXT,
+                   hired_date DATE,
+                   fired_date DATE,
+                   status TEXT,
+                   brigade TEXT,
+                   bank_account TEXT,
+                   bank_name TEXT,
+                   bank_bik TEXT,
+                   bank_corr TEXT,
+                   ogrnip TEXT,
+                   card_number TEXT,
+                   signature_url TEXT,
+                   notes TEXT
+               )""",
+            """CREATE TABLE public.staff_documents (
+                   id SERIAL PRIMARY KEY,
+                   staff_id INTEGER NOT NULL,
+                   doc_type TEXT NOT NULL,
+                   title TEXT,
+                   file_url TEXT,
+                   status TEXT,
+                   signed_at DATE,
+                   expires_at DATE,
+                   notes TEXT,
+                   created_by TEXT,
+                   created_at TIMESTAMP DEFAULT NOW()
+               )""",
+            """CREATE TABLE public.accountable_payments (
+                   id SERIAL PRIMARY KEY,
+                   project_name TEXT,
+                   given_to TEXT,
+                   given_to_id INTEGER,
+                   amount NUMERIC(14,2) DEFAULT 0,
+                   spent_amount NUMERIC(14,2) DEFAULT 0,
+                   payment_method TEXT,
+                   purpose TEXT,
+                   date TEXT,
+                   added_by TEXT,
+                   status TEXT
+               )""",
+            """CREATE TABLE public.accountable_expenses (
+                   id SERIAL PRIMARY KEY,
+                   payment_id INTEGER,
+                   project_name TEXT,
+                   amount NUMERIC(14,2) DEFAULT 0,
+                   description TEXT,
+                   photo_url TEXT,
+                   date TEXT,
+                   added_by TEXT
+               )""",
+            """CREATE TABLE public.expense_reports (
+                   id SERIAL PRIMARY KEY,
+                   employee_id INTEGER,
+                   employee_name TEXT,
+                   project_name TEXT,
+                   report_type TEXT DEFAULT 'Авансовый отчёт',
+                   purpose TEXT,
+                   total_amount NUMERIC(14,2) DEFAULT 0,
+                   issued_amount NUMERIC(14,2) DEFAULT 0,
+                   spent_amount NUMERIC(14,2) DEFAULT 0,
+                   balance NUMERIC(14,2) DEFAULT 0,
+                   items_json TEXT,
+                   photo_url TEXT,
+                   date_from DATE,
+                   date_to DATE,
+                   status TEXT DEFAULT 'На утверждении',
+                   approved_by TEXT,
+                   approved_at DATE,
+                   created_at TIMESTAMP DEFAULT NOW()
+               )""",
+            """CREATE TABLE public.salary_payments (
+                   id SERIAL PRIMARY KEY,
+                   staff_id INTEGER,
+                   staff_name TEXT,
+                   month TEXT,
+                   amount NUMERIC(14,2) DEFAULT 0,
+                   paid_by TEXT,
+                   paid_date TEXT,
+                   note TEXT,
+                   created_at TIMESTAMP DEFAULT NOW()
+               )""",
+            """CREATE TABLE public.own_expenses (
+                   id SERIAL PRIMARY KEY,
+                   project_name TEXT,
+                   employee_name TEXT,
+                   employee_id INTEGER,
+                   amount NUMERIC(14,2),
+                   description TEXT,
+                   photo_url TEXT,
+                   date TEXT,
+                   category TEXT,
+                   status TEXT DEFAULT 'Ожидает',
+                   approved_by TEXT,
+                   telegram_id TEXT,
+                   telegram_chat_id TEXT,
+                   expense_id INTEGER
+               )""",
+            """CREATE TABLE public.expenses (
+                   id SERIAL PRIMARY KEY,
+                   project TEXT,
+                   category TEXT,
+                   own_expense_id INTEGER,
+                   amount NUMERIC(14,2),
+                   note TEXT,
+                   date TEXT,
+                   added_by TEXT,
+                   source TEXT,
+                   photo_url TEXT
+               )""",
         )
         with cls.connection.cursor() as cur:
             for statement in statements:
@@ -1140,6 +1444,16 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
         connection = getattr(cls, "connection", None)
         if connection is not None:
             with connection.cursor() as cur:
+                cur.execute(
+                    "DROP TABLE IF EXISTS public.human_action_events CASCADE"
+                )
+                cur.execute(
+                    "DROP TABLE IF EXISTS public.human_action_proposals CASCADE"
+                )
+                cur.execute(
+                    "DROP FUNCTION IF EXISTS public."
+                    "reject_human_action_ledger_mutation()"
+                )
                 for table in reversed(cls.TABLES):
                     cur.execute("DROP TABLE public." + table)
             connection.close()
@@ -2639,6 +2953,2728 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
             self.source,
         )
         self.assertEqual(validated, current)
+
+    def _seed_assignment_daily_snapshot_fixture(self, *, oversized_daily=False):
+        sections = [{
+            "name": "Кабельные системы",
+            "items": [{
+                "name": "Монтаж кабеля",
+                "unit": "м",
+                "quantity": "10",
+                "itemType": "work",
+                "priceWork": 100,
+                "priceMaterial": 0,
+                "estimateItemKey": "work-1",
+            }],
+        }]
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "UPDATE public.estimates SET sections_json=%s "
+                "WHERE id=52 AND company_id=4 AND project_id=17",
+                (json.dumps(sections, ensure_ascii=False),),
+            )
+            cur.execute(
+                "INSERT INTO public.estimate_versions"
+                "(id,estimate_id,sections_json) VALUES (401,52,%s)",
+                (json.dumps(sections, ensure_ascii=False, separators=(",", ":")),),
+            )
+            cur.execute(
+                "INSERT INTO public.brigade_contracts"
+                "(id,company_id,project_id,work_package,status) "
+                "VALUES (501,4,17,'Основная','Активен')"
+            )
+            cur.execute(
+                """INSERT INTO public.brigade_contract_items
+                     (id,contract_id,work_package,quantity,status,source_type,
+                      source_estimate_version_id,source_section_index,
+                      source_item_index,source_item_key)
+                   VALUES (601,501,'Основная',4,'Не начато','estimate',
+                           401,0,0,'work-1')"""
+            )
+            cur.execute(
+                "INSERT INTO public.projects(id,company_id,name) "
+                "VALUES (18,5,'Private project')"
+            )
+            cur.execute(
+                """INSERT INTO public.work_journal
+                     (id,company_id,master_id,master_name,project,description,
+                      unit,quantity,date,status,work_package)
+                   VALUES
+                     (701,4,31,'Иван Петров','Private project',%s,'м',2.5,
+                      '2026-08-21','Подтверждено','Основная'),
+                     (702,5,99,'PRIVATE FOREIGN','Private project',
+                      'PRIVATE FOREIGN','м',99,'2026-08-21',
+                      'Подтверждено','Основная')""",
+                (("☃" * 1366) if oversized_daily else "Монтаж кабеля",),
+            )
+
+    def _run_assignment_daily_snapshot(self):
+        observed = _ObservedConnection(self._new_connection())
+        result = run_assignment_daily_snapshot(
+            lambda: observed,
+            AssignmentDailySnapshotRequest(
+                4, 17, "2026-08-21", 52, 401, "Основная",
+            ),
+        )
+        return result, observed
+
+    def _assignment_daily_route_client(self):
+        observed_connections = []
+
+        def get_db():
+            observed = _ObservedConnection(self._new_connection())
+            observed_connections.append(observed)
+            return observed
+
+        def build_authentication(
+            _request,
+            authorization=None,
+            csrf_token=None,
+            *,
+            require_csrf=True,
+        ):
+            if (
+                authorization is not None
+                or csrf_token != "csrf"
+                or require_csrf is not True
+            ):
+                raise ValueError("invalid test authentication")
+            return {
+                "authenticationKind": "cookie_session",
+                "sessionHash": "a" * 64,
+            }
+
+        app = FastAPI()
+        register_assignment_daily_draft_preview_routes(app, {
+            "enabled": True,
+            "allowed_company_ids": frozenset({4}),
+            "get_db": get_db,
+            "build_cookie_session_authentication": build_authentication,
+            "run_authorized_assignment_daily_snapshot": (
+                run_authorized_assignment_daily_snapshot
+            ),
+        })
+        return TestClient(app), observed_connections
+
+    @staticmethod
+    def _assignment_daily_route_headers():
+        return {
+            "Content-Type": "application/json",
+            "Cookie": "stroyka_session=" + "s" * 64,
+            "X-CSRF-Token": "csrf",
+            "X-Company-Id": "4",
+            "X-Company-Mode": "company",
+        }
+
+    @staticmethod
+    def _assignment_daily_route_body():
+        return {
+            "projectId": 17,
+            "date": "2026-08-21",
+            "estimateId": 52,
+            "estimateVersionId": 401,
+            "workPackage": "Основная",
+        }
+
+    def test_real_assignment_daily_snapshot_is_tenant_bound_and_rolled_back(self):
+        self._seed_assignment_daily_snapshot_fixture()
+        before = self._snapshot()
+
+        result, observed = self._run_assignment_daily_snapshot()
+
+        self.assertEqual(result.state, "ready")
+        self.assertEqual(result.review_codes, ())
+        self.assertEqual(
+            result.assignment_draft.items[0].available_quantity,
+            "6",
+        )
+        self.assertIsNone(result.assignment_draft.items[0].assignee)
+        self.assertEqual(len(result.daily_work_draft.items), 1)
+        self.assertEqual(
+            result.daily_work_draft.items[0].responsible_name,
+            "Иван Петров",
+        )
+        self.assertNotIn("PRIVATE FOREIGN", repr(result))
+        self.assertEqual(observed.observation["commits"], 0)
+        self.assertEqual(observed.observation["rollbacks"], 1)
+        self.assertTrue(observed.observation["closed"])
+        self.assertEqual(observed.observation["sessions"], [{
+            "readonly": True,
+            "autocommit": False,
+            "isolation_level": "REPEATABLE READ",
+        }])
+        self.assertEqual(len(observed.observation["calls"]), 4)
+        for sql, _params in observed.observation["calls"]:
+            normalized = " ".join(sql.split()).upper()
+            self.assertTrue(normalized.startswith("SELECT "))
+            for mutation in ("INSERT ", "UPDATE ", "DELETE ", "ALTER "):
+                self.assertNotIn(mutation, normalized)
+        self.assertEqual(self._snapshot(), before)
+
+    def test_real_daily_utf8_overflow_is_case_nulled_before_python(self):
+        self._seed_assignment_daily_snapshot_fixture(oversized_daily=True)
+        before = self._snapshot()
+
+        result, observed = self._run_assignment_daily_snapshot()
+
+        self.assertEqual(result.state, "review_required")
+        self.assertIn("daily_work_source_invalid", result.review_codes)
+        self.assertEqual(result.daily_work_draft.items, ())
+        self.assertNotIn("☃", repr(result))
+        _call_index, raw_rows = observed.observation["fetched"][-1]
+        self.assertEqual(len(raw_rows), 1)
+        for field in (
+            "description", "unit", "quantity", "master_name", "work_package",
+        ):
+            self.assertIsNone(raw_rows[0][field])
+        self.assertGreater(raw_rows[0]["field_description_bytes"], 4096)
+        self.assertEqual(observed.observation["commits"], 0)
+        self.assertEqual(observed.observation["rollbacks"], 1)
+        self.assertEqual(self._snapshot(), before)
+
+    def test_real_assignment_daily_http_preview_authorizes_and_rolls_back(self):
+        self._reset_runtime_auth_fixture()
+        self._seed_assignment_daily_snapshot_fixture()
+        before = self._snapshot()
+        client, observed_connections = self._assignment_daily_route_client()
+
+        response = client.post(
+            "/assignment-daily-draft-previews",
+            headers=self._assignment_daily_route_headers(),
+            json=self._assignment_daily_route_body(),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["cache-control"], "no-store, max-age=0")
+        value = response.json()
+        self.assertEqual(value["state"], "ready")
+        self.assertEqual(value["companyId"], 4)
+        self.assertEqual(value["projectId"], 17)
+        self.assertIs(value["previewOnly"], True)
+        self.assertIs(value["applyAllowed"], False)
+        self.assertEqual(value["writesAttempted"], 0)
+        self.assertNotIn("PRIVATE FOREIGN", response.text)
+
+        self.assertEqual(len(observed_connections), 1)
+        observed = observed_connections[0]
+        self.assertEqual(len(observed.observation["calls"]), 5)
+        self.assertEqual(observed.observation["commits"], 0)
+        self.assertEqual(observed.observation["rollbacks"], 1)
+        self.assertTrue(observed.observation["closed"])
+        self.assertEqual(self._snapshot(), before)
+
+    def test_real_assignment_daily_http_rejects_other_role_before_business_reads(self):
+        self._reset_runtime_auth_fixture()
+        self._seed_assignment_daily_snapshot_fixture()
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "UPDATE public.user_company_roles SET role='прораб' "
+                "WHERE company_id=4"
+            )
+        before = self._snapshot()
+        client, observed_connections = self._assignment_daily_route_client()
+
+        response = client.post(
+            "/assignment-daily-draft-previews",
+            headers=self._assignment_daily_route_headers(),
+            json=self._assignment_daily_route_body(),
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {
+            "detail": "assignment_daily_preview_not_found",
+        })
+        self.assertEqual(len(observed_connections), 1)
+        observed = observed_connections[0]
+        self.assertEqual(len(observed.observation["calls"]), 2)
+        self.assertEqual(observed.observation["commits"], 0)
+        self.assertEqual(observed.observation["rollbacks"], 1)
+        self.assertTrue(observed.observation["closed"])
+        self.assertEqual(self._snapshot(), before)
+
+    def test_accounting_exception_snapshot_is_one_company_read_only_and_detached(self):
+        plan = build_accounting_ownership_schema_plan()
+        schema_connection = self._new_connection()
+        try:
+            run_accounting_ownership_schema(
+                schema_connection,
+                apply=True,
+                expected_change_count=plan["changeCount"],
+                expected_plan_sha256=plan["planSha256"],
+            )
+        finally:
+            schema_connection.close()
+
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "TRUNCATE public.brigade_payments,public.project_payments,"
+                "public.brigade_contracts,public.supplier_invoices,"
+                "public.warehouse_invoices,public.accountable_expenses,"
+                "public.accountable_payments,public.expense_reports,"
+                "public.salary_payments,public.staff,public.own_expenses,"
+                "public.expenses"
+            )
+            cur.execute(
+                "INSERT INTO public.projects(id,company_id,name) "
+                "VALUES (117,5,'Private project')"
+            )
+            cur.execute(
+                "INSERT INTO public.brigade_contracts"
+                "(id,company_id,project_id,status) VALUES "
+                "(10,4,17,'active'),(110,5,117,'active'),"
+                "(210,4,117,'quarantined-parent')"
+            )
+            cur.execute(
+                "INSERT INTO public.project_payments"
+                "(id,company_id,company_scope_verified,project_name,amount) "
+                "VALUES (12,4,TRUE,'Private project',10.25),"
+                "(112,5,TRUE,'Private project',999),"
+                "(212,4,FALSE,'Private project',999)"
+            )
+            cur.execute(
+                "INSERT INTO public.brigade_payments"
+                "(id,company_id,contract_id,project_payment_id,amount) VALUES "
+                "(11,4,10,12,10.25),(111,5,110,112,999),"
+                "(211,4,210,212,999)"
+            )
+            cur.execute(
+                "INSERT INTO public.supplier_invoices"
+                "(id,company_id,project_name,amount,paid_amount,"
+                "warehouse_invoice_id) VALUES "
+                "(20,4,'Private project',100,100.01,21),"
+                "(120,5,'Private project',1,999,121)"
+            )
+            cur.execute(
+                "INSERT INTO public.warehouse_invoices"
+                "(id,company_id,project,supplier_invoice_id) VALUES "
+                "(21,4,'Private project',20),"
+                "(121,5,'Private project',120)"
+            )
+            cur.execute(
+                "INSERT INTO public.accountable_payments"
+                "(id,company_id,project_id,company_scope_verified,"
+                "amount,spent_amount) VALUES "
+                "(30,4,17,TRUE,100,40),(130,5,117,TRUE,999,999),"
+                "(230,4,17,FALSE,999,999)"
+            )
+            cur.execute(
+                "INSERT INTO public.accountable_expenses"
+                "(id,payment_id,company_id,project_id,"
+                "company_scope_verified,amount) VALUES "
+                "(31,30,4,17,TRUE,40),(131,130,5,117,TRUE,999),"
+                "(231,230,4,17,FALSE,999)"
+            )
+            cur.execute(
+                "INSERT INTO public.expense_reports"
+                "(id,company_id,project_id,company_scope_verified,"
+                "issued_amount,spent_amount,balance) VALUES "
+                "(40,4,17,TRUE,100,40,61),"
+                "(140,5,117,TRUE,999,0,0),"
+                "(240,4,17,FALSE,999,0,0)"
+            )
+            cur.execute(
+                "INSERT INTO public.staff"
+                "(id,company_id,company_scope_verified,name) VALUES "
+                "(50,4,TRUE,'Private staff'),"
+                "(150,5,TRUE,'Foreign private staff'),"
+                "(250,4,FALSE,'Quarantined private staff')"
+            )
+            cur.execute(
+                "INSERT INTO public.salary_payments"
+                "(id,company_id,company_scope_verified,staff_id,month,amount) "
+                "VALUES (51,4,TRUE,50,'2026-13',1),"
+                "(151,5,TRUE,150,'PRIVATE',999),"
+                "(251,4,FALSE,250,'PRIVATE',999)"
+            )
+            cur.execute(
+                "INSERT INTO public.own_expenses"
+                "(id,company_id,project_id,company_scope_verified,"
+                "expense_id,amount) VALUES "
+                "(60,4,17,TRUE,61,1),(160,5,117,TRUE,161,999),"
+                "(260,4,17,FALSE,261,999)"
+            )
+            cur.execute(
+                "INSERT INTO public.expenses"
+                "(id,company_id,project_id,company_scope_verified,"
+                "own_expense_id,amount) VALUES "
+                "(61,4,17,TRUE,60,1),(161,5,117,TRUE,160,999),"
+                "(261,4,17,FALSE,260,999)"
+            )
+
+        before = self._snapshot()
+        observed = _ObservedConnection(self._new_connection())
+        report = run_accounting_exception_snapshot(lambda: observed, 4)
+        after = self._snapshot()
+
+        self.assertEqual(before, after)
+        self.assertEqual(report["state"], "review_required")
+        self.assertEqual(set(report["sourceCounts"].values()), {1})
+        self.assertEqual(
+            {finding["reasonCode"] for finding in report["findings"]},
+            {
+                "accounting_supplier_invoice_overpaid",
+                "accounting_expense_report_balance_mismatch",
+                "accounting_salary_month_invalid",
+            },
+        )
+        self.assertEqual(observed.observation["commits"], 0)
+        self.assertEqual(observed.observation["rollbacks"], 1)
+        self.assertTrue(observed.observation["closed"])
+        self.assertEqual(len(observed.observation["calls"]), 13)
+        self.assertEqual(len(observed.observation["fetched"]), 12)
+        self.assertEqual(
+            observed.observation["sessions"],
+            [{
+                "readonly": True,
+                "autocommit": False,
+                "isolation_level": "REPEATABLE READ",
+            }],
+        )
+        forbidden = {
+            "purpose", "note", "notes", "photo_url", "items_json",
+            "bank_account", "employee_name", "staff_name",
+        }
+        for _call_index, rows in observed.observation["fetched"]:
+            for row in rows:
+                self.assertTrue(forbidden.isdisjoint(row))
+
+    def test_accounting_exception_snapshot_real_numeric_and_row_boundaries(self):
+        plan = build_accounting_ownership_schema_plan()
+        schema_connection = self._new_connection()
+        try:
+            run_accounting_ownership_schema(
+                schema_connection,
+                apply=True,
+                expected_change_count=plan["changeCount"],
+                expected_plan_sha256=plan["planSha256"],
+            )
+        finally:
+            schema_connection.close()
+
+        source_tables = (
+            "brigade_payments,project_payments,brigade_contracts,"
+            "supplier_invoices,warehouse_invoices,accountable_expenses,"
+            "accountable_payments,expense_reports,salary_payments,staff,"
+            "own_expenses,expenses"
+        )
+        numeric_64 = "9" * 64
+        with self.connection.cursor() as cur:
+            cur.execute("TRUNCATE public." + source_tables.replace(",", ",public."))
+            cur.execute(
+                "INSERT INTO public.brigade_contracts"
+                "(id,company_id,project_id,status) VALUES (10,4,17,'active')"
+            )
+            cur.execute(
+                "INSERT INTO public.project_payments"
+                "(id,company_id,company_scope_verified,project_name,amount) "
+                "VALUES (12,4,TRUE,'Private project',%s)",
+                (numeric_64,),
+            )
+            cur.execute(
+                "INSERT INTO public.brigade_payments"
+                "(id,company_id,contract_id,project_payment_id,amount) "
+                "VALUES (11,4,10,12,%s)",
+                (numeric_64,),
+            )
+
+        before = self._snapshot()
+        accepted_connection = _ObservedConnection(self._new_connection())
+        accepted = run_accounting_exception_snapshot(
+            lambda: accepted_connection, 4
+        )
+        self.assertEqual(self._snapshot(), before)
+        self.assertEqual(accepted["state"], "clear")
+        self.assertEqual(len(accepted_connection.observation["calls"]), 13)
+        accepted_payment = accepted_connection.observation["fetched"][1][1][0]
+        self.assertEqual(accepted_payment["amount"], numeric_64)
+        self.assertEqual(accepted_payment["field_amount_bytes"], 64)
+        self.assertFalse(accepted_payment["payload_limit_exceeded"])
+
+        numeric_65 = "1" + ("0" * 64)
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "UPDATE public.brigade_payments SET amount=%s WHERE id=11",
+                (numeric_65,),
+            )
+        before = self._snapshot()
+        overflow_connection = _ObservedConnection(self._new_connection())
+        overflow = run_accounting_exception_snapshot(
+            lambda: overflow_connection, 4
+        )
+        self.assertEqual(self._snapshot(), before)
+        self.assertEqual(overflow["state"], "incomplete")
+        self.assertEqual(overflow["findings"], [])
+        self.assertEqual(len(overflow_connection.observation["calls"]), 3)
+        overflow_payment = overflow_connection.observation["fetched"][1][1][0]
+        self.assertIsNone(overflow_payment["amount"])
+        self.assertEqual(overflow_payment["field_amount_bytes"], 65)
+        self.assertTrue(overflow_payment["payload_limit_exceeded"])
+
+        with self.connection.cursor() as cur:
+            cur.execute("TRUNCATE public." + source_tables.replace(",", ",public."))
+            cur.execute(
+                "INSERT INTO public.staff"
+                "(id,company_id,company_scope_verified,name) "
+                "SELECT 1000+value,4,TRUE,'bounded' "
+                "FROM pg_catalog.generate_series(1,1001) AS value"
+            )
+        before = self._snapshot()
+        cardinality_connection = _ObservedConnection(self._new_connection())
+        cardinality = run_accounting_exception_snapshot(
+            lambda: cardinality_connection, 4
+        )
+        self.assertEqual(self._snapshot(), before)
+        self.assertEqual(cardinality["state"], "incomplete")
+        self.assertEqual(cardinality["findings"], [])
+        self.assertEqual(len(cardinality_connection.observation["calls"]), 10)
+        raw_staff = cardinality_connection.observation["fetched"][-1][1]
+        self.assertEqual(len(raw_staff), 1001)
+        self.assertTrue(all(
+            row["cardinality_limit_exceeded"] is True for row in raw_staff
+        ))
+        self.assertTrue(all(
+            row["payload_limit_exceeded"] is False for row in raw_staff
+        ))
+
+    def _accounting_exception_route_client(self):
+        observed_connections = []
+
+        def get_db():
+            observed = _ObservedConnection(self._new_connection())
+            observed_connections.append(observed)
+            return observed
+
+        def build_authentication(
+            _request,
+            authorization=None,
+            csrf_token=None,
+            *,
+            require_csrf=True,
+        ):
+            if (
+                authorization is not None
+                or csrf_token is not None
+                or require_csrf is not False
+            ):
+                raise ValueError("invalid test authentication")
+            return {
+                "authenticationKind": "cookie_session",
+                "sessionHash": "a" * 64,
+            }
+
+        app = FastAPI()
+        register_accounting_exception_check_routes(app, {
+            "enabled": True,
+            "allowed_company_ids": frozenset({4}),
+            "get_db": get_db,
+            "finance_roles": (
+                "директор", "зам_директора", "бухгалтер",
+            ),
+            "build_cookie_session_authentication": build_authentication,
+            "run_authorized_accounting_exception_snapshot": (
+                run_authorized_accounting_exception_snapshot
+            ),
+        })
+        return TestClient(app), observed_connections
+
+    @staticmethod
+    def _accounting_exception_route_headers():
+        return {
+            "Cookie": "stroyka_session=" + "s" * 64,
+            "X-Company-Id": "4",
+            "X-Company-Mode": "company",
+        }
+
+    def _seed_accounting_exception_route_fixture(self):
+        plan = build_accounting_ownership_schema_plan()
+        schema_connection = self._new_connection()
+        try:
+            run_accounting_ownership_schema(
+                schema_connection,
+                apply=True,
+                expected_change_count=plan["changeCount"],
+                expected_plan_sha256=plan["planSha256"],
+            )
+        finally:
+            schema_connection.close()
+        self._reset_runtime_auth_fixture()
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "UPDATE public.user_company_roles SET role='бухгалтер' "
+                "WHERE company_id=4"
+            )
+            cur.execute(
+                "TRUNCATE public.brigade_payments,public.project_payments,"
+                "public.brigade_contracts,public.supplier_invoices,"
+                "public.warehouse_invoices,public.accountable_expenses,"
+                "public.accountable_payments,public.expense_reports,"
+                "public.salary_payments,public.staff,public.own_expenses,"
+                "public.expenses"
+            )
+            cur.execute(
+                "INSERT INTO public.staff"
+                "(id,company_id,company_scope_verified,name) VALUES "
+                "(50,4,TRUE,'Local staff'),"
+                "(150,5,TRUE,'PRIVATE FOREIGN STAFF')"
+            )
+            cur.execute(
+                "INSERT INTO public.salary_payments"
+                "(id,company_id,company_scope_verified,staff_id,month,amount) "
+                "VALUES (51,4,TRUE,50,'2026-13',1),"
+                "(151,5,TRUE,150,'PRIVATE',999)"
+            )
+
+    def test_real_accounting_exception_http_authorizes_one_company_and_rolls_back(self):
+        self._seed_accounting_exception_route_fixture()
+        before = self._snapshot()
+        client, observed_connections = self._accounting_exception_route_client()
+
+        response = client.get(
+            "/accounting-exception-checks",
+            headers=self._accounting_exception_route_headers(),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.headers["cache-control"], "no-store, max-age=0",
+        )
+        value = response.json()
+        self.assertEqual(value["companyId"], 4)
+        self.assertEqual(value["state"], "review_required")
+        self.assertEqual(value["findingCount"], 1)
+        self.assertEqual(
+            value["findings"][0]["reasonCode"],
+            "accounting_salary_month_invalid",
+        )
+        self.assertNotIn("PRIVATE", response.text)
+
+        self.assertEqual(len(observed_connections), 1)
+        observed = observed_connections[0]
+        self.assertEqual(len(observed.observation["calls"]), 15)
+        self.assertEqual(observed.observation["commits"], 0)
+        self.assertEqual(observed.observation["rollbacks"], 1)
+        self.assertTrue(observed.observation["closed"])
+        self.assertEqual(observed.observation["sessions"], [{
+            "readonly": True,
+            "autocommit": False,
+            "isolation_level": "REPEATABLE READ",
+        }])
+        expected_markers = (
+            "pg_catalog.set_config",
+            "public.user_sessions",
+            "public.user_company_roles",
+            "public.brigade_contracts",
+            "public.brigade_payments",
+            "public.project_payments",
+            "public.supplier_invoices",
+            "public.warehouse_invoices",
+            "public.accountable_payments",
+            "public.accountable_expenses",
+            "public.expense_reports",
+            "public.staff",
+            "public.salary_payments",
+            "public.own_expenses",
+            "public.expenses",
+        )
+        for (sql, _params), marker in zip(
+            observed.observation["calls"], expected_markers,
+        ):
+            normalized = " ".join(sql.split())
+            self.assertTrue(normalized.upper().startswith("SELECT "))
+            self.assertIn(marker, normalized)
+            for mutation in ("INSERT ", "UPDATE ", "DELETE ", "ALTER "):
+                self.assertNotIn(mutation, normalized.upper())
+        self.assertNotIn("PRIVATE", repr(observed.observation["fetched"]))
+        self.assertEqual(self._snapshot(), before)
+
+    def test_real_accounting_exception_http_rejects_other_role_before_business_reads(self):
+        self._seed_accounting_exception_route_fixture()
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "UPDATE public.user_company_roles SET role='прораб' "
+                "WHERE company_id=4"
+            )
+        before = self._snapshot()
+        client, observed_connections = self._accounting_exception_route_client()
+
+        response = client.get(
+            "/accounting-exception-checks",
+            headers=self._accounting_exception_route_headers(),
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json(), {
+            "detail": "accounting_exception_review_request_forbidden",
+        })
+        self.assertEqual(len(observed_connections), 1)
+        observed = observed_connections[0]
+        self.assertEqual(len(observed.observation["calls"]), 3)
+        self.assertEqual(observed.observation["commits"], 0)
+        self.assertEqual(observed.observation["rollbacks"], 1)
+        self.assertTrue(observed.observation["closed"])
+        self.assertEqual(self._snapshot(), before)
+
+    def test_accounting_ownership_schema_is_idempotent_and_preserves_business_rows(self):
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "INSERT INTO public.projects(id,company_id,name) "
+                "VALUES (19,4,'Exact accounting')"
+            )
+            cur.execute(
+                "INSERT INTO public.staff(id,company_id,name,project) "
+                "VALUES (100,4,'PRIVATE STAFF','Exact accounting')"
+            )
+            cur.execute(
+                "INSERT INTO public.accountable_payments "
+                "(id,project_name,given_to_id,amount,spent_amount,purpose) "
+                "VALUES (200,'Exact accounting',100,100,20,'PRIVATE PURPOSE')"
+            )
+            cur.execute(
+                "INSERT INTO public.accountable_expenses "
+                "(id,payment_id,project_name,amount,description) "
+                "VALUES (300,200,'Exact accounting',20,'PRIVATE DESCRIPTION')"
+            )
+            cur.execute(
+                "INSERT INTO public.expense_reports "
+                "(id,employee_id,project_name,total_amount,issued_amount,"
+                "spent_amount,balance,purpose) VALUES "
+                "(400,100,'Exact accounting',20,100,20,80,'PRIVATE REPORT')"
+            )
+            cur.execute(
+                "INSERT INTO public.salary_payments(id,staff_id,amount,note) "
+                "VALUES (500,100,50,'PRIVATE SALARY')"
+            )
+            cur.execute(
+                "INSERT INTO public.own_expenses "
+                "(id,project_name,employee_id,amount,description,expense_id) "
+                "VALUES (600,'Exact accounting',999,10,'PRIVATE OWN',700)"
+            )
+            cur.execute(
+                "INSERT INTO public.expenses "
+                "(id,project,own_expense_id,amount,note) "
+                "VALUES (700,'Exact accounting',600,10,'PRIVATE MANUAL')"
+            )
+
+        business_columns = {
+            "staff": "id,company_id,name,project",
+            "accountable_payments": (
+                "id,project_name,given_to_id,amount,spent_amount,purpose"
+            ),
+            "accountable_expenses": (
+                "id,payment_id,project_name,amount,description"
+            ),
+            "expense_reports": (
+                "id,employee_id,project_name,total_amount,issued_amount,"
+                "spent_amount,balance,purpose"
+            ),
+            "salary_payments": "id,staff_id,amount,note",
+            "own_expenses": (
+                "id,project_name,employee_id,amount,description,expense_id"
+            ),
+            "expenses": "id,project,own_expense_id,amount,note",
+        }
+
+        def business_snapshot():
+            result = {}
+            with self.connection.cursor() as cur:
+                for table, columns in business_columns.items():
+                    cur.execute(
+                        "SELECT pg_catalog.row_to_json(row_value)::text FROM "
+                        f"(SELECT {columns} FROM public.{table} ORDER BY id) "
+                        "AS row_value"
+                    )
+                    result[table] = [row[0] for row in cur.fetchall()]
+            return result
+
+        before = business_snapshot()
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "SELECT table_name,column_name FROM information_schema.columns "
+                "WHERE table_schema='public' "
+                "AND column_name IN ('company_scope_verified','project_id') "
+                "AND table_name=ANY(%s) ORDER BY table_name,column_name",
+                (list(business_columns),),
+            )
+            schema_before_dry_run = cur.fetchall()
+
+        dry_connection = self._new_connection()
+        try:
+            dry_report = run_accounting_ownership_schema(dry_connection)
+        finally:
+            dry_connection.close()
+        self.assertTrue(dry_report["dryRun"])
+        self.assertEqual(dry_report["writesAttempted"], 0)
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "SELECT table_name,column_name FROM information_schema.columns "
+                "WHERE table_schema='public' "
+                "AND column_name IN ('company_scope_verified','project_id') "
+                "AND table_name=ANY(%s) ORDER BY table_name,column_name",
+                (list(business_columns),),
+            )
+            self.assertEqual(cur.fetchall(), schema_before_dry_run)
+
+        plan = build_accounting_ownership_schema_plan()
+        reports = []
+        for _attempt in range(2):
+            apply_connection = self._new_connection()
+            try:
+                reports.append(run_accounting_ownership_schema(
+                    apply_connection,
+                    apply=True,
+                    expected_change_count=plan["changeCount"],
+                    expected_plan_sha256=plan["planSha256"],
+                ))
+            finally:
+                apply_connection.close()
+
+        self.assertTrue(all(report["schemaReady"] for report in reports))
+        self.assertEqual(business_snapshot(), before)
+        with self.connection.cursor(cursor_factory=RealDictCursor) as cur:
+            for table in business_columns:
+                cur.execute(
+                    f"SELECT company_scope_verified FROM public.{table} "
+                    "ORDER BY id"
+                )
+                self.assertTrue(all(
+                    row["company_scope_verified"] is False
+                    for row in cur.fetchall()
+                ))
+
+    def test_accounting_ownership_constraints_and_inventory_fail_closed(self):
+        plan = build_accounting_ownership_schema_plan()
+        apply_connection = self._new_connection()
+        try:
+            run_accounting_ownership_schema(
+                apply_connection,
+                apply=True,
+                expected_change_count=plan["changeCount"],
+                expected_plan_sha256=plan["planSha256"],
+            )
+        finally:
+            apply_connection.close()
+
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "INSERT INTO public.projects(id,company_id,name) "
+                "VALUES (19,4,'Exact accounting'),(20,5,'Duplicate scope'),"
+                "(21,4,'Duplicate scope')"
+            )
+            cur.execute(
+                "INSERT INTO public.staff(id,company_id,name,project) VALUES "
+                "(100,4,'PRIVATE STAFF','Exact accounting'),"
+                "(101,4,'PRIVATE AMBIGUOUS','Duplicate scope'),"
+                "(102,5,'PRIVATE CONFLICT','Exact accounting')"
+            )
+            cur.execute(
+                "INSERT INTO public.accountable_payments "
+                "(id,project_name,given_to_id,amount,spent_amount,purpose) "
+                "VALUES "
+                "(200,'Exact accounting',100,100,20,'PRIVATE'),"
+                "(201,'Exact accounting',999,100,20,'PRIVATE ORPHAN'),"
+                "(202,'Exact accounting',102,100,20,'PRIVATE CONFLICT')"
+            )
+            cur.execute(
+                "INSERT INTO public.accountable_expenses "
+                "(id,payment_id,project_name,amount,description) "
+                "VALUES (300,200,'Exact accounting',20,'PRIVATE')"
+            )
+            cur.execute(
+                "INSERT INTO public.expense_reports "
+                "(id,employee_id,project_name,total_amount,issued_amount,"
+                "spent_amount,balance,purpose) VALUES "
+                "(400,100,'Exact accounting',20,100,20,80,'PRIVATE')"
+            )
+            cur.execute(
+                "INSERT INTO public.salary_payments(id,staff_id,amount,note) "
+                "VALUES (500,100,50,'PRIVATE')"
+            )
+            cur.execute(
+                "INSERT INTO public.own_expenses "
+                "(id,project_name,employee_id,amount,description,expense_id) "
+                "VALUES (600,'Exact accounting',999,10,'PRIVATE',700)"
+            )
+            cur.execute(
+                "INSERT INTO public.expenses "
+                "(id,project,own_expense_id,amount,note) "
+                "VALUES (700,'Exact accounting',600,10,'PRIVATE')"
+            )
+
+        inventory_connection = self._new_connection()
+        try:
+            inventory = run_accounting_ownership_inventory(inventory_connection)
+        finally:
+            inventory_connection.close()
+        self.assertEqual(
+            inventory["summary"],
+            {"provable": 7, "ambiguous": 1, "orphaned": 1, "conflicting": 2},
+        )
+        self.assertNotIn("PRIVATE", repr(inventory))
+
+        constraint_connection = self._new_connection()
+        try:
+            with constraint_connection.cursor() as cur:
+                with self.assertRaises(psycopg2.errors.CheckViolation):
+                    cur.execute(
+                        "UPDATE public.staff SET company_id=NULL,"
+                        "company_scope_verified=TRUE WHERE id=100"
+                    )
+                constraint_connection.rollback()
+                with self.assertRaises(psycopg2.errors.CheckViolation):
+                    cur.execute(
+                        "UPDATE public.accountable_payments SET company_id=4,"
+                        "project_id=19,amount='NaN'::numeric,"
+                        "company_scope_verified=TRUE WHERE id=200"
+                    )
+                constraint_connection.rollback()
+                cur.execute(
+                    "UPDATE public.own_expenses SET company_id=4,"
+                    "project_id=NULL,company_scope_verified=TRUE WHERE id=600"
+                )
+                constraint_connection.rollback()
+        finally:
+            constraint_connection.close()
+
+    def test_accounting_ownership_backfill_updates_only_provable_rows_and_is_idempotent(self):
+        schema_plan = build_accounting_ownership_schema_plan()
+        schema_connection = self._new_connection()
+        try:
+            run_accounting_ownership_schema(
+                schema_connection,
+                apply=True,
+                expected_change_count=schema_plan["changeCount"],
+                expected_plan_sha256=schema_plan["planSha256"],
+            )
+        finally:
+            schema_connection.close()
+
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "INSERT INTO public.projects(id,company_id,name) VALUES "
+                "(19,4,'Exact accounting'),(20,4,'Duplicate scope'),"
+                "(21,5,'Duplicate scope')"
+            )
+            cur.execute(
+                "INSERT INTO public.staff(id,company_id,name,project) VALUES "
+                "(100,4,'PRIVATE STAFF','Exact accounting'),"
+                "(101,4,'PRIVATE QUARANTINE','Duplicate scope')"
+            )
+            cur.execute(
+                "INSERT INTO public.accountable_payments "
+                "(id,project_name,given_to_id,amount,spent_amount,purpose) "
+                "VALUES (200,'Exact accounting',100,100,20,'PRIVATE PAYMENT')"
+            )
+            cur.execute(
+                "INSERT INTO public.accountable_expenses "
+                "(id,payment_id,project_name,amount,description) "
+                "VALUES (300,200,'Exact accounting',20,'PRIVATE EXPENSE')"
+            )
+            cur.execute(
+                "INSERT INTO public.expense_reports "
+                "(id,employee_id,project_name,total_amount,issued_amount,"
+                "spent_amount,balance,purpose) VALUES "
+                "(400,100,'Exact accounting',20,100,20,80,'PRIVATE REPORT')"
+            )
+            cur.execute(
+                "INSERT INTO public.salary_payments(id,staff_id,amount,note) "
+                "VALUES (500,100,50,'PRIVATE SALARY')"
+            )
+            cur.execute(
+                "INSERT INTO public.own_expenses "
+                "(id,project_name,employee_id,amount,description,expense_id) "
+                "VALUES (600,'Exact accounting',999,10,'PRIVATE OWN',700)"
+            )
+            cur.execute(
+                "INSERT INTO public.expenses "
+                "(id,project,own_expense_id,amount,note) "
+                "VALUES (700,'Exact accounting',600,10,'PRIVATE MANUAL')"
+            )
+
+        dry_connection = self._new_connection()
+        try:
+            dry = run_accounting_ownership_backfill(dry_connection)
+        finally:
+            dry_connection.close()
+        self.assertEqual(dry["readyCount"], 7)
+        self.assertEqual(dry["quarantinedCount"], 1)
+        self.assertEqual(dry["conflictingCount"], 0)
+        self.assertEqual(dry["writesAttempted"], 0)
+
+        apply_connection = self._new_connection()
+        try:
+            applied = run_accounting_ownership_backfill(
+                apply_connection,
+                apply=True,
+                expected_ready_count=dry["readyCount"],
+                expected_plan_sha256=dry["planSha256"],
+            )
+        finally:
+            apply_connection.close()
+        self.assertEqual(applied["updated"], 7)
+        self.assertTrue(applied["complete"])
+
+        with self.connection.cursor(cursor_factory=RealDictCursor) as cur:
+            for table, record_id in (
+                ("staff", 100),
+                ("accountable_payments", 200),
+                ("accountable_expenses", 300),
+                ("expense_reports", 400),
+                ("salary_payments", 500),
+                ("own_expenses", 600),
+                ("expenses", 700),
+            ):
+                project_column = (
+                    "NULL::integer AS project_id"
+                    if table in ("staff", "salary_payments")
+                    else "project_id"
+                )
+                cur.execute(
+                    f"SELECT company_id,{project_column},company_scope_verified "
+                    f"FROM public.{table} WHERE id=%s",
+                    (record_id,),
+                )
+                row = cur.fetchone()
+                self.assertEqual(row["company_id"], 4)
+                if table not in ("staff", "salary_payments"):
+                    self.assertEqual(row["project_id"], 19)
+                self.assertIs(row["company_scope_verified"], True)
+            cur.execute(
+                "SELECT company_id,company_scope_verified,name FROM public.staff "
+                "WHERE id=101"
+            )
+            quarantined = cur.fetchone()
+            self.assertEqual(quarantined["company_id"], 4)
+            self.assertIs(quarantined["company_scope_verified"], False)
+            self.assertEqual(quarantined["name"], "PRIVATE QUARANTINE")
+            cur.execute(
+                "SELECT purpose FROM public.accountable_payments WHERE id=200"
+            )
+            self.assertEqual(cur.fetchone()["purpose"], "PRIVATE PAYMENT")
+
+        second_dry_connection = self._new_connection()
+        try:
+            second_dry = run_accounting_ownership_backfill(second_dry_connection)
+        finally:
+            second_dry_connection.close()
+        self.assertEqual(second_dry["readyCount"], 0)
+        self.assertEqual(second_dry["verifiedCount"], 7)
+        self.assertEqual(second_dry["quarantinedCount"], 1)
+
+        second_apply_connection = self._new_connection()
+        try:
+            second_apply = run_accounting_ownership_backfill(
+                second_apply_connection,
+                apply=True,
+                expected_ready_count=0,
+                expected_plan_sha256=second_dry["planSha256"],
+            )
+        finally:
+            second_apply_connection.close()
+        self.assertEqual(second_apply["updated"], 0)
+        self.assertTrue(second_apply["complete"])
+
+    def test_accounting_ownership_backfill_rolls_back_all_rows_on_nonfinite_money(self):
+        schema_plan = build_accounting_ownership_schema_plan()
+        schema_connection = self._new_connection()
+        try:
+            run_accounting_ownership_schema(
+                schema_connection,
+                apply=True,
+                expected_change_count=schema_plan["changeCount"],
+                expected_plan_sha256=schema_plan["planSha256"],
+            )
+        finally:
+            schema_connection.close()
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "INSERT INTO public.projects(id,company_id,name) "
+                "VALUES (19,4,'Exact accounting')"
+            )
+            cur.execute(
+                "INSERT INTO public.staff(id,company_id,name,project) "
+                "VALUES (100,4,'PRIVATE STAFF','Exact accounting')"
+            )
+            cur.execute(
+                "INSERT INTO public.accountable_payments "
+                "(id,project_name,given_to_id,amount,spent_amount,purpose) "
+                "VALUES (200,'Exact accounting',100,'NaN'::numeric,20,'PRIVATE')"
+            )
+
+        dry_connection = self._new_connection()
+        try:
+            dry = run_accounting_ownership_backfill(dry_connection)
+        finally:
+            dry_connection.close()
+        self.assertEqual(dry["readyCount"], 2)
+
+        apply_connection = self._new_connection()
+        try:
+            with self.assertRaises(psycopg2.errors.CheckViolation):
+                run_accounting_ownership_backfill(
+                    apply_connection,
+                    apply=True,
+                    expected_ready_count=dry["readyCount"],
+                    expected_plan_sha256=dry["planSha256"],
+                )
+        finally:
+            apply_connection.close()
+
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "SELECT company_scope_verified FROM public.staff WHERE id=100"
+            )
+            self.assertIs(cur.fetchone()[0], False)
+            cur.execute(
+                "SELECT company_id,project_id,company_scope_verified "
+                "FROM public.accountable_payments WHERE id=200"
+            )
+            self.assertEqual(cur.fetchone(), (None, None, False))
+
+    def test_accountable_http_routes_enforce_verified_company_ownership(self):
+        schema_plan = build_accounting_ownership_schema_plan()
+        schema_connection = self._new_connection()
+        try:
+            run_accounting_ownership_schema(
+                schema_connection,
+                apply=True,
+                expected_change_count=schema_plan["changeCount"],
+                expected_plan_sha256=schema_plan["planSha256"],
+            )
+        finally:
+            schema_connection.close()
+
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "INSERT INTO public.platform_accounts(id,active,status) "
+                "VALUES (1,TRUE,'active')"
+            )
+            cur.execute(
+                "INSERT INTO public.companies(id,platform_account_id,active) "
+                "VALUES (4,1,TRUE),(5,1,TRUE)"
+            )
+            cur.execute(
+                "INSERT INTO public.users(id,active,two_factor_enabled) "
+                "VALUES (31,TRUE,TRUE)"
+            )
+            cur.execute(
+                "INSERT INTO public.user_company_roles "
+                "(id,user_id,platform_account_id,company_id,role,active,is_default) "
+                "VALUES (32,31,1,4,'директор',TRUE,TRUE)"
+            )
+            cur.execute(
+                "INSERT INTO public.projects(id,company_id,name) VALUES "
+                "(19,4,'Exact accounting'),(20,5,'Foreign accounting')"
+            )
+            cur.execute(
+                "INSERT INTO public.staff "
+                "(id,company_id,name,project,company_scope_verified) VALUES "
+                "(100,4,'Exact staff','Exact accounting',TRUE),"
+                "(101,5,'Foreign staff','Foreign accounting',TRUE),"
+                "(102,4,'Quarantined staff','Exact accounting',FALSE)"
+            )
+            cur.execute(
+                "INSERT INTO public.accountable_payments "
+                "(id,company_id,project_id,company_scope_verified,project_name,"
+                "given_to,given_to_id,amount,spent_amount,purpose,added_by) VALUES "
+                "(200,4,19,TRUE,'Exact accounting','Exact staff',100,100,20,"
+                "'VISIBLE','Server actor'),"
+                "(201,4,19,FALSE,'Exact accounting','Quarantined staff',102,"
+                "100,0,'PRIVATE QUARANTINED','Legacy actor'),"
+                "(202,5,20,TRUE,'Foreign accounting','Foreign staff',101,100,"
+                "0,'PRIVATE FOREIGN','Foreign actor')"
+            )
+            cur.execute(
+                "INSERT INTO public.accountable_expenses "
+                "(id,payment_id,company_id,project_id,company_scope_verified,"
+                "project_name,description,amount,added_by) VALUES "
+                "(300,200,4,19,TRUE,'Exact accounting','VISIBLE EXPENSE',20,"
+                "'Server actor'),"
+                "(301,200,4,19,FALSE,'Exact accounting','PRIVATE QUARANTINED',"
+                "20,'Legacy actor'),"
+                "(302,202,5,20,TRUE,'Foreign accounting','PRIVATE FOREIGN',20,"
+                "'Foreign actor')"
+            )
+
+        observed_connections = []
+
+        def get_db():
+            observed = _ObservedConnection(self._new_connection())
+            observed_connections.append(observed)
+            return observed
+
+        def resolve_context(cur, user, requested_company_id, action_mode, **headers):
+            return resolve_request_company_context(
+                cur,
+                user,
+                requested_company_id,
+                action_mode,
+                **headers,
+            )
+
+        app = FastAPI()
+        register_accountable_payments_module(app, {
+            "get_db": get_db,
+            "get_current_user": lambda: {
+                "id": 31,
+                "name": "Accounting director",
+                "role": "директор",
+            },
+            "resolve_work_company_context": resolve_context,
+            "effective_company_actors": effective_company_actors,
+            "finance_roles": ("директор", "бухгалтер"),
+        })
+        client = TestClient(app)
+        headers = {"X-Company-Id": "4", "X-Company-Mode": "company"}
+
+        payment_list = client.get("/accountable-payments", headers=headers)
+        expense_list = client.get("/accountable-expenses", headers=headers)
+        rejected_project = client.post(
+            "/accountable-payments",
+            headers=headers,
+            json={"projectId": 20, "givenToId": 100, "amount": 50},
+        )
+        created_payment = client.post(
+            "/accountable-payments",
+            headers=headers,
+            json={
+                "projectId": 19,
+                "givenToId": 100,
+                "amount": 50,
+                "projectName": "CLIENT FORGED",
+                "givenTo": "CLIENT FORGED",
+                "addedBy": "CLIENT FORGED",
+            },
+        )
+        created_expense = client.post(
+            "/accountable-expenses",
+            headers=headers,
+            json={
+                "paymentId": 200,
+                "amount": 30,
+                "description": "Real receipt",
+                "projectName": "CLIENT FORGED",
+                "addedBy": "CLIENT FORGED",
+            },
+        )
+
+        self.assertEqual(payment_list.status_code, 200)
+        self.assertEqual([row["id"] for row in payment_list.json()], [200])
+        self.assertEqual(expense_list.status_code, 200)
+        self.assertEqual([row["id"] for row in expense_list.json()], [300])
+        self.assertEqual(rejected_project.status_code, 404)
+        self.assertEqual(created_payment.status_code, 200)
+        self.assertEqual(created_expense.status_code, 200)
+        self.assertNotIn("PRIVATE", payment_list.text + expense_list.text)
+
+        with self.connection.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT company_id,project_id,company_scope_verified,"
+                "project_name,given_to,given_to_id,added_by "
+                "FROM public.accountable_payments "
+                "WHERE id=%s",
+                (created_payment.json()["id"],),
+            )
+            stored_payment = dict(cur.fetchone())
+            cur.execute(
+                "SELECT company_id,project_id,company_scope_verified,"
+                "project_name,added_by FROM public.accountable_expenses "
+                "WHERE description='Real receipt'"
+            )
+            stored_expense = dict(cur.fetchone())
+            cur.execute(
+                "SELECT spent_amount FROM public.accountable_payments "
+                "WHERE id=200"
+            )
+            spent_amount = cur.fetchone()["spent_amount"]
+        self.assertEqual(stored_payment, {
+            "company_id": 4,
+            "project_id": 19,
+            "company_scope_verified": True,
+            "project_name": "Exact accounting",
+            "given_to": "Exact staff",
+            "given_to_id": 100,
+            "added_by": "Accounting director",
+        })
+        self.assertEqual(stored_expense, {
+            "company_id": 4,
+            "project_id": 19,
+            "company_scope_verified": True,
+            "project_name": "Exact accounting",
+            "added_by": "Accounting director",
+        })
+        self.assertEqual(float(spent_amount), 50.0)
+        self.assertEqual(len(observed_connections), 5)
+        self.assertEqual(observed_connections[2].observation["commits"], 0)
+        self.assertEqual(observed_connections[2].observation["rollbacks"], 1)
+        self.assertEqual(observed_connections[3].observation["commits"], 1)
+        self.assertEqual(observed_connections[4].observation["commits"], 1)
+        self.assertTrue(all(
+            observed.observation["closed"] for observed in observed_connections
+        ))
+
+    def test_expense_report_http_routes_enforce_verified_company_ownership(self):
+        schema_plan = build_accounting_ownership_schema_plan()
+        schema_connection = self._new_connection()
+        try:
+            run_accounting_ownership_schema(
+                schema_connection,
+                apply=True,
+                expected_change_count=schema_plan["changeCount"],
+                expected_plan_sha256=schema_plan["planSha256"],
+            )
+        finally:
+            schema_connection.close()
+
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "INSERT INTO public.platform_accounts(id,active,status) "
+                "VALUES (1,TRUE,'active')"
+            )
+            cur.execute(
+                "INSERT INTO public.companies(id,platform_account_id,active) "
+                "VALUES (4,1,TRUE),(5,1,TRUE)"
+            )
+            cur.execute(
+                "INSERT INTO public.users(id,active,two_factor_enabled) "
+                "VALUES (31,TRUE,TRUE)"
+            )
+            cur.execute(
+                "INSERT INTO public.user_company_roles "
+                "(id,user_id,platform_account_id,company_id,role,active,is_default) "
+                "VALUES (32,31,1,4,'директор',TRUE,TRUE)"
+            )
+            cur.execute(
+                "INSERT INTO public.projects(id,company_id,name) VALUES "
+                "(19,4,'Одинаковый объект'),(20,5,'Одинаковый объект')"
+            )
+            cur.execute(
+                "INSERT INTO public.staff "
+                "(id,company_id,name,project,company_scope_verified) VALUES "
+                "(100,4,'Точный сотрудник','Одинаковый объект',TRUE),"
+                "(101,5,'Чужой сотрудник','Одинаковый объект',TRUE),"
+                "(102,4,'Карантинный сотрудник','Одинаковый объект',FALSE)"
+            )
+            cur.execute(
+                "INSERT INTO public.expense_reports "
+                "(id,company_id,project_id,company_scope_verified,employee_id,"
+                "employee_name,project_name,purpose,total_amount,issued_amount,"
+                "spent_amount,balance,items_json,status) VALUES "
+                "(400,4,19,TRUE,100,'Точный сотрудник','Одинаковый объект',"
+                "'VISIBLE',1000,1000,300,700,'[]','На утверждении'),"
+                "(401,4,19,FALSE,102,'Карантинный сотрудник','Одинаковый объект',"
+                "'PRIVATE QUARANTINED',1000,1000,0,1000,'[]','На утверждении'),"
+                "(402,5,20,TRUE,101,'Чужой сотрудник','Одинаковый объект',"
+                "'PRIVATE FOREIGN',1000,1000,0,1000,'[]','На утверждении')"
+            )
+
+        observed_connections = []
+
+        def get_db():
+            observed = _ObservedConnection(self._new_connection())
+            observed_connections.append(observed)
+            return observed
+
+        def resolve_context(cur, user, requested_company_id, action_mode, **headers):
+            return resolve_request_company_context(
+                cur, user, requested_company_id, action_mode, **headers,
+            )
+
+        app = FastAPI()
+        register_expense_reports_module(app, {
+            "get_db": get_db,
+            "get_current_user": lambda: {
+                "id": 31,
+                "name": "Accounting director",
+                "role": "директор",
+            },
+            "resolve_work_company_context": resolve_context,
+            "effective_company_actors": effective_company_actors,
+            "finance_roles": ("директор", "бухгалтер"),
+        })
+        client = TestClient(app)
+        headers = {"X-Company-Id": "4", "X-Company-Mode": "company"}
+
+        listed = client.get(
+            "/expense-reports",
+            headers=headers,
+            params={"project_name": "Одинаковый объект"},
+        )
+        rejected_project = client.post(
+            "/expense-reports",
+            headers=headers,
+            json={"projectId": 20, "employeeId": 100, "issuedAmount": 500},
+        )
+        created = client.post(
+            "/expense-reports",
+            headers=headers,
+            json={
+                "projectId": 19,
+                "employeeId": 100,
+                "employeeName": "CLIENT FORGED",
+                "projectName": "CLIENT FORGED",
+                "issuedAmount": 500,
+                "spentAmount": 125,
+                "balance": -999,
+                "purpose": "Real report",
+            },
+        )
+        approved = client.put(
+            "/expense-reports/400",
+            headers=headers,
+            json={
+                "status": "Утверждён",
+                "approvedBy": "CLIENT FORGED",
+                "approvedAt": "2000-01-01",
+            },
+        )
+        cancelled = client.delete("/expense-reports/400", headers=headers)
+        quarantined = client.put(
+            "/expense-reports/401",
+            headers=headers,
+            json={"status": "Утверждён"},
+        )
+
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual([row["id"] for row in listed.json()], [400])
+        self.assertNotIn("PRIVATE", listed.text)
+        self.assertEqual(rejected_project.status_code, 404)
+        self.assertEqual(created.status_code, 200)
+        self.assertEqual(approved.status_code, 200)
+        self.assertEqual(cancelled.status_code, 200)
+        self.assertEqual(quarantined.status_code, 404)
+
+        with self.connection.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT company_id,project_id,company_scope_verified,employee_id,"
+                "employee_name,project_name,issued_amount,spent_amount,balance "
+                "FROM public.expense_reports WHERE id=%s",
+                (created.json()["id"],),
+            )
+            stored = dict(cur.fetchone())
+            cur.execute(
+                "SELECT status,approved_by,purpose FROM public.expense_reports "
+                "WHERE id=400"
+            )
+            cancelled_row = dict(cur.fetchone())
+        self.assertEqual(stored["company_id"], 4)
+        self.assertEqual(stored["project_id"], 19)
+        self.assertIs(stored["company_scope_verified"], True)
+        self.assertEqual(stored["employee_id"], 100)
+        self.assertEqual(stored["employee_name"], "Точный сотрудник")
+        self.assertEqual(stored["project_name"], "Одинаковый объект")
+        self.assertEqual(float(stored["issued_amount"]), 500.0)
+        self.assertEqual(float(stored["spent_amount"]), 125.0)
+        self.assertEqual(float(stored["balance"]), 375.0)
+        self.assertEqual(cancelled_row["status"], "Аннулирован")
+        self.assertEqual(cancelled_row["approved_by"], "Accounting director")
+        self.assertNotIn("CLIENT FORGED", repr(stored) + repr(cancelled_row))
+        self.assertEqual(len(observed_connections), 6)
+        self.assertEqual(observed_connections[1].observation["commits"], 0)
+        self.assertEqual(observed_connections[1].observation["rollbacks"], 1)
+        self.assertEqual(observed_connections[2].observation["commits"], 1)
+        self.assertEqual(observed_connections[3].observation["commits"], 1)
+        self.assertEqual(observed_connections[4].observation["commits"], 1)
+        self.assertEqual(observed_connections[5].observation["commits"], 0)
+        self.assertEqual(observed_connections[5].observation["rollbacks"], 1)
+        self.assertTrue(all(
+            observed.observation["closed"] for observed in observed_connections
+        ))
+
+    def test_salary_payment_http_routes_enforce_verified_company_ownership(self):
+        schema_plan = build_accounting_ownership_schema_plan()
+        schema_connection = self._new_connection()
+        try:
+            run_accounting_ownership_schema(
+                schema_connection,
+                apply=True,
+                expected_change_count=schema_plan["changeCount"],
+                expected_plan_sha256=schema_plan["planSha256"],
+            )
+        finally:
+            schema_connection.close()
+
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "INSERT INTO public.platform_accounts(id,active,status) "
+                "VALUES (1,TRUE,'active')"
+            )
+            cur.execute(
+                "INSERT INTO public.companies(id,platform_account_id,active) "
+                "VALUES (4,1,TRUE),(5,1,TRUE)"
+            )
+            cur.execute(
+                "INSERT INTO public.users(id,active,two_factor_enabled) "
+                "VALUES (31,TRUE,TRUE)"
+            )
+            cur.execute(
+                "INSERT INTO public.user_company_roles "
+                "(id,user_id,platform_account_id,company_id,role,active,is_default) "
+                "VALUES (32,31,1,4,'директор',TRUE,TRUE)"
+            )
+            cur.execute(
+                "INSERT INTO public.staff "
+                "(id,company_id,name,project,company_scope_verified) VALUES "
+                "(100,4,'Точный сотрудник','Private project',TRUE),"
+                "(101,5,'Чужой сотрудник','Private project',TRUE),"
+                "(102,4,'Карантинный сотрудник','Private project',FALSE)"
+            )
+            cur.execute(
+                "INSERT INTO public.salary_payments "
+                "(id,company_id,company_scope_verified,staff_id,staff_name,"
+                "month,amount,paid_by,paid_date,note) VALUES "
+                "(500,4,TRUE,100,'Точный сотрудник','2026-07',1000,'Сервер',"
+                "'2026-08-22','VISIBLE'),"
+                "(501,4,FALSE,102,'Карантинный сотрудник','2026-07',1000,"
+                "'Legacy','2026-08-22','PRIVATE QUARANTINED'),"
+                "(502,5,TRUE,101,'Чужой сотрудник','2026-07',1000,'Foreign',"
+                "'2026-08-22','PRIVATE FOREIGN')"
+            )
+
+        observed_connections = []
+
+        def get_db():
+            observed = _ObservedConnection(self._new_connection())
+            observed_connections.append(observed)
+            return observed
+
+        def resolve_context(cur, user, requested_company_id, action_mode, **headers):
+            return resolve_request_company_context(
+                cur, user, requested_company_id, action_mode, **headers,
+            )
+
+        app = FastAPI()
+        register_salary_payments_module(app, {
+            "get_db": get_db,
+            "get_current_user": lambda: {
+                "id": 31,
+                "name": "Accounting director",
+                "role": "директор",
+            },
+            "resolve_work_company_context": resolve_context,
+            "effective_company_actors": effective_company_actors,
+            "finance_roles": ("директор", "бухгалтер"),
+        })
+        client = TestClient(app)
+        headers = {"X-Company-Id": "4", "X-Company-Mode": "company"}
+
+        listed = client.get("/salary-payments", headers=headers)
+        rejected_staff = client.post(
+            "/salary-payments",
+            headers=headers,
+            json={"staffId": 101, "month": "2026-07", "amount": 500},
+        )
+        created = client.post(
+            "/salary-payments",
+            headers=headers,
+            json={
+                "staffId": 100,
+                "staffName": "CLIENT FORGED",
+                "month": "2026-08",
+                "amount": 500,
+                "paidBy": "CLIENT FORGED",
+                "paidDate": "2000-01-01",
+            },
+        )
+        deleted = client.delete("/salary-payments/500", headers=headers)
+        quarantined = client.delete("/salary-payments/501", headers=headers)
+
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual([row["id"] for row in listed.json()], [500])
+        self.assertNotIn("PRIVATE", listed.text)
+        self.assertEqual(rejected_staff.status_code, 404)
+        self.assertEqual(created.status_code, 200)
+        self.assertEqual(deleted.status_code, 200)
+        self.assertEqual(quarantined.status_code, 404)
+
+        with self.connection.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT company_id,company_scope_verified,staff_id,staff_name,"
+                "month,amount,paid_by,paid_date FROM public.salary_payments "
+                "WHERE id=%s",
+                (created.json()["id"],),
+            )
+            stored = dict(cur.fetchone())
+            cur.execute("SELECT COUNT(*) AS count FROM public.salary_payments WHERE id=500")
+            deleted_count = cur.fetchone()["count"]
+        self.assertEqual(stored["company_id"], 4)
+        self.assertIs(stored["company_scope_verified"], True)
+        self.assertEqual(stored["staff_id"], 100)
+        self.assertEqual(stored["staff_name"], "Точный сотрудник")
+        self.assertEqual(stored["month"], "2026-08")
+        self.assertEqual(float(stored["amount"]), 500.0)
+        self.assertEqual(stored["paid_by"], "Accounting director")
+        self.assertNotEqual(stored["paid_date"], "2000-01-01")
+        self.assertEqual(deleted_count, 0)
+        self.assertNotIn("CLIENT FORGED", repr(stored))
+        self.assertEqual(len(observed_connections), 5)
+        self.assertEqual(observed_connections[1].observation["commits"], 0)
+        self.assertEqual(observed_connections[1].observation["rollbacks"], 1)
+        self.assertEqual(observed_connections[2].observation["commits"], 1)
+        self.assertEqual(observed_connections[3].observation["commits"], 1)
+        self.assertEqual(observed_connections[4].observation["commits"], 0)
+        self.assertEqual(observed_connections[4].observation["rollbacks"], 1)
+        self.assertTrue(all(
+            observed.observation["closed"] for observed in observed_connections
+        ))
+
+    def test_staff_http_routes_enforce_verified_company_ownership(self):
+        schema_plan = build_accounting_ownership_schema_plan()
+        schema_connection = self._new_connection()
+        try:
+            run_accounting_ownership_schema(
+                schema_connection,
+                apply=True,
+                expected_change_count=schema_plan["changeCount"],
+                expected_plan_sha256=schema_plan["planSha256"],
+            )
+        finally:
+            schema_connection.close()
+
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "INSERT INTO public.platform_accounts(id,active,status) "
+                "VALUES (1,TRUE,'active')"
+            )
+            cur.execute(
+                "INSERT INTO public.companies(id,platform_account_id,active) "
+                "VALUES (4,1,TRUE),(5,1,TRUE)"
+            )
+            cur.execute(
+                "INSERT INTO public.users(id,name,email,role,company_id,active,"
+                "two_factor_enabled) VALUES "
+                "(31,'Director','director@example.test','директор',4,TRUE,TRUE),"
+                "(41,'Shared','shared@example.test','мастер',4,TRUE,TRUE)"
+            )
+            cur.execute(
+                "INSERT INTO public.user_company_roles "
+                "(id,user_id,platform_account_id,company_id,role,active,is_default) "
+                "VALUES (32,31,1,4,'директор',TRUE,TRUE),"
+                "(42,41,1,4,'мастер',TRUE,TRUE),"
+                "(43,41,1,5,'мастер',TRUE,FALSE)"
+            )
+            cur.execute(
+                "INSERT INTO public.staff "
+                "(id,company_id,name,role,project,email_work,company_scope_verified) "
+                "VALUES (100,4,'Visible','мастер','','',TRUE),"
+                "(101,5,'PRIVATE FOREIGN','мастер','','',TRUE),"
+                "(102,4,'PRIVATE QUARANTINED','мастер','','',FALSE),"
+                "(103,4,'Shared member','мастер','','shared@example.test',TRUE)"
+            )
+            cur.execute(
+                "INSERT INTO public.staff_documents(id,staff_id,doc_type,title) "
+                "VALUES (800,100,'другое','VISIBLE DOCUMENT'),"
+                "(801,101,'другое','PRIVATE FOREIGN DOCUMENT')"
+            )
+
+        observed_connections = []
+        current_user = {"id": 31, "name": "Request name", "role": "директор"}
+
+        def get_db():
+            observed = _ObservedConnection(self._new_connection())
+            observed_connections.append(observed)
+            return observed
+
+        def resolve_context(cur, user, requested_company_id, action_mode, **headers):
+            return resolve_request_company_context(
+                cur, user, requested_company_id, action_mode, **headers,
+            )
+
+        def require_roles(*_roles):
+            return lambda: current_user
+
+        app = FastAPI()
+        register_staff_module(app, {
+            "get_db": get_db,
+            "get_current_user": lambda: current_user,
+            "require_roles": require_roles,
+            "staff_view_roles": ("директор", "прораб"),
+            "staff_manage_roles": ("директор",),
+            "staff_full_view_roles": ("директор", "бухгалтер"),
+            "user_project_names": lambda actor: actor.get("assignedProjects") or [],
+            "safe_project_list": lambda value: value if isinstance(value, list) else [],
+            "prepare_user_access_scope": lambda cur, role, project, projects, packages: (
+                projects, packages,
+            ),
+            "date_or_none": lambda value: value or None,
+            "log_audit": lambda *_args: None,
+            "resolve_work_company_context": resolve_context,
+            "effective_company_actors": effective_company_actors,
+        })
+        client = TestClient(app)
+        headers = {"X-Company-Id": "4", "X-Company-Mode": "company"}
+
+        listed = client.get("/staff", headers=headers)
+        created = client.post(
+            "/staff", headers=headers,
+            json={"name": "Created", "role": "мастер"},
+        )
+        updated = client.put(
+            "/staff/100", headers=headers,
+            json={"name": "Updated", "role": "мастер"},
+        )
+        foreign_update = client.put(
+            "/staff/101", headers=headers,
+            json={"name": "Forged", "role": "мастер"},
+        )
+        foreign_profile = client.get("/staff/102/profile", headers=headers)
+        document_created = client.post(
+            "/staff/100/documents", headers=headers,
+            json={"title": "Created document", "createdBy": "CLIENT FORGED"},
+        )
+        foreign_document = client.post(
+            "/staff/101/documents", headers=headers,
+            json={"title": "Forged"},
+        )
+        foreign_document_delete = client.delete(
+            "/staff-documents/801", headers=headers,
+        )
+        document_deleted = client.delete("/staff-documents/800", headers=headers)
+        fired = client.delete("/staff/103", headers=headers)
+
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual([row["id"] for row in listed.json()], [100, 103])
+        self.assertNotIn("PRIVATE", listed.text)
+        self.assertEqual(created.status_code, 200)
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(foreign_update.status_code, 404)
+        self.assertEqual(foreign_profile.status_code, 404)
+        self.assertEqual(document_created.status_code, 200)
+        self.assertEqual(foreign_document.status_code, 404)
+        self.assertEqual(foreign_document_delete.status_code, 404)
+        self.assertEqual(document_deleted.status_code, 200)
+        self.assertEqual(fired.status_code, 200)
+        self.assertEqual(fired.json()["disabledUsers"], 1)
+
+        with self.connection.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT company_id,company_scope_verified,name FROM public.staff "
+                "WHERE id=%s",
+                (created.json()["id"],),
+            )
+            stored_staff = dict(cur.fetchone())
+            cur.execute(
+                "SELECT created_by FROM public.staff_documents WHERE id=%s",
+                (document_created.json()["id"],),
+            )
+            stored_document = dict(cur.fetchone())
+            cur.execute(
+                "SELECT company_id,active FROM public.user_company_roles "
+                "WHERE user_id=41 ORDER BY company_id"
+            )
+            memberships = [dict(row) for row in cur.fetchall()]
+            cur.execute("SELECT active FROM public.users WHERE id=41")
+            shared_user_active = cur.fetchone()["active"]
+            cur.execute(
+                "SELECT COUNT(*) AS count FROM public.staff_documents WHERE id=800"
+            )
+            deleted_document_count = cur.fetchone()["count"]
+
+        self.assertEqual(stored_staff, {
+            "company_id": 4,
+            "company_scope_verified": True,
+            "name": "Created",
+        })
+        self.assertEqual(stored_document["created_by"], "Request name")
+        self.assertNotEqual(stored_document["created_by"], "CLIENT FORGED")
+        self.assertEqual(memberships, [
+            {"company_id": 4, "active": False},
+            {"company_id": 5, "active": True},
+        ])
+        self.assertIs(shared_user_active, True)
+        self.assertEqual(deleted_document_count, 0)
+        self.assertTrue(all(
+            observed.observation["closed"] for observed in observed_connections
+        ))
+
+    def test_manual_and_own_expense_routes_preserve_exact_company_ownership(self):
+        schema_plan = build_accounting_ownership_schema_plan()
+        schema_connection = self._new_connection()
+        try:
+            run_accounting_ownership_schema(
+                schema_connection,
+                apply=True,
+                expected_change_count=schema_plan["changeCount"],
+                expected_plan_sha256=schema_plan["planSha256"],
+            )
+        finally:
+            schema_connection.close()
+
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "INSERT INTO public.platform_accounts(id,active,status) "
+                "VALUES (1,TRUE,'active')"
+            )
+            cur.execute(
+                "INSERT INTO public.companies(id,platform_account_id,active) "
+                "VALUES (4,1,TRUE),(5,1,TRUE)"
+            )
+            cur.execute(
+                "INSERT INTO public.users(id,name,email,role,company_id,active,"
+                "two_factor_enabled) VALUES "
+                "(31,'Director','director@example.test','директор',4,TRUE,TRUE),"
+                "(41,'Worker','worker@example.test','мастер',4,TRUE,TRUE)"
+            )
+            cur.execute(
+                "INSERT INTO public.user_company_roles "
+                "(id,user_id,platform_account_id,company_id,role,active,is_default) "
+                "VALUES (32,31,1,4,'директор',TRUE,TRUE),"
+                "(42,41,1,4,'мастер',TRUE,TRUE)"
+            )
+            cur.execute(
+                "INSERT INTO public.projects(id,company_id,name) VALUES "
+                "(19,4,'Shared project'),(20,5,'Shared project')"
+            )
+            cur.execute(
+                "INSERT INTO public.staff "
+                "(id,company_id,name,role,project,email_work,company_scope_verified) "
+                "VALUES (100,4,'Director staff','директор','Shared project',"
+                "'director@example.test',TRUE),"
+                "(103,4,'Worker staff','мастер','Shared project',"
+                "'worker@example.test',TRUE),"
+                "(101,5,'PRIVATE FOREIGN','мастер','Shared project',"
+                "'foreign@example.test',TRUE)"
+            )
+            cur.execute(
+                "INSERT INTO public.own_expenses "
+                "(id,company_id,project_id,company_scope_verified,project_name,"
+                "employee_name,employee_id,description,amount,status) VALUES "
+                "(600,4,19,TRUE,'Shared project','Worker staff',103,'VISIBLE',10,'Ожидает'),"
+                "(601,4,19,TRUE,'Shared project','Director staff',100,'OTHER',20,'Ожидает'),"
+                "(602,5,20,TRUE,'Shared project','PRIVATE FOREIGN',101,'PRIVATE FOREIGN',30,'Ожидает'),"
+                "(603,4,19,FALSE,'Shared project','Worker staff',103,'PRIVATE QUARANTINED',40,'Ожидает')"
+            )
+            cur.execute(
+                "INSERT INTO public.expenses "
+                "(id,company_id,project_id,company_scope_verified,project,category,amount,note,source) VALUES "
+                "(700,4,19,TRUE,'Shared project','other',10,'VISIBLE','manual'),"
+                "(701,5,20,TRUE,'Shared project','other',20,'PRIVATE FOREIGN','manual'),"
+                "(702,4,19,FALSE,'Shared project','other',30,'PRIVATE QUARANTINED','manual')"
+            )
+
+        observed_connections = []
+        current_user = {
+            "id": 31,
+            "name": "Accounting director",
+            "email": "director@example.test",
+            "role": "директор",
+        }
+
+        def get_db():
+            observed = _ObservedConnection(self._new_connection())
+            observed_connections.append(observed)
+            return observed
+
+        def resolve_context(cur, user, requested_company_id, action_mode, **headers):
+            return resolve_request_company_context(
+                cur, user, requested_company_id, action_mode, **headers,
+            )
+
+        def require_roles(*_roles):
+            return lambda: current_user
+
+        shared_deps = {
+            "get_db": get_db,
+            "get_current_user": lambda: current_user,
+            "resolve_work_company_context": resolve_context,
+            "effective_company_actors": effective_company_actors,
+        }
+        app = FastAPI()
+        register_expenses_module(app, {
+            **shared_deps,
+            "finance_roles": ("директор", "бухгалтер"),
+        })
+        register_own_expenses_module(app, {
+            **shared_deps,
+            "require_roles": require_roles,
+            "own_expense_roles": ("директор", "бухгалтер", "мастер"),
+            "own_expense_review_roles": ("директор", "бухгалтер"),
+            "finance_roles": ("директор", "бухгалтер"),
+            "leadership_roles": ("директор",),
+            "worker_execution_roles": ("мастер",),
+            "warehouse_roles": ("кладовщик",),
+            "own_expense_no_project_category": "personal_no_project",
+            "require_project_access": lambda *_args: None,
+            "user_project_names": lambda actor: actor.get("assignedProjects") or [actor.get("projectName")],
+            "safe_project_list": lambda value: value if isinstance(value, list) else [],
+            "safe_float": lambda value, default=None: float(value) if value not in (None, "") else default,
+            "supply_work_package": lambda value=None: value or "Основная",
+            "create_warehouse_invoice_record": lambda *_args: {"ok": True},
+        })
+        client = TestClient(app)
+        headers = {"X-Company-Id": "4", "X-Company-Mode": "company"}
+
+        manual_list = client.get("/expenses", headers=headers)
+        foreign_manual = client.post(
+            "/expenses", headers=headers,
+            json={"projectId": 20, "amount": 50},
+        )
+        created_manual = client.post(
+            "/expenses", headers=headers,
+            json={
+                "projectId": 19,
+                "project": "CLIENT FORGED",
+                "amount": 50,
+                "addedBy": "CLIENT FORGED",
+            },
+        )
+
+        current_user.update({
+            "id": 41,
+            "name": "Worker account",
+            "email": "worker@example.test",
+            "role": "мастер",
+        })
+        own_list = client.get("/own-expenses", headers=headers)
+        created_own = client.post(
+            "/own-expenses", headers=headers,
+            json={
+                "projectId": 19,
+                "projectName": "CLIENT FORGED",
+                "employeeId": 100,
+                "employeeName": "CLIENT FORGED",
+                "description": "Worker receipt",
+                "amount": 75,
+            },
+        )
+
+        current_user.update({
+            "id": 31,
+            "name": "Accounting director",
+            "email": "director@example.test",
+            "role": "директор",
+        })
+        approved = client.put(
+            f"/own-expenses/{created_own.json()['id']}",
+            headers=headers,
+            json={"status": "Возмещено", "approvedBy": "CLIENT FORGED"},
+        )
+        quarantined = client.put(
+            "/own-expenses/603", headers=headers, json={"status": "Возмещено"},
+        )
+        deleted = client.delete("/own-expenses/600", headers=headers)
+
+        self.assertEqual([row["id"] for row in manual_list.json()], [700])
+        self.assertNotIn("PRIVATE", manual_list.text)
+        self.assertEqual(foreign_manual.status_code, 404)
+        self.assertEqual(created_manual.status_code, 200)
+        self.assertEqual([row["id"] for row in own_list.json()], [600])
+        self.assertNotIn("PRIVATE", own_list.text)
+        self.assertEqual(created_own.status_code, 200)
+        self.assertEqual(approved.status_code, 200)
+        self.assertEqual(quarantined.status_code, 404)
+        self.assertEqual(deleted.status_code, 200)
+
+        with self.connection.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT company_id,project_id,company_scope_verified,project,added_by "
+                "FROM public.expenses WHERE id=%s",
+                (created_manual.json()["id"],),
+            )
+            stored_manual = dict(cur.fetchone())
+            cur.execute(
+                "SELECT company_id,project_id,company_scope_verified,project_name,"
+                "employee_id,employee_name,status,approved_by,expense_id "
+                "FROM public.own_expenses WHERE id=%s",
+                (created_own.json()["id"],),
+            )
+            stored_own = dict(cur.fetchone())
+            cur.execute(
+                "SELECT company_id,project_id,company_scope_verified,project,"
+                "own_expense_id,source FROM public.expenses WHERE id=%s",
+                (created_own.json()["expenseId"],),
+            )
+            stored_mirror = dict(cur.fetchone())
+            cur.execute("SELECT COUNT(*) AS count FROM public.own_expenses WHERE id=600")
+            deleted_count = cur.fetchone()["count"]
+
+        self.assertEqual(stored_manual, {
+            "company_id": 4,
+            "project_id": 19,
+            "company_scope_verified": True,
+            "project": "Shared project",
+            "added_by": "Accounting director",
+        })
+        self.assertEqual(stored_own["company_id"], 4)
+        self.assertEqual(stored_own["project_id"], 19)
+        self.assertIs(stored_own["company_scope_verified"], True)
+        self.assertEqual(stored_own["project_name"], "Shared project")
+        self.assertEqual(stored_own["employee_id"], 103)
+        self.assertEqual(stored_own["employee_name"], "Worker staff")
+        self.assertEqual(stored_own["status"], "Возмещено")
+        self.assertEqual(stored_own["approved_by"], "Accounting director")
+        self.assertEqual(stored_mirror, {
+            "company_id": 4,
+            "project_id": 19,
+            "company_scope_verified": True,
+            "project": "Shared project",
+            "own_expense_id": created_own.json()["id"],
+            "source": "own_expense",
+        })
+        self.assertEqual(stored_own["expense_id"], created_own.json()["expenseId"])
+        self.assertEqual(deleted_count, 0)
+        self.assertNotIn("CLIENT FORGED", repr(stored_manual) + repr(stored_own))
+        self.assertTrue(all(
+            observed.observation["closed"] for observed in observed_connections
+        ))
+
+    def test_accounting_ownership_remediation_is_exact_audited_and_atomic(self):
+        schema_plan = build_accounting_ownership_schema_plan()
+        schema_connection = self._new_connection()
+        try:
+            run_accounting_ownership_schema(
+                schema_connection,
+                apply=True,
+                expected_change_count=schema_plan["changeCount"],
+                expected_plan_sha256=schema_plan["planSha256"],
+            )
+        finally:
+            schema_connection.close()
+
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "INSERT INTO public.companies(id,platform_account_id,active) "
+                "VALUES (4,1,TRUE)"
+            )
+            cur.execute(
+                "INSERT INTO public.users(id,active,two_factor_enabled) "
+                "VALUES (31,TRUE,TRUE)"
+            )
+            cur.execute(
+                "INSERT INTO public.user_company_roles "
+                "(id,user_id,platform_account_id,company_id,role,active) "
+                "VALUES (32,31,1,4,'бухгалтер',TRUE)"
+            )
+            cur.execute(
+                "INSERT INTO public.projects(id,company_id,name) "
+                "VALUES (19,4,'Exact accounting')"
+            )
+            cur.execute(
+                "INSERT INTO public.staff "
+                "(id,company_id,name,project,company_scope_verified) "
+                "VALUES (100,4,'PRIVATE STAFF','Exact accounting',TRUE)"
+            )
+            cur.execute(
+                "INSERT INTO public.accountable_payments "
+                "(id,project_name,given_to_id,amount,spent_amount,purpose) "
+                "VALUES "
+                "(200,'Exact accounting',100,100,20,'PRIVATE PAYMENT'),"
+                "(201,'Exact accounting',100,200,30,'PRIVATE ROLLBACK')"
+            )
+
+        request = build_accounting_ownership_remediation_request(
+            source="accountable_payments",
+            record_id=200,
+            company_id=4,
+            project_id=19,
+            operator_user_id=31,
+        )
+        dry_connection = self._new_connection()
+        try:
+            dry = run_accounting_ownership_remediation(
+                dry_connection, request
+            )
+        finally:
+            dry_connection.close()
+        self.assertEqual(dry["state"], "ready")
+        self.assertTrue(dry["rolledBack"])
+
+        apply_connection = self._new_connection()
+        try:
+            applied = run_accounting_ownership_remediation(
+                apply_connection,
+                request,
+                apply=True,
+                expected_evidence_sha256=dry["evidenceSha256"],
+            )
+        finally:
+            apply_connection.close()
+        self.assertEqual(applied["state"], "already_verified")
+        self.assertEqual(applied["writesAttempted"], 1)
+        self.assertEqual(applied["auditWritesAttempted"], 1)
+        self.assertIs(type(applied["auditEventId"]), int)
+
+        with self.connection.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT company_id,project_id,company_scope_verified,purpose "
+                "FROM public.accountable_payments WHERE id=200"
+            )
+            stored = cur.fetchone()
+            self.assertEqual(stored["company_id"], 4)
+            self.assertEqual(stored["project_id"], 19)
+            self.assertIs(stored["company_scope_verified"], True)
+            self.assertEqual(stored["purpose"], "PRIVATE PAYMENT")
+            cur.execute(
+                "SELECT user_id,user_name,user_role,action,entity_type,"
+                "entity_id,owner_scope,company_id,project_id,description "
+                "FROM public.audit_log ORDER BY id"
+            )
+            audit_rows = cur.fetchall()
+        self.assertEqual(len(audit_rows), 1)
+        self.assertEqual(dict(audit_rows[0]), {
+            "user_id": 31,
+            "user_name": "system",
+            "user_role": "migration",
+            "action": "accounting_ownership_remediated",
+            "entity_type": "accountable_payments",
+            "entity_id": 200,
+            "owner_scope": "company",
+            "company_id": 4,
+            "project_id": 19,
+            "description": "exact-id ownership remediation",
+        })
+        self.assertNotIn("PRIVATE", repr(audit_rows))
+
+        second_dry_connection = self._new_connection()
+        try:
+            second_dry = run_accounting_ownership_remediation(
+                second_dry_connection, request
+            )
+        finally:
+            second_dry_connection.close()
+        self.assertEqual(second_dry["state"], "already_verified")
+
+        second_apply_connection = self._new_connection()
+        try:
+            second_apply = run_accounting_ownership_remediation(
+                second_apply_connection,
+                request,
+                apply=True,
+                expected_evidence_sha256=second_dry["evidenceSha256"],
+            )
+        finally:
+            second_apply_connection.close()
+        self.assertEqual(second_apply["writesAttempted"], 0)
+        self.assertEqual(second_apply["auditWritesAttempted"], 0)
+        with self.connection.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM public.audit_log")
+            self.assertEqual(cur.fetchone()[0], 1)
+
+        rollback_request = build_accounting_ownership_remediation_request(
+            source="accountable_payments",
+            record_id=201,
+            company_id=4,
+            project_id=19,
+            operator_user_id=31,
+        )
+        rollback_dry_connection = self._new_connection()
+        try:
+            rollback_dry = run_accounting_ownership_remediation(
+                rollback_dry_connection, rollback_request
+            )
+        finally:
+            rollback_dry_connection.close()
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "ALTER TABLE public.audit_log ADD CONSTRAINT "
+                "ck_test_reject_accounting_201 CHECK "
+                "(entity_id <> 201 OR action <> "
+                "'accounting_ownership_remediated')"
+            )
+        try:
+            rollback_connection = self._new_connection()
+            try:
+                with self.assertRaises(psycopg2.errors.CheckViolation):
+                    run_accounting_ownership_remediation(
+                        rollback_connection,
+                        rollback_request,
+                        apply=True,
+                        expected_evidence_sha256=(
+                            rollback_dry["evidenceSha256"]
+                        ),
+                    )
+            finally:
+                rollback_connection.close()
+        finally:
+            with self.connection.cursor() as cur:
+                cur.execute(
+                    "ALTER TABLE public.audit_log DROP CONSTRAINT "
+                    "ck_test_reject_accounting_201"
+                )
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "SELECT company_id,project_id,company_scope_verified "
+                "FROM public.accountable_payments WHERE id=201"
+            )
+            self.assertEqual(cur.fetchone(), (None, None, False))
+            cur.execute("SELECT COUNT(*) FROM public.audit_log")
+            self.assertEqual(cur.fetchone()[0], 1)
+            cur.execute(
+                "UPDATE public.user_company_roles SET active=FALSE "
+                "WHERE id=32"
+            )
+        inactive_operator_connection = self._new_connection()
+        try:
+            with self.assertRaisesRegex(
+                RuntimeError, "accounting_remediation_owner_invalid"
+            ):
+                run_accounting_ownership_remediation(
+                    inactive_operator_connection, rollback_request
+                )
+        finally:
+            inactive_operator_connection.close()
+
+    def _human_action_ledger_counts(self):
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM public.human_action_proposals "
+                "WHERE company_id=4 AND project_id=17"
+            )
+            proposals = cur.fetchone()[0]
+            cur.execute(
+                "SELECT event_kind,COUNT(*) "
+                "FROM public.human_action_events "
+                "WHERE company_id=4 AND project_id=17 "
+                "GROUP BY event_kind ORDER BY event_kind"
+            )
+            events = dict(cur.fetchall())
+            cur.execute(
+                "SELECT COUNT(*) FROM public.audit_log "
+                "WHERE company_id=4 AND project_id=17 "
+                "AND action='warehouse_anomaly_review_acknowledged' "
+                "AND entity_type='human_action_proposal'"
+            )
+            audit = cur.fetchone()[0]
+        return {"proposals": proposals, "events": events, "audit": audit}
+
+    def _prove_human_action_kernel_lifecycle(self):
+        stored, selection, _result_sets = _real_a7_case()
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "INSERT INTO public.platform_accounts(id,active,status) "
+                "VALUES (1,TRUE,'active')"
+            )
+            cur.execute(
+                "INSERT INTO public.companies"
+                "(id,platform_account_id,active) VALUES (4,1,TRUE)"
+            )
+            cur.execute(
+                "INSERT INTO public.users(id,active,two_factor_enabled) "
+                "VALUES (7,TRUE,TRUE)"
+            )
+            cur.execute(
+                "INSERT INTO public.user_sessions "
+                "(id,user_id,session_hash,revoked_at,expires_at,"
+                "two_factor_passed) VALUES "
+                "(8,7,%s,NULL,clock_timestamp()+interval '1 hour',TRUE)",
+                ("a" * 64,),
+            )
+            cur.execute(
+                "INSERT INTO public.user_company_roles "
+                "(id,user_id,platform_account_id,company_id,role,active) "
+                "VALUES (9,7,1,4,'директор',TRUE)"
+            )
+            cur.execute(
+                "UPDATE public.warehouse_invoices "
+                "SET project='Other project' WHERE id=101"
+            )
+        self._insert_runtime_job(result_json=stored)
+
+        authentication = {
+            "authenticationKind": "cookie_session",
+            "sessionHash": "a" * 64,
+        }
+        body = {
+            "projectId": 17,
+            "jobId": 123,
+            "selected": selection,
+        }
+        preview_claims = runtime_contract._parse_warehouse_anomaly_runtime_claims(
+            authentication,
+            company_mode="company",
+            company_id="4",
+            body=body,
+        )
+        preview_connection = self._new_connection()
+        preview_cur = None
+        try:
+            preview_connection.set_session(
+                readonly=True,
+                autocommit=False,
+                isolation_level="REPEATABLE READ",
+            )
+            preview_cur = preview_connection.cursor(
+                cursor_factory=RealDictCursor,
+            )
+            human_action_kernel._configure_transaction(preview_cur)
+            preview = human_action_kernel._rebuild_current_preview(
+                preview_cur, preview_claims,
+            )
+        finally:
+            preview_connection.rollback()
+            if preview_cur is not None:
+                preview_cur.close()
+            preview_connection.close()
+        self.assertEqual(preview["state"], "preview_ready")
+        self.assertEqual(
+            {
+                key: preview["candidate"][key]
+                for key in ("subjectKind", "subjectId", "anomalyCode")
+            },
+            selection,
+        )
+        protected_before = {
+            table: rows
+            for table, rows in self._snapshot().items()
+            if table != "audit_log"
+        }
+
+        proposal = human_action_kernel.create_review_acknowledgement_proposal(
+            self._new_connection,
+            authentication,
+            company_mode="company",
+            company_id="4",
+            body=body,
+        )
+        self.assertEqual(proposal["state"], "proposed")
+        self.assertEqual(proposal["sourceJobId"], 123)
+        self.assertFalse(proposal["idempotent"])
+        repeated_proposal = (
+            human_action_kernel.create_review_acknowledgement_proposal(
+                self._new_connection,
+                authentication,
+                company_mode="company",
+                company_id="4",
+                body=body,
+            )
+        )
+        self.assertEqual(repeated_proposal["proposalId"], proposal["proposalId"])
+        self.assertTrue(repeated_proposal["idempotent"])
+        self.assertEqual(self._human_action_ledger_counts(), {
+            "proposals": 1,
+            "events": {"proposed": 1},
+            "audit": 0,
+        })
+
+        decision = {
+            "proposalId": proposal["proposalId"],
+            "proposalSha256": proposal["proposalSha256"],
+            "decision": "approve",
+        }
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "UPDATE public.warehouse_invoices "
+                "SET project='Private project' WHERE id=101"
+            )
+        stale_counts = self._human_action_ledger_counts()
+        with self.assertRaises(human_action_kernel.HumanActionKernelError) as raised:
+            human_action_kernel.decide_review_acknowledgement(
+                self._new_connection,
+                authentication,
+                decision,
+                company_mode="company",
+                company_id="4",
+            )
+        self.assertEqual(
+            raised.exception.args,
+            ("human_action_kernel_source_stale",),
+        )
+        self.assertEqual(self._human_action_ledger_counts(), stale_counts)
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "UPDATE public.warehouse_invoices "
+                "SET project='Other project' WHERE id=101"
+            )
+
+        applied = human_action_kernel.decide_review_acknowledgement(
+            self._new_connection,
+            authentication,
+            decision,
+            company_mode="company",
+            company_id="4",
+        )
+        self.assertEqual(applied["state"], "applied")
+        self.assertEqual(applied["writesAttempted"], 3)
+        self.assertFalse(applied["idempotent"])
+        applied_replay = human_action_kernel.decide_review_acknowledgement(
+            self._new_connection,
+            authentication,
+            decision,
+            company_mode="company",
+            company_id="4",
+        )
+        self.assertEqual(applied_replay["eventId"], applied["eventId"])
+        self.assertEqual(applied_replay["auditEventId"], applied["auditEventId"])
+        self.assertTrue(applied_replay["idempotent"])
+        self.assertEqual(applied_replay["writesAttempted"], 0)
+
+        rejected_proposal = (
+            human_action_kernel.create_review_acknowledgement_proposal(
+                self._new_connection,
+                authentication,
+                company_mode="company",
+                company_id="4",
+                body=body,
+            )
+        )
+        rejected_decision = {
+            "proposalId": rejected_proposal["proposalId"],
+            "proposalSha256": rejected_proposal["proposalSha256"],
+            "decision": "reject",
+        }
+        rejected = human_action_kernel.decide_review_acknowledgement(
+            self._new_connection,
+            authentication,
+            rejected_decision,
+            company_mode="company",
+            company_id="4",
+        )
+        self.assertEqual(rejected["state"], "rejected")
+        self.assertIsNone(rejected["auditEventId"])
+        rejected_replay = human_action_kernel.decide_review_acknowledgement(
+            self._new_connection,
+            authentication,
+            rejected_decision,
+            company_mode="company",
+            company_id="4",
+        )
+        self.assertEqual(rejected_replay["eventId"], rejected["eventId"])
+        self.assertTrue(rejected_replay["idempotent"])
+
+        concurrent_proposal = (
+            human_action_kernel.create_review_acknowledgement_proposal(
+                self._new_connection,
+                authentication,
+                company_mode="company",
+                company_id="4",
+                body=body,
+            )
+        )
+        concurrent_payload = {
+            "proposalId": concurrent_proposal["proposalId"],
+            "proposalSha256": concurrent_proposal["proposalSha256"],
+            "decision": "approve",
+        }
+        original_read_proposal = human_action_kernel._read_proposal
+        decision_barrier = threading.Barrier(2)
+
+        def coordinated_read(cur, payload, company_id):
+            decision_barrier.wait(timeout=10)
+            return original_read_proposal(cur, payload, company_id)
+
+        def concurrent_decisions():
+            try:
+                return (
+                    "receipt",
+                    human_action_kernel.decide_review_acknowledgement(
+                        self._new_connection,
+                        authentication,
+                        concurrent_payload,
+                        company_mode="company",
+                        company_id="4",
+                    ),
+                )
+            except human_action_kernel.HumanActionKernelError as error:
+                return ("error", error.code)
+
+        with mock.patch.object(
+            human_action_kernel,
+            "_read_proposal",
+            side_effect=coordinated_read,
+        ):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                race_results = list(executor.map(
+                    lambda _index: concurrent_decisions(), range(2),
+                ))
+
+        race_receipts = [
+            result[1] for result in race_results if result[0] == "receipt"
+        ]
+        race_errors = [
+            result[1] for result in race_results if result[0] == "error"
+        ]
+        self.assertEqual(sum(
+            receipt["state"] == "applied" and not receipt["idempotent"]
+            for receipt in race_receipts
+        ), 1)
+        self.assertTrue(all(
+            receipt["state"] == "applied" for receipt in race_receipts
+        ))
+        self.assertTrue(all(
+            code == "human_action_kernel_write_conflict"
+            for code in race_errors
+        ))
+        self.assertEqual(len(race_receipts) + len(race_errors), 2)
+
+        race_replay = human_action_kernel.decide_review_acknowledgement(
+            self._new_connection,
+            authentication,
+            concurrent_payload,
+            company_mode="company",
+            company_id="4",
+        )
+        self.assertTrue(race_replay["idempotent"])
+        self.assertEqual(race_replay["writesAttempted"], 0)
+        self.assertEqual(self._human_action_ledger_counts(), {
+            "proposals": 3,
+            "events": {
+                "applied": 2,
+                "approved": 2,
+                "proposed": 3,
+                "rejected": 1,
+            },
+            "audit": 2,
+        })
+        history = human_action_kernel.list_review_acknowledgement_history(
+            self._new_connection,
+            authentication,
+            company_mode="company",
+            company_id="4",
+            project_id=17,
+            before_event_id=None,
+            limit=100,
+        )
+        self.assertEqual(history["humanActionHistoryVersion"], 1)
+        self.assertEqual(history["companyId"], 4)
+        self.assertEqual(history["projectId"], 17)
+        self.assertIsNone(history["nextBeforeId"])
+        self.assertEqual(len(history["items"]), 8)
+        history_ids = [item["eventId"] for item in history["items"]]
+        self.assertEqual(history_ids, sorted(history_ids, reverse=True))
+        history_kinds = [item["eventKind"] for item in history["items"]]
+        self.assertEqual(history_kinds.count("proposed"), 3)
+        self.assertEqual(history_kinds.count("approved"), 2)
+        self.assertEqual(history_kinds.count("applied"), 2)
+        self.assertEqual(history_kinds.count("rejected"), 1)
+        self.assertEqual(
+            {item["proposalId"] for item in history["items"]},
+            {
+                proposal["proposalId"],
+                rejected_proposal["proposalId"],
+                concurrent_proposal["proposalId"],
+            },
+        )
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "SELECT entity_id,COUNT(*) FROM public.audit_log "
+                "WHERE company_id=4 AND project_id=17 "
+                "AND action='warehouse_anomaly_review_acknowledged' "
+                "AND entity_type='human_action_proposal' "
+                "GROUP BY entity_id ORDER BY entity_id"
+            )
+            self.assertEqual(cur.fetchall(), [
+                (proposal["proposalId"], 1),
+                (concurrent_proposal["proposalId"], 1),
+            ])
+
+        protected_after = {
+            table: rows
+            for table, rows in self._snapshot().items()
+            if table != "audit_log"
+        }
+        self.assertEqual(protected_after, protected_before)
+
+    def test_zz_human_action_schema_is_guarded_append_only_and_idempotent(self):
+        before = self._snapshot()
+        probe_connection = self._new_connection()
+        try:
+            with probe_connection.cursor(cursor_factory=RealDictCursor) as cur:
+                initial_catalog = collect_human_action_schema_catalog(cur)
+            probe_connection.rollback()
+        finally:
+            probe_connection.close()
+        initial_plan = build_human_action_schema_plan(initial_catalog)
+        self.assertTrue(initial_plan["readyForApply"], initial_plan)
+        dry_connection = self._new_connection()
+        try:
+            dry = run_human_action_schema_migration(dry_connection)
+        finally:
+            dry_connection.close()
+        self.assertTrue(dry["dryRun"])
+        self.assertTrue(dry["readyForApply"])
+        self.assertEqual(dry["changeCount"], 12)
+        self.assertEqual(dry["writesAttempted"], 0)
+        self.assertEqual(self._snapshot(), before)
+
+        invalid_connection = self._new_connection()
+        try:
+            with self.assertRaisesRegex(
+                HumanActionSchemaMigrationError,
+                "human_action_schema_apply_guard_mismatch",
+            ):
+                run_human_action_schema_migration(
+                    invalid_connection,
+                    apply=True,
+                    confirm=HUMAN_ACTION_SCHEMA_CONFIRMATION,
+                    expected_change_count=dry["changeCount"],
+                    expected_plan_sha256="0" * 64,
+                )
+        finally:
+            invalid_connection.close()
+        self.assertEqual(self._snapshot(), before)
+
+        apply_connection = self._new_connection()
+        try:
+            applied = run_human_action_schema_migration(
+                apply_connection,
+                apply=True,
+                confirm=HUMAN_ACTION_SCHEMA_CONFIRMATION,
+                expected_change_count=dry["changeCount"],
+                expected_plan_sha256=dry["planSha256"],
+            )
+        finally:
+            apply_connection.close()
+        self.assertTrue(applied["committed"])
+        self.assertEqual(applied["writesAttempted"], 12)
+        self.assertEqual(self._snapshot(), before)
+
+        repeat_connection = self._new_connection()
+        try:
+            repeat = run_human_action_schema_migration(repeat_connection)
+        finally:
+            repeat_connection.close()
+        self.assertTrue(repeat["complete"])
+        self.assertEqual(repeat["changeCount"], 0)
+        self.assertEqual(repeat["writesAttempted"], 0)
+
+        with self.connection.cursor() as cur:
+            cur.execute("DROP INDEX public.uq_hae_decision")
+            cur.execute(
+                "CREATE UNIQUE INDEX uq_hae_decision "
+                "ON public.human_action_events (proposal_id) "
+                "WHERE event_kind='approved'"
+            )
+        drift_connection = self._new_connection()
+        try:
+            drift = run_human_action_schema_migration(drift_connection)
+        finally:
+            drift_connection.close()
+        self.assertFalse(drift["ok"])
+        self.assertEqual(drift["blockers"], ["human_action_schema_drift"])
+        self.assertEqual(drift["changes"], [])
+        with self.connection.cursor() as cur:
+            cur.execute("DROP INDEX public.uq_hae_decision")
+            cur.execute(
+                "CREATE UNIQUE INDEX uq_hae_decision "
+                "ON public.human_action_events (proposal_id) "
+                "WHERE event_kind IN ('approved','rejected')"
+            )
+            cur.execute(
+                "ALTER TABLE public.human_action_proposals "
+                "ENABLE ROW LEVEL SECURITY"
+            )
+        rls_connection = self._new_connection()
+        try:
+            rls_drift = run_human_action_schema_migration(rls_connection)
+        finally:
+            rls_connection.close()
+        self.assertFalse(rls_drift["ok"])
+        self.assertEqual(
+            rls_drift["blockers"], ["human_action_schema_drift"]
+        )
+        with self.connection.cursor() as cur:
+            cur.execute(
+                "ALTER TABLE public.human_action_proposals "
+                "DISABLE ROW LEVEL SECURITY"
+            )
+
+        self._prove_human_action_kernel_lifecycle()
+
+        with self.connection.cursor() as cur:
+            company_id = 9900
+            project_id = 9903
+            user_id = 9901
+            membership_id = 9902
+            source_job_id = 9904
+            cur.execute(
+                "INSERT INTO public.companies(id,name,active) "
+                "VALUES (%s,'A12 fixture',TRUE)",
+                (company_id,),
+            )
+            cur.execute(
+                "INSERT INTO public.projects(id,company_id,name) "
+                "VALUES (%s,%s,'A12 fixture')",
+                (project_id, company_id),
+            )
+            cur.execute(
+                "INSERT INTO public.users(id,company_id,role,active) "
+                "VALUES (%s,%s,'директор',TRUE)",
+                (user_id, company_id),
+            )
+            cur.execute(
+                "INSERT INTO public.user_company_roles "
+                "(id,user_id,company_id,role,active) "
+                "VALUES (%s,%s,%s,'директор',TRUE)",
+                (membership_id, user_id, company_id),
+            )
+            cur.execute(
+                "INSERT INTO public.agent_jobs "
+                "(id,company_id,project_id) VALUES (%s,%s,%s)",
+                (source_job_id, company_id, project_id),
+            )
+            cur.execute(
+                "INSERT INTO public.human_action_proposals ("
+                "contract_version,action_kind,effect_kind,company_id,project_id,"
+                "source_job_id,subject_kind,subject_id,anomaly_code,source_content_version,"
+                "source_content_sha256,proposer_user_id,proposer_membership_id,"
+                "created_at,expires_at,idempotency_key,proposal_sha256) VALUES ("
+                "1,'warehouse_anomaly_review_acknowledged','audit_only',%s,%s,%s,"
+                "'warehouseInvoice',61,'warehouse_invoice_project_mismatch',1,"
+                "%s,%s,%s,statement_timestamp(),statement_timestamp()+INTERVAL '15 minutes',"
+                "%s,%s) RETURNING id,created_at,expires_at",
+                (
+                    company_id, project_id, source_job_id, "1" * 64,
+                    user_id, membership_id,
+                    "human-action:v1:" + "2" * 64, "3" * 64,
+                ),
+            )
+            proposal_id, created_at, expires_at = cur.fetchone()
+            event_values = (
+                proposal_id, "3" * 64, company_id, project_id, user_id,
+                membership_id, user_id, membership_id, created_at, expires_at,
+            )
+            cur.execute(
+                "INSERT INTO public.human_action_events ("
+                "contract_version,event_kind,proposal_id,proposal_sha256,"
+                "action_kind,company_id,project_id,subject_kind,subject_id,"
+                "proposer_user_id,proposer_membership_id,actor_user_id,"
+                "actor_membership_id,proposal_created_at,proposal_expires_at,"
+                "occurred_at,event_sha256) VALUES ("
+                "1,'proposed',%s,%s,'warehouse_anomaly_review_acknowledged',"
+                "%s,%s,'warehouseInvoice',61,%s,%s,%s,%s,%s,%s,"
+                "clock_timestamp(),%s)",
+                (*event_values, "4" * 64),
+            )
+
+        with self.assertRaises(psycopg2.Error):
+            with self.connection.cursor() as cur:
+                cur.execute(
+                    "UPDATE public.human_action_proposals "
+                    "SET subject_id=62 WHERE id=%s",
+                    (proposal_id,),
+                )
+        with self.assertRaises(psycopg2.Error):
+            with self.connection.cursor() as cur:
+                cur.execute("TRUNCATE public.human_action_events")
+
+        with self.connection.cursor() as cur:
+            decision_sql = (
+                "INSERT INTO public.human_action_events ("
+                "contract_version,event_kind,proposal_id,proposal_sha256,"
+                "action_kind,company_id,project_id,subject_kind,subject_id,"
+                "proposer_user_id,proposer_membership_id,actor_user_id,"
+                "actor_membership_id,proposal_created_at,proposal_expires_at,"
+                "occurred_at,event_sha256) VALUES ("
+                "1,%s,%s,%s,'warehouse_anomaly_review_acknowledged',%s,%s,"
+                "'warehouseInvoice',61,%s,%s,%s,%s,%s,%s,clock_timestamp(),%s)"
+            )
+            cur.execute(
+                decision_sql,
+                ("approved", *event_values, "5" * 64),
+            )
+            with self.assertRaises(psycopg2.errors.UniqueViolation):
+                cur.execute(
+                    decision_sql,
+                    ("rejected", *event_values, "6" * 64),
+                )
+            cur.execute(
+                decision_sql,
+                ("applied", *event_values, "7" * 64),
+            )
+            with self.assertRaises(psycopg2.errors.UniqueViolation):
+                cur.execute(
+                    decision_sql,
+                    ("applied", *event_values, "8" * 64),
+                )
 
 
 def load_tests(loader, _tests, _pattern):
