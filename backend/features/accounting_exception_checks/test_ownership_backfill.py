@@ -80,6 +80,34 @@ class _Connection:
 
 
 class AccountingOwnershipBackfillPlanTests(unittest.TestCase):
+    def test_plan_accepts_company_only_proof_for_sources_with_nullable_project(self):
+        records = [
+            _decision("staff", 1, project_id=None),
+            _decision("salary_payments", 2, project_id=None),
+            _decision("own_expenses", 3, project_id=None),
+            _decision("expenses", 4, project_id=None),
+        ]
+        stored = _empty_stored()
+        stored["staff"] = [_stored("staff", 1, company_id=4)]
+        stored["salary_payments"] = [_stored("salary_payments", 2)]
+        stored["own_expenses"] = [_stored("own_expenses", 3)]
+        stored["expenses"] = [_stored("expenses", 4)]
+
+        plan = ownership_backfill.build_accounting_ownership_backfill_plan(records, stored)
+
+        self.assertEqual(plan["readyCount"], 4)
+        self.assertTrue(all(item["projectId"] is None for item in plan["ready"]))
+
+    def test_plan_still_requires_project_for_project_scoped_sources(self):
+        stored = _empty_stored()
+        stored["accountable_payments"] = [_stored("accountable_payments", 1)]
+
+        with self.assertRaisesRegex(ValueError, "accounting_backfill_input_invalid"):
+            ownership_backfill.build_accounting_ownership_backfill_plan(
+                [_decision("accountable_payments", 1, project_id=None)],
+                stored,
+            )
+
     def test_plan_updates_only_unverified_provable_rows_and_quarantines_the_rest(self):
         records = [
             _decision("staff", 1),

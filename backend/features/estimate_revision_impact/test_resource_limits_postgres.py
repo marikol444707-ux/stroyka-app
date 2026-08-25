@@ -1084,6 +1084,8 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
                    assigned_packages JSONB DEFAULT '[]'::jsonb,
                    company_id INTEGER,
                    active BOOLEAN,
+                   telegram_id TEXT,
+                   telegram_chat_id TEXT,
                    two_factor_enabled BOOLEAN,
                    failed_login_count INTEGER DEFAULT 0,
                    locked_until TIMESTAMP
@@ -1316,6 +1318,8 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
                    photo_url TEXT,
                    email_work TEXT,
                    email_personal TEXT,
+                   telegram_id TEXT,
+                   telegram_chat_id TEXT,
                    phone_extra TEXT,
                    passport_series TEXT,
                    passport_number TEXT,
@@ -3850,14 +3854,24 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
 
         with self.connection.cursor() as cur:
             cur.execute(
+                "INSERT INTO public.users(id,name,email,role,company_id,active) "
+                "VALUES (31,'Exact identity','identity@example.test','мастер',4,TRUE)"
+            )
+            cur.execute(
+                "INSERT INTO public.user_company_roles "
+                "(id,user_id,company_id,role,active,is_default) "
+                "VALUES (32,31,4,'мастер',TRUE,TRUE)"
+            )
+            cur.execute(
                 "INSERT INTO public.projects(id,company_id,name) VALUES "
                 "(19,4,'Exact accounting'),(20,4,'Duplicate scope'),"
                 "(21,5,'Duplicate scope')"
             )
             cur.execute(
-                "INSERT INTO public.staff(id,company_id,name,project) VALUES "
-                "(100,4,'PRIVATE STAFF','Exact accounting'),"
-                "(101,4,'PRIVATE QUARANTINE','Duplicate scope')"
+                "INSERT INTO public.staff(id,company_id,name,project,email_personal) VALUES "
+                "(100,4,'PRIVATE STAFF','Exact accounting',NULL),"
+                "(101,4,'PRIVATE QUARANTINE','Duplicate scope',NULL),"
+                "(102,4,'PRIVATE IDENTITY','','identity@example.test')"
             )
             cur.execute(
                 "INSERT INTO public.accountable_payments "
@@ -3877,17 +3891,20 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
             )
             cur.execute(
                 "INSERT INTO public.salary_payments(id,staff_id,amount,note) "
-                "VALUES (500,100,50,'PRIVATE SALARY')"
+                "VALUES (500,100,50,'PRIVATE SALARY'),"
+                "(501,102,50,'PRIVATE IDENTITY SALARY')"
             )
             cur.execute(
                 "INSERT INTO public.own_expenses "
                 "(id,project_name,employee_id,amount,description,expense_id) "
-                "VALUES (600,'Exact accounting',999,10,'PRIVATE OWN',700)"
+                "VALUES (600,'Exact accounting',999,10,'PRIVATE OWN',700),"
+                "(601,'',31,10,'PRIVATE IDENTITY OWN',701)"
             )
             cur.execute(
                 "INSERT INTO public.expenses "
                 "(id,project,own_expense_id,amount,note) "
-                "VALUES (700,'Exact accounting',600,10,'PRIVATE MANUAL')"
+                "VALUES (700,'Exact accounting',600,10,'PRIVATE MANUAL'),"
+                "(701,'',601,10,'PRIVATE IDENTITY MANUAL')"
             )
 
         dry_connection = self._new_connection()
@@ -3895,7 +3912,7 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
             dry = run_accounting_ownership_backfill(dry_connection)
         finally:
             dry_connection.close()
-        self.assertEqual(dry["readyCount"], 7)
+        self.assertEqual(dry["readyCount"], 11)
         self.assertEqual(dry["quarantinedCount"], 1)
         self.assertEqual(dry["conflictingCount"], 0)
         self.assertEqual(dry["writesAttempted"], 0)
@@ -3910,7 +3927,7 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
             )
         finally:
             apply_connection.close()
-        self.assertEqual(applied["updated"], 7)
+        self.assertEqual(applied["updated"], 11)
         self.assertTrue(applied["complete"])
 
         with self.connection.cursor(cursor_factory=RealDictCursor) as cur:
@@ -3922,6 +3939,10 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
                 ("salary_payments", 500),
                 ("own_expenses", 600),
                 ("expenses", 700),
+                ("staff", 102),
+                ("salary_payments", 501),
+                ("own_expenses", 601),
+                ("expenses", 701),
             ):
                 project_column = (
                     "NULL::integer AS project_id"
@@ -3936,7 +3957,12 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
                 row = cur.fetchone()
                 self.assertEqual(row["company_id"], 4)
                 if table not in ("staff", "salary_payments"):
-                    self.assertEqual(row["project_id"], 19)
+                    expected_project_id = (
+                        None
+                        if (table, record_id) in (("own_expenses", 601), ("expenses", 701))
+                        else 19
+                    )
+                    self.assertEqual(row["project_id"], expected_project_id)
                 self.assertIs(row["company_scope_verified"], True)
             cur.execute(
                 "SELECT company_id,company_scope_verified,name FROM public.staff "
@@ -3957,7 +3983,7 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
         finally:
             second_dry_connection.close()
         self.assertEqual(second_dry["readyCount"], 0)
-        self.assertEqual(second_dry["verifiedCount"], 7)
+        self.assertEqual(second_dry["verifiedCount"], 11)
         self.assertEqual(second_dry["quarantinedCount"], 1)
 
         second_apply_connection = self._new_connection()

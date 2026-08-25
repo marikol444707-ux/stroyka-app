@@ -155,6 +155,85 @@ class AccountingOwnershipClassificationTests(unittest.TestCase):
         self.assertIsNone(row["companyId"])
         self.assertIsNone(row["projectId"])
 
+    def test_exact_identity_proves_company_without_inventing_a_project(self):
+        report = classify_accounting_ownership({
+            "projects": [{"id": 10, "company_id": 1, "name": "Точный"}],
+            "staff": [{
+                "id": 100,
+                "company_id": 1,
+                "project": "",
+                "exact_identity_company_ids": [1],
+            }],
+            "accountable_payments": [{
+                "id": 200,
+                "project_name": "Точный",
+                "given_to_id": 100,
+            }],
+            "accountable_expenses": [],
+            "expense_reports": [],
+            "salary_payments": [{"id": 500, "staff_id": 100}],
+            "own_expenses": [{
+                "id": 600,
+                "project_name": "",
+                "employee_id": 1761,
+                "employee_user_company_ids": [1],
+                "employee_staff_identity_company_ids": [],
+            }],
+            "expenses": [{"id": 700, "project": "", "own_expense_id": 600}],
+        })
+
+        records = _by_record(report)
+        for source, record_id in (
+            ("staff", 100),
+            ("accountable_payments", 200),
+            ("salary_payments", 500),
+            ("own_expenses", 600),
+            ("expenses", 700),
+        ):
+            with self.subTest(source=source):
+                self.assertEqual(records[(source, record_id)]["classification"], "provable")
+                self.assertEqual(records[(source, record_id)]["companyId"], 1)
+                expected_project_id = 10 if source == "accountable_payments" else None
+                self.assertEqual(records[(source, record_id)]["projectId"], expected_project_id)
+
+    def test_exact_identity_candidates_fail_closed_on_conflict_or_invalid_input(self):
+        report = classify_accounting_ownership({
+            "projects": [{"id": 10, "company_id": 1, "name": "Точный"}],
+            "staff": [{
+                "id": 100,
+                "company_id": 1,
+                "project": "",
+                "exact_identity_company_ids": [1, 2],
+            }],
+            "accountable_payments": [],
+            "accountable_expenses": [],
+            "expense_reports": [],
+            "salary_payments": [],
+            "own_expenses": [{
+                "id": 600,
+                "project_name": "Точный",
+                "employee_id": 1761,
+                "employee_user_company_ids": [2],
+                "employee_staff_identity_company_ids": [],
+            }],
+            "expenses": [],
+        })
+
+        records = _by_record(report)
+        self.assertEqual(records[("staff", 100)]["classification"], "ambiguous")
+        self.assertEqual(records[("own_expenses", 600)]["classification"], "conflicting")
+
+        with self.assertRaisesRegex(ValueError, "accounting_ownership_input_invalid"):
+            classify_accounting_ownership({
+                "projects": [],
+                "staff": [{
+                    "id": 100,
+                    "company_id": 1,
+                    "project": "",
+                    "exact_identity_company_ids": "1",
+                }],
+            })
+
     def test_output_is_allowlisted_and_does_not_copy_sensitive_fields(self):
         marker = "PRIVATE_SALARY_AND_PURPOSE"
         report = classify_accounting_ownership({

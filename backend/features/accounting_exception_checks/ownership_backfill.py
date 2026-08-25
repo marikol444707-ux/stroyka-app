@@ -34,6 +34,11 @@ _SOURCES = (
     "expenses",
 )
 _NO_PROJECT_COLUMN = frozenset(("staff", "salary_payments"))
+_PROJECT_REQUIRED = frozenset((
+    "accountable_payments",
+    "accountable_expenses",
+    "expense_reports",
+))
 _CLASSIFICATIONS = frozenset(("provable", "ambiguous", "orphaned", "conflicting"))
 
 _STATE_QUERIES = {
@@ -84,8 +89,13 @@ def _normalize_records(records):
         project_id = row.get("projectId")
         if classification == "provable":
             company_id = _positive_int(company_id)
-            project_id = _positive_int(project_id)
-            if company_id is None or project_id is None:
+            if project_id is not None:
+                project_id = _positive_int(project_id)
+            if (
+                company_id is None
+                or (row.get("projectId") is not None and project_id is None)
+                or (source in _PROJECT_REQUIRED and project_id is None)
+            ):
                 raise _input_error() from None
         elif company_id is not None or project_id is not None:
             raise _input_error() from None

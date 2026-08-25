@@ -33,8 +33,29 @@ _SOURCE_QUERIES = (
     ),
     (
         "staff",
-        """SELECT id,company_id,project
-             FROM public.staff
+        """SELECT staff_row.id,staff_row.company_id,staff_row.project,
+                  ARRAY(
+                      SELECT DISTINCT role.company_id
+                        FROM public.users user_row
+                        JOIN public.user_company_roles role
+                          ON role.user_id=user_row.id
+                         AND role.active IS TRUE
+                       WHERE user_row.active IS TRUE
+                         AND (
+                             ((NULLIF(BTRIM(staff_row.email_work),'') IS NOT NULL
+                               OR NULLIF(BTRIM(staff_row.email_personal),'') IS NOT NULL)
+                              AND LOWER(BTRIM(user_row.email)) IN (
+                                  LOWER(BTRIM(staff_row.email_work)),
+                                  LOWER(BTRIM(staff_row.email_personal))
+                              ))
+                             OR (NULLIF(BTRIM(staff_row.telegram_id),'') IS NOT NULL
+                                 AND user_row.telegram_id=staff_row.telegram_id)
+                             OR (NULLIF(BTRIM(staff_row.telegram_chat_id),'') IS NOT NULL
+                                 AND user_row.telegram_chat_id=staff_row.telegram_chat_id)
+                         )
+                       ORDER BY role.company_id
+                  ) AS exact_identity_company_ids
+             FROM public.staff staff_row
             ORDER BY id
             LIMIT %s""",
     ),
@@ -68,8 +89,41 @@ _SOURCE_QUERIES = (
     ),
     (
         "own_expenses",
-        """SELECT id,project_name
-             FROM public.own_expenses
+        """SELECT own_row.id,own_row.project_name,own_row.employee_id,
+                  ARRAY(
+                      SELECT DISTINCT role.company_id
+                        FROM public.users user_row
+                        JOIN public.user_company_roles role
+                          ON role.user_id=user_row.id
+                         AND role.active IS TRUE
+                       WHERE user_row.id=own_row.employee_id
+                         AND user_row.active IS TRUE
+                       ORDER BY role.company_id
+                  ) AS employee_user_company_ids,
+                  ARRAY(
+                      SELECT DISTINCT role.company_id
+                        FROM public.staff staff_row
+                        JOIN public.users user_row
+                          ON user_row.active IS TRUE
+                         AND (
+                             ((NULLIF(BTRIM(staff_row.email_work),'') IS NOT NULL
+                               OR NULLIF(BTRIM(staff_row.email_personal),'') IS NOT NULL)
+                              AND LOWER(BTRIM(user_row.email)) IN (
+                                  LOWER(BTRIM(staff_row.email_work)),
+                                  LOWER(BTRIM(staff_row.email_personal))
+                              ))
+                             OR (NULLIF(BTRIM(staff_row.telegram_id),'') IS NOT NULL
+                                 AND user_row.telegram_id=staff_row.telegram_id)
+                             OR (NULLIF(BTRIM(staff_row.telegram_chat_id),'') IS NOT NULL
+                                 AND user_row.telegram_chat_id=staff_row.telegram_chat_id)
+                         )
+                        JOIN public.user_company_roles role
+                          ON role.user_id=user_row.id
+                         AND role.active IS TRUE
+                       WHERE staff_row.id=own_row.employee_id
+                       ORDER BY role.company_id
+                  ) AS employee_staff_identity_company_ids
+             FROM public.own_expenses own_row
             ORDER BY id
             LIMIT %s""",
     ),
@@ -95,6 +149,22 @@ def _positive_int(value):
 
 def _text(value):
     return value if type(value) is str else ""
+
+
+def _company_candidates(row, *keys):
+    candidates = set()
+    for key in keys:
+        if key not in row:
+            continue
+        values = row[key]
+        if type(values) not in (list, tuple):
+            raise _input_error() from None
+        for value in values:
+            company_id = _positive_int(value)
+            if company_id is None:
+                raise _input_error() from None
+            candidates.add(company_id)
+    return sorted(candidates)
 
 
 def _rows_for_source(rows_by_source, source):
@@ -173,12 +243,33 @@ def _staff_decisions(staff_rows, projects_by_name):
         project_name = _text(row.get("project"))
         classification, reason, owner = _project_proof(project_name, projects_by_name)
         stored_company_id = _positive_int(row.get("company_id"))
-        if classification == "provable" and stored_company_id and stored_company_id != owner["companyId"]:
+        identity_candidates = _company_candidates(row, "exact_identity_company_ids")
+        identity_owner = _owner(identity_candidates[0]) if len(identity_candidates) == 1 else None
+        if (
+            classification == "provable"
+            and identity_owner
+            and identity_owner["companyId"] != owner["companyId"]
+        ):
+            classification = "conflicting"
+            reason = "staff_identity_project_owner_mismatch"
+            owner = None
+        elif classification == "provable" and stored_company_id and stored_company_id != owner["companyId"]:
             classification = "conflicting"
             reason = "staff_project_owner_mismatch"
             owner = None
         elif classification == "provable":
             reason = "staff_project_owner_exact"
+        elif identity_owner and stored_company_id and stored_company_id != identity_owner["companyId"]:
+            classification = "conflicting"
+            reason = "staff_identity_owner_mismatch"
+            owner = None
+        elif identity_owner:
+            classification = "provable"
+            reason = "staff_identity_owner_exact"
+            owner = identity_owner
+        elif len(identity_candidates) > 1:
+            classification = "ambiguous"
+            reason = "staff_identity_owner_ambiguous"
         elif not project_name:
             classification = "ambiguous"
             reason = "staff_owner_unverified"
@@ -210,7 +301,10 @@ def _project_and_staff_decision(source, row, staff_key, staff_decisions, staff_r
         staff_owner = _staff_owner(staff_id, staff_decisions)
         if project_owner and staff_owner and (
             project_owner["companyId"] != staff_owner["companyId"]
-            or project_owner["projectId"] != staff_owner["projectId"]
+            or (
+                staff_owner["projectId"] is not None
+                and project_owner["projectId"] != staff_owner["projectId"]
+            )
         ):
             return _decision(source, record_id, "conflicting", "staff_project_owner_mismatch")
         stored_staff_company = _positive_int(staff_row.get("company_id"))
@@ -225,7 +319,7 @@ def _project_and_staff_decision(source, row, staff_key, staff_decisions, staff_r
             )
         if not staff_owner and classification == "provable":
             return _decision(source, record_id, "conflicting", "staff_project_owner_mismatch")
-        if classification != "provable" and staff_owner:
+        if classification != "provable" and staff_owner and staff_owner["projectId"] is not None:
             classification = "provable"
             reason = "staff_project_owner_exact"
             project_owner = staff_owner
@@ -329,8 +423,29 @@ def _own_expense_decisions(own_expense_rows, projects_by_name):
         record_id = row["id"]
         project_name = _text(row.get("project_name"))
         classification, reason, owner = _project_proof(project_name, projects_by_name)
-        if classification == "provable":
+        identity_candidates = _company_candidates(
+            row,
+            "employee_user_company_ids",
+            "employee_staff_identity_company_ids",
+        )
+        identity_owner = _owner(identity_candidates[0]) if len(identity_candidates) == 1 else None
+        if (
+            classification == "provable"
+            and identity_owner
+            and identity_owner["companyId"] != owner["companyId"]
+        ):
+            classification = "conflicting"
+            reason = "own_expense_employee_project_owner_mismatch"
+            owner = None
+        elif classification == "provable":
             reason = "own_expense_project_owner_exact"
+        elif not project_name and identity_owner:
+            classification = "provable"
+            reason = "own_expense_employee_owner_exact"
+            owner = identity_owner
+        elif not project_name and len(identity_candidates) > 1:
+            classification = "ambiguous"
+            reason = "own_expense_employee_owner_ambiguous"
         elif not project_name:
             reason = "own_expense_owner_unverified"
         decisions[record_id] = _decision(

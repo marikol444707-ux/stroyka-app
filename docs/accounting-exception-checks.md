@@ -28,8 +28,10 @@ facts can participate in A11:
 - `salary_payments`: `company_id` and `company_scope_verified`, derived from a
   separately verified staff owner;
 - `own_expenses`: `company_id`, exact nullable `project_id` and
-  `company_scope_verified`; legacy `employee_id` is not ownership proof because
-  existing writers can store either a `users` ID or a `staff` ID;
+  `company_scope_verified`; a raw legacy `employee_id` is not ownership proof
+  because existing writers can store either a `users` ID or a `staff` ID. It
+  proves company-only ownership only when both namespaces are checked and all
+  exact active identity memberships resolve to one company;
 - `expenses`: the same coordinates inherited from a verified linked
   `own_expenses` parent, or proved independently by one globally unique exact
   project when `own_expense_id` is absent;
@@ -111,12 +113,18 @@ schema change, backfill or remediation.
 A project-name backfill is allowed only when it resolves to exactly one stored
 project globally. A staff proof may be used only when that staff row is itself
 verified. If project, parent and staff proofs are all present they must agree.
+For legacy staff without a usable project, exact email/Telegram identity may
+prove company-only ownership only when it resolves through active user-company
+memberships to exactly one company. Multiple candidate companies remain
+quarantined. The same rule applies to a legacy `own_expenses.employee_id` after
+checking both its historical `users` and `staff` meanings; linked `expenses`
+may then inherit the same company with a nullable project.
 Accountable expenses inherit scope only from one verified parent payment and
 must agree with its project; they are never independently assigned by their
 description or employee name. A linked manual expense inherits scope only from
 its verified `own_expenses` parent and must agree with that parent's exact
-project. Employee names/IDs, note prefixes, categories, source labels and money
-values never establish tenant ownership.
+project. Employee names or raw IDs, note prefixes, categories, source labels
+and money values never establish tenant ownership.
 
 Ambiguous/orphaned/conflicting rows remain quarantined from company APIs. A
 later operator remediation command may bind one exact record ID to exact
