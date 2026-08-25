@@ -21,6 +21,7 @@ _ACCOUNTING_SOURCES = (
     "own_expenses",
     "expenses",
 )
+INVENTORY_RECORD_LIMIT = SOURCE_LIMIT * len(_ACCOUNTING_SOURCES)
 
 _SOURCE_QUERIES = (
     (
@@ -464,10 +465,7 @@ def _classify_accounting_ownership_records(rows_by_source):
     return all_records, summary
 
 
-def classify_accounting_ownership(rows_by_source, *, max_records=PUBLIC_RECORD_LIMIT):
-    if type(max_records) is not int or max_records < 1 or max_records > PUBLIC_RECORD_LIMIT:
-        raise _input_error() from None
-
+def _build_inventory_report(rows_by_source, max_records):
     all_records, summary = _classify_accounting_ownership_records(rows_by_source)
     return {
         "version": "accounting-ownership-inventory-v1",
@@ -478,6 +476,12 @@ def classify_accounting_ownership(rows_by_source, *, max_records=PUBLIC_RECORD_L
         "records": all_records[:max_records],
         "truncated": len(all_records) > max_records,
     }
+
+
+def classify_accounting_ownership(rows_by_source, *, max_records=PUBLIC_RECORD_LIMIT):
+    if type(max_records) is not int or max_records < 1 or max_records > PUBLIC_RECORD_LIMIT:
+        raise _input_error() from None
+    return _build_inventory_report(rows_by_source, max_records)
 
 
 def _collect_accounting_ownership_rows(cursor):
@@ -491,13 +495,15 @@ def _collect_accounting_ownership_rows(cursor):
     return rows_by_source
 
 
-def run_accounting_ownership_inventory(connection, *, max_records=PUBLIC_RECORD_LIMIT):
+def run_accounting_ownership_inventory(connection, *, max_records=INVENTORY_RECORD_LIMIT):
+    if type(max_records) is not int or max_records < 1 or max_records > INVENTORY_RECORD_LIMIT:
+        raise _input_error() from None
     cursor = None
     try:
         connection.set_session(readonly=True, autocommit=False)
         cursor = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         rows_by_source = _collect_accounting_ownership_rows(cursor)
-        return classify_accounting_ownership(rows_by_source, max_records=max_records)
+        return _build_inventory_report(rows_by_source, max_records)
     finally:
         try:
             connection.rollback()

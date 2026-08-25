@@ -223,6 +223,27 @@ class AccountingOwnershipClassificationTests(unittest.TestCase):
 
 
 class AccountingOwnershipInventoryRunnerTests(unittest.TestCase):
+    def test_runner_returns_every_collected_record_by_default(self):
+        connection = _Connection([
+            [{"id": 10, "company_id": 1, "name": "Точный"}],
+            [
+                {"id": record_id, "company_id": 1, "project": "Точный"}
+                for record_id in range(1, 106)
+            ],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+        ])
+
+        report = run_accounting_ownership_inventory(connection)
+
+        self.assertEqual(report["totalRecords"], 105)
+        self.assertEqual(len(report["records"]), 105)
+        self.assertFalse(report["truncated"])
+
     def test_runner_is_bounded_read_only_and_always_rolls_back(self):
         connection = _Connection([
             [{"id": 10, "company_id": 1, "name": "Точный"}],
