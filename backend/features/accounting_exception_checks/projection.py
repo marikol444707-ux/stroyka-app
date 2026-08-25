@@ -128,7 +128,7 @@ def _normalize_row(source, row, company_id):
     elif source == "project_payments":
         _require_fields(result, ("project_id", "amount"))
         result["project_id"] = _positive_int(result["project_id"])
-        result["amount"] = _money(result["amount"])
+        result["amount"] = _money(result["amount"], nonnegative=False)
     elif source == "supplier_invoices":
         _require_fields(
             result,

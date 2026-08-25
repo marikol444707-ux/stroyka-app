@@ -292,6 +292,19 @@ class AccountingExceptionProjectionTests(unittest.TestCase):
         self.assertEqual(rejected["state"], "incomplete")
         self.assertEqual(rejected["findings"], [])
 
+    def test_signed_project_payment_reversal_is_a_valid_ledger_entry(self):
+        rows = _clear_rows()
+        rows["project_payments"].append(
+            _owned(21, project_id=100, amount=Decimal("-25.00"))
+        )
+
+        report = build_accounting_exception_projection(1, rows)
+
+        self.assertEqual(report["state"], "clear")
+        self.assertTrue(report["scanComplete"])
+        self.assertEqual(report["findingCount"], 0)
+        self.assertEqual(report["blockers"], [])
+
     def test_findings_are_deterministic_capped_and_counted_before_truncation(self):
         rows = _clear_rows()
         rows["staff"] = [
