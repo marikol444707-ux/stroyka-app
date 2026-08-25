@@ -23507,15 +23507,21 @@ def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_ro
     return {"id": supplier_invoice_id, "ok": True}
 
 @app.put("/supplier-invoices/{id}")
-def update_supplier_invoice(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
+def update_supplier_invoice(
+    id: int,
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
     cur = conn.cursor()
     _ensure_invoice_document_link_columns(cur)
     conn.commit()
-    require_row_project_access(cur, "supplier_invoices", id, _current_user, "project_name")
     cur.execute("""SELECT si.amount, si.paid_amount, si.work_package, si.offer_id, o.total_price, COALESCE(r.work_package,''),
                           COALESCE(si.payment_terms, o.payment_terms, ''), si.warehouse_invoice_id,
-                          si.project_name, si.supplier_name
+                          si.project_name, si.supplier_name, si.company_id,
+                          si.supplier_id
                    FROM supplier_invoices si
                    LEFT JOIN supplier_offers o ON o.id=si.offer_id
                    LEFT JOIN supply_requests r ON r.id=o.request_id
@@ -23524,6 +23530,26 @@ def update_supplier_invoice(id: int, data: dict, _current_user: dict = Depends(r
     if not invoice_guard:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Счёт не найден")
+    supplier_company_id = _positive_int_or_none(invoice_guard[10])
+    _company_context, actor = resolve_resource_company_actor(
+        cur,
+        _current_user,
+        supplier_company_id,
+        "update",
+        claimed_company_id=(
+            data.get("companyId")
+            if "companyId" in data
+            else data.get("company_id")
+        ),
+        x_company_id=x_company_id,
+        x_company_mode=x_company_mode,
+        allowed_roles=FINANCE_ROLES,
+        forbidden_detail="Роль в выбранной компании не позволяет изменять счёт поставщика",
+        platform_staff_roles=PLATFORM_STAFF_ROLES,
+        client_account_roles=CLIENT_ACCOUNT_ROLES,
+    )
+    _current_user = actor
+    require_row_project_access(cur, "supplier_invoices", id, _current_user, "project_name")
     current_amount = _float_or_zero(invoice_guard[0])
     current_paid = _float_or_zero(invoice_guard[1])
     offer_id = invoice_guard[3]
@@ -23532,10 +23558,13 @@ def update_supplier_invoice(id: int, data: dict, _current_user: dict = Depends(r
     payment_terms = str(invoice_guard[6] or "").lower()
     current_warehouse_invoice_id = invoice_guard[7]
     supplier_project_name = invoice_guard[8] or ""
+    supplier_name = invoice_guard[9] or ""
+    supplier_supplier_id = _positive_int_or_none(invoice_guard[11])
     next_amount = _float_or_zero(data.get("amount", current_amount))
     next_paid = _float_or_zero(data.get("paidAmount", current_paid))
     next_package = (data.get("workPackage") if "workPackage" in data else invoice_guard[2]) or ""
     link_payload_present = "warehouseInvoiceId" in data or "warehouse_invoice_id" in data
+    automatic_exception_repair = data.get("accountingExceptionRepair") is True
     next_warehouse_invoice_id = current_warehouse_invoice_id
     if link_payload_present:
         raw_warehouse_invoice_id = data.get("warehouseInvoiceId")
@@ -23543,7 +23572,9 @@ def update_supplier_invoice(id: int, data: dict, _current_user: dict = Depends(r
             raw_warehouse_invoice_id = data.get("warehouse_invoice_id")
         next_warehouse_invoice_id = int(raw_warehouse_invoice_id or 0) or None
     if next_warehouse_invoice_id:
-        cur.execute("""SELECT id, project, location, supplier_invoice_id, status
+        cur.execute("""SELECT id, project, location, supplier_invoice_id, status,
+                              company_id, supplier_id, supplier_name,
+                              total_with_vat, total_base
                        FROM warehouse_invoices
                        WHERE id=%s FOR UPDATE""", (next_warehouse_invoice_id,))
         warehouse_invoice_row = cur.fetchone()
@@ -23553,6 +23584,12 @@ def update_supplier_invoice(id: int, data: dict, _current_user: dict = Depends(r
         if (_row_get(warehouse_invoice_row, "status", 4, "") or "") == "Аннулирована":
             cur.close(); conn.close()
             raise HTTPException(status_code=409, detail="Аннулированную накладную нельзя связать со счётом")
+        warehouse_company_id = _positive_int_or_none(
+            _row_get(warehouse_invoice_row, "company_id", 5),
+        )
+        if warehouse_company_id != supplier_company_id:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=409, detail="Складская накладная относится к другой компании")
         warehouse_project = (_row_get(warehouse_invoice_row, "project", 1, "") or _row_get(warehouse_invoice_row, "location", 2, "") or "").strip()
         existing_supplier_invoice_id = _row_get(warehouse_invoice_row, "supplier_invoice_id", 3)
         if supplier_project_name and warehouse_project and warehouse_project != supplier_project_name:
@@ -23561,6 +23598,54 @@ def update_supplier_invoice(id: int, data: dict, _current_user: dict = Depends(r
         if existing_supplier_invoice_id and int(existing_supplier_invoice_id) != int(id):
             cur.close(); conn.close()
             raise HTTPException(status_code=409, detail="Складская накладная уже связана с другим счётом поставщика")
+        if automatic_exception_repair:
+            current_link_id = _positive_int_or_none(current_warehouse_invoice_id)
+            if current_link_id and current_link_id != next_warehouse_invoice_id:
+                cur.execute(
+                    "SELECT id FROM warehouse_invoices WHERE id=%s LIMIT 1",
+                    (current_link_id,),
+                )
+                if cur.fetchone():
+                    cur.close(); conn.close()
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Текущая связь существует и требует ручной проверки",
+                    )
+            warehouse_supplier_id = _positive_int_or_none(
+                _row_get(warehouse_invoice_row, "supplier_id", 6),
+            )
+            warehouse_supplier_name = _row_get(
+                warehouse_invoice_row, "supplier_name", 7, "",
+            ) or ""
+            supplier_matches = (
+                supplier_supplier_id == warehouse_supplier_id
+                if supplier_supplier_id and warehouse_supplier_id
+                else bool(
+                    _normalize_supplier_name_key(supplier_name)
+                    and _normalize_supplier_name_key(supplier_name)
+                    == _normalize_supplier_name_key(warehouse_supplier_name)
+                )
+            )
+            warehouse_amount = _float_or_zero(
+                _row_get(warehouse_invoice_row, "total_with_vat", 8)
+                or _row_get(warehouse_invoice_row, "total_base", 9)
+            )
+            exact_amount = (
+                current_amount > 0
+                and warehouse_amount > 0
+                and round(current_amount * 100) == round(warehouse_amount * 100)
+            )
+            if not (
+                supplier_project_name
+                and warehouse_project == supplier_project_name
+                and supplier_matches
+                and exact_amount
+            ):
+                cur.close(); conn.close()
+                raise HTTPException(
+                    status_code=409,
+                    detail="Документы не прошли безопасную автоматическую сверку",
+                )
     if offer_id:
         if offer_total > 0 and next_amount > offer_total + max(1, offer_total * 0.02):
             cur.close(); conn.close()
@@ -23640,8 +23725,28 @@ def update_supplier_invoice(id: int, data: dict, _current_user: dict = Depends(r
             warehouse_vals.append(data.get("paidBy"))
         warehouse_vals.append(next_warehouse_invoice_id)
         cur.execute("UPDATE warehouse_invoices SET " + ", ".join(warehouse_sets) + " WHERE id=%s", warehouse_vals)
+    link_changed = (
+        link_payload_present
+        and _positive_int_or_none(current_warehouse_invoice_id)
+        != _positive_int_or_none(next_warehouse_invoice_id)
+    )
     conn.commit()
     cur.close(); conn.close()
+    if link_changed:
+        log_audit(
+            user_name=_current_user.get("name") or _current_user.get("email") or "—",
+            user_role=_current_user.get("role") or "—",
+            action="accounting_supplier_warehouse_link_repaired",
+            entity_type="supplier_invoice",
+            entity_id=id,
+            description=(
+                "Исправлена связь со складской накладной №"
+                + str(next_warehouse_invoice_id or "—")
+            ),
+            project_name=supplier_project_name,
+            user_id=_current_user.get("id"),
+            company_id=supplier_company_id,
+        )
     if 'status' in data:
         log_audit(user_name=data.get("approvedBy") or data.get("paidBy") or "—", user_role="—",
                   action="status_change", entity_type="supplier_invoice", entity_id=id,

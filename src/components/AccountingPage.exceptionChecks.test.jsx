@@ -20,6 +20,10 @@ describe('AccountingPage accounting exception checks integration', () => {
     const user = { id: 7, role: 'бухгалтер' };
     const C = { text: '#111827' };
     const card = { borderRadius: '12px' };
+    const projects = [{ id: 19, name: 'ЖК Северный' }];
+    const invoices = [{ id: 21, project: 'ЖК Северный' }];
+    const supplierInvoices = [{ id: 22, projectName: 'ЖК Северный' }];
+    const refreshData = jest.fn();
 
     render(
       <AccountingPage
@@ -28,7 +32,11 @@ describe('AccountingPage accounting exception checks integration', () => {
         accountingTab="summary"
         card={card}
         companyContext={companyContext}
+        invoices={invoices}
         isMobile
+        projects={projects}
+        refreshData={refreshData}
+        supplierInvoices={supplierInvoices}
         user={user}
       />,
     );
@@ -41,8 +49,12 @@ describe('AccountingPage accounting exception checks integration', () => {
       C,
       card,
       companyMode: 'company',
+      invoices,
       isMobile: true,
+      projects,
+      refreshData,
       selectedCompanyId: 4,
+      supplierInvoices,
       user,
     }));
   });

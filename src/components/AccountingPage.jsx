@@ -148,8 +148,12 @@ export default function AccountingPage(props) {
             C={C}
             card={card}
             companyMode={companyContext.mode}
+            invoices={invoices}
             isMobile={isMobile}
+            projects={projects}
+            refreshData={refreshData}
             selectedCompanyId={companyContext.selectedCompanyId}
+            supplierInvoices={supplierInvoices}
             user={user}
           />
           <AccountingSummaryPanel

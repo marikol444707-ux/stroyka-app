@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import AccountingExceptionChecksPanel from './AccountingExceptionChecksPanel';
 import { ACCOUNTING_EXCEPTION_SOURCES } from './accountingExceptionChecks';
@@ -31,6 +31,19 @@ const reviewReport = (companyId = 4) => ({
     projectId: 17,
     invoiceAmount: '1000.5',
     paidAmount: '1001',
+  }],
+});
+
+const linkReviewReport = (companyId = 4) => ({
+  ...clearReport(companyId),
+  state: 'review_required',
+  findingCount: 1,
+  findings: [{
+    reasonCode: 'accounting_supplier_warehouse_link_not_found',
+    subjectKind: 'supplier_invoice',
+    subjectId: 91,
+    projectId: 17,
+    relatedId: 999,
   }],
 });
 
@@ -78,6 +91,7 @@ describe('AccountingExceptionChecksPanel', () => {
   afterEach(() => {
     jest.restoreAllMocks();
     delete global.fetch;
+    delete window.confirm;
   });
 
   test('is absent by default when frontend environment gates are not configured', () => {
@@ -120,8 +134,10 @@ describe('AccountingExceptionChecksPanel', () => {
     renderPanel();
 
     expect(await screen.findByText(
-      'По накладной поставщика оплачено больше суммы документа',
+      'Требуется проверка: 1',
     )).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Показать список' }));
+    expect(screen.getByText('По накладной поставщика оплачено больше суммы документа')).toBeInTheDocument();
     expect(screen.getByText((_text, element) => (
       element.tagName === 'P'
       && element.textContent === 'Накладная поставщика №91 · Объект №17'
@@ -143,9 +159,72 @@ describe('AccountingExceptionChecksPanel', () => {
     expect(options.method).toBeUndefined();
     expect(options.body).toBeUndefined();
     expect(options.headers).toBeUndefined();
-    for (const forbidden of [/оплатить/i, /подтвердить/i, /исправить/i, /применить/i, /изменить статус/i]) {
+    for (const forbidden of [/оплатить/i, /подтвердить/i, /исправить безопасные связи/i, /применить/i, /изменить статус/i]) {
       expect(screen.queryByRole('button', { name: forbidden })).not.toBeInTheDocument();
     }
+  });
+
+  test('repairs every unambiguous supplier and warehouse link with one confirmation', async () => {
+    const refreshData = jest.fn(() => Promise.resolve());
+    window.confirm = jest.fn(() => true);
+    const initialReport = linkReviewReport();
+    global.fetch
+      .mockImplementationOnce(() => jsonResponse({
+        ...initialReport,
+        findingCount: 101,
+        findings: Array.from({ length: 100 }, (_value, index) => ({
+          ...initialReport.findings[0],
+          subjectId: index === 0 ? 91 : 1000 + index,
+        })),
+        truncated: true,
+      }))
+      .mockImplementationOnce(() => jsonResponse({ ok: true }))
+      .mockImplementationOnce(() => jsonResponse(clearReport()));
+
+    renderPanel({
+      invoices: [{
+        id: 44,
+        companyId: 4,
+        project: 'ЖК Северный',
+        supplierId: 12,
+        supplierName: 'ООО Поставка',
+        totalWithVat: 1000,
+        supplierInvoiceId: null,
+        status: 'Принята',
+      }],
+      projects: [{ id: 17, companyId: 4, name: 'ЖК Северный' }],
+      refreshData,
+      supplierInvoices: [{
+        id: 91,
+        companyId: 4,
+        projectName: 'ЖК Северный',
+        supplierId: 12,
+        supplierName: 'ООО Поставка',
+        amount: 1000,
+        warehouseInvoiceId: 999,
+        status: 'На утверждении',
+      }],
+    });
+
+    expect(await screen.findByText(/Осталось спорных: 100/)).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: 'Исправить безопасные связи (1)' }));
+
+    expect(window.confirm).toHaveBeenCalledWith(
+      'Исправить 1 однозначную связь? Спорные документы изменены не будут.',
+    );
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(3));
+    const [url, options] = global.fetch.mock.calls[1];
+    expect(url).toBe('/supplier-invoices/91');
+    expect(options).toEqual(expect.objectContaining({
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        accountingExceptionRepair: true,
+        warehouseInvoiceId: 44,
+      }),
+    }));
+    expect(refreshData).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText('Противоречий в проверенном контуре не найдено')).toBeInTheDocument();
   });
 
   test('renders clear and incomplete as non-actionable review states', async () => {
@@ -173,9 +252,9 @@ describe('AccountingExceptionChecksPanel', () => {
       .mockImplementationOnce(() => new Promise(resolve => { resolveSecond = resolve; }));
     const view = renderPanel({ allowedCompanyIds: new Set([4, 5]) });
 
-    expect(await screen.findByText(
-      'По накладной поставщика оплачено больше суммы документа',
-    )).toBeInTheDocument();
+    expect(await screen.findByText('Требуется проверка: 1')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Показать список' }));
+    expect(screen.getByText('По накладной поставщика оплачено больше суммы документа')).toBeInTheDocument();
     view.rerender(
       <AccountingExceptionChecksPanel
         API=""

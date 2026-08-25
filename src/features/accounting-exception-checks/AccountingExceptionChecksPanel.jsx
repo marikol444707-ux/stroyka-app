@@ -1,5 +1,13 @@
 import React from 'react';
-import { AlertTriangle, CheckCircle2, RefreshCw, ShieldCheck } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Link2,
+  RefreshCw,
+  ShieldCheck,
+} from 'lucide-react';
 
 import {
   ACCOUNTING_EXCEPTION_REASON_CONTRACTS,
@@ -7,6 +15,7 @@ import {
   parseAccountingExceptionCompanyIds,
   validateAccountingExceptionChecks,
 } from './accountingExceptionChecks';
+import { buildSafeAccountingLinkPlans } from './accountingExceptionRemediation';
 
 const DEFAULT_ENABLED = process.env.REACT_APP_ACCOUNTING_EXCEPTION_CHECKS_ENABLED === 'true';
 const DEFAULT_ALLOWED_COMPANY_IDS = parseAccountingExceptionCompanyIds(
@@ -37,6 +46,14 @@ const MONEY_LABELS = {
   storedBalance: 'Сохранённый остаток',
   expectedBalance: 'Расчётный остаток',
 };
+const linkCountLabel = count => {
+  const tail = count % 100;
+  const last = count % 10;
+  if (tail >= 11 && tail <= 19) return `${count} однозначных связей`;
+  if (last === 1) return `${count} однозначную связь`;
+  if (last >= 2 && last <= 4) return `${count} однозначные связи`;
+  return `${count} однозначных связей`;
+};
 
 export default function AccountingExceptionChecksPanel({
   API = '',
@@ -45,8 +62,12 @@ export default function AccountingExceptionChecksPanel({
   card = {},
   companyMode,
   enabled = DEFAULT_ENABLED,
+  invoices = [],
   isMobile = false,
+  projects = [],
+  refreshData,
   selectedCompanyId,
+  supplierInvoices = [],
   user = {},
 }) {
   const allowed = (
@@ -62,6 +83,23 @@ export default function AccountingExceptionChecksPanel({
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState('');
   const [result, setResult] = React.useState(null);
+  const [repairing, setRepairing] = React.useState(false);
+  const [repairMessage, setRepairMessage] = React.useState(null);
+  const [showFindings, setShowFindings] = React.useState(false);
+
+  const repairSummary = React.useMemo(() => buildSafeAccountingLinkPlans({
+    companyId: selectedCompanyId,
+    findings: result?.findings || [],
+    invoices,
+    projects,
+    supplierInvoices,
+  }), [invoices, projects, result, selectedCompanyId, supplierInvoices]);
+
+  React.useEffect(() => {
+    setRepairMessage(null);
+    setRepairing(false);
+    setShowFindings(false);
+  }, [selectedCompanyId]);
 
   React.useEffect(() => {
     setResult(null);
@@ -94,6 +132,48 @@ export default function AccountingExceptionChecksPanel({
     return () => controller.abort();
   }, [API, allowed, reloadKey, selectedCompanyId]);
 
+  const repairSafeLinks = async () => {
+    const plans = repairSummary.plans;
+    if (!plans.length || repairing) return;
+    const confirmed = window.confirm(
+      `Исправить ${linkCountLabel(plans.length)}? Спорные документы изменены не будут.`,
+    );
+    if (!confirmed) return;
+
+    setRepairing(true);
+    setRepairMessage(null);
+    let repaired = 0;
+    let failed = 0;
+    for (const plan of plans) {
+      try {
+        const response = await fetch(`${API}/supplier-invoices/${plan.supplierInvoiceId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accountingExceptionRepair: true,
+            warehouseInvoiceId: plan.warehouseInvoiceId,
+          }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok || body.detail || body.error) {
+          failed += 1;
+        } else {
+          repaired += 1;
+        }
+      } catch (_reason) {
+        failed += 1;
+      }
+    }
+
+    if (repaired > 0 && typeof refreshData === 'function') {
+      await refreshData();
+    }
+    setRepairMessage({ repaired, failed });
+    setRepairing(false);
+    setShowFindings(false);
+    setReloadKey(value => value + 1);
+  };
+
   if (!allowed) return null;
 
   const palette = {
@@ -111,6 +191,10 @@ export default function AccountingExceptionChecksPanel({
   const checkedRows = result
     ? Object.values(result.sourceCounts).reduce((sum, count) => sum + count, 0)
     : 0;
+  const unresolvedFindingCount = repairSummary.unresolvedCount + Math.max(
+    0,
+    Number(result?.findingCount || 0) - (result?.findings?.length || 0),
+  );
 
   return (
     <section
@@ -123,7 +207,7 @@ export default function AccountingExceptionChecksPanel({
             <ShieldCheck size={19} aria-hidden="true" />Проверка бухгалтерских связей
           </h2>
           <p style={{ margin: '6px 0 0', color: palette.textSec, fontSize: '12px' }}>
-            Только просмотр сохранённых противоречий. Проверка ничего не оплачивает и не изменяет.
+            Находит противоречия и исправляет только однозначные связи документов. Оплаты не выполняются.
           </p>
         </div>
         <button
@@ -146,6 +230,15 @@ export default function AccountingExceptionChecksPanel({
           {error}
         </div>
       )}
+      {repairMessage && (
+        <div
+          role={repairMessage.failed ? 'alert' : 'status'}
+          style={{ marginTop: '14px', padding: '11px', borderRadius: '8px', color: repairMessage.failed ? palette.danger : palette.success, background: repairMessage.failed ? palette.dangerLight : palette.successLight }}
+        >
+          Исправлено связей: {repairMessage.repaired}.
+          {repairMessage.failed > 0 ? ` Не удалось исправить: ${repairMessage.failed}. Список уже обновлён.` : ' Проверка обновлена.'}
+        </div>
+      )}
       {result?.state === 'clear' && (
         <div role="status" style={{ marginTop: '14px', padding: '12px', borderRadius: '8px', color: palette.success, background: palette.successLight, display: 'flex', gap: '8px', alignItems: 'center' }}>
           <CheckCircle2 size={18} aria-hidden="true" />
@@ -160,33 +253,60 @@ export default function AccountingExceptionChecksPanel({
       )}
       {result?.state === 'review_required' && (
         <div style={{ marginTop: '14px' }}>
-          <div style={{ color: palette.warning, marginBottom: '10px' }}>
-            <b>Требуется ручная проверка: {result.findingCount}</b>
-            {result.truncated && <span> · показаны первые {result.findings.length}</span>}
+          <div style={{ padding: '12px', borderRadius: '10px', color: palette.warning, background: palette.warningLight }}>
+            <b>Требуется проверка: {result.findingCount}</b>
+            <p style={{ margin: '5px 0 0', color: palette.textSec, fontSize: '12px' }}>
+              {repairSummary.plans.length > 0
+                ? `Однозначно определено связей: ${repairSummary.plans.length}. Их можно исправить одним действием.`
+                : 'Однозначных совпадений пока нет — система не будет угадывать.'}
+              {unresolvedFindingCount > 0 ? ` Осталось спорных: ${unresolvedFindingCount}.` : ''}
+            </p>
+            {repairSummary.plans.length > 0 && (
+              <button
+                type="button"
+                onClick={repairSafeLinks}
+                disabled={repairing || loading}
+                style={{ marginTop: '10px', border: 'none', background: C.accent || '#f97316', color: '#fff', borderRadius: '8px', padding: '9px 12px', fontWeight: 800, cursor: repairing || loading ? 'default' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '7px', opacity: repairing || loading ? 0.65 : 1 }}
+              >
+                <Link2 size={15} aria-hidden="true" />
+                {repairing ? 'Исправляем связи…' : `Исправить безопасные связи (${repairSummary.plans.length})`}
+              </button>
+            )}
           </div>
-          <div role="list" style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: '10px' }}>
-            {result.findings.map(finding => {
-              const contract = ACCOUNTING_EXCEPTION_REASON_CONTRACTS[finding.reasonCode];
-              return (
-                <article key={`${finding.reasonCode}:${finding.subjectKind}:${finding.subjectId}`} role="listitem" style={{ border: `1px solid ${palette.border}`, borderRadius: '10px', padding: '12px', minWidth: 0 }}>
-                  <h3 style={{ margin: 0, color: palette.text, fontSize: '14px' }}>{accountingExceptionReasonLabel(finding.reasonCode)}</h3>
-                  <p style={{ margin: '7px 0 0', color: palette.textSec, fontSize: '12px' }}>
-                    {SUBJECT_LABELS[finding.subjectKind]} №{finding.subjectId}
-                    {finding.projectId !== null ? ` · Объект №${finding.projectId}` : ''}
-                    {contract.ids.map(field => ` · Связанный документ №${finding[field]}`).join('')}
-                  </p>
-                  {contract.money.length > 0 && (
-                    <ul style={{ margin: '8px 0 0', paddingLeft: '18px', color: palette.textSec, fontSize: '12px' }}>
-                      {contract.money.map(field => <li key={field}>{MONEY_LABELS[field]}: {finding[field]} ₽</li>)}
-                    </ul>
-                  )}
-                </article>
-              );
-            })}
-          </div>
-          <p style={{ margin: '10px 0 0', color: palette.muted, fontSize: '11px' }}>
-            Это список для сверки, а не распоряжение на оплату или исправление данных.
-          </p>
+          <button
+            type="button"
+            onClick={() => setShowFindings(value => !value)}
+            aria-expanded={showFindings}
+            style={{ marginTop: '10px', border: 'none', background: 'transparent', color: palette.textSec, padding: '4px 0', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+          >
+            {showFindings ? <ChevronUp size={15} aria-hidden="true" /> : <ChevronDown size={15} aria-hidden="true" />}
+            {showFindings ? 'Скрыть список' : 'Показать список'}
+          </button>
+          {showFindings && (
+            <>
+              {result.truncated && <p style={{ color: palette.muted, fontSize: '11px' }}>Показаны первые {result.findings.length} записей.</p>}
+              <div role="list" style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: '10px' }}>
+                {result.findings.map(finding => {
+                  const contract = ACCOUNTING_EXCEPTION_REASON_CONTRACTS[finding.reasonCode];
+                  return (
+                    <article key={`${finding.reasonCode}:${finding.subjectKind}:${finding.subjectId}`} role="listitem" style={{ border: `1px solid ${palette.border}`, borderRadius: '10px', padding: '12px', minWidth: 0 }}>
+                      <h3 style={{ margin: 0, color: palette.text, fontSize: '14px' }}>{accountingExceptionReasonLabel(finding.reasonCode)}</h3>
+                      <p style={{ margin: '7px 0 0', color: palette.textSec, fontSize: '12px' }}>
+                        {SUBJECT_LABELS[finding.subjectKind]} №{finding.subjectId}
+                        {finding.projectId !== null ? ` · Объект №${finding.projectId}` : ''}
+                        {contract.ids.map(field => ` · Связанный документ №${finding[field]}`).join('')}
+                      </p>
+                      {contract.money.length > 0 && (
+                        <ul style={{ margin: '8px 0 0', paddingLeft: '18px', color: palette.textSec, fontSize: '12px' }}>
+                          {contract.money.map(field => <li key={field}>{MONEY_LABELS[field]}: {finding[field]} ₽</li>)}
+                        </ul>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
       )}
     </section>
