@@ -457,10 +457,12 @@ export default function AccountingIncomingDocumentsPanel({
   const visibleBaseRows = filteredRows.slice(0, visibleRows);
   const hiddenRows = Math.max(0, filteredRows.length - visibleBaseRows.length);
   const displayedRows = React.useMemo(
-    () => visibleBaseRows.map(enrichRow),
-    [visibleBaseRows, enrichRow],
+    () => visibleBaseRows
+      .filter(row => String(row.invoice.id) !== String(openedId))
+      .map(enrichRow),
+    [visibleBaseRows, enrichRow, openedId],
   );
-  const openedBaseRow = rows.find(row => String(row.invoice.id) === String(openedId));
+  const openedBaseRow = filteredRows.find(row => String(row.invoice.id) === String(openedId));
   const openedRow = React.useMemo(() => enrichRow(openedBaseRow), [openedBaseRow, enrichRow]);
 
   React.useEffect(() => {
@@ -478,6 +480,7 @@ export default function AccountingIncomingDocumentsPanel({
 
   const renderActions = (row) => {
     const disabled = busyId === row.invoice.id;
+    const isOpened = String(openedId) === String(row.invoice.id);
     const linkedSupplierInvoice = getLinkedSupplierInvoice(row);
     const supplierId = Number(
       row.invoice.supplierId
@@ -493,7 +496,14 @@ export default function AccountingIncomingDocumentsPanel({
       : '';
     return (
       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
-        <button disabled={disabled} onClick={() => setOpenedId(openedId === row.invoice.id ? null : row.invoice.id)} style={{ ...btnB, padding: '6px 10px', fontSize: '11px' }}><Eye size={12} />Открыть</button>
+        <button
+          type="button"
+          aria-controls={'accounting-invoice-detail-' + row.invoice.id}
+          aria-expanded={isOpened}
+          disabled={disabled}
+          onClick={() => setOpenedId(isOpened ? null : row.invoice.id)}
+          style={{ ...btnB, padding: '6px 10px', fontSize: '11px' }}
+        ><Eye size={12} />{isOpened ? 'Свернуть' : 'Открыть'}</button>
         {row.photos.length === 0 && (
           <label style={{ ...btnG, padding: '6px 10px', fontSize: '11px', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.6 : 1 }}>
             <Upload size={12} />Добавить фото
@@ -533,7 +543,7 @@ export default function AccountingIncomingDocumentsPanel({
       .filter(supplier => Number(supplier?.id || 0) > 0)
       .sort((left, right) => String(left.name || '').localeCompare(String(right.name || ''), 'ru'));
     return (
-      <div style={{ ...card, padding: '14px', marginBottom: '14px', backgroundColor: C.bg, border: '1.5px solid ' + C.accentBorder }}>
+      <div id={'accounting-invoice-detail-' + inv.id} style={{ ...card, padding: '14px', marginBottom: '14px', backgroundColor: C.bg, border: '1.5px solid ' + C.accentBorder }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '12px' }}>
           <div>
             <b style={{ color: C.text, fontSize: '15px' }}>Накладная № {inv.number || inv.id}</b>

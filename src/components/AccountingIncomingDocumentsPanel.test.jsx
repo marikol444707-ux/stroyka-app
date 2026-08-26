@@ -68,6 +68,16 @@ test('an uploaded invoice with a linked supplier bill hides recovery controls by
   expect(screen.queryByText('Добавить фото')).not.toBeInTheDocument();
 });
 
+test('an opened invoice replaces its compact card instead of rendering twice', async () => {
+  renderPanel();
+
+  fireEvent.click(await screen.findByRole('button', {name: 'Открыть'}));
+
+  expect(await screen.findByRole('button', {name: 'Свернуть'})).toHaveAttribute('aria-expanded', 'true');
+  expect(screen.queryAllByRole('button', {name: 'Открыть'})).toHaveLength(0);
+  expect(screen.getAllByText('ООО "Старт-Строй" · 2026-08-10 · Кисловодск Лицей 4')).toHaveLength(1);
+});
+
 test('an unreadable document opens only compact recovery actions', async () => {
   global.fetch = jest.fn().mockResolvedValue({ok: false});
   renderPanel({supplierInvoices: []});
