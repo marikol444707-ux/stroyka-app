@@ -47,6 +47,7 @@ export default function AccountingIncomingDocumentsPanel({
   const [busyId, setBusyId] = React.useState(null);
   const [visibleRows, setVisibleRows] = React.useState(30);
   const [selectedSupplierByInvoice, setSelectedSupplierByInvoice] = React.useState({});
+  const [supplierRecoveryId, setSupplierRecoveryId] = React.useState(null);
   const rowsStep = 30;
 
   const rows = React.useMemo(
@@ -242,6 +243,7 @@ export default function AccountingIncomingDocumentsPanel({
     const linked = await updateAccounting(row, { supplierId });
     if (linked) {
       setSelectedSupplierByInvoice(current => ({ ...current, [row.invoice.id]: '' }));
+      setSupplierRecoveryId(null);
     }
   };
 
@@ -294,7 +296,8 @@ export default function AccountingIncomingDocumentsPanel({
     if (supplierRequisites.name || supplierRequisites.inn || supplierRequisites.ogrn) {
       payload.supplierRequisites = supplierRequisites;
     }
-    await updateAccounting(row, payload);
+    const updated = await updateAccounting(row, payload);
+    if (updated) setSupplierRecoveryId(null);
   };
 
   const resolveSupplierAndMarkForPayment = async row => {
@@ -351,9 +354,15 @@ export default function AccountingIncomingDocumentsPanel({
       const linkedSupplierInvoiceId = linkedSupplierInvoice?.id || row.invoice.supplierInvoiceId;
       if (linkedSupplierInvoiceId) payload.supplierInvoiceId = linkedSupplierInvoiceId;
       const updated = await updateAccounting(row, payload);
-      if (!updated) setOpenedId(row.invoice.id);
+      if (updated) {
+        setSupplierRecoveryId(null);
+      } else {
+        setOpenedId(row.invoice.id);
+        setSupplierRecoveryId(row.invoice.id);
+      }
     } catch (error) {
       setOpenedId(row.invoice.id);
+      setSupplierRecoveryId(row.invoice.id);
       alert((error && error.message) || 'Не удалось определить поставщика. Выберите его вручную.');
     } finally {
       setBusyId(null);
@@ -400,10 +409,12 @@ export default function AccountingIncomingDocumentsPanel({
     return (
       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
         <button disabled={disabled} onClick={() => setOpenedId(openedId === row.invoice.id ? null : row.invoice.id)} style={{ ...btnB, padding: '6px 10px', fontSize: '11px' }}><Eye size={12} />Открыть</button>
-        <label style={{ ...btnG, padding: '6px 10px', fontSize: '11px', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.6 : 1 }}>
-          <Upload size={12} />Фото
-          <input type="file" accept="image/*" multiple disabled={disabled} onChange={event => { attachPhotos(row, event.target.files); event.target.value = ''; }} style={{ display: 'none' }} />
-        </label>
+        {row.photos.length === 0 && (
+          <label style={{ ...btnG, padding: '6px 10px', fontSize: '11px', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.6 : 1 }}>
+            <Upload size={12} />Добавить фото
+            <input type="file" accept="image/*" multiple disabled={disabled} onChange={event => { attachPhotos(row, event.target.files); event.target.value = ''; }} style={{ display: 'none' }} />
+          </label>
+        )}
         {(row.status === 'На проверке' || row.status === 'Нужно уточнение') && (
           <button
             title={paymentBlockedTitle}
@@ -430,6 +441,7 @@ export default function AccountingIncomingDocumentsPanel({
     const linkedSupplierInvoice = getLinkedSupplierInvoice(row);
     const supplierInvoiceCandidates = getSupplierInvoiceCandidates(row);
     const hasSupplier = Number(inv.supplierId || inv.supplier_id || linkedSupplierInvoice?.supplierId || linkedSupplierInvoice?.supplier_id || 0) > 0;
+    const showSupplierRecovery = !hasSupplier && String(supplierRecoveryId) === String(inv.id);
     const supplierOptions = (suppliers || [])
       .filter(supplier => Number(supplier?.id || 0) > 0)
       .sort((left, right) => String(left.name || '').localeCompare(String(right.name || ''), 'ru'));
@@ -461,9 +473,16 @@ export default function AccountingIncomingDocumentsPanel({
             ) : <span style={{ color: C.warning, fontSize: '11px', fontWeight: 800 }}>не связан</span>}
           </div>
           {linkedSupplierInvoice ? (
-            <p style={{ color: C.textSec, fontSize: '12px', margin: '6px 0 0' }}>
-              {supplierInvoiceTitle(linkedSupplierInvoice)} · {linkedSupplierInvoice.status || 'без статуса'}
-            </p>
+            <>
+              <p style={{ color: C.textSec, fontSize: '12px', margin: '6px 0 0' }}>
+                {supplierInvoiceTitle(linkedSupplierInvoice)} · {linkedSupplierInvoice.status || 'без статуса'}
+              </p>
+              {!hasSupplier && (
+                <p style={{ color: C.success, fontSize: '11px', margin: '5px 0 0' }}>
+                  Поставщик определится автоматически при нажатии «К оплате».
+                </p>
+              )}
+            </>
           ) : supplierInvoiceCandidates.length ? (
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' }}>
               {supplierInvoiceCandidates.map(candidate => (
@@ -477,10 +496,10 @@ export default function AccountingIncomingDocumentsPanel({
           )}
         </div>
 
-        {!hasSupplier && (
+        {showSupplierRecovery && (
           <div style={{ padding: '10px', borderRadius: '8px', border: '1px solid ' + C.warningBorder, backgroundColor: C.warningLight, marginBottom: '12px' }}>
             <b style={{ color: C.warning, fontSize: '12px', display: 'block', marginBottom: '5px' }}>Поставщик не определен</b>
-            <p style={{ color: C.textSec, fontSize: '11px', margin: '0 0 8px' }}>Кнопка «К оплате» сама читает ИНН/ОГРН и находит или создаёт поставщика. Если реквизиты не читаются, добавьте более чёткое фото и повторите либо выберите существующего вручную.</p>
+            <p style={{ color: C.textSec, fontSize: '11px', margin: '0 0 8px' }}>Автоматически определить поставщика не удалось. Добавьте более чёткое фото и повторите распознавание либо выберите существующего поставщика.</p>
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px,1fr) auto', gap: '8px', alignItems: 'center' }}>
               <select
                 value={selectedSupplierByInvoice[inv.id] || ''}
@@ -503,32 +522,36 @@ export default function AccountingIncomingDocumentsPanel({
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: showSupplierRecovery ? '12px' : 0 }}>
           {row.photos.map((url, index) => (
             <img key={url + index} src={fileSrc ? fileSrc(url) : url} alt="" onClick={() => setShowPhotoModal && setShowPhotoModal(fileSrc ? fileSrc(url) : url)} style={{ width: '72px', height: '72px', objectFit: 'cover', borderRadius: '8px', border: '1px solid ' + C.border, cursor: 'pointer' }} />
           ))}
-          <label style={{ ...btnG, minHeight: '72px', padding: '8px 12px', cursor: 'pointer', alignItems: 'center' }}>
-            <Upload size={13} />Добавить фото
-            <input type="file" accept="image/*" multiple onChange={event => { attachPhotos(row, event.target.files); event.target.value = ''; }} style={{ display: 'none' }} />
-          </label>
+          {showSupplierRecovery && (
+            <label style={{ ...btnG, minHeight: '72px', padding: '8px 12px', cursor: 'pointer', alignItems: 'center' }}>
+              <Upload size={13} />Заменить или добавить фото
+              <input type="file" accept="image/*" multiple onChange={event => { attachPhotos(row, event.target.files); event.target.value = ''; }} style={{ display: 'none' }} />
+            </label>
+          )}
         </div>
 
-        <DocumentRecognitionPanel
-          C={C}
-          card={card}
-          inp={inp}
-          btnG={btnG}
-          btnO={btnO}
-          btnB={btnB}
-          uploadPhoto={uploadPhoto}
-          fileSrc={fileSrc}
-          projectName={inv.project || inv.location || 'Бухгалтерская первичка'}
-          context="accounting-incoming-documents"
-          entityType="accounting_invoice"
-          currentFields={inv}
-          onApplyExtracted={result => applyRecognitionToAccounting(row, result)}
-          applyExtractedLabel="Подтянуть поставщика"
-        />
+        {showSupplierRecovery && (
+          <DocumentRecognitionPanel
+            C={C}
+            card={card}
+            inp={inp}
+            btnG={btnG}
+            btnO={btnO}
+            btnB={btnB}
+            uploadPhoto={uploadPhoto}
+            fileSrc={fileSrc}
+            projectName={inv.project || inv.location || 'Бухгалтерская первичка'}
+            context="accounting-incoming-documents"
+            entityType="accounting_invoice"
+            currentFields={inv}
+            onApplyExtracted={result => applyRecognitionToAccounting(row, result)}
+            applyExtractedLabel="Подтянуть поставщика"
+          />
+        )}
 
         <div style={{ display: 'grid', gap: '6px', marginBottom: '12px' }}>
           {(row.controls.length ? row.controls : (inv.items || [])).slice(0, 12).map((item, index) => {

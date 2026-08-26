@@ -71,16 +71,31 @@ test('a missing supplier keeps the payment action enabled for automatic resoluti
   expect(await screen.findByRole('button', {name: 'К оплате'})).toBeEnabled();
 });
 
+test('an uploaded invoice with a linked supplier bill hides recovery controls by default', async () => {
+  renderPanel();
+
+  fireEvent.click(await screen.findByRole('button', {name: 'Открыть'}));
+
+  expect(await screen.findByText(/Счёт № 14555/)).toBeInTheDocument();
+  expect(screen.queryByText('Поставщик не определен')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', {name: 'Связать поставщика'})).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', {name: 'Подтянуть распознанное'})).not.toBeInTheDocument();
+  expect(screen.queryByText('Добавить фото')).not.toBeInTheDocument();
+});
+
 test('recognized requisites are sent as structured supplier data', async () => {
-  global.fetch = jest.fn(async () => ({ok: true, json: async () => ({ok: true})}));
+  global.fetch = jest.fn()
+    .mockResolvedValueOnce({ok: false})
+    .mockResolvedValueOnce({ok: true, json: async () => ({ok: true})});
+  jest.spyOn(window, 'alert').mockImplementation(() => {});
   const refreshData = jest.fn();
   renderPanel({refreshData});
 
-  fireEvent.click(await screen.findByRole('button', {name: 'Открыть'}));
+  fireEvent.click(await screen.findByRole('button', {name: 'К оплате'}));
   fireEvent.click(await screen.findByRole('button', {name: 'Подтянуть распознанное'}));
 
-  await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
-  const [url, request] = global.fetch.mock.calls[0];
+  await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
+  const [url, request] = global.fetch.mock.calls[1];
   expect(url).toContain('/warehouse-invoices/14555/accounting');
   expect(request.method).toBe('PUT');
   expect(JSON.parse(request.body)).toEqual(expect.objectContaining({
