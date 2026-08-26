@@ -719,7 +719,7 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
             backend_root / "main.py": (
-                "d11027e2179b618bbe3b5666bb020db0bb0e8dcf44c2b1f9813a3f320ce09c80"
+                "a51d3be8e1d6dc2e391c7b39cc604a12800804ad23ba1bd3e283134b4badc475"
             ),
         }
         actual = {

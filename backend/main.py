@@ -266,8 +266,11 @@ except ModuleNotFoundError:
 try:
     from backend.features.warehouse_receipts.duplicate_guard import (
         build_invoice_number_lookup_keys,
+        build_supplier_invoice_lock_keys,
         build_warehouse_invoice_lock_keys,
+        match_supplier_invoice_duplicate,
         match_warehouse_invoice_duplicate,
+        normalize_invoice_date,
     )
     from backend.features.warehouse_receipts.policy import (
         WarehouseReceiptPolicyError,
@@ -278,8 +281,11 @@ try:
 except ModuleNotFoundError:
     from features.warehouse_receipts.duplicate_guard import (
         build_invoice_number_lookup_keys,
+        build_supplier_invoice_lock_keys,
         build_warehouse_invoice_lock_keys,
+        match_supplier_invoice_duplicate,
         match_warehouse_invoice_duplicate,
+        normalize_invoice_date,
     )
     from features.warehouse_receipts.policy import (
         WarehouseReceiptPolicyError,
@@ -10528,18 +10534,46 @@ def _find_existing_warehouse_invoice_duplicate(cur, *, company_id, invoice_numbe
     return None
 
 def _find_existing_supplier_invoice_duplicate(cur, *, company_id, invoice_number, invoice_date, project_name, supplier_id=None, supplier_name="", amount=0, warehouse_invoice_id=None, request_id=None, offer_id=None):
+    company_id = _positive_int_or_none(company_id) or 1
     warehouse_invoice_id = _positive_int_or_none(warehouse_invoice_id)
+    supplier_id = _positive_int_or_none(supplier_id)
+    supplier_name_key = _normalize_supplier_name_key(supplier_name or "")
+    supplier_scope_ids = set(supplier_related_ids(cur, supplier_id)) if supplier_id else set()
+    supplier_identity = (
+        "ids:" + ",".join(str(value) for value in sorted(supplier_scope_ids))
+        if supplier_scope_ids
+        else "name:" + supplier_name_key if supplier_name_key else ""
+    )
+    request_id = _positive_int_or_none(request_id)
+    offer_id = _positive_int_or_none(offer_id)
+    invoice_date_key = normalize_invoice_date(invoice_date)
+    invoice_number_lookup_keys = list(build_invoice_number_lookup_keys(invoice_number))
+    for duplicate_lock_key in build_supplier_invoice_lock_keys(
+        company_id=company_id,
+        invoice_number=invoice_number,
+        invoice_date=invoice_date,
+        supplier_identity=supplier_identity,
+        offer_id=offer_id,
+        request_id=request_id,
+        warehouse_invoice_id=warehouse_invoice_id,
+    ):
+        cur.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(%s))",
+            (duplicate_lock_key,),
+        )
+
     if warehouse_invoice_id:
         cur.execute(
             """
             SELECT id, warehouse_invoice_id, supplier_id, supplier_name, amount
               FROM supplier_invoices
              WHERE COALESCE(status,'') <> 'Аннулирован'
+               AND COALESCE(company_id,1)=%s
                AND warehouse_invoice_id=%s
              ORDER BY id DESC
              LIMIT 1
             """,
-            (warehouse_invoice_id,),
+            (company_id, warehouse_invoice_id),
         )
         row = cur.fetchone()
         if row:
@@ -10551,29 +10585,21 @@ def _find_existing_supplier_invoice_duplicate(cur, *, company_id, invoice_number
                 "match": "warehouse_invoice_id",
             }
 
-    invoice_number = str(invoice_number or "").strip()
-    if not invoice_number:
+    if not invoice_number_lookup_keys or not invoice_date_key:
         return None
-    company_id = _positive_int_or_none(company_id) or 1
-    supplier_id = _positive_int_or_none(supplier_id)
-    supplier_name_key = _normalize_supplier_name_key(supplier_name or "")
-    supplier_scope_ids = set(supplier_related_ids(cur, supplier_id)) if supplier_id else set()
-    amount = _float_or_zero(amount)
-    request_id = _positive_int_or_none(request_id)
-    offer_id = _positive_int_or_none(offer_id)
 
     cur.execute(
         """
-        SELECT id, warehouse_invoice_id, supplier_id, supplier_name, amount, request_id, offer_id
+        SELECT id, warehouse_invoice_id, supplier_id, supplier_name, amount,
+               request_id, offer_id, invoice_number, invoice_date
           FROM supplier_invoices
          WHERE COALESCE(status,'') <> 'Аннулирован'
            AND COALESCE(company_id,1)=%s
-           AND COALESCE(invoice_number,'')=%s
+           AND regexp_replace(upper(COALESCE(invoice_number,'')), '[^[:alnum:]]', '', 'g')=ANY(%s::text[])
            AND COALESCE(invoice_date::text,'')=COALESCE(%s::text,'')
-           AND COALESCE(project_name,'')=%s
          ORDER BY id DESC
         """,
-        (company_id, invoice_number, invoice_date, project_name or ""),
+        (company_id, invoice_number_lookup_keys, invoice_date_key),
     )
     for candidate in cur.fetchall() or []:
         candidate_id = _row_get(candidate, "id", 0)
@@ -10587,19 +10613,28 @@ def _find_existing_supplier_invoice_duplicate(cur, *, company_id, invoice_number
             (supplier_scope_ids and candidate_supplier_id in supplier_scope_ids)
             or (supplier_name_key and candidate_supplier_key and supplier_name_key == candidate_supplier_key)
         )
-        same_chain = bool(
-            (request_id and candidate_request_id and request_id == candidate_request_id)
-            or (offer_id and candidate_offer_id and offer_id == candidate_offer_id)
-            or (warehouse_invoice_id and candidate_warehouse_id and warehouse_invoice_id == candidate_warehouse_id)
+        match = match_supplier_invoice_duplicate(
+            incoming_number=invoice_number,
+            incoming_date=invoice_date,
+            candidate_number=_row_get(candidate, "invoice_number", 7, ""),
+            candidate_date=_row_get(candidate, "invoice_date", 8),
+            same_supplier=same_supplier,
+            same_offer=bool(
+                offer_id and candidate_offer_id and offer_id == candidate_offer_id
+            ),
+            same_request=bool(
+                request_id
+                and candidate_request_id
+                and request_id == candidate_request_id
+            ),
         )
-        amount_matches = amount > 0 and candidate_amount > 0 and abs(amount - candidate_amount) < 0.01
-        if same_chain or same_supplier or amount_matches:
+        if match:
             return {
                 "id": candidate_id,
                 "warehouseInvoiceId": candidate_warehouse_id,
                 "supplierName": _row_get(candidate, "supplier_name", 3, "") or "",
                 "amount": candidate_amount,
-                "match": "document",
+                "match": match,
             }
     return None
 
@@ -10981,6 +11016,16 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
     except Exception as e:
         raise HTTPException(status_code=500, detail="Не удалось подготовить поля накладной поставки: " + str(e))
     try:
+        cur.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(%s))",
+            ("warehouse-invoice-delivery:" + str(delivery_id),),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Не удалось безопасно проверить повторную приёмку поставки",
+        ) from None
+    try:
         cur.execute("SELECT id FROM warehouse_invoices WHERE supply_delivery_id=%s LIMIT 1", (delivery_id,))
         existing = cur.fetchone()
         if existing:
@@ -11004,8 +11049,13 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
                                SET company_id=%s, warehouse_invoice_id=COALESCE(warehouse_invoice_id,%s)
                                WHERE id=%s""", (company_id, existing_id, linked_supplier_invoice_id))
             return existing_id
-    except Exception as e:
-        print("SUPPLY INVOICE CHECK ERROR:", str(e))
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Не удалось безопасно проверить повторную приёмку поставки",
+        ) from None
     received_qty = _float_or_zero(received_qty if received_qty is not None else delivery.get('received_quantity'))
     if received_qty <= 0:
         return None
