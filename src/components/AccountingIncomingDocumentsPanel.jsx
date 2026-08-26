@@ -277,11 +277,19 @@ export default function AccountingIncomingDocumentsPanel({
   const linkSupplier = async (row) => {
     const supplierId = Number(selectedSupplierByInvoice[row.invoice.id] || 0);
     if (supplierId <= 0) return;
-    const linked = await updateAccounting(row, { supplierId });
-    if (linked) {
+    const linkedSupplierInvoice = getLinkedSupplierInvoice(row);
+    const payload = {
+      accountingStatus: 'К оплате',
+      supplierId,
+    };
+    const linkedSupplierInvoiceId = linkedSupplierInvoice?.id || row.invoice.supplierInvoiceId;
+    if (linkedSupplierInvoiceId) payload.supplierInvoiceId = linkedSupplierInvoiceId;
+    const updated = await updateAccounting(row, payload);
+    if (updated) {
       setSelectedSupplierByInvoice(current => ({ ...current, [row.invoice.id]: '' }));
       setSupplierRecoveryId(null);
       setSupplierResolutionErrors(current => ({ ...current, [row.invoice.id]: '' }));
+      setOpenedId(null);
     }
   };
 
@@ -342,6 +350,7 @@ export default function AccountingIncomingDocumentsPanel({
       if (updated) {
         setSupplierRecoveryId(null);
         setSupplierResolutionErrors(current => ({ ...current, [invoiceId]: '' }));
+        setOpenedId(null);
       }
       else {
         setSupplierRecoveryId(invoiceId);
@@ -360,6 +369,7 @@ export default function AccountingIncomingDocumentsPanel({
       if (updated) {
         setSupplierRecoveryId(null);
         setSupplierResolutionErrors(current => ({ ...current, [invoiceId]: '' }));
+        setOpenedId(null);
       } else {
         setSupplierRecoveryId(invoiceId);
         setSupplierResolutionErrors(current => ({
@@ -437,6 +447,7 @@ export default function AccountingIncomingDocumentsPanel({
       if (updated) {
         setSupplierRecoveryId(null);
         setSupplierResolutionErrors(current => ({ ...current, [invoiceId]: '' }));
+        setOpenedId(null);
       } else {
         setSupplierRecoveryId(invoiceId);
         setSupplierResolutionErrors(current => ({ ...current, [invoiceId]: 'Сервер не смог перевести накладную в статус «К оплате».' }));

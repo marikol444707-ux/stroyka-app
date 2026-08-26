@@ -9,6 +9,8 @@ const colors = {
   danger: '#f66', dangerLight: '#311', dangerBorder: '#933', info: '#59f', infoLight: '#123', infoBorder: '#357',
 };
 
+afterEach(() => jest.restoreAllMocks());
+
 const renderPanel = (overrides = {}) => render(
   <AccountingIncomingDocumentsPanel
     C={colors}
@@ -92,6 +94,26 @@ test('an unreadable document opens only compact recovery actions', async () => {
   expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
 });
 
+test('manual supplier recovery completes the original payment-ready action', async () => {
+  jest.spyOn(window, 'alert').mockImplementation(() => {});
+  global.fetch = jest.fn().mockResolvedValueOnce({ok: false, json: async () => ({})});
+  renderPanel({suppliers: [{id: 77, name: 'ООО «Старт-Строй»', inn: '2632001234'}]});
+
+  fireEvent.click(await screen.findByRole('button', {name: 'К оплате'}));
+  fireEvent.change(await screen.findByRole('combobox'), {target: {value: '77'}});
+  global.fetch.mockResolvedValueOnce({ok: true, json: async () => ({ok: true})});
+  fireEvent.click(screen.getByRole('button', {name: 'Связать поставщика'}));
+
+  await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
+  expect(JSON.parse(global.fetch.mock.calls[1][1].body)).toEqual(expect.objectContaining({
+    accountingStatus: 'К оплате',
+    supplierId: 77,
+    supplierInvoiceId: 111,
+  }));
+  expect(await screen.findByRole('button', {name: 'Открыть'})).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.queryByRole('button', {name: 'Свернуть'})).not.toBeInTheDocument();
+});
+
 test('a linked supplier bill resolves the supplier on the server without reopening an old file', async () => {
   global.fetch = jest.fn().mockResolvedValue({
     ok: true,
@@ -111,6 +133,7 @@ test('a linked supplier bill resolves the supplier on the server without reopeni
   }));
   expect(global.fetch.mock.calls.map(([calledUrl]) => calledUrl)).not.toContain('/uploads/invoice-14555.jpg');
   expect(screen.queryByText('Не удалось прочитать документ')).not.toBeInTheDocument();
+  expect(await screen.findByRole('button', {name: 'Открыть'})).toHaveAttribute('aria-expanded', 'false');
 });
 
 test('supplier resolution shows immediate progress while document recognition is pending', async () => {
