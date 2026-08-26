@@ -1238,6 +1238,94 @@ def _resolve_or_create_document_supplier(cur, data: dict, fallback_name: str = "
         "created": True,
     }
 
+
+def _resolve_or_create_linked_invoice_supplier(
+    cur,
+    supplier_invoice: dict,
+    fallback_name: str = "",
+    warehouse_invoice_id: int = 0,
+):
+    """Resolve a linked bill supplier by name, or create a provisional review card.
+
+    This is deliberately narrower than document recognition: it is called only after
+    the accounting route has locked and validated a linked supplier invoice belonging
+    to the same company and project as the warehouse invoice.
+    """
+    supplier_name = str(
+        (supplier_invoice or {}).get("supplier_name")
+        or fallback_name
+        or ""
+    ).strip()[:255]
+    supplier_name_key = _normalize_supplier_name_key(supplier_name)
+    if not supplier_name_key:
+        raise HTTPException(
+            status_code=422,
+            detail="В связанном счёте не указано название поставщика",
+        )
+
+    payload = {
+        "supplierName": supplier_name,
+        "sourceType": "linked_supplier_invoice",
+        "sourceDetail": "Создано из связанного счёта для складской накладной #"
+        + str(warehouse_invoice_id),
+    }
+    # Serialize name-only creation and re-check after acquiring the lock so two
+    # simultaneous clicks cannot create duplicate provisional supplier cards.
+    cur.execute(
+        "SELECT pg_advisory_xact_lock(hashtext(%s))",
+        ("linked_supplier:" + supplier_name_key,),
+    )
+    matched = _supplier_find_match(
+        cur,
+        payload,
+        allow_name_match=True,
+        allow_alias_name_match=True,
+        allow_contact_match=False,
+    )
+    if matched:
+        _remember_supplier_alias(
+            cur,
+            matched["id"],
+            payload,
+            source="linked_supplier_invoice",
+        )
+        return {
+            "id": matched["id"],
+            "name": matched.get("name") or supplier_name,
+            "created": False,
+            "needsReview": False,
+        }
+
+    cur.execute(
+        """
+        INSERT INTO suppliers
+            (name,phone,email,specialization,category,rating,status,
+             notes,source_type,source_detail)
+        VALUES (%s,'','','','Материалы',5.0,'На проверке',%s,%s,%s)
+        RETURNING id,name
+        """,
+        (
+            supplier_name,
+            "Реквизиты требуют проверки перед фактической оплатой",
+            payload["sourceType"],
+            payload["sourceDetail"],
+        ),
+    )
+    created = cur.fetchone()
+    supplier_id = _row_get(created, "id", 0, 0)
+    _remember_supplier_alias(
+        cur,
+        supplier_id,
+        payload,
+        source="linked_supplier_invoice",
+    )
+    return {
+        "id": supplier_id,
+        "name": _row_get(created, "name", 1, "") or supplier_name,
+        "created": True,
+        "needsReview": True,
+    }
+
 def current_supplier_id(cur, user: dict):
     cur.execute("""SELECT id FROM suppliers
                    WHERE user_id=%s
@@ -20423,7 +20511,12 @@ def update_warehouse_invoice_accounting(
             data.get("supplierRequisites") or data.get("supplier_requisites"),
             dict,
         )
+        linked_supplier_resolution_requested = (
+            data.get("resolveLinkedSupplier") is True
+            or data.get("resolve_linked_supplier") is True
+        )
         supplier_recognition_created = False
+        supplier_needs_review = False
         existing_supplier_id = (
             requested_supplier_id
             or _positive_int_or_none(row.get("supplier_id"))
@@ -20438,6 +20531,34 @@ def update_warehouse_invoice_accounting(
             )
             requested_supplier_id = _positive_int_or_none(requested_supplier.get("id"))
             supplier_recognition_created = bool(requested_supplier.get("created"))
+
+        if linked_supplier_resolution_requested:
+            requested_linked_status = str(
+                data.get("accountingStatus")
+                or data.get("accounting_status")
+                or data.get("status")
+                or ""
+            ).strip()
+            if requested_linked_status != "К оплате":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Автоматическое определение поставщика доступно только при переводе в статус «К оплате»",
+                )
+            if not supplier_invoice_row:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Для автоматического определения поставщика нужен связанный счёт",
+                )
+            if not existing_supplier_id and not requested_supplier_id:
+                requested_supplier = _resolve_or_create_linked_invoice_supplier(
+                    cur,
+                    supplier_invoice_row,
+                    fallback_name=row.get("supplier_name") or "",
+                    warehouse_invoice_id=id,
+                )
+                requested_supplier_id = _positive_int_or_none(requested_supplier.get("id"))
+                supplier_recognition_created = bool(requested_supplier.get("created"))
+                supplier_needs_review = bool(requested_supplier.get("needsReview"))
 
         requested_status = str(
             data.get("accountingStatus")
@@ -20493,7 +20614,15 @@ def update_warehouse_invoice_accounting(
         if requested_supplier:
             selected_supplier_name = str(requested_supplier.get("name") or "").strip()
             original_supplier_name = str(row.get("supplier_name") or "").strip()
-            if supplier_recognition_requested:
+            if linked_supplier_resolution_requested:
+                audit_note = (
+                    "Новый поставщик создан по связанному счёту: "
+                    if supplier_recognition_created
+                    else "Поставщик определён по связанному счёту: "
+                ) + selected_supplier_name
+                if supplier_needs_review:
+                    audit_note += " (реквизиты требуют проверки)"
+            elif supplier_recognition_requested:
                 audit_note = (
                     "Новый поставщик создан по реквизитам документа: "
                     if supplier_recognition_created
@@ -20641,6 +20770,7 @@ def update_warehouse_invoice_accounting(
             "supplierId": resolved_supplier_id,
             "supplierName": (requested_supplier or {}).get("name") or (supplier_invoice_row or {}).get("supplier_name") or row.get("supplier_name") or "",
             "supplierCreated": supplier_recognition_created,
+            "supplierNeedsReview": supplier_needs_review,
         }
     except Exception:
         conn.rollback()

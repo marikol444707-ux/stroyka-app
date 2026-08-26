@@ -70,7 +70,7 @@ test('an uploaded invoice with a linked supplier bill hides recovery controls by
 
 test('an unreadable document opens only compact recovery actions', async () => {
   global.fetch = jest.fn().mockResolvedValue({ok: false});
-  renderPanel();
+  renderPanel({supplierInvoices: []});
 
   fireEvent.click(await screen.findByRole('button', {name: 'К оплате'}));
 
@@ -80,6 +80,27 @@ test('an unreadable document opens only compact recovery actions', async () => {
   expect(screen.getByText('Заменить фото')).toBeInTheDocument();
   expect(screen.queryByText('Распознавание документа')).not.toBeInTheDocument();
   expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+});
+
+test('a linked supplier bill resolves the supplier on the server without reopening an old file', async () => {
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ok: true, supplierId: 77, supplierCreated: true}),
+  });
+  renderPanel();
+
+  fireEvent.click(await screen.findByRole('button', {name: 'К оплате'}));
+
+  await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+  const [url, request] = global.fetch.mock.calls[0];
+  expect(url).toContain('/warehouse-invoices/14555/accounting');
+  expect(JSON.parse(request.body)).toEqual(expect.objectContaining({
+    accountingStatus: 'К оплате',
+    supplierInvoiceId: 111,
+    resolveLinkedSupplier: true,
+  }));
+  expect(global.fetch.mock.calls.map(([calledUrl]) => calledUrl)).not.toContain('/uploads/invoice-14555.jpg');
+  expect(screen.queryByText('Не удалось прочитать документ')).not.toBeInTheDocument();
 });
 
 test('supplier resolution shows immediate progress while document recognition is pending', async () => {
@@ -109,7 +130,7 @@ test('payment action resolves a new supplier from the attached invoice in one fl
     {ok: true, json: async () => ({ok: true, supplierId: 77, supplierCreated: true})},
   ];
   global.fetch = jest.fn(async () => responses.shift());
-  renderPanel();
+  renderPanel({supplierInvoices: []});
 
   fireEvent.click(await screen.findByRole('button', {name: 'К оплате'}));
 
@@ -145,7 +166,7 @@ test('payment action links the one existing supplier with the exact document nam
   }));
 });
 
-test('payment action reads the linked supplier document before a stale warehouse photo', async () => {
+test('payment action reads a warehouse document when no supplier bill is linked', async () => {
   const responses = [
     {ok: true, blob: async () => new Blob(['supplier invoice'], {type: 'application/pdf'})},
     {ok: true, json: async () => ({
@@ -161,23 +182,13 @@ test('payment action reads the linked supplier document before a stale warehouse
   ];
   global.fetch = jest.fn(async () => responses.shift());
   renderPanel({
-    supplierInvoices: [{
-      id: 111,
-      warehouseInvoiceId: 14555,
-      invoiceNumber: '14555',
-      supplierName: 'ООО "Старт-Строй"',
-      supplierId: null,
-      projectName: 'Кисловодск Лицей 4',
-      amount: 94380,
-      fileUrl: '/uploads/supplier-invoice-14555.pdf',
-    }],
+    supplierInvoices: [],
   });
 
   fireEvent.click(await screen.findByRole('button', {name: 'К оплате'}));
 
   await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(3));
-  expect(global.fetch.mock.calls[0][0]).toBe('/uploads/supplier-invoice-14555.pdf');
+  expect(global.fetch.mock.calls[0][0]).toBe('/uploads/invoice-14555.jpg');
   expect(global.fetch.mock.calls[1][0]).toContain('/scan-invoice');
-  expect(global.fetch.mock.calls.map(([url]) => url)).not.toContain('/uploads/invoice-14555.jpg');
   expect(screen.queryByText('Поставщик не определен')).not.toBeInTheDocument();
 });

@@ -350,6 +350,26 @@ export default function AccountingIncomingDocumentsPanel({
       setSupplierResolutionBusyId(null);
       return;
     }
+    const linkedSupplierInvoiceId = linkedSupplierInvoice?.id || row.invoice.supplierInvoiceId;
+    if (linkedSupplierInvoiceId) {
+      const updated = await updateAccounting(row, {
+        accountingStatus: 'К оплате',
+        supplierInvoiceId: linkedSupplierInvoiceId,
+        resolveLinkedSupplier: true,
+      });
+      if (updated) {
+        setSupplierRecoveryId(null);
+        setSupplierResolutionErrors(current => ({ ...current, [invoiceId]: '' }));
+      } else {
+        setSupplierRecoveryId(invoiceId);
+        setSupplierResolutionErrors(current => ({
+          ...current,
+          [invoiceId]: 'Сервер не смог определить поставщика по связанному счёту. Выберите его из списка.',
+        }));
+      }
+      setSupplierResolutionBusyId(null);
+      return;
+    }
     const documentUrls = getSupplierDocumentUrls(row);
     if (!documentUrls.length) {
       setSupplierRecoveryId(invoiceId);
@@ -413,8 +433,6 @@ export default function AccountingIncomingDocumentsPanel({
         }, row.invoice.accountingComment),
         supplierRequisites,
       };
-      const linkedSupplierInvoiceId = linkedSupplierInvoice?.id || row.invoice.supplierInvoiceId;
-      if (linkedSupplierInvoiceId) payload.supplierInvoiceId = linkedSupplierInvoiceId;
       const updated = await updateAccounting(row, payload);
       if (updated) {
         setSupplierRecoveryId(null);
