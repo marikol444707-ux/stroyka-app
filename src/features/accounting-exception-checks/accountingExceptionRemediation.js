@@ -1,149 +1,89 @@
-import { invoiceAmount } from '../../utils/accountingInvoices';
-import { normalizeSupplierNameKey } from '../../utils/supplierUtils';
+const PREVIEW_FIELDS = [
+  'version',
+  'companyId',
+  'state',
+  'repairCount',
+  'unresolvedCount',
+  'proofCounts',
+  'planSha256',
+  'blockers',
+];
+const APPLY_FIELDS = ['ok', 'appliedCount', 'unresolvedCount', 'planSha256'];
+const PROOFS = ['reciprocal', 'delivery', 'request'];
+const SHA256 = /^[0-9a-f]{64}$/;
 
-const LINK_REASONS = new Set([
-  'accounting_supplier_warehouse_link_not_found',
-  'accounting_supplier_warehouse_link_nonreciprocal',
-]);
-
-const positiveId = value => {
-  const parsed = Number(value || 0);
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
-};
-
-const companyIdOf = record => positiveId(record?.companyId || record?.company_id);
-const warehouseSupplierInvoiceId = record => positiveId(
-  record?.supplierInvoiceId || record?.supplier_invoice_id,
-);
-const supplierWarehouseInvoiceId = record => positiveId(
-  record?.warehouseInvoiceId || record?.warehouse_invoice_id,
-);
-const warehouseProject = record => String(
-  record?.project
-  || (record?.location === 'Основной склад' ? '' : record?.location)
-  || '',
-).trim();
-const supplierProject = record => String(
-  record?.projectName || record?.project_name || '',
-).trim();
-const supplierIdOf = record => positiveId(record?.supplierId || record?.supplier_id);
-const supplierNameOf = record => normalizeSupplierNameKey(
-  record?.supplierName || record?.supplier_name || record?.supplier || '',
-);
-const supplierInvoiceAmount = record => Number(
-  record?.amount || record?.totalAmount || record?.total_amount || 0,
-);
-const cents = value => (
-  Number.isFinite(Number(value)) && Number(value) > 0
-    ? Math.round(Number(value) * 100)
-    : null
+const exactKeys = (value, fields) => (
+  value
+  && typeof value === 'object'
+  && !Array.isArray(value)
+  && Object.keys(value).length === fields.length
+  && fields.every(field => Object.prototype.hasOwnProperty.call(value, field))
 );
 
-const sameSupplier = (warehouse, supplier) => {
-  const warehouseSupplierId = supplierIdOf(warehouse);
-  const supplierSupplierId = supplierIdOf(supplier);
-  if (warehouseSupplierId && supplierSupplierId) {
-    return warehouseSupplierId === supplierSupplierId;
-  }
-  const warehouseName = supplierNameOf(warehouse);
-  const supplierName = supplierNameOf(supplier);
-  return Boolean(warehouseName && supplierName && warehouseName === supplierName);
-};
-
-const exactDocumentMatch = ({
-  companyId,
-  expectedProject,
-  supplier,
-  warehouse,
-}) => (
-  companyIdOf(supplier) === companyId
-  && companyIdOf(warehouse) === companyId
-  && supplierProject(supplier) === expectedProject
-  && warehouseProject(warehouse) === expectedProject
-  && sameSupplier(warehouse, supplier)
-  && cents(supplierInvoiceAmount(supplier)) === cents(invoiceAmount(warehouse))
-  && String(supplier?.status || '') !== 'Аннулирован'
-  && String(warehouse?.status || '') !== 'Аннулирована'
-  && [null, positiveId(supplier?.id)].includes(warehouseSupplierInvoiceId(warehouse))
+const boundedCount = (value, maximum) => (
+  Number.isSafeInteger(value) && value >= 0 && value <= maximum
 );
 
-export const buildSafeAccountingLinkPlans = ({
-  companyId,
-  findings = [],
-  invoices = [],
-  projects = [],
-  supplierInvoices = [],
-} = {}) => {
-  const selectedCompanyId = positiveId(companyId);
-  if (!selectedCompanyId || !Array.isArray(findings)) {
-    return { plans: [], unresolvedCount: Array.isArray(findings) ? findings.length : 0 };
-  }
-
-  const projectById = new Map(
-    (projects || [])
-      .filter(project => companyIdOf(project) === selectedCompanyId)
-      .map(project => [positiveId(project?.id), String(project?.name || '').trim()]),
+export const validateAccountingLinkRepairPreview = (value, expectedCompanyId) => {
+  const validBase = (
+    exactKeys(value, PREVIEW_FIELDS)
+    && value.version === 'accounting-exception-link-repair-v1'
+    && Number.isSafeInteger(expectedCompanyId)
+    && expectedCompanyId > 0
+    && value.companyId === expectedCompanyId
+    && ['clear', 'ready', 'blocked'].includes(value.state)
+    && boundedCount(value.repairCount, 100)
+    && boundedCount(value.unresolvedCount, 2000)
+    && exactKeys(value.proofCounts, PROOFS)
+    && PROOFS.every(proof => boundedCount(value.proofCounts[proof], 100))
+    && PROOFS.reduce((sum, proof) => sum + value.proofCounts[proof], 0) === value.repairCount
+    && typeof value.planSha256 === 'string'
+    && SHA256.test(value.planSha256)
+    && Array.isArray(value.blockers)
   );
-  const supplierById = new Map(
-    (supplierInvoices || []).map(invoice => [positiveId(invoice?.id), invoice]),
+  const validState = validBase && (
+    (value.state === 'ready' && value.repairCount > 0 && value.blockers.length === 0)
+    || (value.state === 'clear' && value.repairCount === 0 && value.blockers.length === 0)
+    || (
+      value.state === 'blocked'
+      && value.repairCount === 0
+      && value.blockers.length === 1
+      && value.blockers[0] === 'accounting_link_repair_plan_too_large'
+    )
   );
-  const warehouseById = new Map(
-    (invoices || []).map(invoice => [positiveId(invoice?.id), invoice]),
-  );
-  const plansByPair = new Map();
-  const resolvedFindings = new Set();
-
-  findings.forEach((finding, index) => {
-    if (!LINK_REASONS.has(finding?.reasonCode)) return;
-    const expectedProject = projectById.get(positiveId(finding?.projectId));
-    if (!expectedProject) return;
-
-    let supplier = null;
-    let warehouse = null;
-    let candidates = [];
-    if (finding.subjectKind === 'supplier_invoice') {
-      supplier = supplierById.get(positiveId(finding.subjectId));
-      if (!supplier) return;
-      const directWarehouse = finding.reasonCode.endsWith('_nonreciprocal')
-        ? warehouseById.get(positiveId(finding.relatedId))
-        : null;
-      candidates = directWarehouse ? [directWarehouse] : [...warehouseById.values()];
-      candidates = candidates.filter(candidate => exactDocumentMatch({
-        companyId: selectedCompanyId,
-        expectedProject,
-        supplier,
-        warehouse: candidate,
-      }));
-      if (supplierWarehouseInvoiceId(supplier) !== positiveId(finding.relatedId)) return;
-      if (candidates.length === 1) [warehouse] = candidates;
-    } else if (finding.subjectKind === 'warehouse_invoice') {
-      warehouse = warehouseById.get(positiveId(finding.subjectId));
-      if (!warehouse) return;
-      const directSupplier = finding.reasonCode.endsWith('_nonreciprocal')
-        ? supplierById.get(positiveId(finding.relatedId))
-        : null;
-      candidates = directSupplier ? [directSupplier] : [...supplierById.values()];
-      candidates = candidates.filter(candidate => exactDocumentMatch({
-        companyId: selectedCompanyId,
-        expectedProject,
-        supplier: candidate,
-        warehouse,
-      }));
-      if (warehouseSupplierInvoiceId(warehouse) !== positiveId(finding.relatedId)
-          && finding.reasonCode.endsWith('_not_found')) return;
-      if (candidates.length === 1) [supplier] = candidates;
-    }
-
-    const supplierInvoiceId = positiveId(supplier?.id);
-    const warehouseInvoiceId = positiveId(warehouse?.id);
-    if (!supplierInvoiceId || !warehouseInvoiceId) return;
-    const pairKey = `${supplierInvoiceId}:${warehouseInvoiceId}`;
-    plansByPair.set(pairKey, { supplierInvoiceId, warehouseInvoiceId });
-    resolvedFindings.add(index);
-  });
-
+  if (!validState) throw new Error('accounting_link_repair_preview_invalid');
   return {
-    plans: [...plansByPair.values()],
-    unresolvedCount: findings.length - resolvedFindings.size,
+    version: value.version,
+    companyId: value.companyId,
+    state: value.state,
+    repairCount: value.repairCount,
+    unresolvedCount: value.unresolvedCount,
+    proofCounts: Object.fromEntries(PROOFS.map(proof => [proof, value.proofCounts[proof]])),
+    planSha256: value.planSha256,
+    blockers: [...value.blockers],
+  };
+};
+
+export const buildAccountingLinkRepairApplyBody = preview => ({
+  confirm: 'APPLY_ACCOUNTING_EXCEPTION_LINK_REPAIRS',
+  expectedRepairCount: preview.repairCount,
+  expectedPlanSha256: preview.planSha256,
+});
+
+export const validateAccountingLinkRepairApplyResult = (value, preview) => {
+  if (
+    !exactKeys(value, APPLY_FIELDS)
+    || value.ok !== true
+    || value.appliedCount !== preview?.repairCount
+    || !boundedCount(value.unresolvedCount, 2000)
+    || value.planSha256 !== preview?.planSha256
+  ) {
+    throw new Error('accounting_link_repair_apply_invalid');
+  }
+  return {
+    ok: true,
+    appliedCount: value.appliedCount,
+    unresolvedCount: value.unresolvedCount,
+    planSha256: value.planSha256,
   };
 };

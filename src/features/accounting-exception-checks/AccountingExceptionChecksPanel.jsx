@@ -15,7 +15,11 @@ import {
   parseAccountingExceptionCompanyIds,
   validateAccountingExceptionChecks,
 } from './accountingExceptionChecks';
-import { buildSafeAccountingLinkPlans } from './accountingExceptionRemediation';
+import {
+  buildAccountingLinkRepairApplyBody,
+  validateAccountingLinkRepairApplyResult,
+  validateAccountingLinkRepairPreview,
+} from './accountingExceptionRemediation';
 
 const DEFAULT_ENABLED = process.env.REACT_APP_ACCOUNTING_EXCEPTION_CHECKS_ENABLED === 'true';
 const DEFAULT_ALLOWED_COMPANY_IDS = parseAccountingExceptionCompanyIds(
@@ -62,12 +66,9 @@ export default function AccountingExceptionChecksPanel({
   card = {},
   companyMode,
   enabled = DEFAULT_ENABLED,
-  invoices = [],
   isMobile = false,
-  projects = [],
   refreshData,
   selectedCompanyId,
-  supplierInvoices = [],
   user = {},
 }) {
   const allowed = (
@@ -83,21 +84,19 @@ export default function AccountingExceptionChecksPanel({
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState('');
   const [result, setResult] = React.useState(null);
+  const [repairPreview, setRepairPreview] = React.useState(null);
+  const [repairLoading, setRepairLoading] = React.useState(false);
   const [repairing, setRepairing] = React.useState(false);
   const [repairMessage, setRepairMessage] = React.useState(null);
   const [showFindings, setShowFindings] = React.useState(false);
-
-  const repairSummary = React.useMemo(() => buildSafeAccountingLinkPlans({
-    companyId: selectedCompanyId,
-    findings: result?.findings || [],
-    invoices,
-    projects,
-    supplierInvoices,
-  }), [invoices, projects, result, selectedCompanyId, supplierInvoices]);
+  const selectedCompanyIdRef = React.useRef(selectedCompanyId);
+  selectedCompanyIdRef.current = selectedCompanyId;
 
   React.useEffect(() => {
+    setRepairPreview(null);
     setRepairMessage(null);
     setRepairing(false);
+    setRepairLoading(false);
     setShowFindings(false);
   }, [selectedCompanyId]);
 
@@ -132,46 +131,81 @@ export default function AccountingExceptionChecksPanel({
     return () => controller.abort();
   }, [API, allowed, reloadKey, selectedCompanyId]);
 
+  React.useEffect(() => {
+    setRepairPreview(null);
+    setRepairLoading(false);
+    if (!allowed) return undefined;
+
+    const controller = new AbortController();
+    setRepairLoading(true);
+    fetch(`${API}/accounting-exception-link-repairs`, {
+      credentials: 'include',
+      signal: controller.signal,
+    })
+      .then(response => {
+        if (!response.ok) throw new Error('accounting_link_repair_preview_unavailable');
+        return response.json();
+      })
+      .then(body => {
+        if (controller.signal.aborted) return;
+        setRepairPreview(validateAccountingLinkRepairPreview(body, selectedCompanyId));
+      })
+      .catch(reason => {
+        if (controller.signal.aborted || reason?.name === 'AbortError') return;
+        setRepairPreview(null);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setRepairLoading(false);
+      });
+    return () => controller.abort();
+  }, [API, allowed, reloadKey, selectedCompanyId]);
+
   const repairSafeLinks = async () => {
-    const plans = repairSummary.plans;
-    if (!plans.length || repairing) return;
+    const preview = repairPreview;
+    if (preview?.state !== 'ready' || preview.repairCount < 1 || repairing) return;
+    const isCurrentCompany = () => (
+      selectedCompanyIdRef.current === preview.companyId
+    );
     const confirmed = window.confirm(
-      `Исправить ${linkCountLabel(plans.length)}? Спорные документы изменены не будут.`,
+      `Исправить ${linkCountLabel(preview.repairCount)}? Суммы, оплаты и складские остатки не изменятся.`,
     );
     if (!confirmed) return;
 
     setRepairing(true);
     setRepairMessage(null);
-    let repaired = 0;
-    let failed = 0;
-    for (const plan of plans) {
-      try {
-        const response = await fetch(`${API}/supplier-invoices/${plan.supplierInvoiceId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            accountingExceptionRepair: true,
-            warehouseInvoiceId: plan.warehouseInvoiceId,
-          }),
-        });
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok || body.detail || body.error) {
-          failed += 1;
-        } else {
-          repaired += 1;
+    try {
+      const response = await fetch(`${API}/accounting-exception-link-repairs`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildAccountingLinkRepairApplyBody(preview)),
+      });
+      if (response.status === 409) {
+        if (isCurrentCompany()) {
+          setRepairMessage({
+            error: 'Данные изменились. Обновите проверку и повторите действие.',
+          });
         }
-      } catch (_reason) {
-        failed += 1;
+        return;
       }
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error('accounting_link_repair_apply_unavailable');
+      const receipt = validateAccountingLinkRepairApplyResult(body, preview);
+      if (!isCurrentCompany()) return;
+      if (typeof refreshData === 'function') await refreshData();
+      if (!isCurrentCompany()) return;
+      setRepairMessage({ repaired: receipt.appliedCount });
+      setShowFindings(false);
+      setReloadKey(value => value + 1);
+    } catch (_reason) {
+      if (isCurrentCompany()) {
+        setRepairMessage({
+          error: 'Исправление связей временно недоступно. Данные не изменены.',
+        });
+      }
+    } finally {
+      if (isCurrentCompany()) setRepairing(false);
     }
-
-    if (repaired > 0 && typeof refreshData === 'function') {
-      await refreshData();
-    }
-    setRepairMessage({ repaired, failed });
-    setRepairing(false);
-    setShowFindings(false);
-    setReloadKey(value => value + 1);
   };
 
   if (!allowed) return null;
@@ -191,10 +225,8 @@ export default function AccountingExceptionChecksPanel({
   const checkedRows = result
     ? Object.values(result.sourceCounts).reduce((sum, count) => sum + count, 0)
     : 0;
-  const unresolvedFindingCount = repairSummary.unresolvedCount + Math.max(
-    0,
-    Number(result?.findingCount || 0) - (result?.findings?.length || 0),
-  );
+  const unresolvedFindingCount = repairPreview?.unresolvedCount
+    ?? Number(result?.findingCount || 0);
 
   return (
     <section
@@ -232,11 +264,10 @@ export default function AccountingExceptionChecksPanel({
       )}
       {repairMessage && (
         <div
-          role={repairMessage.failed ? 'alert' : 'status'}
-          style={{ marginTop: '14px', padding: '11px', borderRadius: '8px', color: repairMessage.failed ? palette.danger : palette.success, background: repairMessage.failed ? palette.dangerLight : palette.successLight }}
+          role={repairMessage.error ? 'alert' : 'status'}
+          style={{ marginTop: '14px', padding: '11px', borderRadius: '8px', color: repairMessage.error ? palette.danger : palette.success, background: repairMessage.error ? palette.dangerLight : palette.successLight }}
         >
-          Исправлено связей: {repairMessage.repaired}.
-          {repairMessage.failed > 0 ? ` Не удалось исправить: ${repairMessage.failed}. Список уже обновлён.` : ' Проверка обновлена.'}
+          {repairMessage.error || `Исправлено связей: ${repairMessage.repaired}. Проверка обновлена.`}
         </div>
       )}
       {result?.state === 'clear' && (
@@ -256,20 +287,20 @@ export default function AccountingExceptionChecksPanel({
           <div style={{ padding: '12px', borderRadius: '10px', color: palette.warning, background: palette.warningLight }}>
             <b>Требуется проверка: {result.findingCount}</b>
             <p style={{ margin: '5px 0 0', color: palette.textSec, fontSize: '12px' }}>
-              {repairSummary.plans.length > 0
-                ? `Однозначно определено связей: ${repairSummary.plans.length}. Их можно исправить одним действием.`
-                : 'Однозначных совпадений пока нет — система не будет угадывать.'}
+              {repairPreview?.state === 'ready'
+                ? `Однозначно определено связей: ${repairPreview.repairCount}. Их можно исправить одним действием.`
+                : 'Однозначных связей для автоматического исправления пока нет — система не будет угадывать.'}
               {unresolvedFindingCount > 0 ? ` Осталось спорных: ${unresolvedFindingCount}.` : ''}
             </p>
-            {repairSummary.plans.length > 0 && (
+            {repairPreview?.state === 'ready' && repairPreview.repairCount > 0 && (
               <button
                 type="button"
                 onClick={repairSafeLinks}
-                disabled={repairing || loading}
-                style={{ marginTop: '10px', border: 'none', background: C.accent || '#f97316', color: '#fff', borderRadius: '8px', padding: '9px 12px', fontWeight: 800, cursor: repairing || loading ? 'default' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '7px', opacity: repairing || loading ? 0.65 : 1 }}
+                disabled={repairing || loading || repairLoading}
+                style={{ marginTop: '10px', border: 'none', background: C.accent || '#f97316', color: '#fff', borderRadius: '8px', padding: '9px 12px', fontWeight: 800, cursor: repairing || loading || repairLoading ? 'default' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '7px', opacity: repairing || loading || repairLoading ? 0.65 : 1 }}
               >
                 <Link2 size={15} aria-hidden="true" />
-                {repairing ? 'Исправляем связи…' : `Исправить безопасные связи (${repairSummary.plans.length})`}
+                {repairing ? 'Исправляем связи…' : `Исправить безопасные связи (${repairPreview.repairCount})`}
               </button>
             )}
           </div>

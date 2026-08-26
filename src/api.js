@@ -86,6 +86,7 @@ export const installAuthFetch = () => {
   const csrfHeaderName = 'X-CSRF-Token';
   const cookieOnlyCapabilityPaths = [
     /^\/accounting-exception-checks$/,
+    /^\/accounting-exception-link-repairs$/,
     /^\/assignment-daily-draft-previews$/,
     /^\/warehouse-anomaly-previews$/,
     /^\/human-approved-actions\/(?:proposals|decisions|history)$/,

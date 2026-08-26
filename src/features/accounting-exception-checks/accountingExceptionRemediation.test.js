@@ -1,100 +1,74 @@
-import { buildSafeAccountingLinkPlans } from './accountingExceptionRemediation';
+import {
+  buildAccountingLinkRepairApplyBody,
+  validateAccountingLinkRepairApplyResult,
+  validateAccountingLinkRepairPreview,
+} from './accountingExceptionRemediation';
 
-const finding = (overrides = {}) => ({
-  reasonCode: 'accounting_supplier_warehouse_link_not_found',
-  subjectKind: 'supplier_invoice',
-  subjectId: 91,
-  projectId: 17,
-  relatedId: 999,
-  ...overrides,
-});
-
-const supplierInvoice = (overrides = {}) => ({
-  id: 91,
+const preview = (overrides = {}) => ({
+  version: 'accounting-exception-link-repair-v1',
   companyId: 4,
-  projectName: 'ЖК Северный',
-  supplierId: 12,
-  supplierName: 'ООО Поставка',
-  amount: 1000,
-  warehouseInvoiceId: 999,
-  status: 'На утверждении',
+  state: 'ready',
+  repairCount: 2,
+  unresolvedCount: 29,
+  proofCounts: { reciprocal: 0, delivery: 2, request: 0 },
+  planSha256: 'a'.repeat(64),
+  blockers: [],
   ...overrides,
 });
 
-const warehouseInvoice = (overrides = {}) => ({
-  id: 44,
-  companyId: 4,
-  project: 'ЖК Северный',
-  supplierId: 12,
-  supplierName: 'ООО Поставка',
-  totalWithVat: 1000,
-  supplierInvoiceId: null,
-  status: 'Принята',
-  ...overrides,
-});
+describe('accounting exception link repair contract', () => {
+  test('accepts and detaches one strict server preview', () => {
+    const source = preview();
+    const result = validateAccountingLinkRepairPreview(source, 4);
 
-const input = (overrides = {}) => ({
-  companyId: 4,
-  findings: [finding()],
-  invoices: [warehouseInvoice()],
-  projects: [{ id: 17, companyId: 4, name: 'ЖК Северный' }],
-  supplierInvoices: [supplierInvoice()],
-  ...overrides,
-});
-
-describe('buildSafeAccountingLinkPlans', () => {
-  test('selects one exact company, project, supplier and amount match', () => {
-    expect(buildSafeAccountingLinkPlans(input())).toEqual({
-      plans: [{
-        supplierInvoiceId: 91,
-        warehouseInvoiceId: 44,
-      }],
-      unresolvedCount: 0,
-    });
+    expect(result).toEqual(source);
+    expect(result).not.toBe(source);
+    expect(result.proofCounts).not.toBe(source.proofCounts);
   });
 
-  test('refuses to guess when more than one warehouse document matches', () => {
-    const result = buildSafeAccountingLinkPlans(input({
-      invoices: [warehouseInvoice(), warehouseInvoice({ id: 45 })],
-    }));
-
-    expect(result).toEqual({ plans: [], unresolvedCount: 1 });
-  });
-
-  test('refuses cross-company, different-project, different-supplier and amount matches', () => {
-    const unsafeCandidates = [
-      warehouseInvoice({ id: 45, companyId: 5 }),
-      warehouseInvoice({ id: 46, project: 'Другой объект' }),
-      warehouseInvoice({ id: 47, supplierId: 13 }),
-      warehouseInvoice({ id: 48, totalWithVat: 1000.01 }),
-      warehouseInvoice({ id: 49, supplierInvoiceId: 777 }),
+  test('rejects private fields, wrong company, inconsistent counts and invalid states', () => {
+    const invalid = [
+      preview({ privateRows: [] }),
+      preview({ companyId: 5 }),
+      preview({ repairCount: 3 }),
+      preview({ state: 'clear' }),
+      preview({ planSha256: 'A'.repeat(64) }),
+      preview({ blockers: ['private'] }),
     ];
 
-    expect(buildSafeAccountingLinkPlans(input({ invoices: unsafeCandidates })))
-      .toEqual({ plans: [], unresolvedCount: 1 });
+    invalid.forEach(value => {
+      expect(() => validateAccountingLinkRepairPreview(value, 4))
+        .toThrow('accounting_link_repair_preview_invalid');
+    });
   });
 
-  test('deduplicates reciprocal findings for the same document pair', () => {
-    const result = buildSafeAccountingLinkPlans(input({
-      findings: [
-        finding({
-          reasonCode: 'accounting_supplier_warehouse_link_nonreciprocal',
-          relatedId: 44,
-        }),
-        finding({
-          reasonCode: 'accounting_supplier_warehouse_link_nonreciprocal',
-          subjectKind: 'warehouse_invoice',
-          subjectId: 44,
-          relatedId: 91,
-        }),
-      ],
-      supplierInvoices: [supplierInvoice({ warehouseInvoiceId: 44 })],
-      invoices: [warehouseInvoice({ supplierInvoiceId: null })],
-    }));
+  test('builds the exact confirmation body with no document data', () => {
+    expect(buildAccountingLinkRepairApplyBody(preview())).toEqual({
+      confirm: 'APPLY_ACCOUNTING_EXCEPTION_LINK_REPAIRS',
+      expectedRepairCount: 2,
+      expectedPlanSha256: 'a'.repeat(64),
+    });
+  });
+
+  test('validates an apply receipt against the exact preview', () => {
+    const result = validateAccountingLinkRepairApplyResult({
+      ok: true,
+      appliedCount: 2,
+      unresolvedCount: 29,
+      planSha256: 'a'.repeat(64),
+    }, preview());
 
     expect(result).toEqual({
-      plans: [{ supplierInvoiceId: 91, warehouseInvoiceId: 44 }],
-      unresolvedCount: 0,
+      ok: true,
+      appliedCount: 2,
+      unresolvedCount: 29,
+      planSha256: 'a'.repeat(64),
     });
+    expect(() => validateAccountingLinkRepairApplyResult({
+      ok: true,
+      appliedCount: 1,
+      unresolvedCount: 29,
+      planSha256: 'a'.repeat(64),
+    }, preview())).toThrow('accounting_link_repair_apply_invalid');
   });
 });
