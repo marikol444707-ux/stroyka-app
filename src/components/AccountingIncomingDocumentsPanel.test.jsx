@@ -75,10 +75,23 @@ test('an unreadable document opens only compact recovery actions', async () => {
   fireEvent.click(await screen.findByRole('button', {name: 'К оплате'}));
 
   expect(await screen.findByText('Не удалось прочитать документ')).toBeInTheDocument();
+  expect(screen.getByText('Не удалось открыть файл накладной или связанного счёта')).toBeInTheDocument();
   expect(screen.getByRole('combobox')).toBeInTheDocument();
   expect(screen.getByText('Заменить фото')).toBeInTheDocument();
   expect(screen.queryByText('Распознавание документа')).not.toBeInTheDocument();
   expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+});
+
+test('supplier resolution shows immediate progress while document recognition is pending', async () => {
+  global.fetch = jest.fn(() => new Promise(() => {}));
+  renderPanel();
+
+  fireEvent.click(await screen.findByRole('button', {name: 'К оплате'}));
+
+  const pendingButtons = await screen.findAllByRole('button', {name: 'Определяем поставщика…'});
+  expect(pendingButtons.length).toBeGreaterThan(0);
+  pendingButtons.forEach(button => expect(button).toBeDisabled());
+  expect(screen.getByRole('status')).toHaveTextContent('Читаем связанный счёт и определяем поставщика');
 });
 
 test('payment action resolves a new supplier from the attached invoice in one flow', async () => {

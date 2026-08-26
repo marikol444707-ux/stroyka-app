@@ -47,6 +47,8 @@ export default function AccountingIncomingDocumentsPanel({
   const [visibleRows, setVisibleRows] = React.useState(30);
   const [selectedSupplierByInvoice, setSelectedSupplierByInvoice] = React.useState({});
   const [supplierRecoveryId, setSupplierRecoveryId] = React.useState(null);
+  const [supplierResolutionBusyId, setSupplierResolutionBusyId] = React.useState(null);
+  const [supplierResolutionErrors, setSupplierResolutionErrors] = React.useState({});
   const rowsStep = 30;
 
   const rows = React.useMemo(
@@ -279,6 +281,7 @@ export default function AccountingIncomingDocumentsPanel({
     if (linked) {
       setSelectedSupplierByInvoice(current => ({ ...current, [row.invoice.id]: '' }));
       setSupplierRecoveryId(null);
+      setSupplierResolutionErrors(current => ({ ...current, [row.invoice.id]: '' }));
     }
   };
 
@@ -322,6 +325,10 @@ export default function AccountingIncomingDocumentsPanel({
   });
 
   const resolveSupplierAndMarkForPayment = async row => {
+    const invoiceId = row.invoice.id;
+    setOpenedId(invoiceId);
+    setSupplierResolutionBusyId(invoiceId);
+    setSupplierResolutionErrors(current => ({ ...current, [invoiceId]: '' }));
     const linkedSupplierInvoice = getLinkedSupplierInvoice(row);
     const exactSupplier = getExactExistingSupplier(row);
     if (exactSupplier) {
@@ -332,20 +339,25 @@ export default function AccountingIncomingDocumentsPanel({
       const linkedSupplierInvoiceId = linkedSupplierInvoice?.id || row.invoice.supplierInvoiceId;
       if (linkedSupplierInvoiceId) payload.supplierInvoiceId = linkedSupplierInvoiceId;
       const updated = await updateAccounting(row, payload);
-      if (updated) setSupplierRecoveryId(null);
-      else {
-        setOpenedId(row.invoice.id);
-        setSupplierRecoveryId(row.invoice.id);
+      if (updated) {
+        setSupplierRecoveryId(null);
+        setSupplierResolutionErrors(current => ({ ...current, [invoiceId]: '' }));
       }
+      else {
+        setSupplierRecoveryId(invoiceId);
+        setSupplierResolutionErrors(current => ({ ...current, [invoiceId]: 'Сервер не смог связать поставщика. Выберите его из списка.' }));
+      }
+      setSupplierResolutionBusyId(null);
       return;
     }
     const documentUrls = getSupplierDocumentUrls(row);
     if (!documentUrls.length) {
-      setOpenedId(row.invoice.id);
-      setSupplierRecoveryId(row.invoice.id);
+      setSupplierRecoveryId(invoiceId);
+      setSupplierResolutionErrors(current => ({ ...current, [invoiceId]: 'У накладной и связанного счёта нет доступного файла.' }));
+      setSupplierResolutionBusyId(null);
       return;
     }
-    setBusyId(row.invoice.id);
+    setBusyId(invoiceId);
     try {
       let documentBlob = null;
       for (const documentUrl of documentUrls) {
@@ -406,15 +418,20 @@ export default function AccountingIncomingDocumentsPanel({
       const updated = await updateAccounting(row, payload);
       if (updated) {
         setSupplierRecoveryId(null);
+        setSupplierResolutionErrors(current => ({ ...current, [invoiceId]: '' }));
       } else {
-        setOpenedId(row.invoice.id);
-        setSupplierRecoveryId(row.invoice.id);
+        setSupplierRecoveryId(invoiceId);
+        setSupplierResolutionErrors(current => ({ ...current, [invoiceId]: 'Сервер не смог перевести накладную в статус «К оплате».' }));
       }
     } catch (error) {
-      setOpenedId(row.invoice.id);
-      setSupplierRecoveryId(row.invoice.id);
+      setSupplierRecoveryId(invoiceId);
+      setSupplierResolutionErrors(current => ({
+        ...current,
+        [invoiceId]: (error && error.message) || 'Не удалось определить поставщика.',
+      }));
     } finally {
       setBusyId(null);
+      setSupplierResolutionBusyId(null);
     }
   };
 
@@ -452,6 +469,7 @@ export default function AccountingIncomingDocumentsPanel({
       || 0,
     );
     const paymentBlocked = supplierId <= 0;
+    const supplierResolutionPending = String(supplierResolutionBusyId) === String(row.invoice.id) && paymentBlocked;
     const paymentBlockedTitle = paymentBlocked
       ? 'Система прочитает ИНН/ОГРН, найдёт или создаст поставщика и свяжет документы'
       : '';
@@ -470,7 +488,7 @@ export default function AccountingIncomingDocumentsPanel({
             disabled={disabled || row.photos.length === 0}
             onClick={() => paymentBlocked ? resolveSupplierAndMarkForPayment(row) : markStatus(row, 'К оплате')}
             style={{ ...btnGr, padding: '6px 10px', fontSize: '11px', opacity: disabled || row.photos.length === 0 ? 0.6 : 1, cursor: disabled || row.photos.length === 0 ? 'not-allowed' : 'pointer' }}
-          ><CheckCircle2 size={12} />К оплате</button>
+          ><CheckCircle2 size={12} />{supplierResolutionPending ? 'Определяем поставщика…' : 'К оплате'}</button>
         )}
         {(row.status === 'На проверке' || row.status === 'К оплате') && (
           <button disabled={disabled} onClick={() => markStatus(row, 'Нужно уточнение')} style={{ ...btnG, padding: '6px 10px', fontSize: '11px' }}><MessageSquare size={12} />Уточнить</button>
@@ -491,6 +509,8 @@ export default function AccountingIncomingDocumentsPanel({
     const supplierInvoiceCandidates = getSupplierInvoiceCandidates(row);
     const hasSupplier = Number(inv.supplierId || inv.supplier_id || linkedSupplierInvoice?.supplierId || linkedSupplierInvoice?.supplier_id || 0) > 0;
     const showSupplierRecovery = !hasSupplier && String(supplierRecoveryId) === String(inv.id);
+    const supplierResolutionPending = !hasSupplier && String(supplierResolutionBusyId) === String(inv.id);
+    const supplierResolutionError = supplierResolutionErrors[inv.id] || '';
     const supplierOptions = (suppliers || [])
       .filter(supplier => Number(supplier?.id || 0) > 0)
       .sort((left, right) => String(left.name || '').localeCompare(String(right.name || ''), 'ru'));
@@ -545,10 +565,16 @@ export default function AccountingIncomingDocumentsPanel({
           )}
         </div>
 
+        {supplierResolutionPending && (
+          <div role="status" aria-live="polite" style={{ padding: '10px', borderRadius: '8px', border: '1px solid ' + C.infoBorder, backgroundColor: C.infoLight, color: C.info, fontSize: '12px', fontWeight: 800, marginBottom: '12px' }}>
+            Читаем связанный счёт и определяем поставщика…
+          </div>
+        )}
+
         {showSupplierRecovery && (
           <div style={{ padding: '10px', borderRadius: '8px', border: '1px solid ' + C.warningBorder, backgroundColor: C.warningLight, marginBottom: '12px' }}>
             <b style={{ color: C.warning, fontSize: '12px', display: 'block', marginBottom: '5px' }}>Не удалось прочитать документ</b>
-            <p style={{ color: C.textSec, fontSize: '11px', margin: '0 0 8px' }}>Загрузите читаемое фото/PDF и снова нажмите «К оплате» либо выберите поставщика.</p>
+            <p style={{ color: C.textSec, fontSize: '11px', margin: '0 0 8px' }}>{supplierResolutionError || 'Загрузите читаемое фото или выберите поставщика.'}</p>
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px,1fr) auto', gap: '8px', alignItems: 'center' }}>
               <select
                 value={selectedSupplierByInvoice[inv.id] || ''}
