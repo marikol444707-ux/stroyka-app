@@ -1326,6 +1326,40 @@ def _resolve_or_create_linked_invoice_supplier(
         "needsReview": True,
     }
 
+
+def _linked_supplier_invoice_status_after_accounting(
+    current_status,
+    next_accounting_status,
+    resolved_automatically: bool = False,
+):
+    """Return the linked bill status change justified by this accounting action."""
+    if str(next_accounting_status or "").strip() != "К оплате":
+        return None
+    current = str(current_status or "").strip()
+    if current in ("", "На утверждении"):
+        return "Утверждён"
+    if resolved_automatically and current == "Нужно уточнение":
+        return "Утверждён"
+    return None
+
+
+def _remove_resolved_supplier_clarification(comment) -> str:
+    """Remove only the obsolete missing-supplier line from an accounting comment."""
+    obsolete = {
+        "поставщик не определен",
+        "нужно уточнение: поставщик не определен",
+        "поставщик не указан",
+        "нужно уточнение: поставщик не указан",
+    }
+    kept = []
+    for line in str(comment or "").splitlines():
+        normalized = " ".join(
+            line.lower().replace("ё", "е").strip(" .:;").split()
+        )
+        if normalized not in obsolete and line.strip():
+            kept.append(line.strip())
+    return "\n".join(kept)
+
 def current_supplier_id(cur, user: dict):
     cur.execute("""SELECT id FROM suppliers
                    WHERE user_id=%s
@@ -20611,6 +20645,8 @@ def update_warehouse_invoice_accounting(
         if comment is None:
             comment = row.get("accounting_comment") or ""
         comment = str(comment or "").strip()
+        if linked_supplier_resolution_requested and requested_supplier:
+            comment = _remove_resolved_supplier_clarification(comment)
         if requested_supplier:
             selected_supplier_name = str(requested_supplier.get("name") or "").strip()
             original_supplier_name = str(row.get("supplier_name") or "").strip()
@@ -20734,6 +20770,7 @@ def update_warehouse_invoice_accounting(
         if linked_supplier_invoice_id:
             supplier_sets = ["warehouse_invoice_id=%s"]
             supplier_vals = [id]
+            linked_invoice_next_status = None
             if requested_supplier_id:
                 supplier_sets += ["supplier_id=%s", "supplier_name=%s"]
                 supplier_vals += [requested_supplier_id, (requested_supplier or {}).get("name") or ""]
@@ -20755,9 +20792,15 @@ def update_warehouse_invoice_accounting(
                     actor_name,
                     "Оплата по складской накладной №" + str(row.get("number") or id),
                 ]
-            elif next_status == "К оплате" and (supplier_invoice_row or {}).get("status") in ("", None, "На утверждении"):
+            else:
+                linked_invoice_next_status = _linked_supplier_invoice_status_after_accounting(
+                    (supplier_invoice_row or {}).get("status"),
+                    next_status,
+                    resolved_automatically=linked_supplier_resolution_requested,
+                )
+            if linked_invoice_next_status:
                 supplier_sets.append("status=%s")
-                supplier_vals.append("Утверждён")
+                supplier_vals.append(linked_invoice_next_status)
             supplier_vals.append(linked_supplier_invoice_id)
             cur.execute("UPDATE supplier_invoices SET " + ", ".join(supplier_sets) + " WHERE id=%s", supplier_vals)
         conn.commit()

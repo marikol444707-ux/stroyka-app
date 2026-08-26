@@ -111,5 +111,44 @@ class LinkedInvoiceSupplierResolutionBehaviorTests(unittest.TestCase):
         self.assertEqual(422, error.exception.status_code)
 
 
+class LinkedInvoiceAccountingClosureTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"), filename=str(MAIN_PATH))
+        cls.nodes = {
+            node.name: node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+        }
+
+    def load_function(self, name):
+        namespace = {}
+        module = ast.Module(body=[self.nodes[name]], type_ignores=[])
+        exec(compile(module, str(MAIN_PATH), "exec"), namespace)
+        return namespace[name]
+
+    def test_successful_automatic_resolution_approves_a_bill_that_needed_supplier_clarification(self):
+        status_after = self.load_function("_linked_supplier_invoice_status_after_accounting")
+        self.assertEqual(
+            "Утверждён",
+            status_after("Нужно уточнение", "К оплате", resolved_automatically=True),
+        )
+
+    def test_manual_status_change_does_not_hide_an_unresolved_bill_clarification(self):
+        status_after = self.load_function("_linked_supplier_invoice_status_after_accounting")
+        self.assertIsNone(
+            status_after("Нужно уточнение", "К оплате", resolved_automatically=False),
+        )
+
+    def test_supplier_clarification_is_removed_but_other_comments_are_preserved(self):
+        clean_comment = self.load_function("_remove_resolved_supplier_clarification")
+        self.assertEqual(
+            "Проверить единицы измерения",
+            clean_comment(
+                "Нужно уточнение: поставщик не определен\nПроверить единицы измерения"
+            ),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
