@@ -1,7 +1,6 @@
 import React from 'react';
 import { AlertTriangle, CheckCircle2, CreditCard, Eye, FileText, Link2, MessageSquare, Upload, XCircle } from 'lucide-react';
 import { API } from '../api';
-import DocumentRecognitionPanel from './DocumentRecognitionPanel';
 import {
   ACCOUNTING_INVOICE_STATUSES,
   accountingStatusGroupLabels,
@@ -106,6 +105,11 @@ export default function AccountingIncomingDocumentsPanel({
   };
 
   const normalize = value => String(value || '').trim().toLowerCase();
+  const normalizeSupplierName = value => normalize(value)
+    .replace(/[«»"'`]/g, '')
+    .replace(/[.,]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   const supplierInvoiceAmount = invoice => Number(invoice?.amount || invoice?.totalAmount || 0);
   const supplierInvoiceTitle = invoice => {
     if (!invoice) return '';
@@ -123,6 +127,37 @@ export default function AccountingIncomingDocumentsPanel({
     return (supplierInvoices || []).find(supplierInvoice =>
       String(supplierInvoice.warehouseInvoiceId || supplierInvoice.warehouse_invoice_id || '') === String(invoice.id)
     );
+  };
+
+  const getSupplierDocumentUrls = (row) => {
+    const linked = getLinkedSupplierInvoice(row);
+    return [...new Set([
+      linked?.fileUrl,
+      linked?.file_url,
+      linked?.photoUrl,
+      linked?.photo_url,
+      linked?.deliveryDocumentUrl,
+      linked?.delivery_document_url,
+      linked?.deliveryPhotoUrl,
+      linked?.delivery_photo_url,
+      ...(row.photos || []),
+    ].filter(Boolean).map(String))];
+  };
+
+  const getExactExistingSupplier = (row) => {
+    const linked = getLinkedSupplierInvoice(row);
+    const documentNames = new Set([
+      row.invoice?.supplierName,
+      row.invoice?.supplier_name,
+      linked?.supplierName,
+      linked?.supplier_name,
+    ].map(normalizeSupplierName).filter(Boolean));
+    if (!documentNames.size) return null;
+    const matches = (suppliers || []).filter(supplier =>
+      Number(supplier?.id || 0) > 0
+      && documentNames.has(normalizeSupplierName(supplier?.name))
+    );
+    return matches.length === 1 ? matches[0] : null;
   };
 
   const getSupplierInvoiceCandidates = (row) => {
@@ -286,34 +321,50 @@ export default function AccountingIncomingDocumentsPanel({
     reader.readAsDataURL(blob);
   });
 
-  const applyRecognitionToAccounting = async (row, result) => {
-    const extracted = result?.extracted || {};
-    const supplierRequisites = supplierRequisitesFromRecognition(extracted, row.invoice.supplierName);
-    const payload = {
-      accountingStatus: row.status === 'Нет фото' ? 'На проверке' : row.status,
-      accountingComment: recognitionCommentFromResult(result, row.invoice.accountingComment),
-    };
-    if (supplierRequisites.name || supplierRequisites.inn || supplierRequisites.ogrn) {
-      payload.supplierRequisites = supplierRequisites;
-    }
-    const updated = await updateAccounting(row, payload);
-    if (updated) setSupplierRecoveryId(null);
-  };
-
   const resolveSupplierAndMarkForPayment = async row => {
-    const photoUrl = row.photos[0];
-    if (!photoUrl) return;
+    const linkedSupplierInvoice = getLinkedSupplierInvoice(row);
+    const exactSupplier = getExactExistingSupplier(row);
+    if (exactSupplier) {
+      const payload = {
+        accountingStatus: 'К оплате',
+        supplierId: Number(exactSupplier.id),
+      };
+      const linkedSupplierInvoiceId = linkedSupplierInvoice?.id || row.invoice.supplierInvoiceId;
+      if (linkedSupplierInvoiceId) payload.supplierInvoiceId = linkedSupplierInvoiceId;
+      const updated = await updateAccounting(row, payload);
+      if (updated) setSupplierRecoveryId(null);
+      else {
+        setOpenedId(row.invoice.id);
+        setSupplierRecoveryId(row.invoice.id);
+      }
+      return;
+    }
+    const documentUrls = getSupplierDocumentUrls(row);
+    if (!documentUrls.length) {
+      setOpenedId(row.invoice.id);
+      setSupplierRecoveryId(row.invoice.id);
+      return;
+    }
     setBusyId(row.invoice.id);
     try {
-      const photoResponse = await fetch(fileSrc ? fileSrc(photoUrl) : photoUrl, {
-        credentials: 'include',
-        cache: 'no-store',
-      });
-      if (!photoResponse.ok) throw new Error('Не удалось открыть фото накладной');
-      const photoBlob = await photoResponse.blob();
-      if (!photoBlob.size) throw new Error('Фото накладной пустое');
-      if (photoBlob.size > 15 * 1024 * 1024) throw new Error('Фото накладной больше 15 МБ');
-      const image = await blobAsDataUrl(photoBlob);
+      let documentBlob = null;
+      for (const documentUrl of documentUrls) {
+        try {
+          const response = await fetch(fileSrc ? fileSrc(documentUrl) : documentUrl, {
+            credentials: 'include',
+            cache: 'no-store',
+          });
+          if (!response.ok) continue;
+          const blob = await response.blob();
+          if (!blob.size || blob.size > 15 * 1024 * 1024) continue;
+          documentBlob = blob;
+          break;
+        } catch (_error) {
+          // The warehouse photo may be stale. Continue with the linked supplier document.
+        }
+      }
+      if (!documentBlob) throw new Error('Не удалось открыть файл накладной или связанного счёта');
+      const image = await blobAsDataUrl(documentBlob);
       const scanResponse = await fetch(API + '/scan-invoice', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -350,7 +401,6 @@ export default function AccountingIncomingDocumentsPanel({
         }, row.invoice.accountingComment),
         supplierRequisites,
       };
-      const linkedSupplierInvoice = getLinkedSupplierInvoice(row);
       const linkedSupplierInvoiceId = linkedSupplierInvoice?.id || row.invoice.supplierInvoiceId;
       if (linkedSupplierInvoiceId) payload.supplierInvoiceId = linkedSupplierInvoiceId;
       const updated = await updateAccounting(row, payload);
@@ -363,7 +413,6 @@ export default function AccountingIncomingDocumentsPanel({
     } catch (error) {
       setOpenedId(row.invoice.id);
       setSupplierRecoveryId(row.invoice.id);
-      alert((error && error.message) || 'Не удалось определить поставщика. Выберите его вручную.');
     } finally {
       setBusyId(null);
     }
@@ -498,8 +547,8 @@ export default function AccountingIncomingDocumentsPanel({
 
         {showSupplierRecovery && (
           <div style={{ padding: '10px', borderRadius: '8px', border: '1px solid ' + C.warningBorder, backgroundColor: C.warningLight, marginBottom: '12px' }}>
-            <b style={{ color: C.warning, fontSize: '12px', display: 'block', marginBottom: '5px' }}>Поставщик не определен</b>
-            <p style={{ color: C.textSec, fontSize: '11px', margin: '0 0 8px' }}>Автоматически определить поставщика не удалось. Добавьте более чёткое фото и повторите распознавание либо выберите существующего поставщика.</p>
+            <b style={{ color: C.warning, fontSize: '12px', display: 'block', marginBottom: '5px' }}>Не удалось прочитать документ</b>
+            <p style={{ color: C.textSec, fontSize: '11px', margin: '0 0 8px' }}>Загрузите читаемое фото/PDF и снова нажмите «К оплате» либо выберите поставщика.</p>
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px,1fr) auto', gap: '8px', alignItems: 'center' }}>
               <select
                 value={selectedSupplierByInvoice[inv.id] || ''}
@@ -519,6 +568,10 @@ export default function AccountingIncomingDocumentsPanel({
                 style={{ ...btnB, padding: '9px 12px' }}
               ><Link2 size={13} />Связать поставщика</button>
             </div>
+            <label style={{ ...btnG, display: 'inline-flex', marginTop: '8px', padding: '8px 10px', cursor: 'pointer' }}>
+              <Upload size={13} />Заменить фото
+              <input type="file" accept="image/*" multiple onChange={event => { attachPhotos(row, event.target.files); event.target.value = ''; }} style={{ display: 'none' }} />
+            </label>
           </div>
         )}
 
@@ -526,32 +579,7 @@ export default function AccountingIncomingDocumentsPanel({
           {row.photos.map((url, index) => (
             <img key={url + index} src={fileSrc ? fileSrc(url) : url} alt="" onClick={() => setShowPhotoModal && setShowPhotoModal(fileSrc ? fileSrc(url) : url)} style={{ width: '72px', height: '72px', objectFit: 'cover', borderRadius: '8px', border: '1px solid ' + C.border, cursor: 'pointer' }} />
           ))}
-          {showSupplierRecovery && (
-            <label style={{ ...btnG, minHeight: '72px', padding: '8px 12px', cursor: 'pointer', alignItems: 'center' }}>
-              <Upload size={13} />Заменить или добавить фото
-              <input type="file" accept="image/*" multiple onChange={event => { attachPhotos(row, event.target.files); event.target.value = ''; }} style={{ display: 'none' }} />
-            </label>
-          )}
         </div>
-
-        {showSupplierRecovery && (
-          <DocumentRecognitionPanel
-            C={C}
-            card={card}
-            inp={inp}
-            btnG={btnG}
-            btnO={btnO}
-            btnB={btnB}
-            uploadPhoto={uploadPhoto}
-            fileSrc={fileSrc}
-            projectName={inv.project || inv.location || 'Бухгалтерская первичка'}
-            context="accounting-incoming-documents"
-            entityType="accounting_invoice"
-            currentFields={inv}
-            onApplyExtracted={result => applyRecognitionToAccounting(row, result)}
-            applyExtractedLabel="Подтянуть поставщика"
-          />
-        )}
 
         <div style={{ display: 'grid', gap: '6px', marginBottom: '12px' }}>
           {(row.controls.length ? row.controls : (inv.items || [])).slice(0, 12).map((item, index) => {

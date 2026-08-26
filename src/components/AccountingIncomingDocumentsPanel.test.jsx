@@ -2,21 +2,6 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import AccountingIncomingDocumentsPanel from './AccountingIncomingDocumentsPanel';
 
-jest.mock('./DocumentRecognitionPanel', () => function RecognitionStub({onApplyExtracted}) {
-  return (
-    <button onClick={() => onApplyExtracted({
-      extracted: {
-        counterpartyName: 'ООО "Старт-Строй"',
-        inn: '2632001234',
-        kpp: '263201001',
-        ogrn: '1022600001234',
-      },
-    })}>
-      Подтянуть распознанное
-    </button>
-  );
-});
-
 const colors = {
   text: '#fff', textSec: '#bbb', textMuted: '#888', bg: '#111', bgAlt: '#181818', card: '#222',
   border: '#444', accent: '#f70', accentLight: '#321', accentBorder: '#f70', warning: '#fb0',
@@ -83,29 +68,17 @@ test('an uploaded invoice with a linked supplier bill hides recovery controls by
   expect(screen.queryByText('Добавить фото')).not.toBeInTheDocument();
 });
 
-test('recognized requisites are sent as structured supplier data', async () => {
-  global.fetch = jest.fn()
-    .mockResolvedValueOnce({ok: false})
-    .mockResolvedValueOnce({ok: true, json: async () => ({ok: true})});
-  jest.spyOn(window, 'alert').mockImplementation(() => {});
-  const refreshData = jest.fn();
-  renderPanel({refreshData});
+test('an unreadable document opens only compact recovery actions', async () => {
+  global.fetch = jest.fn().mockResolvedValue({ok: false});
+  renderPanel();
 
   fireEvent.click(await screen.findByRole('button', {name: 'К оплате'}));
-  fireEvent.click(await screen.findByRole('button', {name: 'Подтянуть распознанное'}));
 
-  await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
-  const [url, request] = global.fetch.mock.calls[1];
-  expect(url).toContain('/warehouse-invoices/14555/accounting');
-  expect(request.method).toBe('PUT');
-  expect(JSON.parse(request.body)).toEqual(expect.objectContaining({
-    supplierRequisites: expect.objectContaining({
-      name: 'ООО "Старт-Строй"',
-      inn: '2632001234',
-      kpp: '263201001',
-      ogrn: '1022600001234',
-    }),
-  }));
+  expect(await screen.findByText('Не удалось прочитать документ')).toBeInTheDocument();
+  expect(screen.getByRole('combobox')).toBeInTheDocument();
+  expect(screen.getByText('Заменить фото')).toBeInTheDocument();
+  expect(screen.queryByText('Распознавание документа')).not.toBeInTheDocument();
+  expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
 });
 
 test('payment action resolves a new supplier from the attached invoice in one flow', async () => {
@@ -139,4 +112,59 @@ test('payment action resolves a new supplier from the attached invoice in one fl
       ogrn: '1022600001234',
     }),
   }));
+});
+
+test('payment action links the one existing supplier with the exact document name without rescanning', async () => {
+  global.fetch = jest.fn().mockResolvedValue({ok: true, json: async () => ({ok: true})});
+  renderPanel({
+    suppliers: [{id: 77, name: 'ООО «Старт-Строй»'}],
+  });
+
+  fireEvent.click(await screen.findByRole('button', {name: 'К оплате'}));
+
+  await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+  const [url, request] = global.fetch.mock.calls[0];
+  expect(url).toContain('/warehouse-invoices/14555/accounting');
+  expect(JSON.parse(request.body)).toEqual(expect.objectContaining({
+    accountingStatus: 'К оплате',
+    supplierId: 77,
+    supplierInvoiceId: 111,
+  }));
+});
+
+test('payment action reads the linked supplier document before a stale warehouse photo', async () => {
+  const responses = [
+    {ok: true, blob: async () => new Blob(['supplier invoice'], {type: 'application/pdf'})},
+    {ok: true, json: async () => ({
+      ok: true,
+      data: {
+        supplierName: 'ООО "Старт-Строй"',
+        supplierInn: '2632001234',
+        supplierKpp: '263201001',
+        supplierOgrn: '1022600001234',
+      },
+    })},
+    {ok: true, json: async () => ({ok: true, supplierId: 77, supplierCreated: true})},
+  ];
+  global.fetch = jest.fn(async () => responses.shift());
+  renderPanel({
+    supplierInvoices: [{
+      id: 111,
+      warehouseInvoiceId: 14555,
+      invoiceNumber: '14555',
+      supplierName: 'ООО "Старт-Строй"',
+      supplierId: null,
+      projectName: 'Кисловодск Лицей 4',
+      amount: 94380,
+      fileUrl: '/uploads/supplier-invoice-14555.pdf',
+    }],
+  });
+
+  fireEvent.click(await screen.findByRole('button', {name: 'К оплате'}));
+
+  await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(3));
+  expect(global.fetch.mock.calls[0][0]).toBe('/uploads/supplier-invoice-14555.pdf');
+  expect(global.fetch.mock.calls[1][0]).toContain('/scan-invoice');
+  expect(global.fetch.mock.calls.map(([url]) => url)).not.toContain('/uploads/invoice-14555.jpg');
+  expect(screen.queryByText('Поставщик не определен')).not.toBeInTheDocument();
 });
