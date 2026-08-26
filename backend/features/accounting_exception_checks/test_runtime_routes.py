@@ -73,6 +73,13 @@ class _App:
 
         return decorate
 
+    def post(self, path, **kwargs):
+        def decorate(handler):
+            self.routes[("POST", path)] = (handler, dict(kwargs))
+            return handler
+
+        return decorate
+
 
 class _Deps(dict):
     def __init__(self, values):
@@ -545,7 +552,11 @@ class AccountingExceptionMainAndOpsContractTests(unittest.TestCase):
                         __import__("os").environ[ALLOWLIST_ENV] = allowlist
                     exec(compiled, namespace)
                 self.assertEqual(
-                    set(app.routes), {("GET", PATH)} if expected else set(),
+                    set(app.routes), {
+                        ("GET", PATH),
+                        ("GET", "/accounting-exception-link-repairs"),
+                        ("POST", "/accounting-exception-link-repairs"),
+                    } if expected else set(),
                 )
 
     def test_global_api_error_writer_skips_only_the_exact_review_path(self):
@@ -558,7 +569,9 @@ class AccountingExceptionMainAndOpsContractTests(unittest.TestCase):
         enabled = namespace["_api_error_logging_enabled_for_path"]
 
         self.assertIs(enabled(PATH), False)
+        self.assertIs(enabled("/accounting-exception-link-repairs"), False)
         self.assertIs(enabled(PATH + "/"), True)
+        self.assertIs(enabled("/accounting-exception-link-repairs/"), True)
         self.assertIs(enabled("/accountable-payments"), True)
 
     def test_ops_fragment_is_exact_get_only_bounded_and_no_store(self):

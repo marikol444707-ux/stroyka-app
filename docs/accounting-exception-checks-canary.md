@@ -6,10 +6,12 @@ feature flags, nginx change/reload, smoke and rollback authority.
 
 ## Purpose and safety boundary
 
-The canary exposes one read-only Accounting review panel to one exact company.
-It reports only hard stored contradictions already covered by the closed
-`accounting-exception-projection-v1` contract. It cannot pay, approve, repair,
-reassign, edit ownership or change status.
+The canary exposes one Accounting review panel to one exact company. It
+reports only hard stored contradictions covered by the closed
+`accounting-exception-projection-v1` contract. A separate A11.9 action may
+repair only a server-proven reciprocal supplier/warehouse document link. It
+cannot pay, approve, reassign ownership, change amount/status/stock/files or
+edit document contents.
 
 Release blockers:
 
@@ -20,11 +22,15 @@ Release blockers:
   deputy-director or accountant membership may read the result;
 - aggregate mode and every other company fail closed;
 - the backend remains bound to `127.0.0.1:8001`;
-- nginx proxies only exact `GET /accounting-exception-checks`, with the reviewed
+- nginx proxies only exact `GET /accounting-exception-checks` and exact
+  `GET|POST /accounting-exception-link-repairs`, with the reviewed body,
   rate/concurrency/time limits and `no-store` responses;
 - every business read is inside one `REPEATABLE READ READ ONLY` transaction
   followed by rollback;
-- the route, panel and global error path contain no accounting writer.
+- A11.9 apply requires cookie session, passed 2FA, CSRF, exact company and
+  stored finance membership, then locks and revalidates the exact plan inside
+  one `SERIALIZABLE` transaction before changing both reciprocal IDs and
+  inserting one same-transaction audit row per pair.
 
 Flag owner: the named production operator for this rollout. Remove the flags
 within two weeks of a separately approved full release, or disable them when
@@ -92,21 +98,27 @@ Install only the two backend variables with the approved company ID, reload
 systemd if required, restart the backend and wait for loopback health before
 public smoke. Keep the frontend disabled.
 
-Smoke exact `GET /accounting-exception-checks`:
+Smoke exact `GET /accounting-exception-checks` and
+`GET|POST /accounting-exception-link-repairs`:
 
 - no cookie -> `401` fixed authentication error;
 - malformed company mode/ID -> `422` fixed request error;
 - valid cookie for another allowlisted state/company -> opaque `404`;
 - valid session with a non-finance role -> `403`;
 - approved finance role/company -> `200` with one closed projection;
-- POST/PUT/PATCH/DELETE -> `405`;
+- unsupported methods -> `405`;
+- link-repair POST without valid CSRF -> `403` and zero writes;
+- extra/duplicate/oversized apply JSON -> `422`/`413` and zero writes;
+- stale preview count/SHA -> `409` and zero link/audit writes;
 - every response is `no-store` and contains no stack, SQL, names, notes,
   purpose, bank, photo, file, raw row or size metadata.
 
-For the successful request, verify the server performs the settings query, two
-authorization queries and twelve bounded source SELECTs, then zero commits and
-one rollback. Compare any displayed finding to its source by exact IDs only;
-do not paste private fields into the evidence log.
+For the successful review request, verify the server performs bounded reads,
+then zero commits and one rollback. For link preview, retain only count and
+SHA. If an apply is separately approved, verify one commit, both reciprocal ID
+updates per pair and one company-owned audit row per pair; all other protected
+columns and row counts must remain unchanged. Compare displayed findings to
+their source by exact IDs only; do not paste private fields into evidence.
 
 ### 3. Enable the matching frontend canary
 
@@ -116,8 +128,9 @@ company ID. In a fresh browser session:
 1. Sign in as an approved finance role and select the canary company.
 2. Open `Бухгалтерия` and refresh the exception panel.
 3. Verify state, counts, fixed reason labels and exact IDs against the API.
-4. Confirm there is no apply, pay, approve, repair, reassign, edit or status
-   action.
+4. Confirm exactly one repair button appears only when the server preview is
+   `ready`; one confirmation produces one POST. There must be no pay, approve,
+   reassign, amount, stock or status action.
 5. Switch to another company and aggregate mode; the panel must disappear,
    abort the old request and make no new A11 request.
 6. Verify desktop and mobile layout, no horizontal overflow and no new console
@@ -136,7 +149,9 @@ automatic expansion. Record:
 - PostgreSQL statement/lock timeout and read-only violation counts;
 - new client JavaScript error types;
 - source/result mismatches, tenant-isolation concerns and user reports;
-- confirmation that no A11-attributed business or audit write occurred.
+- link-preview/apply count, stale-plan conflicts and apply duration;
+- confirmation that any A11.9 write changed only the two reciprocal link IDs
+  and inserted exactly one matching audit row per pair.
 
 ## Stop thresholds
 
@@ -149,7 +164,8 @@ that cannot be reproduced from exact IDs.
 
 Rollback immediately when any of these stop thresholds is reached:
 
-- any business/audit write attributed to the read-only route;
+- any write attributed to a GET route, or any A11.9 write outside reciprocal
+  link IDs and its matching audit row;
 - cross-company row or private-field disclosure;
 - security/authentication/authorization bypass;
 - error rate above 2x baseline;
@@ -170,8 +186,13 @@ The fastest safety action is backend disablement:
 4. If nginx is implicated, restore the saved configuration, run `nginx -t` and
    reload. Otherwise the exact location may remain inert while the frontend is
    rolled back.
-5. Verify the route is unavailable, the panel is absent, service restarts and
-   errors are stable, and no accounting/audit row changed during the window.
+5. Verify both routes are unavailable, the panel is absent, service restarts
+   and errors are stable, and no new accounting/audit row changes occur after
+   disablement.
+
+Disabling flags does not reverse an already committed A11.9 repair. Preserve
+its count/SHA/audit evidence and use a separately approved database recovery
+procedure if a committed pair must be reversed.
 
 Do not reverse the ownership migration merely to disable the feature. The
 schema is additive and the hardened accounting writers depend on verified

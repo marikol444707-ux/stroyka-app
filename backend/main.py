@@ -2576,6 +2576,7 @@ def _api_error_logging_enabled_for_path(path):
         "/warehouse-anomaly-previews",
         "/assignment-daily-draft-previews",
         "/accounting-exception-checks",
+        "/accounting-exception-link-repairs",
     )
 
 
@@ -16681,12 +16682,26 @@ if os.getenv("ACCOUNTING_EXCEPTION_CHECKS_HTTP_ENABLED") == "true":
             from backend.features.accounting_exception_checks.runtime_routes import (
                 register_accounting_exception_check_routes,
             )
+            from backend.features.accounting_exception_checks.link_repair_routes import (
+                register_accounting_link_repair_routes,
+            )
+            from backend.features.accounting_exception_checks.link_repair_runtime import (
+                apply_accounting_link_repairs,
+                preview_accounting_link_repairs,
+            )
         except ModuleNotFoundError:
             from features.accounting_exception_checks.runtime_access import (
                 run_authorized_accounting_exception_snapshot,
             )
             from features.accounting_exception_checks.runtime_routes import (
                 register_accounting_exception_check_routes,
+            )
+            from features.accounting_exception_checks.link_repair_routes import (
+                register_accounting_link_repair_routes,
+            )
+            from features.accounting_exception_checks.link_repair_runtime import (
+                apply_accounting_link_repairs,
+                preview_accounting_link_repairs,
             )
 
         register_accounting_exception_check_routes(app, {
@@ -16700,6 +16715,19 @@ if os.getenv("ACCOUNTING_EXCEPTION_CHECKS_HTTP_ENABLED") == "true":
             "run_authorized_accounting_exception_snapshot": (
                 run_authorized_accounting_exception_snapshot
             ),
+        })
+        register_accounting_link_repair_routes(app, {
+            "enabled": True,
+            "allowed_company_ids": accounting_exception_check_company_ids,
+            "get_db": get_db,
+            "finance_roles": FINANCE_ROLES,
+            "build_cookie_session_authentication": (
+                build_cookie_session_authentication
+            ),
+            "preview_accounting_link_repairs": (
+                preview_accounting_link_repairs
+            ),
+            "apply_accounting_link_repairs": apply_accounting_link_repairs,
         })
 
 
