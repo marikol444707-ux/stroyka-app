@@ -164,6 +164,9 @@ export default function AccountingIncomingDocumentsPanel({
       }
       await refreshData();
       return true;
+    } catch (error) {
+      alert('Не удалось связаться с сервером. Проверьте интернет и повторите.');
+      return false;
     } finally {
       setBusyId(null);
     }
@@ -260,11 +263,101 @@ export default function AccountingIncomingDocumentsPanel({
     return base ? base + '\n' + line : line;
   };
 
+  const supplierRequisitesFromRecognition = (extracted, fallbackName = '') => ({
+    name: extracted?.counterpartyName || extracted?.supplierName || extracted?.supplier || fallbackName || '',
+    inn: extracted?.inn || extracted?.supplierInn || extracted?.supplier_inn || '',
+    kpp: extracted?.kpp || extracted?.supplierKpp || extracted?.supplier_kpp || '',
+    ogrn: extracted?.ogrn || extracted?.supplierOgrn || extracted?.supplier_ogrn || '',
+    legalAddress: extracted?.legalAddress || '',
+    bank: extracted?.bank || '',
+    bik: extracted?.bik || '',
+    bankAccount: extracted?.bankAccount || '',
+    corrAccount: extracted?.corrAccount || '',
+    signerName: extracted?.signerName || '',
+    signerBasis: extracted?.signerBasis || '',
+  });
+
+  const blobAsDataUrl = blob => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Не удалось прочитать фото накладной'));
+    reader.readAsDataURL(blob);
+  });
+
   const applyRecognitionToAccounting = async (row, result) => {
-    await updateAccounting(row, {
+    const extracted = result?.extracted || {};
+    const supplierRequisites = supplierRequisitesFromRecognition(extracted, row.invoice.supplierName);
+    const payload = {
       accountingStatus: row.status === 'Нет фото' ? 'На проверке' : row.status,
       accountingComment: recognitionCommentFromResult(result, row.invoice.accountingComment),
-    });
+    };
+    if (supplierRequisites.name || supplierRequisites.inn || supplierRequisites.ogrn) {
+      payload.supplierRequisites = supplierRequisites;
+    }
+    await updateAccounting(row, payload);
+  };
+
+  const resolveSupplierAndMarkForPayment = async row => {
+    const photoUrl = row.photos[0];
+    if (!photoUrl) return;
+    setBusyId(row.invoice.id);
+    try {
+      const photoResponse = await fetch(fileSrc ? fileSrc(photoUrl) : photoUrl, {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      if (!photoResponse.ok) throw new Error('Не удалось открыть фото накладной');
+      const photoBlob = await photoResponse.blob();
+      if (!photoBlob.size) throw new Error('Фото накладной пустое');
+      if (photoBlob.size > 15 * 1024 * 1024) throw new Error('Фото накладной больше 15 МБ');
+      const image = await blobAsDataUrl(photoBlob);
+      const scanResponse = await fetch(API + '/scan-invoice', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          image,
+          target: 'warehouse',
+          location: row.invoice.location || row.invoice.project || '',
+          project: row.invoice.project || '',
+          warehouseTarget: row.invoice.project ? 'object' : 'main',
+          selectedAction: 'receive_to_warehouse',
+          sourceType: 'accounting_supplier_resolution',
+        }),
+      });
+      const scanResult = await scanResponse.json().catch(() => ({}));
+      if (!scanResponse.ok || !scanResult.ok) {
+        throw new Error(scanResult.detail || scanResult.error || 'Не удалось распознать поставщика');
+      }
+      const extracted = scanResult.data || {};
+      const supplierRequisites = supplierRequisitesFromRecognition(extracted, row.invoice.supplierName);
+      const inn = String(supplierRequisites.inn || '').replace(/\D/g, '');
+      const ogrn = String(supplierRequisites.ogrn || '').replace(/\D/g, '');
+      if (![10, 12].includes(inn.length) && ![13, 15].includes(ogrn.length)) {
+        throw new Error('На фото не удалось прочитать ИНН или ОГРН поставщика');
+      }
+      const payload = {
+        accountingStatus: 'К оплате',
+        accountingComment: recognitionCommentFromResult({
+          extracted: {
+            counterpartyName: supplierRequisites.name,
+            inn: supplierRequisites.inn,
+            kpp: supplierRequisites.kpp,
+            ogrn: supplierRequisites.ogrn,
+          },
+        }, row.invoice.accountingComment),
+        supplierRequisites,
+      };
+      const linkedSupplierInvoice = getLinkedSupplierInvoice(row);
+      const linkedSupplierInvoiceId = linkedSupplierInvoice?.id || row.invoice.supplierInvoiceId;
+      if (linkedSupplierInvoiceId) payload.supplierInvoiceId = linkedSupplierInvoiceId;
+      const updated = await updateAccounting(row, payload);
+      if (!updated) setOpenedId(row.invoice.id);
+    } catch (error) {
+      setOpenedId(row.invoice.id);
+      alert((error && error.message) || 'Не удалось определить поставщика. Выберите его вручную.');
+    } finally {
+      setBusyId(null);
+    }
   };
 
   const filteredRows = activeStatus === 'Все' ? rows : rows.filter(row => row.status === activeStatus);
@@ -302,7 +395,7 @@ export default function AccountingIncomingDocumentsPanel({
     );
     const paymentBlocked = supplierId <= 0;
     const paymentBlockedTitle = paymentBlocked
-      ? 'Сначала укажите поставщика или свяжите накладную со счётом поставщика'
+      ? 'Система прочитает ИНН/ОГРН, найдёт или создаст поставщика и свяжет документы'
       : '';
     return (
       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -312,7 +405,12 @@ export default function AccountingIncomingDocumentsPanel({
           <input type="file" accept="image/*" multiple disabled={disabled} onChange={event => { attachPhotos(row, event.target.files); event.target.value = ''; }} style={{ display: 'none' }} />
         </label>
         {(row.status === 'На проверке' || row.status === 'Нужно уточнение') && (
-          <button title={paymentBlockedTitle} disabled={disabled || row.photos.length === 0 || paymentBlocked} onClick={() => markStatus(row, 'К оплате')} style={{ ...btnGr, padding: '6px 10px', fontSize: '11px' }}><CheckCircle2 size={12} />К оплате</button>
+          <button
+            title={paymentBlockedTitle}
+            disabled={disabled || row.photos.length === 0}
+            onClick={() => paymentBlocked ? resolveSupplierAndMarkForPayment(row) : markStatus(row, 'К оплате')}
+            style={{ ...btnGr, padding: '6px 10px', fontSize: '11px', opacity: disabled || row.photos.length === 0 ? 0.6 : 1, cursor: disabled || row.photos.length === 0 ? 'not-allowed' : 'pointer' }}
+          ><CheckCircle2 size={12} />К оплате</button>
         )}
         {(row.status === 'На проверке' || row.status === 'К оплате') && (
           <button disabled={disabled} onClick={() => markStatus(row, 'Нужно уточнение')} style={{ ...btnG, padding: '6px 10px', fontSize: '11px' }}><MessageSquare size={12} />Уточнить</button>
@@ -382,7 +480,7 @@ export default function AccountingIncomingDocumentsPanel({
         {!hasSupplier && (
           <div style={{ padding: '10px', borderRadius: '8px', border: '1px solid ' + C.warningBorder, backgroundColor: C.warningLight, marginBottom: '12px' }}>
             <b style={{ color: C.warning, fontSize: '12px', display: 'block', marginBottom: '5px' }}>Поставщик не определен</b>
-            <p style={{ color: C.textSec, fontSize: '11px', margin: '0 0 8px' }}>Выберите существующую карточку после проверки фото и реквизитов. Новая карточка создается отдельно только с ИНН или ОГРН.</p>
+            <p style={{ color: C.textSec, fontSize: '11px', margin: '0 0 8px' }}>Кнопка «К оплате» сама читает ИНН/ОГРН и находит или создаёт поставщика. Если реквизиты не читаются, добавьте более чёткое фото и повторите либо выберите существующего вручную.</p>
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px,1fr) auto', gap: '8px', alignItems: 'center' }}>
               <select
                 value={selectedSupplierByInvoice[inv.id] || ''}
@@ -429,7 +527,7 @@ export default function AccountingIncomingDocumentsPanel({
           entityType="accounting_invoice"
           currentFields={inv}
           onApplyExtracted={result => applyRecognitionToAccounting(row, result)}
-          applyExtractedLabel="Добавить в комментарий"
+          applyExtractedLabel="Подтянуть поставщика"
         />
 
         <div style={{ display: 'grid', gap: '6px', marginBottom: '12px' }}>

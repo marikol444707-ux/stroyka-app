@@ -72,7 +72,7 @@ test('applyWarehouseMovement reports positions that need estimate review', async
   expect(setNewMovement).toHaveBeenCalled();
 });
 
-test('saveInvoiceNew preserves an OCR supplier without legal identity for accounting review instead of creating an incomplete supplier card', async () => {
+test('saveInvoiceNew preserves OCR supplier identity for automatic accounting linkage', async () => {
   const supplierIdentityError = 'Для новой карточки поставщика укажите ИНН (10 или 12 цифр) либо ОГРН/ОГРНИП (13 или 15 цифр)';
   global.fetch = jest.fn(async url => {
     if (url === '/api/suppliers') {
@@ -97,6 +97,9 @@ test('saveInvoiceNew preserves an OCR supplier without legal identity for accoun
       supplierId: '',
       supplier: 'ООО "Старт-Строй"',
       newSupplierName: 'ООО "Старт-Строй"',
+      supplierInn: '2632001234',
+      supplierKpp: '263201001',
+      supplierOgrn: '1022600001234',
       isNewSupplier: true,
       acceptedBy: 'Прораб',
       location: 'Кисловодск Лицей 4',
@@ -138,6 +141,9 @@ test('saveInvoiceNew preserves an OCR supplier without legal identity for accoun
     number: '14555',
     supplierId: null,
     supplierName: 'ООО "Старт-Строй"',
+    supplierInn: '2632001234',
+    supplierKpp: '263201001',
+    supplierOgrn: '1022600001234',
     sourceType: 'scan_project_invoice',
     syncSupplierInvoice: true,
   }));
@@ -146,6 +152,58 @@ test('saveInvoiceNew preserves an OCR supplier without legal identity for accoun
   expect(refreshData).toHaveBeenCalled();
   expect(setNewInvoice).toHaveBeenCalled();
   expect(setShowForm).toHaveBeenCalledWith(false);
+});
+
+test('saveInvoiceNew cancels a duplicate upload and shows the server explanation', async () => {
+  const duplicateMessage = 'Эта накладная уже есть в базе. Повторная загрузка отменена.';
+  global.fetch = jest.fn(async () => ({
+    ok: false,
+    status: 409,
+    json: async () => ({detail: duplicateMessage}),
+  }));
+  const notify = jest.fn();
+  const addActivity = jest.fn();
+  const refreshData = jest.fn();
+  const setNewInvoice = jest.fn();
+  const setShowForm = jest.fn();
+  const actions = createActions({
+    addActivity,
+    calcVat: total => ({base: total, vat: 0, total}),
+    createInvoiceControlReviewTasksForInvoice: jest.fn(async () => 0),
+    getProjectWorkPackageOptions: jest.fn(() => []),
+    newInvoice: {
+      number: '№ 14555',
+      date: '2026-08-10',
+      supplierId: '77',
+      acceptedBy: 'Прораб',
+      location: 'Объект 2',
+      project: 'Объект 2',
+      warehouseTarget: 'object',
+      sourceType: 'scan_project_invoice',
+      vat: 'Без НДС',
+      totalBase: 94380,
+      totalVat: 0,
+      totalWithVat: 94380,
+      items: [{name: 'Штукатурка', quantity: 270, unit: 'шт', price: 349.56, lineTotal: 94380}],
+    },
+    notify,
+    refreshData,
+    setNewInvoice,
+    setShowForm,
+    suppliers: [{id: 77, name: 'ООО Поставка'}],
+    user: {name: 'Прораб'},
+  });
+
+  const saved = await actions.saveInvoiceNew();
+
+  expect(saved).toBe(false);
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+  expect(global.alert).toHaveBeenCalledWith(duplicateMessage);
+  expect(notify).not.toHaveBeenCalled();
+  expect(addActivity).not.toHaveBeenCalled();
+  expect(refreshData).not.toHaveBeenCalled();
+  expect(setNewInvoice).not.toHaveBeenCalled();
+  expect(setShowForm).not.toHaveBeenCalledWith(false);
 });
 
 test('saveInvoiceNew does not link a name-only OCR supplier to a colliding normalized supplier card', async () => {

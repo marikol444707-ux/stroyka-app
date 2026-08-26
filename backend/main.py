@@ -233,11 +233,19 @@ try:
         supplier_offer_visibility_filter,
         supplier_recipient_identity_filter,
     )
+    from backend.features.supplier_access.document_identity import (
+        build_document_supplier_payload,
+        has_legal_supplier_identity,
+    )
 except ModuleNotFoundError:
     from features.supplier_access.service import (
         supplier_invoice_visibility_filter,
         supplier_offer_visibility_filter,
         supplier_recipient_identity_filter,
+    )
+    from features.supplier_access.document_identity import (
+        build_document_supplier_payload,
+        has_legal_supplier_identity,
     )
 
 try:
@@ -256,6 +264,11 @@ except ModuleNotFoundError:
     from features.agent_jobs.schema import ensure_agent_jobs_schema
 
 try:
+    from backend.features.warehouse_receipts.duplicate_guard import (
+        build_invoice_number_lookup_keys,
+        build_warehouse_invoice_lock_keys,
+        match_warehouse_invoice_duplicate,
+    )
     from backend.features.warehouse_receipts.policy import (
         WarehouseReceiptPolicyError,
         build_internal_receipt_number,
@@ -263,6 +276,11 @@ try:
         warehouse_invoice_accounting_required,
     )
 except ModuleNotFoundError:
+    from features.warehouse_receipts.duplicate_guard import (
+        build_invoice_number_lookup_keys,
+        build_warehouse_invoice_lock_keys,
+        match_warehouse_invoice_duplicate,
+    )
     from features.warehouse_receipts.policy import (
         WarehouseReceiptPolicyError,
         build_internal_receipt_number,
@@ -1151,6 +1169,74 @@ def _update_supplier_missing_fields(cur, supplier_id: int, payload: dict, user_i
         supplier_id,
     ))
     return cur.fetchone()
+
+
+def _resolve_or_create_document_supplier(cur, data: dict, fallback_name: str = "", source_detail: str = ""):
+    """Resolve a supplier by legal identity, or create one without trusting a name-only OCR match."""
+    payload = build_document_supplier_payload(data, fallback_name=fallback_name)
+    supplier_name = str(payload.get("supplierName") or "").strip()
+    if not supplier_name:
+        raise HTTPException(status_code=422, detail="В документе не распознано название поставщика")
+    if not has_legal_supplier_identity(payload):
+        raise HTTPException(
+            status_code=422,
+            detail="Не удалось надёжно определить нового поставщика: распознайте ИНН или ОГРН",
+        )
+
+    payload["sourceType"] = "accounting_document_recognition"
+    payload["sourceDetail"] = source_detail or "Определено по реквизитам бухгалтерского документа"
+    requisites = _supplier_extract_requisites(payload)
+    identity_key = "inn:" + requisites["inn"] if requisites["inn"] else "ogrn:" + requisites["ogrn"]
+    cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("supplier:" + identity_key,))
+
+    matched = _supplier_find_match(
+        cur,
+        payload,
+        allow_name_match=False,
+        allow_alias_name_match=False,
+        allow_contact_match=False,
+    )
+    if matched:
+        matched_requisites = _supplier_extract_requisites(matched)
+        if requisites["inn"] and matched_requisites["inn"] and requisites["inn"] != matched_requisites["inn"]:
+            raise HTTPException(status_code=409, detail="ИНН документа противоречит карточке поставщика")
+        if requisites["ogrn"] and matched_requisites["ogrn"] and requisites["ogrn"] != matched_requisites["ogrn"]:
+            raise HTTPException(status_code=409, detail="ОГРН документа противоречит карточке поставщика")
+        updated = _update_supplier_missing_fields(cur, matched["id"], payload) or matched
+        _remember_supplier_alias(cur, matched["id"], payload, source="accounting_document_recognition")
+        return {
+            "id": matched["id"],
+            "name": _row_get(updated, "name", 1, "") or matched["name"] or supplier_name,
+            "created": False,
+        }
+
+    cur.execute(
+        """
+        INSERT INTO suppliers
+            (name,phone,email,specialization,category,rating,status,
+             inn,kpp,ogrn,notes,source_type,source_detail)
+        VALUES (%s,'','','','Материалы',5.0,'На проверке',%s,%s,%s,%s,%s,%s)
+        RETURNING id,name
+        """,
+        (
+            supplier_name,
+            requisites["inn"],
+            requisites["kpp"],
+            requisites["ogrn"],
+            payload["sourceDetail"],
+            payload["sourceType"],
+            payload["sourceDetail"],
+        ),
+    )
+    created = cur.fetchone()
+    supplier_id = _row_get(created, "id", 0, 0)
+    updated = _update_supplier_missing_fields(cur, supplier_id, payload) or created
+    _remember_supplier_alias(cur, supplier_id, payload, source="accounting_document_recognition")
+    return {
+        "id": supplier_id,
+        "name": _row_get(updated, "name", 1, "") or supplier_name,
+        "created": True,
+    }
 
 def current_supplier_id(cur, user: dict):
     cur.execute("""SELECT id FROM suppliers
@@ -10265,30 +10351,28 @@ def _warehouse_invoice_items_signature(items) -> str:
     ]
     return "||".join(sorted(sig for sig in signatures if sig.strip("|")))
 
-def _find_existing_warehouse_invoice_duplicate(cur, *, company_id, invoice_number, invoice_date, target_location, target_project, supplier_id, supplier_name, total_with_vat, items):
-    invoice_number = str(invoice_number or "").strip()
-    if not invoice_number:
-        return None
+def _find_existing_warehouse_invoice_duplicate(cur, *, company_id, invoice_number, invoice_date, supplier_id, supplier_name, total_with_vat, items):
     company_id = _positive_int_or_none(company_id) or 1
-    target_scope = (target_project or target_location or "").strip()
     supplier_id = _positive_int_or_none(supplier_id)
     supplier_name_key = _normalize_supplier_name_key(supplier_name or "")
     input_total = _float_or_zero(total_with_vat)
     input_signature = _warehouse_invoice_items_signature(items)
+    invoice_number_lookup_keys = list(build_invoice_number_lookup_keys(invoice_number))
     supplier_scope_ids = set(supplier_related_ids(cur, supplier_id)) if supplier_id else set()
 
     cur.execute(
         """
-        SELECT id,supplier_id,supplier_name,total_with_vat,total_base,items,location,project
+        SELECT id,supplier_id,supplier_name,total_with_vat,total_base,items,location,project,number,date
           FROM warehouse_invoices
          WHERE COALESCE(status,'Принята') <> 'Аннулирована'
            AND COALESCE(company_id,1)=%s
-           AND COALESCE(number,'')=%s
-           AND COALESCE(date::text,'')=COALESCE(%s::text,'')
-           AND COALESCE(NULLIF(project,''), NULLIF(location,''), '')=%s
+           AND (
+                COALESCE(date::text,'')=COALESCE(%s::text,'')
+                OR regexp_replace(upper(COALESCE(number,'')), '[^[:alnum:]]', '', 'g')=ANY(%s)
+           )
          ORDER BY id DESC
         """,
-        (company_id, invoice_number, invoice_date, target_scope),
+        (company_id, invoice_date, invoice_number_lookup_keys),
     )
     candidates = cur.fetchall() or []
     for candidate in candidates:
@@ -10300,14 +10384,23 @@ def _find_existing_warehouse_invoice_duplicate(cur, *, company_id, invoice_numbe
         )
         candidate_total = _float_or_zero(_row_get(candidate, "total_with_vat", 3) or _row_get(candidate, "total_base", 4))
         candidate_signature = _warehouse_invoice_items_signature(_json_list_or_empty(_row_get(candidate, "items", 5)))
-        total_matches = input_total > 0 and candidate_total > 0 and abs(input_total - candidate_total) < 0.01
-        items_match = bool(input_signature and candidate_signature and input_signature == candidate_signature)
-        has_strong_content = input_total > 0 or bool(input_signature)
-        if (has_strong_content and (total_matches or items_match or same_supplier)) or (not has_strong_content and same_supplier):
+        match = match_warehouse_invoice_duplicate(
+            incoming_number=invoice_number,
+            incoming_date=invoice_date,
+            incoming_total=input_total,
+            incoming_items_signature=input_signature,
+            candidate_number=_row_get(candidate, "number", 8, ""),
+            candidate_date=_row_get(candidate, "date", 9),
+            candidate_total=candidate_total,
+            candidate_items_signature=candidate_signature,
+            same_supplier=same_supplier,
+        )
+        if match:
             return {
                 "id": _row_get(candidate, "id", 0),
                 "supplierName": _row_get(candidate, "supplier_name", 2, "") or "",
                 "totalWithVat": candidate_total,
+                "match": match,
             }
     return None
 
@@ -19175,7 +19268,12 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
             "supplierName": supplier_name or data.get("supplier") or "",
             "supplier": data.get("supplier") or supplier_name,
         }
-        matched_supplier = _supplier_find_match(cur, supplier_lookup_payload, allow_contact_match=False)
+        matched_supplier = _supplier_find_match(
+            cur,
+            supplier_lookup_payload,
+            allow_alias_name_match=not has_legal_supplier_identity(supplier_lookup_payload),
+            allow_contact_match=False,
+        )
         if matched_supplier:
             data["supplierId"] = matched_supplier["id"]
             data["supplierName"] = matched_supplier["name"] or supplier_name
@@ -19194,7 +19292,10 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
                         (company_id, invoice_number, invoice_date, supplier_name, target_location))
             duplicate = cur.fetchone()
             if duplicate:
-                raise HTTPException(status_code=409, detail="Такая накладная уже принята. Если это исправление, сначала аннулируйте старую накладную.")
+                raise HTTPException(
+                    status_code=409,
+                    detail="Эта накладная уже есть в базе. Повторная загрузка отменена. Если в документе есть исправление, сначала аннулируйте старую накладную.",
+                )
         items_list = data.get("items", []) or []
         if not isinstance(items_list, list):
             items_list = []
@@ -19277,13 +19378,23 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
         total_base = normalized_invoice.get("totalBase", 0)
         total_vat = normalized_invoice.get("totalVat", 0)
         total_with_vat = normalized_invoice.get("totalWithVat", 0)
+        invoice_items_signature = _warehouse_invoice_items_signature(items_list)
+        for duplicate_lock_key in build_warehouse_invoice_lock_keys(
+            company_id=company_id,
+            invoice_number=invoice_number,
+            invoice_date=invoice_date,
+            total_with_vat=total_with_vat,
+            items_signature=invoice_items_signature,
+        ):
+            cur.execute(
+                "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                (duplicate_lock_key,),
+            )
         broad_duplicate = _find_existing_warehouse_invoice_duplicate(
             cur,
             company_id=company_id,
             invoice_number=invoice_number,
             invoice_date=invoice_date,
-            target_location=target_location,
-            target_project=target_project,
             supplier_id=data.get("supplierId") or data.get("supplier_id"),
             supplier_name=data.get("supplierName") or supplier_name,
             total_with_vat=total_with_vat,
@@ -19294,11 +19405,11 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    "Похоже, эта накладная уже принята: "
+                    "Эта накладная уже есть в базе, поэтому повторная загрузка отменена: "
                     + "№" + str(invoice_number)
                     + (" от " + str(invoice_date) if invoice_date else "")
                     + (" · " + duplicate_supplier if duplicate_supplier else "")
-                    + ". Если это исправление OCR или поставщика, сначала аннулируйте старую накладную или свяжите карточки поставщика, а не проводите второй приход."
+                    + ". Если в документе есть исправление, сначала аннулируйте старую накладную."
                 ),
             )
         cur.execute("""INSERT INTO warehouse_invoices
@@ -19563,7 +19674,21 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
             supplier_payload["supplierId"] = warehouse_invoice.get("supplier_id")
 
         supplier_id = warehouse_invoice.get("supplier_id")
-        matched_supplier = _supplier_find_match(cur, supplier_payload, allow_contact_match=False)
+        legal_supplier_identity = has_legal_supplier_identity(supplier_payload)
+        if legal_supplier_identity and not supplier_id:
+            identity_requisites = _supplier_extract_requisites(supplier_payload)
+            identity_key = (
+                "inn:" + identity_requisites["inn"]
+                if identity_requisites["inn"]
+                else "ogrn:" + identity_requisites["ogrn"]
+            )
+            cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("supplier:" + identity_key,))
+        matched_supplier = _supplier_find_match(
+            cur,
+            supplier_payload,
+            allow_alias_name_match=not legal_supplier_identity,
+            allow_contact_match=False,
+        )
         created_supplier = False
         if matched_supplier:
             supplier_id = matched_supplier["id"]
@@ -19572,7 +19697,7 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
             _remember_supplier_alias(cur, supplier_id, supplier_payload, source="warehouse_accounting")
         elif supplier_name:
             req = _supplier_extract_requisites(supplier_payload)
-            if req.get("inn") or req.get("ogrn"):
+            if legal_supplier_identity:
                 cur.execute(
                     """
                     INSERT INTO suppliers
@@ -20266,6 +20391,26 @@ def update_warehouse_invoice_accounting(
             if requested_supplier_id and invoice_supplier_id and invoice_supplier_id != requested_supplier_id:
                 raise HTTPException(status_code=409, detail="Счёт поставщика связан с другой карточкой поставщика")
 
+        supplier_recognition_requested = isinstance(
+            data.get("supplierRequisites") or data.get("supplier_requisites"),
+            dict,
+        )
+        supplier_recognition_created = False
+        existing_supplier_id = (
+            requested_supplier_id
+            or _positive_int_or_none(row.get("supplier_id"))
+            or _positive_int_or_none((supplier_invoice_row or {}).get("supplier_id"))
+        )
+        if supplier_recognition_requested and not existing_supplier_id:
+            requested_supplier = _resolve_or_create_document_supplier(
+                cur,
+                data,
+                fallback_name=row.get("supplier_name") or (supplier_invoice_row or {}).get("supplier_name") or "",
+                source_detail="Определено из накладной #" + str(id),
+            )
+            requested_supplier_id = _positive_int_or_none(requested_supplier.get("id"))
+            supplier_recognition_created = bool(requested_supplier.get("created"))
+
         requested_status = str(
             data.get("accountingStatus")
             or data.get("accounting_status")
@@ -20320,7 +20465,14 @@ def update_warehouse_invoice_accounting(
         if requested_supplier:
             selected_supplier_name = str(requested_supplier.get("name") or "").strip()
             original_supplier_name = str(row.get("supplier_name") or "").strip()
-            audit_note = "Поставщик выбран вручную: " + selected_supplier_name
+            if supplier_recognition_requested:
+                audit_note = (
+                    "Новый поставщик создан по реквизитам документа: "
+                    if supplier_recognition_created
+                    else "Поставщик определён по реквизитам документа: "
+                ) + selected_supplier_name
+            else:
+                audit_note = "Поставщик выбран вручную: " + selected_supplier_name
             if original_supplier_name and original_supplier_name != selected_supplier_name:
                 audit_note += " (в накладной: " + original_supplier_name + ")"
             if audit_note not in comment:
@@ -20458,6 +20610,9 @@ def update_warehouse_invoice_accounting(
             "photos": current_photos,
             "paidAmount": paid_amount_after,
             "paymentId": payment_id,
+            "supplierId": resolved_supplier_id,
+            "supplierName": (requested_supplier or {}).get("name") or (supplier_invoice_row or {}).get("supplier_name") or row.get("supplier_name") or "",
+            "supplierCreated": supplier_recognition_created,
         }
     except Exception:
         conn.rollback()
@@ -25581,7 +25736,7 @@ def _retry_invoice_scan_compact_json(client, model: str, images: list, uploaded_
         return None, str(exc)
 
 @app.post("/scan-invoice")
-def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
+def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "бухгалтер"))):
     import openai as oa
     FOLDER_ID = YANDEX_FOLDER_ID
     API_KEY = YANDEX_API_KEY
