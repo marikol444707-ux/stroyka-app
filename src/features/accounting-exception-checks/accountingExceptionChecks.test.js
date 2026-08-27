@@ -171,6 +171,8 @@ describe('accounting exception checks frontend contract', () => {
   test('keeps every rendering rule and its field allowlists immutable', () => {
     expect(Object.isFrozen(ACCOUNTING_EXCEPTION_REASON_CONTRACTS)).toBe(true);
     Object.values(ACCOUNTING_EXCEPTION_REASON_CONTRACTS).forEach(contract => {
+      expect(typeof contract.nextStep).toBe('string');
+      expect(contract.nextStep.length).toBeGreaterThan(20);
       expect(Object.isFrozen(contract)).toBe(true);
       expect(Object.isFrozen(contract.subjects)).toBe(true);
       expect(Object.isFrozen(contract.ids)).toBe(true);

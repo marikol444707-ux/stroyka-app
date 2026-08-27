@@ -16,72 +16,89 @@ export const ACCOUNTING_EXCEPTION_SOURCES = Object.freeze([
 export const ACCOUNTING_EXCEPTION_REASON_CONTRACTS = Object.freeze({
   accounting_brigade_ledger_link_missing: {
     label: 'У выплаты бригаде отсутствует обязательная связь с платёжным реестром',
+    nextStep: 'Откройте выплату и выберите платёжный реестр того же объекта с такой же суммой.',
     subjects: ['brigade_payment'], ids: [], money: [],
   },
   accounting_brigade_ledger_not_found: {
     label: 'Связанный платёжный реестр выплаты бригаде не найден',
+    nextStep: 'Проверьте, не удалён ли платёжный реестр, затем выберите существующий реестр или отмените ошибочную выплату.',
     subjects: ['brigade_payment'], ids: ['relatedId'], money: [],
   },
   accounting_brigade_ledger_project_mismatch: {
     label: 'Выплата бригаде и платёжный реестр относятся к разным объектам',
+    nextStep: 'Свяжите выплату с платёжным реестром того же объекта; сумму выплаты система не изменит.',
     subjects: ['brigade_payment'], ids: ['relatedId'], money: [],
   },
   accounting_brigade_ledger_amount_mismatch: {
     label: 'Сумма выплаты бригаде не совпадает с платёжным реестром',
+    nextStep: 'Сверьте первичный документ и исправьте неверную сумму вручную после проверки.',
     subjects: ['brigade_payment'], ids: [], money: ['storedAmount', 'linkedAmount'],
   },
   accounting_supplier_warehouse_link_not_found: {
     label: 'Связанный складской или поставщицкий документ не найден',
+    nextStep: 'Откройте накладную и связанный счёт: загрузите отсутствующий документ или уберите ошибочную связь.',
     subjects: ['supplier_invoice', 'warehouse_invoice'], ids: ['relatedId'], money: [],
   },
   accounting_supplier_warehouse_link_nonreciprocal: {
     label: 'Связь накладных поставщика и склада не является взаимной',
+    nextStep: 'Обновите проверку и исправьте безопасные связи одним действием; спорную пару свяжите вручную.',
     subjects: ['supplier_invoice', 'warehouse_invoice'], ids: ['relatedId'], money: [],
   },
   accounting_supplier_invoice_overpaid: {
     label: 'По накладной поставщика оплачено больше суммы документа',
+    nextStep: 'Сверьте платежи и возвраты с банковскими документами, затем исправьте ошибочную платёжную запись вручную.',
     subjects: ['supplier_invoice'], ids: [], money: ['invoiceAmount', 'paidAmount'],
   },
   accounting_accountable_expense_parent_not_found: {
     label: 'Для подотчётного расхода не найден подтверждённый аванс',
+    nextStep: 'Выберите аванс, из которого произведён расход, либо добавьте отсутствующую выдачу под отчёт.',
     subjects: ['accountable_expense'], ids: ['relatedId'], money: [],
   },
   accounting_accountable_expense_parent_project_mismatch: {
     label: 'Подотчётный расход и аванс относятся к разным объектам',
+    nextStep: 'Укажите для расхода аванс того же объекта или исправьте объект в первичном документе.',
     subjects: ['accountable_expense'], ids: ['relatedId'], money: [],
   },
   accounting_accountable_spent_sum_mismatch: {
     label: 'Сумма подотчётных расходов не совпадает с сохранённым итогом',
+    nextStep: 'Сверьте приложенные чеки и обновите итог аванса только после проверки всех расходов.',
     subjects: ['accountable_payment'], ids: [], money: ['storedSpentAmount', 'childAmountSum'],
   },
   accounting_accountable_advance_exceeded: {
     label: 'Сумма подотчётных расходов превышает выданный аванс',
+    nextStep: 'Проверьте чеки и дополнительную выдачу денег; недостающий аванс должен быть оформлен отдельным документом.',
     subjects: ['accountable_payment'], ids: [], money: ['advanceAmount', 'childAmountSum'],
   },
   accounting_expense_report_balance_mismatch: {
     label: 'Остаток авансового отчёта не совпадает с расчётным',
+    nextStep: 'Пересчитайте выданную и потраченную суммы по документам, затем исправьте сохранённый остаток.',
     subjects: ['expense_report'],
     ids: [],
     money: ['issuedAmount', 'spentAmount', 'storedBalance', 'expectedBalance'],
   },
   accounting_salary_staff_not_found: {
     label: 'Для выплаты зарплаты не найден подтверждённый сотрудник',
+    nextStep: 'Выберите действующего сотрудника или восстановите отсутствующую карточку сотрудника перед выплатой.',
     subjects: ['salary_payment'], ids: ['relatedId'], money: [],
   },
   accounting_salary_month_invalid: {
     label: 'У выплаты зарплаты некорректно сохранён расчётный месяц',
+    nextStep: 'Откройте выплату и укажите правильный расчётный месяц в формате год и месяц.',
     subjects: ['salary_payment'], ids: [], money: [],
   },
   accounting_own_expense_link_not_found: {
     label: 'Связанная личная или ручная трата не найдена',
+    nextStep: 'Откройте трату и выберите существующий парный расход либо уберите ссылку на удалённую запись.',
     subjects: ['own_expense', 'manual_expense'], ids: ['relatedId'], money: [],
   },
   accounting_own_expense_link_nonreciprocal: {
     label: 'Связь личной и ручной траты не является взаимной',
+    nextStep: 'Свяжите обе записи друг с другом или оставьте только один подтверждённый расход.',
     subjects: ['own_expense', 'manual_expense'], ids: ['relatedId'], money: [],
   },
   accounting_own_expense_link_project_mismatch: {
     label: 'Связанные личная и ручная траты относятся к разным объектам',
+    nextStep: 'Проверьте первичный документ и назначьте обеим связанным тратам один правильный объект.',
     subjects: ['own_expense', 'manual_expense'], ids: ['relatedId'], money: [],
   },
 });

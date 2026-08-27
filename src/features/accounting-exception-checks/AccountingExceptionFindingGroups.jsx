@@ -48,6 +48,9 @@ export default function AccountingExceptionFindingGroups({ groups, palette, isMo
         return (
           <article key={group.reasonCode} role="listitem" style={{ border: `1px solid ${palette.border}`, borderRadius: '10px', padding: '12px', minWidth: 0 }}>
             <h3 style={{ margin: 0, color: palette.text, fontSize: '14px' }}>{accountingExceptionReasonLabel(group.reasonCode)}</h3>
+            <p style={{ margin: '7px 0 0', color: palette.textSec, fontSize: '12px' }}>
+              <b>Что сделать:</b> {contract.nextStep}
+            </p>
             <p style={{ margin: '7px 0 0', color: palette.warning, fontSize: '12px', fontWeight: 800 }}>
               {documentCountLabel(group.count)}
             </p>

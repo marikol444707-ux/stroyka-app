@@ -287,5 +287,8 @@ describe('AccountingExceptionChecksPanel', () => {
     )).toHaveLength(1);
     expect(screen.getByText('31 документ')).toBeInTheDocument();
     expect(screen.getByText('Показать документы (31)')).toBeInTheDocument();
+    expect(screen.getByText(
+      'Откройте накладную и связанный счёт: загрузите отсутствующий документ или уберите ошибочную связь.',
+    )).toBeInTheDocument();
   });
 });
