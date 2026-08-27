@@ -141,6 +141,24 @@ export const accountingExceptionReasonLabel = reasonCode => (
   ACCOUNTING_EXCEPTION_REASON_CONTRACTS[reasonCode]?.label || null
 );
 
+export const groupAccountingExceptionFindings = findings => {
+  const groups = new Map();
+  findings.forEach(finding => {
+    const existing = groups.get(finding.reasonCode);
+    if (existing) {
+      existing.findings.push(finding);
+      existing.count += 1;
+      return;
+    }
+    groups.set(finding.reasonCode, {
+      reasonCode: finding.reasonCode,
+      count: 1,
+      findings: [finding],
+    });
+  });
+  return [...groups.values()];
+};
+
 const validatedFinding = value => {
   if (!plainObject(value)) invalid();
   const contract = ACCOUNTING_EXCEPTION_REASON_CONTRACTS[value.reasonCode];

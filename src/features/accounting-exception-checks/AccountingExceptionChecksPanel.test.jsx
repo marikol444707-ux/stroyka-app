@@ -273,7 +273,7 @@ describe('AccountingExceptionChecksPanel', () => {
     view.unmount();
   });
 
-  test('keeps disputed findings collapsed and never renders malformed private preview data', async () => {
+  test('keeps disputed findings collapsed and groups repeated reasons into one card', async () => {
     installReadResponses(reviewReport(), { ...readyPreview(), privateRows: ['SECRET'] });
     renderPanel();
 
@@ -281,9 +281,11 @@ describe('AccountingExceptionChecksPanel', () => {
     expect(screen.queryByText(/SECRET/)).not.toBeInTheDocument();
     expect(screen.queryByText('Связанный складской или поставщицкий документ не найден')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Исправить безопасные связи/ })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Показать список' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Показать причины' }));
     expect(screen.getAllByText(
       'Связанный складской или поставщицкий документ не найден',
-    )).toHaveLength(31);
+    )).toHaveLength(1);
+    expect(screen.getByText('31 документ')).toBeInTheDocument();
+    expect(screen.getByText('Показать документы (31)')).toBeInTheDocument();
   });
 });

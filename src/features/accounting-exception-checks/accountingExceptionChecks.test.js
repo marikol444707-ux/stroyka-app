@@ -2,6 +2,7 @@ import {
   ACCOUNTING_EXCEPTION_REASON_CONTRACTS,
   ACCOUNTING_EXCEPTION_SOURCES,
   accountingExceptionReasonLabel,
+  groupAccountingExceptionFindings,
   parseAccountingExceptionCompanyIds,
   validateAccountingExceptionChecks,
 } from './accountingExceptionChecks';
@@ -118,6 +119,53 @@ describe('accounting exception checks frontend contract', () => {
 
   test('does not invent a label for an unknown reason code', () => {
     expect(accountingExceptionReasonLabel('PRIVATE_REASON')).toBeNull();
+  });
+
+  test('groups repeated findings by business reason without losing records', () => {
+    const findings = [
+      {
+        reasonCode: 'accounting_supplier_warehouse_link_not_found',
+        subjectKind: 'supplier_invoice',
+        subjectId: 91,
+        projectId: 17,
+        relatedId: 501,
+      },
+      {
+        reasonCode: 'accounting_supplier_warehouse_link_not_found',
+        subjectKind: 'supplier_invoice',
+        subjectId: 92,
+        projectId: 17,
+        relatedId: 502,
+      },
+      {
+        reasonCode: 'accounting_supplier_invoice_overpaid',
+        subjectKind: 'supplier_invoice',
+        subjectId: 93,
+        projectId: 17,
+        invoiceAmount: '1000',
+        paidAmount: '1100',
+      },
+    ];
+
+    const groups = groupAccountingExceptionFindings(findings);
+
+    expect(groups.map(group => ({
+      reasonCode: group.reasonCode,
+      count: group.count,
+      subjectIds: group.findings.map(finding => finding.subjectId),
+    }))).toEqual([
+      {
+        reasonCode: 'accounting_supplier_warehouse_link_not_found',
+        count: 2,
+        subjectIds: [91, 92],
+      },
+      {
+        reasonCode: 'accounting_supplier_invoice_overpaid',
+        count: 1,
+        subjectIds: [93],
+      },
+    ]);
+    expect(groups[0].findings).not.toBe(findings);
   });
 
   test('keeps every rendering rule and its field allowlists immutable', () => {

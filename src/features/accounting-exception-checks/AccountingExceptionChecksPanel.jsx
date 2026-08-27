@@ -10,11 +10,11 @@ import {
 } from 'lucide-react';
 
 import {
-  ACCOUNTING_EXCEPTION_REASON_CONTRACTS,
-  accountingExceptionReasonLabel,
+  groupAccountingExceptionFindings,
   parseAccountingExceptionCompanyIds,
   validateAccountingExceptionChecks,
 } from './accountingExceptionChecks';
+import AccountingExceptionFindingGroups from './AccountingExceptionFindingGroups';
 import {
   buildAccountingLinkRepairApplyBody,
   validateAccountingLinkRepairApplyResult,
@@ -26,30 +26,6 @@ const DEFAULT_ALLOWED_COMPANY_IDS = parseAccountingExceptionCompanyIds(
   process.env.REACT_APP_ACCOUNTING_EXCEPTION_CHECKS_COMPANY_IDS,
 ) || new Set();
 const FINANCE_ROLES = new Set(['директор', 'зам_директора', 'бухгалтер']);
-const SUBJECT_LABELS = {
-  brigade_payment: 'Выплата бригаде',
-  supplier_invoice: 'Накладная поставщика',
-  warehouse_invoice: 'Складская накладная',
-  accountable_expense: 'Подотчётный расход',
-  accountable_payment: 'Подотчётный аванс',
-  expense_report: 'Авансовый отчёт',
-  salary_payment: 'Выплата зарплаты',
-  own_expense: 'Личная трата',
-  manual_expense: 'Ручная трата',
-};
-const MONEY_LABELS = {
-  storedAmount: 'Сохранённая сумма',
-  linkedAmount: 'Связанная сумма',
-  invoiceAmount: 'Сумма документа',
-  paidAmount: 'Оплачено',
-  storedSpentAmount: 'Сохранено как потраченное',
-  childAmountSum: 'Сумма расходов',
-  advanceAmount: 'Сумма аванса',
-  issuedAmount: 'Выдано',
-  spentAmount: 'Потрачено',
-  storedBalance: 'Сохранённый остаток',
-  expectedBalance: 'Расчётный остаток',
-};
 const linkCountLabel = count => {
   const tail = count % 100;
   const last = count % 10;
@@ -227,6 +203,9 @@ export default function AccountingExceptionChecksPanel({
     : 0;
   const unresolvedFindingCount = repairPreview?.unresolvedCount
     ?? Number(result?.findingCount || 0);
+  const findingGroups = result?.state === 'review_required'
+    ? groupAccountingExceptionFindings(result.findings)
+    : [];
 
   return (
     <section
@@ -311,31 +290,16 @@ export default function AccountingExceptionChecksPanel({
             style={{ marginTop: '10px', border: 'none', background: 'transparent', color: palette.textSec, padding: '4px 0', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
           >
             {showFindings ? <ChevronUp size={15} aria-hidden="true" /> : <ChevronDown size={15} aria-hidden="true" />}
-            {showFindings ? 'Скрыть список' : 'Показать список'}
+            {showFindings ? 'Скрыть причины' : 'Показать причины'}
           </button>
           {showFindings && (
             <>
               {result.truncated && <p style={{ color: palette.muted, fontSize: '11px' }}>Показаны первые {result.findings.length} записей.</p>}
-              <div role="list" style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: '10px' }}>
-                {result.findings.map(finding => {
-                  const contract = ACCOUNTING_EXCEPTION_REASON_CONTRACTS[finding.reasonCode];
-                  return (
-                    <article key={`${finding.reasonCode}:${finding.subjectKind}:${finding.subjectId}`} role="listitem" style={{ border: `1px solid ${palette.border}`, borderRadius: '10px', padding: '12px', minWidth: 0 }}>
-                      <h3 style={{ margin: 0, color: palette.text, fontSize: '14px' }}>{accountingExceptionReasonLabel(finding.reasonCode)}</h3>
-                      <p style={{ margin: '7px 0 0', color: palette.textSec, fontSize: '12px' }}>
-                        {SUBJECT_LABELS[finding.subjectKind]} №{finding.subjectId}
-                        {finding.projectId !== null ? ` · Объект №${finding.projectId}` : ''}
-                        {contract.ids.map(field => ` · Связанный документ №${finding[field]}`).join('')}
-                      </p>
-                      {contract.money.length > 0 && (
-                        <ul style={{ margin: '8px 0 0', paddingLeft: '18px', color: palette.textSec, fontSize: '12px' }}>
-                          {contract.money.map(field => <li key={field}>{MONEY_LABELS[field]}: {finding[field]} ₽</li>)}
-                        </ul>
-                      )}
-                    </article>
-                  );
-                })}
-              </div>
+              <AccountingExceptionFindingGroups
+                groups={findingGroups}
+                isMobile={isMobile}
+                palette={palette}
+              />
             </>
           )}
         </div>
