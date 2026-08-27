@@ -1,0 +1,33 @@
+[Unit]
+Description=Process the Stroyka durable agent-job queue one job at a time
+Wants=network-online.target
+After=network-online.target stroyka.service
+ConditionPathExists=/var/www/stroyka-app/package.json
+StartLimitIntervalSec=5min
+StartLimitBurst=3
+
+[Service]
+Type=simple
+WorkingDirectory=/var/www/stroyka-app
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=HOME=/tmp
+ExecStart=/usr/bin/python3 -m backend.features.agent_jobs.runner
+Restart=on-failure
+RestartSec=10s
+KillSignal=SIGTERM
+TimeoutStopSec=10min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

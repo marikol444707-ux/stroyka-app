@@ -76,6 +76,7 @@
     "audit:legacy-fallback": "python3 -m backend.features.legacy_fallback.audit",
     "audit:agent-jobs": "python3 -m backend.features.agent_jobs.readiness_report",
     "worker:agent-jobs": "python3 -m backend.features.agent_jobs.runner",
+    "status:agent-job-worker": "python3 -m backend.features.agent_jobs.operational_report",
     "enqueue:director-daily-brief": "python3 -m backend.features.director_daily_brief.producer",
     "run:director-daily-brief": "python3 -m backend.features.director_daily_brief.controlled_cycle",
     "schedule:director-daily-brief": "python3 -m backend.features.director_daily_brief.schedule",

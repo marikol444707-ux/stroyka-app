@@ -13,11 +13,11 @@ each use a new short transaction.
 
 ## Current scope
 
-The production registry contains `system.worker_probe` and the A3
-`director.daily_brief` handler. The brief reads one company through the shared
-tenant-scoped read-tool registry, deterministically aggregates bounded facts
-and does not call a model or change business data. Its detailed boundary is in
-`docs/director-daily-brief.md`.
+The production registry contains `system.worker_probe`, the A3
+`director.daily_brief` handler and `estimate.revision_impact`. These handlers
+do not call a model. The brief reads one company through the shared
+tenant-scoped read-tool registry and deterministically aggregates bounded
+facts. Its detailed boundary is in `docs/director-daily-brief.md`.
 
 Runtime `a3ab56bb6f29` passed readiness, public/protected smoke and one
 controlled company brief with exact queue cleanup. The permanent production
@@ -68,6 +68,32 @@ The repository timer is disabled by default and is not installed by
 `deploy.sh`. Production runtime `2e14a3a2ca3c` passed Linux unit validation,
 one manual company `1` one-shot and public smoke before the timer was enabled.
 The generic runner daemon remains disabled.
+
+## Prepared production service (A13)
+
+`ops/systemd/stroyka-agent-job-worker.service` prepares one continuous worker
+with concurrency one, bounded restarts, a ten-minute graceful stop window and
+systemd hardening. It is intentionally not referenced by `deploy.sh`, so a
+normal application deployment cannot install, start or enable it.
+
+Check the production queue with one read-only command:
+
+```bash
+npm run status:agent-job-worker
+```
+
+The report shows due/delayed/running jobs, expired leases, failures, the age of
+the oldest due job and recent p95 duration. It never reads or prints payloads,
+results, error text, credentials, correlation values or lease tokens. Current
+registered handlers are model-free, so the report marks model cost as not
+applicable and zero. An unknown future handler changes that state to
+`untracked` and blocks worker readiness until explicit cost instrumentation is
+added.
+
+The full production boundary and later canary gate are documented in
+`docs/agent-job-worker-production.md`. Installing or starting the service is a
+separate approved production action; committing this unit alone changes no
+runtime state.
 
 ## Handler boundary
 
