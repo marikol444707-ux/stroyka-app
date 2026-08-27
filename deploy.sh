@@ -20,6 +20,10 @@ PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py
   PYTHONPATH=. PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache \
     python3 -c 'import features.estimate_row_transfer'
 )
+if ! python3 -c 'import alembic, psycopg2, sqlalchemy'; then
+  echo "Не установлены Python-зависимости. Выполните: python3 -m pip install --break-system-packages -r requirements.txt" >&2
+  exit 1
+fi
 npm ci
 
 FRONTEND_BUILD_DIR="$(mktemp -d "$APP_ROOT/.frontend-build.XXXXXX")"
@@ -29,6 +33,9 @@ cleanup_frontend_build() {
 trap cleanup_frontend_build EXIT
 
 BUILD_PATH="$FRONTEND_BUILD_DIR" npm run build
+echo "Применение миграций базы данных..."
+PGOPTIONS="-c lock_timeout=5000 -c statement_timeout=60000" \
+  python3 -m alembic upgrade head
 systemctl restart stroyka
 systemctl is-active --quiet stroyka
 bash scripts/publish-frontend.sh "$FRONTEND_BUILD_DIR" "$APP_ROOT/build"
