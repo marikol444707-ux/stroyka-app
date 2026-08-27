@@ -73,8 +73,10 @@ The generic runner daemon remains disabled.
 
 `ops/systemd/stroyka-agent-job-worker.service` prepares one continuous worker
 with concurrency one, bounded restarts, a ten-minute graceful stop window and
-systemd hardening. It is intentionally not referenced by `deploy.sh`, so a
-normal application deployment cannot install, start or enable it.
+systemd hardening. `deploy.sh` cannot install, start or enable it. Once an
+operator has separately installed and started the service, later deployments
+restart that already-active process after migrations and the HTTP backend so
+it immediately loads the same released code.
 
 Check the production queue with one read-only command:
 

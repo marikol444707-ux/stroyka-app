@@ -18,7 +18,9 @@ while operators can see queue depth, expired leases, failures and duration.
   applicable. Adding a model-backed handler requires a separate review and
   cost instrumentation before it enters the registry.
 - The repository service is disabled by default. `deploy.sh` must not install,
-  start or enable it. Production activation is a separate canary step.
+  start or enable it. Production activation is a separate canary step. After
+  activation, deploy may restart the service only when it is already active so
+  the worker and HTTP backend load the same release.
 
 ## Operator questions
 

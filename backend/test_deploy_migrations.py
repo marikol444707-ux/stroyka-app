@@ -33,6 +33,17 @@ class DeployMigrationTests(unittest.TestCase):
         self.assertLess(deploy.index(migration), deploy.index(restart))
         self.assertNotIn("alembic stamp", deploy)
 
+    def test_active_agent_worker_restarts_after_backend_and_before_smoke(self):
+        deploy = DEPLOY_PATH.read_text(encoding="utf-8")
+
+        backend_restart = "systemctl restart stroyka"
+        worker_restart = 'systemctl restart "$AGENT_JOB_WORKER_UNIT"'
+        smoke = "bash scripts/prod-smoke-check.sh"
+
+        self.assertIn(worker_restart, deploy)
+        self.assertLess(deploy.index(backend_restart), deploy.index(worker_restart))
+        self.assertLess(deploy.index(worker_restart), deploy.index(smoke))
+
 
 if __name__ == "__main__":
     unittest.main()

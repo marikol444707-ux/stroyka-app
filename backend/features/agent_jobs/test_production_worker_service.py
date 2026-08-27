@@ -8,7 +8,7 @@ UNIT = ROOT / "ops" / "systemd" / "stroyka-agent-job-worker.service"
 
 
 class AgentJobProductionWorkerServiceTests(unittest.TestCase):
-    def test_unit_is_single_process_hardened_and_disabled_by_deploy(self):
+    def test_unit_is_single_process_hardened_and_not_activated_by_deploy(self):
         source = UNIT.read_text(encoding="utf-8")
         deploy = (ROOT / "deploy.sh").read_text(encoding="utf-8")
 
@@ -21,7 +21,24 @@ class AgentJobProductionWorkerServiceTests(unittest.TestCase):
         self.assertIn("PrivateTmp=true", source)
         self.assertIn("ProtectSystem=full", source)
         self.assertIn("UMask=0077", source)
-        self.assertNotIn("stroyka-agent-job-worker.service", deploy)
+        self.assertNotIn("systemctl enable", deploy)
+        self.assertNotIn("systemctl start", deploy)
+
+    def test_deploy_restarts_only_an_already_active_worker(self):
+        deploy = (ROOT / "deploy.sh").read_text(encoding="utf-8")
+
+        self.assertIn(
+            'AGENT_JOB_WORKER_UNIT="stroyka-agent-job-worker.service"',
+            deploy,
+        )
+        active_gate = 'if systemctl is-active --quiet "$AGENT_JOB_WORKER_UNIT"; then'
+        worker_restart = 'systemctl restart "$AGENT_JOB_WORKER_UNIT"'
+        worker_health = 'systemctl is-active --quiet "$AGENT_JOB_WORKER_UNIT"'
+        self.assertIn(active_gate, deploy)
+        self.assertIn(worker_restart, deploy)
+        self.assertIn(worker_health, deploy)
+        self.assertLess(deploy.index(active_gate), deploy.index(worker_restart))
+        self.assertLess(deploy.index(worker_restart), deploy.rindex(worker_health))
 
     def test_package_exposes_read_only_status_command(self):
         package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
