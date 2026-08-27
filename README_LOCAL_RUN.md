@@ -116,6 +116,30 @@ read -s PASS
 SMOKE_EMAIL='admin@stroyka.ru' SMOKE_PASSWORD="$PASS" npm run smoke:prod
 ```
 
+For a repeatable protected production check, keep the credentials outside the
+repository in `/etc/stroyka/prod-smoke.env`. The file must belong to the user
+running the check and have mode `0600` (or `0400`). Its exact format is:
+
+```text
+SMOKE_EMAIL=smoke-account@example.com
+SMOKE_PASSWORD=replace-with-the-dedicated-smoke-password
+SMOKE_TOTP_SECRET=REPLACEWITHBASE32SECRET
+SMOKE_COMPANY_ID=1
+```
+
+Do not add quotes, `export`, shell commands, `BASE_URL`, or a one-time
+`SMOKE_2FA_CODE`. Validate the file without logging in, then run the protected
+check:
+
+```bash
+npm run smoke:prod:protected -- --check
+npm run smoke:prod:protected
+```
+
+This command pins the destination to `https://stroyka26.pro`, checks protected
+GET routes, and skips business POST/DELETE probes. Authentication still creates
+the normal server-side session and login audit record.
+
 Public-site API proxy check after nginx changes:
 
 ```bash

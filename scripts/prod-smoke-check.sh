@@ -349,6 +349,10 @@ public_smoke_checks_enabled() {
   [[ "${SMOKE_PROTECTED_ONLY:-0}" != "1" ]]
 }
 
+protected_business_write_probes_enabled() {
+  [[ "${SMOKE_BUSINESS_READ_ONLY:-0}" != "1" ]]
+}
+
 echo "Smoke-check: $BASE_URL"
 
 check_code "frontend /" "$BASE_URL/"
@@ -592,28 +596,32 @@ for row in rows if isinstance(rows, list) else []:
       failures+=("/agent-jobs foreign company got=$agent_jobs_foreign_code expected=400/403/404/409")
     fi
 
-    agent_job_cancel_all_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/agent-jobs/2147483647/cancel" -H "Authorization: Bearer $token" -H 'X-Company-Mode: all_companies' -H 'Content-Type: application/json' -d '{"reasonCode":"user_request"}' || true)"
-    if [[ "$agent_job_cancel_all_code" == "400" || "$agent_job_cancel_all_code" == "403" || "$agent_job_cancel_all_code" == "409" ]]; then
-      echo "OK   agent job cancel all-companies blocked $agent_job_cancel_all_code"
-    else
-      echo "FAIL agent job cancel all-companies got=$agent_job_cancel_all_code expected=400/403/409"
-      failures+=("agent job cancel all-companies got=$agent_job_cancel_all_code expected=400/403/409")
-    fi
+    if protected_business_write_probes_enabled; then
+      agent_job_cancel_all_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/agent-jobs/2147483647/cancel" -H "Authorization: Bearer $token" -H 'X-Company-Mode: all_companies' -H 'Content-Type: application/json' -d '{"reasonCode":"user_request"}' || true)"
+      if [[ "$agent_job_cancel_all_code" == "400" || "$agent_job_cancel_all_code" == "403" || "$agent_job_cancel_all_code" == "409" ]]; then
+        echo "OK   agent job cancel all-companies blocked $agent_job_cancel_all_code"
+      else
+        echo "FAIL agent job cancel all-companies got=$agent_job_cancel_all_code expected=400/403/409"
+        failures+=("agent job cancel all-companies got=$agent_job_cancel_all_code expected=400/403/409")
+      fi
 
-    agent_job_cancel_foreign_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/agent-jobs/2147483647/cancel" -H "Authorization: Bearer $token" -H 'X-Company-Id: 2147483647' -H 'Content-Type: application/json' -d '{"reasonCode":"user_request"}' || true)"
-    if [[ "$agent_job_cancel_foreign_code" == "400" || "$agent_job_cancel_foreign_code" == "403" || "$agent_job_cancel_foreign_code" == "404" || "$agent_job_cancel_foreign_code" == "409" ]]; then
-      echo "OK   agent job cancel foreign company blocked $agent_job_cancel_foreign_code"
-    else
-      echo "FAIL agent job cancel foreign company got=$agent_job_cancel_foreign_code expected=400/403/404/409"
-      failures+=("agent job cancel foreign company got=$agent_job_cancel_foreign_code expected=400/403/404/409")
-    fi
+      agent_job_cancel_foreign_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/agent-jobs/2147483647/cancel" -H "Authorization: Bearer $token" -H 'X-Company-Id: 2147483647' -H 'Content-Type: application/json' -d '{"reasonCode":"user_request"}' || true)"
+      if [[ "$agent_job_cancel_foreign_code" == "400" || "$agent_job_cancel_foreign_code" == "403" || "$agent_job_cancel_foreign_code" == "404" || "$agent_job_cancel_foreign_code" == "409" ]]; then
+        echo "OK   agent job cancel foreign company blocked $agent_job_cancel_foreign_code"
+      else
+        echo "FAIL agent job cancel foreign company got=$agent_job_cancel_foreign_code expected=400/403/404/409"
+        failures+=("agent job cancel foreign company got=$agent_job_cancel_foreign_code expected=400/403/404/409")
+      fi
 
-    agent_job_cancel_missing_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/agent-jobs/2147483647/cancel" -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d '{"reasonCode":"user_request"}' || true)"
-    if [[ "$agent_job_cancel_missing_code" == "404" ]]; then
-      echo "OK   agent job cancel missing $agent_job_cancel_missing_code"
+      agent_job_cancel_missing_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/agent-jobs/2147483647/cancel" -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d '{"reasonCode":"user_request"}' || true)"
+      if [[ "$agent_job_cancel_missing_code" == "404" ]]; then
+        echo "OK   agent job cancel missing $agent_job_cancel_missing_code"
+      else
+        echo "FAIL agent job cancel missing got=$agent_job_cancel_missing_code expected=404"
+        failures+=("agent job cancel missing got=$agent_job_cancel_missing_code expected=404")
+      fi
     else
-      echo "FAIL agent job cancel missing got=$agent_job_cancel_missing_code expected=404"
-      failures+=("agent job cancel missing got=$agent_job_cancel_missing_code expected=404")
+      echo "SKIP protected business write probes: read-only mode"
     fi
 
     agent_jobs_file="$(mktemp)"
@@ -685,20 +693,22 @@ PY
     fi
     rm -f "$director_daily_brief_file"
 
-    estimate_chat_all_write_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/estimate-chat" -H "Authorization: Bearer $token" -H 'X-Company-Mode: all_companies' -H 'Content-Type: application/json' -d '{"estimateId":2147483647,"message":"scope-smoke"}' || true)"
-    if [[ "$estimate_chat_all_write_code" == "400" || "$estimate_chat_all_write_code" == "403" || "$estimate_chat_all_write_code" == "409" ]]; then
-      echo "OK   /estimate-chat all-companies blocked $estimate_chat_all_write_code"
-    else
-      echo "FAIL /estimate-chat all-companies got=$estimate_chat_all_write_code expected=400/403/409"
-      failures+=("/estimate-chat all-companies got=$estimate_chat_all_write_code expected=400/403/409")
-    fi
+    if protected_business_write_probes_enabled; then
+      estimate_chat_all_write_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/estimate-chat" -H "Authorization: Bearer $token" -H 'X-Company-Mode: all_companies' -H 'Content-Type: application/json' -d '{"estimateId":2147483647,"message":"scope-smoke"}' || true)"
+      if [[ "$estimate_chat_all_write_code" == "400" || "$estimate_chat_all_write_code" == "403" || "$estimate_chat_all_write_code" == "409" ]]; then
+        echo "OK   /estimate-chat all-companies blocked $estimate_chat_all_write_code"
+      else
+        echo "FAIL /estimate-chat all-companies got=$estimate_chat_all_write_code expected=400/403/409"
+        failures+=("/estimate-chat all-companies got=$estimate_chat_all_write_code expected=400/403/409")
+      fi
 
-    estimate_chat_all_delete_code="$(curl -skS -o /dev/null -w '%{http_code}' -X DELETE "$BASE_URL/estimates/2147483647/chat-history" -H "Authorization: Bearer $token" -H 'X-Company-Mode: all_companies' || true)"
-    if [[ "$estimate_chat_all_delete_code" == "400" || "$estimate_chat_all_delete_code" == "403" || "$estimate_chat_all_delete_code" == "409" ]]; then
-      echo "OK   /estimate chat clear all-companies blocked $estimate_chat_all_delete_code"
-    else
-      echo "FAIL /estimate chat clear all-companies got=$estimate_chat_all_delete_code expected=400/403/409"
-      failures+=("/estimate chat clear all-companies got=$estimate_chat_all_delete_code expected=400/403/409")
+      estimate_chat_all_delete_code="$(curl -skS -o /dev/null -w '%{http_code}' -X DELETE "$BASE_URL/estimates/2147483647/chat-history" -H "Authorization: Bearer $token" -H 'X-Company-Mode: all_companies' || true)"
+      if [[ "$estimate_chat_all_delete_code" == "400" || "$estimate_chat_all_delete_code" == "403" || "$estimate_chat_all_delete_code" == "409" ]]; then
+        echo "OK   /estimate chat clear all-companies blocked $estimate_chat_all_delete_code"
+      else
+        echo "FAIL /estimate chat clear all-companies got=$estimate_chat_all_delete_code expected=400/403/409"
+        failures+=("/estimate chat clear all-companies got=$estimate_chat_all_delete_code expected=400/403/409")
+      fi
     fi
 
     ai_summary_all_read_code="$(curl -skS -o /dev/null -w '%{http_code}' "$BASE_URL/project-ai-summary/scope-smoke" -H "Authorization: Bearer $token" -H 'X-Company-Mode: all_companies' || true)"
@@ -709,29 +719,31 @@ PY
       failures+=("/project-ai-summary all-companies read got=$ai_summary_all_read_code expected=400/403/409")
     fi
 
-    ai_summary_all_write_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/project-ai-summary" -H "Authorization: Bearer $token" -H 'X-Company-Mode: all_companies' -H 'Content-Type: application/json' -d '{"projectName":"scope-smoke","payloadHash":"scope-smoke","summary":"scope-smoke"}' || true)"
-    if [[ "$ai_summary_all_write_code" == "400" || "$ai_summary_all_write_code" == "403" || "$ai_summary_all_write_code" == "409" ]]; then
-      echo "OK   /project-ai-summary all-companies write blocked $ai_summary_all_write_code"
-    else
-      echo "FAIL /project-ai-summary all-companies write got=$ai_summary_all_write_code expected=400/403/409"
-      failures+=("/project-ai-summary all-companies write got=$ai_summary_all_write_code expected=400/403/409")
-    fi
-
-    telegram_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/telegram/own-expenses" -H 'Content-Type: application/json' -d '{"telegramId":"smoke","description":"smoke","amount":1}' || true)"
-    if [[ "$telegram_code" == "403" || "$telegram_code" == "503" ]]; then
-      echo "OK   /telegram/own-expenses protected $telegram_code"
-    else
-      echo "FAIL /telegram/own-expenses unprotected got=$telegram_code expected=403/503"
-      failures+=("/telegram/own-expenses unprotected got=$telegram_code")
-    fi
-
-    if [[ -n "${SMOKE_TELEGRAM_BOT_TOKEN:-}" ]]; then
-      telegram_valid_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/telegram/own-expenses" -H 'Content-Type: application/json' -H "X-Telegram-Bot-Token: $SMOKE_TELEGRAM_BOT_TOKEN" -d '{"telegramId":"__smoke_missing_employee__","description":"smoke","amount":1}' || true)"
-      if [[ "$telegram_valid_code" == "404" ]]; then
-        echo "OK   /telegram/own-expenses route $telegram_valid_code"
+    if protected_business_write_probes_enabled; then
+      ai_summary_all_write_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/project-ai-summary" -H "Authorization: Bearer $token" -H 'X-Company-Mode: all_companies' -H 'Content-Type: application/json' -d '{"projectName":"scope-smoke","payloadHash":"scope-smoke","summary":"scope-smoke"}' || true)"
+      if [[ "$ai_summary_all_write_code" == "400" || "$ai_summary_all_write_code" == "403" || "$ai_summary_all_write_code" == "409" ]]; then
+        echo "OK   /project-ai-summary all-companies write blocked $ai_summary_all_write_code"
       else
-        echo "FAIL /telegram/own-expenses route got=$telegram_valid_code expected=404"
-        failures+=("/telegram/own-expenses route got=$telegram_valid_code expected=404")
+        echo "FAIL /project-ai-summary all-companies write got=$ai_summary_all_write_code expected=400/403/409"
+        failures+=("/project-ai-summary all-companies write got=$ai_summary_all_write_code expected=400/403/409")
+      fi
+
+      telegram_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/telegram/own-expenses" -H 'Content-Type: application/json' -d '{"telegramId":"smoke","description":"smoke","amount":1}' || true)"
+      if [[ "$telegram_code" == "403" || "$telegram_code" == "503" ]]; then
+        echo "OK   /telegram/own-expenses protected $telegram_code"
+      else
+        echo "FAIL /telegram/own-expenses unprotected got=$telegram_code expected=403/503"
+        failures+=("/telegram/own-expenses unprotected got=$telegram_code")
+      fi
+
+      if [[ -n "${SMOKE_TELEGRAM_BOT_TOKEN:-}" ]]; then
+        telegram_valid_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/telegram/own-expenses" -H 'Content-Type: application/json' -H "X-Telegram-Bot-Token: $SMOKE_TELEGRAM_BOT_TOKEN" -d '{"telegramId":"__smoke_missing_employee__","description":"smoke","amount":1}' || true)"
+        if [[ "$telegram_valid_code" == "404" ]]; then
+          echo "OK   /telegram/own-expenses route $telegram_valid_code"
+        else
+          echo "FAIL /telegram/own-expenses route got=$telegram_valid_code expected=404"
+          failures+=("/telegram/own-expenses route got=$telegram_valid_code expected=404")
+        fi
       fi
     fi
 
