@@ -24,7 +24,7 @@ jobs:
         run: python -m pip install --upgrade pip && pip install -r requirements.txt
 
       - name: Compile backend
-        run: PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python -m py_compile backend/main.py backend/config.py backend/db.py backend/__init__.py migrations/env.py migrations/versions/0001_baseline_inline_init_db.py
+        run: PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python -m py_compile backend/main.py backend/config.py backend/db.py backend/__init__.py migrations/env.py migrations/versions/*.py
 
       - name: Run backend tests
         run: PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python -m unittest discover -s backend -p "test_*.py" -t .

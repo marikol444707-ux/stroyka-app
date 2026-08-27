@@ -9,6 +9,9 @@ are moved in one at a time:
 - `0002_ops_error_logging` creates the operational `api_errors` table and index
   idempotently. The same `CREATE TABLE IF NOT EXISTS` remains in `init_db()` as
   a temporary compatibility guard until deploy runs `alembic upgrade head`.
+- `0003_accounting_link_integrity` idempotently records the two validated,
+  nullable supplier/warehouse invoice foreign keys. Deleting either target
+  clears only the stale link; business rows, amounts, statuses and stock remain.
 - Existing databases should only be stamped after the backend has already bootstrapped the schema.
 - Future migrations should move small, well-understood slices out of `init_db()` one at a time.
 
