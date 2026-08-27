@@ -15,6 +15,17 @@ describe('buildAppShellProps work assignment modal', () => {
     expect(props.appBackofficePagesProps.state.companyContext).toBe(companyContext);
   });
 
+  test('forwards the selected company context to secondary pages', () => {
+    const companyContext = {
+      mode: 'company',
+      selectedCompanyId: 1,
+      selectedCompany: { companyId: 1, role: 'директор' },
+    };
+    const props = buildAppShellProps({ companyContext, ui: {} });
+
+    expect(props.appSecondaryPagesProps.state.companyContext).toBe(companyContext);
+  });
+
   test('passes the selected estimate from app state to the modal', () => {
     const selectedEstimate = {
       id: 25,

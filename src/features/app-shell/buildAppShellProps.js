@@ -300,7 +300,7 @@ export function buildAppShellProps({
       activePage,
       ui: { API, C, badge, btnB, btnG, btnO, btnR, card, inp, isMobile, tbl, tblC, tblH },
       constants: { CRM_STAGES, EXPENSE_CATEGORIES, ROLE_LABELS, WEATHER_CONDITIONS },
-      state: sharedState,
+      state: { ...sharedState, companyContext },
       actions: sharedActions
     },
     appWorkflowModalsProps: {
