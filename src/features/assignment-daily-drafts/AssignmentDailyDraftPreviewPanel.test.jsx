@@ -199,6 +199,21 @@ describe('AssignmentDailyDraftPreviewPanel', () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
+  test('explains how to continue when the selected estimate has no saved versions', async () => {
+    global.fetch.mockReturnValue(jsonResponse([], 200));
+    renderPanel();
+
+    await screen.findByText('Нет версий');
+    const previewButton = screen.getByRole('button', { name: 'Сформировать предпросмотр' });
+
+    expect(previewButton).toBeEnabled();
+    fireEvent.click(previewButton);
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'У этой сметы нет сохранённой версии. Откройте смету, сохраните версию и повторите.',
+    );
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
   test('loads exact versions and posts only selected preview coordinates', async () => {
     global.fetch
       .mockImplementationOnce(() => jsonResponse([

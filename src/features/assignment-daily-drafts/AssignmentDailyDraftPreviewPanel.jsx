@@ -180,10 +180,25 @@ export default function AssignmentDailyDraftPreviewPanel({
   if (!allowed) return null;
 
   const selectedVersion = versions.find(item => String(item.id) === String(versionId)) || null;
-  const canPreview = project && estimate && selectedVersion && /^\d{4}-\d{2}-\d{2}$/.test(date) && !loadingPreview;
 
   const requestPreview = async () => {
-    if (!canPreview) return;
+    if (loadingPreview || loadingVersions) return;
+    if (!project) {
+      setError('Выберите объект');
+      return;
+    }
+    if (!estimate) {
+      setError('Выберите активную смету заказчика');
+      return;
+    }
+    if (!selectedVersion) {
+      setError('У этой сметы нет сохранённой версии. Откройте смету, сохраните версию и повторите.');
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      setError('Выберите дату подтверждённых работ');
+      return;
+    }
     previewControllerRef.current?.abort();
     const controller = new AbortController();
     previewControllerRef.current = controller;
@@ -289,7 +304,7 @@ export default function AssignmentDailyDraftPreviewPanel({
       </div>
 
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' }}>
-        <button type="button" onClick={requestPreview} disabled={!canPreview} style={{ ...btnO, opacity: canPreview ? 1 : 0.6 }}>
+        <button type="button" onClick={requestPreview} disabled={loadingPreview || loadingVersions} style={{ ...btnO, opacity: loadingPreview || loadingVersions ? 0.6 : 1 }}>
           <Eye size={14} />{loadingPreview ? 'Формирование…' : 'Сформировать предпросмотр'}
         </button>
       </div>
