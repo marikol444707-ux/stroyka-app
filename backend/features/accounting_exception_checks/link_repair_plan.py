@@ -292,13 +292,6 @@ def _link_is_compatible(supplier, warehouse, live_suppliers, live_warehouses):
     return True
 
 
-def _has_live_pair_candidate(supplier, warehouses, project_ids, company_id):
-    return any(
-        _pair_scope(supplier, warehouse, project_ids, company_id) is not None
-        for warehouse in warehouses
-    )
-
-
 def _delivery_matches(supplier, warehouse, delivery):
     if warehouse["supply_delivery_id"] != delivery["id"]:
         return False
@@ -552,12 +545,6 @@ def build_accounting_link_repair_plan(
                 project_id is not None
                 and missing_warehouse_id is not None
                 and missing_warehouse_id not in live_warehouses
-                and not _has_live_pair_candidate(
-                    supplier,
-                    live_warehouses.values(),
-                    project_ids,
-                    company_id,
-                )
             ):
                 subject_results.append(LinkRepair(
                     company_id=company_id,

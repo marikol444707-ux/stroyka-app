@@ -121,7 +121,7 @@ class AccountingLinkRepairPlanTests(unittest.TestCase):
         self.assertEqual(len(plan.repairs), 1)
         self.assertEqual(plan.repairs[0].proof, "identity")
 
-    def test_refuses_incomplete_mismatched_or_ambiguous_document_identity(self):
+    def test_refuses_unsafe_matches_but_clears_the_dangling_reference(self):
         unsafe_cases = (
             (
                 [supplier_invoice(
@@ -168,9 +168,15 @@ class AccountingLinkRepairPlanTests(unittest.TestCase):
                     warehouse_invoices=warehouses,
                     deliveries=[],
                 )
-                self.assertEqual(plan.state, "clear")
-                self.assertEqual(plan.repairs, ())
-                self.assertEqual(plan.unresolved_count, 1)
+                self.assertEqual(plan.state, "ready")
+                self.assertEqual(plan.unresolved_count, 0)
+                self.assertEqual(len(plan.repairs), 1)
+                self.assertEqual(
+                    plan.repairs[0].action,
+                    "clear_dangling_supplier_link",
+                )
+                self.assertEqual(plan.repairs[0].proof, "dangling")
+                self.assertEqual(plan.repairs[0].warehouse_invoice_id, 999)
 
     def test_prefers_a_missing_reciprocal_link_over_documentary_inference(self):
         plan = build(
@@ -232,7 +238,7 @@ class AccountingLinkRepairPlanTests(unittest.TestCase):
         })
         self.assertRegex(plan.plan_sha256, re.compile(r"^[0-9a-f]{64}$"))
 
-    def test_refuses_an_annulled_delivery_as_documentary_proof(self):
+    def test_annulled_delivery_is_not_proof_and_only_stale_link_is_cleared(self):
         plan = build(
             supplier_invoices=[supplier_invoice(
                 request_id=None,
@@ -243,9 +249,12 @@ class AccountingLinkRepairPlanTests(unittest.TestCase):
             deliveries=[delivery(request_id=None, status="Аннулировано")],
         )
 
-        self.assertEqual(plan.state, "clear")
-        self.assertEqual(plan.repairs, ())
-        self.assertEqual(plan.unresolved_count, 1)
+        self.assertEqual(plan.state, "ready")
+        self.assertEqual(plan.unresolved_count, 0)
+        self.assertEqual(len(plan.repairs), 1)
+        self.assertEqual(plan.repairs[0].action, "clear_dangling_supplier_link")
+        self.assertEqual(plan.repairs[0].proof, "dangling")
+        self.assertEqual(plan.repairs[0].warehouse_invoice_id, 999)
 
     def test_uses_a_unique_request_chain_without_names_as_authority(self):
         plan = build(
@@ -265,7 +274,7 @@ class AccountingLinkRepairPlanTests(unittest.TestCase):
         self.assertEqual(len(plan.repairs), 1)
         self.assertEqual(plan.repairs[0].proof, "request")
 
-    def test_refuses_ambiguous_request_candidates_and_keeps_them_unresolved(self):
+    def test_ambiguous_candidates_are_not_linked_and_stale_link_is_cleared(self):
         plan = build(
             supplier_invoices=[supplier_invoice(offer_id=None)],
             warehouse_invoices=[
@@ -275,11 +284,14 @@ class AccountingLinkRepairPlanTests(unittest.TestCase):
             deliveries=[],
         )
 
-        self.assertEqual(plan.state, "clear")
-        self.assertEqual(plan.repairs, ())
-        self.assertEqual(plan.unresolved_count, 1)
+        self.assertEqual(plan.state, "ready")
+        self.assertEqual(plan.unresolved_count, 0)
+        self.assertEqual(len(plan.repairs), 1)
+        self.assertEqual(plan.repairs[0].action, "clear_dangling_supplier_link")
+        self.assertEqual(plan.repairs[0].proof, "dangling")
+        self.assertEqual(plan.repairs[0].warehouse_invoice_id, 999)
 
-    def test_refuses_cross_tenant_project_annulled_and_live_conflicting_rows(self):
+    def test_unsafe_rows_are_never_selected_when_only_stale_link_is_cleared(self):
         unsafe_warehouses = [
             warehouse_invoice(id=44, company_id=5),
             warehouse_invoice(id=45, project="Другой объект"),
@@ -300,8 +312,12 @@ class AccountingLinkRepairPlanTests(unittest.TestCase):
             deliveries=[delivery(id=72)],
         )
 
-        self.assertEqual(plan.repairs, ())
-        self.assertEqual(plan.unresolved_count, 1)
+        self.assertEqual(plan.unresolved_count, 0)
+        self.assertEqual(len(plan.repairs), 1)
+        self.assertEqual(plan.repairs[0].action, "clear_dangling_supplier_link")
+        self.assertEqual(plan.repairs[0].proof, "dangling")
+        self.assertEqual(plan.repairs[0].supplier_invoice_id, 91)
+        self.assertEqual(plan.repairs[0].warehouse_invoice_id, 999)
 
     def test_accepts_a_normalized_supplier_name_only_when_both_ids_are_absent(self):
         plan = build(
