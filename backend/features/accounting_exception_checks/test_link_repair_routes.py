@@ -367,6 +367,39 @@ class AccountingLinkRepairRouteTests(unittest.TestCase):
             '"$BASE_URL/accounting-exception-checks" "401 403 404 422 429"',
             smoke,
         )
+
+    def test_protected_smoke_uses_cookie_session_for_read_only_accounting_checks(self):
+        smoke = (
+            PROJECT_ROOT / "scripts/prod-smoke-check.sh"
+        ).read_text(encoding="utf-8")
+        helper_start = smoke.index("check_cookie_json_predicate() {")
+        helper_end = smoke.index("\n}\n\ncheck_not_spa_fallback()", helper_start)
+        helper = smoke[helper_start:helper_end]
+
+        self.assertIn('smoke_cookie_jar="$(mktemp)"', smoke)
+        self.assertGreaterEqual(smoke.count('-c "$smoke_cookie_jar"'), 2)
+        self.assertIn('-b "$smoke_cookie_jar"', smoke)
+        self.assertIn('-b "$cookie_jar"', helper)
+        self.assertIn('-H "X-Company-Id: $company_id"', helper)
+        self.assertIn("-H 'X-Company-Mode: company'", helper)
+        self.assertNotIn("-X POST", helper)
+        self.assertIn('rm -f "$body_file"', helper)
+        self.assertIn("trap 'rm -f", smoke)
+        self.assertIn('${SMOKE_COMPANY_ID:-}', smoke)
+        self.assertIn(
+            'check_cookie_json_predicate "protected accounting checks" '
+            '"$BASE_URL/accounting-exception-checks"',
+            smoke,
+        )
+        self.assertIn(
+            'check_cookie_json_predicate "protected accounting link repairs" '
+            '"$BASE_URL/accounting-exception-link-repairs"',
+            smoke,
+        )
+        self.assertNotIn(
+            'check_cookie_json_predicate "protected accounting link repairs post"',
+            smoke,
+        )
         self.assertIn(
             'check_not_spa_fallback "accounting link repairs route" '
             '"$BASE_URL/accounting-exception-link-repairs" '

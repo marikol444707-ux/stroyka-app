@@ -249,6 +249,36 @@ check_json_predicate() {
   failures+=("$name")
 }
 
+check_cookie_json_predicate() {
+  local name="$1"
+  local url="$2"
+  local cookie_jar="$3"
+  local company_id="$4"
+  local predicate="$5"
+  local body_file
+  local code=""
+  local attempt
+  body_file="$(mktemp)"
+  for attempt in $(seq 1 "$SMOKE_RETRIES"); do
+    code="$(curl -skS -b "$cookie_jar" -o "$body_file" -w '%{http_code}' \
+      "$url" \
+      -H "X-Company-Id: $company_id" \
+      -H 'X-Company-Mode: company' || true)"
+    if [[ "$code" == "200" ]] \
+      && python3 -c "$predicate" < "$body_file" >/dev/null 2>&1; then
+      echo "OK   $name $code"
+      rm -f "$body_file"
+      return 0
+    fi
+    if [[ "$attempt" != "$SMOKE_RETRIES" ]]; then
+      sleep "$SMOKE_DELAY"
+    fi
+  done
+  echo "FAIL $name got=$code expected=200 valid JSON"
+  failures+=("$name got=$code or invalid JSON")
+  rm -f "$body_file"
+}
+
 check_not_spa_fallback() {
   local name="$1"
   local url="$2"
@@ -394,9 +424,12 @@ else
 fi
 
 if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
+  smoke_cookie_jar="$(mktemp)"
+  chmod 0600 "$smoke_cookie_jar"
+  trap 'rm -f "${smoke_cookie_jar:-}"' EXIT
   login_payload="$(python3 -c 'import json,os; print(json.dumps({"email": os.environ["SMOKE_EMAIL"], "password": os.environ["SMOKE_PASSWORD"]}, ensure_ascii=False))')"
   login_response_file="$(mktemp)"
-  login_code="$(curl -skS -X POST -o "$login_response_file" -w '%{http_code}' "$BASE_URL/login" -H 'Content-Type: application/json' -d "$login_payload" || true)"
+  login_code="$(curl -skS -X POST -c "$smoke_cookie_jar" -o "$login_response_file" -w '%{http_code}' "$BASE_URL/login" -H 'Content-Type: application/json' -d "$login_payload" || true)"
   login_body="$(cat "$login_response_file")"
   rm -f "$login_response_file"
   token="$(printf '%s' "$login_body" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("authToken",""))' 2>/dev/null || true)"
@@ -412,7 +445,7 @@ if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
       if [[ -n "$two_factor_code" ]]; then
         verify_payload="$(CHALLENGE_TOKEN="$challenge_token" TWO_FACTOR_CODE="$two_factor_code" python3 -c 'import json,os; print(json.dumps({"challengeToken": os.environ["CHALLENGE_TOKEN"], "code": os.environ["TWO_FACTOR_CODE"]}, ensure_ascii=False))')"
         verify_response_file="$(mktemp)"
-        verify_code="$(curl -skS -X POST -o "$verify_response_file" -w '%{http_code}' "$BASE_URL/login/2fa/verify" -H 'Content-Type: application/json' -d "$verify_payload" || true)"
+        verify_code="$(curl -skS -X POST -b "$smoke_cookie_jar" -c "$smoke_cookie_jar" -o "$verify_response_file" -w '%{http_code}' "$BASE_URL/login/2fa/verify" -H 'Content-Type: application/json' -d "$verify_payload" || true)"
         verify_body="$(cat "$verify_response_file")"
         rm -f "$verify_response_file"
         token="$(printf '%s' "$verify_body" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("authToken",""))' 2>/dev/null || true)"
@@ -432,6 +465,16 @@ if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
   fi
   if [[ -n "$token" ]]; then
     echo "OK   login"
+    smoke_company_id="${SMOKE_COMPANY_ID:-}"
+    if [[ -z "$smoke_company_id" ]]; then
+      echo "SKIP cookie-only accounting checks: set SMOKE_COMPANY_ID"
+    elif [[ ! "$smoke_company_id" =~ ^[1-9][0-9]*$ ]]; then
+      echo "FAIL cookie-only accounting checks: SMOKE_COMPANY_ID must be a canonical positive integer"
+      failures+=("cookie-only accounting checks invalid company")
+    else
+      check_cookie_json_predicate "protected accounting checks" "$BASE_URL/accounting-exception-checks" "$smoke_cookie_jar" "$smoke_company_id" 'import json,sys; data=json.load(sys.stdin); ok=isinstance(data,dict) and data.get("version")=="accounting-exception-projection-v1" and data.get("state") in ("clear","review_required","incomplete"); sys.exit(0 if ok else 1)'
+      check_cookie_json_predicate "protected accounting link repairs" "$BASE_URL/accounting-exception-link-repairs" "$smoke_cookie_jar" "$smoke_company_id" 'import json,sys; data=json.load(sys.stdin); ok=isinstance(data,dict) and data.get("version")=="accounting-exception-link-repair-v1" and data.get("state") in ("clear","ready","blocked") and type(data.get("repairCount")) is int; sys.exit(0 if ok else 1)'
+    fi
     protected_paths=(
       "/system-status"
       "/projects"
@@ -720,6 +763,8 @@ for e in (data.get("apiErrors") or [])[:5]:
       fi
     fi
   fi
+  rm -f "$smoke_cookie_jar"
+  trap - EXIT
 else
   echo "SKIP protected checks: set SMOKE_EMAIL and SMOKE_PASSWORD"
 fi

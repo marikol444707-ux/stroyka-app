@@ -5,7 +5,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 definitions="$(sed '/^echo "Smoke-check:/,$d' "$ROOT/scripts/prod-smoke-check.sh")"
 definitions_file="$(mktemp)"
 curl_log="$(mktemp)"
-trap 'rm -f "$definitions_file" "$curl_log"' EXIT
+cookie_test_jar="$(mktemp)"
+trap 'rm -f "$definitions_file" "$curl_log" "$cookie_test_jar"' EXIT
 printf '%s\n' "$definitions" > "$definitions_file"
 source "$definitions_file"
 SMOKE_RETRIES=1
@@ -337,5 +338,35 @@ if [[ ${#failures[@]} -eq 0 ]]; then
   exit 1
 fi
 FAKE_MANIFEST_CURL_STATUS="0"
+
+FAKE_FRONTEND_ASSETS="0"
+FAKE_CODE="200"
+FAKE_BODY='{"version":"accounting-exception-link-repair-v1","state":"clear","repairCount":0}'
+failures=()
+check_cookie_json_predicate \
+  "cookie session JSON" \
+  "$TEST_BASE_URL/accounting-exception-link-repairs" \
+  "$cookie_test_jar" \
+  "1" \
+  'import json,sys; data=json.load(sys.stdin); sys.exit(0 if data.get("repairCount") == 0 else 1)' \
+  >/dev/null
+if [[ ${#failures[@]} -ne 0 ]]; then
+  echo "valid cookie-session JSON must pass" >&2
+  exit 1
+fi
+
+FAKE_BODY='{"detail":"unexpected response"}'
+failures=()
+check_cookie_json_predicate \
+  "invalid cookie session JSON" \
+  "$TEST_BASE_URL/accounting-exception-link-repairs" \
+  "$cookie_test_jar" \
+  "1" \
+  'import json,sys; data=json.load(sys.stdin); sys.exit(0 if data.get("repairCount") == 0 else 1)' \
+  >/dev/null
+if [[ ${#failures[@]} -ne 1 ]]; then
+  echo "invalid cookie-session JSON must add a smoke failure" >&2
+  exit 1
+fi
 
 echo "prod smoke rate-limit checks OK"
