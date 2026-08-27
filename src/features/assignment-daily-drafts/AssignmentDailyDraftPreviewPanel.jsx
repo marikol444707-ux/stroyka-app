@@ -84,12 +84,18 @@ export default function AssignmentDailyDraftPreviewPanel({
   isMobile = false,
   projects = [],
   selectedCompanyId,
+  selectedCompanyRole,
   showPreview,
   user = {},
 }) {
+  const effectiveRole = (
+    typeof selectedCompanyRole === 'string' && selectedCompanyRole.length > 0
+      ? selectedCompanyRole
+      : user?.role
+  );
   const allowed = (
     enabled === true
-    && allowedRoles.has(user?.role)
+    && allowedRoles.has(effectiveRole)
     && positiveId(selectedCompanyId)
     && allowedCompanyIds instanceof Set
     && allowedCompanyIds.has(Number(selectedCompanyId))

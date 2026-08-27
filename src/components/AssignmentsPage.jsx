@@ -362,6 +362,7 @@ export default function AssignmentsPage({
   projects = [],
   refreshData,
   selectedCompanyId,
+  selectedCompanyRole,
   submitAiTaskReport,
   showPreview,
   uploadPhoto,
@@ -593,6 +594,7 @@ export default function AssignmentsPage({
         isMobile={isMobile}
         projects={projects}
         selectedCompanyId={selectedCompanyId}
+        selectedCompanyRole={selectedCompanyRole}
         showPreview={showPreview}
         user={user}
       />

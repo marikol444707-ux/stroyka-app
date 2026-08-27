@@ -191,6 +191,7 @@ export default function AppSecondaryPages({ activePage, ui, constants, state, ac
           projects={projects}
           refreshData={refreshData}
           selectedCompanyId={companyContext?.selectedCompanyId}
+          selectedCompanyRole={companyContext?.selectedCompany?.role}
           showPreview={showPreview}
           submitAiTaskReport={submitAiTaskReport}
           uploadPhoto={uploadPhoto}

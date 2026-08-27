@@ -178,6 +178,27 @@ describe('AssignmentDailyDraftPreviewPanel', () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
+  test('uses the selected-company role instead of the platform account role', async () => {
+    global.fetch.mockReturnValue(jsonResponse([], 200));
+    renderPanel({
+      selectedCompanyRole: 'директор',
+      user: { role: 'platform_admin', companyId: 1 },
+    });
+
+    expect(screen.getByText('Черновик назначений и работ')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Нет версий')).toBeInTheDocument());
+  });
+
+  test('does not fall back to an eligible platform role for an ineligible company role', () => {
+    renderPanel({
+      selectedCompanyRole: 'прораб',
+      user: { role: 'директор', companyId: 1 },
+    });
+
+    expect(screen.queryByText('Черновик назначений и работ')).not.toBeInTheDocument();
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
   test('loads exact versions and posts only selected preview coordinates', async () => {
     global.fetch
       .mockImplementationOnce(() => jsonResponse([
