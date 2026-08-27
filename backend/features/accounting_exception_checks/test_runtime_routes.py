@@ -578,12 +578,16 @@ class AccountingExceptionMainAndOpsContractTests(unittest.TestCase):
         source = OPS_PATH.read_text(encoding="utf-8")
         for fragment in (
             "limit_req_zone $binary_remote_addr "
-            "zone=accounting_exception_check_limit:10m rate=12r/m;",
+            "zone=accounting_exception_review_limit:10m rate=12r/m;",
+            "limit_req_zone $binary_remote_addr "
+            "zone=accounting_link_repair_limit:10m rate=12r/m;",
             "limit_conn_zone $server_name "
-            "zone=accounting_exception_check_conn:10m;",
+            "zone=accounting_exception_review_conn:10m;",
+            "limit_conn_zone $server_name "
+            "zone=accounting_link_repair_conn:10m;",
             "location = /accounting-exception-checks {",
-            "limit_req zone=accounting_exception_check_limit burst=2 nodelay;",
-            "limit_conn accounting_exception_check_conn 1;",
+            "limit_req zone=accounting_exception_review_limit burst=2 nodelay;",
+            "limit_conn accounting_exception_review_conn 1;",
             "limit_req_status 429;",
             "limit_conn_status 429;",
             "proxy_connect_timeout 6s;",
@@ -601,6 +605,8 @@ class AccountingExceptionMainAndOpsContractTests(unittest.TestCase):
         ):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, source)
+        self.assertNotIn("zone=accounting_exception_check_limit", source)
+        self.assertNotIn("zone=accounting_exception_check_conn", source)
         self.assertEqual(
             source.count("location = /accounting-exception-checks {"), 1,
         )

@@ -358,6 +358,16 @@ class AccountingLinkRepairRouteTests(unittest.TestCase):
         self.assertIn(
             "{\"detail\":\"accounting_link_repair_busy\"}", nginx,
         )
+        self.assertIn(
+            "limit_req zone=accounting_link_repair_limit burst=2 nodelay;",
+            nginx,
+        )
+        self.assertIn("limit_conn accounting_link_repair_conn 1;", nginx)
+        self.assertNotIn(
+            "limit_req zone=accounting_exception_review_limit burst=2 nodelay;\n"
+            "    limit_conn accounting_link_repair_conn 1;",
+            nginx,
+        )
         self.assertNotIn("location ^~ /accounting-exception-link-repairs", nginx)
 
     def test_production_smoke_checks_accounting_review_and_repair_routes(self):
