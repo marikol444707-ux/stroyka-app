@@ -81,6 +81,24 @@ def build(**overrides):
 
 
 class AccountingLinkRepairPlanTests(unittest.TestCase):
+    def test_plans_audited_clear_for_a_supplier_link_to_a_missing_document(self):
+        plan = build(
+            supplier_invoices=[supplier_invoice(
+                offer_id=None,
+                request_id=None,
+            )],
+            warehouse_invoices=[],
+            deliveries=[],
+        )
+
+        self.assertEqual(plan.state, "ready")
+        self.assertEqual(plan.unresolved_count, 0)
+        self.assertEqual(len(plan.repairs), 1)
+        self.assertEqual(plan.repairs[0].action, "clear_dangling_supplier_link")
+        self.assertEqual(plan.repairs[0].proof, "dangling")
+        self.assertEqual(plan.repairs[0].supplier_invoice_id, 91)
+        self.assertEqual(plan.repairs[0].warehouse_invoice_id, 999)
+
     def test_uses_unique_exact_document_identity_when_lineage_is_absent(self):
         plan = build(
             supplier_invoices=[supplier_invoice(
@@ -194,9 +212,10 @@ class AccountingLinkRepairPlanTests(unittest.TestCase):
             "delivery": 1,
             "request": 0,
             "identity": 0,
+            "dangling": 0,
         })
         self.assertEqual(plan.public_result(), {
-            "version": "accounting-exception-link-repair-v2",
+            "version": "accounting-exception-link-repair-v3",
             "companyId": 4,
             "state": "ready",
             "repairCount": 1,
@@ -206,6 +225,7 @@ class AccountingLinkRepairPlanTests(unittest.TestCase):
                 "delivery": 1,
                 "request": 0,
                 "identity": 0,
+                "dangling": 0,
             },
             "planSha256": plan.plan_sha256,
             "blockers": [],

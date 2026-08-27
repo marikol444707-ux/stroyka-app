@@ -26,14 +26,6 @@ const DEFAULT_ALLOWED_COMPANY_IDS = parseAccountingExceptionCompanyIds(
   process.env.REACT_APP_ACCOUNTING_EXCEPTION_CHECKS_COMPANY_IDS,
 ) || new Set();
 const FINANCE_ROLES = new Set(['директор', 'зам_директора', 'бухгалтер']);
-const linkCountLabel = count => {
-  const tail = count % 100;
-  const last = count % 10;
-  if (tail >= 11 && tail <= 19) return `${count} однозначных связей`;
-  if (last === 1) return `${count} однозначную связь`;
-  if (last >= 2 && last <= 4) return `${count} однозначные связи`;
-  return `${count} однозначных связей`;
-};
 
 export default function AccountingExceptionChecksPanel({
   API = '',
@@ -143,7 +135,7 @@ export default function AccountingExceptionChecksPanel({
       selectedCompanyIdRef.current === preview.companyId
     );
     const confirmed = window.confirm(
-      `Исправить ${linkCountLabel(preview.repairCount)}? Суммы, оплаты и складские остатки не изменятся.`,
+      `Исправить ${preview.repairCount} записей? Точные связи будут восстановлены, ссылки на отсутствующие документы — удалены. Суммы, оплаты и складские остатки не изменятся.`,
     );
     if (!confirmed) return;
 
@@ -218,7 +210,7 @@ export default function AccountingExceptionChecksPanel({
             <ShieldCheck size={19} aria-hidden="true" />Проверка бухгалтерских связей
           </h2>
           <p style={{ margin: '6px 0 0', color: palette.textSec, fontSize: '12px' }}>
-            Находит противоречия и исправляет только однозначные связи документов. Оплаты не выполняются.
+            Исправляет точные связи и убирает ссылки на уже отсутствующие документы. Оплаты не выполняются.
           </p>
         </div>
         <button
@@ -246,7 +238,7 @@ export default function AccountingExceptionChecksPanel({
           role={repairMessage.error ? 'alert' : 'status'}
           style={{ marginTop: '14px', padding: '11px', borderRadius: '8px', color: repairMessage.error ? palette.danger : palette.success, background: repairMessage.error ? palette.dangerLight : palette.successLight }}
         >
-          {repairMessage.error || `Исправлено связей: ${repairMessage.repaired}. Проверка обновлена.`}
+          {repairMessage.error || `Исправлено записей: ${repairMessage.repaired}. Проверка обновлена.`}
         </div>
       )}
       {result?.state === 'clear' && (
@@ -267,8 +259,8 @@ export default function AccountingExceptionChecksPanel({
             <b>Требуется проверка: {result.findingCount}</b>
             <p style={{ margin: '5px 0 0', color: palette.textSec, fontSize: '12px' }}>
               {repairPreview?.state === 'ready'
-                ? `Однозначно определено связей: ${repairPreview.repairCount}. Их можно исправить одним действием.`
-                : 'Однозначных связей для автоматического исправления пока нет — система не будет угадывать.'}
+                ? `Безопасных исправлений: ${repairPreview.repairCount}. Их можно применить одним действием.`
+                : 'Безопасных исправлений пока нет — система не будет угадывать.'}
               {unresolvedFindingCount > 0 ? ` Осталось спорных: ${unresolvedFindingCount}.` : ''}
             </p>
             {repairPreview?.state === 'ready' && repairPreview.repairCount > 0 && (
@@ -279,7 +271,7 @@ export default function AccountingExceptionChecksPanel({
                 style={{ marginTop: '10px', border: 'none', background: C.accent || '#f97316', color: '#fff', borderRadius: '8px', padding: '9px 12px', fontWeight: 800, cursor: repairing || loading || repairLoading ? 'default' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '7px', opacity: repairing || loading || repairLoading ? 0.65 : 1 }}
               >
                 <Link2 size={15} aria-hidden="true" />
-                {repairing ? 'Исправляем связи…' : `Исправить безопасные связи (${repairPreview.repairCount})`}
+                {repairing ? 'Исправляем…' : `Исправить безопасно (${repairPreview.repairCount})`}
               </button>
             )}
           </div>

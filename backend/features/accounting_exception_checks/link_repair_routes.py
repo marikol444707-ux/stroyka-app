@@ -18,7 +18,7 @@ _MAX_ID = 9223372036854775807
 _MAX_ALLOWED_COMPANIES = 100
 _MAX_BODY_BYTES = 1024
 _CONFIRMATION = "APPLY_ACCOUNTING_EXCEPTION_LINK_REPAIRS"
-_PROOFS = frozenset({"reciprocal", "delivery", "request", "identity"})
+_PROOFS = frozenset({"reciprocal", "delivery", "request", "identity", "dangling"})
 _PREVIEW_FIELDS = frozenset({
     "version", "companyId", "state", "repairCount", "unresolvedCount",
     "proofCounts", "planSha256", "blockers",
@@ -202,7 +202,7 @@ def _public_preview(value, company_id):
     if (
         type(value) is not dict
         or set(value) != _PREVIEW_FIELDS
-        or value.get("version") != "accounting-exception-link-repair-v2"
+        or value.get("version") != "accounting-exception-link-repair-v3"
         or value.get("companyId") != company_id
         or value.get("state") not in {"clear", "ready", "blocked"}
         or type(value.get("repairCount")) is not int
@@ -240,7 +240,7 @@ def _public_preview(value, company_id):
         "unresolvedCount": value["unresolvedCount"],
         "proofCounts": {
             proof: counts[proof]
-            for proof in ("reciprocal", "delivery", "request", "identity")
+            for proof in ("reciprocal", "delivery", "request", "identity", "dangling")
         },
         "planSha256": value["planSha256"],
         "blockers": list(value["blockers"]),

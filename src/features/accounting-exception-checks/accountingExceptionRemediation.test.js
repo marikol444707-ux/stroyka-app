@@ -5,12 +5,14 @@ import {
 } from './accountingExceptionRemediation';
 
 const preview = (overrides = {}) => ({
-  version: 'accounting-exception-link-repair-v2',
+  version: 'accounting-exception-link-repair-v3',
   companyId: 4,
   state: 'ready',
   repairCount: 2,
   unresolvedCount: 29,
-  proofCounts: { reciprocal: 0, delivery: 2, request: 0, identity: 0 },
+  proofCounts: {
+    reciprocal: 0, delivery: 2, request: 0, identity: 0, dangling: 0,
+  },
   planSha256: 'a'.repeat(64),
   blockers: [],
   ...overrides,

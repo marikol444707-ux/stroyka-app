@@ -1,6 +1,7 @@
 from copy import deepcopy
 from decimal import Decimal
 import unittest
+from unittest import mock
 
 from backend.features.accounting_exception_checks.link_repair_runtime import (
     AccountingLinkRepairRuntimeError,
@@ -238,6 +239,43 @@ class AccountingLinkRepairRuntimeTests(unittest.TestCase):
             self.assertNotIn(forbidden, mutation_sql)
         self.assertTrue(connection.committed)
         self.assertEqual(connection.rollback_count, 0)
+
+    def test_apply_clears_only_the_stale_supplier_link_and_audits_it(self):
+        with mock.patch(f"{__name__}.WAREHOUSES", []), mock.patch(
+            f"{__name__}.DELIVERIES", [],
+        ):
+            preview = preview_accounting_link_repairs(
+                lambda: FakeConnection(), AUTHENTICATION, 4, FINANCE_ROLES,
+            )
+            connection = FakeConnection()
+            result = apply_accounting_link_repairs(
+                lambda: connection,
+                AUTHENTICATION,
+                4,
+                FINANCE_ROLES,
+                expected_repair_count=preview["repairCount"],
+                expected_plan_sha256=preview["planSha256"],
+            )
+
+        self.assertEqual(preview["proofCounts"]["dangling"], 1)
+        self.assertEqual(result["appliedCount"], 1)
+        statements = [sql for sql, _params in connection.executed]
+        self.assertEqual(sum(
+            sql.startswith("UPDATE public.supplier_invoices")
+            and "SET warehouse_invoice_id=NULL" in sql
+            for sql in statements
+        ), 1)
+        self.assertFalse(any(
+            sql.startswith("UPDATE public.warehouse_invoices")
+            for sql in statements
+        ))
+        self.assertTrue(any(
+            sql.startswith("INSERT INTO public.audit_log")
+            and params is not None
+            and "accounting_supplier_dangling_warehouse_link_cleared" in params
+            for sql, params in connection.executed
+        ))
+        self.assertTrue(connection.committed)
 
     def test_stale_plan_rolls_back_without_any_business_or_audit_write(self):
         connection = FakeConnection()

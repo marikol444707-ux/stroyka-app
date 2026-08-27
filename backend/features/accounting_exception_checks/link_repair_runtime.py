@@ -260,6 +260,7 @@ def _lock_plan_rows(cur, plan):
     )
     warehouse_ids = sorted(
         repair.warehouse_invoice_id for repair in plan.repairs
+        if repair.action == "link_pair"
     )
     cur.execute(
         """SELECT id FROM public.supplier_invoices
@@ -270,15 +271,17 @@ def _lock_plan_rows(cur, plan):
     locked_suppliers = _detached_rows(
         cur, ("id",), maximum=len(supplier_ids),
     )
-    cur.execute(
-        """SELECT id FROM public.warehouse_invoices
-            WHERE company_id=%s AND id = ANY(%s)
-            ORDER BY id FOR UPDATE""",
-        (plan.company_id, warehouse_ids),
-    )
-    locked_warehouses = _detached_rows(
-        cur, ("id",), maximum=len(warehouse_ids),
-    )
+    locked_warehouses = []
+    if warehouse_ids:
+        cur.execute(
+            """SELECT id FROM public.warehouse_invoices
+                WHERE company_id=%s AND id = ANY(%s)
+                ORDER BY id FOR UPDATE""",
+            (plan.company_id, warehouse_ids),
+        )
+        locked_warehouses = _detached_rows(
+            cur, ("id",), maximum=len(warehouse_ids),
+        )
     if (
         [row["id"] for row in locked_suppliers] != supplier_ids
         or [row["id"] for row in locked_warehouses] != warehouse_ids
@@ -292,44 +295,60 @@ def _matches_expected(plan, count, sha256):
 
 def _apply_plan(cur, plan, actor):
     for repair in plan.repairs:
-        cur.execute(
-            """UPDATE public.supplier_invoices
-                  SET warehouse_invoice_id=%s
-                WHERE id=%s AND company_id=%s""",
-            (
-                repair.warehouse_invoice_id,
-                repair.supplier_invoice_id,
-                repair.company_id,
-            ),
-        )
-        if cur.rowcount != 1:
-            _fail(_PLAN_STALE)
-        cur.execute(
-            """UPDATE public.warehouse_invoices
-                  SET supplier_invoice_id=%s
-                WHERE id=%s AND company_id=%s""",
-            (
-                repair.supplier_invoice_id,
-                repair.warehouse_invoice_id,
-                repair.company_id,
-            ),
-        )
+        if repair.action == "link_pair":
+            cur.execute(
+                """UPDATE public.supplier_invoices
+                      SET warehouse_invoice_id=%s
+                    WHERE id=%s AND company_id=%s""",
+                (
+                    repair.warehouse_invoice_id,
+                    repair.supplier_invoice_id,
+                    repair.company_id,
+                ),
+            )
+            if cur.rowcount != 1:
+                _fail(_PLAN_STALE)
+            cur.execute(
+                """UPDATE public.warehouse_invoices
+                      SET supplier_invoice_id=%s
+                    WHERE id=%s AND company_id=%s""",
+                (
+                    repair.supplier_invoice_id,
+                    repair.warehouse_invoice_id,
+                    repair.company_id,
+                ),
+            )
+            audit_action = "accounting_supplier_warehouse_link_repaired"
+            audit_description = "supplier/warehouse document link repaired"
+        elif repair.action == "clear_dangling_supplier_link":
+            cur.execute(
+                """UPDATE public.supplier_invoices
+                      SET warehouse_invoice_id=NULL
+                    WHERE id=%s AND company_id=%s AND warehouse_invoice_id=%s""",
+                (
+                    repair.supplier_invoice_id,
+                    repair.company_id,
+                    repair.warehouse_invoice_id,
+                ),
+            )
+            audit_action = "accounting_supplier_dangling_warehouse_link_cleared"
+            audit_description = "missing warehouse document link cleared"
+        else:
+            _fail(_WRITE_FAILED)
         if cur.rowcount != 1:
             _fail(_PLAN_STALE)
         cur.execute(
             """INSERT INTO public.audit_log
                  (user_id,user_name,user_role,action,entity_type,entity_id,
                   description,owner_scope,company_id,project_id)
-               VALUES (%s,'authenticated_user',%s,
-                       'accounting_supplier_warehouse_link_repaired',
-                       'supplier_invoice',%s,
-                       'supplier/warehouse document link repaired',
+               VALUES (%s,'authenticated_user',%s,%s,
+                       'supplier_invoice',%s,%s,
                        'company',%s,%s)
                RETURNING id""",
             (
-                actor["user_id"], actor["role"],
-                repair.supplier_invoice_id, repair.company_id,
-                repair.project_id,
+                actor["user_id"], actor["role"], audit_action,
+                repair.supplier_invoice_id, audit_description,
+                repair.company_id, repair.project_id,
             ),
         )
         audit = cur.fetchone()

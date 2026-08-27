@@ -14,10 +14,10 @@ from backend.features.warehouse_receipts.duplicate_guard import (
 )
 
 
-PLAN_VERSION = "accounting-exception-link-repair-v2"
+PLAN_VERSION = "accounting-exception-link-repair-v3"
 MAX_SOURCE_ROWS = 1000
 MAX_REPAIRS = 100
-_PROOFS = ("reciprocal", "delivery", "request", "identity")
+_PROOFS = ("reciprocal", "delivery", "request", "identity", "dangling")
 _INPUT_INVALID = "accounting_link_repair_plan_input_invalid"
 _LIMIT_EXCEEDED = "accounting_link_repair_plan_limit_exceeded"
 _PLAN_LIMIT_BLOCKER = "accounting_link_repair_plan_too_large"
@@ -40,10 +40,12 @@ class LinkRepair:
     project_id: int
     supplier_invoice_id: int
     warehouse_invoice_id: int
+    action: str
     proof: str
 
     def canonical(self):
         return {
+            "action": self.action,
             "companyId": self.company_id,
             "projectId": self.project_id,
             "proof": self.proof,
@@ -290,6 +292,13 @@ def _link_is_compatible(supplier, warehouse, live_suppliers, live_warehouses):
     return True
 
 
+def _has_live_pair_candidate(supplier, warehouses, project_ids, company_id):
+    return any(
+        _pair_scope(supplier, warehouse, project_ids, company_id) is not None
+        for warehouse in warehouses
+    )
+
+
 def _delivery_matches(supplier, warehouse, delivery):
     if warehouse["supply_delivery_id"] != delivery["id"]:
         return False
@@ -526,8 +535,38 @@ def build_accounting_link_repair_plan(
                         project_id=project_id,
                         supplier_invoice_id=supplier["id"],
                         warehouse_invoice_id=warehouse["id"],
+                        action="link_pair",
                         proof=proof,
                     ))
+        if kind == "supplier_invoice" and not subject_results:
+            supplier = live_suppliers.get(subject_id)
+            project_id = (
+                project_ids.get(supplier["project_name"])
+                if supplier is not None else None
+            )
+            missing_warehouse_id = (
+                supplier["warehouse_invoice_id"]
+                if supplier is not None else None
+            )
+            if (
+                project_id is not None
+                and missing_warehouse_id is not None
+                and missing_warehouse_id not in live_warehouses
+                and not _has_live_pair_candidate(
+                    supplier,
+                    live_warehouses.values(),
+                    project_ids,
+                    company_id,
+                )
+            ):
+                subject_results.append(LinkRepair(
+                    company_id=company_id,
+                    project_id=project_id,
+                    supplier_invoice_id=supplier["id"],
+                    warehouse_invoice_id=missing_warehouse_id,
+                    action="clear_dangling_supplier_link",
+                    proof="dangling",
+                ))
         unique = {
             (item.supplier_invoice_id, item.warehouse_invoice_id): item
             for item in subject_results

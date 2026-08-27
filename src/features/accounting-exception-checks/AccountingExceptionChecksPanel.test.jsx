@@ -32,12 +32,14 @@ const reviewReport = (companyId = 4) => ({
   truncated: false,
 });
 const repairPreview = (companyId = 4, overrides = {}) => ({
-  version: 'accounting-exception-link-repair-v2',
+  version: 'accounting-exception-link-repair-v3',
   companyId,
   state: 'clear',
   repairCount: 0,
   unresolvedCount: 31,
-  proofCounts: { reciprocal: 0, delivery: 0, request: 0, identity: 0 },
+  proofCounts: {
+    reciprocal: 0, delivery: 0, request: 0, identity: 0, dangling: 0,
+  },
   planSha256: 'a'.repeat(64),
   blockers: [],
   ...overrides,
@@ -46,7 +48,9 @@ const readyPreview = (companyId = 4) => repairPreview(companyId, {
   state: 'ready',
   repairCount: 7,
   unresolvedCount: 24,
-  proofCounts: { reciprocal: 1, delivery: 5, request: 1, identity: 0 },
+  proofCounts: {
+    reciprocal: 1, delivery: 3, request: 1, identity: 0, dangling: 2,
+  },
   planSha256: 'b'.repeat(64),
 });
 const jsonResponse = (value, status = 200) => Promise.resolve({
@@ -116,7 +120,7 @@ describe('AccountingExceptionChecksPanel', () => {
     renderPanel();
 
     expect(await screen.findByText('Требуется проверка: 31')).toBeInTheDocument();
-    expect(screen.getByText(/Однозначных связей для автоматического исправления пока нет/)).toBeInTheDocument();
+    expect(screen.getByText(/Безопасных исправлений пока нет/)).toBeInTheDocument();
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
     const calls = Object.fromEntries(global.fetch.mock.calls.map(([url, options]) => [url, options]));
     expect(Object.keys(calls).sort()).toEqual([
@@ -128,7 +132,7 @@ describe('AccountingExceptionChecksPanel', () => {
       expect(options.signal).toEqual(expect.any(AbortSignal));
       expect(options.method).toBeUndefined();
     });
-    expect(screen.queryByRole('button', { name: /Исправить безопасные связи/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Исправить безопасно/ })).not.toBeInTheDocument();
   });
 
   test('applies the exact server plan with one confirmation and one POST', async () => {
@@ -157,11 +161,11 @@ describe('AccountingExceptionChecksPanel', () => {
 
     renderPanel({ refreshData });
     fireEvent.click(await screen.findByRole('button', {
-      name: 'Исправить безопасные связи (7)',
+      name: 'Исправить безопасно (7)',
     }));
 
     expect(window.confirm).toHaveBeenCalledWith(
-      'Исправить 7 однозначных связей? Суммы, оплаты и складские остатки не изменятся.',
+      'Исправить 7 записей? Точные связи будут восстановлены, ссылки на отсутствующие документы — удалены. Суммы, оплаты и складские остатки не изменятся.',
     );
     await waitFor(() => expect(global.fetch.mock.calls.some(([, options]) => (
       options?.method === 'POST'
@@ -179,7 +183,7 @@ describe('AccountingExceptionChecksPanel', () => {
       calledUrl.startsWith('/supplier-invoices/') && init?.method === 'PUT'
     ))).toHaveLength(0);
     await waitFor(() => expect(refreshData).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText(/Исправлено связей: 7/)).toBeInTheDocument();
+    expect(await screen.findByText(/Исправлено записей: 7/)).toBeInTheDocument();
   });
 
   test('turns a stale-plan conflict into one plain refresh instruction', async () => {
@@ -192,7 +196,7 @@ describe('AccountingExceptionChecksPanel', () => {
     });
     renderPanel();
 
-    fireEvent.click(await screen.findByRole('button', { name: /Исправить безопасные связи/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Исправить безопасно/ }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Данные изменились. Обновите проверку и повторите действие.',
@@ -217,7 +221,7 @@ describe('AccountingExceptionChecksPanel', () => {
     });
 
     fireEvent.click(await screen.findByRole('button', {
-      name: 'Исправить безопасные связи (7)',
+      name: 'Исправить безопасно (7)',
     }));
     view.rerender(
       <AccountingExceptionChecksPanel
@@ -243,7 +247,7 @@ describe('AccountingExceptionChecksPanel', () => {
     });
 
     expect(refreshData).not.toHaveBeenCalled();
-    expect(screen.queryByText(/Исправлено связей: 7/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Исправлено записей: 7/)).not.toBeInTheDocument();
   });
 
   test('clears stale company state and aborts both in-flight reads', async () => {
@@ -280,7 +284,7 @@ describe('AccountingExceptionChecksPanel', () => {
     expect(await screen.findByText('Требуется проверка: 31')).toBeInTheDocument();
     expect(screen.queryByText(/SECRET/)).not.toBeInTheDocument();
     expect(screen.queryByText('Связанный складской или поставщицкий документ не найден')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Исправить безопасные связи/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Исправить безопасно/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Показать причины' }));
     expect(screen.getAllByText(
       'Связанный складской или поставщицкий документ не найден',
