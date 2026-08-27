@@ -2,6 +2,7 @@
 """Run the existing production smoke with credentials from a private file."""
 
 import argparse
+import getpass
 import os
 import re
 import stat
@@ -14,12 +15,14 @@ MAX_FILE_BYTES = 16 * 1024
 REQUIRED_KEYS = frozenset({
     "SMOKE_EMAIL",
     "SMOKE_PASSWORD",
-    "SMOKE_TOTP_SECRET",
     "SMOKE_COMPANY_ID",
 })
-SENSITIVE_ENV_KEYS = REQUIRED_KEYS | {"SMOKE_2FA_CODE"}
+OPTIONAL_KEYS = frozenset({"SMOKE_TOTP_SECRET"})
+ALLOWED_KEYS = REQUIRED_KEYS | OPTIONAL_KEYS
+SENSITIVE_ENV_KEYS = ALLOWED_KEYS | {"SMOKE_2FA_CODE"}
 _EMAIL_RE = re.compile(r"[^@\s]{1,254}@[^@\s]{1,253}")
 _TOTP_SECRET_RE = re.compile(r"[A-Z2-7]{16,128}")
+_TWO_FACTOR_CODE_RE = re.compile(r"[0-9]{6}")
 _COMPANY_ID_RE = re.compile(r"[1-9][0-9]{0,18}")
 
 
@@ -77,7 +80,7 @@ def _parse_config(payload):
                 f"credential line {line_number} must use KEY=value"
             )
         key, value = line.split("=", 1)
-        if key not in REQUIRED_KEYS:
+        if key not in ALLOWED_KEYS:
             raise ConfigurationError(
                 f"credential line {line_number} contains an unsupported key"
             )
@@ -107,7 +110,11 @@ def _validate_config(config):
     password = config["SMOKE_PASSWORD"]
     if "\x00" in password or not 1 <= len(password) <= 1024:
         raise ConfigurationError("SMOKE_PASSWORD is invalid")
-    if _TOTP_SECRET_RE.fullmatch(config["SMOKE_TOTP_SECRET"]) is None:
+    totp_secret = config.get("SMOKE_TOTP_SECRET")
+    if (
+        totp_secret is not None
+        and _TOTP_SECRET_RE.fullmatch(totp_secret) is None
+    ):
         raise ConfigurationError("SMOKE_TOTP_SECRET is invalid")
     company_id = config["SMOKE_COMPANY_ID"]
     if (
@@ -122,11 +129,27 @@ def load_config(path):
     return _validate_config(_parse_config(_read_private_file(path)))
 
 
-def build_environment(config, inherited=None):
+def _prompt_two_factor_code():
+    try:
+        code = getpass.getpass("Current 6-digit 2FA code: ")
+    except EOFError as error:
+        raise ConfigurationError(
+            "current 2FA code requires an interactive terminal"
+        ) from error
+    if _TWO_FACTOR_CODE_RE.fullmatch(code) is None:
+        raise ConfigurationError(
+            "current 2FA code must contain exactly six digits"
+        )
+    return code
+
+
+def build_environment(config, inherited=None, two_factor_code=None):
     environment = dict(os.environ if inherited is None else inherited)
     for key in SENSITIVE_ENV_KEYS:
         environment.pop(key, None)
     environment.update(config)
+    if two_factor_code is not None:
+        environment["SMOKE_2FA_CODE"] = two_factor_code
     environment["BASE_URL"] = PRODUCTION_BASE_URL
     environment["SMOKE_PROTECTED_ONLY"] = "1"
     environment["SMOKE_BUSINESS_READ_ONLY"] = "1"
@@ -159,7 +182,12 @@ def main(argv=None):
     if arguments.check:
         print("PROTECTED_SMOKE_CONFIG_OK")
         return 0
-    environment = build_environment(config)
+    two_factor_code = None
+    if "SMOKE_TOTP_SECRET" not in config:
+        two_factor_code = _prompt_two_factor_code()
+    environment = build_environment(
+        config, two_factor_code=two_factor_code,
+    )
     os.chdir(Path(__file__).resolve().parent.parent)
     os.execvpe("npm", ["npm", "run", "smoke:prod"], environment)
     return 0

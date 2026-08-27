@@ -123,13 +123,14 @@ running the check and have mode `0600` (or `0400`). Its exact format is:
 ```text
 SMOKE_EMAIL=smoke-account@example.com
 SMOKE_PASSWORD=replace-with-the-dedicated-smoke-password
-SMOKE_TOTP_SECRET=REPLACEWITHBASE32SECRET
 SMOKE_COMPANY_ID=1
 ```
 
 Do not add quotes, `export`, shell commands, `BASE_URL`, or a one-time
-`SMOKE_2FA_CODE`. Validate the file without logging in, then run the protected
-check:
+`SMOKE_2FA_CODE`. If the account's permanent Base32 setup secret is available,
+the file may additionally contain `SMOKE_TOTP_SECRET`; otherwise the protected
+run asks for the current six-digit code without echoing or saving it. Validate
+the file without logging in, then run the protected check:
 
 ```bash
 npm run smoke:prod:protected -- --check

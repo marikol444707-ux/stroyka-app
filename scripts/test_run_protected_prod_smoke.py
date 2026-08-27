@@ -29,6 +29,11 @@ class ProtectedProductionSmokeRunnerTests(unittest.TestCase):
             "SMOKE_COMPANY_ID=1\n"
         )
 
+    def valid_manual_code_config(self):
+        return self.valid_config().replace(
+            "SMOKE_TOTP_SECRET=JBSWY3DPEHPK3PXP\n", "",
+        )
+
     def test_load_config_accepts_exact_private_file(self):
         with tempfile.TemporaryDirectory() as directory:
             path = self.write_config(directory, self.valid_config())
@@ -41,6 +46,23 @@ class ProtectedProductionSmokeRunnerTests(unittest.TestCase):
                 "SMOKE_EMAIL": "smoke@example.test",
                 "SMOKE_PASSWORD": "a long test password = with symbols !",
                 "SMOKE_TOTP_SECRET": "JBSWY3DPEHPK3PXP",
+                "SMOKE_COMPANY_ID": "1",
+            },
+        )
+
+    def test_load_config_accepts_file_without_totp_secret(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write_config(
+                directory, self.valid_manual_code_config(),
+            )
+
+            config = MODULE.load_config(path)
+
+        self.assertEqual(
+            config,
+            {
+                "SMOKE_EMAIL": "smoke@example.test",
+                "SMOKE_PASSWORD": "a long test password = with symbols !",
                 "SMOKE_COMPANY_ID": "1",
             },
         )
@@ -148,6 +170,54 @@ class ProtectedProductionSmokeRunnerTests(unittest.TestCase):
         self.assertNotIn("smoke@example.test", rendered)
         self.assertNotIn("a long test password", rendered)
         self.assertNotIn("JBSWY3DPEHPK3PXP", rendered)
+
+    def test_check_mode_does_not_prompt_for_manual_two_factor_code(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write_config(
+                directory, self.valid_manual_code_config(),
+            )
+            with patch("getpass.getpass") as prompt:
+                with patch.object(MODULE.os, "execvpe") as execute:
+                    with patch("builtins.print"):
+                        result = MODULE.main([
+                            "--check", "--env-file", str(path),
+                        ])
+
+        self.assertEqual(result, 0)
+        prompt.assert_not_called()
+        execute.assert_not_called()
+
+    def test_run_prompts_for_current_code_when_totp_secret_is_absent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write_config(
+                directory, self.valid_manual_code_config(),
+            )
+            with patch("getpass.getpass", return_value="123456") as prompt:
+                with patch.object(MODULE.os, "execvpe") as execute:
+                    result = MODULE.main(["--env-file", str(path)])
+
+        self.assertEqual(result, 0)
+        prompt.assert_called_once()
+        environment = execute.call_args.args[2]
+        self.assertEqual(environment["SMOKE_2FA_CODE"], "123456")
+        self.assertNotIn("SMOKE_TOTP_SECRET", environment)
+
+    def test_run_rejects_invalid_manual_two_factor_codes(self):
+        for code in ("", "12345", "1234567", "12345a", " 123456"):
+            with self.subTest(code=code):
+                with tempfile.TemporaryDirectory() as directory:
+                    path = self.write_config(
+                        directory, self.valid_manual_code_config(),
+                    )
+                    with patch("getpass.getpass", return_value=code):
+                        with patch.object(MODULE.os, "execvpe") as execute:
+                            with self.assertRaisesRegex(
+                                MODULE.ConfigurationError,
+                                "six digits",
+                            ):
+                                MODULE.main(["--env-file", str(path)])
+
+                execute.assert_not_called()
 
     def test_run_executes_only_the_existing_production_smoke(self):
         with tempfile.TemporaryDirectory() as directory:
