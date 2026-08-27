@@ -81,6 +81,25 @@ def build(**overrides):
 
 
 class AccountingLinkRepairPlanTests(unittest.TestCase):
+    def test_clears_a_company_scoped_stale_link_without_project_mapping(self):
+        plan = build(
+            projects=[],
+            supplier_invoices=[supplier_invoice(
+                project_name="Устаревшее название объекта",
+                offer_id=None,
+                request_id=None,
+            )],
+            warehouse_invoices=[],
+            deliveries=[],
+        )
+
+        self.assertEqual(plan.state, "ready")
+        self.assertEqual(plan.unresolved_count, 0)
+        self.assertEqual(len(plan.repairs), 1)
+        self.assertEqual(plan.repairs[0].action, "clear_dangling_supplier_link")
+        self.assertIsNone(plan.repairs[0].project_id)
+        self.assertEqual(plan.repairs[0].warehouse_invoice_id, 999)
+
     def test_plans_audited_clear_for_a_supplier_link_to_a_missing_document(self):
         plan = build(
             supplier_invoices=[supplier_invoice(

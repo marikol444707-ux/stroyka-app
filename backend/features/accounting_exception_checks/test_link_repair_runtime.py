@@ -241,7 +241,9 @@ class AccountingLinkRepairRuntimeTests(unittest.TestCase):
         self.assertEqual(connection.rollback_count, 0)
 
     def test_apply_clears_only_the_stale_supplier_link_and_audits_it(self):
-        with mock.patch(f"{__name__}.WAREHOUSES", []), mock.patch(
+        with mock.patch(f"{__name__}.PROJECTS", []), mock.patch(
+            f"{__name__}.WAREHOUSES", [],
+        ), mock.patch(
             f"{__name__}.DELIVERIES", [],
         ):
             preview = preview_accounting_link_repairs(
@@ -269,12 +271,15 @@ class AccountingLinkRepairRuntimeTests(unittest.TestCase):
             sql.startswith("UPDATE public.warehouse_invoices")
             for sql in statements
         ))
-        self.assertTrue(any(
-            sql.startswith("INSERT INTO public.audit_log")
-            and params is not None
-            and "accounting_supplier_dangling_warehouse_link_cleared" in params
-            for sql, params in connection.executed
-        ))
+        audit_params = next(
+            params for sql, params in connection.executed
+            if sql.startswith("INSERT INTO public.audit_log")
+        )
+        self.assertIn(
+            "accounting_supplier_dangling_warehouse_link_cleared",
+            audit_params,
+        )
+        self.assertIsNone(audit_params[-1])
         self.assertTrue(connection.committed)
 
     def test_stale_plan_rolls_back_without_any_business_or_audit_write(self):

@@ -6,6 +6,7 @@ from decimal import Decimal
 import hashlib
 import json
 import re
+from typing import Optional
 import unicodedata
 
 from backend.features.warehouse_receipts.duplicate_guard import (
@@ -37,7 +38,7 @@ class LinkRepairPlanError(ValueError):
 @dataclass(frozen=True)
 class LinkRepair:
     company_id: int
-    project_id: int
+    project_id: Optional[int]
     supplier_invoice_id: int
     warehouse_invoice_id: int
     action: str
@@ -542,8 +543,7 @@ def build_accounting_link_repair_plan(
                 if supplier is not None else None
             )
             if (
-                project_id is not None
-                and missing_warehouse_id is not None
+                missing_warehouse_id is not None
                 and missing_warehouse_id not in live_warehouses
             ):
                 subject_results.append(LinkRepair(
