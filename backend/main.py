@@ -5401,6 +5401,8 @@ def init_db():
             created_by VARCHAR(255),
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE estimate_versions
+            ADD COLUMN IF NOT EXISTS sections_sha256 VARCHAR(64);
         CREATE TABLE IF NOT EXISTS estimate_reconciliations (
             id SERIAL PRIMARY KEY,
             project_name TEXT,
@@ -15842,6 +15844,9 @@ ESTIMATE_CHANGE_APPROVED_STATUSES = ("Утверждено", "Утвержден
 ESTIMATE_CHANGE_CUSTOMER_STATUSES = ("Ожидает согласования", "Утверждено", "Утверждено отдельной допработой", "Включено в новую смету")
 
 try:
+    from backend.features.brigade_lineage.snapshot_service import (
+        ensure_active_estimate_snapshot,
+    )
     from backend.features.estimate_access.service import (
         resolve_estimate_parent as resolve_estimate_change_parent,
     )
@@ -15854,6 +15859,9 @@ try:
         resolve_project_parent as resolve_estimate_change_project,
     )
 except ModuleNotFoundError:
+    from features.brigade_lineage.snapshot_service import (
+        ensure_active_estimate_snapshot,
+    )
     from features.estimate_access.service import (
         resolve_estimate_parent as resolve_estimate_change_parent,
     )
@@ -15890,6 +15898,7 @@ register_estimate_changes_module(app, {
     "approved_statuses": ESTIMATE_CHANGE_APPROVED_STATUSES,
     "leadership_roles": LEADERSHIP_ROLES,
     "estimate_write_roles": ESTIMATE_WRITE_ROLES,
+    "ensure_active_estimate_snapshot": ensure_active_estimate_snapshot,
     "log_audit": lambda **kwargs: log_audit(**kwargs),
     "yandex_api_key": YANDEX_API_KEY,
     "yandex_folder_id": YANDEX_FOLDER_ID,
@@ -17050,7 +17059,6 @@ except ModuleNotFoundError:
     )
 
 
-
 @app.post("/estimates")
 def create_estimate(
     data: dict,
@@ -17128,6 +17136,14 @@ def create_estimate(
         (company_id,project_id,project_name,data.get("name",""),data.get("version","1.0"),j.dumps(sections,ensure_ascii=False),smeta_type,work_package,status))
     row = cur.fetchone()
     new_estimate_id = row.get("id")
+    if status == "Активная" and smeta_type == "Заказчик" and project_id:
+        ensure_active_estimate_snapshot(
+            cur,
+            estimate_id=new_estimate_id,
+            company_id=company_id,
+            project_id=project_id,
+            created_by=actor.get("name") or current_user.get("name") or "",
+        )
     supply_refresh = {"scanned": 0, "updated": 0, "pending": status == "Активная" and bool(project_name)}
     conn.commit()
     cur.close(); conn.close()
@@ -17673,6 +17689,18 @@ def update_estimate(
             estimate_scope["companyId"],
             estimate_scope.get("projectId"),
         )
+    if (
+        new_status == "Активная"
+        and new_smeta_type == "Заказчик"
+        and estimate_scope.get("projectId")
+    ):
+        ensure_active_estimate_snapshot(
+            cur,
+            estimate_id=id,
+            company_id=estimate_scope["companyId"],
+            project_id=estimate_scope["projectId"],
+            created_by=_current_user.get("name") or "",
+        )
     conn.commit()
     cur.close(); conn.close()
     agent_dispatch_report = handoff_estimate_activation_transition(
@@ -17779,6 +17807,14 @@ def update_estimate_status(
             project_name,
             estimate["companyId"],
             project_id,
+        )
+    if status == "Активная" and smeta_type == "Заказчик":
+        ensure_active_estimate_snapshot(
+            cur,
+            estimate_id=id,
+            company_id=estimate["companyId"],
+            project_id=project_id,
+            created_by=actor.get("name") or current_user.get("name") or "",
         )
     conn.commit()
     cur.close(); conn.close()

@@ -45,6 +45,13 @@ class EstimateSnapshotLineage:
     snapshot_created: bool
 
 
+@dataclass(frozen=True)
+class ActiveEstimateSnapshot:
+    source_estimate_version_id: int
+    sections_sha256: str
+    snapshot_created: bool
+
+
 def _strict_positive_int(value):
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
 
@@ -196,6 +203,154 @@ def _validated_coordinates(coordinates):
         seen.add(coordinate_key)
         validated.append(SnapshotItemCoordinate(section_index, item_index, expected_item_key))
     return validated
+
+
+def _verified_snapshot_id(row, digest):
+    snapshot_id = _strict_positive_int(_row_value(row, 0, "id"))
+    stored_hash = _row_value(row, 2, "sections_sha256")
+    try:
+        stored_content_hash = sections_sha256(_row_value(row, 1, "sections_json"))
+    except (
+        TypeError, ValueError, json.JSONDecodeError, RecursionError,
+        UnicodeError, OverflowError,
+    ):
+        raise LineageResolutionError("snapshot_hash_mismatch")
+    if (
+        not snapshot_id
+        or stored_content_hash != digest
+        or stored_hash not in (None, digest)
+    ):
+        raise LineageResolutionError("snapshot_hash_mismatch")
+    return snapshot_id
+
+
+def ensure_active_estimate_snapshot(
+    cur,
+    *,
+    estimate_id,
+    company_id,
+    project_id,
+    created_by="",
+):
+    """Create or reuse the current immutable version of one active estimate.
+
+    The caller owns the transaction. Drafts, templates and non-customer
+    estimates are deliberately ignored so this helper cannot activate or
+    otherwise change an estimate.
+    """
+
+    estimate_id = _strict_positive_int(estimate_id)
+    company_id = _strict_positive_int(company_id)
+    project_id = _strict_positive_int(project_id)
+    if not estimate_id or not company_id or not project_id:
+        raise LineageResolutionError("estimate_owner_invalid")
+
+    cur.execute(
+        """SELECT id,company_id,project_id,version,sections_json,
+                  COALESCE(status,''),COALESCE(smeta_type,'Заказчик'),
+                  COALESCE(is_template,FALSE)
+             FROM public.estimates
+            WHERE id=%s AND company_id=%s AND project_id=%s
+            FOR UPDATE""",
+        (estimate_id, company_id, project_id),
+    )
+    estimate = cur.fetchone()
+    if not estimate:
+        raise LineageResolutionError("estimate_owner_not_found")
+    if (
+        _row_value(estimate, 0, "id") != estimate_id
+        or _row_value(estimate, 1, "company_id") != company_id
+        or _row_value(estimate, 2, "project_id") != project_id
+    ):
+        raise LineageResolutionError("estimate_owner_mismatch")
+    if (
+        _row_value(estimate, 5, "status") != "Активная"
+        or _row_value(estimate, 6, "smeta_type") != "Заказчик"
+        or _row_value(estimate, 7, "is_template") is not False
+    ):
+        return None
+
+    raw_sections = _row_value(estimate, 4, "sections_json")
+    try:
+        parsed_sections = parse_sections(raw_sections)
+        digest = sections_sha256(parsed_sections)
+    except (
+        TypeError, ValueError, json.JSONDecodeError, RecursionError,
+        UnicodeError, OverflowError,
+    ):
+        raise LineageResolutionError("snapshot_content_invalid")
+
+    cur.execute(
+        """SELECT id,sections_json,sections_sha256
+             FROM public.estimate_versions
+            WHERE estimate_id=%s AND sections_sha256=%s
+            ORDER BY id LIMIT 2 FOR UPDATE""",
+        (estimate_id, digest),
+    )
+    hashed_snapshots = cur.fetchall()
+    if len(hashed_snapshots) > 1:
+        raise LineageResolutionError("snapshot_hash_ambiguous")
+    if hashed_snapshots:
+        snapshot_id = _verified_snapshot_id(hashed_snapshots[0], digest)
+        return ActiveEstimateSnapshot(snapshot_id, digest, False)
+
+    # Legacy versions predate the canonical hash. Reuse a matching recent row
+    # so activating an old estimate does not manufacture a duplicate version.
+    cur.execute(
+        """SELECT id,sections_json,sections_sha256
+             FROM public.estimate_versions
+            WHERE estimate_id=%s AND sections_sha256 IS NULL
+            ORDER BY id DESC LIMIT 50 FOR UPDATE""",
+        (estimate_id,),
+    )
+    for legacy_snapshot in cur.fetchall():
+        try:
+            if sections_sha256(_row_value(legacy_snapshot, 1, "sections_json")) != digest:
+                continue
+        except (
+            TypeError, ValueError, json.JSONDecodeError, RecursionError,
+            UnicodeError, OverflowError,
+        ):
+            continue
+        snapshot_id = _verified_snapshot_id(legacy_snapshot, digest)
+        return ActiveEstimateSnapshot(snapshot_id, digest, False)
+
+    snapshot_json = _snapshot_json(raw_sections, parsed_sections)
+    cur.execute(
+        """INSERT INTO public.estimate_versions
+             (estimate_id,version_label,sections_json,total,comment,created_by,
+              sections_sha256)
+           VALUES (%s,%s,%s,%s,%s,%s,%s)
+           ON CONFLICT DO NOTHING
+           RETURNING id""",
+        (
+            estimate_id,
+            str(_row_value(estimate, 3, "version") or "")[:100],
+            snapshot_json,
+            _snapshot_total(parsed_sections),
+            "Автоматическая версия активной сметы",
+            str(created_by or "").strip()[:255],
+            digest,
+        ),
+    )
+    inserted = cur.fetchone()
+    snapshot_id = _strict_positive_int(_row_value(inserted, 0, "id"))
+    if snapshot_id:
+        return ActiveEstimateSnapshot(snapshot_id, digest, True)
+
+    # A concurrent writer may have won the unique-key race.
+    cur.execute(
+        """SELECT id,sections_json,sections_sha256
+             FROM public.estimate_versions
+            WHERE estimate_id=%s AND sections_sha256=%s
+            ORDER BY id LIMIT 2 FOR UPDATE""",
+        (estimate_id, digest),
+    )
+    concurrent = cur.fetchall()
+    if len(concurrent) != 1:
+        raise LineageResolutionError("snapshot_insert_failed")
+    snapshot_id = _verified_snapshot_id(concurrent[0], digest)
+    return ActiveEstimateSnapshot(snapshot_id, digest, False)
 
 
 def ensure_estimate_snapshot_lineages(

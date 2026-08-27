@@ -12,6 +12,11 @@ are moved in one at a time:
 - `0003_accounting_link_integrity` idempotently records the two validated,
   nullable supplier/warehouse invoice foreign keys. Deleting either target
   clears only the stale link; business rows, amounts, statuses and stock remain.
+- `0004_active_estimate_snapshots` installs the canonical estimate-
+  snapshot hash guard and creates one immutable initial version only for active
+  customer estimates that have no saved versions. Existing histories are not
+  changed. Its downgrade intentionally preserves business snapshots because
+  assignments may already reference them.
 - Existing databases should only be stamped after the backend has already bootstrapped the schema.
 - Future migrations should move small, well-understood slices out of `init_db()` one at a time.
 

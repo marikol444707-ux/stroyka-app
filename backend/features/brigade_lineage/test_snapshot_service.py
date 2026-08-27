@@ -5,6 +5,7 @@ from backend.features.brigade_lineage.readiness_report import sections_sha256
 from backend.features.brigade_lineage.snapshot_service import (
     LineageResolutionError,
     SnapshotItemCoordinate,
+    ensure_active_estimate_snapshot,
     ensure_estimate_snapshot_lineages,
     resolve_snapshot_item,
 )
@@ -41,6 +42,41 @@ class SnapshotCursor:
         elif "FROM public.estimate_versions" in normalized:
             self._result = None
             self._results = list(self.snapshot_rows)
+        elif normalized.startswith("INSERT INTO public.estimate_versions"):
+            self._result = (self.inserted_id,)
+            self._results = []
+        else:
+            raise AssertionError("unexpected SQL: " + normalized)
+
+    def fetchone(self):
+        return self._result
+
+    def fetchall(self):
+        return list(self._results)
+
+
+class ActiveEstimateSnapshotCursor:
+    def __init__(self, *, estimate_row, hashed_rows=None, legacy_rows=None, inserted_id=91):
+        self.estimate_row = estimate_row
+        self.hashed_rows = list(hashed_rows or [])
+        self.legacy_rows = list(legacy_rows or [])
+        self.inserted_id = inserted_id
+        self.calls = []
+        self._result = None
+        self._results = []
+
+    def execute(self, sql, params=()):
+        normalized = " ".join(sql.split())
+        self.calls.append((normalized, tuple(params)))
+        if "FROM public.estimates" in normalized:
+            self._result = self.estimate_row
+            self._results = []
+        elif "sections_sha256=%s" in normalized:
+            self._result = None
+            self._results = list(self.hashed_rows)
+        elif "sections_sha256 IS NULL" in normalized:
+            self._result = None
+            self._results = list(self.legacy_rows)
         elif normalized.startswith("INSERT INTO public.estimate_versions"):
             self._result = (self.inserted_id,)
             self._results = []
@@ -272,6 +308,119 @@ class EstimateSnapshotPersistenceTests(unittest.TestCase):
                 self.assertEqual(raised.exception.code, code)
                 self.assertEqual(len(cursor.calls), 1)
 
+
+class ActiveEstimateSnapshotTests(unittest.TestCase):
+    def _estimate_row(self, *, status="Активная", smeta_type="Заказчик", is_template=False):
+        return (
+            17,
+            3,
+            8,
+            "2.0",
+            json.dumps(_sections(), ensure_ascii=False),
+            status,
+            smeta_type,
+            is_template,
+        )
+
+    def test_creates_one_current_snapshot_for_an_active_customer_estimate(self):
+        cursor = ActiveEstimateSnapshotCursor(estimate_row=self._estimate_row())
+
+        snapshot = ensure_active_estimate_snapshot(
+            cursor,
+            estimate_id=17,
+            company_id=3,
+            project_id=8,
+            created_by="Директор",
+        )
+
+        self.assertEqual(snapshot.source_estimate_version_id, 91)
+        self.assertTrue(snapshot.snapshot_created)
+        self.assertEqual(snapshot.sections_sha256, sections_sha256(_sections()))
+        self.assertEqual(cursor.calls[0][1], (17, 3, 8))
+        insert_sql, insert_params = cursor.calls[-1]
+        self.assertTrue(insert_sql.startswith("INSERT INTO public.estimate_versions"))
+        self.assertEqual(insert_params[0], 17)
+        self.assertEqual(insert_params[1], "2.0")
+        self.assertEqual(insert_params[4], "Автоматическая версия активной сметы")
+        self.assertEqual(insert_params[-1], sections_sha256(_sections()))
+
+    def test_reuses_the_current_legacy_snapshot_instead_of_duplicating_it(self):
+        sections = _sections()
+        cursor = ActiveEstimateSnapshotCursor(
+            estimate_row=self._estimate_row(),
+            legacy_rows=[(71, json.dumps(sections, ensure_ascii=False), None)],
+        )
+
+        snapshot = ensure_active_estimate_snapshot(
+            cursor,
+            estimate_id=17,
+            company_id=3,
+            project_id=8,
+        )
+
+        self.assertEqual(snapshot.source_estimate_version_id, 71)
+        self.assertFalse(snapshot.snapshot_created)
+        self.assertFalse(any(sql.startswith("INSERT") for sql, _params in cursor.calls))
+
+    def test_reuses_one_verified_hashed_snapshot_without_inserting(self):
+        sections = _sections()
+        digest = sections_sha256(sections)
+        cursor = ActiveEstimateSnapshotCursor(
+            estimate_row=self._estimate_row(),
+            hashed_rows=[(72, json.dumps(sections, ensure_ascii=False), digest)],
+        )
+
+        snapshot = ensure_active_estimate_snapshot(
+            cursor,
+            estimate_id=17,
+            company_id=3,
+            project_id=8,
+        )
+
+        self.assertEqual(snapshot.source_estimate_version_id, 72)
+        self.assertEqual(snapshot.sections_sha256, digest)
+        self.assertFalse(snapshot.snapshot_created)
+        self.assertFalse(any(sql.startswith("INSERT") for sql, _params in cursor.calls))
+
+    def test_fails_closed_when_owner_or_content_is_invalid(self):
+        cases = (
+            (None, "estimate_owner_not_found"),
+            ((17, 3, 8, "2.0", "{}", "Активная", "Заказчик", False), "snapshot_content_invalid"),
+        )
+        for estimate_row, code in cases:
+            with self.subTest(code=code):
+                cursor = ActiveEstimateSnapshotCursor(estimate_row=estimate_row)
+                with self.assertRaises(LineageResolutionError) as raised:
+                    ensure_active_estimate_snapshot(
+                        cursor,
+                        estimate_id=17,
+                        company_id=3,
+                        project_id=8,
+                    )
+                self.assertEqual(raised.exception.code, code)
+                self.assertEqual(len(cursor.calls), 1)
+
+    def test_does_not_create_versions_for_drafts_templates_or_non_customer_estimates(self):
+        cases = (
+            {"status": "Черновик"},
+            {"is_template": True},
+            {"smeta_type": "Подрядчик"},
+        )
+        for values in cases:
+            with self.subTest(values=values):
+                cursor = ActiveEstimateSnapshotCursor(
+                    estimate_row=self._estimate_row(**values),
+                )
+
+                snapshot = ensure_active_estimate_snapshot(
+                    cursor,
+                    estimate_id=17,
+                    company_id=3,
+                    project_id=8,
+                )
+
+                self.assertIsNone(snapshot)
+                self.assertEqual(len(cursor.calls), 1)
 
 if __name__ == "__main__":
     unittest.main()

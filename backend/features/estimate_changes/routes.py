@@ -94,6 +94,7 @@ def register_estimate_changes_module(app, deps):
     approved_statuses = set(deps["approved_statuses"])
     leadership_roles = tuple(deps["leadership_roles"])
     estimate_write_roles = tuple(deps["estimate_write_roles"])
+    ensure_active_estimate_snapshot = deps["ensure_active_estimate_snapshot"]
     log_audit = deps["log_audit"]
     yandex_api_key = deps.get("yandex_api_key")
     yandex_folder_id = deps.get("yandex_folder_id")
@@ -1034,6 +1035,13 @@ def register_estimate_changes_module(app, deps):
             updated_ids = {_row_id(row) for row in (cur.fetchall() or [])}
             if updated_ids != set(applied_ids):
                 raise HTTPException(status_code=409, detail="Изменения изменились во время включения в смету")
+            ensure_active_estimate_snapshot(
+                cur,
+                estimate_id=new_id,
+                company_id=company_id,
+                project_id=project_id,
+                created_by=actor.get("name") or current_user.get("name") or "",
+            )
             conn.commit()
             return {
                 "ok": True,
