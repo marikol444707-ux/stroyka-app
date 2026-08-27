@@ -357,6 +357,29 @@ class AccountingLinkRepairRouteTests(unittest.TestCase):
         )
         self.assertNotIn("location ^~ /accounting-exception-link-repairs", nginx)
 
+    def test_production_smoke_checks_accounting_review_and_repair_routes(self):
+        smoke = (
+            PROJECT_ROOT / "scripts/prod-smoke-check.sh"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            'check_not_spa_fallback "accounting exception checks route" '
+            '"$BASE_URL/accounting-exception-checks" "401 403 404 422 429"',
+            smoke,
+        )
+        self.assertIn(
+            'check_not_spa_fallback "accounting link repairs route" '
+            '"$BASE_URL/accounting-exception-link-repairs" '
+            '"401 403 404 422 429"',
+            smoke,
+        )
+        self.assertIn(
+            'check_post_not_spa_fallback "accounting link repairs post route" '
+            '"$BASE_URL/accounting-exception-link-repairs" '
+            '"401 403 404 415 422 429"',
+            smoke,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

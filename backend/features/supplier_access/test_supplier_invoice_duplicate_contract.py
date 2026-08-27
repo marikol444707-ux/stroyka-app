@@ -5,6 +5,7 @@ import unittest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 MAIN_PATH = PROJECT_ROOT / "backend/main.py"
+PROD_SMOKE_PATH = PROJECT_ROOT / "scripts/prod-smoke-check.sh"
 
 
 class SupplierInvoiceDuplicateContractTests(unittest.TestCase):
@@ -50,6 +51,20 @@ class SupplierInvoiceDuplicateContractTests(unittest.TestCase):
             source.index("SELECT id FROM warehouse_invoices"),
         )
         self.assertNotIn("SUPPLY INVOICE CHECK ERROR", source)
+
+    def test_production_smoke_checks_both_invoice_collections(self):
+        smoke = PROD_SMOKE_PATH.read_text(encoding="utf-8")
+
+        self.assertIn(
+            'check_not_spa_fallback "warehouse invoices route" '
+            '"$BASE_URL/warehouse-invoices" "401 403 422 429"',
+            smoke,
+        )
+        self.assertIn(
+            'check_not_spa_fallback "supplier invoices route" '
+            '"$BASE_URL/supplier-invoices" "401 403 422 429"',
+            smoke,
+        )
 
 
 if __name__ == "__main__":
