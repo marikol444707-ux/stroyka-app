@@ -172,7 +172,9 @@ def _collect_sources(cur, company_id):
     cur.execute(
         """SELECT id,company_id,supplier_id,COALESCE(supplier_name,'') AS supplier_name,
                   COALESCE(project_name,'') AS project_name,COALESCE(amount,0) AS amount,
-                  offer_id,request_id,warehouse_invoice_id,COALESCE(status,'') AS status
+                  offer_id,request_id,warehouse_invoice_id,COALESCE(status,'') AS status,
+                  COALESCE(invoice_number,'') AS invoice_number,
+                  COALESCE(invoice_date::text,'') AS invoice_date
              FROM public.supplier_invoices
             WHERE company_id=%s
             ORDER BY id LIMIT %s""",
@@ -183,6 +185,7 @@ def _collect_sources(cur, company_id):
         (
             "id", "company_id", "supplier_id", "supplier_name", "project_name",
             "amount", "offer_id", "request_id", "warehouse_invoice_id", "status",
+            "invoice_number", "invoice_date",
         ),
         maximum=MAX_SOURCE_ROWS,
     )
@@ -192,7 +195,8 @@ def _collect_sources(cur, company_id):
                   COALESCE(NULLIF(BTRIM(project),''),NULLIF(BTRIM(location),''),'') AS project,
                   COALESCE(total_with_vat,0) AS total_with_vat,
                   COALESCE(total_base,0) AS total_base,supply_delivery_id,
-                  supply_request_id,supplier_invoice_id,COALESCE(status,'') AS status
+                  supply_request_id,supplier_invoice_id,COALESCE(status,'') AS status,
+                  COALESCE(number,'') AS number,COALESCE(date::text,'') AS date
              FROM public.warehouse_invoices
             WHERE company_id=%s
             ORDER BY id LIMIT %s""",
@@ -204,6 +208,7 @@ def _collect_sources(cur, company_id):
             "id", "company_id", "supplier_id", "supplier_name", "project",
             "total_with_vat", "total_base", "supply_delivery_id",
             "supply_request_id", "supplier_invoice_id", "status",
+            "number", "date",
         ),
         maximum=MAX_SOURCE_ROWS,
     )

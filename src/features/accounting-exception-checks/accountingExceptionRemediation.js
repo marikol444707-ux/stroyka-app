@@ -9,7 +9,7 @@ const PREVIEW_FIELDS = [
   'blockers',
 ];
 const APPLY_FIELDS = ['ok', 'appliedCount', 'unresolvedCount', 'planSha256'];
-const PROOFS = ['reciprocal', 'delivery', 'request'];
+const PROOFS = ['reciprocal', 'delivery', 'request', 'identity'];
 const SHA256 = /^[0-9a-f]{64}$/;
 
 const exactKeys = (value, fields) => (
@@ -27,7 +27,7 @@ const boundedCount = (value, maximum) => (
 export const validateAccountingLinkRepairPreview = (value, expectedCompanyId) => {
   const validBase = (
     exactKeys(value, PREVIEW_FIELDS)
-    && value.version === 'accounting-exception-link-repair-v1'
+    && value.version === 'accounting-exception-link-repair-v2'
     && Number.isSafeInteger(expectedCompanyId)
     && expectedCompanyId > 0
     && value.companyId === expectedCompanyId

@@ -28,6 +28,8 @@ def supplier_invoice(**overrides):
         "offer_id": 51,
         "request_id": 31,
         "warehouse_invoice_id": 999,
+        "invoice_number": "Счёт № 14555",
+        "invoice_date": "2026-08-10",
         "status": "На утверждении",
         **overrides,
     }
@@ -45,6 +47,8 @@ def warehouse_invoice(**overrides):
         "supply_delivery_id": 71,
         "supply_request_id": 31,
         "supplier_invoice_id": None,
+        "number": "14555",
+        "date": "2026-08-10",
         "status": "Принята",
         **overrides,
     }
@@ -77,6 +81,79 @@ def build(**overrides):
 
 
 class AccountingLinkRepairPlanTests(unittest.TestCase):
+    def test_uses_unique_exact_document_identity_when_lineage_is_absent(self):
+        plan = build(
+            supplier_invoices=[supplier_invoice(
+                offer_id=None,
+                request_id=None,
+                invoice_number="Счёт № 14555",
+                invoice_date="2026-08-10",
+            )],
+            warehouse_invoices=[warehouse_invoice(
+                supply_delivery_id=None,
+                supply_request_id=None,
+                number="14555",
+                date="10.08.2026",
+            )],
+            deliveries=[],
+        )
+
+        self.assertEqual(plan.state, "ready")
+        self.assertEqual(plan.unresolved_count, 0)
+        self.assertEqual(len(plan.repairs), 1)
+        self.assertEqual(plan.repairs[0].proof, "identity")
+
+    def test_refuses_incomplete_mismatched_or_ambiguous_document_identity(self):
+        unsafe_cases = (
+            (
+                [supplier_invoice(
+                    offer_id=None, request_id=None, invoice_number="",
+                )],
+                [warehouse_invoice(
+                    supply_delivery_id=None, supply_request_id=None,
+                )],
+            ),
+            (
+                [supplier_invoice(
+                    offer_id=None, request_id=None, invoice_date="неизвестно",
+                )],
+                [warehouse_invoice(
+                    supply_delivery_id=None, supply_request_id=None,
+                    date="неизвестно",
+                )],
+            ),
+            (
+                [supplier_invoice(
+                    offer_id=None, request_id=None, amount=Decimal("999.00"),
+                )],
+                [warehouse_invoice(
+                    supply_delivery_id=None, supply_request_id=None,
+                )],
+            ),
+            (
+                [supplier_invoice(offer_id=None, request_id=None)],
+                [
+                    warehouse_invoice(
+                        supply_delivery_id=None, supply_request_id=None,
+                    ),
+                    warehouse_invoice(
+                        id=45, supply_delivery_id=None, supply_request_id=None,
+                    ),
+                ],
+            ),
+        )
+
+        for suppliers, warehouses in unsafe_cases:
+            with self.subTest(suppliers=suppliers, warehouses=warehouses):
+                plan = build(
+                    supplier_invoices=suppliers,
+                    warehouse_invoices=warehouses,
+                    deliveries=[],
+                )
+                self.assertEqual(plan.state, "clear")
+                self.assertEqual(plan.repairs, ())
+                self.assertEqual(plan.unresolved_count, 1)
+
     def test_prefers_a_missing_reciprocal_link_over_documentary_inference(self):
         plan = build(
             supplier_invoices=[supplier_invoice(warehouse_invoice_id=44)],
@@ -116,9 +193,10 @@ class AccountingLinkRepairPlanTests(unittest.TestCase):
             "reciprocal": 0,
             "delivery": 1,
             "request": 0,
+            "identity": 0,
         })
         self.assertEqual(plan.public_result(), {
-            "version": "accounting-exception-link-repair-v1",
+            "version": "accounting-exception-link-repair-v2",
             "companyId": 4,
             "state": "ready",
             "repairCount": 1,
@@ -127,6 +205,7 @@ class AccountingLinkRepairPlanTests(unittest.TestCase):
                 "reciprocal": 0,
                 "delivery": 1,
                 "request": 0,
+                "identity": 0,
             },
             "planSha256": plan.plan_sha256,
             "blockers": [],
@@ -135,7 +214,11 @@ class AccountingLinkRepairPlanTests(unittest.TestCase):
 
     def test_refuses_an_annulled_delivery_as_documentary_proof(self):
         plan = build(
-            supplier_invoices=[supplier_invoice(request_id=None)],
+            supplier_invoices=[supplier_invoice(
+                request_id=None,
+                invoice_number="",
+                invoice_date="",
+            )],
             warehouse_invoices=[warehouse_invoice(supply_request_id=None)],
             deliveries=[delivery(request_id=None, status="Аннулировано")],
         )

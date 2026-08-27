@@ -21,12 +21,14 @@ AUTHENTICATION = {
     "sessionHash": "a" * 64,
 }
 PREVIEW = {
-    "version": "accounting-exception-link-repair-v1",
+    "version": "accounting-exception-link-repair-v2",
     "companyId": 4,
     "state": "ready",
     "repairCount": 1,
     "unresolvedCount": 30,
-    "proofCounts": {"reciprocal": 0, "delivery": 1, "request": 0},
+    "proofCounts": {
+        "reciprocal": 0, "delivery": 1, "request": 0, "identity": 0,
+    },
     "planSha256": "b" * 64,
     "blockers": [],
 }

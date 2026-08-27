@@ -1,17 +1,23 @@
 """Pure deterministic plan for safe supplier/warehouse document link repair."""
 
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 import hashlib
 import json
 import re
 import unicodedata
 
+from backend.features.warehouse_receipts.duplicate_guard import (
+    normalize_invoice_date,
+    normalize_invoice_number,
+)
 
-PLAN_VERSION = "accounting-exception-link-repair-v1"
+
+PLAN_VERSION = "accounting-exception-link-repair-v2"
 MAX_SOURCE_ROWS = 1000
 MAX_REPAIRS = 100
-_PROOFS = ("reciprocal", "delivery", "request")
+_PROOFS = ("reciprocal", "delivery", "request", "identity")
 _INPUT_INVALID = "accounting_link_repair_plan_input_invalid"
 _LIMIT_EXCEEDED = "accounting_link_repair_plan_limit_exceeded"
 _PLAN_LIMIT_BLOCKER = "accounting_link_repair_plan_too_large"
@@ -135,6 +141,7 @@ def _normalize_supplier_invoices(rows):
     fields = {
         "id", "company_id", "supplier_id", "supplier_name", "project_name",
         "amount", "offer_id", "request_id", "warehouse_invoice_id", "status",
+        "invoice_number", "invoice_date",
     }
     for raw in _rows(rows):
         row = _row(raw, fields)
@@ -150,6 +157,8 @@ def _normalize_supplier_invoices(rows):
             "warehouse_invoice_id": _positive_int(
                 row["warehouse_invoice_id"], optional=True,
             ),
+            "invoice_number": _text(row["invoice_number"], limit=512),
+            "invoice_date": _text(row["invoice_date"], limit=32),
             "status": _text(row["status"], limit=100),
         })
     return clean
@@ -160,7 +169,7 @@ def _normalize_warehouse_invoices(rows):
     fields = {
         "id", "company_id", "supplier_id", "supplier_name", "project",
         "total_with_vat", "total_base", "supply_delivery_id",
-        "supply_request_id", "supplier_invoice_id", "status",
+        "supply_request_id", "supplier_invoice_id", "status", "number", "date",
     }
     for raw in _rows(rows):
         row = _row(raw, fields)
@@ -181,6 +190,8 @@ def _normalize_warehouse_invoices(rows):
             "supplier_invoice_id": _positive_int(
                 row["supplier_invoice_id"], optional=True,
             ),
+            "number": _text(row["number"], limit=512),
+            "date": _text(row["date"], limit=32),
             "status": _text(row["status"], limit=100),
         })
     return clean
@@ -304,6 +315,30 @@ def _request_matches(supplier, warehouse):
     )
 
 
+def _document_date_key(value):
+    normalized = normalize_invoice_date(value)
+    try:
+        return date.fromisoformat(normalized).isoformat()
+    except (TypeError, ValueError):
+        return ""
+
+
+def _identity_matches(supplier, warehouse):
+    supplier_number = normalize_invoice_number(supplier["invoice_number"])
+    warehouse_number = normalize_invoice_number(warehouse["number"])
+    supplier_date = _document_date_key(supplier["invoice_date"])
+    warehouse_date = _document_date_key(warehouse["date"])
+    amount = supplier["amount"]
+    return (
+        bool(supplier_number)
+        and supplier_number == warehouse_number
+        and bool(supplier_date)
+        and supplier_date == warehouse_date
+        and amount > 0
+        and amount == _warehouse_amount(warehouse)
+    )
+
+
 def _proof_candidates(
     supplier,
     warehouses,
@@ -366,6 +401,13 @@ def _proof_candidates(
         ]
     if len(request_matches) == 1:
         return "request", request_matches
+
+    identity_matches = [
+        warehouse for warehouse in warehouses
+        if compatible(warehouse) and _identity_matches(supplier, warehouse)
+    ]
+    if len(identity_matches) == 1:
+        return "identity", identity_matches
     return None, []
 
 

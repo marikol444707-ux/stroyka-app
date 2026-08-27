@@ -25,6 +25,8 @@ SUPPLIERS = [{
     "offer_id": 51,
     "request_id": 31,
     "warehouse_invoice_id": 999,
+    "invoice_number": "Счёт № 14555",
+    "invoice_date": "2026-08-10",
     "status": "На утверждении",
 }]
 WAREHOUSES = [{
@@ -38,6 +40,8 @@ WAREHOUSES = [{
     "supply_delivery_id": 71,
     "supply_request_id": 31,
     "supplier_invoice_id": None,
+    "number": "14555",
+    "date": "2026-08-10",
     "status": "Принята",
 }]
 DELIVERIES = [{
@@ -163,6 +167,19 @@ class AccountingLinkRepairRuntimeTests(unittest.TestCase):
         self.assertFalse(connection.committed)
         self.assertEqual(connection.rollback_count, 1)
         self.assertTrue(connection.closed)
+        source_queries = [
+            sql for sql, _params in connection.executed
+            if "ORDER BY id LIMIT" in sql
+        ]
+        self.assertTrue(any(
+            "invoice_number" in sql and "invoice_date" in sql
+            for sql in source_queries
+        ))
+        self.assertTrue(any(
+            "COALESCE(number,'') AS number" in sql
+            and "COALESCE(date::text,'') AS date" in sql
+            for sql in source_queries
+        ))
 
     def test_apply_locks_rebuilds_updates_both_sides_audits_and_commits_once(self):
         preview_connection = FakeConnection()

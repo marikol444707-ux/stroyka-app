@@ -32,12 +32,12 @@ const reviewReport = (companyId = 4) => ({
   truncated: false,
 });
 const repairPreview = (companyId = 4, overrides = {}) => ({
-  version: 'accounting-exception-link-repair-v1',
+  version: 'accounting-exception-link-repair-v2',
   companyId,
   state: 'clear',
   repairCount: 0,
   unresolvedCount: 31,
-  proofCounts: { reciprocal: 0, delivery: 0, request: 0 },
+  proofCounts: { reciprocal: 0, delivery: 0, request: 0, identity: 0 },
   planSha256: 'a'.repeat(64),
   blockers: [],
   ...overrides,
@@ -46,7 +46,7 @@ const readyPreview = (companyId = 4) => repairPreview(companyId, {
   state: 'ready',
   repairCount: 7,
   unresolvedCount: 24,
-  proofCounts: { reciprocal: 1, delivery: 5, request: 1 },
+  proofCounts: { reciprocal: 1, delivery: 5, request: 1, identity: 0 },
   planSha256: 'b'.repeat(64),
 });
 const jsonResponse = (value, status = 200) => Promise.resolve({
