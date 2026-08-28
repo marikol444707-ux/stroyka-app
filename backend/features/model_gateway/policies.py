@@ -56,6 +56,7 @@ _CAPABILITIES = (
         model_policy="vision_json",
         multipart=True,
         max_input_bytes=4 * 1024 * 1024,
+        max_output_tokens=12_000,
     ),
     _policy("material_inspection_suggestion", model_policy="strict_json"),
     _policy("material_norm_suggestion", model_policy="strict_json"),

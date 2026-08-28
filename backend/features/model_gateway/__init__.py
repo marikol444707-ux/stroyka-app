@@ -1,5 +1,6 @@
 """Provider-neutral model access boundary.
 
-A14.1 contains contracts and a static inventory only. It intentionally has no
-provider SDK, environment, network, database, HTTP or runtime registration.
+The package contains pure contracts, a static inventory and an inert Yandex
+adapter. Application runtime registration, environment and database access
+remain outside this package until a caller is migrated explicitly.
 """

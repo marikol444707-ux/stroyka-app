@@ -69,6 +69,20 @@ logs or errors.
 - Inject a fake client in tests; no external model call is made by tests.
 - Keep the legacy Foundation Models HTTP call unchanged until its own slice.
 
+Implemented as an inert adapter in `yandex_adapter.py`: it has one fixed Yandex
+base URL, a closed per-capability model chain, a total request deadline and
+secret-safe fixed failures. It receives credentials from its future composition
+root, creates no environment or database dependency and is not registered by
+the application. The invoice capability retains the existing 12,000-token OCR
+ceiling. Multipart values are translated only to the three allowlisted Responses
+API part shapes.
+
+The normal text branch of `ai_chat` currently uses YandexGPT then Qwen and is
+represented by that capability route. Its existing `jsonOnly` branch reverses
+the order; that branch remains untouched and must gain an explicit
+provider-neutral request variant before it is migrated. This prevents A14.2
+from silently changing either branch merely to make the model table uniform.
+
 ### A14.3: First low-risk caller
 
 - Move `_generate_estimate_chat_answer` to the gateway without changing its
@@ -97,7 +111,9 @@ logs or errors.
 
 ```bash
 PYTHONPYCACHEPREFIX=/tmp/stroyka-a14-pycache \
-python3 -m unittest backend.features.model_gateway.test_contract
+python3 -m unittest \
+  backend.features.model_gateway.test_contract \
+  backend.features.model_gateway.test_yandex_adapter
 
 PYTHONPYCACHEPREFIX=/tmp/stroyka-a14-pycache \
 python3 -m unittest discover -s backend -p 'test_*.py'
@@ -129,12 +145,13 @@ The boundary uses explicit immutable values and dependency injection rather
 than a generic plugin framework:
 
 ```python
-request = ModelRequest(
+request = build_model_request(
     capability="estimate_chat",
     instructions=instructions,
     input_text=prompt,
     temperature=0.1,
     max_output_tokens=4000,
+    deadline_seconds=30,
 )
 result = gateway.generate(request)
 ```
