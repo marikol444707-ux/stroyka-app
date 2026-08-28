@@ -36,7 +36,6 @@ export const ReimburseModal = React.lazy(() => import('../components/ReimburseMo
 export const AccountableExpenseReportModal = React.lazy(() => import('../components/AccountableExpenseReportModal'));
 export const ManualExpenseModal = React.lazy(() => import('../components/ManualExpenseModal'));
 export const AccountablePaymentModal = React.lazy(() => import('../components/AccountablePaymentModal'));
-export const EstimateDistributeModal = React.lazy(() => import('../components/EstimateDistributeModal'));
 export const PricelistFromEstimateModal = React.lazy(() => import('../components/PricelistFromEstimateModal'));
 export const GeneratePricelistModal = React.lazy(() => import('../components/GeneratePricelistModal'));
 export const GenerateEstimateModal = React.lazy(() => import('../components/GenerateEstimateModal'));

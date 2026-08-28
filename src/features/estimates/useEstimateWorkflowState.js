@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
-  createDistributeBrigadeForm,
   createEstimateItemForm,
   createEstimateSectionForm,
   createFromEstimateForm,
@@ -38,12 +37,7 @@ export function useEstimateWorkflowState(companyContextKey = '', selectedEstimat
   const [showFromEstimate, setShowFromEstimate] = useState(false);
   const [fromEstimateForm, setFromEstimateForm] = useState(createFromEstimateForm);
   const [creatingFromEstimate, setCreatingFromEstimate] = useState(false);
-  const [showDistribute, setShowDistribute] = useState(false);
   const [showWorkAssignment, setShowWorkAssignment] = useState(false);
-  const [distributeAssignments, setDistributeAssignments] = useState({});
-  const [distributeBrigades, setDistributeBrigades] = useState([]);
-  const [newDistributeBrigade, setNewDistributeBrigade] = useState(createDistributeBrigadeForm);
-  const [distributing, setDistributing] = useState(false);
   const [newEstimateSection, setNewEstimateSection] = useState(createEstimateSectionForm);
   const [newEstimateItem, setNewEstimateItem] = useState(createEstimateItemForm);
 
@@ -66,24 +60,24 @@ export function useEstimateWorkflowState(companyContextKey = '', selectedEstimat
   }, [companyContextKey, selectedEstimateId]);
 
   return {
-    creatingFromEstimate, distributeAssignments, distributeBrigades, distributing,
+    creatingFromEstimate,
     estimateChatActiveEstimateIdRef, estimateChatHistoryLoading, estimateChatHistoryLoadingRef,
     estimateChatInput, estimateChatLoading,
     estimateChatMessages, estimateChatRequestRef, estimateIssueFocusKey, estimateVersionRequestRef,
     estimateVersions, executionPriceFillPercent, fromEstimateForm, generateForm,
     generatePricelistForm, generating, generatingPricelist, importValidating,
-    importValidationWarnings, newDistributeBrigade, newEstimate, newEstimateItem,
+    importValidationWarnings, newEstimate, newEstimateItem,
     newEstimateSection, selectedVersionsToCompare, setCreatingFromEstimate,
-    setDistributeAssignments, setDistributeBrigades, setDistributing, setEstimateChatHistoryLoading,
+    setEstimateChatHistoryLoading,
     setEstimateChatInput,
     setEstimateChatLoading, setEstimateChatMessages, setEstimateIssueFocusKey,
     setEstimateVersions, setExecutionPriceFillPercent, setFromEstimateForm, setGenerateForm,
     setGeneratePricelistForm, setGenerating, setGeneratingPricelist, setImportValidating,
-    setImportValidationWarnings, setNewDistributeBrigade, setNewEstimate, setNewEstimateItem,
-    setNewEstimateSection, setSelectedVersionsToCompare, setShowDistribute, setShowEstimateChat,
+    setImportValidationWarnings, setNewEstimate, setNewEstimateItem,
+    setNewEstimateSection, setSelectedVersionsToCompare, setShowEstimateChat,
     setShowEstimateIssuesOnly, setShowEstimateWorkSummary, setShowFromEstimate,
     setShowGenerateEstimate, setShowGeneratePricelist, setShowVersionHistory,
-    setShowWorkAssignment, showDistribute, showEstimateChat, showEstimateIssuesOnly,
+    setShowWorkAssignment, showEstimateChat, showEstimateIssuesOnly,
     showEstimateWorkSummary, showFromEstimate, showGenerateEstimate, showGeneratePricelist,
     showVersionHistory, showWorkAssignment,
   };

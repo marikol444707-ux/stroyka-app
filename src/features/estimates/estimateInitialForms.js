@@ -36,13 +36,6 @@ export const createFromEstimateForm = () => ({
   coefficient: 1.0,
 });
 
-export const createDistributeBrigadeForm = () => ({
-  brigadeName: '',
-  contractorType: 'Своя бригада',
-  contractorId: '',
-  pricelistId: '',
-});
-
 export const createEstimateSectionForm = () => ({name: ''});
 
 export const createEstimateItemForm = () => ({

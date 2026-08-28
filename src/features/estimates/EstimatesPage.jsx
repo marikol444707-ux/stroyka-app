@@ -13,7 +13,7 @@ export default function EstimatesPage({ ctx }) {
     EstimateSectionsEditor, EstimateSelectedToolbar, estimatesList, EstimatesListToolbar, EstimatesListView, estimatesPage, estimatesTab, EstimatesTabsNav,
     estimateStatusView, estimateTotal, EstimateTotalCard, estimateTypeIcon, estimateUpdatedTs, estimateVersionChain, exportToExcel,
     fmtMeasure, generateMaterialNormSuggestions, handleDetectEstimateHiddenWorks, handleEstimateAiAnalysis, handleEstimateImportFile, handleExportSelectedEstimate, handleNormalizeSelectedEstimateImport,
-    handleOpenEstimateDistribute, handleOpenSelectedEstimateHistory, handleOpenWorkAssignment, handlePreviewSelectedEstimate, handleShowSelectedEstimateDiff, handleToggleSelectedEstimateTemplate, importValidating,
+    handleOpenSelectedEstimateHistory, handleOpenWorkAssignment, handlePreviewSelectedEstimate, handleShowSelectedEstimateDiff, handleToggleSelectedEstimateTemplate, importValidating,
     importValidationWarnings, inp, isArchivedEstimate, isGlobalEstimateTemplate, isMobile, jumpToEstimateIssue,
     loadAll, loadMaterialNormsPage, markEstimateWorkNoMaterialFromCoverage, materialNormCanCreateSupply, materialNormCoverageComment, materialNormCoverageDisplayRows, materialNormCoverageExportRows, materialNormCoverageMeta,
     materialNormCoverageProject, MaterialNormCoverageSection, MaterialNormFormPanel, materialNormNotice, MaterialNormNotice, materialNormOverrides, MaterialNormOverridesPanel, materialNormPreviewSuggestions,
@@ -135,7 +135,6 @@ export default function EstimatesPage({ ctx }) {
                   onExport={handleExportSelectedEstimate}
                   onHistory={handleOpenSelectedEstimateHistory}
                   onNormalize={handleNormalizeSelectedEstimateImport}
-                  onOpenDistribute={handleOpenEstimateDistribute}
                   onOpenWorkAssignment={handleOpenWorkAssignment}
                   onCreateReconciliation={()=>{const base=estimateDiffBaseFor(selectedEstimate);if(base)createEstimateReconciliation(base,selectedEstimate);}}
                   onPreview={handlePreviewSelectedEstimate}

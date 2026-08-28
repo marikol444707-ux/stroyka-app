@@ -4,7 +4,6 @@ import {
   AccountablePaymentModal,
   AiChatModal,
   EstimateChatModal,
-  EstimateDistributeModal,
   EstimateVersionHistoryModal,
   GenerateEstimateModal,
   GeneratePricelistModal,
@@ -49,9 +48,6 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
     aiLoading,
     aiMessages,
     creatingFromEstimate,
-    distributeAssignments,
-    distributeBrigades,
-    distributing,
     estimateChatHistoryLoading,
     estimateChatInput,
     estimateChatLoading,
@@ -69,7 +65,6 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
     isFinanceRole,
     isGlobalEstimateTemplate,
     newAccountable,
-    newDistributeBrigade,
     newExpense,
     newInvoice,
     newManualExpense,
@@ -85,7 +80,6 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
     selectedVersionsToCompare,
     showAccountableForm,
     showAiChat,
-    showDistribute,
     showEstimateChat,
     showFromEstimate,
     showGenerateEstimate,
@@ -142,9 +136,6 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
     setAiLoading,
     setAiMessages,
     setCreatingFromEstimate,
-    setDistributeAssignments,
-    setDistributeBrigades,
-    setDistributing,
     setEstimateChatInput,
     setEstimatesList,
     setExpenseSubmitting,
@@ -156,7 +147,6 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
     setGeneratingPricelist,
     setMaterialTransfers,
     setNewAccountable,
-    setNewDistributeBrigade,
     setNewExpense,
     setNewInvoice,
     setNewManualExpense,
@@ -172,7 +162,6 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
     setShowAiAssistant,
     setShowAiChat,
     setShowChatPanel,
-    setShowDistribute,
     setShowEstimateChat,
     setShowFromEstimate,
     setShowGenerateEstimate,
@@ -336,32 +325,6 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
           staff={staff}
           newAccountable={newAccountable}
           setNewAccountable={setNewAccountable}
-          API={API}
-          loadAll={loadAll}
-        />
-      )}
-
-      {showDistribute && (
-        <EstimateDistributeModal
-          showDistribute={showDistribute}
-          setShowDistribute={setShowDistribute}
-          selectedEstimate={selectedEstimate}
-          distributing={distributing}
-          setDistributing={setDistributing}
-          C={C}
-          card={card}
-          inp={inp}
-          btnO={btnO}
-          btnG={btnG}
-          btnB={btnB}
-          distributeBrigades={distributeBrigades}
-          setDistributeBrigades={setDistributeBrigades}
-          newDistributeBrigade={newDistributeBrigade}
-          setNewDistributeBrigade={setNewDistributeBrigade}
-          pricelists={pricelists}
-          staff={staff}
-          distributeAssignments={distributeAssignments}
-          setDistributeAssignments={setDistributeAssignments}
           API={API}
           loadAll={loadAll}
         />

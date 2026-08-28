@@ -26,7 +26,7 @@ describe('estimate import versioning', () => {
     const noop = jest.fn();
     const actions = createEstimatePageActions({
       API:'', ROLE_LABELS:{}, applyEstimateActivationState:rows=>rows, aiMessages:[], autoReconcileEstimateChanges:noop,
-      brigadeContracts:[], buildEstimateDiffContent:noop, contracts:[], createEstimateReconciliation:noop,
+      buildEstimateDiffContent:noop, contracts:[], createEstimateReconciliation:noop,
       enrichEstimateMeasurementBasis:sections=>sections, estimateDiffBaseFor:noop, estimateItemMaterialSum:noop,
       estimateItemTotal:noop, estimateItemTypeMeta:noop, estimateItemWorkSum:noop, estimateQualityRows:()=>[],
       executionPriceFillPercent:0, exportToExcel:noop, estimatesList:[], isGlobalEstimateTemplate:()=>false,
@@ -34,11 +34,11 @@ describe('estimate import versioning', () => {
       nextEstimateVersionFor:()=> '3.0', normalizeEstimateImportSections:sections=>sections, normalizeEstimateItemType:value=>value,
       projects:[{id:1,name:'Объект'}], queueEstimateDiffReviewTask:noop, queueEstimateNormReviewTask:noop,
       queueEstimateQualityReviewTask:noop, readApiResult:async response=>response.data, sameEstimateGroup:()=>true,
-      setAiInput:noop, setAiLoading:noop, setAiMessages:noop, setDistributeAssignments:noop, setDistributeBrigades:noop,
+      setAiInput:noop, setAiLoading:noop, setAiMessages:noop,
       setEstimateChatHistoryLoading:noop, setEstimateChatInput:noop, setEstimateChatLoading:noop, setEstimateChatMessages:noop,
       setEstimateVersions:noop, setEstimatesList:noop, setEstimatesTab:noop, setExecutionPriceFillPercent:noop,
       setImportValidating:noop, setImportValidationWarnings:noop, setSelectedEstimate:noop, setSelectedVersionsToCompare:noop,
-      setShowAiChat:noop, setShowDistribute:noop, setShowEstimateChat:noop, setShowVersionHistory:noop, setShowWorkAssignment:noop,
+      setShowAiChat:noop, setShowEstimateChat:noop, setShowVersionHistory:noop, setShowWorkAssignment:noop,
       showPreview:noop, staff:[], toNum:Number, user:{role:'директор'}, fetchFn, alertFn:noop,
     });
     const target = {files:[new File(['x'], 'Отопление.xlsx')], value:'selected'};
@@ -79,7 +79,7 @@ describe('estimate import versioning', () => {
     const noop = jest.fn();
     const actions = createEstimatePageActions({
       API:'', ROLE_LABELS:{}, applyEstimateActivationState:rows=>rows, aiMessages:[], autoReconcileEstimateChanges,
-      brigadeContracts:[], buildEstimateDiffContent:noop, contracts:[], createEstimateReconciliation,
+      buildEstimateDiffContent:noop, contracts:[], createEstimateReconciliation,
       enrichEstimateMeasurementBasis:sections=>sections, estimateDiffBaseFor:noop, estimateItemMaterialSum:noop,
       estimateItemTotal:noop, estimateItemTypeMeta:noop, estimateItemWorkSum:noop, estimateQualityRows:()=>[],
       executionPriceFillPercent:0, exportToExcel:noop, estimatesList:[baseSummary], isGlobalEstimateTemplate:()=>false,
@@ -87,11 +87,11 @@ describe('estimate import versioning', () => {
       nextEstimateVersionFor:()=> '2.0', normalizeEstimateImportSections:sections=>sections, normalizeEstimateItemType:value=>value,
       projects:[{id:1,name:'Объект'}], queueEstimateDiffReviewTask, queueEstimateNormReviewTask:noop,
       queueEstimateQualityReviewTask:noop, readApiResult:async response=>response.data, sameEstimateGroup:()=>true,
-      setAiInput:noop, setAiLoading:noop, setAiMessages:noop, setDistributeAssignments:noop, setDistributeBrigades:noop,
+      setAiInput:noop, setAiLoading:noop, setAiMessages:noop,
       setEstimateChatHistoryLoading:noop, setEstimateChatInput:noop, setEstimateChatLoading:noop, setEstimateChatMessages:noop,
       setEstimateVersions:noop, setEstimatesList:noop, setEstimatesTab:noop, setExecutionPriceFillPercent:noop,
       setImportValidating:noop, setImportValidationWarnings:noop, setSelectedEstimate:noop, setSelectedVersionsToCompare:noop,
-      setShowAiChat:noop, setShowDistribute:noop, setShowEstimateChat:noop, setShowVersionHistory:noop, setShowWorkAssignment:noop,
+      setShowAiChat:noop, setShowEstimateChat:noop, setShowVersionHistory:noop, setShowWorkAssignment:noop,
       showPreview:noop, staff:[], toNum:Number, user:{role:'директор'}, fetchFn, alertFn:noop,
     });
     const target = {files:[new File(['x'], 'Отделка.xlsx')], value:'selected'};

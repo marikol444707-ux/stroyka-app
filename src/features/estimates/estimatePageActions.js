@@ -33,7 +33,6 @@ export function createEstimatePageActions({
   applyEstimateActivationState,
   aiMessages,
   autoReconcileEstimateChanges,
-  brigadeContracts,
   buildEstimateDiffContent,
   contracts,
   createEstimateReconciliation,
@@ -78,8 +77,6 @@ export function createEstimatePageActions({
   setAiInput,
   setAiLoading,
   setAiMessages,
-  setDistributeAssignments,
-  setDistributeBrigades,
   setEstimateChatHistoryLoading,
   setEstimateChatInput,
   setEstimateChatLoading,
@@ -93,7 +90,6 @@ export function createEstimatePageActions({
   setSelectedEstimate,
   setSelectedVersionsToCompare,
   setShowAiChat,
-  setShowDistribute,
   setShowEstimateChat,
   setShowVersionHistory,
   setShowWorkAssignment,
@@ -561,14 +557,6 @@ export function createEstimatePageActions({
     alertFn('Импорт нормализован. Осталось замечаний: ' + qualityWarnings.length);
   };
 
-  const handleOpenEstimateDistribute = () => {
-    if (!selectedEstimate) return;
-    setDistributeAssignments({});
-    const existing = brigadeContracts.filter(bc => bc.projectName === selectedEstimate.projectName);
-    setDistributeBrigades(existing.length ? existing.map(bc => ({name: bc.brigadeName, contractorType: bc.contractorType, pricelistId: bc.pricelistId || ''})) : []);
-    setShowDistribute(true);
-  };
-
   const handleOpenWorkAssignment = () => {
     if (!selectedEstimate) return;
     setShowWorkAssignment(true);
@@ -582,7 +570,6 @@ export function createEstimatePageActions({
     handleEstimateImportFile,
     handleExportSelectedEstimate,
     handleNormalizeSelectedEstimateImport,
-    handleOpenEstimateDistribute,
     handleOpenSelectedEstimateChat,
     handleOpenSelectedEstimateHistory,
     handleOpenWorkAssignment,
