@@ -33,7 +33,22 @@ cleanup_frontend_build() {
 }
 trap cleanup_frontend_build EXIT
 
-BUILD_PATH="$FRONTEND_BUILD_DIR" npm run build
+STROYKA_SERVICE_ENVIRONMENT="$(
+  systemctl show stroyka -p Environment --value --no-pager
+)"
+FRONTEND_BUILD_ENV_OUTPUT="$(
+  bash scripts/resolve-frontend-build-env.sh "$STROYKA_SERVICE_ENVIRONMENT"
+)"
+FRONTEND_BUILD_ENV=()
+while IFS= read -r build_variable; do
+  if [ -n "$build_variable" ]; then
+    FRONTEND_BUILD_ENV+=("$build_variable")
+  fi
+done <<< "$FRONTEND_BUILD_ENV_OUTPUT"
+if [ "${#FRONTEND_BUILD_ENV[@]}" -gt 0 ]; then
+  echo "Frontend A10 включён для backend allowlist."
+fi
+env "${FRONTEND_BUILD_ENV[@]}" BUILD_PATH="$FRONTEND_BUILD_DIR" npm run build
 echo "Применение миграций базы данных..."
 PGOPTIONS="-c lock_timeout=5000 -c statement_timeout=60000" \
   python3 -m alembic upgrade head
