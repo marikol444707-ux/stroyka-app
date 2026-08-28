@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ArrowLeft, Bot, Download, Eye, FileText, GitBranch, MoreHorizontal, UserCheck, Users } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Bot, Download, Eye, FileText, GitBranch, MoreHorizontal, UserCheck } from 'lucide-react';
 import EstimateSelectedStatusActions from './EstimateSelectedStatusActions';
 import EstimateSelectedTitleBadges from './EstimateSelectedTitleBadges';
 
@@ -23,7 +23,6 @@ export default function EstimateSelectedToolbar({
   onExport,
   onHistory,
   onNormalize,
-  onOpenDistribute,
   onOpenWorkAssignment,
   onPreview,
   onCreateReconciliation,
@@ -156,11 +155,6 @@ export default function EstimateSelectedToolbar({
             <button onClick={() => runMenuAction(onHistory)} style={menuItemStyle}>📜 История</button>
             {showLeadership && (
               <button onClick={() => runMenuAction(onNormalize)} style={menuItemStyle}>🧹 Нормализовать импорт</button>
-            )}
-            {showLeadership && (
-              <button onClick={() => runMenuAction(onOpenDistribute)} style={menuItemStyle}>
-                <Users size={14}/>Расширенное распределение
-              </button>
             )}
             <button onClick={() => runMenuAction(onAiAnalysis)} style={menuItemStyle}><Bot size={14}/>ИИ-анализ</button>
             <button onClick={() => runMenuAction(onDetectHiddenWorks)} style={menuItemStyle}>

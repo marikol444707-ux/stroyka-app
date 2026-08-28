@@ -78,7 +78,7 @@ describe('EstimateSelectedToolbar', () => {
     fireEvent.click(screen.getByRole('button', {name: 'Ещё'}));
 
     expect(screen.getByRole('button', {name: 'Excel'})).toBeInTheDocument();
-    expect(screen.getByRole('button', {name: 'Расширенное распределение'})).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Расширенное распределение'})).not.toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'ИИ-анализ'})).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', {name: 'Excel'}));

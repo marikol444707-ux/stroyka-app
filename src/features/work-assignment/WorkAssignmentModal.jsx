@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react';
-import { CheckSquare, RotateCcw, UserCheck, X } from 'lucide-react';
-import { formatMoney, formatQty, toNumber, workRowsForEstimate } from './workAssignmentUtils';
+import React, { useEffect, useMemo, useState } from 'react';
+import { CheckSquare, RotateCcw, Settings2, UserCheck, X } from 'lucide-react';
+import { assignmentsForEstimate, formatMoney, formatQty, toNumber } from './workAssignmentUtils';
 import { findUserForStaff, normalizePersonKey } from '../../utils/performerUtils';
 
 function isPerformer(item = {}) {
@@ -8,14 +8,18 @@ function isPerformer(item = {}) {
     return ['мастер', 'субподрядчик', 'бригадир', 'электрик', 'слаботочник', 'отделочник', 'гпх', 'самозанятый', 'ип', 'ооо'].some(token => text.includes(token));
 }
 
-export function performerRows(staff = [], users = []) {
+const performerOptionId = item => String(item?.optionId || item?.contractorId || item?.id || '');
+
+export function performerRows(staff = [], users = [], brigadeContracts = []) {
   const rows = [];
   const seenKeys = new Set();
   const seenUserIds = new Set();
+  const seenNames = new Set();
   const addRow = (item, key, userId = '') => {
     if (!item || !key || seenKeys.has(key)) return;
     seenKeys.add(key);
     if (userId) seenUserIds.add(String(userId));
+    if (item.name) seenNames.add(normalizePersonKey(item.name));
     rows.push(item);
   };
   (staff || []).filter(isPerformer).forEach(item => {
@@ -38,6 +42,20 @@ export function performerRows(staff = [], users = []) {
       employmentType: item.role || 'мастер',
     }, 'user:' + item.id, item.id);
   });
+  (brigadeContracts || []).forEach(contract => {
+    const name = String(contract.brigadeName || contract.brigade_name || '').trim();
+    const nameKey = normalizePersonKey(name);
+    if (!name || seenNames.has(nameKey)) return;
+    const contractId = contract.id;
+    addRow({
+      ...contract,
+      id: 'contract:' + contractId,
+      optionId: 'contract:' + contractId,
+      contractorId: contract.contractorId || contract.contractor_id || '',
+      name,
+      employmentType: contract.contractorType || contract.contractor_type || 'Своя бригада',
+    }, 'contract:' + (contractId || nameKey));
+  });
   return rows.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ru'));
 }
 
@@ -45,8 +63,10 @@ export default function WorkAssignmentModal({
   show,
   onClose,
   selectedEstimate,
-  staff = [],
-  users = [],
+  brigadeContracts,
+  brigadeContractItems,
+  staff,
+  users,
   API,
   loadAll,
   C,
@@ -63,12 +83,24 @@ export default function WorkAssignmentModal({
   const [coefficient, setCoefficient] = useState('0.6');
   const [priceMode, setPriceMode] = useState('coefficient');
   const [manualPrices, setManualPrices] = useState({});
+  const [showPriceSettings, setShowPriceSettings] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const rows = useMemo(() => workRowsForEstimate(selectedEstimate), [selectedEstimate]);
-  const performers = useMemo(() => performerRows(staff, users), [staff, users]);
+  const assignmentRows = useMemo(
+    () => assignmentsForEstimate(selectedEstimate, brigadeContractItems || [], brigadeContracts || []),
+    [selectedEstimate, brigadeContractItems, brigadeContracts],
+  );
+  const rows = useMemo(
+    () => assignmentRows.filter(row => row.assignments.length === 0),
+    [assignmentRows],
+  );
+  const assignedCount = assignmentRows.length - rows.length;
+  const performers = useMemo(
+    () => performerRows(staff || [], users || [], brigadeContracts || []),
+    [staff, users, brigadeContracts],
+  );
   const selectedRows = rows.filter(row => selectedIds[row.id]);
-  const selectedPerformer = performers.find(item => String(item.contractorId || item.id) === String(contractorId));
+  const selectedPerformer = performers.find(item => performerOptionId(item) === String(contractorId));
   const brigadeName = (selectedPerformer?.name || manualName || '').trim();
   const coef = Math.max(0, toNumber(coefficient));
   const hasManualPrice = rowId => Object.prototype.hasOwnProperty.call(manualPrices, rowId);
@@ -80,6 +112,17 @@ export default function WorkAssignmentModal({
   const selectedTotal = selectedRows.reduce((sum, row) => {
     return sum + row.quantity * priceForRow(row);
   }, 0);
+
+  useEffect(() => {
+    if (!show || !selectedEstimate) return;
+    setSelectedIds(Object.fromEntries(rows.map(row => [row.id, true])));
+    setContractorId(performers.length === 1 ? performerOptionId(performers[0]) : '');
+    setManualName('');
+    setCoefficient('0.6');
+    setPriceMode('coefficient');
+    setManualPrices({});
+    setShowPriceSettings(false);
+  }, [show, selectedEstimate, rows, performers]);
 
   if (!show || !selectedEstimate) return null;
 
@@ -115,7 +158,7 @@ export default function WorkAssignmentModal({
     try {
       const payload = {
         assignee: {
-          contractorId: selectedPerformer?.contractorId || contractorId || null,
+          contractorId: selectedPerformer?.contractorId || null,
           brigadeName,
           contractorType: selectedPerformer?.employmentType || selectedPerformer?.role || 'Своя бригада',
         },
@@ -180,29 +223,36 @@ export default function WorkAssignmentModal({
         </div>
 
         <div style={{padding: '16px 20px', overflowY: 'auto'}}>
-          <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(260px,1fr) 180px 180px', gap: '10px', marginBottom: '14px'}}>
+          <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(260px,1fr) 220px auto', gap: '10px', marginBottom: '14px'}}>
             <select value={contractorId} onChange={event => { setContractorId(event.target.value); if (event.target.value) setManualName(''); }} style={{...inp, marginBottom: 0}}>
               <option value="">Выберите мастера / субподрядчика / бригаду</option>
-              {performers.map(item => <option key={(item.contractorId || item.id) + '-' + item.name} value={item.contractorId || item.id}>{item.name}</option>)}
+              {performers.map(item => <option key={performerOptionId(item) + '-' + item.name} value={performerOptionId(item)}>{item.name}</option>)}
             </select>
             <input value={manualName} onChange={event => { setManualName(event.target.value); if (event.target.value) setContractorId(''); }} placeholder="Или название бригады" style={{...inp, marginBottom: 0}} />
-            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px'}}>
-              <button type="button" onClick={() => setPriceMode('coefficient')} style={priceMode === 'coefficient' ? btnO : btnG}>Коэфф.</button>
-              <button type="button" onClick={() => setPriceMode('manual')} style={priceMode === 'manual' ? btnO : btnG}>Ручная</button>
-            </div>
+            <button type="button" onClick={() => setShowPriceSettings(value => !value)} style={btnG}>
+              <Settings2 size={14} />{showPriceSettings ? 'Скрыть цену' : 'Настроить цену'}
+            </button>
           </div>
 
-          <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '180px 1fr auto', gap: '10px', alignItems: 'center', marginBottom: '14px'}}>
-            <label style={{display: 'flex', alignItems: 'center', gap: '8px', color: C.textSec, fontSize: '12px'}}>
-              Коэффициент
-              <input disabled={priceMode !== 'coefficient'} type="number" min="0.01" step="0.01" value={coefficient} onChange={event => setCoefficient(event.target.value)} style={{...inp, width: '86px', marginBottom: 0, opacity: priceMode === 'coefficient' ? 1 : 0.55}} />
-            </label>
+          <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(220px,1fr) auto', gap: '10px', alignItems: 'center', marginBottom: '14px'}}>
             <div style={{padding: '9px 12px', border: '1px solid ' + C.border, borderRadius: '8px', backgroundColor: C.bg}}>
               <b style={{color: C.text, fontSize: '12px'}}>Выбрано: {selectedRows.length} из {rows.length}</b>
+              {assignedCount > 0 && <span style={{color: C.success, fontSize: '12px', marginLeft: '8px'}}>Уже назначено: {assignedCount}</span>}
               <span style={{color: C.textSec, fontSize: '12px', marginLeft: '8px'}}>к оплате исполнителю: {formatMoney(selectedTotal)}</span>
             </div>
-            <button type="button" onClick={toggleAll} style={btnB}><CheckSquare size={14} />{rows.every(row => selectedIds[row.id]) ? 'Снять все' : 'Выбрать все'}</button>
+            {rows.length > 0 && <button type="button" onClick={toggleAll} style={btnB}><CheckSquare size={14} />{rows.every(row => selectedIds[row.id]) ? 'Снять все' : 'Выбрать все'}</button>}
           </div>
+
+          {showPriceSettings && (
+            <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '180px 180px 1fr', gap: '10px', alignItems: 'center', marginBottom: '14px', padding: '10px', border: '1px solid ' + C.border, borderRadius: '8px', backgroundColor: C.bg}}>
+              <button type="button" onClick={() => setPriceMode('coefficient')} style={priceMode === 'coefficient' ? btnO : btnG}>По коэффициенту</button>
+              <button type="button" onClick={() => setPriceMode('manual')} style={priceMode === 'manual' ? btnO : btnG}>Ручная</button>
+              <label style={{display: 'flex', alignItems: 'center', gap: '8px', color: C.textSec, fontSize: '12px'}}>
+                Коэффициент
+                <input aria-label="Коэффициент" disabled={priceMode !== 'coefficient'} type="number" min="0.01" step="0.01" value={coefficient} onChange={event => setCoefficient(event.target.value)} style={{...inp, width: '86px', marginBottom: 0, opacity: priceMode === 'coefficient' ? 1 : 0.55}} />
+              </label>
+            </div>
+          )}
 
           <div style={{border: '1px solid ' + C.border, borderRadius: '10px', overflow: 'hidden'}}>
             {!isMobile && (
@@ -230,7 +280,7 @@ export default function WorkAssignmentModal({
                     </div>
                     <span style={{color: C.textSec, fontSize: '12px'}}>{formatQty(row.quantity, row.unit)}</span>
                     <span style={{color: C.textSec, fontSize: '12px'}}>{formatMoney(row.priceSmeta)}</span>
-                    <div style={{display: 'grid', gridTemplateColumns: rowHasManualPrice && priceMode === 'coefficient' ? 'minmax(0,1fr) 26px' : 'minmax(0,1fr)', gap: '4px', alignItems: 'center'}}>
+                    {showPriceSettings ? <div style={{display: 'grid', gridTemplateColumns: rowHasManualPrice && priceMode === 'coefficient' ? 'minmax(0,1fr) 26px' : 'minmax(0,1fr)', gap: '4px', alignItems: 'center'}}>
                       <input
                         aria-label={'Цена исполнителю: ' + row.name}
                         type="number"
@@ -258,12 +308,12 @@ export default function WorkAssignmentModal({
                           <RotateCcw size={13} />
                         </button>
                       )}
-                    </div>
+                    </div> : <span style={{color: C.textSec, fontSize: '12px'}}>{formatMoney(masterPrice)}</span>}
                     <span style={{color: C.success, fontSize: '12px', fontWeight: 800}}>{checked ? formatMoney(row.quantity * masterPrice) : '—'}</span>
                   </div>
                 );
               })}
-              {!rows.length && <div style={{padding: '24px', textAlign: 'center', color: C.textMuted}}>В смете нет рабочих строк для назначения</div>}
+              {!rows.length && <div style={{padding: '24px', textAlign: 'center', color: C.textMuted}}>{assignmentRows.length ? 'Все работы этой сметы уже назначены' : 'В смете нет рабочих строк для назначения'}</div>}
             </div>
           </div>
         </div>

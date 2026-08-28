@@ -33,11 +33,15 @@ describe('buildAppShellProps work assignment modal', () => {
       projectName: 'Объект',
       sections: [],
     };
+    const brigadeContracts = [{id: 70, brigadeName: 'Бригада'}];
+    const brigadeContractItems = [{id: 701, contractId: 70}];
 
     const props = buildAppShellProps({
       API: '/api',
       appMainState: {
         selectedEstimate,
+        brigadeContracts,
+        allBrigadeItems: brigadeContractItems,
         staff: [],
         users: [],
       },
@@ -50,6 +54,8 @@ describe('buildAppShellProps work assignment modal', () => {
 
     expect(props.workAssignmentProps.show).toBe(true);
     expect(props.workAssignmentProps.selectedEstimate).toBe(selectedEstimate);
+    expect(props.workAssignmentProps.brigadeContracts).toBe(brigadeContracts);
+    expect(props.workAssignmentProps.brigadeContractItems).toBe(brigadeContractItems);
   });
 
   test('renders the work assignment modal for the selected estimate', () => {
