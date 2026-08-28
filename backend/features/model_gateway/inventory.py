@@ -40,7 +40,7 @@ _EXPECTED_ACCESS = (
         "ai_prefill_hidden_works_act._call",
         "hidden_works_act_prefill",
     ),
-    ("backend/main.py", "_generate_estimate_chat_answer", "estimate_chat"),
+    ("backend/main.py", "_generate_estimate_chat_answer_legacy", "estimate_chat"),
     ("backend/main.py", "_repair_invoice_scan_json", "invoice_scan"),
     ("backend/main.py", "_retry_invoice_scan_compact_json", "invoice_scan"),
     ("backend/main.py", "scan_invoice", "invoice_scan"),

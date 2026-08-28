@@ -103,6 +103,23 @@ except ModuleNotFoundError:
     )
 
 try:
+    from backend.features.model_gateway.contract import (
+        MODEL_GATEWAY_PROVIDER_FAILED,
+        ModelGatewayError,
+        build_model_request,
+    )
+    from backend.features.model_gateway.yandex_adapter import (
+        build_yandex_model_adapter,
+    )
+except ModuleNotFoundError:
+    from features.model_gateway.contract import (
+        MODEL_GATEWAY_PROVIDER_FAILED,
+        ModelGatewayError,
+        build_model_request,
+    )
+    from features.model_gateway.yandex_adapter import build_yandex_model_adapter
+
+try:
     from backend.auth import (
         AUTH_SESSION_COOKIE_NAME,
         AUTH_SESSION_COOKIE_SAMESITE,
@@ -25494,7 +25511,7 @@ def ai_prefill_hidden_works_act(act_id: int, _current_user: dict = Depends(requi
     cur.close(); conn.close()
     return {"ok": True, "conclusion": full_conclusion, "projectDocs": project_docs, "normatives": normatives, "aiFilled": True}
 
-def _generate_estimate_chat_answer(full_prompt: str, instructions: str) -> str:
+def _generate_estimate_chat_answer_legacy(full_prompt: str, instructions: str) -> str:
     import openai as oa
     client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
     try:
@@ -25509,6 +25526,35 @@ def _generate_estimate_chat_answer(full_prompt: str, instructions: str) -> str:
     except Exception as e:
         answer = "Ошибка ИИ: " + str(e)
     return answer
+
+def _generate_estimate_chat_answer_gateway(full_prompt: str, instructions: str) -> str:
+    try:
+        gateway = build_yandex_model_adapter(
+            api_key=YANDEX_API_KEY,
+            folder_id=YANDEX_FOLDER_ID,
+        )
+        request = build_model_request(
+            capability="estimate_chat",
+            instructions=instructions,
+            input_text=full_prompt,
+            temperature=0.3,
+            max_output_tokens=1500,
+            deadline_seconds=120,
+        )
+        return gateway.generate(request).output_text
+    except ModelGatewayError as error:
+        return "Ошибка ИИ: " + error.code
+    except Exception:
+        return "Ошибка ИИ: " + MODEL_GATEWAY_PROVIDER_FAILED
+
+def _generate_estimate_chat_answer(full_prompt: str, instructions: str) -> str:
+    enabled_values = {"1", "true", "yes"}
+    if os.getenv(
+        "ESTIMATE_CHAT_MODEL_GATEWAY_ENABLED",
+        "false",
+    ).strip().lower() in enabled_values:
+        return _generate_estimate_chat_answer_gateway(full_prompt, instructions)
+    return _generate_estimate_chat_answer_legacy(full_prompt, instructions)
 
 try:
     from backend.features.estimate_chat import register_estimate_chat_module
