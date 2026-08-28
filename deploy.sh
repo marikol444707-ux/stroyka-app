@@ -37,7 +37,9 @@ STROYKA_SERVICE_ENVIRONMENT="$(
   systemctl show stroyka -p Environment --value --no-pager
 )"
 FRONTEND_BUILD_ENV_OUTPUT="$(
-  bash scripts/resolve-frontend-build-env.sh "$STROYKA_SERVICE_ENVIRONMENT"
+  bash scripts/resolve-frontend-build-env.sh \
+    "$STROYKA_SERVICE_ENVIRONMENT" \
+    "$APP_ROOT/backend/.env"
 )"
 FRONTEND_BUILD_ENV=()
 while IFS= read -r build_variable; do

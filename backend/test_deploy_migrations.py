@@ -1,4 +1,5 @@
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -62,6 +63,7 @@ class DeployMigrationTests(unittest.TestCase):
         )
 
         self.assertIn(resolver, deploy)
+        self.assertIn('"$APP_ROOT/backend/.env"', deploy)
         self.assertIn(frontend_build, deploy)
         self.assertLess(deploy.index(resolver), deploy.index(frontend_build))
 
@@ -98,6 +100,50 @@ class DeployMigrationTests(unittest.TestCase):
             capture_output=True,
             text=True,
         )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_frontend_env_resolver_reads_the_backend_env_file_used_by_runtime(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_path = Path(temp_dir) / ".env"
+            env_path.write_text(
+                "OTHER_SECRET=not-exposed\n"
+                "ASSIGNMENT_DAILY_DRAFT_HTTP_ENABLED=true\n"
+                "ASSIGNMENT_DAILY_DRAFT_COMPANY_IDS=1\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                ["bash", str(FRONTEND_ENV_PATH), "", str(env_path)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), [
+            "REACT_APP_ASSIGNMENT_DAILY_DRAFT_PREVIEW_ENABLED=true",
+            "REACT_APP_ASSIGNMENT_DAILY_DRAFT_PREVIEW_COMPANY_IDS=1",
+        ])
+        self.assertNotIn("OTHER_SECRET", result.stdout)
+
+    def test_frontend_env_resolver_matches_backend_first_value_wins_semantics(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_path = Path(temp_dir) / ".env"
+            env_path.write_text(
+                "ASSIGNMENT_DAILY_DRAFT_HTTP_ENABLED=false\n"
+                "ASSIGNMENT_DAILY_DRAFT_HTTP_ENABLED=true\n"
+                "ASSIGNMENT_DAILY_DRAFT_COMPANY_IDS=1\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                ["bash", str(FRONTEND_ENV_PATH), "", str(env_path)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "")

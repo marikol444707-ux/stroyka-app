@@ -2,8 +2,11 @@
 set -euo pipefail
 
 service_environment="${1-}"
+backend_env_path="${2-}"
 http_enabled=""
 company_ids=""
+http_was_set=false
+company_ids_was_set=false
 
 for entry in $service_environment; do
   entry="${entry#\"}"
@@ -11,12 +14,57 @@ for entry in $service_environment; do
   case "$entry" in
     ASSIGNMENT_DAILY_DRAFT_HTTP_ENABLED=*)
       http_enabled="${entry#ASSIGNMENT_DAILY_DRAFT_HTTP_ENABLED=}"
+      http_was_set=true
       ;;
     ASSIGNMENT_DAILY_DRAFT_COMPANY_IDS=*)
       company_ids="${entry#ASSIGNMENT_DAILY_DRAFT_COMPANY_IDS=}"
+      company_ids_was_set=true
       ;;
   esac
 done
+
+if [ -n "$backend_env_path" ] && [ -f "$backend_env_path" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    case "$line" in
+      ""|\#*)
+        continue
+        ;;
+      *=*)
+        ;;
+      *)
+        continue
+        ;;
+    esac
+
+    key="${line%%=*}"
+    value="${line#*=}"
+    key="${key#"${key%%[![:space:]]*}"}"
+    key="${key%"${key##*[![:space:]]}"}"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    value="${value#\"}"
+    value="${value%\"}"
+    value="${value#\'}"
+    value="${value%\'}"
+
+    case "$key" in
+      ASSIGNMENT_DAILY_DRAFT_HTTP_ENABLED)
+        if [ "$http_was_set" = false ]; then
+          http_enabled="$value"
+          http_was_set=true
+        fi
+        ;;
+      ASSIGNMENT_DAILY_DRAFT_COMPANY_IDS)
+        if [ "$company_ids_was_set" = false ]; then
+          company_ids="$value"
+          company_ids_was_set=true
+        fi
+        ;;
+    esac
+  done < "$backend_env_path"
+fi
 
 if [ "$http_enabled" != "true" ]; then
   exit 0
