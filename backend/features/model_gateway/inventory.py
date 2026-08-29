@@ -15,7 +15,11 @@ _EXPECTED_ACCESS = (
     ("backend/main.py", "ai_detect_hidden_works", "hidden_works_detection"),
     ("backend/main.py", "ai_chat", "ai_chat"),
     ("backend/main.py", "ai_chat._call", "ai_chat"),
-    ("backend/main.py", "ai_suggest_distribution", "estimate_distribution"),
+    (
+        "backend/features/estimate_distribution/model.py",
+        "generate_estimate_distribution_legacy",
+        "estimate_distribution",
+    ),
     ("backend/main.py", "_enhance_norm_suggestions_with_ai", "material_norm_suggestion"),
     ("backend/main.py", "ai_suggest_material_inspection", "material_inspection_suggestion"),
     (

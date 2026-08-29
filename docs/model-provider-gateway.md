@@ -138,6 +138,15 @@ the gateway with a 120-second total deadline and fixed non-secret failures.
 Tenant visibility, price-list lookup and calculated response fields remain in
 the estimate-changes module and are unchanged.
 
+The fourth A14.4 domain is the AI suggestion that maps estimate work rows to
+brigade names. Its caller-local `ESTIMATE_DISTRIBUTION_MODEL_GATEWAY_ENABLED`
+switch defaults to `false`. The rollback path preserves the Qwen-then-
+YandexGPT model order, prompt, instructions, temperature, 4,000-token output
+limit, JSON parsing and HTTP response. When explicitly enabled, only the model
+transport crosses the gateway with a 120-second total deadline and fixed
+non-secret failures. Estimate authorization, work-row filtering and the final
+index-to-brigade mapping remain in the existing route and are unchanged.
+
 ### A14.5: Measurement before local-model evaluation
 
 - Record bounded per-capability success, invalid-response, latency and token/
@@ -156,7 +165,8 @@ python3 -m unittest \
   backend.features.model_gateway.test_estimate_chat_cutover \
   backend.features.document_recognition.test_model_gateway_cutover \
   backend.features.project_records.test_model_gateway_cutover \
-  backend.features.estimate_changes.test_model_gateway_cutover
+  backend.features.estimate_changes.test_model_gateway_cutover \
+  backend.features.estimate_distribution.test_model_gateway_cutover
 
 PYTHONPYCACHEPREFIX=/tmp/stroyka-a14-pycache \
 python3 -m unittest discover -s backend -p 'test_*.py'

@@ -18435,8 +18435,14 @@ def delete_brigade_contract(
 
 @app.post("/estimates/{estimate_id}/ai-distribute-suggest")
 def ai_suggest_distribution(estimate_id: int, data: dict, _current_user: dict = Depends(require_roles(*ESTIMATE_WRITE_ROLES))):
-    import openai as oa
     import json as _json
+    try:
+        from backend.features.estimate_distribution.model import (
+            generate_estimate_distribution,
+        )
+    except ModuleNotFoundError:
+        from features.estimate_distribution.model import generate_estimate_distribution
+
     brigade_names = data.get("brigadeNames") or []
     if not brigade_names:
         raise HTTPException(status_code=400, detail="Передайте список бригад (brigadeNames)")
@@ -18475,22 +18481,16 @@ def ai_suggest_distribution(estimate_id: int, data: dict, _current_user: dict = 
               "\n\nОТВЕТЬ JSON формате:\n{\"assignments\": [{\"index\": номер_позиции_с_1, \"brigadeName\": \"имя бригады из списка выше\"}]}\n" +
               "Привязывай позицию к бригаде по специализации. Если непонятно — выбирай 'Общестроительные' или первую общестроительную бригаду из списка.")
 
-    client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
-    raw = ""
-    for model_id in ("qwen3.6-35b-a3b/latest", "yandexgpt-5.1/latest"):
-        try:
-            r = client.responses.create(
-                model="gpt://" + YANDEX_FOLDER_ID + "/" + model_id,
-                temperature=0.1,
-                instructions=instructions,
-                input=prompt,
-                max_output_tokens=4000,
-            )
-            raw = (r.output_text or "").strip()
-            if raw:
-                break
-        except Exception as e:
-            print("AI-DISTRIBUTE ERROR:", str(e))
+    raw = generate_estimate_distribution(
+        prompt,
+        instructions,
+        YANDEX_API_KEY,
+        YANDEX_FOLDER_ID,
+        model_gateway_enabled=os.getenv(
+            "ESTIMATE_DISTRIBUTION_MODEL_GATEWAY_ENABLED",
+            "false",
+        ).strip().lower() in ("1", "true", "yes"),
+    )
 
     if not raw:
         raise HTTPException(status_code=500, detail="ИИ не ответил")
