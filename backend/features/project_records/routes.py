@@ -6,11 +6,22 @@ import re
 import psycopg2.extras
 from fastapi import Depends, HTTPException
 
+from backend.features.model_gateway.contract import (
+    MODEL_GATEWAY_PROVIDER_FAILED,
+    ModelGatewayError,
+    ModelInputPart,
+    build_model_request,
+)
+from backend.features.model_gateway.yandex_adapter import build_yandex_model_adapter
+
 
 MEASUREMENT_ROOM_DRAFT_SELECT = """SELECT id,measurement_id,project_name,name,floor,liter,room_type,
                                           floor_area,wall_area,ceiling_area,height,windows,doors,
                                           notes,status,created_by,accepted_room_id,created_at
                                    FROM measurement_room_drafts"""
+_ROOM_DRAFT_INSTRUCTIONS = (
+    "Ты извлекаешь помещения из обмеров и проектов. Верни только валидный JSON."
+)
 
 
 def _room_draft_dict(r):
@@ -83,12 +94,12 @@ def _fallback_room_drafts_from_text(text: str):
     return rooms[:80]
 
 
-def _draft_rooms_with_ai(measurement: dict, yandex_api_key: str, yandex_folder_id: str):
+def _room_draft_prompt(measurement: dict) -> str:
     title = measurement.get("title") or ""
     notes = measurement.get("notes") or ""
     source_type = measurement.get("source_type") or ""
     doc_type = measurement.get("doc_type") or ""
-    prompt = (
+    return (
         "Извлеки помещения из строительного проекта или обмера. Верни только JSON без markdown. "
         "Формат: {\"rooms\":[{\"name\":\"\",\"floor\":1,\"liter\":\"\",\"roomType\":\"Комната\","
         "\"floorArea\":0,\"wallArea\":0,\"ceilingArea\":0,\"height\":0,\"windows\":0,\"doors\":0,\"notes\":\"\"}]}. "
@@ -99,28 +110,65 @@ def _draft_rooms_with_ai(measurement: dict, yandex_api_key: str, yandex_folder_i
         "Название: " + title + "\n"
         "Текст/примечания:\n" + notes
     )
+
+
+def _room_draft_image_data_url(measurement: dict) -> str:
+    file_url = measurement.get("file_url") or ""
+    if not file_url:
+        return ""
+    local_path = file_url.lstrip("/")
+    if not local_path.startswith("uploads/"):
+        return ""
+    upload_root = os.path.realpath("uploads")
+    resolved_path = os.path.realpath(local_path)
+    try:
+        if os.path.commonpath((upload_root, resolved_path)) != upload_root:
+            return ""
+    except ValueError:
+        return ""
+    if not os.path.exists(resolved_path):
+        return ""
+    if os.path.splitext(resolved_path)[1].lower() not in (".jpg", ".jpeg", ".png", ".webp"):
+        return ""
+    with open(resolved_path, "rb") as image_file:
+        image_payload = base64.b64encode(image_file.read()).decode("utf-8")
+    return "data:image/jpeg;base64," + image_payload
+
+
+def _room_draft_ai_result(output_text: str):
+    parsed = _clean_ai_json(output_text or "")
+    rooms = parsed.get("rooms", []) if isinstance(parsed, dict) else []
+    if isinstance(rooms, list) and rooms:
+        return rooms[:100], "ai"
+    return None
+
+
+def _room_draft_fallback(measurement: dict):
+    title = measurement.get("title") or ""
+    notes = measurement.get("notes") or ""
+    return _fallback_room_drafts_from_text(title + "\n" + notes), "fallback"
+
+
+def _draft_rooms_with_ai_legacy(
+    measurement: dict,
+    yandex_api_key: str,
+    yandex_folder_id: str,
+):
     if not (yandex_api_key and yandex_folder_id):
-        return _fallback_room_drafts_from_text(title + "\n" + notes), "fallback"
+        return _room_draft_fallback(measurement)
     import openai as oa
 
     client = oa.OpenAI(api_key=yandex_api_key, base_url="https://ai.api.cloud.yandex.net/v1", project=yandex_folder_id)
-    image_payload = None
-    file_url = measurement.get("file_url") or ""
-    if file_url:
-        local_path = file_url.lstrip("/")
-        if local_path.startswith("uploads/") and os.path.exists(local_path):
-            ext = os.path.splitext(local_path)[1].lower()
-            if ext in (".jpg", ".jpeg", ".png", ".webp"):
-                with open(local_path, "rb") as f:
-                    image_payload = base64.b64encode(f.read()).decode("utf-8")
+    prompt = _room_draft_prompt(measurement)
+    image_data_url = _room_draft_image_data_url(measurement)
     try:
-        if image_payload:
+        if image_data_url:
             response = client.responses.create(
                 model=f"gpt://{yandex_folder_id}/qwen3.6-35b-a3b/latest",
                 temperature=0.1,
-                instructions="Ты извлекаешь помещения из обмеров и проектов. Верни только валидный JSON.",
+                instructions=_ROOM_DRAFT_INSTRUCTIONS,
                 input=[{"role": "user", "content": [
-                    {"type": "input_image", "image_url": "data:image/jpeg;base64," + image_payload},
+                    {"type": "input_image", "image_url": image_data_url},
                     {"type": "input_text", "text": prompt}
                 ]}],
                 max_output_tokens=2500
@@ -129,17 +177,68 @@ def _draft_rooms_with_ai(measurement: dict, yandex_api_key: str, yandex_folder_i
             response = client.responses.create(
                 model=f"gpt://{yandex_folder_id}/qwen3.6-35b-a3b/latest",
                 temperature=0.1,
-                instructions="Ты извлекаешь помещения из обмеров и проектов. Верни только валидный JSON.",
+                instructions=_ROOM_DRAFT_INSTRUCTIONS,
                 input=prompt,
                 max_output_tokens=2500
             )
-        parsed = _clean_ai_json(response.output_text or "")
-        rooms = parsed.get("rooms", []) if isinstance(parsed, dict) else []
-        if isinstance(rooms, list) and rooms:
-            return rooms[:100], "ai"
+        result = _room_draft_ai_result(response.output_text or "")
+        if result is not None:
+            return result
     except Exception as e:
         print("MEASUREMENT AI DRAFT ERROR:", str(e))
-    return _fallback_room_drafts_from_text(title + "\n" + notes), "fallback"
+    return _room_draft_fallback(measurement)
+
+
+def _draft_rooms_with_ai_gateway(
+    measurement: dict,
+    yandex_api_key: str,
+    yandex_folder_id: str,
+):
+    if not (yandex_api_key and yandex_folder_id):
+        return _room_draft_fallback(measurement)
+    prompt = _room_draft_prompt(measurement)
+    image_data_url = _room_draft_image_data_url(measurement)
+    try:
+        request_arguments = {
+            "capability": "project_room_draft",
+            "instructions": _ROOM_DRAFT_INSTRUCTIONS,
+            "temperature": 0.1,
+            "max_output_tokens": 2500,
+            "deadline_seconds": 120,
+        }
+        if image_data_url:
+            request_arguments["input_parts"] = (
+                ModelInputPart(kind="image_data_url", value=image_data_url),
+                ModelInputPart(kind="text", value=prompt),
+            )
+        else:
+            request_arguments["input_text"] = prompt
+        request = build_model_request(**request_arguments)
+        gateway = build_yandex_model_adapter(
+            api_key=yandex_api_key,
+            folder_id=yandex_folder_id,
+        )
+        response = gateway.generate(request)
+        result = _room_draft_ai_result(response.output_text)
+        if result is not None:
+            return result
+    except ModelGatewayError as error:
+        print("MEASUREMENT AI DRAFT ERROR:", error.code)
+    except Exception:
+        print("MEASUREMENT AI DRAFT ERROR:", MODEL_GATEWAY_PROVIDER_FAILED)
+    return _room_draft_fallback(measurement)
+
+
+def _draft_rooms_with_ai(
+    measurement: dict,
+    yandex_api_key: str,
+    yandex_folder_id: str,
+    model_gateway_enabled=False,
+):
+    arguments = (measurement, yandex_api_key, yandex_folder_id)
+    if model_gateway_enabled is True:
+        return _draft_rooms_with_ai_gateway(*arguments)
+    return _draft_rooms_with_ai_legacy(*arguments)
 
 
 def register_project_records_module(app, deps):
@@ -153,6 +252,7 @@ def register_project_records_module(app, deps):
     worker_execution_roles = deps["worker_execution_roles"]
     yandex_api_key = deps.get("yandex_api_key", "")
     yandex_folder_id = deps.get("yandex_folder_id", "")
+    model_gateway_enabled = deps.get("model_gateway_enabled") is True
 
     read_access = require_roles(*read_roles)
     write_access = require_roles(*write_roles)
@@ -401,7 +501,12 @@ def register_project_records_module(app, deps):
             conn.close()
             raise HTTPException(status_code=404, detail="Источник обмера не найден")
         require_project_access(_current_user, measurement.get("project_name") or "")
-        rooms, source = _draft_rooms_with_ai(dict(measurement), yandex_api_key, yandex_folder_id)
+        rooms, source = _draft_rooms_with_ai(
+            dict(measurement),
+            yandex_api_key,
+            yandex_folder_id,
+            model_gateway_enabled=model_gateway_enabled,
+        )
         if data.get("replaceExisting"):
             cur.execute("DELETE FROM measurement_room_drafts WHERE measurement_id=%s AND status='Черновик ИИ'", (id,))
         created = 0

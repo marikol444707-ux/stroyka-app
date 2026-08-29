@@ -26367,6 +26367,10 @@ register_project_records_module(app, {
     "worker_execution_roles": WORKER_EXECUTION_ROLES,
     "yandex_api_key": YANDEX_API_KEY,
     "yandex_folder_id": YANDEX_FOLDER_ID,
+    "model_gateway_enabled": os.getenv(
+        "PROJECT_ROOM_DRAFT_MODEL_GATEWAY_ENABLED",
+        "false",
+    ).strip().lower() in ("1", "true", "yes"),
 })
 
 try:

@@ -56,7 +56,7 @@ _EXPECTED_ACCESS = (
     ),
     (
         "backend/features/project_records/routes.py",
-        "_draft_rooms_with_ai",
+        "_draft_rooms_with_ai_legacy",
         "project_room_draft",
     ),
     (
