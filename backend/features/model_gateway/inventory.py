@@ -18,8 +18,16 @@ _EXPECTED_ACCESS = (
         "generate_supply_delivery_check_legacy",
         "supply_delivery_check",
     ),
-    ("backend/main.py", "ai_prefill_work_journal", "work_journal_prefill"),
-    ("backend/main.py", "ai_prefill_work_journal._call", "work_journal_prefill"),
+    (
+        "backend/features/work_journal/model.py",
+        "generate_work_journal_prefill_legacy",
+        "work_journal_prefill",
+    ),
+    (
+        "backend/features/work_journal/model.py",
+        "generate_work_journal_prefill_legacy.call",
+        "work_journal_prefill",
+    ),
     ("backend/main.py", "ai_detect_hidden_works", "hidden_works_detection"),
     ("backend/main.py", "ai_chat", "ai_chat"),
     ("backend/main.py", "ai_chat._call", "ai_chat"),

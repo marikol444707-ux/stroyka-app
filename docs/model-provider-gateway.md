@@ -167,6 +167,17 @@ explicitly enabled, only the text model request crosses the gateway with a
 authorization, offer selection, weighted ranking and the HTTP response remain
 in the existing route and are unchanged.
 
+The seventh A14.4 domain is AI prefill of normative documents, project
+documents and the quality note for one work-journal row. Its caller-local
+`WORK_JOURNAL_PREFILL_MODEL_GATEWAY_ENABLED` switch defaults to `false`. The
+rollback path preserves the Qwen-then-YandexGPT model order, prompt,
+instructions, temperature, 2,000-token output limit, JSON extraction and HTTP
+response. When explicitly enabled, only the text model request crosses the
+gateway with a 120-second total deadline and fixed non-secret failures. Work-
+journal authorization, package/worker restrictions, tenant/project ownership,
+stale-row checks and the final database update remain in the existing route
+and are unchanged.
+
 ### A14.5: Measurement before local-model evaluation
 
 - Record bounded per-capability success, invalid-response, latency and token/
@@ -188,7 +199,8 @@ python3 -m unittest \
   backend.features.estimate_changes.test_model_gateway_cutover \
   backend.features.estimate_distribution.test_model_gateway_cutover \
   backend.features.supply_delivery.test_model_gateway_cutover \
-  backend.features.supply_kp_comparison.test_model_gateway_cutover
+  backend.features.supply_kp_comparison.test_model_gateway_cutover \
+  backend.features.work_journal.test_model_gateway_cutover
 
 PYTHONPYCACHEPREFIX=/tmp/stroyka-a14-pycache \
 python3 -m unittest discover -s backend -p 'test_*.py'

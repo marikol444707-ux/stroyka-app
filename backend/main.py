@@ -134,6 +134,13 @@ except ModuleNotFoundError:
     from features.supply_kp_comparison.model import generate_supply_kp_comparison
 
 try:
+    from backend.features.work_journal.model import (
+        generate_work_journal_prefill,
+    )
+except ModuleNotFoundError:
+    from features.work_journal.model import generate_work_journal_prefill
+
+try:
     from backend.auth import (
         AUTH_SESSION_COOKIE_NAME,
         AUTH_SESSION_COOKIE_SAMESITE,
@@ -13620,7 +13627,7 @@ def ai_prefill_work_journal(
     x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
     _current_user: dict = Depends(get_current_user),
 ):
-    import openai as oa, json as j, re
+    import json as j, re
     conn = get_db()
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -13681,22 +13688,16 @@ def ai_prefill_work_journal(
         "официальный канцелярский русский, 1-2 предложения."
     )
     instructions = "Ты отвечаешь СТРОГО валидным JSON. Никакого markdown, никаких тройных кавычек, никакого текста до или после JSON. Только сам JSON."
-    client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
-
-    def _call(model_id):
-        try:
-            r = client.responses.create(
-                model="gpt://" + YANDEX_FOLDER_ID + "/" + model_id,
-                temperature=0.1, instructions=instructions, input=user_text, max_output_tokens=2000,
-            )
-            return (r.output_text or ""), None
-        except Exception as e:
-            return "", str(e)
-
-    answer, err = _call("qwen3.6-35b-a3b/latest")
-    if not (answer or "").strip():
-        print("AI-PREFILL work_journal primary empty, fallback. err=" + str(err))
-        answer, err = _call("yandexgpt-5.1/latest")
+    answer, err = generate_work_journal_prefill(
+        user_text,
+        instructions,
+        YANDEX_API_KEY,
+        YANDEX_FOLDER_ID,
+        model_gateway_enabled=os.getenv(
+            "WORK_JOURNAL_PREFILL_MODEL_GATEWAY_ENABLED",
+            "false",
+        ).strip().lower() in {"1", "true", "yes"},
+    )
     if not (answer or "").strip():
         raise HTTPException(status_code=502, detail="AI вернул пустой ответ: " + str(err))
 
