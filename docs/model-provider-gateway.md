@@ -147,6 +147,16 @@ transport crosses the gateway with a 120-second total deadline and fixed
 non-secret failures. Estimate authorization, work-row filtering and the final
 index-to-brigade mapping remain in the existing route and are unchanged.
 
+The fifth A14.4 domain is the text-based AI check of a supply delivery against
+its invoice notes. Its caller-local
+`SUPPLY_DELIVERY_CHECK_MODEL_GATEWAY_ENABLED` switch defaults to `false`. The
+rollback path preserves the YandexGPT model, prompt, instructions,
+temperature, 500-token output limit and caller-visible manual-check fallback.
+When explicitly enabled, only the text model request crosses the gateway with
+a 120-second total deadline and fixed non-secret failures. The deterministic
+`parsedItems` comparison, authorization, result persistence and HTTP response
+remain in the existing route and are unchanged.
+
 ### A14.5: Measurement before local-model evaluation
 
 - Record bounded per-capability success, invalid-response, latency and token/
@@ -166,7 +176,8 @@ python3 -m unittest \
   backend.features.document_recognition.test_model_gateway_cutover \
   backend.features.project_records.test_model_gateway_cutover \
   backend.features.estimate_changes.test_model_gateway_cutover \
-  backend.features.estimate_distribution.test_model_gateway_cutover
+  backend.features.estimate_distribution.test_model_gateway_cutover \
+  backend.features.supply_delivery.test_model_gateway_cutover
 
 PYTHONPYCACHEPREFIX=/tmp/stroyka-a14-pycache \
 python3 -m unittest discover -s backend -p 'test_*.py'

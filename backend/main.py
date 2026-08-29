@@ -120,6 +120,13 @@ except ModuleNotFoundError:
     from features.model_gateway.yandex_adapter import build_yandex_model_adapter
 
 try:
+    from backend.features.supply_delivery.model import (
+        generate_supply_delivery_check,
+    )
+except ModuleNotFoundError:
+    from features.supply_delivery.model import generate_supply_delivery_check
+
+try:
     from backend.auth import (
         AUTH_SESSION_COOKIE_NAME,
         AUTH_SESSION_COOKIE_SAMESITE,
@@ -11860,7 +11867,6 @@ def ai_check_supply_delivery(id: int, data: dict, _current_user: dict = Depends(
             else:
                 result_text = "В распознанном документе не нашёл позицию, похожую на заявку. Проверьте накладную вручную."
         elif doc_text:
-            import openai as oa
             prompt = (
                 "Сверь поставку с текстом накладной. Ожидалось: "
                 f"{expected['material']} — {expected['quantity']} {expected['unit']}, "
@@ -11868,15 +11874,19 @@ def ai_check_supply_delivery(id: int, data: dict, _current_user: dict = Depends(
                 "Текст/заметки документа:\n" + doc_text[:4000] +
                 "\nОтветь коротко: совпадает ли материал и количество, есть ли риск недопоставки или пересорта."
             )
-            client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
-            r = client.responses.create(
-                model="gpt://"+YANDEX_FOLDER_ID+"/yandexgpt-5.1/latest",
-                temperature=0.1,
-                instructions="Ты помощник кладовщика на стройке. Проверяешь накладную перед приёмкой.",
-                input=prompt,
-                max_output_tokens=500,
+            result_text = generate_supply_delivery_check(
+                prompt,
+                "Ты помощник кладовщика на стройке. Проверяешь накладную перед приёмкой.",
+                YANDEX_API_KEY,
+                YANDEX_FOLDER_ID,
+                model_gateway_enabled=(
+                    os.getenv(
+                        "SUPPLY_DELIVERY_CHECK_MODEL_GATEWAY_ENABLED",
+                        "false",
+                    ).lower()
+                    == "true"
+                ),
             )
-            result_text = (r.output_text or '').strip()
         else:
             result_text = "Загрузите фото накладной или вставьте текст/позиции документа для AI-сверки."
     except Exception as e:

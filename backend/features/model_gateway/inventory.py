@@ -9,7 +9,11 @@ from backend.features.model_gateway.policies import MODEL_CAPABILITIES
 _EXPECTED_ACCESS = (
     ("backend/main.py", "_director_agent_call_yandex", "director_agent"),
     ("backend/main.py", "compare_kp_for_request", "supply_kp_comparison"),
-    ("backend/main.py", "ai_check_supply_delivery", "supply_delivery_check"),
+    (
+        "backend/features/supply_delivery/model.py",
+        "generate_supply_delivery_check_legacy",
+        "supply_delivery_check",
+    ),
     ("backend/main.py", "ai_prefill_work_journal", "work_journal_prefill"),
     ("backend/main.py", "ai_prefill_work_journal._call", "work_journal_prefill"),
     ("backend/main.py", "ai_detect_hidden_works", "hidden_works_detection"),
