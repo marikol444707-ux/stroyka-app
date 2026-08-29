@@ -141,6 +141,13 @@ except ModuleNotFoundError:
     from features.work_journal.model import generate_work_journal_prefill
 
 try:
+    from backend.features.hidden_works_detection.model import (
+        generate_hidden_works_detection,
+    )
+except ModuleNotFoundError:
+    from features.hidden_works_detection.model import generate_hidden_works_detection
+
+try:
     from backend.auth import (
         AUTH_SESSION_COOKIE_NAME,
         AUTH_SESSION_COOKIE_SAMESITE,
@@ -13771,7 +13778,7 @@ def _detect_hidden_by_keywords(name):
 
 @app.post("/estimates/{id}/ai-detect-hidden")
 def ai_detect_hidden_works(id: int, _current_user: dict = Depends(require_roles(*ESTIMATE_WRITE_ROLES))):
-    import openai as oa, json as j, re
+    import json as j, re
     conn = get_db()
     cur = conn.cursor()
     require_estimate_access(cur, id, _current_user)
@@ -13816,12 +13823,17 @@ def ai_detect_hidden_works(id: int, _current_user: dict = Depends(require_roles(
         )
         instructions = "Ты отвечаешь СТРОГО валидным JSON без markdown и пояснений. Только JSON."
         try:
-            client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
-            r = client.responses.create(
-                model="gpt://" + YANDEX_FOLDER_ID + "/yandexgpt-5.1/latest",
-                temperature=0.1, instructions=instructions, input=user_text, max_output_tokens=2000,
+            text = generate_hidden_works_detection(
+                user_text,
+                instructions,
+                YANDEX_API_KEY,
+                YANDEX_FOLDER_ID,
+                model_gateway_enabled=os.getenv(
+                    "HIDDEN_WORKS_DETECTION_MODEL_GATEWAY_ENABLED",
+                    "false",
+                ).strip().lower() in {"1", "true", "yes"},
             )
-            text = (r.output_text or "").strip()
+            text = (text or "").strip()
             m = re.search(r"\{.*\}", text, re.DOTALL)
             if m:
                 parsed = j.loads(m.group(0))

@@ -28,7 +28,11 @@ _EXPECTED_ACCESS = (
         "generate_work_journal_prefill_legacy.call",
         "work_journal_prefill",
     ),
-    ("backend/main.py", "ai_detect_hidden_works", "hidden_works_detection"),
+    (
+        "backend/features/hidden_works_detection/model.py",
+        "generate_hidden_works_detection_legacy",
+        "hidden_works_detection",
+    ),
     ("backend/main.py", "ai_chat", "ai_chat"),
     ("backend/main.py", "ai_chat._call", "ai_chat"),
     (
