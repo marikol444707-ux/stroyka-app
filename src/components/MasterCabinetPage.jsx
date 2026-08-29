@@ -779,6 +779,7 @@ export default function MasterCabinetPage(props) {
         plan: quantity,
         workPackage: item.workPackage,
         estimateItemKey: item.estimateItemKey || workKey,
+        hiddenWork: Boolean(item.hiddenWork || item.hidden_work),
         contractItemId: item.contractItemId || null,
         customerPricePerUnit,
         customerTotal: delta * customerPricePerUnit,
@@ -843,6 +844,14 @@ export default function MasterCabinetPage(props) {
     const workDate = dailyWorkActDraft.date || new Date().toISOString().split('T')[0];
     const groupComment = String(dailyWorkActDraft.comment || '').trim();
     const groupPhotoUrl = dailyWorkActDraft.photoUrl || '';
+    const hiddenWorkWithoutPhoto = dailyWorkReview.rows.find(row => (
+      row.hiddenWork
+      && !String(row.params.photoUrl || groupPhotoUrl || '').trim()
+    ));
+    if (hiddenWorkWithoutPhoto) {
+      setDailyWorkError('Скрытую работу «' + hiddenWorkWithoutPhoto.name + '» нельзя отправить без фотоотчёта. Приложите общее фото или фото по строке.');
+      return;
+    }
     setDailyWorkSubmitting(true);
     try {
       const rowsByEstimate = dailyWorkReview.rows.reduce((map, row) => {
@@ -1029,6 +1038,11 @@ export default function MasterCabinetPage(props) {
                   <p style={{ margin: '6px 0 0', color: C.textSec, fontSize: '12px' }}>
                     {'Было ' + safeFmtMeasure(row.done, row.unit) + ' · стало ' + safeFmtMeasure(row.target, row.unit) + ' · за день +' + safeFmtMeasure(row.delta, row.unit)}
                   </p>
+                  {row.hiddenWork && (
+                    <p style={{ margin: '5px 0 0', color: C.warning, fontSize: '11px', fontWeight: 700 }}>
+                      🔒 Скрытая работа — фотоотчёт обязателен до отправки.
+                    </p>
+                  )}
                   {(row.params.roomName || row.params.roomId || row.params.photoUrl || row.materialsUsed.length > 0) && (
                     <p style={{ margin: '4px 0 0', color: C.textMuted, fontSize: '11px' }}>
                       {(row.params.roomName ? 'Помещение: ' + row.params.roomName + '. ' : '') +
@@ -1468,6 +1482,11 @@ export default function MasterCabinetPage(props) {
                       const missingExecutionPrice = executionUnitPrice <= 0;
                       return (
                         <div key={workKey} style={{ padding: '10px', marginBottom: '6px', backgroundColor: C.bgWhite, borderRadius: '8px', border: '1px solid ' + C.border, contentVisibility: 'auto', containIntrinsicSize: '118px' }}>
+                          {Boolean(item.hiddenWork || item.hidden_work) && (
+                            <div style={{ marginBottom: '8px', padding: '8px 10px', borderRadius: '8px', border: '1px solid ' + C.warningBorder, backgroundColor: C.warningLight, color: C.warning, fontSize: '11px', fontWeight: 700 }}>
+                              🔒 Скрытая работа: перед отправкой обязательно приложите фото. Без фото работа не будет подтверждена.
+                            </div>
+                          )}
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                             <div style={{ flex: '1 1 260px', minWidth: '220px' }}>
                               <b style={{ fontSize: '12px', color: C.text }}>{item.name}</b>
@@ -1554,7 +1573,7 @@ export default function MasterCabinetPage(props) {
                               fileSrc={fileSrc}
                               setShowPhotoModal={setShowPhotoModal}
                               projectName={project?.name || projectName}
-                              title="Фото работы / помещения"
+                              title={Boolean(item.hiddenWork || item.hidden_work) ? 'Фото скрытой работы — обязательно' : 'Фото работы / помещения'}
                               compact
                             />
                           </div>

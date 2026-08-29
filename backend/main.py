@@ -137,8 +137,16 @@ try:
     from backend.features.work_journal.model import (
         generate_work_journal_prefill,
     )
+    from backend.features.work_journal.hidden_work_photo import (
+        HIDDEN_WORK_PHOTO_REQUIRED_DETAIL,
+        hidden_work_photo_required,
+    )
 except ModuleNotFoundError:
     from features.work_journal.model import generate_work_journal_prefill
+    from features.work_journal.hidden_work_photo import (
+        HIDDEN_WORK_PHOTO_REQUIRED_DETAIL,
+        hidden_work_photo_required,
+    )
 
 try:
     from backend.features.hidden_works_detection.model import (
@@ -2445,6 +2453,7 @@ def _load_estimate_work_item(cur, estimate_id: int, *, project_name: str = "", w
                     "pricePerUnit": _estimate_item_unit_price_backend(item),
                     "workPackage": est_package or "Основная",
                     "estimateItemKey": canonical_key,
+                    "hiddenWork": bool(item.get("hiddenWork") or item.get("hidden_work")),
                     "item": item,
                 }
             if name_match and not fallback_match:
@@ -2456,6 +2465,7 @@ def _load_estimate_work_item(cur, estimate_id: int, *, project_name: str = "", w
                     "pricePerUnit": _estimate_item_unit_price_backend(item),
                     "workPackage": est_package or "Основная",
                     "estimateItemKey": keys[0] if keys else "",
+                    "hiddenWork": bool(item.get("hiddenWork") or item.get("hidden_work")),
                     "item": item,
                 }
     if fallback_match:
@@ -13116,6 +13126,12 @@ def create_work_journal(
         elif journal_estimate_item_key:
             raise HTTPException(status_code=400, detail="Для сметной строки ЖПР нужен estimateId")
 
+        journal_hidden_work = (
+            bool(estimate_work_item.get("hiddenWork"))
+            if estimate_work_item is not None
+            else bool(w.hiddenWork)
+        )
+
         _raise_work_journal_duplicate(_work_journal_duplicate(
             cur,
             w.project,
@@ -13200,7 +13216,7 @@ def create_work_journal(
                     (journal_company_id,w.masterId,w.masterName,w.project,journal_description,journal_unit,w.quantity,execution_price,execution_total,w.date,
                      w.comment,w.photoUrl,materials_json,
                      journal_estimate_id,journal_section_name,w.responsibleItr,w.weather,w.timeStart,w.timeEnd,
-                     w.hiddenWork,w.qualityStatus,w.normatives,w.projectDocs,
+                     journal_hidden_work,w.qualityStatus,w.normatives,w.projectDocs,
                      journal_work_package,journal_room_id,journal_room_name,w.surface,w.estimateItemName or journal_description,journal_estimate_item_key,
                      contract_item_id,customer_price,customer_total,execution_price,execution_total,execution_mode))
         row = cur.fetchone()
@@ -13287,7 +13303,8 @@ def update_work_journal(
         raise
     cur.execute("""SELECT company_id,project, master_id, master_name, room_id, room_name, description,
                           estimate_item_key, work_package, status, quantity, unit, date, materials_used,
-                          contract_item_id, estimate_id, section_name, estimate_item_name
+                          contract_item_id, estimate_id, section_name, estimate_item_name,
+                          hidden_work, photo_url
 				                   FROM work_journal WHERE id=%s AND company_id=%s FOR UPDATE""",
                 (id, owner_row.get("company_id")))
     project_row = cur.fetchone()
@@ -13323,6 +13340,17 @@ def update_work_journal(
         cur.close(); conn.close()
         raise HTTPException(status_code=403, detail="Денежные поля ЖПР меняет только директор, замдиректора или бухгалтер. Для исполнителей сумма берётся из договорной позиции.")
     target_status = str(data.get("status", project_row.get("status") if project_row else "") or "").strip()
+    target_hidden_work = bool(project_row.get("hidden_work") if project_row else False)
+    if not (project_row and project_row.get("estimate_id")) and "hiddenWork" in data:
+        target_hidden_work = target_hidden_work or bool(data.get("hiddenWork"))
+    target_photo_url = data.get("photoUrl", project_row.get("photo_url") if project_row else "")
+    if hidden_work_photo_required(
+        hidden_work=target_hidden_work,
+        status=target_status,
+        photo_url=target_photo_url,
+    ):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=409, detail=HIDDEN_WORK_PHOTO_REQUIRED_DETAIL)
     target_room_id = data.get("roomId", project_row.get("room_id") if project_row else None)
     target_room_name = data.get("roomName", project_row.get("room_name") if project_row else "")
     confirm_roles = set(LEADERSHIP_ROLES) | {"прораб", "главный_инженер"}
@@ -13390,8 +13418,10 @@ def update_work_journal(
     reset_ai = False
     for js_key, db_col in fields_map:
         if js_key in data:
+            if js_key == "hiddenWork" and project_row and project_row.get("estimate_id"):
+                continue
             sets.append(db_col + "=%s")
-            vals.append(data[js_key])
+            vals.append(target_hidden_work if js_key == "hiddenWork" else data[js_key])
             if js_key in ai_resetting_fields:
                 reset_ai = True
     if reset_ai:
@@ -17591,6 +17621,15 @@ def update_estimate(
             execution_price, execution_mode = _estimate_item_execution_price(it, customer_price)
             used_materials = _materials_for_delta(section_idx, item_idx, s.get("name",""), it.get("name",""), it)
             journal_params = _journal_params_for_delta(section_idx, item_idx, s.get("name",""), it.get("name",""), it)
+            journal_hidden_work = bool(it.get("hiddenWork") or it.get("hidden_work"))
+            journal_photo_url = journal_params.get("photoUrl") or ""
+            if hidden_work_photo_required(
+                hidden_work=journal_hidden_work,
+                status=auto_journal_status,
+                photo_url=journal_photo_url,
+            ):
+                cur.close(); conn.close()
+                raise HTTPException(status_code=409, detail=HIDDEN_WORK_PHOTO_REQUIRED_DETAIL)
             if _num(journal_params.get("customerPricePerUnit")) > 0:
                 customer_price = _num(journal_params.get("customerPricePerUnit"))
             if _num(journal_params.get("executionPricePerUnit")) > 0:
@@ -17670,8 +17709,8 @@ def update_estimate(
                             (estimate_scope["companyId"], _current_user.get("id"), _current_user.get("name") or brigade or "(из сметы)", project_name, it.get("name",""), unit, delta, execution_price, round(delta*execution_price,2), journal_date,
                              auto_journal_status,
                              journal_comment,
-                             journal_params.get("photoUrl") or "",
-                             materials_json, id, s.get("name",""), bool(it.get("hiddenWork")), auto_confirmed_by, auto_confirmed_at,
+                             journal_photo_url,
+                             materials_json, id, s.get("name",""), journal_hidden_work, auto_confirmed_by, auto_confirmed_at,
                              work_package_for_journal,
                              room_id,
                              room_name,

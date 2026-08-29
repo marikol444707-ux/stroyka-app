@@ -18,14 +18,27 @@ export const notificationPageForType = (type) => NOTIFICATION_PAGE_BY_TYPE[type]
 export const notificationsForUser = (notifications = [], user = null) => {
   const rows = notifications || [];
   if (!user) return rows;
-  if (['директор', 'зам_директора'].includes(user.role)) return rows;
-  if (user.role === 'прораб') return rows.filter(item => ['work', 'material', 'unexpected', 'prescription', 'supply'].includes(item.type));
+  const addressedRows = rows.filter(item => {
+    if (item.recipientUserId !== undefined && item.recipientUserId !== null) {
+      return String(item.recipientUserId) === String(user.id);
+    }
+    if (item.recipientName) {
+      return String(item.recipientName).trim().toLowerCase() === String(user.name || '').trim().toLowerCase();
+    }
+    return true;
+  });
+  if (['директор', 'зам_директора'].includes(user.role)) return addressedRows;
+  if (user.role === 'прораб') return addressedRows.filter(item => ['work', 'material', 'unexpected', 'prescription', 'supply'].includes(item.type));
   if (['мастер', 'субподрядчик', 'бригадир'].includes(user.role)) {
-    return rows.filter(item => item.text && item.text.includes(user.name));
+    return addressedRows.filter(item => (
+      item.recipientUserId !== undefined
+      || item.recipientName
+      || (item.text && item.text.includes(user.name))
+    ));
   }
-  if (user.role === 'бухгалтер') return rows.filter(item => ['invoice', 'act', 'contract', 'pay', 'expreport', 'ownexp', 'supplyinv'].includes(item.type));
-  if (['кладовщик', 'снабженец'].includes(user.role)) return rows.filter(item => ['stock', 'supply', 'delivery', 'supplyinv'].includes(item.type));
-  return rows;
+  if (user.role === 'бухгалтер') return addressedRows.filter(item => ['invoice', 'act', 'contract', 'pay', 'expreport', 'ownexp', 'supplyinv'].includes(item.type));
+  if (['кладовщик', 'снабженец'].includes(user.role)) return addressedRows.filter(item => ['stock', 'supply', 'delivery', 'supplyinv'].includes(item.type));
+  return addressedRows;
 };
 
 export const buildComputedNotifications = ({

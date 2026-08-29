@@ -54,6 +54,10 @@ export const createWorkJournalActions = ({
     const workKey = estimateWorkKey(mi.estId, mi.sectionIdx, mi.itemIdx);
     const estimateItemKey = mi.estimateItemKey || workKey;
     let params = estimateWorkParams[workKey]||{};
+    if (mi.hiddenWork && !String(params.photoUrl || '').trim()) {
+      alert('Скрытую работу нельзя отправить без фотоотчёта. Приложите фото выполненной работы.');
+      return;
+    }
     const deltaQty = Math.max(0, raw-done);
     const projectRoomsForWork = rooms.filter(room => room.project === project.name);
     if (!params.roomId && !String(params.roomName || '').trim()) {
@@ -201,6 +205,10 @@ export const createWorkJournalActions = ({
   };
 
   const confirmJ = async (e, acceptedQty, comment) => {
+    if (e.hiddenWork && !String(e.photoUrl || '').trim()) {
+      alert('Скрытую работу нельзя подтвердить без фотоотчёта. Сначала исполнитель должен приложить фото.');
+      return;
+    }
     const planQty = toNum(e.quantity||0);
     const accepted = (acceptedQty===undefined||acceptedQty===null||acceptedQty==='')?planQty:toNum(acceptedQty);
     const ppu = Number(e._ppu||e.executionPricePerUnit||0) || (Number(e.executionTotal||0)/Math.max(1, planQty));

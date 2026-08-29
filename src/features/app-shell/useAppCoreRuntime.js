@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { createAiAssistantActions } from '../ai-assistant/aiAssistantActions';
 import { createAuthActions } from '../auth/authActions';
 import { createChatActions } from '../chat/chatActions';
@@ -24,6 +24,7 @@ import {
   sendPushNotification,
 } from '../../utils/appRuntimeUtils';
 import { normalizeEstimateList } from '../../utils/estimateUtils';
+import { buildHiddenWorkPhotoNotifications } from '../hidden-works/hiddenWorkPhotoNotifications';
 import { fmtMeasure, toNum } from '../../utils/measureUtils';
 import { unreadCompanyMessagesCount } from './appShellSelectors';
 import {
@@ -98,7 +99,7 @@ export function useAppCoreRuntime({
     setMaterialNormSuggestions,
   } = materialNormsState;
   const {
-    activePage, activeProjectTab, actPayments, companyMessages, consentChecked, estimatesTab,
+    activePage, activeProjectTab, actPayments, allBrigadeItems, brigadeContracts, companyMessages, consentChecked, estimatesList, estimatesTab,
     expandedProject, geoCheckins, globalSearch, initialDataLoaded, interimActs, materials,
     masterProjectId, newBrigadePayment, newPayment, notifications, profileData, projects,
     pushEnabled, selectedBrigadeContract, setAccountablePayments, setActivePage,
@@ -126,10 +127,17 @@ export function useAppCoreRuntime({
     setSupplyHistory, setSupplyRequests, setSupplyTemplates, setTbJournal, setTimesheet,
     setToolHistory, setTools, setUnexpectedWorksList, setWarehouseMain, setWarehouseMovements,
     setWarehouses, setWarrantyDefects, setWeatherLog, setWorkJournal, setWorkJournalPage,
-    tools,
+    tools, workJournal,
   } = appMainState;
 
   const currentUser = user || null;
+  const hiddenWorkPhotoNotifications = useMemo(() => buildHiddenWorkPhotoNotifications({
+    user: currentUser,
+    estimatesList,
+    brigadeContracts,
+    brigadeContractItems: allBrigadeItems,
+    workJournal,
+  }), [currentUser, estimatesList, brigadeContracts, allBrigadeItems, workJournal]);
 
   const { askDirectorAgent, sendAiMessage } = createAiAssistantActions({
     API,
@@ -167,6 +175,7 @@ export function useAppCoreRuntime({
   } = createNotificationActions({
     API,
     activePage,
+    hiddenWorkPhotoNotifications,
     loadAuditLog,
     notifications,
     pushEnabled,

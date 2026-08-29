@@ -6,6 +6,7 @@ import {
 export const createNotificationActions = ({
   API,
   activePage,
+  hiddenWorkPhotoNotifications = [],
   loadAuditLog,
   notifications,
   pushEnabled,
@@ -17,7 +18,16 @@ export const createNotificationActions = ({
 }) => {
   const getNotifPage = (type) => notificationPageForType(type);
 
-  const myNotifications = (notifs) => notificationsForUser(notifs, user);
+  const myNotifications = (notifs) => {
+    const merged = [...hiddenWorkPhotoNotifications, ...(notifs || [])];
+    const seen = new Set();
+    return notificationsForUser(merged, user).filter(item => {
+      const key = String(item.id ?? item.text ?? '');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
 
   const toggleNotifications = (e) => {
     e?.stopPropagation?.();
