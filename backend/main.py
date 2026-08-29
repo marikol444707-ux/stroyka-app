@@ -127,6 +127,13 @@ except ModuleNotFoundError:
     from features.supply_delivery.model import generate_supply_delivery_check
 
 try:
+    from backend.features.supply_kp_comparison.model import (
+        generate_supply_kp_comparison,
+    )
+except ModuleNotFoundError:
+    from features.supply_kp_comparison.model import generate_supply_kp_comparison
+
+try:
     from backend.auth import (
         AUTH_SESSION_COOKIE_NAME,
         AUTH_SESSION_COOKIE_SAMESITE,
@@ -10247,7 +10254,6 @@ def compare_kp_for_request(id: int, current_user: dict = Depends(require_roles(*
     # AI вердикт текстом
     ai_text = None
     try:
-        import openai as oa
         prompt = (
             f"Сравни {len(offers_summary)} коммерческих предложений на материал "
             f"«{req['material_name']}» (нужно {req['quantity']} {req['unit']}).\n"
@@ -10267,15 +10273,16 @@ def compare_kp_for_request(id: int, current_user: dict = Depends(require_roles(*
             "Учитывай не только цену но и срок, условия оплаты, рейтинг поставщика. "
             "Не используй markdown, не используй ```."
         )
-        client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
-        r = client.responses.create(
-            model="gpt://"+YANDEX_FOLDER_ID+"/yandexgpt-5.1/latest",
-            temperature=0.2,
-            instructions="Ты помощник директора строительной компании. Сравниваешь коммерческие предложения и даёшь короткий вывод.",
-            input=prompt,
-            max_output_tokens=400,
+        ai_text = generate_supply_kp_comparison(
+            prompt,
+            "Ты помощник директора строительной компании. Сравниваешь коммерческие предложения и даёшь короткий вывод.",
+            YANDEX_API_KEY,
+            YANDEX_FOLDER_ID,
+            model_gateway_enabled=os.getenv(
+                "SUPPLY_KP_COMPARISON_MODEL_GATEWAY_ENABLED",
+                "false",
+            ).lower() == "true",
         )
-        ai_text = (r.output_text or '').strip()
     except Exception as e:
         print("compare-kp AI error:", e)
         ai_text = None

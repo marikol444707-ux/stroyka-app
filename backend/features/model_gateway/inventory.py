@@ -8,7 +8,11 @@ from backend.features.model_gateway.policies import MODEL_CAPABILITIES
 
 _EXPECTED_ACCESS = (
     ("backend/main.py", "_director_agent_call_yandex", "director_agent"),
-    ("backend/main.py", "compare_kp_for_request", "supply_kp_comparison"),
+    (
+        "backend/features/supply_kp_comparison/model.py",
+        "generate_supply_kp_comparison_legacy",
+        "supply_kp_comparison",
+    ),
     (
         "backend/features/supply_delivery/model.py",
         "generate_supply_delivery_check_legacy",
