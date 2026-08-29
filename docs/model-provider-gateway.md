@@ -225,6 +225,21 @@ caller. Business JSON/schema validation still belongs to each caller. The
 human-approved evaluation set must therefore score final caller-visible
 results separately before any cloud-versus-local quality comparison.
 
+The second A14.5 slice defines that evaluation boundary for hidden-works
+detection without running a model. It contains 12 synthetic cases and rejects
+unknown fields, oversized files, malformed identifiers and common personal or
+business identifiers. The fixture contains no production project, company,
+document or person data. A human approval unlocks offline evaluation only when
+it names the exact canonical SHA-256 digest; any content or threshold change
+invalidates that approval. Offline readiness never enables production traffic.
+
+Hidden works are safety-sensitive, so the acceptance gate permits no false
+negative in the approved set. It also requires at least 92% exact case matches,
+at most 10% false positives, p95 latency no higher than 15 seconds, average
+output no higher than 500 tokens and valid token measurements for at least 95%
+of calls. The dataset must contain at least ten hidden and ten visible work
+labels. These thresholds cannot be weakened through fixture input.
+
 ## Commands
 
 ```bash
@@ -233,6 +248,7 @@ python3 -m unittest \
   backend.features.model_gateway.test_contract \
   backend.features.model_gateway.test_yandex_adapter \
   backend.features.model_gateway.test_telemetry \
+  backend.features.model_gateway.test_evaluation_set \
   backend.features.model_gateway.test_estimate_chat_cutover \
   backend.features.document_recognition.test_model_gateway_cutover \
   backend.features.project_records.test_model_gateway_cutover \

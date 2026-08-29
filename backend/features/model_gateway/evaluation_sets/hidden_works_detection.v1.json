@@ -1,0 +1,112 @@
+{
+  "version": "model-evaluation-v1",
+  "capability": "hidden_works_detection",
+  "source": "synthetic",
+  "thresholds": {
+    "minimumExactMatchRate": 0.92,
+    "maximumFalseNegativeRate": 0.0,
+    "maximumFalsePositiveRate": 0.1,
+    "maximumP95LatencyMs": 15000,
+    "maximumAverageOutputTokens": 500,
+    "minimumTokenCoverageRate": 0.95
+  },
+  "cases": [
+    {
+      "id": "hw-001",
+      "works": [
+        {"id": "w1", "name": "Армирование монолитного фундамента"},
+        {"id": "w2", "name": "Окраска фасада"}
+      ],
+      "expectedHiddenIds": ["w1"]
+    },
+    {
+      "id": "hw-002",
+      "works": [
+        {"id": "w1", "name": "Устройство гидроизоляции под стяжкой"},
+        {"id": "w2", "name": "Монтаж напольного плинтуса"}
+      ],
+      "expectedHiddenIds": ["w1"]
+    },
+    {
+      "id": "hw-003",
+      "works": [
+        {"id": "w1", "name": "Прокладка кабеля в штробе"},
+        {"id": "w2", "name": "Установка розеток"}
+      ],
+      "expectedHiddenIds": ["w1"]
+    },
+    {
+      "id": "hw-004",
+      "works": [
+        {"id": "w1", "name": "Прокладка труб водоснабжения в стене"},
+        {"id": "w2", "name": "Установка смесителей"}
+      ],
+      "expectedHiddenIds": ["w1"]
+    },
+    {
+      "id": "hw-005",
+      "works": [
+        {"id": "w1", "name": "Монтаж воздуховодов за подвесным потолком"},
+        {"id": "w2", "name": "Монтаж вентиляционных решёток"}
+      ],
+      "expectedHiddenIds": ["w1"]
+    },
+    {
+      "id": "hw-006",
+      "works": [
+        {"id": "w1", "name": "Обратная засыпка пазух фундамента"},
+        {"id": "w2", "name": "Планировка участка"}
+      ],
+      "expectedHiddenIds": ["w1"]
+    },
+    {
+      "id": "hw-007",
+      "works": [
+        {"id": "w1", "name": "Устройство теплоизоляции кровли под мембраной"},
+        {"id": "w2", "name": "Монтаж водосточной системы"}
+      ],
+      "expectedHiddenIds": ["w1"]
+    },
+    {
+      "id": "hw-008",
+      "works": [
+        {"id": "w1", "name": "Монтаж контура заземления в грунте"},
+        {"id": "w2", "name": "Установка светильников"}
+      ],
+      "expectedHiddenIds": ["w1"]
+    },
+    {
+      "id": "hw-009",
+      "works": [
+        {"id": "w1", "name": "Установка закладных деталей перед бетонированием"},
+        {"id": "w2", "name": "Монтаж дверных наличников"}
+      ],
+      "expectedHiddenIds": ["w1"]
+    },
+    {
+      "id": "hw-010",
+      "works": [
+        {"id": "w1", "name": "Окраска внутренних стен"},
+        {"id": "w2", "name": "Установка дверных ручек"}
+      ],
+      "expectedHiddenIds": []
+    },
+    {
+      "id": "hw-011",
+      "works": [
+        {"id": "w1", "name": "Монтаж корпусной мебели"},
+        {"id": "w2", "name": "Установка декоративных светильников"}
+      ],
+      "expectedHiddenIds": []
+    },
+    {
+      "id": "hw-012",
+      "works": [
+        {"id": "w1", "name": "Армирование монолитной плиты"},
+        {"id": "w2", "name": "Бетонирование монолитной плиты"},
+        {"id": "w3", "name": "Устройство натяжного потолка"}
+      ],
+      "expectedHiddenIds": ["w1", "w2"]
+    }
+  ]
+}
