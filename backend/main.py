@@ -15919,6 +15919,10 @@ register_estimate_changes_module(app, {
     "log_audit": lambda **kwargs: log_audit(**kwargs),
     "yandex_api_key": YANDEX_API_KEY,
     "yandex_folder_id": YANDEX_FOLDER_ID,
+    "model_gateway_enabled": os.getenv(
+        "ESTIMATE_CHANGE_PRICE_MODEL_GATEWAY_ENABLED",
+        "false",
+    ).strip().lower() in ("1", "true", "yes"),
 })
 
 try:

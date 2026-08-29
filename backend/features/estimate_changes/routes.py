@@ -7,6 +7,13 @@ from typing import Optional
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException
 
+try:
+    from backend.features.estimate_changes.price_model import (
+        generate_estimate_change_price,
+    )
+except ModuleNotFoundError:
+    from features.estimate_changes.price_model import generate_estimate_change_price
+
 
 def _positive_int(value):
     try:
@@ -98,6 +105,7 @@ def register_estimate_changes_module(app, deps):
     log_audit = deps["log_audit"]
     yandex_api_key = deps.get("yandex_api_key")
     yandex_folder_id = deps.get("yandex_folder_id")
+    model_gateway_enabled = deps.get("model_gateway_enabled") is True
 
     def estimate_mutation_scope(
         cur,
@@ -397,8 +405,6 @@ def register_estimate_changes_module(app, deps):
             cur.close()
             conn.close()
 
-        import openai as oa
-
         similar_lines = [
             str(item.get("name") or "")
             + " · "
@@ -421,28 +427,13 @@ def register_estimate_changes_module(app, deps):
             "justification — 1-2 строки обоснования."
         )
         instructions = "Ты эксперт по строительной смете. Отвечай СТРОГО JSON без markdown."
-        client = oa.OpenAI(
-            api_key=yandex_api_key,
-            base_url="https://ai.api.cloud.yandex.net/v1",
-            project=yandex_folder_id,
+        answer, error = generate_estimate_change_price(
+            user_text,
+            instructions,
+            yandex_api_key,
+            yandex_folder_id,
+            model_gateway_enabled=model_gateway_enabled,
         )
-
-        def call(model_id):
-            try:
-                response = client.responses.create(
-                    model="gpt://" + str(yandex_folder_id or "") + "/" + model_id,
-                    temperature=0.2,
-                    instructions=instructions,
-                    input=user_text,
-                    max_output_tokens=800,
-                )
-                return response.output_text or "", None
-            except Exception as exc:
-                return "", str(exc)
-
-        answer, error = call("qwen3.6-35b-a3b/latest")
-        if not answer.strip():
-            answer, error = call("yandexgpt-5.1/latest")
         if not answer.strip():
             raise HTTPException(status_code=502, detail="AI вернул пустой ответ: " + str(error))
         match = re.search(r"\{.*\}", answer.strip(), re.DOTALL)

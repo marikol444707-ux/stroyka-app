@@ -6,20 +6,36 @@ import re
 import time
 from types import MappingProxyType
 
-from backend.features.model_gateway.contract import (
-    MODEL_GATEWAY_CANCELLED,
-    MODEL_GATEWAY_CONTRACT_INVALID,
-    MODEL_GATEWAY_DEADLINE_EXCEEDED,
-    MODEL_GATEWAY_EMPTY_OUTPUT,
-    MODEL_GATEWAY_PROVIDER_FAILED,
-    MODEL_GATEWAY_PROVIDER_UNAVAILABLE,
-    ModelGatewayError,
-    ModelInputPart,
-    ModelRequest,
-    build_model_request,
-    build_model_result,
-)
-from backend.features.model_gateway.policies import MODEL_CAPABILITIES
+try:
+    from backend.features.model_gateway.contract import (
+        MODEL_GATEWAY_CANCELLED,
+        MODEL_GATEWAY_CONTRACT_INVALID,
+        MODEL_GATEWAY_DEADLINE_EXCEEDED,
+        MODEL_GATEWAY_EMPTY_OUTPUT,
+        MODEL_GATEWAY_PROVIDER_FAILED,
+        MODEL_GATEWAY_PROVIDER_UNAVAILABLE,
+        ModelGatewayError,
+        ModelInputPart,
+        ModelRequest,
+        build_model_request,
+        build_model_result,
+    )
+    from backend.features.model_gateway.policies import MODEL_CAPABILITIES
+except ModuleNotFoundError:
+    from features.model_gateway.contract import (
+        MODEL_GATEWAY_CANCELLED,
+        MODEL_GATEWAY_CONTRACT_INVALID,
+        MODEL_GATEWAY_DEADLINE_EXCEEDED,
+        MODEL_GATEWAY_EMPTY_OUTPUT,
+        MODEL_GATEWAY_PROVIDER_FAILED,
+        MODEL_GATEWAY_PROVIDER_UNAVAILABLE,
+        ModelGatewayError,
+        ModelInputPart,
+        ModelRequest,
+        build_model_request,
+        build_model_result,
+    )
+    from features.model_gateway.policies import MODEL_CAPABILITIES
 
 
 YANDEX_OPENAI_BASE_URL = "https://ai.api.cloud.yandex.net/v1"

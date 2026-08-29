@@ -45,13 +45,13 @@ _EXPECTED_ACCESS = (
     ("backend/main.py", "_retry_invoice_scan_compact_json", "invoice_scan"),
     ("backend/main.py", "scan_invoice", "invoice_scan"),
     (
-        "backend/features/estimate_changes/routes.py",
-        "register_estimate_changes_module.ai_estimate_unexpected_work",
+        "backend/features/estimate_changes/price_model.py",
+        "generate_estimate_change_price_legacy",
         "estimate_change_price",
     ),
     (
-        "backend/features/estimate_changes/routes.py",
-        "register_estimate_changes_module.ai_estimate_unexpected_work.call",
+        "backend/features/estimate_changes/price_model.py",
+        "generate_estimate_change_price_legacy.call",
         "estimate_change_price",
     ),
     (

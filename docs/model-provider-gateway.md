@@ -129,6 +129,15 @@ with a 120-second total deadline. Project authorization, source lookup,
 optional replacement, draft inserts, measurement status changes and the HTTP
 response remain in the project-records module and are unchanged.
 
+The third A14.4 domain is AI price estimation for an unexpected estimate
+change. Its caller-local `ESTIMATE_CHANGE_PRICE_MODEL_GATEWAY_ENABLED` switch
+defaults to `false`. The rollback path preserves the Qwen-then-YandexGPT model
+order, prompt, instructions, temperature, 800-token output limit, JSON parsing
+and HTTP response. When explicitly enabled, only the model transport crosses
+the gateway with a 120-second total deadline and fixed non-secret failures.
+Tenant visibility, price-list lookup and calculated response fields remain in
+the estimate-changes module and are unchanged.
+
 ### A14.5: Measurement before local-model evaluation
 
 - Record bounded per-capability success, invalid-response, latency and token/
@@ -146,7 +155,8 @@ python3 -m unittest \
   backend.features.model_gateway.test_yandex_adapter \
   backend.features.model_gateway.test_estimate_chat_cutover \
   backend.features.document_recognition.test_model_gateway_cutover \
-  backend.features.project_records.test_model_gateway_cutover
+  backend.features.project_records.test_model_gateway_cutover \
+  backend.features.estimate_changes.test_model_gateway_cutover
 
 PYTHONPYCACHEPREFIX=/tmp/stroyka-a14-pycache \
 python3 -m unittest discover -s backend -p 'test_*.py'

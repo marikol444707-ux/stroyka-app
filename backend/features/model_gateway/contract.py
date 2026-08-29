@@ -4,7 +4,10 @@ import math
 import re
 from dataclasses import dataclass
 
-from backend.features.model_gateway.policies import MODEL_CAPABILITIES
+try:
+    from backend.features.model_gateway.policies import MODEL_CAPABILITIES
+except ModuleNotFoundError:
+    from features.model_gateway.policies import MODEL_CAPABILITIES
 
 
 MODEL_GATEWAY_CONTRACT_INVALID = "model_gateway_contract_invalid"
