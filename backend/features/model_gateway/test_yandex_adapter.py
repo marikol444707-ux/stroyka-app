@@ -30,6 +30,8 @@ class FakeResponses:
         outcome = self.outcomes.pop(0)
         if isinstance(outcome, BaseException):
             raise outcome
+        if hasattr(outcome, "output_text"):
+            return outcome
         return SimpleNamespace(output_text=outcome)
 
 
@@ -44,6 +46,109 @@ def clock_from(*values):
 
 
 class YandexModelAdapterTest(unittest.TestCase):
+    def test_success_emits_safe_per_capability_usage_measurement(self):
+        events = []
+        response = SimpleNamespace(
+            output_text="PRIVATE MODEL OUTPUT",
+            usage=SimpleNamespace(
+                input_tokens=430,
+                output_tokens=70,
+                total_tokens=500,
+            ),
+        )
+        adapter = build_yandex_model_adapter(
+            api_key="private-test-key",
+            folder_id="folder-1",
+            client_factory=lambda **_values: FakeClient([response]),
+            clock=clock_from(10.0, 10.0, 11.25),
+            telemetry_sink=lambda **fields: events.append(fields),
+            correlation_id_factory=(
+                lambda: "0123456789abcdef0123456789abcdef"
+            ),
+        )
+        request = build_model_request(
+            capability="hidden_works_detection",
+            instructions="PRIVATE INSTRUCTIONS",
+            input_text="PRIVATE ESTIMATE",
+            temperature=0.1,
+            max_output_tokens=2_000,
+            deadline_seconds=30,
+        )
+
+        result = adapter.generate(request)
+
+        self.assertEqual(result.output_text, "PRIVATE MODEL OUTPUT")
+        self.assertEqual(events, [{
+            "capability": "hidden_works_detection",
+            "provider": "yandex_cloud",
+            "model": "yandexgpt-5.1/latest",
+            "outcome": "success",
+            "duration_ms": 1250,
+            "input_tokens": 430,
+            "output_tokens": 70,
+            "total_tokens": 500,
+            "correlation_id": "0123456789abcdef0123456789abcdef",
+        }])
+        self.assertNotIn("PRIVATE", repr(events))
+
+    def test_invalid_response_emits_fixed_failure_without_raw_details(self):
+        events = []
+        adapter = build_yandex_model_adapter(
+            api_key="key",
+            folder_id="folder-1",
+            client_factory=lambda **_values: FakeClient([
+                SimpleNamespace(
+                    output_text="",
+                    usage={"input_tokens": "PRIVATE"},
+                ),
+            ]),
+            telemetry_sink=lambda **fields: events.append(fields),
+            correlation_id_factory=(
+                lambda: "fedcba9876543210fedcba9876543210"
+            ),
+        )
+        request = build_model_request(
+            capability="estimate_chat",
+            instructions="PRIVATE INSTRUCTIONS",
+            input_text="PRIVATE PROMPT",
+            temperature=0.3,
+            max_output_tokens=1500,
+            deadline_seconds=30,
+        )
+
+        with self.assertRaises(ModelGatewayError) as raised:
+            adapter.generate(request)
+
+        self.assertEqual(raised.exception.code, MODEL_GATEWAY_EMPTY_OUTPUT)
+        self.assertEqual(events[0]["outcome"], "invalid_response")
+        self.assertEqual(events[0]["capability"], "estimate_chat")
+        self.assertNotIn("model", events[0])
+        self.assertNotIn("PRIVATE", repr(events))
+
+    def test_measurement_failure_cannot_break_model_result(self):
+        def broken_sink(**_fields):
+            raise RuntimeError("telemetry unavailable PRIVATE")
+
+        adapter = build_yandex_model_adapter(
+            api_key="key",
+            folder_id="folder-1",
+            client_factory=lambda **_values: FakeClient(["answer"]),
+            telemetry_sink=broken_sink,
+            correlation_id_factory=lambda: "PRIVATE CORRELATION",
+        )
+        request = build_model_request(
+            capability="estimate_chat",
+            instructions="instructions",
+            input_text="prompt",
+            temperature=0.3,
+            max_output_tokens=1500,
+            deadline_seconds=30,
+        )
+
+        result = adapter.generate(request)
+
+        self.assertEqual(result.output_text, "answer")
+
     def test_routes_are_closed_and_cover_every_capability(self):
         self.assertEqual(
             dict(YANDEX_CAPABILITY_MODELS),

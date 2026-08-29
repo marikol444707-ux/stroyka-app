@@ -196,6 +196,35 @@ remain in the existing route and are unchanged.
 - Evaluate a local model offline. Do not route production traffic to it until a
   separate rollout decision and canary plan are approved.
 
+The first A14.5 slice adds one structured `model_gateway_call` event for every
+gateway-enabled Yandex request. The event has a random per-call correlation ID
+and only closed operational fields: capability, provider, allowlisted model,
+fixed outcome, bounded duration/bucket, token counts when returned by the
+provider, and an explicit cost state. It never accepts or records instructions,
+input/output text, document identifiers, tenant/user/project identifiers,
+credentials or raw exception messages. Measurement failures are swallowed so
+observability cannot break a business request.
+
+`costState=unpriced` is intentional: the repository has no reviewed,
+versioned price table for the current provider/model routes. It must not report
+a false zero cost. A later measurement slice may add a reviewed rate card and
+derived cost without changing model traffic. `tokenUsageState=unavailable`
+likewise makes provider responses without valid usage data visible instead of
+guessing.
+
+The operational questions answered by these events are:
+
+- which logical capability is succeeding, returning an invalid/empty response,
+  timing out or failing at the provider boundary;
+- which capabilities exceed the fixed latency buckets;
+- how much measured input/output/total token volume each capability consumes;
+- which calls lack usage or pricing coverage.
+
+The gateway `success` outcome means that bounded non-empty text reached the
+caller. Business JSON/schema validation still belongs to each caller. The
+human-approved evaluation set must therefore score final caller-visible
+results separately before any cloud-versus-local quality comparison.
+
 ## Commands
 
 ```bash
@@ -203,6 +232,7 @@ PYTHONPYCACHEPREFIX=/tmp/stroyka-a14-pycache \
 python3 -m unittest \
   backend.features.model_gateway.test_contract \
   backend.features.model_gateway.test_yandex_adapter \
+  backend.features.model_gateway.test_telemetry \
   backend.features.model_gateway.test_estimate_chat_cutover \
   backend.features.document_recognition.test_model_gateway_cutover \
   backend.features.project_records.test_model_gateway_cutover \
