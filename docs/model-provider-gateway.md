@@ -109,6 +109,17 @@ unchanged.
 - Migrate the legacy direct HTTP caller in a dedicated final compatibility
   slice.
 
+The first A14.4 domain is document recognition. Its caller-local
+`DOCUMENT_RECOGNITION_MODEL_GATEWAY_ENABLED` switch defaults to `false`, so a
+normal deployment continues to use the byte-equivalent legacy SDK request.
+When explicitly enabled, only the AI extraction step crosses the gateway; role
+authorization, file/text extraction, heuristic fallback, JSON parsing, audit
+logging and the HTTP response shape remain in the document-recognition module.
+The model, instructions, serialized prompt, temperature and 2,500-token output
+limit are unchanged. The gateway adds a 120-second total deadline and returns
+only fixed non-secret failure codes. Setting the switch back to `false` is the
+domain-local rollback.
+
 ### A14.5: Measurement before local-model evaluation
 
 - Record bounded per-capability success, invalid-response, latency and token/
@@ -124,7 +135,8 @@ PYTHONPYCACHEPREFIX=/tmp/stroyka-a14-pycache \
 python3 -m unittest \
   backend.features.model_gateway.test_contract \
   backend.features.model_gateway.test_yandex_adapter \
-  backend.features.model_gateway.test_estimate_chat_cutover
+  backend.features.model_gateway.test_estimate_chat_cutover \
+  backend.features.document_recognition.test_model_gateway_cutover
 
 PYTHONPYCACHEPREFIX=/tmp/stroyka-a14-pycache \
 python3 -m unittest discover -s backend -p 'test_*.py'

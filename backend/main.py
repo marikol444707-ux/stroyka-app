@@ -26266,6 +26266,10 @@ register_document_recognition_module(app, {
     ),
     "yandex_api_key": YANDEX_API_KEY,
     "yandex_folder_id": YANDEX_FOLDER_ID,
+    "model_gateway_enabled": os.getenv(
+        "DOCUMENT_RECOGNITION_MODEL_GATEWAY_ENABLED",
+        "false",
+    ).strip().lower() in ("1", "true", "yes"),
     "upload_dir": UPLOAD_DIR,
     "log_audit": log_audit,
 })

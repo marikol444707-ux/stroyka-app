@@ -7,6 +7,23 @@ import xml.etree.ElementTree as ET
 
 from fastapi import Depends
 
+try:
+    from backend.features.model_gateway.contract import (
+        MODEL_GATEWAY_PROVIDER_FAILED,
+        ModelGatewayError,
+        build_model_request,
+    )
+    from backend.features.model_gateway.yandex_adapter import (
+        build_yandex_model_adapter,
+    )
+except ModuleNotFoundError:
+    from features.model_gateway.contract import (
+        MODEL_GATEWAY_PROVIDER_FAILED,
+        ModelGatewayError,
+        build_model_request,
+    )
+    from features.model_gateway.yandex_adapter import build_yandex_model_adapter
+
 
 FIELD_KEYS = (
     "docType",
@@ -31,6 +48,13 @@ FIELD_KEYS = (
     "workType",
     "projectName",
     "notes",
+)
+
+_DOCUMENT_RECOGNITION_INSTRUCTIONS = (
+    "Ты извлекаешь данные из строительных договоров, приложений, реквизитов, паспортных данных и счетов. "
+    "Верни только JSON без markdown. Не выдумывай значения: если поля нет в тексте, оставь пустую строку. "
+    "docDate верни в ISO YYYY-MM-DD, amount только числом строкой, contractSubject - краткий предмет договора. "
+    "Для CRM поставщиков и исполнителей особенно важны ИНН, КПП, ОГРН, банк, БИК, счета, подписант, основание подписи, паспортные данные."
 )
 
 
@@ -382,14 +406,14 @@ def _build_crm_document(fields, file_url):
     }
 
 
-def _ai_extract(text, context, entity_type, project_name, current_fields, api_key, folder_id):
-    if not (api_key and folder_id and text):
-        return {}, ""
-    try:
-        import openai as oa
-    except Exception as exc:
-        return {}, "AI-клиент недоступен: " + str(exc)
-    prompt = {
+def _document_recognition_prompt(
+    text,
+    context,
+    entity_type,
+    project_name,
+    current_fields,
+):
+    return {
         "context": context,
         "entityType": entity_type,
         "projectName": project_name,
@@ -397,18 +421,34 @@ def _ai_extract(text, context, entity_type, project_name, current_fields, api_ke
         "documentText": text[:24000],
         "requiredJsonKeys": list(FIELD_KEYS) + ["confidence", "warnings"],
     }
-    instructions = (
-        "Ты извлекаешь данные из строительных договоров, приложений, реквизитов, паспортных данных и счетов. "
-        "Верни только JSON без markdown. Не выдумывай значения: если поля нет в тексте, оставь пустую строку. "
-        "docDate верни в ISO YYYY-MM-DD, amount только числом строкой, contractSubject - краткий предмет договора. "
-        "Для CRM поставщиков и исполнителей особенно важны ИНН, КПП, ОГРН, банк, БИК, счета, подписант, основание подписи, паспортные данные."
+
+
+def _ai_extract_legacy(
+    text,
+    context,
+    entity_type,
+    project_name,
+    current_fields,
+    api_key,
+    folder_id,
+):
+    try:
+        import openai as oa
+    except Exception as exc:
+        return {}, "AI-клиент недоступен: " + str(exc)
+    prompt = _document_recognition_prompt(
+        text,
+        context,
+        entity_type,
+        project_name,
+        current_fields,
     )
     try:
         client = oa.OpenAI(api_key=api_key, base_url="https://ai.api.cloud.yandex.net/v1", project=folder_id)
         response = client.responses.create(
             model=f"gpt://{folder_id}/yandexgpt-5.1/latest",
             temperature=0.1,
-            instructions=instructions,
+            instructions=_DOCUMENT_RECOGNITION_INSTRUCTIONS,
             input=json.dumps(prompt, ensure_ascii=False),
             max_output_tokens=2500,
         )
@@ -417,11 +457,75 @@ def _ai_extract(text, context, entity_type, project_name, current_fields, api_ke
         return {}, "AI-распознавание недоступно: " + str(exc)
 
 
+def _ai_extract_gateway(
+    text,
+    context,
+    entity_type,
+    project_name,
+    current_fields,
+    api_key,
+    folder_id,
+):
+    try:
+        prompt = _document_recognition_prompt(
+            text,
+            context,
+            entity_type,
+            project_name,
+            current_fields,
+        )
+        request = build_model_request(
+            capability="document_recognition",
+            instructions=_DOCUMENT_RECOGNITION_INSTRUCTIONS,
+            input_text=json.dumps(prompt, ensure_ascii=False),
+            temperature=0.1,
+            max_output_tokens=2500,
+            deadline_seconds=120,
+        )
+        gateway = build_yandex_model_adapter(
+            api_key=api_key,
+            folder_id=folder_id,
+        )
+        response = gateway.generate(request)
+        return _extract_json_object(response.output_text), ""
+    except ModelGatewayError as error:
+        return {}, "AI-распознавание недоступно: " + error.code
+    except Exception:
+        return {}, "AI-распознавание недоступно: " + MODEL_GATEWAY_PROVIDER_FAILED
+
+
+def _ai_extract(
+    text,
+    context,
+    entity_type,
+    project_name,
+    current_fields,
+    api_key,
+    folder_id,
+    model_gateway_enabled=False,
+):
+    if not (api_key and folder_id and text):
+        return {}, ""
+    arguments = {
+        "text": text,
+        "context": context,
+        "entity_type": entity_type,
+        "project_name": project_name,
+        "current_fields": current_fields,
+        "api_key": api_key,
+        "folder_id": folder_id,
+    }
+    if model_gateway_enabled is True:
+        return _ai_extract_gateway(**arguments)
+    return _ai_extract_legacy(**arguments)
+
+
 def register_document_recognition_module(app, deps):
     require_roles = deps["require_roles"]
     access_roles = tuple(dict.fromkeys(deps.get("access_roles") or ()))
     yandex_api_key = deps.get("yandex_api_key") or ""
     yandex_folder_id = deps.get("yandex_folder_id") or ""
+    model_gateway_enabled = deps.get("model_gateway_enabled") is True
     upload_dir = deps.get("upload_dir") or "uploads"
     log_audit = deps.get("log_audit")
     document_access = require_roles(*access_roles)
@@ -450,7 +554,16 @@ def register_document_recognition_module(app, deps):
             source = "empty"
         else:
             heuristic = _heuristic_extract(source_text)
-            ai_data, ai_warning = _ai_extract(source_text, context, entity_type, project_name, current_fields, yandex_api_key, yandex_folder_id)
+            ai_data, ai_warning = _ai_extract(
+                source_text,
+                context,
+                entity_type,
+                project_name,
+                current_fields,
+                yandex_api_key,
+                yandex_folder_id,
+                model_gateway_enabled=model_gateway_enabled,
+            )
             if ai_warning:
                 warnings.append(ai_warning)
             fields = _merge_fields(ai_data, heuristic)

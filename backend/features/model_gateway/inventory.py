@@ -61,7 +61,7 @@ _EXPECTED_ACCESS = (
     ),
     (
         "backend/features/document_recognition/routes.py",
-        "_ai_extract",
+        "_ai_extract_legacy",
         "document_recognition",
     ),
     (
