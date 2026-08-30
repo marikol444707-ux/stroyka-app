@@ -1,0 +1,74 @@
+[Unit]
+Description=Serve the pinned local hidden-works classification model
+After=network.target
+ConditionFileIsExecutable=/opt/stroyka-hidden-works-model/bin/llama-server
+ConditionFileNotEmpty=/opt/stroyka-hidden-works-model/models/Qwen3-4B-Q4_K_M.gguf
+ConditionFileNotEmpty=/etc/stroyka/hidden-works-local-model.key
+StartLimitIntervalSec=5min
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=stroyka-hidden-works
+Group=stroyka-hidden-works
+WorkingDirectory=/opt/stroyka-hidden-works-model
+Environment=HOME=/tmp
+ExecStart=/opt/stroyka-hidden-works-model/bin/llama-server \
+  --model /opt/stroyka-hidden-works-model/models/Qwen3-4B-Q4_K_M.gguf \
+  --alias qwen3-4b-q4-k-m \
+  --host 127.0.0.1 \
+  --port 18080 \
+  --threads 4 \
+  --threads-batch 4 \
+  --ctx-size 4096 \
+  --parallel 1 \
+  --n-gpu-layers 0 \
+  --reasoning off \
+  --offline \
+  --no-ui \
+  --metrics \
+  --api-key-file /etc/stroyka/hidden-works-local-model.key \
+  --timeout 120
+Restart=on-failure
+RestartSec=10s
+KillSignal=SIGTERM
+TimeoutStartSec=5min
+TimeoutStopSec=30s
+Nice=10
+CPUWeight=10
+MemoryHigh=4G
+MemoryMax=5G
+TasksMax=128
+LimitNOFILE=1024
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectClock=true
+ProtectHostname=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectProc=invisible
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX AF_INET
+IPAddressDeny=any
+IPAddressAllow=localhost
+CapabilityBoundingSet=
+AmbientCapabilities=
+LockPersonality=true
+RemoveIPC=true
+SystemCallArchitectures=native
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=stroyka-hidden-works-model
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=200
+
+[Install]
+WantedBy=multi-user.target
