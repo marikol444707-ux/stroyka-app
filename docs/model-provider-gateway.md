@@ -286,6 +286,27 @@ holdout, keeps offline acceptance false and keeps production traffic false.
 The tuning fixture's canonical SHA-256 is
 `ee6fa69661de5c10d4b97eb796fcc43dd58be7704a3dfc50898a10e16d33714c`.
 
+Prompt tuning used only that separate fixture. The original prompt scored
+`83.33%` exact match with `0%` false negatives and `15.38%` false positives;
+it incorrectly treated visible sockets and a visible ventilation diffuser as
+hidden works. Adding the concealment criterion and excluding visible terminal
+equipment removed those false positives but exposed one false negative for a
+concealed ventilation duct (`91.67%` exact, `8.33%` false negatives). The
+locked prompt now contrasts the concealed network with its visible terminal
+element explicitly. Its final tuning-only result was:
+
+- exact case match: `100%`;
+- false negatives: `0%`;
+- false positives: `0%`;
+- p95 latency: `8990 ms`;
+- average output: `23.33` tokens;
+- token coverage: `100%`.
+
+Passing the tuning fixture is not an acceptance result. The prompt is frozen
+for the next step, but a newly authored, disjoint holdout must be reviewed and
+approved by its exact SHA-256 before one offline acceptance run.
+`productionTrafficAllowed` remains `false`.
+
 Name-based detection remains an operational hint, not the legal source of the
 project's hidden-work list. The applicable list is determined by the working
 documentation, while sector rules can provide example categories. The tuning

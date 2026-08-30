@@ -50,6 +50,26 @@ class HiddenWorksDetectionGatewayCutoverTest(unittest.TestCase):
         )
         self.assertIn("СКРЫТЫМИ работами", prompt)
         self.assertIn(
+            "недоступен для контроля без вскрытия",
+            prompt,
+        )
+        self.assertIn(
+            "розетки, выключатели, светильники, вентиляционные решётки",
+            prompt,
+        )
+        self.assertIn(
+            "не являются скрытыми, даже если подключаются к скрытой сети",
+            prompt,
+        )
+        self.assertIn(
+            "воздуховод за потолком — скрытая работа, вентиляционная решётка — видимая",
+            prompt,
+        )
+        self.assertIn(
+            "проводка под штукатуркой — скрытая работа, розетка — видимая",
+            prompt,
+        )
+        self.assertIn(
             '["Армирование монолитного фундамента", "Окраска фасада"]',
             prompt,
         )
