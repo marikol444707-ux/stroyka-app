@@ -149,6 +149,12 @@ except ModuleNotFoundError:
     )
 
 try:
+    from backend.features.hidden_works_detection.local_canary import (
+        try_local_hidden_works_canary,
+    )
+    from backend.features.hidden_works_detection.local_model import (
+        generate_local_hidden_works,
+    )
     from backend.features.hidden_works_detection.model import (
         generate_hidden_works_detection,
     )
@@ -157,6 +163,12 @@ try:
         build_hidden_works_detection_prompt,
     )
 except ModuleNotFoundError:
+    from features.hidden_works_detection.local_canary import (
+        try_local_hidden_works_canary,
+    )
+    from features.hidden_works_detection.local_model import (
+        generate_local_hidden_works,
+    )
     from features.hidden_works_detection.model import generate_hidden_works_detection
     from features.hidden_works_detection.prompt import (
         HIDDEN_WORKS_DETECTION_INSTRUCTIONS,
@@ -13820,7 +13832,10 @@ def ai_detect_hidden_works(id: int, _current_user: dict = Depends(require_roles(
     conn = get_db()
     cur = conn.cursor()
     require_estimate_access(cur, id, _current_user)
-    cur.execute("SELECT sections_json FROM estimates WHERE id=%s", (id,))
+    cur.execute(
+        "SELECT sections_json, company_id FROM estimates WHERE id=%s",
+        (id,),
+    )
     row = cur.fetchone()
     if not row:
         cur.close(); conn.close()
@@ -13845,10 +13860,22 @@ def ai_detect_hidden_works(id: int, _current_user: dict = Depends(require_roles(
         cur.close(); conn.close()
         return {"ok": True, "count": 0, "sections": sections, "method": "empty"}
 
+    company_id = row[1]
     hidden_set = set()
     method = "keywords"
-    # Пытаемся через ИИ; при любой ошибке — откат на ключевые слова
-    if YANDEX_API_KEY and YANDEX_FOLDER_ID:
+    detection_completed = False
+
+    local_result = try_local_hidden_works_canary(
+        names=names,
+        company_id=company_id,
+        generate=lambda: generate_local_hidden_works(names),
+    )
+    if local_result is not None:
+        hidden_set = set(local_result.hidden_names)
+        method = local_result.method
+        detection_completed = True
+    # При выключенном или недоступном локальном canary сохраняем старую цепочку.
+    elif YANDEX_API_KEY and YANDEX_FOLDER_ID:
         user_text = build_hidden_works_detection_prompt(names)
         instructions = HIDDEN_WORKS_DETECTION_INSTRUCTIONS
         try:
@@ -13870,10 +13897,14 @@ def ai_detect_hidden_works(id: int, _current_user: dict = Depends(require_roles(
                 if isinstance(arr, list):
                     hidden_set = set((s or "").strip() for s in arr if isinstance(s, str))
                     method = "ai"
-        except Exception as e:
-            print("AI-DETECT-HIDDEN error, fallback to keywords:", str(e))
+        except Exception:
+            print(j.dumps({
+                "event": "hidden_works_legacy_model",
+                "outcome": "fallback",
+                "candidateCount": len(names),
+            }, separators=(",", ":")))
 
-    if not hidden_set:
+    if not detection_completed and not hidden_set:
         hidden_set = set(nm for nm in names if _detect_hidden_by_keywords(nm))
         method = "keywords"
 

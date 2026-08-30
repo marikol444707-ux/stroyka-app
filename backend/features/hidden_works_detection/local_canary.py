@@ -5,10 +5,16 @@ import os
 import sys
 from dataclasses import dataclass
 
-from backend.features.model_gateway.telemetry import (
-    new_model_gateway_correlation_id,
-    safe_model_gateway_correlation_id,
-)
+try:
+    from backend.features.model_gateway.telemetry import (
+        new_model_gateway_correlation_id,
+        safe_model_gateway_correlation_id,
+    )
+except ModuleNotFoundError:
+    from features.model_gateway.telemetry import (
+        new_model_gateway_correlation_id,
+        safe_model_gateway_correlation_id,
+    )
 
 
 FEATURE_FLAG = "HIDDEN_WORKS_LOCAL_MODEL_ENABLED"
@@ -143,17 +149,11 @@ def try_local_hidden_works_canary(
     names,
     company_id,
     generate,
-    enabled=None,
     correlation_id_factory=new_model_gateway_correlation_id,
     log_fn=None,
 ):
     """Try the local canary or return ``None`` for the existing fallback."""
-    is_enabled = (
-        local_hidden_works_canary_enabled(company_id)
-        if enabled is None
-        else enabled is True and _valid_company_id(company_id)
-    )
-    if not is_enabled:
+    if not local_hidden_works_canary_enabled(company_id):
         return None
 
     validated_names = _candidate_names(names)

@@ -44,28 +44,29 @@ class HiddenWorksLocalCanaryTest(unittest.TestCase):
             "Армирование основания",
             "Окраска открытой поверхности",
         )
-        result = try_local_hidden_works_canary(
-            names=names,
-            company_id=1,
-            enabled=True,
-            generate=lambda: '{"hidden":["Армирование основания"]}',
-            correlation_id_factory=(
-                lambda: "0123456789abcdef0123456789abcdef"
-            ),
-            log_fn=lambda _line: None,
-        )
+        environment = {FEATURE_FLAG: "true", COMPANY_ALLOWLIST: "1"}
+        with patch.dict("os.environ", environment, clear=True):
+            result = try_local_hidden_works_canary(
+                names=names,
+                company_id=1,
+                generate=lambda: '{"hidden":["Армирование основания"]}',
+                correlation_id_factory=(
+                    lambda: "0123456789abcdef0123456789abcdef"
+                ),
+                log_fn=lambda _line: None,
+            )
 
         self.assertEqual(result.hidden_names, ("Армирование основания",))
         self.assertEqual(result.method, "local_ai_canary")
         self.assertFalse(result.production_traffic_allowed)
 
-        visible_only = try_local_hidden_works_canary(
-            names=names,
-            company_id=1,
-            enabled=True,
-            generate=lambda: '{"hidden":[]}',
-            log_fn=lambda _line: None,
-        )
+        with patch.dict("os.environ", environment, clear=True):
+            visible_only = try_local_hidden_works_canary(
+                names=names,
+                company_id=1,
+                generate=lambda: '{"hidden":[]}',
+                log_fn=lambda _line: None,
+            )
         self.assertEqual(visible_only.hidden_names, ())
 
     def test_invalid_or_failed_model_output_returns_control_to_legacy(self):
@@ -78,15 +79,16 @@ class HiddenWorksLocalCanaryTest(unittest.TestCase):
             lambda: '{"hidden":[],"hidden":[]}',
             lambda: (_ for _ in ()).throw(RuntimeError("PRIVATE api-key")),
         )
-        for generate in failures:
-            with self.subTest(generate=generate):
-                self.assertIsNone(try_local_hidden_works_canary(
-                    names=names,
-                    company_id=1,
-                    enabled=True,
-                    generate=generate,
-                    log_fn=lambda _line: None,
-                ))
+        environment = {FEATURE_FLAG: "true", COMPANY_ALLOWLIST: "1"}
+        with patch.dict("os.environ", environment, clear=True):
+            for generate in failures:
+                with self.subTest(generate=generate):
+                    self.assertIsNone(try_local_hidden_works_canary(
+                        names=names,
+                        company_id=1,
+                        generate=generate,
+                        log_fn=lambda _line: None,
+                    ))
 
         called = False
 
@@ -95,13 +97,13 @@ class HiddenWorksLocalCanaryTest(unittest.TestCase):
             called = True
             return '{"hidden":[]}'
 
-        self.assertIsNone(try_local_hidden_works_canary(
-            names=names,
-            company_id=1,
-            enabled=False,
-            generate=should_not_run,
-            log_fn=lambda _line: None,
-        ))
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertIsNone(try_local_hidden_works_canary(
+                names=names,
+                company_id=1,
+                generate=should_not_run,
+                log_fn=lambda _line: None,
+            ))
         self.assertFalse(called)
 
     def test_log_is_structured_bounded_and_contains_no_business_payload(self):
@@ -109,18 +111,19 @@ class HiddenWorksLocalCanaryTest(unittest.TestCase):
         private_name = "PRIVATE WORK NAME"
         private_error = "PRIVATE provider output and api-key"
 
-        result = try_local_hidden_works_canary(
-            names=(private_name, "Visible work"),
-            company_id=1,
-            enabled=True,
-            generate=lambda: (_ for _ in ()).throw(
-                RuntimeError(private_error),
-            ),
-            correlation_id_factory=(
-                lambda: "fedcba9876543210fedcba9876543210"
-            ),
-            log_fn=lines.append,
-        )
+        environment = {FEATURE_FLAG: "true", COMPANY_ALLOWLIST: "1"}
+        with patch.dict("os.environ", environment, clear=True):
+            result = try_local_hidden_works_canary(
+                names=(private_name, "Visible work"),
+                company_id=1,
+                generate=lambda: (_ for _ in ()).throw(
+                    RuntimeError(private_error),
+                ),
+                correlation_id_factory=(
+                    lambda: "fedcba9876543210fedcba9876543210"
+                ),
+                log_fn=lines.append,
+            )
 
         self.assertIsNone(result)
         self.assertEqual(len(lines), 1)
@@ -138,15 +141,16 @@ class HiddenWorksLocalCanaryTest(unittest.TestCase):
         self.assertNotIn("company", rendered.lower())
 
     def test_broken_logging_cannot_break_a_successful_result(self):
-        result = try_local_hidden_works_canary(
-            names=("Работа один", "Работа два"),
-            company_id=1,
-            enabled=True,
-            generate=lambda: '{"hidden":["Работа один"]}',
-            log_fn=lambda _line: (_ for _ in ()).throw(
-                RuntimeError("log unavailable"),
-            ),
-        )
+        environment = {FEATURE_FLAG: "true", COMPANY_ALLOWLIST: "1"}
+        with patch.dict("os.environ", environment, clear=True):
+            result = try_local_hidden_works_canary(
+                names=("Работа один", "Работа два"),
+                company_id=1,
+                generate=lambda: '{"hidden":["Работа один"]}',
+                log_fn=lambda _line: (_ for _ in ()).throw(
+                    RuntimeError("log unavailable"),
+                ),
+            )
 
         self.assertEqual(result.hidden_names, ("Работа один",))
 
