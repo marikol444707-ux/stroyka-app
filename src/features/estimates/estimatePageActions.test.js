@@ -1,4 +1,20 @@
-import { createEstimatePageActions, ESTIMATE_IMPORT_MAX_BYTES, estimateImportFileError, estimateImportRequestError } from './estimatePageActions';
+import { createEstimatePageActions, ESTIMATE_IMPORT_MAX_BYTES, estimateHiddenWorksResultMessage, estimateImportFileError, estimateImportRequestError } from './estimatePageActions';
+
+describe('hidden works detection result', () => {
+  test('identifies the local model instead of reporting a keyword fallback', () => {
+    expect(estimateHiddenWorksResultMessage({
+      count: 4,
+      method: 'local_ai_canary',
+    })).toBe('🔒 Отмечено работ для АОСР: 4 (определила локальная модель)');
+  });
+
+  test('keeps the safe fallback message for keyword detection', () => {
+    expect(estimateHiddenWorksResultMessage({
+      count: 2,
+      method: 'keywords',
+    })).toBe('🔒 Отмечено работ для АОСР: 2 (по ключевым словам — ИИ был недоступен)');
+  });
+});
 
 describe('estimate import file validation', () => {
   test('accepts the Excel formats supported by the backend parser', () => {

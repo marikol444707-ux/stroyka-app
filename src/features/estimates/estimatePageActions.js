@@ -8,6 +8,16 @@ import { createEstimateVersionActions } from './estimateVersionActions';
 
 export const ESTIMATE_IMPORT_MAX_BYTES = 15 * 1024 * 1024;
 
+export const estimateHiddenWorksResultMessage = (data) => {
+  let source = ' (по ключевым словам — ИИ был недоступен)';
+  if (data?.method === 'local_ai_canary') {
+    source = ' (определила локальная модель)';
+  } else if (data?.method === 'ai') {
+    source = ' (определил ИИ)';
+  }
+  return '🔒 Отмечено работ для АОСР: ' + data?.count + source;
+};
+
 export const estimateImportFileError = (file) => {
   const name = String(file?.name || '');
   if (!/\.(xlsx|xlsm)$/i.test(name)) {
@@ -453,7 +463,7 @@ export function createEstimatePageActions({
       const updated = {...selectedEstimate, sections: data.sections};
       setSelectedEstimate(updated);
       setEstimatesList(prev => prev.map(e => e.id === updated.id ? updated : e));
-      alertFn('🔒 Отмечено работ для АОСР: ' + data.count + (data.method === 'ai' ? ' (определил ИИ)' : ' (по ключевым словам — ИИ был недоступен)'));
+      alertFn(estimateHiddenWorksResultMessage(data));
     } catch (e) {
       alertFn('Ошибка соединения');
     }
