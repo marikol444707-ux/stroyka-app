@@ -313,9 +313,27 @@ case-insensitive work names are disjoint from both the frozen baseline and the
 tuning fixture. `build_holdout_readiness` rejects any overlap or mismatched
 capability, source or thresholds. The holdout's canonical SHA-256 is
 `15e6fe41bef5c1ca966ad2e36c8cdce8ece29411450ed5968746a2cb8009fab9`.
-It has not been sent to the model. Until a human approves that exact digest,
+Before approval it was not sent to the model, and the readiness contract kept
 `humanApproved`, `readyForOfflineEvaluation` and
-`productionTrafficAllowed` all remain `false`.
+`productionTrafficAllowed` false.
+
+The exact digest was approved and the holdout was run once on 2026-08-30 with
+the same pinned local runtime and model. The result was **not accepted**:
+
+- exact case match: `91.67%` (required at least `92%`);
+- false negatives: `0%` (required `0%`);
+- false positives: `7.69%` (required at most `10%`);
+- p95 latency: `22202 ms` (required at most `15000 ms`);
+- average output: `27.5` tokens (required at most `500`);
+- token coverage: `100%` (required at least `95%`).
+
+Eleven cases matched exactly. In `hw-201`, the model correctly selected the
+reinforcement work but also over-classified installation of metal plinth
+flashings as hidden. The first measured response took `22202 ms`; all other
+responses were below `11000 ms`, but the predeclared p95 gate still failed.
+The holdout was not rerun or used to alter its labels. The local server was
+stopped immediately after the run and `productionTrafficAllowed` remains
+`false`.
 
 Name-based detection remains an operational hint, not the legal source of the
 project's hidden-work list. The applicable list is determined by the working
