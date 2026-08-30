@@ -38,8 +38,69 @@ _ERROR_CODES = frozenset({
 _MODEL_ALIAS = "qwen3-4b-q4-k-m"
 _MAX_OUTPUT_BYTES = 64 * 1024
 _MAX_RESPONSE_BYTES = 128 * 1024
-_TIMEOUT_SECONDS = 20
+_TIMEOUT_SECONDS = 60
+_MAX_BATCH_CANDIDATES = 20
+_MAX_BATCHES = 4
+_MAX_BATCH_PROMPT_BYTES = 6 * 1024
 _API_KEY_RE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
+
+# This is deliberately a high-recall filter.  It is used only when a complete
+# estimate is too large for the pinned 4096-token model context.  The model
+# still makes the final decision, including rejecting visible endpoints such
+# as ventilation grilles.
+_LARGE_ESTIMATE_CANDIDATE_STEMS = (
+    "анкер",
+    "арматур",
+    "армиров",
+    "бетон",
+    "битум",
+    "водопровод",
+    "воздуховод",
+    "вентиляц",
+    "герметизац",
+    "гидроизол",
+    "грунт",
+    "дренаж",
+    "заземлен",
+    "заземлён",
+    "закладн",
+    "закрыт",
+    "засып",
+    "звукоизол",
+    "изоляц",
+    "кабел",
+    "канализац",
+    "каркас",
+    "котлован",
+    "мембран",
+    "молниезащит",
+    "монолит",
+    "обратн",
+    "огнезащ",
+    "основан",
+    "опалуб",
+    "пароизол",
+    "подготов",
+    "праймер",
+    "примыкан",
+    "провод",
+    "проходк",
+    "разводк",
+    "ростверк",
+    "рулонн",
+    "сва",
+    "сетк",
+    "скрыт",
+    "стяжк",
+    "теплоизол",
+    "транше",
+    "труб",
+    "уплотнен",
+    "уплотнён",
+    "утепл",
+    "фундамент",
+    "штроб",
+)
 
 
 class LocalHiddenWorksModelError(ValueError):
@@ -120,16 +181,53 @@ def _configuration():
     return port, api_key
 
 
-def generate_local_hidden_works(names, *, post_json=None):
-    """Return the raw model JSON text or one fixed, non-leaking error."""
-    port, api_key = _configuration()
-    try:
-        prompt = build_indexed_hidden_works_detection_prompt(names)
-    except Exception:
-        raise LocalHiddenWorksModelError(
-            LOCAL_MODEL_RESPONSE_INVALID,
-        ) from None
+def _large_estimate_candidate_names(names):
+    """Keep plausible hidden works when a full estimate exceeds context."""
+    return tuple(
+        name
+        for name in names
+        if type(name) is str
+        and any(
+            stem in name.casefold()
+            for stem in _LARGE_ESTIMATE_CANDIDATE_STEMS
+        )
+    )
 
+
+def _candidate_batches(names):
+    batches = []
+    current = []
+    for name in names:
+        proposed = tuple(current + [name])
+        prompt_size = len(
+            build_indexed_hidden_works_detection_prompt(proposed).encode(
+                "utf-8",
+            ),
+        )
+        if current and (
+            len(proposed) > _MAX_BATCH_CANDIDATES
+            or prompt_size > _MAX_BATCH_PROMPT_BYTES
+        ):
+            batches.append(tuple(current))
+            current = [name]
+        else:
+            current.append(name)
+    if current:
+        batches.append(tuple(current))
+    if (
+        len(batches) > _MAX_BATCHES
+        or any(
+            len(build_indexed_hidden_works_detection_prompt(batch).encode(
+                "utf-8",
+            )) > _MAX_BATCH_PROMPT_BYTES
+            for batch in batches
+        )
+    ):
+        raise LocalHiddenWorksModelError(LOCAL_MODEL_RESPONSE_INVALID)
+    return tuple(batches)
+
+
+def _request_batch(batch, *, port, api_key, post_json):
     request_body = {
         "model": _MODEL_ALIAS,
         "messages": [
@@ -137,7 +235,10 @@ def generate_local_hidden_works(names, *, post_json=None):
                 "role": "system",
                 "content": HIDDEN_WORKS_DETECTION_INSTRUCTIONS,
             },
-            {"role": "user", "content": prompt},
+            {
+                "role": "user",
+                "content": build_indexed_hidden_works_detection_prompt(batch),
+            },
         ],
         "temperature": 0.1,
         "max_tokens": HIDDEN_WORKS_DETECTION_MAX_OUTPUT_TOKENS,
@@ -145,7 +246,7 @@ def generate_local_hidden_works(names, *, post_json=None):
         "reasoning_effort": "none",
         # Supported by the exact pinned llama.cpp server revision:
         # https://github.com/ggml-org/llama.cpp/blob/c1d0e7a004015f23bc0233470b747b596f29b264/tools/server/README.md#post-v1chatcompletions-openai-compatible-chat-completions-api
-        "response_format": build_hidden_works_response_format(names),
+        "response_format": build_hidden_works_response_format(batch),
         "stream": False,
     }
     try:
@@ -162,7 +263,6 @@ def generate_local_hidden_works(names, *, post_json=None):
         raise LocalHiddenWorksModelError(
             LOCAL_MODEL_TRANSPORT_FAILED,
         ) from None
-
     try:
         if type(response) is not dict:
             raise ValueError
@@ -182,18 +282,56 @@ def generate_local_hidden_works(names, *, post_json=None):
             or len(output_text.encode("utf-8")) > _MAX_OUTPUT_BYTES
         ):
             raise ValueError
+        return parse_hidden_work_indices(output_text, batch)
     except Exception:
         raise LocalHiddenWorksModelError(
             LOCAL_MODEL_RESPONSE_INVALID,
         ) from None
+
+
+def generate_local_hidden_works(names, *, post_json=None):
+    """Return the raw model JSON text or one fixed, non-leaking error."""
+    port, api_key = _configuration()
     try:
-        selected_names = parse_hidden_work_indices(output_text, names)
+        build_hidden_works_response_format(names)
+        validated_names = tuple(names)
+        full_prompt_size = len(
+            build_indexed_hidden_works_detection_prompt(
+                validated_names,
+            ).encode("utf-8"),
+        )
+        model_names = (
+            validated_names
+            if full_prompt_size <= _MAX_BATCH_PROMPT_BYTES
+            else _large_estimate_candidate_names(validated_names)
+        )
+        batches = _candidate_batches(model_names) if model_names else ()
     except Exception:
         raise LocalHiddenWorksModelError(
             LOCAL_MODEL_RESPONSE_INVALID,
         ) from None
+    selected_names = []
+    try:
+        for batch in batches:
+            selected_names.extend(_request_batch(
+                batch,
+                port=port,
+                api_key=api_key,
+                post_json=post_json,
+            ))
+    except LocalHiddenWorksModelError:
+        raise
+    except Exception:
+        raise LocalHiddenWorksModelError(
+            LOCAL_MODEL_TRANSPORT_FAILED,
+        ) from None
+    selected = set(selected_names)
     return json.dumps(
-        {"hidden": selected_names},
+        {
+            "hidden": [
+                name for name in validated_names if name in selected
+            ],
+        },
         ensure_ascii=False,
         separators=(",", ":"),
     )

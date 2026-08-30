@@ -1,4 +1,6 @@
+import json
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from backend.features.hidden_works_detection.local_model import (
@@ -10,6 +12,7 @@ from backend.features.hidden_works_detection.local_model import (
     LocalHiddenWorksModelError,
     _RejectRedirect,
     _post_local_json,
+    _large_estimate_candidate_names,
     generate_local_hidden_works,
 )
 
@@ -136,7 +139,7 @@ class HiddenWorksLocalModelTest(unittest.TestCase):
         self.assertIn('{"hidden": [0, 2]}', body["messages"][1]["content"])
         self.assertEqual(kwargs, {
             "authorization": "Bearer " + "a" * 32,
-            "timeout_seconds": 20,
+            "timeout_seconds": 60,
             "max_response_bytes": 128 * 1024,
         })
 
@@ -165,6 +168,179 @@ class HiddenWorksLocalModelTest(unittest.TestCase):
                         caught.exception.code,
                         LOCAL_MODEL_RESPONSE_INVALID,
                     )
+
+    def test_large_estimate_sends_only_plausible_hidden_work_candidates(self):
+        calls = []
+        names = tuple(
+            [f"Окраска открытой поверхности {position}" for position in range(132)]
+            + [
+                "Армирование монолитной плиты",
+                "Монтаж вентиляционной решётки",
+                "Прокладка кабеля в штробе",
+            ]
+        )
+
+        def post_json(_url, body, **_kwargs):
+            calls.append(body)
+            return {
+                "choices": [{
+                    "message": {"content": '{"hidden":[0,2]}'},
+                }],
+            }
+
+        environment = {
+            LOCAL_MODEL_PORT: "18080",
+            LOCAL_MODEL_API_KEY: "a" * 32,
+        }
+        with patch.dict("os.environ", environment, clear=True):
+            output = generate_local_hidden_works(names, post_json=post_json)
+
+        self.assertEqual(json.loads(output), {
+            "hidden": [
+                "Армирование монолитной плиты",
+                "Прокладка кабеля в штробе",
+            ],
+        })
+        self.assertEqual(len(calls), 1)
+        prompt = calls[0]["messages"][1]["content"]
+        self.assertIn("Армирование монолитной плиты", prompt)
+        self.assertIn("Монтаж вентиляционной решётки", prompt)
+        self.assertIn("Прокладка кабеля в штробе", prompt)
+        self.assertNotIn("Окраска открытой поверхности", prompt)
+        self.assertEqual(
+            calls[0]["response_format"]["schema"]["properties"]
+            ["hidden"]["items"]["enum"],
+            [0, 1, 2],
+        )
+
+    def test_large_candidate_set_is_batched_and_merged_in_source_order(self):
+        names = tuple(
+            f"Прокладка кабеля в штробе, участок {position}"
+            for position in range(45)
+        )
+        calls = []
+
+        def post_json(_url, body, **_kwargs):
+            calls.append(body)
+            batch_size = len(
+                body["response_format"]["schema"]["properties"]
+                ["hidden"]["items"]["enum"],
+            )
+            selected = list(range(0, batch_size, 2))
+            return {
+                "choices": [{
+                    "message": {
+                        "content": json.dumps({"hidden": selected}),
+                    },
+                }],
+            }
+
+        environment = {
+            LOCAL_MODEL_PORT: "18080",
+            LOCAL_MODEL_API_KEY: "a" * 32,
+        }
+        with patch.dict("os.environ", environment, clear=True):
+            output = generate_local_hidden_works(names, post_json=post_json)
+
+        self.assertGreater(len(calls), 1)
+        self.assertTrue(all(
+            len(
+                body["response_format"]["schema"]["properties"]
+                ["hidden"]["items"]["enum"],
+            ) <= 20
+            for body in calls
+        ))
+        self.assertTrue(all(
+            len(body["messages"][1]["content"].encode("utf-8"))
+            <= 6 * 1024
+            for body in calls
+        ))
+        expected = []
+        offset = 0
+        for body in calls:
+            batch_size = len(
+                body["response_format"]["schema"]["properties"]
+                ["hidden"]["items"]["enum"],
+            )
+            expected.extend(names[offset:offset + batch_size:2])
+            offset += batch_size
+        self.assertEqual(json.loads(output), {"hidden": expected})
+
+    def test_batch_failure_discards_every_partial_model_result(self):
+        names = tuple(
+            f"Прокладка кабеля в штробе, участок {position}"
+            for position in range(25)
+        )
+        call_count = 0
+
+        def post_json(_url, _body, **_kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {
+                    "choices": [{
+                        "message": {"content": '{"hidden":[0]}'},
+                    }],
+                }
+            raise RuntimeError("PRIVATE provider failure")
+
+        environment = {
+            LOCAL_MODEL_PORT: "18080",
+            LOCAL_MODEL_API_KEY: "a" * 32,
+        }
+        with patch.dict("os.environ", environment, clear=True):
+            with self.assertRaises(LocalHiddenWorksModelError) as caught:
+                generate_local_hidden_works(names, post_json=post_json)
+
+        self.assertEqual(call_count, 2)
+        self.assertEqual(caught.exception.code, LOCAL_MODEL_TRANSPORT_FAILED)
+        self.assertNotIn("PRIVATE", str(caught.exception))
+
+    def test_too_many_model_batches_fail_closed_before_network_access(self):
+        names = tuple(
+            f"Прокладка кабеля в штробе, длинный участок {position}"
+            for position in range(100)
+        )
+        called = False
+
+        def post_json(_url, _body, **_kwargs):
+            nonlocal called
+            called = True
+            return {
+                "choices": [{"message": {"content": '{"hidden":[]}'}}],
+            }
+
+        environment = {
+            LOCAL_MODEL_PORT: "18080",
+            LOCAL_MODEL_API_KEY: "a" * 32,
+        }
+        with patch.dict("os.environ", environment, clear=True):
+            with self.assertRaises(LocalHiddenWorksModelError) as caught:
+                generate_local_hidden_works(names, post_json=post_json)
+
+        self.assertFalse(called)
+        self.assertEqual(caught.exception.code, LOCAL_MODEL_RESPONSE_INVALID)
+
+    def test_large_estimate_prefilter_keeps_all_non_holdout_hidden_examples(self):
+        root = Path(__file__).resolve().parents[1] / "model_gateway" / "evaluation_sets"
+        for filename in (
+            "hidden_works_detection.v1.json",
+            "hidden_works_detection.tuning.v1.json",
+            "hidden_works_detection.tuning.v2.json",
+        ):
+            document = json.loads((root / filename).read_text(encoding="utf-8"))
+            for case in document["cases"]:
+                expected = set(case["expectedHiddenIds"])
+                works = case["works"]
+                selected = set(_large_estimate_candidate_names(
+                    tuple(work["name"] for work in works),
+                ))
+                missing = [
+                    work["name"]
+                    for work in works
+                    if work["id"] in expected and work["name"] not in selected
+                ]
+                self.assertEqual(missing, [], f"{filename}:{case['id']}")
 
     def test_configuration_is_strict_and_fails_closed(self):
         invalid_environments = (
