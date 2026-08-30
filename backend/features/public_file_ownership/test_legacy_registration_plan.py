@@ -3,6 +3,8 @@ from unittest.mock import Mock, patch
 
 from . import legacy_registration_plan as plan_module
 from .legacy_registration_plan import (
+    APPLY_CONFIRMATION,
+    LegacyRegistrationPlanError,
     build_legacy_registration_plan,
     load_legacy_registration_rows,
     run_legacy_registration_plan,
@@ -233,6 +235,109 @@ class LegacyRegistrationPlanTests(unittest.TestCase):
         connection.close.assert_called_once_with()
         self.assertTrue(report["rolledBack"])
         self.assertEqual(report["writesAttempted"], 0)
+
+    def test_apply_requires_exact_confirmation_and_plan_guards(self):
+        connection = Mock()
+        cursor = Mock()
+        connection.cursor.return_value = cursor
+        get_db = Mock(return_value=connection)
+        records = [{
+            "source": "supplier_invoices.photo_url",
+            "recordId": 10,
+            "value": "/uploads/ready.jpg",
+            "companyId": 1,
+        }]
+        dry = build_legacy_registration_plan(records, [], [], {1})
+
+        with patch.object(
+            plan_module,
+            "load_legacy_registration_rows",
+            return_value=(records, [], [], {1}),
+        ):
+            with self.assertRaises(LegacyRegistrationPlanError):
+                run_legacy_registration_plan(
+                    get_db,
+                    apply=True,
+                    confirm="wrong",
+                    expected_ready_count=1,
+                    expected_plan_sha256=dry["planSha256"],
+                )
+
+        connection.rollback.assert_called_once_with()
+        connection.commit.assert_not_called()
+        cursor.execute.assert_not_called()
+
+    def test_apply_rejects_changed_plan_sha_before_writing(self):
+        connection = Mock()
+        cursor = Mock()
+        connection.cursor.return_value = cursor
+        get_db = Mock(return_value=connection)
+        records = [{
+            "source": "supplier_invoices.photo_url",
+            "recordId": 10,
+            "value": "/uploads/ready.jpg",
+            "companyId": 1,
+        }]
+
+        with patch.object(
+            plan_module,
+            "load_legacy_registration_rows",
+            return_value=(records, [], [], {1}),
+        ):
+            with self.assertRaisesRegex(
+                LegacyRegistrationPlanError,
+                "plan_sha256_mismatch",
+            ):
+                run_legacy_registration_plan(
+                    get_db,
+                    apply=True,
+                    confirm=APPLY_CONFIRMATION,
+                    expected_ready_count=1,
+                    expected_plan_sha256="0" * 64,
+                )
+
+        connection.rollback.assert_called_once_with()
+        connection.commit.assert_not_called()
+        cursor.execute.assert_not_called()
+
+    def test_apply_registers_exact_guarded_plan_and_commits(self):
+        connection = Mock()
+        cursor = Mock()
+        cursor.fetchone.return_value = {"id": 44}
+        connection.cursor.return_value = cursor
+        get_db = Mock(return_value=connection)
+        records = [{
+            "source": "supplier_invoices.photo_url",
+            "recordId": 10,
+            "value": "/uploads/ready.jpg",
+            "companyId": 1,
+        }]
+        dry = build_legacy_registration_plan(records, [], [], {1})
+
+        with patch.object(
+            plan_module,
+            "load_legacy_registration_rows",
+            return_value=(records, [], [], {1}),
+        ):
+            result = run_legacy_registration_plan(
+                get_db,
+                apply=True,
+                confirm=APPLY_CONFIRMATION,
+                expected_ready_count=1,
+                expected_plan_sha256=dry["planSha256"],
+            )
+
+        connection.set_session.assert_called_once_with(autocommit=False)
+        connection.commit.assert_called_once_with()
+        connection.rollback.assert_not_called()
+        self.assertEqual(cursor.execute.call_count, 1)
+        sql_text = str(cursor.execute.call_args.args[0])
+        self.assertIn("INSERT INTO file_ownership", sql_text)
+        self.assertEqual(result["writesAttempted"], 1)
+        self.assertTrue(result["committed"])
+        self.assertFalse(result["rolledBack"])
+        self.assertEqual(result["appliedPlanSha256"], dry["planSha256"])
+        self.assertNotIn("ready.jpg", str(result))
 
 
 if __name__ == "__main__":

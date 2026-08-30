@@ -6,7 +6,10 @@ unregistered URL and stops on missing, ambiguous, or conflicting evidence.
 
 import hashlib
 import json
+import mimetypes
+import posixpath
 from collections import Counter, defaultdict
+from urllib.parse import unquote, urlsplit
 
 import psycopg2.extras
 from psycopg2 import sql
@@ -15,6 +18,7 @@ from .public_exposure_report import extract_local_upload_urls, _normalize_local_
 
 
 PREVIEW_LIMIT = 100
+APPLY_CONFIRMATION = "REGISTER_LEGACY_UPLOAD_OWNERSHIP"
 VERIFIED_OWNER_SOURCES = {"expenses.photo_url", "own_expenses.photo_url"}
 
 # Static metadata only.  No database or user value can become an identifier.
@@ -28,6 +32,10 @@ SOURCE_SPECS = (
     ("warehouse_invoices", "photo_urls", "project"),
     ("work_journal", "photo_url", "project"),
 )
+
+
+class LegacyRegistrationPlanError(RuntimeError):
+    pass
 
 
 def _positive_int(value):
@@ -114,8 +122,17 @@ def _review_priority(status):
     return {"conflicting": 0, "ambiguous": 1, "unresolved": 2}.get(status, 3)
 
 
-def build_legacy_registration_plan(records, projects, registered_urls, company_ids):
-    """Build a privacy-safe, deterministic registration plan."""
+def _public_registration(item):
+    return {
+        "urlSha256": item["urlSha256"],
+        "companyId": item["companyId"],
+        "projectId": item["projectId"],
+        "sources": item["sources"],
+        "recordIds": item["recordIds"],
+    }
+
+
+def _prepare_legacy_registration_plan(records, projects, registered_urls, company_ids):
     projects_by_id, projects_by_name = _project_indexes(projects)
     company_ids = set(company_ids or set())
     registered = {
@@ -182,6 +199,7 @@ def build_legacy_registration_plan(records, projects, registered_urls, company_i
 
         company_id, project_id = next(iter(owners))
         ready.append({
+            "fileUrl": url,
             "urlSha256": url_hash,
             "companyId": company_id,
             "projectId": project_id,
@@ -190,6 +208,7 @@ def build_legacy_registration_plan(records, projects, registered_urls, company_i
         })
 
     review_counts = Counter(item["status"] for item in review)
+    public_ready = [_public_registration(item) for item in ready]
     by_source = []
     for source in sorted(source_urls):
         table, column = source.split(".", 1)
@@ -201,7 +220,7 @@ def build_legacy_registration_plan(records, projects, registered_urls, company_i
         })
 
     plan_payload = {
-        "ready": ready,
+        "ready": public_ready,
         "review": review,
         "registered": sorted(_url_sha256(url) for url in already_registered),
     }
@@ -214,7 +233,7 @@ def build_legacy_registration_plan(records, projects, registered_urls, company_i
         ).encode("utf-8")
     ).hexdigest()
     blockers = sorted({item["reason"] for item in review})
-    return {
+    report = {
         "ok": True,
         "dryRun": True,
         "writesAttempted": 0,
@@ -232,12 +251,21 @@ def build_legacy_registration_plan(records, projects, registered_urls, company_i
         },
         "bySource": by_source,
         "blockers": blockers,
-        "registrationsPreview": ready[:PREVIEW_LIMIT],
+        "registrationsPreview": public_ready[:PREVIEW_LIMIT],
         "needsReview": review[:PREVIEW_LIMIT],
         "registrationListTruncated": len(ready) > PREVIEW_LIMIT,
         "reviewListTruncated": len(review) > PREVIEW_LIMIT,
         "planSha256": plan_sha256,
     }
+    return report, ready
+
+
+def build_legacy_registration_plan(records, projects, registered_urls, company_ids):
+    """Build a privacy-safe, deterministic registration plan."""
+    report, _ = _prepare_legacy_registration_plan(
+        records, projects, registered_urls, company_ids
+    )
+    return report
 
 
 def _available_columns(cur):
@@ -324,19 +352,104 @@ def load_legacy_registration_rows(cur):
     return records, projects, registered_urls, company_ids
 
 
-def run_legacy_registration_plan(get_db):
+def _validate_apply_guards(
+    report,
+    *,
+    confirm,
+    expected_ready_count,
+    expected_plan_sha256,
+):
+    if confirm != APPLY_CONFIRMATION:
+        raise LegacyRegistrationPlanError("apply_confirmation_invalid")
+    if not report["readyForApply"]:
+        raise LegacyRegistrationPlanError("registration_plan_not_ready")
+    if _positive_int(expected_ready_count) != report["summary"]["readyRegistrations"]:
+        raise LegacyRegistrationPlanError("ready_count_mismatch")
+    if str(expected_plan_sha256 or "") != report["planSha256"]:
+        raise LegacyRegistrationPlanError("plan_sha256_mismatch")
+
+
+def _legacy_file_metadata(file_url):
+    name = unquote(posixpath.basename(urlsplit(file_url).path)).strip()
+    if not name:
+        name = "legacy-upload"
+    content_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    return name, content_type
+
+
+def _apply_registrations(cur, registrations):
+    writes = 0
+    for item in registrations:
+        original_name, content_type = _legacy_file_metadata(item["fileUrl"])
+        cur.execute(
+            """INSERT INTO file_ownership
+                      (company_id,project_id,file_url,storage_key,context,
+                       original_name,content_type,uploaded_by)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+               ON CONFLICT (file_url) DO NOTHING
+               RETURNING id""",
+            (
+                item["companyId"],
+                item["projectId"],
+                item["fileUrl"],
+                "",
+                "legacy_backfill",
+                original_name,
+                content_type,
+                "system:legacy-upload-registration",
+            ),
+        )
+        if not cur.fetchone():
+            raise LegacyRegistrationPlanError("concurrent_registration_conflict")
+        writes += 1
+    return writes
+
+
+def run_legacy_registration_plan(
+    get_db,
+    *,
+    apply=False,
+    confirm="",
+    expected_ready_count=None,
+    expected_plan_sha256="",
+):
     conn = get_db()
     try:
-        conn.set_session(readonly=True, autocommit=False)
+        if apply:
+            conn.set_session(autocommit=False)
+        else:
+            conn.set_session(readonly=True, autocommit=False)
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             records, projects, registered_urls, company_ids = load_legacy_registration_rows(cur)
-            result = build_legacy_registration_plan(
+            report, registrations = _prepare_legacy_registration_plan(
                 records, projects, registered_urls, company_ids
             )
-            conn.rollback()
-            result["rolledBack"] = True
-            return result
+            if not apply:
+                conn.rollback()
+                report["rolledBack"] = True
+                return report
+
+            _validate_apply_guards(
+                report,
+                confirm=confirm,
+                expected_ready_count=expected_ready_count,
+                expected_plan_sha256=expected_plan_sha256,
+            )
+            writes = _apply_registrations(cur, registrations)
+            if writes != report["summary"]["readyRegistrations"]:
+                raise LegacyRegistrationPlanError("write_count_mismatch")
+            conn.commit()
+            return {
+                "ok": True,
+                "dryRun": False,
+                "committed": True,
+                "rolledBack": False,
+                "writesAttempted": writes,
+                "registeredCount": writes,
+                "appliedPlanSha256": report["planSha256"],
+                "sourceSummary": report["summary"],
+            }
         except Exception:
             conn.rollback()
             raise
