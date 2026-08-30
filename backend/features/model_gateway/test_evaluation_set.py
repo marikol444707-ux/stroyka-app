@@ -7,6 +7,7 @@ from backend.features.model_gateway.evaluation_set import (
     ModelEvaluationSetError,
     build_evaluation_readiness,
     build_holdout_readiness,
+    build_retuning_readiness,
     build_tuning_readiness,
     load_evaluation_set,
     validate_evaluation_document,
@@ -34,9 +35,52 @@ HOLDOUT_PATH = (
 HOLDOUT_SHA256 = (
     "15e6fe41bef5c1ca966ad2e36c8cdce8ece29411450ed5968746a2cb8009fab9"
 )
+RETUNING_PATH = (
+    Path(__file__).with_name("evaluation_sets")
+    / "hidden_works_detection.tuning.v2.json"
+)
+RETUNING_SHA256 = (
+    "7b380964ef9cebbbc346247d6214354e29ed6b4b5d663ed3db4131fe09c4da0b"
+)
 
 
 class ModelEvaluationSetTest(unittest.TestCase):
+    def test_retuning_set_is_disjoint_from_every_spent_set(self):
+        baseline = load_evaluation_set(EVALUATION_PATH)
+        tuning = load_evaluation_set(TUNING_PATH)
+        spent_holdout = load_evaluation_set(HOLDOUT_PATH)
+        retuning = load_evaluation_set(RETUNING_PATH)
+
+        readiness = build_retuning_readiness(
+            baseline,
+            tuning,
+            spent_holdout,
+            retuning,
+        )
+
+        self.assertEqual(retuning.sha256, RETUNING_SHA256)
+        self.assertTrue(readiness["caseIdsDisjoint"])
+        self.assertTrue(readiness["workNamesDisjoint"])
+        self.assertTrue(readiness["readyForPromptTuning"])
+        self.assertTrue(readiness["freshHoldoutRequired"])
+        self.assertFalse(readiness["readyForOfflineEvaluation"])
+        self.assertFalse(readiness["productionTrafficAllowed"])
+
+    def test_retuning_readiness_rejects_each_spent_set_as_candidate(self):
+        baseline = load_evaluation_set(EVALUATION_PATH)
+        tuning = load_evaluation_set(TUNING_PATH)
+        spent_holdout = load_evaluation_set(HOLDOUT_PATH)
+
+        for reused in (baseline, tuning, spent_holdout):
+            with self.subTest(reused_sha256=reused.sha256):
+                with self.assertRaises(ModelEvaluationSetError):
+                    build_retuning_readiness(
+                        baseline,
+                        tuning,
+                        spent_holdout,
+                        reused,
+                    )
+
     def test_fresh_holdout_is_disjoint_and_waits_for_exact_approval(self):
         baseline = load_evaluation_set(EVALUATION_PATH)
         tuning = load_evaluation_set(TUNING_PATH)

@@ -335,6 +335,17 @@ The holdout was not rerun or used to alter its labels. The local server was
 stopped immediately after the run and `productionTrafficAllowed` remains
 `false`.
 
+A second prompt-tuning fixture was then prepared without reusing that spent
+holdout. It contains 12 synthetic cases (`hw-301` through `hw-312`) focused on
+the distinction between concealed construction layers and visible exterior
+flashings, trims, gutters and decorative covers. Its 12 hidden and 13 visible
+labels, case IDs and case-insensitive work names are disjoint from the original
+baseline, the first tuning fixture and the spent holdout. Its canonical
+SHA-256 is
+`7b380964ef9cebbbc346247d6214354e29ed6b4b5d663ed3db4131fe09c4da0b`.
+This fixture can tune the prompt only; it cannot authorize an offline gate or
+production traffic, and a new holdout will still be required.
+
 Name-based detection remains an operational hint, not the legal source of the
 project's hidden-work list. The applicable list is determined by the working
 documentation, while sector rules can provide example categories. The tuning

@@ -246,32 +246,36 @@ def build_evaluation_readiness(evaluation, *, approved_sha256=None):
     }
 
 
+def _validate_compatible_disjoint_evaluations(*evaluations):
+    if (
+        len(evaluations) < 2
+        or any(type(item) is not ModelEvaluationSet for item in evaluations)
+        or len({item.capability for item in evaluations}) != 1
+        or len({item.source for item in evaluations}) != 1
+        or len({item.thresholds for item in evaluations}) != 1
+    ):
+        _fail()
+    case_id_sets = [
+        {case.case_id for case in item.cases}
+        for item in evaluations
+    ]
+    work_name_sets = [
+        {
+            work.name.casefold()
+            for case in item.cases
+            for work in case.works
+        }
+        for item in evaluations
+    ]
+    if (
+        sum(map(len, case_id_sets)) != len(set().union(*case_id_sets))
+        or sum(map(len, work_name_sets)) != len(set().union(*work_name_sets))
+    ):
+        _fail()
+
+
 def build_tuning_readiness(baseline, tuning):
-    if (
-        type(baseline) is not ModelEvaluationSet
-        or type(tuning) is not ModelEvaluationSet
-        or baseline.capability != tuning.capability
-        or baseline.source != tuning.source
-        or baseline.thresholds != tuning.thresholds
-    ):
-        _fail()
-    baseline_case_ids = {case.case_id for case in baseline.cases}
-    tuning_case_ids = {case.case_id for case in tuning.cases}
-    baseline_work_names = {
-        work.name.casefold()
-        for case in baseline.cases
-        for work in case.works
-    }
-    tuning_work_names = {
-        work.name.casefold()
-        for case in tuning.cases
-        for work in case.works
-    }
-    if (
-        baseline_case_ids & tuning_case_ids
-        or baseline_work_names & tuning_work_names
-    ):
-        _fail()
+    _validate_compatible_disjoint_evaluations(baseline, tuning)
     return {
         "ok": True,
         "dryRun": True,
@@ -298,33 +302,7 @@ def build_holdout_readiness(
     approved_sha256=None,
 ):
     evaluations = (baseline, tuning, holdout)
-    if (
-        any(type(item) is not ModelEvaluationSet for item in evaluations)
-        or len({item.capability for item in evaluations}) != 1
-        or len({item.source for item in evaluations}) != 1
-        or len({item.thresholds for item in evaluations}) != 1
-    ):
-        _fail()
-    case_id_sets = [
-        {case.case_id for case in item.cases}
-        for item in evaluations
-    ]
-    work_name_sets = [
-        {
-            work.name.casefold()
-            for case in item.cases
-            for work in case.works
-        }
-        for item in evaluations
-    ]
-    case_ids_disjoint = sum(map(len, case_id_sets)) == len(
-        set().union(*case_id_sets),
-    )
-    work_names_disjoint = sum(map(len, work_name_sets)) == len(
-        set().union(*work_name_sets),
-    )
-    if not case_ids_disjoint or not work_names_disjoint:
-        _fail()
+    _validate_compatible_disjoint_evaluations(*evaluations)
     approved = (
         type(approved_sha256) is str
         and approved_sha256 == holdout.sha256
@@ -342,5 +320,38 @@ def build_holdout_readiness(
         "workNamesDisjoint": True,
         "humanApproved": approved,
         "readyForOfflineEvaluation": approved,
+        "productionTrafficAllowed": False,
+    }
+
+
+def build_retuning_readiness(
+    baseline,
+    tuning,
+    spent_holdout,
+    retuning,
+):
+    _validate_compatible_disjoint_evaluations(
+        baseline,
+        tuning,
+        spent_holdout,
+        retuning,
+    )
+    return {
+        "ok": True,
+        "dryRun": True,
+        "writesAttempted": 0,
+        "capability": retuning.capability,
+        "referenceSha256": [
+            baseline.sha256,
+            tuning.sha256,
+            spent_holdout.sha256,
+        ],
+        "retuningSha256": retuning.sha256,
+        "retuningCaseCount": len(retuning.cases),
+        "caseIdsDisjoint": True,
+        "workNamesDisjoint": True,
+        "readyForPromptTuning": True,
+        "freshHoldoutRequired": True,
+        "readyForOfflineEvaluation": False,
         "productionTrafficAllowed": False,
     }
