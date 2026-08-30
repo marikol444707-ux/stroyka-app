@@ -363,6 +363,15 @@ The holdout has not been sent to a model. Only a human approval naming this
 exact digest can unlock its single offline evaluation; production traffic
 remains disabled regardless of the result.
 
+That exact digest was subsequently approved and the replacement holdout was
+run once. A fixed synthetic warm-up completed in `14544 ms` and was excluded
+from scoring. The 12 scored cases produced `100%` exact case match, `0%` false
+negatives, `0%` false positives, `14291 ms` p95 latency, `26.42` average output
+tokens and `100%` token coverage. All gates passed, but the latency margin is
+only `709 ms`. The holdout is now spent: it must not be rerun or used for
+prompt tuning. The local server was stopped after the run and
+`productionTrafficAllowed` remains `false`.
+
 Name-based detection remains an operational hint, not the legal source of the
 project's hidden-work list. The applicable list is determined by the working
 documentation, while sector rules can provide example categories. The tuning
