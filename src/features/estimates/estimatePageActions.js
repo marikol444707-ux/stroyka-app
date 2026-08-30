@@ -8,6 +8,54 @@ import { createEstimateVersionActions } from './estimateVersionActions';
 
 export const ESTIMATE_IMPORT_MAX_BYTES = 15 * 1024 * 1024;
 
+const escapeHtmlText = (value) => String(value ?? '').replace(
+  /[&<>"']/g,
+  character => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character],
+);
+
+export const buildEstimatePreviewHtml = ({
+  estimate,
+  estimateItemMaterialSum,
+  estimateItemTotal,
+  estimateItemTypeMeta,
+  normalizeEstimateItemType,
+  estimateMeasurementBasisMeta,
+  estimateMeasurementBasisOf,
+}) => {
+  const sections = Array.isArray(estimate?.sections) ? estimate.sections : [];
+  const total = sections
+    .flatMap(section => section.items || [])
+    .reduce((sum, item) => sum + estimateItemTotal(item), 0);
+  const rows = sections.flatMap(section => [
+    `<tr><td colspan="9"><b>${escapeHtmlText(section.name)}</b></td></tr>`,
+    ...(section.items || []).map((item, index) => {
+      const type = estimateItemTypeMeta(normalizeEstimateItemType(item, section.name));
+      const basis = estimateMeasurementBasisMeta(estimateMeasurementBasisOf(item, section.name));
+      return '<tr>'
+        + `<td>${index + 1}</td>`
+        + `<td>${escapeHtmlText(type.label)}</td>`
+        + `<td>${escapeHtmlText(basis.label)}</td>`
+        + `<td>${escapeHtmlText(item.name)}</td>`
+        + `<td>${escapeHtmlText(item.unit)}</td>`
+        + `<td>${escapeHtmlText(item.quantity)}</td>`
+        + `<td>${Number(item.priceWork || 0).toLocaleString()}</td>`
+        + `<td>${Math.round(estimateItemMaterialSum(item)).toLocaleString()}</td>`
+        + `<td>${Math.round(estimateItemTotal(item)).toLocaleString()}</td>`
+        + '</tr>';
+    }),
+  ]).join('');
+  return `<h2>${escapeHtmlText(estimate?.name)}</h2>`
+    + '<table><tr><th>N</th><th>Тип</th><th>Основание</th><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Цена работ</th><th>Материалы</th><th>Сумма</th></tr>'
+    + rows
+    + `<tr><td colspan="8"><b>ИТОГО:</b></td><td><b>${Math.round(total).toLocaleString()} ₽</b></td></tr></table>`;
+};
+
 export const estimateHiddenWorksResultMessage = (data) => {
   let source = ' (по ключевым словам — ИИ был недоступен)';
   if (data?.method === 'local_ai_canary') {
@@ -471,8 +519,15 @@ export function createEstimatePageActions({
 
   const handlePreviewSelectedEstimate = () => {
     if (!selectedEstimate) return;
-    const total = (selectedEstimate.sections || []).flatMap(s => s.items || []).reduce((sum, i) => sum + estimateItemTotal(i), 0);
-    const html = '<h2>' + selectedEstimate.name + '</h2><table><tr><th>N</th><th>Тип</th><th>Основание</th><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Цена работ</th><th>Материалы</th><th>Сумма</th></tr>' + (selectedEstimate.sections || []).flatMap(s => [`<tr><td colspan="9"><b>${s.name}</b></td></tr>`, ...(s.items || []).map((it, i) => { const meta = estimateItemTypeMeta(normalizeEstimateItemType(it, s.name)); const basis = estimateMeasurementBasisMeta(estimateMeasurementBasisOf(it, s.name)); return `<tr><td>${i + 1}</td><td>${meta.label}</td><td>${basis.label}</td><td>${it.name}</td><td>${it.unit}</td><td>${it.quantity}</td><td>${Number(it.priceWork || 0).toLocaleString()}</td><td>${Math.round(estimateItemMaterialSum(it)).toLocaleString()}</td><td>${Math.round(estimateItemTotal(it)).toLocaleString()}</td></tr>`; })]).join('') + '<tr><td colspan="8"><b>ИТОГО:</b></td><td><b>' + Math.round(total).toLocaleString() + ' ₽</b></td></tr></table>';
+    const html = buildEstimatePreviewHtml({
+      estimate: selectedEstimate,
+      estimateItemMaterialSum,
+      estimateItemTotal,
+      estimateItemTypeMeta,
+      normalizeEstimateItemType,
+      estimateMeasurementBasisMeta,
+      estimateMeasurementBasisOf,
+    });
     showPreview(html, 'Смета');
   };
 

@@ -1,4 +1,38 @@
-import { createEstimatePageActions, ESTIMATE_IMPORT_MAX_BYTES, estimateHiddenWorksResultMessage, estimateImportFileError, estimateImportRequestError } from './estimatePageActions';
+import { buildEstimatePreviewHtml, createEstimatePageActions, ESTIMATE_IMPORT_MAX_BYTES, estimateHiddenWorksResultMessage, estimateImportFileError, estimateImportRequestError } from './estimatePageActions';
+
+describe('estimate preview HTML', () => {
+  test('encodes imported estimate text instead of turning it into markup', () => {
+    const html = buildEstimatePreviewHtml({
+      estimate: {
+        name: '<img src=x onerror="window.__xss=1">',
+        sections: [{
+          name: '<script>window.__xss=2</script>',
+          items: [{
+            name: '<svg onload="window.__xss=3">',
+            unit: '<iframe srcdoc="bad">',
+            quantity: 1,
+            priceWork: 10,
+          }],
+        }],
+      },
+      estimateItemMaterialSum: () => 0,
+      estimateItemTotal: () => 10,
+      estimateItemTypeMeta: () => ({label: '<b onclick="bad()">Работа</b>'}),
+      normalizeEstimateItemType: () => 'work',
+      estimateMeasurementBasisMeta: () => ({label: '<a href="javascript:bad()">Основание</a>'}),
+      estimateMeasurementBasisOf: () => 'estimate',
+    });
+
+    expect(html).toContain('&lt;img');
+    expect(html).toContain('&lt;script&gt;');
+    expect(html).toContain('&lt;svg');
+    const preview = document.createElement('div');
+    preview.innerHTML = html;
+    expect(preview.querySelector('script, svg, iframe')).toBeNull();
+    expect(preview.querySelector('[onerror], [onclick], [onload]')).toBeNull();
+    expect(preview.querySelector('a[href^="javascript:"]')).toBeNull();
+  });
+});
 
 describe('hidden works detection result', () => {
   test('identifies the local model instead of reporting a keyword fallback', () => {
