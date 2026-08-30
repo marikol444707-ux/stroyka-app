@@ -62,26 +62,39 @@ class LocalHiddenWorksEvaluationTest(unittest.TestCase):
         self.assertIn("Армирование монолитного фундамента", prompt)
         self.assertIn("Окраска фасада", prompt)
         self.assertIn(
-            '{"hidden": ["точное название работы из списка", ...]}',
+            '{"hidden": [0, 2]}',
             prompt,
         )
+        self.assertIn('"id": 0', prompt)
 
     def test_parser_maps_exact_known_names_to_stable_work_ids(self):
         predicted = parse_hidden_works_evaluation_output(
             CASE,
-            '{"hidden":["Армирование монолитного фундамента"]}',
+            '{"hidden":[0]}',
         )
 
         self.assertEqual(predicted, ("w1",))
 
-    def test_parser_tolerates_model_reasoning_but_not_unknown_names(self):
+    def test_parser_rejects_reasoning_unknown_indexes_and_duplicates(self):
+        for output in (
+            'Разбор завершён.\n{"hidden":[0]}',
+            '{"hidden":[2]}',
+            '{"hidden":[0,0]}',
+            '{"hidden":[true]}',
+        ):
+            with self.subTest(output=output):
+                self.assertEqual(
+                    parse_hidden_works_evaluation_output(CASE, output),
+                    (),
+                )
+
+    def test_parser_maps_multiple_stable_indexes_in_source_order(self):
         predicted = parse_hidden_works_evaluation_output(
             CASE,
-            "Разбор завершён.\n"
-            '{"hidden":["Окраска фасада","Неизвестная работа"]}',
+            '{"hidden":[1,0]}',
         )
 
-        self.assertEqual(predicted, ("w2",))
+        self.assertEqual(predicted, ("w1", "w2"))
 
     def test_invalid_or_oversized_model_output_becomes_no_predictions(self):
         for output in (
@@ -117,9 +130,7 @@ class LocalHiddenWorksEvaluationTest(unittest.TestCase):
             return {
                 "choices": [{
                     "message": {
-                        "content": (
-                            '{"hidden":["Армирование монолитного фундамента"]}'
-                        ),
+                        "content": '{"hidden":[0]}',
                     },
                 }],
                 "usage": {"prompt_tokens": 123, "completion_tokens": 17},
@@ -152,10 +163,8 @@ class LocalHiddenWorksEvaluationTest(unittest.TestCase):
                     "hidden": {
                         "type": "array",
                         "items": {
-                            "type": "string",
-                            "enum": [
-                                work.name for work in CASE.works
-                            ],
+                            "type": "integer",
+                            "enum": list(range(len(CASE.works))),
                         },
                         "maxItems": len(CASE.works),
                     },

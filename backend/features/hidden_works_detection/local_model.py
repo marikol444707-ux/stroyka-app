@@ -9,15 +9,17 @@ try:
     from backend.features.hidden_works_detection.prompt import (
         HIDDEN_WORKS_DETECTION_MAX_OUTPUT_TOKENS,
         HIDDEN_WORKS_DETECTION_INSTRUCTIONS,
-        build_hidden_works_detection_prompt,
+        build_indexed_hidden_works_detection_prompt,
         build_hidden_works_response_format,
+        parse_hidden_work_indices,
     )
 except ModuleNotFoundError:
     from features.hidden_works_detection.prompt import (
         HIDDEN_WORKS_DETECTION_MAX_OUTPUT_TOKENS,
         HIDDEN_WORKS_DETECTION_INSTRUCTIONS,
-        build_hidden_works_detection_prompt,
+        build_indexed_hidden_works_detection_prompt,
         build_hidden_works_response_format,
+        parse_hidden_work_indices,
     )
 
 
@@ -122,7 +124,7 @@ def generate_local_hidden_works(names, *, post_json=None):
     """Return the raw model JSON text or one fixed, non-leaking error."""
     port, api_key = _configuration()
     try:
-        prompt = build_hidden_works_detection_prompt(names)
+        prompt = build_indexed_hidden_works_detection_prompt(names)
     except Exception:
         raise LocalHiddenWorksModelError(
             LOCAL_MODEL_RESPONSE_INVALID,
@@ -184,4 +186,14 @@ def generate_local_hidden_works(names, *, post_json=None):
         raise LocalHiddenWorksModelError(
             LOCAL_MODEL_RESPONSE_INVALID,
         ) from None
-    return output_text
+    try:
+        selected_names = parse_hidden_work_indices(output_text, names)
+    except Exception:
+        raise LocalHiddenWorksModelError(
+            LOCAL_MODEL_RESPONSE_INVALID,
+        ) from None
+    return json.dumps(
+        {"hidden": selected_names},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )

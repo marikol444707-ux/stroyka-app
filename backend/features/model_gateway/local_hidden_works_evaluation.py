@@ -17,8 +17,9 @@ from backend.features.model_gateway.offline_evaluation import (
 from backend.features.hidden_works_detection.prompt import (
     HIDDEN_WORKS_DETECTION_MAX_OUTPUT_TOKENS,
     HIDDEN_WORKS_DETECTION_INSTRUCTIONS,
-    build_hidden_works_detection_prompt,
+    build_indexed_hidden_works_detection_prompt,
     build_hidden_works_response_format,
+    parse_hidden_work_indices,
 )
 
 
@@ -109,7 +110,7 @@ def _post_local_json(
 def build_hidden_works_evaluation_prompt(case):
     if type(case) is not HiddenWorksEvaluationCase:
         raise TypeError("hidden_works_evaluation_case_invalid")
-    return build_hidden_works_detection_prompt([
+    return build_indexed_hidden_works_detection_prompt([
         work.name for work in case.works
     ])
 
@@ -122,19 +123,11 @@ def parse_hidden_works_evaluation_output(case, output_text):
     ):
         return ()
     try:
-        match = re.search(r"\{.*\}", output_text.strip(), re.DOTALL)
-        if match is None:
-            return ()
-        document = json.loads(match.group(0))
-        hidden = document.get("hidden")
-        if type(hidden) is not list:
-            return ()
-        selected_names = {
-            item.strip()
-            for item in hidden
-            if type(item) is str
-        }
-    except Exception:
+        selected_names = set(parse_hidden_work_indices(
+            output_text,
+            [work.name for work in case.works],
+        ))
+    except (TypeError, ValueError):
         return ()
     return tuple(
         work.work_id

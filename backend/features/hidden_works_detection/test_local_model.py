@@ -79,7 +79,7 @@ class HiddenWorksLocalModelTest(unittest.TestCase):
             return {
                 "choices": [{
                     "message": {
-                        "content": '{"hidden":["Армирование основания"]}',
+                        "content": '{"hidden":[0]}',
                     },
                 }],
             }
@@ -115,11 +115,8 @@ class HiddenWorksLocalModelTest(unittest.TestCase):
                     "hidden": {
                         "type": "array",
                         "items": {
-                            "type": "string",
-                            "enum": [
-                                "Армирование основания",
-                                "Окраска поверхности",
-                            ],
+                            "type": "integer",
+                            "enum": [0, 1],
                         },
                         "maxItems": 2,
                     },
@@ -135,11 +132,39 @@ class HiddenWorksLocalModelTest(unittest.TestCase):
         self.assertEqual(body["messages"][0]["role"], "system")
         self.assertEqual(body["messages"][1]["role"], "user")
         self.assertIn("Армирование основания", body["messages"][1]["content"])
+        self.assertIn('"id": 0', body["messages"][1]["content"])
+        self.assertIn('{"hidden": [0, 2]}', body["messages"][1]["content"])
         self.assertEqual(kwargs, {
             "authorization": "Bearer " + "a" * 32,
             "timeout_seconds": 20,
             "max_response_bytes": 128 * 1024,
         })
+
+    def test_index_response_rejects_duplicates_and_unknown_positions(self):
+        environment = {
+            LOCAL_MODEL_PORT: "18080",
+            LOCAL_MODEL_API_KEY: "a" * 32,
+        }
+        invalid_outputs = (
+            '{"hidden":[0,0]}',
+            '{"hidden":[2]}',
+            '{"hidden":[true]}',
+            '{"hidden":["0"]}',
+        )
+        with patch.dict("os.environ", environment, clear=True):
+            for output in invalid_outputs:
+                with self.subTest(output=output):
+                    with self.assertRaises(LocalHiddenWorksModelError) as caught:
+                        generate_local_hidden_works(
+                            ("Армирование", "Окраска"),
+                            post_json=lambda *_args, output=output, **_kwargs: {
+                                "choices": [{"message": {"content": output}}],
+                            },
+                        )
+                    self.assertEqual(
+                        caught.exception.code,
+                        LOCAL_MODEL_RESPONSE_INVALID,
+                    )
 
     def test_configuration_is_strict_and_fails_closed(self):
         invalid_environments = (
