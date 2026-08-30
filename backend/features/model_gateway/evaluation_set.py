@@ -355,3 +355,34 @@ def build_retuning_readiness(
         "readyForOfflineEvaluation": False,
         "productionTrafficAllowed": False,
     }
+
+
+def build_replacement_holdout_readiness(
+    baseline,
+    tuning,
+    spent_holdout,
+    retuning,
+    holdout,
+    *,
+    approved_sha256=None,
+):
+    references = (baseline, tuning, spent_holdout, retuning)
+    _validate_compatible_disjoint_evaluations(*references, holdout)
+    approved = (
+        type(approved_sha256) is str
+        and approved_sha256 == holdout.sha256
+    )
+    return {
+        "ok": True,
+        "dryRun": True,
+        "writesAttempted": 0,
+        "capability": holdout.capability,
+        "referenceSha256": [item.sha256 for item in references],
+        "holdoutSha256": holdout.sha256,
+        "holdoutCaseCount": len(holdout.cases),
+        "caseIdsDisjoint": True,
+        "workNamesDisjoint": True,
+        "humanApproved": approved,
+        "readyForOfflineEvaluation": approved,
+        "productionTrafficAllowed": False,
+    }

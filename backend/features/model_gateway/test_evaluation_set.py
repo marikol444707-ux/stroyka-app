@@ -7,6 +7,7 @@ from backend.features.model_gateway.evaluation_set import (
     ModelEvaluationSetError,
     build_evaluation_readiness,
     build_holdout_readiness,
+    build_replacement_holdout_readiness,
     build_retuning_readiness,
     build_tuning_readiness,
     load_evaluation_set,
@@ -42,9 +43,54 @@ RETUNING_PATH = (
 RETUNING_SHA256 = (
     "7b380964ef9cebbbc346247d6214354e29ed6b4b5d663ed3db4131fe09c4da0b"
 )
+REPLACEMENT_HOLDOUT_PATH = (
+    Path(__file__).with_name("evaluation_sets")
+    / "hidden_works_detection.holdout.v3.json"
+)
+REPLACEMENT_HOLDOUT_SHA256 = (
+    "ebece1cacbd3829df7d55e1c63b41b5ccc58d693d8602d0a5058489cf434e124"
+)
 
 
 class ModelEvaluationSetTest(unittest.TestCase):
+    def test_replacement_holdout_is_disjoint_and_waits_for_exact_approval(self):
+        references = (
+            load_evaluation_set(EVALUATION_PATH),
+            load_evaluation_set(TUNING_PATH),
+            load_evaluation_set(HOLDOUT_PATH),
+            load_evaluation_set(RETUNING_PATH),
+        )
+        holdout = load_evaluation_set(REPLACEMENT_HOLDOUT_PATH)
+
+        readiness = build_replacement_holdout_readiness(
+            *references,
+            holdout,
+        )
+
+        self.assertEqual(holdout.sha256, REPLACEMENT_HOLDOUT_SHA256)
+        self.assertTrue(readiness["caseIdsDisjoint"])
+        self.assertTrue(readiness["workNamesDisjoint"])
+        self.assertFalse(readiness["humanApproved"])
+        self.assertFalse(readiness["readyForOfflineEvaluation"])
+        self.assertFalse(readiness["productionTrafficAllowed"])
+
+        approved = build_replacement_holdout_readiness(
+            *references,
+            holdout,
+            approved_sha256=holdout.sha256,
+        )
+        self.assertTrue(approved["humanApproved"])
+        self.assertTrue(approved["readyForOfflineEvaluation"])
+        self.assertFalse(approved["productionTrafficAllowed"])
+
+        for reused in references:
+            with self.subTest(reused_sha256=reused.sha256):
+                with self.assertRaises(ModelEvaluationSetError):
+                    build_replacement_holdout_readiness(
+                        *references,
+                        reused,
+                    )
+
     def test_retuning_set_is_disjoint_from_every_spent_set(self):
         baseline = load_evaluation_set(EVALUATION_PATH)
         tuning = load_evaluation_set(TUNING_PATH)

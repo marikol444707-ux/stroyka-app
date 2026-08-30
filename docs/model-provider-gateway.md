@@ -354,6 +354,15 @@ case match, `0%` false negatives, `0%` false positives, `8751 ms` p95 latency,
 tuning-only result, not permission to use the spent holdout again or to send
 production traffic. A new disjoint holdout is still required.
 
+That replacement holdout is prepared as 12 unseen synthetic cases (`hw-401`
+through `hw-412`) with 12 hidden and 13 visible labels. Its case IDs and
+case-insensitive work names are disjoint from the baseline, both tuning
+fixtures and the spent holdout. Its canonical SHA-256 is
+`ebece1cacbd3829df7d55e1c63b41b5ccc58d693d8602d0a5058489cf434e124`.
+The holdout has not been sent to a model. Only a human approval naming this
+exact digest can unlock its single offline evaluation; production traffic
+remains disabled regardless of the result.
+
 Name-based detection remains an operational hint, not the legal source of the
 project's hidden-work list. The applicable list is determined by the working
 documentation, while sector rules can provide example categories. The tuning
