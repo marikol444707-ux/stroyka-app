@@ -7,6 +7,10 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from backend.features.hidden_works_detection import model
+from backend.features.hidden_works_detection.prompt import (
+    HIDDEN_WORKS_DETECTION_INSTRUCTIONS,
+    build_hidden_works_detection_prompt,
+)
 from backend.features.model_gateway.contract import (
     MODEL_GATEWAY_DEADLINE_EXCEEDED,
     MODEL_GATEWAY_PROVIDER_FAILED,
@@ -34,6 +38,25 @@ class FakeGateway:
 
 
 class HiddenWorksDetectionGatewayCutoverTest(unittest.TestCase):
+    def test_prompt_contract_is_canonical_and_preserves_exact_work_names(self):
+        prompt = build_hidden_works_detection_prompt([
+            "Армирование монолитного фундамента",
+            "Окраска фасада",
+        ])
+
+        self.assertEqual(
+            HIDDEN_WORKS_DETECTION_INSTRUCTIONS,
+            "Ты отвечаешь СТРОГО валидным JSON без markdown и пояснений. Только JSON.",
+        )
+        self.assertIn("СКРЫТЫМИ работами", prompt)
+        self.assertIn(
+            '["Армирование монолитного фундамента", "Окраска фасада"]',
+            prompt,
+        )
+        self.assertTrue(prompt.endswith(
+            '{"hidden": ["точное название работы из списка", ...]}',
+        ))
+
     def test_legacy_rollback_preserves_the_existing_sdk_request(self):
         captured = {"client": None, "request": None}
 
@@ -227,6 +250,8 @@ class HiddenWorksDetectionGatewayCutoverTest(unittest.TestCase):
         self.assertEqual(len(routes), 1)
         route_source = ast.unparse(routes[0])
         self.assertIn("generate_hidden_works_detection", route_source)
+        self.assertIn("build_hidden_works_detection_prompt", route_source)
+        self.assertIn("HIDDEN_WORKS_DETECTION_INSTRUCTIONS", route_source)
         self.assertIn("HIDDEN_WORKS_DETECTION_MODEL_GATEWAY_ENABLED", route_source)
         self.assertIn("'false'", route_source)
         self.assertIn("require_estimate_access", route_source)

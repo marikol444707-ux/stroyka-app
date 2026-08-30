@@ -248,6 +248,35 @@ database or filesystem operation and always keeps `productionTrafficAllowed`
 false. Installing or connecting a local runtime remains a separate approved
 integration step.
 
+The approved local evaluation used the official `Qwen3-4B-Q4_K_M.gguf`
+artifact (SHA-256
+`7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5`)
+with `llama.cpp` tag `b10621`, commit
+`c1d0e7a004015f23bc0233470b747b596f29b264`. The checked prebuilt Intel
+binary did not support the test host's macOS 12 Accelerate framework, so the
+same pinned source was compiled in a temporary directory with Metal,
+Accelerate and BLAS disabled. The server was bound only to `127.0.0.1`,
+required an ephemeral API key, received only the 12 approved synthetic cases
+and was stopped immediately after the run. Qwen thinking was disabled through
+the model's chat-template parameter because this capability requests JSON,
+not reasoning text.
+
+The run was **not accepted** and therefore did not unlock production traffic:
+
+- exact case match: `83.33%` (required at least `92%`);
+- false negatives: `0%` (required `0%`);
+- false positives: `14.29%` (required at most `10%`);
+- p95 latency: `6506 ms` (required at most `15000 ms`);
+- average output: `20.75` tokens (required at most `500`);
+- token coverage: `100%` (required at least `95%`).
+
+Two visible finishing-device rows were over-classified: installation of
+sockets and installation of ventilation grilles. No hidden-work row was
+missed. These results are a baseline, not permission to tune against the same
+gate and rerun until it passes. Any prompt/model improvement needs a separate
+tuning set plus a fresh human-approved holdout before another rollout
+decision. `productionTrafficAllowed` remains `false`.
+
 ## Commands
 
 ```bash
@@ -258,6 +287,7 @@ python3 -m unittest \
   backend.features.model_gateway.test_telemetry \
   backend.features.model_gateway.test_evaluation_set \
   backend.features.model_gateway.test_offline_evaluation \
+  backend.features.model_gateway.test_local_hidden_works_evaluation \
   backend.features.model_gateway.test_estimate_chat_cutover \
   backend.features.document_recognition.test_model_gateway_cutover \
   backend.features.project_records.test_model_gateway_cutover \
@@ -288,6 +318,8 @@ backend/features/model_gateway/
   policies.py          closed logical capability/model policies
   inventory.py         static direct-access inventory gate
   yandex_adapter.py    existing cloud transport, added only in A14.2
+  local_hidden_works_evaluation.py
+                       loopback-only approved offline evaluation adapter
   test_*.py            small no-network tests beside each slice
 docs/model-provider-gateway.md
 ```

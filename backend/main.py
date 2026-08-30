@@ -152,8 +152,16 @@ try:
     from backend.features.hidden_works_detection.model import (
         generate_hidden_works_detection,
     )
+    from backend.features.hidden_works_detection.prompt import (
+        HIDDEN_WORKS_DETECTION_INSTRUCTIONS,
+        build_hidden_works_detection_prompt,
+    )
 except ModuleNotFoundError:
     from features.hidden_works_detection.model import generate_hidden_works_detection
+    from features.hidden_works_detection.prompt import (
+        HIDDEN_WORKS_DETECTION_INSTRUCTIONS,
+        build_hidden_works_detection_prompt,
+    )
 
 try:
     from backend.auth import (
@@ -13841,17 +13849,8 @@ def ai_detect_hidden_works(id: int, _current_user: dict = Depends(require_roles(
     method = "keywords"
     # Пытаемся через ИИ; при любой ошибке — откат на ключевые слова
     if YANDEX_API_KEY and YANDEX_FOLDER_ID:
-        user_text = (
-            "Ниже список наименований строительных работ из сметы. Определи, какие из них являются "
-            "СКРЫТЫМИ работами, требующими оформления Акта освидетельствования скрытых работ (АОСР) по "
-            "СНиП 12-01-2004 — это работы, скрываемые последующими конструкциями (земляные, фундаменты, "
-            "армирование, бетонирование, гидро-/паро-/теплоизоляция, стяжки, скрытые инженерные сети — "
-            "кабели/трубопроводы в стенах и полах, заземление, закладные и т.п.). Отделочные и монтажные "
-            "видимые работы НЕ являются скрытыми.\n\n"
-            "Список работ (JSON-массив):\n" + j.dumps(names, ensure_ascii=False) + "\n\n"
-            'Верни СТРОГО JSON без markdown: {"hidden": ["точное название работы из списка", ...]}'
-        )
-        instructions = "Ты отвечаешь СТРОГО валидным JSON без markdown и пояснений. Только JSON."
+        user_text = build_hidden_works_detection_prompt(names)
+        instructions = HIDDEN_WORKS_DETECTION_INSTRUCTIONS
         try:
             text = generate_hidden_works_detection(
                 user_text,
