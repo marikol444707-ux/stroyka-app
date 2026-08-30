@@ -346,6 +346,14 @@ SHA-256 is
 This fixture can tune the prompt only; it cannot authorize an offline gate or
 production traffic, and a new holdout will still be required.
 
+The locked prompt passed that second tuning fixture without another prompt
+change. A fixed synthetic warm-up completed in `12412 ms` and was excluded
+from the scored observations. The 12 scored cases then produced `100%` exact
+case match, `0%` false negatives, `0%` false positives, `8751 ms` p95 latency,
+`24.75` average output tokens and `100%` token coverage. This is a
+tuning-only result, not permission to use the spent holdout again or to send
+production traffic. A new disjoint holdout is still required.
+
 Name-based detection remains an operational hint, not the legal source of the
 project's hidden-work list. The applicable list is determined by the working
 documentation, while sector rules can provide example categories. The tuning
