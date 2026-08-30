@@ -307,6 +307,16 @@ for the next step, but a newly authored, disjoint holdout must be reviewed and
 approved by its exact SHA-256 before one offline acceptance run.
 `productionTrafficAllowed` remains `false`.
 
+That fresh holdout now exists as 12 new synthetic cases with IDs `hw-201`
+through `hw-212`, 12 hidden labels and 13 visible labels. Its case IDs and
+case-insensitive work names are disjoint from both the frozen baseline and the
+tuning fixture. `build_holdout_readiness` rejects any overlap or mismatched
+capability, source or thresholds. The holdout's canonical SHA-256 is
+`15e6fe41bef5c1ca966ad2e36c8cdce8ece29411450ed5968746a2cb8009fab9`.
+It has not been sent to the model. Until a human approves that exact digest,
+`humanApproved`, `readyForOfflineEvaluation` and
+`productionTrafficAllowed` all remain `false`.
+
 Name-based detection remains an operational hint, not the legal source of the
 project's hidden-work list. The applicable list is determined by the working
 documentation, while sector rules can provide example categories. The tuning

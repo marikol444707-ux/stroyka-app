@@ -288,3 +288,59 @@ def build_tuning_readiness(baseline, tuning):
         "readyForOfflineEvaluation": False,
         "productionTrafficAllowed": False,
     }
+
+
+def build_holdout_readiness(
+    baseline,
+    tuning,
+    holdout,
+    *,
+    approved_sha256=None,
+):
+    evaluations = (baseline, tuning, holdout)
+    if (
+        any(type(item) is not ModelEvaluationSet for item in evaluations)
+        or len({item.capability for item in evaluations}) != 1
+        or len({item.source for item in evaluations}) != 1
+        or len({item.thresholds for item in evaluations}) != 1
+    ):
+        _fail()
+    case_id_sets = [
+        {case.case_id for case in item.cases}
+        for item in evaluations
+    ]
+    work_name_sets = [
+        {
+            work.name.casefold()
+            for case in item.cases
+            for work in case.works
+        }
+        for item in evaluations
+    ]
+    case_ids_disjoint = sum(map(len, case_id_sets)) == len(
+        set().union(*case_id_sets),
+    )
+    work_names_disjoint = sum(map(len, work_name_sets)) == len(
+        set().union(*work_name_sets),
+    )
+    if not case_ids_disjoint or not work_names_disjoint:
+        _fail()
+    approved = (
+        type(approved_sha256) is str
+        and approved_sha256 == holdout.sha256
+    )
+    return {
+        "ok": True,
+        "dryRun": True,
+        "writesAttempted": 0,
+        "capability": holdout.capability,
+        "baselineSha256": baseline.sha256,
+        "tuningSha256": tuning.sha256,
+        "holdoutSha256": holdout.sha256,
+        "holdoutCaseCount": len(holdout.cases),
+        "caseIdsDisjoint": True,
+        "workNamesDisjoint": True,
+        "humanApproved": approved,
+        "readyForOfflineEvaluation": approved,
+        "productionTrafficAllowed": False,
+    }

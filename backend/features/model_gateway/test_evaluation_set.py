@@ -6,6 +6,7 @@ from backend.features.model_gateway.evaluation_set import (
     MODEL_EVALUATION_SET_INVALID,
     ModelEvaluationSetError,
     build_evaluation_readiness,
+    build_holdout_readiness,
     build_tuning_readiness,
     load_evaluation_set,
     validate_evaluation_document,
@@ -26,9 +27,58 @@ TUNING_PATH = (
 TUNING_SHA256 = (
     "ee6fa69661de5c10d4b97eb796fcc43dd58be7704a3dfc50898a10e16d33714c"
 )
+HOLDOUT_PATH = (
+    Path(__file__).with_name("evaluation_sets")
+    / "hidden_works_detection.holdout.v2.json"
+)
+HOLDOUT_SHA256 = (
+    "15e6fe41bef5c1ca966ad2e36c8cdce8ece29411450ed5968746a2cb8009fab9"
+)
 
 
 class ModelEvaluationSetTest(unittest.TestCase):
+    def test_fresh_holdout_is_disjoint_and_waits_for_exact_approval(self):
+        baseline = load_evaluation_set(EVALUATION_PATH)
+        tuning = load_evaluation_set(TUNING_PATH)
+        holdout = load_evaluation_set(HOLDOUT_PATH)
+
+        readiness = build_holdout_readiness(baseline, tuning, holdout)
+
+        self.assertEqual(holdout.sha256, HOLDOUT_SHA256)
+        self.assertTrue(readiness["caseIdsDisjoint"])
+        self.assertTrue(readiness["workNamesDisjoint"])
+        self.assertFalse(readiness["humanApproved"])
+        self.assertFalse(readiness["readyForOfflineEvaluation"])
+        self.assertFalse(readiness["productionTrafficAllowed"])
+
+        wrong_digest = build_holdout_readiness(
+            baseline,
+            tuning,
+            holdout,
+            approved_sha256="0" * 64,
+        )
+        self.assertFalse(wrong_digest["humanApproved"])
+        self.assertFalse(wrong_digest["readyForOfflineEvaluation"])
+
+        approved = build_holdout_readiness(
+            baseline,
+            tuning,
+            holdout,
+            approved_sha256=holdout.sha256,
+        )
+        self.assertTrue(approved["humanApproved"])
+        self.assertTrue(approved["readyForOfflineEvaluation"])
+        self.assertFalse(approved["productionTrafficAllowed"])
+
+    def test_holdout_readiness_rejects_any_baseline_or_tuning_overlap(self):
+        baseline = load_evaluation_set(EVALUATION_PATH)
+        tuning = load_evaluation_set(TUNING_PATH)
+
+        for reused in (baseline, tuning):
+            with self.subTest(reused_sha256=reused.sha256):
+                with self.assertRaises(ModelEvaluationSetError):
+                    build_holdout_readiness(baseline, tuning, reused)
+
     def test_tuning_set_is_disjoint_and_cannot_unlock_an_offline_gate(self):
         baseline = load_evaluation_set(EVALUATION_PATH)
         tuning = load_evaluation_set(TUNING_PATH)
