@@ -240,6 +240,14 @@ output no higher than 500 tokens and valid token measurements for at least 95%
 of calls. The dataset must contain at least ten hidden and ten visible work
 labels. These thresholds cannot be weakened through fixture input.
 
+The third A14.5 slice adds a pure scorer for results produced from that exact
+approved fixture. It requires one unique, complete observation per case,
+rejects unknown work identifiers and partial token measurements, and reports
+each failed acceptance gate explicitly. The scorer performs no model, network,
+database or filesystem operation and always keeps `productionTrafficAllowed`
+false. Installing or connecting a local runtime remains a separate approved
+integration step.
+
 ## Commands
 
 ```bash
@@ -249,6 +257,7 @@ python3 -m unittest \
   backend.features.model_gateway.test_yandex_adapter \
   backend.features.model_gateway.test_telemetry \
   backend.features.model_gateway.test_evaluation_set \
+  backend.features.model_gateway.test_offline_evaluation \
   backend.features.model_gateway.test_estimate_chat_cutover \
   backend.features.document_recognition.test_model_gateway_cutover \
   backend.features.project_records.test_model_gateway_cutover \
