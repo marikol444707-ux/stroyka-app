@@ -7,6 +7,7 @@ import urllib.request
 from dataclasses import dataclass
 
 from backend.features.model_gateway.evaluation_set import (
+    EvaluationWork,
     HiddenWorksEvaluationCase,
 )
 from backend.features.model_gateway.offline_evaluation import (
@@ -41,6 +42,28 @@ class LocalHiddenWorksEvaluationError(ValueError):
 class LocalHiddenWorksEvaluationResult:
     observation: OfflineEvaluationObservation
     production_traffic_allowed: bool = False
+
+
+@dataclass(frozen=True)
+class LocalHiddenWorksWarmupResult:
+    duration_ms: int
+    production_traffic_allowed: bool = False
+
+
+_LOCAL_WARMUP_CASE = HiddenWorksEvaluationCase(
+    case_id="hw-999",
+    works=(
+        EvaluationWork(
+            "w1",
+            "Локальная проверка открытой окрашенной поверхности",
+        ),
+        EvaluationWork(
+            "w2",
+            "Локальная установка съёмной декоративной панели",
+        ),
+    ),
+    expected_hidden_ids=(),
+)
 
 
 class _RejectRedirect(urllib.request.HTTPRedirectHandler):
@@ -204,3 +227,20 @@ def run_local_hidden_works_evaluation_case(
             LOCAL_EVALUATION_RESPONSE_INVALID,
         ) from None
     return LocalHiddenWorksEvaluationResult(observation=observation)
+
+
+def warm_local_hidden_works_evaluation(
+    *,
+    port,
+    api_key,
+    post_json=None,
+):
+    result = run_local_hidden_works_evaluation_case(
+        _LOCAL_WARMUP_CASE,
+        port=port,
+        api_key=api_key,
+        post_json=post_json,
+    )
+    return LocalHiddenWorksWarmupResult(
+        duration_ms=result.observation.duration_ms,
+    )

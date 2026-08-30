@@ -11,6 +11,7 @@ from backend.features.model_gateway.local_hidden_works_evaluation import (
     build_hidden_works_evaluation_prompt,
     parse_hidden_works_evaluation_output,
     run_local_hidden_works_evaluation_case,
+    warm_local_hidden_works_evaluation,
 )
 
 
@@ -25,6 +26,35 @@ CASE = HiddenWorksEvaluationCase(
 
 
 class LocalHiddenWorksEvaluationTest(unittest.TestCase):
+    def test_warmup_uses_fixed_synthetic_input_and_never_unlocks_production(self):
+        calls = []
+
+        def post_json(url, body, **kwargs):
+            calls.append((url, body, kwargs))
+            return {
+                "choices": [{"message": {"content": '{"hidden":[]}'}}],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 4},
+            }
+
+        with patch(
+            "backend.features.model_gateway.local_hidden_works_evaluation.time.monotonic_ns",
+            side_effect=(1_000_000_000, 1_500_000_000),
+        ):
+            result = warm_local_hidden_works_evaluation(
+                port=18080,
+                api_key="a" * 32,
+                post_json=post_json,
+            )
+
+        self.assertEqual(len(calls), 1)
+        url, body, kwargs = calls[0]
+        self.assertEqual(url, "http://127.0.0.1:18080/v1/chat/completions")
+        self.assertIn("Локальная проверка открытой окрашенной поверхности", str(body))
+        self.assertNotIn("project", str(body).casefold())
+        self.assertEqual(kwargs["authorization"], "Bearer " + "a" * 32)
+        self.assertEqual(result.duration_ms, 500)
+        self.assertFalse(result.production_traffic_allowed)
+
     def test_prompt_preserves_the_production_task_and_exact_work_names(self):
         prompt = build_hidden_works_evaluation_prompt(CASE)
 
