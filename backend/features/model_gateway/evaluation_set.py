@@ -244,3 +244,47 @@ def build_evaluation_readiness(evaluation, *, approved_sha256=None):
         "readyForOfflineEvaluation": approved,
         "productionTrafficAllowed": False,
     }
+
+
+def build_tuning_readiness(baseline, tuning):
+    if (
+        type(baseline) is not ModelEvaluationSet
+        or type(tuning) is not ModelEvaluationSet
+        or baseline.capability != tuning.capability
+        or baseline.source != tuning.source
+        or baseline.thresholds != tuning.thresholds
+    ):
+        _fail()
+    baseline_case_ids = {case.case_id for case in baseline.cases}
+    tuning_case_ids = {case.case_id for case in tuning.cases}
+    baseline_work_names = {
+        work.name.casefold()
+        for case in baseline.cases
+        for work in case.works
+    }
+    tuning_work_names = {
+        work.name.casefold()
+        for case in tuning.cases
+        for work in case.works
+    }
+    if (
+        baseline_case_ids & tuning_case_ids
+        or baseline_work_names & tuning_work_names
+    ):
+        _fail()
+    return {
+        "ok": True,
+        "dryRun": True,
+        "writesAttempted": 0,
+        "capability": tuning.capability,
+        "baselineCaseCount": len(baseline.cases),
+        "tuningCaseCount": len(tuning.cases),
+        "baselineSha256": baseline.sha256,
+        "tuningSha256": tuning.sha256,
+        "caseIdsDisjoint": True,
+        "workNamesDisjoint": True,
+        "readyForPromptTuning": True,
+        "freshHoldoutRequired": True,
+        "readyForOfflineEvaluation": False,
+        "productionTrafficAllowed": False,
+    }

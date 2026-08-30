@@ -6,6 +6,7 @@ from backend.features.model_gateway.evaluation_set import (
     MODEL_EVALUATION_SET_INVALID,
     ModelEvaluationSetError,
     build_evaluation_readiness,
+    build_tuning_readiness,
     load_evaluation_set,
     validate_evaluation_document,
 )
@@ -18,9 +19,58 @@ EVALUATION_PATH = (
 EVALUATION_SHA256 = (
     "444cb34e19858e801b85f441de924f661af4978605a0b852bc0aeac4ccd63840"
 )
+TUNING_PATH = (
+    Path(__file__).with_name("evaluation_sets")
+    / "hidden_works_detection.tuning.v1.json"
+)
+TUNING_SHA256 = (
+    "ee6fa69661de5c10d4b97eb796fcc43dd58be7704a3dfc50898a10e16d33714c"
+)
 
 
 class ModelEvaluationSetTest(unittest.TestCase):
+    def test_tuning_set_is_disjoint_and_cannot_unlock_an_offline_gate(self):
+        baseline = load_evaluation_set(EVALUATION_PATH)
+        tuning = load_evaluation_set(TUNING_PATH)
+
+        readiness = build_tuning_readiness(baseline, tuning)
+
+        self.assertEqual(tuning.sha256, TUNING_SHA256)
+        self.assertEqual(readiness, {
+            "ok": True,
+            "dryRun": True,
+            "writesAttempted": 0,
+            "capability": "hidden_works_detection",
+            "baselineCaseCount": 12,
+            "tuningCaseCount": 12,
+            "baselineSha256": EVALUATION_SHA256,
+            "tuningSha256": TUNING_SHA256,
+            "caseIdsDisjoint": True,
+            "workNamesDisjoint": True,
+            "readyForPromptTuning": True,
+            "freshHoldoutRequired": True,
+            "readyForOfflineEvaluation": False,
+            "productionTrafficAllowed": False,
+        })
+
+    def test_tuning_readiness_rejects_reused_cases_or_work_names(self):
+        baseline = load_evaluation_set(EVALUATION_PATH)
+
+        with self.assertRaises(ModelEvaluationSetError):
+            build_tuning_readiness(baseline, baseline)
+
+        reused_name = copy.deepcopy(
+            load_evaluation_set(TUNING_PATH).canonical_document,
+        )
+        reused_name["cases"][0]["works"][0]["name"] = (
+            baseline.cases[0].works[0].name
+        )
+        with self.assertRaises(ModelEvaluationSetError):
+            build_tuning_readiness(
+                baseline,
+                validate_evaluation_document(reused_name),
+            )
+
     def test_synthetic_hidden_works_set_is_bounded_and_waits_for_approval(self):
         evaluation = load_evaluation_set(EVALUATION_PATH)
         readiness = build_evaluation_readiness(evaluation)

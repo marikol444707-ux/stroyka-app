@@ -277,6 +277,25 @@ gate and rerun until it passes. Any prompt/model improvement needs a separate
 tuning set plus a fresh human-approved holdout before another rollout
 decision. `productionTrafficAllowed` remains `false`.
 
+The rejected 12-case set is now a frozen baseline, not a reusable acceptance
+holdout. A separate synthetic tuning fixture uses case IDs `hw-101` through
+`hw-112` and different work names. `build_tuning_readiness` rejects any reused
+case ID or case-insensitive work name across the baseline and tuning sets. Its
+readiness result can authorize prompt tuning only: it always requires a fresh
+holdout, keeps offline acceptance false and keeps production traffic false.
+The tuning fixture's canonical SHA-256 is
+`ee6fa69661de5c10d4b97eb796fcc43dd58be7704a3dfc50898a10e16d33714c`.
+
+Name-based detection remains an operational hint, not the legal source of the
+project's hidden-work list. The applicable list is determined by the working
+documentation, while sector rules can provide example categories. The tuning
+fixture therefore labels only unambiguous concealment wording and preserves
+manual/project-document review as the final authority. References: [SP
+48.13330.2019 in the official Minstroy catalogue](https://minstroyrf.gov.ru/docs/?t%5B0%5D=60),
+[SP 48.13330.2019 full text](https://docs.cntd.ru/document/564542209), [SP
+45.13330.2017](https://docs.cntd.ru/document/456074910), and [GOST R
+70266-2022](https://docs.cntd.ru/document/1200193919).
+
 ## Commands
 
 ```bash
