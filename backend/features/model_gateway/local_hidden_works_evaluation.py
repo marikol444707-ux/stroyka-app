@@ -15,8 +15,10 @@ from backend.features.model_gateway.offline_evaluation import (
     build_offline_observation,
 )
 from backend.features.hidden_works_detection.prompt import (
+    HIDDEN_WORKS_DETECTION_MAX_OUTPUT_TOKENS,
     HIDDEN_WORKS_DETECTION_INSTRUCTIONS,
     build_hidden_works_detection_prompt,
+    build_hidden_works_response_format,
 )
 
 
@@ -171,8 +173,12 @@ def run_local_hidden_works_evaluation_case(
             },
         ],
         "temperature": 0.1,
-        "max_tokens": 2000,
+        "max_tokens": HIDDEN_WORKS_DETECTION_MAX_OUTPUT_TOKENS,
         "chat_template_kwargs": {"enable_thinking": False},
+        "reasoning_effort": "none",
+        "response_format": build_hidden_works_response_format([
+            work.name for work in case.works
+        ]),
         "stream": False,
     }
     started_ns = time.monotonic_ns()

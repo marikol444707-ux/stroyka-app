@@ -142,7 +142,28 @@ class LocalHiddenWorksEvaluationTest(unittest.TestCase):
         self.assertEqual(authorization, "Bearer " + "a" * 32)
         self.assertEqual(body["model"], "qwen3-4b-q4-k-m")
         self.assertEqual(body["temperature"], 0.1)
-        self.assertEqual(body["max_tokens"], 2000)
+        self.assertEqual(body["max_tokens"], 128)
+        self.assertEqual(body["reasoning_effort"], "none")
+        self.assertEqual(body["response_format"], {
+            "type": "json_schema",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "hidden": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": [
+                                work.name for work in CASE.works
+                            ],
+                        },
+                        "maxItems": len(CASE.works),
+                    },
+                },
+                "required": ["hidden"],
+                "additionalProperties": False,
+            },
+        })
         self.assertEqual(body["chat_template_kwargs"], {
             "enable_thinking": False,
         })

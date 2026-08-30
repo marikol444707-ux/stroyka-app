@@ -6,15 +6,44 @@ import json
 HIDDEN_WORKS_DETECTION_INSTRUCTIONS = (
     "Ты отвечаешь СТРОГО валидным JSON без markdown и пояснений. Только JSON."
 )
+HIDDEN_WORKS_DETECTION_MAX_OUTPUT_TOKENS = 128
 
 
-def build_hidden_works_detection_prompt(names):
+def _validated_names(names):
     if (
         type(names) not in (list, tuple)
         or not names
         or any(type(name) is not str or not name.strip() for name in names)
     ):
         raise ValueError("hidden_works_detection_prompt_invalid") from None
+    return tuple(names)
+
+
+def build_hidden_works_response_format(names):
+    """Build the bounded JSON schema accepted by the pinned llama.cpp server."""
+    validated = _validated_names(names)
+    return {
+        "type": "json_schema",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "hidden": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": list(validated),
+                    },
+                    "maxItems": len(validated),
+                },
+            },
+            "required": ["hidden"],
+            "additionalProperties": False,
+        },
+    }
+
+
+def build_hidden_works_detection_prompt(names):
+    validated = _validated_names(names)
     return (
         "Ниже список наименований строительных работ из сметы. Определи, какие из них являются "
         "СКРЫТЫМИ работами, требующими оформления Акта освидетельствования скрытых работ (АОСР) по "
@@ -29,7 +58,7 @@ def build_hidden_works_detection_prompt(names):
         "скрытая работа, вентиляционная решётка — видимая; проводка под штукатуркой — скрытая работа, "
         "розетка — видимая.\n\n"
         "Список работ (JSON-массив):\n"
-        + json.dumps(names, ensure_ascii=False)
+        + json.dumps(validated, ensure_ascii=False)
         + "\n\n"
         + 'Верни СТРОГО JSON без markdown: {"hidden": ["точное название работы из списка", ...]}'
     )

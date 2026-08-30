@@ -7,13 +7,17 @@ import urllib.request
 
 try:
     from backend.features.hidden_works_detection.prompt import (
+        HIDDEN_WORKS_DETECTION_MAX_OUTPUT_TOKENS,
         HIDDEN_WORKS_DETECTION_INSTRUCTIONS,
         build_hidden_works_detection_prompt,
+        build_hidden_works_response_format,
     )
 except ModuleNotFoundError:
     from features.hidden_works_detection.prompt import (
+        HIDDEN_WORKS_DETECTION_MAX_OUTPUT_TOKENS,
         HIDDEN_WORKS_DETECTION_INSTRUCTIONS,
         build_hidden_works_detection_prompt,
+        build_hidden_works_response_format,
     )
 
 
@@ -134,8 +138,12 @@ def generate_local_hidden_works(names, *, post_json=None):
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.1,
-        "max_tokens": 2000,
+        "max_tokens": HIDDEN_WORKS_DETECTION_MAX_OUTPUT_TOKENS,
         "chat_template_kwargs": {"enable_thinking": False},
+        "reasoning_effort": "none",
+        # Supported by the exact pinned llama.cpp server revision:
+        # https://github.com/ggml-org/llama.cpp/blob/c1d0e7a004015f23bc0233470b747b596f29b264/tools/server/README.md#post-v1chatcompletions-openai-compatible-chat-completions-api
+        "response_format": build_hidden_works_response_format(names),
         "stream": False,
     }
     try:
