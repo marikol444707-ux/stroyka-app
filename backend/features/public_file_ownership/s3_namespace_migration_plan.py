@@ -39,6 +39,32 @@ SOURCE_CONTEXTS = {
 }
 
 
+def _is_protected_tenant_route(value):
+    return re.fullmatch(
+        r"/tenant-files/[1-9][0-9]*/content",
+        str(value or "").strip(),
+    ) is not None
+
+
+def _contains_only_protected_tenant_routes(value):
+    if isinstance(value, (list, tuple)):
+        return all(_contains_only_protected_tenant_routes(item) for item in value)
+    if not isinstance(value, str):
+        return False
+    raw = value.strip()
+    if _is_protected_tenant_route(raw):
+        return True
+    if not raw or raw[0] not in '["':
+        return False
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return False
+    if parsed == value:
+        return False
+    return _contains_only_protected_tenant_routes(parsed)
+
+
 def _project_index(projects):
     result = {}
     for raw in projects or []:
@@ -141,12 +167,16 @@ def _prepare_s3_namespace_migration_plan(
 
     for raw in records or []:
         record = dict(raw or {})
+        if _contains_only_protected_tenant_routes(record.get("value")):
+            continue
         owner, status, reason = _owner_for_record(
             record,
             owner_projects,
             normalized_company_ids,
         )
         for file_url in _reference_urls(record.get("value")):
+            if _is_protected_tenant_route(file_url):
+                continue
             references[file_url].append({
                 "source": str(record.get("source") or ""),
                 "recordId": _positive_int(record.get("recordId")),
@@ -335,7 +365,11 @@ def _candidate_source_keys(
         record = dict(raw or {})
         if str(record.get("source") or "") not in VERIFIED_SOURCES:
             continue
+        if _contains_only_protected_tenant_routes(record.get("value")):
+            continue
         for file_url in _reference_urls(record.get("value")):
+            if _is_protected_tenant_route(file_url):
+                continue
             if file_url in registered_urls:
                 continue
             storage_key = _storage_key_from_url(file_url, bases)

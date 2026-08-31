@@ -73,6 +73,48 @@ class S3NamespaceMigrationPlanTests(unittest.TestCase):
             ["expenses.photo_url", "own_expenses.photo_url"],
         )
 
+    def test_protected_tenant_route_is_not_treated_as_an_s3_object(self):
+        report = self._build(
+            [self._record(
+                "expenses.photo_url",
+                49,
+                "/tenant-files/812/content",
+            )],
+            set(),
+        )
+
+        self.assertTrue(report["readyForApply"])
+        self.assertEqual(report["summary"]["referenceCount"], 0)
+        self.assertEqual(report["summary"]["readyObjectCopies"], 0)
+        self.assertEqual(report["blockers"], [])
+
+    def test_list_of_protected_tenant_routes_is_a_clear_post_migration_state(self):
+        report = self._build(
+            [self._record(
+                "expenses.photo_url",
+                49,
+                '["/tenant-files/812/content", "/tenant-files/913/content"]',
+            )],
+            set(),
+        )
+
+        self.assertTrue(report["readyForApply"])
+        self.assertEqual(report["summary"]["referenceCount"], 0)
+        self.assertEqual(report["blockers"], [])
+
+    def test_malformed_protected_route_is_still_reported(self):
+        report = self._build(
+            [self._record(
+                "expenses.photo_url",
+                49,
+                "/tenant-files/812/content unexpected",
+            )],
+            set(),
+        )
+
+        self.assertFalse(report["readyForApply"])
+        self.assertIn("storage_url_not_recognized", report["blockers"])
+
     def test_project_slug_mismatch_blocks_migration(self):
         source_key = "uploads/Другой-объект/manual-expenses/file.jpg"
         report = self._build(
