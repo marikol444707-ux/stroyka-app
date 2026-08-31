@@ -134,10 +134,7 @@ export default function ActivityLogPage({C, activityLog, auditLog, roleLabels, i
       setServerLoading(true);
       setServerError('');
       try {
-        const token = localStorage.getItem('authToken');
-        const headers = token ? {Authorization: 'Bearer ' + token} : undefined;
         const response = await fetch(API + '/audit-log?' + buildAuditQuery(filters), {
-          headers,
           signal: controller.signal,
         });
         if (!response.ok) throw new Error('HTTP ' + response.status);

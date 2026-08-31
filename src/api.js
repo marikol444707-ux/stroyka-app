@@ -1,4 +1,5 @@
 import { withStoredCompanyContextHeaders } from './features/company-context/companyContextStorage';
+import { clearLegacyBrowserAuthToken } from './utils/appRuntimeUtils';
 
 const isLocalHost = typeof window !== 'undefined'
   && ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
@@ -34,8 +35,6 @@ export const sendClientError = (payload) => {
   };
   try {
     const headers = { 'Content-Type': 'application/json' };
-    const token = localStorage.getItem('authToken') || '';
-    if (token) headers.Authorization = 'Bearer ' + token;
     return fetch(url, {
       method: 'POST',
       headers,
@@ -71,6 +70,7 @@ export const installClientErrorLogging = () => {
 
 export const installAuthFetch = () => {
   if (typeof window === 'undefined' || window.__stroykaAuthFetchInstalled) return;
+  clearLegacyBrowserAuthToken();
   const nativeFetch = window.fetch.bind(window);
   const authPublicPaths = [
     '/login',
@@ -84,15 +84,6 @@ export const installAuthFetch = () => {
   ];
   const csrfMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
   const csrfHeaderName = 'X-CSRF-Token';
-  const cookieOnlyCapabilityPaths = [
-    /^\/accounting-exception-checks$/,
-    /^\/accounting-exception-link-repairs$/,
-    /^\/assignment-daily-draft-previews$/,
-    /^\/warehouse-anomaly-previews$/,
-    /^\/human-approved-actions\/(?:proposals|decisions|history)$/,
-    /^\/supply-requests\/[1-9][0-9]*\/items\/(?:0|[1-9][0-9]*)\/material-capability-(?:proof|confirmations)$/,
-    /^\/supplier-material-capability-confirmations\/[1-9][0-9]*\/revocations$/,
-  ];
   let csrfToken = '';
   let csrfTokenPromise = null;
   const getRequestPath = (input) => {
@@ -105,27 +96,9 @@ export const installAuthFetch = () => {
     }
   };
   const isAuthPublicPath = (path) => authPublicPaths.some(publicPath => path === publicPath || path.startsWith(publicPath + '/'));
-  const isCookieOnlyCapabilityPath = (path) => cookieOnlyCapabilityPaths.some(pattern => pattern.test(path));
   const getRequestMethod = (input, init = {}) => {
     const method = init.method || (typeof Request !== 'undefined' && input instanceof Request ? input.method : '') || 'GET';
     return String(method).toUpperCase();
-  };
-  const getStoredAuthToken = () => {
-    try {
-      return localStorage.getItem('authToken') || '';
-    } catch (_e) {
-      return '';
-    }
-  };
-  const hasAuthorizationHeader = (input, init) => {
-    const headers = new Headers(init.headers || {});
-    if (headers.has('Authorization')) return true;
-    try {
-      if (typeof Request !== 'undefined' && input instanceof Request) {
-        return input.headers.has('Authorization');
-      }
-    } catch (_e) {}
-    return false;
   };
   const hasCsrfHeader = (input, init) => {
     const headers = new Headers(init.headers || {});
@@ -160,11 +133,6 @@ export const installAuthFetch = () => {
     if (!headers.has(csrfHeaderName)) headers.set(csrfHeaderName, token);
     return {...init, headers};
   };
-  const withBearerFallback = (init, token) => {
-    const headers = new Headers(init.headers || {});
-    if (!headers.has('Authorization')) headers.set('Authorization', 'Bearer ' + token);
-    return {...init, headers};
-  };
   const expireFrontendSession = (response) => {
     // Токен/сессия истекли или стали недействительны — сервер отвечает 401.
     // Чистим сессию и возвращаем на экран входа, чтобы приложение не показывало
@@ -172,7 +140,7 @@ export const installAuthFetch = () => {
     if (!window.__stroykaSessionExpiring) {
       window.__stroykaSessionExpiring = true;
       try {
-        localStorage.removeItem('authToken');
+        clearLegacyBrowserAuthToken();
         localStorage.removeItem('user');
         sessionStorage.setItem('authExpiredNotice', '1');
       } catch (e) {}
@@ -191,15 +159,6 @@ export const installAuthFetch = () => {
     }
     const response = await nativeFetch(input, nextInit);
     if (response.status !== 401) return response;
-    if (isCookieOnlyCapabilityPath(path)) return expireFrontendSession(response);
-
-    const token = getStoredAuthToken();
-    if (token && !hasAuthorizationHeader(input, init)) {
-      const fallbackResponse = await nativeFetch(input, withBearerFallback(nextInit, token));
-      if (fallbackResponse.status !== 401) return fallbackResponse;
-      return expireFrontendSession(fallbackResponse);
-    }
-
     return expireFrontendSession(response);
   };
   window.__stroykaAuthFetchInstalled = true;

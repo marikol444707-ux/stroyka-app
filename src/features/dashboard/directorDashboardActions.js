@@ -88,8 +88,7 @@ export function createDirectorDashboardActions({
     const allEstimateSectionsLoaded = safeEstimateList.every(estimate => estimate?.sectionsLoaded !== false);
     if (safeEstimateList.length && allEstimateSectionsLoaded) return safeEstimateList;
     try {
-      const token = localStorage.getItem('authToken');
-      const res = await fetch(API + '/estimates', token ? {headers: {Authorization: 'Bearer ' + token}} : undefined);
+      const res = await fetch(API + '/estimates');
       if (!res.ok) return safeEstimateList;
       const data = await res.json();
       const list = Array.isArray(data) ? data : [];

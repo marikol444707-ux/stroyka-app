@@ -73,11 +73,10 @@ export const createNotificationActions = ({
       return updated;
     });
     try {
-      const token = localStorage.getItem('authToken');
-      if (token && user) {
+      if (user) {
         fetch(API + '/audit-log', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action, entityType: 'ui', description: action }),
         })
           .then((res) => {

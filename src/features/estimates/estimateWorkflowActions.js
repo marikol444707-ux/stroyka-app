@@ -44,7 +44,6 @@ export const createEstimateWorkflowActions = ({
   fetchFn = fetch,
   alertFn = window.alert,
   confirmFn = window.confirm,
-  localStorageRef = window.localStorage,
 }) => {
   const mergeEstimateDetail = (estimate, fullRaw) => {
     const normalized = normalizeEstimateList([fullRaw])[0] || fullRaw;
@@ -54,10 +53,9 @@ export const createEstimateWorkflowActions = ({
   const loadEstimateDetails = async (estimates) => {
     const pending = (estimates || []).filter(estimate => estimate?.id && !estimateHasLoadedSections(estimate));
     if (!pending.length) return estimates || [];
-    const token = localStorageRef?.getItem?.('authToken');
     const ids = [...new Set(pending.map(estimate => Number(estimate.id)).filter(Number.isInteger))];
     if (!ids.length) return estimates || [];
-    const res = await fetchFn(API + '/estimates?ids=' + encodeURIComponent(ids.join(',')), token ? {headers:{Authorization:'Bearer '+token}} : undefined);
+    const res = await fetchFn(API + '/estimates?ids=' + encodeURIComponent(ids.join(',')), undefined);
     if (!res.ok) throw new Error(await res.text());
     const details = await res.json();
     const byId = new Map((Array.isArray(details) ? details : []).map(detail => [String(detail?.id), detail]));

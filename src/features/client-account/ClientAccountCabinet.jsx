@@ -16,8 +16,7 @@ function ClientAccountCabinet({user, setUser, C, card, btnG, API, handleLogout})
   const [error, setError] = useState('');
 
   const authHeaders = useCallback((headers={}) => {
-    const token = localStorage.getItem('authToken');
-    return token ? {...headers, Authorization:'Bearer '+token} : headers;
+    return headers;
   }, []);
 
   const loadDashboard = useCallback(async () => {

@@ -1,6 +1,5 @@
 const authHeaders = (headers = {}) => {
-  const token = localStorage.getItem('authToken');
-  return token ? {...headers, Authorization: 'Bearer ' + token} : headers;
+  return headers;
 };
 
 const readJson = async (response, fallbackMessage) => {

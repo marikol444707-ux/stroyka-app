@@ -64,8 +64,7 @@ export const useAppDataLoaders = (ctx) => {
 
   const getApi = (path, fallback = []) => {
     if (mobileApiRequestsRef.current.has(path)) return mobileApiRequestsRef.current.get(path);
-    const token = localStorage.getItem('authToken');
-    const request = fetch(API + path, token ? {headers: {Authorization: 'Bearer ' + token}} : undefined)
+    const request = fetch(API + path)
       .then(r => {
         if (r.ok) return r.json();
         if (r.status === 401) handleApiUnauthorized();
@@ -77,8 +76,7 @@ export const useAppDataLoaders = (ctx) => {
     return request;
   };
   const apiAuthHeaders = (headers={}) => {
-    const token = localStorage.getItem('authToken');
-    return token ? {...headers, Authorization: 'Bearer ' + token} : headers;
+    return headers;
   };
 
   const pagedPath = (path, params = {}) => buildPagedPath(path, params);
@@ -574,7 +572,6 @@ export const useAppDataLoaders = (ctx) => {
       const canLoadEstimates = canLoadEstimatesForUser(user);
       const estimatesLoadPath = isWorkerRole ? '/estimates' : ESTIMATES_SUMMARY_PATH;
       if (canLoadEstimates) markEstimatesLoading(true);
-      const token = localStorage.getItem('authToken');
       const LOAD_FAILED = Symbol('LOAD_FAILED');
       const isLoaded = (value) => value !== LOAD_FAILED;
       const asArray = (value) => Array.isArray(value) ? value : [];
@@ -582,7 +579,7 @@ export const useAppDataLoaders = (ctx) => {
         if (!isLoaded(value)) return;
         setter(normalize(value));
       };
-      const get = (path, fallback = []) => fetch(API + path, token ? {headers: {Authorization: 'Bearer ' + token}} : undefined)
+      const get = (path, fallback = []) => fetch(API + path)
         .then(r => {
           if (r.ok) return r.json();
           if (r.status === 401) handleApiUnauthorized();

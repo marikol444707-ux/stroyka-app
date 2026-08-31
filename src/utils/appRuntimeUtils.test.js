@@ -1,4 +1,22 @@
-import {doPrint} from './appRuntimeUtils';
+import {doPrint, loadStoredUser} from './appRuntimeUtils';
+
+describe('loadStoredUser cookie session boundary', () => {
+  afterEach(() => localStorage.clear());
+
+  test('loads the public user without requiring a browser bearer token', () => {
+    localStorage.setItem('user', JSON.stringify({id: 7, role: 'директор', email: 'director@example.test'}));
+
+    expect(loadStoredUser()).toEqual(expect.objectContaining({id: 7, role: 'директор'}));
+  });
+
+  test('removes a legacy browser bearer token while preserving a valid public user', () => {
+    localStorage.setItem('authToken', 'legacy-token');
+    localStorage.setItem('user', JSON.stringify({id: 7, role: 'директор', email: 'director@example.test'}));
+
+    expect(loadStoredUser()).toEqual(expect.objectContaining({id: 7, role: 'директор'}));
+    expect(localStorage.getItem('authToken')).toBeNull();
+  });
+});
 
 describe('doPrint HTML boundary', () => {
   beforeEach(() => {

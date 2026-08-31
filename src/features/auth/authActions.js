@@ -1,4 +1,4 @@
-import { normalizeStoredUser } from '../../utils/appRuntimeUtils';
+import { clearLegacyBrowserAuthToken, normalizeStoredUser } from '../../utils/appRuntimeUtils';
 
 export const createAuthActions = ({
   API,
@@ -45,13 +45,13 @@ export const createAuthActions = ({
   };
 
   const persistLogin = (data) => {
-    if (!data?.authToken) throw new Error('сервер не вернул токен входа');
     const publicUser = normalizeStoredUser(data);
     if (!publicUser?.role) throw new Error('сервер вернул пользователя без роли');
-    if (data.authToken) localStorage.setItem('authToken', data.authToken);
+    clearLegacyBrowserAuthToken();
     localStorage.setItem('user', JSON.stringify(publicUser));
     if (typeof setInitialDataLoaded === 'function') setInitialDataLoaded(false);
     if (typeof setUser === 'function') setUser(publicUser);
+    return publicUser;
   };
 
   const handleLogout = () => {
@@ -74,12 +74,7 @@ export const createAuthActions = ({
         setLoginError('');
         return data;
       }
-      if (!data.authToken) {
-        setLoginError('Сервер не вернул токен входа');
-        return null;
-      }
-      persistLogin(data);
-      return data;
+      return persistLogin(data);
     } catch {
       setLoginError('Ошибка подключения к серверу');
       return null;
@@ -99,7 +94,7 @@ export const createAuthActions = ({
     }
     if (!res.ok) return {ok: false, error: data.detail || `Ошибка 2FA: сервер ответил ${res.status}`};
     try {
-      persistLogin(data);
+      data = persistLogin(data);
     } catch (err) {
       return {ok: false, error: `2FA подтверждена, но сессия не сохранена: ${err?.message || 'обновите страницу и войдите снова'}`};
     }
@@ -129,8 +124,7 @@ export const createAuthActions = ({
         setLoginError('Аккаунт создан. Войдите с этим email и завершите настройку 2FA.');
         return data;
       }
-      persistLogin(data);
-      return data;
+      return persistLogin(data);
     } catch {
       setLoginError('Ошибка подключения');
     }

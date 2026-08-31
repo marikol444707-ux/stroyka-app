@@ -18,7 +18,7 @@ describe('installAuthFetch', () => {
     delete window.__stroykaSessionExpiring;
   });
 
-  it('uses cookie session before adding the legacy Bearer fallback', async () => {
+  it('uses only the cookie session and removes a legacy browser token', async () => {
     localStorage.setItem('authToken', 'legacy-token');
     const nativeFetch = jest.fn().mockResolvedValue(new Response('{}', { status: 200 }));
     window.fetch = nativeFetch;
@@ -33,6 +33,7 @@ describe('installAuthFetch', () => {
     expect(new Headers(firstInit.headers || {}).has('Authorization')).toBe(false);
     expect(new Headers(firstInit.headers || {}).has('X-Company-Mode')).toBe(false);
     expect(new Headers(firstInit.headers || {}).has('X-Company-Id')).toBe(false);
+    expect(localStorage.getItem('authToken')).toBeNull();
   });
 
   it('adds the selected company context to protected requests', async () => {
@@ -63,26 +64,31 @@ describe('installAuthFetch', () => {
     expect(headers.has('X-Company-Id')).toBe(false);
   });
 
-  it('retries with the legacy Bearer token only after cookie auth is rejected', async () => {
+  it('does not retry with a legacy Bearer token after cookie auth is rejected', async () => {
     localStorage.setItem('authToken', 'legacy-token');
-    const nativeFetch = jest.fn()
-      .mockResolvedValueOnce(new Response('{}', { status: 401 }))
-      .mockResolvedValueOnce(new Response('{"ok":true}', { status: 200 }));
+    localStorage.setItem('user', JSON.stringify({ id: 42, role: 'директор', email: 'director@example.test' }));
+    const nativeFetch = jest.fn().mockResolvedValue(new Response('{}', { status: 401 }));
     window.fetch = nativeFetch;
+    const originalLocation = window.location;
+    delete window.location;
+    window.location = { ...originalLocation, origin: 'http://localhost', reload: jest.fn() };
 
-    installAuthFetch();
-    const response = await window.fetch('/users');
+    try {
+      installAuthFetch();
+      const response = await window.fetch('/users');
 
-    expect(response.status).toBe(200);
-    expect(nativeFetch).toHaveBeenCalledTimes(2);
-    expect(new Headers(nativeFetch.mock.calls[0][1].headers || {}).has('Authorization')).toBe(false);
-    expect(new Headers(nativeFetch.mock.calls[1][1].headers || {}).get('Authorization')).toBe('Bearer legacy-token');
-    expect(nativeFetch.mock.calls[1][1].credentials).toBe('include');
-    expect(localStorage.getItem('authToken')).toBe('legacy-token');
-    expect(sessionStorage.getItem('authExpiredNotice')).toBeNull();
+      expect(response.status).toBe(401);
+      expect(nativeFetch).toHaveBeenCalledTimes(1);
+      expect(new Headers(nativeFetch.mock.calls[0][1].headers || {}).has('Authorization')).toBe(false);
+      expect(localStorage.getItem('authToken')).toBeNull();
+      expect(localStorage.getItem('user')).toBeNull();
+      expect(sessionStorage.getItem('authExpiredNotice')).toBe('1');
+    } finally {
+      window.location = originalLocation;
+    }
   });
 
-  it('adds a CSRF token to protected mutating requests before using Bearer fallback', async () => {
+  it('adds a CSRF token to protected mutating cookie requests', async () => {
     localStorage.setItem('authToken', 'legacy-token');
     const nativeFetch = jest.fn()
       .mockResolvedValueOnce(new Response('{"csrfToken":"csrf-token"}', { status: 200 }))
@@ -262,7 +268,7 @@ describe('installAuthFetch', () => {
     }
   });
 
-  it('expires the frontend session once when cookie and Bearer auth are both rejected', async () => {
+  it('expires the frontend session once when cookie auth is rejected', async () => {
     localStorage.setItem('authToken', 'legacy-token');
     localStorage.setItem('user', JSON.stringify({ id: 42, email: 'director@example.test' }));
     const nativeFetch = jest.fn().mockResolvedValue(new Response('{}', { status: 401 }));
@@ -276,13 +282,14 @@ describe('installAuthFetch', () => {
       const response = await window.fetch('/users');
 
       expect(response.status).toBe(401);
-      expect(nativeFetch).toHaveBeenCalledTimes(2);
+      expect(nativeFetch).toHaveBeenCalledTimes(1);
       expect(localStorage.getItem('authToken')).toBeNull();
       expect(localStorage.getItem('user')).toBeNull();
       expect(sessionStorage.getItem('authExpiredNotice')).toBe('1');
       expect(window.location.reload).toHaveBeenCalledTimes(1);
 
       await window.fetch('/users');
+      expect(nativeFetch).toHaveBeenCalledTimes(2);
       expect(window.location.reload).toHaveBeenCalledTimes(1);
     } finally {
       window.location = originalLocation;
@@ -360,7 +367,7 @@ describe('sendClientError', () => {
     expect(navigator.sendBeacon).not.toHaveBeenCalled();
     expect(String(nativeFetch.mock.calls[0][0])).toContain('/csrf-token');
     const headers = new Headers(nativeFetch.mock.calls[1][1].headers || {});
-    expect(headers.get('Authorization')).toBe('Bearer director-token');
+    expect(headers.has('Authorization')).toBe(false);
     expect(headers.get('X-Company-Mode')).toBe('company');
     expect(headers.get('X-Company-Id')).toBe('7');
     expect(nativeFetch.mock.calls[1][1].keepalive).toBe(true);

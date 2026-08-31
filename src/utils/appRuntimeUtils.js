@@ -5,33 +5,40 @@ export const normalizeStoredUser = (value) => {
     ? value.user
     : value;
   if (!source || typeof source !== 'object') return null;
-  const role = String(source.role || '').trim();
-  const email = String(source.email || '').trim();
-  const name = String(source.name || '').trim();
-  if (!role || (!email && !name && !source.id)) return null;
+  const {authToken: _discardedAuthToken, ...publicSource} = source;
+  const role = String(publicSource.role || '').trim();
+  const email = String(publicSource.email || '').trim();
+  const name = String(publicSource.name || '').trim();
+  if (!role || (!email && !name && !publicSource.id)) return null;
   return {
-    ...source,
+    ...publicSource,
     role,
     email,
     name: name || email || 'Пользователь',
   };
 };
 
+export const clearLegacyBrowserAuthToken = () => {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem('authToken');
+  } catch {}
+};
+
 export const loadStoredUser = () => {
   if (typeof window === 'undefined') return null;
   try {
-    const token = localStorage.getItem('authToken');
+    clearLegacyBrowserAuthToken();
     const rawUser = localStorage.getItem('user');
-    if (!token || !rawUser) return null;
+    if (!rawUser) return null;
     const user = normalizeStoredUser(JSON.parse(rawUser));
     if (!user) {
-      localStorage.removeItem('authToken');
       localStorage.removeItem('user');
       return null;
     }
     return user;
   } catch {
-    localStorage.removeItem('authToken');
+    clearLegacyBrowserAuthToken();
     localStorage.removeItem('user');
     return null;
   }

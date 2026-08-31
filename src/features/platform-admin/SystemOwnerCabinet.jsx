@@ -103,8 +103,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const canViewClientUsers = canManagePlatform || canUseSupport;
   const canUseFollowups = canManagePlatform || canManageBilling || canUseSupport;
   const authHeaders = useCallback((headers={}) => {
-    const token = localStorage.getItem('authToken');
-    return token ? {...headers, Authorization:'Bearer '+token} : headers;
+    return headers;
   }, []);
   const fetchJson = useCallback(async (path, fallback) => {
     const response = await fetch(API + path, {headers:authHeaders()});

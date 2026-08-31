@@ -24,10 +24,8 @@ export const createSystemActions = ({
 
   const loadAuditLog = async () => {
     try {
-      const token = localStorage.getItem('authToken');
       const data = await fetch(
         API + buildPagedPath('/audit-log', { limit: AUDIT_LOG_PAGE_LIMIT }),
-        token ? { headers: { Authorization: 'Bearer ' + token } } : undefined,
       ).then((r) => (r.ok ? r.json() : []));
       setAuditLog(Array.isArray(data) ? data : []);
     } catch (e) {

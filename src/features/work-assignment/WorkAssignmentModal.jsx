@@ -179,11 +179,9 @@ export default function WorkAssignmentModal({
           };
         }),
       };
-      const token = localStorage.getItem('authToken');
-      const headers = token ? {'Content-Type': 'application/json', Authorization: 'Bearer ' + token} : {'Content-Type': 'application/json'};
       const response = await fetch(API + '/estimates/' + selectedEstimate.id + '/work-assignment', {
         method: 'POST',
-        headers,
+        headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(payload),
       });
       const data = await response.json().catch(() => ({}));

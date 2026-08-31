@@ -42,9 +42,7 @@ export default function WorkAssignmentStatusPanel({
     if (!window.confirm('Снять назначение «' + name + '»?')) return;
     setBusyId(assignment.id);
     try {
-      const token = localStorage.getItem('authToken');
-      const headers = token ? {Authorization: 'Bearer ' + token} : undefined;
-      const response = await fetch(API + '/brigade-contract-items/' + assignment.id, {method: 'DELETE', headers});
+      const response = await fetch(API + '/brigade-contract-items/' + assignment.id, {method: 'DELETE'});
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data.ok === false) {
         alert(data.detail || 'Не удалось снять назначение');

@@ -612,15 +612,7 @@ export default function MasterCabinetPage(props) {
   };
   const estimateChangePackage = estimateChangeDraft.workPackage || (userAssignedPackages.length === 1 ? userAssignedPackages[0] : 'Основная');
   const authJsonHeaders = () => {
-    let token = '';
-    try {
-      token = localStorage.getItem('authToken') || '';
-    } catch (_e) {
-      token = '';
-    }
-    return token
-      ? { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }
-      : { 'Content-Type': 'application/json' };
+    return { 'Content-Type': 'application/json' };
   };
   const submitEstimateChangeDraft = async () => {
     if (!selectedMasterProject?.name) {

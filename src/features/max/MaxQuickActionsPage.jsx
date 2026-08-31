@@ -3,7 +3,7 @@ import { ArrowLeft, Bot, Camera, CheckCircle2, ClipboardList, CloudSun, CreditCa
 import { API } from '../../api';
 import { EXPENSE_CATEGORIES } from '../../constants/catalogs';
 import { invoiceImageAccept, normalizeInvoiceImageFiles } from '../../utils/invoiceImages';
-import { normalizeStoredUser } from '../../utils/appRuntimeUtils';
+import { clearLegacyBrowserAuthToken, normalizeStoredUser } from '../../utils/appRuntimeUtils';
 import { getQuickActionsForUser, QUICK_ACTION_IDS } from '../quick-actions/quickActionRegistry';
 
 const iconByAction = {
@@ -278,11 +278,10 @@ const roleLabel = (role) => {
 
 const persistMiniAppSession = (payload) => {
   const source = payload?.user && typeof payload.user === 'object' ? payload.user : payload;
-  const token = source?.authToken || payload?.authToken || '';
   const user = normalizeStoredUser(source);
-  if (!token || !user) return null;
+  if (!user) return null;
   try {
-    localStorage.setItem('authToken', token);
+    clearLegacyBrowserAuthToken();
     localStorage.setItem('user', JSON.stringify(user));
     return user;
   } catch {
