@@ -37,12 +37,17 @@ SOURCE_CONTEXTS = {
     "expenses.photo_url": frozenset(("expenses", "manual-expenses", "own-expenses")),
     "own_expenses.photo_url": frozenset(("own-expenses",)),
 }
+PROTECTED_TENANT_ROUTE_PATTERN = re.compile(
+    r"/tenant-files/[1-9][0-9]*/content"
+)
+PROTECTED_TENANT_ROUTE_SEPARATORS = re.compile(
+    r'''[\s\[\]\(\)\{\},"';:|]*'''
+)
 
 
 def _is_protected_tenant_route(value):
-    return re.fullmatch(
-        r"/tenant-files/[1-9][0-9]*/content",
-        str(value or "").strip(),
+    return PROTECTED_TENANT_ROUTE_PATTERN.fullmatch(
+        str(value or "").strip()
     ) is not None
 
 
@@ -54,6 +59,10 @@ def _contains_only_protected_tenant_routes(value):
     raw = value.strip()
     if _is_protected_tenant_route(raw):
         return True
+    if PROTECTED_TENANT_ROUTE_PATTERN.search(raw):
+        remainder = PROTECTED_TENANT_ROUTE_PATTERN.sub("", raw)
+        if PROTECTED_TENANT_ROUTE_SEPARATORS.fullmatch(remainder):
+            return True
     if not raw or raw[0] not in '["':
         return False
     try:

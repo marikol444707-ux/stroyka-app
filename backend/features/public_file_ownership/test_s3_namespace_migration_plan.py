@@ -102,6 +102,23 @@ class S3NamespaceMigrationPlanTests(unittest.TestCase):
         self.assertEqual(report["summary"]["referenceCount"], 0)
         self.assertEqual(report["blockers"], [])
 
+    def test_legacy_embedded_protected_routes_are_a_clear_post_migration_state(self):
+        report = self._build(
+            [self._record(
+                "expenses.photo_url",
+                49,
+                (
+                    "'/tenant-files/812/content', "
+                    "'/tenant-files/913/content'"
+                ),
+            )],
+            set(),
+        )
+
+        self.assertTrue(report["readyForApply"])
+        self.assertEqual(report["summary"]["referenceCount"], 0)
+        self.assertEqual(report["blockers"], [])
+
     def test_malformed_protected_route_is_still_reported(self):
         report = self._build(
             [self._record(
