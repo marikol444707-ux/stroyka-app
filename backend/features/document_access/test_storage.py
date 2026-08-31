@@ -10,6 +10,7 @@ from backend.features.document_access.storage import (
     delete_s3_object,
     open_s3_object,
     put_s3_object,
+    set_s3_object_acl,
 )
 
 
@@ -218,6 +219,67 @@ class S3DocumentStorageTests(unittest.TestCase):
                 secret_key="secret-key",
                 opener=FakeOpener(redirect),
                 now=dt.datetime(2026, 7, 11, 9, 0, 0),
+            )
+        self.assertEqual(error.exception.status_code, 503)
+
+    def test_set_s3_object_acl_signs_acl_subresource_and_closes_response(self):
+        response = FakeResponse(b"", headers={"Content-Length": "0"}, status=200)
+        opener = FakeOpener(response)
+
+        set_s3_object_acl(
+            key="uploads/company-4-common-general/general/file.png",
+            acl="private",
+            endpoint_url="https://storage.example",
+            bucket="documents",
+            region="ru-central1",
+            access_key="access-key",
+            secret_key="secret-key",
+            opener=opener,
+            now=dt.datetime(2026, 7, 11, 9, 0, 0),
+        )
+
+        request, timeout = opener.calls[0]
+        self.assertEqual(timeout, 30)
+        self.assertEqual(request.get_method(), "PUT")
+        self.assertEqual(request.full_url.split("?", 1)[1], "acl")
+        self.assertEqual(request.data, b"")
+        self.assertEqual(request.get_header("X-amz-acl"), "private")
+        self.assertTrue(request.get_header("Authorization").startswith("AWS4-HMAC-SHA256 "))
+        self.assertTrue(response.closed)
+
+    def test_set_s3_object_acl_rejects_unsafe_acl_and_redirect(self):
+        opener = FakeOpener(FakeResponse())
+        with self.assertRaises(HTTPException) as error:
+            set_s3_object_acl(
+                key="uploads/company-4-common-general/general/file.png",
+                acl="public-read",
+                endpoint_url="https://storage.example",
+                bucket="documents",
+                region="ru-central1",
+                access_key="access-key",
+                secret_key="secret-key",
+                opener=opener,
+            )
+        self.assertEqual(error.exception.status_code, 503)
+        self.assertEqual(opener.calls, [])
+
+        redirect = urllib.error.HTTPError(
+            "https://storage.example/documents/file.png?acl",
+            302,
+            "Found",
+            {},
+            None,
+        )
+        with self.assertRaises(HTTPException) as error:
+            set_s3_object_acl(
+                key="uploads/company-4-common-general/general/file.png",
+                acl="private",
+                endpoint_url="https://storage.example",
+                bucket="documents",
+                region="ru-central1",
+                access_key="access-key",
+                secret_key="secret-key",
+                opener=FakeOpener(redirect),
             )
         self.assertEqual(error.exception.status_code, 503)
 

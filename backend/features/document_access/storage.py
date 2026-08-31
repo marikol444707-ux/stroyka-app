@@ -38,6 +38,7 @@ def _signed_s3_request(
     secret_key,
     payload=b"",
     extra_headers=None,
+    subresource=None,
     now=None,
 ):
     endpoint_url = str(endpoint_url or "").rstrip("/")
@@ -61,7 +62,17 @@ def _signed_s3_request(
 
     quoted_bucket = urllib.parse.quote(str(bucket), safe="")
     quoted_key = urllib.parse.quote(normalized_key, safe="/")
+    normalized_subresource = str(subresource or "").strip().lower()
+    if normalized_subresource not in ("", "acl"):
+        raise HTTPException(status_code=503, detail="Некорректный S3 subresource")
     url = endpoint_url + "/" + quoted_bucket + "/" + quoted_key
+    canonical_query = ""
+    if normalized_subresource:
+        url += "?" + normalized_subresource
+        canonical_query = urllib.parse.quote(
+            normalized_subresource,
+            safe="-_.~",
+        ) + "="
     parsed = urllib.parse.urlparse(url)
     if not isinstance(payload, bytes):
         raise HTTPException(status_code=503, detail="Некорректное содержимое S3-файла")
@@ -78,7 +89,7 @@ def _signed_s3_request(
         name = str(raw_name or "").strip().lower()
         value = str(raw_value or "").strip()
         if (
-            name not in {"content-type"}
+            name not in {"content-type", "x-amz-acl"}
             or "\n" in value
             or "\r" in value
         ):
@@ -92,7 +103,7 @@ def _signed_s3_request(
     canonical_request = "\n".join([
         method,
         parsed.path or "/",
-        "",
+        canonical_query,
         canonical_headers,
         signed_headers,
         payload_hash,
@@ -274,6 +285,52 @@ def put_s3_object(
     try:
         if _response_status(response) not in (200, 201, 204):
             raise HTTPException(status_code=503, detail="S3 не подтвердил запись файла")
+        return True
+    finally:
+        _close_safely(response)
+
+
+def set_s3_object_acl(
+    *,
+    key,
+    acl,
+    endpoint_url,
+    bucket,
+    region,
+    access_key,
+    secret_key,
+    opener=None,
+    now=None,
+    timeout=30,
+):
+    """Make one existing S3 object private with a signed ACL request."""
+    normalized_acl = str(acl or "").strip().lower()
+    if normalized_acl != "private":
+        raise HTTPException(status_code=503, detail="Разрешен только закрытый ACL S3-файла")
+    request = _signed_s3_request(
+        method="PUT",
+        key=key,
+        endpoint_url=endpoint_url,
+        bucket=bucket,
+        region=region,
+        access_key=access_key,
+        secret_key=secret_key,
+        payload=b"",
+        extra_headers={"x-amz-acl": normalized_acl},
+        subresource="acl",
+        now=now,
+    )
+    request_opener = opener or urllib.request.build_opener(NoRedirectHandler())
+    try:
+        response = request_opener.open(request, timeout=timeout)
+    except urllib.error.HTTPError as error:
+        _close_safely(error)
+        raise HTTPException(status_code=503, detail="S3 не подтвердил закрытие доступа к файлу") from None
+    except (urllib.error.URLError, TimeoutError, OSError):
+        raise HTTPException(status_code=503, detail="S3-хранилище временно недоступно") from None
+    try:
+        if _response_status(response) not in (200, 204):
+            raise HTTPException(status_code=503, detail="S3 не подтвердил закрытие доступа к файлу")
         return True
     finally:
         _close_safely(response)
