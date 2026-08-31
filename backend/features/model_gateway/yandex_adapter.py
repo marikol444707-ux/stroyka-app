@@ -86,7 +86,10 @@ YANDEX_CAPABILITY_MODELS = MappingProxyType({
         "qwen3.6-35b-a3b/latest",
         "yandexgpt-5.1/latest",
     ),
-    "platform_client_card": ("qwen3.6-35b-a3b/latest",),
+    "platform_client_card": (
+        "yandexgpt-5.1/latest",
+        "qwen3.6-35b-a3b/latest",
+    ),
     "pricelist_generation": (
         "qwen3.6-35b-a3b/latest",
         "yandexgpt-5.1/latest",

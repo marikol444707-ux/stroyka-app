@@ -187,7 +187,10 @@ class YandexModelAdapterTest(unittest.TestCase):
                     "qwen3.6-35b-a3b/latest",
                     "yandexgpt-5.1/latest",
                 ),
-                "platform_client_card": ("qwen3.6-35b-a3b/latest",),
+                "platform_client_card": (
+                    "yandexgpt-5.1/latest",
+                    "qwen3.6-35b-a3b/latest",
+                ),
                 "pricelist_generation": (
                     "qwen3.6-35b-a3b/latest",
                     "yandexgpt-5.1/latest",
@@ -307,6 +310,34 @@ class YandexModelAdapterTest(unittest.TestCase):
                 ],
             }],
         )
+
+    def test_client_card_uses_document_model_before_qwen_fallback(self):
+        client = FakeClient(["", '{"companyName":"ООО Тест"}'])
+        adapter = build_yandex_model_adapter(
+            api_key="key",
+            folder_id="folder-1",
+            client_factory=lambda **_values: client,
+            clock=clock_from(1.0, 1.0, 1.1, 1.2),
+        )
+        request = build_model_request(
+            capability="platform_client_card",
+            instructions="json only",
+            input_text="ИНН 1234567890",
+            temperature=0.1,
+            max_output_tokens=2500,
+            deadline_seconds=30,
+        )
+
+        result = adapter.generate(request)
+
+        self.assertEqual(
+            [call["model"] for call in client.responses.calls],
+            [
+                "gpt://folder-1/yandexgpt-5.1/latest",
+                "gpt://folder-1/qwen3.6-35b-a3b/latest",
+            ],
+        )
+        self.assertEqual(result.model, "qwen3.6-35b-a3b/latest")
 
     def test_empty_primary_uses_the_existing_fallback_order(self):
         client = FakeClient(["", "valid json"])
