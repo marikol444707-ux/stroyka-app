@@ -104,6 +104,26 @@ class LegacyMissingFilePlanTests(unittest.TestCase):
         self.assertEqual(report["summary"]["invalidRegistryRows"], 0)
         self.assertEqual(report["blockers"], [])
 
+    def test_embedded_single_legacy_url_is_cleared_from_scalar_photo_field(self):
+        url = "/uploads/company-1-common-invoices/missing.jpg"
+        report = build_legacy_missing_file_plan(
+            records=[{
+                "source": "expenses.photo_url",
+                "recordId": 10,
+                "value": f"legacy-photo:{url}",
+                "companyId": 1,
+                "ownershipVerified": True,
+                "dataType": "text",
+            }],
+            ownership_rows=[self._missing_registration(41, "missing.jpg")],
+            projects=[],
+            company_ids={1},
+        )
+
+        self.assertTrue(report["readyForCleanup"])
+        self.assertEqual(report["summary"]["missingReferenceCount"], 1)
+        self.assertEqual(report["summary"]["plannedCellUpdateCount"], 1)
+
     def test_json_scalar_photo_url_is_planned_and_cleared_as_valid_json(self):
         url = "/uploads/company-1-common-invoices/missing.jpg"
         rows = (
@@ -265,7 +285,7 @@ class LegacyMissingFilePlanTests(unittest.TestCase):
         self.assertEqual(report["summary"]["missingReferenceCount"], 1)
         self.assertEqual(report["summary"]["plannedCellUpdateCount"], 1)
 
-    def test_text_containing_local_url_is_not_removed_as_collection_item(self):
+    def test_embedded_single_legacy_url_is_removed_from_collection_item(self):
         local_url = "/uploads/company-1-common-invoices/missing.jpg"
         report = build_legacy_missing_file_plan(
             records=[{
@@ -276,6 +296,29 @@ class LegacyMissingFilePlanTests(unittest.TestCase):
                 "dataType": "text",
             }],
             ownership_rows=[self._missing_registration(41, "missing.jpg")],
+            projects=[],
+            company_ids={1},
+        )
+
+        self.assertTrue(report["readyForCleanup"])
+        self.assertEqual(report["summary"]["missingReferenceCount"], 1)
+        self.assertEqual(report["summary"]["plannedCellUpdateCount"], 1)
+
+    def test_collection_item_with_multiple_urls_still_blocks_cleanup(self):
+        first = "/uploads/company-1-common-invoices/first.jpg"
+        second = "/uploads/company-1-common-invoices/second.jpg"
+        report = build_legacy_missing_file_plan(
+            records=[{
+                "source": "interim_acts.photo_urls",
+                "recordId": 1,
+                "value": f'["first:{first} second:{second}"]',
+                "companyId": 1,
+                "dataType": "text",
+            }],
+            ownership_rows=[
+                self._missing_registration(41, "first.jpg"),
+                self._missing_registration(42, "second.jpg"),
+            ],
             projects=[],
             company_ids={1},
         )

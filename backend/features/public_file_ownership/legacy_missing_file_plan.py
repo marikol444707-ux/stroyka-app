@@ -8,7 +8,6 @@ paths so the evidence can be retained without disclosing document names.
 import hashlib
 import json
 from collections import Counter, defaultdict
-from urllib.parse import urlsplit
 
 import psycopg2.extras
 from psycopg2 import sql
@@ -86,14 +85,9 @@ def _public_update(item):
     }
 
 
-def _normalize_collection_item_url(value):
-    normalized = _normalize_local_upload_url(value)
-    if normalized:
-        return normalized
-    parsed = urlsplit(str(value or "").strip())
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
-        return None
-    return _normalize_local_upload_url(parsed.path)
+def _single_local_upload_url(value):
+    urls = extract_local_upload_urls(value)
+    return urls[0] if len(urls) == 1 else None
 
 
 def _clean_reference_value(source, value, missing_urls, data_type="text"):
@@ -110,7 +104,7 @@ def _clean_reference_value(source, value, missing_urls, data_type="text"):
             if not isinstance(scalar_value, str):
                 return None, 0, "scalar_reference_shape_invalid"
             cleared_value = json.dumps("", ensure_ascii=False)
-        normalized = _normalize_local_upload_url(scalar_value)
+        normalized = _single_local_upload_url(scalar_value)
         if len(missing_urls) != 1 or normalized not in missing_urls:
             return None, 0, "scalar_reference_shape_invalid"
         return cleared_value, 1, None
@@ -128,7 +122,7 @@ def _clean_reference_value(source, value, missing_urls, data_type="text"):
     removed = 0
     for item in parsed:
         normalized = (
-            _normalize_collection_item_url(item)
+            _single_local_upload_url(item)
             if isinstance(item, str)
             else None
         )
