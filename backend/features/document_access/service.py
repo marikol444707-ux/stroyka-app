@@ -25,6 +25,37 @@ def _positive_int(value):
     return result if result > 0 else None
 
 
+def build_document_upload_response(
+    uploaded,
+    *,
+    file_id,
+    company_id,
+    project_id=None,
+    project_name="",
+):
+    """Return a protected upload contract without exposing its storage pointer."""
+    file_id = _positive_int(file_id)
+    company_id = _positive_int(company_id)
+    if not file_id or not company_id:
+        raise HTTPException(status_code=500, detail="Регистрация файла не завершена")
+
+    source = dict(uploaded or {})
+    content_url = f"/tenant-files/{file_id}/content"
+    return {
+        "url": content_url,
+        "fileId": file_id,
+        "metadataUrl": f"/tenant-files/{file_id}",
+        "contentUrl": content_url,
+        "companyId": company_id,
+        "projectId": _positive_int(project_id),
+        "projectName": str(project_name or ""),
+        "storage": str(source.get("storage") or ""),
+        "project": str(source.get("project") or ""),
+        "context": str(source.get("context") or ""),
+        "filename": str(source.get("filename") or ""),
+    }
+
+
 def require_document_upload_actor(company_actors):
     """Require one concrete active company membership for a new file write."""
     actors = [

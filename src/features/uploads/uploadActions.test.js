@@ -83,7 +83,7 @@ describe('upload actions project identity', () => {
     expect(request.body.get('projectId')).toBeNull();
   });
 
-  test('returns protected content URL only for explicitly migrated consumers', async () => {
+  test('returns protected content URL by default for every new upload', async () => {
     global.fetch = jest.fn()
       .mockResolvedValueOnce({
         json: async () => ({
@@ -110,11 +110,11 @@ describe('upload actions project identity', () => {
     });
     const file = new File(['letter'], 'letter.pdf', {type: 'application/pdf'});
 
-    const compatibilityUrl = await actions.uploadPhoto(file, {projectId: 17});
+    const protectedByDefault = await actions.uploadPhoto(file, {projectId: 17});
     const protectedUrl = await actions.uploadPhoto(file, {projectId: 17, preferProtectedUrl: true});
     const protectedFallback = await actions.uploadPhoto(file, {projectId: 17, preferProtectedUrl: true});
 
-    expect(compatibilityUrl).toBe('/uploads/company-4/file.pdf');
+    expect(protectedByDefault).toBe('/tenant-files/31/content');
     expect(protectedUrl).toBe('/tenant-files/32/content');
     expect(protectedFallback).toBe('/uploads/company-4/legacy.pdf');
   });

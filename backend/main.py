@@ -15586,6 +15586,7 @@ async def upload_photo(
 ):
     try:
         from backend.features.document_access.service import (
+            build_document_upload_response,
             document_project_reference,
             document_storage_namespace,
             require_document_upload_actor,
@@ -15594,6 +15595,7 @@ async def upload_photo(
         from backend.features.project_access.service import require_project_parent_access
     except ModuleNotFoundError:
         from features.document_access.service import (
+            build_document_upload_response,
             document_project_reference,
             document_storage_namespace,
             require_document_upload_actor,
@@ -15662,15 +15664,13 @@ async def upload_photo(
         ownership_row = access_cur.fetchone()
         file_id = _row_get(ownership_row, "id", 0)
         conn.commit()
-        return {
-            **uploaded,
-            "fileId": file_id,
-            "metadataUrl": "/tenant-files/" + str(file_id),
-            "contentUrl": "/tenant-files/" + str(file_id) + "/content",
-            "companyId": company_id,
-            "projectId": (project or {}).get("id"),
-            "projectName": (project or {}).get("name") or "",
-        }
+        return build_document_upload_response(
+            uploaded,
+            file_id=file_id,
+            company_id=company_id,
+            project_id=(project or {}).get("id"),
+            project_name=(project or {}).get("name") or "",
+        )
     except Exception:
         conn.rollback()
         raise

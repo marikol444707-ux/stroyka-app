@@ -5,6 +5,7 @@ from tempfile import TemporaryDirectory
 from fastapi import HTTPException
 
 from backend.features.document_access.service import (
+    build_document_upload_response,
     delete_document_local_file,
     document_local_path,
     open_document_local_file,
@@ -18,6 +19,29 @@ from backend.features.document_access.service import (
 
 
 class DocumentAccessTests(unittest.TestCase):
+    def test_upload_response_exposes_only_protected_url(self):
+        response = build_document_upload_response(
+            {
+                "url": "https://storage.example/uploads/company-4/file.pdf",
+                "storage": "s3",
+                "key": "uploads/company-4/file.pdf",
+                "filename": "invoice.pdf",
+            },
+            file_id=31,
+            company_id=4,
+            project_id=17,
+            project_name="Лицей",
+        )
+
+        self.assertEqual(response["url"], "/tenant-files/31/content")
+        self.assertEqual(response["contentUrl"], "/tenant-files/31/content")
+        self.assertEqual(response["metadataUrl"], "/tenant-files/31")
+        self.assertNotIn("storageUrl", response)
+        self.assertNotIn("key", response)
+        self.assertEqual(response["storage"], "s3")
+        self.assertEqual(response["companyId"], 4)
+        self.assertEqual(response["projectId"], 17)
+
     def test_upload_requires_one_concrete_company(self):
         actor = require_document_upload_actor([{"company_id": "4", "role": "прораб"}])
         self.assertEqual(actor["companyId"], 4)
