@@ -378,7 +378,7 @@ def load_s3_registration_rows(cur):
             ORDER BY id"""
     )
     ownership_rows = [_row_dict(row) for row in (cur.fetchall() or [])]
-    cur.execute("SELECT id,company_id FROM public.projects ORDER BY id")
+    cur.execute("SELECT id,company_id,name FROM public.projects ORDER BY id")
     projects = [_row_dict(row) for row in (cur.fetchall() or [])]
     cur.execute("SELECT id FROM public.companies ORDER BY id")
     company_ids = {
