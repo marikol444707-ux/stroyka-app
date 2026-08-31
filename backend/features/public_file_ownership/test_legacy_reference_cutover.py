@@ -1,5 +1,8 @@
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
+
+from fastapi import HTTPException
 
 from . import legacy_reference_cutover as cutover_module
 from .legacy_reference_cutover import (
@@ -11,6 +14,49 @@ from .legacy_reference_cutover import (
 
 
 class LegacyReferenceCutoverTests(unittest.TestCase):
+    def test_default_upload_directory_matches_backend_runtime_directory(self):
+        upload_dir = Path(cutover_module.DEFAULT_UPLOAD_DIR)
+
+        self.assertEqual(upload_dir.name, "uploads")
+        self.assertEqual(upload_dir.parent.name, "backend")
+
+    def test_non_missing_local_storage_error_is_not_classified_as_missing(self):
+        rows = [{
+            "id": 41,
+            "file_url": "/uploads/company-1-common-invoices/unsafe.jpg",
+            "storage_key": None,
+        }]
+
+        with patch.object(
+            cutover_module,
+            "open_document_local_file",
+            side_effect=HTTPException(status_code=409, detail="unsafe path"),
+        ):
+            result = cutover_module._mark_storage_readiness(rows, "/tmp/uploads")
+
+        self.assertFalse(result[0]["storageReady"])
+        self.assertEqual(
+            result[0]["storageReason"],
+            "local_storage_not_verified",
+        )
+
+    def test_missing_local_file_is_classified_as_unavailable(self):
+        rows = [{
+            "id": 41,
+            "file_url": "/uploads/company-1-common-invoices/missing.jpg",
+            "storage_key": None,
+        }]
+
+        with patch.object(
+            cutover_module,
+            "open_document_local_file",
+            side_effect=HTTPException(status_code=404, detail="missing"),
+        ):
+            result = cutover_module._mark_storage_readiness(rows, "/tmp/uploads")
+
+        self.assertFalse(result[0]["storageReady"])
+        self.assertEqual(result[0]["storageReason"], "local_file_unavailable")
+
     def test_rewrite_handles_spaced_scalar_and_nested_json_urls(self):
         spaced = "/uploads/company-1-common-invoices/site%20photo.jpg"
         nested = "/uploads/company-1-common-invoices/nested.pdf"

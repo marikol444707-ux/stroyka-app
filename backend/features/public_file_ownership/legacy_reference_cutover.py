@@ -7,6 +7,7 @@ values so operational evidence cannot become another disclosure channel.
 import hashlib
 import json
 from collections import Counter, defaultdict
+from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 import psycopg2.extras
@@ -29,6 +30,7 @@ from .public_exposure_report import (
 
 APPLY_CONFIRMATION = "CUTOVER_LEGACY_UPLOAD_REFERENCES"
 PREVIEW_LIMIT = 100
+DEFAULT_UPLOAD_DIR = str(Path(__file__).resolve().parents[2] / "uploads")
 ALLOWED_DATA_TYPES = {
     "character",
     "character varying",
@@ -420,14 +422,19 @@ def _mark_storage_readiness(rows, upload_dir):
             )
             stream.close()
             row["storageReady"] = True
-        except Exception:
+        except Exception as exc:
             row["storageReady"] = False
-            row["storageReason"] = "local_file_unavailable"
+            row["storageReason"] = (
+                "local_file_unavailable"
+                if getattr(exc, "status_code", None) == 404
+                else "local_storage_not_verified"
+            )
         result.append(row)
     return result
 
 
-def load_legacy_reference_cutover_rows(cur, *, upload_dir="uploads"):
+def load_legacy_reference_cutover_rows(cur, *, upload_dir=None):
+    upload_dir = upload_dir or DEFAULT_UPLOAD_DIR
     available_by_table = _available_source_columns(cur)
     cur.execute("SELECT id,company_id,name FROM projects ORDER BY id")
     projects = [dict(row or {}) for row in (cur.fetchall() or [])]
