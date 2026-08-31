@@ -1,6 +1,9 @@
 """Runtime configuration for the Stroyka backend."""
 
+from __future__ import annotations
+
 import os
+from collections.abc import Mapping
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -33,11 +36,88 @@ def env_list(name: str, default: list[str]) -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
+AUTH_SECRET_MIN_LENGTH = 32
+AUTH_SECRET_MIN_UNIQUE_CHARACTERS = 12
+AUTH_SECRET_PLACEHOLDERS = {
+    "auth-secret",
+    "changeme",
+    "change-me",
+    "password",
+    "secret",
+    "stroyka-auth",
+    "your-auth-secret",
+    "your-secret",
+}
+
+
+def _mapping_bool(environ: Mapping[str, str], name: str, default: bool = False) -> bool:
+    raw = str(environ.get(name, "")).strip().lower()
+    if not raw:
+        return default
+    return raw in ("1", "true", "yes", "on")
+
+
+def build_auth_secret_readiness(
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, object]:
+    """Return a non-sensitive readiness report for the authentication key."""
+
+    values = os.environ if environ is None else environ
+    raw = str(values.get("AUTH_SECRET", "") or "")
+    value = raw.strip()
+    database_password = str(values.get("DB_PASSWORD", "") or "")
+    blockers: list[str] = []
+
+    if not value:
+        blockers.append("auth_secret_missing")
+    else:
+        if raw != value:
+            blockers.append("auth_secret_has_outer_whitespace")
+        if len(value) < AUTH_SECRET_MIN_LENGTH:
+            blockers.append("auth_secret_too_short")
+        if len(set(value)) < AUTH_SECRET_MIN_UNIQUE_CHARACTERS:
+            blockers.append("auth_secret_low_character_diversity")
+        if value.lower() in AUTH_SECRET_PLACEHOLDERS:
+            blockers.append("auth_secret_placeholder")
+        if database_password and value == database_password:
+            blockers.append("auth_secret_matches_database_password")
+        if database_password and value == database_password + "|stroyka-auth":
+            blockers.append("auth_secret_derived_from_database_password")
+
+    if value:
+        source = "explicit"
+    elif database_password:
+        source = "legacy_db_derived"
+    else:
+        source = "legacy_default"
+
+    return {
+        "explicit": bool(value),
+        "source": source,
+        "minimumLength": AUTH_SECRET_MIN_LENGTH,
+        "lengthValid": bool(value) and len(value) >= AUTH_SECRET_MIN_LENGTH,
+        "enforcementEnabled": _mapping_bool(
+            values,
+            "AUTH_SECRET_REQUIRED",
+            False,
+        ),
+        "readyForEnforcement": not blockers,
+        "blockers": blockers,
+    }
+
+
+def require_ready_auth_secret(status: Mapping[str, object]) -> None:
+    if status.get("enforcementEnabled") and not status.get("readyForEnforcement"):
+        raise RuntimeError("AUTH_SECRET_REQUIRED_BUT_INVALID")
+
+
 load_env_file()
 
 YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "")
 YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID", "")
 VK_TOKEN = os.getenv("VK_TOKEN", "")
+AUTH_SECRET_READINESS = build_auth_secret_readiness()
+require_ready_auth_secret(AUTH_SECRET_READINESS)
 AUTH_SECRET = os.getenv("AUTH_SECRET") or (os.getenv("DB_PASSWORD", "password") + "|stroyka-auth")
 AUTH_TOKEN_TTL_SECONDS = int(os.getenv("AUTH_TOKEN_TTL_SECONDS", "86400"))
 AI_CONTROL_RUN_TOKEN = os.getenv("AI_CONTROL_RUN_TOKEN", "").strip()

@@ -86,6 +86,7 @@
     "smoke:agent-job-cancellation": "python3 scripts/smoke-agent-job-cancellation.py",
     "audit:crm-ownership": "python3 -m backend.features.crm_ownership.migration",
     "audit:public-file-ownership": "python3 -m backend.features.public_file_ownership.ownership_report",
+    "audit:auth-secret": "python3 -m backend.auth_secret_readiness",
     "audit:public-upload-exposure": "python3 -m backend.features.public_file_ownership.public_exposure_report",
     "audit:public-upload-registration-plan": "python3 -m backend.features.public_file_ownership.legacy_registration_plan",
     "audit:public-upload-reference-cutover": "python3 -m backend.features.public_file_ownership.legacy_reference_cutover",
