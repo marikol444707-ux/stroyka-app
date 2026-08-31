@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  buildCompanyOnboardingResult,
+  describeClientCardConfidence,
+} from './companyOnboarding';
 
 function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, inp, badge, API}) {
   const [tab, setTab] = useState('dashboard');
@@ -26,7 +30,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const emptyFollowupForm = {companyId:'',billingDocumentId:'',source:'payment',channel:'call',title:'',contactName:'',contactValue:'',dueDate:new Date().toISOString().split('T')[0],status:'open',responsibleName:user.name || '',notes:'',result:''};
   const [newFollowup, setNewFollowup] = useState(emptyFollowupForm);
   const [showNewFollowup, setShowNewFollowup] = useState(false);
-  const [lastInviteCode, setLastInviteCode] = useState(null);
+  const [companyOnboarding, setCompanyOnboarding] = useState(null);
   const [clientUsers, setClientUsers] = useState([]);
   const [clientUserMoveDrafts, setClientUserMoveDrafts] = useState({});
   const emptyClientInvite = {platformAccountId:'',companyId:'',role:'account_owner',name:'',email:'',expiresInDays:14};
@@ -339,6 +343,10 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     });
     return Array.from(result.values()).sort((a,b)=>b.active-a.active || a.role.localeCompare(b.role,'ru'));
   }, [clientUsers]);
+  const clientCardConfidence = useMemo(
+    () => describeClientCardConfidence(clientCardRecognition || {}),
+    [clientCardRecognition],
+  );
   const accessWatchlist = useMemo(() => {
     const priority = {
       trial_expired: 1,
@@ -499,6 +507,16 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     setLastClientInvite({...data, link});
     setClientInvite(emptyClientInvite);
     await loadAll();
+  };
+  const openCreatedCompanyUsers = () => {
+    if (!companyOnboarding?.companyId) return;
+    const filters = {
+      ...emptyClientUserFilters,
+      companyId: String(companyOnboarding.companyId),
+    };
+    setClientUserDraftFilters(filters);
+    setClientUserFilters(filters);
+    setTab('clientUsers');
   };
   const extendCompanyTrial = async (company) => {
     const days = window.prompt('Продлить триал на сколько дней?', '30');
@@ -790,18 +808,29 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
         {tab==='companies' && (<div>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
 	            <b style={{color:C.text,fontSize:'15px'}}>Клиентские аккаунты ({groupsWithLimitStatus.length}) / компании ({companies.length})</b>
-	            {canManagePlatform && <button onClick={()=>{setShowNewCompany(true);setLastInviteCode(null);setClientCardRecognition(null);setCompanyPreview(null);}} style={btnO}>+ Подключить аккаунт/компанию</button>}
+	            {canManagePlatform && <button onClick={()=>{setShowNewCompany(true);setCompanyOnboarding(null);setClientCardRecognition(null);setCompanyPreview(null);}} style={btnO}>+ Подключить аккаунт/компанию</button>}
 	          </div>
 	          {canManagePlatform && showNewCompany && (<div style={{...card,padding:'16px',marginBottom:'14px'}}>
 	            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>Подключить аккаунт или компанию</b>
-            {lastInviteCode && (<div style={{padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,borderRadius:'8px',marginBottom:'12px'}}>
-              <b style={{color:C.success,fontSize:'13px',display:'block',marginBottom:'6px'}}>✅ Компания создана!</b>
-              <p style={{margin:'0 0 8px',fontSize:'12px',color:C.text}}>Отправьте директору ссылку для регистрации:</p>
-              <div style={{padding:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:'6px',fontSize:'12px',color:C.text,wordBreak:'break-all',userSelect:'all',marginBottom:'8px'}}>{window.location.origin+'/?invite='+lastInviteCode}</div>
-              <button onClick={()=>navigator.clipboard.writeText(window.location.origin+'/?invite='+lastInviteCode).then(()=>alert('Скопировано'))} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}>📋 Скопировать</button>
-	              <button onClick={()=>{setShowNewCompany(false);setLastInviteCode(null);setNewCompany(emptyCompanyForm);setClientCardRecognition(null);setCompanyPreview(null);}} style={{...btnG,padding:'5px 12px',fontSize:'12px',marginLeft:'6px'}}>Закрыть</button>
+            {companyOnboarding && (<div role='status' style={{padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,borderRadius:'8px',marginBottom:'12px'}}>
+              <b style={{color:C.success,fontSize:'13px',display:'block',marginBottom:'6px'}}>✅ Компания «{companyOnboarding.companyName}» создана</b>
+              <p style={{margin:'0 0 5px',fontSize:'12px',color:C.text}}>
+                Приглашение для роли «{companyOnboarding.roleLabel}» готово
+                {companyOnboarding.recipientName ? ': '+companyOnboarding.recipientName : ''}
+                {companyOnboarding.recipientEmail ? ' · '+companyOnboarding.recipientEmail : ''}.
+              </p>
+              <p style={{margin:'0 0 8px',fontSize:'11px',color:C.textSec}}>
+                Директор появится в пользователях после регистрации по ссылке
+                {companyOnboarding.expiresAt ? ' · ссылка действует до '+companyOnboarding.expiresAt.replace('T',' ') : ''}.
+              </p>
+              <div style={{padding:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:'6px',fontSize:'12px',color:C.text,wordBreak:'break-all',userSelect:'all',marginBottom:'8px'}}>{companyOnboarding.inviteLink}</div>
+              <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
+                <button onClick={()=>navigator.clipboard.writeText(companyOnboarding.inviteLink).then(()=>alert('Ссылка скопирована'))} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}>📋 Скопировать ссылку директору</button>
+                <button onClick={openCreatedCompanyUsers} style={{...btnG,padding:'5px 12px',fontSize:'12px'}}>👥 Проверить регистрацию</button>
+	              <button onClick={()=>{setShowNewCompany(false);setCompanyOnboarding(null);setNewCompany(emptyCompanyForm);setClientCardRecognition(null);setCompanyPreview(null);}} style={{...btnG,padding:'5px 12px',fontSize:'12px'}}>Закрыть</button>
+              </div>
 	            </div>)}
-	            {!lastInviteCode && (<>
+	            {!companyOnboarding && (<>
               <div style={{padding:'12px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,borderRadius:'10px',marginBottom:'12px'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
                   <div>
@@ -817,8 +846,10 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
                   <div style={{marginTop:'10px',padding:'10px',backgroundColor:C.card,border:'1px solid '+C.border,borderRadius:'8px'}}>
                     <div style={{display:'flex',justifyContent:'space-between',gap:'8px',alignItems:'center',flexWrap:'wrap',marginBottom:'8px'}}>
                       <b style={{color:C.text,fontSize:'12px'}}>Распознано: {clientCardRecognition.source === 'ai' ? 'AI/OCR' : 'правила'}</b>
-                      <span style={badge((clientCardRecognition.confidence || 0) >= 0.7 ? C.success : C.warning,(clientCardRecognition.confidence || 0) >= 0.7 ? C.successLight : C.warningLight,(clientCardRecognition.confidence || 0) >= 0.7 ? C.successBorder : C.warningBorder)}>
-                        уверенность {Math.round(Number(clientCardRecognition.confidence || 0) * 100)}%
+                      <span style={clientCardConfidence.level === 'success'
+                        ? badge(C.success, C.successLight, C.successBorder)
+                        : badge(C.warning, C.warningLight, C.warningBorder)}>
+                        {clientCardConfidence.label}
                       </span>
                     </div>
                     <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
@@ -905,11 +936,14 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
                     alert('Компания не создана. Сначала разберите предупреждения:\n' + reasons);
                     return;
                   }
-                  const r = await sendJson('/system/companies',{method:'POST',body:JSON.stringify({...newCompany,createdBy:user.name})});
+                  const r = await sendJson('/system/companies',{method:'POST',body:JSON.stringify(newCompany)});
                   const data = await r.json().catch(()=>({}));
-                  if (data.id) { setLastInviteCode(data.inviteCode); await loadAll(); }
+                  if (data.id) {
+                    setCompanyOnboarding(buildCompanyOnboardingResult(data, newCompany, window.location.origin));
+                    await loadAll();
+                  }
                   else { alert(companyCreateErrorText(data)); }
-                }} style={btnO}>✓ Создать компанию + ссылку</button>
+                }} style={btnO}>✓ Создать компанию и приглашение директору</button>
 	                <button onClick={()=>{setShowNewCompany(false);setClientCardRecognition(null);setCompanyPreview(null);}} style={btnG}>Отмена</button>
 	              </div>
 	            </>)}
