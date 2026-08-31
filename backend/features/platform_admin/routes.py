@@ -19,6 +19,7 @@ from fastapi import Depends, File, Form, HTTPException, Request, Response, Uploa
 
 try:
     from backend.features.model_gateway.contract import (
+        MODEL_GATEWAY_EMPTY_OUTPUT,
         MODEL_GATEWAY_PROVIDER_FAILED,
         ModelGatewayError,
         ModelInputPart,
@@ -29,6 +30,7 @@ try:
     )
 except ModuleNotFoundError:
     from features.model_gateway.contract import (
+        MODEL_GATEWAY_EMPTY_OUTPUT,
         MODEL_GATEWAY_PROVIDER_FAILED,
         ModelGatewayError,
         ModelInputPart,
@@ -1045,10 +1047,82 @@ def _client_card_json(text: str) -> dict:
     for candidate in candidates:
         try:
             parsed = json.loads(candidate)
-            return parsed if isinstance(parsed, dict) else {}
+            if not isinstance(parsed, dict):
+                continue
+            raw_fields = parsed.get("fields")
+            if isinstance(raw_fields, dict):
+                parsed = {
+                    **raw_fields,
+                    **{
+                        key: parsed[key]
+                        for key in ("confidence", "warnings")
+                        if key in parsed
+                    },
+                }
+            result = {
+                key: parsed[key]
+                for key in (*CLIENT_CARD_KEYS, "confidence", "warnings")
+                if key in parsed
+            }
+            if not any(
+                _client_card_text(result.get(key), 3000)
+                for key in CLIENT_CARD_KEYS
+            ):
+                return {}
+            return result
         except Exception:
             continue
     return {}
+
+
+_CLIENT_CARD_PERSON_LABELS = frozenset({
+    "адрес",
+    "индивидуальный",
+    "компания",
+    "организация",
+    "предприниматель",
+    "реквизиты",
+    "телефон",
+    "юридический",
+})
+
+
+def _client_card_business_name(value) -> str:
+    name = _client_card_text(value, 300).strip(" ,; \"«»")
+    if not name or not re.search(r"[A-Za-zА-Яа-яЁё]", name):
+        return ""
+    if name.casefold() in {
+        "индивидуальный предприниматель",
+        "реквизиты",
+        "реквизиты индивидуальный предприниматель",
+    }:
+        return ""
+    return name
+
+
+def _client_card_company(value) -> str:
+    company = _client_card_text(value, 300).strip(" ,;")
+    if not company:
+        return ""
+    remainder = re.sub(
+        r"^(?:ООО|АО|ПАО|ЗАО|ИП)\s+",
+        "",
+        company,
+        flags=re.IGNORECASE,
+    ).strip(" \"«»")
+    if not _client_card_business_name(remainder):
+        return ""
+    return company
+
+
+def _client_card_person(value) -> str:
+    person = _client_card_text(value, 200).strip(" ,;")
+    words = re.findall(r"[A-Za-zА-Яа-яЁё-]+", person)
+    if not 2 <= len(words) <= 3:
+        return ""
+    if any(word.casefold() in _CLIENT_CARD_PERSON_LABELS for word in words):
+        return ""
+    return person
 
 
 def _client_card_heuristic(text: str) -> dict:
@@ -1059,9 +1133,15 @@ def _client_card_heuristic(text: str) -> dict:
     fields["inn"] = _client_card_digits(_client_card_first_match(r"\bИНН\b[^\d]{0,20}(\d{10,12})", raw))[:12]
     fields["kpp"] = _client_card_digits(_client_card_first_match(r"\bКПП\b[^\d]{0,20}(\d{9})", raw))[:9]
     fields["ogrn"] = _client_card_digits(_client_card_first_match(r"\bОГРН(?:ИП)?\b[^\d]{0,20}(\d{13,15})", raw))[:15]
-    phone = _client_card_first_match(r"((?:\+7|8)[\s(.-]*\d{3}[\s)./-]*\d{3}[\s.-]*\d{2}[\s.-]*\d{2})", raw)
+    phone = _client_card_first_match(
+        r"(?:телефон|тел\.?|моб\.?)\s*[:\-]?\s*((?:\+7|7|8)?[\s(.-]*\d{3}[\s)./-]*\d{3}[\s.-]*\d{2}[\s.-]*\d{2})",
+        raw,
+    )
     if not phone:
-        phone = _client_card_first_match(r"(\+?\d[\d\s().-]{8,24}\d)", raw)
+        phone = _client_card_first_match(
+            r"((?:\+7[\s(.-]*\d{3}[\s)./-]*\d{3}[\s.-]*\d{2}[\s.-]*\d{2}|8[\s(.-]+\d{3}[\s)./-]*\d{3}[\s.-]*\d{2}[\s.-]*\d{2}))",
+            raw,
+        )
     fields["contactPhone"] = re.sub(r"\s+", " ", phone).strip()
     website = _client_card_first_match(r"((?:https?://)?(?:www\.)?[A-Z0-9][A-Z0-9\-]*(?:\.[A-Z0-9][A-Z0-9\-]*)+\S*)", raw, re.IGNORECASE)
     if fields["contactEmail"] and website and website in fields["contactEmail"] and not re.search(r"(?:https?://|www\.)" + re.escape(website), raw, re.IGNORECASE):
@@ -1071,11 +1151,13 @@ def _client_card_heuristic(text: str) -> dict:
     company = _client_card_first_match(r"((?:ООО|АО|ПАО|ЗАО|ИП)\s+[\"«]?[А-ЯЁA-Z0-9][^,\n;]{2,160})", raw)
     if company:
         company = re.sub(r"\s+(?:ИНН|КПП|ОГРН|тел\.?|email|e-mail).*$", "", company, flags=re.IGNORECASE).strip(" ,;")
+    company = _client_card_company(company)
     fields["companyName"] = company
     if company:
         fields["platformAccountName"] = re.sub(r"^(?:ООО|АО|ПАО|ЗАО|ИП)\s+", "", company, flags=re.IGNORECASE).strip(" \"«»")
         fields["shortName"] = fields["platformAccountName"][:80]
     person = _client_card_first_match(r"([А-ЯЁ][а-яё-]+(?:\s+[А-ЯЁ][а-яё.-]+){1,2})\s*(?:\n|,|$)", raw)
+    person = _client_card_person(person)
     if person and (not company or person not in company):
         fields["contactName"] = person
     position = _client_card_first_match(r"(?:должность|позиция)\s*[:\-]?\s*([^\n]{3,120})", raw)
@@ -1106,9 +1188,16 @@ def _normalize_client_card_fields(ai_fields, fallback_fields) -> dict:
                 fields[key] = _client_card_text(value, 3000)
     for key in CLIENT_CARD_KEYS:
         fields.setdefault(key, "")
-    fields["inn"] = _client_card_digits(fields.get("inn"))[:12]
-    fields["kpp"] = _client_card_digits(fields.get("kpp"))[:9]
-    fields["ogrn"] = _client_card_digits(fields.get("ogrn"))[:15]
+    fields["inn"] = _client_card_digits(fields.get("inn"))
+    fields["inn"] = fields["inn"] if len(fields["inn"]) in (10, 12) else ""
+    fields["kpp"] = _client_card_digits(fields.get("kpp"))
+    fields["kpp"] = fields["kpp"] if len(fields["kpp"]) == 9 else ""
+    fields["ogrn"] = _client_card_digits(fields.get("ogrn"))
+    fields["ogrn"] = fields["ogrn"] if len(fields["ogrn"]) in (13, 15) else ""
+    fields["companyName"] = _client_card_company(fields.get("companyName"))
+    fields["platformAccountName"] = _client_card_business_name(fields.get("platformAccountName"))
+    fields["shortName"] = _client_card_business_name(fields.get("shortName"))
+    fields["contactName"] = _client_card_person(fields.get("contactName"))
     fields["contactEmail"] = _client_card_text(fields.get("contactEmail"), 255).lower()
     fields["contactPhone"] = re.sub(r"\s+", " ", _client_card_text(fields.get("contactPhone"), 100))
     if fields.get("companyName") and not fields.get("platformAccountName"):
@@ -1296,6 +1385,11 @@ _CLIENT_CARD_PROMPT = (
     "}"
 )
 
+_CLIENT_CARD_INVALID_OUTPUT_WARNING = (
+    "AI/OCR не смог надёжно распознать поля карты клиента. "
+    "Проверьте документ и заполните недостающие поля вручную."
+)
+
 
 def _client_card_ai_content(file_content: bytes, file_name: str, content_type: str,
                             source_text: str) -> tuple[list, list]:
@@ -1313,6 +1407,13 @@ def _client_card_ai_content(file_content: bytes, file_name: str, content_type: s
     if content:
         content.append({"type": "input_text", "text": _CLIENT_CARD_PROMPT})
     return content, warnings
+
+
+def _client_card_text_retry_input(source_text: str) -> str:
+    text = _client_card_text(source_text, 16000)
+    if not text:
+        return ""
+    return "Извлеченный текст карты клиента:\n" + text + "\n\n" + _CLIENT_CARD_PROMPT
 
 
 def _recognize_client_card_with_ai_legacy(file_content: bytes, file_name: str, content_type: str,
@@ -1340,7 +1441,20 @@ def _recognize_client_card_with_ai_legacy(file_content: bytes, file_name: str, c
             input=[{"role": "user", "content": content}],
             max_output_tokens=2500,
         )
-        return _client_card_json(response.output_text or ""), warnings
+        fields = _client_card_json(response.output_text or "")
+        retry_input = _client_card_text_retry_input(source_text)
+        if not fields and retry_input:
+            response = client.responses.create(
+                model=f"gpt://{folder_id}/qwen3.6-35b-a3b/latest",
+                temperature=0.1,
+                instructions=_CLIENT_CARD_INSTRUCTIONS,
+                input=retry_input,
+                max_output_tokens=2500,
+            )
+            fields = _client_card_json(response.output_text or "")
+        if not fields:
+            warnings.append(_CLIENT_CARD_INVALID_OUTPUT_WARNING)
+        return fields, warnings
     except Exception as exc:
         return {}, warnings + ["AI/OCR не смог распознать карту клиента: " + str(exc)]
 
@@ -1383,8 +1497,32 @@ def _recognize_client_card_with_ai_gateway(file_content: bytes, file_name: str, 
             api_key=api_key,
             folder_id=folder_id,
         )
-        response = gateway.generate(request)
-        return _client_card_json(response.output_text), warnings
+        fields = {}
+        try:
+            response = gateway.generate(request)
+            fields = _client_card_json(response.output_text)
+        except ModelGatewayError as error:
+            if error.code != MODEL_GATEWAY_EMPTY_OUTPUT:
+                raise
+        retry_input = _client_card_text_retry_input(source_text)
+        if not fields and retry_input:
+            retry_request = build_model_request(
+                capability="platform_client_card",
+                instructions=_CLIENT_CARD_INSTRUCTIONS,
+                input_text=retry_input,
+                temperature=0.1,
+                max_output_tokens=2500,
+                deadline_seconds=120,
+            )
+            try:
+                response = gateway.generate(retry_request)
+                fields = _client_card_json(response.output_text)
+            except ModelGatewayError as error:
+                if error.code != MODEL_GATEWAY_EMPTY_OUTPUT:
+                    raise
+        if not fields:
+            warnings.append(_CLIENT_CARD_INVALID_OUTPUT_WARNING)
+        return fields, warnings
     except ModelGatewayError as error:
         return {}, warnings + ["AI/OCR не смог распознать карту клиента: " + error.code]
     except Exception:
