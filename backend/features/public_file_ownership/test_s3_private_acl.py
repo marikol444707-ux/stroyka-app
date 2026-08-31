@@ -1,7 +1,7 @@
 import io
 import unittest
 import urllib.error
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from backend.features.public_file_ownership.s3_private_acl import (
     APPLY_CONFIRMATION,
@@ -30,13 +30,13 @@ class S3PrivateAclPlanTests(unittest.TestCase):
         private_key = "uploads/company-1-project-7-general/private.pdf"
         report, selected = _prepare_s3_private_acl_plan(
             [_row(11, public_key), _row(12, private_key)],
-            access_by_key={public_key: "public", private_key: "private"},
+            acl_by_key={public_key: "public", private_key: "private"},
         )
 
         self.assertTrue(report["readyForApply"])
         self.assertEqual(report["summary"]["registryS3Rows"], 2)
-        self.assertEqual(report["summary"]["publicObjects"], 1)
-        self.assertEqual(report["summary"]["alreadyPrivateObjects"], 1)
+        self.assertEqual(report["summary"]["publicAclObjects"], 1)
+        self.assertEqual(report["summary"]["privateAclObjects"], 1)
         self.assertEqual(report["summary"]["selectedObjects"], 1)
         self.assertEqual([item["fileId"] for item in report["selectedPreview"]], [11])
         self.assertNotIn(public_key, str(report))
@@ -63,7 +63,7 @@ class S3PrivateAclPlanTests(unittest.TestCase):
                 invalid_owner,
                 missing_company,
             ],
-            access_by_key={duplicate: "public", missing: "missing"},
+            acl_by_key={duplicate: "public", missing: "missing"},
         )
 
         self.assertFalse(report["readyForApply"])
@@ -81,12 +81,12 @@ class S3PrivateAclPlanTests(unittest.TestCase):
         access = {row["storage_key"]: "public" for row in rows}
         first, selected_first = _prepare_s3_private_acl_plan(
             rows,
-            access_by_key=access,
+            acl_by_key=access,
             limit=1,
         )
         second, selected_second = _prepare_s3_private_acl_plan(
             list(reversed(rows)),
-            access_by_key=access,
+            acl_by_key=access,
             limit=1,
         )
 
@@ -161,7 +161,7 @@ class S3PrivateAclApplyTests(unittest.TestCase):
         report = run_s3_private_acl_migration(
             lambda: connection,
             load_rows=lambda _cur: [_row(11, key)],
-            probe_access=lambda _key: "public",
+            inspect_acl=lambda _key: "public",
             set_private_acl=set_acl,
             verify_authenticated=lambda _key: True,
             limit=1,
@@ -182,7 +182,7 @@ class S3PrivateAclApplyTests(unittest.TestCase):
         dry = run_s3_private_acl_migration(
             lambda: self._connection(),
             load_rows=lambda _cur: [_row(11, key)],
-            probe_access=lambda _key: "public",
+            inspect_acl=lambda _key: "public",
             limit=1,
         )
 
@@ -193,7 +193,7 @@ class S3PrivateAclApplyTests(unittest.TestCase):
             expected_selected_count=1,
             expected_plan_sha256=dry["planSha256"],
             load_rows=lambda _cur: [_row(11, key)],
-            probe_access=probe,
+            inspect_acl=probe,
             set_private_acl=set_acl,
             verify_authenticated=authenticated,
             limit=1,
@@ -207,12 +207,43 @@ class S3PrivateAclApplyTests(unittest.TestCase):
         connection.commit.assert_not_called()
         connection.rollback.assert_called_once()
 
+    def test_apply_verifies_private_acl_even_while_bucket_read_remains_public(self):
+        key = "uploads/company-1-project-7-general/public.pdf"
+        connection = self._connection()
+        dry = run_s3_private_acl_migration(
+            lambda: self._connection(),
+            load_rows=lambda _cur: [_row(11, key)],
+            inspect_acl=lambda _key: "public",
+            limit=1,
+        )
+
+        with patch(
+            "backend.features.public_file_ownership.s3_private_acl."
+            "probe_s3_object_access",
+            return_value="public",
+        ) as anonymous_probe:
+            applied = run_s3_private_acl_migration(
+                lambda: connection,
+                apply=True,
+                confirm=APPLY_CONFIRMATION,
+                expected_selected_count=1,
+                expected_plan_sha256=dry["planSha256"],
+                load_rows=lambda _cur: [_row(11, key)],
+                inspect_acl=MagicMock(side_effect=("public", "private")),
+                set_private_acl=lambda _key: True,
+                verify_authenticated=lambda _key: True,
+                limit=1,
+            )
+
+        self.assertEqual(applied["privatizedObjects"], 1)
+        anonymous_probe.assert_not_called()
+
     def test_apply_fails_closed_if_object_remains_public(self):
         key = "uploads/company-1-project-7-general/public.pdf"
         dry = run_s3_private_acl_migration(
             lambda: self._connection(),
             load_rows=lambda _cur: [_row(11, key)],
-            probe_access=lambda _key: "public",
+            inspect_acl=lambda _key: "public",
             limit=1,
         )
         connection = self._connection()
@@ -225,13 +256,13 @@ class S3PrivateAclApplyTests(unittest.TestCase):
                 expected_selected_count=1,
                 expected_plan_sha256=dry["planSha256"],
                 load_rows=lambda _cur: [_row(11, key)],
-                probe_access=lambda _key: "public",
+                inspect_acl=lambda _key: "public",
                 set_private_acl=lambda _key: True,
                 verify_authenticated=lambda _key: True,
                 limit=1,
             )
 
-        self.assertEqual(str(error.exception), "s3_object_still_public")
+        self.assertEqual(str(error.exception), "s3_object_acl_still_public")
         connection.rollback.assert_called_once()
 
     def test_apply_rejects_unconfirmed_acl_update(self):
@@ -239,7 +270,7 @@ class S3PrivateAclApplyTests(unittest.TestCase):
         dry = run_s3_private_acl_migration(
             lambda: self._connection(),
             load_rows=lambda _cur: [_row(11, key)],
-            probe_access=lambda _key: "public",
+            inspect_acl=lambda _key: "public",
             limit=1,
         )
 
@@ -251,7 +282,7 @@ class S3PrivateAclApplyTests(unittest.TestCase):
                 expected_selected_count=1,
                 expected_plan_sha256=dry["planSha256"],
                 load_rows=lambda _cur: [_row(11, key)],
-                probe_access=lambda _key: "public",
+                inspect_acl=lambda _key: "public",
                 set_private_acl=lambda _key: False,
                 verify_authenticated=lambda _key: True,
                 limit=1,
@@ -270,7 +301,7 @@ class S3PrivateAclApplyTests(unittest.TestCase):
                 expected_selected_count=2,
                 expected_plan_sha256="wrong",
                 load_rows=lambda _cur: [_row(11, key)],
-                probe_access=lambda _key: "public",
+                inspect_acl=lambda _key: "public",
                 set_private_acl=set_acl,
                 verify_authenticated=lambda _key: True,
                 limit=1,

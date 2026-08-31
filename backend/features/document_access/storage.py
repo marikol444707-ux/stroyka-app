@@ -4,8 +4,16 @@ import hmac
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 
 from fastapi import HTTPException
+
+
+MAX_S3_ACL_BYTES = 256 * 1024
+PUBLIC_S3_GRANTEE_URIS = frozenset((
+    "http://acs.amazonaws.com/groups/global/AllUsers",
+    "http://acs.amazonaws.com/groups/global/AuthenticatedUsers",
+))
 
 
 class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -332,5 +340,77 @@ def set_s3_object_acl(
         if _response_status(response) not in (200, 204):
             raise HTTPException(status_code=503, detail="S3 не подтвердил закрытие доступа к файлу")
         return True
+    finally:
+        _close_safely(response)
+
+
+def get_s3_object_acl_summary(
+    *,
+    key,
+    endpoint_url,
+    bucket,
+    region,
+    access_key,
+    secret_key,
+    opener=None,
+    now=None,
+    timeout=30,
+):
+    """Return only whether an object's signed ACL contains public grantees."""
+    request = _signed_s3_request(
+        method="GET",
+        key=key,
+        endpoint_url=endpoint_url,
+        bucket=bucket,
+        region=region,
+        access_key=access_key,
+        secret_key=secret_key,
+        subresource="acl",
+        now=now,
+    )
+    request_opener = opener or urllib.request.build_opener(NoRedirectHandler())
+    try:
+        response = request_opener.open(request, timeout=timeout)
+    except urllib.error.HTTPError as error:
+        status = int(error.code or 0)
+        _close_safely(error)
+        if status == 404:
+            raise HTTPException(status_code=404, detail="S3-файл отсутствует") from None
+        raise HTTPException(status_code=503, detail="S3 не вернул ACL файла") from None
+    except (urllib.error.URLError, TimeoutError, OSError):
+        raise HTTPException(status_code=503, detail="S3-хранилище временно недоступно") from None
+
+    try:
+        if _response_status(response) != 200:
+            raise HTTPException(status_code=503, detail="S3 не вернул ACL файла")
+        payload = response.read(MAX_S3_ACL_BYTES + 1)
+        if len(payload) > MAX_S3_ACL_BYTES:
+            raise HTTPException(status_code=503, detail="S3 вернул слишком большой ACL файла")
+        try:
+            root = ET.fromstring(payload)
+        except (ET.ParseError, ValueError):
+            raise HTTPException(status_code=503, detail="S3 вернул некорректный ACL файла") from None
+
+        local_name = lambda tag: str(tag).rsplit("}", 1)[-1]
+        if local_name(root.tag) != "AccessControlPolicy":
+            raise HTTPException(status_code=503, detail="S3 вернул некорректный ACL файла")
+        access_control_lists = [
+            element
+            for element in root
+            if local_name(element.tag) == "AccessControlList"
+        ]
+        if len(access_control_lists) != 1:
+            raise HTTPException(status_code=503, detail="S3 вернул некорректный ACL файла")
+
+        public_grants = 0
+        for element in access_control_lists[0].iter():
+            if local_name(element.tag) != "URI":
+                continue
+            if str(element.text or "").strip() in PUBLIC_S3_GRANTEE_URIS:
+                public_grants += 1
+        return {
+            "isPrivate": public_grants == 0,
+            "publicGrantCount": public_grants,
+        }
     finally:
         _close_safely(response)

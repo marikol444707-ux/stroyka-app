@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from backend.features.document_access.storage import (
     NoRedirectHandler,
     delete_s3_object,
+    get_s3_object_acl_summary,
     open_s3_object,
     put_s3_object,
     set_s3_object_acl,
@@ -282,6 +283,72 @@ class S3DocumentStorageTests(unittest.TestCase):
                 opener=FakeOpener(redirect),
             )
         self.assertEqual(error.exception.status_code, 503)
+
+    def test_get_s3_object_acl_summary_distinguishes_private_and_public_grants(self):
+        private_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<AccessControlPolicy xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <Owner><ID>owner-id</ID></Owner>
+  <AccessControlList>
+    <Grant><Grantee><ID>owner-id</ID></Grantee><Permission>FULL_CONTROL</Permission></Grant>
+  </AccessControlList>
+</AccessControlPolicy>"""
+        public_xml = private_xml.replace(
+            b"<Grantee><ID>owner-id</ID></Grantee>",
+            b"<Grantee><URI>http://acs.amazonaws.com/groups/global/AllUsers</URI></Grantee>",
+        )
+
+        private_response = FakeResponse(private_xml)
+        private_opener = FakeOpener(private_response)
+        private = get_s3_object_acl_summary(
+            key="uploads/company-4-common-general/general/file.png",
+            endpoint_url="https://storage.example",
+            bucket="documents",
+            region="ru-central1",
+            access_key="access-key",
+            secret_key="secret-key",
+            opener=private_opener,
+            now=dt.datetime(2026, 7, 11, 9, 0, 0),
+        )
+        public = get_s3_object_acl_summary(
+            key="uploads/company-4-common-general/general/file.png",
+            endpoint_url="https://storage.example",
+            bucket="documents",
+            region="ru-central1",
+            access_key="access-key",
+            secret_key="secret-key",
+            opener=FakeOpener(FakeResponse(public_xml)),
+            now=dt.datetime(2026, 7, 11, 9, 0, 0),
+        )
+
+        self.assertEqual(private, {"isPrivate": True, "publicGrantCount": 0})
+        self.assertEqual(public, {"isPrivate": False, "publicGrantCount": 1})
+        request, timeout = private_opener.calls[0]
+        self.assertEqual(timeout, 30)
+        self.assertEqual(request.get_method(), "GET")
+        self.assertEqual(request.full_url.split("?", 1)[1], "acl")
+        self.assertTrue(
+            request.get_header("Authorization").startswith("AWS4-HMAC-SHA256 ")
+        )
+        self.assertTrue(private_response.closed)
+
+    def test_get_s3_object_acl_summary_rejects_malformed_or_oversized_xml(self):
+        for content in (
+            b"<not-closed>",
+            b"<NotAnAccessControlPolicy />",
+            b"x" * (256 * 1024 + 1),
+        ):
+            response = FakeResponse(content)
+            with self.subTest(size=len(content)), self.assertRaises(HTTPException):
+                get_s3_object_acl_summary(
+                    key="uploads/company-4-common-general/general/file.png",
+                    endpoint_url="https://storage.example",
+                    bucket="documents",
+                    region="ru-central1",
+                    access_key="access-key",
+                    secret_key="secret-key",
+                    opener=FakeOpener(response),
+                )
+            self.assertTrue(response.closed)
 
 
 if __name__ == "__main__":

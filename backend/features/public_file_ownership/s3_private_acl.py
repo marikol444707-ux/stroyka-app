@@ -1,8 +1,9 @@
 """Guarded migration from public S3 object ACLs to private delivery.
 
-The report contains only file identifiers and SHA-256 fingerprints.  Apply is
-explicit, count-and-hash guarded, and verifies anonymous denial plus signed
-access after every object update.  It never deletes objects or database rows.
+The report contains only file identifiers and SHA-256 fingerprints. Apply is
+explicit, count-and-hash guarded, and verifies the signed object ACL plus
+authenticated content access after every update. It never deletes objects or
+database rows. Bucket-level anonymous access is audited separately.
 """
 
 import hashlib
@@ -18,6 +19,7 @@ from fastapi import HTTPException
 
 from backend.features.document_access.storage import (
     NoRedirectHandler,
+    get_s3_object_acl_summary,
     open_s3_object,
     set_s3_object_acl,
 )
@@ -118,7 +120,7 @@ def _candidate_storage_keys(rows):
     return sorted({item["storageKey"] for item in normalized}, key=_sha256)
 
 
-def _prepare_s3_private_acl_plan(rows, *, access_by_key, limit=None):
+def _prepare_s3_private_acl_plan(rows, *, acl_by_key, limit=None):
     normalized, invalid_reasons = _normalized_registry_rows(rows)
     key_counts = Counter(item["storageKey"] for item in normalized)
     duplicate_keys = {key for key, count in key_counts.items() if count > 1}
@@ -130,7 +132,7 @@ def _prepare_s3_private_acl_plan(rows, *, access_by_key, limit=None):
         key = item["storageKey"]
         if key in duplicate_keys:
             continue
-        access = str((access_by_key or {}).get(key) or "unavailable").strip().lower()
+        access = str((acl_by_key or {}).get(key) or "unavailable").strip().lower()
         if access not in ACCESS_STATES:
             access = "unavailable"
         access_counts[access] += 1
@@ -139,7 +141,7 @@ def _prepare_s3_private_acl_plan(rows, *, access_by_key, limit=None):
         elif access == "missing":
             unavailable_reasons["s3_object_missing"] += 1
         elif access == "unavailable":
-            unavailable_reasons["s3_access_check_unavailable"] += 1
+            unavailable_reasons["s3_acl_check_unavailable"] += 1
 
     blockers = []
     if invalid_reasons:
@@ -163,7 +165,7 @@ def _prepare_s3_private_acl_plan(rows, *, access_by_key, limit=None):
                 item["companyId"],
                 item["projectId"],
                 _sha256(item["storageKey"]),
-                str((access_by_key or {}).get(item["storageKey"]) or "unavailable"),
+                str((acl_by_key or {}).get(item["storageKey"]) or "unavailable"),
             )
             for item in normalized
         ),
@@ -201,10 +203,10 @@ def _prepare_s3_private_acl_plan(rows, *, access_by_key, limit=None):
             "validUniqueObjects": sum(
                 1 for count in key_counts.values() if count == 1
             ),
-            "publicObjects": access_counts["public"],
-            "alreadyPrivateObjects": access_counts["private"],
-            "missingObjects": access_counts["missing"],
-            "unavailableObjects": access_counts["unavailable"],
+            "publicAclObjects": access_counts["public"],
+            "privateAclObjects": access_counts["private"],
+            "missingAclObjects": access_counts["missing"],
+            "unavailableAclObjects": access_counts["unavailable"],
             "selectedObjects": len(selected),
             "invalidRegistryRows": sum(invalid_reasons.values()),
             "duplicateStorageKeys": len(duplicate_keys),
@@ -298,6 +300,15 @@ def _set_private_acl(key, storage_config):
         raise S3PrivateAclError("s3_acl_update_failed") from None
 
 
+def _inspect_object_acl(key, storage_config):
+    config = {name: value for name, value in storage_config.items() if name != "max_bytes"}
+    try:
+        summary = get_s3_object_acl_summary(key=key, **config)
+    except HTTPException as error:
+        return "missing" if error.status_code == 404 else "unavailable"
+    return "private" if summary.get("isPrivate") is True else "public"
+
+
 def _verify_authenticated_access(key, storage_config):
     try:
         response, _size = open_s3_object(key=key, **storage_config)
@@ -347,12 +358,12 @@ def run_s3_private_acl_migration(
     expected_plan_sha256="",
     limit=None,
     load_rows=load_s3_private_acl_rows,
-    probe_access=None,
+    inspect_acl=None,
     set_private_acl=None,
     verify_authenticated=None,
 ):
     config = _storage_config()
-    probe = probe_access or (lambda key: probe_s3_object_access(key, storage_config=config))
+    inspector = inspect_acl or (lambda key: _inspect_object_acl(key, config))
     setter = set_private_acl or (lambda key: _set_private_acl(key, config))
     verifier = verify_authenticated or (
         lambda key: _verify_authenticated_access(key, config)
@@ -363,13 +374,13 @@ def run_s3_private_acl_migration(
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             rows = load_rows(cur)
-            access_by_key = {
-                key: probe(key)
+            acl_by_key = {
+                key: inspector(key)
                 for key in _candidate_storage_keys(rows)
             }
             report, selected = _prepare_s3_private_acl_plan(
                 rows,
-                access_by_key=access_by_key,
+                acl_by_key=acl_by_key,
                 limit=limit,
             )
             if not apply:
@@ -389,8 +400,8 @@ def run_s3_private_acl_migration(
                 if setter(key) is not True:
                     raise S3PrivateAclError("s3_acl_update_unconfirmed")
                 writes += 1
-                if probe(key) != "private":
-                    raise S3PrivateAclError("s3_object_still_public")
+                if inspector(key) != "private":
+                    raise S3PrivateAclError("s3_object_acl_still_public")
                 if verifier(key) is not True:
                     raise S3PrivateAclError("signed_s3_access_failed")
             conn.rollback()
