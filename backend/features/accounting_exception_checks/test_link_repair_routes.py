@@ -344,7 +344,9 @@ class AccountingLinkRepairRouteTests(unittest.TestCase):
         self.assertEqual(
             main.count('ACCOUNTING_EXCEPTION_CHECKS_HTTP_ENABLED'), 1,
         )
-        self.assertIn(r"/^\/accounting-exception-link-repairs$/", api)
+        self.assertIn("credentials: init.credentials || 'include'", api)
+        self.assertNotIn("cookieOnlyCapabilityPaths", api)
+        self.assertNotIn("withBearerFallback", api)
         self.assertEqual(
             nginx.count("location = /accounting-exception-link-repairs {"), 1,
         )
