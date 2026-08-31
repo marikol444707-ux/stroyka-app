@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from backend.features.document_access.routes import (
     OwnedStreamingResponse,
     _bounded_stream,
+    _canonical_legacy_upload_url,
     register_document_access_module,
 )
 from backend.features.document_access.service import delete_document_local_file, open_document_local_file
@@ -85,6 +86,12 @@ class FakeConnection:
 
 
 class DocumentAccessRouteTests(unittest.TestCase):
+    def test_legacy_path_is_not_decoded_twice(self):
+        self.assertEqual(
+            _canonical_legacy_upload_url("%2e%2e/secret.txt"),
+            "/uploads/%252e%252e/secret.txt",
+        )
+
     def test_stream_source_closes_when_asgi_send_fails(self):
         stream = io.BytesIO(b"data")
         response = OwnedStreamingResponse(
@@ -131,6 +138,7 @@ class DocumentAccessRouteTests(unittest.TestCase):
         connection,
         upload_dir,
         *,
+        protected_legacy_uploads_enabled=False,
         resolver=None,
         project_access=None,
         s3_enabled=False,
@@ -182,8 +190,87 @@ class DocumentAccessRouteTests(unittest.TestCase):
             "open_s3_object": s3_reader or (lambda _key: (io.BytesIO(b"s3-content"), len(b"s3-content"))),
             "max_upload_bytes": 1024,
             "delete_s3_object": s3_deleter or (lambda key: s3_delete_calls.append(key)),
+            "protected_legacy_uploads_enabled": protected_legacy_uploads_enabled,
         })
         return app, resolver_calls, project_calls, access_calls, s3_delete_calls
+
+    def test_public_legacy_upload_route_is_absent_by_default(self):
+        connection = FakeConnection(None)
+
+        app, _, _, _, _ = self._register(connection, "/tmp/uploads")
+
+        self.assertNotIn(("GET", "/uploads/{legacy_path:path}"), app.routes)
+
+    def test_protected_legacy_upload_route_uses_registered_owner_and_exact_path(self):
+        with TemporaryDirectory() as upload_dir:
+            local_file = (
+                Path(upload_dir)
+                / "company-4-project-17-general"
+                / "general"
+                / "photo report.png"
+            )
+            local_file.parent.mkdir(parents=True)
+            local_file.write_bytes(b"protected-png")
+            connection = FakeConnection({
+                "id": 31,
+                "company_id": 4,
+                "project_id": 17,
+                "file_url": (
+                    "/uploads/company-4-project-17-general/general/"
+                    "photo%20report.png"
+                ),
+                "storage_key": "",
+                "context": "general",
+                "original_name": "photo report.png",
+                "content_type": "image/png",
+                "uploaded_by_id": 9,
+            })
+            app, resolver_calls, project_calls, access_calls, _ = self._register(
+                connection,
+                upload_dir,
+                protected_legacy_uploads_enabled=True,
+            )
+
+            response = app.routes[("GET", "/uploads/{legacy_path:path}")](
+                "company-4-project-17-general/general/photo report.png",
+                x_company_id="4",
+                x_company_mode="company",
+                current_user={"id": 9, "role": "прораб"},
+            )
+
+            self.assertIsInstance(response, StreamingResponse)
+            self.assertEqual(response_body(response), b"protected-png")
+            self.assertEqual(response.headers["cache-control"], "private, no-store")
+            self.assertEqual(resolver_calls[0][2:4], (4, "read"))
+            self.assertEqual(project_calls[0][2], {"project_id": 17})
+            self.assertEqual(access_calls[0][1], "Лицей")
+            lookup = connection.cursor_value.calls[0]
+            self.assertIn("FROM file_ownership WHERE file_url=%s", lookup[0])
+            self.assertEqual(
+                lookup[1],
+                (
+                    "/uploads/company-4-project-17-general/general/"
+                    "photo%20report.png",
+                ),
+            )
+
+    def test_protected_legacy_upload_route_rejects_unsafe_or_unregistered_paths(self):
+        for legacy_path, row in (("../secret.txt", None), ("missing.txt", None)):
+            connection = FakeConnection(row)
+            app, _, _, _, _ = self._register(
+                connection,
+                "/tmp/uploads",
+                protected_legacy_uploads_enabled=True,
+            )
+
+            with self.subTest(legacy_path=legacy_path):
+                with self.assertRaises(HTTPException) as raised:
+                    app.routes[("GET", "/uploads/{legacy_path:path}")](
+                        legacy_path,
+                        current_user={"id": 9, "role": "прораб"},
+                    )
+
+                self.assertEqual(raised.exception.status_code, 404)
 
     def test_metadata_read_uses_stored_company_and_project(self):
         with TemporaryDirectory() as upload_dir:

@@ -6,11 +6,18 @@ from .public_exposure_report import (
     build_public_exposure_report,
     extract_local_upload_urls,
     load_public_exposure_rows,
+    public_uploads_mount_enabled,
     run_public_exposure_report,
 )
 
 
 class PublicUploadExposureReportTests(unittest.TestCase):
+    def test_public_mount_policy_defaults_open_and_requires_explicit_false(self):
+        self.assertTrue(public_uploads_mount_enabled({}))
+        self.assertTrue(public_uploads_mount_enabled({"PUBLIC_UPLOADS_MOUNT_ENABLED": "yes"}))
+        self.assertFalse(public_uploads_mount_enabled({"PUBLIC_UPLOADS_MOUNT_ENABLED": "false"}))
+        self.assertFalse(public_uploads_mount_enabled({"PUBLIC_UPLOADS_MOUNT_ENABLED": "0"}))
+
     def test_extracts_nested_local_upload_urls_without_query_strings(self):
         value = {
             "photo": "/uploads/company-1/photo.jpg?download=1",

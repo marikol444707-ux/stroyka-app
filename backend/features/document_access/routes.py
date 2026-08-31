@@ -19,6 +19,21 @@ def _positive_int(value):
     return result if result > 0 else None
 
 
+def _canonical_legacy_upload_url(legacy_path):
+    decoded_path = str(legacy_path or "")
+    parts = decoded_path.split("/")
+    if (
+        not decoded_path
+        or any(part in ("", ".", "..") for part in parts)
+        or any("\\" in part or "\x00" in part for part in parts)
+    ):
+        raise HTTPException(status_code=404, detail="Файл не найден")
+    return "/uploads/" + quote(
+        "/".join(parts),
+        safe="/:@-._~!$&'()*+,;=",
+    )
+
+
 def _file_record(row):
     if not row:
         return None
@@ -94,6 +109,9 @@ def register_document_access_module(app, deps):
     open_s3_object = deps["open_s3_object"]
     max_upload_bytes = int(deps["max_upload_bytes"])
     delete_s3_object = deps["delete_s3_object"]
+    protected_legacy_uploads_enabled = bool(
+        deps.get("protected_legacy_uploads_enabled", False)
+    )
 
     def verify_file_storage(row):
         storage_key = str(row.get("storage_key") or "").strip()
@@ -138,10 +156,50 @@ def register_document_access_module(app, deps):
             raise HTTPException(status_code=404, detail="Файл не найден")
         return row
 
+    def load_file_by_url(cur, file_url):
+        cur.execute(
+            """SELECT id,company_id,project_id,file_url,storage_key,context,original_name,content_type,
+                      uploaded_by_id,uploaded_by,created_at,
+                      COALESCE(deletion_status,'active') AS deletion_status,
+                      deletion_error,deletion_requested_at
+                 FROM file_ownership WHERE file_url=%s""",
+            (file_url,),
+        )
+        row = _file_record(cur.fetchone())
+        if not row:
+            raise HTTPException(status_code=404, detail="Файл не найден")
+        return row
+
     def require_readable_file(row):
         status = str(row.get("deletion_status") or "active").strip().lower()
         if status != "active":
             raise HTTPException(status_code=410, detail="Файл удаляется или ожидает повторного cleanup")
+
+    def build_content_response(row):
+        headers = {
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox; default-src 'none'",
+            "Cross-Origin-Resource-Policy": "same-origin",
+        }
+        filename, media_type, disposition = document_response_policy(row.get("original_name"))
+        headers["Content-Disposition"] = disposition + "; filename*=UTF-8''" + quote(filename, safe="")
+        verify_file_storage(row)
+        storage_key = str(row.get("storage_key") or "").strip()
+        if storage_key:
+            if not s3_enabled():
+                raise HTTPException(status_code=503, detail="S3-хранилище временно недоступно")
+            stream, content_length = open_s3_object(storage_key)
+        else:
+            stream, content_length = open_local_file(row.get("file_url"))
+        headers["Content-Length"] = str(content_length)
+        return OwnedStreamingResponse(
+            stream,
+            content_length,
+            max_upload_bytes,
+            media_type=media_type,
+            headers=headers,
+        )
 
     @app.get("/tenant-files/{file_id}")
     def get_tenant_file_metadata(
@@ -261,37 +319,27 @@ def register_document_access_module(app, deps):
             row = load_file(cur, file_id)
             authorize_file(cur, current_user, row, "read", x_company_id, x_company_mode)
             require_readable_file(row)
-            headers = {
-                "Cache-Control": "private, no-store",
-                "X-Content-Type-Options": "nosniff",
-                "Content-Security-Policy": "sandbox; default-src 'none'",
-                "Cross-Origin-Resource-Policy": "same-origin",
-            }
-            filename, media_type, disposition = document_response_policy(row.get("original_name"))
-            headers["Content-Disposition"] = disposition + "; filename*=UTF-8''" + quote(filename, safe="")
-            verify_file_storage(row)
-            storage_key = str(row.get("storage_key") or "").strip()
-            if storage_key:
-                if not s3_enabled():
-                    raise HTTPException(status_code=503, detail="S3-хранилище временно недоступно")
-                stream, content_length = open_s3_object(storage_key)
-                headers["Content-Length"] = str(content_length)
-                return OwnedStreamingResponse(
-                    stream,
-                    content_length,
-                    max_upload_bytes,
-                    media_type=media_type,
-                    headers=headers,
-                )
-            stream, content_length = open_local_file(row.get("file_url"))
-            headers["Content-Length"] = str(content_length)
-            return OwnedStreamingResponse(
-                stream,
-                content_length,
-                max_upload_bytes,
-                media_type=media_type,
-                headers=headers,
-            )
+            return build_content_response(row)
         finally:
             cur.close()
             conn.close()
+
+    if protected_legacy_uploads_enabled:
+        @app.get("/uploads/{legacy_path:path}")
+        def get_protected_legacy_upload(
+            legacy_path: str,
+            x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+            x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+            current_user: dict = Depends(get_current_user),
+        ):
+            file_url = _canonical_legacy_upload_url(legacy_path)
+            conn = get_db()
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            try:
+                row = load_file_by_url(cur, file_url)
+                authorize_file(cur, current_user, row, "read", x_company_id, x_company_mode)
+                require_readable_file(row)
+                return build_content_response(row)
+            finally:
+                cur.close()
+                conn.close()

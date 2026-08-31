@@ -27,6 +27,12 @@ URLISH_COLUMN_PATTERN = re.compile(
 )
 
 
+def public_uploads_mount_enabled(environ=None):
+    source = os.environ if environ is None else environ
+    value = str(source.get("PUBLIC_UPLOADS_MOUNT_ENABLED", "true") or "").strip().lower()
+    return value in ("1", "true", "yes", "on")
+
+
 def _positive_int(value):
     try:
         result = int(value)
@@ -403,7 +409,7 @@ def main():
 
     report = run_public_exposure_report(
         get_db,
-        public_mount_enabled=True,
+        public_mount_enabled=public_uploads_mount_enabled(),
         storage_backend=os.getenv("STORAGE_BACKEND", "local"),
         s3_acl=os.getenv("S3_ACL", "public-read"),
     )

@@ -2803,7 +2803,18 @@ async def api_error_logging_middleware(request: Request, call_next):
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+try:
+    from backend.features.public_file_ownership.public_exposure_report import (
+        public_uploads_mount_enabled,
+    )
+except ModuleNotFoundError:
+    from features.public_file_ownership.public_exposure_report import (
+        public_uploads_mount_enabled,
+    )
+
+PUBLIC_UPLOADS_MOUNT_ENABLED = public_uploads_mount_enabled()
+if PUBLIC_UPLOADS_MOUNT_ENABLED:
+    app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "local").strip().lower()
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
@@ -26452,6 +26463,7 @@ register_document_access_module(app, {
         access_key=S3_ACCESS_KEY_ID,
         secret_key=S3_SECRET_ACCESS_KEY,
     ),
+    "protected_legacy_uploads_enabled": not PUBLIC_UPLOADS_MOUNT_ENABLED,
 })
 
 try:
