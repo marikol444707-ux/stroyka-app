@@ -17,6 +17,25 @@ import xml.etree.ElementTree as ET
 import psycopg2.extras
 from fastapi import Depends, File, Form, HTTPException, Request, Response, UploadFile
 
+try:
+    from backend.features.model_gateway.contract import (
+        MODEL_GATEWAY_PROVIDER_FAILED,
+        ModelGatewayError,
+        ModelInputPart,
+        build_model_request,
+    )
+    from backend.features.model_gateway.yandex_adapter import (
+        build_yandex_model_adapter,
+    )
+except ModuleNotFoundError:
+    from features.model_gateway.contract import (
+        MODEL_GATEWAY_PROVIDER_FAILED,
+        ModelGatewayError,
+        ModelInputPart,
+        build_model_request,
+    )
+    from features.model_gateway.yandex_adapter import build_yandex_model_adapter
+
 
 PLATFORM_VIEW_ROLES = ("system_owner", "platform_admin", "platform_support", "billing_admin")
 PLATFORM_MANAGE_ROLES = ("system_owner", "platform_admin")
@@ -1246,15 +1265,41 @@ def _client_card_file_payload(filename: str, content_type: str, content: bytes) 
     raise HTTPException(status_code=422, detail="Для карты клиента загрузите PDF или изображение.")
 
 
-def _recognize_client_card_with_ai(file_content: bytes, file_name: str, content_type: str,
-                                   source_text: str, api_key: str, folder_id: str) -> tuple[dict, list]:
+_CLIENT_CARD_INSTRUCTIONS = (
+    "Ты извлекаешь данные клиента из визитки, карточки организации или реквизитов. "
+    "Верни только валидный JSON."
+)
+
+_CLIENT_CARD_PROMPT = (
+    "Распознай карту клиента/визитку/реквизиты потенциального клиента строительной ERP. "
+    "Верни только JSON без markdown. Не выдумывай значения. Если поля нет — пустая строка. "
+    "Нужно заполнить форму подключения клиентского аккаунта и первой компании. "
+    "platformAccountName — группа/бренд клиента без ООО, companyName — полное юрлицо, shortName — короткое имя. "
+    "contactName — ФИО контактного лица, contactPosition — должность. "
+    "notes — только полезные дополнительные данные, которые некуда положить: адрес, сайт, ОГРН, должность, источник. "
+    "Формат: {"
+    "\"platformAccountName\":\"\","
+    "\"companyName\":\"\","
+    "\"shortName\":\"\","
+    "\"inn\":\"\","
+    "\"kpp\":\"\","
+    "\"ogrn\":\"\","
+    "\"contactName\":\"\","
+    "\"contactPosition\":\"\","
+    "\"contactPhone\":\"\","
+    "\"contactEmail\":\"\","
+    "\"legalAddress\":\"\","
+    "\"website\":\"\","
+    "\"notes\":\"\","
+    "\"confidence\":0.0,"
+    "\"warnings\":[]"
+    "}"
+)
+
+
+def _client_card_ai_content(file_content: bytes, file_name: str, content_type: str,
+                            source_text: str) -> tuple[list, list]:
     warnings = []
-    if not (api_key and folder_id):
-        return {}, ["AI/OCR не настроен: задайте YANDEX_API_KEY и YANDEX_FOLDER_ID."]
-    try:
-        import openai as oa
-    except Exception as exc:
-        return {}, ["AI-клиент недоступен: " + str(exc)]
     content = []
     if file_content:
         try:
@@ -1265,45 +1310,101 @@ def _recognize_client_card_with_ai(file_content: bytes, file_name: str, content_
             warnings.append(str(exc.detail))
     if source_text:
         content.append({"type": "input_text", "text": "Извлеченный текст карты клиента:\n" + source_text[:16000]})
+    if content:
+        content.append({"type": "input_text", "text": _CLIENT_CARD_PROMPT})
+    return content, warnings
+
+
+def _recognize_client_card_with_ai_legacy(file_content: bytes, file_name: str, content_type: str,
+                                          source_text: str, api_key: str, folder_id: str) -> tuple[dict, list]:
+    if not (api_key and folder_id):
+        return {}, ["AI/OCR не настроен: задайте YANDEX_API_KEY и YANDEX_FOLDER_ID."]
+    try:
+        import openai as oa
+    except Exception as exc:
+        return {}, ["AI-клиент недоступен: " + str(exc)]
+    content, warnings = _client_card_ai_content(
+        file_content,
+        file_name,
+        content_type,
+        source_text,
+    )
     if not content:
         return {}, warnings + ["Файл сохранен, но этот формат нельзя автоматически распознать. Заполните поля вручную или загрузите фото/PDF/Word/Excel."]
-    content.append({"type": "input_text", "text": (
-        "Распознай карту клиента/визитку/реквизиты потенциального клиента строительной ERP. "
-        "Верни только JSON без markdown. Не выдумывай значения. Если поля нет — пустая строка. "
-        "Нужно заполнить форму подключения клиентского аккаунта и первой компании. "
-        "platformAccountName — группа/бренд клиента без ООО, companyName — полное юрлицо, shortName — короткое имя. "
-        "contactName — ФИО контактного лица, contactPosition — должность. "
-        "notes — только полезные дополнительные данные, которые некуда положить: адрес, сайт, ОГРН, должность, источник. "
-        "Формат: {"
-        "\"platformAccountName\":\"\","
-        "\"companyName\":\"\","
-        "\"shortName\":\"\","
-        "\"inn\":\"\","
-        "\"kpp\":\"\","
-        "\"ogrn\":\"\","
-        "\"contactName\":\"\","
-        "\"contactPosition\":\"\","
-        "\"contactPhone\":\"\","
-        "\"contactEmail\":\"\","
-        "\"legalAddress\":\"\","
-        "\"website\":\"\","
-        "\"notes\":\"\","
-        "\"confidence\":0.0,"
-        "\"warnings\":[]"
-        "}"
-    )})
     try:
         client = oa.OpenAI(api_key=api_key, base_url="https://ai.api.cloud.yandex.net/v1", project=folder_id)
         response = client.responses.create(
             model=f"gpt://{folder_id}/qwen3.6-35b-a3b/latest",
             temperature=0.1,
-            instructions="Ты извлекаешь данные клиента из визитки, карточки организации или реквизитов. Верни только валидный JSON.",
+            instructions=_CLIENT_CARD_INSTRUCTIONS,
             input=[{"role": "user", "content": content}],
             max_output_tokens=2500,
         )
         return _client_card_json(response.output_text or ""), warnings
     except Exception as exc:
         return {}, warnings + ["AI/OCR не смог распознать карту клиента: " + str(exc)]
+
+
+def _recognize_client_card_with_ai_gateway(file_content: bytes, file_name: str, content_type: str,
+                                           source_text: str, api_key: str, folder_id: str) -> tuple[dict, list]:
+    if not (api_key and folder_id):
+        return {}, ["AI/OCR не настроен: задайте YANDEX_API_KEY и YANDEX_FOLDER_ID."]
+    content, warnings = _client_card_ai_content(
+        file_content,
+        file_name,
+        content_type,
+        source_text,
+    )
+    if not content:
+        return {}, warnings + ["Файл сохранен, но этот формат нельзя автоматически распознать. Заполните поля вручную или загрузите фото/PDF/Word/Excel."]
+    try:
+        parts = []
+        for part in content:
+            part_type = part.get("type")
+            if part_type == "input_text":
+                parts.append(ModelInputPart(kind="text", value=part["text"]))
+            elif part_type == "input_image":
+                parts.append(ModelInputPart(kind="image_data_url", value=part["image_url"]))
+            elif part_type == "input_file":
+                parts.append(ModelInputPart(
+                    kind="file_data_url",
+                    value=part["file_data"],
+                    filename=part["filename"],
+                ))
+        request = build_model_request(
+            capability="platform_client_card",
+            instructions=_CLIENT_CARD_INSTRUCTIONS,
+            input_parts=tuple(parts),
+            temperature=0.1,
+            max_output_tokens=2500,
+            deadline_seconds=120,
+        )
+        gateway = build_yandex_model_adapter(
+            api_key=api_key,
+            folder_id=folder_id,
+        )
+        response = gateway.generate(request)
+        return _client_card_json(response.output_text), warnings
+    except ModelGatewayError as error:
+        return {}, warnings + ["AI/OCR не смог распознать карту клиента: " + error.code]
+    except Exception:
+        return {}, warnings + ["AI/OCR не смог распознать карту клиента: " + MODEL_GATEWAY_PROVIDER_FAILED]
+
+
+def _recognize_client_card_with_ai(file_content: bytes, file_name: str, content_type: str,
+                                   source_text: str, api_key: str, folder_id: str,
+                                   model_gateway_enabled=False) -> tuple[dict, list]:
+    arguments = {
+        "file_content": file_content,
+        "file_name": file_name,
+        "content_type": content_type,
+        "source_text": source_text,
+        "api_key": api_key,
+        "folder_id": folder_id,
+    }
+    if model_gateway_enabled is True:
+        return _recognize_client_card_with_ai_gateway(**arguments)
+    return _recognize_client_card_with_ai_legacy(**arguments)
 
 
 def register_platform_admin_routes(app, deps):
@@ -1313,6 +1414,7 @@ def register_platform_admin_routes(app, deps):
     save_upload_bytes = deps.get("save_upload_bytes")
     yandex_api_key = deps.get("yandex_api_key") or ""
     yandex_folder_id = deps.get("yandex_folder_id") or ""
+    model_gateway_enabled = deps.get("model_gateway_enabled") is True
 
     @app.get("/system/tariffs")
     def system_tariffs_list(_current_user: dict = Depends(require_roles(*PLATFORM_VIEW_ROLES))):
@@ -1409,6 +1511,7 @@ def register_platform_admin_routes(app, deps):
             pasted_text,
             yandex_api_key,
             yandex_folder_id,
+            model_gateway_enabled=model_gateway_enabled,
         )
         warnings.extend(ai_warnings or [])
         fields = _normalize_client_card_fields(ai_fields, fallback)

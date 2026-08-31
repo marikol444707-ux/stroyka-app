@@ -150,6 +150,12 @@ def _provider_input(request):
             content.append({"type": "input_image", "image_url": part.value})
         elif part.kind == "file_id":
             content.append({"type": "input_file", "file_id": part.value})
+        elif part.kind == "file_data_url":
+            content.append({
+                "type": "input_file",
+                "filename": part.filename,
+                "file_data": part.value,
+            })
         else:
             _error(MODEL_GATEWAY_CONTRACT_INVALID)
     return [{"role": "user", "content": content}]

@@ -83,10 +83,15 @@ class ModelGatewayContractTest(unittest.TestCase):
                 value="data:image/jpeg;base64,YWJj",
             ),
             ModelInputPart(kind="file_id", value="file-123"),
+            ModelInputPart(
+                kind="file_data_url",
+                value="data:application/pdf;base64,YWJj",
+                filename="client-card.pdf",
+            ),
         )
 
         request = build_model_request(
-            capability="invoice_scan",
+            capability="platform_client_card",
             instructions="Return the established invoice JSON shape.",
             input_parts=parts,
             temperature=0.1,
@@ -140,6 +145,60 @@ class ModelGatewayContractTest(unittest.TestCase):
                         capability="invoice_scan",
                         instructions="instructions",
                         input_parts=(part,),
+                        temperature=0.1,
+                        max_output_tokens=100,
+                        deadline_seconds=30,
+                    )
+                self.assertEqual(raised.exception.code, MODEL_GATEWAY_CONTRACT_INVALID)
+
+    def test_file_data_url_requires_a_safe_bounded_filename(self):
+        for filename in ("", "../secret.pdf", "bad\nname.pdf", "x" * 256):
+            with self.subTest(filename=filename):
+                with self.assertRaises(ModelGatewayError) as raised:
+                    build_model_request(
+                        capability="platform_client_card",
+                        instructions="instructions",
+                        input_parts=(ModelInputPart(
+                            kind="file_data_url",
+                            value="data:application/pdf;base64,YWJj",
+                            filename=filename,
+                        ),),
+                        temperature=0.1,
+                        max_output_tokens=100,
+                        deadline_seconds=30,
+                    )
+                self.assertEqual(raised.exception.code, MODEL_GATEWAY_CONTRACT_INVALID)
+
+        with self.assertRaises(ModelGatewayError) as raised:
+            build_model_request(
+                capability="platform_client_card",
+                instructions="instructions",
+                input_parts=(ModelInputPart(
+                    kind="text",
+                    value="text",
+                    filename="unexpected.pdf",
+                ),),
+                temperature=0.1,
+                max_output_tokens=100,
+                deadline_seconds=30,
+            )
+        self.assertEqual(raised.exception.code, MODEL_GATEWAY_CONTRACT_INVALID)
+
+        for value in (
+            "https://example.test/client-card.pdf",
+            "data:text/plain;base64,YWJj",
+            "data:application/pdf;base64,not_base64!",
+        ):
+            with self.subTest(value=value):
+                with self.assertRaises(ModelGatewayError) as raised:
+                    build_model_request(
+                        capability="platform_client_card",
+                        instructions="instructions",
+                        input_parts=(ModelInputPart(
+                            kind="file_data_url",
+                            value=value,
+                            filename="client-card.pdf",
+                        ),),
                         temperature=0.1,
                         max_output_tokens=100,
                         deadline_seconds=30,

@@ -28,9 +28,11 @@ _ERROR_CODES = frozenset({
 _PROVIDER_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$")
 _MAX_INSTRUCTIONS_BYTES = 64 * 1024
-_MAX_PART_BYTES = 4 * 1024 * 1024
+_MAX_PART_BYTES = 17 * 1024 * 1024
+_MAX_FILENAME_BYTES = 255
 _MAX_RESULT_BYTES = 4 * 1024 * 1024
 _MAX_DEADLINE_SECONDS = 120
+_PDF_DATA_URL_PREFIX = "data:application/pdf;base64,"
 
 
 class ModelGatewayError(ValueError):
@@ -47,6 +49,7 @@ class ModelGatewayError(ValueError):
 class ModelInputPart:
     kind: str
     value: str
+    filename: str = ""
 
 
 @dataclass(frozen=True)
@@ -92,7 +95,28 @@ def _validated_parts(parts, policy):
             _fail()
         if type(part.kind) is not str or part.kind not in policy.allowed_input_kinds:
             _fail()
+        if type(part.filename) is not str:
+            _fail()
+        if part.kind == "file_data_url":
+            filename = _bounded_text(
+                part.filename,
+                max_bytes=_MAX_FILENAME_BYTES,
+            )
+            if re.search(r"[/\\\x00-\x1f\x7f]", filename):
+                _fail()
+        elif part.filename:
+            _fail()
         value = _bounded_text(part.value, max_bytes=_MAX_PART_BYTES)
+        if part.kind == "file_data_url":
+            if not value.startswith(_PDF_DATA_URL_PREFIX):
+                _fail()
+            payload = value[len(_PDF_DATA_URL_PREFIX):]
+            if (
+                not payload
+                or len(payload) % 4
+                or re.fullmatch(r"[A-Za-z0-9+/]*={0,2}", payload) is None
+            ):
+                _fail()
         total_bytes += len(value.encode("utf-8"))
         validated.append(part)
     if total_bytes > policy.max_input_bytes:

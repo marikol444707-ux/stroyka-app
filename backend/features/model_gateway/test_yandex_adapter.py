@@ -269,15 +269,20 @@ class YandexModelAdapterTest(unittest.TestCase):
             clock=clock_from(1.0, 1.0, 1.01),
         )
         request = build_model_request(
-            capability="invoice_scan",
+            capability="platform_client_card",
             instructions="json only",
             input_parts=(
                 ModelInputPart("image_data_url", "data:image/jpeg;base64,YWJj"),
                 ModelInputPart("file_id", "file-123"),
+                ModelInputPart(
+                    "file_data_url",
+                    "data:application/pdf;base64,YWJj",
+                    filename="client-card.pdf",
+                ),
                 ModelInputPart("text", "read invoice"),
             ),
             temperature=0.1,
-            max_output_tokens=12_000,
+            max_output_tokens=2500,
             deadline_seconds=60,
         )
 
@@ -293,6 +298,11 @@ class YandexModelAdapterTest(unittest.TestCase):
                         "image_url": "data:image/jpeg;base64,YWJj",
                     },
                     {"type": "input_file", "file_id": "file-123"},
+                    {
+                        "type": "input_file",
+                        "filename": "client-card.pdf",
+                        "file_data": "data:application/pdf;base64,YWJj",
+                    },
                     {"type": "input_text", "text": "read invoice"},
                 ],
             }],

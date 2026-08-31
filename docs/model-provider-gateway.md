@@ -74,8 +74,10 @@ base URL, a closed per-capability model chain, a total request deadline and
 secret-safe fixed failures. It receives credentials from its future composition
 root, creates no environment or database dependency and is not registered by
 the application. The invoice capability retains the existing 12,000-token OCR
-ceiling. Multipart values are translated only to the three allowlisted Responses
-API part shapes.
+ceiling. Multipart values are translated only to allowlisted Responses API part
+shapes. Inline PDF data is accepted only for the client-card capability, with a
+bounded safe filename, a PDF data URL and the route's existing 12 MB raw-file
+ceiling.
 
 The normal text branch of `ai_chat` currently uses YandexGPT then Qwen and is
 represented by that capability route. Its existing `jsonOnly` branch reverses
@@ -187,6 +189,17 @@ crosses the gateway with a 120-second total deadline and fixed non-secret
 failures. Estimate authorization, work-row filtering, exact-name matching,
 keyword fallback, preservation of manual marks and the final estimate update
 remain in the existing route and are unchanged.
+
+The ninth A14.4 domain is platform client-card recognition. Its caller-local
+`PLATFORM_CLIENT_CARD_MODEL_GATEWAY_ENABLED` switch defaults to `false`. The
+rollback path preserves the current Qwen model, prompt, instructions, content
+part order, temperature, 2,500-token output limit, JSON parsing and warnings.
+When explicitly enabled, text, image data or an inline PDF crosses the gateway
+with a 120-second total deadline and fixed non-secret failures. The gateway
+accepts inline file data only for this capability and validates a bounded safe
+filename plus a PDF data URL. Platform-role authorization, upload storage,
+heuristic fallback, audit logging and the HTTP response remain in the platform-
+admin module and are unchanged.
 
 ### A14.5: Measurement before local-model evaluation
 
@@ -395,6 +408,7 @@ python3 -m unittest \
   backend.features.model_gateway.test_local_hidden_works_evaluation \
   backend.features.model_gateway.test_estimate_chat_cutover \
   backend.features.document_recognition.test_model_gateway_cutover \
+  backend.features.platform_admin.test_model_gateway_cutover \
   backend.features.project_records.test_model_gateway_cutover \
   backend.features.estimate_changes.test_model_gateway_cutover \
   backend.features.estimate_distribution.test_model_gateway_cutover \

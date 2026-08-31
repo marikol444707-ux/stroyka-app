@@ -19,17 +19,17 @@ def _policy(
     *,
     model_policy="balanced_text",
     multipart=False,
+    file_data_url=False,
     max_input_bytes=256 * 1024,
     max_output_tokens=8_000,
 ):
+    allowed_input_kinds = ("text", "image_data_url", "file_id")
+    if file_data_url:
+        allowed_input_kinds += ("file_data_url",)
     return ModelCapabilityPolicy(
         capability=capability,
         model_policy=model_policy,
-        allowed_input_kinds=(
-            ("text", "image_data_url", "file_id")
-            if multipart
-            else ("text",)
-        ),
+        allowed_input_kinds=allowed_input_kinds if multipart else ("text",),
         max_input_bytes=max_input_bytes,
         max_output_tokens=max_output_tokens,
         max_parts=16 if multipart else 1,
@@ -64,7 +64,8 @@ _CAPABILITIES = (
         "platform_client_card",
         model_policy="vision_json",
         multipart=True,
-        max_input_bytes=4 * 1024 * 1024,
+        file_data_url=True,
+        max_input_bytes=17 * 1024 * 1024,
     ),
     _policy("pricelist_generation", model_policy="strict_json"),
     _policy(

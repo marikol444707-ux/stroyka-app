@@ -90,7 +90,7 @@ _EXPECTED_ACCESS = (
     ),
     (
         "backend/features/platform_admin/routes.py",
-        "_recognize_client_card_with_ai",
+        "_recognize_client_card_with_ai_legacy",
         "platform_client_card",
     ),
 )

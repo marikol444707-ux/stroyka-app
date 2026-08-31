@@ -26304,6 +26304,10 @@ register_platform_admin_routes(app, {
     "save_upload_bytes": save_upload_bytes,
     "yandex_api_key": YANDEX_API_KEY,
     "yandex_folder_id": YANDEX_FOLDER_ID,
+    "model_gateway_enabled": os.getenv(
+        "PLATFORM_CLIENT_CARD_MODEL_GATEWAY_ENABLED",
+        "false",
+    ).strip().lower() in ("1", "true", "yes"),
 })
 
 try:
