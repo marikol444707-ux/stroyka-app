@@ -48,6 +48,42 @@ class S3ReferenceCutoverTests(unittest.TestCase):
         self.assertEqual(report["blockers"], [])
         self.assertNotIn("storage.example", str(report))
 
+    def test_comma_separated_s3_references_are_rewritten_individually(self):
+        first = "https://storage.example/uploads/company-1/first.jpg"
+        second = "https://storage.example/uploads/company-1/second.jpg"
+        report = build_s3_reference_cutover_plan(
+            records=[{
+                "source": "expenses.photo_url",
+                "recordId": 10,
+                "value": first + "," + second,
+                "dataType": "text",
+                "companyId": 1,
+                "projectId": None,
+            }],
+            ownership_rows=[
+                {
+                    "id": 41,
+                    "file_url": first,
+                    "storage_key": "uploads/company-1/first.jpg",
+                    "company_id": 1,
+                    "project_id": None,
+                },
+                {
+                    "id": 42,
+                    "file_url": second,
+                    "storage_key": "uploads/company-1/second.jpg",
+                    "company_id": 1,
+                    "project_id": None,
+                },
+            ],
+        )
+
+        self.assertTrue(report["readyForApply"])
+        self.assertEqual(report["summary"]["referenceCount"], 2)
+        self.assertEqual(report["summary"]["rewrittenReferenceCount"], 2)
+        self.assertEqual(report["summary"]["cellUpdateCount"], 1)
+        self.assertEqual(report["summary"]["uniqueFileCount"], 2)
+
     def test_cross_company_reference_blocks_cutover(self):
         url = "https://storage.example/uploads/company-2/wrong.jpg"
         report = build_s3_reference_cutover_plan(

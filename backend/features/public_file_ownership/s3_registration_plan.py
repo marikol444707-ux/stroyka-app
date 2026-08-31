@@ -19,6 +19,7 @@ import psycopg2.extras
 APPLY_CONFIRMATION = "REGISTER_VERIFIED_ACCOUNTING_S3_FILES"
 PREVIEW_LIMIT = 100
 VERIFIED_SOURCES = frozenset(("expenses.photo_url", "own_expenses.photo_url"))
+HTTP_URL_PATTERN = re.compile(r"https?://[^\s,\"'<>\\]+", re.IGNORECASE)
 
 
 class S3RegistrationPlanError(RuntimeError):
@@ -69,6 +70,14 @@ def _safe_storage_key(value):
     if any(part in ("", ".", "..") for part in parts):
         return None
     return raw
+
+
+def _reference_urls(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return []
+    matches = [match.group(0) for match in HTTP_URL_PATTERN.finditer(raw)]
+    return matches or [raw]
 
 
 def _known_storage_layout(ownership_rows):
@@ -218,21 +227,19 @@ def _prepare_s3_registration_plan(
 
     for raw in records or []:
         record = dict(raw or {})
-        file_url = str(record.get("value") or "").strip()
-        if not file_url:
-            continue
         owner, status, reason = _owner_for_record(
             record,
             projects_by_id,
             company_ids,
         )
-        references[file_url].append({
-            "source": str(record.get("source") or ""),
-            "recordId": _positive_int(record.get("recordId")),
-            "owner": owner,
-            "status": status,
-            "reason": reason,
-        })
+        for file_url in _reference_urls(record.get("value")):
+            references[file_url].append({
+                "source": str(record.get("source") or ""),
+                "recordId": _positive_int(record.get("recordId")),
+                "owner": owner,
+                "status": status,
+                "reason": reason,
+            })
 
     ready = []
     review = []
@@ -427,24 +434,26 @@ def _candidate_storage_keys(
     result = set()
     for raw in records or []:
         record = dict(raw or {})
-        file_url = str(record.get("value") or "").strip()
-        if not file_url or file_url in registered_urls:
-            continue
         owner, status, _reason = _owner_for_record(
             record,
             projects_by_id,
             normalized_company_ids,
         )
-        storage_key = _storage_key_from_url(file_url, bases)
-        if status != "ready" or not owner or not storage_key:
+        if status != "ready" or not owner:
             continue
-        if _storage_context_for_owner(
-            storage_key,
-            owner[0],
-            owner[1],
-            storage_prefixes,
-        ):
-            result.add(storage_key)
+        for file_url in _reference_urls(record.get("value")):
+            if file_url in registered_urls:
+                continue
+            storage_key = _storage_key_from_url(file_url, bases)
+            if not storage_key:
+                continue
+            if _storage_context_for_owner(
+                storage_key,
+                owner[0],
+                owner[1],
+                storage_prefixes,
+            ):
+                result.add(storage_key)
     return result
 
 

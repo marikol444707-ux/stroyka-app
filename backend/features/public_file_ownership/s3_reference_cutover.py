@@ -28,7 +28,7 @@ ALLOWED_DATA_TYPES = {
     "jsonb",
     "text",
 }
-HTTP_URL_PATTERN = re.compile(r"https?://[^\s\"'<>\\]+", re.IGNORECASE)
+HTTP_URL_PATTERN = re.compile(r"https?://[^\s,\"'<>\\]+", re.IGNORECASE)
 
 
 class S3ReferenceCutoverError(RuntimeError):
@@ -105,10 +105,6 @@ def _visit_text_values(value):
 def _extract_storage_urls(value, storage_hosts):
     found = []
     for text in _visit_text_values(value):
-        exact = _http_storage_url(text)
-        if exact and urlsplit(exact).netloc.lower() in storage_hosts:
-            found.append(exact)
-            continue
         for match in HTTP_URL_PATTERN.finditer(text):
             url = _http_storage_url(match.group(0))
             if url and urlsplit(url).netloc.lower() in storage_hosts:

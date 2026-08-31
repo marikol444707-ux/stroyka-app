@@ -43,6 +43,32 @@ class S3RegistrationPlanTests(unittest.TestCase):
         self.assertNotIn("storage.example", str(report))
         self.assertNotIn("shared.jpg", str(report))
 
+    def test_comma_separated_legacy_urls_become_individual_registrations(self):
+        first_key = "uploads/company-1-project-7-expense/expense/first.jpg"
+        second_key = "uploads/company-1-project-7-expense/expense/second.jpg"
+        first_url = "https://storage.example/" + first_key
+        second_url = "https://storage.example/" + second_key
+
+        report = build_s3_registration_plan(
+            records=[
+                self._record(
+                    "expenses.photo_url",
+                    10,
+                    first_url + "," + second_url,
+                ),
+            ],
+            ownership_rows=self.registered,
+            projects=self.projects,
+            company_ids={1},
+            verified_storage_keys={first_key, second_key},
+        )
+
+        self.assertTrue(report["readyForApply"])
+        self.assertEqual(report["summary"]["referenceCount"], 2)
+        self.assertEqual(report["summary"]["uniqueFileCount"], 2)
+        self.assertEqual(report["summary"]["readyRegistrations"], 2)
+        self.assertEqual(report["summary"]["verifiedObjects"], 2)
+
     def test_unverified_accounting_owner_blocks_registration(self):
         key = "uploads/company-1-project-7-expense/expense/unverified.jpg"
         url = "https://storage.example/" + key
