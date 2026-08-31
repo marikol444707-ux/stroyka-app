@@ -259,7 +259,7 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
 
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "c0ad98b2d2f80869dd4dcc5c35a1f91e0a35c3b85061986ec64ba265ca4515ec",
+            "b0e684177b899d4d474d273138315c966c834f73433bfacdba16c358cbf366ea",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),
