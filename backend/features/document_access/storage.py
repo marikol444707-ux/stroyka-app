@@ -36,6 +36,8 @@ def _signed_s3_request(
     region,
     access_key,
     secret_key,
+    payload=b"",
+    extra_headers=None,
     now=None,
 ):
     endpoint_url = str(endpoint_url or "").rstrip("/")
@@ -61,7 +63,9 @@ def _signed_s3_request(
     quoted_key = urllib.parse.quote(normalized_key, safe="/")
     url = endpoint_url + "/" + quoted_bucket + "/" + quoted_key
     parsed = urllib.parse.urlparse(url)
-    payload_hash = hashlib.sha256(b"").hexdigest()
+    if not isinstance(payload, bytes):
+        raise HTTPException(status_code=503, detail="Некорректное содержимое S3-файла")
+    payload_hash = hashlib.sha256(payload).hexdigest()
     current_time = now or dt.datetime.now(dt.timezone.utc)
     amz_date = current_time.strftime("%Y%m%dT%H%M%SZ")
     date_stamp = current_time.strftime("%Y%m%d")
@@ -70,6 +74,16 @@ def _signed_s3_request(
         "x-amz-content-sha256": payload_hash,
         "x-amz-date": amz_date,
     }
+    for raw_name, raw_value in (extra_headers or {}).items():
+        name = str(raw_name or "").strip().lower()
+        value = str(raw_value or "").strip()
+        if (
+            name not in {"content-type"}
+            or "\n" in value
+            or "\r" in value
+        ):
+            raise HTTPException(status_code=503, detail="Некорректные заголовки S3-запроса")
+        headers[name] = value
     if method == "GET":
         headers["accept-encoding"] = "identity"
     signed_header_names = sorted(headers)
@@ -100,7 +114,8 @@ def _signed_s3_request(
         f"Credential={access_key}/{credential_scope}, "
         f"SignedHeaders={signed_headers}, Signature={signature}"
     )
-    return urllib.request.Request(url, headers=headers, method=method)
+    request_data = payload if method == "PUT" else None
+    return urllib.request.Request(url, data=request_data, headers=headers, method=method)
 
 
 def _response_status(response):
@@ -211,6 +226,54 @@ def delete_s3_object(
     try:
         if _response_status(response) not in (200, 204):
             raise HTTPException(status_code=503, detail="S3 не подтвердил удаление файла")
+        return True
+    finally:
+        _close_safely(response)
+
+
+def put_s3_object(
+    *,
+    key,
+    content,
+    content_type,
+    endpoint_url,
+    bucket,
+    region,
+    access_key,
+    secret_key,
+    opener=None,
+    now=None,
+    timeout=30,
+):
+    """Write one S3 object with a signed, non-redirecting HTTPS request."""
+    if not isinstance(content, bytes):
+        raise HTTPException(status_code=503, detail="Некорректное содержимое S3-файла")
+    normalized_type = str(content_type or "application/octet-stream").strip()
+    if not normalized_type or "\n" in normalized_type or "\r" in normalized_type:
+        raise HTTPException(status_code=503, detail="Некорректный тип S3-файла")
+    request = _signed_s3_request(
+        method="PUT",
+        key=key,
+        endpoint_url=endpoint_url,
+        bucket=bucket,
+        region=region,
+        access_key=access_key,
+        secret_key=secret_key,
+        payload=content,
+        extra_headers={"content-type": normalized_type},
+        now=now,
+    )
+    request_opener = opener or urllib.request.build_opener(NoRedirectHandler())
+    try:
+        response = request_opener.open(request, timeout=timeout)
+    except urllib.error.HTTPError as error:
+        _close_safely(error)
+        raise HTTPException(status_code=503, detail="S3 не подтвердил запись файла") from None
+    except (urllib.error.URLError, TimeoutError, OSError):
+        raise HTTPException(status_code=503, detail="S3-хранилище временно недоступно") from None
+    try:
+        if _response_status(response) not in (200, 201, 204):
+            raise HTTPException(status_code=503, detail="S3 не подтвердил запись файла")
         return True
     finally:
         _close_safely(response)

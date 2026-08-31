@@ -5,7 +5,12 @@ import urllib.error
 
 from fastapi import HTTPException
 
-from backend.features.document_access.storage import NoRedirectHandler, delete_s3_object, open_s3_object
+from backend.features.document_access.storage import (
+    NoRedirectHandler,
+    delete_s3_object,
+    open_s3_object,
+    put_s3_object,
+)
 
 
 class FakeResponse(io.BytesIO):
@@ -168,6 +173,53 @@ class S3DocumentStorageTests(unittest.TestCase):
             now=dt.datetime(2026, 7, 11, 9, 0, 0),
         )
         self.assertFalse(deleted)
+
+    def test_put_s3_object_signs_payload_and_refuses_redirects(self):
+        response = FakeResponse(b"", headers={"Content-Length": "0"}, status=200)
+        opener = FakeOpener(response)
+
+        put_s3_object(
+            key="uploads/company-4-common-general/general/file.png",
+            content=b"verified-png",
+            content_type="image/png",
+            endpoint_url="https://storage.example",
+            bucket="documents",
+            region="ru-central1",
+            access_key="access-key",
+            secret_key="secret-key",
+            opener=opener,
+            now=dt.datetime(2026, 7, 11, 9, 0, 0),
+        )
+
+        request, timeout = opener.calls[0]
+        self.assertEqual(timeout, 30)
+        self.assertEqual(request.get_method(), "PUT")
+        self.assertEqual(request.data, b"verified-png")
+        self.assertEqual(request.get_header("Content-type"), "image/png")
+        self.assertTrue(request.get_header("Authorization").startswith("AWS4-HMAC-SHA256 "))
+        self.assertTrue(response.closed)
+
+        redirect = urllib.error.HTTPError(
+            "https://storage.example/documents/file.png",
+            302,
+            "Found",
+            {},
+            None,
+        )
+        with self.assertRaises(HTTPException) as error:
+            put_s3_object(
+                key="uploads/company-4-common-general/general/file.png",
+                content=b"verified-png",
+                content_type="image/png",
+                endpoint_url="https://storage.example",
+                bucket="documents",
+                region="ru-central1",
+                access_key="access-key",
+                secret_key="secret-key",
+                opener=FakeOpener(redirect),
+                now=dt.datetime(2026, 7, 11, 9, 0, 0),
+            )
+        self.assertEqual(error.exception.status_code, 503)
 
 
 if __name__ == "__main__":
