@@ -10,8 +10,10 @@ import json
 from collections import Counter, defaultdict
 
 import psycopg2.extras
+from psycopg2 import sql
 
 from .legacy_reference_cutover import (
+    ALLOWED_DATA_TYPES,
     SOURCE_BY_NAME,
     _storage_context,
     load_legacy_reference_cutover_rows,
@@ -30,6 +32,11 @@ from .public_exposure_report import (
 PREVIEW_LIMIT = 100
 LOCAL_MISSING_REASON = "local_file_unavailable"
 LEGACY_REGISTRATION_CONTEXT = "legacy_backfill"
+APPLY_CONFIRMATION = "CLEAN_MISSING_LEGACY_FILE_REFERENCES"
+
+
+class LegacyMissingFilePlanError(RuntimeError):
+    pass
 
 
 def _sha256(value):
@@ -67,7 +74,57 @@ def _registration_index(rows, referenced_urls):
     return indexed, invalid
 
 
-def build_legacy_missing_file_plan(
+def _public_update(item):
+    return {
+        "source": item["source"],
+        "recordId": item["recordId"],
+        "missingReferenceCount": item["missingReferenceCount"],
+        "fileIds": item["fileIds"],
+        "oldValueSha256": item["oldValueSha256"],
+        "newValueSha256": item["newValueSha256"],
+    }
+
+
+def _clean_reference_value(source, value, missing_urls):
+    expected_removals = len(missing_urls)
+    missing_urls = set(missing_urls)
+    if source.endswith(".photo_url"):
+        normalized = _normalize_local_upload_url(value)
+        if len(missing_urls) != 1 or normalized not in missing_urls:
+            return None, 0, "scalar_reference_shape_invalid"
+        return "", 1, None
+
+    if not source.endswith(".photo_urls"):
+        return None, 0, "source_reference_shape_unsupported"
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return None, 0, "reference_collection_invalid"
+    if not isinstance(parsed, list):
+        return None, 0, "reference_collection_invalid"
+
+    cleaned = []
+    removed = 0
+    for item in parsed:
+        normalized = (
+            _normalize_local_upload_url(item)
+            if isinstance(item, str)
+            else None
+        )
+        if normalized in missing_urls:
+            removed += 1
+            continue
+        cleaned.append(item)
+    if removed != expected_removals:
+        return None, removed, "reference_collection_rewrite_incomplete"
+    return json.dumps(
+        cleaned,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ), removed, None
+
+
+def _prepare_legacy_missing_file_plan(
     records,
     ownership_rows,
     projects,
@@ -110,6 +167,7 @@ def build_legacy_missing_file_plan(
             company_ids,
         )
         cell_missing_ids = []
+        cell_missing_urls = []
         cell_has_issue = False
 
         for url in urls:
@@ -140,6 +198,7 @@ def build_legacy_missing_file_plan(
                 elif registration["storageReason"] == LOCAL_MISSING_REASON:
                     file_id = registration["id"]
                     cell_missing_ids.append(file_id)
+                    cell_missing_urls.append(url)
                     missing_file_ids.add(file_id)
                     missing_references += 1
                     source_counts[source]["missing"] += 1
@@ -161,12 +220,30 @@ def build_legacy_missing_file_plan(
                 })
 
         if cell_missing_ids and not cell_has_issue:
+            new_value, removed, rewrite_error = _clean_reference_value(
+                source,
+                value,
+                cell_missing_urls,
+            )
+            if rewrite_error or removed != len(cell_missing_urls):
+                unresolved_references += len(cell_missing_urls)
+                review.append({
+                    "source": source,
+                    "recordId": record_id,
+                    "status": "unresolved",
+                    "reason": rewrite_error or "reference_rewrite_incomplete",
+                })
+                continue
             updates.append({
                 "source": source,
                 "recordId": record_id,
+                "dataType": str(record.get("dataType") or "").strip().lower(),
+                "oldValue": value,
+                "newValue": new_value,
                 "missingReferenceCount": len(cell_missing_ids),
                 "fileIds": sorted(cell_missing_ids),
                 "oldValueSha256": _sha256(value),
+                "newValueSha256": _sha256(new_value),
             })
             source_counts[source]["cells"] += 1
 
@@ -181,8 +258,9 @@ def build_legacy_missing_file_plan(
     state = "review_required" if blockers else (
         "ready" if missing_references else "clear"
     )
+    public_updates = [_public_update(item) for item in updates]
     plan_payload = {
-        "updates": updates,
+        "updates": public_updates,
         "review": review,
         "missingFileIds": sorted(missing_file_ids),
         "invalidRegistryRows": invalid_registry_rows,
@@ -206,7 +284,7 @@ def build_legacy_missing_file_plan(
         }
         for source, counts in sorted(source_counts.items())
     ]
-    return {
+    report = {
         "ok": True,
         "dryRun": True,
         "writesAttempted": 0,
@@ -234,27 +312,139 @@ def build_legacy_missing_file_plan(
         },
         "bySource": by_source,
         "blockers": blockers,
-        "updatesPreview": updates[:PREVIEW_LIMIT],
+        "updatesPreview": public_updates[:PREVIEW_LIMIT],
         "needsReview": review[:PREVIEW_LIMIT],
         "updateListTruncated": len(updates) > PREVIEW_LIMIT,
         "reviewListTruncated": len(review) > PREVIEW_LIMIT,
         "planSha256": plan_sha256,
     }
+    return report, updates
 
 
-def run_legacy_missing_file_plan(get_db):
+def build_legacy_missing_file_plan(
+    records,
+    ownership_rows,
+    projects,
+    company_ids,
+    scan=None,
+):
+    report, _ = _prepare_legacy_missing_file_plan(
+        records,
+        ownership_rows,
+        projects,
+        company_ids,
+        scan,
+    )
+    return report
+
+
+def _validate_apply_guards(
+    report,
+    *,
+    confirm,
+    expected_update_count,
+    expected_reference_count,
+    expected_plan_sha256,
+):
+    if confirm != APPLY_CONFIRMATION:
+        raise LegacyMissingFilePlanError("apply_confirmation_invalid")
+    if not report["readyForCleanup"]:
+        raise LegacyMissingFilePlanError("cleanup_plan_not_ready")
+    if (
+        _positive_int(expected_update_count)
+        != report["summary"]["plannedCellUpdateCount"]
+    ):
+        raise LegacyMissingFilePlanError("update_count_mismatch")
+    if (
+        _positive_int(expected_reference_count)
+        != report["summary"]["missingReferenceCount"]
+    ):
+        raise LegacyMissingFilePlanError("reference_count_mismatch")
+    if str(expected_plan_sha256 or "") != report["planSha256"]:
+        raise LegacyMissingFilePlanError("plan_sha256_mismatch")
+
+
+def _apply_cleanup_updates(cursor, updates):
+    removed_references = 0
+    for item in updates:
+        source = item["source"]
+        data_type = item["dataType"]
+        if source not in SOURCE_BY_NAME:
+            raise LegacyMissingFilePlanError("source_not_allowlisted")
+        if data_type not in ALLOWED_DATA_TYPES:
+            raise LegacyMissingFilePlanError("source_data_type_unsupported")
+        table, column = SOURCE_BY_NAME[source]
+        value_expression = {
+            "json": sql.SQL("%s::json"),
+            "jsonb": sql.SQL("%s::jsonb"),
+        }.get(data_type, sql.SQL("%s"))
+        query = sql.SQL(
+            "UPDATE {table} SET {column}={value} "
+            "WHERE id=%s AND {column}::text=%s RETURNING id"
+        ).format(
+            table=sql.Identifier("public", table),
+            column=sql.Identifier(column),
+            value=value_expression,
+        )
+        cursor.execute(
+            query,
+            (item["newValue"], item["recordId"], item["oldValue"]),
+        )
+        if not cursor.fetchone():
+            raise LegacyMissingFilePlanError("concurrent_source_change")
+        removed_references += item["missingReferenceCount"]
+    return len(updates), removed_references
+
+
+def run_legacy_missing_file_plan(
+    get_db,
+    *,
+    apply=False,
+    confirm="",
+    expected_update_count=None,
+    expected_reference_count=None,
+    expected_plan_sha256="",
+):
     connection = get_db()
     try:
-        connection.set_session(readonly=True, autocommit=False)
+        if apply:
+            connection.set_session(autocommit=False)
+        else:
+            connection.set_session(readonly=True, autocommit=False)
         cursor = connection.cursor(
             cursor_factory=psycopg2.extras.RealDictCursor,
         )
         try:
             rows = load_legacy_reference_cutover_rows(cursor)
-            report = build_legacy_missing_file_plan(*rows)
-            connection.rollback()
-            report["rolledBack"] = True
-            return report
+            report, updates = _prepare_legacy_missing_file_plan(*rows)
+            if not apply:
+                connection.rollback()
+                report["rolledBack"] = True
+                return report
+            _validate_apply_guards(
+                report,
+                confirm=confirm,
+                expected_update_count=expected_update_count,
+                expected_reference_count=expected_reference_count,
+                expected_plan_sha256=expected_plan_sha256,
+            )
+            updated_cells, removed_references = _apply_cleanup_updates(
+                cursor,
+                updates,
+            )
+            connection.commit()
+            return {
+                "ok": True,
+                "dryRun": False,
+                "committed": True,
+                "rolledBack": False,
+                "writesAttempted": updated_cells,
+                "updatedCellCount": updated_cells,
+                "removedReferenceCount": removed_references,
+                "businessRecordsDeleted": 0,
+                "registryRowsDeleted": 0,
+                "appliedPlanSha256": report["planSha256"],
+            }
         except Exception:
             connection.rollback()
             raise

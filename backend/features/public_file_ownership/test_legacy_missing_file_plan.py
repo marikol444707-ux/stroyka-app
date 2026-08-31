@@ -3,6 +3,8 @@ from unittest.mock import Mock, patch
 
 from . import legacy_missing_file_plan as plan_module
 from .legacy_missing_file_plan import (
+    APPLY_CONFIRMATION,
+    LegacyMissingFilePlanError,
     build_legacy_missing_file_plan,
     run_legacy_missing_file_plan,
 )
@@ -163,6 +165,106 @@ class LegacyMissingFilePlanTests(unittest.TestCase):
         self.assertIn("reference_scan_truncated", report["blockers"])
         self.assertEqual(report["summary"]["plannedCellUpdateCount"], 1)
 
+    def test_invalid_photo_collection_blocks_cleanup(self):
+        report = build_legacy_missing_file_plan(
+            records=[{
+                "source": "warehouse_invoices.photo_urls",
+                "recordId": 11,
+                "value": "not-json /uploads/missing.jpg",
+                "companyId": 1,
+                "dataType": "text",
+            }],
+            ownership_rows=[{
+                **self._missing_registration(41, "missing.jpg"),
+                "file_url": "/uploads/missing.jpg",
+            }],
+            projects=[],
+            company_ids={1},
+        )
+
+        self.assertFalse(report["readyForCleanup"])
+        self.assertIn("reference_collection_invalid", report["blockers"])
+
+    def test_duplicate_missing_url_is_removed_from_every_collection_position(self):
+        url = "/uploads/company-1-common-invoices/repeated.jpg"
+        report = build_legacy_missing_file_plan(
+            records=[{
+                "source": "warehouse_invoices.photo_urls",
+                "recordId": 11,
+                "value": f'["{url}","{url}"]',
+                "companyId": 1,
+                "dataType": "text",
+            }],
+            ownership_rows=[self._missing_registration(41, "repeated.jpg")],
+            projects=[],
+            company_ids={1},
+        )
+
+        self.assertTrue(report["readyForCleanup"])
+        self.assertEqual(report["summary"]["missingReferenceCount"], 2)
+        self.assertEqual(report["summary"]["plannedCellUpdateCount"], 1)
+
+    def test_exact_guarded_apply_clears_only_missing_references(self):
+        connection = Mock()
+        cursor = Mock()
+        cursor.fetchone.side_effect = [{"id": 10}, {"id": 11}]
+        connection.cursor.return_value = cursor
+        get_db = Mock(return_value=connection)
+        rows = self._apply_rows()
+        dry = build_legacy_missing_file_plan(*rows)
+
+        with patch.object(
+            plan_module,
+            "load_legacy_reference_cutover_rows",
+            return_value=rows,
+        ):
+            result = run_legacy_missing_file_plan(
+                get_db,
+                apply=True,
+                confirm=APPLY_CONFIRMATION,
+                expected_update_count=2,
+                expected_reference_count=3,
+                expected_plan_sha256=dry["planSha256"],
+            )
+
+        connection.commit.assert_called_once_with()
+        connection.rollback.assert_not_called()
+        self.assertEqual(result["updatedCellCount"], 2)
+        self.assertEqual(result["removedReferenceCount"], 3)
+        self.assertEqual(result["businessRecordsDeleted"], 0)
+        self.assertEqual(result["registryRowsDeleted"], 0)
+        update_values = [call.args[1][0] for call in cursor.execute.call_args_list]
+        self.assertEqual(update_values, ["", "[]"])
+
+    def test_apply_rejects_changed_plan_before_writing(self):
+        connection = Mock()
+        cursor = Mock()
+        connection.cursor.return_value = cursor
+        get_db = Mock(return_value=connection)
+        rows = self._apply_rows()
+
+        with patch.object(
+            plan_module,
+            "load_legacy_reference_cutover_rows",
+            return_value=rows,
+        ):
+            with self.assertRaisesRegex(
+                LegacyMissingFilePlanError,
+                "plan_sha256_mismatch",
+            ):
+                run_legacy_missing_file_plan(
+                    get_db,
+                    apply=True,
+                    confirm=APPLY_CONFIRMATION,
+                    expected_update_count=2,
+                    expected_reference_count=3,
+                    expected_plan_sha256="0" * 64,
+                )
+
+        connection.rollback.assert_called_once_with()
+        connection.commit.assert_not_called()
+        cursor.execute.assert_not_called()
+
     def test_runner_is_read_only_and_rolls_back(self):
         connection = Mock()
         cursor = Mock()
@@ -199,6 +301,41 @@ class LegacyMissingFilePlanTests(unittest.TestCase):
             "storageReady": False,
             "storageReason": "local_file_unavailable",
         }
+
+    @classmethod
+    def _apply_rows(cls):
+        scalar = "/uploads/company-1-common-invoices/missing.jpg"
+        first = "/uploads/company-1-common-invoices/first.jpg"
+        second = "/uploads/company-1-common-invoices/second.jpg"
+        return (
+            [
+                {
+                    "source": "supplier_invoices.photo_url",
+                    "recordId": 10,
+                    "value": scalar,
+                    "companyId": 1,
+                    "dataType": "text",
+                },
+                {
+                    "source": "warehouse_invoices.photo_urls",
+                    "recordId": 11,
+                    "value": f'["{first}","{second}"]',
+                    "companyId": 1,
+                    "dataType": "text",
+                },
+            ],
+            [
+                cls._missing_registration(41, "missing.jpg"),
+                cls._missing_registration(42, "first.jpg"),
+                cls._missing_registration(43, "second.jpg"),
+            ],
+            [],
+            {1},
+            {"scannedSources": [
+                "supplier_invoices.photo_url",
+                "warehouse_invoices.photo_urls",
+            ]},
+        )
 
 
 if __name__ == "__main__":
