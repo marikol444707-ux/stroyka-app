@@ -29,6 +29,7 @@ from .public_exposure_report import (
 
 PREVIEW_LIMIT = 100
 LOCAL_MISSING_REASON = "local_file_unavailable"
+LEGACY_REGISTRATION_CONTEXT = "legacy_backfill"
 
 
 def _sha256(value):
@@ -45,7 +46,15 @@ def _registration_index(rows, referenced_urls):
             continue
         file_id = _positive_int(row.get("id"))
         company_id = _positive_int(row.get("company_id"))
-        if not file_id or not company_id or not _storage_context(row, url):
+        storage_context = _storage_context(row, url)
+        is_registered_legacy_url = (
+            str(row.get("context") or "") == LEGACY_REGISTRATION_CONTEXT
+        )
+        if (
+            not file_id
+            or not company_id
+            or not (storage_context or is_registered_legacy_url)
+        ):
             invalid += 1
             continue
         indexed[url].append({

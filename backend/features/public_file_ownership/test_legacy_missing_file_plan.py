@@ -76,6 +76,32 @@ class LegacyMissingFilePlanTests(unittest.TestCase):
         self.assertEqual(report["summary"]["availableReferenceCount"], 1)
         self.assertEqual(report["summary"]["plannedCellUpdateCount"], 0)
 
+    def test_registered_flat_legacy_url_is_accepted_for_missing_cleanup(self):
+        report = build_legacy_missing_file_plan(
+            records=[{
+                "source": "supplier_invoices.photo_url",
+                "recordId": 10,
+                "value": "/uploads/old-flat-photo.jpg",
+                "companyId": 1,
+            }],
+            ownership_rows=[{
+                "id": 41,
+                "file_url": "/uploads/old-flat-photo.jpg",
+                "company_id": 1,
+                "project_id": None,
+                "context": "legacy_backfill",
+                "storageReady": False,
+                "storageReason": "local_file_unavailable",
+            }],
+            projects=[],
+            company_ids={1},
+        )
+
+        self.assertTrue(report["readyForCleanup"])
+        self.assertEqual(report["summary"]["missingReferenceCount"], 1)
+        self.assertEqual(report["summary"]["invalidRegistryRows"], 0)
+        self.assertEqual(report["blockers"], [])
+
     def test_owner_mismatch_blocks_cleanup(self):
         report = build_legacy_missing_file_plan(
             records=[{
