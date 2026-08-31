@@ -104,6 +104,48 @@ class LegacyMissingFilePlanTests(unittest.TestCase):
         self.assertEqual(report["summary"]["invalidRegistryRows"], 0)
         self.assertEqual(report["blockers"], [])
 
+    def test_json_scalar_photo_url_is_planned_and_cleared_as_valid_json(self):
+        url = "/uploads/company-1-common-invoices/missing.jpg"
+        rows = (
+            [{
+                "source": "supplier_invoices.photo_url",
+                "recordId": 10,
+                "value": f'"{url}"',
+                "companyId": 1,
+                "dataType": "jsonb",
+            }],
+            [self._missing_registration(41, "missing.jpg")],
+            [],
+            {1},
+            {"scannedSources": ["supplier_invoices.photo_url"]},
+        )
+        dry = build_legacy_missing_file_plan(*rows)
+
+        self.assertTrue(dry["readyForCleanup"])
+        self.assertEqual(dry["summary"]["plannedCellUpdateCount"], 1)
+
+        connection = Mock()
+        cursor = Mock()
+        cursor.fetchone.return_value = {"id": 10}
+        connection.cursor.return_value = cursor
+
+        with patch.object(
+            plan_module,
+            "load_legacy_reference_cutover_rows",
+            return_value=rows,
+        ):
+            result = run_legacy_missing_file_plan(
+                Mock(return_value=connection),
+                apply=True,
+                confirm=APPLY_CONFIRMATION,
+                expected_update_count=1,
+                expected_reference_count=1,
+                expected_plan_sha256=dry["planSha256"],
+            )
+
+        self.assertEqual(result["updatedCellCount"], 1)
+        self.assertEqual(cursor.execute.call_args.args[1][0], '""')
+
     def test_owner_mismatch_blocks_cleanup(self):
         report = build_legacy_missing_file_plan(
             records=[{
@@ -203,6 +245,46 @@ class LegacyMissingFilePlanTests(unittest.TestCase):
         self.assertTrue(report["readyForCleanup"])
         self.assertEqual(report["summary"]["missingReferenceCount"], 2)
         self.assertEqual(report["summary"]["plannedCellUpdateCount"], 1)
+
+    def test_absolute_local_url_is_removed_from_photo_collection(self):
+        local_url = "/uploads/company-1-common-invoices/missing.jpg"
+        report = build_legacy_missing_file_plan(
+            records=[{
+                "source": "interim_acts.photo_urls",
+                "recordId": 1,
+                "value": f'["https://stroyka26.pro{local_url}"]',
+                "companyId": 1,
+                "dataType": "text",
+            }],
+            ownership_rows=[self._missing_registration(41, "missing.jpg")],
+            projects=[],
+            company_ids={1},
+        )
+
+        self.assertTrue(report["readyForCleanup"])
+        self.assertEqual(report["summary"]["missingReferenceCount"], 1)
+        self.assertEqual(report["summary"]["plannedCellUpdateCount"], 1)
+
+    def test_text_containing_local_url_is_not_removed_as_collection_item(self):
+        local_url = "/uploads/company-1-common-invoices/missing.jpg"
+        report = build_legacy_missing_file_plan(
+            records=[{
+                "source": "interim_acts.photo_urls",
+                "recordId": 1,
+                "value": f'["Фото: {local_url}"]',
+                "companyId": 1,
+                "dataType": "text",
+            }],
+            ownership_rows=[self._missing_registration(41, "missing.jpg")],
+            projects=[],
+            company_ids={1},
+        )
+
+        self.assertFalse(report["readyForCleanup"])
+        self.assertIn(
+            "reference_collection_rewrite_incomplete",
+            report["blockers"],
+        )
 
     def test_exact_guarded_apply_clears_only_missing_references(self):
         connection = Mock()

@@ -8,6 +8,7 @@ paths so the evidence can be retained without disclosing document names.
 import hashlib
 import json
 from collections import Counter, defaultdict
+from urllib.parse import urlsplit
 
 import psycopg2.extras
 from psycopg2 import sql
@@ -85,14 +86,34 @@ def _public_update(item):
     }
 
 
-def _clean_reference_value(source, value, missing_urls):
+def _normalize_collection_item_url(value):
+    normalized = _normalize_local_upload_url(value)
+    if normalized:
+        return normalized
+    parsed = urlsplit(str(value or "").strip())
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return None
+    return _normalize_local_upload_url(parsed.path)
+
+
+def _clean_reference_value(source, value, missing_urls, data_type="text"):
     expected_removals = len(missing_urls)
     missing_urls = set(missing_urls)
     if source.endswith(".photo_url"):
-        normalized = _normalize_local_upload_url(value)
+        scalar_value = value
+        cleared_value = ""
+        if data_type in ("json", "jsonb"):
+            try:
+                scalar_value = json.loads(value)
+            except (TypeError, ValueError):
+                return None, 0, "scalar_reference_shape_invalid"
+            if not isinstance(scalar_value, str):
+                return None, 0, "scalar_reference_shape_invalid"
+            cleared_value = json.dumps("", ensure_ascii=False)
+        normalized = _normalize_local_upload_url(scalar_value)
         if len(missing_urls) != 1 or normalized not in missing_urls:
             return None, 0, "scalar_reference_shape_invalid"
-        return "", 1, None
+        return cleared_value, 1, None
 
     if not source.endswith(".photo_urls"):
         return None, 0, "source_reference_shape_unsupported"
@@ -107,7 +128,7 @@ def _clean_reference_value(source, value, missing_urls):
     removed = 0
     for item in parsed:
         normalized = (
-            _normalize_local_upload_url(item)
+            _normalize_collection_item_url(item)
             if isinstance(item, str)
             else None
         )
@@ -155,6 +176,7 @@ def _prepare_legacy_missing_file_plan(
     for record in records:
         source = str(record.get("source") or "")
         record_id = _positive_int(record.get("recordId"))
+        data_type = str(record.get("dataType") or "text").strip().lower()
         value = str(record.get("value") or "")
         urls = extract_local_upload_urls(value)
         if not urls:
@@ -224,6 +246,7 @@ def _prepare_legacy_missing_file_plan(
                 source,
                 value,
                 cell_missing_urls,
+                data_type,
             )
             if rewrite_error or removed != len(cell_missing_urls):
                 unresolved_references += len(cell_missing_urls)
@@ -237,7 +260,7 @@ def _prepare_legacy_missing_file_plan(
             updates.append({
                 "source": source,
                 "recordId": record_id,
-                "dataType": str(record.get("dataType") or "").strip().lower(),
+                "dataType": data_type,
                 "oldValue": value,
                 "newValue": new_value,
                 "missingReferenceCount": len(cell_missing_ids),
