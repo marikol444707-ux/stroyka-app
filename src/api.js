@@ -148,6 +148,16 @@ export const installAuthFetch = () => {
     }
     return response;
   };
+  const explainSubscriptionReadOnly = async (response) => {
+    if (response.status !== 403 || window.__stroykaSubscriptionReadOnlyNotified) return response;
+    try {
+      const payload = await response.clone().json();
+      if (payload?.code !== 'subscription_read_only') return response;
+      window.__stroykaSubscriptionReadOnlyNotified = true;
+      window.alert(payload.detail || 'Срок подписки закончился. Доступен только просмотр.');
+    } catch (_e) {}
+    return response;
+  };
   window.fetch = async (input, init = {}) => {
     const path = getRequestPath(input);
     const isPublicAuthRequest = isAuthPublicPath(path);
@@ -158,6 +168,7 @@ export const installAuthFetch = () => {
       nextInit = withCsrfToken(nextInit, await fetchCsrfToken());
     }
     const response = await nativeFetch(input, nextInit);
+    if (response.status === 403) return explainSubscriptionReadOnly(response);
     if (response.status !== 401) return response;
     return expireFrontendSession(response);
   };

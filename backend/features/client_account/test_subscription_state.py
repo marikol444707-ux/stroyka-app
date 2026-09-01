@@ -16,6 +16,7 @@ class BillingStateTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "payment_expiring")
         self.assertEqual(result["daysLeft"], 7)
+        self.assertFalse(result["readOnly"])
 
     def test_paid_subscription_is_active_before_warning_window(self):
         result = billing_state(
@@ -42,6 +43,14 @@ class BillingStateTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "payment_expired")
         self.assertEqual(result["daysLeft"], -1)
+        self.assertTrue(result["readOnly"])
+
+    def test_overdue_and_soft_frozen_companies_are_read_only(self):
+        overdue = billing_state({"plan": "business", "payment_status": "overdue"}, today=self.today)
+        frozen = billing_state({"plan": "business", "suspended_at": self.today}, today=self.today)
+
+        self.assertTrue(overdue["readOnly"])
+        self.assertTrue(frozen["readOnly"])
 
 
 if __name__ == "__main__":

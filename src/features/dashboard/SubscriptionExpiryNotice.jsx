@@ -3,7 +3,7 @@ import { AlertTriangle, MessageCircle } from 'lucide-react';
 
 
 const EXPIRING_STATES = new Set(['payment_expiring', 'trial_expiring']);
-const EXPIRED_STATES = new Set(['payment_expired', 'trial_expired', 'overdue']);
+const EXPIRED_STATES = new Set(['payment_expired', 'trial_expired', 'overdue', 'soft_frozen']);
 
 const dayWord = (value) => {
   const days = Math.abs(Number(value || 0));
@@ -42,7 +42,7 @@ export default function SubscriptionExpiryNotice({ company, role, onOpenChat } =
       ? 'Подписка заканчивается сегодня'
       : `Подписка закончится через ${daysLeft} ${dayWord(daysLeft)}`;
   const description = expired
-    ? 'Продлите тариф, чтобы сохранить доступ к рабочим функциям компании. Свяжитесь с владельцем аккаунта или поддержкой.'
+    ? 'Компания работает в режиме «только просмотр»: данные доступны, но создание и изменения заблокированы до продления. Свяжитесь с владельцем аккаунта или поддержкой.'
     : `Продлите тариф${formattedEndDate ? ` до ${formattedEndDate}` : ''}, чтобы работа компании не прерывалась. Свяжитесь с владельцем аккаунта или поддержкой.`;
 
   return (

@@ -8,6 +8,8 @@ describe('installAuthFetch', () => {
     sessionStorage.clear();
     delete window.__stroykaAuthFetchInstalled;
     delete window.__stroykaSessionExpiring;
+    delete window.__stroykaSubscriptionReadOnlyNotified;
+    window.alert = jest.fn();
   });
 
   afterEach(() => {
@@ -16,6 +18,7 @@ describe('installAuthFetch', () => {
     sessionStorage.clear();
     delete window.__stroykaAuthFetchInstalled;
     delete window.__stroykaSessionExpiring;
+    delete window.__stroykaSubscriptionReadOnlyNotified;
   });
 
   it('uses only the cookie session and removes a legacy browser token', async () => {
@@ -109,6 +112,40 @@ describe('installAuthFetch', () => {
     const requestHeaders = new Headers(nativeFetch.mock.calls[1][1].headers || {});
     expect(requestHeaders.get('X-CSRF-Token')).toBe('csrf-token');
     expect(requestHeaders.has('Authorization')).toBe(false);
+  });
+
+  it('explains when an expired subscription blocks a mutation', async () => {
+    const nativeFetch = jest.fn()
+      .mockResolvedValueOnce(new Response('{"csrfToken":"csrf-token"}', { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        code: 'subscription_read_only',
+        detail: 'Срок подписки закончился. Компания работает в режиме «только просмотр».',
+      }), { status: 403, headers: { 'Content-Type': 'application/json' } }));
+    window.fetch = nativeFetch;
+
+    installAuthFetch();
+    const response = await window.fetch('/projects', { method: 'POST' });
+
+    expect(response.status).toBe(403);
+    expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('только просмотр'));
+    await expect(response.json()).resolves.toEqual(expect.objectContaining({
+      code: 'subscription_read_only',
+    }));
+  });
+
+  it('does not show the subscription message for an ordinary permission denial', async () => {
+    const nativeFetch = jest.fn()
+      .mockResolvedValueOnce(new Response('{"csrfToken":"csrf-token"}', { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        detail: 'Недостаточно прав',
+      }), { status: 403, headers: { 'Content-Type': 'application/json' } }));
+    window.fetch = nativeFetch;
+
+    installAuthFetch();
+    const response = await window.fetch('/projects', { method: 'POST' });
+
+    expect(response.status).toBe(403);
+    expect(window.alert).not.toHaveBeenCalled();
   });
 
   it.each([

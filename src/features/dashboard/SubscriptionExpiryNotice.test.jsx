@@ -50,5 +50,20 @@ test('keeps an expired subscription visible until it is renewed', () => {
   );
 
   expect(screen.getByText('Подписка закончилась')).toBeInTheDocument();
-  expect(screen.getByText(/Продлите тариф, чтобы сохранить доступ/)).toBeInTheDocument();
+  expect(screen.getByText(/Компания работает в режиме «только просмотр»/)).toBeInTheDocument();
+});
+
+test('shows the read-only notice for a softly frozen company', () => {
+  render(
+    <SubscriptionExpiryNotice
+      company={{
+        ...expiringCompany,
+        billingState: { status: 'soft_frozen' },
+      }}
+      role="директор"
+    />,
+  );
+
+  expect(screen.getByText('Подписка закончилась')).toBeInTheDocument();
+  expect(screen.getByText(/создание и изменения заблокированы/)).toBeInTheDocument();
 });

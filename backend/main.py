@@ -2687,49 +2687,59 @@ def _clip_api_error_text(value: str, limit: int = 700) -> str:
     return text[:limit - 1] + "…"
 
 def _request_user_snapshot(request: Request, cur=None) -> dict:
-    auth = request.headers.get("authorization") or ""
-    if auth.lower().startswith("bearer "):
-        try:
-            payload = verify_auth_token(auth.split(" ", 1)[1].strip())
-            return {
-                "id": payload.get("id"),
-                "name": payload.get("name") or "",
-                "role": payload.get("role") or "",
-                "user_id": payload.get("id"),
-                "user_name": payload.get("name") or "",
-                "user_role": payload.get("role") or "",
-            }
-        except Exception:
-            return {}
-    session_token = request.cookies.get(AUTH_SESSION_COOKIE_NAME) if request else ""
-    if not session_token or cur is None:
-        return {}
-    try:
-        cur.execute(
-            """SELECT u.id, u.name, u.role
-               FROM user_sessions s
-               JOIN users u ON u.id=s.user_id
-               WHERE s.session_hash=%s
-                 AND s.revoked_at IS NULL
-                 AND s.expires_at>NOW()
-                 AND COALESCE(u.active, TRUE)=TRUE
-               LIMIT 1""",
-            (_session_token_hash(session_token),),
-        )
-        row = cur.fetchone()
-        if not row:
-            return {}
-        actor = dict(row)
+    def build_snapshot(actor):
+        actor = dict(actor or {})
+        company_id = actor.get("company_id") or actor.get("companyId")
+        platform_account_id = actor.get("platform_account_id") or actor.get("platformAccountId")
         return {
             "id": actor.get("id"),
             "name": actor.get("name") or "",
             "role": actor.get("role") or "",
+            "companyId": company_id,
+            "company_id": company_id,
+            "platformAccountId": platform_account_id,
+            "platform_account_id": platform_account_id,
             "user_id": actor.get("id"),
             "user_name": actor.get("name") or "",
             "user_role": actor.get("role") or "",
         }
-    except Exception:
+
+    auth = request.headers.get("authorization") or ""
+    if auth.lower().startswith("bearer "):
+        try:
+            payload = verify_auth_token(auth.split(" ", 1)[1].strip())
+        except Exception:
+            return {}
+        if cur is not None and payload.get("id"):
+            cur.execute(
+                """SELECT id, name, role, company_id, platform_account_id
+                     FROM users
+                    WHERE id=%s AND COALESCE(active, TRUE)=TRUE
+                    LIMIT 1""",
+                (payload.get("id"),),
+            )
+            actor = cur.fetchone()
+            if actor:
+                return build_snapshot(actor)
+        return build_snapshot(payload)
+    session_token = request.cookies.get(AUTH_SESSION_COOKIE_NAME) if request else ""
+    if not session_token or cur is None:
         return {}
+    cur.execute(
+        """SELECT u.id, u.name, u.role, u.company_id, u.platform_account_id
+           FROM user_sessions s
+           JOIN users u ON u.id=s.user_id
+           WHERE s.session_hash=%s
+             AND s.revoked_at IS NULL
+             AND s.expires_at>NOW()
+             AND COALESCE(u.active, TRUE)=TRUE
+           LIMIT 1""",
+        (_session_token_hash(session_token),),
+    )
+    row = cur.fetchone()
+    if not row:
+        return {}
+    return build_snapshot(row)
 
 def _log_api_error(request: Request, exc: Optional[Exception] = None, status_code: int = 500):
     """Логирует только технический минимум: без тела запроса, паролей и токенов."""
@@ -2800,6 +2810,23 @@ async def api_error_logging_middleware(request: Request, call_next):
         if log_api_error:
             _log_api_error(request, exc, 500)
         raise
+
+
+try:
+    from backend.features.client_account.subscription_access import (
+        register_subscription_read_only_middleware,
+    )
+except ModuleNotFoundError:
+    from features.client_account.subscription_access import (
+        register_subscription_read_only_middleware,
+    )
+
+register_subscription_read_only_middleware(app, {
+    "get_db": get_db,
+    "request_user_snapshot": _request_user_snapshot,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "platform_staff_roles": PLATFORM_STAFF_ROLES,
+})
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
