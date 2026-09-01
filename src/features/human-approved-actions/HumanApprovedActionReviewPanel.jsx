@@ -355,7 +355,7 @@ export default function HumanApprovedActionReviewPanel({
         <div style={{ marginTop: '14px', border: `1px solid ${palette.border}`, borderRadius: '10px', padding: '13px' }}>
           <h3 style={{ margin: 0, color: palette.text, fontSize: '15px' }}>Предложение №{proposal.proposalId}</h3>
           <p style={{ margin: '6px 0 0', color: palette.textSec, fontSize: '12px' }}>
-            Действует до {new Date(proposal.expiresAt).toLocaleString('ru-RU')}
+            Действует до {new Date(proposal.expiresAt).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })}
           </p>
           <p style={{ margin: '9px 0 0', color: palette.warning, fontSize: '12px' }}>{CONSEQUENCE}</p>
           {proposalExpired && <div role="alert" style={{ marginTop: '9px', color: palette.danger }}>Срок предложения истёк. Обновите текущие данные.</div>}
