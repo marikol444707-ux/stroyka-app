@@ -1,8 +1,10 @@
+import datetime as dt
 import unittest
 
 from fastapi import HTTPException
 
 from backend.features.company_context.service import (
+    _company_context_row,
     assert_rows_company_scope,
     company_id_scope_filter,
     company_ids_for_context,
@@ -97,6 +99,30 @@ def user(*, account_id=5):
 
 
 class ResolveRequestCompanyContextTests(unittest.TestCase):
+    def test_company_context_exposes_canonical_subscription_state(self):
+        context = _company_context_row({
+            **membership(role="директор"),
+            "plan": "business",
+            "plan_expires_at": dt.date.today() + dt.timedelta(days=7),
+            "payment_status": "active",
+            "suspended_at": None,
+        })
+
+        self.assertEqual(context["plan"], "business")
+        self.assertEqual(context["planExpiresAt"], (dt.date.today() + dt.timedelta(days=7)).isoformat())
+        self.assertEqual(context["billingState"]["status"], "payment_expiring")
+        self.assertEqual(context["billingState"]["daysLeft"], 7)
+
+    def test_company_context_hides_subscription_from_non_director_members(self):
+        context = _company_context_row({
+            **membership(role="прораб"),
+            "plan": "business",
+            "plan_expires_at": dt.date.today() + dt.timedelta(days=7),
+        })
+
+        self.assertNotIn("planExpiresAt", context)
+        self.assertNotIn("billingState", context)
+
     def test_accepts_linked_rows_from_resource_company(self):
         assert_rows_company_scope(
             [{"company_id": 7}, {"companyId": 7}],

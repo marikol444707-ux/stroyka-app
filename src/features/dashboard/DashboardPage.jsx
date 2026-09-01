@@ -11,6 +11,7 @@ import {
 } from '../../app/lazyComponents';
 import { isOpenAiStatus } from '../../utils/statusMetaUtils';
 import {useLatestDirectorDailyBrief} from './useLatestDirectorDailyBrief';
+import SubscriptionExpiryNotice from './SubscriptionExpiryNotice';
 
 export default function DashboardPage({
   actions = {},
@@ -175,6 +176,11 @@ export default function DashboardPage({
     user,
   };
   const currentUserRole = user?.role || '';
+  const subscriptionCompany = companyContext?.selectedCompany
+    || (Array.isArray(companyContext?.companies) && companyContext.companies.length === 1
+      ? companyContext.companies[0]
+      : null);
+  const subscriptionRole = subscriptionCompany?.role || currentUserRole;
   const isLeadershipUser = typeof isLeadership === 'function'
     ? isLeadership
     : () => ['директор', 'зам_директора'].includes(currentUserRole);
@@ -310,6 +316,11 @@ export default function DashboardPage({
   return (
     <div style={{minHeight:'100%',padding:isMobile?'calc(env(safe-area-inset-top, 0px) + 12px) 16px 16px':'28px',background:'radial-gradient(circle at 15% 0%,rgba(249,115,22,.15),transparent 32%),linear-gradient(135deg,#0b1120 0%,#111827 100%)',color:'#f8fafc'}}>
       <DashboardTopBar {...topBarProps}/>
+      <SubscriptionExpiryNotice
+        company={subscriptionCompany}
+        role={subscriptionRole}
+        onOpenChat={()=>safeSetShowChatPanel(true)}
+      />
       <DashboardStatsGrid dashboardProjects={dashboardProjects} avgProg={avgProg} totalDone={totalDone} totalExpenses={dashboardAccountingExpenses} setActivePage={safeSetActivePage} navigateTo={safeNavigateTo} setAccountingTab={safeSetAccountingTab}/>
       {showDashboardExtra&&<DashboardDirectorAiPanel isLeadership={isLeadershipUser} latestDailyBriefState={latestDailyBriefState} directorSkillCards={directorSkillCards} dailyReportDate={dailyReportDate} setDailyReportDate={safeSetDailyReportDate} canUseDirectorAgent={canUseDirectorAgent} directorAgentLoading={directorAgentLoading} askDirectorAgent={safeAskDirectorAgent} directorAgentQuestion={directorAgentQuestion} setDirectorAgentQuestion={safeSetDirectorAgentQuestion} isMobile={isMobile} directorAgentAnswer={directorAgentAnswer} directorAgentError={directorAgentError} directorAgentSteps={directorAgentSteps}/>}
       {showDashboardExtra&&<DashboardSupplyPanel showSupplyDashboard={showSupplyDashboard} user={user} openSupplyDashboard={openSupplyDashboard} supplyPendingRequests={supplyPendingRequests} supplyOffersToReview={supplyOffersToReview} supplyInvoicesToPay={supplyInvoicesToPay} supplyInvoiceDebt={supplyInvoiceDebt}/>}

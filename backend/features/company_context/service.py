@@ -5,6 +5,8 @@ from typing import List
 
 from fastapi import HTTPException
 
+from ..client_account.subscription_state import billing_state, iso_date
+
 
 _REQUEST_COMPANY_MODES = {"company", "all_companies"}
 _WRITE_ACTION_MODES = {"write", "mutate", "create", "update", "delete"}
@@ -187,7 +189,7 @@ def _company_context_row(
     role = item.get("role") or ""
     company_id = item.get("company_id") or item.get("id")
     platform_account_id = item.get("platform_account_id")
-    return {
+    context = {
         "membershipId": item.get("membership_id"),
         "companyId": company_id,
         "company_id": company_id,
@@ -206,6 +208,16 @@ def _company_context_row(
         "readOnly": bool(read_only),
         "source": source,
     }
+    if role == "директор" or role in client_account_roles or source == "platform":
+        context.update({
+            "plan": item.get("plan") or "demo",
+            "trialUntil": iso_date(item.get("trial_until")),
+            "planExpiresAt": iso_date(item.get("plan_expires_at")),
+            "paymentStatus": item.get("payment_status") or "active",
+            "suspendedAt": iso_date(item.get("suspended_at")),
+            "billingState": billing_state(item),
+        })
+    return context
 
 
 def user_company_memberships(
@@ -229,7 +241,8 @@ def user_company_memberships(
                COALESCE(m.platform_account_id,c.platform_account_id) AS platform_account_id,
                m.role, m.assigned_projects, m.assigned_packages,
                COALESCE(m.active,TRUE) AS active, COALESCE(m.is_default,FALSE) AS is_default,
-               c.name AS company_name, c.short_name, COALESCE(c.active,TRUE) AS company_active
+               c.name AS company_name, c.short_name, COALESCE(c.active,TRUE) AS company_active,
+               c.plan, c.trial_until, c.plan_expires_at, c.payment_status, c.suspended_at
         FROM user_company_roles m
         LEFT JOIN companies c ON c.id=m.company_id
         WHERE {' AND '.join(where)}
@@ -245,7 +258,8 @@ def user_company_memberships(
     if not legacy_company_id or user.get("role") in platform_staff_roles:
         return []
     cur.execute("""SELECT c.id AS company_id, c.platform_account_id, c.name AS company_name,
-                          c.short_name, COALESCE(c.active,TRUE) AS company_active
+                          c.short_name, COALESCE(c.active,TRUE) AS company_active,
+                          c.plan, c.trial_until, c.plan_expires_at, c.payment_status, c.suspended_at
                    FROM companies c
                    WHERE c.id=%s""", (legacy_company_id,))
     company = cur.fetchone()
@@ -273,7 +287,8 @@ def account_company_contexts(cur, user: dict, *, client_account_roles=()) -> Lis
     if not account_id:
         return []
     cur.execute("""SELECT c.id AS company_id, c.platform_account_id, c.name AS company_name,
-                          c.short_name, COALESCE(c.active,TRUE) AS company_active
+                          c.short_name, COALESCE(c.active,TRUE) AS company_active,
+                          c.plan, c.trial_until, c.plan_expires_at, c.payment_status, c.suspended_at
                    FROM companies c
                    WHERE c.platform_account_id=%s AND COALESCE(c.active,TRUE)=TRUE
                    ORDER BY c.name NULLS LAST, c.id""", (account_id,))
@@ -457,7 +472,8 @@ def build_company_context_response(
     companies = []
     if role in platform_staff_roles:
         cur.execute("""SELECT c.id AS company_id, c.platform_account_id, c.name AS company_name,
-                              c.short_name, COALESCE(c.active,TRUE) AS company_active
+                              c.short_name, COALESCE(c.active,TRUE) AS company_active,
+                              c.plan, c.trial_until, c.plan_expires_at, c.payment_status, c.suspended_at
                        FROM companies c
         WHERE COALESCE(c.active,TRUE)=TRUE
                        ORDER BY c.platform_account_id NULLS LAST, c.name NULLS LAST, c.id""")

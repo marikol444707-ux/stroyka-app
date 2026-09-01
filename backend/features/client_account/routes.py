@@ -8,6 +8,8 @@ try:
 except ModuleNotFoundError:
     from features.platform_admin.routes import SYSTEM_TARIFFS
 
+from .subscription_state import billing_state as _billing_state
+
 
 CLIENT_ACCOUNT_ROLES = ("account_owner", "account_admin")
 PLATFORM_STAFF_ROLES = ("system_owner", "platform_admin", "platform_support", "billing_admin")
@@ -149,45 +151,6 @@ def _limit_warnings(tariff, usage):
                 "limit": limit,
             })
     return warnings
-
-
-def _billing_state(company):
-    if company.get("suspended_at"):
-        return {"status": "soft_frozen", "label": "Мягко заморожена", "level": "danger"}
-    payment_status = company.get("payment_status") or "active"
-    if payment_status == "overdue":
-        return {"status": "overdue", "label": "Просрочка", "level": "danger"}
-    plan = company.get("plan") or "demo"
-    if plan == "demo":
-        trial_until = company.get("trial_until")
-        if trial_until:
-            try:
-                target = trial_until.date() if isinstance(trial_until, dt.datetime) else trial_until
-                if not isinstance(target, dt.date):
-                    target = dt.date.fromisoformat(str(target)[:10])
-                days_left = (target - dt.date.today()).days
-                if days_left < 0:
-                    return {"status": "trial_expired", "label": "Демо истекло", "level": "danger", "daysLeft": days_left}
-                if days_left <= 3:
-                    return {"status": "trial_expiring", "label": "Демо скоро закончится", "level": "warning", "daysLeft": days_left}
-                return {"status": "trial_active", "label": "Демо активно", "level": "info", "daysLeft": days_left}
-            except Exception:
-                return {"status": "trial_unknown", "label": "Демо", "level": "info"}
-        return {"status": "trial_unknown", "label": "Демо без даты", "level": "warning"}
-    expires = company.get("plan_expires_at")
-    if expires:
-        try:
-            target = expires.date() if isinstance(expires, dt.datetime) else expires
-            if not isinstance(target, dt.date):
-                target = dt.date.fromisoformat(str(target)[:10])
-            days_left = (target - dt.date.today()).days
-            if days_left < 0:
-                return {"status": "payment_expired", "label": "Оплата истекла", "level": "danger", "daysLeft": days_left}
-            if days_left <= 7:
-                return {"status": "payment_expiring", "label": "Оплата скоро закончится", "level": "warning", "daysLeft": days_left}
-        except Exception:
-            pass
-    return {"status": "active", "label": "Активна", "level": "success"}
 
 
 def _company_row(row):
