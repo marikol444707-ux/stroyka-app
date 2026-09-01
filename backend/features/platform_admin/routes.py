@@ -240,6 +240,40 @@ def _client_user_role_label(role: str) -> str:
     return CLIENT_USER_ROLE_LABELS.get(role or "", role or "")
 
 
+def _build_initial_company_invite(
+    data: dict,
+    *,
+    current_user: dict,
+    company_id: int,
+    platform_account_id: int,
+    code: str,
+    expires_at: datetime,
+) -> dict:
+    recipient_name = (data.get("contactName") or "").strip()
+    recipient_email = (data.get("contactEmail") or "").strip()
+    company_name = (data.get("name") or "").strip()
+    created_by = (
+        current_user.get("name")
+        or current_user.get("email")
+        or current_user.get("role")
+        or "platform"
+    )
+    return {
+        "code": code,
+        "role": "директор",
+        "roleLabel": _client_user_role_label("директор"),
+        "presetName": recipient_name or recipient_email or company_name,
+        "presetCategory": "client_user",
+        "createdBy": created_by,
+        "expiresAt": str(expires_at)[:19],
+        "companyId": company_id,
+        "companyName": company_name,
+        "platformAccountId": platform_account_id,
+        "recipientName": recipient_name,
+        "recipientEmail": recipient_email,
+    }
+
+
 def _support_scope_label(scope: str) -> str:
     labels = {
         "read_only": "Только просмотр",
@@ -1744,12 +1778,24 @@ def register_platform_admin_routes(app, deps):
              max_projects, max_users,
              True, data.get("notes")))
         new_id = cur.fetchone()["id"]
-        invite_code = str(uuid.uuid4())[:8].upper()
+        invite_code = uuid.uuid4().hex[:20].upper()
         expires = datetime.now() + timedelta(days=30)
+        onboarding = _build_initial_company_invite(
+            data,
+            current_user=current_user,
+            company_id=new_id,
+            platform_account_id=platform_account_id,
+            code=invite_code,
+            expires_at=expires,
+        )
         cur.execute("""INSERT INTO invite_codes
-                          (code, role, preset_name, expires_at, created_by, company_id, platform_account_id)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s)""",
-            (invite_code, "директор", data.get("name"), expires, data.get("createdBy") or "system_owner", new_id, platform_account_id))
+                          (code, role, preset_name, preset_category, expires_at, created_by, company_id, platform_account_id)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (
+                onboarding["code"], onboarding["role"], onboarding["presetName"],
+                onboarding["presetCategory"], expires, onboarding["createdBy"],
+                new_id, platform_account_id,
+            ))
         _system_write_audit(cur, current_user, "company_created", "company", new_id, data.get("name"),
             platform_account_id=platform_account_id, company_id=new_id,
             details={
@@ -1759,12 +1805,18 @@ def register_platform_admin_routes(app, deps):
                 "monthlyFee": monthly_fee,
                 "maxProjects": max_projects,
                 "maxUsers": max_users,
-                "inviteCode": invite_code,
+                "inviteCreated": True,
+                "inviteExpiresAt": onboarding["expiresAt"],
                 "duplicateCheck": {"inn": inn, "kpp": kpp, "duplicates": len(preview.get("duplicates") or [])},
                 "limitPreview": preview.get("accountUsage"),
             })
         conn.close()
-        return {"id": new_id, "inviteCode": invite_code, "trialUntil": str(trial_until) if trial_until else None}
+        return {
+            "id": new_id,
+            "inviteCode": invite_code,
+            "trialUntil": str(trial_until) if trial_until else None,
+            "onboarding": onboarding,
+        }
 
     @app.put("/system/companies/{id}")
     def system_update_company(id: int, data: dict, current_user: dict = Depends(require_roles(*PLATFORM_MANAGE_ROLES))):
