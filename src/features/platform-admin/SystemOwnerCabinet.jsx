@@ -3,6 +3,7 @@ import {
   buildCompanyOnboardingResult,
   describeClientCardConfidence,
 } from './companyOnboarding';
+import ClientContractsPanel from './ClientContractsPanel';
 
 function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, inp, badge, API}) {
   const [tab, setTab] = useState('dashboard');
@@ -23,6 +24,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const [clientCardRecognition, setClientCardRecognition] = useState(null);
   const [companyPreview, setCompanyPreview] = useState(null);
   const [companyPreviewLoading, setCompanyPreviewLoading] = useState(false);
+  const [contractCompanyId, setContractCompanyId] = useState(null);
   const [newPayment, setNewPayment] = useState({companyId:'',amount:'',paymentDate:new Date().toISOString().split('T')[0],method:'card',invoiceNumber:'',periodStart:'',periodEnd:'',notes:''});
   const [showNewPayment, setShowNewPayment] = useState(false);
   const [newBillingDocument, setNewBillingDocument] = useState({companyId:'',documentType:'invoice',status:'draft',amount:'',issueDate:new Date().toISOString().split('T')[0],dueDate:'',periodStart:'',periodEnd:'',paymentProvider:'manual',paymentUrl:'',fileUrl:'',notes:''});
@@ -1023,7 +1025,23 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
 	                      {isSuspended && <button onClick={()=>resumeCompany(c)} style={{...btnGr,padding:'4px 10px',fontSize:'11px'}}>▶ Разморозить</button>}
                       {canManageBilling && <button onClick={()=>openCompanyPayment(c)} style={{...btnO,padding:'4px 10px',fontSize:'11px'}}>💰 Зачислить оплату</button>}
                       {canManageBilling && <button onClick={()=>openCompanyBillingDocument(c)} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>📄 Счет/акт</button>}
+	                      <button
+	                        aria-expanded={contractCompanyId === c.id}
+	                        onClick={()=>setContractCompanyId(contractCompanyId === c.id ? null : c.id)}
+	                        style={{...btnG,padding:'4px 10px',fontSize:'11px'}}
+	                      >📃 Договор</button>
 	                    </div>
+	                  )}
+	                  {contractCompanyId === c.id && (
+	                    <ClientContractsPanel
+	                      company={c}
+	                      API={API}
+	                      canManage={canManagePlatform}
+	                      C={C}
+	                      btnO={btnO}
+	                      btnG={btnG}
+	                      badge={badge}
+	                    />
 	                  )}
 	                  {c.suspended_reason && <p style={{color:C.danger,fontSize:'11px',margin:'6px 0 0',fontStyle:'italic'}}>⚠️ {c.suspended_reason}</p>}
 	                </div>);
