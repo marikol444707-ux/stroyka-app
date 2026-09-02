@@ -719,6 +719,9 @@ MAIN_WAREHOUSE_WRITE_ROLES = ("директор", "зам_директора", "
 PROJECT_WAREHOUSE_INVOICE_OVERRIDE_ROLES = (*MAIN_WAREHOUSE_WRITE_ROLES, "прораб")
 SUPPLY_ROLES = ("директор", "зам_директора", "снабженец", "кладовщик", "прораб", "мастер", "субподрядчик", "бригадир", "поставщик", "бухгалтер")
 SUPPLY_INTERNAL_ROLES = ("директор", "зам_директора", "снабженец", "кладовщик", "прораб", "бухгалтер")
+SUPPLY_TECHNICAL_COMPARISON_ROLES = (
+    "директор", "зам_директора", "снабженец",
+)
 MATERIAL_PRICE_HISTORY_ROLES = ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер")
 PROJECT_WRITE_ROLES = ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик")
 PROJECT_CARD_WRITE_ROLES = ("директор", "зам_директора", "главный_инженер", "сметчик")
@@ -17121,6 +17124,65 @@ if os.getenv("HUMAN_APPROVED_ACTIONS_HTTP_ENABLED") == "true":
             "decide_review_acknowledgement": decide_review_acknowledgement,
             "list_review_acknowledgement_history": (
                 list_review_acknowledgement_history
+            ),
+        })
+
+
+def _parse_supply_technical_comparison_company_ids(raw):
+    if type(raw) is not str:
+        return None
+    parts = raw.split(",")
+    if not 1 <= len(parts) <= 100:
+        return None
+    company_ids = set()
+    for part in parts:
+        if (
+            not part
+            or len(part) > 19
+            or part[0] == "0"
+            or not part.isascii()
+            or not part.isdecimal()
+        ):
+            return None
+        company_id = int(part)
+        if company_id > 9223372036854775807 or company_id in company_ids:
+            return None
+        company_ids.add(company_id)
+    return frozenset(company_ids)
+
+
+if os.getenv("SUPPLY_TECHNICAL_COMPARISON_HTTP_ENABLED") == "true":
+    supply_technical_comparison_company_ids = (
+        _parse_supply_technical_comparison_company_ids(
+            os.getenv("SUPPLY_TECHNICAL_COMPARISON_COMPANY_IDS")
+        )
+    )
+    if supply_technical_comparison_company_ids is not None:
+        try:
+            from backend.features.supply_kp_comparison.runtime_access import (
+                run_authorized_supply_technical_comparison,
+            )
+            from backend.features.supply_kp_comparison.runtime_routes import (
+                register_supply_technical_comparison_routes,
+            )
+        except ModuleNotFoundError:
+            from features.supply_kp_comparison.runtime_access import (
+                run_authorized_supply_technical_comparison,
+            )
+            from features.supply_kp_comparison.runtime_routes import (
+                register_supply_technical_comparison_routes,
+            )
+
+        register_supply_technical_comparison_routes(app, {
+            "enabled": True,
+            "allowed_company_ids": supply_technical_comparison_company_ids,
+            "allowed_roles": SUPPLY_TECHNICAL_COMPARISON_ROLES,
+            "get_db": get_db,
+            "build_cookie_session_authentication": (
+                build_cookie_session_authentication
+            ),
+            "run_authorized_supply_technical_comparison": (
+                run_authorized_supply_technical_comparison
             ),
         })
 
