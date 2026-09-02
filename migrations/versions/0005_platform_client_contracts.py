@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS public.platform_client_contracts (
     company_id INTEGER NOT NULL,
     licensor_profile_id INTEGER NOT NULL,
     idempotency_key VARCHAR(128) NOT NULL,
+    request_fingerprint VARCHAR(64) NOT NULL,
     contract_type VARCHAR(50) NOT NULL DEFAULT 'platform_license',
     number VARCHAR(100) NOT NULL,
     contract_date DATE NOT NULL,
@@ -136,6 +137,7 @@ IF NOT EXISTS (
             'NaN'::numeric, 'Infinity'::numeric, '-Infinity'::numeric
         )
         AND currency ~ '^[A-Z]{3}$'
+        AND request_fingerprint ~ '^[0-9a-f]{64}$'
         AND (max_projects IS NULL OR max_projects >= 0)
         AND (max_users IS NULL OR max_users >= 0)
         AND jsonb_typeof(licensor_snapshot_json) = 'object'

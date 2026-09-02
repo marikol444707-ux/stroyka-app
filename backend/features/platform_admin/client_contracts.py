@@ -402,7 +402,13 @@ def build_client_contract_preview(
             "platformAccountId",
             "Компания не принадлежит выбранному аккаунту платформы.",
         ))
-    if _value(licensor, "id") != licensor_profile_id:
+    if not licensor_profile_id:
+        blockers.append(_blocker(
+            "licensor_profile_required",
+            "licensorProfileId",
+            "Сначала заполните профиль правообладателя платформы.",
+        ))
+    elif _value(licensor, "id") != licensor_profile_id:
         blockers.append(_blocker(
             "licensor_profile_mismatch",
             "licensorProfileId",

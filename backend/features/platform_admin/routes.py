@@ -159,6 +159,9 @@ def _system_tariff(plan: str):
     return next((t for t in SYSTEM_TARIFFS if t["id"] == plan_key), SYSTEM_TARIFFS[0])
 
 
+get_platform_tariff = _system_tariff
+
+
 def _system_days_left(value):
     if not value:
         return None

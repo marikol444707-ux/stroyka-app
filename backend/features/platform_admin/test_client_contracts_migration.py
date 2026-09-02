@@ -90,6 +90,14 @@ class PlatformClientContractsMigrationTests(unittest.TestCase):
             "uq_platform_client_contracts_number",
             combined,
         )
+        self.assertIn(
+            "request_fingerprint VARCHAR(64) NOT NULL",
+            combined,
+        )
+        self.assertIn(
+            "request_fingerprint ~ '^[0-9a-f]{64}$'",
+            combined,
+        )
         self.assertNotRegex(
             combined.upper(),
             re.compile(r"\b(INSERT|UPDATE|DELETE FROM|TRUNCATE)\b"),
