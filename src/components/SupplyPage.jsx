@@ -437,6 +437,7 @@ export default function SupplyPage({
           isMobile={isMobile}
           user={user}
           companyContext={companyContext}
+          projects={projects}
           statusColors={statusColors}
           supplyCollapsedProjects={supplyCollapsedProjects}
           setSupplyCollapsedProjects={setSupplyCollapsedProjects}

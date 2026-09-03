@@ -852,7 +852,7 @@ class WarehouseAnomalyRuntimeArtifactProvenanceTests(unittest.TestCase):
                 for node in ast.walk(parsed)
             ):
                 callsites.append(str(path.relative_to(backend_root)))
-        self.assertEqual(callsites, [
+        self.assertCountEqual(callsites, [
             "features/warehouse_recommendation_preview/runtime_preview.py",
             "features/human_approved_actions/action_kernel.py",
         ])

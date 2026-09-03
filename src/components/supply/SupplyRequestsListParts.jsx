@@ -7,6 +7,10 @@ import {
   supplierRecipientStatusSummary,
 } from '../../utils/supplyUtils';
 import MaterialCapabilityProofPanel from './MaterialCapabilityProofPanel';
+import SupplyTechnicalComparisonPanel, {
+  protectedTenantFileId,
+  uniqueScopedProjectId,
+} from './SupplyTechnicalComparisonPanel';
 
 export function SupplyRequestsEmpty({ C, card }) {
   return <div style={{ ...card, padding: '40px', textAlign: 'center', color: C.textMuted }}>Заявок нет</div>;
@@ -352,6 +356,10 @@ function OffersBlock({
   btnR,
   badge,
   request,
+  companyContext,
+  projects,
+  technicalComparisonEnabled,
+  technicalComparisonAllowedCompanyIds,
   supplierOffers,
   compareResultByReq,
   compareLoadingReqId,
@@ -387,6 +395,8 @@ function OffersBlock({
   const compareResult = compareResultByReq[request.id];
   const compareLoading = compareLoadingReqId === request.id;
   const offerCounterText = activeOffers.length + ' активн.' + (historyOffers.length ? ' · история ' + historyOffers.length : '');
+  const selectedCompanyId = companyContext?.selectedCompanyId || companyContext?.selectedCompany?.companyId;
+  const projectId = uniqueScopedProjectId(projects, request.project, selectedCompanyId);
 
   const renderOffer = (o, compact = false) => {
     const sup = suppliers.find(s => s.id === o.supplierId);
@@ -414,6 +424,20 @@ function OffersBlock({
             {o.supplierMessage && <p style={{ color: C.textSec, margin: '4px 0 0', fontSize: '11px', fontStyle: 'italic' }}>💬 «{o.supplierMessage}»</p>}
             {o.pdfUrl && <a href={fileSrc(o.pdfUrl)} target='_blank' rel='noopener noreferrer' style={{ fontSize: '11px', color: C.accent, display: 'inline-block', marginTop: '4px' }}>📄 PDF</a>}
             <OfferItemsDetails C={C} offer={o} parseOfferItems={parseOfferItems} />
+            {!compact && (
+              <SupplyTechnicalComparisonPanel
+                API={API}
+                C={C}
+                enabled={technicalComparisonEnabled}
+                allowedCompanyIds={technicalComparisonAllowedCompanyIds}
+                companyContext={companyContext}
+                projectId={projectId}
+                requestId={request.id}
+                sourceKind="supplier_offer"
+                sourceId={o.id}
+                fileId={protectedTenantFileId(o.pdfUrl)}
+              />
+            )}
           </div>
           <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={badge(stC, stBg, stBd)}>{o.status}</span>
@@ -512,6 +536,9 @@ export function SupplyRequestCard(props) {
     request,
     user,
     companyContext,
+    projects,
+    technicalComparisonEnabled,
+    technicalComparisonAllowedCompanyIds,
     statusColors,
     parseSupplyItems,
     renderSupplyRequestOrigin,
@@ -674,6 +701,10 @@ export function SupplyRequestCard(props) {
         btnR={btnR}
         badge={badge}
         request={request}
+        companyContext={companyContext}
+        projects={projects}
+        technicalComparisonEnabled={technicalComparisonEnabled}
+        technicalComparisonAllowedCompanyIds={technicalComparisonAllowedCompanyIds}
         supplierOffers={supplierOffers}
         compareResultByReq={compareResultByReq}
         compareLoadingReqId={compareLoadingReqId}

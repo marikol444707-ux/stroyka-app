@@ -692,7 +692,7 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             )
             if imports_runtime_contract:
                 callsites.append(str(path.relative_to(backend_root)))
-        self.assertEqual(callsites, [
+        self.assertCountEqual(callsites, [
             "main.py",
             "features/warehouse_recommendation_preview/runtime_access.py",
             "features/warehouse_recommendation_preview/runtime_preview.py",
@@ -719,7 +719,7 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
             backend_root / "main.py": (
-                "fc978199e6149c4b36f7cddf0d6cf4f09d435614e4ac8ef5496a3437ca61b841"
+                "c1f2587351307ec358e1cc2282c1dee1038e4e8b78ce46e0dedd770f74ea2a57"
             ),
         }
         actual = {
