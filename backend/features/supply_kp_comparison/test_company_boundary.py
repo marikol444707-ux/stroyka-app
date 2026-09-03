@@ -23,6 +23,7 @@ from backend.features.supply_kp_comparison.company_boundary import (
 
 
 MODULE_PATH = Path(__file__).with_name("company_boundary.py")
+RESOLVER_PATH = Path(__file__).with_name("source_resolver.py")
 
 
 class SupplyCompanyBoundaryTests(unittest.TestCase):
@@ -429,6 +430,35 @@ class SupplyCompanyBoundaryTests(unittest.TestCase):
             "ROLLBACK",
         ):
             self.assertNotIn(marker, upper)
+
+    def test_live_source_resolver_invokes_the_company_boundary(self):
+        source = RESOLVER_PATH.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(RESOLVER_PATH))
+        functions = {
+            node.name: node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+        }
+        resolver = functions.get("resolve_supply_technical_source_rows")
+        self.assertIsNotNone(resolver)
+        rendered = ast.unparse(resolver)
+
+        for required_call in (
+            "build_company_boundary",
+            "assert_company_chain",
+            "assert_resource_company",
+            "assert_resource_project",
+        ):
+            self.assertIn(required_call, rendered)
+
+        self.assertLess(
+            rendered.index("build_company_boundary"),
+            rendered.index("compare_required_to_offer"),
+        )
+        self.assertIn(
+            "company_keys=('company_id', 'offer_company_id')",
+            rendered,
+        )
 
 
 if __name__ == "__main__":

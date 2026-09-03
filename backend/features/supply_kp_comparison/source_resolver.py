@@ -18,6 +18,14 @@ import psycopg2.extras
 from backend.features.document_access.service import (
     require_document_storage_identity,
 )
+from backend.features.supply_kp_comparison.company_boundary import (
+    OWNER_SCOPE_COMPANY,
+    SupplyCompanyBoundaryError,
+    assert_company_chain,
+    assert_resource_company,
+    assert_resource_project,
+    build_company_boundary,
+)
 from backend.features.supply_kp_comparison.technical_matcher import (
     compare_required_to_offer,
 )
@@ -262,6 +270,22 @@ def resolve_supply_technical_source_rows(
         source_id,
         file_id,
     )
+    try:
+        boundary = build_company_boundary(
+            owner_scope=OWNER_SCOPE_COMPANY,
+            company_id=company_id,
+            project_id=project_id,
+            payload={
+                "companyId": company_id,
+                "projectId": project_id,
+                "requestId": request_id,
+                "sourceKind": source_kind,
+                "sourceId": source_id,
+                "fileId": file_id,
+            },
+        )
+    except SupplyCompanyBoundaryError:
+        _fail()
     if isinstance(s3_prefixes, str):
         s3_prefixes = (s3_prefixes,)
     if not isinstance(s3_prefixes, (tuple, list)) or not s3_prefixes:
@@ -271,6 +295,18 @@ def resolve_supply_technical_source_rows(
     request = _mapping(resolved.get("request"))
     source = _mapping(resolved.get("source"))
     file_row = _mapping(resolved.get("file"))
+
+    try:
+        assert_company_chain(boundary, request, source, file_row)
+        assert_resource_company(
+            boundary,
+            source,
+            company_keys=("company_id", "offer_company_id"),
+        )
+        assert_resource_project(boundary, request, required=True)
+        assert_resource_project(boundary, file_row, required=True)
+    except SupplyCompanyBoundaryError:
+        _fail()
 
     _require_row_identity(
         request,
