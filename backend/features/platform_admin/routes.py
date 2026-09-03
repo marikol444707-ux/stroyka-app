@@ -2322,8 +2322,16 @@ def register_platform_admin_routes(app, deps):
     def system_payments_list(_current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""SELECT p.*, c.name as company_name FROM company_payments p
+        cur.execute("""SELECT p.*, c.name AS company_name,
+                              c.platform_account_id,
+                              pc.number AS client_contract_number,
+                              pc.status AS client_contract_status
+                       FROM company_payments p
                        LEFT JOIN companies c ON c.id=p.company_id
+                       LEFT JOIN platform_client_contracts pc
+                         ON pc.id=p.client_contract_id
+                        AND pc.company_id=p.company_id
+                        AND pc.platform_account_id=c.platform_account_id
                        ORDER BY p.payment_date DESC LIMIT 200""")
         rows = [dict(r) for r in cur.fetchall()]
         conn.close()
@@ -2487,38 +2495,150 @@ def register_platform_admin_routes(app, deps):
 
     @app.post("/system/payments")
     def system_create_payment(data: dict, current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
+        client_contract_id = _billing_document_contract_id(data)
+        company_id = data.get("companyId") or data.get("company_id")
+        amount = float(data.get("amount") or 0)
+        if not company_id:
+            raise HTTPException(status_code=400, detail="Укажите компанию")
+        if amount <= 0:
+            raise HTTPException(status_code=400, detail="Сумма должна быть больше 0")
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""INSERT INTO company_payments (company_id, amount, payment_date, method,
-                                                      invoice_number, status, period_start, period_end,
-                                                      notes, created_by)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-            (data.get("companyId"), float(data.get("amount") or 0), data.get("paymentDate") or None,
-             data.get("method"), data.get("invoiceNumber"), data.get("status") or "paid",
-             data.get("periodStart") or None, data.get("periodEnd") or None,
-             data.get("notes"), data.get("createdBy")))
-        new_id = cur.fetchone()["id"]
-        if data.get("periodEnd") and data.get("companyId"):
-            cur.execute("""UPDATE companies
-                           SET plan_expires_at=%s, payment_status='active',
-                               suspended_at=NULL, suspended_reason=NULL, active=TRUE
-                           WHERE id=%s""",
-                (data["periodEnd"], data["companyId"]))
-        cur.execute("SELECT id, name, platform_account_id FROM companies WHERE id=%s", (data.get("companyId"),))
-        company = cur.fetchone() or {}
-        _system_write_audit(cur, current_user, "payment_added", "company_payment", new_id,
-            data.get("invoiceNumber") or company.get("name"), platform_account_id=company.get("platform_account_id"),
-            company_id=data.get("companyId"),
-            details={
-                "amount": float(data.get("amount") or 0),
-                "paymentDate": data.get("paymentDate"),
-                "periodStart": data.get("periodStart"),
-                "periodEnd": data.get("periodEnd"),
-                "method": data.get("method"),
-                "companyName": company.get("name"),
-            })
-        conn.close()
-        return {"id": new_id, "ok": True}
+        try:
+            cur.execute(
+                "SELECT id, name, platform_account_id FROM companies WHERE id=%s",
+                (company_id,),
+            )
+            company = cur.fetchone()
+            if not company:
+                raise HTTPException(status_code=404, detail="Компания не найдена")
+            contract = _load_billing_document_contract(
+                cur,
+                client_contract_id,
+                company_id,
+                company.get("platform_account_id"),
+            )
+            cur.execute("""INSERT INTO company_payments
+                              (company_id, client_contract_id, amount, payment_date, method,
+                               invoice_number, status, period_start, period_end,
+                               notes, created_by)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                           RETURNING id""",
+                (company_id, client_contract_id, amount, data.get("paymentDate") or None,
+                 data.get("method"), data.get("invoiceNumber"), data.get("status") or "paid",
+                 data.get("periodStart") or None, data.get("periodEnd") or None,
+                 data.get("notes"), data.get("createdBy")))
+            new_id = cur.fetchone()["id"]
+            if data.get("periodEnd"):
+                cur.execute("""UPDATE companies
+                               SET plan_expires_at=%s, payment_status='active',
+                                   suspended_at=NULL, suspended_reason=NULL, active=TRUE
+                               WHERE id=%s""",
+                    (data["periodEnd"], company_id))
+            _system_write_audit(cur, current_user, "payment_added", "company_payment", new_id,
+                data.get("invoiceNumber") or company.get("name"), platform_account_id=company.get("platform_account_id"),
+                company_id=company_id,
+                details={
+                    "amount": amount,
+                    "paymentDate": data.get("paymentDate"),
+                    "periodStart": data.get("periodStart"),
+                    "periodEnd": data.get("periodEnd"),
+                    "method": data.get("method"),
+                    "companyName": company.get("name"),
+                    "clientContractId": client_contract_id,
+                    "clientContractNumber": contract.get("number") if contract else None,
+                })
+            conn.commit()
+            return {"id": new_id, "ok": True}
+        except HTTPException:
+            conn.rollback()
+            raise
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+
+    @app.put("/system/payments/{id}/client-contract")
+    def system_update_payment_contract(
+        id: int,
+        data: dict,
+        current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES)),
+    ):
+        client_contract_id = _billing_document_contract_id(data, required=True)
+        conn = get_db()
+        conn.autocommit = False
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            cur.execute(
+                """SELECT p.*, c.name AS company_name,
+                          c.platform_account_id
+                   FROM company_payments p
+                   JOIN companies c ON c.id=p.company_id
+                   WHERE p.id=%s
+                   FOR UPDATE OF p""",
+                (id,),
+            )
+            before = cur.fetchone()
+            if not before:
+                raise HTTPException(status_code=404, detail="Платеж не найден")
+            before = dict(before)
+            contract = _load_billing_document_contract(
+                cur,
+                client_contract_id,
+                before.get("company_id"),
+                before.get("platform_account_id"),
+            )
+            cur.execute(
+                """UPDATE company_payments
+                   SET client_contract_id=%s
+                   WHERE id=%s
+                   RETURNING *""",
+                (client_contract_id, id),
+            )
+            payment = dict(cur.fetchone())
+            payment["company_name"] = before.get("company_name")
+            payment["platform_account_id"] = before.get("platform_account_id")
+            payment["client_contract_number"] = contract.get("number") if contract else None
+            payment["client_contract_status"] = contract.get("status") if contract else None
+            action = (
+                "company_payment_contract_linked"
+                if client_contract_id is not None
+                else "company_payment_contract_unlinked"
+            )
+            _system_write_audit(
+                cur,
+                current_user,
+                action,
+                "company_payment",
+                id,
+                payment.get("invoice_number") or before.get("company_name"),
+                platform_account_id=before.get("platform_account_id"),
+                company_id=before.get("company_id"),
+                details={
+                    "beforeClientContractId": before.get("client_contract_id"),
+                    "afterClientContractId": client_contract_id,
+                    "clientContractNumber": contract.get("number") if contract else None,
+                    "companyName": before.get("company_name"),
+                },
+            )
+            conn.commit()
+            return {
+                "ok": True,
+                "changed": before.get("client_contract_id") != client_contract_id,
+                "payment": payment,
+            }
+        except HTTPException:
+            conn.rollback()
+            raise
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
 
     @app.post("/system/payment-events/{id}/confirm")
     def system_confirm_payment_event(id: int, data: dict = None, current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
@@ -2531,6 +2651,7 @@ def register_platform_admin_routes(app, deps):
                                   d.amount AS billing_document_amount, d.currency AS billing_document_currency,
                                   d.payment_provider AS billing_payment_provider,
                                   d.period_start AS billing_period_start, d.period_end AS billing_period_end,
+                                  d.client_contract_id AS billing_client_contract_id,
                                   d.platform_account_id AS document_platform_account_id,
                                   d.company_id AS document_company_id,
                                   c.name AS company_name
@@ -2576,12 +2697,13 @@ def register_platform_admin_routes(app, deps):
             base_note = "Зачислено вручную по событию провайдера #" + str(id)
             if notes:
                 base_note += ". " + notes
-            cur.execute("""INSERT INTO company_payments (company_id, amount, payment_date, method,
+            cur.execute("""INSERT INTO company_payments (company_id, client_contract_id, amount, payment_date, method,
                                                           invoice_number, status, period_start, period_end,
                                                           notes, created_by)
-                           VALUES (%s,%s,%s,%s,%s,'paid',%s,%s,%s,%s)
+                           VALUES (%s,%s,%s,%s,%s,%s,'paid',%s,%s,%s,%s)
                            RETURNING id""",
-                        (company_id, float(event.get("amount") or 0), payment_date, provider or "provider",
+                        (company_id, event.get("billing_client_contract_id"),
+                         float(event.get("amount") or 0), payment_date, provider or "provider",
                          event.get("billing_document_number"), period_start or None, period_end or None,
                          base_note, current_user.get("name") or current_user.get("email")))
             payment_id = cur.fetchone()["id"]
@@ -2613,6 +2735,7 @@ def register_platform_admin_routes(app, deps):
                     "eventStatus": event.get("provider_status"),
                     "billingDocumentId": event.get("billing_document_id"),
                     "billingDocumentNumber": event.get("billing_document_number"),
+                    "clientContractId": event.get("billing_client_contract_id"),
                     "paymentId": payment_id,
                     "amount": float(event.get("amount") or 0),
                     "currency": event_currency,

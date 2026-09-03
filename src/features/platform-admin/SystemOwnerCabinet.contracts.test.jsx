@@ -75,6 +75,17 @@ const createdContract = {
   id: 101,
   number: 'STK-2026-0101',
   createdAt: '2026-09-02T10:00:00',
+  billingSummary: {
+    billedAmount: '99800.00',
+    paidAmount: '49900.00',
+    debtAmount: '49900.00',
+    overpaymentAmount: '0.00',
+    invoiceCount: 2,
+    paymentCount: 1,
+    periodStart: '2026-09-01',
+    periodEnd: '2026-10-31',
+    automaticPayment: false,
+  },
 };
 
 const generatedContract = {
@@ -189,6 +200,10 @@ describe('SystemOwnerCabinet client contracts', () => {
       'Черновик STK-2026-0101 создан',
     );
     expect(screen.getByText('STK-2026-0101')).toBeInTheDocument();
+    expect(screen.getByText('Выставлено по счетам: 99 800 ₽')).toBeInTheDocument();
+    expect(screen.getByText('Оплачено вручную: 49 900 ₽')).toBeInTheDocument();
+    expect(screen.getByText('Долг: 49 900 ₽')).toBeInTheDocument();
+    expect(screen.getByText('Период: 01.09.2026 — 31.10.2026')).toBeInTheDocument();
 
     const previewRequest = global.fetch.mock.calls.find(([url]) => (
       url === '/system/client-contracts/preview'

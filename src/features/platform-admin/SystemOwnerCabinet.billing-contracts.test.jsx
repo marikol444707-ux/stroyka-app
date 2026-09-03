@@ -59,6 +59,18 @@ const billingDocument = {
   company_name: 'ООО Клиент',
 };
 
+const payment = {
+  id: 701,
+  company_id: 42,
+  client_contract_id: null,
+  client_contract_number: null,
+  amount: 49900,
+  payment_date: '2026-09-03',
+  method: 'transfer',
+  invoice_number: 'INV-81',
+  status: 'paid',
+};
+
 function renderCabinet() {
   return render(
     <SystemOwnerCabinet
@@ -98,6 +110,24 @@ describe('SystemOwnerCabinet billing contract links', () => {
       if (url === '/system/billing-contract-options') {
         return jsonResponse([contract, foreignContract]);
       }
+      if (url === '/system/payments') {
+        if (options.method === 'POST') {
+          return jsonResponse({id: 702, ok: true});
+        }
+        return jsonResponse([payment]);
+      }
+      if (url === '/system/payments/701/client-contract' && options.method === 'PUT') {
+        return jsonResponse({
+          ok: true,
+          changed: true,
+          payment: {
+            ...payment,
+            client_contract_id: 101,
+            client_contract_number: contract.number,
+            client_contract_status: contract.status,
+          },
+        });
+      }
       if (url === '/system/billing-documents/81/client-contract' && options.method === 'PUT') {
         return jsonResponse({
           ok: true,
@@ -122,10 +152,10 @@ describe('SystemOwnerCabinet billing contract links', () => {
     renderCabinet();
     fireEvent.click(screen.getByRole('button', {name: '💰 Платежи'}));
 
-    expect(await screen.findByText(/INV-81/)).toBeInTheDocument();
+    expect(await screen.findAllByText(/INV-81/)).not.toHaveLength(0);
     const selector = screen.getByLabelText('Договор для INV-81');
     expect(selector).toHaveDisplayValue('Без договора');
-    expect(screen.getByRole('option', {name: 'STK-2026-0101 · Действует'})).toBeInTheDocument();
+    expect(screen.getAllByRole('option', {name: 'STK-2026-0101 · Действует'})).not.toHaveLength(0);
     expect(screen.queryByRole('option', {name: /STK-2026-0202/})).not.toBeInTheDocument();
 
     fireEvent.change(selector, {target: {value: '101'}});
@@ -144,7 +174,7 @@ describe('SystemOwnerCabinet billing contract links', () => {
   test('creates a document with the selected same-company contract', async () => {
     renderCabinet();
     fireEvent.click(screen.getByRole('button', {name: '💰 Платежи'}));
-    await screen.findByText(/INV-81/);
+    await screen.findAllByText(/INV-81/);
     fireEvent.click(screen.getByRole('button', {name: '+ Счет/акт'}));
 
     fireEvent.change(screen.getByLabelText('Компания документа'), {target: {value: '42'}});
@@ -159,6 +189,51 @@ describe('SystemOwnerCabinet billing contract links', () => {
       expect(JSON.parse(request[1].body)).toEqual(expect.objectContaining({
         companyId: 42,
         clientContractId: 101,
+      }));
+    });
+  });
+
+  test('links an existing manual payment to a same-company contract', async () => {
+    renderCabinet();
+    fireEvent.click(screen.getByRole('button', {name: '💰 Платежи'}));
+
+    expect(await screen.findByText(/Фактические платежи \(1\)/)).toBeInTheDocument();
+    const selector = screen.getByLabelText('Договор для платежа #701');
+    expect(selector).toHaveDisplayValue('Без договора');
+    expect(screen.queryByRole('option', {name: /STK-2026-0202/})).not.toBeInTheDocument();
+
+    fireEvent.change(selector, {target: {value: '101'}});
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith(
+      '/system/payments/701/client-contract',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({clientContractId: 101}),
+      }),
+    ));
+    expect(await screen.findByText('Платеж связан с договором STK-2026-0101')).toBeInTheDocument();
+    expect(screen.getByLabelText('Договор для платежа #701')).toHaveValue('101');
+  });
+
+  test('creates a manual payment with the selected contract', async () => {
+    renderCabinet();
+    fireEvent.click(screen.getByRole('button', {name: '💰 Платежи'}));
+    await screen.findByText(/Фактические платежи \(1\)/);
+    fireEvent.click(screen.getByRole('button', {name: '+ Зачислить платеж'}));
+
+    fireEvent.change(screen.getByLabelText('Компания платежа'), {target: {value: '42'}});
+    fireEvent.change(screen.getByLabelText('Договор платежа'), {target: {value: '101'}});
+    fireEvent.change(screen.getAllByPlaceholderText('Сумма ₽ *').at(-1), {target: {value: '49900'}});
+    fireEvent.click(screen.getByRole('button', {name: '✓ Зачислить'}));
+
+    await waitFor(() => {
+      const request = global.fetch.mock.calls.find(([url, options]) => (
+        url === '/system/payments' && options.method === 'POST'
+      ));
+      expect(JSON.parse(request[1].body)).toEqual(expect.objectContaining({
+        companyId: 42,
+        clientContractId: 101,
+        amount: '49900',
       }));
     });
   });

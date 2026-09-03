@@ -2,6 +2,7 @@
 
 import json
 import re
+from decimal import Decimal, InvalidOperation
 
 import psycopg2.extras
 from fastapi import Depends, File, HTTPException, UploadFile
@@ -93,6 +94,47 @@ def _money(value):
         return str(value)
 
 
+def _decimal_amount(value):
+    try:
+        return Decimal(str(value or 0))
+    except (InvalidOperation, TypeError, ValueError):
+        return Decimal("0")
+
+
+def _contract_billing_summary(source):
+    billed = _decimal_amount(source.get("billed_amount"))
+    paid = _decimal_amount(source.get("paid_amount"))
+    period_starts = [
+        _iso_value(value)
+        for value in (
+            source.get("billing_period_start"),
+            source.get("invoice_period_start"),
+            source.get("payment_period_start"),
+        )
+        if value
+    ]
+    period_ends = [
+        _iso_value(value)
+        for value in (
+            source.get("billing_period_end"),
+            source.get("invoice_period_end"),
+            source.get("payment_period_end"),
+        )
+        if value
+    ]
+    return {
+        "billedAmount": _money(billed),
+        "paidAmount": _money(paid),
+        "debtAmount": _money(max(billed - paid, Decimal("0"))),
+        "overpaymentAmount": _money(max(paid - billed, Decimal("0"))),
+        "invoiceCount": int(source.get("billed_document_count") or 0),
+        "paymentCount": int(source.get("payment_count") or 0),
+        "periodStart": min(period_starts) if period_starts else None,
+        "periodEnd": max(period_ends) if period_ends else None,
+        "automaticPayment": False,
+    }
+
+
 def _protected_file_url(value):
     normalized = str(value or "").strip()
     if re.fullmatch(r"/tenant-files/[1-9][0-9]*/content", normalized):
@@ -132,6 +174,7 @@ def _contract_response(row):
         "terminatedAt": _iso_value(source.get("terminated_at")),
         "createdAt": _iso_value(source.get("created_at")),
         "updatedAt": _iso_value(source.get("updated_at")),
+        "billingSummary": _contract_billing_summary(source),
     }
 
 
@@ -177,11 +220,41 @@ def _load_licensor(cur, platform_account_id):
 
 def _load_contracts(cur, platform_account_id, company_id):
     cur.execute(
-        """SELECT {}
-           FROM platform_client_contracts
-           WHERE platform_account_id=%s AND company_id=%s
-           ORDER BY contract_date DESC, id DESC
-           LIMIT 200""".format(_CONTRACT_COLUMNS),
+        """SELECT pc.*,
+                  COALESCE(invoice_summary.billed_amount, 0) AS billed_amount,
+                  COALESCE(invoice_summary.billed_document_count, 0) AS billed_document_count,
+                  invoice_summary.invoice_period_start,
+                  invoice_summary.invoice_period_end,
+                  COALESCE(payment_summary.paid_amount, 0) AS paid_amount,
+                  COALESCE(payment_summary.payment_count, 0) AS payment_count,
+                  payment_summary.payment_period_start,
+                  payment_summary.payment_period_end
+           FROM platform_client_contracts pc
+           LEFT JOIN LATERAL (
+               SELECT COALESCE(SUM(d.amount), 0) AS billed_amount,
+                      COUNT(*) AS billed_document_count,
+                      MIN(d.period_start) AS invoice_period_start,
+                      MAX(d.period_end) AS invoice_period_end
+               FROM platform_billing_documents d
+               WHERE d.client_contract_id=pc.id
+                 AND d.company_id=pc.company_id
+                 AND d.platform_account_id=pc.platform_account_id
+                 AND d.document_type='invoice'
+                 AND d.status IN ('issued','payment_expected','closed')
+           ) invoice_summary ON TRUE
+           LEFT JOIN LATERAL (
+               SELECT COALESCE(SUM(p.amount), 0) AS paid_amount,
+                      COUNT(*) AS payment_count,
+                      MIN(p.period_start) AS payment_period_start,
+                      MAX(p.period_end) AS payment_period_end
+               FROM company_payments p
+               WHERE p.client_contract_id=pc.id
+                 AND p.company_id=pc.company_id
+                 AND p.status='paid'
+           ) payment_summary ON TRUE
+           WHERE pc.platform_account_id=%s AND pc.company_id=%s
+           ORDER BY pc.contract_date DESC, pc.id DESC
+           LIMIT 200""",
         (platform_account_id, company_id),
     )
     return [dict(row) for row in cur.fetchall()]

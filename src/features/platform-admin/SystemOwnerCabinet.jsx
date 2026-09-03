@@ -14,6 +14,8 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const [billingContractOptions, setBillingContractOptions] = useState([]);
   const [billingContractNotice, setBillingContractNotice] = useState('');
   const [billingContractWorkingId, setBillingContractWorkingId] = useState(null);
+  const [paymentContractNotice, setPaymentContractNotice] = useState('');
+  const [paymentContractWorkingId, setPaymentContractWorkingId] = useState(null);
   const [paymentProviders, setPaymentProviders] = useState([]);
   const [paymentEvents, setPaymentEvents] = useState([]);
   const [platformFollowups, setPlatformFollowups] = useState([]);
@@ -28,7 +30,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const [companyPreview, setCompanyPreview] = useState(null);
   const [companyPreviewLoading, setCompanyPreviewLoading] = useState(false);
   const [contractCompanyId, setContractCompanyId] = useState(null);
-  const [newPayment, setNewPayment] = useState({companyId:'',amount:'',paymentDate:new Date().toISOString().split('T')[0],method:'card',invoiceNumber:'',periodStart:'',periodEnd:'',notes:''});
+  const [newPayment, setNewPayment] = useState({companyId:'',clientContractId:'',amount:'',paymentDate:new Date().toISOString().split('T')[0],method:'card',invoiceNumber:'',periodStart:'',periodEnd:'',notes:''});
   const [showNewPayment, setShowNewPayment] = useState(false);
   const [newBillingDocument, setNewBillingDocument] = useState({companyId:'',clientContractId:'',documentType:'invoice',status:'draft',amount:'',issueDate:new Date().toISOString().split('T')[0],dueDate:'',periodStart:'',periodEnd:'',paymentProvider:'manual',paymentUrl:'',fileUrl:'',notes:''});
   const [showNewBillingDocument, setShowNewBillingDocument] = useState(false);
@@ -142,6 +144,8 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     company_tariff_changed: 'Сменен тариф',
     company_updated: 'Компания изменена',
     payment_added: 'Зачислена оплата',
+    company_payment_contract_linked: 'Платеж связан с договором',
+    company_payment_contract_unlinked: 'Связь платежа с договором убрана',
     demo_request_updated: 'Демо-заявка изменена',
     platform_billing_document_created: 'Создан платежный документ',
     platform_billing_document_updated: 'Изменен платежный документ',
@@ -566,7 +570,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     await loadAll();
   };
   const openCompanyPayment = (company) => {
-    setNewPayment({...newPayment, companyId:company.id, amount:company.monthly_fee || ''});
+    setNewPayment({...newPayment, companyId:company.id, clientContractId:'', amount:company.monthly_fee || ''});
     setShowNewPayment(true);
     setTab('payments');
   };
@@ -597,6 +601,30 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
       alert('Не удалось связать документ с договором');
     } finally {
       setBillingContractWorkingId(null);
+    }
+  };
+  const linkPaymentContract = async (payment, rawContractId) => {
+    const clientContractId = rawContractId ? Number(rawContractId) : null;
+    setPaymentContractNotice('');
+    setPaymentContractWorkingId(payment.id);
+    try {
+      const response = await sendJson('/system/payments/'+payment.id+'/client-contract', {
+        method:'PUT',
+        body:JSON.stringify({clientContractId}),
+      });
+      const data = await response.json().catch(()=>({}));
+      if (!response.ok) {
+        alert(data.detail || 'Не удалось связать платеж с договором');
+        return;
+      }
+      setPayments(current => current.map(item => item.id === payment.id ? data.payment : item));
+      setPaymentContractNotice(clientContractId
+        ? 'Платеж связан с договором '+(data.payment?.client_contract_number || '')
+        : 'Платеж #'+payment.id+' оставлен без договора');
+    } catch (_error) {
+      alert('Не удалось связать платеж с договором');
+    } finally {
+      setPaymentContractWorkingId(null);
     }
   };
   const openFollowupForm = (company={}, source='payment', document=null) => {
@@ -1431,12 +1459,17 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
             })}
           </div>
 
+          {paymentContractNotice && <div role='status' style={{...card,padding:'10px 12px',marginBottom:'14px',color:C.success,backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}>{paymentContractNotice}</div>}
           {showNewPayment && (<div style={{...card,padding:'16px',marginBottom:'14px'}}>
             <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>Зачислить фактический платеж</b>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
-              <select value={newPayment.companyId} onChange={e=>setNewPayment({...newPayment,companyId:Number(e.target.value)})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}>
+              <select aria-label='Компания платежа' value={newPayment.companyId} onChange={e=>setNewPayment({...newPayment,companyId:Number(e.target.value),clientContractId:''})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}>
                 <option value=''>Компания *</option>
                 {companies.filter(c=>c.id!==1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <select aria-label='Договор платежа' value={newPayment.clientContractId} onChange={e=>setNewPayment({...newPayment,clientContractId:e.target.value?Number(e.target.value):''})} disabled={!newPayment.companyId} style={{...inp,marginBottom:0,gridColumn:'span 2'}}>
+                <option value=''>Без договора</option>
+                {billingContractOptions.filter(contract=>String(contract.company_id)===String(newPayment.companyId)).map(contract=><option key={contract.id} value={contract.id}>{contract.number} · {clientContractStatusLabels[contract.status] || contract.status}</option>)}
               </select>
               <input type='number' placeholder='Сумма ₽ *' value={newPayment.amount} onChange={e=>setNewPayment({...newPayment,amount:e.target.value})} style={{...inp,marginBottom:0}}/>
               <select value={newPayment.method} onChange={e=>setNewPayment({...newPayment,method:e.target.value})} style={{...inp,marginBottom:0}}>
@@ -1454,9 +1487,11 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
             <div style={{display:'flex',gap:'8px',marginTop:'8px'}}>
               <button onClick={async()=>{
                 if(!newPayment.companyId||!newPayment.amount) { alert('Заполните компанию и сумму'); return; }
-                await sendJson('/system/payments',{method:'POST',body:JSON.stringify({...newPayment,createdBy:user.name})});
+                const response = await sendJson('/system/payments',{method:'POST',body:JSON.stringify({...newPayment,createdBy:user.name})});
+                const data = await response.json().catch(()=>({}));
+                if(!response.ok){ alert(data.detail || 'Не удалось зачислить платеж'); return; }
                 setShowNewPayment(false);
-                setNewPayment({companyId:'',amount:'',paymentDate:new Date().toISOString().split('T')[0],method:'card',invoiceNumber:'',periodStart:'',periodEnd:'',notes:''});
+                setNewPayment({companyId:'',clientContractId:'',amount:'',paymentDate:new Date().toISOString().split('T')[0],method:'card',invoiceNumber:'',periodStart:'',periodEnd:'',notes:''});
                 await loadAll();
               }} style={btnO}>✓ Зачислить</button>
               <button onClick={()=>setShowNewPayment(false)} style={btnG}>Отмена</button>
@@ -1469,6 +1504,16 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
               <div>
                 <b style={{color:C.text,fontSize:'13px'}}>{p.company_name||'—'}</b>
                 <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{p.payment_date} · {p.method} · {p.invoice_number||'без номера'}{p.period_start?' · '+p.period_start+' – '+p.period_end:''}</p>
+                <select
+                  aria-label={'Договор для платежа #'+p.id}
+                  value={p.client_contract_id || ''}
+                  onChange={event=>linkPaymentContract(p,event.target.value)}
+                  disabled={paymentContractWorkingId===p.id}
+                  style={{...inp,margin:'6px 0 0',padding:'6px 8px',fontSize:'11px'}}
+                >
+                  <option value=''>Без договора</option>
+                  {billingContractOptions.filter(contract=>String(contract.company_id)===String(p.company_id)).map(contract=><option key={contract.id} value={contract.id}>{contract.number} · {clientContractStatusLabels[contract.status] || contract.status}</option>)}
+                </select>
               </div>
               <b style={{color:p.status==='paid'?C.success:C.warning,fontSize:'14px'}}>{Number(p.amount).toLocaleString('ru-RU')} ₽</b>
             </div>

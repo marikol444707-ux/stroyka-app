@@ -22,6 +22,13 @@ const newRequest = companyId => ({
 
 const money = value => `${Number(value || 0).toLocaleString('ru-RU').replace(/\u00a0/g, ' ')} ₽/мес`;
 
+const amount = value => `${Number(value || 0).toLocaleString('ru-RU').replace(/\u00a0/g, ' ')} ₽`;
+
+const dateLabel = value => {
+  const [year, month, day] = String(value || '').slice(0, 10).split('-');
+  return year && month && day ? `${day}.${month}.${year}` : '—';
+};
+
 const limits = contract => (
   `${contract.maxProjects ?? 'без лимита'} объектов · ${contract.maxUsers ?? 'без лимита'} пользователей`
 );
@@ -34,6 +41,26 @@ const responseMessage = data => {
   }
   return 'Не удалось выполнить запрос. Обновите страницу и повторите.';
 };
+
+function ContractBillingSummary({contract, C}) {
+  const summary = contract.billingSummary;
+  if (!summary) return null;
+  return (
+    <div
+      aria-label={`Расчеты по договору ${contract.number}`}
+      style={{display: 'grid', gap: '4px', padding: '8px', borderRadius: '7px', background: C.card}}
+    >
+      <div style={{display: 'flex', gap: '12px', flexWrap: 'wrap', color: C.textSec, fontSize: '11px'}}>
+        <span style={{color: C.text}}>Выставлено по счетам: {amount(summary.billedAmount)}</span>
+        <span style={{color: C.success}}>Оплачено вручную: {amount(summary.paidAmount)}</span>
+        <span style={{color: Number(summary.debtAmount || 0) > 0 ? C.warning : C.success}}>Долг: {amount(summary.debtAmount)}</span>
+        {Number(summary.overpaymentAmount || 0) > 0 && <span style={{color: C.info}}>Переплата: {amount(summary.overpaymentAmount)}</span>}
+      </div>
+      <span style={{color: C.textMuted, fontSize: '10px'}}>Период: {dateLabel(summary.periodStart)} — {dateLabel(summary.periodEnd)}</span>
+      <span style={{color: C.textMuted, fontSize: '10px'}}>Счетов {summary.invoiceCount || 0} · платежей {summary.paymentCount || 0}. Автозачислений нет.</span>
+    </div>
+  );
+}
 
 function ClientContractsPanel({company, API, canManage, C, btnO, btnG, badge}) {
   const [contracts, setContracts] = useState([]);
@@ -219,6 +246,7 @@ function ClientContractsPanel({company, API, canManage, C, btnO, btnG, badge}) {
                 </div>
                 <span style={badge(C.info, C.infoLight, C.infoBorder)}>{statusLabels[contract.status] || contract.status}</span>
               </div>
+              <ContractBillingSummary contract={contract} C={C} />
               <div style={{display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap'}}>
                 {!contract.generatedFileUrl && canManage && (
                   <button

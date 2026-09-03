@@ -246,8 +246,44 @@ class ClientContractRoutesTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["number"], "STK-2026-0101")
         self.assertIn(routes.PLATFORM_VIEW_ROLES, role_requests)
         contract_sql, contract_params = connection.cursor_instance.calls[1]
-        self.assertIn("platform_account_id=%s AND company_id=%s", contract_sql)
+        self.assertIn("pc.platform_account_id=%s AND pc.company_id=%s", contract_sql)
         self.assertEqual(contract_params, (3, 42))
+
+    def test_list_returns_manual_billing_summary_without_auto_credit(self):
+        connection = FakeConnection([
+            company_row(),
+            [contract_row(
+                billed_amount="99800.00",
+                paid_amount="49900.00",
+                billed_document_count=2,
+                payment_count=1,
+                billing_period_start="2026-09-01",
+                billing_period_end="2026-10-31",
+            )],
+        ])
+        handlers, _role_requests = register_handlers(connection)
+
+        result = handlers[("GET", "/system/client-contracts")](
+            companyId=42,
+            _current_user={"id": 1, "role": "platform_support"},
+        )
+
+        summary = result["items"][0]["billingSummary"]
+        self.assertEqual(summary["billedAmount"], "99800.00")
+        self.assertEqual(summary["paidAmount"], "49900.00")
+        self.assertEqual(summary["debtAmount"], "49900.00")
+        self.assertEqual(summary["overpaymentAmount"], "0.00")
+        self.assertEqual(summary["invoiceCount"], 2)
+        self.assertEqual(summary["paymentCount"], 1)
+        self.assertEqual(summary["periodStart"], "2026-09-01")
+        self.assertEqual(summary["periodEnd"], "2026-10-31")
+        self.assertFalse(summary["automaticPayment"])
+
+        sql = connection.cursor_instance.calls[1][0]
+        self.assertIn("d.document_type='invoice'", sql)
+        self.assertIn("d.status IN ('issued','payment_expected','closed')", sql)
+        self.assertIn("p.status='paid'", sql)
+        self.assertNotIn("UPDATE ", sql)
 
     def test_preview_autofills_account_licensor_and_tariff_without_writes(self):
         connection = FakeConnection([
@@ -314,7 +350,7 @@ class ClientContractRoutesTests(unittest.TestCase):
         insert_sql = connection.cursor_instance.calls[4][0]
         self.assertIn("INSERT INTO platform_client_contracts", insert_sql)
         all_sql = " ".join(sql for sql, _params in connection.cursor_instance.calls)
-        self.assertNotIn("company_payments", all_sql)
+        self.assertNotIn("INSERT INTO company_payments", all_sql)
         self.assertNotIn("platform_billing_documents", all_sql)
         audit.assert_called_once()
         self.assertEqual(audit.call_args.args[2], "platform_client_contract_created")
@@ -410,7 +446,7 @@ class ClientContractRoutesTests(unittest.TestCase):
         )
         self.assertIn("UPDATE platform_client_contracts", all_sql)
         self.assertNotIn("DELETE FROM", all_sql)
-        self.assertNotIn("company_payments", all_sql)
+        self.assertNotIn("INSERT INTO company_payments", all_sql)
         self.assertEqual(connection.commits, 1)
         audit.assert_called_once()
         self.assertEqual(
