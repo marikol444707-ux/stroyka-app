@@ -1,4 +1,6 @@
 import datetime as dt
+import json
+import re
 
 import psycopg2.extras
 from fastapi import Depends, HTTPException
@@ -12,6 +14,7 @@ from .subscription_state import billing_state as _billing_state
 
 
 CLIENT_ACCOUNT_ROLES = ("account_owner", "account_admin")
+CLIENT_CONTRACT_READ_ROLES = (*CLIENT_ACCOUNT_ROLES, "директор")
 PLATFORM_STAFF_ROLES = ("system_owner", "platform_admin", "platform_support", "billing_admin")
 
 CLIENT_ACCOUNT_ROLE_LABELS = {
@@ -73,6 +76,15 @@ SUPPORT_SCOPE_LABELS = {
     "access_help": "Помощь с доступом",
     "billing_help": "Биллинг",
     "technical_check": "Техническая проверка",
+}
+
+CONTRACT_STATUS_LABELS = {
+    "draft": "Черновик",
+    "issued": "Выдан",
+    "active": "Действует",
+    "expired": "Истёк",
+    "terminated": "Расторгнут",
+    "cancelled": "Аннулирован",
 }
 
 
@@ -251,6 +263,67 @@ def _support_session_row(row):
     return item
 
 
+def _protected_contract_file_url(value):
+    normalized = str(value or "").strip()
+    if re.fullmatch(r"/tenant-files/[1-9][0-9]*/content", normalized):
+        return normalized
+    return None
+
+
+def _audit_details(value):
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except (TypeError, ValueError):
+            return {}
+    return {}
+
+
+def _contract_history_row(row):
+    details = _audit_details(row.get("details_json"))
+    return {
+        "fromStatus": str(details.get("fromStatus") or ""),
+        "toStatus": str(details.get("toStatus") or ""),
+        "reason": str(details.get("reason") or ""),
+        "changedAt": _iso_date(row.get("created_at")),
+    }
+
+
+def _client_contract_row(row, history=()):
+    source = dict(row)
+    status = str(source.get("status") or "")
+    return {
+        "id": source.get("id"),
+        "companyId": source.get("company_id"),
+        "companyName": source.get("company_name") or "",
+        "contractType": source.get("contract_type") or "",
+        "number": source.get("number") or "",
+        "contractDate": _iso_date(source.get("contract_date")),
+        "startsOn": _iso_date(source.get("starts_on")),
+        "endsOn": _iso_date(source.get("ends_on")),
+        "plan": source.get("plan") or "",
+        "monthlyFee": _as_float(source.get("monthly_fee")),
+        "currency": source.get("currency") or "RUB",
+        "maxProjects": source.get("max_projects"),
+        "maxUsers": source.get("max_users"),
+        "status": status,
+        "statusLabel": CONTRACT_STATUS_LABELS.get(status, status),
+        "generatedFileUrl": _protected_contract_file_url(
+            source.get("generated_file_url")
+        ),
+        "signedFileUrl": _protected_contract_file_url(
+            source.get("signed_file_url")
+        ),
+        "issuedAt": _iso_date(source.get("issued_at")),
+        "activatedAt": _iso_date(source.get("activated_at")),
+        "terminatedAt": _iso_date(source.get("terminated_at")),
+        "statusHistory": list(history),
+    }
+
+
 def _resolve_account(cur, current_user):
     platform_account_id = _as_int(current_user.get("platformAccountId") or current_user.get("platform_account_id"))
     company_id = _as_int(current_user.get("companyId") or current_user.get("company_id"))
@@ -380,6 +453,106 @@ def register_client_account_routes(app, deps):
                 "billingDocuments": billing_documents,
                 "followups": followups,
                 "supportSessions": support_sessions,
+            }
+        finally:
+            cur.close()
+            conn.close()
+
+    @app.get("/account/client-contracts")
+    def client_account_contracts(
+        current_user: dict = Depends(require_roles(*CLIENT_CONTRACT_READ_ROLES)),
+    ):
+        """Return contracts as read-only client documents, scoped to the caller."""
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            account = _resolve_account(cur, current_user)
+            account_id = int(account["id"])
+            role = str(current_user.get("role") or "")
+            company_id = _as_int(
+                current_user.get("companyId") or current_user.get("company_id")
+            )
+
+            if role == "директор":
+                if not company_id:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Директору не назначена компания",
+                    )
+                cur.execute(
+                    """SELECT id FROM companies
+                       WHERE id=%s AND platform_account_id=%s
+                         AND COALESCE(active,TRUE)=TRUE""",
+                    (company_id, account_id),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Компания не входит в клиентский аккаунт",
+                    )
+
+            params = [account_id]
+            company_filter = ""
+            if role == "директор":
+                company_filter = " AND cc.company_id=%s"
+                params.append(company_id)
+            cur.execute(
+                """SELECT cc.id, cc.company_id, c.name AS company_name,
+                          cc.contract_type, cc.number, cc.contract_date,
+                          cc.starts_on, cc.ends_on, cc.plan, cc.monthly_fee,
+                          cc.currency, cc.max_projects, cc.max_users, cc.status,
+                          cc.generated_file_url, cc.signed_file_url,
+                          cc.issued_at, cc.activated_at, cc.terminated_at
+                     FROM platform_client_contracts cc
+                     JOIN companies c
+                       ON c.id=cc.company_id
+                      AND c.platform_account_id=cc.platform_account_id
+                    WHERE cc.platform_account_id=%s
+                      AND cc.status<>'draft'{}
+                    ORDER BY cc.contract_date DESC, cc.id DESC""".format(
+                    company_filter
+                ),
+                tuple(params),
+            )
+            contracts = [dict(row) for row in cur.fetchall()]
+
+            history_by_contract = {}
+            contract_ids = [int(row["id"]) for row in contracts]
+            if contract_ids:
+                history_params = [account_id, contract_ids]
+                history_company_filter = ""
+                if role == "директор":
+                    history_company_filter = " AND company_id=%s"
+                    history_params.append(company_id)
+                cur.execute(
+                    """SELECT entity_id, details_json, created_at
+                         FROM platform_audit_log
+                        WHERE platform_account_id=%s
+                          AND entity_type='platform_client_contract'
+                          AND action='platform_client_contract_status_changed'
+                          AND entity_id=ANY(%s){}
+                        ORDER BY created_at, id""".format(
+                        history_company_filter
+                    ),
+                    tuple(history_params),
+                )
+                for row in cur.fetchall():
+                    contract_id = _as_int(row.get("entity_id"))
+                    if contract_id in contract_ids:
+                        history_by_contract.setdefault(contract_id, []).append(
+                            _contract_history_row(row)
+                        )
+
+            return {
+                "platformAccountId": account_id,
+                "readOnly": True,
+                "items": [
+                    _client_contract_row(
+                        row,
+                        history_by_contract.get(int(row["id"]), ()),
+                    )
+                    for row in contracts
+                ],
             }
         finally:
             cur.close()

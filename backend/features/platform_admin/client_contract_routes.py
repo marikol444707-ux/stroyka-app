@@ -25,11 +25,13 @@ try:
     from backend.features.platform_admin.client_contracts import (
         build_client_contract_preview,
         build_contract_number,
+        build_contract_status_transition,
     )
 except ModuleNotFoundError:
     from features.platform_admin.client_contracts import (
         build_client_contract_preview,
         build_contract_number,
+        build_contract_status_transition,
     )
 
 
@@ -524,6 +526,125 @@ def register_client_contract_routes(app, deps):
                 "created": True,
                 "idempotent": False,
                 "contract": _contract_response(row),
+            }
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+
+    @app.put("/system/client-contracts/{contract_id}")
+    def system_update_client_contract_status(
+        contract_id: int,
+        data: dict,
+        current_user: dict = Depends(require_roles(*manage_roles)),
+    ):
+        contract_id = _positive_int(contract_id, "contractId")
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=422, detail="Ожидается объект изменения.")
+        target_status = str(data.get("status") or "").strip().lower()
+        reason = " ".join(str(data.get("reason") or "").strip().split())[:1000]
+
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            contract = _load_contract(cur, contract_id, for_update=True)
+            if not contract:
+                raise HTTPException(status_code=404, detail="Договор не найден.")
+            existing = []
+            if target_status == "active":
+                cur.execute(
+                    """SELECT id FROM companies
+                       WHERE id=%s AND platform_account_id=%s
+                       FOR UPDATE""",
+                    (
+                        int(contract["company_id"]),
+                        int(contract["platform_account_id"]),
+                    ),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Компания договора больше не доступна.",
+                    )
+                existing = _load_contracts(
+                    cur,
+                    int(contract["platform_account_id"]),
+                    int(contract["company_id"]),
+                )
+            checked_contract = {
+                **contract,
+                "generated_file_url": _protected_file_url(
+                    contract.get("generated_file_url")
+                ),
+                "signed_file_url": _protected_file_url(
+                    contract.get("signed_file_url")
+                ),
+            }
+            transition = build_contract_status_transition(
+                checked_contract,
+                target_status,
+                existing,
+            )
+            if transition["blockers"]:
+                raise HTTPException(status_code=409, detail=transition)
+            if not transition["changed"]:
+                conn.rollback()
+                return {
+                    "changed": False,
+                    "contract": _contract_response(contract),
+                }
+
+            cur.execute(
+                """UPDATE platform_client_contracts
+                      SET status=%s,
+                          issued_at=CASE WHEN %s='issued'
+                              THEN COALESCE(issued_at,NOW()) ELSE issued_at END,
+                          activated_at=CASE WHEN %s='active'
+                              THEN COALESCE(activated_at,NOW()) ELSE activated_at END,
+                          terminated_at=CASE WHEN %s='terminated'
+                              THEN COALESCE(terminated_at,NOW()) ELSE terminated_at END,
+                          updated_by=%s,
+                          updated_at=NOW()
+                    WHERE id=%s AND company_id=%s AND platform_account_id=%s
+                    RETURNING {}""".format(_CONTRACT_COLUMNS),
+                (
+                    target_status,
+                    target_status,
+                    target_status,
+                    target_status,
+                    _actor(current_user),
+                    contract_id,
+                    contract["company_id"],
+                    contract["platform_account_id"],
+                ),
+            )
+            updated_row = cur.fetchone()
+            if not updated_row:
+                raise HTTPException(status_code=409, detail="Договор изменён другим пользователем.")
+            updated = dict(updated_row)
+            write_audit(
+                cur,
+                current_user,
+                "platform_client_contract_status_changed",
+                "platform_client_contract",
+                contract_id,
+                updated.get("number"),
+                platform_account_id=updated.get("platform_account_id"),
+                company_id=updated.get("company_id"),
+                details={
+                    "fromStatus": contract.get("status"),
+                    "toStatus": target_status,
+                    "reason": reason,
+                    "automaticPayment": False,
+                    "historyPreserved": True,
+                },
+            )
+            conn.commit()
+            return {
+                "changed": True,
+                "contract": _contract_response(updated),
             }
         except Exception:
             conn.rollback()

@@ -4,6 +4,7 @@ from datetime import date
 from backend.features.platform_admin.client_contracts import (
     build_client_contract_preview,
     build_contract_number,
+    build_contract_status_transition,
     can_transition_contract_status,
     find_overlapping_active_contracts,
     normalize_legal_party,
@@ -292,6 +293,89 @@ class ClientContractDomainTests(unittest.TestCase):
         self.assertFalse(can_transition_contract_status("draft", "active"))
         self.assertFalse(can_transition_contract_status("terminated", "active"))
         self.assertFalse(can_transition_contract_status("unknown", "draft"))
+
+    def test_status_transition_requires_document_chain_before_activation(self):
+        contract = {
+            "id": 101,
+            "company_id": 42,
+            "contract_type": "platform_license",
+            "status": "draft",
+            "starts_on": "2026-09-01",
+            "ends_on": "2027-08-31",
+            "licensor_snapshot_json": normalize_legal_party(_complete_licensor()),
+            "client_snapshot_json": normalize_legal_party(_complete_company()),
+            "terms_snapshot_json": {
+                "plan": "pro",
+                "monthlyFee": "15000.00",
+                "currency": "RUB",
+                "maxProjects": 10,
+                "maxUsers": 50,
+                "startsOn": "2026-09-01",
+                "endsOn": "2027-08-31",
+            },
+        }
+
+        missing_pdf = build_contract_status_transition(contract, "issued")
+        self.assertIn(
+            "generated_contract_pdf_required",
+            {item["code"] for item in missing_pdf["blockers"]},
+        )
+
+        issued = {**contract, "status": "issued", "generated_file_url": "/tenant-files/1/content"}
+        missing_signature = build_contract_status_transition(issued, "active")
+        self.assertIn(
+            "signed_contract_pdf_required",
+            {item["code"] for item in missing_signature["blockers"]},
+        )
+
+        active = build_contract_status_transition(
+            {**issued, "signed_file_url": "/tenant-files/2/content"},
+            "active",
+        )
+        self.assertEqual(active["blockers"], [])
+        self.assertTrue(active["changed"])
+
+    def test_status_transition_rejects_overlap_and_is_idempotent(self):
+        contract = {
+            "id": 101,
+            "company_id": 42,
+            "contract_type": "platform_license",
+            "status": "issued",
+            "starts_on": "2026-09-01",
+            "ends_on": "2027-08-31",
+            "generated_file_url": "/tenant-files/1/content",
+            "signed_file_url": "/tenant-files/2/content",
+            "licensor_snapshot_json": normalize_legal_party(_complete_licensor()),
+            "client_snapshot_json": normalize_legal_party(_complete_company()),
+            "terms_snapshot_json": {
+                "plan": "pro",
+                "monthlyFee": "15000.00",
+                "currency": "RUB",
+                "maxProjects": 10,
+                "maxUsers": 50,
+                "startsOn": "2026-09-01",
+                "endsOn": "2027-08-31",
+            },
+        }
+        overlap = build_contract_status_transition(contract, "active", [{
+            "id": 202,
+            "company_id": 42,
+            "contract_type": "platform_license",
+            "status": "active",
+            "starts_on": "2027-01-01",
+            "ends_on": None,
+        }])
+        self.assertIn(
+            "active_contract_period_overlap",
+            {item["code"] for item in overlap["blockers"]},
+        )
+
+        same = build_contract_status_transition(
+            {**contract, "status": "active"},
+            "active",
+        )
+        self.assertTrue(same["ok"])
+        self.assertFalse(same["changed"])
 
 
 if __name__ == "__main__":

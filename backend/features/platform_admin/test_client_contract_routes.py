@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from starlette.datastructures import Headers, UploadFile
 
 from backend.features.platform_admin import client_contract_routes, routes
+from backend.features.platform_admin.client_contracts import normalize_legal_party
 
 
 class FakeApp:
@@ -25,6 +26,9 @@ class FakeApp:
 
     def post(self, path, **_kwargs):
         return self._decorator("POST", path)
+
+    def put(self, path, **_kwargs):
+        return self._decorator("PUT", path)
 
 
 class FakeCursor:
@@ -153,9 +157,17 @@ def contract_row(**overrides):
         "max_users": 40,
         "status": "draft",
         "terms_version": "platform-license-v1",
-        "licensor_snapshot_json": {"legalName": "ИП Буцькин Николай Сергеевич"},
-        "client_snapshot_json": {"legalName": "ООО Клиент"},
-        "terms_snapshot_json": {"plan": "pro"},
+        "licensor_snapshot_json": normalize_legal_party(licensor_row()),
+        "client_snapshot_json": normalize_legal_party(company_row()),
+        "terms_snapshot_json": {
+            "plan": "pro",
+            "monthlyFee": "49900.00",
+            "currency": "RUB",
+            "maxProjects": 10,
+            "maxUsers": 40,
+            "startsOn": "2026-09-02",
+            "endsOn": None,
+        },
         "generated_file_url": None,
         "signed_file_url": None,
         "notes": None,
@@ -365,6 +377,73 @@ class ClientContractRoutesTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.status_code, 422)
         self.assertEqual(connection.cursor_instance.calls, [])
+
+    def test_status_change_uses_manage_role_writes_audit_and_no_payment(self):
+        source = contract_row(
+            status="issued",
+            generated_file_url="/tenant-files/501/content",
+            signed_file_url="/tenant-files/502/content",
+        )
+        updated = contract_row(
+            status="active",
+            generated_file_url="/tenant-files/501/content",
+            signed_file_url="/tenant-files/502/content",
+            activated_at="2026-09-03T12:00:00",
+        )
+        connection = FakeConnection([source, {"id": 42}, [source], updated])
+        handlers, role_requests = register_handlers(connection)
+
+        with patch.object(routes, "_system_write_audit") as audit:
+            result = handlers[("PUT", "/system/client-contracts/{contract_id}")](
+                contract_id=101,
+                data={"status": "active", "reason": "Подписан обеими сторонами"},
+                current_user={"id": 1, "name": "Владелец", "role": "system_owner"},
+            )
+
+        self.assertTrue(result["changed"])
+        self.assertEqual(result["contract"]["status"], "active")
+        self.assertIn(routes.PLATFORM_MANAGE_ROLES, role_requests)
+        all_sql = " ".join(sql for sql, _params in connection.cursor_instance.calls)
+        self.assertIn(
+            "SELECT id FROM companies WHERE id=%s AND platform_account_id=%s FOR UPDATE",
+            all_sql,
+        )
+        self.assertIn("UPDATE platform_client_contracts", all_sql)
+        self.assertNotIn("DELETE FROM", all_sql)
+        self.assertNotIn("company_payments", all_sql)
+        self.assertEqual(connection.commits, 1)
+        audit.assert_called_once()
+        self.assertEqual(
+            audit.call_args.args[2],
+            "platform_client_contract_status_changed",
+        )
+        self.assertEqual(audit.call_args.kwargs["details"]["fromStatus"], "issued")
+        self.assertEqual(audit.call_args.kwargs["details"]["toStatus"], "active")
+
+    def test_status_change_rejects_unsigned_activation_without_write(self):
+        connection = FakeConnection([
+            contract_row(
+                status="issued",
+                generated_file_url="/tenant-files/501/content",
+            ),
+            {"id": 42},
+            [contract_row(status="issued")],
+        ])
+        handlers, _role_requests = register_handlers(connection)
+
+        with self.assertRaises(HTTPException) as raised:
+            handlers[("PUT", "/system/client-contracts/{contract_id}")](
+                contract_id=101,
+                data={"status": "active"},
+                current_user={"id": 1, "role": "system_owner"},
+            )
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(connection.commits, 0)
+        self.assertFalse(any(
+            "UPDATE platform_client_contracts" in sql
+            for sql, _params in connection.cursor_instance.calls
+        ))
 
     def test_preview_rejects_supplied_foreign_platform_account(self):
         connection = FakeConnection([

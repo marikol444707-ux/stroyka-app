@@ -163,6 +163,27 @@ function ClientContractsPanel({company, API, canManage, C, btnO, btnG, badge}) {
     }
   };
 
+  const changeStatus = async (contract, status) => {
+    setWorking(true);
+    setError('');
+    setNotice('');
+    try {
+      const result = await request(`/system/client-contracts/${contract.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({status}),
+      });
+      replaceContract(result.contract);
+      setNotice(
+        `${contract.number}: статус изменён на «${statusLabels[status] || status}». ` +
+        'Оплата и доступ клиента не менялись.',
+      );
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setWorking(false);
+    }
+  };
+
   const prepared = preview?.contract;
   const blockers = Array.isArray(preview?.blockers) ? preview.blockers : [];
 
@@ -243,6 +264,46 @@ function ClientContractsPanel({company, API, canManage, C, btnO, btnG, badge}) {
                   >
                     Подписанный PDF
                   </a>
+                )}
+                {canManage && contract.status === 'draft' && contract.generatedFileUrl && (
+                  <button
+                    aria-label={`Выдать договор ${contract.number}`}
+                    disabled={working}
+                    onClick={() => changeStatus(contract, 'issued')}
+                    style={{...btnO, padding: '5px 9px', fontSize: '11px'}}
+                  >
+                    Выдать
+                  </button>
+                )}
+                {canManage && contract.status === 'issued' && contract.signedFileUrl && (
+                  <button
+                    aria-label={`Активировать договор ${contract.number}`}
+                    disabled={working}
+                    onClick={() => changeStatus(contract, 'active')}
+                    style={{...btnO, padding: '5px 9px', fontSize: '11px'}}
+                  >
+                    Активировать
+                  </button>
+                )}
+                {canManage && contract.status === 'active' && (
+                  <button
+                    aria-label={`Прекратить договор ${contract.number}`}
+                    disabled={working}
+                    onClick={() => changeStatus(contract, 'terminated')}
+                    style={{...btnG, padding: '5px 9px', fontSize: '11px'}}
+                  >
+                    Прекратить
+                  </button>
+                )}
+                {canManage && ['draft', 'issued'].includes(contract.status) && (
+                  <button
+                    aria-label={`Аннулировать договор ${contract.number}`}
+                    disabled={working}
+                    onClick={() => changeStatus(contract, 'cancelled')}
+                    style={{...btnG, padding: '5px 9px', fontSize: '11px'}}
+                  >
+                    Аннулировать
+                  </button>
                 )}
               </div>
             </div>

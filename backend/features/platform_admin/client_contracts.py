@@ -293,6 +293,155 @@ def can_transition_contract_status(current_status, target_status):
     return target_status in _STATUS_TRANSITIONS[current_status]
 
 
+def _json_mapping(value):
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except (TypeError, ValueError):
+            return {}
+    return {}
+
+
+def build_contract_status_transition(
+    contract,
+    target_status,
+    existing_contracts=(),
+):
+    """Validate one lifecycle step without mutating the stored contract."""
+    current_status = _text(_contract_value(contract, "status")).lower()
+    target_status = _text(target_status).lower()
+    blockers = []
+
+    if target_status not in CONTRACT_STATUSES:
+        blockers.append(_blocker(
+            "contract_status_invalid",
+            "status",
+            "Укажите допустимый статус договора.",
+        ))
+    elif not can_transition_contract_status(current_status, target_status):
+        blockers.append(_blocker(
+            "contract_status_transition_invalid",
+            "status",
+            "Нельзя перевести договор из статуса «{}» в «{}».".format(
+                current_status or "неизвестно",
+                target_status,
+            ),
+        ))
+
+    changed = not blockers and current_status != target_status
+    if not changed:
+        return {
+            "ok": not blockers,
+            "changed": False,
+            "currentStatus": current_status,
+            "targetStatus": target_status,
+            "blockers": blockers,
+        }
+
+    generated_file = _text(_contract_value(
+        contract,
+        "generatedFileUrl",
+        "generated_file_url",
+    ))
+    signed_file = _text(_contract_value(
+        contract,
+        "signedFileUrl",
+        "signed_file_url",
+    ))
+    if target_status in {"issued", "active"} and not generated_file:
+        blockers.append(_blocker(
+            "generated_contract_pdf_required",
+            "generatedFileUrl",
+            "Сначала сформируйте PDF договора.",
+        ))
+    if target_status == "active" and not signed_file:
+        blockers.append(_blocker(
+            "signed_contract_pdf_required",
+            "signedFileUrl",
+            "Для активации загрузите подписанный PDF договора.",
+        ))
+
+    if target_status == "active":
+        licensor = normalize_legal_party(_json_mapping(_contract_value(
+            contract,
+            "licensorSnapshot",
+            "licensor_snapshot_json",
+        )))
+        client = normalize_legal_party(_json_mapping(_contract_value(
+            contract,
+            "clientSnapshot",
+            "client_snapshot_json",
+        )))
+        blockers.extend(_party_blockers(licensor, "licensor", "правообладатель"))
+        blockers.extend(_party_blockers(client, "client", "клиент"))
+
+        starts_on = _parse_date(_contract_value(contract, "startsOn", "starts_on"))
+        ends_on = _parse_date(_contract_value(contract, "endsOn", "ends_on"))
+        if starts_on is None:
+            blockers.append(_blocker(
+                "contract_start_date_required",
+                "startsOn",
+                "Укажите дату начала договора.",
+            ))
+        elif ends_on is not None and ends_on < starts_on:
+            blockers.append(_blocker(
+                "contract_period_invalid",
+                "endsOn",
+                "Дата окончания не может быть раньше даты начала.",
+            ))
+
+        terms = _json_mapping(_contract_value(
+            contract,
+            "termsSnapshot",
+            "terms_snapshot_json",
+        ))
+        if not _text(terms.get("plan")):
+            blockers.append(_blocker(
+                "contract_plan_required",
+                "termsSnapshot.plan",
+                "В договоре не зафиксирован тариф.",
+            ))
+        if _decimal(terms.get("monthlyFee")) is None:
+            blockers.append(_blocker(
+                "monthly_fee_invalid",
+                "termsSnapshot.monthlyFee",
+                "В договоре не зафиксирована корректная стоимость.",
+            ))
+        if not re.fullmatch(r"[A-Z]{3}", _text(terms.get("currency"))):
+            blockers.append(_blocker(
+                "currency_invalid",
+                "termsSnapshot.currency",
+                "В договоре не зафиксирована валюта.",
+            ))
+
+        if starts_on is not None:
+            conflicts = find_overlapping_active_contracts(
+                existing_contracts,
+                _contract_value(contract, "companyId", "company_id"),
+                _contract_value(contract, "contractType", "contract_type"),
+                starts_on,
+                ends_on,
+                exclude_contract_id=_contract_value(contract, "id"),
+            )
+            if conflicts:
+                blockers.append(_blocker(
+                    "active_contract_period_overlap",
+                    "startsOn",
+                    "У клиента уже есть действующий договор этого типа на пересекающийся период.",
+                ))
+
+    return {
+        "ok": not blockers,
+        "changed": not blockers,
+        "currentStatus": current_status,
+        "targetStatus": target_status,
+        "blockers": blockers,
+    }
+
+
 def _periods_overlap(first_start, first_end, second_start, second_end):
     first_end = first_end or date.max
     second_end = second_end or date.max

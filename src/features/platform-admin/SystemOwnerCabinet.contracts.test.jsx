@@ -87,6 +87,16 @@ const signedContract = {
   signedFileUrl: '/tenant-files/502/content',
 };
 
+const issuedContract = {
+  ...generatedContract,
+  status: 'issued',
+};
+
+const activeContract = {
+  ...signedContract,
+  status: 'active',
+};
+
 function renderCabinet() {
   return render(
     <SystemOwnerCabinet
@@ -139,7 +149,14 @@ describe('SystemOwnerCabinet client contracts', () => {
         return jsonResponse({
           uploaded: true,
           fileUrl: signedContract.signedFileUrl,
-          contract: signedContract,
+          contract: {...signedContract, status: 'issued'},
+        });
+      }
+      if (url === '/system/client-contracts/101' && options.method === 'PUT') {
+        const {status} = JSON.parse(options.body);
+        return jsonResponse({
+          changed: true,
+          contract: status === 'active' ? activeContract : {...issuedContract, status},
         });
       }
       return jsonResponse(url === '/system/dashboard' ? {} : []);
@@ -243,6 +260,9 @@ describe('SystemOwnerCabinet client contracts', () => {
     );
     expect(screen.getByText(/не выполняют оплату/i)).toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole('button', {name: 'Выдать договор STK-2026-0101'}));
+    expect(await screen.findByText('Выдан')).toBeInTheDocument();
+
     const signedPdf = new File(['%PDF-1.7\nsigned'], 'signed.pdf', {type: 'application/pdf'});
     fireEvent.change(
       screen.getByLabelText('Загрузить подписанный PDF для STK-2026-0101'),
@@ -258,5 +278,16 @@ describe('SystemOwnerCabinet client contracts', () => {
     ));
     expect(signedRequest[1].body).toBeInstanceOf(FormData);
     expect(signedRequest[1].headers).not.toHaveProperty('Content-Type');
+
+    fireEvent.click(screen.getByRole('button', {name: 'Активировать договор STK-2026-0101'}));
+    expect(await screen.findByText('Действует')).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Прекратить договор STK-2026-0101'})).toBeInTheDocument();
+
+    const statusRequests = global.fetch.mock.calls.filter(([url]) => (
+      url === '/system/client-contracts/101'
+    ));
+    expect(statusRequests).toHaveLength(2);
+    expect(JSON.parse(statusRequests[0][1].body)).toEqual({status: 'issued'});
+    expect(JSON.parse(statusRequests[1][1].body)).toEqual({status: 'active'});
   });
 });

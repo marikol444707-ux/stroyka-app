@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   Users,
 } from 'lucide-react';
+import ClientContractsReadOnlyPanel from './ClientContractsReadOnlyPanel';
 
 function ClientAccountCabinet({user, setUser, C, card, btnG, API, handleLogout}) {
   const [dashboard, setDashboard] = useState(null);
@@ -257,6 +258,7 @@ function ClientAccountCabinet({user, setUser, C, card, btnG, API, handleLogout})
               ))}
               {!dashboard?.billingDocuments?.length && <p style={{...muted,margin:0}}>Платежные документы еще не выставлялись.</p>}
             </div>
+            <ClientContractsReadOnlyPanel API={API} C={C} card={card} btnG={btnG} embedded />
           </section>
 
           <section style={{...card,padding:'16px'}}>
