@@ -41,12 +41,12 @@ A payload cannot create a project scope.  When a project is selected, the
 server must also store it in `agent_jobs.project_id`; any project identifier in
 payload or stored source must match it.
 
-Company-level document analysis may have no project scope.  In that case the
+Future company-level document analysis may have no project scope. In that case the
 resolver must not infer a project from untrusted payload content.
 
-## A8.5.2 safety state
+## Integrated A8.5.2 safety state
 
-This slice is metadata-only and pure:
+The `company_boundary` helper remains metadata-only and pure:
 
 - no database access;
 - no filesystem or document reads;
@@ -55,6 +55,23 @@ This slice is metadata-only and pure:
 - `writesAttempted=0`;
 - `automaticApprovalAllowed=false`.
 
-The next slice may add a read-only source resolver.  Its SQL must include an
-explicit parameterized company predicate for every tenant-owned table and must
-run inside a read-only transaction.
+The current source resolver and HTTP runtime are separate read-only layers. The
+HTTP runtime first authorizes one active cookie session and one active company
+membership in the same repeatable-read transaction. The resolver then builds
+the boundary before accepting source rows and checks the request, selected
+offer or invoice, protected file and project against that exact company and
+project.
+
+Every tenant-owned SQL query includes explicit parameterized `company_id` and,
+where applicable, `project_id` predicates. The transaction is read-only and is
+always rolled back. The result remains advisory only:
+
+- no supplier ranking or selection;
+- no invoice approval or payment;
+- no model call;
+- no business write;
+- `writesAttempted=0`;
+- `automaticApprovalAllowed=false`.
+
+Any future durable job must build the same boundary from
+`AgentJobContext.owner_company_id`, never from `payload_json`.
