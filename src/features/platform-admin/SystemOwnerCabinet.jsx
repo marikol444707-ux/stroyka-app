@@ -11,6 +11,9 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const [companies, setCompanies] = useState([]);
   const [payments, setPayments] = useState([]);
   const [billingDocuments, setBillingDocuments] = useState([]);
+  const [billingContractOptions, setBillingContractOptions] = useState([]);
+  const [billingContractNotice, setBillingContractNotice] = useState('');
+  const [billingContractWorkingId, setBillingContractWorkingId] = useState(null);
   const [paymentProviders, setPaymentProviders] = useState([]);
   const [paymentEvents, setPaymentEvents] = useState([]);
   const [platformFollowups, setPlatformFollowups] = useState([]);
@@ -27,7 +30,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const [contractCompanyId, setContractCompanyId] = useState(null);
   const [newPayment, setNewPayment] = useState({companyId:'',amount:'',paymentDate:new Date().toISOString().split('T')[0],method:'card',invoiceNumber:'',periodStart:'',periodEnd:'',notes:''});
   const [showNewPayment, setShowNewPayment] = useState(false);
-  const [newBillingDocument, setNewBillingDocument] = useState({companyId:'',documentType:'invoice',status:'draft',amount:'',issueDate:new Date().toISOString().split('T')[0],dueDate:'',periodStart:'',periodEnd:'',paymentProvider:'manual',paymentUrl:'',fileUrl:'',notes:''});
+  const [newBillingDocument, setNewBillingDocument] = useState({companyId:'',clientContractId:'',documentType:'invoice',status:'draft',amount:'',issueDate:new Date().toISOString().split('T')[0],dueDate:'',periodStart:'',periodEnd:'',paymentProvider:'manual',paymentUrl:'',fileUrl:'',notes:''});
   const [showNewBillingDocument, setShowNewBillingDocument] = useState(false);
   const emptyFollowupForm = {companyId:'',billingDocumentId:'',source:'payment',channel:'call',title:'',contactName:'',contactValue:'',dueDate:new Date().toISOString().split('T')[0],status:'open',responsibleName:user.name || '',notes:'',result:''};
   const [newFollowup, setNewFollowup] = useState(emptyFollowupForm);
@@ -99,6 +102,14 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     closed:'Закрыт',
     cancelled:'Аннулирован',
   };
+  const clientContractStatusLabels = {
+    draft:'Черновик',
+    issued:'Выдан',
+    active:'Действует',
+    expired:'Истёк',
+    terminated:'Расторгнут',
+    cancelled:'Аннулирован',
+  };
   const followupSourceLabels = {demo:'Демо',payment:'Оплата',renewal:'Продление',support:'Поддержка',manual:'Вручную'};
   const followupChannelLabels = {call:'Звонок',email:'Email',messenger:'Мессенджер',meeting:'Встреча'};
   const followupStatusLabels = {open:'Открыта',contacted:'Связались',waiting:'Ждем клиента',done:'Закрыта',cancelled:'Отменена'};
@@ -134,6 +145,8 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     demo_request_updated: 'Демо-заявка изменена',
     platform_billing_document_created: 'Создан платежный документ',
     platform_billing_document_updated: 'Изменен платежный документ',
+    platform_billing_document_contract_linked: 'Документ связан с договором',
+    platform_billing_document_contract_unlinked: 'Связь документа с договором убрана',
     platform_billing_document_pdf_generated: 'Сформирован PDF документа',
     platform_payment_provider_prepared: 'Подготовлен платежный провайдер',
     platform_payment_webhook_received: 'Получено событие провайдера',
@@ -166,11 +179,12 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
       if (clientUserFilters.role) clientUserParams.set('role', clientUserFilters.role);
       if (clientUserFilters.active) clientUserParams.set('active', clientUserFilters.active);
       if (clientUserFilters.search.trim()) clientUserParams.set('search', clientUserFilters.search.trim());
-      const [d, c, p, bd, pp, pf, dr, t, a, cu, u, s] = await Promise.all([
+      const [d, c, p, bd, bc, pp, pf, dr, t, a, cu, u, s] = await Promise.all([
         fetchJson('/system/dashboard', null),
         fetchJson('/system/companies', []),
         canManageBilling ? fetchJson('/system/payments', []) : Promise.resolve([]),
         canManageBilling ? fetchJson('/system/billing-documents', []) : Promise.resolve([]),
+        canManageBilling ? fetchJson('/system/billing-contract-options', []) : Promise.resolve([]),
         canManageBilling ? fetchJson('/system/payment-providers', []) : Promise.resolve([]),
         canUseFollowups ? fetchJson('/system/followups?status=active&limit=200', []) : Promise.resolve([]),
         canManagePlatform ? fetchJson('/demo-requests', []) : Promise.resolve([]),
@@ -184,6 +198,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
       setCompanies(Array.isArray(c)?c:[]);
       setPayments(Array.isArray(p)?p:[]);
       setBillingDocuments(Array.isArray(bd)?bd:[]);
+      setBillingContractOptions(Array.isArray(bc)?bc:[]);
       setPaymentProviders(Array.isArray(pp)?pp:[]);
       setPlatformFollowups(Array.isArray(pf)?pf:[]);
       setDemos(Array.isArray(dr)?dr:[]);
@@ -556,9 +571,33 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     setTab('payments');
   };
   const openCompanyBillingDocument = (company) => {
-    setNewBillingDocument({...newBillingDocument, companyId:company.id, amount:company.monthly_fee || '', documentType:'invoice'});
+    setNewBillingDocument({...newBillingDocument, companyId:company.id, clientContractId:'', amount:company.monthly_fee || '', documentType:'invoice'});
     setShowNewBillingDocument(true);
     setTab('payments');
+  };
+  const linkBillingDocumentContract = async (document, rawContractId) => {
+    const clientContractId = rawContractId ? Number(rawContractId) : null;
+    setBillingContractNotice('');
+    setBillingContractWorkingId(document.id);
+    try {
+      const response = await sendJson('/system/billing-documents/'+document.id+'/client-contract', {
+        method:'PUT',
+        body:JSON.stringify({clientContractId}),
+      });
+      const data = await response.json().catch(()=>({}));
+      if (!response.ok) {
+        alert(data.detail || 'Не удалось связать документ с договором');
+        return;
+      }
+      setBillingDocuments(current => current.map(item => item.id === document.id ? data.document : item));
+      setBillingContractNotice(clientContractId
+        ? 'Договор '+(data.document?.client_contract_number || '')+' связан'
+        : 'Документ '+(document.number || '')+' оставлен без договора');
+    } catch (_error) {
+      alert('Не удалось связать документ с договором');
+    } finally {
+      setBillingContractWorkingId(null);
+    }
   };
   const openFollowupForm = (company={}, source='payment', document=null) => {
     const state = company.billing_state || {};
@@ -1215,6 +1254,8 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
             </div>
           </div>
 
+          {billingContractNotice && <div role='status' style={{...card,padding:'10px 12px',marginBottom:'14px',color:C.success,backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}>{billingContractNotice}</div>}
+
           {paymentProviders.length > 0 && (<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:'8px',marginBottom:'14px'}}>
             {paymentProviders.map(provider=>{
               const ready = provider.configured;
@@ -1292,9 +1333,13 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
           {showNewBillingDocument && (<div style={{...card,padding:'16px',marginBottom:'14px'}}>
             <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>Создать платежный документ платформы</b>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(170px,1fr))',gap:'8px'}}>
-              <select value={newBillingDocument.companyId} onChange={e=>setNewBillingDocument({...newBillingDocument,companyId:Number(e.target.value)})} style={{...inp,marginBottom:0}}>
+              <select aria-label='Компания документа' value={newBillingDocument.companyId} onChange={e=>setNewBillingDocument({...newBillingDocument,companyId:Number(e.target.value),clientContractId:''})} style={{...inp,marginBottom:0}}>
                 <option value=''>Компания *</option>
                 {companies.filter(c=>c.id!==1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <select aria-label='Договор документа' value={newBillingDocument.clientContractId} onChange={e=>setNewBillingDocument({...newBillingDocument,clientContractId:e.target.value?Number(e.target.value):''})} disabled={!newBillingDocument.companyId} style={{...inp,marginBottom:0}}>
+                <option value=''>Без договора</option>
+                {billingContractOptions.filter(contract=>String(contract.company_id)===String(newBillingDocument.companyId)).map(contract=><option key={contract.id} value={contract.id}>{contract.number} · {clientContractStatusLabels[contract.status] || contract.status}</option>)}
               </select>
               <select value={newBillingDocument.documentType} onChange={e=>setNewBillingDocument({...newBillingDocument,documentType:e.target.value})} style={{...inp,marginBottom:0}}>
                 <option value='invoice'>Счет</option>
@@ -1326,7 +1371,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
                 const data = await response.json().catch(()=>({}));
                 if(!response.ok) { alert(data.detail || 'Не удалось создать документ'); return; }
                 setShowNewBillingDocument(false);
-                setNewBillingDocument({companyId:'',documentType:'invoice',status:'draft',amount:'',issueDate:new Date().toISOString().split('T')[0],dueDate:'',periodStart:'',periodEnd:'',paymentProvider:'manual',paymentUrl:'',fileUrl:'',notes:''});
+                setNewBillingDocument({companyId:'',clientContractId:'',documentType:'invoice',status:'draft',amount:'',issueDate:new Date().toISOString().split('T')[0],dueDate:'',periodStart:'',periodEnd:'',paymentProvider:'manual',paymentUrl:'',fileUrl:'',notes:''});
                 await loadAll();
               }} style={btnO}>✓ Создать документ</button>
               <button onClick={()=>setShowNewBillingDocument(false)} style={btnG}>Отмена</button>
@@ -1343,6 +1388,20 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
                   <div style={{minWidth:0,flex:1}}>
                     <b style={{color:C.text,fontSize:'13px',display:'block'}}>{doc.documentTypeLabel || billingDocumentTypeLabels[doc.document_type] || doc.document_type} {doc.number || 'без номера'}</b>
                     <p style={{color:C.textSec,fontSize:'11px',margin:'3px 0 0'}}>{doc.company_name || '—'}{doc.period_start?' · период '+doc.period_start+' – '+(doc.period_end || ''):''}{doc.due_date?' · оплатить до '+doc.due_date:''}</p>
+                    <div style={{display:'flex',gap:'6px',alignItems:'center',marginTop:'7px',flexWrap:'wrap'}}>
+                      <select
+                        aria-label={'Договор для '+(doc.number || 'документа')}
+                        value={doc.client_contract_id || ''}
+                        disabled={billingContractWorkingId === doc.id}
+                        onChange={event=>linkBillingDocumentContract(doc,event.target.value)}
+                        style={{...inp,marginBottom:0,padding:'6px 9px',fontSize:'11px',maxWidth:'320px'}}
+                      >
+                        <option value=''>Без договора</option>
+                        {billingContractOptions.filter(contract=>String(contract.company_id)===String(doc.company_id)).map(contract=><option key={contract.id} value={contract.id}>{contract.number} · {clientContractStatusLabels[contract.status] || contract.status}</option>)}
+                        {doc.client_contract_id && !billingContractOptions.some(contract=>String(contract.id)===String(doc.client_contract_id)) && <option value={doc.client_contract_id}>{doc.client_contract_number || 'Связанный договор'}</option>}
+                      </select>
+                      <span style={{color:C.textMuted,fontSize:'10px'}}>{billingContractWorkingId===doc.id?'Сохраняем…':'Сохраняется сразу'}</span>
+                    </div>
                     {(doc.payment_provider || doc.payment_url) && <p style={{color:C.textMuted,fontSize:'11px',margin:'3px 0 0',overflowWrap:'anywhere'}}>{doc.payment_provider || 'manual'}{doc.payment_url?' · '+doc.payment_url:''}</p>}
                     {doc.file_url && <a href={fileSrc(doc.file_url)} target='_blank' rel='noreferrer' style={{color:C.info,fontSize:'11px',fontWeight:800,textDecoration:'none',display:'inline-block',marginTop:'5px'}}>Открыть PDF</a>}
                   </div>

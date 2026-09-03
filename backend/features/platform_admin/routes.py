@@ -307,6 +307,59 @@ def _billing_document_status_label(status: str) -> str:
     return labels.get(status or "", status or "Черновик")
 
 
+def _billing_document_contract_id(data: dict, *, required: bool = False):
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=422, detail="Ожидается объект документа.")
+    supplied = "clientContractId" in data or "client_contract_id" in data
+    if required and not supplied:
+        raise HTTPException(status_code=422, detail="Укажите договор или значение без договора.")
+    raw_value = data.get("clientContractId") if "clientContractId" in data else data.get("client_contract_id")
+    if raw_value in (None, ""):
+        return None
+    if isinstance(raw_value, bool):
+        raise HTTPException(status_code=422, detail="Некорректный договор.")
+    try:
+        contract_id = int(raw_value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="Некорректный договор.")
+    if contract_id <= 0:
+        raise HTTPException(status_code=422, detail="Некорректный договор.")
+    return contract_id
+
+
+def _load_billing_document_contract(cur, contract_id, company_id, platform_account_id):
+    if contract_id is None:
+        return None
+    cur.execute(
+        """SELECT id, platform_account_id, company_id, number, status
+           FROM platform_client_contracts
+           WHERE id=%s AND company_id=%s AND platform_account_id=%s
+             AND status <> 'cancelled'""",
+        (contract_id, company_id, platform_account_id),
+    )
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(
+            status_code=409,
+            detail="Выбранный договор недоступен для этой компании.",
+        )
+    return dict(row)
+
+
+def _decorate_billing_document(document: dict, contract: dict = None) -> dict:
+    item = dict(document)
+    item["documentTypeLabel"] = _billing_document_type_label(item.get("document_type"))
+    item["statusLabel"] = _billing_document_status_label(item.get("status"))
+    if contract is not None:
+        item["client_contract_id"] = contract.get("id")
+        item["client_contract_number"] = contract.get("number")
+        item["client_contract_status"] = contract.get("status")
+    else:
+        item.setdefault("client_contract_number", None)
+        item.setdefault("client_contract_status", None)
+    return item
+
+
 def _payment_provider_label(provider: str) -> str:
     labels = {
         "manual": "Безнал / вручную",
@@ -2584,23 +2637,44 @@ def register_platform_admin_routes(app, deps):
     def system_billing_documents_list(_current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""SELECT d.*, c.name AS company_name, pa.name AS platform_account_name
+        cur.execute("""SELECT d.*, c.name AS company_name, pa.name AS platform_account_name,
+                              pc.number AS client_contract_number,
+                              pc.status AS client_contract_status
                        FROM platform_billing_documents d
                        LEFT JOIN companies c ON c.id=d.company_id
                        LEFT JOIN platform_accounts pa ON pa.id=d.platform_account_id
+                       LEFT JOIN platform_client_contracts pc
+                         ON pc.id=d.client_contract_id
+                        AND pc.company_id=d.company_id
+                        AND pc.platform_account_id=d.platform_account_id
                        ORDER BY d.created_at DESC
                        LIMIT 200""")
         rows = []
         for row in cur.fetchall():
-            item = dict(row)
-            item["documentTypeLabel"] = _billing_document_type_label(item.get("document_type"))
-            item["statusLabel"] = _billing_document_status_label(item.get("status"))
-            rows.append(item)
+            rows.append(_decorate_billing_document(row))
+        conn.close()
+        return rows
+
+    @app.get("/system/billing-contract-options")
+    def system_billing_contract_options(_current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""SELECT pc.id, pc.platform_account_id, pc.company_id,
+                              pc.number, pc.status, c.name AS company_name
+                       FROM platform_client_contracts pc
+                       JOIN companies c
+                         ON c.id=pc.company_id
+                        AND c.platform_account_id=pc.platform_account_id
+                       WHERE pc.status <> 'cancelled'
+                       ORDER BY pc.contract_date DESC, pc.id DESC
+                       LIMIT 500""")
+        rows = [dict(row) for row in cur.fetchall()]
         conn.close()
         return rows
 
     @app.post("/system/billing-documents")
     def system_create_billing_document(data: dict, current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
+        client_contract_id = _billing_document_contract_id(data)
         company_id = data.get("companyId") or data.get("company_id")
         if not company_id:
             raise HTTPException(status_code=400, detail="Укажите компанию")
@@ -2620,13 +2694,25 @@ def register_platform_admin_routes(app, deps):
         if not company:
             conn.close()
             raise HTTPException(status_code=404, detail="Компания не найдена")
+        try:
+            contract = _load_billing_document_contract(
+                cur,
+                client_contract_id,
+                company_id,
+                company.get("platform_account_id"),
+            )
+        except Exception:
+            cur.close()
+            conn.close()
+            raise
         cur.execute("""INSERT INTO platform_billing_documents
-                          (platform_account_id, company_id, document_type, number, status, amount,
+                          (platform_account_id, company_id, client_contract_id,
+                           document_type, number, status, amount,
                            currency, issue_date, due_date, period_start, period_end,
                            payment_provider, payment_url, file_url, notes, created_by)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        RETURNING *""",
-                    (company.get("platform_account_id"), company_id, document_type,
+                    (company.get("platform_account_id"), company_id, client_contract_id, document_type,
                      (data.get("number") or "").strip() or None, status, amount,
                      data.get("currency") or "RUB", data.get("issueDate") or data.get("issue_date") or None,
                      data.get("dueDate") or data.get("due_date") or None,
@@ -2653,11 +2739,88 @@ def register_platform_admin_routes(app, deps):
                 "amount": amount,
                 "companyName": company.get("name"),
                 "paymentProvider": document.get("payment_provider"),
+                "clientContractId": client_contract_id,
+                "clientContractNumber": contract.get("number") if contract else None,
             })
         conn.close()
-        document["documentTypeLabel"] = _billing_document_type_label(document.get("document_type"))
-        document["statusLabel"] = _billing_document_status_label(document.get("status"))
-        return {"ok": True, "document": document}
+        return {"ok": True, "document": _decorate_billing_document(document, contract)}
+
+    @app.put("/system/billing-documents/{id}/client-contract")
+    def system_update_billing_document_contract(
+        id: int,
+        data: dict,
+        current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES)),
+    ):
+        client_contract_id = _billing_document_contract_id(data, required=True)
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            cur.execute(
+                """SELECT d.*, c.name AS company_name,
+                          pa.name AS platform_account_name
+                   FROM platform_billing_documents d
+                   LEFT JOIN companies c ON c.id=d.company_id
+                   LEFT JOIN platform_accounts pa ON pa.id=d.platform_account_id
+                   WHERE d.id=%s
+                   FOR UPDATE OF d""",
+                (id,),
+            )
+            before = cur.fetchone()
+            if not before:
+                raise HTTPException(status_code=404, detail="Документ не найден")
+            before = dict(before)
+            contract = _load_billing_document_contract(
+                cur,
+                client_contract_id,
+                before.get("company_id"),
+                before.get("platform_account_id"),
+            )
+            cur.execute(
+                """UPDATE platform_billing_documents
+                   SET client_contract_id=%s, updated_at=NOW()
+                   WHERE id=%s
+                   RETURNING *""",
+                (client_contract_id, id),
+            )
+            document = dict(cur.fetchone())
+            document["company_name"] = before.get("company_name")
+            document["platform_account_name"] = before.get("platform_account_name")
+            action = (
+                "platform_billing_document_contract_linked"
+                if client_contract_id is not None
+                else "platform_billing_document_contract_unlinked"
+            )
+            _system_write_audit(
+                cur,
+                current_user,
+                action,
+                "platform_billing_document",
+                id,
+                document.get("number"),
+                platform_account_id=document.get("platform_account_id"),
+                company_id=document.get("company_id"),
+                details={
+                    "beforeClientContractId": before.get("client_contract_id"),
+                    "afterClientContractId": client_contract_id,
+                    "clientContractNumber": contract.get("number") if contract else None,
+                    "companyName": before.get("company_name"),
+                },
+            )
+            conn.commit()
+            return {
+                "ok": True,
+                "changed": before.get("client_contract_id") != client_contract_id,
+                "document": _decorate_billing_document(document, contract),
+            }
+        except HTTPException:
+            conn.rollback()
+            raise
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
 
     @app.put("/system/billing-documents/{id}")
     def system_update_billing_document(id: int, data: dict, current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
