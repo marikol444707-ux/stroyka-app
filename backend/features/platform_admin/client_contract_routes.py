@@ -1,9 +1,25 @@
 """HTTP routes for previewing and creating platform client contracts."""
 
 import json
+import re
 
 import psycopg2.extras
-from fastapi import Depends, HTTPException
+from fastapi import Depends, File, HTTPException, UploadFile
+
+try:
+    from backend.features.document_access.service import document_storage_namespace
+    from backend.features.platform_admin.client_contract_documents import (
+        MAX_SIGNED_CONTRACT_BYTES,
+        render_client_contract_pdf,
+        validate_signed_contract_upload,
+    )
+except ModuleNotFoundError:
+    from features.document_access.service import document_storage_namespace
+    from features.platform_admin.client_contract_documents import (
+        MAX_SIGNED_CONTRACT_BYTES,
+        render_client_contract_pdf,
+        validate_signed_contract_upload,
+    )
 
 try:
     from backend.features.platform_admin.client_contracts import (
@@ -75,6 +91,13 @@ def _money(value):
         return str(value)
 
 
+def _protected_file_url(value):
+    normalized = str(value or "").strip()
+    if re.fullmatch(r"/tenant-files/[1-9][0-9]*/content", normalized):
+        return normalized
+    return None
+
+
 def _contract_response(row):
     source = dict(row or {})
     return {
@@ -99,8 +122,8 @@ def _contract_response(row):
         "licensorSnapshot": _json_object(source.get("licensor_snapshot_json")),
         "clientSnapshot": _json_object(source.get("client_snapshot_json")),
         "termsSnapshot": _json_object(source.get("terms_snapshot_json")),
-        "generatedFileUrl": source.get("generated_file_url"),
-        "signedFileUrl": source.get("signed_file_url"),
+        "generatedFileUrl": _protected_file_url(source.get("generated_file_url")),
+        "signedFileUrl": _protected_file_url(source.get("signed_file_url")),
         "notes": source.get("notes"),
         "issuedAt": _iso_value(source.get("issued_at")),
         "activatedAt": _iso_value(source.get("activated_at")),
@@ -160,6 +183,21 @@ def _load_contracts(cur, platform_account_id, company_id):
         (platform_account_id, company_id),
     )
     return [dict(row) for row in cur.fetchall()]
+
+
+def _load_contract(cur, contract_id, *, for_update=False):
+    cur.execute(
+        """SELECT {}
+           FROM platform_client_contracts
+           WHERE id=%s
+           {}""".format(
+            _CONTRACT_COLUMNS,
+            "FOR UPDATE" if for_update else "",
+        ),
+        (contract_id,),
+    )
+    row = cur.fetchone()
+    return dict(row) if row else None
 
 
 def _load_preview_contracts(
@@ -272,6 +310,41 @@ def _actor(current_user):
     )
 
 
+def _register_contract_file(
+    cur,
+    uploaded,
+    *,
+    company_id,
+    context,
+    original_name,
+    current_user,
+):
+    if not isinstance(uploaded, dict) or not str(uploaded.get("url") or "").strip():
+        raise HTTPException(
+            status_code=502,
+            detail="Хранилище не вернуло ссылку на сохранённый договор.",
+        )
+    cur.execute(
+        """INSERT INTO file_ownership
+                  (company_id, project_id, file_url, storage_key, context,
+                   original_name, content_type, uploaded_by_id, uploaded_by)
+           VALUES (%s, NULL, %s, %s, %s, %s, 'application/pdf', %s, %s)
+           RETURNING id""",
+        (
+            company_id,
+            uploaded.get("url"),
+            uploaded.get("key") or "",
+            context,
+            original_name,
+            current_user.get("id") if isinstance(current_user, dict) else None,
+            _actor(current_user),
+        ),
+    )
+    row = cur.fetchone()
+    file_id = row.get("id") if isinstance(row, dict) else row[0]
+    return "/tenant-files/{}/content".format(file_id)
+
+
 def register_client_contract_routes(app, deps):
     get_db = deps["get_db"]
     require_roles = deps["require_roles"]
@@ -279,6 +352,7 @@ def register_client_contract_routes(app, deps):
     manage_roles = deps["manage_roles"]
     tariff_for_plan = deps["tariff_for_plan"]
     write_audit = deps["write_audit"]
+    save_upload_bytes = deps.get("save_upload_bytes")
 
     @app.get("/system/client-contracts")
     def system_client_contracts(
@@ -450,6 +524,217 @@ def register_client_contract_routes(app, deps):
                 "created": True,
                 "idempotent": False,
                 "contract": _contract_response(row),
+            }
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+
+    @app.post("/system/client-contracts/{contract_id}/generate-pdf")
+    def system_generate_client_contract_pdf(
+        contract_id: int,
+        current_user: dict = Depends(require_roles(*manage_roles)),
+    ):
+        contract_id = _positive_int(contract_id, "contractId")
+        if not save_upload_bytes:
+            raise HTTPException(status_code=503, detail="Хранилище договоров не настроено.")
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            contract = _load_contract(cur, contract_id, for_update=True)
+            if not contract:
+                raise HTTPException(status_code=404, detail="Договор не найден.")
+            existing_value = str(contract.get("generated_file_url") or "").strip()
+            existing_url = _protected_file_url(existing_value)
+            if existing_value and not existing_url:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Ссылка на PDF договора повреждена. Обратитесь к администратору.",
+                )
+            if existing_url:
+                conn.rollback()
+                return {
+                    "generated": False,
+                    "fileUrl": existing_url,
+                    "contract": _contract_response(contract),
+                }
+
+            try:
+                rendered = render_client_contract_pdf(contract)
+            except ValueError as exc:
+                if str(exc) == "client_contract_snapshot_incomplete":
+                    raise HTTPException(
+                        status_code=409,
+                        detail="В снимке договора не хватает реквизитов или условий.",
+                    ) from exc
+                raise
+            except RuntimeError as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Сервис формирования PDF временно недоступен.",
+                ) from exc
+
+            company_id = int(contract["company_id"])
+            context = "platform-client-contract"
+            namespace = document_storage_namespace(
+                company_id,
+                context=context,
+            )
+            uploaded = save_upload_bytes(
+                rendered.content,
+                rendered.filename,
+                namespace,
+                context,
+                "application/pdf",
+                "",
+            )
+            protected_url = _register_contract_file(
+                cur,
+                uploaded,
+                company_id=company_id,
+                context=context,
+                original_name=rendered.filename,
+                current_user=current_user,
+            )
+            cur.execute(
+                """UPDATE platform_client_contracts
+                      SET generated_file_url=%s, updated_by=%s, updated_at=NOW()
+                    WHERE id=%s AND company_id=%s
+                    RETURNING {}""".format(_CONTRACT_COLUMNS),
+                (protected_url, _actor(current_user), contract_id, company_id),
+            )
+            updated = dict(cur.fetchone())
+            write_audit(
+                cur,
+                current_user,
+                "platform_client_contract_pdf_generated",
+                "platform_client_contract",
+                contract_id,
+                updated.get("number"),
+                platform_account_id=updated.get("platform_account_id"),
+                company_id=company_id,
+                details={
+                    "fileUrl": protected_url,
+                    "status": updated.get("status"),
+                    "automaticPayment": False,
+                },
+            )
+            conn.commit()
+            return {
+                "generated": True,
+                "fileUrl": protected_url,
+                "contract": _contract_response(updated),
+            }
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+
+    @app.post("/system/client-contracts/{contract_id}/signed-file")
+    async def system_upload_signed_client_contract(
+        contract_id: int,
+        file: UploadFile = File(...),
+        current_user: dict = Depends(require_roles(*manage_roles)),
+    ):
+        contract_id = _positive_int(contract_id, "contractId")
+        if not save_upload_bytes:
+            raise HTTPException(status_code=503, detail="Хранилище договоров не настроено.")
+        filename = file.filename or ""
+        content_type = file.content_type or ""
+        try:
+            content = await file.read(MAX_SIGNED_CONTRACT_BYTES + 1)
+        finally:
+            await file.close()
+        validated = validate_signed_contract_upload(
+            filename,
+            content_type,
+            content,
+        )
+
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            contract = _load_contract(cur, contract_id, for_update=True)
+            if not contract:
+                raise HTTPException(status_code=404, detail="Договор не найден.")
+            generated_value = str(contract.get("generated_file_url") or "").strip()
+            if not generated_value:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Сначала сформируйте PDF договора.",
+                )
+            if not _protected_file_url(generated_value):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Ссылка на PDF договора повреждена. Обратитесь к администратору.",
+                )
+            signed_value = str(contract.get("signed_file_url") or "").strip()
+            if signed_value and not _protected_file_url(signed_value):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Ссылка на подписанный договор повреждена. Обратитесь к администратору.",
+                )
+            if signed_value:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Подписанный файл уже загружен.",
+                )
+
+            company_id = int(contract["company_id"])
+            context = "platform-client-contract"
+            namespace = document_storage_namespace(
+                company_id,
+                context=context,
+            )
+            uploaded = save_upload_bytes(
+                content,
+                validated["filename"],
+                namespace,
+                context,
+                validated["contentType"],
+                "",
+            )
+            protected_url = _register_contract_file(
+                cur,
+                uploaded,
+                company_id=company_id,
+                context=context,
+                original_name=validated["filename"],
+                current_user=current_user,
+            )
+            cur.execute(
+                """UPDATE platform_client_contracts
+                      SET signed_file_url=%s, updated_by=%s, updated_at=NOW()
+                    WHERE id=%s AND company_id=%s
+                    RETURNING {}""".format(_CONTRACT_COLUMNS),
+                (protected_url, _actor(current_user), contract_id, company_id),
+            )
+            updated = dict(cur.fetchone())
+            write_audit(
+                cur,
+                current_user,
+                "platform_client_contract_signed_file_uploaded",
+                "platform_client_contract",
+                contract_id,
+                updated.get("number"),
+                platform_account_id=updated.get("platform_account_id"),
+                company_id=company_id,
+                details={
+                    "fileUrl": protected_url,
+                    "sizeBytes": validated["size"],
+                    "status": updated.get("status"),
+                    "automaticPayment": False,
+                },
+            )
+            conn.commit()
+            return {
+                "uploaded": True,
+                "fileUrl": protected_url,
+                "contract": _contract_response(updated),
             }
         except Exception:
             conn.rollback()

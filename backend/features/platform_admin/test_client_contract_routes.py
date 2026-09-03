@@ -1,7 +1,10 @@
+import asyncio
+import io
 import unittest
 from unittest.mock import patch
 
 from fastapi import HTTPException
+from starlette.datastructures import Headers, UploadFile
 
 from backend.features.platform_admin import client_contract_routes, routes
 
@@ -177,7 +180,7 @@ def payload(**overrides):
     return value
 
 
-def register_handlers(connection):
+def register_handlers(connection, save_upload_bytes=None):
     app = FakeApp()
     role_requests = []
 
@@ -199,11 +202,21 @@ def register_handlers(connection):
         "write_audit": lambda *args, **kwargs: routes._system_write_audit(
             *args, **kwargs
         ),
+        "save_upload_bytes": save_upload_bytes,
     })
     return app.handlers, role_requests
 
 
 class ClientContractRoutesTests(unittest.TestCase):
+    def test_contract_response_never_exposes_direct_storage_urls(self):
+        response = client_contract_routes._contract_response(contract_row(
+            generated_file_url="https://storage.example/private/generated.pdf",
+            signed_file_url="https://storage.example/private/signed.pdf",
+        ))
+
+        self.assertIsNone(response["generatedFileUrl"])
+        self.assertIsNone(response["signedFileUrl"])
+
     def test_list_returns_only_contracts_owned_by_company_account(self):
         connection = FakeConnection([
             company_row(),
@@ -391,6 +404,184 @@ class ClientContractRoutesTests(unittest.TestCase):
         preview_sql, preview_params = connection.cursor_instance.calls[2]
         self.assertIn("company_id=%s OR idempotency_key=%s", preview_sql)
         self.assertEqual(preview_params, (3, 42, "contract-42-2026"))
+
+    def test_generate_pdf_registers_private_company_file_without_payment_write(self):
+        generated_url = "/tenant-files/501/content"
+        updated = contract_row(generated_file_url=generated_url)
+        connection = FakeConnection([
+            contract_row(),
+            {"id": 501},
+            updated,
+        ])
+        saved_calls = []
+
+        def save_upload_bytes(*args, **kwargs):
+            saved_calls.append((args, kwargs))
+            return {
+                "url": "https://storage.example/private/object.pdf",
+                "storage": "s3",
+                "key": "uploads/company-42-common-platform-client-contract/object.pdf",
+                "filename": args[1],
+            }
+
+        handlers, _role_requests = register_handlers(connection, save_upload_bytes)
+
+        with patch.object(
+            client_contract_routes,
+            "render_client_contract_pdf",
+        ) as render_pdf, patch.object(routes, "_system_write_audit") as audit:
+            render_pdf.return_value.content = b"%PDF-1.7\ncontract"
+            render_pdf.return_value.filename = "STK-2026-0101.pdf"
+            result = handlers[(
+                "POST",
+                "/system/client-contracts/{contract_id}/generate-pdf",
+            )](
+                contract_id=101,
+                current_user={"id": 1, "name": "Владелец", "role": "system_owner"},
+            )
+
+        self.assertTrue(result["generated"])
+        self.assertEqual(result["fileUrl"], generated_url)
+        self.assertEqual(result["contract"]["generatedFileUrl"], generated_url)
+        self.assertEqual(saved_calls[0][0][0], b"%PDF-1.7\ncontract")
+        self.assertEqual(saved_calls[0][0][2], "company-42-common-platform-client-contract")
+        self.assertEqual(saved_calls[0][0][3], "platform-client-contract")
+        self.assertEqual(saved_calls[0][0][4], "application/pdf")
+        self.assertEqual(saved_calls[0][0][5], "")
+        sql = " ".join(item[0] for item in connection.cursor_instance.calls)
+        self.assertIn("INSERT INTO file_ownership", sql)
+        self.assertNotIn("company_payments", sql)
+        self.assertNotIn("platform_billing_documents", sql)
+        self.assertEqual(connection.commits, 1)
+        audit.assert_called_once()
+
+    def test_generate_pdf_is_idempotent_after_file_exists(self):
+        existing = contract_row(generated_file_url="/tenant-files/501/content")
+        connection = FakeConnection([existing])
+        saver = unittest.mock.Mock()
+        handlers, _role_requests = register_handlers(connection, saver)
+
+        result = handlers[(
+            "POST",
+            "/system/client-contracts/{contract_id}/generate-pdf",
+        )](
+            contract_id=101,
+            current_user={"id": 1, "role": "system_owner"},
+        )
+
+        self.assertFalse(result["generated"])
+        self.assertEqual(result["fileUrl"], "/tenant-files/501/content")
+        saver.assert_not_called()
+        self.assertEqual(connection.commits, 0)
+
+    def test_generate_pdf_refuses_to_expose_invalid_existing_file_url(self):
+        existing = contract_row(
+            generated_file_url="https://storage.example/private/object.pdf",
+        )
+        connection = FakeConnection([existing])
+        saver = unittest.mock.Mock()
+        handlers, _role_requests = register_handlers(connection, saver)
+
+        with self.assertRaises(HTTPException) as raised:
+            handlers[(
+                "POST",
+                "/system/client-contracts/{contract_id}/generate-pdf",
+            )](
+                contract_id=101,
+                current_user={"id": 1, "role": "system_owner"},
+            )
+
+        self.assertEqual(raised.exception.status_code, 409)
+        saver.assert_not_called()
+        self.assertEqual(connection.commits, 0)
+
+    def test_signed_pdf_is_registered_once_without_changing_contract_status(self):
+        generated_url = "/tenant-files/501/content"
+        signed_url = "/tenant-files/502/content"
+        updated = contract_row(
+            generated_file_url=generated_url,
+            signed_file_url=signed_url,
+        )
+        connection = FakeConnection([
+            contract_row(generated_file_url=generated_url),
+            {"id": 502},
+            updated,
+        ])
+        saved_calls = []
+
+        def save_upload_bytes(*args, **kwargs):
+            saved_calls.append((args, kwargs))
+            return {
+                "url": "https://storage.example/private/signed.pdf",
+                "storage": "s3",
+                "key": "uploads/company-42-common-platform-client-contract/signed.pdf",
+                "filename": args[1],
+            }
+
+        handlers, _role_requests = register_handlers(connection, save_upload_bytes)
+        upload = UploadFile(
+            file=io.BytesIO(b"%PDF-1.7\nsigned"),
+            filename="signed-contract.pdf",
+            headers=Headers({"content-type": "application/pdf"}),
+        )
+
+        with patch.object(routes, "_system_write_audit") as audit:
+            result = asyncio.run(handlers[(
+                "POST",
+                "/system/client-contracts/{contract_id}/signed-file",
+            )](
+                contract_id=101,
+                file=upload,
+                current_user={"id": 1, "name": "Владелец", "role": "system_owner"},
+            ))
+
+        self.assertTrue(result["uploaded"])
+        self.assertEqual(result["fileUrl"], signed_url)
+        self.assertEqual(result["contract"]["status"], "draft")
+        self.assertEqual(result["contract"]["signedFileUrl"], signed_url)
+        self.assertEqual(saved_calls[0][0][0], b"%PDF-1.7\nsigned")
+        sql = " ".join(item[0] for item in connection.cursor_instance.calls)
+        self.assertNotIn("company_payments", sql)
+        self.assertNotIn("platform_billing_documents", sql)
+        self.assertEqual(connection.commits, 1)
+        audit.assert_called_once()
+
+    def test_signed_pdf_requires_generated_contract_and_never_overwrites(self):
+        for source, detail in (
+            (contract_row(), "Сначала сформируйте PDF договора."),
+            (
+                contract_row(
+                    generated_file_url="/tenant-files/501/content",
+                    signed_file_url="/tenant-files/502/content",
+                ),
+                "Подписанный файл уже загружен.",
+            ),
+        ):
+            with self.subTest(detail=detail):
+                connection = FakeConnection([source])
+                handlers, _role_requests = register_handlers(
+                    connection,
+                    unittest.mock.Mock(),
+                )
+                upload = UploadFile(
+                    file=io.BytesIO(b"%PDF-1.7\nsigned"),
+                    filename="signed-contract.pdf",
+                    headers=Headers({"content-type": "application/pdf"}),
+                )
+
+                with self.assertRaises(HTTPException) as raised:
+                    asyncio.run(handlers[(
+                        "POST",
+                        "/system/client-contracts/{contract_id}/signed-file",
+                    )](
+                        contract_id=101,
+                        file=upload,
+                        current_user={"id": 1, "role": "system_owner"},
+                    ))
+
+                self.assertEqual(raised.exception.status_code, 409)
+                self.assertEqual(raised.exception.detail, detail)
+                self.assertEqual(connection.commits, 0)
 
 
 if __name__ == "__main__":

@@ -77,6 +77,16 @@ const createdContract = {
   createdAt: '2026-09-02T10:00:00',
 };
 
+const generatedContract = {
+  ...createdContract,
+  generatedFileUrl: '/tenant-files/501/content',
+};
+
+const signedContract = {
+  ...generatedContract,
+  signedFileUrl: '/tenant-files/502/content',
+};
+
 function renderCabinet() {
   return render(
     <SystemOwnerCabinet
@@ -116,6 +126,20 @@ describe('SystemOwnerCabinet client contracts', () => {
           created: true,
           idempotent: false,
           contract: createdContract,
+        });
+      }
+      if (url === '/system/client-contracts/101/generate-pdf' && options.method === 'POST') {
+        return jsonResponse({
+          generated: true,
+          fileUrl: generatedContract.generatedFileUrl,
+          contract: generatedContract,
+        });
+      }
+      if (url === '/system/client-contracts/101/signed-file' && options.method === 'POST') {
+        return jsonResponse({
+          uploaded: true,
+          fileUrl: signedContract.signedFileUrl,
+          contract: signedContract,
         });
       }
       return jsonResponse(url === '/system/dashboard' ? {} : []);
@@ -198,5 +222,41 @@ describe('SystemOwnerCabinet client contracts', () => {
       const second = JSON.parse(previewRequests[1][1].body);
       expect(second.idempotencyKey).not.toBe(first.idempotencyKey);
     });
+  });
+
+  test('generates a protected PDF and uploads one signed PDF without changing payment', async () => {
+    renderCabinet();
+
+    fireEvent.click(screen.getByRole('button', {name: /Аккаунты\/компании/}));
+    expect(await screen.findByText('ООО Клиент')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name: '📃 Договор'}));
+    expect(await screen.findByText('Договоров пока нет')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name: 'Подготовить договор'}));
+    expect(await screen.findByText('Реквизиты и условия заполнены автоматически')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name: 'Создать черновик договора'}));
+    expect(await screen.findByText('STK-2026-0101')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', {name: 'Сформировать PDF STK-2026-0101'}));
+    expect(await screen.findByRole('link', {name: 'Открыть PDF STK-2026-0101'})).toHaveAttribute(
+      'href',
+      '/tenant-files/501/content',
+    );
+    expect(screen.getByText(/не выполняют оплату/i)).toBeInTheDocument();
+
+    const signedPdf = new File(['%PDF-1.7\nsigned'], 'signed.pdf', {type: 'application/pdf'});
+    fireEvent.change(
+      screen.getByLabelText('Загрузить подписанный PDF для STK-2026-0101'),
+      {target: {files: [signedPdf]}},
+    );
+
+    expect(await screen.findByRole('link', {name: 'Открыть подписанный PDF STK-2026-0101'})).toHaveAttribute(
+      'href',
+      '/tenant-files/502/content',
+    );
+    const signedRequest = global.fetch.mock.calls.find(([url]) => (
+      url === '/system/client-contracts/101/signed-file'
+    ));
+    expect(signedRequest[1].body).toBeInstanceOf(FormData);
+    expect(signedRequest[1].headers).not.toHaveProperty('Content-Type');
   });
 });

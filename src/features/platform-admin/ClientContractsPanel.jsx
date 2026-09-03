@@ -45,11 +45,12 @@ function ClientContractsPanel({company, API, canManage, C, btnO, btnG, badge}) {
   const [draftRequest, setDraftRequest] = useState(null);
 
   const request = useCallback(async (path, options = {}) => {
+    const multipart = typeof FormData !== 'undefined' && options.body instanceof FormData;
     const response = await fetch(API + path, {
       credentials: 'include',
       ...options,
       headers: {
-        ...(options.body ? {'Content-Type': 'application/json'} : {}),
+        ...(options.body && !multipart ? {'Content-Type': 'application/json'} : {}),
         ...(options.headers || {}),
       },
     });
@@ -57,6 +58,12 @@ function ClientContractsPanel({company, API, canManage, C, btnO, btnG, badge}) {
     if (!response.ok) throw new Error(responseMessage(data));
     return data;
   }, [API]);
+
+  const replaceContract = updated => {
+    setContracts(current => current.map(contract => (
+      contract.id === updated.id ? updated : contract
+    )));
+  };
 
   const loadContracts = useCallback(async () => {
     setError('');
@@ -114,6 +121,48 @@ function ClientContractsPanel({company, API, canManage, C, btnO, btnG, badge}) {
     }
   };
 
+  const generatePdf = async contract => {
+    setWorking(true);
+    setError('');
+    setNotice('');
+    try {
+      const result = await request(`/system/client-contracts/${contract.id}/generate-pdf`, {
+        method: 'POST',
+      });
+      replaceContract(result.contract);
+      setNotice(result.generated
+        ? `PDF ${contract.number} сформирован и сохранён в защищённом хранилище.`
+        : `PDF ${contract.number} уже был сформирован.`);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const uploadSignedPdf = async (contract, event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append('file', file);
+    setWorking(true);
+    setError('');
+    setNotice('');
+    try {
+      const result = await request(`/system/client-contracts/${contract.id}/signed-file`, {
+        method: 'POST',
+        body: form,
+      });
+      replaceContract(result.contract);
+      setNotice(`Подписанный PDF ${contract.number} сохранён. Оплата и доступ не изменены.`);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      event.target.value = '';
+      setWorking(false);
+    }
+  };
+
   const prepared = preview?.contract;
   const blockers = Array.isArray(preview?.blockers) ? preview.blockers : [];
 
@@ -141,14 +190,64 @@ function ClientContractsPanel({company, API, canManage, C, btnO, btnG, badge}) {
       {contracts.length > 0 && (
         <div style={{display: 'grid', gap: '7px', marginTop: '10px'}}>
           {contracts.slice(0, 5).map(contract => (
-            <div key={contract.id} style={{display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', padding: '8px 10px', border: `1px solid ${C.border}`, borderRadius: '8px'}}>
-              <div>
-                <b style={{color: C.text, fontSize: '12px'}}>{contract.number}</b>
-                <span style={{color: C.textMuted, fontSize: '11px', marginLeft: '8px'}}>{contract.contractDate} · {money(contract.monthlyFee)}</span>
+            <div key={contract.id} style={{display: 'grid', gap: '7px', padding: '8px 10px', border: `1px solid ${C.border}`, borderRadius: '8px'}}>
+              <div style={{display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', flexWrap: 'wrap'}}>
+                <div>
+                  <b style={{color: C.text, fontSize: '12px'}}>{contract.number}</b>
+                  <span style={{color: C.textMuted, fontSize: '11px', marginLeft: '8px'}}>{contract.contractDate} · {money(contract.monthlyFee)}</span>
+                </div>
+                <span style={badge(C.info, C.infoLight, C.infoBorder)}>{statusLabels[contract.status] || contract.status}</span>
               </div>
-              <span style={badge(C.info, C.infoLight, C.infoBorder)}>{statusLabels[contract.status] || contract.status}</span>
+              <div style={{display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap'}}>
+                {!contract.generatedFileUrl && canManage && (
+                  <button
+                    aria-label={`Сформировать PDF ${contract.number}`}
+                    disabled={working}
+                    onClick={() => generatePdf(contract)}
+                    style={{...btnO, padding: '5px 9px', fontSize: '11px'}}
+                  >
+                    Сформировать PDF
+                  </button>
+                )}
+                {contract.generatedFileUrl && (
+                  <a
+                    aria-label={`Открыть PDF ${contract.number}`}
+                    href={contract.generatedFileUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{...btnG, display: 'inline-block', padding: '5px 9px', fontSize: '11px', textDecoration: 'none'}}
+                  >
+                    Открыть PDF
+                  </a>
+                )}
+                {contract.generatedFileUrl && !contract.signedFileUrl && canManage && (
+                  <label style={{...btnG, display: 'inline-block', padding: '5px 9px', fontSize: '11px', cursor: working ? 'default' : 'pointer'}}>
+                    Загрузить подписанный PDF
+                    <input
+                      aria-label={`Загрузить подписанный PDF для ${contract.number}`}
+                      accept="application/pdf,.pdf"
+                      disabled={working}
+                      onChange={event => uploadSignedPdf(contract, event)}
+                      style={{position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', clip: 'rect(0 0 0 0)'}}
+                      type="file"
+                    />
+                  </label>
+                )}
+                {contract.signedFileUrl && (
+                  <a
+                    aria-label={`Открыть подписанный PDF ${contract.number}`}
+                    href={contract.signedFileUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{...btnG, display: 'inline-block', padding: '5px 9px', fontSize: '11px', textDecoration: 'none'}}
+                  >
+                    Подписанный PDF
+                  </a>
+                )}
+              </div>
             </div>
           ))}
+          <small style={{color: C.textMuted}}>PDF и подписанный файл не выполняют оплату и не меняют доступ клиента.</small>
         </div>
       )}
 

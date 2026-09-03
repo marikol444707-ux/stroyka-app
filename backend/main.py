@@ -26368,6 +26368,7 @@ register_client_contract_routes(app, {
     "manage_roles": PLATFORM_MANAGE_ROLES,
     "tariff_for_plan": get_platform_tariff,
     "write_audit": write_platform_audit,
+    "save_upload_bytes": save_upload_bytes,
 })
 
 try:
