@@ -26320,9 +26320,25 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
         _cleanup_invoice_scan_ai_files(client, uploaded_file_ids)
 
 try:
-    from backend.features.platform_admin import register_platform_admin_routes, write_platform_audit
+    from backend.features.platform_admin import (
+        PLATFORM_MANAGE_ROLES,
+        PLATFORM_VIEW_ROLES,
+        get_platform_tariff,
+        register_client_contract_routes,
+        register_licensor_profile_routes,
+        register_platform_admin_routes,
+        write_platform_audit,
+    )
 except ModuleNotFoundError:
-    from features.platform_admin import register_platform_admin_routes, write_platform_audit
+    from features.platform_admin import (
+        PLATFORM_MANAGE_ROLES,
+        PLATFORM_VIEW_ROLES,
+        get_platform_tariff,
+        register_client_contract_routes,
+        register_licensor_profile_routes,
+        register_platform_admin_routes,
+        write_platform_audit,
+    )
 
 register_platform_admin_routes(app, {
     "get_db": get_db,
@@ -26335,6 +26351,24 @@ register_platform_admin_routes(app, {
         "PLATFORM_CLIENT_CARD_MODEL_GATEWAY_ENABLED",
         "false",
     ).strip().lower() in ("1", "true", "yes"),
+})
+
+register_licensor_profile_routes(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "view_roles": PLATFORM_VIEW_ROLES,
+    "manage_roles": PLATFORM_MANAGE_ROLES,
+    "write_audit": write_platform_audit,
+})
+
+register_client_contract_routes(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "view_roles": PLATFORM_VIEW_ROLES,
+    "manage_roles": PLATFORM_MANAGE_ROLES,
+    "tariff_for_plan": get_platform_tariff,
+    "write_audit": write_platform_audit,
+    "save_upload_bytes": save_upload_bytes,
 })
 
 try:

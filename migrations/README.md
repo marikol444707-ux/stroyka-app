@@ -17,6 +17,11 @@ are moved in one at a time:
   customer estimates that have no saved versions. Existing histories are not
   changed. Its downgrade intentionally preserves business snapshots because
   assignments may already reference them.
+- `0005_platform_client_contracts` adds a separate licensor profile, immutable
+  client-contract snapshots and optional links from existing billing documents
+  and payments. Composite foreign keys prevent cross-company contract links;
+  existing rows remain unchanged. Downgrade is allowed only while both new
+  business tables are empty.
 - Existing databases should only be stamped after the backend has already bootstrapped the schema.
 - Future migrations should move small, well-understood slices out of `init_db()` one at a time.
 
