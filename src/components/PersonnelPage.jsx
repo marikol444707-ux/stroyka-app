@@ -69,7 +69,9 @@ export default function PersonnelPage({
   calcSalary,
   card,
   contracts,
+  companyContext,
   createStaffAccessFromPrompt,
+  currentUser,
   daysInMonth,
   deleteStaff,
   editingItem,
@@ -85,6 +87,7 @@ export default function PersonnelPage({
   interimActs,
   isMobile = false,
   listSearch,
+  linkCurrentUserToStaff,
   masterProfiles,
   masterRatings,
   matchSearch,
@@ -131,6 +134,7 @@ export default function PersonnelPage({
 }) {
   const [staffGroupFilter, setStaffGroupFilter] = React.useState('all');
   const [staffOpenGroups, setStaffOpenGroups] = React.useState({});
+  const [linkingCurrentUser, setLinkingCurrentUser] = React.useState(false);
   const workPayTotal = (work) => Number(work.executionTotal ?? work.execution_total ?? 0);
   const emptyStaffForm = () => ({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад',email:'',password:'',systemRole:'',lastName:'',firstName:'',middleName:'',birthDate:'',citizenship:'РФ',address:'',photoUrl:'',emailWork:'',emailPersonal:'',phoneExtra:'',passportSeries:'',passportNumber:'',passportIssuedBy:'',passportIssuedDate:'',inn:'',snils:'',specialization:'',category:'',employmentType:'',hiredDate:'',firedDate:'',status:'Активен',brigade:'',bankAccount:'',bankName:'',bankBik:'',bankCorr:'',ogrnip:'',cardNumber:'',signatureUrl:'',notes:'',assignedProjects:[],assignedPackages:[]});
   const appendStaffNote = (current, line) => {
@@ -289,6 +293,29 @@ export default function PersonnelPage({
     .filter(group => group.rows.length > 0);
   const isStaffGroupOpen = (groupKey) => Boolean(staffOpenGroups[groupKey]);
   const toggleStaffGroup = (groupKey) => setStaffOpenGroups(prev => ({ ...prev, [groupKey]: !prev[groupKey] }));
+  const selectedCompanyRole = String(
+    companyContext?.selectedCompany?.role || currentUser?.role || '',
+  ).trim();
+  const currentUserId = Number(currentUser?.id || 0);
+  const currentUserEmail = String(currentUser?.email || '').trim();
+  const currentUserStaff = currentUserId > 0
+    ? staff.find(row => Number(row?.accessUserId || 0) === currentUserId)
+    : null;
+  const needsCurrentUserStaffLink = ['директор', 'зам_директора'].includes(selectedCompanyRole)
+    && Boolean(currentUserEmail)
+    && !currentUserStaff
+    && typeof linkCurrentUserToStaff === 'function';
+  const handleCurrentUserStaffLink = async () => {
+    if (linkingCurrentUser) return;
+    setLinkingCurrentUser(true);
+    try {
+      await linkCurrentUserToStaff();
+    } catch (error) {
+      alert(error?.message || 'Не удалось добавить основной аккаунт в персонал');
+    } finally {
+      setLinkingCurrentUser(false);
+    }
+  };
   return (
     <div>
       <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
@@ -571,6 +598,22 @@ export default function PersonnelPage({
                 <button onClick={saveStaff} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button>
                 <button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button>
               </div>
+            </div>
+          )}
+          {needsCurrentUserStaffLink&&(
+            <div style={{...card,padding:'14px',marginBottom:'14px',border:'1.5px solid '+C.warning,backgroundColor:C.warningLight||C.bgWhite}}>
+              <b style={{display:'block',color:C.warning,marginBottom:'5px'}}>Основной директор не связан с персоналом</b>
+              <div style={{color:C.textSec,fontSize:'12px',lineHeight:1.5,marginBottom:'10px'}}>
+                Аккаунт {currentUserEmail} не имеет своей карточки сотрудника. Поэтому «Мои траты» не могут попасть в возмещение.
+              </div>
+              <button
+                type="button"
+                onClick={handleCurrentUserStaffLink}
+                disabled={linkingCurrentUser}
+                style={{...btnO,opacity:linkingCurrentUser ? 0.65 : 1}}
+              >
+                <Plus size={14}/>{linkingCurrentUser?'Добавляю…':'Добавить директора в персонал'}
+              </button>
             </div>
           )}
           <div style={{position:'relative',marginBottom:'12px'}}>

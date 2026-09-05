@@ -122,6 +122,7 @@ class StaffRoutesTest(unittest.TestCase):
         app, _conn, _cursor = build()
         self.assertEqual(set(app.routes), {
             ("GET", "/staff"),
+            ("POST", "/staff/current-user-link"),
             ("POST", "/staff"),
             ("PUT", "/staff/{id}"),
             ("DELETE", "/staff/{id}"),
@@ -139,13 +140,169 @@ class StaffRoutesTest(unittest.TestCase):
         self.assertEqual(cursor.calls, [])
 
     def test_list_is_verified_and_company_scoped(self):
-        app, conn, cursor = build([{"rows": []}])
+        app, conn, cursor = build([{"rows": []}, {"rows": []}])
         self.assertEqual(call(app.routes[("GET", "/staff")]), [])
         sql, params = cursor.calls[0]
         self.assertIn("company_id=%s", sql)
         self.assertIn("company_scope_verified IS TRUE", sql)
         self.assertEqual(params, (4,))
         self.assertTrue(conn.closed)
+
+    def test_full_staff_list_includes_exact_account_membership_link(self):
+        app, _conn, cursor = build([
+            {"rows": [{"id": 5, "name": "Директор"}]},
+            {"rows": [{
+                "staff_id": 5,
+                "accessUserId": 42,
+                "accessEmail": "director@example.test",
+                "accessRole": "директор",
+                "accessAssignedProjects": ["Объект"],
+                "accessAssignedPackages": [],
+            }]},
+        ])
+
+        result = call(app.routes[("GET", "/staff")])
+
+        self.assertEqual(result[0]["accessUserId"], 42)
+        self.assertEqual(result[0]["accessEmail"], "director@example.test")
+        access_sql, access_params = cursor.calls[1]
+        self.assertIn("FROM public.user_company_roles", access_sql)
+        self.assertIn("membership.staff_id IS NOT NULL", access_sql)
+        self.assertEqual(access_params, (4,))
+
+    def test_current_user_link_creates_director_staff_and_links_exact_membership(self):
+        actor = {
+            "id": 9,
+            "membershipId": 71,
+            "companyId": 4,
+            "role": "директор",
+            "name": "Основной директор",
+            "email": "director@example.test",
+        }
+        app, conn, cursor = build([
+            {"row": {
+                "id": 71, "user_id": 9, "company_id": 4,
+                "staff_id": None, "role": "директор",
+            }},
+            {"rows": []},
+            {"row": {"id": 12}},
+            {"row": None},
+            {"rowcount": 1},
+        ], actors=[actor])
+
+        result = call(
+            app.routes[("POST", "/staff/current-user-link")],
+            user=actor,
+        )
+
+        self.assertEqual(result, {
+            "ok": True,
+            "created": True,
+            "staffId": 12,
+            "email": "director@example.test",
+        })
+        insert_sql, insert_params = cursor.calls[2]
+        self.assertIn("INSERT INTO public.staff", insert_sql)
+        self.assertIn("company_scope_verified", insert_sql)
+        self.assertIn("Основной директор", insert_params)
+        self.assertIn("director@example.test", insert_params)
+        update_sql, update_params = cursor.calls[4]
+        self.assertIn("UPDATE public.user_company_roles", update_sql)
+        self.assertEqual(update_params, (12, 71, 9, 4))
+        self.assertEqual(conn.commits, 1)
+
+    def test_current_user_link_is_idempotent_for_existing_exact_link(self):
+        actor = {
+            "id": 9,
+            "membershipId": 71,
+            "companyId": 4,
+            "role": "директор",
+            "name": "Основной директор",
+            "email": "director@example.test",
+        }
+        app, conn, _cursor = build([
+            {"row": {
+                "id": 71, "user_id": 9, "company_id": 4,
+                "staff_id": 12, "role": "директор",
+            }},
+            {"row": {
+                "id": 12, "name": "Основной директор",
+                "email_work": "director@example.test",
+            }},
+        ], actors=[actor])
+
+        result = call(
+            app.routes[("POST", "/staff/current-user-link")],
+            user=actor,
+        )
+
+        self.assertEqual(result["staffId"], 12)
+        self.assertFalse(result["created"])
+        self.assertEqual(conn.commits, 0)
+
+    def test_current_user_link_reuses_unique_same_email_staff(self):
+        actor = {
+            "id": 9,
+            "membershipId": 71,
+            "companyId": 4,
+            "role": "директор",
+            "name": "Основной директор",
+            "email": "director@example.test",
+        }
+        app, conn, cursor = build([
+            {"row": {
+                "id": 71, "user_id": 9, "company_id": 4,
+                "staff_id": None, "role": "директор",
+            }},
+            {"rows": [{"id": 12}]},
+            {"row": None},
+            {"rowcount": 1},
+        ], actors=[actor])
+
+        result = call(
+            app.routes[("POST", "/staff/current-user-link")],
+            user=actor,
+        )
+
+        self.assertEqual(result["staffId"], 12)
+        self.assertFalse(result["created"])
+        self.assertFalse(any(
+            "INSERT INTO public.staff" in sql
+            for sql, _params in cursor.calls
+        ))
+        self.assertEqual(conn.commits, 1)
+
+    def test_current_user_link_rejects_staff_owned_by_another_account(self):
+        actor = {
+            "id": 9,
+            "membershipId": 71,
+            "companyId": 4,
+            "role": "директор",
+            "name": "Основной директор",
+            "email": "director@example.test",
+        }
+        app, conn, cursor = build([
+            {"row": {
+                "id": 71, "user_id": 9, "company_id": 4,
+                "staff_id": None, "role": "директор",
+            }},
+            {"rows": [{"id": 12}]},
+            {"row": {"user_id": 99}},
+        ], actors=[actor])
+
+        with self.assertRaises(HTTPException) as caught:
+            call(
+                app.routes[("POST", "/staff/current-user-link")],
+                user=actor,
+            )
+
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertIn("другим аккаунтом", caught.exception.detail)
+        self.assertFalse(any(
+            "UPDATE public.user_company_roles" in sql
+            for sql, _params in cursor.calls
+        ))
+        self.assertEqual(conn.rollbacks, 1)
 
     def test_foreman_list_adds_project_scope_after_company_scope(self):
         app, _conn, cursor = build(

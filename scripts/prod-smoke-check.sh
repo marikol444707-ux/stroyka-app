@@ -380,6 +380,7 @@ if public_smoke_checks_enabled; then
   check_not_spa_fallback "accounting exception checks route" "$BASE_URL/accounting-exception-checks" "401 403 404 422 429"
   check_not_spa_fallback "accounting link repairs route" "$BASE_URL/accounting-exception-link-repairs" "401 403 404 422 429"
   check_post_not_spa_fallback "accounting link repairs post route" "$BASE_URL/accounting-exception-link-repairs" "401 403 404 415 422 429"
+  check_post_not_spa_fallback "current user staff link route" "$BASE_URL/staff/current-user-link" "401 403 409 422 429"
   check_not_spa_fallback "company messages route" "$BASE_URL/messages" "401 403"
   check_not_spa_fallback "estimate versions route" "$BASE_URL/estimates/1/versions" "401 403"
   check_not_spa_fallback "estimate version detail route" "$BASE_URL/estimate-version/1" "401 403"
