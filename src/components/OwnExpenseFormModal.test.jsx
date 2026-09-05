@@ -5,12 +5,12 @@ import OwnExpenseFormModal from './OwnExpenseFormModal';
 import { createOwnExpenseForm } from '../features/payments/paymentInitialForms';
 
 
-function Harness() {
+function Harness({setShowOwnExpenseForm = jest.fn(), loadAll = jest.fn(), notify = jest.fn()}) {
   const [form, setForm] = React.useState(createOwnExpenseForm());
   return (
     <OwnExpenseFormModal
       showOwnExpenseForm
-      setShowOwnExpenseForm={jest.fn()}
+      setShowOwnExpenseForm={setShowOwnExpenseForm}
       C={{text: '#111', textSec: '#666', textMuted: '#888', border: '#ddd', bg: '#fff', accent: '#f60'}}
       card={{}}
       inp={{}}
@@ -22,7 +22,8 @@ function Harness() {
       setNewOwnExpense={setForm}
       API=""
       user={{id: 999, name: 'Клиентская подмена'}}
-      loadAll={jest.fn()}
+      loadAll={loadAll}
+      notify={notify}
     />
   );
 }
@@ -57,5 +58,41 @@ describe('OwnExpenseFormModal ownership payload', () => {
     expect(body).not.toHaveProperty('employeeId');
     expect(body).not.toHaveProperty('employeeName');
     expect(request.body).not.toContain('Клиентская подмена');
+  });
+
+  it('keeps the form open and shows the backend detail when creation is rejected', async () => {
+    const setShowOwnExpenseForm = jest.fn();
+    const loadAll = jest.fn();
+    const notify = jest.fn();
+    global.fetch.mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: jest.fn().mockResolvedValue({
+        detail: 'Аккаунт не связан с карточкой сотрудника',
+      }),
+    });
+
+    render(
+      <Harness
+        setShowOwnExpenseForm={setShowOwnExpenseForm}
+        loadAll={loadAll}
+        notify={notify}
+      />
+    );
+    fireEvent.change(screen.getByPlaceholderText('За что потрачено *'), {
+      target: {value: 'Бензин'},
+    });
+    fireEvent.change(screen.getByPlaceholderText('Сумма (₽) *'), {
+      target: {value: '500'},
+    });
+    fireEvent.click(screen.getByRole('button', {name: /Отправить/}));
+
+    await waitFor(() => expect(window.alert).toHaveBeenCalledWith(
+      'Аккаунт не связан с карточкой сотрудника'
+    ));
+    expect(setShowOwnExpenseForm).not.toHaveBeenCalled();
+    expect(loadAll).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+    expect(screen.getByPlaceholderText('За что потрачено *')).toHaveValue('Бензин');
   });
 });

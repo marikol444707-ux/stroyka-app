@@ -255,7 +255,9 @@ def register_staff_module(app, deps):
         "технадзор", "стройконтроль", "менеджер_crm",
     )
 
-    def _sync_staff_access(cur, s: StaffModel, company_id, exact_project):
+    def _sync_staff_access(cur, s: StaffModel, company_id, staff_id, exact_project):
+        if _positive_int(staff_id) is None:
+            raise HTTPException(status_code=400, detail="Некорректная связь сотрудника")
         email = ((s.email or s.emailWork or "") or "").strip().lower()
         password = ((s.password or "") or "").strip()
         role = ((s.systemRole or "") or "").strip()
@@ -295,10 +297,21 @@ def register_staff_module(app, deps):
                 )
 
         cur.execute(
-            "SELECT id,company_id FROM public.users WHERE LOWER(email)=LOWER(%s) LIMIT 2",
+            """SELECT id,company_id
+                 FROM public.users
+                WHERE LOWER(email)=LOWER(%s)
+                ORDER BY id
+                LIMIT 2
+                FOR UPDATE""",
             (email,),
         )
-        existing = cur.fetchone()
+        identity_rows = cur.fetchall()
+        if len(identity_rows) > 1:
+            raise HTTPException(
+                status_code=409,
+                detail="Email связан с несколькими аккаунтами — сначала устраните дубликат",
+            )
+        existing = identity_rows[0] if identity_rows else None
         user_id = _positive_int(_row_value(existing, "id", 0))
         full_name = (s.name or "Сотрудник").strip()
         if user_id:
@@ -322,6 +335,39 @@ def register_staff_module(app, deps):
                 raise HTTPException(status_code=400, detail="Не удалось создать доступ сотрудника")
             action = "created"
         cur.execute(
+            """SELECT user_id
+                 FROM public.user_company_roles
+                WHERE company_id=%s
+                  AND staff_id=%s
+                  AND COALESCE(active,TRUE)=TRUE
+                  AND user_id<>%s
+                LIMIT 1
+                FOR UPDATE""",
+            (company_id, staff_id, user_id),
+        )
+        if cur.fetchone() is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Карточка сотрудника уже связана с другим аккаунтом",
+            )
+        cur.execute(
+            """SELECT staff_id
+                 FROM public.user_company_roles
+                WHERE company_id=%s
+                  AND user_id=%s
+                  AND staff_id IS NOT NULL
+                  AND staff_id<>%s
+                  AND COALESCE(active,TRUE)=TRUE
+                LIMIT 1
+                FOR UPDATE""",
+            (company_id, user_id, staff_id),
+        )
+        if cur.fetchone() is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Аккаунт уже связан с другой карточкой сотрудника",
+            )
+        cur.execute(
             """UPDATE public.user_company_roles
                   SET active=FALSE,updated_at=NOW()
                 WHERE user_id=%s AND company_id=%s AND role<>%s AND active IS TRUE""",
@@ -329,16 +375,18 @@ def register_staff_module(app, deps):
         )
         cur.execute(
             """INSERT INTO public.user_company_roles
-                   (user_id,company_id,role,assigned_projects,assigned_packages,
+                   (user_id,company_id,staff_id,role,assigned_projects,assigned_packages,
                     active,is_default,updated_at)
-                VALUES (%s,%s,%s,%s::jsonb,%s::jsonb,TRUE,FALSE,NOW())
+                VALUES (%s,%s,%s,%s,%s::jsonb,%s::jsonb,TRUE,FALSE,NOW())
                 ON CONFLICT (user_id,company_id,role) DO UPDATE
-                  SET assigned_projects=EXCLUDED.assigned_projects,
+                  SET staff_id=EXCLUDED.staff_id,
+                      assigned_projects=EXCLUDED.assigned_projects,
                       assigned_packages=EXCLUDED.assigned_packages,
                       active=TRUE,updated_at=NOW()""",
             (
                 user_id,
                 company_id,
+                staff_id,
                 role,
                 json.dumps(assigned_projects),
                 json.dumps(assigned_packages),
@@ -428,7 +476,7 @@ def register_staff_module(app, deps):
             new_id = _positive_int(_row_value(cur.fetchone(), "id", 0))
             if new_id is None:
                 raise HTTPException(status_code=400, detail="Не удалось создать сотрудника")
-            access = _sync_staff_access(cur, s, company_id, project)
+            access = _sync_staff_access(cur, s, company_id, new_id, project)
             conn.commit()
             log_audit(
                 _actor_name(actor), actor.get("role", ""),
@@ -480,7 +528,7 @@ def register_staff_module(app, deps):
                   AND company_scope_verified IS TRUE""", tuple(values) + (id, company_id))
             if cur.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Сотрудник не найден")
-            access = _sync_staff_access(cur, s, company_id, project)
+            access = _sync_staff_access(cur, s, company_id, id, project)
             conn.commit()
             log_audit(
                 _actor_name(actor), actor.get("role", ""),
@@ -531,19 +579,20 @@ def register_staff_module(app, deps):
                  WHERE id=%s AND company_id=%s
                    AND company_scope_verified IS TRUE
             """, (id, company_id))
-            disabled_users = 0
-            if emails:
-                cur.execute("""
-                    UPDATE public.user_company_roles membership
-                       SET active=FALSE,updated_at=NOW()
-                      FROM public.users linked_user
-                     WHERE membership.user_id=linked_user.id
-                       AND membership.company_id=%s
-                       AND membership.active IS TRUE
-                       AND LOWER(COALESCE(linked_user.email,''))=ANY(%s)
-                     RETURNING membership.user_id AS id
-                """, (company_id, emails))
-                disabled_users = len(cur.fetchall())
+            cur.execute("""
+                UPDATE public.user_company_roles membership
+                   SET active=FALSE,updated_at=NOW()
+                  FROM public.users linked_user
+                 WHERE membership.user_id=linked_user.id
+                   AND membership.company_id=%s
+                   AND membership.active IS TRUE
+                   AND (
+                       membership.staff_id=%s
+                       OR LOWER(COALESCE(linked_user.email,''))=ANY(%s)
+                   )
+                 RETURNING membership.user_id AS id
+            """, (company_id, id, emails))
+            disabled_users = len(cur.fetchall())
             conn.commit()
             log_audit(
                 _actor_name(actor), actor.get("role", ""),

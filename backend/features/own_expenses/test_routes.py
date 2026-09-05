@@ -69,7 +69,14 @@ class FakeConnection:
         self.closed = True
 
 
-def build(cursor, *, role="мастер", company_id=7, invoice_results=None):
+def build(
+    cursor,
+    *,
+    role="мастер",
+    company_id=7,
+    invoice_results=None,
+    actor_overrides=None,
+):
     app = FakeApp()
     connection = FakeConnection(cursor)
     actor = {
@@ -79,6 +86,7 @@ def build(cursor, *, role="мастер", company_id=7, invoice_results=None):
         "role": role,
         "companyId": company_id,
     }
+    actor.update(actor_overrides or {})
     register_own_expenses_module(app, {
         "get_db": lambda: connection,
         "get_current_user": lambda: dict(actor),
@@ -142,6 +150,36 @@ class OwnExpensesRoutesTest(unittest.TestCase):
         self.assertIn("employee_id=%s", sql)
         self.assertEqual(params, (7, 23))
         self.assertNotIn("employee_name=%s", sql)
+        self.assertTrue(connection.closed)
+
+    def test_worker_list_prefers_explicit_membership_staff_link_over_email(self):
+        cursor = FakeCursor(result_sets=[
+            [{"id": 23, "name": "Мастер"}],
+            [],
+        ])
+        app, connection = build(
+            cursor,
+            actor_overrides={
+                "membershipId": 101,
+                "staffId": 23,
+                "email": "different@example.test",
+            },
+        )
+
+        rows = app.routes[("GET", "/own-expenses")](
+            project_id=None,
+            employee_id=None,
+            x_company_id="7",
+            x_company_mode="company",
+            current_user={"id": 42, "email": "different@example.test"},
+        )
+
+        self.assertEqual(rows, [])
+        lookup_sql, lookup_params = cursor.calls[0]
+        self.assertIn("FROM public.staff", lookup_sql)
+        self.assertIn("id=%s AND company_id=%s", lookup_sql)
+        self.assertNotIn("email_work", lookup_sql)
+        self.assertEqual(lookup_params, (23, 7))
         self.assertTrue(connection.closed)
 
     def test_reviewer_list_is_company_scoped(self):

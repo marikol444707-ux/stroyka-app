@@ -280,6 +280,12 @@ def cleanup():
         cur.execute("DELETE FROM invite_codes WHERE preset_name LIKE %s OR created_by LIKE %s", (like_prefix, like_prefix))
         cur.execute("DELETE FROM crm_leads WHERE name LIKE %s", (like_prefix,))
         cur.execute("DELETE FROM suppliers WHERE name LIKE %s", (like_prefix,))
+        cur.execute(
+            """DELETE FROM user_company_roles
+               WHERE user_id IN (SELECT id FROM users WHERE LOWER(email)=ANY(%s))
+                  OR staff_id IN (SELECT id FROM staff WHERE name LIKE %s)""",
+            ([email.lower() for email in emails], like_prefix),
+        )
         cur.execute("DELETE FROM staff WHERE name LIKE %s", (like_prefix,))
         cur.execute("""
             DELETE FROM platform_followups
@@ -327,7 +333,6 @@ def cleanup():
         """, ("%" + PREFIX + "%", like_prefix, like_prefix, like_prefix, like_prefix))
         cur.execute("DELETE FROM companies WHERE name LIKE %s", (like_prefix,))
         cur.execute("DELETE FROM platform_accounts WHERE name LIKE %s", (like_prefix,))
-        cur.execute("DELETE FROM user_company_roles WHERE user_id IN (SELECT id FROM users WHERE LOWER(email)=ANY(%s))", ([email.lower() for email in emails],))
         cur.execute("DELETE FROM users WHERE LOWER(email)=ANY(%s)", ([email.lower() for email in emails],))
         conn.commit()
     finally:

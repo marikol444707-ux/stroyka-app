@@ -204,7 +204,9 @@ class StaffRoutesTest(unittest.TestCase):
     def test_existing_cross_company_user_identity_is_not_rewritten(self):
         app, conn, cursor = build([
             {"row": {"id": 7}},
-            {"row": {"id": 41, "company_id": 5}},
+            {"rows": [{"id": 41, "company_id": 5}]},
+            {"row": None},
+            {"row": None},
             {"rowcount": 1},
             {"rowcount": 1},
         ])
@@ -225,6 +227,112 @@ class StaffRoutesTest(unittest.TestCase):
         ))
         self.assertEqual(conn.commits, 1)
 
+    def test_staff_access_membership_is_explicitly_linked_to_staff_record(self):
+        app, conn, cursor = build([
+            {"row": {"id": 7}},
+            {"rows": [{"id": 42, "company_id": 4}]},
+            {"row": None},
+            {"row": None},
+            {"rowcount": 1},
+            {"rowcount": 1},
+        ])
+
+        created = call(
+            app.routes[("POST", "/staff")],
+            StaffModel(
+                name="Новый", role="мастер", email="worker@example.test",
+                systemRole="мастер",
+            ),
+        )
+
+        self.assertEqual(created["id"], 7)
+        membership_sql, membership_params = next(
+            item for item in cursor.calls
+            if "INSERT INTO public.user_company_roles" in item[0]
+        )
+        self.assertIn("staff_id", membership_sql)
+        self.assertIn("staff_id=EXCLUDED.staff_id", membership_sql)
+        self.assertIn(7, membership_params)
+        self.assertEqual(conn.commits, 1)
+
+    def test_staff_access_rejects_link_owned_by_another_active_account(self):
+        app, conn, cursor = build([
+            {"row": {"id": 7}},
+            {"rows": [{"id": 42, "company_id": 4}]},
+            {"row": {"user_id": 99}},
+        ])
+
+        with self.assertRaises(HTTPException) as caught:
+            call(
+                app.routes[("POST", "/staff")],
+                StaffModel(
+                    name="Новый", role="мастер", email="worker@example.test",
+                    systemRole="мастер",
+                ),
+            )
+
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertIn("другим аккаунтом", caught.exception.detail)
+        self.assertFalse(any(
+            "INSERT INTO public.user_company_roles" in sql
+            for sql, _params in cursor.calls
+        ))
+        self.assertEqual(conn.rollbacks, 1)
+        self.assertTrue(conn.closed)
+
+    def test_staff_access_rejects_ambiguous_case_insensitive_email(self):
+        app, conn, cursor = build([
+            {"row": {"id": 7}},
+            {"rows": [
+                {"id": 42, "company_id": 4},
+                {"id": 43, "company_id": 4},
+            ]},
+        ])
+
+        with self.assertRaises(HTTPException) as caught:
+            call(
+                app.routes[("POST", "/staff")],
+                StaffModel(
+                    name="Новый", role="мастер", email="WORKER@example.test",
+                    systemRole="мастер",
+                ),
+            )
+
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertIn("несколькими аккаунтами", caught.exception.detail)
+        identity_sql, identity_params = cursor.calls[1]
+        self.assertIn("ORDER BY id", identity_sql)
+        self.assertIn("LIMIT 2", identity_sql)
+        self.assertIn("FOR UPDATE", identity_sql)
+        self.assertEqual(identity_params, ("worker@example.test",))
+        self.assertEqual(conn.rollbacks, 1)
+
+    def test_staff_access_does_not_move_account_from_another_staff_record(self):
+        app, conn, cursor = build([
+            {"row": {"id": 7}},
+            {"rows": [{"id": 42, "company_id": 4}]},
+            {"row": None},
+            {"row": {"staff_id": 6}},
+        ])
+
+        with self.assertRaises(HTTPException) as caught:
+            call(
+                app.routes[("POST", "/staff")],
+                StaffModel(
+                    name="Новый", role="мастер", email="worker@example.test",
+                    systemRole="мастер",
+                ),
+            )
+
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertIn("другой карточкой сотрудника", caught.exception.detail)
+        self.assertFalse(any(
+            "INSERT INTO public.user_company_roles" in sql
+            for sql, _params in cursor.calls
+        ))
+        self.assertEqual(conn.rollbacks, 1)
+        self.assertTrue(conn.closed)
+
     def test_mutation_rolls_back_and_closes_on_named_control(self):
         control = KeyboardInterrupt("stop")
         app, conn, _cursor = build([{"error": control}])
@@ -243,7 +351,7 @@ class StaffRoutesTest(unittest.TestCase):
             "name": "Мастер Тест",
             "role": "мастер",
             "project": "Объект",
-            "email_work": "m@t.ru",
+            "email_work": "",
             "email_personal": "",
         }
         app, conn, cursor = build([
@@ -262,7 +370,8 @@ class StaffRoutesTest(unittest.TestCase):
         self.assertEqual(lookup_params, (5, 4))
         membership_calls = [item for item in cursor.calls if "UPDATE public.user_company_roles" in item[0]]
         self.assertEqual(len(membership_calls), 1)
-        self.assertIn(4, membership_calls[0][1])
+        self.assertIn("membership.staff_id=%s", membership_calls[0][0])
+        self.assertEqual(membership_calls[0][1], (4, 5, []))
         global_email_updates = [
             item for item in cursor.calls
             if item[0].startswith("UPDATE users SET active=FALSE")

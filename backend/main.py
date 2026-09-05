@@ -4005,6 +4005,7 @@ def init_db():
             updated_at TIMESTAMP DEFAULT NOW()
         );
         ALTER TABLE user_company_roles ADD COLUMN IF NOT EXISTS platform_account_id INT;
+        ALTER TABLE user_company_roles ADD COLUMN IF NOT EXISTS staff_id INT;
         ALTER TABLE user_company_roles ADD COLUMN IF NOT EXISTS assigned_projects JSONB DEFAULT '[]'::jsonb;
         ALTER TABLE user_company_roles ADD COLUMN IF NOT EXISTS assigned_packages JSONB DEFAULT '[]'::jsonb;
         ALTER TABLE user_company_roles ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE;
@@ -4017,6 +4018,23 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_user_company_roles_company ON user_company_roles (company_id);
         CREATE INDEX IF NOT EXISTS idx_user_company_roles_account ON user_company_roles (platform_account_id);
         CREATE INDEX IF NOT EXISTS idx_user_company_roles_active ON user_company_roles (active);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_staff_company_id
+            ON staff (company_id, id);
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_user_company_roles_active_staff
+            ON user_company_roles (company_id, staff_id)
+            WHERE staff_id IS NOT NULL AND COALESCE(active, TRUE) IS TRUE;
+        DO $user_company_staff_link$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_catalog.pg_constraint
+            WHERE conname='fk_user_company_roles_company_staff'
+              AND conrelid='public.user_company_roles'::regclass
+        ) THEN
+            ALTER TABLE public.user_company_roles
+            ADD CONSTRAINT fk_user_company_roles_company_staff
+            FOREIGN KEY (company_id, staff_id)
+            REFERENCES public.staff(company_id, id);
+        END IF;
+        END $user_company_staff_link$;
         INSERT INTO user_company_roles
             (user_id, platform_account_id, company_id, role, assigned_projects, assigned_packages, active, is_default)
         SELECT u.id,
@@ -6456,6 +6474,7 @@ def password_reset(data: dict):
         raise HTTPException(status_code=401, detail="Код истёк — запросите новый")
     cur.execute("UPDATE users SET password=%s, reset_token=NULL, reset_token_expires=NULL, failed_login_count=0, locked_until=NULL WHERE id=%s",
                 (hash_password(new_password), row[0]))
+    _revoke_user_sessions(cur, row[0])
     _close_password_reset_task(cur, row[0])
     conn.commit()
     cur.close(); conn.close()

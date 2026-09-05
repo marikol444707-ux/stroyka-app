@@ -123,6 +123,17 @@ def cleanup():
     emails = (EMAIL, DISABLE_EMAIL, PASSWORD_CHANGE_EMAIL, ROLE_CHANGE_EMAIL, TWO_FACTOR_EMAIL, STAFF_CARD_EMAIL, ADMIN_EMAIL)
     email_list = [email.lower() for email in emails]
     cur.execute(
+        """DELETE FROM user_company_roles
+           WHERE user_id IN (SELECT id FROM users WHERE LOWER(email)=ANY(%s))
+              OR staff_id IN (
+                    SELECT id
+                    FROM staff
+                    WHERE LOWER(COALESCE(email_work,''))=ANY(%s)
+                       OR LOWER(COALESCE(email_personal,''))=ANY(%s)
+              )""",
+        (email_list, email_list, email_list),
+    )
+    cur.execute(
         """DELETE FROM staff
            WHERE LOWER(COALESCE(email_work,''))=ANY(%s)
               OR LOWER(COALESCE(email_personal,''))=ANY(%s)""",
