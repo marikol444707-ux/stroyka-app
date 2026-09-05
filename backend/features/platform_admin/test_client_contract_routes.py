@@ -220,6 +220,17 @@ def register_handlers(connection, save_upload_bytes=None):
 
 
 class ClientContractRoutesTests(unittest.TestCase):
+    def test_company_loader_falls_back_only_when_canonical_row_is_absent(self):
+        cursor = FakeCursor([company_row()])
+
+        result = client_contract_routes._load_company(cursor, 42)
+
+        self.assertEqual(result["id"], 42)
+        sql, params = cursor.calls[0]
+        self.assertIn("CASE WHEN cr.id IS NULL", sql)
+        self.assertNotIn("COALESCE(NULLIF(cr.email,''), NULLIF(c.contact_email,''), '')", sql)
+        self.assertEqual(params, (42,))
+
     def test_contract_response_never_exposes_direct_storage_urls(self):
         response = client_contract_routes._contract_response(contract_row(
             generated_file_url="https://storage.example/private/generated.pdf",

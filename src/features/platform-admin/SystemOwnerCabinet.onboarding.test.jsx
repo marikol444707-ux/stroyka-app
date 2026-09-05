@@ -94,6 +94,15 @@ describe('SystemOwnerCabinet company onboarding', () => {
     fireEvent.change(screen.getByPlaceholderText('Контактное лицо'), {
       target: {value: 'Иван Петров'},
     });
+    fireEvent.change(screen.getByPlaceholderText('ОГРН / ОГРНИП'), {
+      target: {value: '1234567890123'},
+    });
+    fireEvent.change(screen.getByPlaceholderText('Юридический адрес'), {
+      target: {value: 'Москва, ул. Тестовая, 1'},
+    });
+    fireEvent.change(screen.getByPlaceholderText('БИК'), {
+      target: {value: '044525225'},
+    });
     fireEvent.change(screen.getByPlaceholderText('Email'), {
       target: {value: 'director@example.test'},
     });
@@ -129,6 +138,9 @@ describe('SystemOwnerCabinet company onboarding', () => {
       name: 'ООО Новая компания',
       contactName: 'Иван Петров',
       contactEmail: 'director@example.test',
+      ogrn: '1234567890123',
+      legalAddress: 'Москва, ул. Тестовая, 1',
+      bik: '044525225',
     }));
     expect(JSON.parse(createRequest[1].body)).not.toHaveProperty('createdBy');
   });

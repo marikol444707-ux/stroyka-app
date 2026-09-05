@@ -23,7 +23,12 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const [tariffs, setTariffs] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
   const [showNewCompany, setShowNewCompany] = useState(false);
-  const emptyCompanyForm = {platformAccountId:'',platformAccountName:'',name:'',shortName:'',inn:'',kpp:'',contactName:'',contactPhone:'',contactEmail:'',plan:'demo',trialDays:30,monthlyFee:'',maxProjects:'',maxUsers:'',notes:''};
+  const emptyCompanyForm = {
+    platformAccountId:'', platformAccountName:'', name:'', shortName:'', inn:'', kpp:'', ogrn:'',
+    legalAddress:'', actualAddress:'', directorName:'', directorPosition:'Генеральный директор', basis:'Устава',
+    bankName:'', bik:'', rs:'', ks:'', contactName:'', contactPhone:'', contactEmail:'', website:'',
+    plan:'demo', trialDays:30, monthlyFee:'', maxProjects:'', maxUsers:'', notes:'',
+  };
   const [newCompany, setNewCompany] = useState(emptyCompanyForm);
   const [clientCardScanning, setClientCardScanning] = useState(false);
   const [clientCardRecognition, setClientCardRecognition] = useState(null);
@@ -716,17 +721,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   };
 
   const applyClientCardFields = useCallback((fields={}) => {
-    const extraNotes = [
-      fields.ogrn && 'ОГРН: ' + fields.ogrn,
-      fields.legalAddress && 'Адрес: ' + fields.legalAddress,
-      fields.website && 'Сайт: ' + fields.website,
-      fields.contactPosition && 'Должность: ' + fields.contactPosition,
-      fields.notes,
-    ].filter(Boolean).join('\n');
     setNewCompany(prev => {
-      const nextNotes = extraNotes && !String(prev.notes || '').includes(extraNotes)
-        ? [prev.notes, extraNotes].filter(Boolean).join('\n')
-        : prev.notes;
       return {
         ...prev,
         platformAccountName: prev.platformAccountId ? prev.platformAccountName : (fields.platformAccountName || prev.platformAccountName),
@@ -734,10 +729,23 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
         shortName: fields.shortName || prev.shortName,
         inn: fields.inn || prev.inn,
         kpp: fields.kpp || prev.kpp,
+        ogrn: fields.ogrn || prev.ogrn,
+        legalAddress: fields.legalAddress || prev.legalAddress,
+        actualAddress: fields.actualAddress || prev.actualAddress,
+        directorName: fields.directorName || fields.contactName || prev.directorName,
+        directorPosition: fields.directorPosition || fields.contactPosition || prev.directorPosition,
+        basis: fields.basis || prev.basis,
+        bankName: fields.bankName || prev.bankName,
+        bik: fields.bik || prev.bik,
+        rs: fields.rs || prev.rs,
+        ks: fields.ks || prev.ks,
         contactName: fields.contactName || prev.contactName,
         contactPhone: fields.contactPhone || prev.contactPhone,
         contactEmail: fields.contactEmail || prev.contactEmail,
-        notes: nextNotes,
+        website: fields.website || prev.website,
+        notes: fields.notes && !String(prev.notes || '').includes(fields.notes)
+          ? [prev.notes, fields.notes].filter(Boolean).join('\n')
+          : prev.notes,
       };
     });
   }, []);
@@ -930,6 +938,9 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
                         contactPhone:'Телефон',
                         contactEmail:'Email',
                         legalAddress:'Адрес',
+                        ogrn:'ОГРН',
+                        directorName:'Руководитель',
+                        bik:'БИК',
                         website:'Сайт',
                       }).filter(([key])=>clientCardRecognition.fields?.[key]).map(([key,label])=>(
                         <span key={key} style={badge(C.textSec,C.bg,C.border)}>{label}: {String(clientCardRecognition.fields[key]).slice(0,60)}</span>
@@ -951,6 +962,19 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
 	                <input placeholder='Компания / юрлицо * (например: ООО Земля 1)' value={newCompany.name} onChange={e=>setNewCompany({...newCompany,name:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
                 <input placeholder='ИНН' value={newCompany.inn} onChange={e=>setNewCompany({...newCompany,inn:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <input placeholder='КПП' value={newCompany.kpp} onChange={e=>setNewCompany({...newCompany,kpp:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <div style={{gridColumn:'span 2',color:C.textSec,fontSize:'11px',fontWeight:700,marginTop:'4px'}}>Реквизиты компании — автоматически появятся в настройках и документах</div>
+                <input placeholder='ОГРН / ОГРНИП' value={newCompany.ogrn} onChange={e=>setNewCompany({...newCompany,ogrn:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <input placeholder='Краткое название' value={newCompany.shortName} onChange={e=>setNewCompany({...newCompany,shortName:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <input placeholder='Юридический адрес' value={newCompany.legalAddress} onChange={e=>setNewCompany({...newCompany,legalAddress:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+                <input placeholder='Фактический адрес' value={newCompany.actualAddress} onChange={e=>setNewCompany({...newCompany,actualAddress:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+                <input placeholder='Руководитель' value={newCompany.directorName} onChange={e=>setNewCompany({...newCompany,directorName:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <input placeholder='Должность руководителя' value={newCompany.directorPosition} onChange={e=>setNewCompany({...newCompany,directorPosition:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <input placeholder='Основание полномочий' value={newCompany.basis} onChange={e=>setNewCompany({...newCompany,basis:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+                <input placeholder='Банк' value={newCompany.bankName} onChange={e=>setNewCompany({...newCompany,bankName:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+                <input placeholder='БИК' value={newCompany.bik} onChange={e=>setNewCompany({...newCompany,bik:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <input placeholder='Расчётный счёт' value={newCompany.rs} onChange={e=>setNewCompany({...newCompany,rs:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <input placeholder='Корреспондентский счёт' value={newCompany.ks} onChange={e=>setNewCompany({...newCompany,ks:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+                <div style={{gridColumn:'span 2',color:C.textSec,fontSize:'11px',fontWeight:700,marginTop:'4px'}}>Контакт директора для приглашения в систему</div>
                 <input placeholder='Контактное лицо' value={newCompany.contactName} onChange={e=>setNewCompany({...newCompany,contactName:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <input placeholder='Телефон' value={newCompany.contactPhone} onChange={e=>setNewCompany({...newCompany,contactPhone:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <input placeholder='Email' value={newCompany.contactEmail} onChange={e=>setNewCompany({...newCompany,contactEmail:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>

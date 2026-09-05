@@ -113,7 +113,26 @@ class CompanyRequisitesRoutesTest(unittest.TestCase):
         self.assertTrue(connection.rolled_back)
 
     def test_post_upserts_for_finance_role(self):
-        cursor = FakeCursor(row={"id": 3, "company_id": 7})
+        cursor = FakeCursor(row={
+            "id": 3,
+            "company_id": 7,
+            "full_name": "ООО Тест",
+            "short_name": "Тест",
+            "inn": "123",
+            "kpp": "",
+            "ogrn": "",
+            "legal_address": "",
+            "actual_address": "",
+            "phone": "",
+            "email": "office@example.ru",
+            "director_name": "",
+            "director_position": "Генеральный директор",
+            "basis": "Устава",
+            "bank_name": "",
+            "bik": "",
+            "rs": "",
+            "ks": "",
+        })
         app, connection = build(
             cursor,
             context={"mode": "company", "companyId": 7},
@@ -123,12 +142,20 @@ class CompanyRequisitesRoutesTest(unittest.TestCase):
             {"fullName": "ООО Тест", "inn": "123"},
             x_company_id="7", x_company_mode="company", _current_user={},
         )
-        self.assertEqual(result, {"id": 3, "companyId": 7, "ok": True})
+        self.assertEqual(result["id"], 3)
+        self.assertEqual(result["companyId"], 7)
+        self.assertEqual(result["fullName"], "ООО Тест")
+        self.assertEqual(result["email"], "office@example.ru")
+        self.assertEqual(result["directorPosition"], "Генеральный директор")
+        self.assertTrue(result["ok"])
         self.assertTrue(connection.committed)
         sql, params = cursor.calls[0]
         self.assertIn("ON CONFLICT (company_id) DO UPDATE", sql)
         self.assertEqual(params[0], 7)
         self.assertEqual(params[1], "ООО Тест")
+        mirror_sql, mirror_params = cursor.calls[1]
+        self.assertIn("UPDATE companies SET", mirror_sql)
+        self.assertEqual(mirror_params[-1], 7)
 
 
 if __name__ == "__main__":

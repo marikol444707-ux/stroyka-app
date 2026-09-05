@@ -227,9 +227,16 @@ export function createProjectOperationActions({
   };
 
   const saveCompanyRequisites = async () => {
-    await fetch(API + '/company-requisites', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(companyReqForm) });
+    const response = await fetch(API + '/company-requisites', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(companyReqForm) });
+    if (!response.ok) {
+      alert('Не удалось сохранить реквизиты');
+      return null;
+    }
+    const saved = await response.json();
     await refreshData();
     alert('Реквизиты сохранены!');
+    const {ok: _ok, ...profile} = saved;
+    return profile;
   };
 
   const saveProjectStage = async (projectId, projectName) => {

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import SettingsPage from './SettingsPage';
 
@@ -78,5 +78,66 @@ describe('SettingsPage client contract access', () => {
       expect.objectContaining({credentials: 'include', cache: 'no-store'}),
     ));
     expect(global.fetch.mock.calls.every(([_url, options]) => !options?.method)).toBe(true);
+  });
+
+  test('saved requisites replace both summary and form with the canonical server response', async () => {
+    const saved = {
+      id: 17,
+      companyId: 42,
+      fullName: 'ООО Клиент',
+      shortName: 'Клиент',
+      inn: '1234567890',
+      kpp: '',
+      ogrn: '1234567890123',
+      legalAddress: 'Москва',
+      actualAddress: '',
+      phone: '',
+      email: 'office@example.ru',
+      directorName: 'Иван Петров',
+      directorPosition: 'Генеральный директор',
+      basis: 'Устава',
+      bankName: '',
+      bik: '',
+      rs: '',
+      ks: '',
+    };
+    const form = {...saved, email: ' OFFICE@EXAMPLE.RU '};
+    const saveCompanyRequisites = jest.fn(async () => saved);
+    const setCompanyReqForm = jest.fn();
+    const setCompanyRequisites = jest.fn();
+
+    render(
+      <SettingsPage
+        API=""
+        C={colors}
+        btnB={{}}
+        btnG={{}}
+        btnO={{}}
+        btnR={{}}
+        card={{}}
+        companyDocuments={[]}
+        companyReqForm={form}
+        companyRequisites={{}}
+        inp={{}}
+        loadAll={jest.fn()}
+        newCompanyDoc={{name:'',docType:'Прочее',expiresAt:'',fileUrl:''}}
+        saveCompanyRequisites={saveCompanyRequisites}
+        setCompanyReqForm={setCompanyReqForm}
+        setCompanyRequisites={setCompanyRequisites}
+        setNewCompanyDoc={jest.fn()}
+        setShowForm={jest.fn()}
+        setShowPhotoModal={jest.fn()}
+        settingsTab="requisites"
+        setSettingsTab={jest.fn()}
+        showForm={false}
+        uploadPhoto={jest.fn()}
+        user={{id:9,role:'директор',companyId:42}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', {name:'Сохранить реквизиты'}));
+
+    await waitFor(() => expect(setCompanyRequisites).toHaveBeenCalledWith(saved));
+    expect(setCompanyReqForm).toHaveBeenCalledWith(saved);
   });
 });

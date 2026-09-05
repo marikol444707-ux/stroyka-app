@@ -182,19 +182,19 @@ def _load_company(cur, company_id):
     cur.execute(
         """SELECT c.id, c.platform_account_id, c.active, c.plan,
                   c.monthly_fee, c.max_projects, c.max_users,
-                  COALESCE(NULLIF(cr.full_name,''), NULLIF(c.name,''), '') AS legal_name,
-                  COALESCE(NULLIF(cr.short_name,''), NULLIF(c.short_name,''), '') AS short_name,
-                  COALESCE(NULLIF(cr.inn,''), NULLIF(c.inn,''), '') AS inn,
-                  COALESCE(NULLIF(cr.kpp,''), NULLIF(c.kpp,''), '') AS kpp,
+                  CASE WHEN cr.id IS NULL THEN COALESCE(c.name,'') ELSE COALESCE(cr.full_name,'') END AS legal_name,
+                  CASE WHEN cr.id IS NULL THEN COALESCE(c.short_name,'') ELSE COALESCE(cr.short_name,'') END AS short_name,
+                  CASE WHEN cr.id IS NULL THEN COALESCE(c.inn,'') ELSE COALESCE(cr.inn,'') END AS inn,
+                  CASE WHEN cr.id IS NULL THEN COALESCE(c.kpp,'') ELSE COALESCE(cr.kpp,'') END AS kpp,
                   COALESCE(cr.ogrn, '') AS ogrn,
                   COALESCE(cr.legal_address, '') AS legal_address,
-                  COALESCE(NULLIF(cr.phone,''), NULLIF(c.contact_phone,''), '') AS phone,
-                  COALESCE(NULLIF(cr.email,''), NULLIF(c.contact_email,''), '') AS email,
+                  CASE WHEN cr.id IS NULL THEN COALESCE(c.contact_phone,'') ELSE COALESCE(cr.phone,'') END AS phone,
+                  CASE WHEN cr.id IS NULL THEN COALESCE(c.contact_email,'') ELSE COALESCE(cr.email,'') END AS email,
                   COALESCE(cr.rs, '') AS settlement_account,
                   COALESCE(cr.bank_name, '') AS bank_name,
                   COALESCE(cr.bik, '') AS bank_bik,
                   COALESCE(cr.ks, '') AS correspondent_account,
-                  COALESCE(NULLIF(cr.director_name,''), NULLIF(c.contact_name,''), '') AS signatory_name,
+                  CASE WHEN cr.id IS NULL THEN COALESCE(c.contact_name,'') ELSE COALESCE(cr.director_name,'') END AS signatory_name,
                   COALESCE(cr.basis, '') AS signatory_basis
            FROM companies c
            LEFT JOIN company_requisites cr ON cr.company_id=c.id

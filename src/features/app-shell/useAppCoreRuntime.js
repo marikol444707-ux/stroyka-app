@@ -250,6 +250,7 @@ export function useAppCoreRuntime({
     setChecklists,
     setClients,
     setCompanyDocuments,
+    setCompanyReqForm: appMainState.setCompanyReqForm,
     setCompanyRequisites,
     setContracts,
     setEstimateReconciliations,
