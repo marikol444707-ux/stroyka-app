@@ -14,7 +14,7 @@ import unittest
 class PostgresSupplyChainTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from backend.features.supplier_access.postgres_chain_fixture import build_fixture
+        from backend.features.supplier_access.test_postgres_chain_support import build_fixture
         from fastapi.testclient import TestClient
 
         cls.main, cls.fixture, cls.cleanup = build_fixture()

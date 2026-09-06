@@ -241,3 +241,15 @@ After deployment, use one authorized real purchase to verify recipient cabinet
 visibility and actual email/MAX reception, then invoice/payment/receipt. Do not
 approve, repair, resend or delete old QA requests automatically. HTTP health
 alone does not satisfy this gate.
+
+### Post-merge CI fixture classification
+
+CI run `34063263159` for merge `37b45fd2` ran 3010 backend tests and failed
+one repository writer-inventory check: the synthetic `_seed` helper was named
+`postgres_chain_fixture.py`, so it was scanned as a production budget writer.
+The helper is now `test_postgres_chain_support.py`, matching the repository's
+test-only convention; both test imports are updated. Its isolation guards and
+opt-in integration test are preserved. The budget inventory implementation,
+allowlist, runtime application, and migrations are unchanged by this correction.
+The corrected tree passes the full Python 3.11 backend discovery: 3012 tests,
+63 explicit skips, no failures. GitHub CI must also pass before deployment.
