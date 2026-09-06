@@ -529,10 +529,15 @@ export default function SupplierCabinetPage({
                                 supplierMessage: newKpResponse.supplierMessage,
                                 pdfUrl: newKpResponse.pdfUrl,
                               };
-                          await fetch(API+'/supplier-offers/'+o.id,{
+                          const response = await fetch(API+'/supplier-offers/'+o.id,{
                             method:'PUT', headers:{'Content-Type':'application/json'},
                             body: JSON.stringify(body)
                           });
+                          const data = await response.json().catch(() => ({}));
+                          if (!response.ok || data?.detail || data?.error) {
+                            alert('Не удалось отправить КП: ' + (data?.detail || data?.error || response.status));
+                            return;
+                          }
                           setRespondingOfferId(null);
                           await refreshData();
                           notify('КП отправлено директору','supply');

@@ -472,11 +472,16 @@ export const createSupplyActions = ({
 
   const selectSupplierOffer = async (offerId) => {
     if (!window.confirm('Выбрать это КП? Остальные КП по этой заявке будут отклонены.')) return;
-    await fetch(API + '/supplier-offers/' + offerId, {
+    const response = await fetch(API + '/supplier-offers/' + offerId, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'select' }),
     });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.detail || data?.error) {
+      alert('Не удалось утвердить КП: ' + (data?.detail || data?.error || response.status));
+      return;
+    }
     notify('КП утверждено директором', 'supply');
     await refreshData();
   };
