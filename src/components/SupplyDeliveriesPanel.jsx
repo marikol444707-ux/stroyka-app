@@ -30,6 +30,11 @@ function SupplyDeliveriesPanel({
   buildInvoiceContent,
   uploadPhoto,
 }) {
+  const [visibleCount, setVisibleCount] = React.useState(8);
+  const deliveriesId = React.useId();
+  const deliveries = supplyDeliveries || [];
+  const visibleDeliveries = deliveries.slice(0, visibleCount);
+  const remainingCount = deliveries.length - visibleDeliveries.length;
   const openClaimsCount = (supplyClaims || []).filter(c=>c.status==='Открыта').length;
 
   const startReceiving = (delivery, isReceiving) => {
@@ -95,7 +100,8 @@ function SupplyDeliveriesPanel({
 
       {(supplyDeliveries||[]).length===0 && <p style={{color:C.textMuted,fontSize:'12px',margin:'8px 0'}}>Поставок пока нет. Они появятся после отгрузки выигранного КП поставщиком.</p>}
 
-      {(supplyDeliveries||[]).slice(0,8).map(delivery=>{
+      <div id={deliveriesId}>
+      {visibleDeliveries.map(delivery=>{
         const problem = delivery.status==='Проблема';
         const done = delivery.status==='Принято';
         const stC = problem?C.danger:done?C.success:C.info;
@@ -162,6 +168,19 @@ function SupplyDeliveriesPanel({
           </div>
         );
       })}
+      </div>
+      {deliveries.length > 0 && (
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'8px',flexWrap:'wrap',marginTop:'8px'}}>
+          <span role="status" style={{color:C.textSec,fontSize:'12px'}}>
+            Показано поставок: {visibleDeliveries.length} из {deliveries.length}
+          </span>
+          {remainingCount > 0 && (
+            <button type="button" aria-controls={deliveriesId} onClick={()=>setVisibleCount(count=>count+8)} style={btnG}>
+              Показать ещё {Math.min(8, remainingCount)}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

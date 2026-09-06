@@ -2835,15 +2835,25 @@ try:
     from backend.features.client_account.subscription_access import (
         register_subscription_read_only_middleware,
     )
+    from backend.features.supplier_access.subscription_scope import (
+        resolve_supplier_offer_subscription_context,
+    )
 except ModuleNotFoundError:
     from features.client_account.subscription_access import (
         register_subscription_read_only_middleware,
+    )
+    from features.supplier_access.subscription_scope import (
+        resolve_supplier_offer_subscription_context,
     )
 
 register_subscription_read_only_middleware(app, {
     "get_db": get_db,
     "request_user_snapshot": _request_user_snapshot,
     "resolve_work_company_context": _resolve_work_company_context,
+    "resolve_resource_subscription_context": lambda cur, user, request: resolve_supplier_offer_subscription_context(
+        cur, user, request.method, request.url.path,
+        require_supplier_offer_visibility=_require_supplier_offer_visibility,
+    ),
     "platform_staff_roles": PLATFORM_STAFF_ROLES,
 })
 
@@ -4882,7 +4892,7 @@ def init_db():
             accepted_by VARCHAR(255),
             location VARCHAR(255),
             project VARCHAR(255),
-            vat BOOLEAN DEFAULT FALSE,
+            vat TEXT DEFAULT 'Без НДС',
             items TEXT,
             total_base NUMERIC(14,2) DEFAULT 0,
             total_vat NUMERIC(14,2) DEFAULT 0,
@@ -11035,6 +11045,7 @@ def _add_project_material(
 ):
     if not name or not project or qty <= 0:
         return
+    stock_company_id = company_id or 1
     package_name = (work_package or "").strip()
     unit_name = _norm_base_unit(unit or "шт") or "шт"
     cur.execute(f"""SELECT id FROM materials
@@ -11042,22 +11053,23 @@ def _add_project_material(
                      AND project=%s
                      AND COALESCE(work_package,'')=%s
                      AND {_sql_norm_unit('unit')}=%s
-                   LIMIT 1""", (name, project, package_name, unit_name))
+                     AND company_id=%s
+                   LIMIT 1""", (name, project, package_name, unit_name, stock_company_id))
     existing = cur.fetchone()
     if existing:
-        cur.execute("UPDATE materials SET quantity=COALESCE(quantity,0)+%s, unit=%s, price=%s WHERE id=%s",
-                    (qty, unit_name, price or 0, existing['id'] if isinstance(existing, dict) else existing[0]))
+        cur.execute("UPDATE materials SET quantity=COALESCE(quantity,0)+%s, unit=%s, price=%s WHERE id=%s AND company_id=%s",
+                    (qty, unit_name, price or 0, existing['id'] if isinstance(existing, dict) else existing[0], stock_company_id))
     else:
-        cur.execute("""INSERT INTO materials (name, unit, quantity, price, min_quantity, project, category, work_package)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (name, unit_name, qty, price or 0, 0, project, "Закупка", package_name))
+        cur.execute("""INSERT INTO materials (name, unit, quantity, price, min_quantity, project, category, work_package, company_id)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (name, unit_name, qty, price or 0, 0, project, "Закупка", package_name, stock_company_id))
     cur.execute(
         """INSERT INTO warehouse_history
                (company_id,material,type,quantity,unit,date,project,issued_by,work_package,date_time,
                 source_type,source_id,source_invoice_id)
            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
         (
-            company_id or 1,
+            stock_company_id,
             name,
             "приход (поставка)",
             qty,

@@ -42,8 +42,12 @@ export function createSupplyPlanningUi({
     const bg = origin.type === 'material-control' ? C.warningLight : C.infoLight;
     const borderColor = origin.type === 'material-control' ? C.warningBorder : C.infoBorder;
     const compact = !!opts.compact;
+    const omitWorkNames = new Set(opts.omitWorkNames || []);
+    const facts = origin.facts.filter(([label, value]) => (
+      !(['Работа', 'Работы'].includes(label) && omitWorkNames.has(String(value).trim()))
+    ));
     return (
-      <div style={{ marginTop: compact ? '6px' : '8px', padding: compact ? '7px 9px' : '9px 11px', border: '1.5px solid ' + borderColor, borderRadius: '8px', backgroundColor: bg }}>
+      <div role="group" aria-label={origin.label} style={{ marginTop: compact ? '6px' : '8px', padding: compact ? '7px 9px' : '9px 11px', border: '1.5px solid ' + borderColor, borderRadius: '8px', backgroundColor: bg }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           <b style={{ color, fontSize: compact ? '11px' : '12px' }}>{origin.label}</b>
           {origin.projectName && (
@@ -55,9 +59,9 @@ export function createSupplyPlanningUi({
             </button>
           )}
         </div>
-        {!compact && origin.facts.length > 0 && (
+        {!compact && facts.length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: '5px 10px', marginTop: '7px' }}>
-            {origin.facts.slice(0, 6).map(([k, v]) => (
+            {facts.slice(0, 6).map(([k, v]) => (
               <div key={k} style={{ fontSize: '11px', color: C.textSec }}>
                 <span style={{ color: C.textMuted }}>{k}: </span>
                 <b style={{ color: C.text, fontWeight: '600' }}>{v}</b>
@@ -65,9 +69,9 @@ export function createSupplyPlanningUi({
             ))}
           </div>
         )}
-        {compact && origin.facts.length > 0 && (
+        {compact && facts.length > 0 && (
           <p style={{ color: C.textSec, margin: '4px 0 0', fontSize: '11px' }}>
-            {origin.facts.slice(-2).map(([k, v]) => k + ': ' + v).join(' · ')}
+            {facts.slice(-2).map(([k, v]) => k + ': ' + v).join(' · ')}
           </p>
         )}
       </div>

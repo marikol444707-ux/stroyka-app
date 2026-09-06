@@ -184,9 +184,12 @@ const fmtQty = (value) => {
   return n.toLocaleString('ru-RU', { maximumFractionDigits: 3 });
 };
 
+const materialTitleWork = (item) => String(item.materialName || item.name || '')
+  .replace(/^Материалы по позиции:\s*/i, '').trim();
+
 function SupplyEstimateControlBlock({ C, items }) {
   const rows = (items || [])
-    .map(item => ({ item, control: item?.estimateControl || item?.estimate_control || null }))
+    .map((item, itemIndex) => ({ item, itemIndex, control: item?.estimateControl || item?.estimate_control || null }))
     .filter(row => row.control);
   if (!rows.length) return null;
 
@@ -217,13 +220,15 @@ function SupplyEstimateControlBlock({ C, items }) {
         </span>
       </div>
       <div style={{ display: 'grid', gap: '6px' }}>
-        {rows.map(({ item, control }, i) => {
+        {rows.map(({ item, itemIndex, control }) => {
           const [color, bg, border] = statusStyle(control.status);
           const unit = item.unit || control.unit || '';
+          const showWork = control.status === 'composite_work_material' && control.workName
+            && String(control.workName).trim() !== materialTitleWork(item);
           return (
-            <div key={i} style={{ padding: '8px', borderRadius: '7px', border: '1px solid ' + border, backgroundColor: bg }}>
+            <div key={itemIndex} style={{ padding: '8px', borderRadius: '7px', border: '1px solid ' + border, backgroundColor: bg }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap', marginBottom: '5px' }}>
-                <b style={{ color: C.text, fontSize: '12px' }}>{item.materialName || item.name || 'Материал'}</b>
+                {items.length > 1 && <b style={{ color: C.text, fontSize: '12px' }}>Позиция {itemIndex + 1}</b>}
                 <span style={{ color, fontSize: '11px', fontWeight: 700 }}>{statusText(control.status)}</span>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: '6px', fontSize: '11px', color: C.textSec }}>
@@ -233,7 +238,7 @@ function SupplyEstimateControlBlock({ C, items }) {
                 <span>Остаток: <b style={{ color }}>{fmtQty(control.remainingQty)} {unit}</b></span>
                 <span>После заявки: <b style={{ color }}>{fmtQty(control.remainingAfterRequest)} {unit}</b></span>
                 {control.plannedSum > 0 && <span>По смете: <b style={{ color: C.text }}>{Number(control.plannedSum).toLocaleString('ru-RU')} ₽</b></span>}
-                {control.status === 'composite_work_material' && control.workName && <span>Работа: <b style={{ color: C.text }}>{control.workName}</b></span>}
+                {showWork && <span>Работа: <b style={{ color: C.text }}>{control.workName}</b></span>}
                 {control.status === 'composite_work_material' && control.sectionName && <span>Раздел: <b style={{ color: C.text }}>{control.sectionName}</b></span>}
               </div>
               {control.controlMessage && <p style={{ margin: '6px 0 0', color: C.textSec, fontSize: '11px', lineHeight: 1.35 }}>{control.controlMessage}</p>}
@@ -594,6 +599,11 @@ export function SupplyRequestCard(props) {
   const urgBg = request.urgency === 'срочная' ? C.dangerLight : request.urgency === 'низкая' ? C.bg : C.warningLight;
   const urgBd = request.urgency === 'срочная' ? C.dangerBorder : request.urgency === 'низкая' ? C.border : C.warningBorder;
   const items = parseSupplyItems(request);
+  const displayedWorkNames = items.flatMap(item => {
+    const control = item.estimateControl || item.estimate_control;
+    if (control?.status !== 'composite_work_material') return [];
+    return [materialTitleWork(item), String(control.workName || '').trim()].filter(Boolean);
+  });
   const supplierOffersForRequest = (supplierOffers || []).filter(o =>
     o.requestId === request.id && !['Отклонено', 'Отозвано'].includes(o.status)
   );
@@ -603,14 +613,14 @@ export function SupplyRequestCard(props) {
   const needsSupplierDispatch = ['Утверждена', 'КП запрошены'].includes(request.status) && supplierOffersForRequest.length === 0;
 
   return (
-    <div style={{ ...card, padding: '14px', marginBottom: '8px' }}>
+    <article aria-label={'Заявка #' + request.id} style={{ ...card, padding: '14px', marginBottom: '8px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px', flexWrap: 'wrap' }}>
         <div style={{ flex: '1 1 280px' }}>
           {items.length <= 1 ? (() => {
             const it = items[0] || { materialName: request.materialName, quantity: request.quantity, unit: request.unit };
             return (
               <>
-                <b style={{ color: C.text, fontSize: '14px' }}>{it.materialName}</b>
+                <b style={{ color: C.text, fontSize: '14px' }}>{it.materialName || it.name || 'Материал'}</b>
                 <p style={{ color: C.textSec, margin: '3px 0', fontSize: '12px' }}>{it.quantity + ' ' + it.unit + ' · 🏗 ' + (request.project || '—')}</p>
               </>
             );
@@ -618,12 +628,12 @@ export function SupplyRequestCard(props) {
             <>
               <b style={{ color: C.text, fontSize: '14px' }}>📋 Заявка из {items.length} позиций <span style={{ color: C.textSec, fontSize: '12px', fontWeight: '400' }}>· 🏗 {request.project || '—'}</span></b>
               <ol style={{ margin: '4px 0 6px', paddingLeft: '20px', color: C.text, fontSize: '12px' }}>
-                {items.map((it, i) => <li key={i} style={{ marginBottom: '2px' }}>{it.materialName} <span style={{ color: C.textSec }}>— {it.quantity} {it.unit}</span></li>)}
+                {items.map((it, i) => <li key={i} style={{ marginBottom: '2px' }}>{it.materialName || it.name || 'Материал'} <span style={{ color: C.textSec }}>— {it.quantity} {it.unit}</span></li>)}
               </ol>
             </>
           )}
-          <p style={{ color: C.textMuted, margin: '0', fontSize: '11px' }}>{(request.date || '') + ' · ' + (request.createdBy || '') + (request.requestedByRole ? ' (' + request.requestedByRole + ')' : '')}</p>
-          {renderSupplyRequestOrigin(request)}
+          <p style={{ color: C.textMuted, margin: '0', fontSize: '11px' }}><span>Заявка #{request.id}</span>{' · ' + (request.date || '') + ' · ' + (request.createdBy || '') + (request.requestedByRole ? ' (' + request.requestedByRole + ')' : '')}</p>
+          {renderSupplyRequestOrigin(request, { omitWorkNames: displayedWorkNames })}
           {request.notes && !supplyRequestOrigin(request) && <p style={{ color: C.textSec, margin: '4px 0 0', fontSize: '11px', fontStyle: 'italic' }}>«{request.notes}»</p>}
           {needsSupplierDispatch && canApprove && (
             <p style={{ color: C.warning, backgroundColor: C.warningLight, border: '1px solid ' + C.warningBorder, borderRadius: '6px', padding: '6px 8px', margin: '6px 0 0', fontSize: '11px' }}>
@@ -731,6 +741,6 @@ export function SupplyRequestCard(props) {
         canApprove={canApprove}
         onOpenSupplierLink={onOpenSupplierLink}
       />
-    </div>
+    </article>
   );
 }

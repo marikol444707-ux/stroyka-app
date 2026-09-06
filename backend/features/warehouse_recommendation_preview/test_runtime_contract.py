@@ -718,10 +718,10 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             backend_root / "db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed RFQ workflow/delivery fix 197464ac against a559ae9a;
-            # warehouse runtime implementation and registration are unchanged.
+            # Reviewed supply subscription scope, tenant stock and VAT bootstrap fixes;
+            # warehouse preview implementation and registration are unchanged.
             backend_root / "main.py": (
-                "729e27ca9a5473e65dd77360244ca5c846933badf00ed02d2e378e5f0e2a200c"
+                "6aec2fc5f9852bcdfe3527aebed790d78198d9ea3a9880b17dfa94873612f691"
             ),
         }
         actual = {

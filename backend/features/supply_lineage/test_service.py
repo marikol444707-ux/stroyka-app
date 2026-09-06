@@ -155,6 +155,72 @@ class SupplyLineageServiceTests(unittest.TestCase):
 
         self.assertTrue(validated[0]["estimateLineage"]["validated"])
 
+    def test_rejects_same_source_across_request_items_without_mutating_input(self):
+        for string_coordinates in (False, True):
+            with self.subTest(string_coordinates=string_coordinates):
+                items = [request_item(quantity=5), request_item(quantity=10)]
+                if string_coordinates:
+                    source = items[1]["estimateLineage"]["sources"][0]
+                    for key in ("estimateId", "sectionIndex", "itemIndex"):
+                        source[key] = str(source[key])
+                before = json.dumps(items, ensure_ascii=False)
+
+                with self.assertRaisesRegex(
+                    MaterialControlLineageError,
+                    "Позиция 2: строка сметы указана повторно",
+                ):
+                    self.validate(items=items)
+
+                self.assertEqual(json.dumps(items, ensure_ascii=False), before)
+
+    def test_rejects_same_source_twice_within_one_request_item(self):
+        item = request_item()
+        item["estimateLineage"]["sources"].append(
+            dict(item["estimateLineage"]["sources"][0])
+        )
+
+        with self.assertRaisesRegex(
+            MaterialControlLineageError,
+            "Позиция 1: строка сметы указана повторно",
+        ):
+            self.validate(items=[item])
+
+    def test_accepts_distinct_material_sources_of_the_same_work(self):
+        for second_name in ("Смесь штукатурная", "Грунтовка"):
+            with self.subTest(second_name=second_name):
+                items = [
+                    request_item(parentWorkName="Штукатурка стен"),
+                    request_item(
+                        materialName=second_name,
+                        parentWorkName="Штукатурка стен",
+                    ),
+                ]
+                items[1]["estimateLineage"]["sources"][0].update({
+                    "itemIndex": 1,
+                    "materialName": second_name,
+                })
+                estimate = estimate_row()
+                sections = json.loads(estimate["sections_json"])
+                sections[2]["items"].append(material_item(second_name))
+                estimate["sections_json"] = json.dumps(sections, ensure_ascii=False)
+
+                validated = self.validate(items=items, estimates={14: estimate})
+
+                self.assertEqual(len(validated), 2)
+                self.assertTrue(all(item["estimateLineage"]["validated"] for item in validated))
+                self.assertEqual(material_control_lineage_keys(validated), {(14, 2, 0), (14, 2, 1)})
+
+    def test_accepts_same_row_coordinates_in_distinct_estimates(self):
+        items = [request_item(), request_item()]
+        items[1]["estimateLineage"]["sources"][0]["estimateId"] = 15
+
+        validated = self.validate(
+            items=items,
+            estimates={14: estimate_row(), 15: estimate_row(id=15)},
+        )
+
+        self.assertEqual(material_control_lineage_keys(validated), {(14, 2, 0), (15, 2, 0)})
+
     def test_rejects_material_control_item_without_lineage(self):
         item = request_item()
         item.pop("estimateLineage")
