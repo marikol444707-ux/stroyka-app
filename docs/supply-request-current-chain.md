@@ -241,3 +241,36 @@ After deployment, use one authorized real purchase to verify recipient cabinet
 visibility and actual email/MAX reception, then invoice/payment/receipt. Do not
 approve, repair, resend or delete old QA requests automatically. HTTP health
 alone does not satisfy this gate.
+
+### Observed server preflight and backup-only rehearsal
+
+The operator's latest preflight reports live `main` at `20cf455a`, schema
+`0006_user_company_staff_links`, active backend/nginx, a 58 MB `stroyka`
+database and 52 GB free disk. VAT is already TEXT, default `'Без НДС'::text`,
+nullable. These are operator-supplied observations, not a completed deployment.
+The separate `553398d` workflow-smoke branch is not part of this release.
+
+`scripts/rehearse-supply-chain-release.sh` is specific to that exact baseline
+and candidate `4b935a5163ac602eee590adec02defba4222ef27`. It must be run as
+root after fetching the candidate object; it neither fetches nor changes the
+live checkout. It saves a private database dump, old code/frontend and backend
+configuration, then restores a uniquely named local database with PUBLIC
+connection access revoked. Root opens the private dump for postgres via stdin.
+No application or worker is started against the restored data.
+
+The helper invokes the real Alembic CLI in candidate source archived separately
+from production, with every DB connection setting explicit and no `.env` file.
+It checks the actual clone database/user/socket before migration, hashes every
+column of every warehouse invoice before/after, and requires both invoice data
+and VAT column metadata to remain identical. Only the clone Alembic revision
+may advance to `0007_warehouse_vat_labels`; live revision must remain `0006`.
+Unsupported live VAT shapes/revisions stop instead of being normalized.
+
+The backup and restored database contain real business data and stay on the
+same server with restricted access; do not upload them. The helper retains
+artifacts on success/failure for review and never deletes or restores live
+data. A separate approved cleanup is needed after the rollout is accepted.
+`SUPPLY_REHEARSAL_OK` confirms a rehearsal, **not a deployment**. Green CI,
+pinned production rollout and post-deployment checks are still required. A
+fresh database backup is required immediately before that later rollout;
+this rehearsal snapshot is not a promise of zero-loss database rollback.
