@@ -122,8 +122,6 @@ browser flow. Authenticated production receipt/notification checks remain open.
   consistently separated hierarchy.
 - Invoice payment update and `project_payments` creation are two independent
   browser requests. This is recording a payment, not executing a bank transfer.
-- Some downstream supplier-response/selection UI handlers announce success
-  without checking HTTP success.
 - Closing a claim does not clear the delivery problem state. Re-receiving an
   already accepted/problem delivery does not alter its recorded fact; the
   current reshipment route requires a new request/offer after receipt.
@@ -135,6 +133,9 @@ name. Historical QA records need a separate
 read-only inventory and approved cleanup scope, never a mass resend.
 
 ## Release procedure
+
+**The newer local chain repair below includes migration 0007. Do not use the
+old no-migrations deployment helper for that release or disable its guard.**
 
 `scripts/deploy-supply-delivery-fix.sh` is a pinned, root-run server helper for
 the reviewed `20cf455a`/`a559ae9a` production baseline, main branch, schema 0006.
@@ -155,3 +156,88 @@ After successful deployment: verify logout on iPhone/PWA, then one authorized
 real request through foreman confirmation, director approval, explicit RFQ and
 supplier view. Check actual email/MAX reception separately. Do not create or
 send QA orders to real suppliers for a smoke check.
+
+## Authenticated chain repair and rehearsal (2026-09-07)
+
+The following fixes were developed locally after `e6f81599`. This is not a
+claim that the production supplier flow or external notifications are fixed:
+
+- An external supplier can mutate an addressed offer without becoming an
+  employee of the buyer. Only the exact offer response/invoice/shipment routes
+  use this resolver. Canonical recipient access is checked first; the real
+  offer/request owner's subscription is then checked. A company header cannot
+  select a different billing owner. Expired buyers remain read-only.
+- Response/selection UI checks HTTP errors before closing a form or announcing
+  success. A delivery list longer than eight rows has an accessible show-more
+  control, so older pending receipts are reachable.
+- Project stock lookup, update and insert use the delivery's company. Existing
+  stock in another company or with unknown ownership is not reassigned.
+- Migration `0007_warehouse_vat_labels` repairs the legacy BOOLEAN VAT column
+  to the labels already used by receipt handlers. False becomes `Без НДС`, true
+  becomes `С НДС`, NULL stays NULL; no tax rate or total is inferred. Existing
+  TEXT/VARCHAR, defaults and labels are untouched. Unknown/missing types stop
+  the migration. Fresh bootstrap now creates TEXT.
+
+An isolated PostgreSQL and authenticated ASGI test traverses the real routes:
+new request → foreman confirmation → director approval → RFQ → addressed
+supplier read/response → selection → invoice → approval/payment → project
+payment ledger → shipment → receipt → company-2 stock and warehouse invoice.
+It also checks premature RFQ/shipment rejection, foreign director/supplier
+denial, expired buyer plus forged company header, continued reads, invoice
+replay and receipt replay without duplicate stock/history/invoices.
+
+The test uses a synthetic signed bearer representing completed login/2FA,
+not substituted auth/tenant dependencies. It does not test login, SMTP/MAX
+delivery, AI workers, partial/defective deliveries, cross-tab creation replay,
+or atomicity of the separate invoice-payment and ledger requests. The optional
+post-receipt AI job is not configured in the fixture. No live data is copied.
+Legacy bootstrap needs five existing CREATE declarations before earlier ALTERs;
+the helper documents that accommodation and Python-3.9 annotation compatibility.
+
+Verification: 570 frontend tests (131 suites), 86 supplier-access checks (7
+explicit PostgreSQL skips in the default run), 57 adjacent checks and 56
+warehouse-preview baseline checks passed. The separately enabled real
+PostgreSQL chain passed, as did all 9 VAT migration checks. Six interactive
+isolated Chrome cases passed at 390×844 and 1440×1000: older receipt reachable,
+HTTP rejection preserved the offer form and did not announce success. ESLint
+and production frontend build passed. PostgreSQL migration SQL was executed
+directly with transaction rollback; Alembic CLI is absent from the local Python
+environment, so the production-style Alembic rehearsal is still a release gate.
+
+### Reproduce locally, never on production
+
+Provision a fresh empty database named `supply_chain_test_<suffix>`, owned by
+`chain_test`, in a dedicated Unix-socket-only local PostgreSQL cluster. Then:
+
+```sh
+SUPPLY_CHAIN_RUN_POSTGRES=1 \
+SUPPLY_CHAIN_TEST_DB_HOST=/absolute/path/to/test/socket \
+SUPPLY_CHAIN_TEST_DB_PORT=55439 \
+SUPPLY_CHAIN_TEST_DB_NAME=supply_chain_test_full \
+python3 -m unittest backend.features.supplier_access.test_postgres_chain -v
+```
+
+The guard refuses nonempty databases, TCP/DSN overrides and ordinary database
+names. The helper ignores ambient credentials and `.env`, disables outbound
+network, and restores process patches on cleanup. It leaves synthetic rows for
+inspection; reruns require another empty test database. Without opt-in the
+integration test skips. Migration SQL tests additionally accept an explicit
+`VAT_SCHEMA_TEST_DSN` only for the separate local `chain_vat_test` database.
+
+### Release gates for this repair
+
+Before production deployment, inspect the actual commit, Alembic revision and
+VAT type; preserve existing untracked files/configuration. Pin the reviewed
+release, back up PostgreSQL and code/frontend, and rehearse migration 0007 on
+a restored database before applying it. The old pinned deployment script
+deliberately rejects migration changes and must not be used for this release.
+
+Rollback restores the previous application/frontend while retaining the
+compatible VAT labels. `downgrade()` intentionally does not collapse labels or
+rates back to BOOLEAN; it is not a physical-schema rollback. An exact database
+rollback requires the verified backup and an agreed write-loss/recovery plan.
+
+After deployment, use one authorized real purchase to verify recipient cabinet
+visibility and actual email/MAX reception, then invoice/payment/receipt. Do not
+approve, repair, resend or delete old QA requests automatically. HTTP health
+alone does not satisfy this gate.
