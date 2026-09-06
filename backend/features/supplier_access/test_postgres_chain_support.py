@@ -1,4 +1,7 @@
-"""Opt-in, empty-database support for the authenticated supply chain test.
+"""Test-only, opt-in support for the authenticated supply chain test.
+
+The test_ prefix keeps synthetic seed writers out of runtime writer inventories.
+Production modules must not import this helper.
 
 build_fixture() returns (real_main, fixture, cleanup). Cleanup restores process
 patches, not database rows; provision a fresh supply_chain_test_* DB per run.

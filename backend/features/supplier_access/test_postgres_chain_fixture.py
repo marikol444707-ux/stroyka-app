@@ -1,13 +1,51 @@
+import ast
 import importlib
 import os
+from pathlib import Path
 import socket
 import unittest
 from unittest.mock import MagicMock, Mock, patch
 
-from backend.features.supplier_access import postgres_chain_fixture as fixture
+from backend.features.supplier_access import test_postgres_chain_support as fixture
+
+
+def _references_test_support(source):
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            names = [alias.name for alias in node.names] + [getattr(node, "module", "") or ""]
+        elif isinstance(node, ast.Call):
+            # Include aliased dynamic imports and keyword arguments, without importing code.
+            args = node.args + [keyword.value for keyword in node.keywords]
+            names = [arg.value for arg in args if isinstance(arg, ast.Constant) and isinstance(arg.value, str)]
+        else:
+            continue
+        if any("test_postgres_chain_support" in name.split(".") for name in names):
+            return True
+    return False
 
 
 class PostgresChainFixtureGuardTests(unittest.TestCase):
+    def test_runtime_import_guard_covers_static_relative_and_dynamic_imports(self):
+        for source in ("import backend.features.supplier_access.test_postgres_chain_support as support",
+                       "from backend.features.supplier_access import test_postgres_chain_support as support",
+                       "from .test_postgres_chain_support import build_fixture",
+                       "from . import test_postgres_chain_support",
+                       "importlib.import_module('backend.features.supplier_access.test_postgres_chain_support')",
+                       "__import__('backend.features.supplier_access.test_postgres_chain_support')",
+                       "load(name='.test_postgres_chain_support')"):
+            with self.subTest(source=source):
+                self.assertTrue(_references_test_support(source))
+        self.assertFalse(_references_test_support("# test_postgres_chain_support\nvalue = 'ordinary'"))
+
+    def test_support_module_is_test_only_and_never_imported_by_runtime(self):
+        support = Path(fixture.__file__).resolve()
+        self.assertEqual(support.name, "test_postgres_chain_support.py")
+        for path in support.parents[2].rglob("*.py"):
+            if path.name.startswith("test_") or "__pycache__" in path.parts:
+                continue
+            with self.subTest(path=str(path)):
+                self.assertFalse(_references_test_support(path.read_text(encoding="utf-8")))
+
     def settings(self, **overrides):
         return {
             "SUPPLY_CHAIN_RUN_POSTGRES": "1",
