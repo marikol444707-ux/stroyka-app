@@ -255,6 +255,8 @@ def validate_material_control_request_lineage(
         raise MaterialControlLineageError("Заявка из контроля материалов не содержит позиций")
 
     validated_items: list[dict] = []
+    # Each exact estimate source row may appear only once in the whole request.
+    seen_coordinates: set[tuple[int, int, int]] = set()
     for item_index, raw_item in enumerate(items, start=1):
         if not isinstance(raw_item, dict):
             raise MaterialControlLineageError(f"Позиция {item_index}: неверный формат")
@@ -304,7 +306,6 @@ def validate_material_control_request_lineage(
         item_name = _text(item.get("materialName") or item.get("name"))
         item_unit = _text(item.get("unit"))
         item_key = material_key(request_project, item_name, item_unit)
-        seen_coordinates: set[tuple[int, int, int]] = set()
         validated_sources: list[dict] = []
 
         for source_index, raw_source in enumerate(sources, start=1):
